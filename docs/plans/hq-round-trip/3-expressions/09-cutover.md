@@ -465,7 +465,7 @@ lifted slot against the target after steps 4 and 5 was the alternative; it was n
 would parse every slot twice, give the order between dependent slots to whichever parse ran last,
 where this order is the target's own, and leave a refused read refused, since it never lifted. A query that step 5 binds by its one declaring type
 types the property it filters on and not its rows, so no row read lifted in step 4 reads otherwise
-against the target; step 7 holds every slot to that.
+against the target; step 7 holds every slot to that. **Implementation correction, 2026-10-20 (pull request 13):** the rank order missed a query that reads a later repeat's row (`/data/later[1]/@id`), so these slots are now ordered by what they read, each after the queries whose rows its stored text reads (`steps/formLogicLift.ts::dependencyReads`, found by the frozen print and the head parser, a refused parse retried against the trees found so far), document order breaking ties and keeping a cycle's order for the gate's `CYCLE`; a count node's and a Connect node's types are read by no parse, only by typing after every one of these slots is lifted, so they order nothing.
 
 Two readings above came from planning scanners, not from the production parser: the several-type
 binds and the declarations used a planning shape scanner's effective index, and the respellings part

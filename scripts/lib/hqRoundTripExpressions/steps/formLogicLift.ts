@@ -19,15 +19,16 @@
  * A form-logic slot that already holds an `Expression` is carried as it
  * is, so a second application changes nothing.
  *
- * The slots another slot's typing reads are lifted first, a repeat's query
- * before everything (`working.ts::inDependencyOrder`), and the structure
- * every later parse resolves against carries their lifted values: a read of
- * a query-bound repeat's row case is bound to the case type its repeat's
+ * The slots another slot's typing reads are lifted first, each after the
+ * repeat queries whose rows it reads (`liftOrder`), and the structure every
+ * later parse resolves against carries their lifted values: a read of a
+ * query-bound repeat's row case is bound to the case type its repeat's
  * query selects, as a parse against the target binds it.
  */
 
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { projectFormExpression } from "@/lib/doc/expressionText";
+import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import {
 	type Expression,
 	expressionSchema,
@@ -46,6 +47,7 @@ import type {
 } from "../types";
 import {
 	inDependencyOrder,
+	readByOtherSlots,
 	type SlotState,
 	type WorkingDocument,
 } from "./working";
@@ -95,6 +97,96 @@ export function isStoredXPath(value: unknown): value is FrozenXPathExpression {
 		!Object.hasOwn(value, "kind") &&
 		Array.isArray((value as { parts?: unknown }).parts)
 	);
+}
+
+/**
+ * Which of the slots another slot's typing reads each of them depends on,
+ * by slot key: the queries of the repeats whose rows it reads. A row's case type is
+ * the only value of these slots a parse reads (`expressionRowScope`, through
+ * a case id's type); a count node's and a Connect node's types are read only
+ * by typing, which steps 5 to 7 run once every one of them is lifted.
+ *
+ * A lifted or carried tree reads what it holds. A stored text is printed
+ * and parsed without being lifted, against the structure with every tree
+ * found so far, again while a round finds more: a read of a property
+ * several types declare is refused until the query whose row it reads is
+ * in the structure, and the references of a parse do not depend on the
+ * types it binds. A slot no round parses reads nothing.
+ */
+export function dependencyReads(
+	doc: WorkingDocument,
+	ctx: StepContext,
+): ReadonlyMap<string, ReadonlySet<string>> {
+	const dependencies = doc
+		.slots()
+		.filter((slot) => slot.ruleSet === "form" && readByOtherSlots(slot));
+	const queries = new Map<string, string>();
+	for (const slot of dependencies)
+		if (slot.ref.slot === "ids_query") queries.set(slot.owner.uuid, slot.key);
+	const reads = new Map<string, ReadonlySet<string>>();
+	const found = new Map<string, Expression>();
+	const record = (slot: SlotState, expression: Expression | undefined) => {
+		const read = new Set<string>();
+		if (expression !== undefined) {
+			found.set(slot.key, expression);
+			walkExpression(expression, {
+				visitTerm: (term) => {
+					const query =
+						term.kind === "repeat-row" ? queries.get(term.repeat) : undefined;
+					if (query !== undefined) read.add(query);
+				},
+			});
+		}
+		reads.set(slot.key, read);
+	};
+	let pending: SlotState[] = [];
+	for (const slot of dependencies) {
+		if (slot.lifted !== false) record(slot, slot.lifted.value);
+		else if (!isStoredXPath(slot.stored)) {
+			const parsed = expressionSchema.safeParse(slot.stored);
+			if (parsed.success) record(slot, parsed.data);
+		} else pending.push(slot);
+	}
+	while (pending.length > 0) {
+		const structure =
+			found.size === 0 ? doc.structure() : doc.structureWith(found);
+		if (!structure.ok) break;
+		const unread = pending.filter((slot) => {
+			const expression = parsedStoredText(doc, slot, ctx, structure.doc);
+			if (expression === undefined) return true;
+			record(slot, expression);
+			return false;
+		});
+		if (unread.length === pending.length) break;
+		pending = unread;
+	}
+	return reads;
+}
+
+/** The slots in the order steps 4 and 5 parse them (`working.ts::inDependencyOrder`). */
+export function liftOrder(
+	doc: WorkingDocument,
+	ctx: StepContext,
+): readonly SlotState[] {
+	return inDependencyOrder(doc.slots(), dependencyReads(doc, ctx));
+}
+
+/** A stored text's parsed tree against `structure`, where it prints and parses to one. */
+function parsedStoredText(
+	doc: WorkingDocument,
+	slot: SlotState,
+	ctx: StepContext,
+	structure: BlueprintDoc,
+): Expression | undefined {
+	if (!isStoredXPath(slot.stored)) return undefined;
+	const printed = projectFrozenXPath(slot.stored, doc.frozenContext());
+	if (!printed.ok || printed.text.trim() === "") return undefined;
+	const result = parseFormExpression(printed.text, {
+		doc: structure,
+		slot: slot.ref,
+		lookup: ctx.lookup,
+	});
+	return result.ok ? result.expression : undefined;
 }
 
 /** What one lift met. */
@@ -201,7 +293,7 @@ export const formLogicLiftStep: ExpressionsStep = {
 	id: "form-logic-lift",
 	apply(doc, ctx) {
 		const places: BlockerPlace[] = [];
-		for (const slot of inDependencyOrder(doc.slots())) {
+		for (const slot of liftOrder(doc, ctx)) {
 			if (slot.ruleSet !== "form" || slot.lifted !== false) continue;
 			const outcome = liftFormSlot(doc, slot, ctx);
 			if (outcome.kind === "blocked") {

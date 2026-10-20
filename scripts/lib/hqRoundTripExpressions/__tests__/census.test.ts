@@ -19,7 +19,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { Element } from "domhandler";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { relinkSiblings } from "@/lib/commcare/xform/domSplice";
 import { parseXml } from "@/lib/commcare/xmlParse";
@@ -42,6 +42,24 @@ import {
 	fixtureApp,
 	planFixtureFleet,
 } from "./fixtureFleet";
+
+/* The order search's frozen normalizer, which a test makes throw: no
+ * reordering of a form the head emits throws on its own, since what the
+ * normalizer reads does not depend on the order of the instances. */
+const normalizer = vi.hoisted(() => ({ throws: false }));
+vi.mock("../emissionNormal", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../emissionNormal")>();
+	return {
+		...actual,
+		normalizeXForm: (xml: string) => {
+			if (normalizer.throws)
+				throw new Error(
+					"Cannot normalize an unnamed secondary XForm instance.",
+				);
+			return actual.normalizeXForm(xml);
+		},
+	};
+});
 
 /** Visit every element under `node` in document order. */
 function walk(
@@ -403,6 +421,29 @@ describe("an XForm that differs by the order of its secondary instances", () => 
 			instanceOrderFiles: 1,
 			unexplainedFiles: [],
 		});
+	});
+
+	it("leaves a reordered XForm the normalizer cannot read unexplained, without stopping", () => {
+		const base = baseWith(reordered());
+		const [headForm] = formKey(head.fragments);
+		normalizer.throws = true;
+		try {
+			expect(
+				appCensus(
+					"reads",
+					base,
+					head.fragments,
+					NOTHING_NAMED,
+					head.instanceOrderOnly,
+				),
+			).toMatchObject({
+				verdict: "unexplained",
+				instanceOrderFiles: 0,
+				unexplainedFiles: [headForm?.file],
+			});
+		} finally {
+			normalizer.throws = false;
+		}
 	});
 
 	it("still stops on a reordered XForm that also differs in what it says", () => {

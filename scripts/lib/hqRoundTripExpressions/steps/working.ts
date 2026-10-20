@@ -80,39 +80,100 @@ const PLACEHOLDER: Expression = {
  * repeat row's case type from its repeat's `ids_query`, which binds a read
  * of the row's case; a repeat count node's type from `repeat_count`; and a
  * Connect score's or delivery entity's type from the form's generated
- * calculation. By rank, the order a lift takes them in: every query first
- * (an inner repeat's query can read its outer repeat's row), then the
- * counts and the generated calculations, then every other slot (99).
+ * calculation. The structure carries their lifted values.
  */
-const DEPENDENCY_RANK: Readonly<Record<string, number>> = {
-	ids_query: 0,
-	repeat_count: 1,
-	assessment_user_score: 1,
-	deliver_entity_id: 1,
-	deliver_entity_name: 1,
-};
+const DEPENDENCY_SLOTS: ReadonlySet<string> = new Set([
+	"ids_query",
+	"repeat_count",
+	"assessment_user_score",
+	"deliver_entity_id",
+	"deliver_entity_name",
+]);
 
 /** Whether the checker reads this slot's value while typing another slot. */
 export function readByOtherSlots(slot: SlotState): boolean {
-	return Object.hasOwn(DEPENDENCY_RANK, slot.ref.slot);
+	return DEPENDENCY_SLOTS.has(slot.ref.slot);
 }
 
 /**
- * Slots in the order a lift parses them: those another slot's typing reads
- * first, by rank, each rank in document order, which puts an outer repeat
- * before the repeats inside it; then every other slot in document order.
+ * Slots in the order a lift parses them: the slots another slot's typing
+ * reads first, each after every one of them it reads (`reads`, by slot key,
+ * from `formLogicLift.ts::dependencyReads`), document order breaking ties,
+ * which puts an outer repeat before the repeats inside it; then every other
+ * slot in document order. The slots of a cycle keep their document order
+ * among themselves and come after everything any of them reads; the gate's
+ * cycle finding gives their verdict.
  */
 export function inDependencyOrder(
 	slots: readonly SlotState[],
+	reads: ReadonlyMap<string, ReadonlySet<string>> = new Map(),
 ): readonly SlotState[] {
-	const rank = (slot: SlotState) =>
-		Object.hasOwn(DEPENDENCY_RANK, slot.ref.slot)
-			? DEPENDENCY_RANK[slot.ref.slot]
-			: 99;
-	return slots
-		.map((slot, index) => ({ slot, index }))
-		.sort((a, b) => rank(a.slot) - rank(b.slot) || a.index - b.index)
-		.map((entry) => entry.slot);
+	const dependencies = slots.filter(readByOtherSlots);
+	const position = new Map(
+		dependencies.map((slot, index) => [slot.key, index]),
+	);
+	const edges = dependencies.map((slot, index) =>
+		[...(reads.get(slot.key) ?? [])]
+			.map((key) => position.get(key))
+			.filter((read): read is number => read !== undefined && read !== index),
+	);
+	/* Tarjan's strongly connected components: each a cycle, or one slot. */
+	const component = new Array<number>(dependencies.length).fill(-1);
+	const low: number[] = [];
+	const visited: number[] = [];
+	const stack: number[] = [];
+	const onStack = new Set<number>();
+	let counter = 0;
+	let components = 0;
+	const connect = (node: number): void => {
+		visited[node] = low[node] = counter++;
+		stack.push(node);
+		onStack.add(node);
+		for (const next of edges[node]) {
+			if (visited[next] === undefined) {
+				connect(next);
+				low[node] = Math.min(low[node], low[next]);
+			} else if (onStack.has(next))
+				low[node] = Math.min(low[node], visited[next]);
+		}
+		if (low[node] !== visited[node]) return;
+		for (;;) {
+			const member = stack.pop() as number;
+			onStack.delete(member);
+			component[member] = components;
+			if (member === node) break;
+		}
+		components++;
+	};
+	for (let node = 0; node < dependencies.length; node++)
+		if (visited[node] === undefined) connect(node);
+	/* Each component once every component it reads is placed, the one
+	 * whose first slot comes first in the document first. */
+	const members: number[][] = Array.from({ length: components }, () => []);
+	for (let node = 0; node < dependencies.length; node++)
+		members[component[node]].push(node);
+	const placed = new Set<number>();
+	const ordered: SlotState[] = [];
+	const ready = (candidate: number) =>
+		members[candidate].every((node) =>
+			edges[node].every(
+				(read) => component[read] === candidate || placed.has(component[read]),
+			),
+		);
+	while (placed.size < components) {
+		/* The components read one another acyclically, so one is ready. */
+		let next = -1;
+		for (let candidate = 0; candidate < components; candidate++)
+			if (
+				!placed.has(candidate) &&
+				ready(candidate) &&
+				(next === -1 || members[candidate][0] < members[next][0])
+			)
+				next = candidate;
+		placed.add(next);
+		for (const node of members[next]) ordered.push(dependencies[node]);
+	}
+	return [...ordered, ...slots.filter((slot) => !readByOtherSlots(slot))];
 }
 
 /** One stored expression slot and what the steps made of it. */
@@ -366,17 +427,16 @@ export class WorkingDocument {
 		return slots;
 	}
 
-	#buildStructure(): Built {
-		return this.#assemble((slot) =>
-			slot !== undefined &&
+	/** A slot's value in the structure. */
+	#structureValue(slot: SlotState | undefined): Expression | undefined {
+		return slot !== undefined &&
 			slot.lifted !== false &&
 			slot.lifted.value !== undefined &&
 			readByOtherSlots(slot)
-				? slot.lifted.value
-				: slot?.required === true
-					? PLACEHOLDER
-					: undefined,
-		);
+			? slot.lifted.value
+			: slot?.required === true
+				? PLACEHOLDER
+				: undefined;
 	}
 
 	/**
@@ -385,8 +445,22 @@ export class WorkingDocument {
 	 */
 	structure(): Built {
 		if (this.#slots === undefined) this.slots();
-		this.#structure ??= this.#buildStructure();
+		this.#structure ??= this.#assemble((slot) => this.#structureValue(slot));
 		return this.#structure;
+	}
+
+	/**
+	 * The structure with `values` (by slot key) in place of those slots'
+	 * values, for finding what the slots another slot's typing reads read
+	 * before any of them is lifted. Nothing is recorded.
+	 */
+	structureWith(values: ReadonlyMap<string, Expression>): Built {
+		this.slots();
+		return this.#assemble((slot) =>
+			slot !== undefined && values.has(slot.key)
+				? values.get(slot.key)
+				: this.#structureValue(slot),
+		);
 	}
 
 	/**

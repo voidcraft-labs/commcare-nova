@@ -495,8 +495,13 @@ describe("step 4, form-logic-lift", () => {
 	 * so step 7 would refuse the app. */
 	const REPEAT = "01992000-0000-7000-8000-0000000000b1";
 	const ROW_READ = "01992000-0000-7000-8000-0000000000b2";
+	const EARLIER = "01992000-0000-7000-8000-0000000000b3";
 	const text = (value: string) => ({ parts: [{ kind: "text", text: value }] });
-	function patientRepeat(idsQuery: string, property = "case_name") {
+	function patientRepeat(
+		idsQuery: string,
+		property = "case_name",
+		earlierQuery?: string,
+	) {
 		const carriers = fixtureCarriers("case-query-bindings");
 		/* `shared`, which two types declare, so a read of it binds only by
 		 * its row, never by the one declaring type. */
@@ -535,6 +540,17 @@ describe("step 4, form-logic-lift", () => {
 						repeat_mode: "query_bound",
 						data_source: { ids_query: text(idsQuery) },
 					}),
+					...(earlierQuery === undefined
+						? []
+						: [
+								row(EARLIER, formRow.uuid, 4, {
+									id: "earlier",
+									label: text("Earlier"),
+									kind: "repeat",
+									repeat_mode: "query_bound",
+									data_source: { ids_query: text(earlierQuery) },
+								}),
+							]),
 					row(ROW_READ, REPEAT, 0, {
 						id: "row_name",
 						kind: "hidden",
@@ -619,6 +635,35 @@ describe("step 4, form-logic-lift", () => {
 			...TYPED_ROW_READ,
 			value: { kind: "prop", caseType: "patient", property: "shared" },
 		});
+		expect(failures).toBe(0);
+	});
+
+	it("lifts a repeat's query after a later repeat's query whose row it reads", () => {
+		/* The earlier repeat's query reads the first patient row's case,
+		 * whose `shared` two types declare, so it binds only by the patient
+		 * query that later repeat iterates. Lifted in document order, against
+		 * a placeholder for that query, step 4 would refuse it as
+		 * `case-query-untyped`, which the target does not. */
+		const { r, failures } = patientRepeat(
+			"instance('casedb')/casedb/case[@case_type = 'patient']/@case_id",
+			"shared",
+			"instance('casedb')/casedb/case[@case_type = 'patient'][shared = instance('casedb')/casedb/case[@case_id = /data/patients[1]/@id]/shared]/@case_id",
+		);
+		expect(r.blockers).toEqual([]);
+		expect(
+			r.places.filter((place) => place.code === "expression-parse-refused"),
+		).toEqual([]);
+		const earlier = r.target?.fields[EARLIER as never] as unknown as {
+			data_source: { ids_query: unknown };
+		};
+		expect(
+			terms(earlier.data_source.ids_query).filter(
+				(term) => term.kind === "prop" && term.property === "shared",
+			),
+		).toEqual([
+			{ kind: "prop", caseType: "patient", property: "shared" },
+			{ kind: "prop", caseType: "patient", property: "shared" },
+		]);
 		expect(failures).toBe(0);
 	});
 

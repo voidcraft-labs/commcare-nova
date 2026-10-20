@@ -203,7 +203,9 @@ export interface HeadCensus {
 	readonly fragments: readonly EmissionFragment[];
 	/**
 	 * Whether a moved file is an XForm whose difference from the base digest
-	 * is the order of its secondary instances alone.
+	 * is the order of its secondary instances alone. A form the frozen
+	 * normalizer cannot read in some order explains nothing: it stays an
+	 * `unexplained` file of its own app, and the census goes on.
 	 */
 	readonly instanceOrderOnly: (file: string, baseDigest: string) => boolean;
 }
@@ -241,15 +243,17 @@ export function emitHeadCensus(
 			)
 				return false;
 			const source = xforms.get(head.rawDigest);
-			return (
-				source !== undefined &&
-				instanceOrderExplains(
+			if (source === undefined) return false;
+			try {
+				return instanceOrderExplains(
 					source.xml,
 					source.prefix,
 					head.digest,
 					baseDigest,
-				)
-			);
+				);
+			} catch {
+				return false;
+			}
 		},
 	};
 }
