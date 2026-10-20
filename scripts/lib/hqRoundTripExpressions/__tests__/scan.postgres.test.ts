@@ -202,7 +202,15 @@ describe("the advisory scan", () => {
 		const { reader, close } = await selectOnlyReader();
 		try {
 			const one = await runScan(reader, { appId: "app-a-choices" });
-			expect(section(one.report.all(), "fleet")[0]).toMatchObject({ apps: 1 });
+			// `--app` plans the one app; the fleet's counts still cover every app.
+			expect(section(one.report.all(), "fleet")[0]).toMatchObject({
+				apps: 2,
+				appsPlanned: 1,
+			});
+			expect(
+				section(one.report.all(), "blocker"),
+				"the other app's refusal is not this app's",
+			).toEqual([]);
 			expect(one.outcome).toEqual({ outcome: "ok" });
 			expect(one.exitCode).toBe(0);
 		} finally {

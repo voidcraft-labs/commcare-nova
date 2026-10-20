@@ -36,20 +36,33 @@ const h = setupAppStateTestDb("hq_expr_schema_plan_", {
 const OWNER = "owner-expr-schema-plan";
 const PROJECT = "project-expr-schema-plan";
 
-/** Seed a fixture with its pre-step stored schemas; return its planned changes. */
+async function plannedApp(appId: string) {
+	const planned = await readPlannedFleet(h.db(), { appId });
+	return {
+		target: planned.targets.get(appId),
+		app: planned.plan.apps.find((candidate) => candidate.appId === appId),
+	};
+}
+
+/**
+ * Seed a fixture with its pre-step stored schemas; return the changes
+ * planned against them. The seed reads only the declared changes from the
+ * first plan; an inferred change is planned against the stored rows, so the
+ * changes are read again once those rows exist.
+ */
 async function seedApp(id: string, appId: string) {
 	await seedPreStepApp(
 		h.db(),
 		fixtureApp(id, { appId, projectId: PROJECT, owner: OWNER }),
 	);
-	const planned = await readPlannedFleet(h.db(), { appId });
-	const target = planned.targets.get(appId);
-	const app = planned.plan.apps.find((candidate) => candidate.appId === appId);
+	const { target, app } = await plannedApp(appId);
 	if (target === undefined || app === undefined) {
 		throw new Error(`Fixture ${id} has no target.`);
 	}
 	await seedStoredSchemas(h.db(), appId, target, app.schemaChanges);
-	return app.schemaChanges;
+	const seeded = (await plannedApp(appId)).app;
+	if (seeded === undefined) throw new Error(`Fixture ${id} is not planned.`);
+	return seeded.schemaChanges;
 }
 
 async function blockerCodes(appId: string): Promise<string[]> {

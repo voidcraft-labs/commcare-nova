@@ -7,6 +7,7 @@ import {
 	advanceAppTestSession,
 	createAppTestSession,
 	listAppTests,
+	RUNTIME_VERSION,
 	readAppTestSteps,
 } from "../appTests";
 import { __setAppDbForTests, type AppDatabase } from "../pg";
@@ -449,7 +450,7 @@ it("keeps paged evidence on one upper bound and preserves access to oversized Un
 		64 * 1024,
 	);
 	expect(first).toMatchObject({
-		runtime_version: 15,
+		runtime_version: RUNTIME_VERSION,
 		throughStep: 0,
 		provenance: { value: { suppliedRecords: [] } },
 		steps: [{ step: 0, observation: null, inspection: { step: 0 } }],
