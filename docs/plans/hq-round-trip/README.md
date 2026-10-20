@@ -256,8 +256,8 @@ Step 3's plan read `main` at `5cf6e327`. After `7b153dc3`:
   rules over expressions (the time-of-day ordering refusal, the three system
   dates in CSQL with the blank-comparand guard, the both-quote-marks
   `'match-none()'` sentinel), `xpathQueryUsesRelatedLookup`, the case list's
-  order plan, the question id grammar and `hiddenFromMenu` ("Step 3 is done",
-  above).
+  order plan, the question id grammar and `hiddenFromMenu` (`lib/commcare/CLAUDE.md`
+  and `lib/domain/CLAUDE.md`).
 
 No defect the research lists changed behavior before `7b153dc3` but finding 52.
 After it, #749 to #767 are step 2, which fixed defects 1 to 10 and 12 to 16 and
