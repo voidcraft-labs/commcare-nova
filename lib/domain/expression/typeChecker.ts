@@ -1293,7 +1293,10 @@ function inferNode(
 			return left === undefined || right === undefined
 				? undefined
 				: scalar(
-						left === "int" && right === "int" ? "int" : "decimal",
+						// XPathArithExpr divides as doubles: 5 div 2 is 2.5.
+						left === "int" && right === "int" && expression.op !== "div"
+							? "int"
+							: "decimal",
 						"number",
 					);
 		}
@@ -1611,12 +1614,18 @@ function inferNode(
 		}
 		case "call": {
 			const spec = FUNCTION_REGISTRY.get(expression.fn);
-			for (const [index, argument] of expression.args.entries()) {
-				read(argument, ["call", "args", index]);
+			const argumentTypes = expression.args.map((argument, index) => {
+				const type = readScalar(argument, ["call", "args", index]);
 				if (spec?.paramTypes?.[index] === "number")
 					numericLiteral(argument, ["call", "args", index], errors);
-			}
+				return type;
+			});
 			if (spec?.integral === true) return scalar("int", "number");
+			if (
+				spec?.integralOverIntegers === true &&
+				argumentTypes.every((type) => type === "int" || type === "boolean")
+			)
+				return scalar("int", "number");
 			if (spec?.returnType === "boolean") return scalar("boolean");
 			if (spec?.returnType === "number") return scalar("decimal", "number");
 			if (spec?.returnType === "sequence")
@@ -1675,11 +1684,17 @@ function branchResult(
 			b = scalarDataType(type.data);
 		if (ctx.ruleSet === "record" && a !== undefined && b !== undefined)
 			accumulateBranchType(a, b, errors, path, message);
-		if (
-			ctx.ruleSet === "form" &&
-			JSON.stringify(result.data) !== JSON.stringify(type.data)
-		)
-			return undefined;
+		if (ctx.ruleSet !== "form") continue;
+		// Branches agree on the value they give, whether a node-set read or a
+		// scalar gives it: `coalesce(#case/visits, 0)` is an `int`. An `int`
+		// and a `decimal` agree on `decimal`.
+		if (a === undefined || b === undefined) {
+			if (JSON.stringify(result.data) !== JSON.stringify(type.data))
+				return undefined;
+		} else if (a !== b) {
+			if (!isNumeric(a) || !isNumeric(b)) return undefined;
+			if (b === "decimal") result = type;
+		}
 	}
 	return result;
 }

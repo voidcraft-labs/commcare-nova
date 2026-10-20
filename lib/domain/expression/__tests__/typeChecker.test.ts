@@ -2368,7 +2368,7 @@ describe("checkExpression — arith arm + numeric promotion", () => {
 		expect(resolve(v).type).toBe("decimal");
 	});
 
-	it.each(["+", "-", "*", "div", "mod"] as const)(
+	it.each(["+", "-", "*", "mod", "quotient"] as const)(
 		"arith(%s) accepts both operands as int",
 		(op) => {
 			const v = arith(op, term(literal(1)), term(literal(2)));
@@ -2377,6 +2377,13 @@ describe("checkExpression — arith arm + numeric promotion", () => {
 			expect(errors).toEqual([]);
 		},
 	);
+
+	it("int div int = decimal, since division is real division", () => {
+		const v = arith("div", term(literal(1)), term(literal(2)));
+		const { type, errors } = resolve(v);
+		expect(type).toBe("decimal");
+		expect(errors).toEqual([]);
+	});
 
 	it("arith rejects a non-numeric left operand", () => {
 		const v = arith("+", term(prop("patient", "case_name")), term(literal(1)));
@@ -2786,6 +2793,7 @@ function rulesDoc(
 				properties: [
 					{ name: "seen_at", label: "Seen", data_type: "datetime" },
 					{ name: "note", label: "Note", data_type: "text" },
+					{ name: "visits", label: "Visits", data_type: "int" },
 				],
 			},
 		],
@@ -3210,21 +3218,60 @@ describe("a Hidden Value read", () => {
 	});
 });
 
+function probeType(source: string) {
+	const doc = rulesDoc();
+	const slot = fieldSlot(RULES.probe);
+	const ctx = slotContext(doc, slot, new Map());
+	if (ctx === undefined) throw new Error("The rules fixture has no slot.");
+	return scalarDataType(
+		typeOf(parseFixtureExpression(doc, slot, source), ctx)?.data,
+	);
+}
+
 describe("integral functions", () => {
 	it.each(["int(#form/n div 2)", "round(1.5)", "string-length('ab')"])(
 		"types %s as an integer",
 		(source) => {
-			const doc = rulesDoc();
-			const slot = fieldSlot(RULES.probe);
-			const ctx = slotContext(doc, slot, new Map());
-			if (ctx === undefined) throw new Error("The rules fixture has no slot.");
-			expect(
-				scalarDataType(
-					typeOf(parseFixtureExpression(doc, slot, source), ctx)?.data,
-				),
-			).toBe("int");
+			expect(probeType(source)).toBe("int");
 		},
 	);
+	// Core returns a whole Double for whole-number and yes/no arguments
+	// (FunctionUtils.toNumeric), which Recalculate.wrapData stores as
+	// IntegerData.
+	it.each([
+		"sum(#form/rep/w)",
+		"min(#form/n, #patient/visits)",
+		"max(#form/n, #form/n > 1)",
+		"number(#patient/visits)",
+	])("types %s over whole numbers as an integer", (source) => {
+		expect(probeType(source)).toBe("int");
+	});
+	it.each([
+		"number(#patient/note)",
+		"min(#form/n, 1.5)",
+		"sum(#form/rep/q)",
+		"#form/n div 2",
+	])("keeps %s a decimal", (source) => {
+		expect(probeType(source)).toBe("decimal");
+	});
+});
+
+describe("form branch agreement", () => {
+	// A case property read is a node-set and a literal a scalar; the branches
+	// agree on the value they give.
+	it.each([
+		["coalesce(#patient/visits, 0) + 1", "int"],
+		["if(#form/n > 1, #patient/visits, 0)", "int"],
+		["if(#form/n > 1, #patient/visits, 1.5)", "decimal"],
+		["coalesce(#patient/visits, 0.5) + 1", "decimal"],
+	])("types %s as %s", (source, type) => {
+		expect(probeType(source)).toBe(type);
+	});
+	it("holds no agreed type when a number branch meets text", () => {
+		expect(probeType("if(#form/n > 1, #patient/visits, #patient/note)")).toBe(
+			undefined,
+		);
+	});
 });
 
 describe("slot facts", () => {

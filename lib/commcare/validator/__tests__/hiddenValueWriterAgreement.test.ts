@@ -263,6 +263,12 @@ describe("a Hidden Value's outputs against the property", () => {
 	it.each([
 		{ calculate: "#form/a + 1", refused: false },
 		{ calculate: "int(#form/a div 2)", refused: false },
+		// Core sums whole numbers to a whole Double, which
+		// Recalculate.wrapData stores as IntegerData.
+		{ calculate: "sum(#form/a)", refused: false },
+		{ calculate: "max(#form/a, 3)", refused: false },
+		{ calculate: "coalesce(#form/a, 0) + 1", refused: false },
+		{ calculate: "number(#form/flag)", refused: true },
 		{ calculate: "#form/a * 1.5", refused: true },
 	])(
 		"judges $calculate saved to an integer property",

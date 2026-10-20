@@ -47,6 +47,11 @@ export interface FunctionSpec {
 	/** Core returns an integral Double, which `Recalculate.java::wrapData`
 	 * stores as `IntegerData`, so the call types `int`. */
 	integral?: true;
+	/** Core returns a Double that is whole when every argument is a whole
+	 * number or a yes/no (`FunctionUtils.toNumeric` reads `true` as 1), which
+	 * `Recalculate.java::wrapData` stores as `IntegerData`, so the call types
+	 * `int` over `int` and yes/no arguments and `decimal` over anything else. */
+	integralOverIntegers?: true;
 }
 
 const NO_ARGUMENTS: ReadonlySet<number> = new Set();
@@ -107,7 +112,8 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 
 	// ── Type conversion ───────────────────────────────────────────────
 	["boolean", bool(1, 1)], // any → boolean (explicit cast)
-	["number", num(1, 1)], // any → number (explicit cast)
+	// XPathNumberFunc: FunctionUtils.toNumeric of its argument.
+	["number", { ...num(1, 1), integralOverIntegers: true }], // any → number (explicit cast)
 	// XPathIntFunc: FunctionUtils.toInt truncates through long.
 	["int", { ...num(1, 1), integral: true }], // any → integer
 	["double", num(1, 1)], // any → double
@@ -160,7 +166,11 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	// ── Nodeset / Aggregation ─────────────────────────────────────────
 	// XPathCountFunc / XPathSumFunc: a non-node-set argument throws.
 	["count", { ...num(1, 1), manyArguments: onlyWith(1, 0) }],
-	["sum", { ...num(1, 1), manyArguments: onlyWith(1, 0) }],
+	// XPathSumFunc adds each node's toNumeric.
+	[
+		"sum",
+		{ ...num(1, 1), manyArguments: onlyWith(1, 0), integralOverIntegers: true },
+	],
 	// XPathPositionFunc casts its argument to XPathNodeset and reads its first
 	// reference, so several nodes are read; the result is an integral Double.
 	["position", { ...num(0, 1), manyArguments: onlyWith(1, 0), integral: true }],
@@ -201,8 +211,22 @@ export const FUNCTION_REGISTRY: ReadonlyMap<string, FunctionSpec> = new Map<
 	],
 	// XPathMinFunc / XPathMaxFunc: one node-set argument is read whole;
 	// otherwise each argument goes through toNumeric.
-	["min", { ...num(1, -1), manyArguments: onlyWith(1, 0) }],
-	["max", { ...num(1, -1), manyArguments: onlyWith(1, 0) }],
+	[
+		"min",
+		{
+			...num(1, -1),
+			manyArguments: onlyWith(1, 0),
+			integralOverIntegers: true,
+		},
+	],
+	[
+		"max",
+		{
+			...num(1, -1),
+			manyArguments: onlyWith(1, 0),
+			integralOverIntegers: true,
+		},
+	],
 
 	// ── Conditionals (polymorphic return) ─────────────────────────────
 	[

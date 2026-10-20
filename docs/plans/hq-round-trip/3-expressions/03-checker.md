@@ -1391,7 +1391,9 @@ because Core stores an integral `Double` as `IntegerData` (`Recalculate.wrapData
 integers. So a Hidden Value `int(#form/n div 2)` can write an `int` property under this rule, and a
 `repeat_count` of `round(…)` is an integer. **Implementation correction, 2026-10-19:** Core's
 `round` has one argument (`XPathRoundFunc`'s `EXPECTED_ARG_COUNT`), so the plan's "(one argument)"
-named no other form; `index-of` is not integral: `XPathIndexOfFunc.java::evalBody` returns `''` when nothing matches, so its result is text or a number by data.
+named no other form; `index-of` is not integral: `XPathIndexOfFunc.java::evalBody` returns `''` when nothing matches, so its result is text or a number by data. **Implementation correction, 2026-10-20 (pull request 6):**
+`number`, `sum`, `min` and `max` over `int` or yes/no arguments are `int` too (part 01 §3.3), so a
+Hidden Value `sum(#form/visit/count)` can write an `int` property.
 
 Validator message: `Hidden value "<field>" in "<form>" saves <text> to "<property>" on "<type>",
 which holds <a date> (<declared | saved by "<writer>" in "<form>">). A form that fills a question from

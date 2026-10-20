@@ -942,6 +942,17 @@ date-and-time property; pull request 8 refuses it in an implicit instant compari
 | `project-day` | held by step 6 (§1.6) | none |
 | `value-list` | `{ nodes: <item type>, many }` | items agree; an item is a scalar or a `many` node-set of the item type, flattened (part 06 §3.6) |
 
+**Implementation correction, 2026-10-20 (pull request 6):** `number`, `sum`, `min` and `max` are
+`int` when every argument is `int` or yes/no, and `decimal` otherwise, as `arith` is; they carry
+`integralOverIntegers: true` in `FUNCTION_REGISTRY`. Each returns a `Double` that is whole for such
+arguments (`XPathNumberFunc.java::evalBody` is `FunctionUtils.toNumeric`, `XPathSumFunc.java::sum`
+adds each node's `toNumeric`, `XPathMinFunc.java::min` and `XPathMaxFunc.java::max` take
+`Math.min` / `Math.max` of them; `FunctionUtils.java::toNumeric` reads `true` as 1 and an integer's
+text through `Double.parseDouble`), and `Recalculate.java::wrapData` (lines 93 to 101) stores a whole
+`Double` as `IntegerData`, the reasoning that makes the seven functions above integral. So
+`number(text)` stays `decimal`. In form logic, branches agree on the scalar type they give, whether
+a node-set read or a scalar gives it, so `coalesce(#case/visits, 0)` is `int`.
+
 ### 3.4 Compatibility and ordering
 
 **Record profiles** apply today's rules unchanged: `typesCompatible` (null with anything, a type
