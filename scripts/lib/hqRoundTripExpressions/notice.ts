@@ -13,7 +13,8 @@
  * the steps and selections write them.
  *
  * Names and details are authored content: they reach the row and never the
- * report. Each is cut at the length an entry keeps.
+ * report. Each is cut at the length an entry keeps, between code points
+ * (`./steps/shared.ts::noticeText`).
  */
 
 import { deploymentServerSchema } from "@/lib/deployment/types";
@@ -21,16 +22,9 @@ import { asUuid } from "@/lib/domain";
 import {
 	type MigrationNoticeEntry,
 	migrationNoticeEntriesSchema,
-	NOTICE_TEXT_MAX,
 } from "@/lib/notices/migrationNotice";
 import { type AppPlan, appDeploymentChanges } from "./plan";
-
-/** Cut a stored name or detail value at the length an entry keeps. */
-export function noticeText(value: string): string {
-	return value.length > NOTICE_TEXT_MAX
-		? value.slice(0, NOTICE_TEXT_MAX)
-		: value;
-}
+import { noticeText } from "./steps/shared";
 
 /**
  * One app's notice entries, in the order the writer stores them: each

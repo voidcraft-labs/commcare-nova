@@ -111,7 +111,7 @@ export function liftFormSlot(
 	if (!isStoredXPath(slot.stored)) {
 		const parsed = expressionSchema.safeParse(slot.stored);
 		if (!parsed.success) return { kind: "carried" };
-		doc.lift(slot, parsed.data, "form-logic-lift", new Set(), false);
+		doc.lift(slot, parsed.data, "form-logic-lift", new Set());
 		return { kind: "carried" };
 	}
 	const printed = projectFrozenXPath(slot.stored, doc.frozenContext());

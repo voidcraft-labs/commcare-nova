@@ -108,6 +108,11 @@ const fleetLineSchema = z.strictObject({
 	fleetSeqDigest: digestSchema,
 });
 
+/** The base digests cannot be read: the base half must run again. */
+export class BaseCensusError extends Error {
+	readonly name = "BaseCensusError";
+}
+
 /** The base half's output, as `--base-digests <file>` reads it. */
 export interface BaseCensus {
 	readonly files: ReadonlyMap<string, readonly EmissionFragment[]>;
@@ -128,14 +133,14 @@ export function parseBaseCensus(text: string): BaseCensus {
 		try {
 			value = JSON.parse(line);
 		} catch {
-			throw new Error(
+			throw new BaseCensusError(
 				`Line ${index + 1} of the base digests is not JSON. Run the base emitter again and pass its whole output.`,
 			);
 		}
 		const fleet = fleetLineSchema.safeParse(value);
 		if (fleet.success) {
 			if (fleetSeqDigest !== undefined || index !== lines.length - 1)
-				throw new Error(
+				throw new BaseCensusError(
 					"The base digests hold a fleet line that is not their one last line. Run the base emitter again and pass its whole output.",
 				);
 			fleetSeqDigest = fleet.data.fleetSeqDigest;
@@ -143,12 +148,12 @@ export function parseBaseCensus(text: string): BaseCensus {
 		}
 		const file = fileLineSchema.safeParse(value);
 		if (!file.success)
-			throw new Error(
+			throw new BaseCensusError(
 				`Line ${index + 1} of the base digests is neither a file line nor the fleet line. Run the base emitter again and pass its whole output.`,
 			);
 		const list = files.get(file.data.app) ?? [];
 		if (list.some((entry) => entry.file === file.data.file))
-			throw new Error(
+			throw new BaseCensusError(
 				`The base digests name one file of app ${file.data.app} twice. Run the base emitter again and pass its whole output.`,
 			);
 		list.push({
@@ -159,7 +164,7 @@ export function parseBaseCensus(text: string): BaseCensus {
 		files.set(file.data.app, list);
 	});
 	if (fleetSeqDigest === undefined)
-		throw new Error(
+		throw new BaseCensusError(
 			"The base digests end without their fleet line, so the base emitter stopped early. Run it again and pass its whole output.",
 		);
 	return { files, fleetSeqDigest };
@@ -331,11 +336,17 @@ export function appCensus(
 export interface FleetCensus {
 	readonly apps: readonly AppCensus[];
 	/**
-	 * Live apps the census did not compare, by app id: one a blocker holds
-	 * (no publish emits a target the plan refuses, and the cutover stops on
-	 * the blocker itself), or one the base half holds no file of.
+	 * Live apps the census did not compare because a blocker holds them, by
+	 * app id: no publish emits a target the plan refuses, and the cutover
+	 * stops on the blocker itself.
 	 */
 	readonly notCompared: readonly string[];
+	/**
+	 * Live apps the plan admits that the base half holds no file of, by app
+	 * id: every live app emits at least its HQ root, so the base census does
+	 * not cover this fleet and proves nothing about these apps.
+	 */
+	readonly missingBase: readonly string[];
 	/** Live apps whose target the head emitter refused: a defect of the stack. */
 	readonly emissionFailed: readonly string[];
 	/** The base half read the same fleet sequences the plan read. */
@@ -370,13 +381,18 @@ export function fleetCensus(input: {
 }): FleetCensus {
 	const apps: AppCensus[] = [];
 	const notCompared: string[] = [];
+	const missingBase: string[] = [];
 	const emissionFailed: string[] = [];
 	for (const app of input.apps) {
 		if (input.deleted.has(app.appId)) continue;
 		const target = input.targets.get(app.appId);
-		const base = input.base.files.get(app.appId);
-		if (target === undefined || base === undefined || app.blockers.length > 0) {
+		if (target === undefined || app.blockers.length > 0) {
 			notCompared.push(app.appId);
+			continue;
+		}
+		const base = input.base.files.get(app.appId);
+		if (base === undefined) {
+			missingBase.push(app.appId);
 			continue;
 		}
 		let head: EmissionFragment[];
@@ -403,6 +419,7 @@ export function fleetCensus(input: {
 	return {
 		apps,
 		notCompared,
+		missingBase,
 		emissionFailed,
 		fleetSeqDigestMatches: input.base.fleetSeqDigest === input.fleetSeqDigest,
 	};
@@ -422,7 +439,22 @@ export function censusCounts(
 	return counts;
 }
 
-/** Whether the census stops the cutover: some app's difference has no named reason. */
-export function censusHasUnexplained(census: FleetCensus): boolean {
-	return census.apps.some((app) => app.verdict === "unexplained");
+/** What in a census stops the cutover. */
+export type CensusStop = "unexplained" | "census-incomplete" | "census-stale";
+
+/**
+ * Every reason the census stops the cutover, in this order: some app's
+ * difference has no named reason (`unexplained`); a live app the plan
+ * admits has no base file (`census-incomplete`); the base half read other
+ * fleet sequences than the plan (`census-stale`), so its digests are of
+ * other documents. Only `ok` with none of them proves the emission.
+ */
+export function censusStops(census: FleetCensus): CensusStop[] {
+	return [
+		...(census.apps.some((app) => app.verdict === "unexplained")
+			? (["unexplained"] as const)
+			: []),
+		...(census.missingBase.length > 0 ? (["census-incomplete"] as const) : []),
+		...(census.fleetSeqDigestMatches ? [] : (["census-stale"] as const)),
+	];
 }

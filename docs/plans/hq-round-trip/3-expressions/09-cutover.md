@@ -296,13 +296,29 @@ the app's `cases` rows of that type holding the key, per inferred pair
 built over that same `REPEATABLE READ, READ ONLY` transaction so both read the plan's snapshot. The
 scan also counts the marked apps first, as every migrate mode does, and an `unexplained` census
 verdict stops it as `stopped` with `unexplained`. The writer's numbered steps are reported as
-`lock`, `blocking-scan`, `already-applied`, `archive-events`, `clear-streams`, `private-work`,
-`apps`, `notices`, `postconditions` and `finish` (§9's 1 to 10), and its step 6 ends each pre-app
+`lock`, `blocking-scan`, `already-applied`, `ledger`, `archive-events`, `clear-streams`,
+`private-work`, `apps`, `notices`, `postconditions` and `finish` (§9's 1 to 10, with `ledger`, the
+ledgered DDL, between 3 and 4), and its step 6 ends each pre-app
 session through `abandonPreAppDesignSessionInTransaction` before the fleet-wide statements, so a
 session's change sets and slice attempts retire through the body a discard uses; the end state is
 the one §9 names. Of §10's postconditions, the round-trip law runs through
 `transform.ts::roundTripFailures` over each stored document, and the schema postcondition reruns `transform.ts::plannedSchemaChanges` over the stored document and
 the stored rows and requires no unplanned difference and exactly the plan's `schemaChanges`.
+
+**Implementation correction, 2026-10-20 (pull request 13):** the report is printed line by line as it is made (`CutoverReport`'s
+sink), and the scripts end every run with an `outcome` line: a run that throws ends `stopped` by
+`error` with a content-free `errorClass` (`run.ts::errorClassOf`: one of this cutover's own classes,
+`database-<SQLSTATE>`, or `internal`), and the terminal gets this cutover's own message or the class
+alone, never a database error's text, which can quote a stored row. The `fleet` line is printed as
+soon as the plan is built and carries `ledger`, the migration ledger's state before any write
+(`foldHorizonApplied` and every `pendingMigrations` name, one plain `SELECT` of `kysely_migration`);
+a writer's step timings, WAL, growth and `migrationsApplied` follow in their own `writer` line. The
+dry run and the scan stop on any holder by the writer's own predicate
+(`holders.ts::holderCensusIsEmpty`: live, lapsed or paused, or an unsettled hold), so neither says
+`ok` where `--execute` would stop; another run's horizon met under the writer's locks is reported
+`already-applied`, not `digest`. `outcome` gains three stops: `census-incomplete`, `census-stale`
+(§7) and `error`. `--rehearse` runs the ledgered DDL inside the rolled-back transaction (§9), so it
+leaves nothing, and `--execute` applies it only inside the transaction it commits.
 
 ## 4. Reading the old shape, and the target in two phases
 
@@ -403,6 +419,21 @@ the compiler under the scope an SA read of its owner binds, `authoringValueScope
 step reruns them over every slot (`target-gate`). `liftOverCorpus.test.ts` holds the guard over
 every stored expression of the corpus, none refused, and the lift of each corpus fixture equal to
 the head build of its document with no difference at all.
+
+**Implementation correction, 2026-10-20 (pull request 13):** step 7 holds every expression slot of the target to its print,
+whichever step wrote it or none, through the one function §10's postcondition runs over the saved
+app (`steps/liftRoundTrip.ts::roundTripFailuresOf`), so a carried value the writer would refuse is
+a `round-trip` blocker at scan time rather than a rollback in the window. A record value's scope is
+found by the slot's key path from its owner (`lib/domain/referenceSlots.ts::ExpressionSlotValue.path`,
+the registry walk with each collection position it chose), never by object identity, which a
+rebuilt target never shares: a filter inside a cases choice source reads its row's case type, one
+inside a lookup choice source its table, and a module's search validation slots read with pattern
+matching, as `getModule` reads them. Step 1 names only a rule a property held: an absent key, an
+empty `{ parts: [] }` and a blank message leave the catalog with the rest and no line names them.
+Every notice name and detail is cut at `NOTICE_TEXT_MAX` UTF-16 units, the length the entry's
+schema counts, between code points (`steps/shared.ts::noticeText`, the one helper `notice.ts`
+uses too), so a character outside the Basic Multilingual Plane is kept whole or left out, never half
+a surrogate pair, which no `jsonb` value holds.
 
 Two readings above came from planning scanners, not from the production parser: the several-type
 binds and the declarations used a planning shape scanner's effective index, and the respellings part
@@ -568,6 +599,13 @@ pull request 2's `emissionNormal.test.ts`, over the producers', workforce, targe
 documents the proof tests build in process; the expander corpus is built only by
 `expander.test.ts` as a Vitest writer, so it is not among them.
 
+**Implementation correction, 2026-10-20 (pull request 13):** a census proves the emission only over the fleet it read, so two more
+of its facts stop the scan beside `unexplained`: a live app the plan admits that the base half holds
+no file of (`missingBase`, `census-incomplete`; every live app emits at least its HQ root, so the base
+digests are not this fleet's), and base digests whose `fleetSeqDigest` differs from the plan's
+(`census-stale`; the base half read other documents). Both are content-free: app ids and a
+boolean (`census.ts::censusStops`).
+
 ## 8. Declaring properties: the case store
 
 Two kinds of planned schema change reach `materializableCaseTypes`, and with it
@@ -645,6 +683,16 @@ peak RSS: its fleet transaction fit the window with a wide margin, most of its t
 writes and the postconditions, its WAL and growth fit the instance's storage many times over, and
 its peak RSS stayed well under the Job's 8 GiB. Step 3's transaction writes the same rows except the
 archive, which meets about none.
+
+**Implementation correction, 2026-10-20 (pull request 13):** the ledgered DDL runs inside the fleet transaction, not before it.
+Before it opens: the already-applied count, the fleet read, and the plan's blockers, holders and
+digest, each a stop with nothing written and no DDL applied. Inside it, as step `ledger` after steps
+1 to 3 (the lock, the blocking scan with its holders, the already-applied count), Kysely's
+`Migrator` runs on the transaction itself (`lib/case-store/migrate.ts::runCaseStoreMigrationsWithReport`
+over it), then `lock_timeout` is set back to 15 seconds, since Kysely's migration lock sets its own.
+The fold-horizon functions and their `kysely_migration` row therefore commit with the fleet or roll
+back with it, and every stop and every failure leaves the ledger as `main` has it: the database holds
+a migration `main` lacks only once the fleet is committed, which check 3 of §14 already governs.
 
 ## 10. Postconditions
 
@@ -884,6 +932,15 @@ The announcement, with `<day>`, `<start>`, `<end>` in UTC:
 
 **Rollback.** Until the merge, the restore point restores everything the execute run wrote, and the
 old revision is reattached. After the new revision serves, the only way is forward.
+
+**Implementation correction, 2026-10-20 (pull request 13):** since the DDL commits only with the fleet (§9), a stop or a failure
+at step 7 leaves nothing to restore. From the execute run's commit to the merge, the ledger holds a
+migration `main` does not have, so a deploy from `main` fails at its migrate Job: a window that
+closes after the commit without merging restores the restore point before `main` deploys again
+(the runbook's "Rollback" names the commands and the check that the ledger no longer holds the
+migration), or keeps `main` frozen until the stack merges. A dry run whose `fleet` line reports
+`ledger.foldHorizonApplied` with no app marked is a state no run of this tool leaves: the window
+closes and `main` stays frozen until it is understood.
 
 **What the operator records** (each in the evidence prefix): the three prerequisite scans; the base
 digests, the scans and the census verdicts, with the `fleetSeqDigest` of each; each blocked app told

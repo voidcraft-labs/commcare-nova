@@ -193,13 +193,7 @@ export const recordExpressionsStep: ExpressionsStep = {
 			]);
 			if (quotient > 0) classes.add("quotient");
 			if (choice > 0) classes.add("choice");
-			doc.lift(
-				slot,
-				value,
-				"record-expressions",
-				classes,
-				value !== parsed.data,
-			);
+			doc.lift(slot, value, "record-expressions", classes);
 		}
 		return { changes: [], blockers: [], classes: [], places: [] };
 	},

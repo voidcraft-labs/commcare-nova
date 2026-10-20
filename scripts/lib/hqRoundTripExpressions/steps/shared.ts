@@ -3,6 +3,7 @@
  * context and the notice's entity references.
  */
 
+import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import {
 	type ExpressionNode,
 	expressionChildren,
@@ -10,17 +11,33 @@ import {
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { expressionChildContext } from "@/lib/domain/expression/typeChecker";
 import type { CheckPath } from "@/lib/domain/expression/types";
-import type { NoticeEntityRef } from "@/lib/notices/migrationNotice";
+import { formOfField as formHoldingField } from "@/lib/domain/fieldForm";
+import type { Uuid } from "@/lib/domain/uuid";
+import {
+	NOTICE_TEXT_MAX,
+	type NoticeEntityRef,
+} from "@/lib/notices/migrationNotice";
 import type { RawDocument } from "../oldShape";
 import type { SlotState } from "./working";
 
-/** The longest name a notice entry stores (`migrationNotice.ts`). */
-const NOTICE_TEXT_MAX = 200;
-
-/** An authored name as a notice stores it, cut to the row's limit. */
+/**
+ * An authored name or detail value as a notice entry stores it: at most
+ * `NOTICE_TEXT_MAX` UTF-16 units, the length the entry's schema counts, cut
+ * between code points, so a character outside the Basic Multilingual Plane
+ * is kept whole or left out and never leaves half of its surrogate pair,
+ * which no `jsonb` value holds. A lone surrogate already in the text
+ * becomes U+FFFD for the same reason.
+ */
 export function noticeText(value: unknown): string {
 	const text = typeof value === "string" ? value : "";
-	return text.length <= NOTICE_TEXT_MAX ? text : text.slice(0, NOTICE_TEXT_MAX);
+	let cut = "";
+	for (const point of text) {
+		const code = point.codePointAt(0) ?? 0;
+		const whole = code >= 0xd800 && code <= 0xdfff ? "\ufffd" : point;
+		if (cut.length + whole.length > NOTICE_TEXT_MAX) break;
+		cut += whole;
+	}
+	return cut;
 }
 
 /** The app, as an `app` entry names it. */
@@ -40,22 +57,21 @@ export function entityName(
 	return noticeText(kind === "field" ? entity?.id : entity?.name);
 }
 
-/** The form a field belongs to, by walking `fieldOrder` up to a form. */
-export function formOfField(
-	raw: RawDocument,
-	fieldUuid: string,
-): string | undefined {
-	const parents = new Map<string, string>();
-	for (const [parent, children] of Object.entries(raw.fieldOrder))
-		for (const child of children) parents.set(child, parent);
-	let cursor: string | undefined = fieldUuid;
-	const seen = new Set<string>();
-	while (cursor !== undefined && !seen.has(cursor)) {
-		seen.add(cursor);
-		if (Object.hasOwn(raw.forms, cursor)) return cursor;
-		cursor = parents.get(cursor);
+/** Each raw document's `fieldParent`, from its `fieldOrder`, built once. */
+const fieldParents = new WeakMap<
+	RawDocument["fieldOrder"],
+	Record<Uuid, Uuid>
+>();
+
+function fieldParentOf(raw: RawDocument): Record<Uuid, Uuid> {
+	let parents = fieldParents.get(raw.fieldOrder);
+	if (parents === undefined) {
+		parents = {};
+		for (const [parent, children] of Object.entries(raw.fieldOrder))
+			for (const child of children) parents[child as Uuid] = parent as Uuid;
+		fieldParents.set(raw.fieldOrder, parents);
 	}
-	return undefined;
+	return parents;
 }
 
 /** The form that holds a slot: its owner form, or its owner field's form. */
@@ -66,7 +82,13 @@ export function slotForm(
 	return slot.owner.entity === "form"
 		? slot.owner.uuid
 		: slot.owner.entity === "field"
-			? formOfField(raw, slot.owner.uuid)
+			? formHoldingField(
+					{
+						forms: raw.forms as unknown as BlueprintDoc["forms"],
+						fieldParent: fieldParentOf(raw),
+					},
+					slot.owner.uuid,
+				)
 			: undefined;
 }
 

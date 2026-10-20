@@ -139,17 +139,19 @@ async function appliedMigrations(db: Kysely<AppDatabase>): Promise<string[]> {
 describe("the fleet transaction from main's migration prefix", () => {
 	useHarness("hq_expr_prefix_", FIRST_STACK_MIGRATION);
 
-	it("dry-runs with no DDL, rehearses with the DDL applied and the data unchanged, then commits", async () => {
+	it("applies the DDL only inside the committed fleet transaction: a dry run, a rehearsal and every stop leave the ledger as main has it", async () => {
 		const fleet = await seedFleet();
-		expect(await appliedMigrations(h.db())).not.toContain(
-			FIRST_STACK_MIGRATION,
-		);
+		const ledger = await appliedMigrations(h.db());
+		expect(ledger).not.toContain(FIRST_STACK_MIGRATION);
 
 		const dryRun = await runMigrate(h.db(), { mode: "dry-run" });
 		expect(dryRun.outcome).toEqual({ outcome: "ok" });
-		expect(await appliedMigrations(h.db())).not.toContain(
-			FIRST_STACK_MIGRATION,
-		);
+		expect(
+			dryRun.report.all().find((line) => line.section === "fleet")?.ledger,
+		).toEqual({
+			foldHorizonApplied: false,
+			pendingMigrations: [FIRST_STACK_MIGRATION],
+		});
 		const digest = planDigestOf(dryRun);
 		expect(digest).toMatch(/^[0-9a-f]{64}$/);
 
@@ -157,7 +159,35 @@ describe("the fleet transaction from main's migration prefix", () => {
 		const rehearsal = await runMigrate(h.db(), { mode: "rehearse" });
 		expect(rehearsal.outcome).toEqual({ outcome: "ok" });
 		expect(planDigestOf(rehearsal)).toBe(digest);
-		expect(await appliedMigrations(h.db())).toContain(FIRST_STACK_MIGRATION);
+		expect(
+			rehearsal.report.all().find((line) => line.section === "writer")
+				?.migrationsApplied,
+		).toEqual([FIRST_STACK_MIGRATION]);
+		expect(await appliedMigrations(h.db())).toEqual(ledger);
+		expect(await databaseImage(h.db())).toBe(image);
+
+		// A digest stop, and a failure right after the DDL ran in the
+		// transaction, leave no migration main does not hold.
+		const refused = await runMigrate(h.db(), {
+			mode: "execute",
+			expectPlanDigest: "0".repeat(64),
+		});
+		expect(refused.outcome).toEqual({
+			outcome: "stopped",
+			stoppedBy: ["digest"],
+		});
+		const printed: string[] = [];
+		await expect(
+			runMigrate(h.db(), {
+				mode: "execute",
+				expectPlanDigest: digest,
+				failAfter: "ledger",
+				onLine: (line) => printed.push(line.section),
+			}),
+		).rejects.toThrow("injected failure after ledger");
+		expect(printed[0]).toBe("fleet");
+		expect(printed.at(-1)).toBe("outcome");
+		expect(await appliedMigrations(h.db())).toEqual(ledger);
 		expect(await databaseImage(h.db())).toBe(image);
 
 		const execute = await runMigrate(h.db(), {
@@ -165,6 +195,7 @@ describe("the fleet transaction from main's migration prefix", () => {
 			expectPlanDigest: digest,
 		});
 		expect(execute.outcome).toEqual({ outcome: "ok" });
+		expect(await appliedMigrations(h.db())).toContain(FIRST_STACK_MIGRATION);
 		const markers = await sql<{ app_id: string }>`
 			SELECT app_id FROM app_changes WHERE batch_id = ${MARKER_BATCH_ID}
 			ORDER BY app_id

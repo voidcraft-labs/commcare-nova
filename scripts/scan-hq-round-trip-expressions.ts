@@ -30,6 +30,7 @@ import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { getAppDb } from "@/lib/db/pg";
 import {
+	errorTextOf,
 	runDebugDetails,
 	runRecipients,
 	runScan,
@@ -105,14 +106,21 @@ async function main(): Promise<void> {
 		}
 		return;
 	}
-	const result = await runScan(db, {
-		...(options.app !== undefined && { appId: options.app }),
-		...(options.baseDigests !== undefined && {
-			baseDigests: readFileSync(options.baseDigests, "utf8"),
-		}),
-	});
-	console.log(result.report.text());
-	process.exitCode = result.exitCode;
+	const baseDigests =
+		options.baseDigests === undefined
+			? undefined
+			: readFileSync(options.baseDigests, "utf8");
+	try {
+		const result = await runScan(db, {
+			...(options.app !== undefined && { appId: options.app }),
+			...(baseDigests !== undefined && { baseDigests }),
+			onLine: (line) => console.log(JSON.stringify(line)),
+		});
+		process.exitCode = result.exitCode;
+	} catch (error) {
+		console.error(errorTextOf(error));
+		process.exitCode = 1;
+	}
 }
 
 runMain(async () => {

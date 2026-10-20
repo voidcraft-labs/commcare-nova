@@ -90,7 +90,14 @@ describe("expression slot addresses", () => {
 				expressionSlotKey(second),
 			]),
 		);
+		// The key path carries each collection position the walk chose.
+		const pathOf = (ref: ExpressionSlotRef) =>
+			expressionSlotValues(doc, { entity: "form", uuid: FORM }).find(
+				(value) => expressionSlotKey(value.ref) === expressionSlotKey(ref),
+			)?.path;
+		expect(pathOf(second)).toEqual(["caseOperations", 0, "writes", 1, "value"]);
 		doc.forms[FORM].caseOperations?.[0].writes?.reverse();
+		expect(pathOf(second)).toEqual(["caseOperations", 0, "writes", 0, "value"]);
 		expect(expressionSlotValue(doc, first)).toEqual(
 			term(literal("first-value")),
 		);

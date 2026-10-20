@@ -158,4 +158,4 @@ NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-
 NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-expressions.ts --execute --expect-plan-digest <digest>
 ```
 
-The migrate script is a dry run unless told otherwise: it prints the plan, the content-free report and `planDigest`, and writes nothing. `--rehearse` runs the whole fleet transaction and rolls it back; it is for local databases and tests, and the Job refuses it.
+The migrate script is a dry run unless told otherwise: it prints the plan, the content-free report and `planDigest`, and writes nothing. `--rehearse` runs the whole fleet transaction and rolls it back, the ledgered DDL with it; it is for local databases and tests, and the Job refuses it. `--execute` applies the ledgered DDL only inside the fleet transaction it commits.

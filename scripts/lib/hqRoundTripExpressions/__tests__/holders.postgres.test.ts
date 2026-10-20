@@ -114,6 +114,12 @@ describe("holders in the expressions cutover's window", () => {
 
 		const blocked = await runMigrate(h.db(), { mode: "dry-run" });
 		expect(holdersLine(blocked)).toMatchObject({ live: 0, lapsedOrPaused: 4 });
+		// No holder is live, and still the write would refuse every one, so
+		// the dry run says what the execute run would.
+		expect(blocked.outcome).toEqual({
+			outcome: "stopped",
+			stoppedBy: ["holder"],
+		});
 
 		const settled = await runMigrate(h.db(), { mode: "settle-holders" });
 		expect(settled.outcome).toEqual({ outcome: "ok" });
@@ -165,8 +171,8 @@ describe("holders in the expressions cutover's window", () => {
 			});
 			expect(refused.exitCode).toBe(1);
 		}
-		/* The rehearsal applied no new DDL here: this database is fully
-		 * migrated already, so the image compares data alone. */
+		/* A refused run applies no DDL, and this database is fully migrated
+		 * already, so the image compares data alone. */
 		expect(await databaseImage(h.db())).toBe(image);
 	}, 60_000);
 });

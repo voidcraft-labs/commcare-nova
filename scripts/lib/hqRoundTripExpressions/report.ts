@@ -17,12 +17,30 @@ export type ReportMode =
 	| "execute"
 	| "settle-holders";
 
+/**
+ * Stops of a run, beside a blocker and §11's stops (`CutoverStopCode`): the
+ * census's base half does not cover the fleet (`census-incomplete`) or read
+ * other sequences (`census-stale`), and the run threw (`error`).
+ */
+export const RUN_STOP_CODES = [
+	"census-incomplete",
+	"census-stale",
+	"error",
+] as const;
+export type RunStopCode = (typeof RUN_STOP_CODES)[number];
+
 export type ReportOutcome =
 	| { readonly outcome: "ok" }
 	| { readonly outcome: "already-applied" }
 	| {
 			readonly outcome: "stopped";
-			readonly stoppedBy: readonly ("blocker" | CutoverStopCode)[];
+			readonly stoppedBy: readonly (
+				| "blocker"
+				| CutoverStopCode
+				| RunStopCode
+			)[];
+			/** With `error`: what threw, content-free (`./run.ts::errorClassOf`). */
+			readonly errorClass?: string;
 	  };
 
 export type ReportLine = Readonly<Record<string, unknown>> & {
@@ -31,14 +49,28 @@ export type ReportLine = Readonly<Record<string, unknown>> & {
 	readonly section: string;
 };
 
-/** The report's lines for one run, in the order it prints them. */
+/**
+ * The report's lines for one run, in the order it prints them. A script
+ * passes a `sink` that prints each line as it is made, so a run that throws
+ * has already printed every line before the throw.
+ */
 export class CutoverReport {
 	private readonly lines: ReportLine[] = [];
 
-	constructor(readonly mode: ReportMode) {}
+	constructor(
+		readonly mode: ReportMode,
+		private readonly sink?: (line: ReportLine) => void,
+	) {}
 
 	line(section: string, fields: Readonly<Record<string, unknown>>): void {
-		this.lines.push({ report: REPORT, mode: this.mode, section, ...fields });
+		const line: ReportLine = {
+			report: REPORT,
+			mode: this.mode,
+			section,
+			...fields,
+		};
+		this.lines.push(line);
+		this.sink?.(line);
 	}
 
 	all(): readonly ReportLine[] {
@@ -54,8 +86,9 @@ export class CutoverReport {
 /**
  * The `fleet` line: the fleet's counts, the plan's digest, the sequence
  * digest the census compares, the database's size and the run's peak memory,
- * and whatever timings the caller measured (the plan's milliseconds, and
- * under `--execute` each writer step's with the WAL and the growth).
+ * and whatever the caller measured before any write (the plan's
+ * milliseconds, the migration ledger's state). It is printed as soon as the
+ * plan is built; a writer's timings follow in their own `writer` line.
  */
 export function fleetLine(
 	report: CutoverReport,
@@ -327,6 +360,7 @@ export function censusLine(report: CutoverReport, census: FleetCensus): void {
 		verdicts: censusCounts(census),
 		fleetSeqDigestMatches: census.fleetSeqDigestMatches,
 		notCompared: census.notCompared,
+		missingBase: census.missingBase,
 		emissionFailed: census.emissionFailed,
 		apps: census.apps
 			.filter((app) => app.verdict !== "unchanged")

@@ -93,8 +93,6 @@ export interface SlotState {
 	blocked?: CutoverBlockerCode;
 	/** The parser's refusal, where the last parse refused the slot. */
 	refused?: { readonly codes: readonly string[]; readonly place: BlockerPlace };
-	/** The steps that wrote the slot's value, for step 7. */
-	readonly writtenBy: Set<ExpressionsStepId>;
 	/** The classes the slot's last lift fell in, by the step that lifted it. */
 	readonly classes: Map<ExpressionsStepId, ReadonlySet<ExpressionsChangeClass>>;
 }
@@ -275,21 +273,29 @@ export class WorkingDocument {
 				found.push({ ref, key: expressionSlotKey(ref), owner, stored });
 			});
 		}
+		/* A slot is required when its owner, every slot a placeholder,
+		 * parses, and parses no more with that one slot absent. */
 		const required = new Set<string>();
-		const owners = new Map<string, ExpressionCarrierRef>();
-		for (const slot of found)
-			owners.set(`${slot.owner.entity}:${slot.owner.uuid}`, slot.owner);
-		for (const owner of owners.values()) {
+		const byOwner = new Map<
+			string,
+			{ owner: ExpressionCarrierRef; keys: string[] }
+		>();
+		for (const slot of found) {
+			const id = `${slot.owner.entity}:${slot.owner.uuid}`;
+			const group = byOwner.get(id) ?? { owner: slot.owner, keys: [] };
+			group.keys.push(slot.key);
+			byOwner.set(id, group);
+		}
+		for (const { owner, keys } of byOwner.values()) {
 			const placeheld = rewriteOwner(this.raw, owner, () => PLACEHOLDER);
 			if (placeheld === undefined || !entitySchemaAdmits(owner, placeheld))
 				continue;
-			for (const slot of found) {
-				if (slot.owner !== owner) continue;
+			for (const slotKey of keys) {
 				const without = rewriteOwner(this.raw, owner, (key) =>
-					key === slot.key ? undefined : PLACEHOLDER,
+					key === slotKey ? undefined : PLACEHOLDER,
 				);
 				if (without !== undefined && !entitySchemaAdmits(owner, without))
-					required.add(slot.key);
+					required.add(slotKey);
 			}
 		}
 		const slots: SlotState[] = found.map((slot) => ({
@@ -302,7 +308,6 @@ export class WorkingDocument {
 					: "record",
 			required: required.has(slot.key),
 			lifted: false,
-			writtenBy: new Set<ExpressionsStepId>(),
 			classes: new Map(),
 		}));
 		this.#slots = slots;
@@ -385,20 +390,17 @@ export class WorkingDocument {
 
 	/**
 	 * Record a step's value for a slot and the classes it fell in; the built
-	 * documents follow it. A slot that holds its stored value unchanged is
-	 * lifted with `written: false`, so step 7 leaves it to the law that
-	 * already holds for it.
+	 * documents follow it. Step 7 holds every slot of the target to its
+	 * print, whichever step lifted it.
 	 */
 	lift(
 		slot: SlotState,
 		value: Expression | undefined,
 		step: ExpressionsStepId,
 		classes: ReadonlySet<ExpressionsChangeClass> = new Set(),
-		written = true,
 	): void {
 		slot.lifted = { value };
 		slot.refused = undefined;
-		if (written) slot.writtenBy.add(step);
 		slot.classes.set(step, classes);
 		this.#target = undefined;
 	}

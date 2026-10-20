@@ -29,6 +29,7 @@ import {
 	outcomeLine,
 	planSections,
 	REPORT,
+	RUN_STOP_CODES,
 } from "../report";
 import {
 	CUTOVER_BLOCKER_CODES,
@@ -146,6 +147,7 @@ function vocabulary(): Set<string> {
 		...DEPLOYMENT_NOTICE_REASONS,
 		...CUTOVER_BLOCKER_CODES,
 		...CUTOVER_STOP_CODES,
+		...RUN_STOP_CODES,
 		...casePropertyDataTypes,
 		"declared",
 		"inferred",

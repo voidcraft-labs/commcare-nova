@@ -23,6 +23,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import {
 	appCensus,
 	type CensusChange,
+	censusStops,
 	emitCensusFiles,
 	emitCensusFragments,
 	explainedFiles,
@@ -103,14 +104,64 @@ describe("the frozen base census", () => {
 	});
 });
 
+describe("a base census that does not cover the fleet", () => {
+	const admitted = fleet.plan.apps.find(
+		(app) => app.blockers.length === 0 && base.files.has(app.appId),
+	);
+	if (admitted === undefined) throw new Error("No fixture is admitted");
+
+	it("stops on a live admitted app the base half holds no file of", () => {
+		const files = new Map(base.files);
+		files.delete(admitted.appId);
+		const partial = fleetCensus({
+			apps: fleet.plan.apps,
+			deleted: new Set(),
+			targets: fleet.targets,
+			lookupDefinitions: fleet.lookupDefinitions,
+			fleetSeqDigest: fleet.fleetSeqDigest,
+			base: { ...base, files },
+		});
+		expect(partial.missingBase).toEqual([admitted.appId]);
+		expect(partial.apps.some((app) => app.appId === admitted.appId)).toBe(
+			false,
+		);
+		expect(censusStops(partial)).toEqual(["census-incomplete"]);
+		// A deleted app is in neither half, so its absence stops nothing.
+		const deleted = fleetCensus({
+			apps: fleet.plan.apps,
+			deleted: new Set([admitted.appId]),
+			targets: fleet.targets,
+			lookupDefinitions: fleet.lookupDefinitions,
+			fleetSeqDigest: fleet.fleetSeqDigest,
+			base: { ...base, files },
+		});
+		expect(censusStops(deleted)).toEqual([]);
+	});
+
+	it("stops on base digests read from other fleet sequences", () => {
+		const stale = fleetCensus({
+			apps: fleet.plan.apps,
+			deleted: new Set(),
+			targets: fleet.targets,
+			lookupDefinitions: fleet.lookupDefinitions,
+			fleetSeqDigest: fleet.fleetSeqDigest,
+			base: { ...base, fleetSeqDigest: "0".repeat(64) },
+		});
+		expect(stale.fleetSeqDigestMatches).toBe(false);
+		expect(censusStops(stale)).toEqual(["census-stale"]);
+	});
+});
+
 describe("the census over the lifted fixtures", () => {
 	it("compares every fixture the plan admits, every corpus fixture among them, and none it blocks", () => {
 		const blocked = fleet.plan.apps
 			.filter((app) => app.blockers.length > 0)
 			.map((app) => app.appId);
 		expect(census.notCompared).toEqual(blocked);
+		expect(census.missingBase).toEqual([]);
 		expect(census.emissionFailed).toEqual([]);
 		expect(census.fleetSeqDigestMatches).toBe(true);
+		expect(censusStops(census)).toEqual([]);
 		const compared = new Set(census.apps.map((app) => app.appId));
 		for (const fixture of FIXTURE_MANIFEST.filter(
 			(entry) => entry.kind === "corpus",

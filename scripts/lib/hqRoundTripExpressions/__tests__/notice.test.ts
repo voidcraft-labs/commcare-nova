@@ -25,6 +25,7 @@ import { datetimeOrdering } from "../../../../proof/targeted/documents/datetimeO
 import { behaviorChanges, WIRE_REACHING_REASONS } from "../behavior";
 import { appNoticeEntries } from "../notice";
 import type { AppPlan } from "../plan";
+import { noticeText } from "../steps/shared";
 import type { DocumentChange } from "../types";
 
 const FIRST = "01992000-0000-7000-8000-000000000011";
@@ -155,6 +156,36 @@ describe("an app's notice row", () => {
 		expect(entry?.kind === "document" && entry.detail?.form).toHaveLength(
 			NOTICE_TEXT_MAX,
 		);
+	});
+
+	it("cuts between code points, so a character across the limit is left out whole", () => {
+		// The emoji's two UTF-16 units straddle the limit: units 200 and 201.
+		const straddling = `${"a".repeat(NOTICE_TEXT_MAX - 1)}\u{1F600}tail`;
+		const [entry] = appNoticeEntries(
+			plan({
+				deployments: [],
+				changes: [
+					{
+						reason: "case-property-declared",
+						entity: { type: "app", nameAtMigration: straddling },
+						detail: { caseType: "household", form: straddling },
+					},
+				],
+			}),
+		);
+		const cut = "a".repeat(NOTICE_TEXT_MAX - 1);
+		expect(entry?.kind === "document" && entry.entity.nameAtMigration).toBe(
+			cut,
+		);
+		expect(entry?.kind === "document" && entry.detail?.form).toBe(cut);
+		// Kept whole where it fits, and every cut is well-formed text.
+		const fits = `${"a".repeat(NOTICE_TEXT_MAX - 2)}\u{1F600}tail`;
+		expect(noticeText(fits)).toBe(
+			`${"a".repeat(NOTICE_TEXT_MAX - 2)}\u{1F600}`,
+		);
+		expect(noticeText("lone \ud83d high")).toBe("lone \ufffd high");
+		for (const text of [straddling, fits])
+			expect(noticeText(text).isWellFormed()).toBe(true);
 	});
 });
 

@@ -144,6 +144,7 @@ describe("the advisory scan", () => {
 				appsDeleted: 0,
 				planDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
 				fleetSeqDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+				ledger: { foldHorizonApplied: true, pendingMigrations: [] },
 			});
 			expect(section(lines, "holders")[0]).toMatchObject({ live: 1 });
 			expect(section(lines, "private-work")[0]).toMatchObject({

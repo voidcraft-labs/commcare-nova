@@ -184,6 +184,50 @@ describe("step 1, catalog-rules", () => {
 			},
 		]);
 	});
+	it("names only the rules a property held, and removes an empty one unnamed", () => {
+		const carriers = fixtureCarriers("catalog-rules");
+		const catalog = JSON.parse(carriers.root.case_types_text ?? "[]") as {
+			properties: Record<string, unknown>[];
+		}[];
+		const properties = catalog[0]?.properties ?? [];
+		const age = properties.find((entry) => entry.name === "age");
+		if (age === undefined) throw new Error("catalog-rules has no age");
+		// An empty expression and a blank message hold no rule.
+		age.validation = { parts: [] };
+		age.validation_msg = { parts: [{ kind: "text", text: "  " }] };
+		// A property whose every rule is empty gets no line at all.
+		properties.push({
+			name: "weight",
+			label: { parts: [{ kind: "text", text: "Weight" }] },
+			required: { parts: [] },
+		});
+		const r = transformApp(
+			{
+				...carriers,
+				root: { ...carriers.root, case_types_text: JSON.stringify(catalog) },
+			},
+			fixtureContext(manifestFixture("catalog-rules")),
+		);
+		const stored = r.target?.caseTypes?.flatMap(
+			(caseType) => caseType.properties,
+		) as Record<string, unknown>[] | undefined;
+		for (const name of ["age", "weight"]) {
+			const property = stored?.find((entry) => entry.name === name);
+			expect(property, name).toBeDefined();
+			for (const key of ["required", "validation", "validation_msg"])
+				expect(Object.hasOwn(property ?? {}, key), `${name}.${key}`).toBe(
+					false,
+				);
+		}
+		expect(
+			r.changes
+				.filter((change) => change.reason === "case-property-rules-removed")
+				.map((change) => change.detail),
+		).toEqual([{ caseType: "patient", property: "age", rules: "required" }]);
+		expect(r.classes.filter((entry) => entry.step === "catalog-rules")).toEqual(
+			[{ step: "catalog-rules", class: "required", count: 1 }],
+		);
+	});
 });
 
 describe("step 2, form-link-datum-names", () => {

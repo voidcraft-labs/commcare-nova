@@ -15,25 +15,32 @@ import "./lib/loadEnv";
  *   --settle-holders          settles every lapsed or paused run holder
  *                             through the production reapers, prints the
  *                             counts and stops.
- *   --rehearse                applies the ledgered DDL, builds the plan and
- *                             runs the whole fleet transaction, ending it in
- *                             a sentinel rollback. Local databases and tests
- *                             only: the Job does not admit it.
+ *   --rehearse                builds the plan and runs the whole fleet
+ *                             transaction, the ledgered DDL inside it, ending
+ *                             it in a sentinel rollback that leaves nothing.
+ *                             Local databases and tests only: the Job does
+ *                             not admit it.
  *   --execute --expect-plan-digest <sha256>
- *                             applies the ledgered DDL, builds the plan,
- *                             refuses with nothing written when its digest
- *                             is not the expected one, then writes and
- *                             commits.
+ *                             builds the plan, refuses with nothing written
+ *                             when its digest is not the expected one, then
+ *                             runs the fleet transaction, which applies the
+ *                             ledgered DDL only after its own checks pass and
+ *                             commits it with the fleet.
  *
  * It reads no CommCare HQ state and decrypts nothing. The report is
- * content-free JSON Lines (`./lib/hqRoundTripExpressions/report.ts`). Its
+ * content-free JSON Lines (`./lib/hqRoundTripExpressions/report.ts`), each
+ * line printed as it is made and always ending in an `outcome` line. Its
  * runbook is `docs/plans/hq-round-trip/3-cutover-runbook.md`.
  */
 
 import { Command, Option } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import { getAppDb } from "@/lib/db/pg";
-import { type MigrateMode, runMigrate } from "./lib/hqRoundTripExpressions/run";
+import {
+	errorTextOf,
+	type MigrateMode,
+	runMigrate,
+} from "./lib/hqRoundTripExpressions/run";
 import { runMain } from "./lib/main";
 
 interface Options {
@@ -58,13 +65,13 @@ program
 	.addOption(
 		new Option(
 			"--rehearse",
-			"local databases only: apply the ledgered DDL and run the whole write, then roll it back",
+			"local databases only: run the whole write, the ledgered DDL inside it, then roll it all back",
 		).conflicts(["settleHolders", "execute"]),
 	)
 	.addOption(
 		new Option(
 			"--execute",
-			"apply the ledgered DDL and write, when the plan's digest is the expected one",
+			"write, with the ledgered DDL in the same transaction, when the plan's digest is the expected one",
 		).conflicts(["settleHolders", "rehearse"]),
 	)
 	.option(
@@ -100,15 +107,24 @@ const mode: MigrateMode =
 				? "execute"
 				: "dry-run";
 
+/* Each report line is printed as it is made, so a run that throws has
+ * already printed its fleet line and ends with a `stopped` outcome naming
+ * the error's class. A database error's own text can quote stored content,
+ * so only this cutover's own messages reach stderr (`errorTextOf`). */
 async function main(): Promise<void> {
-	const result = await runMigrate(await getAppDb(), {
-		mode,
-		...(options.expectPlanDigest !== undefined && {
-			expectPlanDigest: options.expectPlanDigest,
-		}),
-	});
-	console.log(result.report.text());
-	process.exitCode = result.exitCode;
+	try {
+		const result = await runMigrate(await getAppDb(), {
+			mode,
+			...(options.expectPlanDigest !== undefined && {
+				expectPlanDigest: options.expectPlanDigest,
+			}),
+			onLine: (line) => console.log(JSON.stringify(line)),
+		});
+		process.exitCode = result.exitCode;
+	} catch (error) {
+		console.error(errorTextOf(error));
+		process.exitCode = 1;
+	}
 }
 
 runMain(async () => {

@@ -11,9 +11,17 @@
  * No `case_type_schemas` row is written here: the drift writer converges
  * them after the deploy (§8, option A).
  *
+ * The ledgered DDL runs inside this transaction too, once every check that
+ * can stop has passed (the run's digest before it opens; the blocking scan,
+ * its holders and the already-applied count under its locks): Kysely's
+ * `Migrator` runs on a transaction it is given, so the fold-horizon
+ * functions and their `kysely_migration` row commit with the fleet or roll
+ * back with it. No stop leaves the database holding a migration `main` does
+ * not have.
+ *
  * Under `--rehearse` the transaction runs whole and ends in a sentinel
- * rollback, as the runtime database probe does, so beyond the ledgered DDL a
- * rehearsal leaves nothing.
+ * rollback, as the runtime database probe does, so a rehearsal leaves
+ * nothing, the DDL included.
  *
  * Step 2's writer (`scripts/lib/hqRoundTripCutover/writer.ts` at `f9218b7e`)
  * is the template; its lookup-tag, ledger and baseline steps have no
@@ -22,6 +30,8 @@
 
 import { type Kysely, sql, type Transaction } from "kysely";
 import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
+import { runCaseStoreMigrationsWithReport } from "@/lib/case-store/migrate";
+import { caseStoreMigrations } from "@/lib/case-store/migrations";
 import { decomposeBlueprint } from "@/lib/db/blueprintRows";
 import {
 	denormalize,
@@ -65,6 +75,7 @@ export const WRITER_STEPS = [
 	"lock",
 	"blocking-scan",
 	"already-applied",
+	"ledger",
 	"archive-events",
 	"clear-streams",
 	"private-work",
@@ -77,6 +88,40 @@ export type WriterStep = (typeof WRITER_STEPS)[number];
 
 /** The advisory lock key every run of this cutover takes first. */
 export const CUTOVER_LOCK_KEY = "cutover:hq-round-trip-expressions";
+
+/** The ledgered migration that admits this cutover's horizon. */
+export const FOLD_HORIZON_MIGRATION =
+	"20261020000000_hq_round_trip_expressions_fold_horizon";
+
+/** What the migration ledger holds, read before any write. */
+export interface MigrationLedgerState {
+	/** The ledger already holds the fold-horizon migration. */
+	readonly foldHorizonApplied: boolean;
+	/** Every migration of this tree the ledger does not hold, by name. */
+	readonly pendingMigrations: readonly string[];
+}
+
+/** Read the `kysely_migration` ledger with one plain `SELECT`. */
+export async function readMigrationLedger(
+	db: Kysely<AppDatabase>,
+): Promise<MigrationLedgerState> {
+	const exists = await sql<{ present: boolean }>`
+		SELECT to_regclass('public.kysely_migration') IS NOT NULL AS present
+	`.execute(db);
+	const applied = new Set<string>();
+	if (exists.rows[0]?.present === true) {
+		const rows = await sql<{ name: string }>`
+			SELECT name FROM kysely_migration
+		`.execute(db);
+		for (const row of rows.rows) applied.add(row.name);
+	}
+	return {
+		foldHorizonApplied: applied.has(FOLD_HORIZON_MIGRATION),
+		pendingMigrations: Object.keys(caseStoreMigrations)
+			.filter((name) => !applied.has(name))
+			.sort(),
+	};
+}
 
 /** Why the writer stopped before anything was written. */
 export type WriterStopCode =
@@ -103,6 +148,16 @@ export class CutoverStoppedError extends Error {
 /** A postcondition failed inside the transaction, so the fleet rolled back. */
 export class CutoverPostconditionError extends Error {
 	readonly name = "CutoverPostconditionError";
+}
+
+/** The ledgered DDL failed inside the transaction, so the fleet rolled back. */
+export class CutoverLedgerError extends Error {
+	readonly name = "CutoverLedgerError";
+}
+
+/** Another run held the cutover's lock past the lock timeout. */
+export class CutoverLockTimeoutError extends Error {
+	readonly name = "CutoverLockTimeoutError";
 }
 
 /** One app as the writer writes it: its plan, its target and its notice. */
@@ -146,6 +201,8 @@ export interface WriterReport {
 	readonly databaseBytes: number;
 	/** WAL written from step 1 to step 10. */
 	readonly walBytes: number;
+	/** The migrations the transaction applied and committed with the fleet. */
+	readonly migrationsApplied: readonly string[];
 	readonly appsWritten: number;
 	readonly noticesWritten: number;
 	readonly eventsArchived: number;
@@ -669,7 +726,7 @@ export async function runFleetTransaction(
 					);
 				} catch (error) {
 					if ((error as { code?: unknown })?.code === LOCK_NOT_AVAILABLE) {
-						throw new Error(
+						throw new CutoverLockTimeoutError(
 							"Another run of this cutover held its lock for 15 seconds, so this run stopped with nothing written. Let that run finish, then read its report before running again.",
 							{ cause: error },
 						);
@@ -691,6 +748,27 @@ export async function runFleetTransaction(
 						"Another run established this cutover's horizon after this one started, so it stopped with nothing written.",
 					);
 				}
+			});
+			// The ledgered DDL, now that nothing before the writes can stop:
+			// it commits with the fleet or rolls back with it.
+			const migrationsApplied = await timed("ledger", async () => {
+				let applied: readonly string[];
+				try {
+					applied = (
+						await runCaseStoreMigrationsWithReport(
+							tx as unknown as Kysely<unknown>,
+						)
+					).appliedMigrationNames;
+				} catch (error) {
+					throw new CutoverLedgerError(
+						"A ledgered migration failed inside the fleet transaction, so the whole fleet rolled back with nothing written, the migration included.",
+						{ cause: error },
+					);
+				}
+				/* Kysely's migration lock sets its own transaction-local lock
+				 * timeout; every later statement keeps the cutover's. */
+				await sql`SET LOCAL lock_timeout = '15s'`.execute(tx);
+				return applied;
 			});
 			// 4. Before-images, then step 2's event archive, verbatim.
 			const before = await timed("archive-events", async () => {
@@ -758,6 +836,7 @@ export async function runFleetTransaction(
 				mode: options.mode,
 				durations,
 				...growth,
+				migrationsApplied,
 				appsWritten: input.plan.apps.length,
 				noticesWritten,
 				eventsArchived: Number(before.mutationEvents.count),
