@@ -23,3 +23,21 @@ export function useNavigationDeviceCases(
 	const types = caseTypes ?? NO_CASE_TYPES;
 	return useMemo(() => ({ snapshot, caseTypes: types }), [snapshot, types]);
 }
+
+/** Where the device's cases stand (`engineController.ts::deviceCaseDatabaseLoad`),
+ * and a retry of a failed load. */
+export function useDeviceCaseDatabaseLoad(): {
+	readonly status: "idle" | "loading" | "ready" | "error";
+	readonly retry: () => Promise<void>;
+} {
+	const controller = useBuilderFormEngine();
+	const status = useSyncExternalStore(
+		controller.subscribeDeviceCaseDatabase,
+		() => controller.deviceCaseDatabaseLoad,
+		() => "idle" as const,
+	);
+	return useMemo(
+		() => ({ status, retry: () => controller.retryDeviceCaseDatabase() }),
+		[status, controller],
+	);
+}

@@ -32,6 +32,7 @@ import {
 	and,
 	arith,
 	dateCoerce,
+	dateLiteral,
 	datetimeCoerce,
 	datetimeLiteral,
 	double,
@@ -67,6 +68,7 @@ import {
 } from "@/lib/domain/expression/chosenCase";
 import type { DistanceUnit } from "@/lib/domain/expression/distance";
 import type { SessionContextField } from "@/lib/domain/expression/types";
+import { distanceSearchProperties } from "../distanceSearches";
 import { runValidation } from "../validator/runner";
 
 /** One case as HQ's receiver is asked to save it (`CaseBlock` fields). */
@@ -168,6 +170,12 @@ export function scenarioRecord(scenario: CsqlScenario) {
 		id: scenario.id,
 		caseTypes: scenario.caseTypes,
 		cases: scenario.cases,
+		// The properties Nova's publish steps ask a person to type GPS in HQ's
+		// data dictionary, the project configuration HQ's search measures
+		// distance on.
+		gpsProperties: distanceSearchProperties(doc).map(
+			({ caseType, property }) => ({ caseType, property }),
+		),
 		// Module `i`'s UUID, so Core can name the menu a chosen case is chosen in.
 		modules: doc.moduleOrder,
 		searches: scenario.searches.map((search, module) => ({
@@ -965,13 +973,6 @@ export const runtimeSelected: CsqlScenario = {
 					folded: multiSelectAny(tags, literal('a"b')),
 					expected: [],
 				},
-				// A blank answer names no choice: the search finds nothing.
-				{
-					id: "blank",
-					answers: { [TAGS_INPUT]: "" },
-					folded: matchNone(),
-					expected: [],
-				},
 			],
 		},
 		{
@@ -1254,19 +1255,22 @@ export const runtimeChoice: CsqlScenario = {
 		{
 			id: "by-pick-or-limit",
 			sendings: [
-				// The unchosen branch's obligation (a blank answer) does not reject
-				// the search; the chosen branch's does.
+				// A field left empty is never sent as a typed blank: Web Apps leaves
+				// it out of the request (query.js::encodeValue, ::getAnswers) and
+				// Android answers it with null (QueryRequestUiController.kt
+				// ::answerUserPrompt), so the limit is unanswered. The chosen branch
+				// then reads no limit and narrows nothing.
 				{
-					id: "adults-limit-blank",
-					answers: { [MODE_INPUT]: "adults", [LIMIT_INPUT]: "" },
+					id: "adults-limit-unanswered",
+					answers: { [MODE_INPUT]: "adults", [LIMIT_INPUT]: null },
 					folded: adult,
 					expected: ["csql-person-adult"],
 				},
 				{
-					id: "under-limit-blank",
-					answers: { [MODE_INPUT]: "under", [LIMIT_INPUT]: "" },
-					folded: matchNone(),
-					expected: [],
+					id: "under-limit-unanswered",
+					answers: { [MODE_INPUT]: "under", [LIMIT_INPUT]: null },
+					folded: matchAll(),
+					expected: personCases.map((row) => row.id),
 				},
 				{
 					id: "under-limit",
@@ -1578,6 +1582,140 @@ export const chosenCase: CsqlScenario = {
 		),
 };
 
+// A selected value read from the chosen case (§3.6, §3.9), the way a device
+// reaches a blank comparand: the chosen group's "wanted" saved blank. A typed
+// blank answer is not one, since no device sends it (Web Apps leaves an empty
+// field out of its request, query.js::encodeValue; Android answers it with
+// null, QueryRequestUiController.kt::answerUserPrompt).
+
+const GROUP = "tag_group";
+const GROUPED = "grouped_item";
+const WANTS_AB = "csql-group-wants-ab";
+const WANTS_BLANK = "csql-group-wants-blank";
+const WANTS_UNSET = "csql-group-wants-unset";
+const chosenBlankCases: readonly CsqlCase[] = [
+	{
+		id: WANTS_AB,
+		type: GROUP,
+		name: "Wants a or b",
+		properties: { wanted: "a b" },
+		modified: MODIFIED,
+	},
+	{
+		id: WANTS_BLANK,
+		type: GROUP,
+		name: "Wants nothing yet",
+		properties: { wanted: "" },
+		modified: MODIFIED,
+	},
+	// Never given a "wanted": the device's casedb holds no such property.
+	{
+		id: WANTS_UNSET,
+		type: GROUP,
+		name: "Wants not asked",
+		properties: {},
+		modified: MODIFIED,
+	},
+	...(
+		[
+			["csql-grouped-a", "a"],
+			["csql-grouped-c", "c"],
+			["csql-grouped-none", null],
+		] as const
+	).map(
+		([id, tags]): CsqlCase => ({
+			id,
+			type: GROUPED,
+			name: id,
+			properties: tags === null ? {} : { tags },
+			modified: MODIFIED,
+			indices: [
+				{
+					identifier: "parent",
+					caseType: GROUP,
+					caseId: WANTS_AB,
+					relationship: "child",
+				},
+			],
+		}),
+	),
+];
+const groupsModule = uuid("chosen-blank", "Groups-module");
+const groupedTags = prop(GROUPED, "tags");
+const choosingGroup = (group: string) => ({
+	chosenCaseIds: { [groupsModule]: group },
+});
+export const chosenBlank: CsqlScenario = {
+	id: "chosen-blank",
+	caseTypes: [GROUP, GROUPED],
+	cases: chosenBlankCases,
+	searches: [
+		{
+			id: "Groups",
+			sendings: [{ id: "all", expected: [WANTS_AB, WANTS_BLANK, WANTS_UNSET] }],
+		},
+		{
+			id: "Items the group wants",
+			sendings: [
+				{
+					id: "wants-ab",
+					session: choosingGroup(WANTS_AB),
+					folded: multiSelectAny(groupedTags, literal("a"), literal("b")),
+					expected: ["csql-grouped-a"],
+				},
+				// A blank selected value names no choice: the search finds nothing.
+				{
+					id: "wants-blank",
+					session: choosingGroup(WANTS_BLANK),
+					folded: matchNone(),
+					expected: [],
+				},
+				// A property never written reads blank too.
+				{
+					id: "wants-unset",
+					session: choosingGroup(WANTS_UNSET),
+					folded: matchNone(),
+					expected: [],
+				},
+			],
+		},
+	],
+	doc: () =>
+		scenarioDoc(
+			"chosen-blank",
+			"Tag groups",
+			[
+				{
+					name: GROUP,
+					properties: [textProperty("case_name"), textProperty("wanted")],
+				},
+				{
+					name: GROUPED,
+					parent_type: GROUP,
+					relationship: "child",
+					properties: [
+						textProperty("case_name"),
+						textProperty("tags", "multi_select"),
+					],
+				},
+			],
+			[
+				{ name: "Groups", caseType: GROUP },
+				{
+					name: "Items the group wants",
+					caseType: GROUPED,
+					parentModule: "Groups",
+					inputs: fixedRule("chosen-blank", "Items the group wants", {
+						kind: "multi-select-contains",
+						property: groupedTags,
+						quantifier: "any",
+						values: [chosenCaseProperty(groupsModule, GROUP, "wanted")],
+					}),
+				},
+			],
+		),
+};
+
 // The worker's day (§3.4): `today()` is the device's date, which Core writes
 // into the query, so HQ never reads its own day or the project's zone. At
 // 2026-01-02 11:00 UTC it is still the 2nd in UTC and New York and already
@@ -1600,8 +1738,10 @@ const taskCases: readonly CsqlCase[] = (
 	modified: MODIFIED,
 }));
 const due = prop(TASK, "due");
-/** One sending per device zone, each meaning that zone's date. */
+/** One sending per device zone, each meaning that zone's date: the query
+ * Core's evaluation leaves holds that date as a literal. */
 const dueSendings = (
+	query: (date: Expression) => Expression,
 	expected: (date: string) => readonly string[],
 ): CsqlSending[] =>
 	(
@@ -1614,6 +1754,7 @@ const dueSendings = (
 		id: zone,
 		zone,
 		session: { clock: TODAY_CLOCK },
+		folded: query(term(dateLiteral(date))),
 		expected: expected(date),
 	}));
 const byDue = (keep: (due: string) => boolean) =>
@@ -1627,11 +1768,17 @@ export const workerDay: CsqlScenario = {
 	searches: [
 		{
 			id: "due-today",
-			sendings: dueSendings((date) => byDue((due) => due === date)),
+			sendings: dueSendings(
+				(date) => eq(due, date),
+				(date) => byDue((due) => due === date),
+			),
 		},
 		{
 			id: "due-by-today",
-			sendings: dueSendings((date) => byDue((due) => due <= date)),
+			sendings: dueSendings(
+				(date) => lte(due, date),
+				(date) => byDue((due) => due <= date),
+			),
 		},
 	],
 	doc: () =>
@@ -1756,6 +1903,7 @@ export const csqlScenarios: readonly CsqlScenario[] = [
 	distanceUnits,
 	runtimeChoice,
 	chosenCase,
+	chosenBlank,
 	workerDay,
 	workerValues,
 ];

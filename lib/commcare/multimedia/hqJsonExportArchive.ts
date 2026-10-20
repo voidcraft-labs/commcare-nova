@@ -41,6 +41,7 @@ import {
 } from "@/lib/publish/manualImportGuide";
 import { sanitizeArchiveMemberName } from "@/lib/utils/sanitize";
 import { appEmitsConnectBlocks } from "../connectSlugs";
+import { distanceSearchProperties } from "../distanceSearches";
 import { readsLocationsFixture } from "../locations/readsLocationsFixture";
 import type { LookupWorkbook } from "../lookup/workbook";
 import { requiredPlanFeatures } from "../planPrivileges";
@@ -100,8 +101,8 @@ function logoMember(
  * The manual-import steps for this file, from the same derivations a
  * publish's own checks read: the capabilities and plan features the document
  * needs, the workbook's tables, the media the bulk upload carries, the logo,
- * whether the app reads places, and whether it sends forms to CommCare
- * Connect. An import file has no target and sends no places.
+ * whether the app reads places, whether it sends forms to CommCare Connect,
+ * and the properties its searches measure distance on. An import file has no target and sends no places.
  */
 export function hqImportFileGuide(input: {
 	readonly appName: string;
@@ -128,6 +129,7 @@ export function hqImportFileGuide(input: {
 		logo: logo === undefined ? null : { fileName: logo.name },
 		readsLocations: readsLocationsFixture(input.doc),
 		sendsToConnect: appEmitsConnectBlocks(input.doc),
+		distanceSearches: distanceSearchProperties(input.doc),
 	});
 }
 

@@ -1,6 +1,14 @@
 import type { BlueprintDoc } from "@/lib/domain";
-import type { Expression } from "@/lib/domain/expression/types";
-import { walkExpression } from "@/lib/domain/expression/walk";
+import {
+	type Expression,
+	isTerm,
+	type Term,
+} from "@/lib/domain/expression/types";
+import {
+	type ExpressionVisitor,
+	walkExpression,
+	walkTerm,
+} from "@/lib/domain/expression/walk";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 
 /**
@@ -18,11 +26,11 @@ import { expressionSlotValues } from "@/lib/domain/referenceSlots";
  * names which repeats those are.
  */
 export function expressionReadsCaseDatabase(
-	expression: Expression,
+	expression: Expression | Term,
 	doc?: Pick<BlueprintDoc, "fields">,
 ): boolean {
 	let reads = false;
-	walkExpression(expression, {
+	const visitor: ExpressionVisitor = {
 		visitExpression: (node) => {
 			if (node.kind === "cases" && node.source === "casedb") reads = true;
 			if (node.kind === "project") reads = true;
@@ -50,7 +58,9 @@ export function expressionReadsCaseDatabase(
 		visitRelation: () => {
 			reads = true;
 		},
-	});
+	};
+	if (isTerm(expression)) walkTerm(expression, visitor, []);
+	else walkExpression(expression, visitor);
 	return reads;
 }
 

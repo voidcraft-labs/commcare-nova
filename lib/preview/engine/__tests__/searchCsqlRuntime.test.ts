@@ -476,6 +476,79 @@ describe("a piece only the XPath worker runs", () => {
 		expect(requests).toBe(1);
 	});
 
+	it("asks the worker for each piece, never the whole row again", async () => {
+		const { doc, moduleUuid } = patterned();
+		const asked: string[] = [];
+		const counting: SearchCsqlDeviceEvaluator = (xpath) => {
+			asked.push(xpath.source);
+			return worker(xpath);
+		};
+		await searched(doc, moduleUuid, { mode: "abc" }, undefined, counting);
+		expect(asked).toHaveLength(1);
+		expect(asked[0]).toContain("regex(");
+	});
+
+	it("sends the worker's pieces together, not one after another", async () => {
+		// Two rows, each choosing by a pattern: both pieces are in the worker
+		// before either answers.
+		const { doc, moduleUuid } = withRule(
+			ifExpr(
+				matchesPattern(term(ref("mode")), "[a-z]+"),
+				eq(prop("member", "case_name"), term(literal("Ada"))),
+				eq(prop("member", "home_village"), term(literal("South"))),
+			),
+			["mode"],
+		);
+		const caseListConfig = doc.modules[moduleUuid]?.caseListConfig;
+		if (caseListConfig === undefined) throw new Error("No case list.");
+		caseListConfig.filter = ifExpr(
+			matchesPattern(term(ref("mode")), "[0-9]+"),
+			eq(prop("member", "case_name"), term(literal("Bo"))),
+			eq(prop("member", "home_village"), term(literal("North"))),
+		);
+		const waiting: (() => void)[] = [];
+		const held: SearchCsqlDeviceEvaluator = (xpath) =>
+			new Promise((resolve, reject) => {
+				waiting.push(() => worker(xpath).then(resolve, reject));
+				if (waiting.length === 2) for (const answer of waiting) answer();
+			});
+		const { query, unevaluated } = await searched(
+			doc,
+			moduleUuid,
+			{ mode: "abc" },
+			undefined,
+			held,
+		);
+		expect(waiting).toHaveLength(2);
+		expect(unevaluated).toBe(false);
+		expect(JSON.stringify(query)).toContain('"Ada"');
+		expect(JSON.stringify(query)).toContain('"North"');
+	});
+
+	it("works out only the branch the device takes", async () => {
+		// The pattern sits in the branch taken only for "by-pattern": with no
+		// worker, the other branch is still worked out whole.
+		const { doc, moduleUuid } = withRule(
+			ifExpr(
+				eq(term(ref("mode")), term(literal("by-pattern"))),
+				ifExpr(
+					matchesPattern(term(ref("mode")), "[a-z]+"),
+					eq(prop("member", "case_name"), term(literal("Ada"))),
+					eq(prop("member", "case_name"), term(literal("Bo"))),
+				),
+				eq(prop("member", "home_village"), term(literal("South"))),
+			),
+			["mode"],
+		);
+		expect(await searched(doc, moduleUuid, { mode: "other" })).toMatchObject({
+			unevaluated: false,
+			query: eq(prop("member", "home_village"), term(literal("South"))),
+		});
+		expect(
+			(await searched(doc, moduleUuid, { mode: "by-pattern" })).unevaluated,
+		).toBe(true);
+	});
+
 	it("marks the search Preview can't work out where the worker can't either", async () => {
 		const { doc, moduleUuid } = patterned();
 		const refusing: SearchCsqlDeviceEvaluator = () =>

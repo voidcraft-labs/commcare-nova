@@ -34,7 +34,7 @@ from functools import cache, cached_property
 from lxml import etree
 
 from proof.checks.compare.names import nova_name
-from proof.observe.manifest import CSQL_HOLE
+from proof.observe.manifest import CSQL_HOLES
 
 XFORMS = "http://www.w3.org/2002/xforms"
 XHTML = "http://www.w3.org/1999/xhtml"
@@ -3948,10 +3948,10 @@ def runtime_query_structure(use, manifest):
         reading = readings.csql.get(string) or ()
         comparisons = [item for item in reading if item[0] == "cmp"]
         if any(item[2] == "hole" for item in comparisons) or any(
-            item[0] == "fn" and item[1] == CSQL_HOLE for item in reading
+            item[0] == "fn" and item[1] in CSQL_HOLES for item in reading
         ):
             return True
-        steps = sum(1 for item in reading if item[0] == "step" and item[1] == CSQL_HOLE)
+        steps = sum(1 for item in reading if item[0] == "step" and item[1] in CSQL_HOLES)
         unsure = unsure or steps > sum(1 for item in comparisons if item[3] == "hole")
     return None if unsure else False
 
@@ -3966,8 +3966,9 @@ def _comparisons(use):
 def _typed_value(side, manifest):
     """Whether HQ's comparison reads a value side as a number, date or datetime (True), as other text (False),
     or as a value only the run time knows, which the export does not settle (None): a call to one of HQ's
-    value functions that gives a date, datetime or number is typed (``XPATH_VALUE_FUNCTIONS``)."""
-    if side in ("number", "date", "datetime"):
+    value functions that gives a date, datetime or number is typed (``XPATH_VALUE_FUNCTIONS``), and so is the
+    device's today(), which the run time always writes as a date (``hole-date``)."""
+    if side in ("number", "date", "datetime", "hole-date"):
         return True
     if side in ("text", "invalid-date"):
         return False

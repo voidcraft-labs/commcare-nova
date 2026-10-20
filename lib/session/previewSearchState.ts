@@ -11,6 +11,9 @@
  * `attempt` counts searches within one module run. A launch carries the
  * attempt it was offered on, so a form opened from an earlier search cannot
  * read a later search's answers or outrun a search still running.
+ * `submission` is each search's own identity, unique across every search:
+ * the count restarts when Search again retires a search, so what is kept per
+ * search (its device values) is kept under `submission`, never `attempt`.
  */
 
 import type {
@@ -32,12 +35,23 @@ function attemptOf(state: PreviewSearchState | undefined): number {
 		: state.attempt;
 }
 
+/** A new search's identity. */
+export function newSearchSubmission(): string {
+	return crypto.randomUUID();
+}
+
 /** The worker pressed Search with these answers. */
 export function beginSearch(
 	state: PreviewSearchState | undefined,
 	answers: PreviewSearchAnswers,
+	submission: string = newSearchSubmission(),
 ): PreviewSearchState {
-	return { kind: "running", attempt: attemptOf(state) + 1, answers };
+	return {
+		kind: "running",
+		attempt: attemptOf(state) + 1,
+		submission,
+		answers,
+	};
 }
 
 /**
@@ -60,6 +74,7 @@ export function settleSearch(
 		? {
 				kind: "completed",
 				attempt,
+				submission: state.submission,
 				answers: state.answers,
 				matchCount: outcome.matchCount,
 				...deviceValues,
@@ -67,6 +82,7 @@ export function settleSearch(
 		: {
 				kind: "failed",
 				attempt,
+				submission: state.submission,
 				answers: state.answers,
 				reason: outcome.reason,
 				...deviceValues,
@@ -74,19 +90,19 @@ export function settleSearch(
 }
 
 /**
- * The device worked out the `_xpath_query` rows of search `attempt` as it
- * sent it. The first value for an attempt stands: a device evaluates the
+ * The device worked out the `_xpath_query` rows of search `submission` as it
+ * sent it. The first value for a search stands: a device evaluates the
  * request once and keeps it for the query step, so a later value (the
  * device's cases after a claim, a lookup that arrived) leaves the state
- * untouched, as does a value for any other attempt.
+ * untouched, as does a value for any other search.
  */
 export function recordSearchDeviceValues(
 	state: PreviewSearchState | undefined,
-	attempt: number,
+	submission: string,
 	value: PreviewSearchDeviceValues["value"],
 ): PreviewSearchState | undefined {
 	if (state === undefined || state.kind === "not-searched") return state;
-	if (state.attempt !== attempt || state.deviceValues !== undefined)
+	if (state.submission !== submission || state.deviceValues !== undefined)
 		return state;
 	return { ...state, deviceValues: { value } };
 }
@@ -102,8 +118,16 @@ export function recordRegisteredCase(
 ): PreviewSearchState {
 	const base =
 		state !== undefined && state.kind !== "not-searched"
-			? { attempt: state.attempt, answers: state.answers }
-			: { attempt: attemptOf(state) + 1, answers: {} };
+			? {
+					attempt: state.attempt,
+					submission: state.submission,
+					answers: state.answers,
+				}
+			: {
+					attempt: attemptOf(state) + 1,
+					submission: newSearchSubmission(),
+					answers: {},
+				};
 	return {
 		kind: "completed",
 		...base,

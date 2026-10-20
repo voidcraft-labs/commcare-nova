@@ -5,11 +5,13 @@ navigation searches (``NavigationRuntimeTest``, both paths) compiles in HQ's
 CSQL compiler (``case_search/filter_dsl.py::build_filter_from_xpath``) to the
 complete filter the document means: date and datetime arithmetic resolved,
 day ranges as UTC half-open bounds on the right property, unsupplied inputs
-matching everything, and a day range answered blank matching nothing
-(``match-none()``, where HQ's range query refuses a blank comparand). Each query Core builds from Nova's nested CSQL
-functions (``CsqlFunctionRuntimeTest``) compiles to its exact property
-equality, and each argument tree HQ's parser reads from them has the
-relation and case-type structure Nova emits. A property wrapped in a value
+matching everything, a day range answered blank matching nothing
+(``match-none()``, where HQ's range query refuses a blank comparand), and a
+datetime equality the closed range at its instant (part 06 §3.13). Each
+query Core builds from Nova's nested CSQL functions
+(``CsqlFunctionRuntimeTest``) compiles to its exact property equality (a
+datetime's, that range), and each argument tree HQ's parser reads from them
+has the relation and case-type structure Nova emits. A property wrapped in a value
 function, and a quantity left ungrouped after a comma (the pre-grouping
 form), are refused. The plausible failures: a date, bound or relation HQ
 compiles differently from what the document means, and a refusal HQ stops
@@ -60,6 +62,12 @@ def property_bound(key, operator, value):
     }
 
 
+def instant_equality(key, value):
+    """A datetime equality as Nova sends it, the closed range at its instant (part 06 §3.13): HQ's ``and``
+    (``case_search/const.py::OPERATOR_MAPPING``) over an inclusive bound on each side."""
+    return {"bool": {"filter": [property_bound(key, "gte", value), property_bound(key, "lte", value)]}}
+
+
 def _compile(state, query):
     import json
 
@@ -105,7 +113,7 @@ def _expected_navigation(scenario, supplied, query):
     if scenario == "date-add":
         return property_equality("visit_date", "2024-03-07")
     if scenario == "datetime-add":
-        return property_equality("last_seen", "2024-02-29T01:00:00+00:00")
+        return instant_equality("last_seen", "2024-02-29T01:00:00+00:00")
     assert scenario == "day-range"
     field = _bounded_property(query)
     start, end = "2024-02-29", "2024-03-01"
@@ -131,6 +139,8 @@ def _expected_function(scenario, supplied):
         ("visit_date", "2024-03-01"),
         ("score", 0.0 if scenario.endswith("-other") else 19.5),
     ]
+    if supplied == "1":
+        return instant_equality(*values[1])
     return property_equality(*values[int(supplied)])
 
 

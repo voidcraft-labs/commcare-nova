@@ -28,11 +28,15 @@ import {
 	csqlRuntimeRow,
 	foldCsqlRuntime,
 } from "@/lib/commcare/csql/fold";
-import { csqlClauseWrapper } from "@/lib/commcare/csql/print";
-import { isSilentRuntimeCsqlRejection } from "@/lib/commcare/csql/segment";
+import {
+	isSilentRuntimeCsqlRejection,
+	type RuntimeCsqlRejection,
+} from "@/lib/commcare/csql/segment";
+import type { CsqlNode } from "@/lib/commcare/csql/tree";
 import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import { caseListStepDatumId } from "@/lib/commcare/formLinkProjection";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { getAdvancedArmPredicates } from "@/lib/commcare/suite/case-search/searchPrompts";
 import {
 	composeXPathQueryClauses,
 	type XPathQueryClause,
@@ -59,6 +63,7 @@ import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
 import type { XPathInstance } from "../xpath/runtimeValues";
 import type { EvalContext, XPathValue } from "../xpath/types";
+import { expressionReadsCaseDatabase } from "./expressionCaseReads";
 import type { PreviewSearchSessionValues } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
 import {
@@ -130,6 +135,31 @@ function searchCsqlClauses(
 }
 
 /**
+ * Whether a search's rows hold a runtime piece that reads the device's case
+ * snapshot (`expressionCaseReads.ts::expressionReadsCaseDatabase`): its cases,
+ * a chosen case's properties, the worker's record. Only such a search waits
+ * for the snapshot before it sends; one with none sends without it. The rows
+ * are the filter's and the advanced inputs': a simple input's derived row
+ * reads its answer alone.
+ */
+export function searchCsqlReadsCaseDatabase(
+	doc: Pick<BlueprintDoc, "fields">,
+	caseListConfig: CaseListConfig,
+): boolean {
+	const rows = [
+		...(caseListConfig.filter === undefined ? [] : [caseListConfig.filter]),
+		...getAdvancedArmPredicates(caseListConfig.searchInputs).map(
+			(entry) => entry.predicate,
+		),
+	];
+	return rows.some((row) =>
+		csqlRuntimeRoots(row).some((root) =>
+			expressionReadsCaseDatabase(root.node, doc),
+		),
+	);
+}
+
+/**
  * Where a piece Preview's synchronous evaluator can't run is evaluated: the
  * Search screen's XPath worker, which runs the device's Java Pattern engine
  * (`engineController.ts::evaluateSearchScreenXPath`). It throws for a piece
@@ -156,8 +186,10 @@ export type SearchCsqlDeviceEvaluator = (
  * every function but the ones only the XPath worker runs (a pattern the
  * author wrote, encryption); those go to `onDevice`. Without one (App Tests'
  * server reads, which hold no Java Pattern engine), or where the worker
- * fails too, the piece has no value. Once `signal` aborts, no further piece
- * goes to the worker.
+ * fails too, the piece has no value. The worker's pieces, of every row, are
+ * sent together and awaited together; once `signal` aborts, no further piece
+ * goes to the worker. `unevaluated` comes from the pieces: a piece with no
+ * value in a branch the device takes, or an obligation with none.
  */
 export async function evaluateSearchCsqlRuntime(
 	world: SearchCsqlWorld,
@@ -186,24 +218,37 @@ export async function evaluateSearchCsqlRuntime(
 	};
 	const instances = searchCsqlInstances(world);
 	const context = evalContext(instances);
-	const run = async (wire: WireExpr): Promise<XPathValue | undefined> => {
+	/* Every piece of every row runs in the synchronous evaluator first; the
+	 * ones it can't run go to the worker together, each sent only while the
+	 * evaluation is current. A piece already sent finishes, and a superseded
+	 * evaluation's result is dropped. */
+	const deviceRuns: Promise<void>[] = [];
+	const piece = (wire: WireExpr): Piece => {
 		const source = serializeWire(wire, { target: "suite" }).text;
+		const result: Piece = { value: undefined };
 		try {
-			return evaluate(source, context);
+			result.value = evaluate(source, context);
 		} catch {
-			if (onDevice === undefined || signal?.aborted === true) return undefined;
+			if (onDevice === undefined || signal?.aborted === true) return result;
+			let sent: Promise<XPathValue>;
 			try {
-				return await onDevice({ source, instances });
+				sent = onDevice({ source, instances });
 			} catch {
-				return undefined;
+				return result;
 			}
+			deviceRuns.push(
+				sent.then(
+					(value) => {
+						result.value = value;
+					},
+					() => undefined,
+				),
+			);
 		}
+		return result;
 	};
-	const segments: Record<string, string> = {};
-	const choices: Record<string, boolean> = {};
-	let refusal: SearchRuntimeValidationKind | undefined;
-	let unevaluated = false;
-	for (const [row, clause] of clauses.entries()) {
+	const rows: RowPieces[] = [];
+	for (const clause of clauses) {
 		let tree: ReturnType<typeof emitCsqlTree>;
 		try {
 			tree = emitCsqlTree(clause.expression, {
@@ -211,31 +256,55 @@ export async function evaluateSearchCsqlRuntime(
 				bindings,
 			});
 		} catch {
+			rows.push(undefined);
 			continue;
 		}
-		/* The device evaluates the row's whole wrapper, each choice's untaken
-		 * branch left alone (Preview's `if` is as lazy as Core's). Where Preview
-		 * cannot, it cannot say what the device sends. */
-		if ((await run(csqlClauseWrapper(tree).wrapper)) === undefined)
-			unevaluated = true;
 		const { reads, rejections } = csqlRuntimeRow(tree);
-		for (const segment of reads.segments) {
-			const value = await run(segment.value);
-			if (value !== undefined)
-				segments[rowKey(row, segment.key)] = xpathToString(value);
-		}
-		for (const choice of reads.choices) {
-			const value = await run(choice.condition);
-			if (value !== undefined)
-				choices[rowKey(row, choice.key)] = toBoolean(value);
-		}
-		let rejected = false;
-		for (const rejection of rejections) {
+		rows.push({
+			tree,
+			segments: new Map(
+				reads.segments.map(
+					(segment) => [segment.key, piece(segment.value)] as const,
+				),
+			),
+			choices: new Map(
+				reads.choices.map(
+					(choice) => [choice.key, piece(choice.condition)] as const,
+				),
+			),
 			// Each obligation as the emitter wrote it: its own guard (the
-			// condition that picks its branch, the input's presence) and its own
-			// reads, as Core judges it.
-			const value = await run(rejection.condition);
-			if (value === undefined || !toBoolean(value)) continue;
+			// condition that picks its branch, the input's presence) and its
+			// own reads, as Core judges it.
+			rejections: rejections.map((rejection) => ({
+				rejection,
+				piece: piece(rejection.condition),
+			})),
+		});
+	}
+	await Promise.all(deviceRuns);
+	const segments: Record<string, string> = {};
+	const choices: Record<string, boolean> = {};
+	let refusal: SearchRuntimeValidationKind | undefined;
+	let unevaluated = false;
+	for (const [row, pieces] of rows.entries()) {
+		if (pieces === undefined) continue;
+		for (const [key, { value }] of pieces.segments)
+			if (value !== undefined)
+				segments[rowKey(row, key)] = xpathToString(value);
+		for (const [key, { value }] of pieces.choices)
+			if (value !== undefined) choices[rowKey(row, key)] = toBoolean(value);
+		/* What the device sends is the row's text with each piece of the
+		 * branches it takes spliced in (Core's `if` is as lazy as Preview's).
+		 * Where Preview has no value for such a piece, or for an obligation,
+		 * it cannot say what the device sends. */
+		if (
+			!takenPiecesEvaluated(pieces) ||
+			pieces.rejections.some(({ piece }) => piece.value === undefined)
+		)
+			unevaluated = true;
+		let rejected = false;
+		for (const { rejection, piece } of pieces.rejections) {
+			if (piece.value === undefined || !toBoolean(piece.value)) continue;
 			rejected = true;
 			if (
 				refusal === undefined &&
@@ -252,6 +321,73 @@ export async function evaluateSearchCsqlRuntime(
 		...(refusal === undefined ? {} : { refusal }),
 		...(unevaluated ? { unevaluated: true as const } : {}),
 	};
+}
+
+/** One runtime piece's value, once it is worked out. */
+interface Piece {
+	value: XPathValue | undefined;
+}
+
+/** One row's tree and its pieces by key; `undefined` for a row the emitter
+ * can't write yet. */
+type RowPieces =
+	| {
+			readonly tree: CsqlNode;
+			readonly segments: ReadonlyMap<string, Piece>;
+			readonly choices: ReadonlyMap<string, Piece>;
+			readonly rejections: readonly {
+				readonly rejection: RuntimeCsqlRejection;
+				readonly piece: Piece;
+			}[];
+	  }
+	| undefined;
+
+/** Whether every piece the device splices into the row has a value: each
+ * choice's condition, then only the branch it takes. */
+function takenPiecesEvaluated(row: NonNullable<RowPieces>): boolean {
+	const visit = (node: CsqlNode): boolean => {
+		switch (node.k) {
+			case "cmp":
+				return visit(node.left) && visit(node.right);
+			case "and":
+			case "or":
+				return node.items.every(visit);
+			case "not":
+			case "group":
+			case "guarded":
+				return visit(node.item);
+			case "query-call":
+			case "value-call":
+				return node.args.every(visit);
+			case "step":
+			case "literal":
+			case "number":
+				return true;
+			case "json-list":
+				return node.items.every(
+					(item) =>
+						item.k !== "runtime" ||
+						row.segments.get(item.hole.key)?.value !== undefined,
+				);
+			case "runtime":
+				return row.segments.get(node.hole.key)?.value !== undefined;
+			case "choice": {
+				const taken = row.choices.get(node.key)?.value;
+				if (taken === undefined) return false;
+				return visit(toBoolean(taken) ? node.then : node.else);
+			}
+			case "presence": {
+				const present = row.choices.get(node.key)?.value;
+				if (present === undefined) return false;
+				return !toBoolean(present) || visit(node.clause);
+			}
+			default: {
+				const exhaustive: never = node;
+				throw new Error(`Unknown CSQL node ${String(exhaustive)}.`);
+			}
+		}
+	};
+	return visit(row.tree);
 }
 
 /** The instances the device's query screen evaluates the request in. */

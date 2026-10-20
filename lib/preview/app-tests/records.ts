@@ -112,6 +112,7 @@ export async function appTestRecords(
 				? {
 						kind: "completed",
 						attempt: 0,
+						submission: "app-test-read",
 						answers: Object.fromEntries(
 							(search.submitted ?? []).map(({ name, value }) => [name, value]),
 						),

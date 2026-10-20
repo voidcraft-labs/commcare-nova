@@ -32,7 +32,8 @@ export function walkExpression(
 	visitor.visitExpression?.(expression, path);
 	walkChildren(expression, visitor, path);
 }
-function walkTerm(
+/** Pre-order over one term and what it holds, as {@link walkExpression}. */
+export function walkTerm(
 	term: Term,
 	visitor: ExpressionVisitor,
 	path: CheckPath,

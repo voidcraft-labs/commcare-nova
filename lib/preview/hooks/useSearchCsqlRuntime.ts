@@ -26,9 +26,13 @@ import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 import {
 	evaluateSearchCsqlRuntime,
 	type SearchCsqlRuntimeWire,
+	searchCsqlReadsCaseDatabase,
 } from "@/lib/preview/engine/searchCsqlRuntime";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
-import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDeviceCases";
+import {
+	useDeviceCaseDatabaseLoad,
+	useNavigationDeviceCases,
+} from "@/lib/preview/engine/useNavigationDeviceCases";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { usePreviewMenuCaseSelections } from "@/lib/session/hooks";
@@ -67,10 +71,17 @@ export function useCaseListStepSession(
 
 /** What a Results read sends for a submitted search's `_xpath_query` rows:
  * nothing to send (no submission, or the registered case, read by its id),
- * values still being worked out, or the values. */
+ * values still being worked out, values that can't be worked out until the
+ * device's cases load again (`retry` reads them again), or the values. */
 export type SubmittedSearchDeviceValues =
+	| Exclude<SubmissionValuesState, { kind: "unavailable" }>
+	| { readonly kind: "unavailable"; readonly retry: () => Promise<void> };
+
+/** {@link SubmittedSearchDeviceValues} as the state alone decides it. */
+export type SubmissionValuesState =
 	| { readonly kind: "none" }
 	| { readonly kind: "pending" }
+	| { readonly kind: "unavailable" }
 	| {
 			readonly kind: "ready";
 			readonly value: SearchCsqlRuntimeWire | undefined;
@@ -82,10 +93,15 @@ export interface SearchSubmission {
 	readonly answers: SearchInputValues;
 }
 
+/** Whether the world a submission's values read is there: `ready`, still
+ * loading, or `failed` (the device's cases the search reads didn't load). */
+export type SearchWorld = "ready" | "waiting" | "failed";
+
 /**
  * The values a submission's read sends: the values kept for it (the module's
- * search state, or this screen's own last evaluation), else pending. A
- * value kept under another submission's key is never sent for this one.
+ * search state, or this screen's own last evaluation), else `unavailable`
+ * when the world they read failed to load, else pending. A value kept under
+ * another submission's key is never sent for this one.
  */
 export function submittedSearchDeviceValues(
 	submission: SearchSubmission | undefined,
@@ -93,24 +109,31 @@ export function submittedSearchDeviceValues(
 		| { readonly key: string; readonly values: PreviewSearchDeviceValues }
 		| undefined
 	)[],
-): SubmittedSearchDeviceValues {
+	world: SearchWorld,
+): SubmissionValuesState {
 	if (submission === undefined) return { kind: "none" };
 	const found = kept.find((entry) => entry?.key === submission.key);
-	return found === undefined
-		? { kind: "pending" }
-		: { kind: "ready", value: found.values.value };
+	if (found !== undefined) return { kind: "ready", value: found.values.value };
+	return world === "failed" ? { kind: "unavailable" } : { kind: "pending" };
 }
 
 /**
- * Whether the world a search's values read is there to read: the device's
- * cases have loaded and the lookup tables are not still loading. A device
- * holds both before it can send a search, so the values wait for them.
+ * Whether the world a search's values read is there to read. The lookup
+ * tables must not still be loading. The device's cases matter only to a
+ * search with a runtime piece that reads them
+ * (`searchCsqlRuntime.ts::searchCsqlReadsCaseDatabase`): such a search waits
+ * for them, as a device holds them before it sends, and a failed load fails
+ * it rather than leaving it waiting. A search with none sends without them.
  */
-export function searchWorldReady(
-	deviceCases: CaseDatabaseSnapshot | null,
-	lookup: { readonly kind: string },
-): boolean {
-	return deviceCases !== null && lookup.kind !== "loading";
+export function searchWorld(args: {
+	readonly readsCaseDatabase: boolean;
+	readonly deviceCases: CaseDatabaseSnapshot | null;
+	readonly deviceCasesLoad: "idle" | "loading" | "ready" | "error";
+	readonly lookup: { readonly kind: string };
+}): SearchWorld {
+	if (args.readsCaseDatabase && args.deviceCases === null)
+		return args.deviceCasesLoad === "error" ? "failed" : "waiting";
+	return args.lookup.kind === "loading" ? "waiting" : "ready";
 }
 
 /**
@@ -138,20 +161,46 @@ export function useSubmittedSearchDeviceValues(args: {
 }): SubmittedSearchDeviceValues {
 	const engine = useBuilderFormEngine();
 	const deviceCases = useNavigationDeviceCases(args.doc.caseTypes ?? undefined);
+	const deviceCasesLoad = useDeviceCaseDatabaseLoad();
 	const identity = useSelectedPreviewIdentity();
 	const lookupStatus = usePreviewLookupStatus();
 	const [own, setOwn] = useState<{
 		readonly key: string;
 		readonly values: PreviewSearchDeviceValues;
 	}>();
-	const status = submittedSearchDeviceValues(args.submission, [args.kept, own]);
-	const ready = searchWorldReady(deviceCases.snapshot, lookupStatus);
+	const caseListConfig =
+		args.moduleUuid === undefined
+			? undefined
+			: args.doc.modules[args.moduleUuid]?.caseListConfig;
+	const readsCaseDatabase = useMemo(
+		() =>
+			caseListConfig !== undefined &&
+			searchCsqlReadsCaseDatabase(args.doc, caseListConfig),
+		[args.doc, caseListConfig],
+	);
+	const world = searchWorld({
+		readsCaseDatabase,
+		deviceCases: deviceCases.snapshot,
+		deviceCasesLoad: deviceCasesLoad.status,
+		lookup: lookupStatus,
+	});
+	const found = submittedSearchDeviceValues(
+		args.submission,
+		[args.kept, own],
+		world,
+	);
+	const status: SubmittedSearchDeviceValues =
+		found.kind === "unavailable"
+			? { kind: "unavailable", retry: deviceCasesLoad.retry }
+			: found;
 	/* The latest world, read when an evaluation starts; the submission's key
 	 * and the world's readiness alone decide whether one starts. */
 	const latest = useRef({ args, deviceCases, identity, lookupStatus, engine });
 	latest.current = { args, deviceCases, identity, lookupStatus, engine };
 	const pendingKey =
-		status.kind === "pending" && ready ? args.submission?.key : undefined;
+		status.kind === "pending" && world === "ready"
+			? args.submission?.key
+			: undefined;
 	useEffect(() => {
 		if (pendingKey === undefined) return;
 		const input = latest.current;
@@ -169,6 +218,11 @@ export function useSubmittedSearchDeviceValues(args: {
 		const controller = new AbortController();
 		const lookup =
 			input.lookupStatus.kind === "data" ? input.lookupStatus.data : undefined;
+		const keep = (values: PreviewSearchDeviceValues) => {
+			if (controller.signal.aborted) return;
+			setOwn({ key: pendingKey, values });
+			latest.current.args.onWorkedOut?.(pendingKey, values);
+		};
 		evaluateSearchCsqlRuntime(
 			{
 				doc,
@@ -186,23 +240,14 @@ export function useSubmittedSearchDeviceValues(args: {
 			(xpath) => input.engine.evaluateSearchScreenXPath(moduleUuid, xpath),
 			controller.signal,
 		).then(
-			(value) => {
-				if (controller.signal.aborted) return;
-				const values = { value };
-				setOwn({ key: pendingKey, values });
-				latest.current.args.onWorkedOut?.(pendingKey, values);
-			},
-			() => {
-				/* The evaluation itself never throws for a piece it can't run (it
-				 * has no value); a failure here is the engine's own, and the read
-				 * refuses the rows it could not work out. */
-				if (controller.signal.aborted) return;
-				const values = {
+			(value) => keep({ value }),
+			/* The evaluation itself never throws for a piece it can't run (it
+			 * has no value); a failure here is the engine's own, and the read
+			 * refuses the rows it could not work out. */
+			() =>
+				keep({
 					value: { segments: {}, choices: {}, unevaluated: true as const },
-				};
-				setOwn({ key: pendingKey, values });
-				latest.current.args.onWorkedOut?.(pendingKey, values);
-			},
+				}),
 		);
 		return () => controller.abort();
 	}, [pendingKey]);

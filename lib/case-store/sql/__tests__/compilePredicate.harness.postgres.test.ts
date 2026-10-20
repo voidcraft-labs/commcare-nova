@@ -85,6 +85,7 @@ const PATIENT_SCHEMA: CaseType = {
 		{ name: "bmi", label: proseText("BMI"), data_type: "decimal" },
 		{ name: "dob", label: proseText("DOB"), data_type: "date" },
 		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
+		{ name: "visit_time", label: proseText("Visit time"), data_type: "time" },
 		{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
 		{ name: "loc", label: proseText("Location"), data_type: "geopoint" },
 	],
@@ -2053,30 +2054,54 @@ test("a list of values is an exact any-of, and its negation keeps the case that 
 	).toEqual([]);
 });
 
-test("a list of values reads each item as the property's type, and an item of no such value matches nothing", async ({
+test("a list of values matches each item as the exact text the case holds, whatever the property's type", async ({
 	db,
 }) => {
 	await seedProperties(db, [
-		["three", { age: 3 }],
+		["five", { age: 5, visit_time: "10:00:00", tags: ["urgent", "home"] }],
 		["thirty", { age: 30 }],
+		["empty", { nickname: "" }],
 		["absent", {}],
 	]);
-	const ages = (...values: (string | number)[]): Expression => ({
+	const list = (...values: (string | number)[]): Expression => ({
 		kind: "value-list",
 		items: values.map((value) => term(literal(value))) as [
 			Expression,
 			...Expression[],
 		],
 	});
+	// HQ's terms compare the stored text: none of these spells a stored '5'.
 	expect(
-		await matchedIds(db, eq(prop("patient", "age"), ages("3", "abc", ""))),
-	).toEqual(["three"]);
-	expect(
-		await matchedIds(db, eq(prop("patient", "age"), ages("abc", ""))),
+		await matchedIds(
+			db,
+			eq(prop("patient", "age"), list("5.0", "05", " 5", "5e0")),
+		),
 	).toEqual([]);
 	expect(
-		await matchedIds(db, neq(prop("patient", "age"), ages("abc", "30"))),
-	).toEqual(["absent", "three"]);
+		await matchedIds(db, eq(prop("patient", "age"), list("5", 30))),
+	).toEqual(["five", "thirty"]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "visit_time"), list("10:00"))),
+	).toEqual([]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "visit_time"), list("10:00:00"))),
+	).toEqual(["five"]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "tags"), list("urgent home"))),
+	).toEqual(["five"]);
+	// A blank item finds the blank value, absent or empty, on a number too.
+	expect(
+		await matchedIds(db, eq(prop("patient", "age"), list("", "30"))),
+	).toEqual(["absent", "empty", "thirty"]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "nickname"), list(""))),
+	).toEqual(["absent", "empty", "five", "thirty"]);
+	expect(
+		await matchedIds(db, neq(prop("patient", "age"), list("", "30"))),
+	).toEqual(["five"]);
+	expect(
+		await matchedIds(db, neq(prop("patient", "age"), list("abc"))),
+	).toEqual(["absent", "empty", "five", "thirty"]);
 });
 
 test("a choice between clauses takes the else branch when its condition reads nothing", async ({

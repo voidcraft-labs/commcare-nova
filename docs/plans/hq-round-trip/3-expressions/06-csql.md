@@ -649,6 +649,25 @@ custom property with exact text terms (`es/case_search.py::case_property_query`,
 name. Value lists are held for import only, so no authored document is affected; step 6 decides
 what an imported one becomes. A date and every other type keep the typed comparison above.
 
+**Implementation correction, 2026-10-19** (the second review of pull request 10; supersedes the
+typed comparison two corrections above): Postgres compiles a list as exact text equality with the
+text the case holds, for every anchor the placement admits, because HQ compares that text
+exactly. On a custom property HQ's `p = unwrap-list(…)` is `terms` on the stored text
+(`corehq/apps/es/case_search.py::exact_case_property_text_query` given a list,
+`corehq/apps/es/filters.py::term`); on `@case_id`, `@owner_id`, `@case_type`, `case_name` and
+`external_id` it is `terms` on the system field (`corehq/apps/case_search/xpath_functions/comparison.py::_create_system_query`).
+Neither reads an item as a number, date or time, so `'5.0'`, `'05'`, `' 5'` and `'5e0'` do not
+find a stored `'5'`, and `'10:00'` does not find a stored `'10:00:00'`. The store reads
+`properties->>'p'` uncast, a system anchor its column's text, and a multi-select its stored
+choices joined by single spaces, the text a device stores (`compileTerm.ts::compileStoredText`);
+`compilePredicate.ts::compileValueListEquality` binds each item's text as the device sends it
+(a number in `formatNumeric`'s spelling, a literal `null` as `''`) and drops none. A `''` item
+matches a blank value: HQ indexes every property a case holds, blank ones included
+(`corehq/pillows/case_search.py::_get_case_properties`), so `terms ['']` finds a case holding the
+property as `''`, which is what a device's blank answer writes; Nova stores that blank as the
+key's absence (`submissionEnvelope.ts::storageValueFromEvaluation`), so the item matches the
+property absent or empty, on any type. `neq` stays the two-valued negation.
+
 ### 3.7 Runtime values in raw arguments
 
 **HQ and Core.** `selected`/`selected-any` and `selected-all` pass the value argument unevaluated to
@@ -773,6 +792,23 @@ choose a number value."; `distance-unit-type`, "The distance unit needs to be te
 like miles or meters, and this value is <kind>. You can choose a text value or a single choice."
 The three worker messages are in `lib/domain/searchRuntimeValidationMessages.ts` with §5's
 `decimal-number`; a combined message now starts with a capital letter whatever its first kind.
+
+**Implementation correction, 2026-10-19** (the HQ-side type): on HQ a `within-distance` finds a
+case only when its property is typed there. HQ queries `case_properties.geopoint_value`
+(`corehq/apps/es/case_search.py::case_property_geo_distance`), which the case search pillow fills
+only for the project's geo case property (`geospatial/utils.py::get_geo_case_property`,
+`GeoConfig.case_location_property_name`, default `gps_point` in `geospatial/const.py`) and, where
+the domain has `DATA_DICTIONARY`, for the properties its Data Dictionary types GPS
+(`corehq/pillows/case_search.py::_add_smart_types`, `data_dictionary/util.py::get_gps_properties`).
+The type is target-owned and set only in a browser session
+(`data_dictionary/views.py::update_case_property`), the page's Data Type column needs
+`DATA_DICT_TYPES` too, and both privileges are first in `accounting/bootstrap/features.py::advanced_v0`.
+So the construct needs the HQ-side type and Nova names the step:
+`lib/commcare/distanceSearches.ts::distanceSearchProperties` derives each `(case type, property)` a
+search's clauses measure, and the setup artifact's `distance-search` section and the HQ import
+file's guide list each one for a person to set, always, since no API key reads the project's geo
+property. The plan requirement is a caveat of that step, not a plan-feature confirmation, because
+`upload_app_to_hq`'s `confirm_plan_features` is a served enum.
 
 ### 3.9 The chosen case, worker and context values in runtime segments and the case list filter
 
@@ -1026,6 +1062,14 @@ A selector HQ can't compare (`concat` of a property, say) is refused as
 `comparison-needs-case-property` at `on`. A choice's branches print at the precedence the choice
 sits at, so the text the device splices groups as the branch written in place (an `or` branch under
 an `and` is parenthesised, `eulxml/xpath/parserules.py::precedence`).
+
+**Implementation correction, 2026-10-19** (the second review of pull request 10): each case of a
+row-reading `switch` is checked as the authored `eq` of `on` and `when` is
+(`representability.ts::checkComparison`: the subcase count bound, the system date's null value, two
+cases' properties, a value list's placement), each finding at that case's `when` path, so no case
+reaches the emitter unchecked. A row-reading `if` or `switch` prints its condition twice from one
+node (CSQL can't name a clause and read it again); `fold.ts::csqlRuntimeReads` lists each runtime
+piece once by key, and the wrapper's obligations were already collapsed on their identity.
 
 ### 3.11 Several `_xpath_query` rows
 

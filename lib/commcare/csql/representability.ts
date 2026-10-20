@@ -16,7 +16,10 @@
  * case where the sole query anchor was authored on the right.
  */
 
-import { expressionChildren } from "@/lib/domain/expression/children";
+import {
+	expressionChildPath,
+	expressionChildren,
+} from "@/lib/domain/expression/children";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import {
 	type CsqlPosition,
@@ -205,6 +208,8 @@ function checkQuery(node: Expression, path: Path, walk: Walk): void {
 	const { issues } = walk;
 	if (!isConditionArm(node)) {
 		if (node.kind === "if" || node.kind === "switch") {
+			if (node.kind === "switch" && !checkSwitchComparisons(node, path, walk))
+				return;
 			children(node, path, walk);
 			return;
 		}
@@ -225,40 +230,19 @@ function checkQuery(node: Expression, path: Path, walk: Walk): void {
 		case "gte":
 		case "lt":
 		case "lte": {
-			if (hasMultiplePropertyScopes([node.left, node.right])) {
-				issues.push({
-					reason: "multiple-property-scopes",
-					path,
-					message:
-						"This search compares properties from different cases. Choose one property and compare it with a value, or make separate related-case conditions.",
-				});
-				return;
-			}
 			const swapped =
 				!isCsqlQueryAnchor(node.left) && isCsqlQueryAnchor(node.right);
-			const anchor = swapped ? node.right : node.left;
-			const other = swapped ? node.left : node.right;
-			checkSystemDatetimeValue(anchor, [other], path, issues);
 			if (
-				anchor.kind === "count" &&
-				isRelationPath(anchor.via) &&
-				anchor.via.kind === "subcase"
+				!checkComparison(
+					node.kind,
+					swapped ? node.right : node.left,
+					swapped ? node.left : node.right,
+					path,
+					[...path, swapped ? "left" : "right"],
+					walk,
+				)
 			)
-				checkSubcaseCountBound(
-					other,
-					[...path, swapped ? "left" : "right"],
-					issues,
-				);
-			if (node.kind !== "eq" && node.kind !== "neq" && containsValueList(other))
-				pushValueListPlacement([...path, swapped ? "left" : "right"], issues);
-			else if (containsValueList(other) && readsMoment(anchor, walk.context))
-				pushValueListPlacement(
-					[...path, swapped ? "left" : "right"],
-					issues,
-					MOMENT_LIST_MESSAGE,
-				);
-			else if (containsValueList(other) && !admitsValueList(anchor))
-				pushValueListPlacement([...path, swapped ? "left" : "right"], issues);
+				return;
 			children(node, path, walk);
 			return;
 		}
@@ -392,6 +376,85 @@ function checkQuery(node: Expression, path: Path, walk: Walk): void {
 			);
 		}
 	}
+}
+
+/**
+ * The checks one comparison of a query side and a value gets, before its
+ * operands are checked where they sit. `path` is the comparison's own and
+ * `valuePath` its value side's. False when the comparison reads two cases'
+ * properties, whose operands are not checked further.
+ */
+function checkComparison(
+	kind: ComparisonKind,
+	anchor: Expression,
+	other: Expression,
+	path: Path,
+	valuePath: Path,
+	walk: Walk,
+): boolean {
+	const { issues } = walk;
+	if (hasMultiplePropertyScopes([anchor, other])) {
+		issues.push({
+			reason: "multiple-property-scopes",
+			path,
+			message:
+				"This search compares properties from different cases. Choose one property and compare it with a value, or make separate related-case conditions.",
+		});
+		return false;
+	}
+	checkSystemDatetimeValue(anchor, [other], path, issues);
+	if (
+		anchor.kind === "count" &&
+		isRelationPath(anchor.via) &&
+		anchor.via.kind === "subcase"
+	)
+		checkSubcaseCountBound(other, valuePath, issues);
+	if (kind !== "eq" && kind !== "neq" && containsValueList(other))
+		pushValueListPlacement(valuePath, issues);
+	else if (containsValueList(other) && readsMoment(anchor, walk.context))
+		pushValueListPlacement(valuePath, issues, MOMENT_LIST_MESSAGE);
+	else if (containsValueList(other) && !admitsValueList(anchor))
+		pushValueListPlacement(valuePath, issues);
+	return true;
+}
+
+/**
+ * A switch whose selector reads the row is HQ's own clause, each case the
+ * comparison `on = when` (`emitter.ts::switchChoice`), so each case gets the
+ * checks an authored `eq` of the two gets. A selector the device decides is
+ * no comparison HQ reads. False when a case reads two cases' properties.
+ */
+function checkSwitchComparisons(
+	node: Extract<Expression, { kind: "switch" }>,
+	path: Path,
+	walk: Walk,
+): boolean {
+	const onPath = expressionChildPath(
+		"switch",
+		{ kind: "operand", slot: "on" },
+		path,
+	);
+	if (positionOf(walk, onPath) !== "anchor") return true;
+	let checked = true;
+	node.cases.forEach((entry, index) => {
+		const whenPath = expressionChildPath(
+			"switch",
+			{ kind: "switch-case", index, slot: "when" },
+			path,
+		);
+		if (
+			!checkComparison(
+				"eq",
+				node.on,
+				{ kind: "term", term: entry.when },
+				whenPath,
+				whenPath,
+				walk,
+			)
+		)
+			checked = false;
+	});
+	return checked;
 }
 
 function checkAnchor(node: Expression, path: Path, walk: Walk): void {

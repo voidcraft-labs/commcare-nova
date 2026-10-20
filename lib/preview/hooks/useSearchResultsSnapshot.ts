@@ -14,15 +14,20 @@
  * elsewhere in the app does not read the search again, and the form keeps the
  * snapshot it opened with for the whole entry, as a device's session keeps
  * its query step.
+ *
+ * The values are the ones kept with the search, recorded as Results worked
+ * them out. A completed search that holds none (Results left before
+ * recording them) has them worked out here, once, by the same evaluator and
+ * recorded with the search (`useSearchCsqlRuntime.ts`); the read waits for
+ * them and never runs without them.
  */
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
 import type { BlueprintDoc, CaseType, Uuid } from "@/lib/domain";
 import { loadSearchResultsSnapshotAction } from "@/lib/preview/engine/caseDataBinding";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { ParentCaseSelection } from "@/lib/preview/engine/caseDataBindingTypes";
-import type { SearchCsqlRuntimeWire } from "@/lib/preview/engine/searchCsqlRuntime";
 import type {
 	LoadSearchResultsSnapshotResult,
 	SearchResultsSnapshot,
@@ -31,8 +36,15 @@ import {
 	useAccessPhase,
 	usePreviewClaimedCaseIds,
 	usePreviewPersonaUuid,
+	useSetPreviewSearchState,
 } from "@/lib/session/hooks";
+import { recordSearchDeviceValues } from "@/lib/session/previewSearchState";
 import type { PreviewSearchState } from "@/lib/session/types";
+import {
+	type SubmissionValuesState,
+	useCaseListStepSession,
+	useSubmittedSearchDeviceValues,
+} from "./useSearchCsqlRuntime";
 
 export type SearchResultsSnapshotState =
 	| { readonly kind: "idle" }
@@ -67,7 +79,8 @@ export function searchResultsLoadState(
 /**
  * The identity of one snapshot load, or `undefined` while no load can start.
  * The device's runtime values are part of it unless the search is the one
- * case the no-matches form registered, whose read sends none.
+ * case the no-matches form registered, whose read sends none; any other
+ * search's load waits until its values are ready.
  */
 export function searchResultsSnapshotKey(args: {
 	readonly ready: boolean;
@@ -77,7 +90,7 @@ export function searchResultsSnapshotKey(args: {
 	readonly searchState: PreviewSearchState | undefined;
 	readonly personaUuid: string | undefined;
 	readonly parentCase: ParentCaseSelection | undefined;
-	readonly csqlRuntime: SearchCsqlRuntimeWire | undefined;
+	readonly deviceValues: SubmissionValuesState;
 	readonly retries: number;
 }): string | undefined {
 	const completed =
@@ -89,21 +102,27 @@ export function searchResultsSnapshotKey(args: {
 		completed === undefined
 	)
 		return undefined;
+	const registered = completed.registeredCaseId !== undefined;
+	if (!registered && args.deviceValues.kind !== "ready") return undefined;
 	return JSON.stringify([
 		args.appId,
 		args.moduleUuid,
 		args.caseType,
-		completed.attempt,
+		completed.submission,
 		completed.answers,
 		completed.registeredCaseId ?? null,
 		args.personaUuid ?? null,
 		args.parentCase ?? null,
-		completed.registeredCaseId === undefined
-			? (args.csqlRuntime ?? null)
+		!registered && args.deviceValues.kind === "ready"
+			? (args.deviceValues.value ?? null)
 			: null,
 		args.retries,
 	]);
 }
+
+/** The form's answer while the device's cases its search reads failed to load. */
+export const SEARCH_DEVICE_CASES_FAILED_MESSAGE =
+	"The cases on this device didn't load, so what the search found can't load. Try again.";
 
 export function useSearchResultsSnapshot(args: {
 	/** The form reads what its module's search found. */
@@ -124,6 +143,44 @@ export function useSearchResultsSnapshot(args: {
 		args.moduleUuid === undefined
 			? undefined
 			: args.doc.modules[args.moduleUuid];
+	const completed =
+		args.searchState?.kind === "completed" ? args.searchState : undefined;
+	const stepSession = useCaseListStepSession(args.doc, args.moduleUuid);
+	const setPreviewSearchState = useSetPreviewSearchState();
+	const latestSearchState = useRef(args.searchState);
+	latestSearchState.current = args.searchState;
+	const submissionKey = completed?.submission;
+	const answers = completed?.answers;
+	const submission = useMemo(
+		() =>
+			submissionKey === undefined || answers === undefined
+				? undefined
+				: { key: submissionKey, answers: new Map(Object.entries(answers)) },
+		[submissionKey, answers],
+	);
+	const deviceValues = useSubmittedSearchDeviceValues({
+		doc: args.doc,
+		moduleUuid: args.moduleUuid,
+		submission:
+			args.enabled && completed?.registeredCaseId === undefined
+				? submission
+				: undefined,
+		...(completed?.deviceValues === undefined
+			? {}
+			: {
+					kept: {
+						key: completed.submission,
+						values: completed.deviceValues,
+					},
+				}),
+		onWorkedOut: (key, values) => {
+			const current = latestSearchState.current;
+			if (args.moduleUuid === undefined) return;
+			const next = recordSearchDeviceValues(current, key, values.value);
+			if (next !== current) setPreviewSearchState(args.moduleUuid, next);
+		},
+		sessionData: stepSession.data,
+	});
 	const key = searchResultsSnapshotKey({
 		ready: args.enabled && accessPhase === "authorized",
 		appId: args.appId,
@@ -132,16 +189,15 @@ export function useSearchResultsSnapshot(args: {
 		searchState: args.searchState,
 		personaUuid,
 		parentCase: args.parentCase,
-		csqlRuntime:
-			args.searchState?.kind === "completed"
-				? args.searchState.deviceValues?.value
-				: undefined,
+		deviceValues,
 		retries,
 	});
 	/* The latest inputs, read when a load starts; the key alone decides
 	 * whether one starts. */
-	const latest = useRef({ ...args, claimedCaseIds, personaUuid });
-	latest.current = { ...args, claimedCaseIds, personaUuid };
+	const csqlRuntime =
+		deviceValues.kind === "ready" ? deviceValues.value : undefined;
+	const latest = useRef({ ...args, claimedCaseIds, personaUuid, csqlRuntime });
+	latest.current = { ...args, claimedCaseIds, personaUuid, csqlRuntime };
 	const [result, setResult] = useState<{
 		readonly key: string;
 		readonly state: SearchResultsSnapshotState;
@@ -180,10 +236,10 @@ export function useSearchResultsSnapshot(args: {
 			...(input.parentCase === undefined
 				? {}
 				: { parentCase: input.parentCase }),
-			...(search.deviceValues?.value === undefined ||
+			...(input.csqlRuntime === undefined ||
 			search.registeredCaseId !== undefined
 				? {}
-				: { csqlRuntime: search.deviceValues.value }),
+				: { csqlRuntime: input.csqlRuntime }),
 			caseTypes: input.caseTypes,
 			language: input.language,
 			viewerTimeZone: viewerTimeZone(),
@@ -216,10 +272,20 @@ export function useSearchResultsSnapshot(args: {
 	}, [key]);
 
 	const state: SearchResultsSnapshotState =
-		key === undefined
-			? { kind: "idle" }
-			: result?.key === key
-				? result.state
-				: { kind: "loading" };
-	return { state, retry: () => setRetries((count) => count + 1) };
+		deviceValues.kind === "unavailable"
+			? { kind: "error", message: SEARCH_DEVICE_CASES_FAILED_MESSAGE }
+			: key === undefined
+				? args.enabled && deviceValues.kind === "pending"
+					? { kind: "loading" }
+					: { kind: "idle" }
+				: result?.key === key
+					? result.state
+					: { kind: "loading" };
+	return {
+		state,
+		retry: () => {
+			if (deviceValues.kind === "unavailable") void deviceValues.retry();
+			else setRetries((count) => count + 1);
+		},
+	};
 }

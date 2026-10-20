@@ -146,36 +146,67 @@ const compiledWhere = (predicate: Parameters<typeof compilePredicate>[0]) =>
 
 it("binds each listed value as its own parameter, and negates the list two-valued", () => {
 	const hostile = "x'); SELECT 1; --";
-	const list = valueList("a", hostile, null);
+	const list = valueList("a", hostile);
 	const equal = compiledWhere(eq(prop("patient", "nickname"), list));
-	expect(equal.sql).toContain(" in ($1, $2, $3)");
-	// A literal null is the blank comparand.
-	expect(equal.parameters).toEqual(["a", hostile, ""]);
+	expect(equal.sql).toContain(`"c"."properties"->>'nickname' in ($1, $2)`);
+	expect(equal.parameters).toEqual(["a", hostile]);
 	const differs = compiledWhere(neq(prop("patient", "nickname"), list));
-	expect(differs.sql).toMatch(/not coalesce\(.* in \(\$1, \$2, \$3\), false\)/);
+	expect(differs.sql).toMatch(/not coalesce\(.* in \(\$1, \$2\), false\)/);
 });
 
-it("reads each listed value as the anchor's type and leaves out one that is none", () => {
-	// HQ's `terms` finds no stored number equal to 'abc' or '', so neither
-	// can match; binding them against a number would fail the query.
-	const numbers = compiledWhere(
-		eq(prop("patient", "age"), valueList("3", "abc", "", 4.5, null)),
+it.each([
+	["age", ["5.0", "05", " 5", "5e0", 5]],
+	["bmi", ["2.50", 2.5]],
+	["dob", ["2026-02-30", "2026-2-1"]],
+] as const)(
+	"compares a list with %s's stored text exactly, never read as its type",
+	(property, items) => {
+		// HQ answers the list with exact `terms` on the stored text, so '5.0'
+		// is not a stored '5': nothing is cast, and no item is dropped.
+		const compiled = compiledWhere(
+			eq(prop("patient", property), valueList(...items)),
+		);
+		expect(compiled.sql).toContain(
+			`"c"."properties"->>'${property}' in (${items.map((_, index) => `$${index + 1}`).join(", ")})`,
+		);
+		expect(compiled.sql).not.toContain("cast(");
+		expect(compiled.parameters).toEqual(
+			items.map((item) => (typeof item === "number" ? String(item) : item)),
+		);
+	},
+);
+
+it("matches a blank item against a property absent or empty, on any type", () => {
+	// A device's blank answer is stored as the key's absence, and HQ's terms
+	// [''] finds the case holding it blank.
+	const compiled = compiledWhere(
+		eq(prop("patient", "age"), valueList("", null, "3")),
 	);
-	expect(numbers.parameters).toEqual([3, 4.5]);
-	const days = compiledWhere(
-		eq(
-			prop("patient", "dob"),
-			valueList("2026-02-28", "2026-02-30", "not a day", "2026-02-28T10:00"),
-		),
+	expect(compiled.sql).toContain(
+		`("c"."properties"->>'age' in ($1) or coalesce("c"."properties"->>'age', cast($2 as text)) = cast($3 as text))`,
 	);
-	expect(days.parameters).toEqual(["2026-02-28", ""]);
-	expect(days.sql).toContain("in (cast(nullif($1, $2) as date))");
+	expect(compiled.parameters).toEqual(["3", "", ""]);
+	const blankOnly = compiledWhere(eq(prop("patient", "age"), valueList("")));
+	expect(blankOnly.sql).not.toContain(" in (");
 });
 
-it("answers false for a list with no value of the anchor's type", () => {
-	const none = compiledWhere(eq(prop("patient", "age"), valueList("abc", "")));
-	expect(none.sql).toContain("false");
-	expect(none.parameters).toEqual([]);
+it("compares the case type and system text properties by their column's text", () => {
+	const caseType = compiledWhere(
+		eq({ kind: "term", term: { kind: "case-row-type" } }, valueList("patient")),
+	);
+	expect(caseType.sql).toContain(`"c"."case_type" in ($1)`);
+	const owner = compiledWhere(
+		eq(prop("patient", "owner_id"), valueList("u1", "u2")),
+	);
+	expect(owner.sql).toContain(`"c"."owner_id" in ($1, $2)`);
+});
+
+it("reads a multi-select's stored choices as the text a device stores", () => {
+	const compiled = compiledWhere(
+		eq(prop("patient", "tags"), valueList("urgent follow-up")),
+	);
+	expect(compiled.sql).toContain("string_agg(choice, ' ' order by ordinality)");
+	expect(compiled.parameters).toContain("urgent follow-up");
 });
 
 it("binds a runtime radius and unit and never inlines them", () => {

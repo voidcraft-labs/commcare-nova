@@ -251,7 +251,7 @@ export function compileExpression(
 					invariant:
 						"a `value-list` reached a server query outside an equality",
 					detail:
-						"The checker admits a list of values only as the other side of `=` or `!=`, which `compilePredicate.ts::compileEquality` compiles as `= any(...)`.",
+						"The checker admits a list of values only as the other side of `=` or `!=`, which `compilePredicate.ts::compileValueListEquality` compiles as exact text equality with the stored value.",
 				}),
 			);
 		case "call":

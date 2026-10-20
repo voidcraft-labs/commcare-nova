@@ -354,11 +354,12 @@ export const SEARCH_CHOICE_SEED = {
 	},
 	/** The fixed radius both branches start with, in kilometers. */
 	startRadiusKm: 2,
-	/** About 1.1, 5.6 and 55.6 km east of 0 0 along the equator. */
+	/** About 1.1, 5.6 and 55.6 km east of 0 0 along the equator, each in
+	 * the stored geopoint shape: latitude, longitude, altitude, accuracy. */
 	sites: [
-		{ caseName: "Clinic yard", home: "0 0.01" },
-		{ caseName: "Market", home: "0 0.05" },
-		{ caseName: "Hill farm", home: "0 0.5" },
+		{ caseName: "Clinic yard", home: "0 0.01 0 0" },
+		{ caseName: "Market", home: "0 0.05 0 0" },
+		{ caseName: "Hill farm", home: "0 0.5 0 0" },
 	],
 } as const;
 

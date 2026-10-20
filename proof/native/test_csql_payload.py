@@ -9,14 +9,26 @@ builds them from the scenario's searches in the sending's session
 (``CsqlCompositionRuntimeTest``, both suites, in each of its zones), are then
 sent through HQ's own search (``case_search/utils.py::CaseSearchQueryBuilder``
 over ``extract_search_request_config``, the path a worker's search takes
-after Formplayer posts it), and the ids it finds are held to the fixture's.
+after Formplayer posts it) for the case types the sending asks for (its
+``case_type`` data, the module's own type, as Core sends it), and the ids it
+finds are held to the fixture's.
 Every query runs under each of ``CONFIGURATIONS``: without
 ``CASE_SEARCH_RELATED_LOOKUPS``, where a search the fixture marks
 ``relatedLookups`` is refused and every other must still find its ids (the
 flag-free ancestor case id among them, part 06 §3.12); with the flag; and with
 the project's ``default_timezone`` set to a zone none of the device zones
 shares, which no search may read (the worker's ``today()`` is the device's
-date, part 06 §3.4). The plausible failures: a comparison HQ answers as text
+date, part 06 §3.4). Where a scenario's searches measure distance, its
+project space is configured as Nova's publish steps ask a person to
+configure it: each property they name (``gpsProperties``, from
+``lib/commcare/distanceSearches.ts::distanceSearchProperties``) has the GPS
+data type in HQ's data dictionary, set through the view its editor saves with
+(``data_dictionary/views.py::update_case_property``) in a project space with
+the ``DATA_DICTIONARY`` and ``DATA_DICT_TYPES`` privileges, before the cases
+are saved. HQ's search measures distance only on such a property, or on the
+project's case location property (``pillows/case_search.py::_add_smart_types``,
+``data_dictionary/util.py::get_gps_properties``,
+``geospatial/utils.py::get_geo_case_property``). The plausible failures: a comparison HQ answers as text
 where Nova means an instant, a raw term HQ's index refuses, a value HQ reads
 in its own day or zone, a query that needs a flag Nova did not ask for, and a
 query HQ compiles and then finds a different set of cases with.
@@ -48,6 +60,10 @@ ZONE_LABELS = tuple(zone.label for zone in ZONED_CLASSES[CORE_CLASS])
 # neither finds the same cases under it.
 PROJECT_ZONE = "Asia/Kolkata"
 ADVANCED = "CASE_SEARCH_ADVANCED"
+# What a project space needs for its data dictionary to type a property GPS: the data dictionary itself, which
+# its case search pillow reads only with this privilege (``pillows/case_search.py::_add_smart_types``), and data
+# types, which its editor's save keeps only with the second (``data_dictionary/views.py::update_case_property``).
+GPS_PRIVILEGES = ("DATA_DICTIONARY", "DATA_DICT_TYPES")
 RELATED = "CASE_SEARCH_RELATED_LOOKUPS"
 # (name, flags, the project's default_timezone or None for HQ's UTC default).
 # Advanced search is on in each, as for every search family: HQ's search
@@ -172,6 +188,36 @@ def _project_zone(state, zone):
     assert read == zone, f"HQ reads the project's zone as {read!r} after it was set to {zone!r}"
 
 
+def _type_gps(state, scenario):
+    """Each property the scenario's searches measure distance on, typed GPS in HQ's data dictionary as a person
+    types it there: through the view the data dictionary editor saves with."""
+    from corehq.apps.data_dictionary.util import get_gps_properties
+
+    from proof.hq import redis as hq_redis
+    from proof.hq.operations import session_post
+
+    properties = scenario["gpsProperties"]
+    if not properties:
+        return
+    label = f"csql {scenario['id']} gps properties"
+    sent = [{"caseType": entry["caseType"], "name": entry["property"], "data_type": "gps"} for entry in properties]
+    # The save takes HQ's Redis lock on each property (``models.py::CaseProperty.get_or_create``).
+    with hq_redis.shared(None), state.committing(), state.operation(label, hashlib.sha256(label.encode()).digest()):
+        response = session_post(
+            state, "update_case_property", pairs=[("properties", json.dumps(sent)), ("groups", "[]")]
+        )
+    assert response.status_code == 200, (
+        f"HQ's data dictionary refused to type {properties} GPS ({response.status_code}): "
+        f"{response.content[:600]!r}"
+    )
+    for entry in properties:
+        typed = get_gps_properties(state.domain, entry["caseType"])
+        assert entry["property"] in typed, (
+            f"HQ's data dictionary reads the GPS properties of {entry['caseType']!r} as {sorted(typed)} "
+            f"after {entry['property']!r} was typed GPS"
+        )
+
+
 def _submit(state, scenario):
     """The scenario's cases, saved through HQ's own receiver in one operation of the unit."""
     from casexml.apps.case.mock import CaseBlock
@@ -273,6 +319,7 @@ def _payloads(native, scenarios):
         path = native.core_artifact("csql", f"nova-csql-payloads.{zone}.jsonl", CORE_CLASS, zone)
         digests[zone] = sha256(path.read_bytes())
         written = [json.loads(line) for line in path.read_text().splitlines() if line]
+        assert all(record["caseTypes"] for record in written), f"{CORE_CLASS}[{zone}] wrote a sending with no case type"
         assert [(r["scenario"], r["search"], r["sending"], r["carrier"], r["zone"]) for r in written] == [
             (scenario["id"], search["id"], sending["id"], carrier, zone)
             for scenario in scenarios
@@ -288,26 +335,27 @@ def _payloads(native, scenarios):
 def _check(state, scenario, configuration, records, disagreements):
     """One scenario under one configuration: its cases saved, then every sending's queries searched."""
     name, flags, _ = configuration
-    case_types = scenario["caseTypes"]
     searches = {search["id"]: search for search in scenario["searches"]}
     meant = {
         (search["id"], sending["id"]): sending["expected"]
         for search in scenario["searches"]
         for sending in search["sendings"]
     }
+    _type_gps(state, scenario)
     _submit(state, scenario)
     stored = _stored(state, scenario)
     for case_id, spelling in STORED.get(scenario["id"], {}).items():
         if stored[case_id]["properties"].get("seen") != spelling:
             disagreements.append(f"{name}: {case_id} stored seen {stored[case_id]['properties'].get('seen')!r}")
-    # One search per distinct query set: the same queries find the same cases.
+    # One search per distinct request: the same case types and queries find the same cases.
     answers = {}
     rows = []
     for record in [r for r in records if r["scenario"] == scenario["id"]]:
-        queries = tuple(record["queries"])
-        if queries not in answers:
-            answers[queries] = _search(state, case_types, queries)
-        compiled, found, error = answers[queries]
+        request = (tuple(record["caseTypes"]), tuple(record["queries"]))
+        if request not in answers:
+            answers[request] = _search(state, *request)
+        compiled, found, error = answers[request]
+        case_types, queries = request
         # Without the flag, HQ refuses a search that reads related cases.
         refused = searches[record["search"]].get("relatedLookups") and RELATED not in flags
         expected = ERROR if refused else meant[(record["search"], record["sending"])]
@@ -321,6 +369,7 @@ def _check(state, scenario, configuration, records, disagreements):
                 "sending": record["sending"],
                 "carrier": record["carrier"],
                 "zone": record["zone"],
+                "caseTypes": list(case_types),
                 "queries": list(queries),
                 "compiled": compiled,
                 "found": found,
@@ -331,7 +380,7 @@ def _check(state, scenario, configuration, records, disagreements):
             }
         )
     for probe, query, expected in PROBES.get(scenario["id"], ()):
-        compiled, found, error = _search(state, case_types, (query,))
+        compiled, found, error = _search(state, scenario["caseTypes"], (query,))
         agrees, expected = _verdict(found, expected)
         rows.append(
             {
@@ -358,7 +407,8 @@ def test_hqs_search_finds_each_scenarios_meant_cases(native):
     for configuration in CONFIGURATIONS:
         name, flags, project_zone = configuration
         for scenario in scenarios:
-            with native_check(DOMAIN, flags=flags, case_search_enabled=True) as (state, _):
+            privileges = GPS_PRIVILEGES if scenario["gpsProperties"] else ()
+            with native_check(DOMAIN, flags=flags, privileges=privileges, case_search_enabled=True) as (state, _):
                 if project_zone is not None:
                     _project_zone(state, project_zone)
                 stored, rows = _check(state, scenario, configuration, records, disagreements)
@@ -376,6 +426,7 @@ def test_hqs_search_finds_each_scenarios_meant_cases(native):
                     "configuration": name,
                     "flags": sorted(flags),
                     "projectZone": project_zone,
+                    "gpsProperties": scenario["gpsProperties"],
                     "cases": scenario["cases"],
                     "stored": stored,
                     "queries": rows,
@@ -388,7 +439,8 @@ def test_hqs_search_finds_each_scenarios_meant_cases(native):
         "scenarios": observations,
         "limits": "Cases saved through HQ's receiver and indexed by HQ's case search pillow into HQ's own "
         "Elasticsearch; each sending's queries sent through HQ's CaseSearchQueryBuilder as a worker's search is, "
-        "without Formplayer's request or the results' XML. Probes are hand-written closed ranges, not Nova's "
+        "without Formplayer's request or the results' XML. A scenario's GPS properties are typed in HQ's data "
+        "dictionary through its editor's save view before its cases are saved. Probes are hand-written closed ranges, not Nova's "
         "emission. HQ's clock is not the device's: a query reading HQ's own today() would find a day the fixture "
         "does not name.",
     }

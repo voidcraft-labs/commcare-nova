@@ -50,7 +50,8 @@ import static org.junit.Assert.*;
  * (lib/commcare/__tests__/csqlCompositionFixture.ts, written as
  * {@code /csql/scenarios.jsonl}); what HQ's search finds for each query is
  * proof/native/test_csql_payload.py's to judge, so this class states only
- * that every sending builds its queries on both paths, and writes them.
+ * that every sending builds its queries on both paths, and writes them with
+ * the case types the sending asks for ({@code case_type}).
  */
 public class CsqlCompositionRuntimeTest {
     /** The fixture's device zones (CSQL_DEVICE_ZONES), by the runner's label. */
@@ -263,7 +264,11 @@ public class CsqlCompositionRuntimeTest {
         JSONObject answers = sending.optJSONObject("answers");
         if (answers != null) {
             for (String key : answers.keySet()) {
-                manager.answerUserPrompt(key, answers.isNull(key) ? null : answers.getString(key));
+                // No device sends a typed blank: Web Apps leaves an empty field out of its request
+                // (query.js::encodeValue, ::getAnswers) and Android answers it with null
+                // (QueryRequestUiController.kt::answerUserPrompt), so a blank is answered as Android answers it.
+                String answer = answers.isNull(key) ? null : answers.getString(key);
+                manager.answerUserPrompt(key, answer == null || answer.isEmpty() ? null : answer);
             }
         }
         manager.refreshInputDependentState();
@@ -273,15 +278,20 @@ public class CsqlCompositionRuntimeTest {
         JSONArray refusedBy = sending.optJSONArray("refusedBy");
         if (refusedBy != null) for (int r = 0; r < refusedBy.length(); r++) refused.add(refusedBy.getString(r));
         assertEquals(label + " " + manager.getErrors(), refused, new TreeSet<>(manager.getErrors().keySet()));
-        Collection<String> queries = manager.getRawQueryParams(false).get("_xpath_query");
+        com.google.common.collect.Multimap<String, String> params = manager.getRawQueryParams(false);
+        Collection<String> queries = params.get("_xpath_query");
         assertNotNull(label + " sends no _xpath_query", queries);
         assertFalse(label + " sends no _xpath_query", queries.isEmpty());
+        // The case types the search asks HQ for: its own module's, not every type the scenario saves.
+        Collection<String> caseTypes = params.get("case_type");
+        assertFalse(label + " sends no case_type", caseTypes == null || caseTypes.isEmpty());
         JSONObject record = new JSONObject();
         record.put("scenario", scenario.getString("id"));
         record.put("search", search.getString("id"));
         record.put("sending", sending.getString("id"));
         record.put("carrier", hq ? "hq" : "local");
         record.put("queries", new JSONArray(new ArrayList<>(queries)));
+        record.put("caseTypes", new JSONArray(new ArrayList<>(caseTypes)));
         return record;
     }
 }

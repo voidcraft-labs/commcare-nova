@@ -74,12 +74,10 @@ import {
 	normalizeRelationEvaluationScopes,
 } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
-import { literalShape } from "@/lib/domain/expression/ruleSets";
 import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
 import type {
 	ComparisonKind,
 	Expression as DomainExpression,
-	Literal,
 	MultiSelectQuantifier,
 	PropertyRef,
 	Term,
@@ -95,6 +93,7 @@ import {
 import { compileRelationPath } from "./compileRelationPath";
 import {
 	boundComparandValue,
+	compileStoredText,
 	compileTerm,
 	type FormFieldBindingValue,
 	isBlankComparand,
@@ -436,28 +435,45 @@ function compileEquality(
 }
 
 /**
- * `p = unwrap-list(...)`, HQ's exact any-of (`es/filters.py::term` turns a
- * list into `terms`): `p in (<item>, …)`, each item a bound literal of the
- * anchor's type, compiled as `compileOrderedComparison` compiles one. An item
- * that can't be read as that type (`'abc'` or `''` against a number, a date
- * that names no day) matches nothing, as no stored value equals it in HQ's
- * `terms`, so it is left out, and a list with no readable item is false. A
- * row whose `p` is absent matches no item, and `!=` is the two-valued
- * negation of this atom (`not coalesce(p in (...), false)`), HQ's
- * `NOT(terms)`. Each item is decided before the query runs: a CSQL slot's
- * fold has already made a runtime item, and a node-set item's values,
- * literal.
+ * `p = unwrap-list(...)`, HQ's exact any-of: `terms` on the property's
+ * stored text (`corehq/apps/es/case_search.py::exact_case_property_text_query`
+ * with a list, `corehq/apps/es/filters.py::term`), or on a system property's
+ * field (`corehq/apps/case_search/xpath_functions/comparison.py::_create_system_query`).
+ * So each item is compared as text with the text the case holds, exactly:
+ * `'5.0'`, `'05'`, `' 5'` and `'5e0'` are not a stored `'5'`, and `'10:00'`
+ * is not a stored `'10:00:00'`, whatever the property's type.
+ *
+ * A `''` item matches a blank value. HQ indexes every property a case holds,
+ * blank ones included, and a device's blank answer writes `''`; Nova stores
+ * that blank as the key's absence (`submissionEnvelope.ts::storageValueFromEvaluation`),
+ * so the item matches a property absent or empty. A row matching no item is
+ * false, never unknown, and `!=` is the two-valued negation of this atom
+ * (`not coalesce(... , false)`), HQ's `NOT(terms)`. Each item is decided
+ * before the query runs: a CSQL slot's fold has already made a runtime item,
+ * and a node-set item's values, literal.
  */
 function compileValueListEquality(
 	anchor: DomainExpression,
 	list: Extract<DomainExpression, { kind: "value-list" }>,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
-	const type = scalarDataType(typeOf(anchor, recordQueryContextFor(ctx))?.data);
-	const items: DomainExpression[] = [];
+	if (
+		anchor.kind !== "term" ||
+		(anchor.term.kind !== "prop" && anchor.term.kind !== "case-row-type")
+	)
+		throw new Error(
+			compilerBugMessage({
+				where: "compilePredicate.compileValueListEquality",
+				invariant: `a list of values was compared with a \`${anchor.kind === "term" ? anchor.term.kind : anchor.kind}\``,
+				detail:
+					"CSQL representability admits a list only opposite a case property or the case type (`representability.ts::admitsValueList`).",
+			}),
+		);
+	const texts = new Set<string>();
 	for (const item of list.items) {
 		const value = decidedListItem(item, ctx);
-		if (value === undefined)
+		const text = value === undefined ? undefined : listItemText(value);
+		if (text === undefined)
 			throw new Error(
 				compilerBugMessage({
 					where: "compilePredicate.compileValueListEquality",
@@ -466,95 +482,29 @@ function compileValueListEquality(
 						"A list of values reaches Postgres only in a CSQL slot, whose fold makes every item a literal first.",
 				}),
 			);
-		const literal = listItemAs(value, type);
-		if (literal !== undefined) items.push({ kind: "term", term: literal });
+		texts.add(text);
 	}
-	if (items.length === 0) return eb.lit(false) as Expression<SqlBool>;
-	const [compiledAnchor, ...compiledItems] = compileTemporalValues(
-		[anchor, ...items],
-		expressionContextFor(ctx),
-	);
-	return eb(compiledAnchor, "in", compiledItems);
+	const stored = compileStoredText(anchor.term, ctx);
+	const filled = [...texts].filter((text) => text !== "");
+	const matches: Expression<SqlBool>[] = [];
+	if (filled.length > 0) matches.push(eb(stored, "in", filled));
+	if (texts.has("")) matches.push(blankText(stored));
+	return matches.length === 1
+		? (matches[0] as Expression<SqlBool>)
+		: eb.or(matches);
 }
 
 /**
- * One list item as a literal of the anchor's type, or `undefined` where its
- * value can't be read as one. A literal `null` is the blank comparand, as
- * every reader prints it.
+ * One list item's text as the device sends it: a number in the form the
+ * emitter prints it (`formatNumeric`), a literal `null` the blank, as every
+ * reader prints it.
  */
-function listItemAs(
-	value: FormFieldBindingValue,
-	type: ReturnType<typeof scalarDataType>,
-): Literal | undefined {
-	const text =
-		value === null
-			? ""
-			: typeof value === "number"
-				? formatNumeric(value)
-				: typeof value === "string"
-					? value
-					: typeof value === "boolean"
-						? String(value)
-						: undefined;
-	if (text === undefined) return undefined;
-	switch (type) {
-		case "int":
-		case "decimal": {
-			if (typeof value === "number")
-				return Number.isFinite(value) ? { kind: "literal", value } : undefined;
-			const trimmed = text.trim();
-			const number = Number(trimmed);
-			return trimmed !== "" && Number.isFinite(number)
-				? { kind: "literal", value: number }
-				: undefined;
-		}
-		case "date":
-		case "datetime":
-		case "time":
-			return literalShape(text)?.type === type && namesInstant(text, type)
-				? { kind: "literal", value: text, data_type: type }
-				: undefined;
-		default:
-			return { kind: "literal", value: text };
-	}
-}
-
-/**
- * Whether text of a date, date and time or time shape names one: a day the
- * calendar has and a time of day on the clock, so its cast can't fail the
- * query.
- */
-function namesInstant(
-	text: string,
-	type: "date" | "datetime" | "time",
-): boolean {
-	const [datePart, timePart] =
-		type === "time"
-			? [undefined, text]
-			: type === "date"
-				? [text, undefined]
-				: [text.slice(0, 10), text.slice(11)];
-	if (datePart !== undefined) {
-		const [year, month, day] = datePart.split("-").map(Number);
-		if (year === undefined || month === undefined || day === undefined)
-			return false;
-		const date = new Date(Date.UTC(year, month - 1, day));
-		if (
-			date.getUTCFullYear() !== year ||
-			date.getUTCMonth() !== month - 1 ||
-			date.getUTCDate() !== day
-		)
-			return false;
-	}
-	if (timePart !== undefined) {
-		const [hours, minutes, seconds] = timePart
-			.slice(0, 8)
-			.split(":")
-			.map((part) => Number.parseInt(part, 10));
-		if (hours === undefined || minutes === undefined) return false;
-		if (hours > 23 || minutes > 59 || (seconds ?? 0) > 59) return false;
-	}
-	return true;
+function listItemText(value: FormFieldBindingValue): string | undefined {
+	if (value === null) return "";
+	if (typeof value === "number") return formatNumeric(value);
+	if (typeof value === "string") return value;
+	if (typeof value === "boolean") return String(value);
+	return undefined;
 }
 
 /** A list item's value when it is decided before the query runs. */

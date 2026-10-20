@@ -679,6 +679,49 @@ it("refuses a switch on a row value HQ can't compare, naming the selector", () =
 	).toEqual([]);
 });
 
+it("checks each case of a row-reading switch as the comparison it is written as", () => {
+	// Each case is HQ's `on = when` (`emitter.ts::switchChoice`), so it gets
+	// every check an authored `eq` of the two gets.
+	const children = count(subcasePath("child"));
+	const cases = (...whens: Parameters<typeof switchCase>[0][]) =>
+		switchExpr(
+			children,
+			whens.map((when) => switchCase(when, matchAll())) as [
+				ReturnType<typeof switchCase>,
+				...ReturnType<typeof switchCase>[],
+			],
+			matchNone(),
+		);
+	expect(issues(cases(literal(2), literal(1.5), literal("many")))).toEqual(
+		[1, 2].map((index) => ({
+			reason: "subcase-count-needs-nonnegative-whole-number",
+			path: ["switch", "cases", index, "when"],
+		})),
+	);
+	expect(issues(eq(children, literal(1.5)))).toEqual([
+		{
+			reason: "subcase-count-needs-nonnegative-whole-number",
+			path: ["right"],
+		},
+	]);
+	expect(
+		checkCsqlRepresentability(
+			switchExpr(
+				term(field("date_opened")),
+				[switchCase(literal(null), matchAll())],
+				matchNone(),
+			),
+			csqlFixtureContext().types,
+		).map((issue) => [issue.reason, issue.path, issue.details]),
+	).toEqual([
+		[
+			"system-datetime-value",
+			["switch", "cases", 0, "when"],
+			{ property: "date_opened", shape: "null-value" },
+		],
+	]);
+});
+
 it("refuses a list compared with a date and time, which HQ matches by text", () => {
 	// HQ's `terms` on a custom property matches stored text, so a list can't
 	// mean the moments its items name (finding 75); a system date is refused

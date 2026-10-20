@@ -30,6 +30,7 @@ import {
 	type CsqlRuntimeReads,
 	type CsqlRuntimeValues,
 	csqlRuntimeReads,
+	csqlRuntimeRow,
 	foldCsqlRuntime,
 } from "../fold";
 
@@ -288,6 +289,49 @@ describe("foldCsqlRuntime", () => {
 		expect(folded("")).toEqual(list(term(literal(""))));
 		expect(folded('red","blue')).toEqual(
 			list(term(literal("red")), term(literal("blue"))),
+		);
+	});
+});
+
+describe("a row-reading choice's condition", () => {
+	// `((c) and (A)) or (not(c) and (B))` prints `c` twice from one node: its
+	// pieces are one piece each, with one value and one obligation.
+	const condition = whenInput(
+		ref("value"),
+		eq(prop("patient", "first_name"), term(ref("value"))),
+	);
+	const predicate = ifExpr(
+		condition,
+		gte(prop("patient", "visit_date"), today()),
+		eq(prop("patient", "case_name"), term(literal("Ada"))),
+	);
+
+	it("lists each piece once", () => {
+		const tree = emitCsqlTree(predicate, context);
+		const { reads, rejections } = csqlRuntimeRow(tree);
+		const keys = (list: readonly { key: string }[]) =>
+			list.map(({ key }) => key);
+		expect(new Set(keys(reads.segments)).size).toBe(reads.segments.length);
+		expect(keys(reads.segments)).toHaveLength(2);
+		expect(keys(reads.choices)).toHaveLength(1);
+		expect(rejections.map(({ kind }) => kind)).toEqual(["quote"]);
+	});
+
+	it("folds both of its printings with the one value", () => {
+		const folded = fold(predicate, (reads) => ({
+			segments: segments(reads, "Grace", "2026-10-19"),
+			choices: choices(reads, true),
+		}));
+		const named = eq(prop("patient", "first_name"), term(literal("Grace")));
+		expect(folded).toEqual(
+			ifExpr(
+				named,
+				gte(
+					prop("patient", "visit_date"),
+					term({ kind: "literal", value: "2026-10-19", data_type: "date" }),
+				),
+				eq(prop("patient", "case_name"), term(literal("Ada"))),
+			),
 		);
 	});
 });

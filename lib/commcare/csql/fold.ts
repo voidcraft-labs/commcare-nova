@@ -85,14 +85,25 @@ export interface CsqlRuntimeRow {
 }
 
 /**
- * The runtime pieces of a CSQL tree, in tree order. A segment inside a
- * choice's branch is listed too: the device prints it only when the branch
- * is taken, and the fold reads it only then. A list item that reads several
- * nodes is read as the device splices it, its values joined by `","`.
+ * The runtime pieces of a CSQL tree, in tree order, each key once. A segment
+ * inside a choice's branch is listed too: the device prints it only when the
+ * branch is taken, and the fold reads it only then. A list item that reads
+ * several nodes is read as the device splices it, its values joined by `","`.
+ *
+ * A row-reading `if` or `switch` prints its condition twice, once as it
+ * stands and once negated (`emitter.ts::conditionChoice`), from one node:
+ * CSQL has no way to name a clause and read it again. The pieces inside it
+ * are one piece each, with one value.
  */
 export function csqlRuntimeReads(tree: CsqlNode): CsqlRuntimeReads {
-	const segments: { key: string; value: WireExpr }[] = [];
-	const choices: { key: string; condition: WireExpr }[] = [];
+	const segments = new Map<string, { key: string; value: WireExpr }>();
+	const choices = new Map<string, { key: string; condition: WireExpr }>();
+	const segment = (key: string, value: WireExpr) => {
+		if (!segments.has(key)) segments.set(key, { key, value });
+	};
+	const choice = (key: string, condition: WireExpr) => {
+		if (!choices.has(key)) choices.set(key, { key, condition });
+	};
 	const visit = (node: CsqlNode): void => {
 		switch (node.k) {
 			case "cmp":
@@ -121,24 +132,18 @@ export function csqlRuntimeReads(tree: CsqlNode): CsqlRuntimeReads {
 			case "json-list":
 				for (const item of node.items)
 					if (item.k === "runtime")
-						segments.push({
-							key: item.hole.key,
-							value: item.hole.print ?? item.hole.value,
-						});
+						segment(item.hole.key, item.hole.print ?? item.hole.value);
 				return;
 			case "runtime":
-				segments.push({ key: node.hole.key, value: node.hole.value });
+				segment(node.hole.key, node.hole.value);
 				return;
 			case "choice":
-				choices.push({ key: node.key, condition: node.condition });
+				choice(node.key, node.condition);
 				visit(node.then);
 				visit(node.else);
 				return;
 			case "presence":
-				choices.push({
-					key: node.key,
-					condition: { k: "call", fn: "count", args: [node.trigger] },
-				});
+				choice(node.key, { k: "call", fn: "count", args: [node.trigger] });
 				visit(node.clause);
 				return;
 			default: {
@@ -148,7 +153,7 @@ export function csqlRuntimeReads(tree: CsqlNode): CsqlRuntimeReads {
 		}
 	};
 	visit(tree);
-	return { segments, choices };
+	return { segments: [...segments.values()], choices: [...choices.values()] };
 }
 
 /** The runtime row of one tree: its reads and its wrapper's obligations. */

@@ -110,12 +110,18 @@ export type PreviewSearchState =
 	| {
 			readonly kind: "running";
 			readonly attempt: number;
+			/** This search's own identity, unique across every search Preview
+			 * runs: the key its device values are kept under. */
+			readonly submission: string;
 			readonly answers: PreviewSearchAnswers;
 			readonly deviceValues?: PreviewSearchDeviceValues;
 	  }
 	| {
 			readonly kind: "failed";
 			readonly attempt: number;
+			/** This search's own identity, unique across every search Preview
+			 * runs: the key its device values are kept under. */
+			readonly submission: string;
 			readonly answers: PreviewSearchAnswers;
 			readonly reason: PreviewSearchFailure;
 			readonly deviceValues?: PreviewSearchDeviceValues;
@@ -123,6 +129,9 @@ export type PreviewSearchState =
 	| {
 			readonly kind: "completed";
 			readonly attempt: number;
+			/** This search's own identity, unique across every search Preview
+			 * runs: the key its device values are kept under. */
+			readonly submission: string;
 			readonly answers: PreviewSearchAnswers;
 			readonly matchCount: number;
 			readonly deviceValues?: PreviewSearchDeviceValues;

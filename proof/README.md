@@ -3803,12 +3803,22 @@ decoded text and child order.
   from the module's case list and answers its prompts, over a casedb holding
   the scenario's cases), so the worker's `today()` and a clause chosen at run
   time are read in a zone whose day differs from UTC's and in one with
-  daylight saving (`csql/nova-csql-payloads.<zone>.jsonl`).
+  daylight saving (`csql/nova-csql-payloads.<zone>.jsonl`, each sending's
+  queries with the case types its `case_type` data asks for, the module's own).
   `test_csql_payload.py` compiles each in HQ's case search compiler, with and
   without `CASE_SEARCH_RELATED_LOOKUPS` and with the domain's
   `default_timezone` set, and runs HQ's case search over the fixture's cases,
   saved through HQ's receiver into the unit's Elasticsearch, so every stored
-  date and time is in HQ's own spelling; each search returns the fixture's
+  date and time is in HQ's own spelling, searching the case types the sending
+  asks for as Formplayer's request does. A scenario whose searches measure
+  distance runs in a project space configured as Nova's publish steps ask:
+  with the `DATA_DICTIONARY` and `DATA_DICT_TYPES` privileges, each property
+  `lib/commcare/distanceSearches.ts::distanceSearchProperties` names is typed
+  GPS through the data dictionary editor's own save view
+  (`data_dictionary/views.py::update_case_property`) before its cases are
+  saved, since HQ's search measures distance only on such a property or the
+  project's case location property (`pillows/case_search.py::_add_smart_types`).
+  Each search returns the fixture's
   expected ids (a search the fixture marks as reading related cases is
   refused without the flag), and `csqlComposition.postgres.test.ts` holds
   Preview's Postgres to the same ids. Its `datetime-equality` scenario holds

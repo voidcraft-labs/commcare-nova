@@ -27,6 +27,7 @@ vi.mock("@/lib/preview/hooks/caseDataInvalidation", () => ({
 vi.mock("@/lib/preview/hooks/useEngineController", () => ({
 	useEngineController: () => ({
 		setCaseDatabaseState: harness.setCaseDatabaseState,
+		setDeviceCaseDatabaseReload: () => undefined,
 	}),
 }));
 

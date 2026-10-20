@@ -1,3 +1,5 @@
+import Ajv2020 from "ajv/dist/2020";
+import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { distanceValueSeed } from "@/components/builder/shared/distanceDraft";
 import { runValidation } from "@/lib/commcare/validator/runner";
@@ -15,6 +17,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/expression";
+import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { columnsReadHere } from "@/lib/preview/engine/viewerLocation";
 import { formReadsSearchResults } from "@/lib/preview/engine/xpathInstances";
 import {
@@ -70,6 +73,21 @@ describe("Preview runtime smoke seeds", () => {
 		const [formUuid] = doc.formOrder[SEARCH_RESULTS_SEED.moduleUuid] ?? [];
 		if (formUuid === undefined) throw new Error("form missing");
 		expect(formReadsSearchResults(doc, formUuid)).toBe(true);
+	});
+});
+
+describe("the search-choice seed's sites", () => {
+	it("are rows the case store admits for the seeded case type", () => {
+		const caseType = buildSearchChoiceBlueprint(APP_ID).caseTypes?.find(
+			(type) => type.name === SEARCH_CHOICE_SEED.caseType,
+		);
+		if (caseType === undefined) throw new Error("case type missing");
+		const ajv = new Ajv2020({ strict: false, strictNumbers: true });
+		addFormats(ajv);
+		const validate = ajv.compile(caseTypeToJsonSchema(caseType));
+		for (const site of SEARCH_CHOICE_SEED.sites) {
+			expect(validate({ home: site.home }), site.caseName).toBe(true);
+		}
 	});
 });
 

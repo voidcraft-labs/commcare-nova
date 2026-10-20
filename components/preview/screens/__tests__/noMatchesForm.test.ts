@@ -16,7 +16,13 @@ function completed(
 	matchCount: number,
 	attempt = 1,
 ): Extract<PreviewSearchState, { kind: "completed" }> {
-	return { kind: "completed", attempt, answers, matchCount };
+	return {
+		kind: "completed",
+		attempt,
+		submission: `search-${attempt}`,
+		answers,
+		matchCount,
+	};
 }
 
 describe("noMatchesFormAdmission", () => {
@@ -95,7 +101,12 @@ describe("noMatchesFormAdmission", () => {
 				form: entry,
 				moduleUuid: MODULE,
 				launch,
-				searchState: { kind: "running", attempt: 1, answers },
+				searchState: {
+					kind: "running",
+					attempt: 1,
+					submission: "search-1",
+					answers,
+				},
 			}),
 		).toEqual({ kind: "refused", reason: "search-running" });
 		expect(
@@ -103,7 +114,13 @@ describe("noMatchesFormAdmission", () => {
 				form: entry,
 				moduleUuid: MODULE,
 				launch,
-				searchState: { kind: "failed", attempt: 1, answers, reason: "error" },
+				searchState: {
+					kind: "failed",
+					attempt: 1,
+					submission: "search-1",
+					answers,
+					reason: "error",
+				},
 			}),
 		).toEqual({ kind: "refused", reason: "search-failed" });
 	});

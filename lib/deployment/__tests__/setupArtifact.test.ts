@@ -8,6 +8,7 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
+	advancedSearchInputDef,
 	asMediaAssetId,
 	automationMessageText,
 	type BlueprintDoc,
@@ -16,6 +17,16 @@ import {
 	type LevelCaseFlow,
 	type OrganizationLevel,
 } from "@/lib/domain";
+import {
+	ancestorPath,
+	input,
+	literal,
+	prop,
+	relationStep,
+	term,
+	whenInput,
+	within,
+} from "@/lib/domain/expression";
 import type { StoredLocation } from "@/lib/organization/types";
 import {
 	LOGO_UPLOAD_STEP_TEXT,
@@ -844,4 +855,167 @@ it("includes worker-record writes even when the form reads no worker information
 		},
 	]);
 	expect(section(artifact({ doc }), "worker-record").steps).toHaveLength(1);
+});
+
+describe("the distance search section", () => {
+	const NEAR = testUuid("distance-near"),
+		NEAR_VILLAGE = testUuid("distance-near-village");
+	function distanceDoc(): BlueprintDoc {
+		const patientForm = (name: string) => ({
+			name,
+			type: "registration" as const,
+			fields: [
+				{
+					kind: "text" as const,
+					id: "name",
+					label: "Name",
+					caseWrite: { caseType: "patient", property: "case_name" },
+				},
+			],
+		});
+		const near = (property: Parameters<typeof within>[0], uuid: typeof NEAR) =>
+			whenInput(input(uuid), within(property, input(uuid), 5, "kilometers"));
+		const doc = buildDoc({
+			appName: "Clinic finder",
+			caseTypes: [
+				{
+					name: "household",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{
+							name: "village_location",
+							label: "Village",
+							data_type: "geopoint",
+						},
+					],
+				},
+				{
+					name: "patient",
+					parent_type: "household",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "home_location", label: "Home", data_type: "geopoint" },
+						{ name: "work_location", label: "Work", data_type: "geopoint" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Nearby patients",
+					caseType: "patient",
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						searchInputs: [
+							advancedSearchInputDef(
+								NEAR,
+								"near",
+								"Near",
+								"text",
+								near(prop("patient", "home_location"), NEAR),
+							),
+							advancedSearchInputDef(
+								NEAR_VILLAGE,
+								"near_village",
+								"Near a village",
+								"text",
+								near(
+									prop(
+										"patient",
+										"village_location",
+										ancestorPath(relationStep("parent")),
+									),
+									NEAR_VILLAGE,
+								),
+							),
+						],
+					},
+					forms: [patientForm("Register")],
+				},
+				{
+					name: "Patients near the clinic",
+					caseType: "patient",
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						filter: within(
+							prop("patient", "home_location"),
+							term(literal("0 0")),
+							10,
+							"kilometers",
+						),
+					},
+					caseSearchConfig: {},
+					forms: [patientForm("Register at the clinic")],
+				},
+				{
+					name: "Patients at work",
+					caseType: "patient",
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						filter: within(
+							prop("patient", "work_location"),
+							term(literal("0 0")),
+							10,
+							"kilometers",
+						),
+					},
+					forms: [patientForm("Register at work")],
+				},
+			],
+		});
+		blueprintDocSchema.parse(toPersistableDoc(doc));
+		return doc;
+	}
+
+	it("names each property a CommCare HQ search measures distance on, once, with every menu whose search does", () => {
+		const result = section(artifact({ doc: distanceDoc() }), "distance-search");
+		expect(result.title).toBe("Finding cases by distance");
+		expect(result.url).toBe(
+			"https://www.commcarehq.org/a/rhi-bihar/data_dictionary/",
+		);
+		expect(result.summary).toContain("on “rhi-bihar”");
+		/* The browse list's filter runs on the phone, so "work_location" asks
+		 * nothing of HQ; the related read names the case type that holds it. */
+		expect(result.steps).toEqual([
+			{
+				id: "patient/home_location",
+				text: "In the “patient” case type, set the data type of “home_location” to GPS.",
+				detail: [
+					"The searches in “Nearby patients” and “Patients near the clinic” measure distance on it.",
+				],
+			},
+			{
+				id: "household/village_location",
+				text: "In the “household” case type, set the data type of “village_location” to GPS.",
+				detail: ["The search in “Nearby patients” measures distance on it."],
+			},
+		]);
+		expect(result.caveats[0]).toBe(
+			"The Data Dictionary and its data types come with the Advanced and Enterprise plans. On other plans, CommCare HQ's search can't find these cases by distance.",
+		);
+	});
+
+	it("regenerates from the document: a rename moves the step and a removed search drops the section", () => {
+		const doc = distanceDoc();
+		const nearby = doc.modules[doc.moduleOrder[0]];
+		if (nearby === undefined) throw new Error("Missing Nearby patients");
+		nearby.name = "Patients close by";
+		expect(
+			section(artifact({ doc }), "distance-search").steps[0]?.detail,
+		).toEqual([
+			"The searches in “Patients close by” and “Patients near the clinic” measure distance on it.",
+		]);
+		for (const uuid of doc.moduleOrder.slice(0, 2)) {
+			const mod = doc.modules[uuid];
+			if (mod?.caseListConfig === undefined) throw new Error("Missing list");
+			mod.caseListConfig = {
+				...mod.caseListConfig,
+				searchInputs: [],
+				filter: undefined,
+			};
+			delete mod.caseSearchConfig;
+		}
+		expect(artifact({ doc }).sections.map(({ id }) => id)).not.toContain(
+			"distance-search",
+		);
+	});
 });

@@ -245,6 +245,12 @@ const EMPTY_SEARCH_INPUT_VALUES: ReadonlyMap<string, string> = new Map();
  *  display context's memo. */
 const NO_CASE_PROPERTIES: readonly CaseProperty[] = [];
 const NO_CLAIMED_CASES: readonly string[] = [];
+/** The Results while the device's cases a search reads have failed to load:
+ * a cases-load failure, retried by reading the device's cases again. */
+const CASES_LOAD_FAILED: ReturnType<typeof useCases>["state"] = {
+	kind: "error",
+	message: "The device's cases this search reads didn't load.",
+};
 
 interface CaseListScreenProps {
 	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
@@ -1026,30 +1032,24 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						key:
 							searchAttempt === undefined
 								? (ownSubmissionKey ?? "")
-								: `attempt:${searchAttempt.attempt}`,
+								: searchAttempt.submission,
 						answers: activeSearchInputValues,
 					},
 		...(searchAttempt?.deviceValues === undefined
 			? {}
 			: {
 					kept: {
-						key: `attempt:${searchAttempt.attempt}`,
+						key: searchAttempt.submission,
 						values: searchAttempt.deviceValues,
 					},
 				}),
+		/* Recorded on the search the key names, and on no other: the module's
+		 * search keeps them only while it is that search. */
 		onWorkedOut: (key, values) => {
 			const current = latestSearchState.current;
-			if (
-				moduleUuid === undefined ||
-				current === undefined ||
-				current.kind === "not-searched" ||
-				key !== `attempt:${current.attempt}`
-			)
-				return;
-			setPreviewSearchState(
-				moduleUuid,
-				recordSearchDeviceValues(current, current.attempt, values.value),
-			);
+			if (moduleUuid === undefined) return;
+			const next = recordSearchDeviceValues(current, key, values.value);
+			if (next !== current) setPreviewSearchState(moduleUuid, next);
 		},
 		sessionData: stepSession.data,
 	});
@@ -1066,7 +1066,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		 * until the worker's search completes, nor before the device has
 		 * worked out what the search sends. */
 		caseType:
-			step === "search" || deviceValues.kind === "pending"
+			step === "search" ||
+			deviceValues.kind === "pending" ||
+			deviceValues.kind === "unavailable"
 				? undefined
 				: caseType?.name,
 		...(registeredCaseIds === undefined ? {} : { caseIds: registeredCaseIds }),
@@ -1196,6 +1198,14 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		await pending;
 		focusNextFrame(() => resultsTitleRef.current);
 	}, [focusNextFrame, reloadCases]);
+	const retryDeviceCases =
+		deviceValues.kind === "unavailable" ? deviceValues.retry : undefined;
+	const retryDeviceCasesWithFocus = useCallback(async () => {
+		const pending = retryDeviceCases?.();
+		focusNextFrame(() => resultsTitleRef.current);
+		await pending;
+		focusNextFrame(() => resultsTitleRef.current);
+	}, [focusNextFrame, retryDeviceCases]);
 	const retryCountWithFocus = useCallback(async () => {
 		const pending = reloadUnfilteredCount();
 		focusNextFrame(() => resultsTitleRef.current);
@@ -2521,13 +2531,21 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				/>
 			)}
 			<ResultsBody
-				state={state}
+				state={
+					/* The device's cases the search reads didn't load: the
+					 * Results can't be read until they do. */
+					deviceValues.kind === "unavailable" ? CASES_LOAD_FAILED : state
+				}
 				unfilteredCountState={unfilteredCountState}
 				authoredMatchingCount={authoredMatchingCount}
 				outsideRestoreCount={outsideRestoreCount}
 				previewWorker={previewWorker}
 				fetching={fetching}
-				onRetryCases={retryCasesWithFocus}
+				onRetryCases={
+					deviceValues.kind === "unavailable"
+						? retryDeviceCasesWithFocus
+						: retryCasesWithFocus
+				}
 				onRetryCount={retryCountWithFocus}
 				onSignIn={() => void signIn()}
 				rows={filteredRows}

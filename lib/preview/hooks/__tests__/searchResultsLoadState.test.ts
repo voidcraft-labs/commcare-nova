@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { SearchCsqlRuntimeWire } from "@/lib/preview/engine/searchCsqlRuntime";
 import type { PreviewSearchState } from "@/lib/session/types";
+import type { SubmissionValuesState } from "../useSearchCsqlRuntime";
 import {
 	searchResultsLoadState,
 	searchResultsSnapshotKey,
@@ -36,12 +37,13 @@ describe("searchResultsSnapshotKey", () => {
 	const completed = (registeredCaseId?: string): PreviewSearchState => ({
 		kind: "completed",
 		attempt: 1,
+		submission: "search-1",
 		answers: { name: "Ada" },
 		matchCount: 1,
 		...(registeredCaseId === undefined ? {} : { registeredCaseId }),
 	});
 	const key = (
-		csqlRuntime: SearchCsqlRuntimeWire | undefined,
+		csqlRuntime: SearchCsqlRuntimeWire | undefined | SubmissionValuesState,
 		searchState: PreviewSearchState = completed(),
 	) =>
 		searchResultsSnapshotKey({
@@ -52,7 +54,10 @@ describe("searchResultsSnapshotKey", () => {
 			searchState,
 			personaUuid: undefined,
 			parentCase: undefined,
-			csqlRuntime,
+			deviceValues:
+				csqlRuntime !== undefined && "kind" in csqlRuntime
+					? csqlRuntime
+					: { kind: "ready", value: csqlRuntime },
 			retries: 0,
 		});
 	const before: SearchCsqlRuntimeWire = { segments: {}, choices: {} };
@@ -73,9 +78,34 @@ describe("searchResultsSnapshotKey", () => {
 		);
 	});
 
+	it("waits for the completed search's values, never loading without them", () => {
+		expect(key({ kind: "pending" })).toBeUndefined();
+		expect(key({ kind: "unavailable" })).toBeUndefined();
+		// The registered case's read sends none, so it waits for none.
+		expect(key({ kind: "pending" }, completed("case-1"))).toBe(
+			key(before, completed("case-1")),
+		);
+	});
+
+	it("reads each search as its own, even where Search again restarted the count", () => {
+		const again: PreviewSearchState = {
+			kind: "completed",
+			attempt: 1,
+			submission: "search-2",
+			answers: { name: "Ada" },
+			matchCount: 1,
+		};
+		expect(key(after, again)).not.toBe(key(after));
+	});
+
 	it("starts no load before the search completes", () => {
 		expect(
-			key(after, { kind: "running", attempt: 1, answers: { name: "Ada" } }),
+			key(after, {
+				kind: "running",
+				attempt: 1,
+				submission: "search-1",
+				answers: { name: "Ada" },
+			}),
 		).toBeUndefined();
 	});
 });

@@ -823,14 +823,20 @@ function compileSelfViaPropertyRef(args: {
 	caseType: string;
 	property: string;
 	ctx: TermCompileContext;
+	read?: PropertyRead;
 }): AliasableExpression<unknown> {
-	const { anchorAlias, caseType, property, ctx } = args;
+	const { anchorAlias, caseType, property, ctx, read = "typed" } = args;
 	const reserved = reservedColumnFor(property, ctx);
 	if (reserved !== undefined) {
-		return scalarColumnRef(anchorAlias, reserved.column);
+		return reservedColumnRead(anchorAlias, reserved, property, read);
 	}
 	const dataType = lookupDataType(caseType, property, ctx.caseTypeSchemas);
-	return jsonbColumnRead({ sourceAlias: anchorAlias, property, dataType });
+	return jsonbColumnRead({
+		sourceAlias: anchorAlias,
+		property,
+		dataType,
+		read,
+	});
 }
 
 /**
@@ -845,8 +851,9 @@ function compileNonSelfViaPropertyRef(args: {
 	caseType: string;
 	property: string;
 	ctx: TermCompileContext;
+	read?: PropertyRead;
 }): AliasableExpression<unknown> {
-	const { via, anchorAlias, caseType, property, ctx } = args;
+	const { via, anchorAlias, caseType, property, ctx, read = "typed" } = args;
 	const canonical = canonicalizeRelationPath(via, {
 		caseTypes: [...ctx.caseTypeSchemas.values()],
 		currentCaseType: ctx.currentCaseType ?? caseType,
@@ -880,7 +887,7 @@ function compileNonSelfViaPropertyRef(args: {
 	const leafReserved = reservedColumnFor(property, ctx);
 	const innerRead =
 		leafReserved !== undefined
-			? scalarColumnRef(leafAlias, leafReserved.column)
+			? reservedColumnRead(leafAlias, leafReserved, property, read)
 			: jsonbColumnRead({
 					sourceAlias: leafAlias,
 					property,
@@ -889,6 +896,7 @@ function compileNonSelfViaPropertyRef(args: {
 						property,
 						ctx.caseTypeSchemas,
 					),
+					read,
 				});
 
 	// `LIMIT 1` keeps the subquery scalar — the term compiler's
@@ -930,11 +938,14 @@ function jsonbColumnRead(args: {
 	sourceAlias: string;
 	property: string;
 	dataType: CasePropertyDataType;
+	read?: PropertyRead;
 }): AliasableExpression<unknown> {
-	const { sourceAlias, property, dataType } = args;
+	const { sourceAlias, property, dataType, read = "typed" } = args;
+	const propertiesRef = `${sourceAlias}.properties` as const;
+	if (read === "stored-text")
+		return storedJsonbText(propertiesRef, property, dataType);
 	const cast = POSTGRES_CAST_FOR_DATA_TYPE[dataType];
 	const readOperator = JSONB_READ_OPERATOR_FOR_DATA_TYPE[dataType];
-	const propertiesRef = `${sourceAlias}.properties` as const;
 	// Type-erased: the runtime alias prefix can't be enumerated
 	// against `Database` statically, but every concrete site names
 	// a `cases`-shaped row at the alias position.
@@ -979,6 +990,106 @@ function compileStoredInstant(
 		.then(instant)
 		.else(eb.cast(eb.val(null), "timestamptz"))
 		.end();
+}
+
+/**
+ * How a property read compiles: `typed`, cast to its data type for the
+ * comparisons and orderings that read it as one, or `stored-text`, the text
+ * the case holds, exactly as stored, for the reads HQ answers with exact text
+ * terms (`compileStoredText`).
+ */
+type PropertyRead = "typed" | "stored-text";
+
+/**
+ * A JSONB property's stored text: `->>`, uncast, so `'5'` stays `'5'` and
+ * `'5.0'` is not it. A multi-select's stored JSONB array reads as its
+ * choices joined by single spaces, the text a device stores for one (and a
+ * scalar string under that key, from a row written before the property was a
+ * multi-select, reads as itself).
+ */
+function storedJsonbText(
+	propertiesRef: string,
+	property: string,
+	dataType: CasePropertyDataType,
+): AliasableExpression<unknown> {
+	const text = (eb as DynamicExprBuilder)
+		.ref(propertiesRef, "->>")
+		.key(property);
+	if (dataType !== "multi_select") return text;
+	const json = (eb as DynamicExprBuilder)
+		.ref(propertiesRef, "->")
+		.key(property);
+	return eb
+		.case()
+		.when(eb(eb.fn("jsonb_typeof", [json]), "=", eb.val("array")))
+		.then(
+			sql<string>`(select string_agg(choice, ' ' order by ordinality) from jsonb_array_elements_text(${json}) with ordinality as listed(choice, ordinality))`,
+		)
+		.else(text)
+		.end();
+}
+
+/** A reserved column as the read asks for it. Only a text column has stored
+ * text; a timestamp column never reaches a `stored-text` read. */
+function reservedColumnRead(
+	alias: string,
+	reserved: ReservedScalarColumn,
+	property: string,
+	read: PropertyRead,
+): AliasableExpression<unknown> {
+	if (read === "stored-text" && !reserved.blankable)
+		throw new Error(
+			compilerBugMessage({
+				where: "compileTerm.reservedColumnRead",
+				invariant: `the system date \`${property}\` reached a stored-text read`,
+				detail:
+					"Only a list of values reads a property's stored text, and CSQL representability refuses a list opposite a system date (`representability.ts::admitsValueList`).",
+			}),
+		);
+	return scalarColumnRef(alias, reserved.column);
+}
+
+/**
+ * The text a case holds for a property, or for its case type, exactly as
+ * stored, `NULL` where it holds none: what HQ's search compares a list of
+ * values with. HQ answers `p = unwrap-list(…)` with exact `terms` on the
+ * property's text (`corehq/apps/es/case_search.py::exact_case_property_text_query`,
+ * `corehq/apps/es/filters.py::term`) and a system property's with `terms` on
+ * its field (`corehq/apps/case_search/xpath_functions/comparison.py::_create_system_query`),
+ * so no item is read as a number, date or time first. A relation read is the
+ * same correlated scalar subquery a typed read takes.
+ */
+export function compileStoredText(
+	term: Extract<Term, { kind: "prop" | "case-row-type" }>,
+	ctx: TermCompileContext,
+): AliasableExpression<unknown> {
+	if (term.kind === "case-row-type")
+		return scalarColumnRef(ctx.anchorAlias, "case_type");
+	const { property, via } = term;
+	const caseType = term.caseType ?? ctx.currentCaseType;
+	if (caseType === undefined)
+		throw new Error(
+			compilerBugMessage({
+				where: "compileTerm.compileStoredText",
+				invariant: "a server property read compiled without its record type",
+			}),
+		);
+	return via === undefined || via.kind === "self"
+		? compileSelfViaPropertyRef({
+				anchorAlias: ctx.anchorAlias,
+				caseType,
+				property,
+				ctx,
+				read: "stored-text",
+			})
+		: compileNonSelfViaPropertyRef({
+				via,
+				anchorAlias: ctx.anchorAlias,
+				caseType,
+				property,
+				ctx,
+				read: "stored-text",
+			});
 }
 
 /**
