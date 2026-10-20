@@ -1,8 +1,7 @@
 // components/builder/shared/__tests__/csqlCardsValidByConstruction.test.ts
 //
-// The CSQL cards part 06 widens (§3.5 epoch days, §3.7 values in
-// `selected-*`, §3.8 the nine units and a distance or unit worked out at run
-// time) offer exactly what the commit gate admits. Each offer is the exact
+// The CSQL cards that take epoch days, values in `selected-*`, and the nine
+// units with a distance or unit worked out at run time offer exactly what the commit gate admits. Each offer is the exact
 // predicate the card's model commits, judged by `expressionEditVerdict` over
 // real slot contexts: the advanced search condition (CommCare's server
 // search and Postgres only), the search-enabled case list filter and the
@@ -275,7 +274,7 @@ describe("the choices card adds a value worked out at run time", () => {
 
 	it("offers one choice of the case chosen in an earlier menu in a device slot", () => {
 		// Members chooses a household first; its case list filter runs on the
-		// device after that choice (part 06 §3.9).
+		// device after that choice.
 		const base = chosenCaseDoc();
 		const doc = {
 			...base,

@@ -1,7 +1,7 @@
 // components/builder/shared/cards/ConditionChoiceCard.tsx
 //
 // "Depends on a condition": a runtime choice between two conditions, the
-// `if` arm in a condition position (part 06 §3.10). It reads "When
+// `if` arm in a condition position. It reads "When
 // [condition], use [condition], otherwise use [condition]". The deciding
 // condition is usually something the device knows before the search runs,
 // such as a search answer or the worker's information, so the search uses

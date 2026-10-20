@@ -11,7 +11,7 @@
 // - `control: "wall-clock"` rows compare `double(coalesce(x, ''))`, a number
 //   of a temporal value, which no profile with a Postgres target admits.
 // - The seven malformed spellings the device lowering reads as a number
-//   (`04-emission.md` §3.1: a space for `T`, an impossible calendar, a bare
+//   (`lib/commcare/xpath/wire/instant.ts`: a space for `T`, an impossible calendar, a bare
 //   trailing `+`, `-` or `.`, `T-4:30:00Z`, `04:30:00e5Z`) disagree by design:
 //   Postgres reads no instant from them. None is a spelling Nova, HQ or a
 //   device writes.

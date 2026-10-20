@@ -153,7 +153,7 @@ export const NAIVE_TEMPORAL_TEXT_RE = new RegExp(NAIVE_TEMPORAL_TEXT_PATTERN);
 
 /**
  * The shape a writer stores a date and time in, as the device lowering
- * reads one (part 04's instant parse): `yyyy-MM-ddTHH:mm:ss`, any fraction,
+ * reads one (`lib/commcare/xpath/wire/instant.ts`): `yyyy-MM-ddTHH:mm:ss`, any fraction,
  * then `Z`, `±HH`, `±HH:MM` or no offset. `compileTerm.ts::compileStoredInstant`
  * reads a stored datetime property as an instant only in this shape.
  */

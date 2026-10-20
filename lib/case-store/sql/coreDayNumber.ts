@@ -58,8 +58,8 @@ export function compileCoreDayNumber(
 /**
  * `datetime(n)` for a numeric `n`: `n` days of elapsed time after the UTC
  * epoch, the same in every reading. HQ's `_value_to_datetime` adds
- * `timedelta(days=n)` to the naive epoch and reads it as UTC; part 04's device
- * lowering is `n * 86400000000` microseconds. Hours, not `'1 day'`, because a
+ * `timedelta(days=n)` to the naive epoch and reads it as UTC; the device
+ * lowering (`lib/commcare/xpath/wire/instant.ts`) is `n * 86400000000` microseconds. Hours, not `'1 day'`, because a
  * day interval follows the session zone's daylight-saving changes.
  */
 export function compileEpochDayInstant(

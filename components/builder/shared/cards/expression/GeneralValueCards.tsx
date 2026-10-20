@@ -37,7 +37,7 @@ export function HereCard(_props: GeneralValueCardProps<"here">) {
 }
 
 /** A list a value is compared with, held for an imported search
- * (`unwrap-list`, part 06 §3.6). No step authors one, so the card is display
+ * (`unwrap-list`). No step authors one, so the card is display
  * only: it shows the items and re-emits the list unchanged. */
 export function ValueListCard({ value }: GeneralValueCardProps<"value-list">) {
 	return (

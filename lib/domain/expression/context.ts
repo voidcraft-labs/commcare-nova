@@ -954,7 +954,7 @@ export function slotContext(
 			];
 		// The case list filter and an advanced search input's condition run at
 		// the module's case list step, after the selections before its own
-		// (part 05 §1.3, "Evaluation points").
+		// (`lib/domain/entryDatumSupplies.ts`).
 		if (slot.slot === "case_list_filter")
 			supplies = entryDatumSupplies(doc, {
 				kind: "case-list",

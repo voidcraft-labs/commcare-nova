@@ -15,7 +15,7 @@ import {
 import type { ExpressionChangeAdmission } from "./editorContext";
 
 /** HQ's nine distance units (`es/queries.py::DISTANCE_UNITS`), in the menu's
- * order, each with the words a person reads (part 06 §3.8). */
+ * order, each with the words a person reads. */
 export const DISTANCE_UNIT_LABELS: Record<DistanceUnit, string> = {
 	miles: "miles",
 	yards: "yards",

@@ -1,9 +1,9 @@
 /**
  * Two facts every record slot reports under one code whatever slot holds the
  * read, the way form logic reports them: a read of Date closed where a device
- * evaluates it (`CASE_LIST_CLOSED_ON_NOT_ON_DEVICE`, part 06 §3.1), and a read
+ * evaluates it (`CASE_LIST_CLOSED_ON_NOT_ON_DEVICE`), and a read
  * of the case chosen in a menu the slot's entries don't supply before it runs
- * (`SESSION_DATUM_NOT_SUPPLIED`, part 05 §1.6). Each record rule wraps its
+ * (`SESSION_DATUM_NOT_SUPPLIED`). Each record rule wraps its
  * checker findings in its own slot code with `checkErrorDetails`; the runner
  * re-codes those two here, so a new record rule needs no code of its own.
  */
@@ -12,7 +12,7 @@ import type { Uuid } from "@/lib/domain/uuid";
 import type { ValidationError } from "./errors";
 
 /** The person-facing sentence of a record slot's chosen-case read the
- * entries don't supply (part 05 §1.6's table; the validator's message and
+ * entries don't supply (the validator's message and
  * `lib/doc/userFacingErrors.ts` share it). */
 export function chosenCaseReadSentence(details: {
 	readonly carrier: string;

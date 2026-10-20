@@ -1,8 +1,7 @@
 /**
  * Villages → Households → Members: each module picks its case after the
  * case of the module before it (`parentCaseModuleUuid`), so a Members entry
- * chooses a village, then a household, then a member. The shape part 05 §1.3
- * ("One id per slot") and part 06 §3.9 reason about: the village is
+ * chooses a village, then a household, then a member. The village is
  * `parent_id` where Households' list runs as its own and `parent_parent_id`
  * where it runs as Members' parent choice.
  */

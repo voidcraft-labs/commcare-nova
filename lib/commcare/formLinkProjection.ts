@@ -850,8 +850,7 @@ export function entryDatumIdResolver(
 
 /**
  * The datum ids a module's case list step prints, by ref: the rows its
- * case-list entry holds before the module's own selection datum (part 05
- * §1.3, "Evaluation points"). Every entry that reaches the list prints a
+ * case-list entry holds before the module's own selection datum. Every entry that reaches the list prints a
  * ref at one id wherever the checker admits the read (`differs` refuses the
  * rest), so the module's own entry speaks for all of them. `which` picks the
  * id after root alignment, which every carrier prints, or before it

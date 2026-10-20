@@ -96,7 +96,7 @@ function addCaseSelectionDependencies(
 	}
 	/* A case list, a search or a form menu that reads the case chosen in this
 	 * module runs in a module that chooses through it, or in a menu nested
-	 * under it whose selections align with its own (part 05 §1.7): a switch
+	 * under it whose selections align with its own: a switch
 	 * to several cases refuses those reads, so their rules must run. */
 	const readers = new Set<Uuid>(modulesSelectingThrough(doc, moduleUuid));
 	for (let grew = true; grew; ) {

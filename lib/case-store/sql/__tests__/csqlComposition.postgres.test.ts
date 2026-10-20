@@ -2,8 +2,7 @@
 // `lib/commcare/__tests__/csqlCompositionFixture.ts`, its cases seeded as rows,
 // each search's composed query read by the production store as HQ's search
 // population, and the rows held to the ids the fixture says the search means,
-// the ids HQ's own search returns over the same cases
-// (docs/plans/hq-round-trip/3-expressions/06-csql.md §8).
+// the ids HQ's own search returns over the same cases.
 //
 // A sending whose query reads a runtime value states the query Core's
 // evaluation leaves (`folded`); this file compiles that, and then Preview's

@@ -356,7 +356,7 @@ it("folds every obligation of a clause into one match-none() guard", () => {
 });
 
 it("sends today as the worker's day, a runtime segment between fixed quotes that is never blank", () => {
-	// 06-csql.md §3.4: Core's today() is the device's date; HQ's is the project
+	// Core's today() is the device's date; HQ's is the project
 	// time zone's. HQ reads the spliced `yyyy-MM-dd` as a date.
 	const predicate = gte(age, todayValue());
 	const segments = printCsql(emitCsqlTree(predicate, csqlFixtureContext()));
@@ -372,7 +372,7 @@ it("sends today as the worker's day, a runtime segment between fixed quotes that
 });
 
 it("writes a switch on the row's own value as HQ's own clause, as the if it stands for", () => {
-	// Part 06 §3.10: a condition that reads the row makes the choice native,
+	// A condition that reads the row makes the choice native,
 	// `((c) and (A)) or (not(c) and (B))`, case by case for a switch.
 	const switched = switchExpr(
 		term(name),

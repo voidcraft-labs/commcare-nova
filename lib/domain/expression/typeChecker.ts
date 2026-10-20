@@ -814,8 +814,7 @@ function admission(
 			expression.kind,
 		);
 	if (ctx.ruleSet === "record") {
-		// The case chosen in an earlier menu, read through its id
-		// (part 06 §3.9): the one query a record slot evaluated after that
+		// The case chosen in an earlier menu, read through its id: the one query a record slot evaluated after that
 		// choice admits.
 		if (
 			expression.kind === "project" &&
@@ -825,7 +824,7 @@ function admission(
 			return undefined;
 		// A server search reads a query of the device's data in a value the
 		// device works out before the search runs: held for import, and
-		// admitted only there (`csqlFindings`, part 06 §3.9).
+		// admitted only there (`csqlFindings`).
 		if (
 			serverOnlySearchSlot(profile) &&
 			!(
@@ -857,7 +856,7 @@ function admission(
 				"This expression is not available in a record rule.",
 				expression.kind,
 			);
-		// A search chooses between clauses on the device (part 06 §3.10), so
+		// A search chooses between clauses on the device, so
 		// a slot CommCare's server search reads admits the choice.
 		if (
 			(expression.kind === "if" || expression.kind === "switch") &&
@@ -1018,7 +1017,7 @@ function termAdmission(
 				"location-field",
 				"location-level",
 			].includes(term.kind) ||
-			// A case's type is read where a case row is in scope (part 06 §3.2).
+			// A case's type is read where a case row is in scope.
 			((term.kind === "case-type" || term.kind === "case-row-type") &&
 				activeRowScope(ctx)?.kind !== "case") ||
 			(term.kind === "field" &&
@@ -1124,7 +1123,7 @@ const HELD_SEARCH_READ_KINDS: ReadonlySet<string> = new Set([
 ]);
 
 /** A slot only CommCare's server search and Postgres read, which no device
- * evaluates (part 01 §4): today an advanced search input's condition. */
+ * evaluates: today an advanced search input's condition. */
 function serverOnlySearchSlot(profile: ExpressionContext["profile"]): boolean {
 	return (
 		profile.targets.has("CS") &&
@@ -1134,7 +1133,7 @@ function serverOnlySearchSlot(profile: ExpressionContext["profile"]): boolean {
 }
 
 /** The carrier of a record slot evaluated after an earlier menu's case is
- * chosen (part 05 §1.3, "Evaluation points"), or undefined for any other. */
+ * chosen, or undefined for any other. */
 export function chosenCaseCarrier(
 	ctx: Pick<ExpressionContext, "slot">,
 ): "case-list" | "search" | "form-display-condition" | undefined {
@@ -1151,7 +1150,7 @@ export function chosenCaseCarrier(
 }
 
 /**
- * The one query a record slot admits (part 01 §4, "Chosen case"): a
+ * The one query a record slot admits: a
  * property of the case chosen in a menu, read from the casedb row whose id is
  * that menu's `selected-case` datum, the row typed by the menu's case type.
  */
@@ -1181,7 +1180,7 @@ export function chosenCaseProject(
 }
 
 /**
- * The case chosen in an earlier menu, read by a record slot (part 03 §3.9):
+ * The case chosen in an earlier menu, read by a record slot:
  * admitted in a case list's filter, an advanced search input's condition and
  * a form's display condition, where the ref must be supplied, as one case,
  * before the slot evaluates (`ctx.supplies`, the slot's evaluation point).
@@ -1866,7 +1865,7 @@ function inferNode(
 			// `value_functions.py::value_to_date`, Core's
 			// `XPathDateFunc.java::evalBody`); the device drops a fraction
 			// (`FunctionUtils.java::toDate` takes `toInt`), so a date and time
-			// it works out from one keeps no time of day (part 06 §3.5).
+			// it works out from one keeps no time of day.
 			if (
 				ctx.ruleSet === "record" &&
 				expression.kind === "datetime-coerce" &&
@@ -3111,7 +3110,7 @@ export const CLOSED_ON_NOT_ON_DEVICE_MESSAGE =
  * date and time where no device evaluates the read, that is in a slot whose
  * targets exclude the form and the suite, on the search's own row or a case
  * related to it, and in no value a device works out first. A row of a query
- * of the device's cases, and every other slot, hold none (part 06 §3.1). A
+ * of the device's cases, and every other slot, hold none. A
  * case store query has no slot: the gate decided it, and the store reads the
  * search's column.
  */
@@ -3311,8 +3310,8 @@ function caseTypeOrderingError(path: CheckPath): CheckError {
 	};
 }
 /** A text literal opposite the record's case type names a case type, which
- * must be one of the app's (part 06 §3.2; a literal a parser has not turned
- * into a `case-type` leaf, as `in` keeps its values). */
+ * must be one of the app's (a literal a parser has not turned into a
+ * `case-type` leaf, as `in` keeps its values). */
 function checkCaseTypeLiteral(
 	left: Expression,
 	right: Expression,
@@ -3973,7 +3972,7 @@ function checkWithinDistance(
 	errors: CheckError[],
 	path: CheckPath,
 ): void {
-	// A value in place of the radius or the unit (part 06 §3.8): HQ reads the
+	// A value in place of the radius or the unit: HQ reads the
 	// radius with `float()` and the unit as one of its nine names.
 	if (typeof p.distance !== "number") {
 		const distance = inferScalar(p.distance, ctx, errors, [
@@ -4103,8 +4102,8 @@ function checkMultiSelectContains(
 }
 
 /**
- * A value in place of a choice of `selected-any` / `selected-all` (part 06
- * §3.7): a space-separated list of choices, so text or a choice. HQ matches
+ * A value in place of a choice of `selected-any` / `selected-all`: a
+ * space-separated list of choices, so text or a choice. HQ matches
  * each of its words; a device tests the whole value as one choice
  * (`XPathSelectedFunc.java::multiSelected`), so where a device evaluates it,
  * it must be one choice.

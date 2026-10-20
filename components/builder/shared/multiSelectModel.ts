@@ -24,7 +24,7 @@ import type { ExpressionChangeAdmission } from "./editorContext";
 import { resolveRelationDestination } from "./relationDestination";
 export type MultiSelectPredicate = ExpressionOfKind<"multi-select-contains">;
 /** One authored value of the predicate: a fixed choice, a question's choice,
- * or a value worked out when the rule runs (part 06 §3.7). */
+ * or a value worked out when the rule runs. */
 export type MultiSelectValue = MultiSelectPredicate["values"][number];
 export function multiSelectProperty(
 	ref: PropertyRef,
@@ -93,7 +93,7 @@ export function replaceMultiSelectValues(
 }
 
 /** Whether a device evaluates this slot: there a value naming choices must
- * be one choice, since the device tests it as one (part 06 §3.7). */
+ * be one choice, since the device tests it as one. */
 export function deviceEvaluatesSlot(context: ExpressionContext): boolean {
 	return (
 		context.profile.targets.has("SU") ||
@@ -140,7 +140,7 @@ export const NO_RUNTIME_CHOICE_VALUE_REASON =
  * first source in scope whose type the slot admits and whose whole rule the
  * gate admits. Sources, each ranked one choice, then text, then several
  * choices: the search's answers, a property of the case chosen in an earlier
- * menu (`ExpressionContext.supplies`, part 06 §3.9), and worker information.
+ * menu (`ExpressionContext.supplies`), and worker information.
  * A device evaluates a value naming choices as one choice, so in a device
  * slot only a single-choice source can be offered. The person points the
  * value elsewhere through its own source menu.

@@ -5,7 +5,7 @@
 // Expression: typed-text via the picker) + the distance and its unit.
 // The distance is a fixed positive number or a value worked out when the
 // search runs (a number); the unit is one of HQ's nine or a value naming
-// one (text or a single choice), part 06 §3.8. Each offers "Use a value"
+// one (text or a single choice). Each offers "Use a value"
 // and the way back to a fixed one, gated by the whole-rule verdict.
 
 "use client";

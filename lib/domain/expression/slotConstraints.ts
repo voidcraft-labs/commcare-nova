@@ -64,7 +64,7 @@ const NUMERIC_TYPES: ReadonlySet<ResolvedType> = new Set(
 	ALL_RESOLVED_TYPES.filter(isNumeric),
 );
 /** What `date-coerce` / `datetime-coerce` read: text, a date or a date and
- *  time, or a number of days since 1 January 1970 (part 06 §3.5). */
+ *  time, or a number of days since 1 January 1970. */
 const COERCE_OPERAND_TYPES: ReadonlySet<ResolvedType> = new Set([
 	...TEXT_SHAPED_TYPES,
 	"date",

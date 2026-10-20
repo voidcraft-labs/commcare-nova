@@ -133,8 +133,7 @@ nested child list's parent filter and its tile grouping all build with
 chosen cases is reachable through a session endpoint (Formplayer splits the
 link's argument on commas), never through the list. A `<data nodeset>` over
 the chosen cases is a `TreeReference` that Core expands
-(`ListQueryData.getValues`), never checked by `XPathPathExpr`, so it stays bare. The plan's part 05, §2.4's
-corrections of 2026-10-19, records the probes at the pinned Core.
+(`ListQueryData.getValues`), never checked by `XPathPathExpr`, so it stays bare.
 
 ## Instances and element slots
 

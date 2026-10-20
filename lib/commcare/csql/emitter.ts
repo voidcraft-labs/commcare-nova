@@ -565,7 +565,7 @@ function compare(
 
 /**
  * Whether an equality on `anchor` is the closed instant range
- * (06-csql.md §3.13, finding 75): HQ answers `=` on a custom property by text
+ * (finding 75): HQ answers `=` on a custom property by text
  * equality on its stored spelling (`es/case_search.py::case_property_query`)
  * and on a system date by a raw Elasticsearch term, but an ordering by instant
  * (`comparison.py::case_property_range_query`, `_create_system_datetime_query`),

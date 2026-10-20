@@ -490,7 +490,7 @@ describe("matchModeOnDeviceCompatibility", () => {
 
 	it("leaves a count of this case on a query side to the CSQL anchor rule", () => {
 		// A count over this case is no child-case count, so HQ cannot read it as
-		// a query side (06-csql.md §2.1): the search refuses it as an anchor and
+		// a query side (`lib/domain/expression/csqlPositions.ts`): the search refuses it as an anchor and
 		// nothing inside it runs on the device.
 		const doc = buildDoc({
 			appName: "T",
