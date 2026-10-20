@@ -2030,6 +2030,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 					finalBlueprintDigest,
 					viewerTimeZone(),
 					submitted.personaUuid,
+					/* The places the entry opened with: an owner moved to a place
+					 * is resolved among the ones the form read. */
+					submitted.caseDatabase.locations?.map((place) => place.id),
 				);
 			};
 			const result = await runFormAttachmentBarrier(

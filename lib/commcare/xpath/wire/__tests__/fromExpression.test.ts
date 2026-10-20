@@ -721,6 +721,48 @@ describe("instance arms declare what they read, per target", () => {
 			);
 		});
 
+		// Core reads the pair value by value when either is not a node-set, so
+		// a path beside a value takes the value guard, and an `if` in the pair
+		// hands Core the branch it takes, so the call moves into its branches.
+		it("guards weighted-checklist's pair by the shape each branch reads", () => {
+			const labels: Expression = {
+				kind: "project",
+				of: { kind: "table-rows", tableId: table.id, where: [] },
+				value: tableColumn(table.id, label.id),
+			};
+			const tableLabels =
+				"instance('item-list:regions')/regions_list/regions/label";
+			const tableGuarded = `if(count(instance('item-list:regions')/regions_list/regions) > 0, ${tableLabels}, '')`;
+			const checklist = (flags: Expression, weights: Expression) =>
+				printed(
+					call(
+						"weighted-checklist",
+						term(literal(0)),
+						term(literal(1)),
+						flags,
+						weights,
+					),
+					"suite",
+				).text;
+			expect(checklist(clinicNames(), term(literal(1)))).toBe(
+				`weighted-checklist(0, 1, ${guarded(places)}, 1)`,
+			);
+			expect(
+				checklist(
+					ifExpr(eq(literal(1), literal(1)), clinicNames(), term(literal(1))),
+					labels,
+				),
+			).toBe(
+				`if(1 = 1, if((count(instance('locations')/locations/location) = 0 or count(${places}) = 0) and (count(instance('item-list:regions')/regions_list/regions) = 0 or count(${tableLabels}) = 0), weighted-checklist(0, 1, '', ''), weighted-checklist(0, 1, ${places}, ${tableLabels})), weighted-checklist(0, 1, 1, ${tableGuarded}))`,
+			);
+			// A coalesce may or may not hand Core its set, so the pair stays bare.
+			expect(
+				checklist(clinicNames(), coalesce(term(literal("")), labels)),
+			).toBe(
+				`weighted-checklist(0, 1, ${places}, coalesce('', ${tableLabels}))`,
+			);
+		});
+
 		// `if` hands the branch it takes to sum unconverted, so sum moves into
 		// each branch and each branch counts only the rows it reads: a branch
 		// over rows that exist answers as written while the other has none.
@@ -771,16 +813,18 @@ describe("instance arms declare what they read, per target", () => {
 			});
 
 			// A coalesce returns an earlier value that is not blank in place of
-			// the set, which sum refuses whether or not any row exists, so a
-			// guard would read 0 where Core never does.
-			it("keeps a sum bare over a coalesce with earlier values", () => {
+			// the set, which sum refuses whether or not any row exists, so the
+			// guard reads 0 only when that value is blank as well.
+			it("guards a sum over a coalesce only where its earlier values are blank", () => {
 				for (const first of ["", "x"])
 					expect(
 						printed(
 							call("sum", coalesce(term(literal(first)), clinicNames())),
 							"suite",
 						).text,
-					).toBe(`sum(coalesce('${first}', ${places}))`);
+					).toBe(
+						`if(count(instance('locations')/locations/location) = 0 and string(coalesce('${first}', '')) = '', 0, sum(coalesce('${first}', ${places})))`,
+					);
 			});
 		});
 		it("keeps a branch bare when count reads what the branch passes through", () => {

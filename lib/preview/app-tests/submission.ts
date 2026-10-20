@@ -77,6 +77,12 @@ export async function submitAppTest(
 		),
 		mutation,
 		projection,
+		/* The places of the test's own snapshot, which the form read. An
+		 * owner moved to a place is a read of places (`appReadsPlaces`), so a
+		 * form that moves one always opened with them. */
+		workerPlaceIds: (formContext.cases.locations ?? []).map(
+			(place) => place.id,
+		),
 	});
 	const result = await context.store.applySubmission(
 		submissionEnvelopeArgs(mutation, scope.appId, built),

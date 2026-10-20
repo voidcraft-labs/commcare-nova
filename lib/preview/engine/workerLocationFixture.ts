@@ -17,8 +17,27 @@ import {
 import {
 	type LocationFixtureRow,
 	locationFixtureRows,
+	personaFootprint,
 } from "@/lib/organization/footprint";
 import { readOrganizationPlaces } from "@/lib/organization/service";
+
+/** The persona whose device holds places: `undefined` for yourself, a
+ * persona assigned nowhere, or an app with no organization, each a worker HQ
+ * sends an empty fixture. */
+function placedPersona(
+	doc: (OrganizationCollections & UserCollections) | undefined,
+	personaUuid: string | undefined,
+) {
+	if (doc === undefined || personaUuid === undefined) return undefined;
+	if (orderedOrganizationLevels(doc).length === 0) return undefined;
+	const persona = ownRecordValue(personasOf(doc), personaUuid);
+	if (
+		persona === undefined ||
+		assignedLocationUuids(persona.locations).length === 0
+	)
+		return undefined;
+	return persona;
+}
 
 /**
  * The places a worker's device holds. Previewing as yourself, or as a persona
@@ -31,13 +50,23 @@ export async function workerLocationFixture(
 	doc: (OrganizationCollections & UserCollections) | undefined,
 	personaUuid: string | undefined,
 ): Promise<readonly LocationFixtureRow[]> {
-	if (doc === undefined || personaUuid === undefined) return [];
-	if (orderedOrganizationLevels(doc).length === 0) return [];
-	const persona = ownRecordValue(personasOf(doc), personaUuid);
-	if (
-		persona === undefined ||
-		assignedLocationUuids(persona.locations).length === 0
-	)
-		return [];
+	const persona = placedPersona(doc, personaUuid);
+	if (doc === undefined || persona === undefined) return [];
 	return locationFixtureRows(doc, persona, await readOrganizationPlaces(appId));
+}
+
+/** The ids of the places {@link workerLocationFixture} holds, for a
+ * submission whose entry carried no device snapshot of them. */
+export async function workerPlaceIds(
+	appId: string,
+	doc: (OrganizationCollections & UserCollections) | undefined,
+	personaUuid: string | undefined,
+): Promise<readonly string[]> {
+	const persona = placedPersona(doc, personaUuid);
+	if (doc === undefined || persona === undefined) return [];
+	return personaFootprint(
+		doc,
+		persona,
+		await readOrganizationPlaces(appId),
+	).map((place) => place.id);
 }

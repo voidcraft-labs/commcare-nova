@@ -98,18 +98,24 @@ path (`count('')` throws). A call's node-set arguments follow
 as an empty set (`distinct-values` and `index-of` split `''` into no values,
 `FunctionUtils.getSequence`). `weighted-checklist` reads its four-argument
 pair as node-sets only when both are, so a guard on one set beside the other
-would replace Core's answer with a computed one: the pair is guarded together
-(`emptyRows.ts::guardJointNodeSets`), reading the call over two `''` values,
-Core's answer for two empty sets, only when each set is empty or over an
-instance with no rows, and as written otherwise; a pair that is not two paths
-stays bare. `sum` refuses
+would replace Core's answer with a computed one
+(`emptyRows.ts::guardChecklistPair`): an `if` or `cond` in the pair moves the
+call into its branches; two paths are guarded together, reading the call
+over two `''` values, Core's answer for two empty sets, only when each set is
+empty or over an instance with no rows, and as written otherwise; a path
+beside a value Core never reads as a node-set takes the `''` guard, since Core
+then reads the pair value by value; a path beside `coalesce`, `depend` or
+`sleep` stays bare. Any other argument count reads every argument value by
+value and takes the `''` guard. `sum` refuses
 anything but a node-set, so its argument stays bare and the call is guarded
 with `0` by `emptyRows.ts::guardNodeSetConsumer`, which follows the set
 through pass-through calls: over `if` and `cond` the sum moves into each
 branch, so each branch counts only its own rows; through `depend`, `sleep`
-and a lone `coalesce` value it sums the rebuilt call. A `coalesce` with
-earlier values returns the first that is not blank in place of the set, which
-`sum` refuses with or without rows, so it stays bare. `position` keeps it bare,
+and `coalesce`'s last value it sums the rebuilt call. A `coalesce` hands on
+its set only when every earlier value is blank, and otherwise returns the
+first that is not, which `sum` refuses with or without rows, so behind one
+the guard reads `0` only when the rows are missing and
+`string(coalesce(<earlier values>, '')) = ''`. `position` keeps it bare,
 since Core refuses `position` of an empty set too, and so does `depend`,
 which never reads its later arguments. An itemset or repeat nodeset is
 generated, never lowered here, and stays bare. So does the case owner moved

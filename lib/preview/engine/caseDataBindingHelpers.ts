@@ -168,7 +168,7 @@ import {
 	type SearchInputValues,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
-import { workerLocationFixture } from "./workerLocationFixture";
+import { workerPlaceIds } from "./workerLocationFixture";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 /**
@@ -1518,6 +1518,10 @@ export async function buildSubmissionOperationProgram(args: {
 	readonly receiptMutation?: SubmissionWireMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly viewerTimeZone?: string;
+	/** The ids of the places the entry's device snapshot held when the form
+	 * opened, which an owner moved to a place is resolved among. Absent, the
+	 * entry carried no snapshot of places, and they are read now. */
+	readonly workerPlaceIds?: readonly string[];
 }): Promise<BuiltSubmissionOperations> {
 	const receiptIdentity = buildSubmissionReceiptIdentity({
 		appId: args.appId,
@@ -1536,7 +1540,9 @@ export async function buildSubmissionOperationProgram(args: {
 		);
 	}
 	/* A device resolves an owner moved to a place among the places its
-	 * `locations` fixture holds, so the program carries exactly those. */
+	 * `locations` fixture holds, so the program carries exactly those: the
+	 * ones the form opened with, or, for an entry that carried none, the
+	 * worker's places now. */
 	const movesOwnerToPlace = (
 		app.blueprint.forms[args.projection.formUuid]?.caseOperations ?? []
 	).some(operationOwnerMovesToPlace);
@@ -1546,13 +1552,13 @@ export async function buildSubmissionOperationProgram(args: {
 		projection: args.projection,
 		identity: args.identity,
 		...(movesOwnerToPlace && {
-			workerPlaceIds: (
-				await workerLocationFixture(
+			workerPlaceIds:
+				args.workerPlaceIds ??
+				(await workerPlaceIds(
 					args.appId,
 					app.blueprint,
 					args.identity.personaUuid,
-				)
-			).map((place) => place.id),
+				)),
 		}),
 		...(args.viewerTimeZone !== undefined && {
 			viewerTimeZone: args.viewerTimeZone,

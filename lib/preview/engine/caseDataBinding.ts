@@ -67,6 +67,8 @@ import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
+import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
+import { MAX_LOCATIONS_PER_APP } from "@/lib/organization/schema";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
 import {
@@ -1568,6 +1570,24 @@ function normalizeSubmissionWireMutation(
 	return { ...canonicalSlots, caseIds: [caseId] };
 }
 
+/** The place ids a submission says its entry opened with, checked as the
+ * untrusted Server Action JSON they are: absent, or the canonical UUIDs of at
+ * most as many places as an app holds. */
+function submittedPlaceIds(value: unknown): readonly string[] | undefined {
+	if (value === undefined) return undefined;
+	if (
+		Array.isArray(value) &&
+		value.length <= MAX_LOCATIONS_PER_APP &&
+		value.every(
+			(id) => typeof id === "string" && CANONICAL_UUID_PATTERN.test(id),
+		)
+	)
+		return value;
+	throw new CaptureSubmissionRejectedError(
+		"We couldn't read the places this form opened with. Reload the form and submit again.",
+	);
+}
+
 export async function submitFormAction(
 	mutation: SubmissionMutation,
 	appId: string,
@@ -1577,8 +1597,14 @@ export async function submitFormAction(
 	 *  the resolved identity's `ownerId` is stamped on every case the
 	 *  submission creates, so a persona's work belongs to that persona. */
 	personaUuid?: string,
+	/** The ids of the places the entry's device snapshot held when the form
+	 *  opened, so an owner moved to a place is resolved among exactly the
+	 *  places the form read. They are the selected worker's own, which the
+	 *  author previewing as that worker may already read. */
+	workerPlaceIds?: readonly string[],
 ): Promise<SubmissionResult> {
 	try {
+		const entryPlaceIds = submittedPlaceIds(workerPlaceIds);
 		/* This runtime boundary is mandatory even though the TypeScript surface
 		 * is required: Server Action payloads are untrusted JSON. Consume the
 		 * normalized projection below so missing/stale clients cannot bypass
@@ -1711,6 +1737,7 @@ export async function submitFormAction(
 			receiptMutation: wireMutation,
 			projection,
 			viewerTimeZone,
+			...(entryPlaceIds === undefined ? {} : { workerPlaceIds: entryPlaceIds }),
 		});
 		if (built.captureIntent !== undefined) {
 			await prepareCaptureSubmissionBytes({

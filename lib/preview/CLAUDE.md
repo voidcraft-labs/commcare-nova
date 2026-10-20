@@ -1315,7 +1315,12 @@ leaves a row of such a repeat (`refuseOwnerRowWithoutPlace`). The copy says
 the case has no owner to move to. The SQL owner resolves the destination only
 among the places of the worker's own fixture (the program's
 `workerPlaceIds`), as a device does, reading each place's lineage from the
-whole tree.
+whole tree. Those are the places the entry opened with: Preview's form
+screen sends the ids its device snapshot held with the submission, and an App
+Test passes its own snapshot's, so the owner resolves among exactly the
+places the form read. Only an entry that carried no snapshot of places has
+them read again at submission (`workerLocationFixture.ts::workerPlaceIds`,
+the footprint's ids alone).
 
 A choice list Preview computes at form open, so Preview refuses the form at
 open where a phone refuses when the question is reached. The export boundary

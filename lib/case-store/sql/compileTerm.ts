@@ -239,7 +239,8 @@ export interface TermCompileContext {
 	/** App organization hierarchy for owner-only location terms. */
 	organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	/**
-	 * The ids of the places the worker's `locations` fixture holds
+	 * The ids of the places the worker's `locations` fixture holds: the ones
+	 * the entry opened with, or the worker's footprint read at submission
 	 * (`lib/preview/engine/workerLocationFixture.ts`). A device resolves an
 	 * owner moved to a place among these alone, so an owner-to-place hop
 	 * compiled without them is a caller bug, and an empty list resolves no
@@ -456,6 +457,10 @@ export function compileTerm(
 			// upward. The recursive CTE cannot reference the destination alias from
 			// the later scalar SELECT; keeping both rows in the seed makes that SQL
 			// scope explicit while the current case remains a valid outer reference.
+			// At most one row matches, so `limit(1)` needs no order: organization
+			// admission keeps one live destination below each owning place
+			// (`commitIntegrity.ts::assertReverseHopTargetsUnambiguous`), so the
+			// device's first match in fixture order is the only one.
 			return ctx.db
 				.withRecursive(
 					"location_lineage(destination_id, id, parent_id, level_uuid)",

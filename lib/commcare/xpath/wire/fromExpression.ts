@@ -50,7 +50,7 @@ import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
 import type { FormNodeProjection } from "../formNodeProjection";
 import { w } from "./builders";
 import {
-	guardJointNodeSets,
+	guardChecklistPair,
 	guardNodeSetConsumer,
 	guardValue,
 } from "./emptyRows";
@@ -699,9 +699,9 @@ type Use = "value" | "nodes";
  * read it as NaN, their answer for no values; `distinct-values` and
  * `index-of` split it into no values (`FunctionUtils.getSequence` →
  * `DataUtil.splitOnSpaces`). `jointly`: `weighted-checklist` reads its pair
- * as node-sets only when both are, so the pair is guarded together
- * (`emptyRows.ts::guardJointNodeSets`), reading what Core reads for two empty
- * sets: no flags, so no weight. A constant: the argument stays bare and the call
+ * as node-sets only when both are (`emptyRows.ts::guardChecklistPair`): two
+ * paths are guarded together, reading what Core reads for two empty sets, no
+ * flags and so no weight; a path beside a value takes the `''` guard. A constant: the argument stays bare and the call
  * is guarded (`emptyRows.ts::guardNodeSetConsumer`), reading that constant
  * when there are no rows, since `sum` refuses anything but a node-set.
  * `nodes`: the argument stays bare, since Core refuses `position` of an
@@ -756,7 +756,7 @@ function emitCall(
 					return position < 0 ? arg : (sets[position] ?? arg);
 				}),
 			);
-		return guardJointNodeSets(
+		return guardChecklistPair(
 			at.flatMap((index) => args[index] ?? []),
 			withSets,
 			withSets(at.map(() => w.str(""))),

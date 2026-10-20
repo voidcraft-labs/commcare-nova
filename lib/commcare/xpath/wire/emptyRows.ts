@@ -66,16 +66,20 @@ export function guardValue(read: WireExpr): WireExpr {
  * through a pass-through call unconverted, so the guard follows it there:
  * over the branches of a lazy call (`if`, `cond`) the consumer moves into
  * each branch, which then guards only the rows it reads, so a branch over
- * rows that exist answers as written; through an eager one that always
- * returns the set (`depend`'s first, `sleep`'s second, a lone `coalesce`
- * value) it consumes the rebuilt call. A `coalesce` with earlier values
- * returns the first that is not blank instead of the set
- * (`XpathCoalesceFunc.evalBody`), which such a consumer refuses whether or
- * not any row exists, so it stays bare: Core gives no `empty` for it. */
+ * rows that exist answers as written; through an eager one (`depend`'s
+ * first, `sleep`'s second, `coalesce`'s last) it consumes the rebuilt call.
+ * A `coalesce` hands on its set only when every earlier value is blank
+ * (`XpathCoalesceFunc.evalBody`: the first that is neither `''` nor NaN is
+ * returned in its place, which such a consumer refuses with or without
+ * rows), so the guard reads `empty` only when the rows are missing AND those
+ * values are blank, and the call as written otherwise. */
 export function guardNodeSetConsumer(
 	nodes: WireExpr,
 	consume: (nodes: WireExpr) => WireExpr,
 	empty: WireExpr,
+	/** Holds when every value an enclosing `coalesce` reads before the set is
+	 * blank, so that `coalesce` hands the set on. */
+	handedOn?: WireExpr,
 ): WireExpr {
 	if (nodes.k === "call") {
 		const spec = FUNCTION_REGISTRY.get(nodes.fn);
@@ -86,15 +90,15 @@ export function guardNodeSetConsumer(
 					nodes.fn,
 					nodes.args.map((arg, index) =>
 						through.has(index)
-							? guardNodeSetConsumer(arg, consume, empty)
+							? guardNodeSetConsumer(arg, consume, empty, handedOn)
 							: arg,
 					),
 				);
 			const [index] = [...through];
 			const passed = index === undefined ? undefined : nodes.args[index];
-			if (nodes.fn === "coalesce" && nodes.args.length > 1)
-				return consume(nodes);
-			if (passed !== undefined && through.size === 1)
+			if (passed !== undefined && through.size === 1) {
+				const earlier =
+					nodes.fn === "coalesce" ? nodes.args.slice(0, index) : [];
 				return guardNodeSetConsumer(
 					passed,
 					(inner) =>
@@ -105,44 +109,116 @@ export function guardNodeSetConsumer(
 							),
 						),
 					empty,
+					earlier.length === 0
+						? handedOn
+						: w.and(
+								...(handedOn === undefined ? [] : [handedOn]),
+								allBlank(earlier),
+							),
 				);
+			}
 		}
 	}
 	const rows = emptiableRows(nodes);
-	return rows === undefined
-		? consume(nodes)
-		: guardRead(consume(nodes), rows, empty);
+	if (rows === undefined) return consume(nodes);
+	if (handedOn === undefined) return guardRead(consume(nodes), rows, empty);
+	return w.call("if", [
+		w.and(w.eq(w.call("count", [rows]), w.num(0)), handedOn),
+		empty,
+		consume(nodes),
+	]);
 }
 
-/** `consume(sets)` for a consumer Core reads as node-sets only when every one
- * of `sets` is, and otherwise reads value by value (`weighted-checklist`'s
- * pair, `XPathWeightedChecklistFunc.evalBody`). Guarding each set alone
- * would hand Core a value beside a set, so the sets are guarded together:
- * the call reads `empty`, the answer for no values at all, exactly when every
- * set is empty, an instance with no rows counting as empty, and reads as
- * written otherwise. A set over an instance with no rows is never read then,
- * since Core's `or` stops at its first true operand
- * (`XPathBoolExpr.evalRaw`). Sets that are not all paths stay bare. */
-export function guardJointNodeSets(
+/** `string(coalesce(<values>, '')) = ''`: whether every one of `values` is
+ * blank as `coalesce` tests it (`''` or NaN). `coalesce` returns the first
+ * that is not, unpacked, and `string` keeps a `false()` or a date from
+ * comparing equal to `''`. */
+function allBlank(values: readonly WireExpr[]): WireExpr {
+	return w.eq(
+		w.call("string", [w.call("coalesce", [...values, w.str("")])]),
+		w.str(""),
+	);
+}
+
+/** Whether Core can ever read `expr` as a node-set: a path, or a call that
+ * returns one of its arguments as it evaluates. Literals, operators and every
+ * other function return a value. */
+function mayBeNodeSet(expr: WireExpr): boolean {
+	if (expr.k === "path" || expr.k === "expansion") return true;
+	if (expr.k !== "call") return false;
+	return (
+		(FUNCTION_REGISTRY.get(expr.fn)?.passThrough?.(expr.args.length).size ??
+			0) > 0
+	);
+}
+
+/** `consume(sets)` for `weighted-checklist`'s four-argument pair, which Core
+ * reads as two node-sets only when both are, and otherwise value by value
+ * (`XPathWeightedChecklistFunc.evalBody`). A lazy call (`if`, `cond`) in the
+ * pair hands Core the branch it takes, so the call moves into its branches
+ * and each is guarded on its own. Then:
+ *
+ * - Two paths are guarded together: the call reads `empty`, the answer for
+ *   no values at all, exactly when every set is empty, an instance with no
+ *   rows counting as empty, and reads as written otherwise. Guarding each set
+ *   alone would hand Core a value beside a set. A set over an instance with
+ *   no rows is never read then, since Core's `or` stops at its first true
+ *   operand (`XPathBoolExpr.evalRaw`).
+ * - A path beside a value Core can never read as a node-set is read value by
+ *   value, so the path takes the `''` guard, which is what Core unpacks from
+ *   a valid empty set there (`XPathNodeset.unpack`).
+ * - Anything else (a path beside an eager pass-through call, which may or may
+ *   not hand Core a set) stays bare. */
+export function guardChecklistPair(
 	sets: readonly WireExpr[],
 	consume: (sets: readonly WireExpr[]) => WireExpr,
 	empty: WireExpr,
 ): WireExpr {
-	const paths = sets.every(
+	const lazy = sets.findIndex(
+		(set) =>
+			set.k === "call" &&
+			FUNCTION_REGISTRY.get(set.fn)?.evaluation === "lazy" &&
+			(FUNCTION_REGISTRY.get(set.fn)?.passThrough?.(set.args.length).size ??
+				0) > 0,
+	);
+	const branching = sets[lazy];
+	if (branching?.k === "call") {
+		const through = FUNCTION_REGISTRY.get(branching.fn)?.passThrough?.(
+			branching.args.length,
+		);
+		return w.call(
+			branching.fn,
+			branching.args.map((arg, index) =>
+				through?.has(index) === true
+					? guardChecklistPair(
+							sets.map((set, at) => (at === lazy ? arg : set)),
+							consume,
+							empty,
+						)
+					: arg,
+			),
+		);
+	}
+	const paths = sets.map(
 		(set) =>
 			set.k === "path" || (set.k === "expansion" && set.expr.k === "path"),
 	);
-	const rows = sets.map(emptiableRows);
-	if (!paths || rows.every((list) => list === undefined)) return consume(sets);
-	const none = (nodes: WireExpr) => w.eq(w.call("count", [nodes]), w.num(0));
-	return w.call("if", [
-		w.and(
-			...sets.map((set, index) => {
-				const list = rows[index];
-				return list === undefined ? none(set) : w.or(none(list), none(set));
-			}),
-		),
-		empty,
-		consume(sets),
-	]);
+	if (paths.every(Boolean)) {
+		const rows = sets.map(emptiableRows);
+		if (rows.every((list) => list === undefined)) return consume(sets);
+		const none = (nodes: WireExpr) => w.eq(w.call("count", [nodes]), w.num(0));
+		return w.call("if", [
+			w.and(
+				...sets.map((set, index) => {
+					const list = rows[index];
+					return list === undefined ? none(set) : w.or(none(list), none(set));
+				}),
+			),
+			empty,
+			consume(sets),
+		]);
+	}
+	if (sets.some((set, index) => !paths[index] && mayBeNodeSet(set)))
+		return consume(sets);
+	return consume(sets.map(guardValue));
 }

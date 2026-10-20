@@ -944,11 +944,12 @@ every row above:
    read one `''` as they read an empty set, of `min` and `max`, which read it as NaN, their answer
    for no values, and of `distinct-values` and `index-of`, which split it into no values; `sum`
    keeps the argument bare and guards the call, reading `0`, through `if`, `cond`, `depend`,
-   `sleep` and a lone `coalesce` value, while a `coalesce` with earlier values stays bare, since
-   `sum` refuses the earlier value it returns with or without rows; `weighted-checklist`'s pair is
-   guarded together (`emptyRows.ts::guardJointNodeSets`), reading its answer for two empty sets
-   only when each set is empty or over an instance with no rows, since Core reads the pair as
-   node-sets only when both are; `count`, and a branch of `if`, `switch`, `coalesce` or `cond` it
+   `sleep` and `coalesce`'s last value, behind a `coalesce` only when its earlier values are also
+   blank, since `sum` refuses the earlier value it returns with or without rows;
+   `weighted-checklist`'s pair (`emptyRows.ts::guardChecklistPair`) moves into the branches of an
+   `if` or `cond` in it, guards two paths together, reading its answer for two empty sets only
+   when each set is empty or over an instance with no rows, since Core reads the pair as node-sets
+   only when both are, and gives a path beside a plain value the `''` guard; `count`, and a branch of `if`, `switch`, `coalesce` or `cond` it
    reads, keep the bare path, since `count('')` throws where `count` of the bare path reads 0; and
    `position` and `depend`'s later arguments keep it bare (Core refuses `position` of any empty
    set). With any row
