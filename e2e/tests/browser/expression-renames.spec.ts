@@ -16,7 +16,8 @@ test("A saved expression follows a question rename, a relabel and a case propert
 		const editor = condition.locator('.cm-content[contenteditable="true"]');
 		await expect(editor).toBeFocused();
 		await editor.pressSequentially("../a = 'yes'");
-		await expect(editor).toContainText("= 'yes'");
+		// The choice shows as its option's chip, standing for its value.
+		await expect(editor.locator(`[data-ref-raw="'yes'"]`)).toHaveText("Yes");
 		await editor.press("ControlOrMeta+Enter");
 		await expect(savedCondition).toHaveText("../a = 'yes'");
 		await expect(editor).toHaveCount(0);
