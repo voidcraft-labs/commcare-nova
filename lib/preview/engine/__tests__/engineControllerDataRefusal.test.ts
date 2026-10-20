@@ -309,11 +309,20 @@ describe("an evaluation of a form whose choice table has no rows", () => {
 				},
 			],
 		});
+		// Spanish is the app's default, so an evaluation that names no
+		// language speaks Spanish.
+		doc.localization = {
+			sourceLanguage: "eng" as LanguageTag,
+			defaultLanguage: "spa" as LanguageTag,
+			languageOrder: ["eng", "spa"] as LanguageTag[],
+			translations: {},
+			wireCodes: { eng: "en", spa: "es" },
+		};
 		const identity = previewAsMe({ id: "member" }, doc);
 		if (!identity) throw new Error("No preview identity.");
 		const evaluation = evaluateFormSnapshot(
 			doc,
-			{ formUuid: FORM, answers: [] },
+			{ formUuid: FORM, answers: [], language: "eng" as LanguageTag },
 			{
 				identity,
 				cases: { rows: [], indices: [] },
@@ -331,7 +340,7 @@ describe("an evaluation of a form whose choice table has no rows", () => {
 
 		const spanish = evaluateFormSnapshot(
 			doc,
-			{ formUuid: FORM, answers: [], language: "spa" as LanguageTag },
+			{ formUuid: FORM, answers: [] },
 			{
 				identity,
 				cases: { rows: [], indices: [] },

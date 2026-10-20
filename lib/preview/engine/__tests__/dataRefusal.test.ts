@@ -326,6 +326,45 @@ describe("a case owner moved to a place, for a worker assigned nowhere", () => {
 		);
 	});
 
+	it("refuses a repeat's owner as soon as a row exists, as a phone calculates it per row", () => {
+		const refusalOf = (run: () => unknown): unknown => {
+			try {
+				run();
+			} catch (error) {
+				return error;
+			}
+			return undefined;
+		};
+		// A repeat the worker adds rows to opens with its first row.
+		expect(
+			previewDataRefusalOf(
+				refusalOf(
+					open(
+						locationOwnerFixture("direct", { inRepeat: "user_controlled" }),
+						[],
+					),
+				),
+			)?.reason,
+		).toEqual({ kind: "owner-without-place" });
+		// A counted repeat opens with no rows, and stops at its first.
+		const engine = open(
+			locationOwnerFixture("direct", { inRepeat: "count_bound" }),
+			[],
+		)();
+		const count = "/data/how_many";
+		engine.setValue(count, "0");
+		expect(
+			previewDataRefusalOf(refusalOf(() => engine.setValue(count, "2")))
+				?.reason,
+		).toEqual({ kind: "owner-without-place" });
+		// With a place, every row opens.
+		const placed = open(
+			locationOwnerFixture("direct", { inRepeat: "count_bound" }),
+			[clinic],
+		)();
+		expect(() => placed.setValue(count, "2")).not.toThrow();
+	});
+
 	it("opens once the worker has a place, without places read, and for an ordinary owner", () => {
 		expect(open(locationOwnerFixture("direct"), [clinic])).not.toThrow();
 		expect(open(locationOwnerFixture("direct"))).not.toThrow();

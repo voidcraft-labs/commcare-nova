@@ -49,7 +49,11 @@ import { matchModeRunsOnDevice } from "../../predicate/matchModes";
 import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
 import type { FormNodeProjection } from "../formNodeProjection";
 import { w } from "./builders";
-import { guardNodeSetConsumer, guardValue } from "./emptyRows";
+import {
+	guardJointNodeSets,
+	guardNodeSetConsumer,
+	guardValue,
+} from "./emptyRows";
 import { formReadToWire } from "./formReads";
 import { normalizeGeopoint, validGeopointCenter } from "./geopoint";
 import {
@@ -694,15 +698,17 @@ type Use = "value" | "nodes";
  * `join-chunked` and `checklist` read one empty string; `min` and `max`
  * read it as NaN, their answer for no values; `distinct-values` and
  * `index-of` split it into no values (`FunctionUtils.getSequence` →
- * `DataUtil.splitOnSpaces`); and `weighted-checklist` reads `''` flags as
- * false, adding no weight. A constant: the argument stays bare and the call
+ * `DataUtil.splitOnSpaces`). `jointly`: `weighted-checklist` reads its pair
+ * as node-sets only when both are, so the pair is guarded together
+ * (`emptyRows.ts::guardJointNodeSets`), reading what Core reads for two empty
+ * sets: no flags, so no weight. A constant: the argument stays bare and the call
  * is guarded (`emptyRows.ts::guardNodeSetConsumer`), reading that constant
  * when there are no rows, since `sum` refuses anything but a node-set.
  * `nodes`: the argument stays bare, since Core refuses `position` of an
  * empty set too (`XPathPositionFunc.evalBody`) and never reads `depend`'s
  * later arguments. */
 const NODE_SET_ARGUMENT: Partial<
-	Record<string, "value" | "nodes" | { readonly empty: WireExpr }>
+	Record<string, "value" | "nodes" | "jointly" | { readonly empty: WireExpr }>
 > = {
 	join: "value",
 	"join-chunked": "value",
@@ -711,7 +717,7 @@ const NODE_SET_ARGUMENT: Partial<
 	max: "value",
 	"distinct-values": "value",
 	"index-of": "value",
-	"weighted-checklist": "value",
+	"weighted-checklist": "jointly",
 	sum: { empty: w.num(0) },
 	position: "nodes",
 	depend: "nodes",
@@ -731,7 +737,7 @@ function emitCall(
 	const args = callArgs.map((arg, index) => {
 		if (many?.has(index) === true) {
 			if (argument === "value") return emitExpression(arg, ctx);
-			if (argument !== "nodes") guarded.push(index);
+			if (argument !== "nodes" && argument !== "jointly") guarded.push(index);
 			return emitExpression(arg, ctx, "nodes");
 		}
 		return emitExpression(
@@ -740,7 +746,23 @@ function emitCall(
 			passThrough?.has(index) === true ? use : "value",
 		);
 	});
-	if (argument === "value" || argument === "nodes") return w.call(fn, args);
+	if (argument === "jointly" && many !== undefined && many.size > 0) {
+		const at = [...many];
+		const withSets = (sets: readonly WireExpr[]) =>
+			w.call(
+				fn,
+				args.map((arg, index) => {
+					const position = at.indexOf(index);
+					return position < 0 ? arg : (sets[position] ?? arg);
+				}),
+			);
+		return guardJointNodeSets(
+			at.flatMap((index) => args[index] ?? []),
+			withSets,
+			withSets(at.map(() => w.str(""))),
+		);
+	}
+	if (typeof argument === "string") return w.call(fn, args);
 	// Each guarded argument wraps the call built from the ones inside it, so
 	// every argument's rows are counted and each branch counts only its own.
 	const guardFrom = (at: number, built: readonly WireExpr[]): WireExpr => {

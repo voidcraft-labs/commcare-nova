@@ -162,25 +162,40 @@ export function previewDataRefusalReadsTable(
 	return subject === "choices" || subject === "table";
 }
 
+/** Whether an operation moves its case to the worker's place at a level. */
+export function operationOwnerMovesToPlace(operation: CaseOperation): boolean {
+	return (
+		operation.owner?.kind === "term" &&
+		operation.owner.term.kind === "owner-location-at-level"
+	);
+}
+
 /**
- * Whether the form moves a case to the worker's place at a level while the
- * worker is assigned nowhere. The owner's read is printed bare, so Core
- * refuses it when the form opens: a calculate runs whether or not its case
- * block is relevant (`Triggerable.apply`). An operation inside a repeat reads
- * it per row, so only the form's own operations count here. `locations`
- * absent means the snapshot was read without places, which says nothing.
+ * Where the form moves a case to the worker's place at a level while the
+ * worker is assigned nowhere: `form` when one of the form's own operations
+ * does, plus the repeats whose operations do, by uuid. The owner's read is
+ * printed bare, so Core refuses it as soon as it is calculated: for the
+ * form's own operations when the form opens, since a calculate runs whether
+ * or not its case block is relevant (`Triggerable.apply`), and for an
+ * operation inside a repeat as soon as a row of that repeat exists.
+ * `undefined` when nothing is refused; `locations` absent means the snapshot
+ * was read without places, which says nothing.
  */
 export function ownerMovesToNoPlace(
 	operations: readonly CaseOperation[] | undefined,
 	locations: readonly unknown[] | undefined,
-): boolean {
-	if (locations === undefined || locations.length > 0) return false;
-	return (operations ?? []).some(
-		(operation) =>
-			operation.forEach?.repeat === undefined &&
-			operation.owner?.kind === "term" &&
-			operation.owner.term.kind === "owner-location-at-level",
-	);
+): { readonly form: boolean; readonly repeats: ReadonlySet<Uuid> } | undefined {
+	if (locations === undefined || locations.length > 0) return undefined;
+	const moving = (operations ?? []).filter(operationOwnerMovesToPlace);
+	if (moving.length === 0) return undefined;
+	return {
+		form: moving.some((operation) => operation.forEach === undefined),
+		repeats: new Set(
+			moving.flatMap((operation) =>
+				operation.forEach === undefined ? [] : [operation.forEach.repeat],
+			),
+		),
+	};
 }
 
 /**

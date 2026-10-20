@@ -207,6 +207,10 @@ export interface CaseOperationProgram {
 	readonly formFieldTypes?: ReadonlyMap<Uuid, CasePropertyDataType | undefined>;
 	/** Organization hierarchy used only by owner-location-at-level terms. */
 	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
+	/** The places of the worker's `locations` fixture, by id, among which an
+	 * owner moved to a place resolves (`TermCompileContext.workerPlaceIds`).
+	 * Present whenever an operation moves its owner to a place. */
+	readonly workerPlaceIds?: readonly string[];
 	/**
 	 * Rows-free Project-scoped lookup definitions for every carrier in this
 	 * exact operation program. The server derives the target ids from the

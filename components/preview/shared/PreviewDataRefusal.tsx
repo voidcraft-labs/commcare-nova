@@ -141,14 +141,59 @@ interface BoundaryProps {
 	/** The document, which the boundary watches only while it shows a
 	 * refusal: any edit can be the one that fixes it, so each tries the
 	 * screen again. */
-	readonly doc: { readonly subscribe: (listener: () => void) => () => void };
+	readonly doc: RefusalDoc;
 	readonly children: React.ReactNode;
+}
+
+/** A document store: each commit replaces its state. */
+interface RefusalDoc {
+	readonly subscribe: (listener: () => void) => () => void;
+	readonly getState: () => unknown;
 }
 
 interface BoundaryState {
 	readonly error: unknown;
 	readonly caughtWith: readonly unknown[] | undefined;
+	/** The document's state when the refusal was caught. */
+	readonly caughtAt: unknown;
 }
+
+/** What the boundary does with its document watch after it renders. */
+export interface RefusalWatchStep {
+	/** Drop the watch it holds. */
+	readonly unwatch: boolean;
+	/** `watch` the document, `retry` the screen now, or neither. */
+	readonly next: "watch" | "retry" | "none";
+}
+
+/**
+ * The boundary watches the document exactly while a refusal shows, and the
+ * document it is given, so no commit after the refusal goes unseen: one that
+ * landed before the watch began, or a different document, tries the screen
+ * again at once.
+ */
+export function refusalWatchStep(args: {
+	readonly refused: boolean;
+	/** The document the boundary watches, if any. */
+	readonly watched: RefusalDoc | undefined;
+	readonly doc: RefusalDoc;
+	readonly caughtAt: unknown;
+}): RefusalWatchStep {
+	const { refused, watched, doc } = args;
+	if (!refused) return { unwatch: watched !== undefined, next: "none" };
+	if (watched === doc) return { unwatch: false, next: "none" };
+	return {
+		unwatch: watched !== undefined,
+		next: doc.getState() === args.caughtAt ? "watch" : "retry",
+	};
+}
+
+/** The state that renders the screen again. */
+const RETRY: BoundaryState = {
+	error: undefined,
+	caughtWith: undefined,
+	caughtAt: undefined,
+};
 
 /**
  * Catch Core's data refusal while a menu or Search screen renders; let every
@@ -158,8 +203,12 @@ export class PreviewDataRefusalBoundary extends React.Component<
 	BoundaryProps,
 	BoundaryState
 > {
-	state: BoundaryState = { error: undefined, caughtWith: undefined };
-	#unwatch: (() => void) | undefined;
+	state: BoundaryState = {
+		error: undefined,
+		caughtWith: undefined,
+		caughtAt: undefined,
+	};
+	#watch: { readonly doc: RefusalDoc; readonly stop: () => void } | undefined;
 
 	static getDerivedStateFromError(error: unknown): Partial<BoundaryState> {
 		return { error };
@@ -170,11 +219,12 @@ export class PreviewDataRefusalBoundary extends React.Component<
 		state: BoundaryState,
 	): Partial<BoundaryState> | null {
 		if (state.error === undefined) return null;
-		if (state.caughtWith === undefined) return { caughtWith: props.resetKeys };
+		if (state.caughtWith === undefined)
+			return { caughtWith: props.resetKeys, caughtAt: props.doc.getState() };
 		const changed =
 			state.caughtWith.length !== props.resetKeys.length ||
 			state.caughtWith.some((key, index) => key !== props.resetKeys[index]);
-		return changed ? { error: undefined, caughtWith: undefined } : null;
+		return changed ? RETRY : null;
 	}
 
 	componentDidMount(): void {
@@ -186,23 +236,31 @@ export class PreviewDataRefusalBoundary extends React.Component<
 	}
 
 	componentWillUnmount(): void {
-		this.#unwatch?.();
-		this.#unwatch = undefined;
+		this.#watch?.stop();
+		this.#watch = undefined;
 	}
 
-	/** Watch the document exactly while a refusal shows. */
+	/** Watch the document exactly while a refusal shows (`refusalWatchStep`). */
 	#watchWhileRefused(): void {
-		const refused =
-			this.state.error !== undefined &&
-			previewDataRefusalOf(this.state.error) !== undefined;
-		if (refused && this.#unwatch === undefined) {
-			this.#unwatch = this.props.doc.subscribe(() =>
-				this.setState({ error: undefined, caughtWith: undefined }),
-			);
-		} else if (!refused && this.#unwatch !== undefined) {
-			this.#unwatch();
-			this.#unwatch = undefined;
+		const { doc } = this.props;
+		const step = refusalWatchStep({
+			refused:
+				this.state.error !== undefined &&
+				previewDataRefusalOf(this.state.error) !== undefined,
+			watched: this.#watch?.doc,
+			doc,
+			caughtAt: this.state.caughtAt,
+		});
+		if (step.unwatch) {
+			this.#watch?.stop();
+			this.#watch = undefined;
 		}
+		if (step.next === "retry") this.setState(RETRY);
+		else if (step.next === "watch")
+			this.#watch = {
+				doc,
+				stop: doc.subscribe(() => this.setState(RETRY)),
+			};
 	}
 
 	render() {

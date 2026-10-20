@@ -1296,18 +1296,26 @@ or the client error funnel:
   and rethrows every other error to the canvas boundary. A refused choice list
   there is the Search screen's; any other read is the menu's. It tries again
   when the lookup status or the screen changes, and on the next document
-  revision, which it watches only while a refusal shows.
+  revision, which it watches only while a refusal shows: it notes the
+  document's state when it catches the refusal, and a commit that landed
+  before the watch began, or a different document, tries the screen again at
+  once (`PreviewDataRefusal.tsx::refusalWatchStep`).
 - `evaluateFormSnapshot` (App Tests, `evaluate_form`) reports the same refusal
   as a `FormEvaluationInputError` carrying the sentence in the evaluation's
   language.
 
 A case owner moved to the worker's place at a level prints bare, so a phone
-refuses that form when it opens for a worker assigned nowhere. Preview's
-owner runs in SQL at submission, so `FormEngine` refuses the same form when
-it opens (`dataRefusal.ts::ownerMovesToNoPlace`, reason
-`owner-without-place`), for an operation outside a repeat whose snapshot
-carries an empty place list, and the copy says the case has no owner to move
-to.
+refuses that form for a worker assigned nowhere as soon as it calculates the
+owner: when the form opens for one of the form's own operations, and as soon
+as a row exists for an operation inside a repeat. Preview's owner runs in SQL
+at submission, so `FormEngine` refuses at those same points
+(`dataRefusal.ts::ownerMovesToNoPlace`, reason `owner-without-place`) when the
+snapshot carries an empty place list: at open, and after any change that
+leaves a row of such a repeat (`refuseOwnerRowWithoutPlace`). The copy says
+the case has no owner to move to. The SQL owner resolves the destination only
+among the places of the worker's own fixture (the program's
+`workerPlaceIds`), as a device does, reading each place's lineage from the
+whole tree.
 
 A choice list Preview computes at form open, so Preview refuses the form at
 open where a phone refuses when the question is reached. The export boundary

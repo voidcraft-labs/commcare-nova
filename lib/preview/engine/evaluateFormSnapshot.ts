@@ -12,6 +12,7 @@ import {
 	moduleOpensOnSearch,
 	moduleUuidOfForm,
 	reachableCaseTypes,
+	resolveAppLanguage,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import {
@@ -151,6 +152,9 @@ export async function evaluateFormSnapshot(
 	);
 	if (!module || !engineInput)
 		throw new FormEvaluationInputError("Form not found.");
+	/* What the evaluation says in its own words is in the language the form
+	 * runs in: the one asked for when the app has it, else the app's default. */
+	const language = resolveAppLanguage(doc.localization, input.language);
 	const form = engineInput.form;
 	const ids = input.caseIds ?? [];
 	if (new Set(ids).size !== ids.length)
@@ -181,7 +185,7 @@ export async function evaluateFormSnapshot(
 		formReadsSearchResults(doc, input.formUuid)
 	)
 		throw new FormEvaluationInputError(
-			`${runtimeMessage(input.language, "searchResultsRefusalTitle")}. ${runtimeMessage(input.language, "searchResultsRefusalBody")}`,
+			`${runtimeMessage(language, "searchResultsRefusalTitle")}. ${runtimeMessage(language, "searchResultsRefusalBody")}`,
 		);
 	const reachable = reachableCaseTypes(module.caseType, doc.caseTypes ?? []);
 	const caseData =
@@ -473,7 +477,7 @@ export async function evaluateFormSnapshot(
 									doc,
 									state.insertRefusal,
 									context.cases,
-									input.language,
+									language,
 								).sentence,
 							}),
 					...(kind === "geopoint"
@@ -518,12 +522,12 @@ export async function evaluateFormSnapshot(
 	} catch (error) {
 		if (error instanceof SetvalueRefusal)
 			throw new FormRefusedError(
-				formRefusal(doc, error.details, context.cases, input.language),
+				formRefusal(doc, error.details, context.cases, language),
 			);
 		const dataRefusal = previewDataRefusalOf(error);
 		if (dataRefusal !== undefined)
 			throw new FormEvaluationInputError(
-				dataRefusalSentence(doc, dataRefusal, context, input.language),
+				dataRefusalSentence(doc, dataRefusal, context, language),
 			);
 		if (error instanceof FormEvaluationXPathError)
 			throw new FormEvaluationInputError(

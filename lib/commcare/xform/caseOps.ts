@@ -76,9 +76,12 @@ import type {
 	PropertyRef,
 } from "@/lib/domain/expression/types";
 import { w } from "../xpath/wire/builders";
-import { joinedSelectedCaseIds } from "../xpath/wire/emptyRows";
 import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
-import { type InstanceSink, sessionInstance } from "../xpath/wire/instances";
+import {
+	type InstanceSink,
+	joinedSelectedCaseIds,
+	sessionInstance,
+} from "../xpath/wire/instances";
 import {
 	buildAncestorJoinNodeset,
 	caseById,

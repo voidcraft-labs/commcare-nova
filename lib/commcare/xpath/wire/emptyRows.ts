@@ -11,14 +11,15 @@
  * `'' = ''` does. */
 import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
 import { w } from "./builders";
-import { SELECTED_ENTITY_ROWS, selectedCasesInstance } from "./instances";
 import type { WireExpr, WirePath } from "./tree";
 
 /** The row list `count` reads to guard `read`, when `read` is an absolute
  * read through the rows of an instance Core builds from its data alone
- * (`InstanceDecl.rows`), unless the read is one Core should refuse there
- * (`WirePath.refusesEmpty`). Core checks a path's steps with predicates ignored,
- * so when any row exists every read Core accepts today answers as before. */
+ * (`InstanceDecl.rows`): its first step the root element and its second the
+ * row element, so the guard counts exactly the rows the read goes through.
+ * A read Core should refuse there (`WirePath.refusesEmpty`) is left alone.
+ * Core checks a path's steps with predicates ignored, so when any row exists
+ * every read Core accepts today answers as before. */
 export function emptiableRows(read: WireExpr): WirePath | undefined {
 	const path = read.k === "expansion" ? read.expr : read;
 	if (
@@ -33,7 +34,8 @@ export function emptiableRows(read: WireExpr): WirePath | undefined {
 	if (
 		rootStep?.axis !== "child" ||
 		rootStep.name !== rows.root ||
-		rowStep === undefined
+		rowStep?.axis !== "child" ||
+		rowStep.name !== rows.row
 	)
 		return undefined;
 	return w.instance(path.root.decl, [w.step(rows.root), w.step(rows.row)]);
@@ -64,11 +66,12 @@ export function guardValue(read: WireExpr): WireExpr {
  * through a pass-through call unconverted, so the guard follows it there:
  * over the branches of a lazy call (`if`, `cond`) the consumer moves into
  * each branch, which then guards only the rows it reads, so a branch over
- * rows that exist answers as written; through an eager one (`coalesce`'s
- * last value, `depend`'s first, `sleep`'s second) it consumes the rebuilt
- * call. `coalesce` returns a value instead of the set when an earlier value
- * is not blank, which such a consumer refuses too, so reading `empty` when
- * the set's rows are empty changes no answer Core gives. */
+ * rows that exist answers as written; through an eager one that always
+ * returns the set (`depend`'s first, `sleep`'s second, a lone `coalesce`
+ * value) it consumes the rebuilt call. A `coalesce` with earlier values
+ * returns the first that is not blank instead of the set
+ * (`XpathCoalesceFunc.evalBody`), which such a consumer refuses whether or
+ * not any row exists, so it stays bare: Core gives no `empty` for it. */
 export function guardNodeSetConsumer(
 	nodes: WireExpr,
 	consume: (nodes: WireExpr) => WireExpr,
@@ -89,6 +92,8 @@ export function guardNodeSetConsumer(
 				);
 			const [index] = [...through];
 			const passed = index === undefined ? undefined : nodes.args[index];
+			if (nodes.fn === "coalesce" && nodes.args.length > 1)
+				return consume(nodes);
 			if (passed !== undefined && through.size === 1)
 				return guardNodeSetConsumer(
 					passed,
@@ -109,25 +114,35 @@ export function guardNodeSetConsumer(
 		: guardRead(consume(nodes), rows, empty);
 }
 
-/** The chosen case ids of a several-case datum as one space-separated value:
- * `join(' ', <ids>)` with the ids guarded, which reads blank when none is
- * chosen. No case is chosen only through a session endpoint: Web Apps' own
- * list sets the datum for one or more
- * (`MultiSelectEntityScreen.validateSelectionSize` refuses 0), but
- * Formplayer builds an endpoint's selection from the link's argument with
- * `split(",")`
- * (`MenuSessionRunnerService.processEndpointArgumentsForVirualInstance`),
- * which reads `","` as no ids, and the replay accepts that
- * (`prcessSelectionAsGuid` → `validateEntitiesInInstance` loops over none),
- * while Core refuses a `join` of the empty instance. */
-export function joinedSelectedCaseIds(datumId: string): WireExpr {
-	return w.call("join", [
-		w.str(" "),
-		guardValue(
-			w.instance(selectedCasesInstance(datumId), [
-				w.step(SELECTED_ENTITY_ROWS.root),
-				w.step(SELECTED_ENTITY_ROWS.row),
-			]),
+/** `consume(sets)` for a consumer Core reads as node-sets only when every one
+ * of `sets` is, and otherwise reads value by value (`weighted-checklist`'s
+ * pair, `XPathWeightedChecklistFunc.evalBody`). Guarding each set alone
+ * would hand Core a value beside a set, so the sets are guarded together:
+ * the call reads `empty`, the answer for no values at all, exactly when every
+ * set is empty, an instance with no rows counting as empty, and reads as
+ * written otherwise. A set over an instance with no rows is never read then,
+ * since Core's `or` stops at its first true operand
+ * (`XPathBoolExpr.evalRaw`). Sets that are not all paths stay bare. */
+export function guardJointNodeSets(
+	sets: readonly WireExpr[],
+	consume: (sets: readonly WireExpr[]) => WireExpr,
+	empty: WireExpr,
+): WireExpr {
+	const paths = sets.every(
+		(set) =>
+			set.k === "path" || (set.k === "expansion" && set.expr.k === "path"),
+	);
+	const rows = sets.map(emptiableRows);
+	if (!paths || rows.every((list) => list === undefined)) return consume(sets);
+	const none = (nodes: WireExpr) => w.eq(w.call("count", [nodes]), w.num(0));
+	return w.call("if", [
+		w.and(
+			...sets.map((set, index) => {
+				const list = rows[index];
+				return list === undefined ? none(set) : w.or(none(list), none(set));
+			}),
 		),
+		empty,
+		consume(sets),
 	]);
 }

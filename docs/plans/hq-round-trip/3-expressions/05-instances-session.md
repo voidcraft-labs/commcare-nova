@@ -936,16 +936,22 @@ every row above:
    only inside a presence envelope (`searchInputRefUsesWhenInputPresent`), whose
    `if(count(<field>), …)` already keeps it from running unanswered. The guarded instances are those Core builds from data (`src` a
    `jr://fixture/…`, `jr://instance/selected-entities/…` or `jr://instance/search-input/…`), and
-   the rows are the read's first two steps with no predicates. By consumer, each probed at the
-   pinned Core over every instance above, empty and not: a value Core unpacks (a comparison,
-   arithmetic, a string or number argument, an `if` condition) is guarded with `''`; so are the
-   node-set arguments of `join`, `concat`, `join-chunked` and `checklist`, which read one `''` as
-   they read an empty set, and of `min` and `max`, which read it as NaN, their answer for no
-   values; `sum` and `index-of` keep the argument bare and guard the call, reading `0` and `''`;
-   `count`, and a branch of `if`, `switch`, `coalesce` or `cond` it reads, keep the bare path,
-   since `count('')` throws where `count` of the bare path reads 0; and `position`,
-   `distinct-values`, `weighted-checklist` and `depend`'s later arguments keep it bare, since no
-   string reads as their empty set (Core refuses `position` of any empty set). With any row
+   the rows are the read's first two steps, the root element and then the row element, with no
+   predicates; a read through another child of the root or an attribute stays bare. By consumer,
+   each probed at the pinned Core over every instance above, empty and not: a value Core unpacks
+   (a comparison, arithmetic, a string or number argument, an `if` condition) is guarded with
+   `''`; so are the node-set arguments of `join`, `concat`, `join-chunked` and `checklist`, which
+   read one `''` as they read an empty set, of `min` and `max`, which read it as NaN, their answer
+   for no values, and of `distinct-values` and `index-of`, which split it into no values; `sum`
+   keeps the argument bare and guards the call, reading `0`, through `if`, `cond`, `depend`,
+   `sleep` and a lone `coalesce` value, while a `coalesce` with earlier values stays bare, since
+   `sum` refuses the earlier value it returns with or without rows; `weighted-checklist`'s pair is
+   guarded together (`emptyRows.ts::guardJointNodeSets`), reading its answer for two empty sets
+   only when each set is empty or over an instance with no rows, since Core reads the pair as
+   node-sets only when both are; `count`, and a branch of `if`, `switch`, `coalesce` or `cond` it
+   reads, keep the bare path, since `count('')` throws where `count` of the bare path reads 0; and
+   `position` and `depend`'s later arguments keep it bare (Core refuses `position` of any empty
+   set). With any row
    present each guarded text answers as the bare one, since `if` returns its branch unconverted;
    the Search screen opens with phone required, and a typed name clears it.
    The generated `join` of the chosen cases (a batch form's ids, a nested child list's parent

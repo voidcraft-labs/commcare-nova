@@ -49,9 +49,11 @@ import { slotContext } from "@/lib/domain/expression/context";
 import type { Expression } from "@/lib/domain/expression/types";
 import { expressionSchema } from "@/lib/domain/expression/types";
 import { w } from "../builders";
+import { emptiableRows, guardValue } from "../emptyRows";
 import { toWire, type WireBuildContext } from "../fromExpression";
 import {
 	caseDbInstance,
+	locationsInstance,
 	searchInputInstance,
 	sessionInstance,
 } from "../instances";
@@ -621,6 +623,31 @@ describe("instance arms declare what they read, per target", () => {
 			...args: Expression[]
 		): Expression => ({ kind: "call", fn, args });
 
+		// The guard counts the rows a read goes through, so a read through
+		// another child of the root, or an attribute of it, is not guarded by
+		// an unrelated row count.
+		it("counts the rows only of a read through the row element", () => {
+			const decl = locationsInstance();
+			const rows = w.instance(decl, [w.step("locations"), w.step("location")]);
+			expect(
+				emptiableRows(
+					w.instance(decl, [
+						w.step("locations"),
+						w.step("location"),
+						w.step("name"),
+					]),
+				),
+			).toEqual(rows);
+			for (const steps of [
+				[w.step("locations"), w.attr("version")],
+				[w.step("locations"), w.step("meta"), w.step("name")],
+			]) {
+				const read = w.instance(decl, steps);
+				expect(emptiableRows(read)).toBeUndefined();
+				expect(guardValue(read)).toBe(read);
+			}
+		});
+
 		it("keeps count's node-set bare", () => {
 			expect(printed(count(clinicNames()), "suite").text).toBe(
 				`count(${places})`,
@@ -645,7 +672,7 @@ describe("instance arms declare what they read, per target", () => {
 			);
 		});
 
-		it("guards the node-set of distinct-values, index-of and weighted-checklist, which split '' into no values", () => {
+		it("guards the node-set of distinct-values and index-of, which split '' into no values", () => {
 			expect(
 				printed(
 					call(
@@ -660,6 +687,24 @@ describe("instance arms declare what they read, per target", () => {
 				printed(call("index-of", clinicNames(), term(literal("A"))), "suite")
 					.text,
 			).toBe(`index-of(${guarded(places)}, 'A')`);
+		});
+
+		// Core reads weighted-checklist's pair as node-sets only when both are,
+		// so a guard on one set beside the other set would hand Core a value
+		// and a set, and a computed answer would replace Core's refusal. The
+		// pair reads Core's answer for two empty sets only when each set is
+		// empty or over an instance with no rows.
+		it("guards weighted-checklist's pair together", () => {
+			const labels: Expression = {
+				kind: "project",
+				of: { kind: "table-rows", tableId: table.id, where: [] },
+				value: tableColumn(table.id, label.id),
+			};
+			const placeRows = "count(instance('locations')/locations/location) = 0";
+			const tableRows =
+				"count(instance('item-list:regions')/regions_list/regions) = 0";
+			const tableLabels =
+				"instance('item-list:regions')/regions_list/regions/label";
 			expect(
 				printed(
 					call(
@@ -667,12 +712,12 @@ describe("instance arms declare what they read, per target", () => {
 						term(literal(0)),
 						term(literal(0)),
 						clinicNames(),
-						clinicNames(),
+						labels,
 					),
 					"suite",
 				).text,
 			).toBe(
-				`weighted-checklist(0, 0, ${guarded(places)}, ${guarded(places)})`,
+				`if((${placeRows} or count(${places}) = 0) and (${tableRows} or count(${tableLabels}) = 0), weighted-checklist(0, 0, '', ''), weighted-checklist(0, 0, ${places}, ${tableLabels}))`,
 			);
 		});
 
@@ -704,7 +749,7 @@ describe("instance arms declare what they read, per target", () => {
 				);
 			});
 
-			it("guards a switch's cases and the last value of a coalesce", () => {
+			it("guards a switch's cases and a lone coalesce value", () => {
 				expect(
 					printed(
 						call(
@@ -721,11 +766,21 @@ describe("instance arms declare what they read, per target", () => {
 					`if('a' = 'a', ${tableGuarded(`sum(${tableLabels})`)}, ${guarded(`sum(${places})`, "0")})`,
 				);
 				expect(
-					printed(
-						call("sum", coalesce(term(literal("")), clinicNames())),
-						"suite",
-					).text,
-				).toBe(guarded(`sum(coalesce('', ${places}))`, "0"));
+					printed(call("sum", coalesce(clinicNames())), "suite").text,
+				).toBe(guarded(`sum(coalesce(${places}))`, "0"));
+			});
+
+			// A coalesce returns an earlier value that is not blank in place of
+			// the set, which sum refuses whether or not any row exists, so a
+			// guard would read 0 where Core never does.
+			it("keeps a sum bare over a coalesce with earlier values", () => {
+				for (const first of ["", "x"])
+					expect(
+						printed(
+							call("sum", coalesce(term(literal(first)), clinicNames())),
+							"suite",
+						).text,
+					).toBe(`sum(coalesce('${first}', ${places}))`);
 			});
 		});
 		it("keeps a branch bare when count reads what the branch passes through", () => {

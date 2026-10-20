@@ -158,6 +158,7 @@ import type {
 } from "./caseDataBindingTypes";
 import type { CaseListOrderLocale } from "./caseListOrder";
 import { answerXPathValue } from "./dataInstance";
+import { operationOwnerMovesToPlace } from "./dataRefusal";
 import { entryCreatedCaseKeys } from "./entrySessionData";
 import type { ResolvedPreviewIdentity } from "./identity";
 import { type PreviewLookupData, previewLookupData } from "./lookupEvaluation";
@@ -167,6 +168,7 @@ import {
 	type SearchInputValues,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
+import { workerLocationFixture } from "./workerLocationFixture";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 /**
@@ -1533,11 +1535,25 @@ export async function buildSubmissionOperationProgram(args: {
 			"The submitted form no longer exists in the committed app.",
 		);
 	}
+	/* A device resolves an owner moved to a place among the places its
+	 * `locations` fixture holds, so the program carries exactly those. */
+	const movesOwnerToPlace = (
+		app.blueprint.forms[args.projection.formUuid]?.caseOperations ?? []
+	).some(operationOwnerMovesToPlace);
 	const built = buildCaseOperationProgramFromDoc({
 		blueprint: app.blueprint,
 		mutation: args.mutation,
 		projection: args.projection,
 		identity: args.identity,
+		...(movesOwnerToPlace && {
+			workerPlaceIds: (
+				await workerLocationFixture(
+					args.appId,
+					app.blueprint,
+					args.identity.personaUuid,
+				)
+			).map((place) => place.id),
+		}),
 		...(args.viewerTimeZone !== undefined && {
 			viewerTimeZone: args.viewerTimeZone,
 		}),
@@ -1733,6 +1749,9 @@ export function buildCaseOperationProgramFromDoc(args: {
 	readonly mutation: SubmissionMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly identity: ResolvedPreviewIdentity;
+	/** The ids of the places the worker's `locations` fixture holds, read by
+	 * the I/O half when an operation moves its owner to a place. */
+	readonly workerPlaceIds?: readonly string[];
 	readonly viewerTimeZone?: string;
 }): BuiltSubmissionOperations {
 	const { mutation } = args;
@@ -1931,6 +1950,9 @@ export function buildCaseOperationProgramFromDoc(args: {
 				: {}),
 			caseTypeSchemas,
 			organizationLevels: organizationLevelsOf(doc),
+			...(args.workerPlaceIds === undefined
+				? {}
+				: { workerPlaceIds: args.workerPlaceIds }),
 			formFieldTypes: new Map(
 				[...(formExpressionFacts(doc, formUuid)?.fields ?? [])].map(
 					([uuid, field]) => [uuid, field.type],

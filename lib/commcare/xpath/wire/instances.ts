@@ -11,6 +11,9 @@
 
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { type LookupWireNaming, lookupFixtureSrc } from "../../lookup/naming";
+import { w } from "./builders";
+import { guardValue } from "./emptyRows";
+import type { WireExpr } from "./tree";
 
 export interface InstanceDecl {
 	readonly id: string;
@@ -146,4 +149,27 @@ export class InstanceSink {
 				(left.id < right.id ? -1 : left.id > right.id ? 1 : 0),
 		);
 	}
+}
+
+/** The chosen case ids of a several-case datum as one space-separated value:
+ * `join(' ', <ids>)` with the ids guarded, which reads blank when none is
+ * chosen. No case is chosen only through a session endpoint: Web Apps' own
+ * list sets the datum for one or more
+ * (`MultiSelectEntityScreen.validateSelectionSize` refuses 0), but
+ * Formplayer builds an endpoint's selection from the link's argument with
+ * `split(",")`
+ * (`MenuSessionRunnerService.processEndpointArgumentsForVirualInstance`),
+ * which reads `","` as no ids, and the replay accepts that
+ * (`prcessSelectionAsGuid` → `validateEntitiesInInstance` loops over none),
+ * while Core refuses a `join` of the empty instance. */
+export function joinedSelectedCaseIds(datumId: string): WireExpr {
+	return w.call("join", [
+		w.str(" "),
+		guardValue(
+			w.instance(selectedCasesInstance(datumId), [
+				w.step(SELECTED_ENTITY_ROWS.root),
+				w.step(SELECTED_ENTITY_ROWS.row),
+			]),
+		),
+	]);
 }

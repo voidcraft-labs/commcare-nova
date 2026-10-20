@@ -708,6 +708,9 @@ export class FormEngine {
 	/** The last refused insert of each repeat, by concrete repeat path. It
 	 * stays until an insert of that repeat succeeds or the entry restarts. */
 	private repeatInsertRefusals = new Map<string, SetvalueRefusalDetails>();
+	/** The repeats whose rows move a case to the place of a worker assigned
+	 * nowhere: Core refuses the form as soon as one of their rows exists. */
+	private readonly ownerRepeatsWithoutPlace: ReadonlySet<Uuid>;
 
 	constructor(
 		input: FormEngineInput,
@@ -737,8 +740,13 @@ export class FormEngine {
 		this.caseData = caseData ?? new Map();
 		this.searchAnswers = runtimeOptions.searchAnswers ?? new Map();
 		this.sessionData = runtimeOptions.sessionData ?? {};
-		if (ownerMovesToNoPlace(input.form.caseOperations, caseDatabase?.locations))
+		const ownerWithoutPlace = ownerMovesToNoPlace(
+			input.form.caseOperations,
+			caseDatabase?.locations,
+		);
+		if (ownerWithoutPlace?.form === true)
 			throw new PreviewDataRefusal({ kind: "owner-without-place" });
+		this.ownerRepeatsWithoutPlace = ownerWithoutPlace?.repeats ?? new Set();
 		this.secondaryInstances = secondaryXPathInstances({
 			identity: this.previewIdentity,
 			lookupData: this.lookupData,
@@ -4695,6 +4703,33 @@ export class FormEngine {
 		} finally {
 			this.growingLiveRepeats = false;
 		}
+		this.refuseOwnerRowWithoutPlace();
+	}
+
+	/** Refuse the entry once a row exists whose case operation moves the case
+	 * to the place of a worker assigned nowhere, as Core does when it
+	 * calculates that row's owner. */
+	private refuseOwnerRowWithoutPlace(): void {
+		const repeats = this.ownerRepeatsWithoutPlace;
+		if (repeats.size === 0) return;
+		const rowExists = (
+			nodes: readonly FieldTreeNode[],
+			prefix: string,
+		): boolean =>
+			nodes.some((node) => {
+				const field = node.field;
+				const path = `${prefix}/${field.id}`;
+				if (field.kind === "group" || field.kind === "section")
+					return rowExists(node.children ?? [], path);
+				if (field.kind !== "repeat") return false;
+				const count = this.instance.getRepeatCount(path);
+				if (count > 0 && repeats.has(field.uuid)) return true;
+				for (let index = 0; index < count; index++)
+					if (rowExists(node.children ?? [], `${path}[${index}]`)) return true;
+				return false;
+			});
+		if (rowExists(this.tree, "/data"))
+			throw new PreviewDataRefusal({ kind: "owner-without-place" });
 	}
 
 	private async settleLiveRepeatsAsync(
@@ -4716,6 +4751,7 @@ export class FormEngine {
 			this.publishInitializedSections();
 			await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
 		}
+		this.refuseOwnerRowWithoutPlace();
 	}
 
 	/** Materialize rows up to the snapshot's count. Returns whether a row was

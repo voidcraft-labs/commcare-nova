@@ -83,7 +83,10 @@ same constants Preview's instance builders build from. With no rows, `count`
 of a path into one reads 0 and every value read throws. `casedb` and
 `results:inline` read the case template and are never guarded. So
 `emitExpression` lowers every expression for its consumer (`Use`): a value
-read of such an instance prints `if(count(<root>/<row>) > 0, <read>, '')`.
+read of such an instance, through its root element and then its row element,
+prints `if(count(<root>/<row>) > 0, <read>, '')`; a read through any other
+child of the root, or an attribute of it, is not a read of the rows and stays
+bare.
 With any row present the read answers as written, since `if` returns its
 branch unconverted; with none it reads blank, which is also what Core reads
 for a valid empty node-set (`XPathNodeset.unpack` →
@@ -91,14 +94,22 @@ for a valid empty node-set (`XPathNodeset.unpack` →
 `switch`, `coalesce` or a pass-through call that `count` reads, take the bare
 path (`count('')` throws). A call's node-set arguments follow
 `NODE_SET_ARGUMENT`: `join`, `concat`, `join-chunked`, `checklist`, `min`,
-`max`, `distinct-values`, `index-of` and `weighted-checklist` take the `''`
-guard, which they read as an empty set (`distinct-values` and `index-of`
-split `''` into no values, `FunctionUtils.getSequence`). `sum` refuses
+`max`, `distinct-values` and `index-of` take the `''` guard, which they read
+as an empty set (`distinct-values` and `index-of` split `''` into no values,
+`FunctionUtils.getSequence`). `weighted-checklist` reads its four-argument
+pair as node-sets only when both are, so a guard on one set beside the other
+would replace Core's answer with a computed one: the pair is guarded together
+(`emptyRows.ts::guardJointNodeSets`), reading the call over two `''` values,
+Core's answer for two empty sets, only when each set is empty or over an
+instance with no rows, and as written otherwise; a pair that is not two paths
+stays bare. `sum` refuses
 anything but a node-set, so its argument stays bare and the call is guarded
 with `0` by `emptyRows.ts::guardNodeSetConsumer`, which follows the set
 through pass-through calls: over `if` and `cond` the sum moves into each
-branch, so each branch counts only its own rows; through `coalesce`,
-`depend` and `sleep` it sums the rebuilt call. `position` keeps it bare,
+branch, so each branch counts only its own rows; through `depend`, `sleep`
+and a lone `coalesce` value it sums the rebuilt call. A `coalesce` with
+earlier values returns the first that is not blank in place of the set, which
+`sum` refuses with or without rows, so it stays bare. `position` keeps it bare,
 since Core refuses `position` of an empty set too, and so does `depend`,
 which never reads its later arguments. An itemset or repeat nodeset is
 generated, never lowered here, and stays bare. So does the case owner moved
@@ -112,7 +123,7 @@ validator admits only inside a presence envelope whose `count` covers it.
 Generated scaffolding that reads such an instance as a value guards it
 itself: the several-case `join` of the chosen ids, which a batch form, a
 nested child list's parent filter and its tile grouping all build with
-`emptyRows.ts::joinedSelectedCaseIds`. Zero
+`instances.ts::joinedSelectedCaseIds`. Zero
 chosen cases is reachable through a session endpoint (Formplayer splits the
 link's argument on commas), never through the list. A `<data nodeset>` over
 the chosen cases is a `TreeReference` that Core expands

@@ -58,11 +58,11 @@ import {
 	USERCASE_MISSING_LOCALE_ID,
 } from "./usercaseWire";
 import { w } from "./xpath/wire/builders";
-import { joinedSelectedCaseIds } from "./xpath/wire/emptyRows";
 import {
 	caseDbInstance,
 	type InstanceDecl,
 	InstanceSink,
+	joinedSelectedCaseIds,
 	resultsInstance,
 	sessionInstance,
 } from "./xpath/wire/instances";
