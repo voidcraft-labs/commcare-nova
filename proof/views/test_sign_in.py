@@ -48,10 +48,14 @@ def test_a_person_signs_in_through_hqs_own_form_with_their_password_and_not_with
                 admin = WebUser.create(unit.domain, "proof-signer@example.com", PASSWORD, None, None, is_admin=True)
             for kind, person in (("worker", worker), ("web user", admin)):
                 signed_in = formplayer_hq.sign_in(unit, person, PASSWORD, f"right-{kind}")
-                # The session HQ set names the person HQ signed in, in HQ's own session store.
-                assert SessionStore(session_key=signed_in.session).get(SESSION_KEY) == str(
-                    person.get_django_user().pk
-                ), kind
+                # The session HQ set names the person HQ signed in, in HQ's own session store, read as HQ reads it
+                # on the person's next request: in a request of the unit, under the clock HQ set it with. The store
+                # is HQ's cache, which keeps the session for HQ's inactivity timeout from the moment HQ set it,
+                # and inside the unit that moment is the pin's commit time (``proof.hq.determinism``); read under
+                # the real clock, the session has expired once the pin is older than the timeout.
+                with unit.request(hashlib.sha256(f"sign-in-session-read|{kind}".encode()).digest()):
+                    held = SessionStore(session_key=signed_in.session).get(SESSION_KEY)
+                assert held == str(person.get_django_user().pk), kind
                 assert signed_in.csrf, kind
                 with pytest.raises(formplayer_hq.SignInRefused):
                     formplayer_hq.sign_in(unit, person, "another-password", f"wrong-{kind}")

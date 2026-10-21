@@ -2081,6 +2081,50 @@
 		"control": "container-nested-query"
 	},
 	{
+		"id": "d25-android-proof4-vellum-form-saved-aftersend-removed",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/afterSend",
+		"kind": "removed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-android-proof4-vellum-form-saved-casesastheformopened-added",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/casesAsTheFormOpened",
+		"kind": "added",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-android-proof4-vellum-form-saved-finishing-changed",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/finishing",
+		"kind": "changed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
+		"id": "d25-android-proof4-vellum-form-saved-resultcode-removed",
+		"defect": 25,
+		"part": "query repeat rewritten into model iteration (the device keeps the form it cannot save aside, unsent, and the worker stays in it)",
+		"check": "proof4",
+		"artifact": "android@vellum@*",
+		"path": "/walks/*/steps/*/form/saved/resultCode",
+		"kind": "removed",
+		"document": "container-nested-query",
+		"control": "container-nested-query"
+	},
+	{
 		"id": "d25-saved-query-repeat-html-head-model-bind-nodeset-data-removed",
 		"defect": 25,
 		"part": "saved query repeat",
