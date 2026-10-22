@@ -13,7 +13,7 @@ changes" table.
 |---|---|---|
 | 1 | The manifest and the harness | done: [`proof/README.md`](../../../proof/README.md) |
 | 2 | Emission and publish fixes | done: [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`lib/deployment/CLAUDE.md`](../../../lib/deployment/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
-| 3 | [Expressions](3-expressions.md) | planned in full |
+| 3 | Expressions | done: [`lib/domain/CLAUDE.md`](../../../lib/domain/CLAUDE.md), [`lib/domain/expression/CLAUDE.md`](../../../lib/domain/expression/CLAUDE.md), [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
 | 4 | [Platforms](4-platforms.md) | outline |
 | 5 | [Case writes, forms and navigation](5-case-writes-forms-navigation.md) | outline |
 | 6 | [Import](6-import.md) | outline |
@@ -76,8 +76,8 @@ refuses the read "20, CommTrack" needs (finding 68).
 ## Step 2 is done
 
 Step 2 fixed the emission and publish defects the harness showed, so the
-known-defect register holds no entry for defects 1 to 10 or 12 to 16 and
-none for a finding of the harness but finding 56. It also made a publish an
+known-defect register held no entry for defects 1 to 10 or 12 to 16 and
+none for a finding of the harness but finding 56, which step 3 fixed. It also made a publish an
 update of an app Nova has read. Its plan has left this directory. What
 endures lives where it is read:
 
@@ -120,14 +120,54 @@ endures lives where it is read:
   `docs/architecture/contracts.md`, "Direct maintenance cutover", holds the
   rules it followed.
 
-Four findings belong to later steps and are held until then:
-finding 56 by register entries, for step 3
-([`3-expressions.md`](3-expressions.md), "The baseline this plan was written
-against"); findings 72 and 73 by walk stops, for step 3 (the same section);
-and finding 74 by two
-walk stops, for step 4 ([`4-platforms.md`](4-platforms.md), item 6). The
-register's other entries are defects 20, 21, 23 to 28 and 30, which
-`OPEN_DEFECTS` gives to steps 4 and 5.
+## Step 3 is done
+
+Step 3 made every expression a typed tree that holds its references by
+identity, and its plan has left this directory. What endures lives where it
+is read:
+
+- **The expression union**, `lib/domain/expression/`: one stored
+  `Expression` for form logic, record slots and CSQL, each leaf a typed term
+  and each reference an identity (a field by UUID with the author's spelling
+  kept, a case property as `(caseType, property)`, a session datum, a lookup
+  table or column, a location level or property, a worker property, a search
+  input, a static option, a translation unit), printed in one canonical
+  spelling (`lib/domain/CLAUDE.md`).
+- **One checker**, `lib/domain/expression/typeChecker.ts::checkExpression`,
+  with a rule set for record slots and one for form logic, behind the commit
+  gate (`lib/commcare/CLAUDE.md`).
+- **One wire tree and serializer**, `lib/commcare/xpath/wire/`: `toWire` and
+  `serializeWire` for the XForm, its Vellum shadow, the suite, HQ's JSON and
+  Preview; a comparison of two dates and times lowered to instants
+  (`instant.ts`); instance declarations derived from what the text reads;
+  CSQL built as a tree (`lib/commcare/csql/`) (`lib/commcare/CLAUDE.md`).
+- **Preview and the case store**: Preview evaluates what the device
+  evaluates (`lib/preview/CLAUDE.md`), and Postgres compiles the same union
+  (`lib/case-store/sql/CLAUDE.md`).
+- **The fixed-defect register**: finding 56's and finding 75's entries and
+  defect 25's one blank-answer manifest entry, each still showing on its
+  retained control (defect 25's other entries remain live), finding 75's walk
+  stop held on its control in `proof/walk-stops.json`, and the native
+  families `expression`, run in every device zone, and `csql`
+  (`proof/README.md`, "Native proofs").
+- **What planning step 3 found**,
+  [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md),
+  "Found while planning step 3".
+- **What step 3 left to later steps**, each with its reason, in
+  [`4-platforms.md`](4-platforms.md),
+  [`5-case-writes-forms-navigation.md`](5-case-writes-forms-navigation.md),
+  [`6-import.md`](6-import.md) and [`7-rest-of-model.md`](7-rest-of-model.md).
+- **The cutover's trace.** The cutover ran once, before the merge, and its
+  scripts, its Job and its runbook are removed. What it left is each app's
+  `fold-baseline:hq-round-trip-expressions` row (`lib/db/CLAUDE.md`), each
+  app's notice (`lib/notices/`) and its evidence archive
+  (`docs/architecture/deployment.md`, "Historical repairs").
+
+Finding 74 belongs to step 4 and is held until then by two walk stops, on
+`targeted-datetime-ordering` and `fuzz-xform-20260930-0`
+([`4-platforms.md`](4-platforms.md), item 6). The register's other entries
+are defects 20, 21, 23 to 28 and 30, which `OPEN_DEFECTS` gives to steps 4
+and 5.
 
 ## Why each later step is planned when the one before it exits
 
@@ -206,7 +246,7 @@ proof lane's merge onto `main`, which is `7b153dc3` or later. Between them:
 - #738, the proof lane's own pull request: every CommCare reader over Nova's
   exports, with the registers and the pins step 2's plan read.
 
-Step 3's plan reads `main` at `5cf6e327`. After `7b153dc3`:
+Step 3's plan read `main` at `5cf6e327`. After `7b153dc3`:
 
 - #727, step 2's plan, and #740, #741 and #748 (dependency upgrades with the
   docs search and editor popovers, the proof nightly's cold-cache start and
@@ -216,9 +256,8 @@ Step 3's plan reads `main` at `5cf6e327`. After `7b153dc3`:
   rules over expressions (the time-of-day ordering refusal, the three system
   dates in CSQL with the blank-comparand guard, the both-quote-marks
   `'match-none()'` sentinel), `xpathQueryUsesRelatedLookup`, the case list's
-  order plan, the question id grammar and `hiddenFromMenu`
-  ([`3-expressions.md`](3-expressions.md), "The baseline this plan was written
-  against").
+  order plan, the question id grammar and `hiddenFromMenu` (`lib/commcare/CLAUDE.md`
+  and `lib/domain/CLAUDE.md`).
 
 No defect the research lists changed behavior before `7b153dc3` but finding 52.
 After it, #749 to #767 are step 2, which fixed defects 1 to 10 and 12 to 16 and

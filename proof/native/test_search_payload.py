@@ -7,7 +7,7 @@ complete filter the document means: date and datetime arithmetic resolved,
 day ranges as UTC half-open bounds on the right property, unsupplied inputs
 matching everything, a day range answered blank matching nothing
 (``match-none()``, where HQ's range query refuses a blank comparand), and a
-datetime equality the closed range at its instant (part 06 §3.13). Each
+datetime equality the closed range at its instant. Each
 query Core builds from Nova's nested CSQL functions
 (``CsqlFunctionRuntimeTest``) compiles to its exact property equality (a
 datetime's, that range), and each argument tree HQ's parser reads from them
@@ -63,7 +63,7 @@ def property_bound(key, operator, value):
 
 
 def instant_equality(key, value):
-    """A datetime equality as Nova sends it, the closed range at its instant (part 06 §3.13): HQ's ``and``
+    """A datetime equality as Nova sends it, the closed range at its instant: HQ's ``and``
     (``case_search/const.py::OPERATOR_MAPPING``) over an inclusive bound on each side."""
     return {"bool": {"filter": [property_bound(key, "gte", value), property_bound(key, "lte", value)]}}
 

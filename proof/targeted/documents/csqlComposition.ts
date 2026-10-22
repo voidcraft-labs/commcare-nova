@@ -1,5 +1,5 @@
 /**
- * Typed CSQL composition (part 06): one search per construct an editor can
+ * Typed CSQL composition: one search per construct an editor can
  * author in a search, so proof 3's sessions send each one's CSQL and
  * `csql@A` (`proof/checks/intent.py::search_compiles`) compiles it under
  * every configuration, the one without `CASE_SEARCH_RELATED_LOOKUPS` among
@@ -10,7 +10,7 @@
  *
  * "Visits" passes through the "Households" case list: its search narrows by
  * the chosen household, the parent's case id compared with the chosen case in
- * HQ's flag-free ancestor spelling (`parent/@case_id = …`, part 06 §3.12),
+ * HQ's flag-free ancestor spelling (`parent/@case_id = …`),
  * and by `village = chosen-case-property('Households', 'village')` in a
  * runtime segment; its case list filter reads the same property, so the
  * suite, HQ JSON's short filter and the remote request each hold the datum
@@ -397,7 +397,7 @@ export function csqlComposition() {
 	return targetedDocument({
 		id: ID,
 		rows: [
-			"CSQL composition (part 06 §8): one search per authorable construct, the chosen case among them",
+			"CSQL composition: one search per authorable construct, the chosen case among them",
 		],
 		doc,
 		expected: {

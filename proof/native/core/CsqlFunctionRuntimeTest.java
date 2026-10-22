@@ -73,7 +73,7 @@ public class CsqlFunctionRuntimeTest {
             RemoteQuerySessionManager manager = manager("nested-lookup", hq, data);
             List<String> expected = Arrays.asList(
                 "visit_date = date(\"2024-02-28\")",
-                // A datetime equality is the closed range at its instant (part 06 §3.13).
+                // A datetime equality is the closed range at its instant.
                 "(last_seen >= datetime(\"2024-02-28T10:30:00Z\") and last_seen <= datetime(\"2024-02-28T10:30:00Z\"))",
                 "score = double(\"19.5\")",
                 "visit_date = date-add(date(\"2024-02-28\"), 'days', (double(\"2\")))",

@@ -39,12 +39,12 @@ defects 11 (its second half), 18, 19 and 20.
    `submit-refused:validation-error` on `targeted-datetime-ordering`, the
    witness of finding 56 (`proof/README.md`, "Walk stops"); the lane's second,
    on `fuzz-xform-20260930-10`, left in step 2 once that form's later repeat
-   held rows. Step 3's pull request 5 corrects the walk to send no answer a
-   select already holds. R5 run `39129168950` then shows the same stop on
-   `fuzz-xform-20260930-0`: Form 1-0's two selects already hold their answers,
-   leaving the client's `UnsupportedEntry` placeholder as the answer to its
-   required date-and-time question `/data/itext` at Submit. The earlier R3 and
-   R4 resends had hidden that stop. Finding 74 now holds these two stops; this step's
+   held rows. #778 corrects the walk (`proof/formplayer/walk.py`) to send no
+   answer a select already holds. The proof-audit run `39129168950` then shows
+   the same stop on `fuzz-xform-20260930-0`: Form 1-0's two selects already
+   hold their answers, leaving the client's `UnsupportedEntry` placeholder as
+   the answer to its required date-and-time question `/data/itext` at Submit.
+   The walk's earlier resends had hidden that stop. Finding 74 now holds these two stops; this step's
    exit removes both entries.
 7. **Defect 19.** Inline search, multi-select case lists, entry points and the
    case list menu item carry their per-platform behavior, and Preview shows it.
@@ -86,7 +86,8 @@ defects 11 (its second half), 18, 19 and 20.
      `TreeUtilities.java::tryBatchChildFetch`), or row by row with the row as
      context (`EvaluationContext.java::expandReferenceAccumulator`), where a
      read of the slot's own repeat names every entry. Step 3's checker reads
-     such a read in the slot's context (its part 03 §3.4); this step decides
+     such a read in the slot's context (`lib/domain/expression/typeChecker.ts`,
+     its `many-values` rule); this step decides
      the read by the evaluation Core gives it, or spells it `current()/…`,
      which names the entry under both.
 
