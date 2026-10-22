@@ -15,10 +15,11 @@ import {
 	isXPathNodeSet,
 	unpackXPathRuntimeValue,
 	type XPathInstance,
+	XPathInvalidPathError,
 	type XPathNode,
 	XPathNodesetCardinalityError,
 } from "./runtimeValues";
-import type { EvalContext, XPathValue } from "./types";
+import type { EvalContext, XPathFormText, XPathValue } from "./types";
 import {
 	deserializeXPathWorkerValue,
 	serializeXPathWorkerValue,
@@ -26,6 +27,7 @@ import {
 import {
 	XPATH_WORKER_BUILD_ID,
 	XPATH_WORKER_PROTOCOL_VERSION,
+	type XPathEmptyInstanceRefusal,
 	type XPathRuntimeErrorCode,
 	type XPathRuntimeFailureReason,
 	type XPathWorkerEvaluateRequest,
@@ -328,6 +330,7 @@ function safeError(
 	request: XPathWorkerEvaluateRequest,
 	code: XPathRuntimeErrorCode,
 	reason?: XPathRuntimeFailureReason,
+	refusal?: XPathEmptyInstanceRefusal,
 ): XPathWorkerResponse {
 	return {
 		protocolVersion: XPATH_WORKER_PROTOCOL_VERSION,
@@ -346,16 +349,22 @@ function safeError(
 			revision: request.revision,
 			profile: request.profile,
 		},
+		...(refusal === undefined ? {} : { refusal }),
 	};
 }
 
 class XPathWorkerEvaluationFailure extends Error {
 	readonly reason: XPathRuntimeFailureReason;
+	readonly refusal: XPathEmptyInstanceRefusal | undefined;
 
 	constructor(reason: XPathRuntimeFailureReason, cause: unknown) {
 		super("The XPath worker evaluation failed.", { cause });
 		this.name = "XPathWorkerEvaluationFailure";
 		this.reason = reason;
+		this.refusal =
+			cause instanceof XPathInvalidPathError && cause.missedIn !== null
+				? { instanceId: cause.missedIn }
+				: undefined;
 	}
 }
 
@@ -369,12 +378,11 @@ function classifyWorkerFailure(
 	else if (error instanceof DOMException) kind = "dom-exception";
 	else if (error instanceof XPathNodesetCardinalityError)
 		kind = "nodeset-cardinality";
+	else if (error instanceof XPathInvalidPathError) kind = "invalid-path";
 	else if (error instanceof Error) {
 		const message = error.message;
 		if (message === "The XPath worker evaluation world is unavailable.") {
 			kind = "world-unavailable";
-		} else if (message.includes("path that does not exist")) {
-			kind = "invalid-path";
 		} else if (message.includes("did not pass admission")) {
 			kind = "admission";
 		} else if (message.includes("Unsupported")) {
@@ -463,10 +471,17 @@ export async function evaluateXPathWorkerRequest(
 			carrier !== undefined && carrierParent !== undefined
 				? initializationContextNode(carrierParent, carrier)
 				: undefined;
+		/* The form's text belongs to the world; a request carries it when the
+		 * world starts or when the form's text has changed since. */
+		if (world !== undefined && request.instances.formText !== undefined) {
+			world.formText = request.instances.formText;
+		}
+		const formText = request.instances.formText ?? world?.formText;
 		const context: EvalContext = {
 			...(request.instances.locale === undefined
 				? {}
 				: { locale: request.instances.locale }),
+			...(formText === undefined ? {} : { formText }),
 			getValue: (path) => {
 				const direct = pathValues.get(path);
 				if (direct !== undefined) return xpathToString(direct);
@@ -514,6 +529,7 @@ export async function evaluateXPathWorkerRequest(
 
 interface XPathWorkerEvaluationWorld {
 	readonly key: string;
+	formText?: XPathFormText;
 	readonly main: WorkerXPathInstance | undefined;
 	readonly secondary: ReadonlyMap<string | null, WorkerXPathInstance>;
 }
@@ -653,15 +669,14 @@ export function createXPathWorkerDispatcher(args: {
 				})
 				.catch((error: unknown) => {
 					if (retired || active.get(request.requestId) !== controller) return;
-					const reason =
-						error instanceof XPathWorkerEvaluationFailure
-							? error.reason
-							: undefined;
+					const failure =
+						error instanceof XPathWorkerEvaluationFailure ? error : undefined;
 					args.postMessage(
 						safeError(
 							request,
 							controller.signal.aborted ? "cancelled" : "evaluation-failed",
-							controller.signal.aborted ? undefined : reason,
+							controller.signal.aborted ? undefined : failure?.reason,
+							controller.signal.aborted ? undefined : failure?.refusal,
 						),
 					);
 				})

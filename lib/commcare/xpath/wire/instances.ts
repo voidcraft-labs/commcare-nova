@@ -11,11 +11,50 @@
 
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { type LookupWireNaming, lookupFixtureSrc } from "../../lookup/naming";
+import { w } from "./builders";
+import { guardValue } from "./emptyRows";
+import type { WireExpr } from "./tree";
 
 export interface InstanceDecl {
 	readonly id: string;
 	readonly src: string;
+	/** Present when Core builds this instance from its data alone, with no
+	 * template (`CommCareInstanceInitializer.generateRoot`): a lookup table,
+	 * the flat place list, the selected entities and the search answers. With
+	 * no rows, a path through `row` is an invalid node-set
+	 * (`XPathPathExpr.evalRaw` → `DataInstance.hasTemplatePath`), so the
+	 * emitter guards its value reads by the rows' count (`emptyRows.ts`).
+	 * `casedb` and `results:inline` read the case template and have none. */
+	readonly rows?: InstanceRows;
 }
+
+/** The root element and the row element of an instance Core builds from
+ * its data. Preview's instance builders (`lib/preview/engine/xpathInstances.ts`)
+ * build their instances from these same names. */
+export interface InstanceRows {
+	readonly root: string;
+	readonly row: string;
+}
+
+/** HQ's flat place fixture: `<locations><location …>` per place
+ * (`corehq/apps/locations/fixtures.py::FlatLocationSerializer`). */
+export const LOCATION_ROWS: InstanceRows = {
+	root: "locations",
+	row: "location",
+};
+
+/** `<input><field name="…">` per answered prompt
+ * (`org/commcare/data/xml/VirtualInstances.java::SEARCH_INSTANCE_ROOT_NAME`,
+ * `SEARCH_INSTANCE_NODE_NAME`). */
+export const SEARCH_INPUT_ROWS: InstanceRows = { root: "input", row: "field" };
+
+/** `<results><value>` per chosen case
+ * (`org/commcare/data/xml/VirtualInstances.java::SELCTED_CASES_INSTANCE_ROOT_NAME`,
+ * `SELCTED_CASES_INSTANCE_NODE_NAME`). */
+export const SELECTED_ENTITY_ROWS: InstanceRows = {
+	root: "results",
+	row: "value",
+};
 
 export function caseDbInstance(): InstanceDecl {
 	return { id: "casedb", src: "jr://instance/casedb" };
@@ -26,7 +65,11 @@ export function sessionInstance(): InstanceDecl {
 }
 
 export function locationsInstance(): InstanceDecl {
-	return { id: "locations", src: "jr://fixture/locations" };
+	return {
+		id: "locations",
+		src: "jr://fixture/locations",
+		rows: LOCATION_ROWS,
+	};
 }
 
 export function resultsInstance(
@@ -41,13 +84,18 @@ export function searchInputInstance(
 	return {
 		id,
 		src: `jr://instance/search-input/${id.slice("search-input:".length)}`,
+		rows: SEARCH_INPUT_ROWS,
 	};
 }
 
 /** The caller holds the generated selection datum's exact id. No id-pattern
  * classifier reconstructs whether a string is a selected-entity instance. */
 export function selectedCasesInstance(datumId: string): InstanceDecl {
-	return { id: datumId, src: `jr://instance/selected-entities/${datumId}` };
+	return {
+		id: datumId,
+		src: `jr://instance/selected-entities/${datumId}`,
+		rows: SELECTED_ENTITY_ROWS,
+	};
 }
 
 export function lookupInstance(
@@ -64,6 +112,7 @@ export function lookupInstance(
 	return {
 		id: target === "xform" ? table.xformInstanceId : table.fixtureId,
 		src: lookupFixtureSrc(table.fixtureId),
+		rows: { root: table.listElementName, row: table.rowElementName },
 	};
 }
 
@@ -100,4 +149,27 @@ export class InstanceSink {
 				(left.id < right.id ? -1 : left.id > right.id ? 1 : 0),
 		);
 	}
+}
+
+/** The chosen case ids of a several-case datum as one space-separated value:
+ * `join(' ', <ids>)` with the ids guarded, which reads blank when none is
+ * chosen. No case is chosen only through a session endpoint: Web Apps' own
+ * list sets the datum for one or more
+ * (`MultiSelectEntityScreen.validateSelectionSize` refuses 0), but
+ * Formplayer builds an endpoint's selection from the link's argument with
+ * `split(",")`
+ * (`MenuSessionRunnerService.processEndpointArgumentsForVirualInstance`),
+ * which reads `","` as no ids, and the replay accepts that
+ * (`prcessSelectionAsGuid` → `validateEntitiesInInstance` loops over none),
+ * while Core refuses a `join` of the empty instance. */
+export function joinedSelectedCaseIds(datumId: string): WireExpr {
+	return w.call("join", [
+		w.str(" "),
+		guardValue(
+			w.instance(selectedCasesInstance(datumId), [
+				w.step(SELECTED_ENTITY_ROWS.root),
+				w.step(SELECTED_ENTITY_ROWS.row),
+			]),
+		),
+	]);
 }

@@ -679,6 +679,44 @@ describe("XPath worker runtime", () => {
 				reason: { phase: "evaluation", kind: "invalid-path" },
 			},
 		});
+		await expect(
+			runtime.request(request({ source: "/data/not_in_the_instance" })),
+		).resolves.not.toHaveProperty("refusal");
+		runtime.dispose();
+	});
+
+	it("names the empty instance a refused read missed beside, never inside, the diagnostics", async () => {
+		const runtime = ownedRuntime({
+			workerFactory: createInProcessXPathWorkerFactory(),
+		});
+		// A table with no rows, as a device holds it: its list element and no
+		// row template, so a value read below it reaches nothing.
+		const districts: XPathWorkerInstanceSnapshot = {
+			id: "districts",
+			root: node("", "/", "", [node("districts_list", "/districts_list")]),
+		};
+		const result = await runtime.request(
+			request({
+				source:
+					"instance('districts')/districts_list/districts[code = 'n']/name",
+				instances: {
+					main: mainInstance(),
+					secondary: [districts],
+					contextPath: "/data/age",
+				},
+			}),
+		);
+		expect(result).toMatchObject({
+			ok: false,
+			error: {
+				code: "evaluation-failed",
+				reason: { phase: "evaluation", kind: "invalid-path" },
+			},
+			refusal: { instanceId: "districts" },
+		});
+		expect(JSON.stringify(result.ok ? null : result.error)).not.toContain(
+			"districts",
+		);
 		runtime.dispose();
 	});
 });

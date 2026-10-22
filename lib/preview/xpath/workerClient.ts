@@ -1,6 +1,7 @@
 import {
 	XPATH_WORKER_BUILD_ID,
 	XPATH_WORKER_PROTOCOL_VERSION,
+	type XPathEmptyInstanceRefusal,
 	type XPathRuntimeError,
 	type XPathRuntimeErrorCode,
 	type XPathRuntimeFailureReason,
@@ -67,6 +68,7 @@ function failure(
 	request: Pick<XPathRuntimeRequest, "entryKey" | "revision" | "profile">,
 	code: XPathRuntimeErrorCode,
 	reason?: XPathRuntimeFailureReason,
+	refusal?: XPathEmptyInstanceRefusal,
 ): XPathRuntimeResult {
 	const error: XPathRuntimeError = {
 		code,
@@ -76,7 +78,7 @@ function failure(
 		revision: request.revision,
 		profile: request.profile,
 	};
-	return { ok: false, error };
+	return { ok: false, error, ...(refusal === undefined ? {} : { refusal }) };
 }
 
 function sameScope(
@@ -308,7 +310,12 @@ export class XPathRuntime {
 							? {}
 							: { nodesetValues: response.nodesetValues }),
 					}
-				: failure(pending.request, response.error.code, response.error.reason),
+				: failure(
+						pending.request,
+						response.error.code,
+						response.error.reason,
+						response.refusal,
+					),
 		);
 	};
 

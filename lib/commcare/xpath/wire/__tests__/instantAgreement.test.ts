@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	between,
 	coalesce,
@@ -198,6 +199,47 @@ const recordLeaves = new Map<string, Expression>([
 	["coerce-20455", datetimeCoerce(term(literal(20455)))],
 ]);
 
+/** The form's context where its entry carries the inline search's query,
+ * so it reads what the search found (`results:inline`). */
+const searched: ExpressionContext = {
+	...fx.form,
+	supplies: {
+		...fx.form.supplies,
+		searchResults: { module: testUuid("instant-module") },
+	},
+};
+/** One search result's system date, read as one value. */
+const result = (property: string): Expression => ({
+	kind: "project",
+	of: {
+		kind: "cases",
+		source: "search-results",
+		where: [eq(prop("visit", "case_id"), literal("a"))],
+	},
+	value: prop("visit", property),
+});
+const resultLeaves = new Map<string, Expression>([
+	...[
+		"typed",
+		"text",
+		"date",
+		"int",
+		"now",
+		"today",
+		"case-date_opened",
+		"case-last_modified",
+		"'2026-01-02T04:30:00Z'",
+		"'2026-01-02'",
+		"''",
+	].map((name) => {
+		const leaf = formLeaves.get(name);
+		if (leaf === undefined) throw new Error(`No form leaf '${name}'.`);
+		return [name, leaf] as const;
+	}),
+	["result-date_opened", result("date_opened")] as const,
+	["result-last_modified", result("last_modified")] as const,
+]);
+
 const SLOTS: readonly Slot[] = [
 	{
 		name: "form logic",
@@ -205,6 +247,20 @@ const SLOTS: readonly Slot[] = [
 		targets: ["xform", "preview"],
 		lower: (expression, target) => fx.lowerForm(expression, target),
 		leaves: formLeaves,
+		literal: (value) => literal(value),
+		switchValue: (expression) => expression,
+		condition: eq(fx.field("n"), term(literal(1))),
+		subject: fx.field("n"),
+		stricter: true,
+		place: (expression) => expression,
+		coerces: false,
+	},
+	{
+		name: "form logic reading a search's results",
+		ctx: searched,
+		targets: ["xform", "preview"],
+		lower: (expression, target) => fx.lowerForm(expression, target, searched),
+		leaves: resultLeaves,
 		literal: (value) => literal(value),
 		switchValue: (expression) => expression,
 		condition: eq(fx.field("n"), term(literal(1))),

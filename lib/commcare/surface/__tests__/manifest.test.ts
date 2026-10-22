@@ -270,6 +270,52 @@ const KEYLESS = MANIFEST.inventory.find(
 	(each) => each.noSurfaceKey !== undefined,
 );
 
+/**
+ * The typed instance reads and the reads of the form's own text are emittable
+ * from Nova's expressions, so their entries are HELD and each names, in its
+ * Disposition cell, the narrowing it records as a slot change. The reads that
+ * wait for a later step stay HELD-NEW, and the hierarchical fixture stays
+ * refused.
+ */
+const HELD_INSTANCE_READS = [
+	"expressions-and-data/session-data-datum",
+	"expressions-and-data/item-list-tag-read-in-any-other-expression",
+	"expressions-and-data/locations-flat-jr-fixture-locations-read-in-an-expression",
+	"expressions-and-data/instance-id-current-path-roots",
+	"expressions-and-data/xpath-location-paths",
+	"expressions-and-data/results-read-in-form-expressions-of-an-inline-search-module",
+	"expressions-and-data/jr-itext-id",
+	"expressions-and-data/jr-choice-name-value-path-on-a-static-choice-select",
+] as const;
+const WAITING_INSTANCE_READS = {
+	"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it":
+		"HELD-NEW",
+	"expressions-and-data/groups-jr-fixture-user-groups": "HELD-NEW",
+	"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module":
+		"HELD-NEW",
+	"expressions-and-data/commtrack-locations-hierarchical": "REFUSED",
+	"expressions-and-data/jr-choice-name-on-a-lookup-itemset-select": "REFUSED",
+} as const;
+
+describe("the instance reads Nova's expressions hold", () => {
+	it.each(HELD_INSTANCE_READS)("holds %s, naming its slot changes", (id) => {
+		const held = entry(id);
+		expect(held.disposition).toBe("HELD");
+		if (held.disposition !== "HELD") return;
+		for (const change of held.slotChanges)
+			expect(held.dispositionCell).toContain(
+				`${change.direction}: ${change.text}`,
+			);
+	});
+
+	it.each(Object.entries(WAITING_INSTANCE_READS))(
+		"keeps %s at %s",
+		(id, disposition) => {
+			expect(entry(id).disposition).toBe(disposition);
+		},
+	);
+});
+
 describe("the manifest", () => {
 	it.each(Object.keys(RULES) as Rule[])("holds: %s", (rule) => {
 		expect(RULES[rule](MANIFEST)).toEqual([]);

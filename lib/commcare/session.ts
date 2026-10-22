@@ -62,8 +62,8 @@ import {
 	caseDbInstance,
 	type InstanceDecl,
 	InstanceSink,
+	joinedSelectedCaseIds,
 	resultsInstance,
-	selectedCasesInstance,
 	sessionInstance,
 } from "./xpath/wire/instances";
 import type { WireExpr } from "./xpath/wire/tree";
@@ -375,6 +375,15 @@ export function inlineSearchNodeset(
 
 export const INLINE_SEARCH_RESULTS_INSTANCE = "results:inline";
 export const INLINE_SEARCH_RESULTS_SRC = "jr://instance/remote/results:inline";
+/**
+ * The most primary cases HQ's case search sends a device
+ * (`case_search/const.py::CASE_SEARCH_MAX_RESULTS`, applied as `.size()` in
+ * `CaseSearchQueryBuilder._get_initial_search_es`). The related cases HQ
+ * appends afterwards fall outside it, and the frozen
+ * `INCREASED_MAX_SEARCH_RESULTS` toggle raises it to 1,500 in a project space
+ * that has it. Preview reads at most this many cases of a completed search.
+ */
+export const SEARCH_RESULTS_CAP = 500;
 export const EXCLUDE_RELATED_CASES_FILTER = w.not(
 	w.eq(w.context([w.step("commcare_is_related_case")]), w.call("true")),
 );
@@ -386,13 +395,6 @@ function sessionRef(datumId: string): WireExpr {
 		w.step(datumId),
 	]);
 }
-function selectedValues(datumId: string): WireExpr {
-	return w.instance(selectedCasesInstance(datumId), [
-		w.step("results"),
-		w.step("value"),
-	]);
-}
-
 /** Build one selectable case datum. Nested-menu projection uses this for
  * every step in a parent-select chain, while the flat helper below keeps the
  * historical single-`case_id` default. */
@@ -457,10 +459,7 @@ export function deriveCaseSelectionDatum(args: {
 						w.call("count", [
 							parentIndexes([
 								w.call("selected", [
-									w.call("join", [
-										w.str(" "),
-										selectedValues(parentSelection.id),
-									]),
+									joinedSelectedCaseIds(parentSelection.id),
 									w.context([w.self()]),
 								]),
 							]),
@@ -692,7 +691,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 				caseSelectDatum.maxSelectValue === undefined
 					? w.eq(w.context([w.attr("case_id")]), sessionRef(caseSelectDatum.id))
 					: w.call("selected", [
-							w.call("join", [w.str(" "), selectedValues(caseSelectDatum.id)]),
+							joinedSelectedCaseIds(caseSelectDatum.id),
 							w.context([w.attr("case_id")]),
 						]);
 			return w.call("join", [

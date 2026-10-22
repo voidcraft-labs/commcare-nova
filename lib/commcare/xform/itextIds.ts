@@ -5,10 +5,8 @@ import {
 	formStructure,
 } from "@/lib/domain/expression/formStructure";
 import type { ItextUnit, ProseSlotRef } from "@/lib/domain/expression/types";
-import {
-	makeTranslationUnitId,
-	type TranslationUnitId,
-} from "@/lib/domain/localization";
+import type { TranslationUnitId } from "@/lib/domain/localization";
+import { itextUnitTranslationId } from "@/lib/domain/translationUnits";
 import type { Uuid } from "@/lib/domain/uuid";
 
 const roles = [
@@ -57,13 +55,9 @@ export function formItextUnits(
 	return units;
 }
 
+/** The translation unit an itext entry renders; the mapping is the domain's. */
 export function itextTranslationUnitId(unit: ItextUnit): TranslationUnitId {
-	if (unit.role === "select-option-label")
-		return makeTranslationUnitId("field", unit.field, "option", unit.option);
-	const slot = roles.find(([, role]) => role === unit.role)?.[0];
-	if (slot === undefined)
-		throw new Error("Unknown field translation unit role.");
-	return makeTranslationUnitId("field", unit.field, slot);
+	return itextUnitTranslationId(unit);
 }
 
 export function itextProseSlot(unit: ItextUnit): ProseSlotRef {

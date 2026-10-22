@@ -36,42 +36,64 @@ const naming = lookupWireNaming([
 
 describe("wire instance declarations", () => {
 	it.each([
-		[caseDbInstance(), "casedb", "jr://instance/casedb"],
-		[sessionInstance(), "commcaresession", "jr://instance/session"],
-		[locationsInstance(), "locations", "jr://fixture/locations"],
-		[resultsInstance("results"), "results", "jr://instance/remote/results"],
+		[caseDbInstance(), "casedb", "jr://instance/casedb", undefined],
+		[sessionInstance(), "commcaresession", "jr://instance/session", undefined],
+		[
+			locationsInstance(),
+			"locations",
+			"jr://fixture/locations",
+			{ root: "locations", row: "location" },
+		],
+		[
+			resultsInstance("results"),
+			"results",
+			"jr://instance/remote/results",
+			undefined,
+		],
 		[
 			resultsInstance("results:inline"),
 			"results:inline",
 			"jr://instance/remote/results:inline",
+			undefined,
 		],
 		[
 			searchInputInstance("search-input:results"),
 			"search-input:results",
 			"jr://instance/search-input/results",
+			{ root: "input", row: "field" },
 		],
 		[
 			searchInputInstance("search-input:results:inline"),
 			"search-input:results:inline",
 			"jr://instance/search-input/results:inline",
+			{ root: "input", row: "field" },
 		],
 		[
 			selectedCasesInstance("parent_selected_cases_visit"),
 			"parent_selected_cases_visit",
 			"jr://instance/selected-entities/parent_selected_cases_visit",
+			{ root: "results", row: "value" },
 		],
-	] as const)("declares %s at its Core source", (declaration, id, src) => {
-		expect(declaration).toEqual({ id, src });
-	});
+	] as const)(
+		"declares %s at its Core source, with the rows Core builds it from",
+		(declaration, id, src, rows) => {
+			expect(declaration).toEqual(
+				rows === undefined ? { id, src } : { id, src, rows },
+			);
+		},
+	);
 
 	it("uses distinct lookup ids for forms and suites with one fixture source", () => {
+		const rows = { root: "statuses_list", row: "statuses" };
 		expect(lookupInstance(tableId, naming, "xform")).toEqual({
 			id: "statuses",
 			src: "jr://fixture/item-list:statuses",
+			rows,
 		});
 		expect(lookupInstance(tableId, naming, "suite")).toEqual({
 			id: "item-list:statuses",
 			src: "jr://fixture/item-list:statuses",
+			rows,
 		});
 		expect(() => lookupInstance(tableId, undefined, "xform")).toThrow(
 			"validated table definitions were not supplied",

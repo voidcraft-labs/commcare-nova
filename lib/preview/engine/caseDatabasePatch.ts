@@ -23,6 +23,8 @@ export function overlayCaseDatabasePatch(
 		...(entry.propertyTypes !== undefined || patch.propertyTypes !== undefined
 			? { propertyTypes: { ...entry.propertyTypes, ...patch.propertyTypes } }
 			: {}),
+		// A submission changes no place: the device keeps its fixture.
+		...(entry.locations === undefined ? {} : { locations: entry.locations }),
 	};
 }
 

@@ -38,6 +38,7 @@ export type AppTestCaseStore = Pick<
 	| "count"
 	| "queryGrouped"
 	| "readDeviceCaseDatabase"
+	| "readCaseDatabasePatch"
 	| "insert"
 	| "update"
 	| "applySubmission"

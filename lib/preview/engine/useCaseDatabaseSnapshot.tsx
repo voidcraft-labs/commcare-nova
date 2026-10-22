@@ -25,7 +25,10 @@ import { useEngineController } from "../hooks/useEngineController";
 import { useReloadableResource } from "../hooks/useReloadableResource";
 import { loadCaseDatabaseSnapshotAction } from "./caseDataBinding";
 import type { CaseDatabaseControllerState } from "./engineController";
-import { expressionReadsCaseDatabase } from "./expressionCaseReads";
+import {
+	appReadsPlaces,
+	expressionReadsCaseDatabase,
+} from "./expressionCaseReads";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 type CaseDatabaseState =
@@ -41,6 +44,9 @@ type CaseDatabaseState =
 interface CaseDatabaseRequirements {
 	readonly required: boolean;
 	readonly caseTypes: readonly string[];
+	/** The snapshot carries the worker's `locations` fixture: some form reads
+	 * places (`expressionCaseReads.ts::appReadsPlaces`). */
+	readonly places: boolean;
 }
 
 const CaseDatabaseResourceBoundary = memo(
@@ -143,7 +149,7 @@ export function caseDatabaseRequirements(
 				USERCASE_CASE_TYPE,
 			].sort()
 		: [];
-	return { required, caseTypes };
+	return { required, caseTypes, places: required && appReadsPlaces(doc) };
 }
 
 function sameRequirements(
@@ -152,6 +158,7 @@ function sameRequirements(
 ): boolean {
 	return (
 		left.required === right.required &&
+		left.places === right.places &&
 		left.caseTypes.length === right.caseTypes.length &&
 		left.caseTypes.every(
 			(caseType, index) => right.caseTypes[index] === caseType,
@@ -196,6 +203,7 @@ export function PreviewCaseDatabaseProvider({
 				personaUuid ?? "me",
 				restoreScopeKey,
 				requirements.caseTypes.join(","),
+				requirements.places ? "places" : "",
 				caseRevision,
 			].join("\u0000"),
 		[
@@ -206,6 +214,7 @@ export function PreviewCaseDatabaseProvider({
 			personaUuid,
 			restoreScopeKey,
 			requirements.caseTypes,
+			requirements.places,
 			caseRevision,
 		],
 	);
@@ -226,6 +235,7 @@ export function PreviewCaseDatabaseProvider({
 						selectedAppId,
 						personaUuid,
 						[...claimedCaseIds],
+						requirements.places,
 					);
 					return result.kind === "data"
 						? { kind: "data", token: reloadToken, snapshot: result.snapshot }

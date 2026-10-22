@@ -140,13 +140,23 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 	"constraint-value": () => "Choose a value that fits this setting",
 	"default-not-a-choice": () =>
 		"Choose a starting value from the available choices",
-	"arm-unavailable": () => "Choose a calculation available in this setting",
+	"arm-unavailable": (_path, reason) =>
+		reason === "itext-reference"
+			? "This wording shows an answer, so it can't be read here. You can read the answer itself"
+			: reason === "places-unavailable"
+				? "This setting can't read places. You can read them in a form's questions or its links"
+				: "Choose a calculation available in this setting",
 	"case-data-unavailable": () =>
 		"Choose a value available before selecting a case",
 	"form-answer-unavailable": () =>
 		"Choose a form answer available in this setting",
 	"search-answer-unavailable": () =>
 		"Choose a Search answer available in this setting",
+	"search-results-not-supplied": () =>
+		"This form doesn't open after a search, so it has no results to read",
+	"search-results-order": () =>
+		"Search results come in no fixed order. You can count them instead",
+	"search-results-other-type": () => "This search can't find that kind of case",
 	"row-scope": () => "Choose information from the row being checked",
 	"datum-not-supplied": () =>
 		"Choose information supplied when this screen opens",

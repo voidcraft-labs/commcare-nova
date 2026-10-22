@@ -145,11 +145,28 @@ function lower(
 	});
 }
 
+/** A table read is guarded by its rows' count, since Core refuses a read
+ * of a table with no rows; the read is the guard's first branch. */
 function path(expression: WireExpr): WirePath {
-	expect(expression.k).toBe("path");
-	if (expression.k !== "path")
-		throw new Error("The lookup did not produce a path.");
-	return expression;
+	if (expression.k !== "call" || expression.fn !== "if")
+		throw new Error("The lookup did not produce a guarded read.");
+	const [condition, read, empty] = expression.args;
+	if (read?.k !== "path" || read.root.k !== "instance")
+		throw new Error("The guarded lookup did not read a path.");
+	const [list, row] = read.steps;
+	expect(condition).toEqual(
+		w.gt(
+			w.call("count", [
+				w.instance(read.root.decl, [
+					{ ...list, predicates: [] },
+					{ ...row, predicates: [] },
+				]),
+			]),
+			w.num(0),
+		),
+	);
+	expect(empty).toEqual(w.str(""));
+	return read;
 }
 
 /** Inspect tree coordinates, without using the serializer as its own oracle. */
@@ -199,6 +216,7 @@ describe("lookup wire coordinates", () => {
 				{
 					id: target === "xform" ? "regions" : "item-list:regions",
 					src: "jr://fixture/item-list:regions",
+					rows: { root: "regions_list", row: "regions" },
 				},
 			]);
 			expect(path(wire).steps).toEqual([

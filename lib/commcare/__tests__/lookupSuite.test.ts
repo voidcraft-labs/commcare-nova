@@ -42,7 +42,7 @@ describe("lookup artifacts from an admitted app", () => {
 			);
 			expect(menus).toHaveLength(1);
 			expect(menus[0].attribs.relevant).toBe(
-				"instance('item-list:regions')/regions_list/regions[1]/label = 'Northland'",
+				"if(count(instance('item-list:regions')/regions_list/regions) > 0, instance('item-list:regions')/regions_list/regions[1]/label, '') = 'Northland'",
 			);
 			for (const consumer of [
 				menus[0],

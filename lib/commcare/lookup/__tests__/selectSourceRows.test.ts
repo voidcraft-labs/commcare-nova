@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { classifyError } from "@/lib/commcare/validator/gate";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
 	blueprintDocSchema,
@@ -393,4 +395,60 @@ it("keeps distinct Unicode spellings and non-XML whitespace inside saved values"
 			row(vals({ [VALUE_COL]: "a\u00a0b", [LABEL_COL]: "Same" })),
 		]),
 	).toEqual([]);
+});
+
+describe("lookupSelectSourceRowFindings — a table with no rows", () => {
+	// Core refuses an itemset whose path reaches no row
+	// (`ItemSetUtils.populateDynamicChoices`), so the question never opens.
+	it("refuses a select whose table has no rows, naming the question and the table", () => {
+		const errors = findings(table(), []);
+		expect(errors.map((e) => e.code)).toEqual(["LOOKUP_SELECT_SOURCE_EMPTY"]);
+		expect(errors[0].message).toBe(
+			`Field "status" builds its choices from lookup table "Statuses", which has no rows, so a device won't open the question. Add rows to "Statuses" in Project data, or choose another table for its choices.`,
+		);
+		expect(userFacingError(errors[0])).toBe(
+			`The question "status" in "Visit" gets its choices from "Statuses", which has no rows, so a phone won't open it. You can add rows to "Statuses" in Project data, or choose another table for its choices.`,
+		);
+		expect(classifyError(errors[0].code)).toBe("environment");
+	});
+
+	it("refuses a Search prompt whose table has no rows", () => {
+		const errors = lookupSelectSourceRowFindings(
+			searchPromptDoc(),
+			snapshot(table(), []),
+		);
+		expect(errors.map((e) => e.code)).toEqual(["LOOKUP_SELECT_SOURCE_EMPTY"]);
+		expect(userFacingError(errors[0])).toBe(
+			`Search field "Status" gets its choices from "Statuses", which has no rows, so a phone won't open its Search screen. You can add rows to "Statuses" in Project data, or choose another table for its choices.`,
+		);
+	});
+
+	it("refuses an empty table even when a column is stale, beside the stale column's own finding", () => {
+		const doc = carrierDoc({ ...SOURCE, valueColumnId: ABSENT_COL });
+		expect(
+			lookupSelectSourceRowFindings(doc, snapshot(table(), [])).map(
+				(e) => e.code,
+			),
+		).toEqual(["LOOKUP_SELECT_SOURCE_EMPTY"]);
+		expect(
+			runValidation(doc, {
+				kind: "available",
+				projectId: "project-1",
+				projectRevision: "1" as LookupRevision,
+				definitions: [table()],
+			}).map((e) => e.code),
+		).toContain("LOOKUP_COLUMN_NOT_AVAILABLE");
+	});
+
+	it("passes a filter that leaves no choice over rows that exist", () => {
+		const doc = carrierDoc({ ...SOURCE, filter: matchNone() });
+		expect(
+			lookupSelectSourceRowFindings(
+				doc,
+				snapshot(table(), [
+					row(vals({ [VALUE_COL]: "open", [LABEL_COL]: "Open" })),
+				]),
+			),
+		).toEqual([]);
+	});
 });

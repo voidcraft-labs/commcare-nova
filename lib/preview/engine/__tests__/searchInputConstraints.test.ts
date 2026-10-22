@@ -182,7 +182,7 @@ describe("searchInputConstraintErrorsOnDevice", () => {
 		// The answer is read from the search-input instance, as the device
 		// reads it, never substituted into the text.
 		expect(sources).toEqual([
-			"regex(instance('search-input:results')/input/field[@name = 'ssn'], '^[0-9]{3}-[0-9]{2}-[0-9]{4}$')",
+			"regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'ssn'], ''), '^[0-9]{3}-[0-9]{2}-[0-9]{4}$')",
 		]);
 	});
 
@@ -281,7 +281,7 @@ describe("searchInputRequiredMarks", () => {
 		);
 		expect([...marks]).toEqual([["phone", true]]);
 		expect(sources).toEqual([
-			"regex(instance('search-input:results')/input/field[@name = 'name'], '^Dr')",
+			"regex(if(count(instance('search-input:results')/input/field) > 0, instance('search-input:results')/input/field[@name = 'name'], ''), '^Dr')",
 		]);
 	});
 });

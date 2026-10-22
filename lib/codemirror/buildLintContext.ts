@@ -16,6 +16,11 @@
  * after-submit slots expose case data without form-answer completions.
  */
 
+import {
+	entryDatumIds,
+	type FormLinkProjectionContext,
+	formLinkProjectionContext,
+} from "@/lib/commcare/formLinkProjection";
 import { lookupTypeIndex } from "@/lib/doc/commitVerdicts";
 import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
 import { lookupExpressionDefinitions } from "@/lib/doc/lookupExpressionContext";
@@ -27,6 +32,8 @@ import {
 	type FieldKind,
 	type Form,
 	isContainer,
+	orderedLocationProperties,
+	orderedOrganizationLevels,
 	type ProseTemplate,
 	projectProseTemplate,
 	type ReachableCaseTypeIndex,
@@ -34,11 +41,22 @@ import {
 	toReachableIndex,
 	type Uuid,
 } from "@/lib/domain";
-import { slotContext } from "@/lib/domain/expression/context";
+import {
+	type ExpressionContext,
+	type LookupDefinitionIndex,
+	slotContext,
+} from "@/lib/domain/expression/context";
 import type { FormStructure } from "@/lib/domain/expression/formStructure";
-import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
+import type {
+	DatumRef,
+	ExpressionSlotRef,
+} from "@/lib/domain/expression/types";
 import { VALUE_PRODUCING_TYPES } from "@/lib/references/provider";
-import type { XPathLintContext, XPathReferenceContext } from "./xpath-lint";
+import type {
+	XPathInstanceReads,
+	XPathLintContext,
+	XPathReferenceContext,
+} from "./xpath-lint";
 
 /**
  * The case types a form can READ — its owning module's case type plus that
@@ -154,8 +172,147 @@ export function buildExpressionLintContext(
 			: { validPaths: new Set<string>(), formEntries: [] }),
 		...(context.profile.caseData ? {} : { reachableCaseTypes: undefined }),
 		scope: context.profile.scope === "session" ? "session" : "form",
+		instanceReads: slotInstanceReads(doc, context, lookup),
 		expressionContext: context,
 		parse: (source) =>
 			parseFormExpressionForSlot(doc, slot, source, lookup, options),
+	};
+}
+
+/** What a session value holds, as the person knows it. */
+function datumLabel(
+	doc: BlueprintDoc,
+	ref: DatumRef,
+	ownCaseType: string | undefined,
+): string {
+	switch (ref.kind) {
+		case "selected-case":
+			return `The case chosen in ${doc.modules[ref.module]?.name ?? "a menu"}`;
+		case "new-case":
+			return ownCaseType === undefined
+				? "This form's new case"
+				: `This form's new ${ownCaseType} case`;
+		case "new-child-case":
+			return `This form's new ${ref.caseType} case`;
+		case "worker-record":
+			return "The worker's own record";
+		case "tile-group-parents":
+			return `The grouped cases' connections in ${doc.modules[ref.module]?.name ?? "a menu"}`;
+	}
+}
+
+/** Each document snapshot's entry-datum projection. It is app-wide and a
+ * lint context is built for every slot, so one snapshot builds it once (as
+ * `validator/rules/form.ts::projectionContextFor` does); the context holds
+ * each form's datums once computed. */
+const entryProjections = new WeakMap<BlueprintDoc, FormLinkProjectionContext>();
+
+function entryProjectionFor(doc: BlueprintDoc): FormLinkProjectionContext {
+	const held = entryProjections.get(doc);
+	if (held !== undefined) return held;
+	const built = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+	entryProjections.set(doc, built);
+	return built;
+}
+
+/**
+ * The secondary instances the slot reads, from the same facts the parser
+ * binds against and the checker admits by: the Project's tables, places
+ * when the app has levels, the chosen cases only in the questions of a
+ * several-case form, the search's results only where the entry carries the
+ * inline query, a no-matches form's search fields, and the session values
+ * the entry supplies.
+ */
+function slotInstanceReads(
+	doc: BlueprintDoc,
+	context: ExpressionContext,
+	lookup: LookupDefinitionIndex | "unavailable",
+): XPathInstanceReads {
+	const form = context.form;
+	const rows =
+		form === undefined
+			? []
+			: entryDatumIds(
+					doc,
+					entryProjectionFor(doc),
+					form.moduleUuid,
+					form.formUuid,
+				);
+	const ownCaseType =
+		form === undefined
+			? undefined
+			: context.facts.moduleCaseTypes.get(form.moduleUuid);
+	const levels = orderedOrganizationLevels(doc);
+	const chosen =
+		context.slot.entity === "field"
+			? rows.find(
+					(row) =>
+						!row.scalar &&
+						row.refs.some(
+							(ref) =>
+								ref.kind === "selected-case" &&
+								context.supplies.refs.some(
+									(supply) =>
+										!supply.scalar &&
+										supply.ref.kind === "selected-case" &&
+										supply.ref.module === ref.module,
+								),
+						),
+				)
+			: undefined;
+	const searched = context.supplies.searchResults;
+	const searchedType =
+		searched === undefined
+			? undefined
+			: context.facts.caseTypes.find(
+					(type) =>
+						type.name === context.facts.moduleCaseTypes.get(searched.module),
+				);
+	return {
+		tables:
+			lookup === "unavailable"
+				? []
+				: [...lookup.values()].map((table) => ({
+						tag: table.tag,
+						name: table.name,
+						columns: table.columns.map((column) => ({
+							wireName: column.wireName,
+							label: column.label,
+						})),
+					})),
+		...(levels.length === 0
+			? {}
+			: {
+					places: {
+						levels: levels.map((level) => ({
+							code: level.code,
+							name: level.name,
+						})),
+						properties: orderedLocationProperties(doc).map((property) => ({
+							slug: property.slug,
+							label: property.label,
+						})),
+					},
+				}),
+		...(chosen === undefined ? {} : { selectedCases: chosen.id }),
+		...(searchedType === undefined || form?.noMatchesForm
+			? {}
+			: {
+					searchResults: {
+						properties: searchedType.properties.map((property) => ({
+							name: property.name,
+							label: projectProseTemplate(property.label, doc).text,
+						})),
+					},
+				}),
+		...(form?.noMatchesForm
+			? { searchInputs: form.searchInputs.map((input) => input.name) }
+			: {}),
+		sessionData: rows.flatMap((row) => {
+			const ref = row.refs[0];
+			return row.scalar && ref !== undefined
+				? [{ id: row.id, label: datumLabel(doc, ref, ownCaseType) }]
+				: [];
+		}),
 	};
 }

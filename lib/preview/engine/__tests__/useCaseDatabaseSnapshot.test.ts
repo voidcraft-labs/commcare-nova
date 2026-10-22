@@ -62,6 +62,41 @@ describe("caseDatabaseRequirements", () => {
 		);
 	});
 
+	it("carries the worker's places only for an app whose forms read them", () => {
+		const withCalculate = (calculate: Parameters<typeof f>[0]["calculate"]) =>
+			buildDoc({
+				modules: [
+					{
+						name: "Visits",
+						forms: [
+							{
+								name: "Visit",
+								type: "survey",
+								postSubmit: "app_home",
+								fields: [f({ kind: "hidden", id: "read", calculate })],
+							},
+						],
+					},
+				],
+			});
+		const placeCount = withCalculate({
+			kind: "count",
+			via: { kind: "locations", where: [] },
+		});
+		expect(caseDatabaseRequirements(placeCount)).toMatchObject({
+			required: true,
+			places: true,
+		});
+		const caseCount = withCalculate({
+			kind: "count",
+			via: { kind: "cases", source: "casedb", where: [] },
+		});
+		expect(caseDatabaseRequirements(caseCount)).toMatchObject({
+			required: true,
+			places: false,
+		});
+	});
+
 	it("captures the entry world for a static previous task without an authored casedb reference", () => {
 		const doc = buildDoc({
 			caseTypes: [{ name: "patient", properties: [] }],
@@ -85,11 +120,13 @@ describe("caseDatabaseRequirements", () => {
 		expect(caseDatabaseRequirements(doc)).toEqual({
 			required: true,
 			caseTypes: ["commcare-user", "patient"],
+			places: false,
 		});
 		doc.forms[doc.formOrder[doc.moduleOrder[0]][0]].postSubmit = "app_home";
 		expect(caseDatabaseRequirements(doc)).toEqual({
 			required: false,
 			caseTypes: [],
+			places: false,
 		});
 	});
 	it.each([
@@ -186,6 +223,7 @@ describe("caseDatabaseRequirements", () => {
 			expect(caseDatabaseRequirements(doc)).toEqual({
 				required,
 				caseTypes: required ? ["commcare-user", "patient"] : [],
+				places: false,
 			});
 		},
 	);
@@ -332,6 +370,7 @@ describe("caseDatabaseRequirements", () => {
 		expect(caseDatabaseRequirements(doc)).toEqual({
 			required: true,
 			caseTypes: ["commcare-user", "patient"],
+			places: false,
 		});
 	});
 
@@ -374,6 +413,7 @@ describe("caseDatabaseRequirements", () => {
 		expect(caseDatabaseRequirements(doc)).toEqual({
 			required: true,
 			caseTypes: ["commcare-user", "patient"],
+			places: false,
 		});
 	});
 
@@ -411,6 +451,7 @@ describe("caseDatabaseRequirements", () => {
 		expect(caseDatabaseRequirements(doc)).toEqual({
 			required: true,
 			caseTypes: ["commcare-user", "patient"],
+			places: false,
 		});
 	});
 
@@ -443,6 +484,7 @@ describe("caseDatabaseRequirements", () => {
 		expect(caseDatabaseRequirements(doc)).toEqual({
 			required: false,
 			caseTypes: [],
+			places: false,
 		});
 	});
 });

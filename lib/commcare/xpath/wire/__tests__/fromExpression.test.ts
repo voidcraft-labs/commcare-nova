@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import {
+	clinicNames,
+	INSTANCE_READS,
+	instanceReadFixture,
+} from "@/lib/commcare/__tests__/instanceReadFixture";
+import {
 	type CaseType,
 	type SearchInputDef,
 	simpleSearchInputDef,
@@ -35,6 +40,8 @@ import {
 	subcasePath,
 	switchCase,
 	switchExpr,
+	tableColumn,
+	tableLookup,
 	term,
 	today,
 } from "@/lib/domain/expression/builders";
@@ -42,9 +49,11 @@ import { slotContext } from "@/lib/domain/expression/context";
 import type { Expression } from "@/lib/domain/expression/types";
 import { expressionSchema } from "@/lib/domain/expression/types";
 import { w } from "../builders";
+import { emptiableRows, guardValue } from "../emptyRows";
 import { toWire, type WireBuildContext } from "../fromExpression";
 import {
 	caseDbInstance,
+	locationsInstance,
 	searchInputInstance,
 	sessionInstance,
 } from "../instances";
@@ -208,16 +217,26 @@ describe("domain expressions become typed wire trees", () => {
 			]),
 			bindings: { searchInputInstanceId: "search-input:custom" },
 		});
+		const answers = searchInputInstance("search-input:custom");
 		expect(tree).toEqual(
-			w.expansion(
-				"search",
-				w.instance(searchInputInstance("search-input:custom"), [
-					w.step("input"),
-					w.step("field", [
-						w.eq(w.context([w.attr("name")]), w.str("current_name")),
+			w.call("if", [
+				w.gt(
+					w.call("count", [
+						w.instance(answers, [w.step("input"), w.step("field")]),
 					]),
-				]),
-			),
+					w.num(0),
+				),
+				w.expansion(
+					"search",
+					w.instance(answers, [
+						w.step("input"),
+						w.step("field", [
+							w.eq(w.context([w.attr("name")]), w.str("current_name")),
+						]),
+					]),
+				),
+				w.str(""),
+			]),
 		);
 		expect([...serializeWire(tree, { target: "suite" }).instances]).toEqual([
 			searchInputInstance("search-input:custom"),
@@ -519,5 +538,341 @@ describe("a comparison no device can answer between moments never reaches the wi
 			if (wire.k !== "cmp") throw new Error("Expected a comparison.");
 			expect(wire.left).toEqual(instantMicros(fx.lowerForm(fx.field("u"))));
 		}
+	});
+});
+
+// Each instance arm chooses its declaration where it builds its root; the
+// serializer returns exactly the declarations its printed tree reaches.
+describe("instance arms declare what they read, per target", () => {
+	const { doc, table, naming } = instanceReadFixture();
+	const [value, label] = table.columns;
+	const visit = Object.values(doc.fields).find(
+		(field) => field.id === "region_label",
+	);
+	if (visit === undefined) throw new Error("The fixture has no Visit field.");
+	const types = slotContext(
+		doc,
+		{ entity: "field", uuid: visit.uuid, slot: "calculate" },
+		new Map([
+			[
+				table.id,
+				new Map(table.columns.map((column) => [column.id, column.dataType])),
+			],
+		]),
+	);
+	if (types === undefined) throw new Error("The Visit field has no context.");
+	const printed = (
+		expression: Expression,
+		target: "xform" | "suite",
+		bindings: WireBuildContext["bindings"] = {},
+	) => {
+		const serialized = serializeWire(
+			toWire(expression, {
+				target,
+				types,
+				bindings: { ...bindings, lookup: { naming, instanceScope: target } },
+			}),
+			{ target, constraint: false },
+		);
+		return {
+			text: serialized.text,
+			instances: [...serialized.instances].map(({ id, src }) => [id, src]),
+		};
+	};
+
+	it("names a data table by its tag in a form and by its fixture id in a suite", () => {
+		const read = tableLookup(
+			table.id,
+			label.id,
+			eq(tableColumn(table.id, value.id), literal("north")),
+		);
+		expect(printed(read, "xform")).toEqual({
+			text: "if(count(instance('regions')/regions_list/regions) > 0, instance('regions')/regions_list/regions[value = 'north'][1]/label, '')",
+			instances: [["regions", "jr://fixture/item-list:regions"]],
+		});
+		expect(printed(read, "suite")).toEqual({
+			text: "if(count(instance('item-list:regions')/regions_list/regions) > 0, instance('item-list:regions')/regions_list/regions[value = 'north'][1]/label, '')",
+			instances: [["item-list:regions", "jr://fixture/item-list:regions"]],
+		});
+	});
+
+	it("declares places for a row read and nothing for a level's code", () => {
+		expect(printed(clinicNames(), "suite")).toEqual({
+			text: "if(count(instance('locations')/locations/location) > 0, instance('locations')/locations/location[@type = 'clinic']/name, '')",
+			instances: [["locations", "jr://fixture/locations"]],
+		});
+		const clinic = doc.organizationLevelOrder?.[2];
+		if (clinic === undefined)
+			throw new Error("The fixture has no clinic level.");
+		expect(
+			printed(term({ kind: "location-level", levelUuid: clinic }), "xform"),
+		).toEqual({ text: "'clinic'", instances: [] });
+	});
+
+	// Core refuses a value read of a path whose step reaches no node, and a
+	// fixture, the chosen cases and the search answers build that path from
+	// their rows alone, so each value read is guarded by its rows' count.
+	// `count` reads such a path as 0 and keeps it bare.
+	describe("a read of rows that may be empty", () => {
+		const places =
+			"instance('locations')/locations/location[@type = 'clinic']/name";
+		const guarded = (read: string, empty = "''") =>
+			`if(count(instance('locations')/locations/location) > 0, ${read}, ${empty})`;
+		const call = (
+			fn: Extract<Expression, { kind: "call" }>["fn"],
+			...args: Expression[]
+		): Expression => ({ kind: "call", fn, args });
+
+		// The guard counts the rows a read goes through, so a read through
+		// another child of the root, or an attribute of it, is not guarded by
+		// an unrelated row count.
+		it("counts the rows only of a read through the row element", () => {
+			const decl = locationsInstance();
+			const rows = w.instance(decl, [w.step("locations"), w.step("location")]);
+			expect(
+				emptiableRows(
+					w.instance(decl, [
+						w.step("locations"),
+						w.step("location"),
+						w.step("name"),
+					]),
+				),
+			).toEqual(rows);
+			for (const steps of [
+				[w.step("locations"), w.attr("version")],
+				[w.step("locations"), w.step("meta"), w.step("name")],
+			]) {
+				const read = w.instance(decl, steps);
+				expect(emptiableRows(read)).toBeUndefined();
+				expect(guardValue(read)).toBe(read);
+			}
+		});
+
+		it("keeps count's node-set bare", () => {
+			expect(printed(count(clinicNames()), "suite").text).toBe(
+				`count(${places})`,
+			);
+		});
+
+		it("guards a value, and a node-set join or concat reads as an empty string", () => {
+			expect(printed(eq(clinicNames(), literal("x")), "suite").text).toBe(
+				`${guarded(places)} = 'x'`,
+			);
+			expect(
+				printed(call("join", term(literal(" ")), clinicNames()), "suite").text,
+			).toBe(`join(' ', ${guarded(places)})`);
+			expect(printed(concat(clinicNames()), "suite").text).toBe(
+				`concat(${guarded(places)})`,
+			);
+		});
+
+		it("guards a sum at the call, which reads 0 with no rows", () => {
+			expect(printed(call("sum", clinicNames()), "suite").text).toBe(
+				guarded(`sum(${places})`, "0"),
+			);
+		});
+
+		it("guards the node-set of distinct-values and index-of, which split '' into no values", () => {
+			expect(
+				printed(
+					call(
+						"join",
+						term(literal(" ")),
+						call("distinct-values", clinicNames()),
+					),
+					"suite",
+				).text,
+			).toBe(`join(' ', distinct-values(${guarded(places)}))`);
+			expect(
+				printed(call("index-of", clinicNames(), term(literal("A"))), "suite")
+					.text,
+			).toBe(`index-of(${guarded(places)}, 'A')`);
+		});
+
+		// Core reads weighted-checklist's pair as node-sets only when both are,
+		// so a guard on one set beside the other set would hand Core a value
+		// and a set, and a computed answer would replace Core's refusal. The
+		// pair reads Core's answer for two empty sets only when each set is
+		// empty or over an instance with no rows.
+		it("guards weighted-checklist's pair together", () => {
+			const labels: Expression = {
+				kind: "project",
+				of: { kind: "table-rows", tableId: table.id, where: [] },
+				value: tableColumn(table.id, label.id),
+			};
+			const placeRows = "count(instance('locations')/locations/location) = 0";
+			const tableRows =
+				"count(instance('item-list:regions')/regions_list/regions) = 0";
+			const tableLabels =
+				"instance('item-list:regions')/regions_list/regions/label";
+			expect(
+				printed(
+					call(
+						"weighted-checklist",
+						term(literal(0)),
+						term(literal(0)),
+						clinicNames(),
+						labels,
+					),
+					"suite",
+				).text,
+			).toBe(
+				`if((${placeRows} or count(${places}) = 0) and (${tableRows} or count(${tableLabels}) = 0), weighted-checklist(0, 0, '', ''), weighted-checklist(0, 0, ${places}, ${tableLabels}))`,
+			);
+		});
+
+		// Core reads the pair value by value when either is not a node-set, so
+		// a path beside a value takes the value guard, and an `if` in the pair
+		// hands Core the branch it takes, so the call moves into its branches.
+		it("guards weighted-checklist's pair by the shape each branch reads", () => {
+			const labels: Expression = {
+				kind: "project",
+				of: { kind: "table-rows", tableId: table.id, where: [] },
+				value: tableColumn(table.id, label.id),
+			};
+			const tableLabels =
+				"instance('item-list:regions')/regions_list/regions/label";
+			const tableGuarded = `if(count(instance('item-list:regions')/regions_list/regions) > 0, ${tableLabels}, '')`;
+			const checklist = (flags: Expression, weights: Expression) =>
+				printed(
+					call(
+						"weighted-checklist",
+						term(literal(0)),
+						term(literal(1)),
+						flags,
+						weights,
+					),
+					"suite",
+				).text;
+			expect(checklist(clinicNames(), term(literal(1)))).toBe(
+				`weighted-checklist(0, 1, ${guarded(places)}, 1)`,
+			);
+			expect(
+				checklist(
+					ifExpr(eq(literal(1), literal(1)), clinicNames(), term(literal(1))),
+					labels,
+				),
+			).toBe(
+				`if(1 = 1, if((count(instance('locations')/locations/location) = 0 or count(${places}) = 0) and (count(instance('item-list:regions')/regions_list/regions) = 0 or count(${tableLabels}) = 0), weighted-checklist(0, 1, '', ''), weighted-checklist(0, 1, ${places}, ${tableLabels})), weighted-checklist(0, 1, 1, ${tableGuarded}))`,
+			);
+			// A coalesce may or may not hand Core its set, so the pair stays bare.
+			expect(
+				checklist(clinicNames(), coalesce(term(literal("")), labels)),
+			).toBe(
+				`weighted-checklist(0, 1, ${places}, coalesce('', ${tableLabels}))`,
+			);
+		});
+
+		// `if` hands the branch it takes to sum unconverted, so sum moves into
+		// each branch and each branch counts only the rows it reads: a branch
+		// over rows that exist answers as written while the other has none.
+		describe("a sum over a passed-through node-set", () => {
+			const labels: Expression = {
+				kind: "project",
+				of: { kind: "table-rows", tableId: table.id, where: [] },
+				value: tableColumn(table.id, label.id),
+			};
+			const tableLabels =
+				"instance('item-list:regions')/regions_list/regions/label";
+			const tableGuarded = (read: string) =>
+				`if(count(instance('item-list:regions')/regions_list/regions) > 0, ${read}, 0)`;
+
+			it("guards each branch of an if with the rows that branch reads", () => {
+				expect(
+					printed(
+						call(
+							"sum",
+							ifExpr(eq(literal(1), literal(1)), clinicNames(), labels),
+						),
+						"suite",
+					).text,
+				).toBe(
+					`if(1 = 1, ${guarded(`sum(${places})`, "0")}, ${tableGuarded(`sum(${tableLabels})`)})`,
+				);
+			});
+
+			it("guards a switch's cases and a lone coalesce value", () => {
+				expect(
+					printed(
+						call(
+							"sum",
+							switchExpr(
+								term(literal("a")),
+								[switchCase(literal("a"), labels)],
+								clinicNames(),
+							),
+						),
+						"suite",
+					).text,
+				).toBe(
+					`if('a' = 'a', ${tableGuarded(`sum(${tableLabels})`)}, ${guarded(`sum(${places})`, "0")})`,
+				);
+				expect(
+					printed(call("sum", coalesce(clinicNames())), "suite").text,
+				).toBe(guarded(`sum(coalesce(${places}))`, "0"));
+			});
+
+			// A coalesce returns an earlier value that is not blank in place of
+			// the set, which sum refuses whether or not any row exists, so the
+			// guard reads 0 only when that value is blank as well.
+			it("guards a sum over a coalesce only where its earlier values are blank", () => {
+				for (const first of ["", "x"])
+					expect(
+						printed(
+							call("sum", coalesce(term(literal(first)), clinicNames())),
+							"suite",
+						).text,
+					).toBe(
+						`if(count(instance('locations')/locations/location) = 0 and string(coalesce('${first}', '')) = '', 0, sum(coalesce('${first}', ${places})))`,
+					);
+			});
+		});
+		it("keeps a branch bare when count reads what the branch passes through", () => {
+			const branch = ifExpr(
+				eq(literal(1), literal(1)),
+				clinicNames(),
+				clinicNames(),
+			);
+			expect(printed(count(branch), "suite").text).toBe(
+				`count(if(1 = 1, ${places}, ${places}))`,
+			);
+			expect(printed(eq(branch, literal("x")), "suite").text).toBe(
+				`if(1 = 1, ${guarded(places)}, ${guarded(places)}) = 'x'`,
+			);
+		});
+	});
+
+	it("reads the chosen cases under the datum id the entry gives them", () => {
+		expect(
+			printed(
+				count({
+					kind: "selected-cases",
+					module: INSTANCE_READS.batchModule,
+				}),
+				"xform",
+				{ datumId: () => "selected_cases" },
+			),
+		).toEqual({
+			text: "count(instance('selected_cases')/results/value)",
+			instances: [
+				["selected_cases", "jr://instance/selected-entities/selected_cases"],
+			],
+		});
+	});
+
+	it("prints the related-case exclusion before every condition on what the search found", () => {
+		expect(
+			printed(
+				count({
+					kind: "cases",
+					source: "search-results",
+					where: [eq(prop("patient", "district"), literal("north"))],
+				}),
+				"suite",
+			),
+		).toEqual({
+			text: "count(instance('results:inline')/results/case[not(commcare_is_related_case = true())][district = 'north'])",
+			instances: [["results:inline", "jr://instance/remote/results:inline"]],
+		});
 	});
 });

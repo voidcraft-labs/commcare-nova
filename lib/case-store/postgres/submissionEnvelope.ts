@@ -448,6 +448,9 @@ async function evaluateBatch(
 				...(program.organizationLevels === undefined
 					? {}
 					: { organizationLevels: program.organizationLevels }),
+				...(program.workerPlaceIds === undefined
+					? {}
+					: { workerPlaceIds: program.workerPlaceIds }),
 				...(program.lookupTableSchemas === undefined
 					? {}
 					: { lookupTableSchemas: program.lookupTableSchemas }),

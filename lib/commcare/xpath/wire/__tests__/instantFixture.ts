@@ -87,7 +87,13 @@ export interface InstantFixture {
 	readonly form: ExpressionContext;
 	/** The case list filter's context, a record slot evaluated on a device. */
 	readonly record: ExpressionContext;
-	lowerForm(expression: Expression, target?: WireTarget): WireExpr;
+	/** `types`: the form's context with another supply, such as a search's
+	 * results. */
+	lowerForm(
+		expression: Expression,
+		target?: WireTarget,
+		types?: ExpressionContext,
+	): WireExpr;
 	lowerRecord(expression: Expression, target?: WireTarget): WireExpr;
 	/** With `search`: an advanced Search field's condition, which only the
 	 * server search and the case store read but whose values outside the
@@ -201,10 +207,10 @@ export function instantFixture(
 		field: (id) => term(formField(testUuid(`instant-${id}`) as Uuid)),
 		form,
 		record,
-		lowerForm: (expression, target = "xform") =>
+		lowerForm: (expression, target = "xform", types = form) =>
 			toWire(expression, {
 				target,
-				types: form,
+				types,
 				form: projection,
 				bindings: { formCaseProperty },
 			}),

@@ -341,6 +341,58 @@ describe("isolated app-test submissions", () => {
 		expect(live.rows[0].count).toBe("0");
 	});
 
+	it("reads a case's direct indices by id from its own namespace, inside the step's transaction", async () => {
+		const first = await createNamespace();
+		const second = await createNamespace();
+		await seed(first);
+		await seed(second);
+		await run(first, (store) =>
+			store.insert({
+				appId,
+				row: {
+					case_id: "child-id",
+					case_type: "equipment",
+					case_name: "Valve",
+					status: "open",
+					parent_case_id: "same-authored-id",
+					properties: {},
+				},
+			}),
+		);
+		const patch = (testId: string) =>
+			run(testId, (store) =>
+				store.readCaseDatabasePatch({ appId, caseIds: ["child-id"] }),
+			);
+		const own = await patch(first);
+		expect(own.rows).toEqual([
+			expect.objectContaining({
+				case_id: "child-id",
+				parent_case_id: "same-authored-id",
+			}),
+		]);
+		expect(own.indices).toEqual([
+			expect.objectContaining({
+				case_id: "child-id",
+				ancestor_id: "same-authored-id",
+				identifier: "parent",
+				relationship: "child",
+				target_case_type: "equipment",
+				depth: 1,
+			}),
+		]);
+		expect(await patch(second)).toEqual({
+			rows: [],
+			indices: [],
+			propertyTypes: {},
+		});
+		const live = await sql<{
+			count: string;
+		}>`SELECT count(*)::text AS count FROM case_indices WHERE case_id = 'child-id'`.execute(
+			fixture.db,
+		);
+		expect(live.rows[0].count).toBe("0");
+	});
+
 	it("rolls back successful case effects and the submission receipt when the enclosing test step fails", async () => {
 		const testId = await createNamespace();
 		const submission = {

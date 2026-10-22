@@ -185,7 +185,8 @@ export type InstantComparisonKind = "eq" | "neq" | "lt" | "lte" | "gt" | "gte";
  * - `coerced-text`: a `datetime-coerce` of text, a date or a date and time;
  * - `epoch-days`: a `datetime-coerce` of a number of days since 1970-01-01;
  * - `day-only`: `date_opened` or `last_modified` read from `casedb`, which
- *   Core holds as the device's day (`CaseChildElement.java`, `DateData`);
+ *   Core holds as the device's day (`CaseChildElement.java`, `DateData`), or
+ *   a search result's `date_opened`, text HQ writes as the UTC day;
  * - `clock-lost`: a date and time some value of which kept only its day;
  * - `not-instant`: a value that names no moment (blank, text, a number, a
  *   date), `data` its type;
@@ -369,7 +370,9 @@ function byType(
 	)
 		return { kind: "leaf", class: "clock-lost", value };
 	if (data === "datetime") {
-		const property = held === "date" ? systemDateRead(value) : undefined;
+		// A casedb system date is held as Core's day; a search result's
+		// `date_opened` is text that names a day.
+		const property = held === "date" ? systemDateRead(value) : type?.dayText;
 		if (property !== undefined)
 			return { kind: "leaf", class: "day-only", value, property };
 		if (held === "date") return { kind: "leaf", class: "typed", value };
@@ -626,7 +629,8 @@ function instantClasses(operand: InstantOperand): readonly InstantLeaf[] {
 	);
 }
 
-/** Every moment the operand names is a casedb system date: a day. */
+/** Every moment the operand names is a system date a device holds as a
+ * day. */
 export function isDayOnly(operand: InstantOperand): boolean {
 	const leaves = instantClasses(operand);
 	return leaves.length > 0 && leaves.every((leaf) => leaf.class === "day-only");
@@ -658,9 +662,9 @@ function holdsUnknown(operand: InstantOperand): boolean {
 /**
  * How a comparison runs on a device:
  * - `lowered`: both sides compared as instants, in integer microseconds;
- * - `day`: a casedb system date ordered against a day-aligned operand, or two
- *   system dates, which compare by day as Core holds them (`date(x)` for a
- *   coerced side);
+ * - `day`: a system date a device holds as a day ordered against a
+ *   day-aligned operand, or two system dates, which compare by day as Core
+ *   reads them (`date(x)` for a coerced side);
  * - `bare`: as written, where no side is a moment, or (an equality) one side
  *   is neither a moment nor of unknown type: `x = ''` is the blank test.
  *
@@ -707,9 +711,9 @@ function otherKindLiteral(leaf: InstantLeaf): boolean {
 	);
 }
 
-/** The leaves a lowered comparison cannot print as an instant: a casedb
- * system date (its day only), a clock-lost value, a date, a date-and-time
- * literal that names no moment, a literal of another kind, and a value of
+/** The leaves a lowered comparison cannot print as an instant: a system
+ * date held as a day, a clock-lost value, a date, a date-and-time literal
+ * that names no moment, a literal of another kind, and a value of
  * unknown type whose node holds neither text nor a typed date. Empty when
  * every leaf has an instant text. */
 export function unlowerableLeaves(

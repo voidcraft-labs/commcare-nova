@@ -1,5 +1,6 @@
 import {
 	activeRowScope,
+	type CaseRowScope,
 	type ExpressionContext,
 	pushRowScope,
 	type RowScope,
@@ -322,6 +323,14 @@ function rowValue(
 	);
 }
 
+/** The case type of the search whose results the slot's entry holds. */
+function searchedCaseType(context: ExpressionContext): string | undefined {
+	const searched = context.supplies.searchResults;
+	return searched === undefined
+		? undefined
+		: context.facts.moduleCaseTypes.get(searched.module);
+}
+
 function instancePath(
 	binder: FormPathBinder,
 	path: ReadPath,
@@ -432,33 +441,53 @@ function instancePath(
 			whole,
 			"Reading the worker's case-sharing groups isn't available yet. You can read the places the worker is assigned to with instance('locations') instead.",
 		);
-	if (id === "results")
+	if (id === "results") {
+		const ownType =
+			form === undefined
+				? undefined
+				: context.facts.moduleCaseTypes.get(form.moduleUuid);
 		refuse(
 			"search-results-remote",
 			whole,
-			"This form opens after the worker leaves the search, so its results are gone by then. You can read the record the worker chose instead.",
+			`This form opens after the worker leaves the search, so its results are gone by then. You can read the case the worker chose${
+				ownType === undefined ? "" : ` with #${ownType}/`
+			} instead.`,
 		);
+	}
 	if (id === "search-input:results" || id === "search-input:results:inline") {
-		const leaf = steps[2] === undefined ? undefined : name(steps[2].node);
+		// Core builds this instance as <input><field name="…">answer</field>
+		// …</input> (`VirtualInstances.java::buildSearchInputInstance`), so an
+		// answer is read as /input/field[@name = '<name>'] with the name quoted.
+		const field = steps[1];
+		const named = field === undefined ? undefined : name(field.node);
+		const predicate = field?.where.length === 1 ? field.where[0] : undefined;
+		const keyed =
+			predicate?.kind === "binary" &&
+			predicate.op === "=" &&
+			predicate.right.kind === "string"
+				? { key: name(predicate.left), value: predicate.right.value }
+				: undefined;
 		if (
-			!plain(steps[0], "results") ||
-			!plain(steps[1], "inputs") ||
-			steps.length !== 3 ||
-			leaf === undefined ||
-			leaf.attribute ||
-			steps[2].where.length > 0
+			steps.length !== 2 ||
+			!plain(steps[0], "input") ||
+			named?.name !== "field" ||
+			named.attribute ||
+			keyed?.key?.name !== "name" ||
+			!keyed.key.attribute
 		)
 			refuse(
 				"unknown-search-input",
 				whole,
-				"This search answer path needs one of the menu's search fields.",
+				`This search answer path needs one of the menu's search fields, read as instance('${id}')/input/field[@name = 'field name'].`,
 			);
-		const input = form?.searchInputs.find((input) => input.name === leaf.name);
+		const input = form?.searchInputs.find(
+			(input) => input.name === keyed.value,
+		);
 		if (input === undefined)
 			refuse(
 				"unknown-search-input",
 				whole,
-				`This menu's search has no field called ${leaf.name}.`,
+				`This menu's search has no field called ${keyed.value}.`,
 			);
 		return binder.term({ kind: "input", searchInputUuid: input.uuid }, whole);
 	}
@@ -512,7 +541,7 @@ function instancePath(
 				refuse(
 					"search-results-unexcluded",
 					whole,
-					"Search results also hold records added to show related details. You can read the search's records with instance('results:inline')/results/case[not(commcare_is_related_case = true())].",
+					"Search results also hold cases CommCare adds to show related details. You can read the cases the search found with instance('results:inline')/results/case[not(commcare_is_related_case = true())].",
 				);
 			predicates = predicates.slice(1);
 		}
@@ -556,10 +585,17 @@ function instancePath(
 			{ ...base, where: identityPredicates },
 			context,
 		);
-		row =
+		const typed: CaseRowScope =
 			inferred?.kind === "case"
 				? inferred
 				: { kind: "case", root: id === "casedb" ? "casedb" : "results:inline" };
+		// A search's rows are the searched module's case type, so a custom
+		// property binds to that type even where another type declares it too.
+		const searched =
+			id === "results:inline" && typed.caseType === undefined
+				? searchedCaseType(context)
+				: undefined;
+		row = searched === undefined ? typed : { ...typed, caseType: searched };
 	} else if (id === "locations") {
 		if (
 			!plain(steps[0], "locations") ||

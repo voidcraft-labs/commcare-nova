@@ -264,6 +264,30 @@ export async function readOrganizationTopology(appId: string): Promise<{
 }
 
 /**
+ * Every place in the app with everything a device's `locations` fixture
+ * prints of it, archived places included (a fixture walks a place's parents
+ * whatever their state; the footprint drops archived places itself).
+ *
+ * Like {@link readOrganizationTopology} this reads no actor scope: its only
+ * caller is a Preview read whose app access the caller has already proven.
+ */
+export async function readOrganizationPlaces(
+	appId: string,
+): Promise<readonly StoredLocation[]> {
+	return withAppTx(
+		async (tx) => {
+			const rows = await tx
+				.selectFrom("app_locations")
+				.selectAll()
+				.where("app_id", "=", appId)
+				.execute();
+			return rows.map(toStoredLocation);
+		},
+		{ isolationLevel: "repeatable read" },
+	);
+}
+
+/**
  * Every place in the app, locked for update, as a map plus a child index.
  *
  * The whole tree rather than a recursive query, deliberately: it is bounded

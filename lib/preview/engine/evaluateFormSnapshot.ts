@@ -9,11 +9,17 @@ import {
 	caseSelectionMaximum,
 	isCaptureFieldKind,
 	isContainer,
+	moduleOpensOnSearch,
 	moduleUuidOfForm,
 	reachableCaseTypes,
+	resolveAppLanguage,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
-import { refusalCopy } from "../runtimeMessages";
+import {
+	dataRefusalCopy,
+	refusalCopy,
+	runtimeMessage,
+} from "../runtimeMessages";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import { XPathRuntime } from "../xpath/workerClient";
@@ -21,6 +27,12 @@ import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import type { XPathRuntimeError } from "../xpath/workerProtocol";
 import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import { caseDatabaseToFormPreloads } from "./caseDataBindingClient";
+import {
+	type PreviewDataRefusal,
+	previewDataRefusalOf,
+	previewDataRefusalSubject,
+	workerFailureError,
+} from "./dataRefusal";
 import { buildEngineInput } from "./engineInput";
 import { entrySessionData } from "./entrySessionData";
 import { evaluationAnswerValue } from "./formAnswerValue";
@@ -39,6 +51,7 @@ import { projectFormPresentation } from "./formPresentation";
 import { previewLookupData } from "./lookupEvaluation";
 import { searchInputInstanceValues } from "./runtimeBindings";
 import { availablePages, pagesToValidate } from "./sectionPaging";
+import { formReadsSearchResults } from "./xpathInstances";
 
 /** Let FormEngine apply its narrowly scoped wording policy before an uncaught
  * XPath failure becomes the public authoring-input fault. */
@@ -57,6 +70,7 @@ function formRefusal(
 	doc: BlueprintDoc,
 	details: SetvalueRefusalDetails,
 	cases: FormEvaluationContext["cases"],
+	language: FormEvaluationInput["language"],
 ): FormRefusalDetails {
 	const label = (uuid: string | undefined) => {
 		const field = uuid === undefined ? undefined : doc.fields[uuid];
@@ -70,7 +84,7 @@ function formRefusal(
 	const property = (doc.caseTypes ?? [])
 		.find((type) => type.name === details.caseType)
 		?.properties.find((candidate) => candidate.name === details.property);
-	const copy = refusalCopy("eng", details, {
+	const copy = refusalCopy(language, details, {
 		...(caseName ? { caseName } : {}),
 		...(property
 			? {
@@ -90,6 +104,38 @@ function formRefusal(
 	};
 }
 
+/** Data the device holds none of, as an evaluation reports it: the sentence
+ * Preview's refusal shows, naming the persona, question and table. */
+function dataRefusalSentence(
+	doc: BlueprintDoc,
+	refusal: PreviewDataRefusal,
+	context: FormEvaluationContext,
+	language: FormEvaluationInput["language"],
+): string {
+	const { reason } = refusal;
+	const field =
+		reason.kind === "empty-choice-table" && reason.fieldUuid !== undefined
+			? doc.fields[reason.fieldUuid]
+			: undefined;
+	const question =
+		field !== undefined && "label" in field && field.label
+			? projectProseTemplate(field.label, doc).text
+			: undefined;
+	const personaUuid = context.identity.personaUuid;
+	const worker =
+		personaUuid === undefined ? undefined : doc.personas?.[personaUuid]?.name;
+	const copy = dataRefusalCopy(
+		language,
+		refusal.stage,
+		previewDataRefusalSubject(reason, previewLookupData(context.lookup)),
+		{
+			...(worker === undefined ? {} : { worker }),
+			...(question ? { question } : {}),
+		},
+	);
+	return `${copy.title}. ${copy.body}`;
+}
+
 /** Observe a form against one captured runtime context. No stores are reachable
  * here. The submission is a proposal; it has not passed a storage transaction. */
 export async function evaluateFormSnapshot(
@@ -106,6 +152,9 @@ export async function evaluateFormSnapshot(
 	);
 	if (!module || !engineInput)
 		throw new FormEvaluationInputError("Form not found.");
+	/* What the evaluation says in its own words is in the language the form
+	 * runs in: the one asked for when the app has it, else the app's default. */
+	const language = resolveAppLanguage(doc.localization, input.language);
 	const form = engineInput.form;
 	const ids = input.caseIds ?? [];
 	if (new Set(ids).size !== ids.length)
@@ -128,6 +177,16 @@ export async function evaluateFormSnapshot(
 				"A selected record is unavailable to this worker or has a different type.",
 			);
 	}
+	/* A device reaches a form that reads what its search found only through
+	 * that search, so without the search's snapshot the form cannot open. */
+	if (
+		context.searchResults === undefined &&
+		moduleOpensOnSearch(module) &&
+		formReadsSearchResults(doc, input.formUuid)
+	)
+		throw new FormEvaluationInputError(
+			`${runtimeMessage(language, "searchResultsRefusalTitle")}. ${runtimeMessage(language, "searchResultsRefusalBody")}`,
+		);
 	const reachable = reachableCaseTypes(module.caseType, doc.caseTypes ?? []);
 	const caseData =
 		ids.length === 1 && caseSelectionCardinality(module) === "single"
@@ -146,6 +205,9 @@ export async function evaluateFormSnapshot(
 			return caseName === undefined ? { caseId } : { caseId, caseName };
 		}),
 		menuSelections: context.session?.menuSelections ?? {},
+		...(context.searchResults === undefined
+			? {}
+			: { searchResults: context.searchResults }),
 		caseDatabase: context.cases,
 		identity: context.identity,
 	});
@@ -159,6 +221,10 @@ export async function evaluateFormSnapshot(
 		{
 			stagedAsync: true,
 			sessionData: session.data,
+			selectedCases: session.selectedCases,
+			...(session.searchResults === undefined
+				? {}
+				: { searchResults: session.searchResults }),
 			...(context.entry && context.entry.language !== engineInput.language
 				? {
 						restoredEntry: {
@@ -197,6 +263,8 @@ export async function evaluateFormSnapshot(
 			},
 			{ signal },
 		);
+		if (!result.ok && result.refusal !== undefined)
+			throw workerFailureError(result);
 		if (!result.ok)
 			throw new FormEvaluationXPathError(result.error, {
 				path,
@@ -409,6 +477,7 @@ export async function evaluateFormSnapshot(
 									doc,
 									state.insertRefusal,
 									context.cases,
+									language,
 								).sentence,
 							}),
 					...(kind === "geopoint"
@@ -453,7 +522,12 @@ export async function evaluateFormSnapshot(
 	} catch (error) {
 		if (error instanceof SetvalueRefusal)
 			throw new FormRefusedError(
-				formRefusal(doc, error.details, context.cases),
+				formRefusal(doc, error.details, context.cases, language),
+			);
+		const dataRefusal = previewDataRefusalOf(error);
+		if (dataRefusal !== undefined)
+			throw new FormEvaluationInputError(
+				dataRefusalSentence(doc, dataRefusal, context, language),
 			);
 		if (error instanceof FormEvaluationXPathError)
 			throw new FormEvaluationInputError(

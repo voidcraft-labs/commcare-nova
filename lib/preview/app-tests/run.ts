@@ -5,6 +5,7 @@ import {
 	caseSelectionCardinality,
 	moduleOpensOnSearch,
 	orderedColumns,
+	orderedOrganizationLevels,
 } from "@/lib/domain";
 import { languageDirection } from "@/lib/domain/languageRegistry";
 import {
@@ -16,6 +17,7 @@ import {
 	projectLocalizedForm,
 	projectLocalizedModule,
 } from "@/lib/domain/localizedBlueprintProjection";
+import { locationFixtureRows } from "@/lib/organization/footprint";
 import type {
 	PreviewCaseChoice,
 	PreviewMenuCaseSelection,
@@ -24,7 +26,18 @@ import { caseListStep } from "../caseListPhase";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import { evaluateForm } from "../engine/evaluateForm";
+import { appReadsPlaces } from "../engine/expressionCaseReads";
 import { availablePages } from "../engine/sectionPaging";
+import {
+	recordsReadSearch,
+	searchedReading,
+	serverSearchResults,
+} from "../engine/serverSearchRead";
+import {
+	type CaseDatabaseSnapshot,
+	formReadsSearchResults,
+	type SearchResultsSnapshot,
+} from "../engine/xpathInstances";
 import { runtimeLanguage, runtimeMessage } from "../runtimeMessages";
 import {
 	claimableCaseIds,
@@ -44,7 +57,7 @@ import {
 	enterAppTestMenu,
 	selectAppTestRecords,
 } from "./navigation";
-import { appTestRecords, recordsReadSearch, searchedReading } from "./records";
+import { appTestRecords, prepareAppTestRecords } from "./records";
 import { submitAppTest } from "./submission";
 import type {
 	AppTestAction,
@@ -58,6 +71,105 @@ type Scope = AppTestScope & {
 	blueprintDigest: string;
 };
 type Observation = Record<string, unknown>;
+type FormScreen = Extract<AppTestScreen, { kind: "form" }>;
+
+/** The entry's device world: its cases and, for an app whose forms read
+ * places, the worker's `locations` fixture, which the session's restore
+ * delivers beside them (as Preview's snapshot carries it). */
+function appTestEntryCases(
+	context: AppTestContext,
+	state: AppTestSessionState,
+	cases: CaseDatabaseSnapshot,
+): CaseDatabaseSnapshot {
+	if (!appReadsPlaces(context.doc)) return cases;
+	const persona =
+		state.personaUuid === null
+			? undefined
+			: context.doc.personas?.[state.personaUuid];
+	return {
+		...cases,
+		locations:
+			persona === undefined ||
+			orderedOrganizationLevels(context.doc).length === 0
+				? []
+				: locationFixtureRows(context.doc, persona, context.locations),
+	};
+}
+
+/**
+ * What the search of a search-first module returned to a form of it that
+ * reads it: the latest search this session ran on that module's records,
+ * read again unpaged and capped as Preview's form reads it
+ * (`searchResultsSnapshot.ts`). A form reached without that search has none
+ * to read, which the device never allows.
+ */
+async function appTestSearchResults(
+	context: AppTestContext,
+	scope: AppTestScope,
+	state: AppTestSessionState,
+	screen: FormScreen,
+): Promise<SearchResultsSnapshot | undefined> {
+	const mod = context.doc.modules[screen.moduleUuid];
+	if (
+		mod?.caseType === undefined ||
+		!moduleOpensOnSearch(mod) ||
+		!formReadsSearchResults(context.doc, screen.formUuid)
+	)
+		return undefined;
+	const refused = () =>
+		new AppTestActionError(
+			`${runtimeMessage(context.language, "searchResultsRefusalTitle")}. ${runtimeMessage(context.language, "searchResultsRefusalBody")}`,
+		);
+	const searchedScreen = [...state.history]
+		.reverse()
+		.find(
+			(prior): prior is Extract<AppTestScreen, { kind: "records" }> =>
+				prior.kind === "records" &&
+				prior.moduleUuid === screen.moduleUuid &&
+				(prior.searchAnswers !== undefined ||
+					prior.registeredCaseId !== undefined),
+		);
+	if (searchedScreen === undefined) throw refused();
+	const { read } = await prepareAppTestRecords(context, scope, {
+		...state,
+		screen: searchedScreen,
+	});
+	const found = await serverSearchResults(context.store, read);
+	if (found === undefined) throw refused();
+	return found;
+}
+
+/**
+ * The world a form evaluation of this session reads, and the form screen
+ * holding what the module's search returned to the entry. That snapshot is
+ * taken once, at the entry's first evaluation, and every later step and the
+ * submission read the one the screen holds, as Preview's form keeps the
+ * snapshot it opened with (`hooks/useSearchResultsSnapshot.ts`). A new entry
+ * (Back to a form, a linked form, another search) carries none and takes its
+ * own.
+ */
+async function appTestFormContext(
+	context: AppTestContext,
+	scope: AppTestScope,
+	state: AppTestSessionState,
+	screen: FormScreen,
+) {
+	const searchResults =
+		screen.searchResults ??
+		(await appTestSearchResults(context, scope, state, screen));
+	return {
+		screen: searchResults === undefined ? screen : { ...screen, searchResults },
+		formContext: {
+			identity: context.identity,
+			cases: appTestEntryCases(context, state, screen.entryCases),
+			lookup: context.lookup,
+			entry: screen.entry,
+			captureEntry: true,
+			session: { appId: scope.appId, menuSelections: state.selections },
+			...(searchResults === undefined ? {} : { searchResults }),
+		},
+	};
+}
 
 async function observeScreen(
 	context: AppTestContext,
@@ -228,6 +340,7 @@ async function observeScreen(
 			};
 		}
 		case "form": {
+			const held = await appTestFormContext(context, scope, state, screen);
 			const evaluated = await evaluateForm(
 				context.doc,
 				{
@@ -237,21 +350,17 @@ async function observeScreen(
 					answers: [],
 					searchAnswers: screen.searchAnswers,
 				},
-				{
-					identity: context.identity,
-					cases: screen.entryCases,
-					lookup: context.lookup,
-					entry: screen.entry,
-					captureEntry: true,
-					session: { appId: scope.appId, menuSelections: state.selections },
-				},
+				held.formContext,
 			);
 			const pages = availablePages(evaluated.sections);
 			const currentPage = pages.findIndex(
 				(page) => page.uuid === evaluated.presentation.currentSectionUuid,
 			);
 			return {
-				state: { ...state, screen: { ...screen, entry: evaluated.entry } },
+				state: {
+					...state,
+					screen: { ...held.screen, entry: evaluated.entry },
+				},
 				observation: {
 					screen: "form",
 					worker,
@@ -480,7 +589,12 @@ export async function advanceAppTest(
 				...state,
 				screen:
 					prior.kind === "form"
-						? { ...prior, entry: undefined, entryCases: state.deviceCases }
+						? {
+								...prior,
+								entry: undefined,
+								entryCases: state.deviceCases,
+								searchResults: undefined,
+							}
 						: prior,
 				history: state.history.slice(0, -1),
 			};
@@ -752,6 +866,7 @@ export async function advanceAppTest(
 		case "pagePrevious": {
 			if (screen.kind !== "form")
 				throw new AppTestActionError("Open a form before turning its pages.");
+			const held = await appTestFormContext(context, scope, state, screen);
 			const evaluated = await evaluateForm(
 				context.doc,
 				{
@@ -761,14 +876,7 @@ export async function advanceAppTest(
 					answers: [],
 					searchAnswers: screen.searchAnswers,
 				},
-				{
-					identity: context.identity,
-					cases: screen.entryCases,
-					lookup: context.lookup,
-					entry: screen.entry,
-					captureEntry: true,
-					session: { appId: scope.appId, menuSelections: state.selections },
-				},
+				held.formContext,
 			);
 			const pages = availablePages(evaluated.sections);
 			const current = pages.findIndex(
@@ -785,7 +893,7 @@ export async function advanceAppTest(
 			return advanceAppTest(
 				context,
 				scope,
-				{ ...state, screen: { ...screen, entry: evaluated.entry } },
+				{ ...state, screen: { ...held.screen, entry: evaluated.entry } },
 				{ kind: "section", sectionUuid: target.uuid },
 			);
 		}
@@ -793,6 +901,7 @@ export async function advanceAppTest(
 		case "answer": {
 			if (screen.kind !== "form")
 				throw new AppTestActionError("Open a form before answering questions.");
+			const held = await appTestFormContext(context, scope, state, screen);
 			const evaluated = await evaluateForm(
 				context.doc,
 				{
@@ -805,16 +914,9 @@ export async function advanceAppTest(
 						action.kind === "section" ? action.sectionUuid : undefined,
 					searchAnswers: screen.searchAnswers,
 				},
-				{
-					identity: context.identity,
-					cases: screen.entryCases,
-					lookup: context.lookup,
-					entry: screen.entry,
-					captureEntry: true,
-					session: { appId: scope.appId, menuSelections: state.selections },
-				},
+				held.formContext,
 			);
-			next = { ...state, screen: { ...screen, entry: evaluated.entry } };
+			next = { ...state, screen: { ...held.screen, entry: evaluated.entry } };
 			if (action.kind === "section")
 				extra = {
 					completed: evaluated.sections.some(
@@ -824,7 +926,16 @@ export async function advanceAppTest(
 			break;
 		}
 		case "submit": {
-			const saved = await submitAppTest(context, scope, state);
+			if (screen.kind !== "form")
+				throw new AppTestActionError(
+					"Open and answer a form before submitting it.",
+				);
+			const saved = await submitAppTest(
+				context,
+				scope,
+				state,
+				(await appTestFormContext(context, scope, state, screen)).formContext,
+			);
 			context = { ...context, identity: saved.identity };
 			next = saved.state;
 			extra = {

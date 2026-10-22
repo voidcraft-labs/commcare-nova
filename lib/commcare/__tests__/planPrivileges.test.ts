@@ -27,7 +27,7 @@ import { parser } from "@/lib/commcare/xpath/parser";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, proseText } from "@/lib/domain";
-import { fixedLocation, term } from "@/lib/domain/expression";
+import { eq, fixedLocation, literal, term } from "@/lib/domain/expression";
 import {
 	PLAN_FEATURE_IDS,
 	PLAN_FEATURES,
@@ -35,12 +35,14 @@ import {
 } from "@/lib/publish/planFeatures";
 import {
 	LOCATION_FORM,
+	LOCATION_LEVELS,
 	locationOwnerFixture,
 } from "../locations/__tests__/locationOwnerFixture";
 import { formsReadingLocationsFixture } from "../locations/readsLocationsFixture";
 import planPrivilegePlans from "../planPrivilegePlans.json";
 import {
 	CURRENT_PLANS,
+	flatLocationFixtureReasons,
 	formsUsingWorkerRecord,
 	HQ_PLAN_PRIVILEGE_IDS,
 	type HqPlanPrivilegeId,
@@ -52,6 +54,7 @@ import { runValidation } from "../validator/runner";
 import { assertGenerated, manifestFor } from "./compilerEvidence";
 import { connectWireFixtures } from "./connectWireFixtures";
 import { extensionCaseFixture } from "./extensionCaseFixture";
+import { clinicNames } from "./instanceReadFixture";
 import { suiteDocArbitrary } from "./suiteDocArbitrary";
 import { blueprintDocArbitrary } from "./xformDocArbitrary";
 import { readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
@@ -112,6 +115,33 @@ function readsWorkerRecord(source: string): boolean {
 	return reads;
 }
 
+/**
+ * Whether a link expression the wire carries reads the flat location list,
+ * as Nova's XPath grammar parses it: an `instance('locations')` call.
+ */
+function readsLocations(source: string): boolean {
+	const tree = parser.parse(source);
+	let reads = false;
+	tree.iterate({
+		enter(node) {
+			if (node.name !== "Invoke") return;
+			const name = node.node.getChild("FunctionName");
+			const argument = node.node
+				.getChild("ArgumentList")
+				?.getChild("StringLiteral");
+			if (
+				name !== null &&
+				source.slice(name.from, name.to) === "instance" &&
+				argument !== null &&
+				argument !== undefined &&
+				source.slice(argument.from + 1, argument.to - 1) === "locations"
+			)
+				reads = true;
+		},
+	});
+	return reads;
+}
+
 /** The XPath-bearing attributes of a form source HQ's usercase test reads. */
 const EXPRESSION_ATTRIBUTES: Readonly<Record<string, readonly string[]>> = {
 	bind: [
@@ -152,6 +182,12 @@ function markers(hq: HqApplication): {
 				) {
 					privileges.add("user_case");
 				}
+				if (
+					readsLocations(link.xpath) ||
+					link.datums.some((datum) => readsLocations(datum.xpath))
+				) {
+					privileges.add("locations");
+				}
 			}
 			const source = hq._attachments[`${form.unique_id}.xml`];
 			if (typeof source !== "string") continue;
@@ -179,6 +215,78 @@ function markers(hq: HqApplication): {
 		}
 	}
 	return { privileges, itemset };
+}
+
+/**
+ * The location owner fixture's Transfer form with one more read: a Hidden
+ * Value showing a clinic's name, a link to a second form whose condition
+ * reads the same name, or a Hidden Value holding only the clinic level's
+ * code, which prints a literal.
+ */
+function withPlaceRead(
+	owner: BlueprintDoc,
+	where: "field" | "link" | "level",
+): BlueprintDoc {
+	const moduleUuid = testUuid("plan-privileges-place-module");
+	const note = testUuid("plan-privileges-place-note");
+	const doc = buildDoc({
+		appName: "Place reads",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				uuid: moduleUuid,
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: LOCATION_FORM,
+						name: "Transfer",
+						type: "followup",
+						fields: [
+							f({ kind: "text", id: "note" }),
+							...(where === "link"
+								? []
+								: [
+										f({
+											kind: "hidden",
+											id: "place",
+											calculate:
+												where === "field"
+													? clinicNames()
+													: term({
+															kind: "location-level",
+															levelUuid: LOCATION_LEVELS[2].uuid,
+														}),
+										}),
+									]),
+						],
+						...(where === "link" && {
+							formLinks: [
+								{
+									condition: eq(clinicNames(), term(literal("Central"))),
+									target: { type: "form", moduleUuid, formUuid: note },
+								},
+							],
+						}),
+					},
+					{
+						uuid: note,
+						name: "Note",
+						type: "followup",
+						fields: [f({ kind: "text", id: "words" })],
+					},
+				],
+			},
+		],
+	});
+	doc.organizationLevels = owner.organizationLevels;
+	doc.organizationLevelOrder = owner.organizationLevelOrder;
+	doc.forms[LOCATION_FORM].caseOperations =
+		owner.forms[LOCATION_FORM].caseOperations;
+	return doc;
 }
 
 /** Held for an import file with no target and for a publish, which has one. */
@@ -481,7 +589,9 @@ describe("each privilege's reasons", () => {
 
 	it("names each form that sets an owner from a place, then the places a publish sends", () => {
 		const doc = locationOwnerFixture("direct");
-		expect(formsReadingLocationsFixture(doc)).toEqual([LOCATION_FORM]);
+		expect(formsReadingLocationsFixture(doc)).toEqual([
+			{ formUuid: LOCATION_FORM, why: "owner" },
+		]);
 		expect(reasonsOf(doc, "locations")).toEqual([
 			"Transfer sets a case's owner from a place in your organization.",
 		]);
@@ -494,6 +604,37 @@ describe("each privilege's reasons", () => {
 		expect(
 			reasonsOf(locationOwnerFixture("plain"), "locations"),
 		).toBeUndefined();
+	});
+	it("names a form whose logic reads places, even where its owner comes from a place too", () => {
+		for (const scenario of ["plain", "direct"] as const) {
+			const doc = withPlaceRead(locationOwnerFixture(scenario), "field");
+			expect(formsReadingLocationsFixture(doc)).toEqual([
+				{ formUuid: LOCATION_FORM, why: "reads" },
+			]);
+			expect(reasonsOf(doc, "locations")).toEqual([
+				"Transfer reads places in your organization.",
+			]);
+			expect(flatLocationFixtureReasons(doc)).toEqual([
+				"Transfer reads places in your organization.",
+			]);
+			holdsWire(doc);
+		}
+	});
+	it("names the source form of a link that reads places", () => {
+		const doc = withPlaceRead(locationOwnerFixture("plain"), "link");
+		expect(formsReadingLocationsFixture(doc)).toEqual([
+			{ formUuid: LOCATION_FORM, why: "reads" },
+		]);
+		expect(reasonsOf(doc, "locations")).toEqual([
+			"Transfer reads places in your organization.",
+		]);
+		holdsWire(doc);
+	});
+	it("does not require the location fixture for a level's code alone", () => {
+		const doc = withPlaceRead(locationOwnerFixture("plain"), "level");
+		expect(formsReadingLocationsFixture(doc)).toEqual([]);
+		expect(reasonsOf(doc, "locations")).toBeUndefined();
+		holdsWire(doc);
 	});
 	it("does not require the location fixture for a fixed place destination", () => {
 		const doc = locationOwnerFixture("plain");

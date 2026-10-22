@@ -79,7 +79,7 @@ import { w } from "../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
 import {
 	type InstanceSink,
-	selectedCasesInstance,
+	joinedSelectedCaseIds,
 	sessionInstance,
 } from "../xpath/wire/instances";
 import {
@@ -1702,10 +1702,6 @@ export function buildCaseOperations(
 			throw new Error(
 				"Selected-case iteration needs the entry's selected-case instance.",
 			);
-		const selectedValues = w.instance(
-			selectedCasesInstance(selectedCasesInstanceId),
-			[w.step("results"), w.step("value")],
-		);
 		binds.push(
 			xel(
 				"bind",
@@ -1726,7 +1722,7 @@ export function buildCaseOperations(
 					attributes: { event: nested ? "jr-insert" : "xforms-ready" },
 					xpath: {
 						ref: idsPath.toWire(),
-						value: w.call("join", [w.str(" "), selectedValues]),
+						value: joinedSelectedCaseIds(selectedCasesInstanceId),
 					},
 				},
 				context,

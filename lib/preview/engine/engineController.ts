@@ -47,6 +47,7 @@
 
 import { shallow } from "zustand/shallow";
 import { createStore, type StoreApi } from "zustand/vanilla";
+import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { BlueprintDocState } from "@/lib/doc/store";
 import {
@@ -68,6 +69,14 @@ import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
+import {
+	PreviewDataRefusal,
+	type PreviewDataRefusalReason,
+	type PreviewDataRefusalStage,
+	previewDataRefusalOf,
+	previewDataRefusalReadsTable,
+	workerFailureError,
+} from "./dataRefusal";
 import { buildEngineInput, repeatCountNamesOf } from "./engineInput";
 import {
 	type EntrySessionData,
@@ -81,12 +90,16 @@ import {
 	FormEngine,
 	type FormEngineAsyncEvaluator,
 	type FormEngineInput,
+	type FormEngineRuntimeOptions,
 	type InvalidFieldTarget,
 	type SectionPage,
 } from "./formEngine";
 import type { FormLinkAsyncEvaluator } from "./formLinkEvaluation";
 import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
-import type { PreviewLookupData } from "./lookupEvaluation";
+import {
+	formLogicLookupsCovered,
+	type PreviewLookupData,
+} from "./lookupEvaluation";
 import {
 	type SearchScreenXPath,
 	searchScreenWorkerInstances,
@@ -121,6 +134,17 @@ export type EngineValidationCompletion =
 	  }
 	| { readonly kind: "unavailable" }
 	| { readonly kind: "retired" };
+
+/** What a waiting same-entry rebuild resumes with (`awaitsLookupCoverage`). */
+interface LookupWaitResume {
+	readonly entryKey: string;
+	readonly caseData: CaseDataByType | undefined;
+	readonly restore: {
+		readonly checkpoint: ReturnType<FormEngine["entryCheckpoint"]>;
+		readonly preserveAllValues: boolean;
+	};
+	readonly caseDatabaseOverride: CaseDatabaseSnapshot | undefined;
+}
 
 interface EngineValidationScope {
 	readonly engine: FormEngine;
@@ -161,14 +185,31 @@ export interface EngineEntryState {
 	 * this observable UI contract. */
 	readonly fault: EngineRuntimeFault | undefined;
 	/** CommCare refuses to open this entry: a setvalue's cast turned away a
-	 * preloaded value or a starting value (`answerCast.ts`). Author data, not
-	 * a fault, so it is never reported; it clears on the next document
-	 * revision or case-data change, which open the form again. */
+	 * preloaded value or a starting value (`answerCast.ts`), or the entry read
+	 * data the device holds none of (`dataRefusal.ts`). Author or Project
+	 * data, not a fault, so it is never reported. A refusal at open clears on
+	 * the next document revision or case-data change, and one caused by a
+	 * lookup table on the next lookup snapshot too, which open the form again.
+	 * A refusal at the links comes after the form was saved, so it ends the
+	 * entry: nothing opens that form again but a new entry. */
 	readonly refusal: EngineFormRefusal | undefined;
 	/** A casedb-dependent form requested before its device snapshot is ready.
 	 * This is resource readiness, not an invalid-document fault. */
 	readonly caseDatabaseWait:
 		| { readonly formUuid: Uuid; readonly status: "loading" | "error" }
+		| undefined;
+	/** A requested form whose logic reads a data table the session's lookup
+	 * snapshot does not cover, so its entry has not started
+	 * (`awaitsLookupCoverage`): `loading` while a covering snapshot can
+	 * still arrive, `error` when the lookup load failed (a retry can fix
+	 * it), `unavailable` when a snapshot read for the document's current
+	 * tables still lacks a table or column the form reads (an edit can fix
+	 * it). An edit that removes the read opens the form. */
+	readonly lookupWait:
+		| {
+				readonly formUuid: Uuid;
+				readonly status: "loading" | "error" | "unavailable";
+		  }
 		| undefined;
 }
 
@@ -213,10 +254,18 @@ export type EngineFaultOperation =
 	| "reset"
 	| "submission";
 
-export interface EngineFormRefusal {
-	readonly formUuid: Uuid;
-	readonly details: SetvalueRefusalDetails;
-}
+export type EngineFormRefusal =
+	| {
+			readonly kind: "setvalue";
+			readonly formUuid: Uuid;
+			readonly details: SetvalueRefusalDetails;
+	  }
+	| {
+			readonly kind: "data";
+			readonly formUuid: Uuid;
+			readonly reason: PreviewDataRefusalReason;
+			readonly stage: PreviewDataRefusalStage;
+	  };
 
 export interface EngineRuntimeFault {
 	readonly formUuid: Uuid;
@@ -683,6 +732,25 @@ export class EngineController {
 	private caseDatabaseGate: CaseDatabaseControllerState = { required: false };
 	private caseDatabaseState: CaseDatabaseControllerState = { required: false };
 	private caseDatabaseSnapshot: CaseDatabaseSnapshot | null = null;
+	/** The requested form whose logic reads a table the session's lookup
+	 * snapshot does not cover yet. Printing that logic needs the table's
+	 * naming, so its entry starts when a covering snapshot arrives. A
+	 * same-entry rebuild that waits (an edit added the read mid-entry) keeps
+	 * what it needs to resume that entry: its key and its answers. */
+	private lookupWait:
+		| {
+				readonly formUuid: Uuid;
+				readonly resume?: LookupWaitResume;
+		  }
+		| undefined;
+	/** The document watch a lookup wait holds, so an edit that removes the
+	 * uncovered read (or the form) opens it without a new snapshot. */
+	private stopWatchingLookupWait: (() => void) | undefined;
+	/** The lookup tables the installed snapshot was read for, when its
+	 * provider says (`setLookupData`). */
+	private lookupRequestedTableIds: readonly string[] | undefined;
+	/** The session's lookup load failed; a retry installs a snapshot. */
+	private lookupLoadFailed = false;
 	private readonly caseDatabaseListeners = new Set<() => void>();
 	private mountedCaseDatabaseSnapshot: CaseDatabaseSnapshot | null | undefined;
 	/** Selected worker-content language for presentation-bearing engine input.
@@ -747,6 +815,7 @@ export class EngineController {
 			fault: undefined,
 			refusal: undefined,
 			caseDatabaseWait: undefined,
+			lookupWait: undefined,
 		}));
 	}
 
@@ -802,6 +871,176 @@ export class EngineController {
 		return this.activeEntrySession;
 	}
 
+	/** What the mounted entry's session supplies the engine: its datums, its
+	 * several-case selections and what its search returned, each kept
+	 * through every rebuild of the same entry. */
+	private entryRuntimeOptions(
+		session: EntrySessionData | undefined,
+	): Pick<
+		FormEngineRuntimeOptions,
+		"sessionData" | "selectedCases" | "searchResults"
+	> {
+		if (session === undefined) return {};
+		return {
+			sessionData: session.data,
+			selectedCases: session.selectedCases,
+			...(session.searchResults === undefined
+				? {}
+				: { searchResults: session.searchResults }),
+		};
+	}
+
+	/** Hold the entry back while the session's lookup snapshot does not cover
+	 * a table the form's logic reads (`setLookupData` starts or resumes it, and
+	 * so does an edit that removes the read). A rebuild's `resume` is kept,
+	 * and a later rebuild of the same waiting entry, which has no engine left
+	 * to checkpoint, keeps the first one's. */
+	private awaitsLookupCoverage(
+		state: BlueprintDocState,
+		formUuid: Uuid,
+		resume?: LookupWaitResume,
+	): boolean {
+		if (
+			formLogicLookupsCovered(state, formUuid, this.lookupData ?? undefined)
+		) {
+			if (this.lookupWait?.formUuid === formUuid) this.clearLookupWait();
+			return false;
+		}
+		const kept =
+			resume ??
+			(this.lookupWait?.formUuid === formUuid
+				? this.lookupWait.resume
+				: undefined);
+		this.lookupWait =
+			kept === undefined ? { formUuid } : { formUuid, resume: kept };
+		this.clearActiveForm();
+		this.watchLookupWait();
+		this.publishEntryState();
+		return true;
+	}
+
+	/** Watch the document while an entry waits for lookup coverage: the
+	 * form's other subscriptions are gone with its engine. */
+	private watchLookupWait(): void {
+		if (this.stopWatchingLookupWait !== undefined) return;
+		const docStore = this.docStore;
+		if (docStore === undefined) return;
+		/* A subscription installed inside another listener can receive the
+		 * publication already being dispatched; only a later document counts. */
+		let seen = docStore.getState();
+		this.stopWatchingLookupWait = docStore.subscribe((current) => {
+			if (current === seen) return;
+			seen = current;
+			this.resumeLookupWait();
+		});
+	}
+
+	private clearLookupWait(): void {
+		this.stopWatchingLookupWait?.();
+		this.stopWatchingLookupWait = undefined;
+		this.lookupWait = undefined;
+	}
+
+	/** Why the waiting entry has not started, as the form screen shows it. */
+	private lookupWaitState(): EngineEntryState["lookupWait"] {
+		const wait = this.lookupWait;
+		if (wait === undefined) return undefined;
+		if (this.lookupLoadFailed)
+			return { formUuid: wait.formUuid, status: "error" };
+		/* A snapshot read for exactly the tables the document references now
+		 * has no newer read coming, so a table or column it still lacks is not
+		 * there to load. Any other snapshot is followed by a read for them. */
+		const requested = this.lookupRequestedTableIds;
+		const docState = this.docStore?.getState();
+		if (
+			this.lookupData !== null &&
+			requested !== undefined &&
+			docState !== undefined
+		) {
+			const referenced = extractLookupReferenceTargets(docState)
+				.tableIds as readonly string[];
+			if (
+				referenced.length === requested.length &&
+				referenced.every((id, index) => requested[index] === id)
+			)
+				return { formUuid: wait.formUuid, status: "unavailable" };
+		}
+		return { formUuid: wait.formUuid, status: "loading" };
+	}
+
+	/**
+	 * Start or resume the entry waiting for lookup coverage once the snapshot
+	 * covers its form's logic, or once the form no longer reads the missing
+	 * table (or is gone, which the activation paths settle). Returns whether
+	 * it did; otherwise the wait's status is published again.
+	 */
+	private resumeLookupWait(): boolean {
+		const waiting = this.requestedActivation;
+		const wait = this.lookupWait;
+		if (
+			this.engine !== undefined ||
+			waiting === undefined ||
+			wait === undefined ||
+			waiting.formUuid !== wait.formUuid ||
+			this.docStore === undefined
+		)
+			return false;
+		const state = this.docStore.getState();
+		if (
+			state.forms[wait.formUuid] !== undefined &&
+			!formLogicLookupsCovered(
+				state,
+				wait.formUuid,
+				this.lookupData ?? undefined,
+			)
+		) {
+			this.publishEntryState();
+			return false;
+		}
+		this.clearLookupWait();
+		const resume = wait.resume;
+		if (resume !== undefined) {
+			/* The same entry, rebuilt: its key, so its minted ids and staged
+			 * captures stay, and the answers it held when the rebuild began. */
+			if (this.xpathRuntime) {
+				this.mountFormAsync(
+					wait.formUuid,
+					resume.caseData,
+					resume.entryKey,
+					resume.restore,
+					resume.caseDatabaseOverride,
+				).catch(() => undefined);
+			} else
+				this.contain("rebuild", wait.formUuid, undefined, () =>
+					this.mountForm(
+						wait.formUuid,
+						resume.caseData,
+						resume.entryKey,
+						resume.caseDatabaseOverride,
+						resume.restore,
+					),
+				);
+			return true;
+		}
+		if (this.xpathRuntime) {
+			this.activateFormAsync(
+				waiting.formUuid,
+				waiting.caseData,
+				waiting.caseDatabase,
+				waiting.searchAnswers,
+				waiting.session,
+			).catch(() => undefined);
+		} else
+			this.activateForm(
+				waiting.formUuid,
+				waiting.caseData,
+				waiting.caseDatabase,
+				waiting.searchAnswers,
+				waiting.session,
+			);
+		return true;
+	}
+
 	/** The admitted search answers of the requested no-matches launch, kept
 	 * through every rebuild of the same entry. */
 	private searchAnswersFor(
@@ -815,6 +1054,7 @@ export class EngineController {
 	private publishEntryState(): void {
 		const current = this.entryStore.getState();
 		const caseDatabaseWait = this.caseDatabaseWait();
+		const lookupWait = this.lookupWaitState();
 		if (
 			current.entryKey === this.currentEntryKey &&
 			current.formUuid === this.activeFormUuid &&
@@ -825,7 +1065,9 @@ export class EngineController {
 			current.fault === this.runtimeFault &&
 			current.refusal === this.formRefusal &&
 			current.caseDatabaseWait?.formUuid === caseDatabaseWait?.formUuid &&
-			current.caseDatabaseWait?.status === caseDatabaseWait?.status
+			current.caseDatabaseWait?.status === caseDatabaseWait?.status &&
+			current.lookupWait?.formUuid === lookupWait?.formUuid &&
+			current.lookupWait?.status === lookupWait?.status
 		) {
 			return;
 		}
@@ -841,6 +1083,7 @@ export class EngineController {
 				fault: this.runtimeFault,
 				refusal: this.formRefusal,
 				caseDatabaseWait,
+				lookupWait,
 			},
 			true,
 		);
@@ -859,7 +1102,21 @@ export class EngineController {
 		error: unknown,
 	): void {
 		if (error instanceof SetvalueRefusal) {
-			this.recordRefusal(formUuid, error.details);
+			this.recordRefusal({
+				kind: "setvalue",
+				formUuid,
+				details: error.details,
+			});
+			return;
+		}
+		const dataRefusal = previewDataRefusalOf(error);
+		if (dataRefusal !== undefined) {
+			this.recordRefusal({
+				kind: "data",
+				formUuid,
+				reason: dataRefusal.reason,
+				stage: dataRefusal.stage,
+			});
 			return;
 		}
 		if (this.runtimeFault !== undefined) return;
@@ -887,37 +1144,77 @@ export class EngineController {
 	 * report: the requested activation stays, and the next document revision
 	 * opens it again, so an author's fix is seen at once. A case-data change
 	 * re-activates through the ordinary activation path.
+	 *
+	 * A refusal at the links comes after the submission wrote its cases, so
+	 * the entry is over: the requested activation goes with it, nothing opens
+	 * the form again (`linksEnded`), and the panel's way back is the next
+	 * step. Opening it again would let the same answers be submitted twice.
 	 */
-	private recordRefusal(formUuid: Uuid, details: SetvalueRefusalDetails): void {
+	private recordRefusal(refusal: EngineFormRefusal): void {
 		if (this.runtimeFault !== undefined || this.formRefusal !== undefined)
 			return;
 		this.clearActiveForm();
-		this.formRefusal = { formUuid, details };
+		this.formRefusal = refusal;
+		if (refusal.kind === "data" && refusal.stage === "links") {
+			this.requestedActivation = undefined;
+			this.publishEntryState();
+			return;
+		}
 		const docStore = this.docStore;
-		const requested = this.requestedActivation;
-		if (docStore !== undefined && requested?.formUuid === formUuid) {
+		if (
+			docStore !== undefined &&
+			this.requestedActivation?.formUuid === refusal.formUuid
+		) {
 			const refusedState = docStore.getState();
 			const unsubscribe = docStore.subscribe((current) => {
 				if (current === refusedState) return;
-				this.clearRefusal();
-				if (this.xpathRuntime) {
-					this.activateFormAsync(
-						requested.formUuid,
-						requested.caseData,
-						requested.caseDatabase,
-						requested.searchAnswers,
-					).catch(() => undefined);
-				} else
-					this.activateForm(
-						requested.formUuid,
-						requested.caseData,
-						requested.caseDatabase,
-						requested.searchAnswers,
-					);
+				this.reopenRefusedEntry();
 			});
 			this.stopWatchingRefusal = unsubscribe;
 		}
 		this.publishEntryState();
+	}
+
+	/** Open the entry refused at open again, as it is requested now: every
+	 * case-data change replaces the requested activation
+	 * (`useFormEngine`, `setCaseDatabaseState`), so it carries the current
+	 * case data and session. */
+	private reopenRefusedEntry(): void {
+		const refusal = this.formRefusal;
+		const requested = this.requestedActivation;
+		if (refusal?.kind === "data" && refusal.stage === "links") return;
+		this.clearRefusal();
+		if (refusal === undefined || requested?.formUuid !== refusal.formUuid) {
+			this.publishEntryState();
+			return;
+		}
+		if (this.xpathRuntime) {
+			this.activateFormAsync(
+				requested.formUuid,
+				requested.caseData,
+				requested.caseDatabase,
+				requested.searchAnswers,
+				requested.session,
+			).catch(() => undefined);
+		} else
+			this.activateForm(
+				requested.formUuid,
+				requested.caseData,
+				requested.caseDatabase,
+				requested.searchAnswers,
+				requested.session,
+			);
+	}
+
+	/** Whether this form's entry ended at its links: its form was saved, so
+	 * only a new entry, after `deactivate`, opens it again. */
+	private linksEnded(formUuid: Uuid): boolean {
+		const refusal = this.formRefusal;
+		return (
+			refusal?.kind === "data" &&
+			refusal.stage === "links" &&
+			refusal.formUuid === formUuid
+		);
 	}
 
 	private clearRefusal(): void {
@@ -986,9 +1283,7 @@ export class EngineController {
 			) {
 				throw new Error("The XPath evaluation revision was retired.");
 			}
-			if (!result.ok) {
-				throw new PreviewXPathRuntimeError(result.error);
-			}
+			if (!result.ok) throw workerFailureError(result);
 			if (
 				resultMode === "nodeset-values-or-scalar" &&
 				result.nodesetValues !== undefined
@@ -1312,9 +1607,37 @@ export class EngineController {
 	 * only. A `null` install (Project scope reset) never tears an active
 	 * engine down here — the reset boundary deactivates separately.
 	 */
-	setLookupData(data: PreviewLookupData | null): void {
+	setLookupData(
+		data: PreviewLookupData | null,
+		/** The tables the snapshot was read for, sorted as the document's
+		 * reference extractor lists them; omitted, a waiting entry keeps
+		 * waiting for a later snapshot rather than calling a table missing. */
+		requestedTableIds?: readonly string[],
+	): void {
+		const previousData = this.lookupData;
 		this.lookupData = data;
+		this.lookupRequestedTableIds =
+			data === null ? undefined : requestedTableIds;
+		if (data !== null) this.lookupLoadFailed = false;
+		if (this.lookupWait !== undefined) {
+			this.resumeLookupWait();
+			return;
+		}
 		if (data === null) return;
+		/* Rows added to a table the entry found empty at open: open it again.
+		 * A new snapshot cannot give the device places, chosen cases or search
+		 * answers, so no other refusal reopens here. */
+		const refusal = this.formRefusal;
+		if (
+			refusal?.kind === "data" &&
+			refusal.stage === "form" &&
+			data !== previousData &&
+			(previewDataRefusalReadsTable(refusal.reason, previousData) ||
+				previewDataRefusalReadsTable(refusal.reason, data))
+		) {
+			this.reopenRefusedEntry();
+			return;
+		}
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined || this.engine === undefined) return;
 		/* Rebuild only when the active engine's CAPTURED snapshot fails to
@@ -1329,6 +1652,14 @@ export class EngineController {
 				() => undefined,
 			);
 		} else this.rebuildActiveForm(formUuid, this.activeCaseData);
+	}
+
+	/** The session's lookup load failed, or a retry is reading it again. A
+	 * waiting entry shows the failure, with a retry, until a snapshot arrives. */
+	setLookupLoadFailed(failed: boolean): void {
+		if (this.lookupLoadFailed === failed) return;
+		this.lookupLoadFailed = failed;
+		this.publishEntryState();
 	}
 
 	/** The worker's device cases as the menus read them: the provider's ready
@@ -1466,6 +1797,7 @@ export class EngineController {
 			this.deactivate();
 			return;
 		}
+		if (this.linksEnded(formUuid)) return;
 		this.requestedActivation = {
 			formUuid,
 			caseData,
@@ -1473,6 +1805,8 @@ export class EngineController {
 			searchAnswers,
 			session: session ?? this.sessionFor(formUuid),
 		};
+		// A new entry: nothing of a waiting rebuild's entry carries into it.
+		this.clearLookupWait();
 		this.runtimeFault = undefined;
 		this.clearRefusal();
 		if (
@@ -1513,6 +1847,7 @@ export class EngineController {
 			this.deactivate();
 			return false;
 		}
+		if (this.linksEnded(formUuid)) return false;
 		this.requestedActivation = {
 			formUuid,
 			caseData,
@@ -1520,6 +1855,8 @@ export class EngineController {
 			searchAnswers,
 			session: session ?? this.sessionFor(formUuid),
 		};
+		// A new entry: nothing of a waiting rebuild's entry carries into it.
+		this.clearLookupWait();
 		this.runtimeFault = undefined;
 		this.clearRefusal();
 		if (
@@ -1679,6 +2016,18 @@ export class EngineController {
 			this.publishEntryState();
 			return false;
 		}
+		if (
+			this.awaitsLookupCoverage(
+				state,
+				formUuid,
+				restore === undefined
+					? undefined
+					: { entryKey, caseData, restore, caseDatabaseOverride },
+			)
+		) {
+			stopWatchingActivation();
+			return false;
+		}
 		this.activeFormUuid = formUuid;
 		this.activeCaseData = caseData;
 		this.currentEntryKey = entryKey;
@@ -1701,7 +2050,7 @@ export class EngineController {
 				stagedAsync: true,
 				restoredEntry: restore,
 				...(searchAnswers === undefined ? {} : { searchAnswers }),
-				...(session === undefined ? {} : { sessionData: session.data }),
+				...this.entryRuntimeOptions(session),
 			},
 		);
 		this.engine = engine;
@@ -1922,6 +2271,21 @@ export class EngineController {
 			this.publishEntryState();
 			return;
 		}
+		if (
+			this.awaitsLookupCoverage(
+				s,
+				formUuid,
+				restoredEntry === undefined
+					? undefined
+					: {
+							entryKey,
+							caseData,
+							restore: restoredEntry,
+							caseDatabaseOverride,
+						},
+			)
+		)
+			return;
 
 		this.activeFormUuid = formUuid;
 		this.activeCaseData = caseData;
@@ -1947,7 +2311,7 @@ export class EngineController {
 			{
 				restoredEntry,
 				...(searchAnswers === undefined ? {} : { searchAnswers }),
-				...(session === undefined ? {} : { sessionData: session.data }),
+				...this.entryRuntimeOptions(session),
 			},
 		);
 		this.mountedCaseDatabaseSnapshot = caseDatabase;
@@ -2015,6 +2379,7 @@ export class EngineController {
 	/** Clean up all subscriptions and reset state. */
 	deactivate(): void {
 		this.requestedActivation = undefined;
+		this.clearLookupWait();
 		this.clearActiveForm();
 		this.runtimeFault = undefined;
 		this.clearRefusal();
@@ -3015,7 +3380,15 @@ export class EngineController {
 							"The after-submit XPath evaluation did not complete.",
 						);
 					}
-					if (!result.ok) throw new PreviewXPathRuntimeError(result.error);
+					if (!result.ok) {
+						/* A link reads after the form is saved, so a refusal there
+						 * stops the entry at its links. */
+						const error = workerFailureError(result);
+						const refusal = previewDataRefusalOf(error);
+						throw refusal === undefined
+							? error
+							: new PreviewDataRefusal(refusal.reason, "links");
+					}
 					return deserializeXPathWorkerValue(result.value);
 				};
 				return { completed: true, value: await run(evaluate) };
@@ -3023,6 +3396,11 @@ export class EngineController {
 			undefined,
 		);
 		if (outcome === undefined) {
+			/* The links read data the device holds none of: the entry holds
+			 * the refusal, and its caller learns it was one, not a fault. */
+			const refusal = this.formRefusal;
+			if (refusal?.kind === "data" && refusal.formUuid === formUuid)
+				throw new PreviewDataRefusal(refusal.reason, refusal.stage);
 			throw new Error("Preview could not evaluate the after-submit route.");
 		}
 		return outcome.value;

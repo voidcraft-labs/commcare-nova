@@ -7,6 +7,8 @@ import { blueprintDocSchema, type OrganizationLevel } from "@/lib/domain";
 import { term } from "@/lib/domain/expression";
 
 export const LOCATION_FORM = testUuid("location-owner-form");
+export const LOCATION_REPEAT = testUuid("location-owner-repeat");
+export const LOCATION_REPEAT_COUNT = testUuid("location-owner-repeat-count");
 export const LOCATION_LEVELS = ["region", "district", "clinic"].map(
 	(code, index): OrganizationLevel => ({
 		uuid: testUuid(`location-level-${code}`),
@@ -25,7 +27,17 @@ export const LOCATION_LEVELS = ["region", "district", "clinic"].map(
 );
 export const LOCATION_SCENARIOS = ["direct", "multirung", "plain"] as const;
 export type LocationScenario = (typeof LOCATION_SCENARIOS)[number];
-export function locationOwnerFixture(scenario: LocationScenario) {
+/** `placeRead` adds a question whose calculate reads the first place's name,
+ * a form-logic read of places beside the owner's. `inRepeat` runs the owner's
+ * operation once per row of a repeat: one the worker adds rows to, or one
+ * with as many rows as the `how_many` question says. */
+export function locationOwnerFixture(
+	scenario: LocationScenario,
+	options: {
+		readonly placeRead?: true;
+		readonly inRepeat?: "user_controlled" | "count_bound";
+	} = {},
+) {
 	const doc = buildDoc({
 		appName: "Location owner evidence",
 		caseTypes: [{ name: "patient", properties: [] }],
@@ -41,7 +53,52 @@ export function locationOwnerFixture(scenario: LocationScenario) {
 						uuid: LOCATION_FORM,
 						name: "Transfer",
 						type: "followup",
-						fields: [f({ kind: "text", id: "note" })],
+						fields: [
+							f({ kind: "text", id: "note" }),
+							...(options.inRepeat === "count_bound"
+								? [
+										f({
+											uuid: LOCATION_REPEAT_COUNT,
+											kind: "int",
+											id: "how_many",
+										}),
+										f({
+											uuid: LOCATION_REPEAT,
+											kind: "repeat",
+											id: "moves",
+											repeat_mode: "count_bound",
+											repeat_count: term({
+												kind: "field",
+												uuid: LOCATION_REPEAT_COUNT,
+											}),
+											children: [f({ kind: "text", id: "reason" })],
+										}),
+									]
+								: options.inRepeat === "user_controlled"
+									? [
+											f({
+												uuid: LOCATION_REPEAT,
+												kind: "repeat",
+												id: "moves",
+												repeat_mode: "user_controlled",
+												children: [f({ kind: "text", id: "reason" })],
+											}),
+										]
+									: []),
+							...(options.placeRead
+								? [
+										f({
+											kind: "hidden",
+											id: "first_place",
+											calculate: {
+												kind: "project",
+												of: { kind: "locations", where: [] },
+												value: { kind: "location-field", field: "name" },
+											},
+										}),
+									]
+								: []),
+						],
 					},
 				],
 			},
@@ -63,6 +120,9 @@ export function locationOwnerFixture(scenario: LocationScenario) {
 			action: "update",
 			caseType: "patient",
 			target: { kind: "session" },
+			...(options.inRepeat === undefined
+				? {}
+				: { forEach: { repeat: LOCATION_REPEAT } }),
 			owner:
 				scenario === "plain"
 					? { kind: "acting-user" }

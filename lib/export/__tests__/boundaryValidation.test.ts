@@ -946,15 +946,20 @@ describe("prepareExportBoundary", () => {
 		const rowsByTable = new Map(
 			definitions.map((definition, tableIndex) => [
 				definition.id,
-				Array.from({ length: tableIndex < 2 ? 5_000 : 0 }, (_, index) => ({
-					id: lookupRowIdSchema.parse(
-						`018f3e8a-7b2c-7def-8abc-${String(tableIndex * 5_000 + index).padStart(12, "0")}`,
-					),
-					values: {
-						[definition.columns[0].id]: `v${index}`,
-						[definition.columns[1].id]: `Label ${index}`,
-					},
-				})),
+				/* Every table holds a row: a choice list over a table with none is
+				 * its own refusal (`LOOKUP_SELECT_SOURCE_EMPTY`). */
+				Array.from(
+					{ length: [5_000, 4_999, 1][tableIndex] ?? 0 },
+					(_, index) => ({
+						id: lookupRowIdSchema.parse(
+							`018f3e8a-7b2c-7def-8abc-${String(tableIndex * 5_000 + index).padStart(12, "0")}`,
+						),
+						values: {
+							[definition.columns[0].id]: `v${index}`,
+							[definition.columns[1].id]: `Label ${index}`,
+						},
+					}),
+				),
 			]),
 		);
 		vi.mocked(getLookupFixtureData).mockResolvedValue({
@@ -1001,8 +1006,9 @@ describe("prepareExportBoundary", () => {
 		expect(accepted.prepared.lookupWire?.fixtures.totalRows).toBe(10_000);
 		const last = definitions[2];
 		rowsByTable.set(last.id, [
+			...(rowsByTable.get(last.id) ?? []),
 			{
-				id: lookupRowIdSchema.parse("018f3e8a-7b2c-7def-8abc-000000010000"),
+				id: lookupRowIdSchema.parse("018f3e8a-7b2c-7def-8abc-000000020000"),
 				values: { [last.columns[0].id]: "last", [last.columns[1].id]: "Last" },
 			},
 		]);

@@ -32,6 +32,16 @@ export interface XPathInstance {
 }
 
 /**
+ * Whether a path reached a node or template at every step, and where it did
+ * not, the instance whose data it missed: `null` for the form's own instance,
+ * else the secondary instance's id. A miss in a secondary instance is the
+ * data a device holds being empty (no places, a table with no rows), which
+ * Core refuses as it refuses any invalid path; Preview presents that as a
+ * refusal, never a fault.
+ */
+export type XPathPathValidity = true | { readonly missedIn: string | null };
+
+/**
  * Ordered JavaRosa-shaped nodeset. `validPath` distinguishes a real empty
  * selection from a reference whose authored template path does not exist.
  */
@@ -42,17 +52,26 @@ export class XPathNodeSet {
 	readonly nodes: readonly XPathNode[];
 	/** Schema representatives that survive an empty live selection. */
 	readonly schemaNodes: readonly XPathNode[];
-	readonly validPath: boolean;
+	readonly validity: XPathPathValidity;
 
 	constructor(
 		candidates: readonly XPathNode[],
-		validPath = true,
+		validity: XPathPathValidity | boolean = true,
 		schemaNodes: readonly XPathNode[] = candidates,
 	) {
 		this.candidates = candidates;
 		this.nodes = candidates.filter((node) => node.isRelevant());
 		this.schemaNodes = schemaNodes;
-		this.validPath = validPath;
+		this.validity =
+			validity === true
+				? true
+				: validity === false
+					? { missedIn: null }
+					: validity;
+	}
+
+	get validPath(): boolean {
+		return this.validity === true;
 	}
 
 	get size(): number {
@@ -118,6 +137,29 @@ export class XPathNodesetCardinalityError extends Error {
 	}
 }
 
+/**
+ * Core's refusal of a value read through a path that reaches nothing
+ * (`XPathNodeset.unpack` / `toArgList` on an invalid nodeset: "Logic
+ * references … which is not a valid question or value"). `missedIn` names the
+ * secondary instance the path missed, or `null` for the form's own.
+ */
+export class XPathInvalidPathError extends Error {
+	readonly missedIn: string | null;
+
+	constructor(missedIn: string | null) {
+		super("XPath references a path that does not exist in the instance.");
+		this.name = "XPathInvalidPathError";
+		this.missedIn = missedIn;
+	}
+}
+
+/** The refusal an invalid nodeset raises when a value is read from it. */
+export function invalidPathError(nodeset: XPathNodeSet): XPathInvalidPathError {
+	return new XPathInvalidPathError(
+		nodeset.validity === true ? null : nodeset.validity.missedIn,
+	);
+}
+
 /** Mirrors XPathNodeset.unpack(): empty → blank, singleton → value, many → error. */
 export function unpackXPathRuntimeValue(value: XPathRuntimeValue): XPathValue {
 	if (isXPathSequence(value)) {
@@ -125,11 +167,7 @@ export function unpackXPathRuntimeValue(value: XPathRuntimeValue): XPathValue {
 	}
 	if (isXPathCoreNull(value)) throw new CoreUnroundableDateError(value.what);
 	if (!isXPathNodeSet(value)) return value;
-	if (!value.validPath) {
-		throw new Error(
-			"XPath references a path that does not exist in the instance.",
-		);
-	}
+	if (!value.validPath) throw invalidPathError(value);
 	if (value.nodes.length === 0) return "";
 	if (value.nodes.length > 1) {
 		throw new XPathNodesetCardinalityError(

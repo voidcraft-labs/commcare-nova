@@ -158,6 +158,21 @@ def _locations_instance(factory, module, form):
     form.source = source(instances=[("locations", "jr://fixture/locations")])
 
 
+def _locations_link_condition(factory, module, form):
+    """A link whose condition alone reads a place, as Nova writes it: HQ declares the fixture on the form's entry."""
+    from corehq.apps.app_manager.const import WORKFLOW_FORM
+    from corehq.apps.app_manager.models import FormLink
+
+    other = factory.new_form(module)
+    form.post_form_workflow = WORKFLOW_FORM
+    form.form_links = [
+        FormLink(
+            xpath="instance('locations')/locations/location[@type = 'clinic']/name = 'North'",
+            form_id=other.unique_id,
+        )
+    ]
+
+
 def _locations_fixture(factory, module, form):
     factory.app.location_fixture_restore = "both_fixtures"
 
@@ -216,6 +231,7 @@ CASES = [
     ("child_cases", _child_case, ["CHILD_CASES"], False),
     ("case_sharing_groups", _case_sharing, ["CASE_SHARING_GROUPS"], False),
     ("locations_instance", _locations_instance, ["LOCATIONS"], False),
+    ("locations_read_in_a_link_condition", _locations_link_condition, ["LOCATIONS", "FORM_LINK_WORKFLOW"], False),
     ("locations_fixture", _locations_fixture, ["LOCATIONS"], False),
     ("commcare_logo_uploader", _logo, ["COMMCARE_LOGO_UPLOADER"], False),
     ("app_dependencies", _dependencies, ["APP_DEPENDENCIES"], False),

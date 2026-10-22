@@ -1,6 +1,10 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import {
+	mutationCommitVerdict,
+	mutationCommitVerdictWithPrevalidation,
+} from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -11,6 +15,13 @@ import {
 	type Field,
 } from "@/lib/domain";
 import {
+	instanceReadsDoc,
+	reads,
+	searchResults,
+	setCalculate,
+} from "@/lib/domain/expression/__tests__/instanceReadsFixture";
+import {
+	count,
 	eq,
 	formField,
 	literal,
@@ -751,6 +762,121 @@ describe("evaluateCommit — the checker's and writer agreement's codes", () => 
 			expect(gateCommit(doc, [admitted])).toEqual({ ok: true });
 		},
 	);
+});
+
+describe("evaluateCommit — an edit that strands an instance read", () => {
+	/** The absolute gate and the Builder's scoped gate over one batch. */
+	function bothGates(prevDoc: BlueprintDoc, mutations: Mutation[]) {
+		return [
+			mutationCommitVerdict(prevDoc, mutations, LOOKUP_CONTEXT_UNAVAILABLE),
+			mutationCommitVerdictWithPrevalidation(
+				prevDoc,
+				mutations,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			),
+		];
+	}
+	function refusedAt(
+		verdict: ReturnType<typeof mutationCommitVerdict>,
+		code: string,
+	) {
+		if (verdict.ok) throw new Error("Expected the batch to be refused");
+		return verdict.findings
+			.filter((finding) => finding.code === code)
+			.map((finding) => finding.location.fieldId);
+	}
+	/** Check in counts what Find patient's search found; the module has
+	 * no no-matches form, so Search first is the only supply. */
+	function searchReadDoc(): BlueprintDoc {
+		const doc = instanceReadsDoc();
+		doc.formOrder[reads.find] = [reads.checkIn, reads.note];
+		delete doc.forms[reads.register];
+		delete doc.fieldOrder[reads.register];
+		for (const field of Object.values(doc.fields))
+			if (field.id === "case_name" || field.uuid === reads.registerProbe)
+				delete doc.fields[field.uuid];
+		setCalculate(doc, reads.found, count(searchResults()));
+		return valid(doc);
+	}
+
+	it.each<[string, Mutation[]]>([
+		[
+			"turning Search first off",
+			[
+				{
+					kind: "updateModule",
+					uuid: reads.find,
+					patch: {},
+					caseSearchConfigPatch: { searchFirst: null },
+				},
+			],
+		],
+		[
+			"moving the form out of the module",
+			[
+				{
+					kind: "moveForm",
+					uuid: reads.checkIn,
+					toModuleUuid: reads.households,
+					after: null,
+				},
+			],
+		],
+	])(
+		"refuses %s while a question reads what the search found",
+		(_label, mutations) => {
+			for (const verdict of bothGates(searchReadDoc(), mutations))
+				expect(refusedAt(verdict, "SEARCH_RESULTS_NOT_SUPPLIED")).toEqual([
+					"found",
+				]);
+		},
+	);
+
+	it("refuses a registration menu form joining the module while a question reads what the search found", () => {
+		for (const verdict of bothGates(searchReadDoc(), [
+			{
+				kind: "addForm",
+				moduleUuid: reads.find,
+				form: {
+					uuid: testUuid("instance-reads-new-registration"),
+					id: "new_patient",
+					name: "New patient",
+					type: "registration",
+				},
+			},
+		]))
+			expect(verdict.ok).toBe(false);
+	});
+
+	it("refuses wording that gains an answer while another question reads it, in both gates", () => {
+		const doc = instanceReadsDoc();
+		setCalculate(doc, reads.greeting, {
+			kind: "itext",
+			unit: { field: reads.name, role: "field-label" },
+		});
+		valid(doc);
+		const label = (shows: boolean): Mutation => ({
+			kind: "updateField",
+			uuid: reads.name,
+			targetKind: "text",
+			patch: {
+				label: shows
+					? {
+							parts: [
+								{ kind: "text", text: "Name for " },
+								{ kind: "field-ref", uuid: reads.choice },
+							],
+						}
+					: proseText("Full name"),
+			},
+		});
+		for (const verdict of bothGates(doc, [label(true)]))
+			expect(refusedAt(verdict, "XPATH_FUNCTION_CONTEXT_UNAVAILABLE")).toEqual([
+				"greeting",
+			]);
+		for (const verdict of bothGates(doc, [label(false)]))
+			expect(verdict.ok).toBe(true);
+	});
 });
 
 // ── evaluateBoundary ───────────────────────────────────────────────

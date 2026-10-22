@@ -16,12 +16,12 @@ import {
 import { readCaseData } from "../engine/caseDataBindingHelpers";
 import { previewSessionValues } from "../engine/identity";
 import { previewCaseStoreBindings } from "../engine/runtimeBindings";
+import { recordsReadSearch, searchedReading } from "../engine/serverSearchRead";
 import { projectLocalizedCaseProperties } from "../localizedCaseProperties";
 import { previewMenuCaseContext } from "../menuProjection";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
 import { AppTestActionError } from "./errors";
-import { recordsReadSearch, searchedReading } from "./records";
 import type { AppTestSessionState } from "./types";
 
 /** Details addresses the selected identity, not its old Results page/filter. */

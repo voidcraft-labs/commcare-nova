@@ -31,6 +31,10 @@ import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import { advancedSearchInputDef } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
 import {
+	itextUnitTranslationId,
+	translationUnitsById,
+} from "@/lib/domain/translationUnits";
+import {
 	ancestorPath,
 	and,
 	anyRelationPath,
@@ -93,6 +97,13 @@ import {
 	typeOf,
 } from "../typeChecker";
 import type { Expression, ExpressionSlotRef } from "../types";
+import {
+	calculate,
+	instanceReadsDoc,
+	reads,
+	readsContext,
+	searchResults,
+} from "./instanceReadsFixture";
 
 type QueryFixture = Parameters<typeof recordQueryContext>[0] & {
 	readonly ownerValues?: boolean;
@@ -3436,7 +3447,7 @@ describe("slot facts", () => {
 			),
 		).toContain("arm-unavailable:here");
 	});
-	it("names a choice label read over choices that are not written in the form", () => {
+	it("admits a choice label read over written choices, and names one over choices that are not written in the form", () => {
 		const read = (field: string): Expression => ({
 			kind: "choice-name",
 			field: field as never,
@@ -3448,11 +3459,11 @@ describe("slot facts", () => {
 				slotOutcome(doc, fieldSlot(RULES.probe), read(RULES.members)).errors,
 			),
 		).toEqual(["arm-unavailable:choice-name-dynamic"]);
+		// A written select's label is Core's own: `FormDef.initEvalContext`
+		// reads the question's static choices.
 		expect(
-			codes(
-				slotOutcome(doc, fieldSlot(RULES.probe), read(RULES.consent)).errors,
-			),
-		).toEqual(["arm-unavailable:choice-name"]);
+			slotOutcome(doc, fieldSlot(RULES.probe), read(RULES.consent)).errors,
+		).toEqual([]);
 	});
 	it("refuses a date format the case store cannot fix before it reads a row", () => {
 		const computed = formatDate(
@@ -3963,5 +3974,221 @@ describe("comparisons a device runs between two moments", () => {
 			"incompatible-values:day-only-on-device",
 			"incompatible-values:datetime-equality",
 		]);
+	});
+});
+
+describe("instance reads", () => {
+	const opened = term(prop("patient", "date_opened"));
+	const changed = term(prop("patient", "last_modified"));
+	const found = () => readsContext(instanceReadsDoc(), calculate(reads.found));
+	const close = () =>
+		readsContext(instanceReadsDoc(), calculate(reads.closeProbe));
+	const selected: Expression = { kind: "selected-cases", module: reads.batch };
+
+	it("types a search's rows as the searched case type, whatever case type a property also names elsewhere", () => {
+		// `district` is declared on both `patient` and `household`; the rows
+		// of Find patient's search are patients.
+		const district: Expression = {
+			kind: "project",
+			of: searchResults(),
+			value: prop("patient", "district"),
+		};
+		expect(checkExpression(district, found()).errors).toEqual([]);
+		expect(
+			codes(
+				checkExpression(
+					{
+						kind: "project",
+						of: searchResults(),
+						value: prop("household", "district"),
+					},
+					found(),
+				).errors,
+			),
+		).toEqual(["property-scope"]);
+	});
+
+	it("refuses a result's opened day against a moment, and admits its last change against one", () => {
+		const day = (expression: Expression) =>
+			checkExpression(count(searchResults(expression)), found()).errors;
+		expect(day(gte(opened, now()))).toMatchObject([
+			{
+				code: "incompatible-values",
+				reason: "day-only-on-device",
+				instant: { comparison: "ordering", property: "date_opened" },
+			},
+		]);
+		expect(codes(day(eq(opened, now())))).toEqual([
+			"incompatible-values:day-only-on-device",
+		]);
+		expect(day(gt(changed, now()))).toEqual([]);
+		expect(day(gte(dateCoerce(opened), today()))).toEqual([]);
+		// The same read as one value carries its day into the comparison.
+		const projected: Expression = {
+			kind: "project",
+			of: searchResults(eq(term(prop("patient", "case_id")), literal("a"))),
+			value: prop("patient", "date_opened"),
+		};
+		expect(
+			codes(checkExpression(lt(projected, now()), found()).errors),
+		).toEqual(["incompatible-values:day-only-on-device"]);
+	});
+
+	it("keeps a casedb row's system dates as days and a search's last change as text", () => {
+		const casedb = (property: string): Expression => ({
+			kind: "project",
+			of: {
+				kind: "cases",
+				source: "casedb",
+				where: [
+					eq(
+						{ kind: "term", term: { kind: "case-row-type" } },
+						{ kind: "term", term: { kind: "case-type", caseType: "patient" } },
+					),
+				],
+			},
+			value: prop("patient", property),
+		});
+		expect(typeOf(casedb("last_modified"), found())?.held).toEqual({
+			nodes: "date",
+		});
+		expect(
+			typeOf(
+				{
+					kind: "project",
+					of: searchResults(),
+					value: prop("patient", "last_modified"),
+				},
+				found(),
+			),
+		).toEqual({
+			data: { nodes: "datetime", cardinality: "many" },
+			held: { nodes: "string" },
+		});
+	});
+
+	it("refuses places in every menu, case list and display setting, beside the same read in a question", () => {
+		const doc = instanceReadsDoc({ organization: true });
+		const places: Expression = { kind: "locations", where: [] };
+		const names: Expression = {
+			kind: "project",
+			of: places,
+			value: { kind: "location-field", field: "name" },
+		};
+		const anyPlace = gt(count(places), literal(0));
+		for (const slot of [
+			{
+				entity: "module",
+				uuid: reads.households,
+				slot: "module_display_condition",
+			},
+			{ entity: "module", uuid: reads.households, slot: "case_list_filter" },
+			{
+				entity: "form",
+				uuid: reads.visit,
+				slot: "form_display_condition",
+			},
+		] as const satisfies readonly ExpressionSlotRef[])
+			for (const read of [anyPlace, names])
+				expect(
+					checkExpression(read, readsContext(doc, slot)).errors,
+				).toMatchObject([
+					{ code: "arm-unavailable", reason: "places-unavailable" },
+				]);
+		expect(
+			checkExpression(anyPlace, readsContext(doc, calculate(reads.visitProbe)))
+				.errors,
+		).toEqual([]);
+	});
+
+	it("refuses a several-case form's chosen cases as one value, beside a count of them", () => {
+		expect(
+			checkExpression(eq(selected, literal("a")), close()).errors,
+		).toMatchObject([{ code: "many-values", reason: "selected-cases" }]);
+		expect(checkExpression(count(selected), close()).errors).toEqual([]);
+	});
+
+	it("refuses the chosen cases where the form doesn't work on several cases, and in a link", () => {
+		expect(codes(checkExpression(count(selected), found()).errors)).toEqual([
+			"datum-not-supplied:selected-cases",
+		]);
+		const doc = instanceReadsDoc();
+		doc.forms[reads.close].formLinks = [
+			{
+				uuid: testUuid("instance-reads-close-link"),
+				target: { type: "module", moduleUuid: reads.batch },
+			},
+		];
+		expect(
+			codes(
+				checkExpression(
+					gt(count(selected), literal(1)),
+					readsContext(doc, {
+						entity: "form",
+						uuid: reads.close,
+						slot: "form_link_condition",
+						member: { linkUuid: testUuid("instance-reads-close-link") },
+					}),
+				).errors,
+			),
+		).toEqual(["datum-not-supplied:selected-cases-carrier"]);
+	});
+
+	it("refuses wording that shows an answer in each language, beside the same wording as plain text", () => {
+		const itext: Expression = {
+			kind: "itext",
+			unit: { field: reads.name, role: "field-label" },
+		};
+		const twoLanguages = (shows: boolean) => {
+			const doc = instanceReadsDoc();
+			const name = doc.fields[reads.name];
+			if (name.kind !== "text")
+				throw new Error("The name question is missing.");
+			const reference = { kind: "field-ref" as const, uuid: reads.choice };
+			name.label = shows
+				? { parts: [{ kind: "text", text: "Name for " }, reference] }
+				: proseText("Name");
+			doc.localization = {
+				sourceLanguage: "eng",
+				defaultLanguage: "eng",
+				languageOrder: ["eng", "fra"],
+				wireCodes: { eng: "en", fra: "fr" },
+				translations: { fra: {} },
+			};
+			const unit = translationUnitsById(doc).get(
+				itextUnitTranslationId({ field: reads.name, role: "field-label" }),
+			);
+			if (unit === undefined) throw new Error("The label's unit is missing.");
+			const translations = doc.localization.translations.fra;
+			if (translations === undefined) throw new Error("No French overlay.");
+			translations[unit.id] = {
+				value: shows
+					? { parts: [{ kind: "text", text: "Nom pour " }, reference] }
+					: proseText("Nom"),
+				sourceFingerprint: unit.sourceFingerprint,
+				origin: "human",
+				review: "reviewed",
+				translatedFrom: "eng",
+			};
+			return checkExpression(
+				itext,
+				readsContext(doc, calculate(reads.greeting)),
+			).errors;
+		};
+		expect(codes(twoLanguages(true))).toEqual([
+			"arm-unavailable:itext-reference",
+		]);
+		expect(twoLanguages(false)).toEqual([]);
+	});
+
+	it("refuses wording a question no longer has, as a dangling identity", () => {
+		expect(
+			codes(
+				checkExpression(
+					{ kind: "itext", unit: { field: reads.name, role: "field-hint" } },
+					readsContext(instanceReadsDoc(), calculate(reads.greeting)),
+				).errors,
+			),
+		).toEqual(["unknown-form-field:itext-unit"]);
 	});
 });

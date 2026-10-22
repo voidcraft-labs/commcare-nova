@@ -3021,6 +3021,11 @@ def _search_and_menus():
             refused("suite", INPUTS_SUITE, "instance-scheme:search-input", "entry[1]/instance[1]/@id"),
             accepted("suite", INPUTS_SUITE, "instance-scheme:search-input", "entry[2]/instance[1]/@id"),
         ),
+        "expressions-and-data/commtrack-locations-hierarchical": (
+            refused("suite", LOCATIONS_SUITE, "instance-scheme:commtrack", "entry[1]/instance[1]/@id"),
+            accepted("suite", LOCATIONS_SUITE, "instance-scheme:locations", "entry[2]/instance[1]/@id"),
+            unsettled("suite", LOCATIONS_SUITE, "instance-scheme:locations", "entry[3]/instance[1]/@id"),
+        ),
         "expressions-and-data/legacy-search-input-read-after-the-query-in-the-results-detail": (
             refused("suite", INPUTS_SUITE, "instance-scheme:search-input", "entry[3]/instance[1]/@id"),
             accepted("suite", INPUTS_SUITE, "instance-scheme:search-input", "remote-request[1]/instance[1]/@id"),
@@ -3117,6 +3122,18 @@ MENUS = b"""<suite version="1"><menu id="m0"><text><locale id="m0"/></text></men
    detail-select="m1_case_short" max-select-value="0"/></session></entry></suite>"""
 # The search input instance an entry reads with no search in its session, one whose session searches, the legacy
 # bare id in an entry, and the legacy bare id in a search's own request.
+# A form link reading places puts the instance on the form's entry, where HQ chooses its source: the
+# hierarchical fixture, the flat one, and a source neither names.
+LOCATIONS_SUITE = b"""<suite version="1">
+ <entry><form>http://example.org/f</form><command id="m0-f0"><text><locale id="f"/></text></command>
+  <instance id="commtrack:locations" src="jr://fixture/commtrack:locations"/></entry>
+ <entry><form>http://example.org/g</form><command id="m0-f1"><text><locale id="g"/></text></command>
+  <instance id="locations" src="jr://fixture/locations"/></entry>
+ <entry><form>http://example.org/h</form><command id="m0-f2"><text><locale id="h"/></text></command>
+  <instance id="locations" src="jr://fixture/other:locations"/></entry>
+</suite>"""
+
+
 INPUTS_SUITE = b"""<suite version="1">
  <entry><form>http://example.org/f</form><command id="m0-f0"><text><locale id="f"/></text></command>
   <instance id="search-input:results" src="jr://instance/search-input/results"/>
@@ -3882,7 +3899,6 @@ KNOWN_GAPS = frozenset(
         "application-and-settings/non-empty-custom-assertions-app",
         "case-search/instance-name-containing-casedb-ledgerdb-fixture-or-session",
         "case-search/receiver-expression-on-a-prompt-whose-editor-appearance-is",
-        "expressions-and-data/commtrack-locations-hierarchical",
         "expressions-and-data/commtrack-products-commtrack-programs",
         "expressions-and-data/reports-commcare-reports-commcare-reports-commcare-reports",
         "expressions-and-data/tag-containing-casedb-or-ledgerdb",

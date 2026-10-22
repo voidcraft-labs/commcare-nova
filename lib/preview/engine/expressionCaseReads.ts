@@ -1,9 +1,13 @@
 import type { BlueprintDoc } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 
 /**
  * Structural dependencies only. Literal strings never request case data.
+ *
+ * A read of the worker's places counts as well: the `locations` fixture
+ * travels with the device snapshot.
  *
  * The session datums that are functions over casedb count too: the worker's
  * record (`usercase_id`) and a grouped tile's companion
@@ -22,6 +26,9 @@ export function expressionReadsCaseDatabase(
 		visitExpression: (node) => {
 			if (node.kind === "cases" && node.source === "casedb") reads = true;
 			if (node.kind === "project") reads = true;
+			// The worker's places ride the device snapshot, as a restore
+			// delivers its `locations` fixture beside the cases.
+			if (node.kind === "locations") reads = true;
 		},
 		visitTerm: (term) => {
 			if (
@@ -51,4 +58,44 @@ function queryBound(
 	field: BlueprintDoc["fields"][string] | undefined,
 ): boolean {
 	return field?.kind === "repeat" && field.repeat_mode === "query_bound";
+}
+
+/** Whether one tree reads the worker's places: a `locations` read, or a case
+ * owner named as the place at a level, which reads the fixture too. */
+function expressionReadsPlaces(expression: Expression): boolean {
+	let reads = false;
+	walkExpression(expression, {
+		visitExpression: (node) => {
+			if (node.kind === "locations") reads = true;
+		},
+		visitTerm: (term) => {
+			if (term.kind === "owner-location-at-level") reads = true;
+		},
+	});
+	return reads;
+}
+
+/**
+ * Whether any form of the app, its questions or its links reads the worker's
+ * places, so its device snapshot carries the `locations` fixture. Only form
+ * logic and form links can read places (`typeChecker.ts::admission` refuses
+ * them in record rules), so these are the only owners scanned. Preview's
+ * snapshot, App Tests and the form check (`evaluate_form`) all load places by
+ * this one answer.
+ */
+export function appReadsPlaces(doc: BlueprintDoc): boolean {
+	return [
+		...Object.values(doc.forms).map((form) => ({
+			entity: "form" as const,
+			uuid: form.uuid,
+		})),
+		...Object.values(doc.fields).map((field) => ({
+			entity: "field" as const,
+			uuid: field.uuid,
+		})),
+	].some((owner) =>
+		expressionSlotValues(doc, owner).some(({ expression }) =>
+			expressionReadsPlaces(expression),
+		),
+	);
 }

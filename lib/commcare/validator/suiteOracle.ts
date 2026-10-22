@@ -12,6 +12,7 @@ import {
 	isPathExpression,
 } from "@/lib/commcare/xform/pathExpression";
 import { parser } from "@/lib/commcare/xpath";
+import { locationsInstance } from "@/lib/commcare/xpath/wire/instances";
 import { tryParseXml } from "../xmlParse";
 import {
 	type ValidationError,
@@ -1454,13 +1455,22 @@ function checkFixtures(
 		}
 	}
 
-	// Every declared jr://fixture src must name an embedded fixture.
+	// Every declared jr://fixture src must name an embedded fixture, except
+	// the flat locations fixture: HQ's restore delivers it as a user fixture
+	// with id `locations` (`corehq/apps/locations/fixtures.py::
+	// flat_location_fixture_generator`), so the suite never embeds it.
+	const restoreDelivered = locationsInstance().src;
 	for (const inst of findAll(
 		(el) => el.name === "instance",
 		model.doc.children,
 	)) {
 		const src = getAttributeValue(inst, "src");
-		if (src === undefined || !src.startsWith("jr://fixture/")) continue;
+		if (
+			src === undefined ||
+			!src.startsWith("jr://fixture/") ||
+			src === restoreDelivered
+		)
+			continue;
 		const deliveredId = src.slice(src.lastIndexOf("/") + 1);
 		if (!fixtureIds.has(deliveredId)) {
 			errors.push(

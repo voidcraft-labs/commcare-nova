@@ -77,7 +77,7 @@ or `lib/case-store`), so nothing in this part changes for it.
     a form is chosen, so the form menu shows before it (§3.5). No claim row is
     written. Preview's claims live in `lib/session`; an App Test journey's claims live in its own
     persisted session state (`AppTestSessionState.claimedCaseIds`), because journeys run on the
-    server; the non-writing `evaluateForm` capture runs no search and sends none (§3.5).
+    server; the non-writing `evaluateForm` capture sends none (§3.5).
 
 ---
 
@@ -444,12 +444,75 @@ already does what Core does when such a query matches more than one row: it thro
 custom property read in a query with no `@case_type` binds to its one declaring case type and prints
 no predicate (part 04 §4), so Preview's casedb read returns the rows the device's does.
 
+**Implementation correction, 2026-10-19: the table's lookup and places rows, as built (pull request
+9).**
+
+- Lookups: form-link evaluation already printed with `includeFixtureAliases` before this pull
+  request, so what remained was coverage. `lookupEvaluation.ts::formLogicLookupsCovered(doc,
+  formUuid, data)` asks `expressionLookupsCovered` of every expression slot of the form and its
+  questions (`expressionSlotValues`, Connect and links included; a choice source keeps its own
+  loading state), and `formEngine.ts::lookupDataCoversForm` adds it. Printing a table read needs the
+  table's naming, so `toWire` threw while the engine was built; `EngineController` now holds back an
+  entry whose logic reads a table the snapshot does not cover (`lookupWait`) and `setLookupData`
+  starts it once a covering snapshot arrives. A same-entry rebuild that has to wait (an edit added an
+  uncovered read mid-entry) keeps its entry key and the checkpoint it began with, and the covering
+  snapshot resumes that same entry with its answers; a later rebuild while it waits keeps the first
+  checkpoint, and opening the form again starts a fresh entry instead
+  (`engineControllerLookupWait.test.ts`).
+- Places: `lib/organization/footprint.ts::personaFootprint` had no production caller.
+  `loadCaseDatabaseSnapshotAction` now returns `locations`, rows of
+  `footprint.ts::locationFixtureRows` (the footprint, each place with its ancestor at every level)
+  over `lib/organization/service.ts::readOrganizationPlaces` (the whole tree, archived places
+  included), as plain JSON, so they follow the snapshot's restore-scope key.
+  `xpathInstances.ts::locationsXPathInstance(rows, organization)` writes HQ's flat shape: ordered by
+  site code; `@type`, `@id` and an `@<code>_id` for every level, the place's own id first and then
+  its parents', so an ancestor at the same level wins; the fixed children in HQ's order, with
+  `location_type` the level's name and coordinates at ten decimal places; `location_data` with one
+  child per property, empty where unset. `expressionCaseReads.ts` loads the snapshot for a read of
+  places, and `caseDatabasePatch.ts` keeps the places through a submission's patch. App Tests give
+  form evaluations the worker's places the same way, and their after-submit links too; the form
+  check (`evaluate_form`) loads them through `engine/workerLocationFixture.ts`, which the snapshot
+  action shares. No module display condition, case list or form display condition reads places:
+  each is a record rule, and `typeChecker.ts::admission` refuses `locations` in every record rule, so
+  menus and case lists need no place instance.
+- `secondaryXPathInstances` serves the selected cases, the search results, the places and the
+  table aliases, for the form engine and link evaluation alike.
+
+**Implementation correction, 2026-10-19 (pull request 9 review):**
+
+- The lookup wait has its failure and exit paths. `EngineEntryState.lookupWait` reports `loading`,
+  `error` (the lookup load failed; `FormScreen` offers to try again through
+  `useLookupPreviewData.tsx::usePreviewLookupReload`) or `unavailable` (a snapshot read for exactly
+  the tables the document references still lacks one; `FormScreen` returns to Edit). While it waits
+  the controller watches the document, so an edit that removes the uncovered read opens the form,
+  and a waiting same-entry rebuild resumes with its answers. The lookup provider now tells snapshots
+  apart by Project revision and the tables read: an edit that reads one more unchanged table reads a
+  snapshot at the same revision, which the revision alone kept from ever reaching the controller.
+- Places load only for an app that reads them. `expressionCaseReads.ts::appReadsPlaces` (a
+  `locations` read or an `owner-location-at-level` owner in any form, question or link) decides for
+  Preview's snapshot (the builder's document passes `includePlaces`, part of the snapshot's reload
+  key, since an edit reaches the builder before its save), for App Tests and for `evaluate_form`.
+  `footprint.ts::LocationFixtureRow` is the one row type; `PreviewLocationRow` is gone.
+- Site-code order is not HQ's in every case. HQ sorts the flat fixture with
+  `order_by('site_code')`, and `SQLLocation.site_code` declares no `db_collation`, so the order is
+  the HQ database's default collation, which the deployment sets (the HQ checkout pins none) and
+  Nova cannot read. Preview sorts by code point. Nova's site codes are lowercase letters, digits,
+  `_` and `-`; codes of letters and digits alone sort alike under code point, `C` and the usual
+  libc and ICU collations, while codes that differ at a `_` or `-` can sort differently on an HQ
+  database that collates punctuation by language rules. That difference stays open.
+
 ### 3.1 Selected cases
 
 `xpathInstances.ts::selectedCasesXPathInstance(datumId, caseIds)` (new) builds
 `<results><value>id</value>…</results>` under the instance id the form declares (the multi-select
 datum id, part 05 §2.5), from `previewCaseTarget.cases` in selection order. Core builds the same
 (`org/commcare/core/process/CommCareInstanceInitializer.java::setupSelectedEntitiesInstance`).
+
+**Implementation correction, 2026-10-19 (pull request 9):** `entrySessionData` builds the
+selection into the entry session (`selectedCases`, keyed by the datum id), and the controller hands
+it to the engine with the session's datums on every rebuild of the entry
+(`EngineController.entryRuntimeOptions`). Android has no several-case selection, so the read runs
+where the module does; step 4's platform declaration governs both.
 
 ### 3.2 The inline search's results
 
@@ -504,6 +567,56 @@ again."), and a search of more than 500 shows part 05's cap line. Preview uses 5
 toggle, because no API key reads a project space's toggles. The tests are part 05 §5's
 `searchResultsXPathInstance.test.ts` and `searchResultsSnapshot.postgres.test.ts`.
 
+**Implementation correction, 2026-10-19: the snapshot, as built (pull request 9).**
+
+- The action takes the Results read's own arguments (`appId`, `caseType`, `moduleUuid`, the
+  candidate document, `caseListConfig`, the owner exclusion, the attempt's answers or, after a
+  no-matches registration, that one case id, the parent selection, the catalog, language, persona
+  and viewer zone). `loadCasesAction`'s body moved into `prepareRunningCaseRead`, so Results and
+  the snapshot share one read. `caseDataBindingHelpers.ts::readCases` gains a `cap` for unpaged
+  reads that still counts every match. `readSearchResultsSnapshot` then reads each row's direct
+  indices through `readCaseDatabasePatch`.
+- `searchResultsXPathInstance` writes every row `status="open"`, `last_modified` with
+  `json_format_datetime`, `date_opened` as the UTC day, `external_id` only when set, a date-and-time
+  property in HQ's spelling, and `index` only when the case has indices, sorted by identifier, with
+  `@relationship` only for an extension.
+- Who loads it: not `EngineController` at `activateForm`. `lib/preview/hooks/useSearchResultsSnapshot.ts`
+  loads it for `FormScreen`, keyed by the attempt, its answers, a registered case, the worker and
+  the parent selection; neither claims (a search reads the Project's open cases, and in a
+  search-first module the claim posts when the form opens, so keying on it would reload mid-
+  activation) nor the document's identity is in the key. The engine waits for the snapshot
+  (`FormEngineRuntimeOptions.searchResults`, carried by `entrySessionData.searchResults`). Which
+  forms read it is a walk of the form's expression slots (`xpathInstances.ts::formReadsSearchResults`),
+  not the reference index.
+- **Clear form keeps the entry's snapshot** rather than reading the search again; a new search
+  attempt reads again. This follows a device, whose session keeps its query step for the form.
+- `FormScreen` shows a loading line and a failed line with try again beside the refusal panel and
+  the cap line (`runtimeMessages.ts`, English and Spanish). `evaluateFormSnapshot` refuses a form
+  that reads search results when its caller supplies no snapshot, with the panel's sentence. App
+  Tests (`app-tests/run.ts`) read the session's latest search of the module again, unpaged and
+  capped, with each row's indices: `appTestNamespace.ts::AppTestCaseStore` exposes
+  `readCaseDatabasePatch`, which now joins the step's transaction (`PostgresCaseStore.dataTransaction`)
+  instead of opening its own, which Kysely refuses inside one. Their paged Results read and this one
+  share `engine/serverSearchRead.ts::serverRecordsRead`, and `app-tests/submission.ts` hands
+  `evaluatePostSubmission` the form's evaluation context, its places and search results included.
+  The MCP `evaluate_form` runs the module's search with the call's `searchAnswers` (as a completed
+  search's values) or, without them, presses Search with its defaults, over the Project's open
+  records through the same composition and cap, and reports `searchResults: { matched, held }`; a
+  search that fails its checks, a scenario (whose test records give a search nothing to run over),
+  and a search inside a parent chosen before the form are refused with a sentence naming the next
+  step. An unpublished workspace has no records, so its search finds none. The tool's input schema
+  and description are unchanged.
+
+**Implementation correction, 2026-10-19 (pull request 9 review):** an App Test reads the search
+results once per entry, at its first evaluation, and the form screen holds them (`searchResults`)
+for every later step and the submission, as Preview's form keeps the snapshot it opened with; Back
+to a form, a linked form and another search start a new entry that reads again
+(`app-tests/__tests__/searchResultsEntry.test.ts`). `FormScreen` shows an `invalid-search` refusal's
+own message with **Go to Search**, not the failed line with try again, because the same search fails
+again. `evaluate_form` runs the search screen first and names a hidden Search action (its display
+condition false for the worker) as the reason the form cannot open, rather than asking for
+`searchAnswers` (`authoring/__tests__/formSearchResults.test.ts`).
+
 ### 3.3 `jr:itext` and `jr:choice-name`
 
 **Core.** `org/javarosa/core/model/FormDef.java::initEvalContext` installs both handlers.
@@ -524,6 +637,17 @@ for the fill a worker reads): itext id → text, and question path → `[value, 
 option. `functions.ts` registers `jr:itext` and `jr:choice-name` reading `EvalContext.formText`, with
 Core's exact-equality and empty results. A language change already rebuilds the entry, so the table
 follows it.
+
+**Implementation correction, 2026-10-19: the table, as built (pull request 9).** The form engine
+builds the table (cached per document) and sends it to the worker only for a form that reads its
+wording (`formText.ts::formReadsFormText`), rather than `activateForm` building it. `previewFormText`
+leaves out the entries the XForm leaves out (`builder.ts::addItext`'s skip rule), so `jr:itext` of
+one returns `[itext:<id>]`; a select whose choices come from a table or cases maps to `null`, and
+`jr:choice-name` over it fails as Core's does. A language the app doesn't hold reads the default.
+`xpath/functions.ts::invokeFormTextFunction`, called from `evaluator.ts` and `asyncEvaluator.ts`,
+holds both functions; outside a form neither exists. `EvalContext.formText` and
+`XPathWorkerInstances.formText` carry the table, the worker runtime keeps it with the world and
+takes a newer one, and the protocol stays 8.
 
 Text whose source, in any language, holds a reference is refused by the checker
 (`XPATH_FUNCTION_CONTEXT_UNAVAILABLE`, reason `itext-reference`; part 03 §3.7), because Core would
@@ -684,8 +808,9 @@ journey finishes. Nothing of a journey lives in `lib/session`, the browser's ses
   sentence names a search's population and claims (part 09, part 10). The stack deploys once, so no
   journey runs between pull request 7 and that move.
 - **The non-writing form evaluator holds no claims.** The authoring tool's `evaluateForm` capture
-  (`lib/agent/authoring/evaluationContext.ts`, `engine/evaluateForm.ts`) runs no search and belongs to
-  no running worker, so it reads the restore closure alone.
+  (`lib/agent/authoring/evaluationContext.ts`, `engine/evaluateForm.ts`) belongs to no running
+  worker, so it reads the restore closure alone. It runs a search only for a form that reads what
+  its module's search found, and posts no claim from it (§3.2's correction).
 - **Lifetime in Preview.** The claims last while the worker, the app's Project and the page stay;
   Home keeps them, because a claim on HQ outlives the task, and so do **Clear form** and an engine
   `reset()`, which end no session. A change of worker drops that worker's claims, and leaving Preview
@@ -1152,6 +1277,18 @@ parallel JS evaluator". From step 3 it says, precisely:
 | `e2e/tests/app/preview-form-refused.spec.ts` (new Playwright smoke) | the production build, seeded no-LLM fixture | the preload refusal screen and its route back |
 | `e2e/tests/app/preview-here-column.spec.ts` (new Playwright smoke, location granted and denied through the browser context) | the production build | the location note, and a distance column filled after a grant; a move of a few metres leaving the list as it is and one past 30 metres re-reading it, at an accuracy coarser than 1,600 metres so the watch keeps running (`setGeolocation` on the context) |
 | `e2e/tests/app/preview-search-claim.spec.ts` (new Playwright smoke) | the production build, seeded fixture with a case another persona owns | a searched case the persona does not own failing to open its form with its case data |
+
+**Implementation correction, 2026-10-19: the tests pull request 9 adds for §3.2 and the lookup wait.**
+
+| Test | Boundary | Failure it distinguishes |
+|---|---|---|
+| `lib/preview/engine/__tests__/engineControllerLookupWait.test.ts` (new) | the production `EngineController` over a doc store, both runtime paths | a waiting same-entry rebuild resuming as a fresh entry (a new key, the answers gone), or opening the form again while it waits resuming the old entry |
+| `lib/case-store/__tests__/appTestNamespace.postgres.test.ts` (extended) | real Postgres through `withAppTestNamespace` | a namespace's direct-index read opening its own transaction, reading another namespace's rows, or reading the live tables |
+| `e2e/tests/app/preview-search-results.spec.ts` (new Playwright smoke, `@seed:search-results`) | the production build, seeded fixture with one searchable case the member owns | a form reading search results failing to open after a search, or opening without one after a reloaded record link instead of offering **Go to Search** |
+
+The cap line is proved at the read (`searchResultsSnapshot.postgres.test.ts`, which seeds 503
+matches): seeding past the cap through the browser smoke costs more than the gate should, and the
+line's condition is `totalMatches > rows.length` over that snapshot.
 
 Existing suites removed with their code: `lib/preview/xpath/__tests__/formRootRead.test.ts`, the
 `extractPathRefs` and `countDependencies` cases, and the fold and binding cases of

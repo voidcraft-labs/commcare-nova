@@ -3896,6 +3896,23 @@ def non_inline_search_form(prefix):
     return reader
 
 
+def hierarchical_locations(use, manifest):
+    """``expressions-and-data/commtrack-locations-hierarchical``: a ``locations`` instance a suite declares from
+    HQ's hierarchical fixture, ``jr://fixture/commtrack:locations``, which HQ chooses only under
+    ``HIERARCHICAL_LOCATION_FIXTURE`` with the flat fixture off
+    (``suite_xml/post_process/instances.py::location_fixture_instances``). The flat ``jr://fixture/locations`` is
+    not, and another source is not this class's to say (None)."""
+    instance, _ = _instance_in(use)
+    if instance is None:
+        return None
+    source = instance.get("src")
+    if source == "jr://fixture/commtrack:locations":
+        return True
+    if source == "jr://fixture/locations":
+        return False
+    return None
+
+
 def legacy_after_query(use, manifest):
     """``expressions-and-data/legacy-search-input-read-after-the-query-in-the-results-detail``: the legacy
     bare ``search-input`` instance declared by a form's entry or a detail, read after the query."""
@@ -6083,6 +6100,7 @@ VALUE_CLASSES = {
         non_inline_search_form("search-input")
     ),
     "expressions-and-data/legacy-search-input-read-after-the-query-in-the-results-detail": legacy_after_query,
+    "expressions-and-data/commtrack-locations-hierarchical": hierarchical_locations,
     "case-search/p-whose-right-side-is-not-a-number-date-or-datetime-a-time-of": untyped_right_side,
     "case-search/date-opened-closed-on-or-last-modified-compared-with-any": non_date_value,
     "expressions-and-data/a-media-reference-with-no-file-on-a-slot-android-s-install": (

@@ -264,6 +264,7 @@ function rootProgram(
 		formFields?: ReadonlyArray<[string, string | readonly string[]]>;
 		sessionCaseId?: string | null;
 		organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
+		workerPlaceIds?: readonly string[];
 	},
 ): CaseOperationProgram {
 	const sessionCaseId =
@@ -289,6 +290,9 @@ function rootProgram(
 		...(opts?.organizationLevels === undefined
 			? {}
 			: { organizationLevels: opts.organizationLevels }),
+		...(opts?.workerPlaceIds === undefined
+			? {}
+			: { workerPlaceIds: opts.workerPlaceIds }),
 	};
 }
 
@@ -2421,7 +2425,9 @@ describe("owner stamping", () => {
 						}),
 					),
 				],
-				{ organizationLevels: levels },
+				// The worker's own places, as its `locations` fixture holds them:
+				// a device picks the destination among these.
+				{ organizationLevels: levels, workerPlaceIds: [facilityLocationUuid] },
 			),
 		});
 		expect((await patientRow(store, SESSION_CASE_ID))?.owner_id).toBe(

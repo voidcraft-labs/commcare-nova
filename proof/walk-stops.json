@@ -66,6 +66,12 @@
 		"reason": "The client draws no widget for a date and time question, holds \"Not Supported by Web Entry\" as the answer of each of the survey form's two, and submits them (entries.js::UnsupportedEntry); Formplayer refuses the submission as two illegal arguments, on every state of HQ's builds."
 	},
 	{
+		"document": "targeted-instance-reads",
+		"reader": "formplayer",
+		"cause": "notification:unable-to-find-lookup-table",
+		"reason": "Formplayer answers the form's opening with Core's refusal to find the locations fixture the form reads (CommCareInstanceInitializer): the restore Formplayer asks HQ for names no app, so HQ asks the project space, which syncs none (finding 69; proof/views/test_location_fixture.py)."
+	},
+	{
 		"control": "targeted-invalid-question-ids",
 		"reader": "formplayer",
 		"cause": "notification:question-bound-to-non-existent-node",

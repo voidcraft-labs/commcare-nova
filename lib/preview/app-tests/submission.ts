@@ -9,6 +9,7 @@ import {
 	submissionWorkerValues,
 } from "../engine/caseDatabasePatch";
 import { evaluateForm, evaluatePostSubmission } from "../engine/evaluateForm";
+import type { FormEvaluationContext } from "../engine/formEvaluationTypes";
 import { noMatchesPostSubmit } from "../noMatchesForm";
 import type { AppTestContext } from "./context";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
@@ -23,6 +24,10 @@ export async function submitAppTest(
 		role: string;
 	},
 	state: AppTestSessionState,
+	/** The entry's world as the session's form evaluations read it
+	 * (`run.ts::appTestFormContext`): its cases with the worker's places, and
+	 * what the module's search returned. The after-submit links read it too. */
+	formContext: FormEvaluationContext,
 ) {
 	const screen = state.screen;
 	if (screen.kind !== "form" || !screen.entry)
@@ -38,14 +43,7 @@ export async function submitAppTest(
 			answers: [],
 			searchAnswers: screen.searchAnswers,
 		},
-		{
-			identity: context.identity,
-			cases: screen.entryCases,
-			lookup: context.lookup,
-			entry: screen.entry,
-			captureEntry: true,
-			session: { appId: scope.appId, menuSelections: state.selections },
-		},
+		formContext,
 	);
 	if (!evaluated.valid || !evaluated.submission)
 		return {
@@ -79,6 +77,12 @@ export async function submitAppTest(
 		),
 		mutation,
 		projection,
+		/* The places of the test's own snapshot, which the form read. An
+		 * owner moved to a place is a read of places (`appReadsPlaces`), so a
+		 * form that moves one always opened with them. */
+		workerPlaceIds: (formContext.cases.locations ?? []).map(
+			(place) => place.id,
+		),
 	});
 	const result = await context.store.applySubmission(
 		submissionEnvelopeArgs(mutation, scope.appId, built),
@@ -139,11 +143,21 @@ export async function submitAppTest(
 			},
 			{
 				identity,
-				cases,
+				// The places travel with the device's cases; the session state
+				// keeps the cases alone, as it does before the submission.
+				cases: formContext.cases.locations
+					? { ...cases, locations: formContext.cases.locations }
+					: cases,
 				lookup: context.lookup,
 				session: { appId: scope.appId, menuSelections: state.selections },
+				...(formContext.searchResults === undefined
+					? {}
+					: { searchResults: formContext.searchResults }),
 			},
 		);
+		/* The back stack records destinations; Back opens a fresh entry,
+		 * which takes its own search results. */
+		const { searchResults: _taken, ...retiredScreen } = screen;
 		let nextState: AppTestSessionState = {
 			...state,
 			selections: next.selections,
@@ -232,7 +246,7 @@ export async function submitAppTest(
 						nextState,
 						next.route.moduleUuid,
 					),
-					history: [...state.history, screen],
+					history: [...state.history, retiredScreen],
 				};
 				break;
 			case "form": {
@@ -250,7 +264,7 @@ export async function submitAppTest(
 						caseIds: ids,
 						entryCases: cases,
 					},
-					history: [...state.history, screen],
+					history: [...state.history, retiredScreen],
 				};
 				break;
 			}
@@ -260,7 +274,12 @@ export async function submitAppTest(
 		if (nextState.screen.kind === "form")
 			nextState = {
 				...nextState,
-				screen: { ...nextState.screen, entry: undefined, entryCases: cases },
+				screen: {
+					...nextState.screen,
+					entry: undefined,
+					entryCases: cases,
+					searchResults: undefined,
+				},
 			};
 		return {
 			state: nextState,

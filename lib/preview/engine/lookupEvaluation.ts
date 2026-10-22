@@ -19,10 +19,13 @@ import {
 	type LookupWireNaming,
 	lookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
+import { formExpressionSlotValues } from "@/lib/doc/fieldWalk";
 import type {
+	BlueprintDoc,
 	LookupColumnId,
 	LookupOptionsSource,
 	LookupTableId,
+	Uuid,
 } from "@/lib/domain";
 import { typeCheckerBypassMessage } from "@/lib/domain/expression";
 import {
@@ -36,6 +39,7 @@ import type {
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
 import { isXPathNodeSet, type XPathRuntimeValue } from "../xpath/runtimeValues";
+import { PreviewDataRefusal } from "./dataRefusal";
 import type { LookupChoice } from "./types";
 
 /**
@@ -191,6 +195,25 @@ export function expressionLookupsCovered(
 }
 
 /**
+ * Whether a snapshot covers every table a form's logic, Connect block and
+ * links read. Printing such a read needs the table's naming, so an entry
+ * whose logic reads a table waits for the covering snapshot before its engine
+ * is built. A choice list's source is left out: its choices have their own
+ * loading state.
+ */
+export function formLogicLookupsCovered(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	data: PreviewLookupData | undefined,
+): boolean {
+	return formExpressionSlotValues(doc, formUuid).every(
+		({ ref, expression }) =>
+			ref.slot === "lookup_options_source" ||
+			expressionLookupsCovered(expression, data),
+	);
+}
+
+/**
  * Does the snapshot cover a lookup-backed select's whole identity —
  * table, value/label columns, and every carrier in its filter?
  */
@@ -241,6 +264,15 @@ export function lookupChoicesFromNodeset(
 		source.tableId,
 		"lookupChoicesFromNodeset",
 	);
+	/* A table with no rows has no row step on a device (a plain
+	 * `TreeElement`, no templates), so the itemset's nodeset is an invalid
+	 * path and Core's `ItemSetUtils.populateDynamicChoices` refuses the
+	 * question rather than offering no choices. */
+	if (!nodeset.validPath)
+		throw new PreviewDataRefusal({
+			kind: "empty-choice-table",
+			tableId: table.id,
+		});
 	const valueColumn = requireColumn(
 		table,
 		source.valueColumnId,

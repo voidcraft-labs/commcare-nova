@@ -287,10 +287,7 @@ export function requiredPlanPrivileges(
 	 * place push 403 (`locations/resources/v0_5.py::BaseLocationsResource.dispatch`).
 	 * The form list reads the shared wire serializer's instance dependencies. */
 	add("locations", [
-		...formsReadingLocationsFixture(doc).map(
-			(formUuid) =>
-				`${formName(doc, formUuid)} sets a case's owner from a place in your organization.`,
-		),
+		...flatLocationFixtureReasons(doc),
 		...(pushes.places
 			? ["This publish sends the places in your organization."]
 			: []),
@@ -330,11 +327,15 @@ export function connectForwarderReasons(
 
 /**
  * The reasons the flat location list is asked about: one sentence per form
- * whose source reads places. Empty for an app that reads none.
+ * whose source or links read places, in form order. A form whose only read is
+ * a case owner taken from a place says so; any other read says the form
+ * reads places. Empty for an app that reads none. The `locations`
+ * privilege's form reasons are these same sentences.
  */
 export function flatLocationFixtureReasons(doc: BlueprintDoc): string[] {
-	return formsReadingLocationsFixture(doc).map(
-		(formUuid) =>
-			`${formName(doc, formUuid)} sets a case's owner from a place in your organization.`,
+	return formsReadingLocationsFixture(doc).map(({ formUuid, why }) =>
+		why === "owner"
+			? `${formName(doc, formUuid)} sets a case's owner from a place in your organization.`
+			: `${formName(doc, formUuid)} reads places in your organization.`,
 	);
 }

@@ -39,7 +39,7 @@
 // consume via `eb(...)` / `where(...)` / `selectFrom(...)`).
 
 import type { AliasableExpression, Kysely } from "kysely";
-import { expressionBuilder } from "kysely";
+import { expressionBuilder, sql } from "kysely";
 import {
 	ancestorLevels,
 	type CasePropertyDataType,
@@ -239,6 +239,15 @@ export interface TermCompileContext {
 	/** App organization hierarchy for owner-only location terms. */
 	organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	/**
+	 * The ids of the places the worker's `locations` fixture holds: the ones
+	 * the entry opened with, or the worker's footprint read at submission
+	 * (`lib/preview/engine/workerLocationFixture.ts`). A device resolves an
+	 * owner moved to a place among these alone, so an owner-to-place hop
+	 * compiled without them is a caller bug, and an empty list resolves no
+	 * owner.
+	 */
+	workerPlaceIds?: readonly string[];
+	/**
 	 * Rows-free lookup-table definitions (table id → column id →
 	 * declared data type) for the lookup-table carriers. Optional —
 	 * compile sites whose slots the validator keeps carrier-free omit
@@ -430,12 +439,28 @@ export function compileTerm(
 					}),
 				);
 			}
+			const places = ctx.workerPlaceIds;
+			if (places === undefined) {
+				throw new Error(
+					compilerBugMessage({
+						where: "compileTerm",
+						invariant:
+							"an owner-to-place hop compiled without the worker's places",
+						detail:
+							"A device picks the destination from the worker's own `locations` fixture, so the caller passes `workerPlaceIds`.",
+					}),
+				);
+			}
 			// Same flat-lineage lookup as the device fixture, expressed through
 			// Kysely's typed recursive-query builder. Seed every live destination
 			// together with its parent, then carry the destination id while walking
 			// upward. The recursive CTE cannot reference the destination alias from
 			// the later scalar SELECT; keeping both rows in the seed makes that SQL
 			// scope explicit while the current case remains a valid outer reference.
+			// At most one row matches, so `limit(1)` needs no order: organization
+			// admission keeps one live destination below each owning place
+			// (`commitIntegrity.ts::assertReverseHopTargetsUnambiguous`), so the
+			// device's first match in fixture order is the only one.
 			return ctx.db
 				.withRecursive(
 					"location_lineage(destination_id, id, parent_id, level_uuid)",
@@ -456,6 +481,14 @@ export function compileTerm(
 							.where("destination.app_id", "=", ctx.appId)
 							.where("destination.archived_at", "is", null)
 							.where("destination.level_uuid", "=", destination.uuid)
+							// The destination is a place of the worker's fixture; its
+							// lineage is read from the whole tree, as HQ writes each
+							// place's `<level>_id` attributes.
+							.where(
+								places.length === 0
+									? sql<boolean>`false`
+									: (eb) => eb("destination.id", "in", [...places]),
+							)
 							.where("lineage_parent.app_id", "=", ctx.appId)
 							.unionAll(
 								db

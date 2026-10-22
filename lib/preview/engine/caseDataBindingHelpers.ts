@@ -158,6 +158,7 @@ import type {
 } from "./caseDataBindingTypes";
 import type { CaseListOrderLocale } from "./caseListOrder";
 import { answerXPathValue } from "./dataInstance";
+import { operationOwnerMovesToPlace } from "./dataRefusal";
 import { entryCreatedCaseKeys } from "./entrySessionData";
 import type { ResolvedPreviewIdentity } from "./identity";
 import { type PreviewLookupData, previewLookupData } from "./lookupEvaluation";
@@ -167,6 +168,7 @@ import {
 	type SearchInputValues,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
+import { workerPlaceIds } from "./workerLocationFixture";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 /**
@@ -358,6 +360,10 @@ export async function readCases(
 		excludedOwnerIds?: readonly string[];
 		authoredExcludedOwnerIds?: readonly string[];
 		page?: { offset: number; limit: number };
+		/** For an unpaged read, the most rows to return, in the read's order.
+		 * A read that reaches the cap also counts every match, as
+		 * `totalCount`. */
+		cap?: number;
 		/**
 		 * Read as this worker's device would. Passed by the RUNNING preview and
 		 * by nothing else — the case workspace and the sample-data surfaces read
@@ -432,15 +438,22 @@ export async function readCases(
 					page.offset,
 					Math.floor((totalCount - 1) / page.limit) * page.limit,
 				);
+	const cap =
+		page === undefined && args.cap !== undefined
+			? Math.max(1, Math.floor(args.cap))
+			: undefined;
 	const queryAtOffset = (offset: number) =>
 		store.query({
 			...caseReadCore(args, composedQuery.predicate),
 			sort: buildCaseStoreSortKeys(args.order, args.caseType),
 			calculated: runtimeCalculatedColumns(args.caseListConfig),
-			limit: page?.limit,
+			limit: page?.limit ?? cap,
 			offset: page === undefined ? undefined : offset,
 		});
 	let rows = await queryAtOffset(pageOffset);
+	if (cap !== undefined) {
+		totalCount = rows.length < cap ? rows.length : await store.count(countArgs);
+	}
 
 	// COUNT and SELECT are intentionally separate, so a delete can remove the
 	// last row from the counted page between them. Recount and reclamp exactly
@@ -475,6 +488,7 @@ export async function readCases(
 			pageOffset,
 			pageSize: page.limit,
 		}),
+		...(cap !== undefined && { totalCount: totalCount ?? rows.length }),
 		...(outside !== undefined && { outsideRestoreCount: outside }),
 	};
 }
@@ -1504,6 +1518,10 @@ export async function buildSubmissionOperationProgram(args: {
 	readonly receiptMutation?: SubmissionWireMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly viewerTimeZone?: string;
+	/** The ids of the places the entry's device snapshot held when the form
+	 * opened, which an owner moved to a place is resolved among. Absent, the
+	 * entry carried no snapshot of places, and they are read now. */
+	readonly workerPlaceIds?: readonly string[];
 }): Promise<BuiltSubmissionOperations> {
 	const receiptIdentity = buildSubmissionReceiptIdentity({
 		appId: args.appId,
@@ -1521,11 +1539,27 @@ export async function buildSubmissionOperationProgram(args: {
 			"The submitted form no longer exists in the committed app.",
 		);
 	}
+	/* A device resolves an owner moved to a place among the places its
+	 * `locations` fixture holds, so the program carries exactly those: the
+	 * ones the form opened with, or, for an entry that carried none, the
+	 * worker's places now. */
+	const movesOwnerToPlace = (
+		app.blueprint.forms[args.projection.formUuid]?.caseOperations ?? []
+	).some(operationOwnerMovesToPlace);
 	const built = buildCaseOperationProgramFromDoc({
 		blueprint: app.blueprint,
 		mutation: args.mutation,
 		projection: args.projection,
 		identity: args.identity,
+		...(movesOwnerToPlace && {
+			workerPlaceIds:
+				args.workerPlaceIds ??
+				(await workerPlaceIds(
+					args.appId,
+					app.blueprint,
+					args.identity.personaUuid,
+				)),
+		}),
 		...(args.viewerTimeZone !== undefined && {
 			viewerTimeZone: args.viewerTimeZone,
 		}),
@@ -1721,6 +1755,9 @@ export function buildCaseOperationProgramFromDoc(args: {
 	readonly mutation: SubmissionMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly identity: ResolvedPreviewIdentity;
+	/** The ids of the places the worker's `locations` fixture holds, read by
+	 * the I/O half when an operation moves its owner to a place. */
+	readonly workerPlaceIds?: readonly string[];
 	readonly viewerTimeZone?: string;
 }): BuiltSubmissionOperations {
 	const { mutation } = args;
@@ -1919,6 +1956,9 @@ export function buildCaseOperationProgramFromDoc(args: {
 				: {}),
 			caseTypeSchemas,
 			organizationLevels: organizationLevelsOf(doc),
+			...(args.workerPlaceIds === undefined
+				? {}
+				: { workerPlaceIds: args.workerPlaceIds }),
 			formFieldTypes: new Map(
 				[...(formExpressionFacts(doc, formUuid)?.fields ?? [])].map(
 					([uuid, field]) => [uuid, field.type],

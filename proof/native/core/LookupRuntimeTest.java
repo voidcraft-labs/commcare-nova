@@ -295,4 +295,77 @@ public class LookupRuntimeTest {
             assertEquals("jr://fixture/item-list:regions", expected.reference);
         }
     }
+
+    /** A member of the targeted document's local archive, or HQ's regeneration of it. */
+    private static byte[] targeted(java.nio.file.Path document, boolean hq, String member, String hqFile) throws IOException {
+        if (hq) return java.nio.file.Files.readAllBytes(document.resolve(hqFile));
+        try (java.util.zip.ZipFile archive = new java.util.zip.ZipFile(document.resolve("local.ccz").toFile())) {
+            java.util.zip.ZipEntry entry = archive.getEntry(member);
+            assertNotNull(document + " must contain " + member, entry);
+            try (InputStream input = archive.getInputStream(entry)) {
+                return input.readAllBytes();
+            }
+        }
+    }
+
+    /** The {@code <fixture>} a suite embeds under {@code id}, with the {@code user_id} a restore writes on it. */
+    private static byte[] embeddedFixture(byte[] suiteXml, String id, String userId) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setNamespaceAware(true);
+        Document suite = factory.newDocumentBuilder().parse(new ByteArrayInputStream(suiteXml));
+        NodeList fixtures = suite.getElementsByTagName("fixture");
+        for (int index = 0; index < fixtures.getLength(); index++) {
+            Element fixture = (Element) fixtures.item(index);
+            if (!id.equals(fixture.getAttribute("id"))) continue;
+            fixture.setAttribute("user_id", userId);
+            ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+            javax.xml.transform.Transformer serializer = TransformerFactory.newInstance().newTransformer();
+            serializer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "yes");
+            serializer.transform(new DOMSource(fixture), new StreamResult(bytes));
+            return bytes.toByteArray();
+        }
+        throw new AssertionError("The local archive's suite embeds no fixture " + id);
+    }
+
+    /**
+     * A form's logic and its after-submit link read the Project table by its tag
+     * ({@code targeted-instance-reads}): the form's hidden values read the first row whose code matches and count
+     * the rows, and its second link fires on that count where its first, which reads a place, does not. Both on
+     * the local archive and on HQ's regenerated form and hand-assembled suite, over the table a sync delivers
+     * (the rows the local archive embeds, given the user's id) and a worker whose one place is a region, so no
+     * clinic. The places are in the shape HQ's {@code FlatLocationSerializer.get_xml_nodes} writes. A worker with
+     * no place at all gets an empty {@code <locations/>}, which leaves Core no {@code location} path to read, and
+     * Core refuses any read of it ({@code XPathPathExpr.evalRaw}'s {@code hasTemplatePath} check).
+     */
+    @Test public void formLogicAndItsLinkReadTheTableByItsTag() throws Exception {
+        java.nio.file.Path document = SessionReadAssertions.targeted("lookup", "targeted-instance-reads");
+        byte[] table = embeddedFixture(targeted(document, false, "suite.xml", "hq.suite.xml"), "item-list:regions", "worker-north");
+        byte[] regionOnly = ("<OpenRosaResponse xmlns=\"http://openrosa.org/http/response\">"
+                + "<schema id=\"locations\"><indices><index>@clinic_id</index><index>@district_id</index>"
+                + "<index>@id</index><index>@region_id</index><index>@type</index><index>name</index></indices></schema>"
+                + "<fixture id=\"locations\" user_id=\"worker-north\" indexed=\"true\"><locations>"
+                + "<location type=\"region\" id=\"place-1\" region_id=\"place-1\" district_id=\"\" clinic_id=\"\">"
+                + "<name>region &amp; North</name><site_code>site-1</site_code><external_id/><latitude/><longitude/>"
+                + "<location_type>region</location_type><supply_point_id/>"
+                + "<location_data><ward/><unset/></location_data></location></locations></fixture></OpenRosaResponse>")
+                .getBytes(StandardCharsets.UTF_8);
+        for (boolean hq : new boolean[]{false, true}) {
+            Runtime runtime = new Runtime("north", "north");
+            new FixtureXmlParser(ElementParser.instantiateParser(new ByteArrayInputStream(table)), true,
+                    runtime.sandbox.getUserFixtureStorage()).parse();
+            org.commcare.core.parse.ParseUtils.parseIntoSandbox(new ByteArrayInputStream(regionOnly), runtime.sandbox);
+            FormDef form = org.javarosa.xform.util.XFormUtils.getFormFromInputStream(
+                    new ByteArrayInputStream(targeted(document, hq, "modules-0/forms-0.xml", "hq.0.xml")));
+            form.initialize(true, runtime);
+            assertEquals("hq=" + hq, "North region", ExprEvalUtils.xpathEval(form.getEvaluationContext(), "string(/data/region_name)"));
+            assertEquals("hq=" + hq, "2", ExprEvalUtils.xpathEval(form.getEvaluationContext(), "string(/data/region_count)"));
+            Suite suite = new Installer(new ByteArrayInputStream(targeted(document, hq, "suite.xml", "hq.suite.xml")),
+                    runtime.sandbox.getAppFixtureStorage(), false).parse();
+            Entry entry = suite.getEntry("m0-f0");
+            EvaluationContext context = runtime.context(entry.getInstances(null));
+            Vector<StackOperation> links = entry.getPostEntrySessionOperations();
+            assertFalse("The place link finds no clinic, hq=" + hq, links.get(0).isOperationTriggered(context));
+            assertTrue("The table link counts its rows, hq=" + hq, links.get(1).isOperationTriggered(context));
+        }
+    }
 }

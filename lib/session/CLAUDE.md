@@ -49,7 +49,8 @@ completed-search context of a search-first module (`previewSearchState.ts`,
 reducers only; `setPreviewSearchState(moduleUuid, state | undefined)` stores
 it and clears the entry on `undefined` or `not-searched`). It is written by
 the case-list screen as its query settles and read by the form screen to admit
-the no-matches registration form. `previewCaseTarget.searchLaunch
+the no-matches registration form, and to load the completed attempt's results
+snapshot for a menu form that reads what the search found. `previewCaseTarget.searchLaunch
 { moduleUuid, attempt }` is the launch that opened that form from Results;
 the attempt pins the form to the search it was offered on. Both clear with the
 case facts: entering or leaving Preview, a persona change, `reset()`, and a

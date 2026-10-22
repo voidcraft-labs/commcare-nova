@@ -56,7 +56,12 @@ verdict. A 32-character tag pushes, so the workbook builder is total over every
 tag the schema admits.
 Select-source option validity over complete tables (`LOOKUP_SELECT_SOURCE_*`)
 is common to all three: a choice list whose saved values are blank or
-duplicated is equally broken however the table reached the device. All are
+duplicated is equally broken however the table reached the device, and one
+over a table with no rows (`LOOKUP_SELECT_SOURCE_EMPTY`) never opens there,
+since Core refuses an itemset whose path reaches no row
+(`ItemSetUtils.populateDynamicChoices`; a Search prompt's
+`RemoteQuerySessionManager.populateItemSetChoices`). A row filter that leaves
+no choice over rows that exist still opens. All are
 `environment`-class: rows change outside the document, so they never gate a
 commit. Export therefore needs its own selected-target verdict over those
 current external rows in addition to the absolute document commit gate.

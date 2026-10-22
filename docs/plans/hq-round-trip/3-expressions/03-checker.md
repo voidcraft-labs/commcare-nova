@@ -294,7 +294,7 @@ export interface FormExpressionFacts {
   readonly fields: ReadonlyMap<Uuid, { readonly type: DataType | undefined; readonly held: Held; readonly repeats: readonly Uuid[] }>;
   readonly searchInputs: readonly SearchInputDecl[];
   readonly noMatchesForm: boolean;                           // where `input` is admitted (§3.8)
-  readonly translationUnits: ReadonlyMap<string, { readonly showsAnswer: boolean }>; // collectTranslationUnits(doc) for this form (§3.7)
+  readonly unitShowsAnswer: (unitId: TranslationUnitId) => boolean; // formTranslationUnits(doc, form), asked on demand (§3.7)
 }
 ```
 
@@ -925,6 +925,17 @@ fallback in `typeChecker.ts` (no known case type) holds a system date as `date` 
 so a results-row `last_modified` would be read as day-only; pull request 9 fixes the fallback by
 root with the results-row half of the rule.
 
+**Implementation correction, 2026-10-19: the results-row half, as built (pull request 9).** A
+results row's `date_opened` is held `string`, so the classifier keyed on held `date` would read it as
+text and lower it against a moment to NaN. `NodeType` gains a root-aware mark, `dayText?:
+"date_opened"`, set on a `date_opened` read from a `results:inline` or `results`-rooted row (a form's
+read and a Search field condition's alike, as §3.10 says) and carried through projections, and
+`instantOperand.ts::byType` classifies a marked operand `day-only`. `last_modified` there stays
+text and lowers as an instant. The standard-property fallback holds `date_opened` and
+`last_modified` as `date` only for a `casedb` row; a record query with no root keeps its earlier
+reading. `instantAgreement.test.ts` gains a slot for search-result system dates, with no
+disagreement between the checker's verdict and the lowering.
+
 ### 3.3 A boolean against an answer
 
 **Evidence.** `XPathEqExpr.evalRaw` unpacks both sides and calls `testEquality`, which compares as
@@ -1221,6 +1232,40 @@ where profiles admit the read. Until then the arm stays refused over an inline s
 `choice-name`, and pull request 6 tests the `choice-name-dynamic` refusal with a case-backed select
 beside it; the inline acceptance below joins in pull request 9.
 
+**Implementation correction, 2026-10-19: the wording reads, as built (pull request 9).**
+
+- `itext-reference` is a reason of the existing `arm-unavailable` checker code, like `here` and
+  `choice-name-dynamic`, mapped to `XPATH_FUNCTION_CONTEXT_UNAVAILABLE`; no `CheckErrorCode` is
+  added (§10, item 4, is corrected with it). `checkErrorPresentation.ts`'s `arm-unavailable` line
+  picks its sentence by that reason.
+- `lib/domain/translationUnits.ts` gains `itextUnitTranslationId(unit)`,
+  `translationUnitShowsAnswer` (true when any language's stored text holds a reference) and
+  `formTranslationUnits(doc, form)`, cached per document; `TranslationUnit` itself is unchanged,
+  so no served tool output moves. `FormExpressionFacts.unitShowsAnswer(unitId)` (`context.ts`) asks it,
+  and `typeChecker.ts::formTextAdmission` calls that (implementation correction, 2026-10-19: a
+  `translationUnits` map built with the form's facts snapshotted every translation unit of the
+  document on each validation, though only a `jr:itext` or `jr:choice-name` read needs it; the
+  accessor builds the snapshot on that read's first question).
+  `lib/commcare/xform/itextIds.ts` existed before this pull request (`itextIdFor`, wired into
+  `xform/formExpressions.ts` and `builder.ts`'s labels); pull request 9 only consumes it, in
+  Preview's `formText.ts`. `itextIds.ts::itextTranslationUnitId` calls the domain's
+  `itextUnitTranslationId`, so the mapping exists once.
+- Admission, as built: in a slot that runs after the form closes (`profile.formAnswers` false) both
+  reads are `form-answer-unavailable`; a unit whose wording or a select whose choices are gone is
+  `unknown-form-field` (a dangling identity, `details.identity: "wording"`); a select whose choices
+  come from a table or cases stays `choice-name-dynamic`; a `choice-name` whose select has any
+  option label that shows an answer is refused, because the value is computed and any choice can
+  be the one read. The choice label's value expression is checked too. Both reads are refused in a
+  record slot.
+- Validator copy as built (`userFacingErrors.ts`): `<formula> reads the wording of "<question>",
+  which shows an answer. CommCare would show a placeholder there instead of the answer. You can read
+  the answer itself instead.`, and for a choice `<formula> reads the label of a choice of
+  "<question>", and a label of its choices shows an answer. …` (`details.wordingKind`).
+- Test as built: a unit whose text shows an answer only in French, with plain source text, cannot
+  be built in a valid document, because the translation integrity rule marks such a French text out
+  of date and the source text is what the form reads. `typeChecker.test.ts` therefore puts the
+  reference in both languages, beside the same unit with plain text accepted.
+
 Tests (pure): `choice-name` over an inline select accepted; over a lookup-backed and a case-backed
 select refused; `itext` of a unit whose text is plain accepted beside the same unit with a
 `#form/name` part in its French text refused; `choice-name` of a select whose option label shows an
@@ -1277,6 +1322,38 @@ exists: a count read accepted in a search-first module's follow-up and its link 
 and for another `@case_type`, beside `count` and a `@case_id` predicate accepted; a results-query
 predicate `[date_opened >= now()]` refused (`day-only-on-device`) beside
 `[date(date_opened) >= today()]` and `[last_modified > now()]` accepted.
+
+**Implementation correction, 2026-10-19: the search-results rules, as built (pull request 9).**
+
+- Row type: `typeChecker.ts::expressionRowScope` types a `search-results` row as
+  `ctx.facts.moduleCaseTypes.get(ctx.supplies.searchResults.module)` whatever a predicate names,
+  and `lib/commcare/xpath/formPathBinding.ts`'s provisional row does the same, so the parser's rule
+  3 binding and the checker agree. A `@case_type` literal naming another type is
+  `search-results-other-type`.
+- `search-results-order` refuses a numeric predicate (an index, `last()`), `position()` inside the
+  query outside a nested query, and `join`, `distinct-values` and `index-of` over results, and
+  also `concat` of the results alone, since Core's `XPathConcatFunc` keeps the node-set's order as
+  `join` does. Part 05 §2.8 lists the same.
+- Supply reasons: `searchResultsNotSupplied` gives `no-matches-form` for the no-matches form,
+  `link-source` for a `form_link_*` slot, else `not-search-first`. The `link-source` sentence as
+  written is "A link from "<form>" reads what a search found, but "<form>" doesn't open after a
+  search. You can read a case property instead.", without "a question", because a link cannot read
+  the form's answers. `formLogicFindings.ts` maps the three codes to `SEARCH_RESULTS_NOT_SUPPLIED`
+  and `SEARCH_RESULTS_READ_INVALID` (`details.reason` `order` or `other-type`, with `caseType` and
+  `otherCaseType`), and `gate.ts` classes both soundness.
+- The gate: `lib/doc/__tests__/instanceReadReferences.test.ts` and `gate.test.ts` hold that turning
+  Search first off, moving the form out, and a batch that adds a registration form and turns Search
+  first off are refused naming the read. An `addForm` of a registration form alone is refused
+  earlier, by `SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE`. The scoped gate
+  (`mutationCommitVerdictWithPrevalidation`) refuses it alike: `lib/doc/incrementalValidationScope.ts`'s
+  `updateModule` case adds every form of `doc.formOrder[mutation.uuid]`, and every link source, for
+  a `caseSearchConfigPatch` or `caseSearchConfigOperation` (implementation correction, 2026-10-19:
+  it had added only the no-matches form); `gate.test.ts` runs both gates over each batch, and
+  `incrementalValidationScope.test.ts` holds the footprint.
+- `lib/commcare/formLinkProjection.ts::entryDatumIds` gives the inline query row `scalar: false`, as
+  part 05 §1.3 writes: the query step holds the search's instances, not a value
+  `session/data/<id>` reads (`CommCareSession.java::setQueryDatum`). The row lists no refs, so no
+  reader's verdict moves; `entryDatumIds.test.ts` asserts the flag.
 
 ### 3.9 Session datums
 
@@ -2154,6 +2231,21 @@ the stack head refuses.
    `jr:itext` reads it governs, with its card-editor line (`checkErrorPresentation.ts` is a total
    `Record<CheckErrorCode, …>`, so the code and its line land together) and its
    `typeChecker.test.ts` cases.
+   **Implementation correction, 2026-10-19:** `itext-reference` is a reason of `arm-unavailable`,
+   not a new checker code (§3.7's correction), so its card-editor line is a reason line of
+   `arm-unavailable`. The new checker codes are `search-results-not-supplied`,
+   `search-results-order` and `search-results-other-type`; the new validation codes
+   `SEARCH_RESULTS_NOT_SUPPLIED`, `SEARCH_RESULTS_READ_INVALID` and
+   `LOCATIONS_READ_NEEDS_ORGANIZATION`, all soundness. `LOCATIONS_READ_NEEDS_ORGANIZATION` is a
+   validator rule, `rules/locationsRead.ts`, run inside the per-form logic walk
+   (`formLogicFindings.ts`), because it reads the stored tree without typing it; it refuses a
+   `locations` read only (owner hops keep their own checks). A missing place level or place property
+   is `unknown-form-field`. Selected cases are admitted only in a question of a form that works on
+   several cases: elsewhere `datum-not-supplied` with reason `selected-cases`, in a link or Connect
+   slot reason `selected-cases-carrier`, and as one value `many-values`.
+   `deferredInstanceAdmission.test.ts` is replaced by `instanceReadAdmission.test.ts`. The link
+   datum rule of `rules/form.ts` prints under `identityLookupWireNaming()`, without which any link
+   that reads a table threw while validating.
 5. **Pull request 10, CSQL**: `closed-on-not-on-device` (§3.10), with part 06's search-only table
    and its code, since no slot can read `closed_on` before that table exists (the record checker
    refuses it today as an unknown property); and the chosen case in record slots (§3.9): the

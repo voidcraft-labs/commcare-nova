@@ -198,6 +198,9 @@ export type ValidationErrorCode =
 	| "CONNECT_ID_DUPLICATE"
 	| "CONNECT_DELIVER_FORM_HOLDS_TASK"
 	| "SESSION_DATUM_NOT_SUPPLIED"
+	| "SEARCH_RESULTS_NOT_SUPPLIED"
+	| "SEARCH_RESULTS_READ_INVALID"
+	| "LOCATIONS_READ_NEEDS_ORGANIZATION"
 	| "CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP"
 	| "CASE_HASHTAG_ON_CREATE_FORM"
 	| "PRIMARY_CASE_FIELD_IN_REPEAT"
@@ -446,6 +449,7 @@ export type ValidationErrorCode =
 	| "LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE"
 	| "LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE"
 	| "LOOKUP_SELECT_SOURCE_LABEL_BLANK"
+	| "LOOKUP_SELECT_SOURCE_EMPTY"
 	// What each carrier can hold: fixture bytes a downloadable app embeds,
 	// rows CommCare HQ's importer takes in one workbook, and the sheet name
 	// its importer keeps for its own list of tables.

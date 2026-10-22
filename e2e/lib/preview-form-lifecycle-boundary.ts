@@ -7,6 +7,7 @@ export {
 	loadLookupFixtureDataAction,
 	loadMissingConnectionCountAction,
 	loadParkedValuesAction,
+	loadSearchResultsSnapshotAction,
 	populateSampleCasesAction,
 	readDeploymentsAction,
 	replaceParkedValueAction,

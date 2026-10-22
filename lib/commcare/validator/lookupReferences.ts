@@ -1,5 +1,6 @@
 /** Pure validation of structural lookup-table references. */
 
+import { descendantFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	extractLookupReferenceOccurrences,
 	type LookupReferenceExtractorRegistry,
@@ -97,6 +98,42 @@ function definitionIndex(
 	return new Map(definitions.map((definition) => [definition.id, definition]));
 }
 
+/** The occurrences in document order: modules in menu order, a module's own
+ * slots before its forms, a form's questions in question order before the
+ * form's own slots. Extraction runs in identity order, which is stable but
+ * means nothing to a person reading the findings. */
+function inDocumentOrder(
+	doc: BlueprintDoc,
+	occurrences: readonly LookupReferenceOccurrence[],
+): LookupReferenceOccurrence[] {
+	const rank = new Map<string, readonly number[]>();
+	doc.moduleOrder.forEach((moduleUuid, moduleIndex) => {
+		rank.set(moduleUuid, [moduleIndex, -1]);
+		(doc.formOrder[moduleUuid] ?? []).forEach((formUuid, formIndex) => {
+			rank.set(formUuid, [moduleIndex, formIndex, Number.MAX_SAFE_INTEGER]);
+			[...descendantFieldUuids(doc, formUuid)].forEach((fieldUuid, index) => {
+				rank.set(fieldUuid, [moduleIndex, formIndex, index]);
+			});
+		});
+	});
+	const keyOf = (occurrence: LookupReferenceOccurrence): readonly number[] => {
+		const { moduleUuid, formUuid, fieldUuid } = occurrence.location;
+		const anchor = fieldUuid ?? formUuid ?? moduleUuid;
+		if (anchor === undefined) return [-1];
+		return rank.get(anchor) ?? [Number.MAX_SAFE_INTEGER];
+	};
+	const compare = (left: readonly number[], right: readonly number[]) => {
+		for (let i = 0; i < Math.max(left.length, right.length); i++) {
+			const difference = (left[i] ?? -1) - (right[i] ?? -1);
+			if (difference !== 0) return difference;
+		}
+		return 0;
+	};
+	return [...occurrences].sort((left, right) =>
+		compare(keyOf(left), keyOf(right)),
+	);
+}
+
 /**
  * Validate every exact occurrence against one caller-owned definition context.
  * Missing and foreign-Project resources are both represented by absence from
@@ -107,7 +144,10 @@ export function validateLookupReferences(
 	context: LookupValidationContext,
 	registry: LookupReferenceExtractorRegistry,
 ): ValidationError[] {
-	const occurrences = extractLookupReferenceOccurrences(doc, registry);
+	const occurrences = inDocumentOrder(
+		doc,
+		extractLookupReferenceOccurrences(doc, registry),
+	);
 	if (occurrences.length === 0) return [];
 	if (context.kind === "unavailable") {
 		return occurrences.map(unavailableFinding);
@@ -115,11 +155,24 @@ export function validateLookupReferences(
 
 	const definitions = definitionIndex(context.definitions);
 	const errors: ValidationError[] = [];
+	// One expression can name a table at several of its paths (a lookup's
+	// result column and its match column); a missing table is one problem
+	// with that read, so it is reported once per carrier slot.
+	const goneReads = new Set<string>();
 
 	for (const occurrence of occurrences) {
 		const table = definitions.get(occurrence.tableId);
 		if (table === undefined) {
-			errors.push(tableNotAvailableFinding(occurrence));
+			const read = JSON.stringify([
+				occurrence.carrierUuid,
+				occurrence.registrySlot,
+				occurrence.location,
+				occurrence.tableId,
+			]);
+			if (!goneReads.has(read)) {
+				goneReads.add(read);
+				errors.push(tableNotAvailableFinding(occurrence));
+			}
 			continue;
 		}
 		const reserved = reservedInstanceTagCause(table.tag);

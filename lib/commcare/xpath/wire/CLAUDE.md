@@ -72,6 +72,70 @@ datums are suite-only. An endpoint argument must be one grammar-valid local
 name and comes only from generated endpoint metadata. The HQ enum placeholder
 is HQ-JSON-only. None is reachable from an authored expression.
 
+## Reads of rows that may be empty
+
+Core checks an absolute path before reading it (`XPathPathExpr.evalRaw` →
+`DataInstance.hasTemplatePath`, predicates ignored), and an instance Core
+builds from its data alone has no template: a lookup table, the flat place
+list, the selected entities and the search answers. Their declarations carry
+their root and row element names (`instances.ts`, `InstanceDecl.rows`), the
+same constants Preview's instance builders build from. With no rows, `count`
+of a path into one reads 0 and every value read throws. `casedb` and
+`results:inline` read the case template and are never guarded. So
+`emitExpression` lowers every expression for its consumer (`Use`): a value
+read of such an instance, through its root element and then its row element,
+prints `if(count(<root>/<row>) > 0, <read>, '')`; a read through any other
+child of the root, or an attribute of it, is not a read of the rows and stays
+bare.
+With any row present the read answers as written, since `if` returns its
+branch unconverted; with none it reads blank, which is also what Core reads
+for a valid empty node-set (`XPathNodeset.unpack` →
+`XPathPathExpr.unpackValue(null)`). `count`, and the branches of `if`,
+`switch`, `coalesce` or a pass-through call that `count` reads, take the bare
+path (`count('')` throws). A call's node-set arguments follow
+`NODE_SET_ARGUMENT`: `join`, `concat`, `join-chunked`, `checklist`, `min`,
+`max`, `distinct-values` and `index-of` take the `''` guard, which they read
+as an empty set (`distinct-values` and `index-of` split `''` into no values,
+`FunctionUtils.getSequence`). `weighted-checklist` reads its four-argument
+pair as node-sets only when both are, so a guard on one set beside the other
+would replace Core's answer with a computed one
+(`emptyRows.ts::guardChecklistPair`): an `if` or `cond` in the pair moves the
+call into its branches; two paths are guarded together, reading the call
+over two `''` values, Core's answer for two empty sets, only when each set is
+empty or over an instance with no rows, and as written otherwise; a path
+beside a value Core never reads as a node-set takes the `''` guard, since Core
+then reads the pair value by value; a path beside `coalesce`, `depend` or
+`sleep` stays bare. Any other argument count reads every argument value by
+value and takes the `''` guard. `sum` refuses
+anything but a node-set, so its argument stays bare and the call is guarded
+with `0` by `emptyRows.ts::guardNodeSetConsumer`, which follows the set
+through pass-through calls: over `if` and `cond` the sum moves into each
+branch, so each branch counts only its own rows; through `depend`, `sleep`
+and `coalesce`'s last value it sums the rebuilt call. A `coalesce` hands on
+its set only when every earlier value is blank, and otherwise returns the
+first that is not, which `sum` refuses with or without rows, so behind one
+the guard reads `0` only when the rows are missing and
+`string(coalesce(<earlier values>, '')) = ''`. `position` keeps it bare,
+since Core refuses `position` of an empty set too, and so does `depend`,
+which never reads its later arguments. An itemset or repeat nodeset is
+generated, never lowered here, and stays bare. So does the case owner moved
+to a place (`owner-location-at-level`, marked `WirePath.refusesEmpty`): for a
+worker assigned nowhere Core must refuse that read when the form opens, as
+`proof/native/core/LocationOwnerRuntimeTest.java::missingDestinationRefusesTheSubmittedForm`
+holds it, never write a blank owner or turn the case away after the worker
+filled the form. So is a prompt read inside
+CSQL text (`predicate/termEmitter.ts::emitSearchInputXPath`), which the
+validator admits only inside a presence envelope whose `count` covers it.
+Generated scaffolding that reads such an instance as a value guards it
+itself: the several-case `join` of the chosen ids, which a batch form, a
+nested child list's parent filter and its tile grouping all build with
+`instances.ts::joinedSelectedCaseIds`. Zero
+chosen cases is reachable through a session endpoint (Formplayer splits the
+link's argument on commas), never through the list. A `<data nodeset>` over
+the chosen cases is a `TreeReference` that Core expands
+(`ListQueryData.getValues`), never checked by `XPathPathExpr`, so it stays bare. The plan's part 05, §2.4's
+corrections of 2026-10-19, records the probes at the pinned Core.
+
 ## Instances and element slots
 
 Every instance root holds the declaration from `instances.ts`. Serialization

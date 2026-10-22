@@ -3,6 +3,10 @@ import type {
 	RefusingAnswerType,
 	SetvalueRefusalDetails,
 } from "./engine/answerCast";
+import type {
+	PreviewDataRefusalStage,
+	PreviewDataRefusalSubject,
+} from "./engine/dataRefusal";
 
 /** Platform copy is separate from an app's authored translations. Keep this
  * small catalog client/worker safe; unsupported languages fall back honestly. */
@@ -228,6 +232,43 @@ const english = {
 	hereColumnsUnsupported:
 		"This browser can't share your location, so columns that use it stay blank.",
 	shareYourLocation: "Share your location",
+	searchResultsRefusalTitle: "This form opens after a search",
+	searchResultsRefusalBody:
+		"This form reads what the search found. You can run the search, then choose the case again.",
+	goToSearch: "Go to Search",
+	searchResultsInvalidTitle: "The search before this form can't run",
+	searchResultsLoading: "Nova is loading what the search found for this form.",
+	searchResultsLoadFailed:
+		"What the search found didn't load. You can try again.",
+	searchResultsCap:
+		"This search found {count} cases. CommCare's search sends a device the first 500, so this form reads 500 of them here too.",
+	dataRefusalFormTitle: "This form stops here on a phone",
+	dataRefusalLinksTitle: "This form's next step stops on a phone",
+	dataRefusalMenuTitle: "This menu doesn't open on a phone",
+	dataRefusalSearchTitle: "This search doesn't open on a phone",
+	dataRefusalSubjectForm: "This form reads",
+	dataRefusalSubjectLinks: "This form's links read",
+	dataRefusalSubjectMenu: "This menu reads",
+	dataRefusalPlacesPersona:
+		"{subject} a place, and {worker} is assigned nowhere, so a phone stops here. You can give {worker} a place under Users and personas in App setup.",
+	dataRefusalPlacesMe:
+		"{subject} a place, and you're assigned nowhere, so a phone stops here. You can preview as a persona who has a place.",
+	dataRefusalOwnerPlacePersona:
+		"This form moves the case to {worker}'s place, and {worker} is assigned nowhere, so the case has no owner to move to and a phone stops here. You can give {worker} a place under Users and personas in App setup.",
+	dataRefusalOwnerPlaceMe:
+		"This form moves the case to your place, and you're assigned nowhere, so the case has no owner to move to and a phone stops here. You can preview as a persona who has a place.",
+	dataRefusalTable:
+		"{subject} “{table}”, which has no rows, so a phone stops here. You can add rows to “{table}” in Project data.",
+	dataRefusalChoices:
+		"“{question}” gets its choices from “{table}”, which has no rows, so a phone won't open it. You can add rows to “{table}” in Project data.",
+	dataRefusalSearchChoices:
+		"Search field “{input}” gets its choices from “{table}”, which has no rows, so a phone won't open this search. You can add rows to “{table}” in Project data.",
+	dataRefusalSearchAnswers:
+		"{subject} a search answer that was left blank, so a phone stops here. You can search again with that answer filled in.",
+	dataRefusalOther:
+		"{subject} a value a phone doesn't have at this point, so a phone stops here.",
+	thisQuestion: "this question",
+	thisSearchField: "this field",
 } as const;
 
 export type RuntimeMessage = keyof typeof english;
@@ -465,6 +506,46 @@ const spanish: Record<RuntimeMessage, string> = {
 	hereColumnsUnsupported:
 		"Este navegador no puede compartir tu ubicación, así que las columnas que la usan quedan en blanco.",
 	shareYourLocation: "Compartir tu ubicación",
+	searchResultsRefusalTitle: "Este formulario se abre después de una búsqueda",
+	searchResultsRefusalBody:
+		"Este formulario lee lo que encontró la búsqueda. Puedes hacer la búsqueda y luego elegir el registro de nuevo.",
+	goToSearch: "Ir a la búsqueda",
+	searchResultsInvalidTitle:
+		"La búsqueda anterior a este formulario no se puede hacer",
+	searchResultsLoading:
+		"Nova está cargando lo que encontró la búsqueda para este formulario.",
+	searchResultsLoadFailed:
+		"Lo que encontró la búsqueda no se cargó. Puedes intentarlo de nuevo.",
+	searchResultsCap:
+		"Esta búsqueda encontró {count} registros. La búsqueda de CommCare envía al dispositivo los primeros 500, así que este formulario también lee 500 de ellos aquí.",
+	dataRefusalFormTitle: "Este formulario se detiene aquí en un teléfono",
+	dataRefusalLinksTitle:
+		"El siguiente paso de este formulario se detiene en un teléfono",
+	dataRefusalMenuTitle: "Este menú no se abre en un teléfono",
+	dataRefusalSearchTitle: "Esta búsqueda no se abre en un teléfono",
+	dataRefusalSubjectForm: "Este formulario lee",
+	dataRefusalSubjectLinks: "Los enlaces de este formulario leen",
+	dataRefusalSubjectMenu: "Este menú lee",
+	dataRefusalPlacesPersona:
+		"{subject} un lugar, y {worker} no tiene ningún lugar asignado, así que un teléfono se detiene aquí. Puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
+	dataRefusalPlacesMe:
+		"{subject} un lugar, y usted no tiene ningún lugar asignado, así que un teléfono se detiene aquí. Puede ver la vista previa como una persona que tenga un lugar.",
+	dataRefusalOwnerPlacePersona:
+		"Este formulario mueve el caso al lugar de {worker}, y {worker} no tiene ningún lugar asignado, así que el caso no tiene a qué propietario moverse y un teléfono se detiene aquí. Puede darle un lugar a {worker} en Usuarios y personas, en la configuración de la app.",
+	dataRefusalOwnerPlaceMe:
+		"Este formulario mueve el caso a su lugar, y usted no tiene ningún lugar asignado, así que el caso no tiene a qué propietario moverse y un teléfono se detiene aquí. Puede ver la vista previa como una persona que tenga un lugar.",
+	dataRefusalTable:
+		"{subject} «{table}», que no tiene filas, así que un teléfono se detiene aquí. Puede añadir filas a «{table}» en los datos del proyecto.",
+	dataRefusalChoices:
+		"«{question}» toma sus opciones de «{table}», que no tiene filas, así que un teléfono no la abrirá. Puede añadir filas a «{table}» en los datos del proyecto.",
+	dataRefusalSearchChoices:
+		"El campo de búsqueda «{input}» toma sus opciones de «{table}», que no tiene filas, así que un teléfono no abrirá esta búsqueda. Puede añadir filas a «{table}» en los datos del proyecto.",
+	dataRefusalSearchAnswers:
+		"{subject} una respuesta de búsqueda que quedó en blanco, así que un teléfono se detiene aquí. Puede buscar de nuevo con esa respuesta.",
+	dataRefusalOther:
+		"{subject} un valor que un teléfono no tiene en este punto, así que un teléfono se detiene aquí.",
+	thisQuestion: "esta pregunta",
+	thisSearchField: "este campo",
 };
 
 export function runtimeLanguage(language: LanguageTag | null | undefined) {
@@ -552,5 +633,97 @@ export function refusalCopy(
 			};
 		case "repeat-insert":
 			return { body: runtimeMessage(language, "refusalRepeatInsert", values) };
+	}
+}
+
+/** Where a data refusal stops the running app. */
+export type DataRefusalSurface = PreviewDataRefusalStage | "menu" | "search";
+
+/** The names a data refusal's copy reads, resolved by the surface showing it. */
+export interface DataRefusalCopyNames {
+	/** The persona previewing; absent when previewing as oneself. */
+	readonly worker?: string;
+	/** The question whose choices come from the table. */
+	readonly question?: string;
+	/** The Search prompt whose choices come from the table. */
+	readonly input?: string;
+}
+
+const DATA_REFUSAL_TITLE: Readonly<Record<DataRefusalSurface, RuntimeMessage>> =
+	{
+		form: "dataRefusalFormTitle",
+		links: "dataRefusalLinksTitle",
+		menu: "dataRefusalMenuTitle",
+		search: "dataRefusalSearchTitle",
+	};
+
+const DATA_REFUSAL_SUBJECT: Readonly<
+	Record<DataRefusalSurface, RuntimeMessage>
+> = {
+	form: "dataRefusalSubjectForm",
+	links: "dataRefusalSubjectLinks",
+	menu: "dataRefusalSubjectMenu",
+	/* A Search screen reads nothing but its choices that can refuse; the
+	 * menu's wording stands for any other read there. */
+	search: "dataRefusalSubjectMenu",
+};
+
+/**
+ * The copy for data a device holds none of: what a phone does there and
+ * what to change. Never a fault's wording: the app is right, the data is
+ * empty.
+ */
+export function dataRefusalCopy(
+	language: LanguageTag | null | undefined,
+	surface: DataRefusalSurface,
+	subject: PreviewDataRefusalSubject,
+	names: DataRefusalCopyNames = {},
+): { readonly title: string; readonly body: string } {
+	const title = runtimeMessage(language, DATA_REFUSAL_TITLE[surface]);
+	const lead = runtimeMessage(language, DATA_REFUSAL_SUBJECT[surface]);
+	const body = (key: RuntimeMessage, values: Record<string, string> = {}) =>
+		runtimeMessage(language, key, { subject: lead, ...values });
+	switch (subject.kind) {
+		case "places":
+			return {
+				title,
+				body:
+					names.worker === undefined
+						? body("dataRefusalPlacesMe")
+						: body("dataRefusalPlacesPersona", { worker: names.worker }),
+			};
+		case "owner-place":
+			return {
+				title,
+				body:
+					names.worker === undefined
+						? body("dataRefusalOwnerPlaceMe")
+						: body("dataRefusalOwnerPlacePersona", { worker: names.worker }),
+			};
+		case "table":
+			return {
+				title,
+				body: body("dataRefusalTable", { table: subject.tableName }),
+			};
+		case "choices":
+			return {
+				title,
+				body:
+					surface === "search"
+						? body("dataRefusalSearchChoices", {
+								table: subject.tableName,
+								input:
+									names.input ?? runtimeMessage(language, "thisSearchField"),
+							})
+						: body("dataRefusalChoices", {
+								table: subject.tableName,
+								question:
+									names.question ?? runtimeMessage(language, "thisQuestion"),
+							}),
+			};
+		case "search-answers":
+			return { title, body: body("dataRefusalSearchAnswers") };
+		case "other":
+			return { title, body: body("dataRefusalOther") };
 	}
 }

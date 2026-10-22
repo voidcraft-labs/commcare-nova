@@ -7,10 +7,13 @@ four workbooks: the corpus (``lookup.xlsx``), a 50-column table
 (``long-tag.xlsx``) and the padding counterexample (``padding.xlsx``). What it
 read is returned for the test to compare with the producer's
 ``expected.json`` and the fixture XML Nova emits. HQ then regenerates the two
-lookup forms (``lookup-app.hq.xml``, ``lookup-reversed.hq.xml``).
+lookup forms (``lookup-app.hq.xml``, ``lookup-reversed.hq.xml``). It also
+loads ``targeted-instance-reads``, whose form logic and links read a table by
+its tag, through ``session_reads``.
 """
 
 from proof.native.hq_support import import_source, native_check, regenerate_form
+from proof.native.steps.session_reads import session_reads
 
 DOMAIN = "nova-lookup-proof"
 
@@ -47,4 +50,5 @@ def lookups(session):
         for name in ["lookup-app", "lookup-reversed"]:
             app = import_source((exports / f"{name}.json").read_bytes(), DOMAIN)
             (exports / f"{name}.hq.xml").write_bytes(regenerate_form(app.get_module(0).get_form(0), DOMAIN))
+    session_reads(session, "lookup", "targeted-instance-reads", DOMAIN, module=0, forms=(0,))
     return {"corpus": corpus, "wide": wide, "longTag": long_tag, "padding": padding}

@@ -1380,14 +1380,28 @@ changes an option value. `targeted-expression-property-renames` holds the
 same case-query references across the separate command that renames their
 case properties. `targeted-session-reads` holds session datum
 identities: a selected case, a new case, a new child case, the worker's
-record and a tile group's parents. Its edit gives the source menu a parent,
+record and a tile group's parents, and, in a form that works on several
+cases, the cases chosen together (`count(instance('selected_cases')/results/value)`).
+Its edit gives the source menu a parent,
 so a datum's physical name changes while the reference keeps its identity.
 `targeted-form-link-session-reads`, `targeted-nested-menu-session-reads` and
 `targeted-tile-session-reads` hold the corresponding native runtime scenarios.
+`targeted-instance-reads` reads lookup tables and flat locations in form logic
+and in a form link's condition; `targeted-inline-search-reads` reads an inline
+search's results in its module's forms and a search answer in the no-matches
+form; and `targeted-text-reads` reads `jr:itext` and `jr:choice-name` in two
+languages. Each passes with no entry and no control. The first two are also
+native scenarios: `LookupRuntimeTest` and `LocationOwnerRuntimeTest` read
+`targeted-instance-reads`, whose places copy the location family's skipped
+fixture so HQ's own serializer writes them, and `SearchRuntimeTest` reads
+`targeted-inline-search-reads`. Core's evaluate seeds neither a several-case
+selection nor a search's results, so those reads hold no hand-fixed value and
+every walk of their documents reads them.
 Their Core families read these targeted archives on both export paths, so
 the added scenarios do not change another fixed document's balanced edit.
-The native package's cache key includes the three target directories
-(`proof/store/queue.py::PACKAGE_DATA`), including when a sampled corpus index
+The native package's cache key includes the five target directories the native
+adapter names (`proof/native/steps/session_reads.py::DOCUMENTS`, read by
+`proof/store/queue.py::PACKAGE_DATA`), including when a sampled corpus index
 does not list them; their files remain available to the native reader.
 `targeted-list-first-places` adds a location question behind the list-first
 Web Apps search workflow. HQ's Case List save turns it into search-first
@@ -3715,7 +3729,7 @@ decoded text and child order.
   defaulted prompts; and automatic and explicit registration links. Nothing is set aside: Nova declares an instance only where something reads it. A search
   with no input and no filter sends the same `match-all()` `_xpath_query` on
   both paths (finding 53), so it is compared whole, and each session sends
-  it. `SearchRuntimeTest` (seven methods) parses
+  it. `SearchRuntimeTest` (eight methods) parses
   both paths: entity nodesets exclude related rows and wrong case types, the
   inline open-case filter and parent selection hold, and remote search keeps
   its different status behavior. Detail templates read a typed supporting
@@ -3725,7 +3739,12 @@ decoded text and child order.
   `RemoteQuerySessionManager` owns default answers and input instances. Both
   form-link frames hydrate the newly created case; the retained pre-fix suites
   (`core/resources/search/before-manual-search-link.*`) must be refused,
-  because the later manual datum cannot supply an earlier step.
+  because the later manual datum cannot supply an earlier step. Over
+  `targeted-inline-search-reads`'s archive and HQ's regeneration of its "Check
+  in" form and suite, the form counts what its inline search found behind the
+  related-case exclusion and reads the chosen patient's district from its own
+  result, and its after-submit link fires only when the search found more than
+  one.
   `test_search_validation.py` runs HQ's own validator methods over three of
   these apps and their paired counterexamples (see `searchFirst.ts`).
 - `prompt`: three admitted documents (widget metadata and lookup choices,
@@ -3781,12 +3800,19 @@ fields `ward` and `unset`, and each scenario's places, saved through HQ's own
 models, and `FlatLocationSerializer.get_xml_nodes` serializes them with its
 index schema and lineage attributes. Four scenarios cover two complete
 branches, an empty footprint, a missing destination and a skipped intermediate
-place; HQ also regenerates the three owner forms. `LocationOwnerRuntimeTest`
-(five tests) parses these exact restores into Core's fixture storage and runs
+place; HQ also regenerates the three owner forms. The step also loads
+`targeted-instance-reads`, whose link condition reads a place's name, and holds
+the source HQ's suite declares `locations` from on the form's entry
+(`location_fixture_instances`) and in the regenerated form to the flat
+`jr://fixture/locations`, never the hierarchical `commtrack:locations` a Nova
+app's restore does not hold. `LocationOwnerRuntimeTest`
+(six tests) parses these exact restores into Core's fixture storage and runs
 both paths' forms through initialization, entry, serialization and case
 processing: both branches reach their exact destination, a skipped non-owning
 place stays valid, ordinary worker ownership needs no location data, and an
-empty fixture or a missing destination is refused. HQ's footprint query and a
+empty fixture or a missing destination is refused. Over the skipped restore,
+`targeted-instance-reads`'s form reads its clinic's name and ward on both
+paths, and its first link fires on that name in the form's entry. HQ's footprint query and a
 remote restore are not claimed.
 
 On Android, a form's case processing runs in one user-database transaction
@@ -3861,7 +3887,7 @@ check keeps its separately scoped unread-declaration exception.
 | `expression` | HQ's `interpolate_xpath` (with a case, without one, and with `interpolate_dots=False`) and `get_instance_names` over the `hq-json` prints of literals HQ could misread, including interpolation tokens, instance-looking text, HTML references and trailing backslashes. Image mapping conditions also exercise `dot_interpolate` and `MappingItem.key_as_condition`; XForm instance discovery reads serialized XML, while decoded attributes are evaluated for their exact literal value (`test_hq_interpolation.py`). | `InstantOrderingRuntimeTest`, zoned: in four device zones (`utc`, `new-york`, `kolkata`, `kiritimati`) and three Formplayer setups (a UTC JVM with a browser zone of New York or Kolkata, or New York's offset alone), each a test JVM of its own, Core's bare comparison of every pair of the instant table (`lib/commcare/__tests__/instantOrderingTable.ts`): a date and time held as text orders false both ways, two typed ones order by calendar day in the reader's zone, and `=` between two spellings of one instant is false. The same pairs lowered by Nova's emitter (`serializeWire(toWire(…))`, `lib/commcare/xpath/wire/instant.ts`), written once per pair of operand classes and operator, order and compare by instant in every setup, for `<`, `<=`, `>`, `>=`, `=` and `!=`, and no malformed text throws; the eight malformed texts the parse reads as a number are held to named decodes, and the bare comparisons stay as the family's control. `CoreDateParityRuntimeTest`, zoned in the four device zones only: Core's date functions and coercions over the table Preview's evaluator is held to in Vitest (`lib/preview/xpath/__tests__/fixtures/coreDateParity.ts`, written as `core-date-parity.json`), each row's result against that zone's column: Core's day number and `date(n)` (a day less than the calendar in Kiritimati, round-tripping), a node holding a Date rounded by `date()` and `format-date()` while a direct one keeps its clock, `double()` of a direct Date following the wall clock, widget answers in New York's repeated hour, setvalue text cast as `DateTimeData.cast` holds it (a repeated hour at its later occurrence, a skipped one forward by the gap, a `Z` time a day late, the text Core's own uncast writes for `now()`), a blank node formatting as empty text, a day before AD 1 folding to AD wherever `roundDate` runs, instants either side of 1900-01-01T00:00Z, where the JDK's zone history begins (each zone's standard offset before it, the tzdb's from it, and the offset `DateTimeData.uncast` stamps on a day whose wall clocks repeat there), and a Julian February 29 that `roundDate` refuses (a refused row names the exception Core throws, and Core must throw it). Neither builds an app. |
 | `hq-oracle` | `Application.wrap` fails exactly where Nova's HQ-JSON oracle reports a fatal code; `RemoteApp` dispatch. | None. |
 | `localization`, `worker` | Every localization code passes HQ's `validate_lang`, which no build runs; forms, suites and each language's authored strings regenerated for the Core classes, with no stock translation catalog. | `LocalizationRuntimeTest`, `WorkerIdentityRuntimeTest`: language switching and prompts; worker data through form and suite expressions, and the built-in worker identity on the local form. |
-| `lookup` | HQ's workbook reader reads Nova's tables, a 50-column table, and strips exactly the padding Nova predicts; the lookup forms regenerated. | `LookupRuntimeTest`: fixture install and replacement, dynamic choices, labels, answers and case processing; a missing fixture cannot pass as an empty list. |
+| `lookup` | HQ's workbook reader reads Nova's tables, a 50-column table, and strips exactly the padding Nova predicts; the lookup forms regenerated, and `targeted-instance-reads`'s form and suite. | `LookupRuntimeTest`: fixture install and replacement, dynamic choices, labels, answers and case processing; a missing fixture cannot pass as an empty list. `targeted-instance-reads`'s form reads the table by its tag (a row by its code, the row count) on both paths, and in its entry the table link fires where the place link, over a worker whose one place is a region, does not. |
 | `nested-menu` | Entries and menus equal Nova's for eight native shapes; the two shapes Nova's HQ export refuses reproduce their losses. Which instances an element reads comes from HQ's own XPath parser (js-xpath, which HQ's build runs on every filter), never from pattern matching. | `NestedMenuRuntimeTest`: all ten native shapes on both paths, reproducing HQ's two losses; the separate `targeted-nested-menu-session-reads` archive binds the form's identities to its actual submitted case blocks. |
 | `no-matches` | Case list action, entry stacks and menus equal Nova's. | `NoMatchesRuntimeTest`: result-count relevance, registration action and navigation state. |
 | `arithmetic` | None. | `ArithmeticRuntimeTest`: integer quotients, signed remainders, a decimal holding `10` and a literal beyond int4 stored through case processing; zero division keeps Infinity and NaN. |

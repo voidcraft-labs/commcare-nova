@@ -1,5 +1,6 @@
 /** Session names bind at parse time; saved reads retain domain entry identity. */
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
@@ -7,6 +8,11 @@ import {
 	formFixture,
 	ids,
 } from "@/lib/domain/expression/__tests__/formFixture";
+import {
+	instanceReadsDoc,
+	reads,
+	setCalculate,
+} from "@/lib/domain/expression/__tests__/instanceReadsFixture";
 import type { Expression } from "@/lib/domain/expression/types";
 import { runValidation } from "../runner";
 
@@ -142,5 +148,108 @@ describe("session datum admission", () => {
 		expect(userFacingError(findings[0])).toContain(
 			'A Connect setting of "Visit"',
 		);
+	});
+
+	it("reads a several-case form's chosen cases, and refuses the read once the menu chooses one case", () => {
+		const chosen: Expression = {
+			kind: "count",
+			via: { kind: "selected-cases", module: reads.batch },
+		};
+		const doc = instanceReadsDoc();
+		setCalculate(doc, reads.closeProbe, chosen);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const single = structuredClone(doc);
+		const config = single.modules[reads.batch].caseListConfig;
+		if (config === undefined)
+			throw new Error("The case list fixture is missing.");
+		delete config.selection;
+		const findings = runValidation(single, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(findings).toMatchObject([
+			{
+				code: "SESSION_DATUM_NOT_SUPPLIED",
+				location: { fieldId: "probe", formName: "Close household" },
+				details: {
+					datumKind: "selected-cases",
+					datumModule: reads.batch,
+					reason: "selected-cases",
+					carrier: "field",
+				},
+			},
+		]);
+		expect(userFacingError(findings[0])).toBe(
+			'"probe" reads the cases chosen in "Batch", but "Close household" no longer works on cases chosen there, so CommCare can\'t open the form. You can choose the cases before this form again, or read a question instead.',
+		);
+	});
+	it("refuses a link that reads the chosen cases, which only the form's questions read", () => {
+		const doc = instanceReadsDoc();
+		const link = testUuid("session-data-batch-link");
+		doc.forms[reads.close].formLinks = [
+			{
+				uuid: link,
+				target: { type: "module", moduleUuid: reads.batch },
+				condition: {
+					kind: "gt",
+					left: {
+						kind: "count",
+						via: { kind: "selected-cases", module: reads.batch },
+					},
+					right: { kind: "term", term: { kind: "literal", value: 1 } },
+				},
+			},
+		];
+		doc.forms[reads.close].postSubmit = "app_home";
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
+			(finding) => finding.code === "SESSION_DATUM_NOT_SUPPLIED",
+		);
+		expect(findings).toMatchObject([
+			{
+				location: { field: "form_link_condition" },
+				details: {
+					reason: "selected-cases-carrier",
+					carrier: "form-link",
+					datumModuleName: "Batch",
+				},
+			},
+		]);
+		expect(userFacingError(findings[0])).toBe(
+			'A link from "Close household" reads the cases chosen in "Batch", which only the form\'s questions can read while it runs. You can save how many there are to a worker detail in the form and read it with #user/ instead.',
+		);
+	});
+
+	it("admits the link's suggested next step: the count saved to a worker detail, read with #user/", () => {
+		const doc = instanceReadsDoc();
+		const detail = testUuid("session-data-closed-count");
+		doc.userProperties = {
+			[detail]: { uuid: detail, slug: "closed_count", label: "Closed count" },
+		};
+		doc.userPropertyOrder = [detail];
+		const probe = doc.fields[reads.closeProbe];
+		if (probe.kind !== "hidden") throw new Error("The probe is missing.");
+		probe.calculate = {
+			kind: "count",
+			via: { kind: "selected-cases", module: reads.batch },
+		};
+		probe.caseWrite = { caseType: "commcare-user", property: "closed_count" };
+		const link = testUuid("session-data-batch-link");
+		doc.forms[reads.close].formLinks = [
+			{ uuid: link, target: { type: "module", moduleUuid: reads.batch } },
+		];
+		doc.forms[reads.close].postSubmit = "app_home";
+		const read = parseFormExpression("#user/closed_count > 1", {
+			doc,
+			lookup: new Map(),
+			slot: {
+				entity: "form",
+				uuid: reads.close,
+				slot: "form_link_condition",
+				member: { linkUuid: link },
+			},
+		});
+		if (!read.ok || read.expression === undefined)
+			throw new Error("The #user/ read did not parse.");
+		const [added] = doc.forms[reads.close].formLinks ?? [];
+		if (added === undefined) throw new Error("The link is missing.");
+		added.condition = read.expression;
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 });

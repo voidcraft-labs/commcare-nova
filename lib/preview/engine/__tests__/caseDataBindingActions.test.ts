@@ -581,6 +581,33 @@ describe("submitFormAction", () => {
 		expect(loadAuthorizedFormSubmissionSnapshotMock).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		["a place id that is not a UUID", ["not-a-place"]],
+		["places that are not a list", "11111111-1111-4111-8111-111111111111"],
+	])(
+		"rejects %s an entry says it opened with before authorization",
+		async (_label, placeIds) => {
+			const { getSession } = await import("@/lib/auth-utils");
+			const { submitFormAction } = await import("../caseDataBinding");
+
+			await expect(
+				submitFormAction(
+					{ kind: "survey", ...FINAL_SUBMISSION_PROTOCOL },
+					APP_ID,
+					FINAL_BLUEPRINT_DIGEST,
+					undefined,
+					undefined,
+					placeIds as unknown as readonly string[],
+				),
+			).resolves.toEqual({
+				kind: "error",
+				message:
+					"We couldn't read the places this form opened with. Reload the form and submit again.",
+			});
+			expect(getSession).not.toHaveBeenCalled();
+		},
+	);
+
 	it("routes an effect-free survey through the receipt adjudication envelope", async () => {
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");

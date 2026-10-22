@@ -1,15 +1,75 @@
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	SESSION_READS,
 	sessionIdentityFixture,
 } from "@/lib/commcare/__tests__/sessionReadFixture";
-import { targetedDocument } from "../build";
+import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { type BlueprintDoc, plainColumn } from "@/lib/domain";
+import { count } from "@/lib/domain/expression";
+import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import type { Expectation } from "../expected";
 import { RESTORE_USER_ID, restoreXml } from "../restore";
 
-/** All five datum kinds, and an edit that changes the selected datum's wire id. */
+const ID = "targeted-session-reads";
+const uuid = (name: string) => targetedUuid(ID, name);
+
+/**
+ * The document with a several-case menu after its others: "Visit batch"
+ * chooses visits together, and its form counts them with
+ * `count(instance('selected_cases')/results/value)`, the datum id HQ gives a
+ * several-case selection (`suite_xml/utils.py::get_select_chain_with_sessions`).
+ * Core's evaluate seeds no several-case selection, so no hand-fixed value
+ * holds the count; every walk of the document reads it.
+ */
+function withBatch(doc: BlueprintDoc): BlueprintDoc {
+	const module = uuid("batch-module");
+	const batch = buildDoc({
+		appId: doc.appId,
+		modules: [
+			{
+				uuid: module,
+				name: "Visit batch",
+				caseType: "visit",
+				caseListConfig: caseListOf(
+					[plainColumn(uuid("batch-name"), "case_name", "Name")],
+					{ selection: { kind: "multiple", maximum: 10 } },
+				),
+				forms: [
+					{
+						uuid: uuid("batch-form"),
+						name: "Count chosen visits",
+						type: "followup",
+						fields: [
+							f({
+								kind: "hidden",
+								uuid: uuid("chosen-count"),
+								id: "chosen_count",
+								calculate: count({ kind: "selected-cases", module }),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const merged: BlueprintDoc = {
+		...doc,
+		modules: { ...doc.modules, ...batch.modules },
+		moduleOrder: [...doc.moduleOrder, ...batch.moduleOrder],
+		forms: { ...doc.forms, ...batch.forms },
+		formOrder: { ...doc.formOrder, ...batch.formOrder },
+		fields: { ...doc.fields, ...batch.fields },
+		fieldOrder: { ...doc.fieldOrder, ...batch.fieldOrder },
+	};
+	rebuildFieldParent(merged);
+	return merged;
+}
+
+/** All five datum kinds and a several-case form's chosen cases, and an edit
+ * that changes the selected datum's wire id. */
 export function sessionReads() {
-	const doc = sessionIdentityFixture();
-	const edit = sessionIdentityFixture(true);
+	const doc = withBatch(sessionIdentityFixture());
+	const edit = withBatch(sessionIdentityFixture(true));
 	const intent: Expectation[] = [];
 	for (const exportName of ["local", "A", "B"] as const) {
 		intent.push({
@@ -92,8 +152,12 @@ export function sessionReads() {
 		});
 	}
 	return targetedDocument({
-		id: "targeted-session-reads",
-		rows: ["session-datum-identity", "session-datum-parent-menu-edit"],
+		id: ID,
+		rows: [
+			"session-datum-identity",
+			"session-datum-parent-menu-edit",
+			"selected-cases-read",
+		],
 		doc,
 		edit,
 		expected: { intent },

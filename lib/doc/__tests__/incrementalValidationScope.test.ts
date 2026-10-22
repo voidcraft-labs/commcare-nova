@@ -482,7 +482,12 @@ describe("incrementalValidationScope", () => {
 					caseSearchConfigPatch: { searchFirst: null },
 				},
 			]),
-		).toEqual({ moduleUuids: new Set([moduleUuid]) });
+		).toEqual({
+			/* Turning Search first off withdraws what the search found from
+			 * every form in the module, so each one's rules run. */
+			moduleUuids: new Set([moduleUuid]),
+			formUuids: new Set(doc.formOrder[moduleUuid]),
+		});
 	});
 
 	it("falls back to the absolute gate for structural or cross-scope work", () => {

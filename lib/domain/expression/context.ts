@@ -14,6 +14,7 @@ import {
 import { formOfField } from "../fieldForm";
 import type { SelectOption } from "../fields";
 import { orderedCaseOperations } from "../forms";
+import type { TranslationUnitId } from "../localization";
 import type { LookupColumnId, LookupTableId } from "../lookupIds";
 import { moduleIsCaseFirst } from "../menuForms";
 import {
@@ -39,6 +40,7 @@ import {
 	STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 	standardCasePropertyDisplayLabel,
 } from "../standardCaseProperties";
+import { formTranslationUnits } from "../translationUnits";
 import { userPropertySlugsByUuid } from "../users";
 import type { Uuid } from "../uuid";
 import { expressionChildren } from "./children";
@@ -125,6 +127,11 @@ export interface FormExpressionFacts extends FormStructure {
 	readonly readableCaseTypes: ReadonlyMap<string, ReadonlySet<string>>;
 	readonly searchInputs: readonly SearchInputDecl[];
 	readonly noMatchesForm: boolean;
+	/** Whether a translation unit this form's questions or choices own shows
+	 * an answer in some language (`translationUnits.ts::formTranslationUnits`).
+	 * Asked only by a `jr:itext` or `jr:choice-name` read, so a form with none
+	 * never builds the document's translation-unit snapshot. */
+	readonly unitShowsAnswer: (unitId: TranslationUnitId) => boolean;
 }
 /** The actual slot stays fixed while rows and the lexical form node rebind. */
 export interface ExpressionContext {
@@ -473,6 +480,9 @@ function buildFormFacts(
 		fields,
 		searchInputs,
 		noMatchesForm: structure.entry?.kind === "search-no-matches",
+		unitShowsAnswer: (unitId) =>
+			formTranslationUnits(doc, structure.formUuid).get(unitId)?.showsAnswer ===
+			true,
 		readableCaseTypes: readableCaseTypesOf(
 			doc,
 			facts.caseTypes,

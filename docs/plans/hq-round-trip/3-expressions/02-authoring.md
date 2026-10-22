@@ -773,6 +773,14 @@ chosen-case sentence and part 06 §7's clauses in pull request 10, CSQL. Each of
 The guide names tools as it does today, by the SA's tool names (`getAutomations`), so item 3 writes
 `getLookupTables`, not the MCP name `get_lookup_tables`; part 05 §4 follows the same rule.
 
+**Implementation correction, 2026-10-19 (pull request 9):** items 3 and 6 land as written. Item 3
+and the places sentence of item 6 are their own paragraphs after the case-query paragraph; the
+several-case sentence ends the workflows guide's several-case paragraph and the search-first
+sentence joins its search-first paragraph, before "Results and Details serve different purposes".
+`MODEL_CONTEXT_VERSION` is not bumped in pull request 9: the stack deploys once, so one bump at its
+head covers every guide change, and pull request 12 sets the final value (§3.3). No tool schema
+changes, so `test:schema` sends nothing new.
+
 `AUTHORING_REFERENCE.fields` (repeat): "put a hidden row_id directly inside the repeat with calculate
 current()/../@id" stays; its "The @id belongs to the repeat row, so an intervening group changes the
 relative path." stays true and is now printed for the author when a group is added (the print
@@ -1356,6 +1364,16 @@ at the Project level as it does today for a record expression, and the structura
 cover form logic. The four extractors land in pull request 9, instances and session, where a
 form-logic table read becomes admitted, so the publish push and the deletion refusal arrive with
 the read (part 10, "Ordering constraints").
+
+**Implementation correction, 2026-10-19:** the registry already holds one extractor per expression
+slot of the field, form and module reference-slot registries, keyed by slot name (`relevant` …
+`ids_query`, `form_link_condition`, `form_link_datum_xpath`, `assessment_user_score`,
+`deliver_entity_id`, `deliver_entity_name`), so form logic, Connect and links were extracted before
+pull request 9. The four named extractors are not written: they would count each occurrence twice,
+and a second `form_link_condition` throws "Duplicate lookup reference registry slot". Pull request 9
+holds the edges with `lib/doc/__tests__/formLogicLookupReferences.test.ts` (part 05 §2.3's
+correction): occurrences, stored targets, the `LOOKUP_TABLE_NOT_AVAILABLE` finding and the export
+modes.
 
 ### 5.6 Tests
 

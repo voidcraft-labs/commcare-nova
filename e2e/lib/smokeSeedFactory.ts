@@ -85,11 +85,13 @@ import {
 	buildFormRefusedBlueprint,
 	buildHereColumnBlueprint,
 	buildSearchClaimBlueprint,
+	buildSearchResultsBlueprint,
 	FORM_REFUSED_SEED,
 	formRefusedRoute,
 	HERE_COLUMN_SEED,
 	hereColumnRoute,
 	SEARCH_CLAIM_SEED,
+	SEARCH_RESULTS_SEED,
 } from "./previewRuntimeSeeds";
 import {
 	buildPreviousTaskBlueprint,
@@ -1224,6 +1226,31 @@ export async function createSmokeBuilders(
 			});
 			return {
 				searchClaim: {
+					appId,
+					route: `/build/${appId}`,
+					caseId: match.caseId,
+				},
+			};
+		},
+		"search-results": async () => {
+			const seed = SEARCH_RESULTS_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildSearchResultsBlueprint,
+			);
+			// The seeded member's own record, so it stays on their device after
+			// a reload drops the search.
+			const match = await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.match.caseName,
+					status: "open",
+					properties: {},
+				},
+			});
+			return {
+				searchResults: {
 					appId,
 					route: `/build/${appId}`,
 					caseId: match.caseId,

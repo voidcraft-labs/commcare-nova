@@ -795,6 +795,59 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 			'A formula on "visit_check" in "Register Client" asks for the label of a choice of "village", which a form can\'t read here. You can use the answer itself instead.',
 		],
 		[
+			"XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+			{
+				reason: "itext-reference",
+				wordingKind: "question",
+				wordingFieldId: "client_name",
+			},
+			'A formula on "visit_check" in "Register Client" reads the wording of "client_name", which shows an answer. CommCare would show a placeholder there instead of the answer. You can read the answer itself instead.',
+		],
+		[
+			"XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+			{
+				reason: "itext-reference",
+				wordingKind: "choice",
+				wordingFieldId: "village",
+			},
+			'A formula on "visit_check" in "Register Client" reads the label of a choice of "village", and a label of its choices shows an answer. CommCare would show a placeholder there instead of the answer. You can read the answer itself instead.',
+		],
+		[
+			"SEARCH_RESULTS_NOT_SUPPLIED",
+			{ reason: "not-search-first" },
+			'"visit_check" reads what "Clients"\'s search found, but "Clients" no longer opens on its search, so "Register Client" has no search results. You can turn Search first back on, or read the case the worker chose instead.',
+		],
+		[
+			"SEARCH_RESULTS_NOT_SUPPLIED",
+			{ reason: "no-matches-form" },
+			'"visit_check" reads what the search found, but "Register Client" opens only when the search finds nothing. You can read the worker\'s search answers with #search/ instead.',
+		],
+		[
+			"SEARCH_RESULTS_READ_INVALID",
+			{ reason: "order" },
+			'A formula on "visit_check" in "Register Client" reads what the search found by its order. CommCare\'s search returns its cases in no fixed order, so the first or last result can change from one search to the next. You can count the results, or read a value of the case the worker chose.',
+		],
+		[
+			"SEARCH_RESULTS_READ_INVALID",
+			{ reason: "other-type", caseType: "client", otherCaseType: "household" },
+			'A formula on "visit_check" in "Register Client" looks for household cases in what the search found, but this search only finds client cases, so no result is one. You can remove that case type from the formula.',
+		],
+		[
+			"LOCATIONS_READ_NEEDS_ORGANIZATION",
+			{},
+			'"visit_check" reads places, but this app has no organization yet. You can add your organization\'s levels in App setup first.',
+		],
+		[
+			"INVALID_REF",
+			{ identity: "wording" },
+			'A formula on "visit_check" in "Register Client" reads wording that its form no longer has. You can read a question\'s current wording, or remove that read.',
+		],
+		[
+			"INVALID_REF",
+			{ identity: "place" },
+			'A formula on "visit_check" in "Register Client" reads a place level or a piece of place information that no longer exists. You can choose a current one, or remove that read.',
+		],
+		[
 			"TYPE_ERROR",
 			{ reason: "datetime-literal-precision" },
 			'A formula on "visit_check" in "Register Client" has a time finer than a millisecond, and CommCare compares times to the millisecond. You can choose a time to the millisecond, second or minute.',
@@ -912,6 +965,67 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 			),
 		).toBe(
 			"A value in this case operation keeps only the day of a date and time, so saving it here would record midnight instead of the moment. You can save it from a question or now() instead.",
+		);
+	});
+
+	it("names the menu whose chosen cases a question reads after the form stops working on them", () => {
+		expect(
+			userFacingError(
+				finding(
+					"SESSION_DATUM_NOT_SUPPLIED",
+					{
+						carrier: "field",
+						reason: "selected-cases",
+						datumKind: "selected-cases",
+						datumModuleName: "Households",
+					},
+					{ fieldUuid: testUuid("user-facing-visit-check") },
+				),
+			),
+		).toBe(
+			'"visit_check" reads the cases chosen in "Households", but "Register Client" no longer works on cases chosen there, so CommCare can\'t open the form. You can choose the cases before this form again, or read a question instead.',
+		);
+	});
+
+	it("names a link and a CommCare Connect setting as the carrier that reads a form's value", () => {
+		const atForm = (
+			code: ValidationErrorCode,
+			details: Record<string, string>,
+			field: string,
+		) =>
+			userFacingError(
+				finding(code, details, {
+					fieldId: undefined,
+					fieldUuid: undefined,
+					field,
+				}),
+			);
+		expect(
+			atForm(
+				"SEARCH_RESULTS_NOT_SUPPLIED",
+				{ reason: "link-source" },
+				"form_link_condition",
+			),
+		).toBe(
+			'A link from "Register Client" reads what a search found, but "Register Client" doesn\'t open after a search. You can read a case property instead.',
+		);
+		expect(
+			atForm("LOCATIONS_READ_NEEDS_ORGANIZATION", {}, "deliver_entity_id"),
+		).toBe(
+			'A CommCare Connect setting of "Register Client" reads places, but this app has no organization yet. You can add your organization\'s levels in App setup first.',
+		);
+		expect(
+			atForm(
+				"SESSION_DATUM_NOT_SUPPLIED",
+				{
+					carrier: "form-link",
+					reason: "selected-cases-carrier",
+					datumModuleName: "Households",
+				},
+				"form_link_condition",
+			),
+		).toBe(
+			'A link from "Register Client" reads the cases chosen in "Households", which only the form\'s questions can read while it runs. You can save how many there are to a worker detail in the form and read it with #user/ instead.',
 		);
 	});
 

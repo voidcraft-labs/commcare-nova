@@ -116,6 +116,18 @@ _XPATH_ATTRIBUTES = {
 }
 
 
+def _link_reads(content):
+    """Every XPath of a form's links HQ writes into the form's suite entry: each link's condition and each of its
+    datums' values (``models/forms.py::FormLink``, ``FormDatum``)."""
+    for form in _forms(content):
+        for link in getattr(form, "form_links", None) or []:
+            if link.xpath:
+                yield link.xpath
+            for datum in link.datums or []:
+                if datum.xpath:
+                    yield datum.xpath
+
+
 def _usercase_reads(content):
     """Every XPath the app hands HQ that a form reads with: each form's display condition, each XPath of its source
     (``_XPATH_ATTRIBUTES``), and each of its links' conditions and datums (``models/forms.py::FormLink``,
@@ -124,12 +136,7 @@ def _usercase_reads(content):
         condition = getattr(form, "form_filter", None)
         if condition:
             yield condition
-        for link in getattr(form, "form_links", None) or []:
-            if link.xpath:
-                yield link.xpath
-            for datum in link.datums or []:
-                if datum.xpath:
-                    yield datum.xpath
+    yield from _link_reads(content)
     for root in _parsed_sources(content):
         for tag, attributes in _XPATH_ATTRIBUTES.items():
             for element in root.iter(tag):
@@ -207,16 +214,32 @@ def _needs_locations(content):
     """``locations/fixtures.py::should_sync_flat_fixture`` and
     ``should_sync_hierarchical_fixture`` put the locations fixture in a restore only when
     ``domain/models.py::Domain.uses_locations``, which needs the privilege; an app reads
-    that fixture when a form declares the ``jr://fixture/locations`` instance or the app
-    asks for the fixture (``const.py::SYNC_FLAT_FIXTURES``, ``SYNC_HIERARCHICAL_FIXTURE``)."""
+    that fixture when a form declares the ``jr://fixture/locations`` instance, when a
+    link's condition or datum names an instance HQ's suite declares from that fixture
+    (``suite_xml/post_process/instances.py::get_instance_names``, whose ``locations``
+    scheme ``get_instance_factory`` answers with ``location_fixture_instances``; the suite
+    evaluates a link in its form's entry, so the restore must hold the fixture for it),
+    or the app asks for the fixture (``const.py::SYNC_FLAT_FIXTURES``,
+    ``SYNC_HIERARCHICAL_FIXTURE``)."""
     from corehq.apps.app_manager.const import SYNC_FLAT_FIXTURES, SYNC_HIERARCHICAL_FIXTURE
+    from corehq.apps.app_manager.suite_xml.post_process.instances import (
+        get_instance_factory,
+        get_instance_names,
+        location_fixture_instances,
+    )
 
     if content.app.location_fixture_restore in (*SYNC_FLAT_FIXTURES, *SYNC_HIERARCHICAL_FIXTURE):
         return True
-    return any(
+    if any(
         element.get("src") == "jr://fixture/locations"
         for root in _parsed_sources(content)
         for element in root.iter(f"{{{XFORMS_NS}}}instance")
+    ):
+        return True
+    return any(
+        get_instance_factory(name) is location_fixture_instances
+        for xpath in _link_reads(content)
+        for name in get_instance_names(xpath)
     )
 
 

@@ -67,6 +67,8 @@ import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
+import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
+import { MAX_LOCATIONS_PER_APP } from "@/lib/organization/schema";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
 import {
@@ -134,8 +136,13 @@ import {
 	searchInputRuntimeGlobalError,
 	searchInputSubmissionErrors,
 } from "./searchInputValidation";
+import { readSearchResultsSnapshot } from "./searchResultsSnapshot";
 import type { ViewerLocation } from "./viewerLocation";
-import type { LoadCaseDatabaseSnapshotResult } from "./xpathInstances";
+import { workerLocationFixture } from "./workerLocationFixture";
+import type {
+	LoadCaseDatabaseSnapshotResult,
+	LoadSearchResultsSnapshotResult,
+} from "./xpathInstances";
 
 // Errors thrown by the case-store layer are caught and mapped to
 // the `{ kind: "error" }` arm so an unhandled throw never tears
@@ -332,7 +339,9 @@ function readsSearchPopulation(
 	return module !== undefined && caseQueryReadingFor(module) === SEARCH_READING;
 }
 
-export async function loadCasesAction(args: {
+/** What a running list read asks: its live document and settings, the
+ * worker it reads as and what that worker searched. */
+type RunningCaseReadArgs = {
 	appId: string;
 	caseType: string;
 	/** Exact selected identities for a bounded, authoritative validation read. */
@@ -372,190 +381,206 @@ export async function loadCasesAction(args: {
 	 *  in this request and the query's bound parameters only, and is never
 	 *  stored or logged. */
 	viewerLocation?: ViewerLocation | null;
-}): Promise<LoadCasesResult> {
-	try {
-		const inputValues = args.inputValues
-			? searchInputValuesFromWire(args.inputValues)
-			: undefined;
-		const context = await resolveAuthorizedPreviewContext({
-			appId: args.appId,
-			personaUuid: args.personaUuid,
-			claimedCaseIds: args.claimedCaseIds,
-			required: "view",
-			loadBlueprint: true,
-		});
-		if (context.kind !== "ready") return context;
-		const { identity, store, scope } = context;
-		let environment: PreviewSearchEnvironment | undefined;
-		if (
-			args.caseListConfig !== undefined ||
-			args.excludedOwnerIdsExpression !== undefined
-		) {
-			const candidate = candidateSearchEnvironment(args);
-			if (!candidate.ok)
-				return {
-					kind: "invalid-search",
-					message: candidate.message,
-					repair: "settings",
-				};
-			environment = candidate.environment;
-		}
-		const requireEnvironment = (): PreviewSearchEnvironment => {
-			if (environment === undefined)
-				throw new Error(
-					"A search expression has no owning document and module.",
-				);
-			return environment;
-		};
-		const caseTypeSchemas =
-			environment === undefined
-				? args.caseTypes && args.caseTypes.length > 0
-					? new Map(args.caseTypes.map((ct) => [ct.name, ct]))
-					: undefined
-				: buildCaseTypeMap(environment.doc);
-		const searchSession =
-			environment === undefined
-				? identity.session
-				: {
-						...identity.session,
-						userPropertySlugs: recordFromEntries(
-							userPropertySlugsByUuid(environment.doc),
-						),
-					};
-		if (args.caseListConfig !== undefined) {
-			const globalRuntimeError = searchInputRuntimeGlobalError(
-				args.caseListConfig,
-				args.caseType,
-				inputValues ?? new Map(),
-				searchSession,
-				requireEnvironment(),
-			);
-			if (globalRuntimeError !== undefined) {
-				return {
-					kind: "invalid-search",
-					message: globalRuntimeError,
-					repair: "settings",
-				};
-			}
-		}
-		if (inputValues !== undefined && args.caseListConfig !== undefined) {
-			/* The full pass with the resolved worker. A pattern-bearing required
-			 * condition or check stays unjudged here: the server holds no Java
-			 * Pattern engine, so Preview's Search screen enforces those in its
-			 * XPath worker, the way it alone enforces lookup-bearing ones. */
-			const runtimeErrors = searchInputSubmissionErrors(
-				args.caseListConfig,
-				args.caseType,
-				inputValues,
-				searchSession,
-				requireEnvironment(),
-			);
-			const firstError = runtimeErrors.values().next().value;
-			if (firstError !== undefined) {
-				return {
-					kind: "invalid-search",
-					message: firstError,
-					repair: "inputs",
-				};
-			}
-		}
-		/* A blank value compared where CommCare's search cannot compare one:
-		 * the exported search sends `match-none()` and finds nothing, with no
-		 * message, so Preview answers the same before reaching the case store. */
-		if (
-			args.caseListConfig !== undefined &&
-			searchFindsNothing(
-				args.caseListConfig,
-				args.caseType,
-				inputValues ?? new Map(),
-				searchSession,
-				requireEnvironment(),
-			)
-		) {
+};
+
+/** A running read made ready: the store bound to the worker and the read's
+ * complete arguments; or the answer it has already reached. */
+type PreparedRunningCaseRead =
+	| {
+			readonly kind: "read";
+			readonly store: CaseStore;
+			readonly read: Parameters<typeof readCases>[1];
+	  }
+	| Exclude<LoadCasesResult, { kind: "rows" }>;
+
+/** Authorize, check the live settings against their module, evaluate the
+ * search's checks and its excluded owners, and compose the read. Results and
+ * the search snapshot of a search-first module's forms share it, so a form
+ * reads exactly the cases Results showed for the same search. */
+async function prepareRunningCaseRead(
+	args: RunningCaseReadArgs,
+): Promise<PreparedRunningCaseRead> {
+	const inputValues = args.inputValues
+		? searchInputValuesFromWire(args.inputValues)
+		: undefined;
+	const context = await resolveAuthorizedPreviewContext({
+		appId: args.appId,
+		personaUuid: args.personaUuid,
+		claimedCaseIds: args.claimedCaseIds,
+		required: "view",
+		loadBlueprint: true,
+	});
+	if (context.kind !== "ready") return context;
+	const { identity, store, scope } = context;
+	let environment: PreviewSearchEnvironment | undefined;
+	if (
+		args.caseListConfig !== undefined ||
+		args.excludedOwnerIdsExpression !== undefined
+	) {
+		const candidate = candidateSearchEnvironment(args);
+		if (!candidate.ok)
 			return {
-				kind: "empty",
-				constraintSource:
-					inputValues === undefined ? "authored-rules" : "worker-search",
+				kind: "invalid-search",
+				message: candidate.message,
+				repair: "settings",
+			};
+		environment = candidate.environment;
+	}
+	const requireEnvironment = (): PreviewSearchEnvironment => {
+		if (environment === undefined)
+			throw new Error("A search expression has no owning document and module.");
+		return environment;
+	};
+	const caseTypeSchemas =
+		environment === undefined
+			? args.caseTypes && args.caseTypes.length > 0
+				? new Map(args.caseTypes.map((ct) => [ct.name, ct]))
+				: undefined
+			: buildCaseTypeMap(environment.doc);
+	const searchSession =
+		environment === undefined
+			? identity.session
+			: {
+					...identity.session,
+					userPropertySlugs: recordFromEntries(
+						userPropertySlugsByUuid(environment.doc),
+					),
+				};
+	if (args.caseListConfig !== undefined) {
+		const globalRuntimeError = searchInputRuntimeGlobalError(
+			args.caseListConfig,
+			args.caseType,
+			inputValues ?? new Map(),
+			searchSession,
+			requireEnvironment(),
+		);
+		if (globalRuntimeError !== undefined) {
+			return {
+				kind: "invalid-search",
+				message: globalRuntimeError,
+				repair: "settings",
 			};
 		}
-		const expressionInputValues =
-			inputValues === undefined || args.caseListConfig === undefined
-				? inputValues
-				: withSearchInputExpressionValues(
-						args.caseListConfig.searchInputs,
-						inputValues,
-					);
-		const bindings = previewCaseStoreBindings(
+	}
+	if (inputValues !== undefined && args.caseListConfig !== undefined) {
+		/* The full pass with the resolved worker. A pattern-bearing required
+		 * condition or check stays unjudged here: the server holds no Java
+		 * Pattern engine, so Preview's Search screen enforces those in its
+		 * XPath worker, the way it alone enforces lookup-bearing ones. */
+		const runtimeErrors = searchInputSubmissionErrors(
+			args.caseListConfig,
+			args.caseType,
+			inputValues,
 			searchSession,
-			args.caseListConfig?.searchInputs,
-			expressionInputValues,
-			args.viewerTimeZone,
-			args.viewerLocation ?? null,
+			requireEnvironment(),
 		);
-		/* Lookup carriers: the SQL-bound slots (filter / calc columns /
-		 * advanced predicates) compile natively against a rows-free
-		 * definitions snapshot; the excluded-owner expression evaluates
-		 * scalar-side, so its carriers fold over loaded fixture rows. */
-		const lookupTableSchemas = await loadLookupTableSchemas(
-			scope,
-			collectConfigLookupTableIds(args.caseListConfig),
-		);
-		const excludedLookupData = await loadExpressionLookupData(
-			scope,
-			args.excludedOwnerIdsExpression,
-		);
-		const excludedTypes =
-			args.excludedOwnerIdsExpression === undefined
-				? undefined
-				: requireExpressionContext(
-						requireEnvironment().doc,
-						{
-							entity: "module",
-							uuid: requireEnvironment().moduleUuid,
-							slot: "excluded_owner_ids",
-						},
-						excludedLookupData?.naming,
-					);
-		const excludedOwnerIds =
-			args.excludedOwnerIdsExpression === undefined ||
-			excludedTypes === undefined
-				? undefined
-				: parseExcludedOwnerIds(
-						evaluatePreviewSearchExpression(
-							args.excludedOwnerIdsExpression,
-							excludedTypes,
-							searchSession,
-							expressionInputValues,
-							args.caseListConfig?.searchInputs ?? [],
-							excludedLookupData,
-						),
-					);
-		const authoredExcludedOwnerIds =
-			args.excludedOwnerIdsExpression === undefined ||
-			excludedTypes === undefined
-				? undefined
-				: parseExcludedOwnerIds(
-						evaluatePreviewSearchExpression(
-							args.excludedOwnerIdsExpression,
-							excludedTypes,
-							searchSession,
-							args.caseListConfig === undefined
-								? undefined
-								: withSearchInputExpressionValues(
-										args.caseListConfig.searchInputs,
-										new Map(),
-									),
-							args.caseListConfig?.searchInputs ?? [],
-							excludedLookupData,
-						),
-					);
-		const order = caseStoreOrder(environment?.doc ?? context.blueprint, args);
-		const searched = readsSearchPopulation(
-			environment?.doc ?? context.blueprint,
-			args.moduleUuid,
-			args.search === true || inputValues !== undefined,
-		);
-		return await readCases(store, {
+		const firstError = runtimeErrors.values().next().value;
+		if (firstError !== undefined) {
+			return {
+				kind: "invalid-search",
+				message: firstError,
+				repair: "inputs",
+			};
+		}
+	}
+	/* A blank value compared where CommCare's search cannot compare one:
+	 * the exported search sends `match-none()` and finds nothing, with no
+	 * message, so Preview answers the same before reaching the case store. */
+	if (
+		args.caseListConfig !== undefined &&
+		searchFindsNothing(
+			args.caseListConfig,
+			args.caseType,
+			inputValues ?? new Map(),
+			searchSession,
+			requireEnvironment(),
+		)
+	) {
+		return {
+			kind: "empty",
+			constraintSource:
+				inputValues === undefined ? "authored-rules" : "worker-search",
+		};
+	}
+	const expressionInputValues =
+		inputValues === undefined || args.caseListConfig === undefined
+			? inputValues
+			: withSearchInputExpressionValues(
+					args.caseListConfig.searchInputs,
+					inputValues,
+				);
+	const bindings = previewCaseStoreBindings(
+		searchSession,
+		args.caseListConfig?.searchInputs,
+		expressionInputValues,
+		args.viewerTimeZone,
+		args.viewerLocation ?? null,
+	);
+	/* Lookup carriers: the SQL-bound slots (filter / calc columns /
+	 * advanced predicates) compile natively against a rows-free
+	 * definitions snapshot; the excluded-owner expression evaluates
+	 * scalar-side, so its carriers fold over loaded fixture rows. */
+	const lookupTableSchemas = await loadLookupTableSchemas(
+		scope,
+		collectConfigLookupTableIds(args.caseListConfig),
+	);
+	const excludedLookupData = await loadExpressionLookupData(
+		scope,
+		args.excludedOwnerIdsExpression,
+	);
+	const excludedTypes =
+		args.excludedOwnerIdsExpression === undefined
+			? undefined
+			: requireExpressionContext(
+					requireEnvironment().doc,
+					{
+						entity: "module",
+						uuid: requireEnvironment().moduleUuid,
+						slot: "excluded_owner_ids",
+					},
+					excludedLookupData?.naming,
+				);
+	const excludedOwnerIds =
+		args.excludedOwnerIdsExpression === undefined || excludedTypes === undefined
+			? undefined
+			: parseExcludedOwnerIds(
+					evaluatePreviewSearchExpression(
+						args.excludedOwnerIdsExpression,
+						excludedTypes,
+						searchSession,
+						expressionInputValues,
+						args.caseListConfig?.searchInputs ?? [],
+						excludedLookupData,
+					),
+				);
+	const authoredExcludedOwnerIds =
+		args.excludedOwnerIdsExpression === undefined || excludedTypes === undefined
+			? undefined
+			: parseExcludedOwnerIds(
+					evaluatePreviewSearchExpression(
+						args.excludedOwnerIdsExpression,
+						excludedTypes,
+						searchSession,
+						args.caseListConfig === undefined
+							? undefined
+							: withSearchInputExpressionValues(
+									args.caseListConfig.searchInputs,
+									new Map(),
+								),
+						args.caseListConfig?.searchInputs ?? [],
+						excludedLookupData,
+					),
+				);
+	const order = caseStoreOrder(environment?.doc ?? context.blueprint, args);
+	const searched = readsSearchPopulation(
+		environment?.doc ?? context.blueprint,
+		args.moduleUuid,
+		args.search === true || inputValues !== undefined,
+	);
+	return {
+		kind: "read",
+		store,
+		read: {
 			appId: args.appId,
 			caseType: args.caseType,
 			caseIds: args.caseIds,
@@ -572,7 +597,17 @@ export async function loadCasesAction(args: {
 			// caller deliberately omits it because it needs the complete candidate set.
 			page: args.page,
 			...runningRead(searched, context.restoreScope),
-		});
+		},
+	};
+}
+
+export async function loadCasesAction(
+	args: RunningCaseReadArgs,
+): Promise<LoadCasesResult> {
+	try {
+		const prepared = await prepareRunningCaseRead(args);
+		if (prepared.kind !== "read") return prepared;
+		return await readCases(prepared.store, prepared.read);
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
 		// is expected, not a fault: collapse it to the IDOR-safe not-found
@@ -596,6 +631,63 @@ export async function loadCasesAction(args: {
 		return {
 			kind: "error",
 			message: "We couldn't load the cases. Try again.",
+		};
+	}
+}
+
+/**
+ * What a search-first module's completed search returned, for its forms to
+ * read as `results:inline` (`searchResultsSnapshot.ts`). The arguments are
+ * the completed search's own Results read without a page window: the live
+ * document and the module's list settings, the answers the worker searched
+ * with, the persona and their claims. The read is always the search's
+ * population, so a module with no effective Search has no results to give.
+ */
+export async function loadSearchResultsSnapshotAction(
+	args: Omit<RunningCaseReadArgs, "page" | "search" | "viewerLocation">,
+): Promise<LoadSearchResultsSnapshotResult> {
+	try {
+		const prepared = await prepareRunningCaseRead({ ...args, search: true });
+		switch (prepared.kind) {
+			case "read":
+				break;
+			case "empty":
+				return { kind: "data", snapshot: { rows: [], totalMatches: 0 } };
+			case "invalid-search":
+				return { kind: "invalid-search", message: prepared.message };
+			default:
+				return prepared;
+		}
+		const {
+			restoreScope: _restoreScope,
+			searchPopulation,
+			...read
+		} = prepared.read;
+		if (searchPopulation === undefined)
+			return {
+				kind: "error",
+				message:
+					"This module doesn't open on a search, so its forms have no search results to read.",
+			};
+		return {
+			kind: "data",
+			snapshot: await readSearchResultsSnapshot(prepared.store, {
+				...read,
+				searchPopulation,
+			}),
+		};
+	} catch (err) {
+		if (err instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
+		if (err instanceof SearchInputValuesError)
+			return { kind: "invalid-search", message: err.message };
+		reportUnexpectedActionError("loadSearchResultsSnapshot", err, {
+			appId: args.appId,
+			caseType: args.caseType,
+		});
+		return {
+			kind: "error",
+			message: "We couldn't load what the search found. Try again.",
 		};
 	}
 }
@@ -930,14 +1022,20 @@ export async function loadCaseDataAction(
 }
 
 /** Load the selected worker's complete device casedb. The client supplies only
- * an app id, an optional persona selector and the worker's claims;
- * authorization, committed topology, actor/owner separation, and restore-scope
- * expansion are all server-owned. */
+ * an app id, an optional persona selector, the worker's claims and whether a
+ * form reads places; authorization, committed topology, actor/owner
+ * separation, and restore-scope expansion are all server-owned. */
 export async function loadCaseDatabaseSnapshotAction(
 	appId: string,
 	personaUuid?: string,
 	/** The worker's claims (`lib/session/previewClaims.ts`), a plain array. */
 	claimedCaseIds?: readonly string[],
+	/** Some form reads places (`expressionCaseReads.ts::appReadsPlaces`, over
+	 * the builder's document, which an edit reaches before its save), so the
+	 * snapshot carries the worker's `locations` fixture. Places are the
+	 * worker's own, so asking for them reveals nothing the worker's device
+	 * would not hold. */
+	includePlaces = false,
 ): Promise<LoadCaseDatabaseSnapshotResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -948,12 +1046,21 @@ export async function loadCaseDatabaseSnapshotAction(
 			loadBlueprint: true,
 		});
 		if (context.kind !== "ready") return context;
+		const snapshot = await readCaseDatabaseSnapshot(context.store, {
+			appId,
+			restoreScope: context.restoreScope,
+		});
+		if (!includePlaces) return { kind: "data", snapshot };
 		return {
 			kind: "data",
-			snapshot: await readCaseDatabaseSnapshot(context.store, {
-				appId,
-				restoreScope: context.restoreScope,
-			}),
+			snapshot: {
+				...snapshot,
+				locations: await workerLocationFixture(
+					appId,
+					context.blueprint,
+					context.identity.personaUuid,
+				),
+			},
 		};
 	} catch (err) {
 		if (err instanceof AppAccessError) {
@@ -1463,6 +1570,24 @@ function normalizeSubmissionWireMutation(
 	return { ...canonicalSlots, caseIds: [caseId] };
 }
 
+/** The place ids a submission says its entry opened with, checked as the
+ * untrusted Server Action JSON they are: absent, or the canonical UUIDs of at
+ * most as many places as an app holds. */
+function submittedPlaceIds(value: unknown): readonly string[] | undefined {
+	if (value === undefined) return undefined;
+	if (
+		Array.isArray(value) &&
+		value.length <= MAX_LOCATIONS_PER_APP &&
+		value.every(
+			(id) => typeof id === "string" && CANONICAL_UUID_PATTERN.test(id),
+		)
+	)
+		return value;
+	throw new CaptureSubmissionRejectedError(
+		"We couldn't read the places this form opened with. Reload the form and submit again.",
+	);
+}
+
 export async function submitFormAction(
 	mutation: SubmissionMutation,
 	appId: string,
@@ -1472,8 +1597,14 @@ export async function submitFormAction(
 	 *  the resolved identity's `ownerId` is stamped on every case the
 	 *  submission creates, so a persona's work belongs to that persona. */
 	personaUuid?: string,
+	/** The ids of the places the entry's device snapshot held when the form
+	 *  opened, so an owner moved to a place is resolved among exactly the
+	 *  places the form read. They are the selected worker's own, which the
+	 *  author previewing as that worker may already read. */
+	workerPlaceIds?: readonly string[],
 ): Promise<SubmissionResult> {
 	try {
+		const entryPlaceIds = submittedPlaceIds(workerPlaceIds);
 		/* This runtime boundary is mandatory even though the TypeScript surface
 		 * is required: Server Action payloads are untrusted JSON. Consume the
 		 * normalized projection below so missing/stale clients cannot bypass
@@ -1606,6 +1737,7 @@ export async function submitFormAction(
 			receiptMutation: wireMutation,
 			projection,
 			viewerTimeZone,
+			...(entryPlaceIds === undefined ? {} : { workerPlaceIds: entryPlaceIds }),
 		});
 		if (built.captureIntent !== undefined) {
 			await prepareCaptureSubmissionBytes({

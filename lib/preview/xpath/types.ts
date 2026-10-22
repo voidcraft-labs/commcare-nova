@@ -236,8 +236,28 @@ export type InstanceResolution =
 	| { readonly kind: "supported"; readonly value?: string }
 	| { readonly kind: "unsupported" };
 
+/**
+ * A form's own text as Core holds it once the form is parsed, which
+ * `jr:itext` and `jr:choice-name` read (`org/javarosa/core/model/FormDef.java::initEvalContext`).
+ * Plain JSON: it crosses to the XPath worker beside the instances.
+ */
+export interface XPathFormText {
+	/** Itext id → the text the form's localizer gives in its current
+	 * language. An id with no entry is absent. */
+	readonly itext: Readonly<Record<string, string>>;
+	/** A select question's absolute path → its written choices as
+	 * `[value, text]` in form order, or `null` when its choices come from a
+	 * table or cases: Core then holds no static choices for it. */
+	readonly selects: Readonly<
+		Record<string, readonly (readonly [string, string])[] | null>
+	>;
+}
+
 /** Context for evaluating XPath expressions within a form. */
 export interface EvalContext {
+	/** The form's own text, for `jr:itext` and `jr:choice-name`. Absent
+	 * outside a form, where Core installs neither handler. */
+	formText?: XPathFormText;
 	/** Active CommCare form locale used by locale-sensitive runtime helpers. */
 	locale?: string;
 	/** Resolve an absolute path (/data/question_id) to its current value. */

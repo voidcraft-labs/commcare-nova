@@ -17,7 +17,10 @@ import { formAnswerValueSchema } from "../engine/formAnswerValue";
 import type { FormEvaluationEntry } from "../engine/formEvaluationTypes";
 import type { PreviewSessionUser } from "../engine/identity";
 import type { SearchEvaluationInput } from "../engine/searchEvaluation";
-import type { CaseDatabaseSnapshot } from "../engine/xpathInstances";
+import type {
+	CaseDatabaseSnapshot,
+	SearchResultsSnapshot,
+} from "../engine/xpathInstances";
 
 const answer = z.strictObject({
 	path: z.string().min(1).max(1024),
@@ -307,6 +310,11 @@ export type AppTestScreen =
 			entry?: FormEvaluationEntry;
 			entryCases: CaseDatabaseSnapshot;
 			searchAnswers?: readonly { name: string; value: string }[];
+			/** What the module's search returned to this entry, taken once
+			 * when the entry opens and read by every step and the submission
+			 * of it, as a device's session keeps its query step. A new entry
+			 * takes its own. */
+			searchResults?: SearchResultsSnapshot;
 	  };
 export interface AppTestSessionState {
 	language: LanguageTag;

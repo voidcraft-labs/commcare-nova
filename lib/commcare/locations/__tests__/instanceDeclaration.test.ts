@@ -50,3 +50,35 @@ describe("admitted location owner exports", () => {
 		},
 	);
 });
+
+// A worker assigned nowhere holds no places, and Core refuses a read below
+// them. Form logic reads blank there, guarded by the places' count; the case
+// owner moved to a place stays bare, so Core refuses the form when it opens
+// rather than writing a blank owner or turning the case away once the worker
+// has filled the whole form.
+describe("a read of places for a worker assigned nowhere", () => {
+	it("prints the owner's move to a place bare and a form's own place read guarded", () => {
+		const doc = locationOwnerFixture("direct", { placeRead: true });
+		const zip = new AdmZip(
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		);
+		const form = parseDocument(zip.readAsText("modules-0/forms-0.xml"), {
+			xmlMode: true,
+		});
+		const calculate = (nodeset: string) =>
+			findAll(
+				(node) => node.name === "bind" && node.attribs.nodeset === nodeset,
+				form.children.filter(isTag),
+			)[0]?.attribs.calculate;
+		expect(
+			calculate("/data/nova_operations/transfer/case/update/owner_id"),
+		).toBe(
+			"replace(instance('locations')/locations/location[@type = 'clinic'][@district_id = instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/@owner_id]/@id, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')",
+		);
+		expect(calculate("/data/first_place")).toBe(
+			"if(count(instance('locations')/locations/location) > 0, instance('locations')/locations/location/name, '')",
+		);
+	});
+});

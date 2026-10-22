@@ -318,6 +318,15 @@ const formulaSubject = (e: ValidationError): string =>
 			: `A formula in ${q(formName(e))}`
 		: `A formula on ${q(fieldName(e))} in ${q(formName(e))}`;
 
+/** Who reads a form's value: the question, a link from the form, or a
+ * CommCare Connect setting of the form. */
+const carrierSubject = (e: ValidationError): string =>
+	e.location.fieldUuid !== undefined || e.location.fieldId !== undefined
+		? q(fieldName(e))
+		: (e.location.field ?? "").startsWith("form_link_")
+			? `A link from ${q(formName(e))}`
+			: `A CommCare Connect setting of ${q(formName(e))}`;
+
 /** A finding's day-only refusal sentences (`typeChecker.ts::dayOnlyRefusalCopy`),
  * from the comparison and system date its details name. */
 const dayOnlyCopy = (e: ValidationError) =>
@@ -330,13 +339,19 @@ const dayOnlyCopy = (e: ValidationError) =>
 	});
 
 /** A record slot's sentence for a comparison a device can't run between two
- * moments (`typeChecker.ts::checkInstantComparison`), or undefined for any
- * other finding. The checker's code and reason reach a record finding as
- * `checkCode` and `checkReason`. */
-const instantComparisonCopy = (
+ * moments (`typeChecker.ts::checkInstantComparison`) or for a read of places,
+ * which no record slot declares, or undefined for any other finding. The
+ * checker's code and reason reach a record finding as `checkCode` and
+ * `checkReason`. */
+const recordFindingCopy = (
 	e: ValidationError,
 	subject: string,
 ): string | undefined => {
+	if (
+		e.details?.checkCode === "arm-unavailable" &&
+		e.details.checkReason === "places-unavailable"
+	)
+		return `${subject} reads places, which only a form's questions and its links can read. You can read them there instead.`;
 	if (e.details?.checkCode !== "incompatible-values") return undefined;
 	switch (e.details.checkReason ?? e.details.reason) {
 		case "day-only-on-device": {
@@ -404,6 +419,10 @@ const USER_MESSAGE_BY_CODE: Record<
 				return `${formulaSubject(e)} asks for the label of a choice of ${question}, whose choices come from a Project data table or from cases. You can read the label from where the choices come from instead.`;
 			case "choice-name":
 				return `${formulaSubject(e)} asks for the label of a choice of ${question}, which a form can't read here. You can use the answer itself instead.`;
+			case "itext-reference":
+				return e.details?.wordingKind === "choice"
+					? `${formulaSubject(e)} reads the label of a choice of ${q(det(e, "wordingFieldId", "that question"))}, and a label of its choices shows an answer. CommCare would show a placeholder there instead of the answer. You can read the answer itself instead.`
+					: `${formulaSubject(e)} reads the wording of ${q(det(e, "wordingFieldId", "that question"))}, which shows an answer. CommCare would show a placeholder there instead of the answer. You can read the answer itself instead.`;
 			default:
 				return "A function in a formula needs information that isn't available here. Use it where that information is available, or rewrite the formula.";
 		}
@@ -576,12 +595,12 @@ const USER_MESSAGE_BY_CODE: Record<
 	MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
 		`${q(modName(e))} is shown before a case is chosen, so its display condition can't use case information. Use current-user information or a fixed value.`,
 	MODULE_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
-		instantComparisonCopy(e, `The display condition for ${q(modName(e))}`) ??
+		recordFindingCopy(e, `The display condition for ${q(modName(e))}`) ??
 		`The display condition for ${q(modName(e))} compares values that don't go together. Open it and adjust the comparison.`,
 	FORM_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
 		`The display condition for ${q(formName(e))} uses case information that isn't available there. Use information from the selected case only when this module chooses a case first, or use current-user information.`,
 	FORM_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
-		instantComparisonCopy(e, `The display condition for ${q(formName(e))}`) ??
+		recordFindingCopy(e, `The display condition for ${q(formName(e))}`) ??
 		`The display condition for ${q(formName(e))} compares values that don't go together. Open it and adjust the comparison.`,
 	DISPLAY_CONDITION_SEARCH_INPUT_UNAVAILABLE: () =>
 		"A display condition reads a search answer before anyone has searched. Remove that reference and use current-user information or a fixed value.",
@@ -620,13 +639,10 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_COLUMN_OVER_ATTACHMENT_SLOT: (e) =>
 		`An item in ${q(modName(e))} shows ${q(det(e, "field", "case information"))}, but that case property holds an attached file rather than a value, so the item would stay empty on every case. Show something else, or change the question that saves it so it saves a link to the file instead.`,
 	CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR: (e) =>
-		instantComparisonCopy(e, `A calculated value in ${q(modName(e))}`) ??
+		recordFindingCopy(e, `A calculated value in ${q(modName(e))}`) ??
 		`A calculated value in ${q(modName(e))} has a calculation that doesn't quite add up. Open it and fix the calculation.`,
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>
-		instantComparisonCopy(
-			e,
-			`The Cases available setting in ${q(modName(e))}`,
-		) ??
+		recordFindingCopy(e, `The Cases available setting in ${q(modName(e))}`) ??
 		`The Cases available setting in ${q(modName(e))} compares values that don't go together. Open the condition and adjust the comparison.`,
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: (e) =>
 		`Two items in ${q(modName(e))}'s Default order use the same position. Move one of them or remove it from the order.`,
@@ -680,7 +696,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE: (e) =>
 		`The starting value for search field ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it always comes back empty. Use a fixed value, today's date, or current-user information, or clear it.`,
 	CASE_LIST_SEARCH_INPUT_REQUIRED_CONDITION_TYPE_ERROR: (e) =>
-		instantComparisonCopy(
+		recordFindingCopy(
 			e,
 			`The required condition for search field ${q(det(e, "inputName", "in this module"))}`,
 		) ??
@@ -688,7 +704,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_SEARCH_INPUT_REQUIRED_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
 		`The required condition for search field ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it can never hold. Compare other search answers, fixed values, or current-user information instead.`,
 	CASE_LIST_SEARCH_INPUT_VALIDATION_RULE_TYPE_ERROR: (e) =>
-		instantComparisonCopy(
+		recordFindingCopy(
 			e,
 			`The check on search field ${q(det(e, "inputName", "in this module"))}`,
 		) ??
@@ -696,7 +712,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_SEARCH_INPUT_VALIDATION_RULE_CASE_DATA_UNAVAILABLE: (e) =>
 		`The check on search field ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it can never pass. Compare other search answers, fixed values, or current-user information instead.`,
 	CASE_LIST_SEARCH_INPUT_HIDDEN_VALUE_TYPE_ERROR: (e) =>
-		instantComparisonCopy(
+		recordFindingCopy(
 			e,
 			`The hidden search value ${q(det(e, "inputName", "in this module"))}`,
 		) ??
@@ -706,7 +722,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_SCOPE: (e) =>
 		`The row rule for search field ${q(det(e, "inputName", "in this module"))} reads something the Search screen can't see yet. Use columns from the data table, fixed values, or current-user information.`,
 	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_TYPE_ERROR: (e) =>
-		instantComparisonCopy(
+		recordFindingCopy(
 			e,
 			`The row rule for search field ${q(det(e, "inputName", "in this module"))}`,
 		) ??
@@ -864,13 +880,10 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE: (e) =>
 		`The assigned cases setting on ${q(modName(e))} tries to read a case before one has been selected. Replace it with Show in Results or Hide from Results.`,
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: (e) =>
-		instantComparisonCopy(
-			e,
-			`The assigned cases setting on ${q(modName(e))}`,
-		) ??
+		recordFindingCopy(e, `The assigned cases setting on ${q(modName(e))}`) ??
 		`The assigned cases setting on ${q(modName(e))} isn't coming out as text. Check the formula, or clear it.`,
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR: (e) =>
-		instantComparisonCopy(
+		recordFindingCopy(
 			e,
 			`The condition that controls whether ${q(modName(e))}'s Search button appears`,
 		) ??
@@ -983,7 +996,17 @@ const USER_MESSAGE_BY_CODE: Record<
 				: "a question or a case property";
 		if (det(e, "reason", "") === "target-not-requested")
 			return `${subject} carries a selected record the destination no longer asks for. You can remove that carried value or choose another destination.`;
+		const menu = q(det(e, "datumModuleName", "that menu"));
+		/* A link runs after the form, where its #case/ read of a batch form's
+		 * cases is refused too; the worker's own record is still readable
+		 * there, and a batch form saves to it once. */
+		if (det(e, "reason", "") === "selected-cases-carrier")
+			return det(e, "carrier", "") === "form-link"
+				? `${subject} reads the cases chosen in ${menu}, which only the form's questions can read while it runs. You can save how many there are to a worker detail in the form and read it with #user/ instead.`
+				: `${subject} reads the cases chosen in ${menu}, which only the form's questions can read. You can read them in a hidden value and use that instead.`;
 		switch (det(e, "datumKind", "")) {
+			case "selected-cases":
+				return `${subject} reads the cases chosen in ${menu}, but ${form} no longer works on cases chosen there, so CommCare can't open the form. You can choose the cases before this form again, or read a question instead.`;
 			case "selected-case":
 				return `${subject} reads the case chosen in ${q(det(e, "datumModuleName", "that menu"))}, but ${form} no longer opens with that choice, so CommCare can't open the form. You can choose the case before this form, or read ${alternative} instead.`;
 			case "new-case":
@@ -998,6 +1021,25 @@ const USER_MESSAGE_BY_CODE: Record<
 				return `${subject} reads a session value this form no longer opens with. You can read ${alternative} instead.`;
 		}
 	},
+	SEARCH_RESULTS_NOT_SUPPLIED: (e) => {
+		const form = q(formName(e));
+		switch (det(e, "reason", "")) {
+			case "no-matches-form":
+				return `${carrierSubject(e)} reads what the search found, but ${form} opens only when the search finds nothing. You can read the worker's search answers with #search/ instead.`;
+			case "link-source":
+				return `A link from ${form} reads what a search found, but ${form} doesn't open after a search. You can read a case property instead.`;
+			default: {
+				const module = q(modName(e));
+				return `${carrierSubject(e)} reads what ${module}'s search found, but ${module} no longer opens on its search, so ${form} has no search results. You can turn Search first back on, or read the case the worker chose instead.`;
+			}
+		}
+	},
+	SEARCH_RESULTS_READ_INVALID: (e) =>
+		det(e, "reason", "") === "other-type"
+			? `${formulaSubject(e)} looks for ${det(e, "otherCaseType", "another kind of")} cases in what the search found, but this search only finds ${det(e, "caseType", "one kind of")} cases, so no result is one. You can remove that case type from the formula.`
+			: `${formulaSubject(e)} reads what the search found by its order. CommCare's search returns its cases in no fixed order, so the first or last result can change from one search to the next. You can count the results, or read a value of the case the worker chose.`,
+	LOCATIONS_READ_NEEDS_ORGANIZATION: (e) =>
+		`${carrierSubject(e)} reads places, but this app has no organization yet. You can add your organization's levels in App setup first.`,
 	CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP: (e) => {
 		const property = det(e, "property", "that property");
 		const operationId = e.details?.operationId;
@@ -1058,7 +1100,7 @@ const USER_MESSAGE_BY_CODE: Record<
 			return "A date calculation in this case operation uses months or years, which aren't available here. Use seconds, minutes, hours, days, or weeks.";
 		}
 		return (
-			instantComparisonCopy(e, "This case operation") ??
+			recordFindingCopy(e, "This case operation") ??
 			"A value or condition in this case operation doesn't fit where it's used. Review the highlighted operation."
 		);
 	},
@@ -1152,12 +1194,12 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_SELECT_SOURCE_INVALID: (e) =>
 		`${q(fieldName(e))} needs a record type and label property that are available in this app. You can choose them in the choice source settings.`,
 	CASE_SELECT_FILTER_INVALID: (e) =>
-		instantComparisonCopy(e, `The choice filter of ${q(fieldName(e))}`) ??
+		recordFindingCopy(e, `The choice filter of ${q(fieldName(e))}`) ??
 		`${q(fieldName(e))} uses information that isn't available in its choice filter. You can use candidate records, the selected record, worker information, and earlier answers in the same form and repeat.`,
 	CASE_SELECT_FILTER_NOT_ON_DEVICE: (e) =>
 		`${q(fieldName(e))} uses a choice filter that can't run on a device. You can choose another comparison or calculation.`,
 	LOOKUP_SELECT_FILTER_TYPE_ERROR: (e) =>
-		instantComparisonCopy(
+		recordFindingCopy(
 			e,
 			`The lookup-choice filter of ${q(fieldName(e))} in ${q(formName(e))}`,
 		) ??
@@ -1171,6 +1213,10 @@ const USER_MESSAGE_BY_CODE: Record<
 	INVALID_REF: (e) => {
 		if (e.details?.identity === "choice")
 			return `A formula on ${q(fieldName(e))} in ${q(formName(e))} uses a choice that ${q(det(e, "choiceFieldName", "that question"))} no longer has. You can choose one of its current choices.`;
+		if (e.details?.identity === "wording")
+			return `${formulaSubject(e)} reads wording that its form no longer has. You can read a question's current wording, or remove that read.`;
+		if (e.details?.identity === "place")
+			return `${formulaSubject(e)} reads a place level or a piece of place information that no longer exists. You can choose a current one, or remove that read.`;
 		if (e.details?.ref !== "/data")
 			return `A formula on ${q(fieldName(e))} in ${q(formName(e))} points to a field that isn't here. Check for a typo, or a field that was renamed or removed.`;
 		/* A Connect setting's formula belongs to the form, not a field. */
@@ -1266,6 +1312,18 @@ const USER_MESSAGE_BY_CODE: Record<
 		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "tableName", "the lookup table")} repeats the same value in several rows. Make the values unique or choose another value column.`,
 	LOOKUP_SELECT_SOURCE_LABEL_BLANK: (e) =>
 		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its labels, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. Fill in those rows or choose another label column.`,
+	LOOKUP_SELECT_SOURCE_EMPTY: (e) => {
+		const table = q(det(e, "tableName", "its data table"));
+		const next = `You can add rows to ${table} in Project data, or choose another table for its choices.`;
+		if (e.details?.ownerKind === "search-input") {
+			const input = q(
+				present(e.details.inputLabel ?? e.details.inputName, "this field"),
+			);
+			return `Search field ${input} gets its choices from ${table}, which has no rows, so a phone won't open its Search screen. ${next}`;
+		}
+		const form = e.location.formName ? ` in ${q(e.location.formName)}` : "";
+		return `The question ${q(fieldName(e))}${form} gets its choices from ${table}, which has no rows, so a phone won't open it. ${next}`;
+	},
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: () =>
 		"This app references more lookup data than it can bundle at once. Shrink or split the largest lookup tables and try again.",
 	LOOKUP_HQ_PUSH_TOO_LARGE: () =>

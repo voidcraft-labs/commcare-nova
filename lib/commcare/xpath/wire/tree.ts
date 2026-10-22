@@ -50,6 +50,11 @@ export interface WirePath {
 	readonly k: "path";
 	readonly root: WireRoot;
 	readonly steps: readonly WireStep[];
+	/** Core's refusal of this read over an instance with no rows is the
+	 * behavior wanted, so it is never guarded (`emptyRows.ts`): a case
+	 * owner moved to a place, where a worker assigned nowhere must stop the
+	 * form at the read rather than write a blank owner. */
+	readonly refusesEmpty?: true;
 }
 
 export type WireRoot =

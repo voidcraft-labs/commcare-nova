@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { proseText } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import {
+	type LocationProperty,
+	type OrganizationLevel,
+	proseText,
+} from "@/lib/domain";
 import {
 	lookupColumnIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
+import type { LocationFixtureRow } from "@/lib/organization/footprint";
 import { evaluate } from "../../xpath/evaluator";
 import type { XPathInstance } from "../../xpath/runtimeValues";
 import { XPathDate } from "../../xpath/types";
@@ -16,10 +22,13 @@ import {
 	caseDatabaseXPathInstance,
 	commcareSessionXPathInstance,
 	INLINE_SEARCH_INPUT_INSTANCE_ID,
+	locationsXPathInstance,
 	lookupXPathInstances,
 	SEARCH_INPUT_INSTANCE_ID,
 	searchInputXPathInstance,
 	searchScreenXPathInstances,
+	secondaryXPathInstances,
+	selectedCasesXPathInstance,
 } from "../xpathInstances";
 
 function row(overrides: Partial<CaseRow> = {}): CaseRow {
@@ -462,7 +471,7 @@ describe("Preview structural XPath instances", () => {
 		).toBe("Northern");
 	});
 
-	it("keeps an empty lookup table row path valid", () => {
+	it("counts no rows in an empty lookup table", () => {
 		const tableId = lookupTableIdSchema.parse(
 			"11111111-1111-7111-8111-111111111111",
 		);
@@ -501,5 +510,278 @@ describe("Preview structural XPath instances", () => {
 				ctx,
 			),
 		).toBe(0);
+	});
+});
+
+/** Element names of a node's children, in document order. */
+function childNames(instance: XPathInstance, ...path: string[]): string[] {
+	let nodes = instance.root().children();
+	for (const name of path) {
+		const next = nodes.find((node) => node.name === name);
+		if (next === undefined) throw new Error(`No ${name} in the instance.`);
+		nodes = next.children();
+	}
+	return nodes.map((node) => node.name);
+}
+
+describe("the selected-entities instance of a several-case datum", () => {
+	// Core: `VirtualInstances.buildSelectedValuesInstance` builds
+	// `<results><value>id</value>…</results>` in selection order, under the
+	// datum's id, which the form declares as the instance id.
+	const instance = selectedCasesXPathInstance("selected_cases", [
+		"case-b",
+		"case-a",
+		"case-c",
+	]);
+	const ctx = context(new Map([["selected_cases", instance]]));
+
+	it("holds one value per chosen case, in the order the worker chose them", () => {
+		expect(childNames(instance, "results")).toEqual([
+			"value",
+			"value",
+			"value",
+		]);
+		expect(
+			evaluate("join(' ', instance('selected_cases')/results/value)", ctx),
+		).toBe("case-b case-a case-c");
+		expect(
+			evaluate("count(instance('selected_cases')/results/value)", ctx),
+		).toBe(3);
+		// HQ's own membership read of the selection (`entries.py`).
+		expect(
+			evaluate(
+				"selected(join(' ', instance('selected_cases')/results/value), 'case-a')",
+				ctx,
+			),
+		).toBe(true);
+	});
+
+	it("counts no values in an empty selection, not a missing instance", () => {
+		const empty = selectedCasesXPathInstance("selected_cases", []);
+		expect(
+			evaluate(
+				"count(instance('selected_cases')/results/value)",
+				context(new Map([["selected_cases", empty]])),
+			),
+		).toBe(0);
+	});
+
+	it("serves each selection of an entry under its own datum id", () => {
+		const instances = secondaryXPathInstances({
+			identity: null,
+			lookupData: null,
+			caseDatabase: null,
+			selectedCases: { selected_cases: ["p-1", "p-2"] },
+		});
+		expect(
+			evaluate(
+				"count(instance('selected_cases')/results/value)",
+				context(instances),
+			),
+		).toBe(2);
+	});
+});
+
+describe("the flat locations fixture", () => {
+	const level = (
+		code: string,
+		name: string,
+		parent?: OrganizationLevel,
+	): OrganizationLevel => ({
+		uuid: testUuid(`fixture-level-${code}`),
+		code,
+		name,
+		...(parent === undefined ? {} : { parentLevelUuid: parent.uuid }),
+		caseFlow: { workers: "none", ownsCases: true },
+		addressBook: { reach: "own-branch" },
+	});
+	const state = level("state", "State");
+	const district = level("district", "District", state);
+	const clinic = level("clinic", "Health clinic", district);
+	const beds: LocationProperty = {
+		uuid: testUuid("fixture-property-beds"),
+		slug: "beds",
+		label: "Beds",
+	};
+	const ward: LocationProperty = {
+		uuid: testUuid("fixture-property-ward"),
+		slug: "ward",
+		label: "Ward",
+	};
+	const organization = {
+		organizationLevels: Object.fromEntries(
+			[state, district, clinic].map((entry) => [entry.uuid, entry]),
+		),
+		organizationLevelOrder: [state.uuid, district.uuid, clinic.uuid],
+		locationProperties: { [beds.uuid]: beds, [ward.uuid]: ward },
+		locationPropertyOrder: [beds.uuid, ward.uuid],
+	};
+	const place = (
+		overrides: Partial<LocationFixtureRow> &
+			Pick<LocationFixtureRow, "id" | "siteCode" | "levelUuid">,
+	): LocationFixtureRow => ({
+		name: overrides.id,
+		externalId: null,
+		latitude: null,
+		longitude: null,
+		values: {},
+		lineage: {},
+		...overrides,
+	});
+	const rows = [
+		place({
+			id: "loc-zed",
+			siteCode: "zed",
+			name: "Zed clinic",
+			levelUuid: clinic.uuid,
+			latitude: "12.5",
+			longitude: "-3.25",
+			values: { [beds.uuid]: "12" },
+			lineage: { [district.uuid]: "loc-east", [state.uuid]: "loc-top" },
+		}),
+		place({
+			id: "loc-east",
+			siteCode: "east",
+			name: "East",
+			levelUuid: district.uuid,
+			externalId: "E-1",
+			lineage: { [state.uuid]: "loc-top" },
+		}),
+		place({
+			id: "loc-alpha",
+			siteCode: "alpha",
+			name: "Alpha clinic",
+			levelUuid: clinic.uuid,
+			lineage: { [district.uuid]: "loc-east", [state.uuid]: "loc-top" },
+		}),
+	];
+	const instance = locationsXPathInstance(rows, organization);
+	const ctx = context(new Map([["locations", instance]]));
+
+	// HQ: `locations/fixtures.py::FlatLocationSerializer._get_fixture_node`.
+	it("orders places by site code, as HQ's fixture does", () => {
+		expect(
+			evaluate(
+				"join(' ', instance('locations')/locations/location/site_code)",
+				ctx,
+			),
+		).toBe("alpha east zed");
+	});
+
+	it("writes the place's level code and id, and an id attribute for every level", () => {
+		expect(
+			evaluate(
+				"instance('locations')/locations/location[@id = 'loc-zed']/@type",
+				ctx,
+			),
+		).toBe("clinic");
+		const zed = "instance('locations')/locations/location[@id = 'loc-zed']";
+		expect(evaluate(`${zed}/@clinic_id`, ctx)).toBe("loc-zed");
+		expect(evaluate(`${zed}/@district_id`, ctx)).toBe("loc-east");
+		expect(evaluate(`${zed}/@state_id`, ctx)).toBe("loc-top");
+		// A level below the place is present and empty.
+		expect(
+			evaluate(
+				"instance('locations')/locations/location[@id = 'loc-east']/@clinic_id",
+				ctx,
+			),
+		).toBe("");
+		expect(
+			evaluate(
+				"count(instance('locations')/locations/location[@id = 'loc-east']/@clinic_id)",
+				ctx,
+			),
+		).toBe(1);
+	});
+
+	it("writes HQ's fixed children in HQ's order, location_type holding the level's name", () => {
+		expect(childNames(instance, "locations", "location")).toEqual([
+			"name",
+			"site_code",
+			"external_id",
+			"latitude",
+			"longitude",
+			"location_type",
+			"supply_point_id",
+			"location_data",
+		]);
+		expect(
+			evaluate(
+				"instance('locations')/locations/location[@id = 'loc-zed']/location_type",
+				ctx,
+			),
+		).toBe("Health clinic");
+		expect(
+			evaluate(
+				"instance('locations')/locations/location[@id = 'loc-east']/external_id",
+				ctx,
+			),
+		).toBe("E-1");
+		expect(
+			evaluate(
+				"instance('locations')/locations/location[@id = 'loc-alpha']/external_id",
+				ctx,
+			),
+		).toBe("");
+	});
+
+	it("prints coordinates as HQ's ten-place decimals, blank where unset", () => {
+		const zed = "instance('locations')/locations/location[@id = 'loc-zed']";
+		expect(evaluate(`${zed}/latitude`, ctx)).toBe("12.5000000000");
+		expect(evaluate(`${zed}/longitude`, ctx)).toBe("-3.2500000000");
+		expect(
+			evaluate(
+				"instance('locations')/locations/location[@id = 'loc-east']/latitude",
+				ctx,
+			),
+		).toBe("");
+	});
+
+	it("gives every place one child per place-information field, empty where unset", () => {
+		const zed = "instance('locations')/locations/location[@id = 'loc-zed']";
+		expect(evaluate(`${zed}/location_data/beds`, ctx)).toBe("12");
+		expect(evaluate(`${zed}/location_data/ward`, ctx)).toBe("");
+		expect(evaluate(`count(${zed}/location_data/ward)`, ctx)).toBe(1);
+	});
+
+	it("reads a level's places by their level code", () => {
+		expect(
+			evaluate(
+				"count(instance('locations')/locations/location[@type = 'clinic'])",
+				ctx,
+			),
+		).toBe(2);
+	});
+
+	it("is an empty fixture for a worker assigned nowhere", () => {
+		const empty = context(
+			new Map([["locations", locationsXPathInstance([], organization)]]),
+		);
+		expect(
+			evaluate("count(instance('locations')/locations/location)", empty),
+		).toBe(0);
+		// The device reads the flat copy of an empty fixture, which has no
+		// `location` step, and refuses the read (emptyInstanceParity.test.ts).
+		expect(() =>
+			evaluate(
+				"instance('locations')/locations/location[@type = 'clinic']/name",
+				empty,
+			),
+		).toThrow("does not exist in the instance");
+	});
+
+	it("rides the device snapshot into the engine's instances", () => {
+		const instances = secondaryXPathInstances({
+			identity: null,
+			lookupData: null,
+			caseDatabase: { rows: [], indices: [], locations: rows },
+			organization,
+		});
+		expect(
+			evaluate(
+				"count(instance('locations')/locations/location)",
+				context(instances),
+			),
+		).toBe(3);
 	});
 });

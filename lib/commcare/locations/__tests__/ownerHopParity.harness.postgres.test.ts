@@ -76,26 +76,35 @@ describe("owner SQL over service-admitted organization rows", () => {
 					closed_on: null,
 				})
 				.execute();
-			const expression = compileTerm(
-				{
-					kind: "owner-location-at-level",
-					levelUuid: LOCATION_LEVELS[2].uuid,
-					ownerCaseType: "patient",
-				},
-				{
-					reading: "casedb",
-					db,
-					appId: scope.appId,
-					projectId: scope.projectId,
-					anchorAlias: "c",
-					currentCaseType: "patient",
-					caseTypeSchemas: new Map(
-						(doc.caseTypes ?? []).map((caseType) => [caseType.name, caseType]),
-					),
-					organizationLevels: doc.organizationLevels,
-					bindings: {},
-				},
-			);
+			const destinationAmong = (workerPlaceIds: readonly string[]) =>
+				compileTerm(
+					{
+						kind: "owner-location-at-level",
+						levelUuid: LOCATION_LEVELS[2].uuid,
+						ownerCaseType: "patient",
+					},
+					{
+						reading: "casedb",
+						db,
+						appId: scope.appId,
+						projectId: scope.projectId,
+						anchorAlias: "c",
+						currentCaseType: "patient",
+						caseTypeSchemas: new Map(
+							(doc.caseTypes ?? []).map((caseType) => [
+								caseType.name,
+								caseType,
+							]),
+						),
+						organizationLevels: doc.organizationLevels,
+						workerPlaceIds,
+						bindings: {},
+					},
+				);
+			const expression = destinationAmong([first.clinic, second.clinic]);
+			// A device names only the places its fixture holds.
+			const firstOnly = destinationAmong([first.clinic]);
+			const nowhere = destinationAmong([]);
 			for (const row of [first, second]) {
 				await db
 					.updateTable("cases")
@@ -108,6 +117,18 @@ describe("owner SQL over service-admitted organization rows", () => {
 					.where("c.case_id", "=", "patient-1")
 					.executeTakeFirstOrThrow();
 				expect(result.destination).toBe(row.clinic);
+				const among = await db
+					.selectFrom("cases as c")
+					.select(firstOnly.as("destination"))
+					.where("c.case_id", "=", "patient-1")
+					.executeTakeFirstOrThrow();
+				expect(among.destination).toBe(row === first ? first.clinic : null);
+				const none = await db
+					.selectFrom("cases as c")
+					.select(nowhere.as("destination"))
+					.where("c.case_id", "=", "patient-1")
+					.executeTakeFirstOrThrow();
+				expect(none.destination).toBeNull();
 			}
 			await db
 				.updateTable("cases")
