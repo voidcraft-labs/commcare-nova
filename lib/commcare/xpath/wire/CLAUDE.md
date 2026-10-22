@@ -103,6 +103,13 @@ legacy table lookups explicitly capture their containing case row. Projection
 appends typed leaf steps, including the two-step case-index path. Choice UUIDs
 resolve to saved values from the held document's option catalog.
 
+A comparison goes through `fromExpression.ts::compareSides`, which asks
+`lib/domain/expression/instantOperand.ts::comparisonPlan` whether a device runs
+it between two moments, by day, or as written, and builds each side once per
+spelling so `in`, `between` and `switch` share it. A lowered side is
+`instant.ts::instantOperandWire`; `lib/commcare/xpath/CLAUDE.md`, "The instant
+lowering", owns the parse.
+
 Every authored form slot, including prose outputs and generated mixed
 expressions, reaches `xel` as a `WireExpr`. There is no branded authored-text
 bridge or secondary instance scanner.

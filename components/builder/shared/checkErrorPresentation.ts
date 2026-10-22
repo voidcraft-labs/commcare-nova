@@ -9,13 +9,19 @@
 // Never inspect or pattern-match `message` here. Checker prose is free
 // to improve without changing the editor's UX contract.
 
-import type {
-	CheckError,
-	CheckErrorCode,
-	CheckPath,
+import {
+	type CheckError,
+	type CheckErrorCode,
+	type CheckPath,
+	dayOnlyRefusalCopy,
+	UNREADABLE_DATETIME_NEXT,
 } from "@/lib/domain/expression";
 
-type DiagnosticPresenter = (path: CheckPath, reason?: string) => string;
+type DiagnosticPresenter = (
+	path: CheckPath,
+	reason?: string,
+	error?: CheckError,
+) => string;
 
 /** Return the closest named slot, skipping array indexes. */
 function lastNamedSlot(path: CheckPath): string | undefined {
@@ -78,7 +84,7 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 	"lookup-table-scope": () => "Choose a column from the lookup table used here",
 	"property-scope": () => "Choose information from the related case shown here",
 	"case-status-value": () => "Use open or closed for built-in case status",
-	"incompatible-values": (_path, reason) => {
+	"incompatible-values": (_path, reason, error) => {
 		switch (reason) {
 			case "date-datetime":
 				return "A date and a date and time don't line up. You can wrap the date and time in date() to compare days";
@@ -86,6 +92,16 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 				return "A date and time can only be ordered against another date and time. You can wrap it in date() to compare days";
 			case "boolean":
 				return "Anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own";
+			case "day-only-on-device": {
+				const copy = dayOnlyRefusalCopy(error?.instant);
+				return `${copy.kept}. ${copy.next.slice(0, -1)}`;
+			}
+			case "clock-lost":
+				return "This value has kept only the day of a date and time. You can compare the date and time that first recorded it, or wrap both sides in date() to compare days";
+			case "unreadable-datetime":
+				return `Nova can't read this date and time. ${UNREADABLE_DATETIME_NEXT.slice(0, -1)}`;
+			case "datetime-equality":
+				return "A date and time never matches something that isn't one. You can compare it with another date and time, or check whether it's blank";
 			default:
 				return "Choose values that use compatible kinds of information";
 		}
@@ -152,5 +168,8 @@ export function presentCheckErrorForEditor(error: CheckError): string {
 	const presenter = (
 		PRESENT_BY_CODE as Partial<Record<string, DiagnosticPresenter>>
 	)[error.code];
-	return presenter?.(error.path, error.reason) ?? nextActionForPath(error.path);
+	return (
+		presenter?.(error.path, error.reason, error) ??
+		nextActionForPath(error.path)
+	);
 }

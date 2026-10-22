@@ -113,6 +113,47 @@ describe("PredicateCardEditor — reasons and the checker's newer codes", () => 
 		},
 	);
 
+	it.each([
+		[
+			"clock-lost",
+			"This value has kept only the day of a date and time. You can compare the date and time that first recorded it, or wrap both sides in date() to compare days",
+		],
+		[
+			"unreadable-datetime",
+			"Nova can't read this date and time. You can write it like 2026-01-02T10:30:00Z, with a four-digit year and a day and time that exist",
+		],
+		[
+			"datetime-equality",
+			"A date and time never matches something that isn't one. You can compare it with another date and time, or check whether it's blank",
+		],
+		[
+			"day-only-on-device",
+			"On a device CommCare keeps only the day a case was opened or last changed. You can wrap both sides in date() to compare days",
+		],
+	])(
+		"gives a comparison a device can't run between moments, %s, its own line",
+		(reason, copy) => {
+			expect(present("incompatible-values", reason)).toBe(copy);
+		},
+	);
+
+	it("names the system date a device keeps as its day", () => {
+		const dayOnly = (instant: CheckError["instant"]) =>
+			presentCheckErrorForEditor({
+				code: "incompatible-values",
+				path: [],
+				message: "Detailed checker prose that must stay out of the UI",
+				reason: "day-only-on-device",
+				instant,
+			});
+		expect(dayOnly({ comparison: "ordering", property: "date_opened" })).toBe(
+			"On a device CommCare keeps only the day a case was opened. You can wrap both sides in date() to compare days",
+		);
+		expect(dayOnly({ comparison: "equality", property: "last_modified" })).toBe(
+			"On a device CommCare keeps only the day a case was last changed. You can wrap both sides in date() to compare days",
+		);
+	});
+
 	it("keeps the general line for values that don't line up with no reason", () => {
 		expect(present("incompatible-values")).toBe(
 			"Choose values that use compatible kinds of information",

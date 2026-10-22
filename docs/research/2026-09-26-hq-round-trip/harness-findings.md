@@ -1119,9 +1119,7 @@ control.
     (`date_opened > '2026-01-01T10:00:00.000Z'`). *Harm:* a comparison of
     two moments that Preview finds true is false on a device, or compares
     days where the author compared moments. Defect 6 covers a time of day
-    only. Step 3's typed expression model lowers each operand by its type
-    (`docs/plans/hq-round-trip/3-expressions.md`, "The baseline this plan
-    was written against").
+    only.
     *Documents:* `targeted-datetime-ordering` (intent, `/values/*/value` on
     the local export and on A: two answers an hour apart in a survey form,
     and two case properties held as text in a follow-up form);
@@ -1132,6 +1130,20 @@ control.
     two such properties, `/caseList/rows/*/caseId` on the local export;
     manifest: the local archive's suite holds a REFUSED `time-operand` use
     under `XPathCmpExpr` and `LT`).
+    *Fixed (#783):* Nova lowers each operand of an ordering over two dates
+    and times by its type to zone-free integer microseconds
+    (`lib/commcare/xpath/wire/instant.ts`), in the form, in its Vellum
+    shadow and in the suite, so a device orders by instant in every zone,
+    as Preview does; a date against a date stays bare, and a date meets a
+    date and time only through an explicit coercion, entering as its UTC
+    midnight. The checker refuses, in a slot a device evaluates, a
+    comparison with an operand that has no instant on a device: a
+    `casedb` `date_opened` or `last_modified` against a moment
+    (`day-only-on-device`) and a value whose clock is lost (`clock-lost`).
+    The `expression` native family holds it in four device zones and three
+    Formplayer setups. Its seven entries are in the fixed-defect register,
+    held on the controls `targeted-datetime-ordering` and
+    `targeted-datetime-operands`.
 
 57. **A case list column over `case_id` is blank on HQ's build.** Nova
     writes a shown column over `case_id` as a property column
@@ -1252,6 +1264,11 @@ shown. It has a targeted document with its register entries and its control.
     Formplayer's answer at
     `/hq/app_aware_remote_search/500/corehq.apps.es.exceptions.ESError` and
     `/runs/*/steps/*/response/exception`).
+    *Device half fixed (#783):* `=`, `!=`, `in` and `switch` between two
+    dates and times lower to an equality of integer microseconds
+    (`lib/commcare/xpath/wire/instant.ts`), exact at that resolution, so
+    the device lists the cases Preview lists. Its two entries are in the
+    fixed-defect register, held on the control `targeted-datetime-equality`.
 
 ### Found of the lane itself
 

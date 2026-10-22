@@ -169,7 +169,50 @@ Hidden Value leaf reads inference's data type, held class and lost clock
 (`inference.ts`); an untyped one is `_any` with its held class, so it holds no
 opinion yet stays comparable. A date and time whose clock may be gone carries
 `clockLost`, and an assignment of it to a date-and-time destination is
-`expected-value` reason `clock-lost`. `ruleSets.ts` owns their scalar tables; editor
+`expected-value` reason `clock-lost`.
+
+`instantOperand.ts` is the one classification of a comparison over dates and
+times, read by the checker and by the on-device emitter
+(`lib/commcare/xpath/wire/fromExpression.ts`), so neither lowers or refuses
+what the other does not. It classifies each operand by its leaves, recursing
+into `if`, `coalesce` and `switch` branches (Core passes the chosen branch's
+value through unchanged, so each branch keeps its own held representation),
+and `comparisonPlan` says how a device runs the comparison: `lowered` (an
+ordering with a moment on either side, an equality, `in` member or `switch`
+case with a moment on one side and a moment or a value of unknown type on the
+other), `day` (a `casedb` `date_opened` or
+`last_modified` ordered against a day-aligned operand, or two system dates,
+under any operator) or `bare`. A form literal leaf, a direct operand or a
+branch of an `if`, `coalesce` or `switch`, takes the type its comparison gives
+it (`comparisonOperands`, `formLiteralsShaped`), so a literal shaped as a date
+and time ordered against one is folded like a record literal, to its integer
+directly and to its canonical text as a branch. Wherever `toWire` prints the
+expression (`onDeviceContext`): in a slot whose targets include `XF` or `SU`,
+and in a value of a server search condition that a device works out before
+the search runs (`searchRuntimeValues.ts`, the walk the CSQL emitter and its
+validators share; `checkExpression` infers each such value again with
+`runsOnDevice`), a `lowered` comparison with a leaf that has no instant text
+is `incompatible-values`, one finding per comparison and none where it
+already holds another: a `casedb` system date (`day-only-on-device`, with
+`instant.comparison` and `instant.property`), a clock-lost value (`clock-lost`,
+with `instant.field`), a date (`date-datetime`), a literal no spelling reads
+(`unreadable-datetime`, by `literalInstantMicros`, the fold's own grammar,
+which reads a four-digit year, a day that exists, a clock to 23:59:59 and an
+offset's two-digit hours and minutes, and whose `literalInstantText` prints
+any literal it reads in the literal's own date and offset), and a literal or a
+branch of another known kind, or a branch of unknown type holding neither
+text nor a typed date (`datetime-ordering`, or `datetime-equality` under `=` /
+`!=`); a blank literal names no moment and is admitted. A `datetime-coerce` of
+a literal that names no moment is `unreadable-datetime` in the same places,
+since a device prints the moment as a value (`instant.ts::datetimeCoerceValue`).
+`dayOnlyRefusalCopy` and `systemDateWhen` are the day-only sentences every
+surface assembles, whose next step (`date()` on both sides) the checker
+admits. An unknown operand against a moment takes the row of what it holds,
+text or a typed date, in an ordering and an equality alike, so an untyped
+Hidden Value holding a moment's text equals that moment in any spelling; two
+unknown operands, or one against a value that names no moment (`x = ''`), stay
+bare. A comparison a server search makes itself never lowers, so these never
+fire there. `ruleSets.ts` owns their scalar tables; editor
 constraints read those tables rather than introducing another checker. Form
 literals must have an exact supported spelling, and static choice defaults must
 name a current choice. Numeric defaults use `numericAnswerText`'s native answer

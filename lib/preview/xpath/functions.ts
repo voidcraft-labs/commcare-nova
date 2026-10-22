@@ -103,9 +103,12 @@ register("int", (args) => {
 });
 register("round", (args) => {
 	const n = toDouble(args[0] ?? "");
-	const decimals = args.length > 1 ? toNumber(args[1] ?? 0) : 0;
 	if (Number.isNaN(n)) return NaN;
-	const factor = 10 ** decimals;
+	// Core's one-argument round is `Math.floor(x + 0.5)` on the double
+	// (`XPathRoundFunc.evalBody`), which differs from Math.round only where
+	// `x + 0.5` itself rounds (0.49999999999999994).
+	if (args.length <= 1) return Math.floor(n + 0.5);
+	const factor = 10 ** toNumber(args[1] ?? 0);
 	return Math.round(n * factor) / factor;
 });
 

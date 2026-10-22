@@ -299,7 +299,14 @@ Standard metadata has ONE Nova authoring name. `case_name`, `external_id`, and `
 
 `date_opened` and `last_modified` retain datetime storage and server-search
 semantics. Native casedb exposes them as calendar-only DateData, so form and
-Results/Details reads use the worker's calendar date. `isCalendarCaseProperty`
+Results/Details reads use the worker's calendar date. So in a slot a device
+evaluates, ordering either against a date and time is refused unless that
+operand is day-aligned (a date turned into a date and time, or the other system
+date), and comparing either by `=` or `!=` with any date and time is refused,
+day-aligned included, since a day never equals a moment (`day-only-on-device`).
+Against a date, either is a date and time compared with a date, refused as
+`date-datetime` like any other; `date(…)` on either side compares days.
+`isCalendarCaseProperty`
 identifies this narrower read contract without changing the stored catalog.
 `resolveCaseListTemporalType` preserves authored type admission and infers the
 portable result through value branches; mixed date/datetime results retain their

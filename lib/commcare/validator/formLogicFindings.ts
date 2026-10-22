@@ -10,11 +10,13 @@ import { expressionSlotLabel } from "@/lib/domain/expression/slotLabels";
 import {
 	type CheckError,
 	checkExpression,
+	dayOnlyRefusalCopy,
 	expressionContextAtPath,
 	formComparisonOperandTypes,
 	type ScalarType,
 	scalarDataType,
 	typeOf,
+	UNREADABLE_DATETIME_NEXT,
 } from "@/lib/domain/expression/typeChecker";
 import type {
 	Expression,
@@ -359,7 +361,32 @@ export function formLogicFinding(
 					...(other === undefined ? {} : { otherType: other }),
 				};
 				message = `${owner.subject} orders a date and time against ${valueKindPhrase(other, "a value that isn't one")}${owner.inSlot}. CommCare can only order two dates and times by their moment. You can compare it with another date and time, or wrap it in date() to compare days.`;
-			} else if (error.reason === "boolean") {
+			} else if (error.reason === "day-only-on-device") {
+				const property = error.instant?.property;
+				const equality = error.instant?.comparison === "equality";
+				details = {
+					reason: error.reason,
+					comparison: equality ? "equality" : "ordering",
+					...(property === undefined ? {} : { systemDate: property }),
+				};
+				const copy = dayOnlyRefusalCopy(error.instant);
+				message = `${owner.subject} ${copy.asks}${owner.inSlot}. ${copy.kept}${copy.consequence} ${copy.next}`;
+			} else if (error.reason === "clock-lost") {
+				const field = error.instant?.field;
+				const source =
+					field === undefined ? undefined : ctx?.form?.fields.get(field)?.id;
+				details = {
+					reason: error.reason,
+					comparison:
+						error.instant?.comparison === "equality" ? "equality" : "ordering",
+					...(source === undefined ? {} : { clockSource: source }),
+				};
+				message = `${owner.subject} compares ${source === undefined ? "a value" : `"${source}"`}, which has kept only the day of a date and time, with a moment${owner.inSlot}, so CommCare can't line the two up. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.`;
+			} else if (error.reason === "unreadable-datetime")
+				message = `${owner.subject} uses a value Nova can't read as a date and time${owner.inSlot}. ${UNREADABLE_DATETIME_NEXT}`;
+			else if (error.reason === "datetime-equality")
+				message = `${owner.subject} compares a date and time with a value that isn't one${owner.inSlot}, so the two never match. You can compare it with another date and time, or check whether it's blank.`;
+			else if (error.reason === "boolean") {
 				const other = operandOtherThan(
 					comparisonSides(expression, error.path, ctx),
 					"boolean",

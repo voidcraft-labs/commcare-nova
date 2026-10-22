@@ -48,6 +48,7 @@ declarations it reads. Generated scaffolding uses `w` directly. All authored
 form slots, including Connect and after-submit links, use this boundary; no
 stored or branded authored string crosses an executable XML or HQ JSON slot.
 `wire/CLAUDE.md` owns target modes, literals, shadow eligibility and declarations.
+`wire/instant.ts` is the date-and-time lowering (below).
 
 `functionCapabilities.ts` records independently sourced runtime capabilities.
 JavaRosa's executable XForm set is the authoring floor, and an admitted form
@@ -68,6 +69,51 @@ admission. `normalize-space` and `is-blank` lower through the wire tree.
 `is-blank` means missing or empty; zero, false and whitespace are values.
 Emitted XPath is never rewritten after serialization. Never rewrite XPath with
 regex.
+
+## The instant lowering
+
+`instant.ts::instantMicros` builds, for an operand printed `T`, the zone-free
+parse of `T` into integer microseconds: days from the civil date (era
+arithmetic) times 86,400, plus the clock, minus the written offset, then
+microseconds plus the rounded fraction. It reads the spellings Nova's lookup
+cells admit (`lib/lookup/coercion.ts::isLookupDatetime`): `T`, `t` or a space
+between date and clock (read by position), `Z` or `z`, `±HH`, `±HHMM`,
+`±HH:MM` or no offset (read as UTC), and any number of fraction digits,
+rounded to the microsecond with Core's one-argument `round`,
+`floor(x + 0.5)`. The tail after the seconds is translated `'Zz+-'` to
+`'||||'`; the offset is the text after the first mark, guarded so that no mark
+gives `''`, and its minutes are its last two characters when it is longer than
+two. Blank text is NaN, so an ordering is false and `!=` true. No input
+throws: Core's `substring-after` returns the whole string when the separator
+is absent and `substr` returns `''` past the end. Every sub-term is built once
+as a shared node, so the memoised print is linear in its bytes. A few
+malformed shapes read as a defined number rather than NaN (out-of-range
+fields such as `2026-13-45T99:99:99Z`, a bare trailing `+`, `-` or `.`,
+`T-4:30:00Z`, `04:30:00e5Z`); none is a spelling Nova, HQ or a device writes,
+and the `expression` native family holds each decode as a named constant. A typed
+instant whose zone's offset is under an hour but not zero (only historic
+offsets, such as Amsterdam before 1937) prints `%Z` as `Z:MM`, which the
+parse reads as NaN; seconds in a historic local-mean-time offset are dropped
+by Core's `%Z`, a sub-minute error before 1900.
+
+`toWire` applies it to each date-and-time operand of an ordering, and of an
+equality between a date and time and a date and time or a value of unknown
+type, in every device target, choosing each
+operand's instant text by `lib/domain/expression/instantOperand.ts`'s class of
+it and folding a literal by `literalInstantMicros`, the checker's own
+grammar, computed with the device's own double operations in the device's
+order, so a fold equals the parse even past 2^53; it reads a four-digit
+year, and an offset's two-digit hours and minutes however large, as Core
+adds them to the clock. A literal branch of an `if`, `coalesce` or `switch`
+prints as `literalInstantText`, the literal's own date, clock and offset, which
+the parse reads back to the fold's microseconds for every four-digit year,
+whatever year its UTC moment falls in. It never
+applies inside CSQL text: CSQL comparisons print through the CSQL emitter, and
+only a runtime segment reaches `toWire`. The tests' `instantParse.ts`
+recognises the parse structurally, so they read the tree rather than its
+text.
+`lib/commcare/CLAUDE.md`, "Dates and times compare as moments on a device",
+holds the operand rows and the day rule.
 
 The parser tests distinguish syntax, identity binding, exact context and strict
 refusals. Property tests cover parse/print stability and totality over arbitrary

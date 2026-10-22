@@ -336,6 +336,109 @@ describe("comparisons whose values don't line up, at every carrier", () => {
 	);
 });
 
+describe("comparisons a device can't run between two moments", () => {
+	it.each(CARRIERS)(
+		"refuses when the case was opened ordered against a moment in a %s, beside two system dates",
+		(carrier) => {
+			const refused = atCarrier(carrier, {
+				kind: "gt",
+				left: caseRead("date_opened"),
+				right: now,
+			});
+			expect(refused).toEqual([
+				expect.objectContaining({
+					code: "XPATH_INCOMPATIBLE_VALUES",
+					location: expect.objectContaining({ field: carrierSlot(carrier) }),
+					details: expect.objectContaining({
+						reason: "day-only-on-device",
+						comparison: "ordering",
+						systemDate: "date_opened",
+						checkCode: "incompatible-values",
+					}),
+				}),
+			]);
+			expect(refused[0]?.message).toContain(
+				"compares when the case was opened with a moment",
+			);
+			expect(refused[0]?.message).toContain(
+				"On a device CommCare keeps only the day a case was opened, so it can't tell. You can wrap both sides in date() to compare days.",
+			);
+			expect(userFacingError(refused[0])).toContain(
+				"compares when the case was opened with a moment. On a device CommCare keeps only the day a case was opened, so it can't tell. You can wrap both sides in date() to compare days.",
+			);
+			expect(
+				atCarrier(carrier, {
+					kind: "gt",
+					left: caseRead("last_modified"),
+					right: caseRead("date_opened"),
+				}),
+			).toEqual([]);
+		},
+	);
+
+	it("refuses when the case was last changed compared by equality with a moment", () => {
+		const refused = atCarrier(
+			"field",
+			{
+				kind: "eq",
+				left: caseRead("last_modified"),
+				right: caseRead("seen_at"),
+			},
+			withCaseProperties,
+		);
+		expect(refused).toEqual([
+			expect.objectContaining({
+				details: expect.objectContaining({
+					reason: "day-only-on-device",
+					comparison: "equality",
+					systemDate: "last_modified",
+				}),
+			}),
+		]);
+		expect(refused[0]?.message).toBe(
+			'"text" checks whether the case was last changed at an exact moment in its display condition. On a device CommCare keeps only the day a case was last changed, so the two never match. You can wrap both sides in date() to compare days.',
+		);
+	});
+
+	it("names the Hidden Value whose clock is gone, beside date() on both sides", () => {
+		const keepsNow = (doc: ReturnType<typeof formFixture>) => {
+			const hidden = doc.fields[ids.hidden];
+			if (hidden.kind !== "hidden")
+				throw new Error("The hidden value fixture is missing.");
+			hidden.calculate = now;
+		};
+		const refused = atCarrier(
+			"field",
+			{ kind: "lt", left: field(ids.hidden), right: now },
+			keepsNow,
+		);
+		expect(refused).toEqual([
+			expect.objectContaining({
+				code: "XPATH_INCOMPATIBLE_VALUES",
+				details: expect.objectContaining({
+					reason: "clock-lost",
+					comparison: "ordering",
+					clockSource: "hidden",
+				}),
+			}),
+		]);
+		expect(refused[0]?.message).toBe(
+			'"text" compares "hidden", which has kept only the day of a date and time, with a moment in its display condition, so CommCare can\'t line the two up. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.',
+		);
+		expect(
+			atCarrier(
+				"field",
+				{
+					kind: "lt",
+					left: { kind: "date-coerce", value: field(ids.hidden) },
+					right: { kind: "date-coerce", value: now },
+				},
+				keepsNow,
+			),
+		).toEqual([]);
+	});
+});
+
 describe("the operand a comparison refusal names, typed as the checker typed it", () => {
 	const relevant = {
 		entity: "field",

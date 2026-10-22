@@ -1,6 +1,9 @@
 import type { OrganizationLevel } from "@/lib/domain";
 import { resolveCommCareDatePattern } from "@/lib/domain/dateFormats";
-import { isMatchAll } from "@/lib/domain/expression/builders";
+import {
+	isMatchAll,
+	term as termExpression,
+} from "@/lib/domain/expression/builders";
 import { choiceValue } from "@/lib/domain/expression/choiceValue";
 import {
 	activeRowScope,
@@ -8,6 +11,14 @@ import {
 	pushRowScope,
 } from "@/lib/domain/expression/context";
 import { distanceToMeters } from "@/lib/domain/expression/distance";
+import {
+	comparisonOperands,
+	comparisonPlan,
+	type InstantComparisonKind,
+	type InstantOperand,
+	type InstantOperandMemo,
+	instantOperand,
+} from "@/lib/domain/expression/instantOperand";
 import {
 	canonicalizeRelationPath,
 	normalizeRelationEvaluationScopes,
@@ -45,6 +56,11 @@ import {
 	selectedCasesInstance,
 	sessionInstance,
 } from "./instances";
+import {
+	datetimeCoerceValue,
+	type InstantEmission,
+	instantOperandWire,
+} from "./instant";
 import {
 	buildAncestorJoinNodeset,
 	buildSubcaseJoinNodeset,
@@ -113,6 +129,14 @@ type Context = WireBuildContext & {
 	readonly root: InstanceRoot;
 	readonly anchor: OnDeviceCaseAnchor;
 	readonly bindings: WireTermBindings;
+	/** Inside an operand of a comparison by day (a casedb system date against
+	 * a day-aligned operand): a `datetime-coerce` there is Core's `date()`. It
+	 * reaches only the operand's own branches, never their conditions. */
+	readonly dayComparison?: true;
+	/** The operands this lowering has classified, per typing context, so an
+	 * expression met again (a `switch` subject, a side `in` or `between`
+	 * shares) is classified once. */
+	readonly instants: WeakMap<ExpressionContext, InstantOperandMemo>;
 };
 const comparison: Record<
 	"eq" | "neq" | "lt" | "lte" | "gt" | "gte",
@@ -123,6 +147,7 @@ export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
 	const bindings = ctx.bindings ?? {};
 	const context: Context = {
 		...ctx,
+		instants: new WeakMap(),
 		root: ctx.root ?? caseRow(ctx.types)?.root ?? DEFAULT_INSTANCE_ROOT,
 		anchor: ctx.anchor ?? ROOT_ON_DEVICE_CASE_ANCHOR,
 		bindings: {
@@ -162,6 +187,15 @@ export function toWire(expr: Expression, ctx: WireBuildContext): WireExpr {
 				},
 	);
 	return emitExpression(normalized, { ...context, overrides });
+}
+/** The classification memo of the context `ctx` types in. */
+function instantMemo(ctx: Context): InstantOperandMemo {
+	let memo = ctx.instants.get(ctx.types);
+	if (memo === undefined) {
+		memo = new WeakMap();
+		ctx.instants.set(ctx.types, memo);
+	}
+	return memo;
 }
 
 /** Legacy table lookups explicitly capture their one containing case row.
@@ -566,9 +600,91 @@ function queryContext(expression: Expression, ctx: Context): Context {
 	};
 }
 
+/** One side of a comparison, emitted once in each spelling it is used in,
+ * so `in`, `between` and `switch` share it across their comparisons. */
+interface ComparisonSide {
+	readonly expression: Expression;
+	readonly operand: InstantOperand;
+	bare?: WireExpr;
+	day?: WireExpr;
+	lowered?: WireExpr;
+}
+function comparisonSide(
+	expression: Expression,
+	ctx: Context,
+	operand: InstantOperand = instantOperand(expression, ctx.types, {
+		memo: instantMemo(ctx),
+	}),
+): ComparisonSide {
+	return { expression, operand };
+}
+function instantEmission(ctx: Context): InstantEmission {
+	return {
+		value: (expression) => emitExpression(expression, ctx),
+		condition: (condition) =>
+			emitExpression(
+				normalizeRelationEvaluationScopes(condition, relationScope(ctx)),
+				ctx,
+			),
+		switchTests: (expression) => switchTests(expression, ctx),
+	};
+}
+/** A comparison as a device must run it: two moments in integer
+ * microseconds, two days, or as written (`instantOperand.ts::comparisonPlan`). */
+function compareSides(
+	kind: InstantComparisonKind,
+	left: ComparisonSide,
+	right: ComparisonSide,
+	ctx: Context,
+): WireExpr {
+	const plan = comparisonPlan(kind, left.operand, right.operand);
+	const wire = (side: ComparisonSide): WireExpr => {
+		switch (plan) {
+			case "lowered":
+				side.lowered ??= instantOperandWire(side.operand, instantEmission(ctx));
+				return side.lowered;
+			case "day":
+				side.day ??= emitExpression(side.expression, {
+					...ctx,
+					dayComparison: true,
+				});
+				return side.day;
+			case "bare":
+				side.bare ??= emitExpression(side.expression, ctx);
+				return side.bare;
+		}
+	};
+	return w.cmp(comparison[kind], wire(left), wire(right));
+}
+/** Each case's test of a `switch`, its subject emitted once. */
+function switchTests(
+	expr: Extract<Expression, { kind: "switch" }>,
+	ctx: Context,
+): readonly WireExpr[] {
+	const on = comparisonSide(expr.on, ctx);
+	return expr.cases.map((entry) =>
+		compareSides(
+			"eq",
+			on,
+			comparisonSide(termExpression(entry.when), ctx),
+			ctx,
+		),
+	);
+}
+
 function emitExpression(expr: Expression, ctx: Context): WireExpr {
 	const overridden = ctx.overrides?.get(expr);
 	if (overridden !== undefined) return overridden;
+	if (
+		ctx.dayComparison === true &&
+		expr.kind !== "datetime-coerce" &&
+		expr.kind !== "if" &&
+		expr.kind !== "coalesce" &&
+		expr.kind !== "switch"
+	)
+		return emitExpression(expr, { ...ctx, dayComparison: undefined });
+	const plain: Context =
+		ctx.dayComparison === true ? { ...ctx, dayComparison: undefined } : ctx;
 	const emit = (input: Expression) => emitExpression(input, ctx);
 	const val = emit;
 	const pred = emit;
@@ -714,8 +830,14 @@ function emitExpression(expr: Expression, ctx: Context): WireExpr {
 			return result;
 		}
 		case "date-coerce":
-		case "datetime-coerce":
 			return w.call("date", [emit(expr.value)]);
+		case "datetime-coerce":
+			return ctx.dayComparison === true
+				? w.call("date", [emitExpression(expr.value, plain)])
+				: datetimeCoerceValue(
+						instantOperand(expr, ctx.types, { memo: instantMemo(ctx) }),
+						instantEmission(ctx),
+					);
 		case "double":
 			return w.call("double", [emit(expr.value)]);
 		case "arith": {
@@ -736,21 +858,22 @@ function emitExpression(expr: Expression, ctx: Context): WireExpr {
 		case "if":
 			return w.call("if", [
 				emitExpression(
-					normalizeRelationEvaluationScopes(expr.cond, relationScope(ctx)),
-					ctx,
+					normalizeRelationEvaluationScopes(expr.cond, relationScope(plain)),
+					plain,
 				),
 				emit(expr.then),
 				emit(expr.else),
 			]);
 		case "switch": {
-			const on = emit(expr.on);
+			const tests = switchTests(expr, plain);
 			let result = emit(expr.fallback);
-			for (const entry of [...expr.cases].reverse())
-				result = w.call("if", [
-					w.eq(on, term(entry.when, ctx)),
-					emit(entry.then),
-					result,
-				]);
+			for (let index = expr.cases.length - 1; index >= 0; index--) {
+				const entry = expr.cases[index];
+				const test = tests[index];
+				if (entry === undefined || test === undefined)
+					throw new Error("A switch case has no test in its emitted chain.");
+				result = w.call("if", [test, emit(entry.then), result]);
+			}
 			return result;
 		}
 		case "format-date":
@@ -846,33 +969,54 @@ function emitExpression(expr: Expression, ctx: Context): WireExpr {
 		case "lt":
 		case "lte":
 		case "gt":
-		case "gte":
-			return w.cmp(comparison[expr.kind], val(expr.left), val(expr.right));
+		case "gte": {
+			const { left, right } = comparisonOperands(expr, ctx.types, {
+				memo: instantMemo(ctx),
+			});
+			return compareSides(
+				expr.kind,
+				comparisonSide(expr.left, ctx, left),
+				comparisonSide(expr.right, ctx, right),
+				ctx,
+			);
+		}
 		case "is-blank":
 			return w.eq(
 				w.call("string-length", [w.call("string", [val(expr.left)])]),
 				w.num(0),
 			);
-		case "in":
+		case "in": {
+			const left = comparisonSide(expr.left, ctx);
 			return w.or(
-				...expr.values.map((item) => w.eq(val(expr.left), term(item, ctx))),
+				...expr.values.map((item) =>
+					compareSides(
+						"eq",
+						left,
+						comparisonSide(termExpression(item), ctx),
+						ctx,
+					),
+				),
 			);
+		}
 		case "between": {
+			const left = comparisonSide(expr.left, ctx);
 			const clauses: WireExpr[] = [];
 			if (expr.lower !== undefined)
 				clauses.push(
-					w.cmp(
-						expr.lowerInclusive ? ">=" : ">",
-						val(expr.left),
-						val(expr.lower),
+					compareSides(
+						expr.lowerInclusive ? "gte" : "gt",
+						left,
+						comparisonSide(expr.lower, ctx),
+						ctx,
 					),
 				);
 			if (expr.upper !== undefined)
 				clauses.push(
-					w.cmp(
-						expr.upperInclusive ? "<=" : "<",
-						val(expr.left),
-						val(expr.upper),
+					compareSides(
+						expr.upperInclusive ? "lte" : "lt",
+						left,
+						comparisonSide(expr.upper, ctx),
+						ctx,
 					),
 				);
 			if (clauses.length === 0)

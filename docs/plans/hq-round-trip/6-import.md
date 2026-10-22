@@ -98,11 +98,21 @@ Planned in full when step 5 exits. The design is the research's "The reader",
      shadow, so HQ's form builder shows the lowered formula and keeps it on
      save. The reader recognises the shape and reads it back as the comparison
      the author wrote: the template with one operand subtree `T` repeated,
-     carrying the constants `719468`, `146097`, `'Z+-'` and `'|||'`; `T` is the
+     carrying the constants `719468`, `146097`, `'Zz+-'` and `'||||'`; `T` is the
      operand, or `format-date(coalesce(x, ''), '%Y-%m-%dT%H:%M:%S.%3%Z')`
      around a typed operand `x`, or `concat(<date>, 'T00:00:00Z')` around a
-     coerced date; an integer opposite a lowered operand is a folded literal,
-     read back as its `…Z` spelling. Nothing in step 3 reads lowered text back.
+     coerced date (under `if(x = '', '', …)` inside a `coalesce`), or
+     `if(string-length(x) = 10, concat(x, 'T00:00:00Z'), x)` around coerced
+     text, or an `if` chain of such texts for a branching operand, whose
+     literal branches are each literal's own date, clock and offset
+     (`instantOperand.ts::literalInstantText`, `…Z` or `…±HH:MM`); an integer
+     opposite a lowered operand is a folded literal, read back as its `…Z`
+     spelling (a fold whose UTC moment is past 9999, as
+     `9999-12-31T23:59:59-05:00`'s is, has no four-digit `…Z` spelling and
+     reads back in an offset), and
+     `x * 86400000000` is a coerced day number. A comparison of a system date
+     with a day-aligned operand is bare, with `date(x)` for the coerced side.
+     Nothing in step 3 reads lowered text back.
 
 ## Cutover and migration
 

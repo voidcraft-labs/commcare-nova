@@ -84,7 +84,7 @@ export function validateLookupOptionsSources(
 					`Lookup choices for "${field.id}": ${error.message}`,
 					loc,
 					{
-						...checkErrorDetails(error),
+						...checkErrorDetails(error, ctx),
 						tableId: source.tableId,
 						...(reason === undefined ? {} : { reason }),
 						...(term?.kind === "field"

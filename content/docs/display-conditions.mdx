@@ -83,7 +83,11 @@ available; information from connected cases, and counts of them, is not.
 A date can be compared with before or after. A time of day can't: CommCare
 compares these as numbers and a time is not one, so the condition would never
 be true. The editor offers before, after and between for a number or a date,
-and not for a time of day.
+and not for a time of day. Two dates and times compare by the moment each
+names, on every device as in Preview. A case's opened date and last-changed
+date hold only the day on a device, so a condition can't compare either with
+a moment such as `now()`. You can wrap both sides in `date()` to compare days
+instead.
 
 ## Watch it work
 

@@ -6942,5 +6942,125 @@
 		"artifact": "*form:*",
 		"path": "/vellum-markup:model~1instance~1~1*@vellum:role/refused/model-iteration-reading-a-blank-answer",
 		"control": "container-nested-query"
+	},
+	{
+		"id": "d56-datetime-ordering-evaluate-answers",
+		"defect": 56,
+		"part": "datetime ordering",
+		"check": "intent",
+		"artifact": "evaluate:start-before-end-*",
+		"path": "/values/*/value",
+		"kind": "changed",
+		"values": {
+			"before": "start before end",
+			"after": "start not before end"
+		},
+		"control": "targeted-datetime-ordering"
+	},
+	{
+		"id": "d56-datetime-ordering-evaluate-case-text",
+		"defect": 56,
+		"part": "datetime ordering",
+		"check": "intent",
+		"artifact": "evaluate:seen-before-due-*",
+		"path": "/values/*/value",
+		"kind": "changed",
+		"values": {
+			"before": "seen before due",
+			"after": "seen not before due"
+		},
+		"control": "targeted-datetime-ordering"
+	},
+	{
+		"id": "d56-datetime-ordering-clock",
+		"defect": 56,
+		"part": "datetime ordering",
+		"check": "intent",
+		"artifact": "evaluate:seen-before-now-*",
+		"path": "/values/*/value",
+		"kind": "changed",
+		"values": {
+			"before": "seen before now",
+			"after": "seen not before now"
+		},
+		"control": "targeted-datetime-operands"
+	},
+	{
+		"id": "d56-datetime-ordering-literal",
+		"defect": 56,
+		"part": "datetime ordering",
+		"check": "intent",
+		"artifact": "evaluate:listed-before-literal-*",
+		"path": "/caseList/rows/*/caseId",
+		"kind": "changed",
+		"values": {
+			"before": "targeted-visit-amina",
+			"after": {
+				"absent": "Core's result holds nothing at this pointer."
+			}
+		},
+		"control": "targeted-datetime-operands"
+	},
+	{
+		"id": "d56-datetime-ordering-case-list",
+		"defect": 56,
+		"part": "datetime ordering",
+		"check": "intent",
+		"artifact": "evaluate:listed-before-due-*",
+		"path": "/caseList/rows/*/caseId",
+		"kind": "changed",
+		"values": {
+			"before": "targeted-visit-amina",
+			"after": {
+				"absent": "Core's result holds nothing at this pointer."
+			}
+		},
+		"control": "targeted-datetime-operands"
+	},
+	{
+		"id": "d56-datetime-ordering-suite-cmp-time-operand",
+		"defect": 56,
+		"part": "datetime ordering",
+		"check": "manifest",
+		"artifact": "local*.ccz/suite.xml",
+		"path": "/xpath-expr:XPathCmpExpr/refused/time-operand",
+		"kind": "refused",
+		"control": "targeted-datetime-operands"
+	},
+	{
+		"id": "d56-datetime-ordering-suite-lt-time-operand",
+		"defect": 56,
+		"part": "datetime ordering",
+		"check": "manifest",
+		"artifact": "local*.ccz/suite.xml",
+		"path": "/xpath-token:LT/refused/time-operand",
+		"kind": "refused",
+		"control": "targeted-datetime-operands"
+	},
+	{
+		"id": "d75-datetime-equality-case-list",
+		"defect": 75,
+		"part": "datetime equality",
+		"check": "intent",
+		"artifact": "evaluate:equal-visits-listed-*",
+		"path": "/caseList/rows/*/caseId",
+		"kind": "changed",
+		"values": {
+			"before": "targeted-visit-amina",
+			"after": {
+				"absent": "Core's result holds nothing at this pointer."
+			}
+		},
+		"control": "targeted-datetime-equality"
+	},
+	{
+		"id": "d75-datetime-inequality-case-list",
+		"defect": 75,
+		"part": "datetime equality",
+		"check": "intent",
+		"artifact": "evaluate:other-visits-listed-*",
+		"path": "/caseList/rows/*/caseId",
+		"kind": "changed",
+		"control": "targeted-datetime-equality"
 	}
 ]
