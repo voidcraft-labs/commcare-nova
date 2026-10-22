@@ -269,8 +269,12 @@ async function blockingScan(
 		.orderBy("id")
 		.forUpdate()
 		.execute();
+	// The plan lists apps in code-point order; `ORDER BY id` follows the
+	// database's collation, which orders mixed-case ids differently.
 	const planned = plan.apps.map((app) => app.appId);
-	const present = locked.map((app) => app.id);
+	const present = locked
+		.map((app) => app.id)
+		.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 	if (
 		planned.length !== present.length ||
 		planned.some((appId, index) => present[index] !== appId)

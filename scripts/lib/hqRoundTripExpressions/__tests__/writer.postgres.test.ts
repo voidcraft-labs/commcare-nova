@@ -239,6 +239,30 @@ describe("the fleet transaction from main's migration prefix", () => {
 			[...fleet.appIds].sort(),
 		);
 	}, 120_000);
+
+	it("locks a fleet whose ids the database's collation orders unlike code points", async () => {
+		await h.seedProjectMember(OWNER, PROJECT, "owner");
+		// Code points put every upper-case letter before every lower-case one;
+		// production's linguistic collation (en_US.UTF8) interleaves them.
+		await sql`ALTER TABLE apps ALTER COLUMN id TYPE text COLLATE "en-US-x-icu"`.execute(
+			h.db(),
+		);
+		const order = await sql<{ id: string }>`
+			SELECT id FROM (VALUES ('Bravo-app'), ('alpha-app')) AS ids(id)
+			ORDER BY id COLLATE "en-US-x-icu"
+		`.execute(h.db());
+		expect(order.rows.map((row) => row.id)).toEqual(["alpha-app", "Bravo-app"]);
+		for (const appId of ["Bravo-app", "alpha-app", "Charlie-app"]) {
+			await seedApp("choices", appId);
+		}
+		const dryRun = await runMigrate(h.db(), { mode: "dry-run" });
+		expect(dryRun.outcome).toEqual({ outcome: "ok" });
+		const execute = await runMigrate(h.db(), {
+			mode: "execute",
+			expectPlanDigest: planDigestOf(dryRun),
+		});
+		expect(execute.outcome).toEqual({ outcome: "ok" });
+	}, 120_000);
 });
 
 describe("the fleet transaction over the frozen fixtures", () => {
