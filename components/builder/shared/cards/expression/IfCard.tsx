@@ -1,16 +1,16 @@
 // components/builder/shared/cards/expression/IfCard.tsx
 //
-// Renders the `if` ValueExpression: boolean-conditional value
+// Renders the `if` Expression: boolean-conditional value
 // selection. Three slots:
 //
-//   - `cond`: a `Predicate` (cross-family reference). Routes
-//     through `ChildPredicateEditor` so the full Predicate-side
+//   - `cond`: a `Expression` (cross-family reference). Routes
+//     through `ChildPredicateEditor` so the full Expression-side
 //     editor is reachable inline. The CCHQ on-device wire form is
 //     `if(cond, then, else)`; CSQL has no native `if` value
 //     function and the wire emitter hoists `if` arms out of CSQL
 //     fragments at the wire-emission boundary.
 //
-//   - `then` / `else`: `ValueExpression`s. Eager evaluation of both
+//   - `then` / `else`: `Expression`s. Eager evaluation of both
 //     branches at runtime. The type checker's `accumulateBranchType`
 //     enforces branch-type agreement (then-type and else-type must
 //     be compatible, modulo null-as-universal); errors land at
@@ -23,17 +23,18 @@
 // `appendKindSlot(path, "if", slot)` for each child path.
 
 "use client";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
+
 import {
 	ANY_CONSTRAINT,
 	branchConstraint,
+	type Expression,
 	ifExpr,
 	literal,
 	matchAll,
-	type Predicate,
 	type SlotConstraint,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { useEditorErrorsAt, useResolvedType } from "../../editorContext";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendKind, appendKindSlot, type EditorPath } from "../../path";
@@ -46,15 +47,13 @@ import { PredicateFocusBoundary } from "../ChildPredicateEditor";
  *  branches seed to empty text literals. The type checker accepts
  *  the seed without a branch-mismatch error (both branches resolve
  *  to text). */
-export function ifDefault(
-	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "if" }> {
+export function ifDefault(_ctx: ExpressionEditContext): ExpressionOfKind<"if"> {
 	return ifExpr(matchAll(), term(literal("")), term(literal("")));
 }
 
 interface IfCardProps {
-	readonly value: Extract<ValueExpression, { kind: "if" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"if">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 	/** The `if`'s own result constraint propagates to BOTH branches:
 	 *  whatever type the slot wants, each branch must produce. */
@@ -85,18 +84,18 @@ export function IfCard({
 	const thenConstraint = branchConstraint(constraint, elseType);
 	const elseConstraint = branchConstraint(constraint, thenType);
 
-	const setCond = (next: Predicate) => {
+	const setCond = (next: Expression) => {
 		// Builders preserve the absent-not-undefined contract on
 		// optional slots: `ifExpr` has no optional slots, so the
 		// raw constructor is the right shape.
 		onChange(ifExpr(next, value.then, value.else));
 	};
 
-	const setThen = (next: ValueExpression) => {
+	const setThen = (next: Expression) => {
 		onChange(ifExpr(value.cond, next, value.else));
 	};
 
-	const setElse = (next: ValueExpression) => {
+	const setElse = (next: Expression) => {
 		onChange(ifExpr(value.cond, value.then, next));
 	};
 

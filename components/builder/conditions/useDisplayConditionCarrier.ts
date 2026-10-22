@@ -22,6 +22,7 @@ import {
 } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
+import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import {
 	useIsBareCaseListModule,
 	useIsCaseFirstModule,
@@ -29,7 +30,7 @@ import {
 } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import type { CaseType } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { Expression, ExpressionContext } from "@/lib/domain/expression";
 import {
 	type DisplayConditionCarrier,
 	type DisplayConditionCopy,
@@ -48,13 +49,14 @@ export type DisplayConditionTarget =
 export interface ResolvedDisplayCondition {
 	readonly copy: DisplayConditionCopy;
 	/** The stored condition, or `undefined` when the item always appears. */
-	readonly condition: Predicate | undefined;
+	readonly condition: Expression | undefined;
+	readonly expressionContext: ExpressionContext;
 	/**
 	 * Set the condition, or remove it with `undefined`. Returns the
 	 * gate's verdict rather than announcing it: a condition surface has
 	 * somewhere to put the refusal, beside the rule it is about.
 	 */
-	readonly commit: (next: Predicate | undefined) => CommitOutcome;
+	readonly commit: (next: Expression | undefined) => CommitOutcome;
 	/** Whether the item is off the menu (`hiddenFromMenu`). */
 	readonly hiddenFromMenu: boolean;
 	/** Take the item off the menu, or put it back; the gate's verdict. */
@@ -80,6 +82,19 @@ export function useDisplayConditionCarrier(
 	const moduleIsBareCaseList = useIsBareCaseListModule(target.moduleUuid);
 	const caseTypes = useEffectiveCaseTypes();
 	const mutations = useBlueprintMutations();
+	const expressionContext = useExpressionSlotContext(
+		target.kind === "form"
+			? {
+					entity: "form",
+					uuid: target.formUuid,
+					slot: "form_display_condition",
+				}
+			: {
+					entity: "module",
+					uuid: target.moduleUuid,
+					slot: "module_display_condition",
+				},
+	);
 
 	const carrier = useMemo<DisplayConditionCarrier | null>(() => {
 		if (mod === undefined) return null;
@@ -114,7 +129,7 @@ export function useDisplayConditionCarrier(
 	const moduleUuid = target.moduleUuid;
 	const formUuid = target.kind === "form" ? target.formUuid : undefined;
 	const commit = useCallback(
-		(next: Predicate | undefined): CommitOutcome => {
+		(next: Expression | undefined): CommitOutcome => {
 			if (targetKind === "form" && formUuid === undefined) {
 				// Unreachable through the target union; failing loudly beats
 				// silently writing the MODULE's condition instead.
@@ -141,8 +156,14 @@ export function useDisplayConditionCarrier(
 	);
 
 	return useMemo(() => {
-		if (carrier === null || mod === undefined) return null;
+		if (
+			carrier === null ||
+			mod === undefined ||
+			expressionContext === undefined
+		)
+			return null;
 		return {
+			expressionContext,
 			copy: displayConditionCopy(carrier),
 			condition:
 				carrier.kind === "module"
@@ -157,5 +178,13 @@ export function useDisplayConditionCarrier(
 			caseTypes,
 			currentCaseType: mod.caseType ?? "",
 		};
-	}, [carrier, mod, form, commit, setHiddenFromMenu, caseTypes]);
+	}, [
+		carrier,
+		mod,
+		form,
+		commit,
+		setHiddenFromMenu,
+		caseTypes,
+		expressionContext,
+	]);
 }

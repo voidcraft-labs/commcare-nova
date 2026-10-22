@@ -80,7 +80,6 @@ import {
 	type CaseType,
 	type CaseWriteBucket,
 	type Column,
-	caseDataTypeForFieldKind,
 	caseListColumnRuns,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
@@ -92,6 +91,7 @@ import {
 	orderedCaseOperations,
 	organizationLevelsOf,
 	type PersistableDoc,
+	searchInputRuntimeValueType,
 	TIME_SINCE_UNIT_DAYS,
 	type Uuid,
 } from "@/lib/domain";
@@ -100,10 +100,8 @@ import {
 	captureContentType,
 	committedCapturePath,
 } from "@/lib/domain/captureFormats";
-import type { LookupTableId } from "@/lib/domain/lookupIds";
-import { asWalkableDoc } from "@/lib/domain/mediaRefs";
-import type { Predicate, Term, ValueExpression } from "@/lib/domain/predicate";
-import { walkExpressionTerms, walkTerms } from "@/lib/domain/predicate";
+import type { Expression, Term } from "@/lib/domain/expression";
+import { walkExpressionTerms } from "@/lib/domain/expression";
 import {
 	ancestorPath,
 	concat,
@@ -120,9 +118,19 @@ import {
 	switchCase,
 	switchExpr,
 	term,
-} from "@/lib/domain/predicate/builders";
-import { compilerBugMessage } from "@/lib/domain/predicate/errors";
-import { effectiveFilterForEmission } from "@/lib/domain/predicate/simplify";
+} from "@/lib/domain/expression/builders";
+import { choiceValue } from "@/lib/domain/expression/choiceValue";
+import {
+	expressionFacts,
+	formExpressionFacts,
+} from "@/lib/domain/expression/context";
+import { compilerBugMessage } from "@/lib/domain/expression/errors";
+import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
+import { effectiveFilterForEmission } from "@/lib/domain/expression/simplify";
+import { isExpression } from "@/lib/domain/expression/types";
+import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { asWalkableDoc } from "@/lib/domain/mediaRefs";
+import { rewriteExpressionSlotValues } from "@/lib/domain/referenceSlots";
 import { log } from "@/lib/logger";
 import {
 	getLookupDefinitions,
@@ -207,8 +215,9 @@ function caseReadCore(
 		readonly bindings?: TermBindings;
 		readonly lookupTableSchemas?: LookupTableSchemas;
 		readonly restoreScope?: RestoreScope;
+		readonly caseListConfig?: CaseListConfig;
 	},
-	predicate: Predicate | undefined,
+	predicate: Expression | undefined,
 ) {
 	return {
 		appId: args.appId,
@@ -219,6 +228,11 @@ function caseReadCore(
 		bindings: args.bindings,
 		lookupTableSchemas: args.lookupTableSchemas,
 		predicate,
+		knownInputs: args.caseListConfig?.searchInputs.map((input) => ({
+			uuid: input.uuid,
+			name: input.name,
+			data_type: searchInputRuntimeValueType(input),
+		})),
 		restoreScope: args.restoreScope,
 	};
 }
@@ -628,7 +642,7 @@ async function countAuthoredCasePopulation(
  * preview and export agree on the effective filter.
  */
 interface ComposedCaseQuery {
-	readonly predicate: Predicate | undefined;
+	readonly predicate: Expression | undefined;
 	readonly constraintSource: CaseQueryConstraintSource;
 }
 
@@ -641,7 +655,7 @@ function composeQueryPredicate(
 	authoredExcludedOwnerIds: readonly string[] | undefined = excludedOwnerIds,
 	parentCase?: ParentCaseSelection,
 ): ComposedCaseQuery {
-	const clauses: Predicate[] = [];
+	const clauses: Expression[] = [];
 	let hasAuthoredConstraint = false;
 	let hasWorkerConstraint = false;
 	if (parentCase !== undefined) {
@@ -686,7 +700,7 @@ function composeQueryPredicate(
 		const baseFilterWithoutWorkerValues = effectiveFilterForEmission(
 			filterWithoutWorkerValues,
 		);
-		// Predicate ASTs are canonical JSON-shaped values. A changed effective
+		// Expression ASTs are canonical JSON-shaped values. A changed effective
 		// filter means submitted prompt values added narrowing the worker can
 		// remove; the empty-bound remainder is the always-authored contribution.
 		hasWorkerConstraint =
@@ -758,7 +772,7 @@ function composeQueryPredicate(
 				? clauses[0]
 				: effectiveFilterForEmission({
 						kind: "and",
-						clauses: clauses as [Predicate, ...Predicate[]],
+						clauses: clauses as [Expression, ...Expression[]],
 					});
 	return {
 		predicate,
@@ -942,7 +956,7 @@ function sortKeysForRule(
 	order: CaseStoreOrder,
 ): CaseStoreSortKey[] {
 	const expressionKey = (
-		expression: ValueExpression,
+		expression: Expression,
 		keyComparator: CaseListComparator = comparator,
 		portableCaseDates = false,
 	): CaseStoreSortKey => ({
@@ -1595,7 +1609,7 @@ function operationFormFieldRefs(
 	repeatUuid: Uuid | undefined,
 ): ReadonlySet<Uuid> {
 	const refs = new Set<Uuid>();
-	/* `field` is a TERM kind, not a ValueExpression kind — walking expression
+	/* `field` is a TERM kind, not a Expression kind — walking expression
 	 * nodes only ever sees the `{ kind: "term" }` wrapper around it. */
 	const note = (term: Term) => {
 		if (term.kind === "field") refs.add(term.uuid);
@@ -1631,10 +1645,37 @@ function operationFormFieldRefs(
 				write.condition === undefined ? [] : [write.condition],
 			),
 		]) {
-			if (predicate !== undefined) walkTerms(predicate, note);
+			if (predicate !== undefined) walkExpressionTerms(predicate, note);
 		}
 	}
 	return refs;
+}
+
+/** SQL executes a committed program without the form's option catalog. Resolve
+ * static choice identities once, in that same committed snapshot, to the saved
+ * option values the device compares. The registry covers every operation slot. */
+function materializeOperationChoices(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): readonly CaseOperation[] {
+	const form = structuredClone(doc.forms[formUuid]);
+	const projected = { ...doc, forms: { ...doc.forms, [formUuid]: form } };
+	const options = expressionFacts(doc).options;
+	rewriteExpressionSlotValues(
+		projected,
+		{ entity: "form", uuid: formUuid },
+		(value, ref) => {
+			if (!ref.slot.startsWith("case_operation_") || !isExpression(value))
+				return value;
+			return mapExpressionAst(value, {
+				mapTerm: (term) =>
+					term.kind === "choice"
+						? { kind: "literal", value: choiceValue(term, options) }
+						: term,
+			});
+		},
+	);
+	return orderedCaseOperations(form);
 }
 
 /**
@@ -1719,7 +1760,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 		...(ordinaryCaseType === undefined ? {} : { ordinaryCaseType }),
 		...(ordinarySelection === undefined ? {} : { ordinarySelection }),
 	};
-	const operations = orderedCaseOperations(form);
+	const operations = materializeOperationChoices(doc, formUuid);
 	if (operations.length === 0) return ordinaryStructure;
 	/* Operations present but NO collected answers means the client's doc
 	 * snapshot predates a co-editor's operation add. Running with empty
@@ -1742,7 +1783,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 	const envelopeOperations = operations.map((operation) => {
 		const guardConditions = [...(guards.get(operation.uuid) ?? [])]
 			.map((uuid) => operationsByUuid.get(uuid)?.condition)
-			.filter((condition): condition is Predicate => condition !== undefined);
+			.filter((condition): condition is Expression => condition !== undefined);
 		const snapshot = snapshotTypes.get(operation.uuid);
 		return {
 			operation,
@@ -1845,10 +1886,9 @@ export function buildCaseOperationProgramFromDoc(args: {
 			caseTypeSchemas,
 			organizationLevels: organizationLevelsOf(doc),
 			formFieldTypes: new Map(
-				Object.values(doc.fields).map((field) => [
-					field.uuid,
-					caseDataTypeForFieldKind(field.kind),
-				]),
+				[...(formExpressionFacts(doc, formUuid)?.fields ?? [])].map(
+					([uuid, field]) => [uuid, field.type],
+				),
 			),
 			sessionUser: new Map(Object.entries(args.identity.session.user)),
 			userPropertySlugs: new Map(
@@ -2367,7 +2407,7 @@ export async function gatedCaseStoreWithScope(
  */
 export async function loadExpressionLookupData(
 	scope: LookupScope,
-	expression: ValueExpression | undefined,
+	expression: Expression | undefined,
 ): Promise<PreviewLookupData | undefined> {
 	if (expression === undefined) return undefined;
 	const tableIds = collectConfigLookupTableIds(undefined, [expression]);

@@ -4,7 +4,7 @@
  *
  * The SA authors the connect block's XPath-valued slots
  * (`assessment.user_score`, `deliver_unit.entity_id` / `entity_name`)
- * as the canonical stored expression AST (`lib/domain/xpath`).
+ * as the canonical stored expression AST (`lib/domain/expression`).
  * `buildConnectConfig` is where both machine writers carry that exact shape:
  * `updateForm` calls it with the form's existing config (a structural
  * partial-update merge), while `configureConnect` calls it with no existing
@@ -21,7 +21,7 @@ import type {
 	ConnectDeliverUnit,
 	ConnectLearnModule,
 	ConnectTask,
-	XPathExpression,
+	Expression,
 } from "@/lib/domain";
 
 export interface ConnectConfigDraft {
@@ -47,13 +47,13 @@ export interface ConnectConfigInput {
 	} | null;
 	assessment?: {
 		id?: string | null;
-		user_score: XPathExpression;
+		user_score: Expression;
 	} | null;
 	deliver_unit?: {
 		id?: string | null;
 		name: string;
-		entity_id?: XPathExpression | null;
-		entity_name?: XPathExpression | null;
+		entity_id?: Expression | null;
+		entity_name?: Expression | null;
 	} | null;
 	task?: {
 		id?: string | null;

@@ -1,6 +1,6 @@
 import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
-import { schemaForDataType } from "@/lib/domain/predicate/jsonSchema";
+import { schemaForDataType } from "@/lib/domain/expression/jsonSchema";
 import {
 	formatGeopoint,
 	type GeoPoint,

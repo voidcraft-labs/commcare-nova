@@ -19,7 +19,7 @@ import {
 	switchExpr,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	collectRuntimeCsqlStringExpressionInputNames,
 	collectRuntimeCsqlStringInputNames,

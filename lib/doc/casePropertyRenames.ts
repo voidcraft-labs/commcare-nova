@@ -10,7 +10,6 @@ import {
 	casePropertyOptionTranslationUnitId,
 	collectTranslationUnits,
 	mapCasePropertiesInProse,
-	mapCasePropertiesInXPath,
 	materializableCaseTypes,
 } from "@/lib/domain";
 import { translationSourceFingerprintsEqual } from "@/lib/domain/localization";
@@ -203,13 +202,19 @@ export function rewriteCasePropertyCarriers(
 		collectTranslationUnits(doc).map((unit) => [unit.id, unit]),
 	);
 	for (const field of Object.values(doc.fields)) {
-		rewriteFieldReferenceSlots(field, { resolveCaseProperty: resolve });
+		rewriteFieldReferenceSlots(field, {
+			resolveCaseProperty: resolve,
+			caseTypes: doc.caseTypes ?? [],
+		});
 	}
 	for (const form of Object.values(doc.forms)) {
-		rewriteFormReferenceSlots(form, { resolveCaseProperty: resolve });
+		rewriteFormReferenceSlots(form, {
+			resolveCaseProperty: resolve,
+			caseTypes: doc.caseTypes ?? [],
+		});
 	}
 	for (const module of Object.values(doc.modules)) {
-		rewriteModuleCaseRefs(module, resolve);
+		rewriteModuleCaseRefs(module, resolve, doc.caseTypes ?? []);
 	}
 	for (const automation of Object.values(doc.automations ?? {})) {
 		rewriteAutomationCaseProperties(doc, automation, resolve);
@@ -219,15 +224,6 @@ export function rewriteCasePropertyCarriers(
 			mapCasePropertiesInProse(property.label, resolve);
 			if (property.hint !== undefined) {
 				mapCasePropertiesInProse(property.hint, resolve);
-			}
-			if (property.required !== undefined) {
-				mapCasePropertiesInXPath(property.required, resolve);
-			}
-			if (property.validation !== undefined) {
-				mapCasePropertiesInXPath(property.validation, resolve);
-			}
-			if (property.validation_msg !== undefined) {
-				mapCasePropertiesInProse(property.validation_msg, resolve);
 			}
 			for (const option of property.options ?? []) {
 				mapCasePropertiesInProse(option.label, resolve);

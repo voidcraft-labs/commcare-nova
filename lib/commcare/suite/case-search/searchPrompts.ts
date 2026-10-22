@@ -63,17 +63,17 @@ import {
 	searchInputLookupSortColumnId,
 	searchInputOptions,
 	searchInputRequiredMessage,
-	searchInputRuntimeValueType,
 	type TranslationUnitId,
 	type WireStringSource,
 } from "@/lib/domain";
 import {
+	type Expression,
 	isMatchAll,
-	type Predicate,
 	simplifyForEmission,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
-import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
+} from "@/lib/domain/expression";
+import type { ExpressionContext } from "@/lib/domain/expression/context";
+import type { ModuleExpressionSlotRef } from "@/lib/domain/expression/types";
+import type { ModuleExpressionContexts } from "../../expressionContext";
 import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
 
 /**
@@ -234,20 +234,21 @@ export interface SearchPromptWire {
 }
 
 /**
- * Lower one search input to its wire description. `relationContext`
- * must already carry `knownInputs` for the whole module so `input(...)`
- * reads resolve to their current names; `searchPromptRelationContext`
- * derives it.
+ * Lower one search input through its actual owning slots. The module factory
+ * supplies the current search-input identities and each slot's lexical scope.
  */
 export function searchPromptWire(
 	input: SearchInputDef,
 	runtimeValidation: RuntimeCsqlPromptValidation | undefined,
-	relationContext: RelationEvaluationScopeContext,
+	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
+	searchInputInstanceId?: `search-input:${string}`,
 ): SearchPromptWire {
 	const emission: PromptEmissionContext = {
-		relationContext,
+		types: (slot) =>
+			expressions({ slot, member: { searchInputUuid: input.uuid } }),
 		lookupNaming,
+		searchInputInstanceId,
 	};
 	const mapping = promptAttributeMapping(input);
 	// When `input.label` is empty the locale registers `input.name`
@@ -272,7 +273,15 @@ export function searchPromptWire(
 	const seed =
 		input.kind === "hidden" ? input.value : searchInputDefault(input);
 	const defaultValue =
-		seed === undefined ? undefined : compileDefaultExpression(seed, emission);
+		seed === undefined
+			? undefined
+			: compileDefaultExpression(
+					seed,
+					input.kind === "hidden"
+						? "search_input_hidden_value"
+						: "search_input_default",
+					emission,
+				);
 	return {
 		key: input.name,
 		label,
@@ -287,25 +296,6 @@ export function searchPromptWire(
 		...(itemset === undefined ? {} : { itemset }),
 		...(required === undefined ? {} : { required }),
 		...(validation === undefined ? {} : { validation }),
-	};
-}
-
-/**
- * The relation context every prompt expression is lowered under: the
- * caller's context plus the module's complete input list, so `input(...)`
- * reads print the current prompt keys.
- */
-export function searchPromptRelationContext(
-	searchInputs: ReadonlyArray<SearchInputDef>,
-	relationContext: RelationEvaluationScopeContext = {},
-): RelationEvaluationScopeContext {
-	return {
-		...relationContext,
-		knownInputs: searchInputs.map((input) => ({
-			uuid: input.uuid,
-			name: input.name,
-			data_type: searchInputRuntimeValueType(input),
-		})),
 	};
 }
 
@@ -341,18 +331,15 @@ export function buildSearchPrompts(
 		string,
 		RuntimeCsqlPromptValidation
 	> = new Map(),
-	relationContext: RelationEvaluationScopeContext = {},
+	expressions: ModuleExpressionContexts,
 	lookupNaming?: LookupWireNaming,
+	searchInputInstanceId?: `search-input:${string}`,
 ): SearchPromptsEmission {
 	const elements: Element[] = [];
 	const strings: Record<string, string> = {};
 	const translationUnits: Record<string, WireStringSource> = {};
 	const instances = new InstanceSink();
 	const context: WireElementContext = { mode: { target: "suite" }, instances };
-	const promptRelationContext = searchPromptRelationContext(
-		searchInputs,
-		relationContext,
-	);
 	const register = (localeId: string, value: SearchPromptText) => {
 		strings[localeId] = value.text;
 		translationUnits[localeId] = value.source;
@@ -363,8 +350,9 @@ export function buildSearchPrompts(
 		const wire = searchPromptWire(
 			input,
 			runtimeValidations.get(input.name),
-			promptRelationContext,
+			expressions,
 			lookupNaming,
+			searchInputInstanceId,
 		);
 		const displayChildren = [
 			register(composeSearchPropertyLocaleId(moduleId, wire.key), wire.label),
@@ -473,8 +461,8 @@ export function searchInputSuppressesAutoMatch(input: SearchInputDef): boolean {
  */
 export function getAdvancedArmPredicates(
 	searchInputs: ReadonlyArray<SearchInputDef>,
-): ReadonlyArray<{ readonly name: string; readonly predicate: Predicate }> {
-	const out: { readonly name: string; readonly predicate: Predicate }[] = [];
+): ReadonlyArray<{ readonly name: string; readonly predicate: Expression }> {
+	const out: { readonly name: string; readonly predicate: Expression }[] = [];
 	for (const input of searchInputs) {
 		if (input.kind === "advanced") {
 			out.push({ name: input.name, predicate: input.predicate });
@@ -486,8 +474,13 @@ export function getAdvancedArmPredicates(
 // ── Internal helpers ─────────────────────────────────────────────
 
 /** What one prompt's lowering reads, and where it records its instances. */
+type PromptSlot = Extract<
+	ModuleExpressionSlotRef,
+	{ member: { searchInputUuid: unknown } }
+>["slot"];
 interface PromptEmissionContext {
-	readonly relationContext: RelationEvaluationScopeContext;
+	readonly types: (slot: PromptSlot) => ExpressionContext;
+	readonly searchInputInstanceId?: `search-input:${string}`;
 	readonly lookupNaming: LookupWireNaming | undefined;
 }
 
@@ -552,7 +545,7 @@ function buildItemset(
 	options: SearchInputLookupOptions,
 	emission: PromptEmissionContext,
 ): SearchPromptItemset {
-	const { lookupNaming, relationContext } = emission;
+	const { lookupNaming } = emission;
 	if (lookupNaming === undefined) {
 		throw new Error(
 			"searchPromptWire: a lookup-backed choice input reached wire emission with no lookup wire naming. The compile boundary supplies naming; every other surface should reject lookup carriers before emission.",
@@ -566,7 +559,7 @@ function buildItemset(
 			predicates.push(
 				toWire(filter, {
 					target: "suite",
-					types: relationContext,
+					types: emission.types("search_input_options"),
 					anchor: { kind: "unaddressable" },
 					bindings: {
 						lookup: {
@@ -617,7 +610,7 @@ function buildRequired(
 		test:
 			when === undefined
 				? w.call("true", [])
-				: emitScreenPredicate(when, emission),
+				: emitScreenPredicate(when, "search_input_required_when", emission),
 		message: {
 			text: message,
 			source:
@@ -653,7 +646,13 @@ function buildValidation(
 	const messages: string[] = [];
 	const units: TranslationUnitId[] = [];
 	if (authored !== undefined) {
-		tests.push(emitScreenPredicate(authored.rule, emission));
+		tests.push(
+			emitScreenPredicate(
+				authored.rule,
+				"search_input_validation_rule",
+				emission,
+			),
+		);
 		messages.push(authored.message);
 		units.push(
 			makeTranslationUnitId("search-input", input.uuid, "validation-message"),
@@ -687,18 +686,21 @@ function buildValidation(
  * own `input(...)` reads, which print as absolute instance paths.
  */
 function emitScreenPredicate(
-	predicate: Predicate,
+	predicate: Expression,
+	slot: "search_input_required_when" | "search_input_validation_rule",
 	emission: PromptEmissionContext,
 ): WireExpr {
-	const { lookupNaming, relationContext } = emission;
+	const { lookupNaming } = emission;
 	return toWire(predicate, {
 		target: "suite",
-		types: relationContext,
+		types: emission.types(slot),
 		anchor: { kind: "unaddressable" },
-		bindings:
-			lookupNaming === undefined
+		bindings: {
+			searchInputInstanceId: emission.searchInputInstanceId,
+			...(lookupNaming === undefined
 				? {}
-				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
+				: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
+		},
 	});
 }
 
@@ -744,16 +746,19 @@ function composePromptAttributes(
  * produces the right dialect.
  */
 function compileDefaultExpression(
-	expression: ValueExpression,
+	expression: Expression,
+	slot: "search_input_default" | "search_input_hidden_value",
 	emission: PromptEmissionContext,
 ): WireExpr {
-	const { lookupNaming, relationContext } = emission;
+	const { lookupNaming } = emission;
 	return toWire(expression, {
 		target: "suite",
-		types: relationContext,
-		bindings:
-			lookupNaming === undefined
+		types: emission.types(slot),
+		bindings: {
+			searchInputInstanceId: emission.searchInputInstanceId,
+			...(lookupNaming === undefined
 				? {}
-				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
+				: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
+		},
 	});
 }

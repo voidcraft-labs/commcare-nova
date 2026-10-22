@@ -9,7 +9,7 @@ import {
 } from "@/lib/agent/__tests__/admittedFixture";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
-import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
+import { eq, literal, sessionUserProperty } from "@/lib/domain/expression";
 import type { ValidationError, ValidationErrorCode } from "../errors";
 import { errorWithinScope, runValidation } from "../runner";
 

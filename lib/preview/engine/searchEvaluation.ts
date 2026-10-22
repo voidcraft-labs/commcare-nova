@@ -1,13 +1,12 @@
+import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import {
 	type BlueprintDoc,
 	effectiveCaseSearchConfig,
-	effectiveCaseTypes,
-	searchInputRuntimeValueType,
 	type Uuid,
 } from "@/lib/domain";
+import { effectiveFilterForEmission } from "@/lib/domain/expression";
 import type { LanguageTag } from "@/lib/domain/localization";
 import { resolveAppLanguage } from "@/lib/domain/localization";
-import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { automaticallyLaunchesSearch } from "../caseListPhase";
 import { projectWorkerModule } from "../workerModule";
 import { toBoolean } from "../xpath/coerce";
@@ -65,17 +64,24 @@ export async function evaluateSearchSnapshot(
 	const search = effectiveCaseSearchConfig(mod);
 	const session = previewSessionValues(context.identity);
 	const lookup = previewLookupData(context.lookup);
+	const environment = { doc, moduleUuid: input.moduleUuid, lookup };
+	const expressions = moduleExpressionContexts(
+		doc,
+		input.moduleUuid,
+		lookup.naming,
+	);
 	const relevant =
 		search !== undefined &&
 		(search.searchButtonDisplayCondition === undefined ||
 			evaluatePreviewSearchPredicate(
 				search.searchButtonDisplayCondition,
+				expressions({ slot: "search_button_display_condition" }),
+				environment,
 				inputs,
 				session,
 				new Map(),
-				lookup,
 			));
-	let run = buildSearchRunState(input.moduleUuid, inputs, session, lookup);
+	let run = buildSearchRunState(input.moduleUuid, inputs, session, environment);
 	if (input.submitted !== undefined)
 		run = restoreSearchRun(
 			run,
@@ -117,17 +123,8 @@ export async function evaluateSearchSnapshot(
 				mod.caseType,
 				values,
 				session,
+				environment,
 				{
-					caseTypes: [...effectiveCaseTypes(doc)],
-					knownInputs: inputs.map((item) => ({
-						uuid: item.uuid,
-						name: item.name,
-						data_type: searchInputRuntimeValueType(item),
-					})),
-					currentCaseType: mod.caseType,
-				},
-				{
-					lookupData: lookup,
 					language,
 					evaluateOnDevice: async (source) => {
 						const result = await runtime.request(
@@ -184,6 +181,7 @@ export async function evaluateSearchSnapshot(
 			: parseExcludedOwnerIds(
 					evaluatePreviewSearchExpression(
 						mod.caseSearchConfig.excludedOwnerIds,
+						expressions({ slot: "excluded_owner_ids" }),
 						session,
 						answers,
 						inputs,

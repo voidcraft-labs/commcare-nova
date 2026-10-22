@@ -26,7 +26,7 @@ import {
 	organizationLevelSchema,
 	type Persona,
 } from "@/lib/domain";
-import { fixedLocation, literal, term } from "@/lib/domain/predicate";
+import { fixedLocation, literal, term } from "@/lib/domain/expression/builders";
 import { extractLocationReferenceTargets } from "@/lib/organization/commitIntegrity";
 import {
 	canonicalCoordinate,

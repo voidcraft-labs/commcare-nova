@@ -1,7 +1,12 @@
 import { z } from "zod";
 import type { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
-import { printXPathInDoc } from "@/lib/doc/expressionText";
+import {
+	entryDatumIdResolver,
+	formLinkProjectionContext,
+	formLinkTargetDatumIds,
+} from "@/lib/commcare/formLinkProjection";
+import { projectFormExpression } from "@/lib/doc/expressionText";
 import type { FieldWithChildren } from "@/lib/doc/fieldWalk";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
@@ -25,15 +30,20 @@ import {
 	translationUnitsById,
 	type Uuid,
 	uuidSchema,
-	xpathExpressionSchema,
 } from "@/lib/domain";
 import { automationMessageTemplateSchema } from "@/lib/domain/automations";
+import { printFormExpression } from "@/lib/domain/expression/print";
 import {
-	predicateSchema,
+	conditionSchema,
+	type Expression,
+	type ExpressionSlotRef,
+	formLinkDatumNameSchema,
+	formLogicSchema,
 	relationPathSchema,
 	termSchema,
-	valueExpressionSchema,
-} from "@/lib/domain/predicate";
+	valueSchema,
+} from "@/lib/domain/expression/types";
+import { referenceNames } from "@/lib/domain/referenceNames";
 import { log } from "@/lib/logger";
 import { type AuthoringScopeOptions, authoringValueScope } from "./bindings";
 import { ReadProjectionError } from "./errors";
@@ -93,15 +103,112 @@ export function authoringEncoders(
 ): AuthoringValueDecoders {
 	const printer = (path: readonly (string | number)[]) =>
 		queryPrinter(authoringValueScope(options, source, path, searchValidation));
+	function slotAt(path: readonly (string | number)[]): ExpressionSlotRef {
+		const content = record.parse(source);
+		const uuid = uuidSchema.safeParse(content.uuid);
+		if (uuid.success && options.doc.fields[uuid.data] !== undefined) {
+			const slot =
+				path.length === 1
+					? path[0]
+					: path[0] === "data_source" && path[1] === "ids_query"
+						? "ids_query"
+						: undefined;
+			if (
+				slot === "relevant" ||
+				slot === "validate" ||
+				slot === "calculate" ||
+				slot === "default_value" ||
+				slot === "required" ||
+				slot === "repeat_count" ||
+				slot === "ids_query"
+			)
+				return { entity: "field", uuid: uuid.data, slot };
+		}
+		if (options.formUuid !== undefined) {
+			const uuid = options.formUuid;
+			if (path[0] === "connect") {
+				if (path[1] === "assessment" && path[2] === "user_score")
+					return { entity: "form", uuid, slot: "assessment_user_score" };
+				if (path[1] === "deliver_unit" && path[2] === "entity_id")
+					return { entity: "form", uuid, slot: "deliver_entity_id" };
+				if (path[1] === "deliver_unit" && path[2] === "entity_name")
+					return { entity: "form", uuid, slot: "deliver_entity_name" };
+			}
+			if (path[0] === "formLinks" && typeof path[1] === "number") {
+				const projected = records.parse(content.formLinks)[path[1]];
+				const linkUuid = uuidSchema.parse(projected?.uuid);
+				const link = options.doc.forms[uuid]?.formLinks?.find(
+					(candidate) => candidate.uuid === linkUuid,
+				);
+				if (link !== undefined) {
+					if (path[2] === "condition")
+						return {
+							entity: "form",
+							uuid,
+							slot: "form_link_condition",
+							member: { linkUuid: link.uuid },
+						};
+					const datum =
+						path[2] === "datums" && typeof path[3] === "number"
+							? records.parse(projected.datums)[path[3]]
+							: undefined;
+					if (datum !== undefined)
+						return {
+							entity: "form",
+							uuid,
+							slot: "form_link_datum_xpath",
+							member: {
+								linkUuid: link.uuid,
+								datum: formLinkDatumNameSchema.parse(datum.name),
+							},
+						};
+				}
+			}
+		}
+		throw new Error(
+			`The stored expression at ${path.join(".")} has no evaluating slot.`,
+		);
+	}
 	return {
 		text: (value) =>
 			printAuthoringText(proseTemplateSchema.parse(value), options.doc),
-		xpath: (value) =>
-			printXPathInDoc(options.doc, xpathExpressionSchema.parse(value)),
+		xpath(value, path) {
+			const projection = projectFormExpression(
+				options.doc,
+				slotAt(path),
+				formLogicSchema.parse(value),
+				new Map((options.tables ?? []).map((table) => [table.id, table])),
+				{ form: options.form },
+			);
+			if (projection.unresolved.length)
+				throw new Error(
+					`The stored expression at ${path.join(".")} contains an unresolved identity.`,
+				);
+			return projection.text;
+		},
+		datum(value, path) {
+			const ref = slotAt(path);
+			if (ref.entity !== "form" || ref.slot !== "form_link_datum_xpath")
+				throw new Error("This form-link datum has no target.");
+			const link = options.doc.forms[ref.uuid]?.formLinks?.find(
+				(link) => link.uuid === ref.member.linkUuid,
+			);
+			if (link === undefined)
+				throw new Error("The form link is no longer in this app.");
+			const id = entryDatumIdResolver(
+				formLinkTargetDatumIds(
+					options.doc,
+					formLinkProjectionContext(options.doc, { entryMetadataOnly: true }),
+					link.target,
+				),
+			)(formLinkDatumNameSchema.parse(value));
+			if (id === undefined)
+				throw new Error("The form link's target no longer reads this datum.");
+			return id;
+		},
 		condition: (value, path) =>
-			printer(path).predicate(predicateSchema.parse(value)),
-		value: (value, path) =>
-			printer(path).value(valueExpressionSchema.parse(value)),
+			printer(path).predicate(conditionSchema.parse(value)),
+		value: (value, path) => printer(path).value(valueSchema.parse(value)),
 		reference: (value, path) => printer(path).term(termSchema.parse(value)),
 		relationship: (value, path) =>
 			printer(path).relationship(relationPathSchema.parse(value)),
@@ -165,6 +272,7 @@ interface ReadProjection {
 		options: AuthoringScopeOptions,
 	): unknown;
 	field(value: FieldWithChildren): unknown;
+	recordName(formUuid: Uuid, value: Expression): string;
 }
 
 /** The tool's result already is its authored reading form. */
@@ -229,17 +337,13 @@ const readProjectors: {
 		};
 	},
 	getField: (data, { field }) => ({ ...data, field: field(data.field) }),
-	getForm(data, { project, scope, field, doc }) {
+	getForm(data, { project, scope, field, doc, recordName }) {
 		const { fields, ...form } = data.form;
 		return {
 			...data,
 			recordContext: formRecordContext(doc, form.uuid),
 			...(data.recordName !== undefined && {
-				recordName: project(
-					xpathExpressionSchema,
-					data.recordName,
-					scope(form.uuid),
-				),
+				recordName: recordName(form.uuid, data.recordName),
 			}),
 			form: {
 				...record.parse(project(formSchema, form, scope(form.uuid))),
@@ -253,7 +357,7 @@ const readProjectors: {
 			...data,
 			icon: project(moduleIconRefSchema.nullable(), data.icon, options),
 			display_condition: project(
-				predicateSchema.nullable(),
+				conditionSchema.nullable(),
 				data.display_condition,
 				options,
 			),
@@ -435,5 +539,26 @@ export function projectAuthoringRead(args: {
 		data: unknown,
 		read: ReadProjection,
 	) => unknown;
-	return projector(data, { doc, scope, project, field });
+	function recordName(formUuid: Uuid, value: Expression): string {
+		const writer = Object.values(doc.fields).find(
+			(field) =>
+				field.kind === "hidden" &&
+				field.caseWrite?.property === "case_name" &&
+				field.calculate === value &&
+				findContainingForm(doc, field.uuid) === formUuid,
+		);
+		const projection =
+			writer === undefined
+				? printFormExpression(value, referenceNames(doc))
+				: projectFormExpression(
+						doc,
+						{ entity: "field", uuid: writer.uuid, slot: "calculate" },
+						value,
+						new Map((tables ?? []).map((table) => [table.id, table])),
+					);
+		if (projection.unresolved.length)
+			throw new Error("The record naming rule has an unresolved identity.");
+		return projection.text;
+	}
+	return projector(data, { doc, scope, project, field, recordName });
 }

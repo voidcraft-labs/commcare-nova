@@ -4,7 +4,7 @@
 // shape-membership categorization shared across every consumer
 // that reasons about a property's type:
 //
-//   - The predicate AST type checker (`./predicate/typeChecker.ts`)
+//   - The predicate AST type checker (`./expression/typeChecker.ts`)
 //     and per-arm rule files use the predicates to reject
 //     mismatched comparisons.
 //   - The case-list-config card editor (`components/builder/case-

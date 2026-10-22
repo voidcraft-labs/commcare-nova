@@ -6,7 +6,7 @@ import {
 	type SearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { eq, literal, prop, sessionUser, term } from "@/lib/domain/predicate";
+import { eq, literal, prop, sessionUser, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	admittedCaseListDoc,

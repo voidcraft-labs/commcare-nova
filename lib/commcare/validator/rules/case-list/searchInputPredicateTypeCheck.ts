@@ -1,37 +1,13 @@
-/**
- * Rule: every advanced-arm `searchInputs[i].predicate` on the case
- * list type-checks against the module's case-type schema map.
- *
- * The simple arm of `SearchInputDef` derives its predicate from a
- * `(property, mode, via)` tuple at wire-emission time — there's no
- * authored predicate AST to type-check. The advanced arm carries
- * a full `Predicate` body that replaces the simple-arm derivation;
- * authors compose the AST directly and the wire layer emits it
- * verbatim. This rule covers the advanced arm; simple-arm
- * structural checks live in `searchInputModeMatchesPropertyType`.
- *
- * The dispatch routes through `checkPredicate` against the same
- * `moduleTypeContext` the predicate-bearing case-list rules
- * consume, so the admission set (declared properties, CommCare
- * standard set, writer-derived) and the search-input declaration
- * list (`knownInputs`) match every other case-list-config rule by
- * construction. Cross-input refs inside an advanced predicate
- * (e.g. `when-input-present(input("other_input"), ...)`) resolve
- * against the module's full search-input list because
- * `moduleTypeContext` populates `knownInputs` from
- * `caseListConfig.searchInputs`.
- *
- * Per-input short-circuits cleanly when `kind === "simple"`.
- */
-
+/** Project semantic findings from this saved slot, preserving its owning validation code. */
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
-import { checkPredicate } from "@/lib/domain/predicate";
+import { checkExpression, slotContext } from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";
 import {
+	checkErrorDetails,
 	type LookupTypeIndex,
 	semanticCheckErrors,
 } from "../../lookupTypeContext";
-import { formatPath, moduleTypeContext } from "./shared";
+import { formatPath } from "./shared";
 
 export function searchInputPredicateTypeCheck(
 	mod: Module,
@@ -42,7 +18,6 @@ export function searchInputPredicateTypeCheck(
 	const inputs = mod.caseListConfig?.searchInputs ?? [];
 	if (inputs.length === 0) return [];
 
-	const ctx = moduleTypeContext(mod, doc, lookupTables);
 	const errors: ValidationError[] = [];
 
 	for (let index = 0; index < inputs.length; index++) {
@@ -52,8 +27,19 @@ export function searchInputPredicateTypeCheck(
 		// emission time. The mode-vs-property-type compatibility check
 		// for simple inputs lives in `searchInputModeMatchesPropertyType`.
 		if (input.kind !== "advanced") continue;
+		const ctx = slotContext(
+			doc,
+			{
+				entity: "module",
+				uuid: moduleUuid,
+				slot: "search_input_predicate",
+				member: { searchInputUuid: input.uuid },
+			},
+			lookupTables ?? new Map(),
+		);
+		if (ctx === undefined) continue;
 		const typeErrors = semanticCheckErrors(
-			checkPredicate(input.predicate, ctx),
+			checkExpression(input.predicate, ctx),
 		);
 		if (typeErrors.length === 0) continue;
 
@@ -70,7 +56,9 @@ export function searchInputPredicateTypeCheck(
 						index: String(index),
 						inputName: input.name,
 						inputUuid: input.uuid,
-						path: at,
+						slot: `caseListConfig.searchInputs[${index}].predicate`,
+						registrySlot: "search_input_predicate",
+						...checkErrorDetails(err),
 					},
 				),
 			);

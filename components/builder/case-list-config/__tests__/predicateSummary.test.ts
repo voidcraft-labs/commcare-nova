@@ -14,6 +14,7 @@ import {
 	ancestorPath,
 	and,
 	between,
+	type Expression,
 	eq,
 	exists,
 	input,
@@ -26,13 +27,12 @@ import {
 	multiSelectAny,
 	not,
 	or,
-	type Predicate,
 	prop,
 	relationStep,
 	term,
 	today,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { projectProseTemplate, proseText } from "@/lib/domain/prose";
 import { humanizeName, summarizeFilter } from "../predicateSummary";
 import { admittedWorkspace } from "./admittedWorkspace";
@@ -45,7 +45,7 @@ const projectProse = (template: Parameters<typeof projectProseTemplate>[0]) =>
 
 const status = () => term(prop("patient", "status"));
 
-const statusIsntClosed: Predicate = {
+const statusIsntClosed: Expression = {
 	kind: "neq",
 	left: status(),
 	right: term(literal("closed")),

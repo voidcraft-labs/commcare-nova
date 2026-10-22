@@ -7,6 +7,7 @@ import {
 	blueprintDocSchema,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { input, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../validator/runner";
 export function admitNoMatchesDoc(doc: BlueprintDoc) {
@@ -56,9 +57,7 @@ export function noMatchesDoc(
 				id: "case_name",
 				label: proseText("Name"),
 				caseWrite: { caseType: "patient", property: "case_name" },
-				default_value: {
-					parts: [{ kind: "search-answer-ref", searchInputUuid: NAME_INPUT }],
-				},
+				default_value: term(input(NAME_INPUT)),
 			}),
 		],
 	};

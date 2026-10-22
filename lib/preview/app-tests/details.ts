@@ -4,6 +4,7 @@ import {
 	effectiveCaseTypes,
 	orderedColumns,
 } from "@/lib/domain";
+import { slotContext } from "@/lib/domain/expression/context";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { caseColumnLabel } from "../caseColumnLabel";
 import {
@@ -105,11 +106,29 @@ export function appTestCellProjector(
 		),
 		calculatedTemporalTypes: new Map(
 			columns.flatMap((column) => {
-				const type = resolveCalculatedTemporalType(column, {
-					caseTypes: [...caseTypes],
-					currentCaseType: mod.caseType,
-					knownInputs: [],
-				});
+				if (column.kind !== "calculated") return [];
+				const types = slotContext(
+					context.doc,
+					{
+						entity: "module",
+						uuid: moduleUuid,
+						slot: "case_list_column_expression",
+						member: { columnUuid: column.uuid },
+					},
+					new Map(
+						context.lookup.definitions.map((table) => [
+							table.id,
+							new Map(
+								table.columns.map((column) => [column.id, column.dataType]),
+							),
+						]),
+					),
+				);
+				if (types === undefined)
+					throw new AppTestActionError(
+						"This calculated column is unavailable.",
+					);
+				const type = resolveCalculatedTemporalType(column, types);
 				return type ? [[column.uuid, type] as const] : [];
 			}),
 		),

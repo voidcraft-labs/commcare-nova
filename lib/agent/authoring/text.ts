@@ -2,12 +2,12 @@ import { z } from "zod";
 import {
 	canonicalProseTemplate,
 	type ProsePart,
+	type ProseReferencePart,
 	type ProseTemplate,
 	printProseTemplate,
 	prosePartSchema,
 } from "@/lib/domain/prose";
-import type { XPathExpression } from "@/lib/domain/xpath/ast";
-import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
+import type { ReferenceNamesDoc } from "@/lib/domain/referenceNames";
 import { AuthoringInputError } from "./errors";
 
 export const referenceSchema = z.string().min(1);
@@ -64,17 +64,11 @@ export function parseInterpolatedText<Reference>(
 
 export function normalizeText(
 	source: string,
-	parse: (source: string) => XPathExpression,
+	parse: (source: string) => ProseReferencePart,
 ) {
 	return canonicalProseTemplate(
 		parseInterpolatedText<ProsePart>(source, (name) => {
-			const expression = parse(name.startsWith("#") ? name : `#form/${name}`);
-			const [part] = expression.parts;
-			if (expression.parts.length !== 1 || !part || part.kind === "text")
-				throw new AuthoringInputError(
-					`{{${name}}} must name one answer or record property.`,
-				);
-			return prosePartSchema.parse(part);
+			return prosePartSchema.parse(parse(name));
 		}),
 	);
 }
@@ -99,18 +93,9 @@ export function printInterpolatedText<Reference>(
 		.join("");
 }
 
-export function normalizeExpression(
-	value: string | boolean,
-	parse: (source: string) => XPathExpression,
-) {
-	return parse(
-		typeof value === "boolean" ? (value ? "true()" : "false()") : value,
-	);
-}
-
 export function printAuthoringText(
 	value: ProseTemplate,
-	doc: XPathPrintableDoc,
+	doc: ReferenceNamesDoc,
 ): string {
 	return printInterpolatedText(value.parts, (part) => {
 		const reference = printProseTemplate({ parts: [part] }, doc);

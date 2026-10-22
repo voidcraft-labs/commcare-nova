@@ -1,21 +1,8 @@
-/**
- * Rule: keep schema-valid server-only / multi-valued expressions out of scalar
- * module slots evaluated by CommCare Core on the device.
- *
- * Standalone scalar ValueExpression roots have one additional cardinality
- * rule: a subcase or direction-agnostic property read can return several case
- * values, while Core's scalar evaluator requires one. Authors use `count` for
- * an aggregate or move the read into a related-case predicate. Self and
- * ancestor reads stay valid. Predicate-rooted slots are not subject to this
- * check because the shared relation-scope normalizer lowers their related reads
- * into explicit quantifiers.
- *
- * The slot inventory lives in `moduleWireSlots.ts`; this rule visits every
- * calculated definition — latent ones included — so a later visibility or
- * input change cannot activate a runtime-failing expression.
- */
-
-import { findOnDeviceScalarExpressionIssue } from "@/lib/commcare/expression/onDeviceCompatibility";
+/** Target limitations over the exact slot context and canonical expression edges. */
+import {
+	findOnDeviceScalarExpressionIssue,
+	walkOnDeviceExpression,
+} from "@/lib/commcare/expression/onDeviceCompatibility";
 import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate/csqlRuntimeWalk";
 import { isValidStaticGeopointCenter } from "@/lib/commcare/predicate/geopoint";
 import {
@@ -26,25 +13,27 @@ import {
 } from "@/lib/commcare/xpath/wire/rowScope";
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import {
-	type Predicate,
-	type TypeContext,
-	type ValueExpression,
+	type Expression,
+	type ExpressionContext,
+	type ExpressionNode,
+	expressionChildContext,
+	expressionChildren,
+	isRelationPath,
+	slotContext,
 	walkExpressionNodes,
-	walkPredicateExpressionNodes,
-	walkPredicateNodes,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	canonicalizeRelationPath,
 	normalizeRelationEvaluationScopes,
 	RelationEvaluationScopeError,
-} from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
+} from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import { type ValidationError, validationError } from "../../errors";
 import type { LookupTypeIndex } from "../../lookupTypeContext";
 import {
 	collectModuleWireSlotFindings,
 	type ModuleWireSlotIdentity,
 } from "./moduleWireSlots";
-import { moduleTypeContext } from "./shared";
+import { relationEvaluationContext } from "./shared";
 
 type ScalarIssue = NonNullable<
 	ReturnType<typeof findOnDeviceScalarExpressionIssue>
@@ -58,13 +47,8 @@ type RelationIssue =
 			reason: "nested-multi-case-count";
 			relationKind: "subcase" | "any-relation";
 	  }
-	| {
-			reason: "invalid-geopoint-center";
-			value: string;
-	  }
-	| {
-			reason: "lookup-row-escaped-column";
-	  };
+	| { reason: "invalid-geopoint-center"; value: string }
+	| { reason: "lookup-row-escaped-column" };
 type OnDeviceIssue = ScalarIssue | RelationIssue;
 
 export function onDeviceExpressionCompatibility(
@@ -73,634 +57,155 @@ export function onDeviceExpressionCompatibility(
 	doc: BlueprintDoc,
 	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
-	const ctx = moduleTypeContext(mod, doc, lookupTables);
-
+	const judge = (
+		expression: Expression,
+		slot: ModuleWireSlotIdentity,
+		mode: "condition" | "value" | "csql",
+	) => {
+		const ctx = slotContext(doc, slot.ref, lookupTables ?? new Map());
+		if (ctx === undefined) return undefined;
+		const issue = findSlotIssue(expression, ctx, mode);
+		return issue === undefined ? undefined : buildError(slot, issue);
+	};
 	return collectModuleWireSlotFindings(mod, moduleUuid, {
-		judgePredicate(predicate, slot) {
-			return judgePredicateSlot(predicate, ctx, slot);
-		},
-		judgeCsqlPredicate(predicate, slot) {
-			return judgeCsqlPredicateSlot(predicate, ctx, slot);
-		},
-		judgeExpression(expression, slot) {
-			return judgeScalarExpressionSlot(expression, ctx, slot);
-		},
+		judgePredicate: (expression, slot) => judge(expression, slot, "condition"),
+		judgeCsqlPredicate: (expression, slot) => judge(expression, slot, "csql"),
+		judgeExpression: (expression, slot) => judge(expression, slot, "value"),
 	});
 }
-
-function judgePredicateSlot(
-	predicate: Predicate,
-	ctx: TypeContext,
-	slot: ModuleWireSlotIdentity,
-): ValidationError | undefined {
-	const invalidCenter = firstInvalidLiteralGeopointCenter(predicate);
-	if (invalidCenter !== undefined) {
-		return buildError(slot, invalidCenter);
-	}
-	let lookupIssue: RelationIssue | undefined;
-	walkPredicateExpressionNodes(predicate, (node) => {
-		if (lookupIssue !== undefined || node.kind !== "table-lookup") return;
-		lookupIssue = firstLookupRowEscapedColumn(node.where, ctx);
-	});
-	if (lookupIssue !== undefined) {
-		return buildError(slot, lookupIssue);
-	}
-	const issue = firstRelationIssueInPredicate(predicate, ctx);
-	return issue === undefined ? undefined : buildError(slot, issue);
-}
-
-function judgeScalarExpressionSlot(
-	expression: ValueExpression,
-	ctx: TypeContext,
-	slot: ModuleWireSlotIdentity,
-): ValidationError | undefined {
-	const issue = findOnDeviceScalarExpressionIssue(expression, ctx);
-	if (issue !== undefined) {
-		return buildError(slot, issue);
-	}
-	let invalidCenter: RelationIssue | undefined;
-	walkPredicateCarriersInExpression(expression, (predicate) => {
-		if (invalidCenter === undefined) {
-			invalidCenter = firstInvalidLiteralGeopointCenter(predicate);
-		}
-	});
-	if (invalidCenter !== undefined) {
-		return buildError(slot, invalidCenter);
-	}
-	let lookupIssue: RelationIssue | undefined;
-	walkExpressionNodes(expression, (node) => {
-		if (lookupIssue !== undefined || node.kind !== "table-lookup") return;
-		lookupIssue = firstLookupRowEscapedColumn(node.where, ctx);
-	});
-	if (lookupIssue !== undefined) {
-		return buildError(slot, lookupIssue);
-	}
-	const relationIssue = firstRelationIssueInExpression(expression, ctx);
-	return relationIssue === undefined
-		? undefined
-		: buildError(slot, relationIssue);
-}
-
-function judgeCsqlPredicateSlot(
-	predicate: Predicate,
-	ctx: TypeContext,
-	slot: ModuleWireSlotIdentity,
-): ValidationError | undefined {
-	const invalidCenter = firstInvalidLiteralGeopointCenter(predicate);
-	if (invalidCenter !== undefined) {
-		return buildError(slot, invalidCenter);
-	}
-	const normalization = normalizeRelationScopes(predicate, ctx);
-	if ("issue" in normalization) {
-		return buildError(slot, normalization.issue);
-	}
-	let nestedCount: RelationIssue | undefined;
-	walkCsqlOnDeviceNodes(normalization.predicate, {
-		visitPredicate(node) {
-			if (nestedCount === undefined) {
-				nestedCount = firstNestedMultiCaseCountInPredicate(node, ctx);
-			}
-		},
-		visitExpression(node) {
-			if (nestedCount === undefined) {
-				nestedCount = firstNestedMultiCaseCountInExpression(node, ctx);
-			}
-		},
-	});
-	return nestedCount === undefined ? undefined : buildError(slot, nestedCount);
-}
-
-function firstInvalidLiteralGeopointCenter(
-	predicate: Predicate,
-): RelationIssue | undefined {
-	let issue: RelationIssue | undefined;
-	walkPredicateNodes(predicate, (node) => {
-		if (issue !== undefined || node.kind !== "within-distance") return;
-		const center = node.center;
-		if (
-			center.kind !== "term" ||
-			center.term.kind !== "literal" ||
-			typeof center.term.value !== "string" ||
-			isValidStaticGeopointCenter(center.term.value)
-		) {
-			return;
-		}
-		issue = {
-			reason: "invalid-geopoint-center",
-			value: center.term.value,
-		};
-	});
-	return issue;
-}
-
-function normalizeRelationScopes(
-	predicate: Predicate,
-	ctx: TypeContext,
-):
-	| { readonly predicate: Predicate }
-	| {
-			readonly issue: Extract<
-				RelationIssue,
-				{ reason: "mixed-property-scopes" | "unrebasable-relation-scope" }
-			>;
-	  } {
+function findSlotIssue(
+	expression: Expression,
+	ctx: ExpressionContext,
+	mode: "condition" | "value" | "csql",
+): OnDeviceIssue | undefined {
 	try {
-		return {
-			predicate: normalizeRelationEvaluationScopes(predicate, ctx),
-		};
+		if (mode === "value") {
+			const scalar = findOnDeviceScalarExpressionIssue(expression, ctx);
+			if (scalar !== undefined) return scalar;
+		}
+		let invalidCenter: RelationIssue | undefined;
+		walkExpressionNodes(expression, (node) => {
+			if (invalidCenter !== undefined || node.kind !== "within-distance")
+				return;
+			const center = node.center;
+			if (
+				center.kind === "term" &&
+				center.term.kind === "literal" &&
+				typeof center.term.value === "string" &&
+				!isValidStaticGeopointCenter(center.term.value)
+			)
+				invalidCenter = {
+					reason: "invalid-geopoint-center",
+					value: center.term.value,
+				};
+		});
+		if (invalidCenter !== undefined) return invalidCenter;
+		const normalized = normalizeRelationEvaluationScopes(
+			expression,
+			relationEvaluationContext(ctx),
+		);
+		if (mode === "csql") {
+			let issue: RelationIssue | undefined;
+			walkCsqlOnDeviceNodes(normalized, ctx, {
+				visitExpression: (node, lexicalContext) => {
+					issue ??= nestedMultiCaseCount(node, lexicalContext);
+				},
+			});
+			return issue;
+		}
+		let lookupIssue: RelationIssue | undefined;
+		walkOnDeviceExpression(normalized, ctx, (node, lexicalContext) => {
+			if (lookupIssue !== undefined || node.kind !== "table-lookup") return;
+			// The lookup's captured case is preserved while its columns remain row-local.
+			const where = expressionChildren(node).find(
+				(child) => child.role.kind === "operand" && child.role.slot === "where",
+			);
+			if (where?.kind !== "expression") return;
+			lookupIssue = escapedLookupColumn(
+				where.value,
+				expressionChildContext(node, where, lexicalContext),
+			);
+		});
+		return lookupIssue ?? nestedMultiCaseCount(normalized, ctx);
 	} catch (error) {
 		if (!(error instanceof RelationEvaluationScopeError)) throw error;
-		return {
-			issue: { reason: error.reason, detail: error.message },
-		};
+		return { reason: error.reason, detail: error.message };
 	}
 }
-
-function firstRelationIssueInPredicate(
-	predicate: Predicate,
-	ctx: TypeContext,
-): RelationIssue | undefined {
-	const normalization = normalizeRelationScopes(predicate, ctx);
-	if ("issue" in normalization) return normalization.issue;
-	return firstNestedMultiCaseCountInPredicate(normalization.predicate, ctx);
+/** A nested lookup binds its own fixture row; other child edges keep the read's identity. */
+function readsThisTableColumn(node: ExpressionNode): boolean {
+	if (node.kind === "table-column") return true;
+	if (node.kind === "table-lookup" || node.kind === "table-rows") return false;
+	return expressionChildren(node).some(
+		(child) => child.kind !== "relation" && readsThisTableColumn(child.value),
+	);
 }
-
-function firstRelationIssueInExpression(
-	expression: ValueExpression,
-	ctx: TypeContext,
+function escapedLookupColumn(
+	expression: Expression,
+	ctx: ExpressionContext,
 ): RelationIssue | undefined {
-	let scopeIssue: RelationIssue | undefined;
-	walkPredicateCarriersInExpression(expression, (predicate) => {
-		if (scopeIssue !== undefined) return;
-		const normalization = normalizeRelationScopes(predicate, ctx);
-		if ("issue" in normalization) scopeIssue = normalization.issue;
-	});
-	return scopeIssue ?? firstNestedMultiCaseCountInExpression(expression, ctx);
-}
-
-/**
- * A lookup column read that a relation rewrite would evaluate away from its
- * fixture row. The wire lowering keeps table-column terms row-relative while
- * the fixture row is the predicate context, and the relation-scope normalizer
- * rebases a comparison that reads a related case into that relation's `where`
- * — evaluated with the candidate case as context, where the fixture row is no
- * longer addressable (Core's `current()` is already spoken for). Run the same
- * normalizer this slot's emission runs, then look for any table-column term
- * that landed inside a relation scope: a hit means the emitted expression
- * would read a nonexistent fixture column off a case row (or throw), so the
- * shape is unrepresentable and must reject here. Authored columns directly
- * inside a relation `where` are caught by the same normalized-output check.
- */
-function firstLookupRowEscapedColumn(
-	root: Predicate,
-	ctx: TypeContext,
-): RelationIssue | undefined {
+	const normalized = normalizeRelationEvaluationScopes(
+		expression,
+		relationEvaluationContext(ctx),
+	);
 	let escaped = false;
-	let normalized: Predicate;
-	try {
-		normalized = normalizeRelationEvaluationScopes(root, ctx);
-	} catch (error) {
-		if (error instanceof RelationEvaluationScopeError) return undefined;
-		throw error;
-	}
-	walkPredicateNodes(normalized, (node) => {
-		if (node.kind !== "exists" && node.kind !== "missing") return;
-		if (node.where !== undefined && predicateReadsTableColumn(node.where)) {
+	walkExpressionNodes(normalized, (node) => {
+		if (
+			(node.kind === "exists" ||
+				node.kind === "missing" ||
+				(node.kind === "count" && isRelationPath(node.via))) &&
+			node.where !== undefined &&
+			readsThisTableColumn(node.where)
+		)
 			escaped = true;
-		}
-	});
-	walkPredicateExpressionNodes(normalized, (node) => {
-		if (node.kind !== "count" || node.where === undefined) return;
-		if (predicateReadsTableColumn(node.where)) escaped = true;
 	});
 	return escaped ? { reason: "lookup-row-escaped-column" } : undefined;
 }
-
-/** Any table-column term in the subtree, stopping at nested table lookups —
- *  a nested lookup's columns belong to its own fixture-row scope. */
-function predicateReadsTableColumn(predicate: Predicate): boolean {
-	let found = false;
-	walkPredicateNodes(predicate, (node) => {
-		if (found) return;
-		switch (node.kind) {
-			case "eq":
-			case "neq":
-			case "gt":
-			case "gte":
-			case "lt":
-			case "lte":
-				found =
-					expressionReadsTableColumn(node.left) ||
-					expressionReadsTableColumn(node.right);
-				return;
-			case "in":
-			case "is-blank":
-			case "matches-pattern":
-				found = expressionReadsTableColumn(node.left);
-				return;
-			case "between":
-				found =
-					expressionReadsTableColumn(node.left) ||
-					(node.lower !== undefined &&
-						expressionReadsTableColumn(node.lower)) ||
-					(node.upper !== undefined && expressionReadsTableColumn(node.upper));
-				return;
-			case "match":
-				/* The property slots below are PropertyRef-typed and cannot hold
-				 * a table-column term; only their value operands can. */
-				found = expressionReadsTableColumn(node.value);
-				return;
-			case "within-distance":
-				found = expressionReadsTableColumn(node.center);
-				return;
-			default:
-				return;
-		}
-	});
-	return found;
-}
-
-function expressionReadsTableColumn(expression: ValueExpression): boolean {
-	switch (expression.kind) {
-		case "term":
-			return expression.term.kind === "table-column";
-		case "table-lookup":
-			/* A nested lookup opens its own fixture-row scope. */
-			return false;
-		case "today":
-		case "now":
-		case "id-of":
-		case "acting-user":
-		case "unowned":
-			return false;
-		case "date-coerce":
-		case "datetime-coerce":
-		case "double":
-			return expressionReadsTableColumn(expression.value);
-		case "format-date":
-			return expressionReadsTableColumn(expression.date);
-		case "date-add":
-			return (
-				expressionReadsTableColumn(expression.date) ||
-				expressionReadsTableColumn(expression.quantity)
-			);
-		case "arith":
-			return (
-				expressionReadsTableColumn(expression.left) ||
-				expressionReadsTableColumn(expression.right)
-			);
-		case "concat":
-			return expression.parts.some(expressionReadsTableColumn);
-		case "coalesce":
-			return expression.values.some(expressionReadsTableColumn);
-		case "if":
-			return (
-				predicateReadsTableColumn(expression.cond) ||
-				expressionReadsTableColumn(expression.then) ||
-				expressionReadsTableColumn(expression.else)
-			);
-		case "switch":
-			return (
-				expressionReadsTableColumn(expression.on) ||
-				expression.cases.some((switchCase) =>
-					expressionReadsTableColumn(switchCase.then),
-				) ||
-				expressionReadsTableColumn(expression.fallback)
-			);
-		case "count":
-			return (
-				expression.where !== undefined &&
-				predicateReadsTableColumn(expression.where)
-			);
-		default: {
-			const _exhaustive: never = expression;
-			throw new Error(
-				`onDeviceExpressionCompatibility: unhandled expression ${String(_exhaustive)}`,
-			);
-		}
-	}
-}
-
-function walkPredicateCarriersInExpression(
-	expression: ValueExpression,
-	visit: (predicate: Predicate) => void,
-): void {
-	switch (expression.kind) {
-		case "term":
-		case "today":
-		case "now":
-		case "id-of":
-		case "acting-user":
-		case "unowned":
-			return;
-		case "date-add":
-			walkPredicateCarriersInExpression(expression.date, visit);
-			walkPredicateCarriersInExpression(expression.quantity, visit);
-			return;
-		case "date-coerce":
-		case "datetime-coerce":
-		case "double":
-			walkPredicateCarriersInExpression(expression.value, visit);
-			return;
-		case "format-date":
-			walkPredicateCarriersInExpression(expression.date, visit);
-			return;
-		case "arith":
-			walkPredicateCarriersInExpression(expression.left, visit);
-			walkPredicateCarriersInExpression(expression.right, visit);
-			return;
-		case "concat":
-			for (const part of expression.parts) {
-				walkPredicateCarriersInExpression(part, visit);
-			}
-			return;
-		case "coalesce":
-			for (const value of expression.values) {
-				walkPredicateCarriersInExpression(value, visit);
-			}
-			return;
-		case "if":
-			visit(expression.cond);
-			walkPredicateCarriersInExpression(expression.then, visit);
-			walkPredicateCarriersInExpression(expression.else, visit);
-			return;
-		case "switch":
-			walkPredicateCarriersInExpression(expression.on, visit);
-			for (const switchCase of expression.cases) {
-				walkPredicateCarriersInExpression(switchCase.then, visit);
-			}
-			walkPredicateCarriersInExpression(expression.fallback, visit);
-			return;
-		case "count":
-			if (expression.where !== undefined) visit(expression.where);
-			return;
-		case "table-lookup":
-			visit(expression.where);
-			return;
-		default: {
-			const _exhaustive: never = expression;
-			throw new Error(
-				`onDeviceExpressionCompatibility: unhandled expression ${String(_exhaustive)}`,
-			);
-		}
-	}
-}
-
-function firstNestedMultiCaseCountInPredicate(
-	predicate: Predicate,
-	context: TypeContext,
+function nestedMultiCaseCount(
+	node: ExpressionNode,
+	ctx: ExpressionContext,
 	anchor: OnDeviceCaseAnchor = ROOT_ON_DEVICE_CASE_ANCHOR,
 ): RelationIssue | undefined {
-	switch (predicate.kind) {
-		case "match-all":
-		case "match-none":
-		case "multi-select-contains":
-			return undefined;
-		case "eq":
-		case "neq":
-		case "gt":
-		case "gte":
-		case "lt":
-		case "lte":
-			return (
-				firstNestedMultiCaseCountInExpression(
-					predicate.left,
-					context,
-					anchor,
-				) ??
-				firstNestedMultiCaseCountInExpression(predicate.right, context, anchor)
-			);
-		case "in":
-		case "is-blank":
-		case "matches-pattern":
-			return firstNestedMultiCaseCountInExpression(
-				predicate.left,
-				context,
-				anchor,
-			);
-		case "between":
-			return (
-				firstNestedMultiCaseCountInExpression(
-					predicate.left,
-					context,
-					anchor,
-				) ??
-				(predicate.lower === undefined
-					? undefined
-					: firstNestedMultiCaseCountInExpression(
-							predicate.lower,
-							context,
-							anchor,
-						)) ??
-				(predicate.upper === undefined
-					? undefined
-					: firstNestedMultiCaseCountInExpression(
-							predicate.upper,
-							context,
-							anchor,
-						))
-			);
-		case "match":
-			return firstNestedMultiCaseCountInExpression(
-				predicate.value,
-				context,
-				anchor,
-			);
-		case "within-distance":
-			return firstNestedMultiCaseCountInExpression(
-				predicate.center,
-				context,
-				anchor,
-			);
-		case "and":
-		case "or":
-			for (const clause of predicate.clauses) {
-				const issue = firstNestedMultiCaseCountInPredicate(
-					clause,
-					context,
-					anchor,
-				);
-				if (issue !== undefined) return issue;
-			}
-			return undefined;
-		case "not":
-		case "when-input-present":
-			return firstNestedMultiCaseCountInPredicate(
-				predicate.clause,
-				context,
-				anchor,
-			);
-		case "exists":
-		case "missing": {
-			const relation = canonicalizeRelationPath(predicate.via, context);
-			const childContext =
-				relation.destinationCaseType === undefined
-					? context
-					: {
-							...context,
-							currentCaseType: relation.destinationCaseType,
-						};
-			return predicate.where === undefined
-				? undefined
-				: firstNestedMultiCaseCountInPredicate(
-						predicate.where,
-						childContext,
-						descendOnDeviceCaseAnchor(anchor, relation.via),
-					);
-		}
-		default: {
-			const _exhaustive: never = predicate;
-			throw new Error(
-				`onDeviceExpressionCompatibility: unhandled predicate ${String(_exhaustive)}`,
-			);
-		}
+	const relationNode =
+		node.kind === "exists" ||
+		node.kind === "missing" ||
+		(node.kind === "count" && isRelationPath(node.via));
+	let relationAnchor = anchor;
+	if (relationNode) {
+		const via = node.via;
+		if (!isRelationPath(via))
+			throw new Error("A relation node lost its relation path.");
+		const relation = canonicalizeRelationPath(
+			via,
+			relationEvaluationContext(ctx),
+		);
+		if (
+			node.kind === "count" &&
+			onDeviceAnchorCaseId(anchor) === undefined &&
+			(relation.via.kind === "subcase" || relation.via.kind === "any-relation")
+		)
+			return {
+				reason: "nested-multi-case-count",
+				relationKind: relation.via.kind,
+			};
+		relationAnchor = descendOnDeviceCaseAnchor(anchor, relation.via);
 	}
-}
-
-function firstNestedMultiCaseCountInExpression(
-	expression: ValueExpression,
-	context: TypeContext,
-	anchor: OnDeviceCaseAnchor = ROOT_ON_DEVICE_CASE_ANCHOR,
-): RelationIssue | undefined {
-	switch (expression.kind) {
-		case "term":
-		case "today":
-		case "now":
-		case "id-of":
-		case "acting-user":
-		case "unowned":
-			return undefined;
-		case "date-add":
-			return (
-				firstNestedMultiCaseCountInExpression(
-					expression.date,
-					context,
-					anchor,
-				) ??
-				firstNestedMultiCaseCountInExpression(
-					expression.quantity,
-					context,
-					anchor,
-				)
-			);
-		case "date-coerce":
-		case "datetime-coerce":
-		case "double":
-			return firstNestedMultiCaseCountInExpression(
-				expression.value,
-				context,
-				anchor,
-			);
-		case "format-date":
-			return firstNestedMultiCaseCountInExpression(
-				expression.date,
-				context,
-				anchor,
-			);
-		case "arith":
-			return (
-				firstNestedMultiCaseCountInExpression(
-					expression.left,
-					context,
-					anchor,
-				) ??
-				firstNestedMultiCaseCountInExpression(expression.right, context, anchor)
-			);
-		case "concat":
-			for (const part of expression.parts) {
-				const issue = firstNestedMultiCaseCountInExpression(
-					part,
-					context,
-					anchor,
-				);
-				if (issue !== undefined) return issue;
-			}
-			return undefined;
-		case "coalesce":
-			for (const value of expression.values) {
-				const issue = firstNestedMultiCaseCountInExpression(
-					value,
-					context,
-					anchor,
-				);
-				if (issue !== undefined) return issue;
-			}
-			return undefined;
-		case "if":
-			return (
-				firstNestedMultiCaseCountInPredicate(
-					expression.cond,
-					context,
-					anchor,
-				) ??
-				firstNestedMultiCaseCountInExpression(
-					expression.then,
-					context,
-					anchor,
-				) ??
-				firstNestedMultiCaseCountInExpression(expression.else, context, anchor)
-			);
-		case "switch": {
-			const onIssue = firstNestedMultiCaseCountInExpression(
-				expression.on,
-				context,
-				anchor,
-			);
-			if (onIssue !== undefined) return onIssue;
-			for (const switchCase of expression.cases) {
-				const issue = firstNestedMultiCaseCountInExpression(
-					switchCase.then,
-					context,
-					anchor,
-				);
-				if (issue !== undefined) return issue;
-			}
-			return firstNestedMultiCaseCountInExpression(
-				expression.fallback,
-				context,
-				anchor,
-			);
-		}
-		case "count": {
-			const relation = canonicalizeRelationPath(expression.via, context);
-			if (
-				onDeviceAnchorCaseId(anchor) === undefined &&
-				(relation.via.kind === "subcase" ||
-					relation.via.kind === "any-relation")
-			) {
-				return {
-					reason: "nested-multi-case-count",
-					relationKind: relation.via.kind,
-				};
-			}
-			const childContext =
-				relation.destinationCaseType === undefined
-					? context
-					: {
-							...context,
-							currentCaseType: relation.destinationCaseType,
-						};
-			return expression.where === undefined
-				? undefined
-				: firstNestedMultiCaseCountInPredicate(
-						expression.where,
-						childContext,
-						descendOnDeviceCaseAnchor(anchor, relation.via),
-					);
-		}
-		case "table-lookup":
-			return firstNestedMultiCaseCountInPredicate(
-				expression.where,
-				context,
-				anchor,
-			);
-		default: {
-			const _exhaustive: never = expression;
-			throw new Error(
-				`onDeviceExpressionCompatibility: unhandled expression ${String(_exhaustive)}`,
-			);
-		}
+	for (const child of expressionChildren(node)) {
+		if (child.kind === "relation") continue;
+		const childAnchor =
+			relationNode &&
+			child.role.kind === "operand" &&
+			child.role.slot === "where"
+				? relationAnchor
+				: anchor;
+		const issue = nestedMultiCaseCount(
+			child.value,
+			expressionChildContext(node, child, ctx),
+			childAnchor,
+		);
+		if (issue !== undefined) return issue;
 	}
+	return undefined;
 }
 
 /** One finding per authored slot provides one stable, actionable repair. */
@@ -741,8 +246,12 @@ function buildError(
 			...(issue.reason === "multi-valued-relation-read"
 				? {
 						property: issue.property.property,
-						caseType: issue.property.caseType,
-						relationKind: issue.property.via?.kind,
+						...(issue.property.caseType === undefined
+							? {}
+							: { caseType: issue.property.caseType }),
+						...(issue.property.via === undefined
+							? {}
+							: { relationKind: issue.property.via.kind }),
 					}
 				: {}),
 			...(issue.reason === "nested-multi-case-count"

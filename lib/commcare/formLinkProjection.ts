@@ -64,35 +64,40 @@ import { descendantFieldUuids, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
-	caseSelectionCanFlowBetweenModules,
 	caseSelectionCardinality,
+	type DatumEntry,
+	type DatumRef,
+	datumRefKey,
 	deriveCaseWriteInventory,
+	type Expression,
 	type FormLink,
 	type FormLinkTarget,
 	moduleParent,
-	printXPath,
 	projectedModulePreorder,
-	projectXPath,
+	rootSelectionAlignment,
 	type Uuid,
-	type XPathExpression,
-	xpathPrintContext,
 } from "@/lib/domain";
+import { slotContext } from "@/lib/domain/expression/context";
+import { formStructure } from "@/lib/domain/expression/formStructure";
+import type { FormExpressionSlotRef } from "@/lib/domain/expression/types";
+import { caseTypeDepthMap } from "./caseTypeDepths";
 import { caseWriteAdmissionIssues } from "./caseWriteAdmission";
 import { CASE_TYPE_REGEX, XML_ELEMENT_NAME_REGEX } from "./constants";
+import { moduleExpressionContexts } from "./expressionContext";
 import { buildFormActions } from "./formActions";
-import { rewriteHashtags } from "./hashtags";
 import {
-	caseTypeDepthMap,
-	expandHashtagsForSessionStack,
-} from "./hashtags/formContext";
-import type { LookupWireNaming } from "./lookup/naming";
+	type LookupWireNaming,
+	lookupTypeIndexFromNaming,
+} from "./lookup/naming";
 import {
 	deriveCaseSelectionDatum,
 	deriveSessionDatums,
+	newCaseIdDatumId,
 	type SessionDatum,
 	type StackQueryData,
 	sessionDatumRequiresSelection,
 } from "./session";
+import { subcaseSessionDatumId } from "./subcaseWire";
 import {
 	buildInlineSearch,
 	type InlineSearchEmission,
@@ -100,22 +105,15 @@ import {
 	moduleIsSearchFirst,
 } from "./suite/case-search/inlineSearch";
 import type { FormActions } from "./types";
-import { moduleTypeContext } from "./validator/rules/case-list/shared";
+import { USERCASE_DATUM_ID } from "./usercaseWire";
 import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
-import {
-	type FormLinkXPathValue,
-	isLegacyFormLinkXPath,
-	legacyFormLinkGuard,
-	legacyProjectedFormLinkXPath,
-} from "./xform/legacyAuthoredXPath";
-import {
-	lowerXPathForJavaRosa,
-	selectedCasesInstance,
-	serializeWire,
-	sessionInstance,
-	type WireExpr,
-	w,
-} from "./xpath";
+import { formNodeProjection } from "./xpath/formNodeProjection";
+import { w } from "./xpath/wire/builders";
+import { toWire, type WireTermBindings } from "./xpath/wire/fromExpression";
+import { selectedCasesInstance, sessionInstance } from "./xpath/wire/instances";
+import { caseById, casePropertyStep } from "./xpath/wire/rowScope";
+import { serializeWire } from "./xpath/wire/serialize";
+import type { WireExpr } from "./xpath/wire/tree";
 
 // ── Frame vocabulary ─────────────────────────────────────────────────────
 
@@ -174,7 +172,7 @@ export type MatchedChild =
 	| {
 			readonly type: "datum";
 			readonly id: string;
-			readonly value: FormLinkXPathValue;
+			readonly value: WireExpr;
 	  }
 	/** HQ `WorkflowQueryMeta.to_stack_datum`: fetch the selected case into
 	 *  a search-first module's results instance before its datum reads it. */
@@ -194,12 +192,9 @@ export function sessionDataRef(datumId: string): WireExpr {
 	]);
 }
 
-/** PR4 equality checks compare the actual projected values at the legacy
- * authored boundary, while generated expressions remain trees. */
-function formLinkValueText(value: FormLinkXPathValue): string {
-	return isLegacyFormLinkXPath(value)
-		? value.text
-		: serializeWire(value, { target: "suite" }).text;
+/** Compare projected values under the same session wire target. */
+function formLinkValueText(value: WireExpr): string {
+	return serializeWire(value, { target: "suite" }).text;
 }
 
 // ── Context ──────────────────────────────────────────────────────────────
@@ -210,6 +205,8 @@ function formLinkValueText(value: FormLinkXPathValue): string {
  * expanded actions (the datum list depends on which cases the form opens).
  */
 export interface FormLinkProjectionContext {
+	/** The authored owner survives wire-only placement into a generated menu. */
+	readonly expressionDoc: BlueprintDoc;
 	/** Neutral task reads do not compile selector or query expressions. */
 	readonly entryMetadataOnly: boolean;
 	readonly onParentSelectionConflict?: (moduleUuid: Uuid) => void;
@@ -229,6 +226,8 @@ export interface FormLinkProjectionContext {
 	 */
 	readonly attachmentTarget: AttachmentUrlTarget | null;
 	readonly lookupNaming?: LookupWireNaming;
+	/** The running Preview's existing fallback when its worker row is absent. */
+	readonly workerProperty?: WireTermBindings["workerProperty"];
 	/** Entry datums by form, derived once per context: a form target's frame
 	 *  reads every form of its module, once per link, once per pass. The
 	 *  context is built over one immutable document, so the memo is sound. */
@@ -236,6 +235,10 @@ export interface FormLinkProjectionContext {
 	/** The module whose menu selection supplies each selectable datum. Kept
 	 * out of `SessionDatum` because it is projection provenance, never wire. */
 	readonly selectionSourceModules: WeakMap<SessionDatum, Uuid>;
+	readonly chainDatumIds: WeakMap<SessionDatum, string>;
+	readonly alignedSelectionSources: WeakMap<SessionDatum, Uuid>;
+	readonly tileGroupingSources: WeakMap<SessionDatum, Uuid>;
+	readonly datumIds: Map<Uuid, readonly EntryDatumId[]>;
 	/** Stable command identity for runtime projections; never emitted on wire. */
 	readonly commandTargets: WeakMap<
 		FrameChild,
@@ -281,6 +284,7 @@ export function moduleCaseTypeForActions(
 export function formLinkProjectionContext(
 	doc: BlueprintDoc,
 	opts: {
+		readonly expressionDoc?: BlueprintDoc;
 		readonly entryMetadataOnly?: boolean;
 		readonly onParentSelectionConflict?: (moduleUuid: Uuid) => void;
 		readonly onHqSelectionBoundMismatch?: (
@@ -289,6 +293,7 @@ export function formLinkProjectionContext(
 		readonly runtimeTarget?: RuntimeTarget;
 		readonly attachmentTarget?: AttachmentUrlTarget | null;
 		readonly lookupNaming?: LookupWireNaming;
+		readonly workerProperty?: WireTermBindings["workerProperty"];
 		/** Already-expanded actions, when the caller has them (the compiler). */
 		readonly formActions?: (formUuid: Uuid) => FormActions;
 	} = {},
@@ -323,6 +328,7 @@ export function formLinkProjectionContext(
 			return built;
 		});
 	return {
+		expressionDoc: opts.expressionDoc ?? doc,
 		entryMetadataOnly: opts.entryMetadataOnly === true,
 		...(opts.onParentSelectionConflict && {
 			onParentSelectionConflict: opts.onParentSelectionConflict,
@@ -336,8 +342,15 @@ export function formLinkProjectionContext(
 		formActions,
 		attachmentTarget: opts.attachmentTarget ?? null,
 		...(opts.lookupNaming !== undefined && { lookupNaming: opts.lookupNaming }),
+		...(opts.workerProperty === undefined
+			? {}
+			: { workerProperty: opts.workerProperty }),
 		entryDatums: new Map(),
 		selectionSourceModules: new WeakMap(),
+		chainDatumIds: new WeakMap(),
+		alignedSelectionSources: new WeakMap(),
+		tileGroupingSources: new WeakMap(),
+		datumIds: new Map(),
 		commandTargets: new WeakMap(),
 		fromParentModuleDatums: new WeakSet(),
 		inlineSearches: new Map(),
@@ -366,7 +379,7 @@ export function inlineSearchFor(
 		runtimeTarget: ctx.runtimeTarget,
 		module: mod,
 		moduleIndex: moduleIndexOf(ctx, moduleUuid),
-		typeContext: moduleTypeContext(mod, doc),
+		expressions: moduleExpressionContexts(doc, mod.uuid, ctx.lookupNaming),
 		lookupNaming: ctx.lookupNaming,
 		...(ancestorCaseType !== undefined && { ancestorCaseType }),
 	});
@@ -557,7 +570,11 @@ function selectableDatums(
 			moduleIndex,
 			caseListFilter: selectedModule.caseListConfig?.filter,
 			excludedOwnerIds: selectedModule.caseSearchConfig?.excludedOwnerIds,
-			relationContext: moduleTypeContext(selectedModule, doc),
+			expressions: moduleExpressionContexts(
+				doc,
+				selectedModule.uuid,
+				ctx.lookupNaming,
+			),
 			lookupNaming: ctx.lookupNaming,
 			...(selectedModule.caseListConfig?.tile?.persistOnForms === true && {
 				persistentDetailId: `m${moduleIndex}_case_short`,
@@ -578,6 +595,7 @@ function selectableDatums(
 		});
 		datum.parentSelection = parentSelection;
 		ctx.selectionSourceModules.set(datum, selectedModuleUuid);
+		ctx.chainDatumIds.set(datum, id);
 		datums.push(datum);
 	}
 	return datums;
@@ -601,90 +619,56 @@ function refreshDatumReferences(datums: readonly SessionDatum[]): void {
 function alignWithRootMenu(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
-	moduleUuid: Uuid,
+	entry: DatumEntry,
 	current: SessionDatum[],
 ): SessionDatum[] {
-	const parentUuid = moduleParent(doc, moduleUuid);
-	if (parentUuid === undefined || parentUuid === null) return current;
-	const firstParentForm = ctx.formOrder[parentUuid]?.[0];
+	const alignment = rootSelectionAlignment(doc, entry);
+	const parent = alignment.parentEntry;
+	if (parent === undefined) return current;
 	const parentDatums =
-		firstParentForm === undefined
-			? caseListSessionDatums(doc, ctx, parentUuid)
-			: entrySessionDatums(doc, ctx, parentUuid, firstParentForm);
+		parent.kind === "form"
+			? entrySessionDatums(doc, ctx, parent.module, parent.form)
+			: caseListSessionDatums(doc, ctx, parent.module);
+	for (const issue of alignment.boundMismatches)
+		ctx.onHqSelectionBoundMismatch?.(issue);
+	if (alignment.parentSelectionConflict)
+		ctx.onParentSelectionConflict?.(entry.module);
 	if (parentDatums.length === 0) return current;
 	const parentIds = new Set(parentDatums.map((datum) => datum.id));
 	for (const datum of current) {
-		if (parentIds.has(datum.id)) {
+		if (parentIds.has(datum.id))
 			datum.id = `${datum.id}_${datum.caseType ?? "child"}`;
-		}
 	}
-
 	const remaining = [...current];
 	const prefix: SessionDatum[] = [];
 	for (const parentDatum of parentDatums) {
-		// HQ aligns against the root's datums BEFORE its queries are placed.
 		if (parentDatum.query !== undefined) continue;
 		if (!sessionDatumRequiresSelection(parentDatum)) {
 			const inherited = { ...parentDatum };
 			ctx.fromParentModuleDatums.add(inherited);
+			const grouping = ctx.tileGroupingSources.get(parentDatum);
+			if (grouping !== undefined)
+				ctx.tileGroupingSources.set(inherited, grouping);
 			prefix.push(inherited);
 			continue;
 		}
+		const source = ctx.selectionSourceModules.get(parentDatum);
+		const pair = alignment.matches.find(
+			(match) => match.sourceModuleUuid === source,
+		);
+		if (pair === undefined) continue;
 		const matched = remaining[0];
-		const parentSourceUuid = ctx.selectionSourceModules.get(parentDatum);
-		const matchedSourceUuid =
-			matched === undefined
-				? undefined
-				: ctx.selectionSourceModules.get(matched);
-		const parentSourceModule =
-			parentSourceUuid === undefined
-				? undefined
-				: doc.modules[parentSourceUuid];
-		const matchedSourceModule =
-			matchedSourceUuid === undefined
-				? undefined
-				: doc.modules[matchedSourceUuid];
-		const selectionShapeMatches =
-			parentSourceModule !== undefined &&
-			matchedSourceModule !== undefined &&
-			caseSelectionCanFlowBetweenModules(
-				parentSourceModule,
-				matchedSourceModule,
-			);
-		// HQ `_same_case` compares case type and XML datum kind, but ignores
-		// maximum selection count. Its reuse would skip this child's prompt.
-		if (
-			parentSourceUuid !== undefined &&
-			matchedSourceUuid !== undefined &&
-			parentDatum.caseType === matched?.caseType &&
-			parentDatum.maxSelectValue !== undefined &&
-			matched?.maxSelectValue !== undefined &&
-			parentDatum.maxSelectValue > matched.maxSelectValue
-		) {
-			ctx.onHqSelectionBoundMismatch?.({
-				moduleUuid,
-				sourceModuleUuid: parentSourceUuid,
-				targetModuleUuid: matchedSourceUuid,
-				sourceMaximum: parentDatum.maxSelectValue,
-				targetMaximum: matched.maxSelectValue,
-			});
-		}
 		if (
 			matched === undefined ||
-			!sessionDatumRequiresSelection(matched) ||
-			!selectionShapeMatches
+			ctx.selectionSourceModules.get(matched) !== pair.targetModuleUuid
 		) {
-			continue;
+			throw new Error(
+				"The session datum projection disagrees with the entry selection alignment.",
+			);
 		}
 		remaining.shift();
-		if (
-			matchedSourceUuid !== undefined &&
-			matchedSourceUuid !== parentSourceUuid &&
-			parentSelectChain(doc, moduleUuid).includes(matchedSourceUuid)
-		) {
-			ctx.onParentSelectionConflict?.(moduleUuid);
-		}
 		matched.id = parentDatum.id;
+		ctx.alignedSelectionSources.set(matched, pair.sourceModuleUuid);
 		prefix.push(matched);
 	}
 	const aligned = [...prefix, ...remaining];
@@ -707,6 +691,7 @@ export function entrySessionDatums(
 	const caseType = moduleCaseTypeForActions(doc, moduleUuid);
 	const selectionDatums = selectableDatums(doc, ctx, moduleUuid, form.type);
 	const datums = deriveSessionDatums({
+		expressions: moduleExpressionContexts(doc, moduleUuid, ctx.lookupNaming),
 		formType: form.type,
 		moduleIndex: moduleIndexOf(ctx, moduleUuid),
 		...(caseType !== "" && { caseType }),
@@ -716,13 +701,133 @@ export function entrySessionDatums(
 			tileGrouping: mod.caseListConfig.tile.grouping,
 		}),
 	});
+	const ownSelection = [...selectionDatums]
+		.reverse()
+		.find((datum) => ctx.selectionSourceModules.get(datum) === moduleUuid);
+	if (
+		ownSelection !== undefined &&
+		mod.caseListConfig?.tile?.grouping !== undefined
+	) {
+		const companion = datums.find(
+			(datum) => datum.id === `${ownSelection.id}_parent_ids`,
+		);
+		if (companion !== undefined)
+			ctx.tileGroupingSources.set(companion, moduleUuid);
+	}
 	const aligned = withInlineSearchQueries(
 		doc,
 		ctx,
-		alignWithRootMenu(doc, ctx, moduleUuid, datums),
+		alignWithRootMenu(
+			doc,
+			ctx,
+			{ kind: "form", module: moduleUuid, form: formUuid },
+			datums,
+		),
 	);
 	ctx.entryDatums.set(formUuid, aligned);
 	return aligned;
+}
+
+/** A physical session datum and the domain identities it supplies. */
+export interface EntryDatumId {
+	readonly id: string;
+	readonly chainId?: string;
+	readonly refs: readonly DatumRef[];
+	readonly scalar: boolean;
+	readonly searchResults?: { readonly module: Uuid };
+}
+
+/** Resolve identities only from actual entry datums, after root alignment. */
+export function entryDatumIds(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	formUuid?: Uuid,
+): readonly EntryDatumId[] {
+	if (formUuid !== undefined) {
+		const held = ctx.datumIds.get(formUuid);
+		if (held !== undefined) return held;
+		if (owningModuleOf(ctx, formUuid) !== moduleUuid) return [];
+	}
+	const datums =
+		formUuid === undefined
+			? caseListSessionDatums(doc, ctx, moduleUuid)
+			: entrySessionDatums(doc, ctx, moduleUuid, formUuid);
+	const form = formUuid === undefined ? undefined : doc.forms[formUuid];
+	const actions =
+		formUuid === undefined ? undefined : ctx.formActions(formUuid);
+	const caseType = moduleCaseTypeForActions(doc, moduleUuid);
+	const opensCase =
+		actions?.open_case.condition.type === "always" ||
+		actions?.open_case.condition.type === "if";
+	const childIds = new Map(
+		(actions?.subcases ?? []).flatMap((subcase, index) =>
+			subcase.repeat_context ||
+			caseSelectionCardinality(doc.modules[moduleUuid]) === "multiple"
+				? []
+				: [
+						[
+							subcaseSessionDatumId(subcase, index, opensCase),
+							subcase.case_type,
+						] as const,
+					],
+		),
+	);
+	const rows = datums.map((datum): EntryDatumId => {
+		const refs: DatumRef[] = [];
+		const source = ctx.selectionSourceModules.get(datum);
+		const aligned = ctx.alignedSelectionSources.get(datum);
+		const grouping = ctx.tileGroupingSources.get(datum);
+		if (sessionDatumRequiresSelection(datum) && source !== undefined) {
+			refs.push({ kind: "selected-case", module: source });
+			if (aligned !== undefined && aligned !== source)
+				refs.push({ kind: "selected-case", module: aligned });
+		} else if (datum.id === USERCASE_DATUM_ID) {
+			refs.push({ kind: "worker-record" });
+		} else if (grouping !== undefined) {
+			refs.push({ kind: "tile-group-parents", module: grouping });
+		} else if (
+			form?.type === "registration" &&
+			opensCase &&
+			caseType !== "" &&
+			datum.id === newCaseIdDatumId(caseType)
+		) {
+			refs.push({ kind: "new-case" });
+		} else {
+			const childType = childIds.get(datum.id);
+			if (childType !== undefined)
+				refs.push({ kind: "new-child-case", caseType: childType });
+		}
+		const queryNext = ctx.queryNextDatums.get(datum);
+		const queryModule =
+			queryNext === undefined
+				? undefined
+				: ctx.selectionSourceModules.get(queryNext);
+		const chainId = ctx.chainDatumIds.get(datum);
+		return {
+			id: datum.id,
+			...(chainId === undefined ? {} : { chainId }),
+			refs,
+			scalar: datum.maxSelectValue === undefined,
+			...(datum.query?.storageInstance === "results:inline" &&
+			queryModule !== undefined
+				? { searchResults: { module: queryModule } }
+				: {}),
+		};
+	});
+	if (formUuid !== undefined) ctx.datumIds.set(formUuid, rows);
+	return rows;
+}
+
+export function entryDatumIdResolver(
+	rows: readonly EntryDatumId[],
+): (ref: DatumRef) => string | undefined {
+	const ids = new Map(
+		rows.flatMap((row) =>
+			row.refs.map((ref) => [datumRefKey(ref), row.id] as const),
+		),
+	);
+	return (ref) => ids.get(datumRefKey(ref));
 }
 
 /** Selected own-case datum id used by XForm and form-condition carriers. */
@@ -780,7 +885,7 @@ export function caseListSessionDatums(
 	return withInlineSearchQueries(
 		doc,
 		ctx,
-		alignWithRootMenu(doc, ctx, moduleUuid, datums),
+		alignWithRootMenu(doc, ctx, { kind: "browse", module: moduleUuid }, datums),
 	);
 }
 
@@ -961,6 +1066,60 @@ export function targetSelectionDatums(
 	);
 }
 
+/** The target frame's selected-record identities, including inherited root
+ * selections. A module command alone supplies no selected-record datum. */
+export function formLinkTargetDatumIds(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	target: FormLinkTarget,
+): readonly EntryDatumId[] {
+	const selections = targetSelectionDatums(doc, ctx, target).filter(
+		(datum) => datum.query === undefined,
+	);
+	const rows: EntryDatumId[] = [];
+	for (const selection of selections) {
+		const refs = new Map<string, DatumRef>();
+		const source = selection.selectionSourceModuleUuid;
+		if (source !== undefined)
+			refs.set(datumRefKey({ kind: "selected-case", module: source }), {
+				kind: "selected-case",
+				module: source,
+			});
+		// A frame can prepend an ancestor's common entry prefix. Resolve its
+		// aliases from those real entries, never from a fabricated target form.
+		let module: Uuid | null | undefined = target.moduleUuid;
+		const seen = new Set<Uuid>();
+		while (module !== undefined && module !== null && !seen.has(module)) {
+			seen.add(module);
+			const forms =
+				target.type === "form" && module === target.moduleUuid
+					? [target.formUuid]
+					: (ctx.formOrder[module] ?? []);
+			for (const form of forms) {
+				for (const row of entryDatumIds(doc, ctx, module, form)) {
+					if (
+						row.id !== selection.id ||
+						(source !== undefined &&
+							!row.refs.some(
+								(ref) => ref.kind === "selected-case" && ref.module === source,
+							))
+					)
+						continue;
+					for (const ref of row.refs)
+						if (ref.kind === "selected-case") refs.set(datumRefKey(ref), ref);
+				}
+			}
+			module = moduleParent(doc, module);
+		}
+		rows.push({
+			id: selection.id,
+			refs: [...refs.values()],
+			scalar: selection.maximum === undefined,
+		});
+	}
+	return rows;
+}
+
 // ── Matching ─────────────────────────────────────────────────────────────
 
 /** A child before session-reference replacement. */
@@ -969,7 +1128,7 @@ type PendingChild =
 	| {
 			readonly type: "datum";
 			readonly id: string;
-			readonly value: FormLinkXPathValue;
+			readonly value: WireExpr;
 			readonly renderFunction?: FrameDatum["renderFunction"];
 			readonly renderFormLinkFunction?: FrameDatum["renderFormLinkFunction"];
 	  }
@@ -1132,7 +1291,7 @@ export function matchFrameToManual(
 	target: readonly FrameChild[],
 	manual: readonly {
 		readonly name: string;
-		readonly xpath: FormLinkXPathValue;
+		readonly xpath: WireExpr;
 	}[],
 	sourceDatumIds: ReadonlySet<string>,
 ): ManualMatch {
@@ -1192,10 +1351,10 @@ function replaceSessionReferences(
 	children: readonly PendingChild[],
 	sourceDatumIds: ReadonlySet<string>,
 ): MatchedChild[] {
-	const earlier = new Map<string, FormLinkXPathValue>();
+	const earlier = new Map<string, WireExpr>();
 	return children.map((child) => {
 		if (child.type === "command" || child.type === "query") return child;
-		const read = (id: string): FormLinkXPathValue => {
+		const read = (id: string): WireExpr => {
 			const held = earlier.get(id);
 			return held !== undefined && !sourceDatumIds.has(id)
 				? held
@@ -1206,14 +1365,7 @@ function replaceSessionReferences(
 				? child.renderFormLinkFunction(read)
 				: child.renderFunction === undefined
 					? child.value
-					: child.renderFunction((id) => {
-							const value = read(id);
-							if (isLegacyFormLinkXPath(value))
-								throw new Error(
-									"A generated function datum needs its authored form-link projection hook before substituting a manual value.",
-								);
-							return value;
-						});
+					: child.renderFunction(read);
 		earlier.set(child.id, value);
 		return { type: "datum", id: child.id, value };
 	});
@@ -1412,7 +1564,7 @@ export function parentMenuDestinationFrameChildren(
 export interface GuardPlanLink {
 	readonly uuid: Uuid;
 	/** Projected wire XPath, trimmed and non-empty; absent = unconditional. */
-	readonly condition?: FormLinkXPathValue;
+	readonly condition?: WireExpr;
 }
 
 export type FallbackPlan =
@@ -1421,13 +1573,13 @@ export type FallbackPlan =
 	/** A terminal unconditional link is the exhaustive else. */
 	| { readonly kind: "suppressed-by-else" }
 	/** The last link is conditional: the fallback fires when none matched. */
-	| { readonly kind: "guarded"; readonly guard: FormLinkXPathValue };
+	| { readonly kind: "guarded"; readonly guard: WireExpr };
 
 export interface GuardPlan {
 	readonly links: ReadonlyArray<{
 		readonly uuid: Uuid;
 		/** The `if` to emit; absent = no `if` attribute. */
-		readonly guard?: FormLinkXPathValue;
+		readonly guard?: WireExpr;
 	}>;
 	readonly fallback: FallbackPlan;
 }
@@ -1437,20 +1589,30 @@ export interface GuardPlan {
  * unconditional link that is not last still gets its guard (the validator
  * refuses the document; the projection never throws).
  */
+function formLinkGuard(
+	positive: WireExpr | undefined,
+	excluded: readonly WireExpr[],
+): WireExpr {
+	return w.and(
+		...(positive === undefined ? [] : [positive]),
+		...excluded.map((value) => w.not(value)),
+	);
+}
+
 export function planFormLinkGuards(links: readonly GuardPlanLink[]): GuardPlan {
-	const planned: Array<{ uuid: Uuid; guard?: FormLinkXPathValue }> = [];
-	const priors: FormLinkXPathValue[] = [];
+	const planned: Array<{ uuid: Uuid; guard?: WireExpr }> = [];
+	const priors: WireExpr[] = [];
 	for (const link of links) {
 		if (link.condition === undefined) {
 			planned.push({
 				uuid: link.uuid,
 				...(priors.length > 0 && {
-					guard: legacyFormLinkGuard(undefined, priors),
+					guard: formLinkGuard(undefined, priors),
 				}),
 			});
 			continue;
 		}
-		const guard = legacyFormLinkGuard(link.condition, priors);
+		const guard = formLinkGuard(link.condition, priors);
 		planned.push({ uuid: link.uuid, guard });
 		priors.push(link.condition);
 	}
@@ -1462,7 +1624,7 @@ export function planFormLinkGuards(links: readonly GuardPlanLink[]): GuardPlan {
 				? { kind: "suppressed-by-else" }
 				: {
 						kind: "guarded",
-						guard: legacyFormLinkGuard(
+						guard: formLinkGuard(
 							undefined,
 							planned.flatMap((link) =>
 								link.guard === undefined ? [] : [link.guard],
@@ -1477,14 +1639,14 @@ export function planFormLinkGuards(links: readonly GuardPlanLink[]): GuardPlan {
 export interface ProjectedFormLink {
 	readonly uuid: Uuid;
 	/** The suite `<create if>` / HQ `xpath`; absent = unconditional. */
-	readonly guard?: FormLinkXPathValue;
+	readonly guard?: WireExpr;
 	readonly target: FormLinkTarget;
 	/** The local frame's children after matching. */
 	readonly children: MatchedChild[];
 	/** The authored manual datums projected to wire XPath (HQ `datums`). */
 	readonly datums: ReadonlyArray<{
 		readonly name: string;
-		readonly xpath: FormLinkXPathValue;
+		readonly xpath: WireExpr;
 	}>;
 	/** Validator inputs; all empty on a document the gate admits. */
 	readonly unmatched: readonly FrameDatum[];
@@ -1497,51 +1659,6 @@ export interface ProjectedFormLink {
 export interface ProjectedFormLinks {
 	readonly links: readonly ProjectedFormLink[];
 	readonly fallback: FallbackPlan;
-}
-
-/**
- * Whether the session-scope wire projection is defined for `expression`.
- * `formLinkWireProjector` throws on a form-local read (`#form/`, a field or
- * path reference) and on a raw `#case/` spelling — neither is a session-scope
- * expression, and the deep validator refuses both with a finding of its own.
- * A rule that projects links asks this first, through the same Lezer walk
- * the projector rewrites with, so every validator rule stays total over any
- * schema-valid document instead of dying where another rule would report.
- */
-export function formLinkExpressionProjectable(
-	doc: BlueprintDoc,
-	expression: XPathExpression,
-): boolean {
-	if (
-		expression.parts.some(
-			(part) => part.kind === "field-ref" || part.kind === "path-ref",
-		)
-	) {
-		return false;
-	}
-	const projection = projectXPath(expression, xpathPrintContext(doc));
-	if (!projection.ok) return false;
-	let projectable = true;
-	rewriteHashtags(projection.text, (typeName) => {
-		if (typeName === "form" || typeName === "case") projectable = false;
-		return undefined;
-	});
-	return projectable;
-}
-
-/** Whether every condition and datum on `links` is projectable. */
-export function formLinksProjectable(
-	doc: BlueprintDoc,
-	links: readonly FormLink[],
-): boolean {
-	return links.every(
-		(link) =>
-			(link.condition === undefined ||
-				formLinkExpressionProjectable(doc, link.condition)) &&
-			(link.datums ?? []).every((datum) =>
-				formLinkExpressionProjectable(doc, datum.xpath),
-			),
-	);
 }
 
 /**
@@ -1682,12 +1799,11 @@ export function moduleFrameActionsBuildableIn(
 	return answer;
 }
 
-/** A link is conditional when its condition prints to non-empty XPath. */
+/** An absent condition is the unconditional branch. */
 export function formLinkIsConditional(
 	link: Pick<FormLink, "condition">,
-	project: (expression: XPathExpression) => string,
 ): boolean {
-	return link.condition !== undefined && project(link.condition).length > 0;
+	return link.condition !== undefined;
 }
 
 /**
@@ -1722,43 +1838,82 @@ export function ownCaseSessionRef(
 
 type FormLinkSourceType = BlueprintDoc["forms"][string]["type"];
 
-/**
- * The session-scope wire projection of a link condition or datum XPath.
- * `ownCaseIdRef` anchors the typed case references (`ownCaseSessionRef`).
- */
-function formLinkWireProjector(
-	doc: BlueprintDoc,
-	moduleCaseType: string | undefined,
-	ownCaseIdRef?: WireExpr,
-): (expression: XPathExpression) => string {
-	const ctx = xpathPrintContext(doc);
-	const depths = caseTypeDepthMap(moduleCaseType, doc.caseTypes ?? []);
-	return (expression) =>
-		lowerXPathForJavaRosa(
-			expandHashtagsForSessionStack(
-				printXPath(expression, ctx),
-				depths,
-				ownCaseIdRef === undefined
-					? undefined
-					: serializeWire(ownCaseIdRef, { target: "suite" }).text,
-			),
-		).trim();
-}
-
-/** Project one authored form-link expression through the exact session-scope
- * context used by both HQ JSON and local suite emission. */
+/** Project a stored condition or value in its actual after-submit slot. */
 export function projectFormLinkSessionExpression(
 	doc: BlueprintDoc,
-	moduleUuid: Uuid,
-	formType: FormLinkSourceType,
-	sourceDatums: readonly FrameDatum[],
-	expression: XPathExpression,
-): string {
-	return formLinkWireProjector(
-		doc,
-		doc.modules[moduleUuid]?.caseType,
-		ownCaseSessionRef(doc, moduleUuid, formType, sourceDatums),
-	)(expression);
+	ctx: FormLinkProjectionContext,
+	formUuid: Uuid,
+	expression: Expression,
+	slot: FormExpressionSlotRef,
+): WireExpr {
+	const moduleUuid = owningModuleOf(ctx, formUuid);
+	const expressionDoc = ctx.expressionDoc;
+	if (
+		expressionDoc !== doc &&
+		(expressionDoc.forms[formUuid] !== doc.forms[formUuid] ||
+			expressionDoc.fields !== doc.fields ||
+			expressionDoc.fieldOrder !== doc.fieldOrder ||
+			expressionDoc.fieldParent !== doc.fieldParent)
+	)
+		throw new Error(
+			"The emitted form link no longer preserves its authored question identities and paths.",
+		);
+	const form = expressionDoc.forms[formUuid];
+	const structure = formStructure(expressionDoc, formUuid);
+	const types = slotContext(
+		expressionDoc,
+		slot,
+		lookupTypeIndexFromNaming(ctx.lookupNaming) ?? new Map(),
+	);
+	if (
+		moduleUuid === undefined ||
+		form === undefined ||
+		structure === undefined ||
+		types === undefined
+	) {
+		throw new Error(
+			"The form-link expression has no source entry. Check its form, link and carried value.",
+		);
+	}
+	const sourceDatums = entryFrameDatums(doc, ctx, moduleUuid, formUuid);
+	const ownCaseId = ownCaseSessionRef(doc, moduleUuid, form.type, sourceDatums);
+	const depths = caseTypeDepthMap(
+		expressionDoc.modules[structure.moduleUuid]?.caseType,
+		types.facts.caseTypes,
+	);
+	return toWire(expression, {
+		target: "suite",
+		types,
+		form: formNodeProjection(doc, structure),
+		bindings: {
+			workerProperty: ctx.workerProperty,
+			datumId: entryDatumIdResolver(
+				entryDatumIds(doc, ctx, moduleUuid, formUuid),
+			),
+			userPropertySlugs: types.facts.userPropertySlugs,
+			...(ctx.lookupNaming === undefined
+				? {}
+				: {
+						lookup: {
+							naming: ctx.lookupNaming,
+							instanceScope: "suite" as const,
+						},
+					}),
+			formCaseProperty: (caseType, property) => {
+				const depth = depths.get(caseType);
+				if (depth === undefined || ownCaseId === undefined)
+					throw new Error("The submitted form does not supply this record.");
+				if (depth === 0 && property === "case_id") return ownCaseId;
+				let id = ownCaseId;
+				for (let hop = 0; hop < depth; hop++)
+					id = w.append(caseById(id, "casedb"), [
+						w.step("index"),
+						w.step("parent"),
+					]);
+				return w.append(caseById(id, "casedb"), [casePropertyStep(property)]);
+			},
+		},
+	});
 }
 
 /** HQ leaves a manual link's hydration query pointed at the target's old
@@ -1770,7 +1925,7 @@ function projectManualSearchLink(
 	target: readonly FrameChild[],
 	datums: readonly {
 		readonly name: string;
-		readonly xpath: FormLinkXPathValue;
+		readonly xpath: WireExpr;
 	}[],
 	sourceDatums: readonly FrameDatum[],
 	sourceIds: ReadonlySet<string>,
@@ -1849,31 +2004,49 @@ export function projectFormLinks(
 		);
 	}
 	const sourceDatums = entryFrameDatums(doc, ctx, moduleUuid, formUuid);
-	const project = (expression: XPathExpression): string =>
-		projectFormLinkSessionExpression(
-			doc,
-			moduleUuid,
-			form.type,
-			sourceDatums,
-			expression,
-		);
+	const project = (
+		expression: Expression,
+		slot: FormExpressionSlotRef,
+	): WireExpr =>
+		projectFormLinkSessionExpression(doc, ctx, formUuid, expression, slot);
 	const guards = planFormLinkGuards(
 		links.map((link) => ({
 			uuid: link.uuid,
-			...(formLinkIsConditional(link, project) &&
-				link.condition !== undefined && {
-					condition: legacyProjectedFormLinkXPath(project(link.condition)),
-				}),
+			...(link.condition === undefined
+				? {}
+				: {
+						condition: project(link.condition, {
+							entity: "form",
+							uuid: formUuid,
+							slot: "form_link_condition",
+							member: { linkUuid: link.uuid },
+						}),
+					}),
 		})),
 	);
 	const sourceIds = new Set(sourceDatums.map((datum) => datum.id));
 	const projected = links.map((link, index): ProjectedFormLink => {
 		const target = targetFrameChildren(doc, ctx, link.target);
 		const guard = guards.links[index]?.guard;
-		const datums = (link.datums ?? []).map((datum) => ({
-			name: datum.name,
-			xpath: legacyProjectedFormLinkXPath(project(datum.xpath)),
-		}));
+		const targetDatumId = entryDatumIdResolver(
+			formLinkTargetDatumIds(doc, ctx, link.target),
+		);
+		const datums = (link.datums ?? []).map((datum) => {
+			const name = targetDatumId(datum.name);
+			if (name === undefined)
+				throw new Error(
+					"The linked entry does not supply this selected record.",
+				);
+			return {
+				name,
+				xpath: project(datum.xpath, {
+					entity: "form",
+					uuid: formUuid,
+					slot: "form_link_datum_xpath",
+					member: { linkUuid: link.uuid, datum: datum.name },
+				}),
+			};
+		});
 		if (link.datums !== undefined) {
 			const manual = projectManualSearchLink(
 				target,

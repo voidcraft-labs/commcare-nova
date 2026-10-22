@@ -39,41 +39,25 @@
 //
 // ## Hidden-writer inference
 //
-// A `hidden` field pins no kind-derived type — its written value's
-// type is its expression's. The inference here is deliberately
-// STRUCTURAL, not a parser: the stored XPath AST keeps reference
-// leaves typed (`case-ref` / `field-ref` / `path-ref`) and
-// everything else as verbatim text runs, so without parsing we can
-// resolve exactly three shapes:
-//
-//   - a lone `case-ref` part — the value IS a copy of another
-//     property; recurse into its effective type (cycle-guarded).
-//   - a lone text run that EXACTLY equals a known zero-argument
-//     call (`today()` / `now()`, modulo surrounding whitespace).
-//     This is string equality against a closed table — not
-//     structure extraction; any other spelling simply misses and
-//     resolves unknown, which is permissive everywhere.
-//
-// Everything else — arithmetic, concat, conditionals, form-field
-// references — resolves unknown. Form-field refs are EXCLUDED on
-// purpose, not for difficulty: keeping the derived state a function
-// of catalog + bound-writer state only keeps it stable and cheap for every
-// validation and compiler consumer. Deeper inference belongs to a real
-// expression type checker
-// over the parsed grammar (a `lib/commcare` concern), and
-// unknown-is-permissive means its absence never blocks an author.
+// During the expression-shape cutover this keeps the existing closed rules:
+// today/now and direct form-case property copies contribute a type; other
+// hidden expressions remain unknown. Operation values use the central record
+// inference walk. No printed expression is parsed, and unknown never becomes
+// a fabricated type opinion. The broader writer fixpoint is a later change.
 
 import type { CaseProperty, CaseType, PersistableDoc } from "./blueprint";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { caseDataTypeForFieldKind, fieldCaseWrite } from "./caseTypes";
-import type { Field, HiddenField } from "./fields";
-import { orderedCaseOperations } from "./forms";
+import { recordQueryContext } from "./expression/context";
 import {
 	ANY_TYPE,
-	type CheckError,
-	checkExpression,
+	inferRecordQuery,
 	isValueStorageAssignable,
-} from "./predicate/typeChecker";
+	scalarDataType,
+} from "./expression/typeChecker";
+import type { Expression } from "./expression/types";
+import type { Field, HiddenField } from "./fields";
+import { orderedCaseOperations } from "./forms";
 import { proseText } from "./prose";
 import {
 	isStandardCaseListProperty,
@@ -81,20 +65,6 @@ import {
 	standardCasePropertyDisplayLabel,
 } from "./standardCaseProperties";
 import type { Uuid } from "./uuid";
-import type { XPathExpression } from "./xpath";
-
-/**
- * Whole-expression text runs that resolve to a known type. String
- * EQUALITY against the trimmed run — never tokenization or pattern
- * matching (XPath structure is read via the Lezer grammar, which
- * lives behind `lib/commcare`; this table deliberately stops where
- * equality stops). A miss resolves unknown, which is permissive.
- */
-const WHOLE_EXPRESSION_TYPES: ReadonlyMap<string, CasePropertyDataType> =
-	new Map([
-		["today()", "date"],
-		["now()", "datetime"],
-	]);
 
 type PropertyWriter =
 	| { readonly kind: "field"; readonly field: Field }
@@ -409,7 +379,7 @@ type MutableWriterIndex = Map<string, Map<string, PropertyWriter[]>>;
 interface OperationWriteToInfer {
 	readonly caseType: string;
 	readonly property: string;
-	readonly value: import("./predicate/types").ValueExpression;
+	readonly value: Expression;
 	readonly currentCaseType: string | undefined;
 	readonly formFields: ReadonlyMap<Uuid, CasePropertyDataType | undefined>;
 	readonly operationIds: ReadonlySet<Uuid>;
@@ -455,22 +425,22 @@ function inferOperationWriteType(
 	write: OperationWriteToInfer,
 	caseTypes: readonly CaseType[],
 ): CasePropertyDataType | undefined {
-	const errors: CheckError[] = [];
-	const resolved = checkExpression(
+	const outcome = inferRecordQuery(
 		write.value,
-		{
-			caseTypes: [...caseTypes],
-			knownInputs: [],
-			// Values read the containing form's pre-submission case even when
-			// their operation creates or retypes a different destination.
+		recordQueryContext({
+			caseTypes,
 			currentCaseType: write.currentCaseType,
-			formFields: write.formFields,
+			formFieldTypes: write.formFields,
 			operationIds: write.operationIds,
-		},
-		errors,
-		[],
+		}),
 	);
-	if (errors.length > 0 || resolved === undefined || resolved === ANY_TYPE)
+	const resolved = scalarDataType(outcome.type?.data);
+	if (
+		outcome.errors.length > 0 ||
+		resolved === undefined ||
+		resolved === ANY_TYPE ||
+		resolved === "boolean"
+	)
 		return undefined;
 	// An operation supplies a value to the destination's storage representation;
 	// it does not redefine the destination's authoring type. For example a text
@@ -598,46 +568,26 @@ function inferHiddenWriterType(
 	return inferExpressionType(source, doc, writerType);
 }
 
+/** PR5 retains the previous closed inference: today, now and a direct
+ * case-property copy. The general writer fixpoint belongs to PR6. */
 function inferExpressionType(
-	expr: XPathExpression,
+	expression: Expression,
 	doc: PersistableDoc,
 	writerType: (
 		caseType: string,
 		property: string,
 	) => CasePropertyDataType | undefined,
 ): CasePropertyDataType | undefined {
-	// Whitespace-only text runs around a single reference leaf are
-	// still "a lone reference"; any other second part defeats the
-	// structural read.
-	const parts = expr.parts.filter(
-		(part) => !(part.kind === "text" && part.text.trim().length === 0),
-	);
-	if (parts.length !== 1) return undefined;
-	const part = parts[0];
-	switch (part.kind) {
-		case "text":
-			return WHOLE_EXPRESSION_TYPES.get(part.text.trim());
-		case "case-ref": {
-			// A copy of another property — its effective type, in the same
-			// precedence the catalog build applies: declared annotation,
-			// else the standard set (a copy of `date_opened` IS a
-			// datetime), else the writer derivation, which the shared
-			// `resolving` set cycle-guards.
-			const declared = (doc.caseTypes ?? [])
-				.find((ct) => ct.name === part.caseType)
-				?.properties.find((p) => p.name === part.property)?.data_type;
-			if (declared !== undefined) return declared;
-			if (isStandardCaseListProperty(part.property)) {
-				return STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[part.property];
-			}
-			return writerType(part.caseType, part.property);
-		}
-		case "field-ref":
-		case "path-ref":
-		case "user-ref":
-		case "user-property-ref":
-			// Form-field / user refs stay unknown — see the
-			// module header for why field refs are excluded on purpose.
-			return undefined;
-	}
+	if (expression.kind === "today") return "date";
+	if (expression.kind === "now") return "datetime";
+	if (expression.kind !== "term" || expression.term.kind !== "form-case")
+		return undefined;
+	const term = expression.term;
+	const declared = (doc.caseTypes ?? [])
+		.find((type) => type.name === term.caseType)
+		?.properties.find((property) => property.name === term.property)?.data_type;
+	if (declared !== undefined) return declared;
+	if (isStandardCaseListProperty(term.property))
+		return STANDARD_CASE_LIST_PROPERTY_DATA_TYPES[term.property];
+	return writerType(term.caseType, term.property);
 }

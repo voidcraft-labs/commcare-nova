@@ -83,7 +83,12 @@ function buildFixture(
 											{
 												...conditional,
 												condition: undefined,
-												datums: [{ name: "case_id", xpath: "'explicit-frog'" }],
+												datums: [
+													{
+														name: { kind: "selected-case", module: CARE },
+														xpath: "'explicit-frog'",
+													},
+												],
 											},
 										]
 									: links === "conditional-then-else"

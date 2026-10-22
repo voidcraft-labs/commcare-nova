@@ -10,8 +10,15 @@ import {
 	blueprintDocSchema,
 	type Field,
 } from "@/lib/domain";
+import {
+	eq,
+	formField,
+	literal,
+	term,
+	today,
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
-import { buildDoc, caseListConfig, f, xp } from "../../../__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
 import { evaluateBoundary, evaluateCommit } from "../gate";
 import { runValidation } from "../runner";
 
@@ -342,8 +349,8 @@ describe("evaluateCommit", () => {
 			uuid: testUuid("fld-hidden-both"),
 			kind: "hidden",
 			id: "computed",
-			calculate: xp("1"),
-			default_value: xp("today()"),
+			calculate: term(literal(1)),
+			default_value: today(),
 		};
 		const both = apply(doc, [
 			{ kind: "addField", parentUuid: formUuid, field: hidden },
@@ -378,7 +385,9 @@ describe("evaluateCommit", () => {
 				kind: "updateField",
 				uuid: fieldUuid,
 				targetKind: "text",
-				patch: { relevant: xp("#form/does_not_exist = 'x'") },
+				patch: {
+					relevant: eq(formField(testUuid("does-not-exist")), literal("x")),
+				},
 			},
 		]);
 		expect(codes(verdict)).toEqual(["INVALID_REF"]);
@@ -392,7 +401,7 @@ describe("evaluateCommit", () => {
 				kind: "addField",
 				parentUuid: testUuid("form-e1"),
 				field: textField("fld-bad", "q1", {
-					relevant: xp("#form/missing = '1'"),
+					relevant: eq(formField(testUuid("missing")), literal("1")),
 				}),
 			},
 		]);

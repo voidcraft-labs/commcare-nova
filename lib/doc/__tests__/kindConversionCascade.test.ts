@@ -19,7 +19,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, FieldKind, Form } from "@/lib/domain";
-import { today } from "@/lib/domain/predicate";
+import { today } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { planKindConversion } from "../kindConversionCascade";
 import { assertAdmittedDoc } from "./admittedDoc";

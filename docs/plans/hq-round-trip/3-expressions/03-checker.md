@@ -928,13 +928,17 @@ for every single and multiple answer (lines 186 and 196), `FormEntryPrompt::getS
 `FormDef.attachControlsToInstanceData`. A single default's text is one selection
 (`SelectOneData.cast`); a multiple's is split on spaces into one selection each
 (`SelectMultiData.cast`, `DataUtil.splitOnSpaces`). A blank result is no answer at all
-(`Recalculate.wrapData` returns null for `""`), and a number reaches a select as its integer text
-(`wrapData`: an integral `Double` becomes `IntegerData`).
+(`Recalculate.wrapData` returns null for `""`). A number reaches a select as the answer text
+chosen by `Recalculate.wrapData`, then `SetValueAction`'s cast: a value within `1e-9` of its
+truncated, saturating Java `long` becomes `IntegerData` or `LongData`; other numbers become
+`DecimalData` and use OpenJDK 17's `Double.toString` spelling. This is not JavaScript's
+`String(number)`: `0.0001` becomes `1.0E-4`, and `1.0000000005` becomes `1`.
+`numericAnswerText` shares that conversion between admission and finding details.
 
 **From step 3** (part 01 §4, "Defaults"). In the `default_value` of a single or multiple select whose
 `optionsSource` is `inline`, a whole-slot string literal, or a number literal, whose text is not one
 option value (single) or whose space-separated tokens are not all option values (multiple) is
-`default-not-a-choice`. A matching literal is a `choice` leaf, which later option edits reprint and
+`default-not-a-choice`. A matching string literal is a `choice` leaf, which later option edits reprint and
 whose option cannot be removed while it is read (part 01 §5, part 02 §4.6). Admitted: `''` (no
 starting value, since `Recalculate.wrapData` turns `''` into no value and `attachChoice` never runs),
 any computed default, and any default on a lookup- or case-backed select. Code:
@@ -1347,7 +1351,7 @@ is a whole-slot string or number literal, or a case operation write whose value 
 property that a single or multiple select whose `optionsSource` is `inline` preloads
 (`lib/domain/casePreload.ts::writerPreloadsFromLoadedCase`), must write one of that select's option
 values (single), or space-separated tokens that are all option values (multiple), by finding 72's
-rule (§3.5): a number reaches the select as its integer text, and `''` writes no value and is
+rule (§3.5): a number uses its native answer text, and `''` writes no value and is
 admitted. Otherwise it is `SELECT_PRELOAD_WRITE_NOT_AN_OPTION` (new, in finding 72's family:
 soundness, app rule in `lib/commcare/validator/rules/selectPreloadWriterOptions.ts`, scope-exempt in
 `runner.ts::SCOPE_EXEMPT_CODES` like `HIDDEN_VALUE_WRITER_TYPE_MISMATCH`, since writer and reader sit

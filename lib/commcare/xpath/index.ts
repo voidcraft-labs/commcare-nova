@@ -1,7 +1,7 @@
 // lib/commcare/xpath/index.ts
 //
-// Public barrel for CommCare's XPath dialect: the Lezer-generated parser,
-// proven production JavaRosa lowering.
+// Public barrel for CommCare's XPath dialect: the form-expression parser,
+// Lezer-generated parser, resolved wire tree and canonical serializer.
 //
 // Lives inside lib/commcare/ because XPath is the expression dialect
 // that CommCare defines; the package's "one-way emission boundary" rule
@@ -16,23 +16,13 @@
 //
 
 export {
-	analyzeXPathCompatibility,
-	analyzeXPathInstanceCompatibility,
-	type XPathCompatibilityCode,
-	type XPathCompatibilityFinding,
-	type XPathCompatibilityOwner,
-} from "./compatibility";
-export { detectUnquotedStringLiteral } from "./detectUnquotedStringLiteral";
-export {
-	parseXPathExpression,
-	parseXPathExpressionWithIssues,
+	type FormParseIssue,
+	type FormParseIssueCode,
+	type FormParseResult,
+	type FormParseScope,
+	parseFormExpression,
 	type ResolveFieldPath,
-	type ResolveSearchInputName,
-	type ResolveUserPropertySlug,
-	type XPathParseIssue,
-	type XPathParseResult,
 } from "./expressionAst";
-export { lowerXPathForJavaRosa } from "./javaRosaLowering";
 export { parser } from "./parser";
 export * from "./parser.terms";
 export { w } from "./wire/builders";

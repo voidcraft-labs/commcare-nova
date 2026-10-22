@@ -17,7 +17,13 @@ import { useMemo } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { Button } from "@/components/shadcn/button";
 import { Skeleton } from "@/components/shadcn/skeleton";
-import type { CaseListConfig, CaseProperty, CaseType } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CaseListConfig,
+	CaseProperty,
+	CaseType,
+	Uuid,
+} from "@/lib/domain";
 import { orderedColumns } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
@@ -27,6 +33,8 @@ import { useColumnDisplayContext } from "./useColumnDisplayContext";
 import { useWorkerMessage } from "./WorkerText";
 
 interface PersistentCaseTileProps {
+	readonly blueprint: BlueprintDoc;
+	readonly moduleUuid: Uuid;
 	readonly appId: string | undefined;
 	readonly caseType: string | undefined;
 	/** The case the form is running against; absent means no tile at all. */
@@ -44,6 +52,8 @@ interface PersistentCaseTileProps {
 }
 
 export function PersistentCaseTile({
+	blueprint,
+	moduleUuid,
 	appId,
 	caseType,
 	caseId,
@@ -63,7 +73,9 @@ export function PersistentCaseTile({
 		caseType,
 		caseId,
 		ancestorDepth: 0,
-		caseListConfig: config,
+		caseListConfig: blueprint.modules[moduleUuid]?.caseListConfig,
+		blueprint,
+		moduleUuid,
 		caseTypes,
 		// The tile pinned above a running form draws the case the worker
 		// selected on their device.
@@ -74,6 +86,7 @@ export function PersistentCaseTile({
 		config,
 		caseType,
 		fallbackProperties,
+		{ doc: blueprint, moduleUuid },
 	);
 	const tileColumns = useMemo(
 		() => tileResultsColumns(orderedColumns(config, "list"), config.tile),

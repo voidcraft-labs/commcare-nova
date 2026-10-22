@@ -30,7 +30,7 @@ import { firstComparisonDefault } from "@/components/builder/shared/cards/compar
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { DISPLAY_CONDITION_NOT_A_PERMISSION } from "./displayConditionCopy";
@@ -83,9 +83,16 @@ export function DisplayConditionCanvas({
 		);
 	}
 
-	const { copy, condition, commit, caseTypes, currentCaseType } = resolved;
+	const {
+		copy,
+		condition,
+		commit,
+		caseTypes,
+		currentCaseType,
+		expressionContext,
+	} = resolved;
 
-	const change = (next: Predicate | undefined) => {
+	const change = (next: Expression | undefined) => {
 		const outcome = commit(next);
 		setRefusals(outcome.ok ? [] : outcome.messages);
 	};
@@ -200,6 +207,7 @@ export function DisplayConditionCanvas({
 							onClick={() =>
 								change(
 									firstComparisonDefault({
+										expressionContext,
 										caseTypes,
 										currentCaseType,
 										knownInputs: [],
@@ -214,6 +222,7 @@ export function DisplayConditionCanvas({
 					</div>
 				) : (
 					<PredicateWorkbench
+						expressionContext={expressionContext}
 						value={condition}
 						onChange={change}
 						rootLabel={copy.ruleRootLabel}

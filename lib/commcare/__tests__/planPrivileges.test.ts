@@ -27,7 +27,7 @@ import { parser } from "@/lib/commcare/xpath/parser";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, proseText } from "@/lib/domain";
-import { fixedLocation, term } from "@/lib/domain/predicate";
+import { fixedLocation, term } from "@/lib/domain/expression";
 import {
 	PLAN_FEATURE_IDS,
 	PLAN_FEATURES,

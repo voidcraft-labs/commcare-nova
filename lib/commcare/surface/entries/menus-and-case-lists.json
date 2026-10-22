@@ -722,7 +722,7 @@
 		],
 		"valueClass": "outside-predicate",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed expression model in `Module.displayCondition` (session-profile `XPathExpression`)",
+		"dispositionCell": "**HELD-NEW**: typed expression model in `Module.displayCondition` (session-profile `Expression`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2561,7 +2561,7 @@
 		"surfaceKeys": ["schema:Detail.filter"],
 		"valueClass": "outside-predicate",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed expression model in `caseListConfig.filter` (row-context `XPathExpression`)",
+		"dispositionCell": "**HELD-NEW**: typed expression model in `caseListConfig.filter` (row-context `Expression`)",
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

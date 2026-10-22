@@ -7,6 +7,8 @@
  * proof lane's (`proof/hq/test_flag_probe.py`).
  */
 import { describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import { type CaseListConfig, type CaseType, proseText } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -20,8 +22,8 @@ import {
 	relationStep,
 	subcasePath,
 	term,
-} from "@/lib/domain/predicate";
-import type { Predicate } from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression";
+import type { Expression } from "@/lib/domain/expression/types";
 import { xpathQueryUsesRelatedLookup } from "../xpathQuery";
 
 const parent = ancestorPath(relationStep("parent"));
@@ -49,7 +51,7 @@ const caseTypes: CaseType[] = [
 	},
 ];
 
-function uses(filter: Predicate | undefined): boolean {
+function uses(filter: Expression | undefined): boolean {
 	const config: CaseListConfig = {
 		columns: [],
 		listColumnOrder: [],
@@ -57,10 +59,20 @@ function uses(filter: Predicate | undefined): boolean {
 		searchInputs: [],
 		...(filter === undefined ? {} : { filter }),
 	};
-	return xpathQueryUsesRelatedLookup(config, "patient", {
+	const doc = buildDoc({
 		caseTypes,
-		knownInputs: [],
+		modules: [
+			{ name: "Cases", caseType: "patient", caseListConfig: config, forms: [] },
+		],
 	});
+	return xpathQueryUsesRelatedLookup(
+		config,
+		"patient",
+		moduleExpressionContexts(
+			doc,
+			doc.moduleOrder[0],
+		)({ slot: "case_list_filter" }),
+	);
 }
 
 describe("xpathQueryUsesRelatedLookup", () => {
@@ -70,11 +82,11 @@ describe("xpathQueryUsesRelatedLookup", () => {
 		["a subcase count on a comparison's left", gt(count(visits), literal(2))],
 		[
 			"a comparison on an ancestor's property",
-			eq(term(prop("household", "region", parent)), literal("north")),
+			eq(term(prop("patient", "region", parent)), literal("north")),
 		],
 		[
 			"a comparison on an ancestor's case id, which the emitter writes as ancestor-exists",
-			eq(term(prop("household", "case_id", parent)), literal("abc")),
+			eq(term(prop("patient", "case_id", parent)), literal("abc")),
 		],
 	])("reads %s as a related lookup", (_, predicate) => {
 		expect(uses(predicate)).toBe(true);

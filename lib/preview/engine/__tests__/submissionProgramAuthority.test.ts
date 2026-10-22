@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import type { CaseOperation } from "@/lib/domain";
-import { formField, term } from "@/lib/domain/predicate";
+import { formField, term } from "@/lib/domain/expression";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import { buildCaseOperationProgramFromDoc } from "../caseDataBindingHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";

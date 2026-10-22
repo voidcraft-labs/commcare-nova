@@ -1,13 +1,12 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
-import { parseXPathExpression } from "@/lib/commcare/xpath";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	LOOKUP_CONTEXT_UNAVAILABLE,
 	type LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
 import { fieldSchema } from "@/lib/domain";
-import { formField, term } from "@/lib/domain/predicate";
+import { eq, formField, literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
 import type { SubmissionMutation } from "../../caseDataBindingTypes";
@@ -294,6 +293,7 @@ export function engineFor(
 ): FormEngine {
 	assertAdmittedPreviewDoc(doc, lookupContext);
 	const input: FormEngineInput = {
+		doc,
 		form: doc.forms[formUuid],
 		formUuid,
 		fields: doc.fields,
@@ -328,21 +328,17 @@ export function operationRelevanceDoc() {
 		},
 	]);
 	const { doc, uuids } = result;
-	const relevant = parseXPathExpression(
-		"#form/external_code = 'yes'",
-		() => uuids.externalCode,
-		() => undefined,
-	);
+	const relevant = eq(formField(uuids.externalCode), literal("yes"));
 	doc.fields[uuids.note] = fieldSchema.parse({
 		...doc.fields[uuids.note],
-		default_value: xp("'pending'"),
+		default_value: term(literal("pending")),
 		relevant,
 	});
 	doc.fields[uuids.extra] = fieldSchema.parse({
 		uuid: uuids.extra,
 		id: "extra",
 		kind: "hidden",
-		calculate: xp("'kept'"),
+		calculate: term(literal("kept")),
 	});
 	doc.fields[uuids.visits] = fieldSchema.parse({
 		...doc.fields[uuids.visits],
@@ -350,7 +346,7 @@ export function operationRelevanceDoc() {
 	});
 	doc.fields[uuids.visitNote] = fieldSchema.parse({
 		...doc.fields[uuids.visitNote],
-		default_value: xp("'New visit'"),
+		default_value: term(literal("New visit")),
 	});
 	return result;
 }

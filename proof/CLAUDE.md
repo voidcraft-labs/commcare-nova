@@ -204,6 +204,13 @@ harness keeps, each with its reason.
   wall clock or the system's entropy inside an operation, and wait with
   `time.perf_counter` or a C-level wait: `time.monotonic` is frozen there, so
   its timeouts never arrive.
+- **An existing fuzz sample keeps its draws.** A generator change that
+  repairs an inadmissible value maps the value after its draw, without a
+  new random call or a retry: a select's default becomes its first drawn
+  option. A new expression family has its own sample, and plans applied
+  after the document's draw leave an absent target alone rather than
+  drawing again. Existing document ids and every unrelated draw stay the
+  same, so the frozen comparison can identify each deliberate change.
 - **A zoned Core class runs in a test JVM of its own, once per zone, never
   in the suite's.** Core reads the JVM's default zone where no installed
   provider reaches (`DateUtils.fractionalDaysSinceEpoch`, and `EPOCH_DATE`,

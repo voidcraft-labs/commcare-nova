@@ -37,7 +37,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
-import type { XPathPrintableDoc } from "@/lib/domain/xpath/print";
+import type { ReferenceNamesDoc } from "@/lib/domain/referenceNames";
 import type { MatchIndices } from "@/lib/filterTree";
 
 /**
@@ -244,7 +244,7 @@ export function deriveSearchFilter(
 	const visibleModuleUuids = new Set<Uuid>();
 	const visibleFormUuids = new Set<Uuid>();
 	const visibleFieldUuids = new Set<Uuid>();
-	const printDoc: XPathPrintableDoc = {
+	const printDoc: ReferenceNamesDoc = {
 		fields,
 		forms,
 		fieldOrder,

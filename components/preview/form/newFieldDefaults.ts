@@ -20,6 +20,7 @@ import {
 	type FieldKind,
 	proseText,
 } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression";
 
 function defaultSelectOptions() {
 	return DEFAULT_SELECT_OPTIONS.map((option) => ({
@@ -103,6 +104,6 @@ export function newPageRepeat(
 		id,
 		label: proseText(label),
 		repeat_mode: "count_bound",
-		repeat_count: { parts: [{ kind: "text", text: "1" }] },
+		repeat_count: term(literal(1)),
 	};
 }

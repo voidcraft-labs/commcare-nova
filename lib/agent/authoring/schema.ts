@@ -6,11 +6,10 @@ import {
 	MODULE_ICON_SLUGS,
 	moduleIconRefSchema,
 } from "@/lib/domain/builtinIcons";
+import * as expressions from "@/lib/domain/expression/types";
 import { localizedValueSchema } from "@/lib/domain/localization";
 import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
-import * as expressions from "@/lib/domain/predicate/types";
 import { proseTemplateSchema } from "@/lib/domain/prose";
-import { xpathExpressionSchema } from "@/lib/domain/xpath/ast";
 import { AuthoringInputError } from "./errors";
 
 export type AuthoringValueFamily =
@@ -23,7 +22,8 @@ export type AuthoringValueFamily =
 	| "reference"
 	| "relationship"
 	| "moduleIcon"
-	| "formIcon";
+	| "formIcon"
+	| "datum";
 export type AuthoringPath = readonly (string | number)[];
 export type AuthoringValueDecoders = Record<
 	AuthoringValueFamily,
@@ -36,14 +36,15 @@ const families = new Map<object, AuthoringValueFamily>([
 	[proseTemplateSchema._zod.def, "text"],
 	[automationMessageTemplateSchema._zod.def, "message"],
 	[localizedValueSchema._zod.def, "localized"],
-	[xpathExpressionSchema._zod.def, "xpath"],
-	[expressions.predicateSchema._zod.def, "condition"],
-	[expressions.valueExpressionSchema._zod.def, "value"],
+	[expressions.formLogicSchema._zod.def, "xpath"],
+	[expressions.conditionSchema._zod.def, "condition"],
+	[expressions.valueSchema._zod.def, "value"],
 	[expressions.tableLookupExpressionSchema._zod.def, "value"],
 	[expressions.idOfSchema._zod.def, "value"],
 	[expressions.actingUserSchema._zod.def, "value"],
 	[expressions.unownedSchema._zod.def, "value"],
 	[expressions.relationPathSchema._zod.def, "relationship"],
+	[expressions.formLinkDatumNameSchema._zod.def, "datum"],
 	[(moduleIconRefSchema as z.core.$ZodType)._zod.def, "moduleIcon"],
 	[(formIconRefSchema as z.core.$ZodType)._zod.def, "formIcon"],
 	...[
@@ -76,6 +77,12 @@ function familyOf(schema: z.core.$ZodType): AuthoringValueFamily | undefined {
 }
 
 const valueSchemas = {
+	datum: z
+		.string()
+		.min(1)
+		.describe(
+			"The session value the target reads, usually its case id datum such as case_id.",
+		),
 	localized: z
 		.string()
 		.describe("Translated text. Keep the source's inserted references."),

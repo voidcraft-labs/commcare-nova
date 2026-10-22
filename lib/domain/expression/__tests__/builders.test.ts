@@ -1,0 +1,1057 @@
+// lib/domain/expression/__tests__/builders.test.ts
+//
+// Builder construction and reduction behavior for concrete calls. Parsing
+// establishes structural admission only; the type checker and carrier gate
+// remain necessary before an expression can be stored on an app.
+// Compiler-only contracts live in builders.test-d.ts.
+
+import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+
+import {
+	ancestorPath,
+	and,
+	anyRelationPath,
+	arith,
+	between,
+	coalesce,
+	concat,
+	count,
+	dateAdd,
+	dateCoerce,
+	dateLiteral,
+	datetimeCoerce,
+	datetimeLiteral,
+	double,
+	eq,
+	exists,
+	formatDate,
+	gt,
+	gte,
+	ifExpr,
+	input,
+	isBlank,
+	isIn,
+	literal,
+	lt,
+	lte,
+	match,
+	matchAll,
+	matchNone,
+	missing,
+	multiSelectAll,
+	multiSelectAny,
+	neq,
+	not,
+	now,
+	or,
+	prop,
+	qualifiedLiteral,
+	relationStep,
+	selfPath,
+	sessionContext,
+	sessionUser,
+	sessionUserProperty,
+	subcasePath,
+	switchCase,
+	switchExpr,
+	term,
+	timeLiteral,
+	today,
+	toExpression,
+	whenInput,
+	within,
+} from "../builders";
+import {
+	conditionSchema,
+	type Expression,
+	MATCH_MODES,
+	relationPathSchema,
+	valueSchema,
+} from "../types";
+
+describe("predicate builders", () => {
+	it("constructs a nested and(eq, gt) predicate", () => {
+		const p = and(
+			eq(prop("patient", "status"), literal("open")),
+			gt(prop("patient", "age"), literal(18)),
+		);
+		expect(p.kind).toBe("and");
+		// `p.clauses` is directly accessible — `and` returns the precise
+		// `{ kind: "and"; clauses: Expression[] }` shape, not the wider
+		// `Expression` union. If a future refactor widens this back to
+		// `Expression`, this line stops compiling.
+		expect(p.clauses).toHaveLength(2);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("constructs a within-distance predicate", () => {
+		const p = within(
+			prop("clinic", "location"),
+			input(testUuid("user_location")),
+			50,
+			"miles",
+		);
+		expect(p.kind).toBe("within-distance");
+		expect(p.unit).toBe("miles");
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("constructs when-input-present wrapping an eq", () => {
+		const p = whenInput(
+			input(testUuid("phone_number")),
+			eq(prop("patient", "phone"), input(testUuid("phone_number"))),
+		);
+		expect(p.kind).toBe("when-input-present");
+		// The body slot is named `clause` (not `then`) — see the JSDoc
+		// on `whenInputPresentSchema` in `types.ts` for the rationale.
+		expect(p.clause.kind).toBe("eq");
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("constructs or(not(...), match(...))", () => {
+		const p = or(
+			not(eq(prop("patient", "status"), literal("closed"))),
+			match(prop("patient", "case_name"), "alice", "fuzzy"),
+		);
+		expect(p.kind).toBe("or");
+		expect(p.clauses[0].kind).toBe("not");
+		expect(p.clauses[1].kind).toBe("match");
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	// Each exported builder gets at least one explicit happy-path test
+	// here: silent rename or removal of any export must not pass CI.
+	// `sessionUser` / `sessionContext`, `isIn`, and `match` would
+	// otherwise be only structurally implied via other builders'
+	// arguments or composite tests. (The `isIn` variadic-with-required-
+	// first contract is locked separately by the type-level guard at
+	// the bottom of this file.)
+
+	it("constructs a sessionUser reference round-tripping inside a comparison", () => {
+		// `commcare_project` is a custom user-data field — open-namespace
+		// vocabulary populated by `addUserProperties` at
+		// `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java`.
+		// Wrapping the term in `eq` flows it through `conditionSchema`
+		// (terms don't parse standalone via `conditionSchema`).
+		const t = sessionUser("commcare_project");
+		expect(t.kind).toBe("session-user");
+		expect(t.field).toBe("commcare_project");
+		const p = eq(t, literal("project-x"));
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("constructs a custom session-user property by stable identity", () => {
+		const propertyUuid = testUuid("worker-property-region");
+		const t = sessionUserProperty(propertyUuid);
+		expect(t).toEqual({
+			kind: "session-user-property",
+			userPropertyUuid: propertyUuid,
+		});
+		const p = eq(t, literal("north"));
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("constructs a sessionContext reference round-tripping inside a comparison", () => {
+		// `userid` is a closed-enum member of `SESSION_CONTEXT_FIELDS`
+		// — populated by `addMetadata` at the same
+		// `SessionInstanceBuilder.java` symbol anchor. The builder's
+		// `field` parameter is typed as `SessionContextField`, so
+		// passing a string outside the closed set is a compile-time
+		// error rather than a runtime parse rejection.
+		const t = sessionContext("userid");
+		expect(t.kind).toBe("session-context");
+		expect(t.field).toBe("userid");
+		const p = eq(prop("patient", "owner_id"), t);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("constructs an isIn membership predicate", () => {
+		const p = isIn(
+			prop("patient", "status"),
+			literal("open"),
+			literal("active"),
+		);
+		expect(p.kind).toBe("in");
+		expect(p.values).toHaveLength(2);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	// `match` carries a `mode` discriminator across the four CCHQ
+	// text-match variants (`fuzzy` / `phonetic` / `fuzzy-date` /
+	// `starts-with`). Each mode round-trips through the schema with
+	// the same `{ property, value, mode }` payload — iterating
+	// `MATCH_MODES` shares the source of truth with the schema so any
+	// silent narrowing of the enum on either side (builder or schema)
+	// trips the table.
+	it.each(MATCH_MODES)("constructs a match predicate with mode: %s", (mode) => {
+		const p = match(prop("patient", "case_name"), "alice", mode);
+		expect(p.kind).toBe("match");
+		// Builder auto-wraps the bare string into a term-arm
+		// Expression so the persisted shape matches the widened
+		// matchSchema (per types.ts § matchSchema). Existing call sites
+		// keep the ergonomic string argument; the on-disk AST carries
+		// the fully-qualified term-arm wrapping.
+		expect(p.value).toEqual({
+			kind: "term",
+			term: { kind: "literal", value: "alice" },
+		});
+		expect(p.mode).toBe(mode);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	// `multi-select-contains` builders pin the quantifier discriminator
+	// at the call site — `multiSelectAny` always sets `quantifier: "any"`
+	// and `multiSelectAll` always sets `quantifier: "all"`. The variadic-
+	// with-required-first signature mirrors `isIn` / `and` / `or` so
+	// callers cannot construct an empty values list at the type layer.
+	it("multiSelectAny constructs a single-value predicate with quantifier: any", () => {
+		const p = multiSelectAny(prop("patient", "tags"), literal("vip"));
+		expect(p.kind).toBe("multi-select-contains");
+		expect(p.quantifier).toBe("any");
+		expect(p.values).toHaveLength(1);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("multiSelectAny constructs a multi-value predicate", () => {
+		const p = multiSelectAny(
+			prop("patient", "tags"),
+			literal("vip"),
+			literal("urgent"),
+		);
+		expect(p.values).toHaveLength(2);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("multiSelectAll constructs a single-value predicate with quantifier: all", () => {
+		// Tuple-with-rest boundary: the smallest valid input. The
+		// rest-spread path in the builder (`[first, ...rest]`) reduces
+		// to a single-element array when `rest` is empty; pinning that
+		// shape parses through the schema without quantifier-coupled
+		// behavior changes. Symmetric with `multiSelectAny`'s single-
+		// value test above.
+		const p = multiSelectAll(prop("patient", "tags"), literal("vaccinated"));
+		expect(p.kind).toBe("multi-select-contains");
+		expect(p.quantifier).toBe("all");
+		expect(p.values).toHaveLength(1);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("multiSelectAll constructs a multi-value predicate", () => {
+		const p = multiSelectAll(
+			prop("patient", "tags"),
+			literal("vip"),
+			literal("urgent"),
+		);
+		expect(p.kind).toBe("multi-select-contains");
+		expect(p.quantifier).toBe("all");
+		expect(p.values).toHaveLength(2);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	// Null literal round-trip. `literal(null)` is the structural sentinel
+	// for the is-unset filter (the type checker resolves it as
+	// universally compatible — see typeChecker.ts). Locking the
+	// schema-side accept here ensures the runtime invariant holds across
+	// the full builder → parse → check chain, not just at the type-check
+	// layer.
+	it("round-trips a null literal through conditionSchema", () => {
+		const p = eq(prop("patient", "case_name"), literal(null));
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	// Typed literal builders. Each declares its semantic data_type
+	// explicitly so the type checker resolves the literal as the
+	// declared type rather than falling back to text inference. The
+	// round-trip parse confirms the schema accepts the optional
+	// `data_type` field, and the explicit `data_type` assertion guards
+	// against a future builder rename / regression that drops the field.
+	it("constructs a date-typed literal carrying data_type: 'date'", () => {
+		const t = dateLiteral("2000-01-01");
+		expect(t.kind).toBe("literal");
+		expect(t.value).toBe("2000-01-01");
+		expect(t.data_type).toBe("date");
+		// Round-trip via a comparison so the literal flows through
+		// `conditionSchema` (terms don't parse standalone via the
+		// predicate schema).
+		const p = eq(prop("patient", "dob"), t);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("constructs a datetime-typed literal carrying data_type: 'datetime'", () => {
+		const t = datetimeLiteral("2000-01-01T00:00:00");
+		expect(t.data_type).toBe("datetime");
+		const p = eq(prop("patient", "dob"), t);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("constructs a time-typed literal carrying data_type: 'time'", () => {
+		const t = timeLiteral("12:30");
+		expect(t.data_type).toBe("time");
+		const p = eq(prop("patient", "dob"), t);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	// `qualifiedLiteral` is the general-purpose construction
+	// primitive every typed literal routes through. The temporal
+	// builders (`dateLiteral` / `datetimeLiteral` / `timeLiteral`)
+	// are thin specializations on top; consumers needing a non-
+	// temporal qualifier (e.g. `single_select` / `int` preservation
+	// across an editor edit) call this builder directly.
+
+	it("constructs a literal carrying an explicit non-temporal qualifier", () => {
+		const t = qualifiedLiteral("active", "single_select");
+		expect(t.kind).toBe("literal");
+		expect(t.value).toBe("active");
+		expect(t.data_type).toBe("single_select");
+		const p = eq(prop("patient", "status"), t);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("supports number / boolean / null values via qualifiedLiteral", () => {
+		const asInt = qualifiedLiteral(42, "int");
+		expect(asInt.value).toBe(42);
+		expect(asInt.data_type).toBe("int");
+		const asBool = qualifiedLiteral(true, "text");
+		expect(asBool.value).toBe(true);
+		expect(asBool.data_type).toBe("text");
+		const asNull = qualifiedLiteral(null, "date");
+		expect(asNull.value).toBeNull();
+		expect(asNull.data_type).toBe("date");
+	});
+
+	// All six comparison operators share one curried helper, so a
+	// regression in the helper's per-kind return-type pinning could
+	// silently widen any one of them. Exercising all six in a single
+	// parameterized test pins each kind's `kind` discriminator and
+	// round-trip parse without restating six near-identical bodies.
+
+	it.each(["eq", "neq", "gt", "gte", "lt", "lte"] as const)(
+		"constructs a %s comparison that round-trips",
+		(opName) => {
+			const op = { eq, neq, gt, gte, lt, lte }[opName];
+			const p = op(prop("patient", "age"), literal(18));
+			expect(p).toStrictEqual({
+				kind: opName,
+				left: {
+					kind: "term",
+					term: { kind: "prop", caseType: "patient", property: "age" },
+				},
+				right: { kind: "term", term: { kind: "literal", value: 18 } },
+			});
+			expect(conditionSchema.parse(p)).toEqual(p);
+		},
+	);
+
+	// Variadic-with-required-first boundary check. The single-clause
+	// case is the smallest valid input; verifying it parses confirms
+	// the spread-into-array path works at the lower bound of the
+	// schema's tuple-with-rest shape.
+
+	// `and(x)` and `or(x)` collapse to `x` via the construction-time
+	// reductions in `reduction.ts` — the single-clause form of either
+	// operator is the boolean-algebra identity over a single
+	// predicate, so the reducer unwraps. The unwrap is the visible
+	// behavior; the same input shape that historically constructed
+	// a one-element clause envelope now flows the inner predicate
+	// straight through. `isIn(left, single)` retains its envelope
+	// shape because `in.values` is a literal list, not a logical
+	// operator subject to algebraic identity.
+	it("collapses single-clause and / or to the inner predicate via reductions", () => {
+		const single = eq(prop("patient", "status"), literal("open"));
+		expect(and(single)).toBe(single);
+		expect(or(single)).toBe(single);
+		// `isIn` has no parallel reduction — single-element membership
+		// stays as the canonical `in` shape, so the round-trip parse
+		// against `conditionSchema` confirms the envelope shape is
+		// still well-typed.
+		const i = isIn(prop("patient", "status"), literal("open"));
+		expect(i.kind).toBe("in");
+		expect(conditionSchema.parse(i)).toEqual(i);
+	});
+
+	// `prop()` carries an optional `via: RelationPath` parameter — the
+	// relational read. Backward-compat is the load-bearing assertion:
+	// callers that don't pass `via` must produce exactly the same
+	// shape they used to (no `via` key, not `via: undefined`). The
+	// builder uses a conditional construction shape rather than a
+	// `via ?? undefined` assignment so the existing `expect(...).toEqual`
+	// shape-pin tests above continue to hold.
+
+	it("constructs a prop with no via (backward-compat shape)", () => {
+		const p = prop("patient", "age");
+		expect(p).toEqual({ kind: "prop", caseType: "patient", property: "age" });
+		// The `via` key must be ABSENT, not present-with-undefined.
+		// Existing tests in this file use `expect(conditionSchema.parse(p)).toEqual(p)`
+		// shape pins; if `via: undefined` started materializing on the
+		// constructed object, the round-trip equality could silently
+		// break. Lock the absence here.
+		expect("via" in p).toBe(false);
+	});
+
+	it("constructs a prop with an ancestor via", () => {
+		// Canonical relational read shape: `prop(caseType, property,
+		// ancestorPath(...))`. The builder threads the relation path
+		// onto the constructed object so the schema's
+		// `propertyRefSchema.via` slot resolves to the typed
+		// structure rather than a stringy slash-path.
+		const p = prop("patient", "region", ancestorPath(relationStep("parent")));
+		expect(p.via?.kind).toBe("ancestor");
+		// Round-trip via a comparison so the prop flows through
+		// `conditionSchema` (terms don't parse standalone).
+		const wrapped = eq(p, literal("north"));
+		expect(conditionSchema.parse(wrapped)).toEqual(wrapped);
+	});
+});
+
+// `relationPath` family is the typed structural equivalent of CommCare's
+// `index/parent/host/...` slash-strings. Each builder pins one
+// discriminator (`self`, `ancestor`, `subcase`, `any-relation`) and
+// returns the precise variant shape so call-site narrowing on `kind`
+// works without re-narrowing.
+describe("relationPath builders", () => {
+	it("selfPath() constructs the no-traversal kind", () => {
+		const p = selfPath();
+		expect(p).toEqual({ kind: "self" });
+		expect(relationPathSchema.parse(p)).toEqual(p);
+	});
+
+	it("relationStep() constructs a single hop with optional throughCaseType", () => {
+		// `relationStep` is a thin object constructor — the value
+		// lives in pinning the field name `identifier` so callers
+		// don't accidentally use `name` or `id`. The optional
+		// `throughCaseType` is the type-checker narrowing hint that
+		// resolves the destination scope at this step.
+		const a = relationStep("parent");
+		expect(a).toEqual({ identifier: "parent" });
+		// `throughCaseType` must be ABSENT, not undefined, so
+		// downstream consumers' `?? `-checks behave consistently
+		// with the schema's `.optional()` strip behavior on parse.
+		expect("throughCaseType" in a).toBe(false);
+
+		const b = relationStep("parent", "household");
+		expect(b).toEqual({ identifier: "parent", throughCaseType: "household" });
+	});
+
+	it("ancestorPath() constructs a single-hop ancestor path", () => {
+		const p = ancestorPath(relationStep("parent"));
+		expect(p.kind).toBe("ancestor");
+		expect(p.via).toHaveLength(1);
+		expect(p.via[0].identifier).toBe("parent");
+		expect(relationPathSchema.parse(p)).toEqual(p);
+	});
+
+	it("ancestorPath() constructs a multi-hop ancestor path", () => {
+		// Multi-hop paths compile to nested `instance('casedb')`
+		// joins on-device and to chained `walk_ancestor_hierarchy`
+		// steps in CSQL. The variadic shape lets authors compose
+		// chains without manual array construction.
+		const p = ancestorPath(
+			relationStep("parent", "household"),
+			relationStep("host"),
+		);
+		expect(p.via).toHaveLength(2);
+		expect(p.via[0]).toEqual({
+			identifier: "parent",
+			throughCaseType: "household",
+		});
+		expect(p.via[1]).toEqual({ identifier: "host" });
+		expect(relationPathSchema.parse(p)).toEqual(p);
+	});
+
+	it("subcasePath() constructs a subcase relation", () => {
+		const p = subcasePath("parent", "patient");
+		expect(p).toEqual({
+			kind: "subcase",
+			identifier: "parent",
+			ofCaseType: "patient",
+		});
+		expect(relationPathSchema.parse(p)).toEqual(p);
+	});
+
+	it("subcasePath() omits ofCaseType when not provided", () => {
+		const p = subcasePath("parent");
+		expect(p).toEqual({ kind: "subcase", identifier: "parent" });
+		// Same absent-not-undefined contract as `prop`'s `via`
+		// slot — the schema strips absent optionals on parse, so
+		// callers' equality assertions need the constructed shape
+		// to omit the key when it's not set.
+		expect("ofCaseType" in p).toBe(false);
+		expect(relationPathSchema.parse(p)).toEqual(p);
+	});
+
+	it("anyRelationPath() constructs a direction-agnostic relation", () => {
+		const p = anyRelationPath("linked", "referral");
+		expect(p).toEqual({
+			kind: "any-relation",
+			identifier: "linked",
+			ofCaseType: "referral",
+		});
+		expect(relationPathSchema.parse(p)).toEqual(p);
+	});
+
+	it("anyRelationPath() omits ofCaseType when not provided", () => {
+		const p = anyRelationPath("linked");
+		expect(p).toEqual({ kind: "any-relation", identifier: "linked" });
+		expect("ofCaseType" in p).toBe(false);
+	});
+});
+
+// Sentinel-predicate, blank, range, and relational-quantifier
+// builders. Each pins one discriminator (the value the builder layer
+// adds over a hand-written object literal: `kind` is set correctly
+// and the surrounding shape parses through the schema). The
+// round-trip parse is the load-bearing assertion in every case —
+// it locks the builder against schema drift the same way the
+// existing comparison + logical builders are locked above.
+describe("sentinel + range + relational predicate builders", () => {
+	it("matchAll() constructs the always-true sentinel", () => {
+		const p = matchAll();
+		expect(p).toEqual({ kind: "match-all" });
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("matchNone() constructs the always-false sentinel", () => {
+		const p = matchNone();
+		expect(p).toEqual({ kind: "match-none" });
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("isBlank() constructs an is-blank with a property reference", () => {
+		// The builder auto-wraps Term inputs as the structural `term`
+		// arm and pins the portable absent-or-empty discriminator.
+		const p = isBlank(prop("patient", "status"));
+		expect(p.kind).toBe("is-blank");
+		expect(p.left.kind).toBe("term");
+		if (p.left.kind === "term") {
+			expect(p.left.term.kind).toBe("prop");
+		}
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("isBlank() accepts any term shape (input / session-user / session-context / literal)", () => {
+		// The parameter type is `Term`, so every Term variant must compile through the
+		// builder. The closed-enum `session-context` arm and the
+		// open-namespace `session-user` arm both flow through the same
+		// discriminated-union path; each is exercised explicitly.
+		const a = isBlank(input(testUuid("phone")));
+		const b = isBlank(sessionUser("region"));
+		const c = isBlank(sessionContext("userid"));
+		const d = isBlank(literal("x"));
+		expect(conditionSchema.parse(a)).toEqual(a);
+		expect(conditionSchema.parse(b)).toEqual(b);
+		expect(conditionSchema.parse(c)).toEqual(c);
+		expect(conditionSchema.parse(d)).toEqual(d);
+	});
+
+	it("between() defaults inclusivity to closed bounds when omitted", () => {
+		// Default is `true` for both — the standard mathematical
+		// `[lower, upper]` convention. The pin here locks the default
+		// against silent change; an "open by default" regression would
+		// trip this test.
+		const p = between(prop("patient", "age"), {
+			lower: literal(18),
+			upper: literal(65),
+		});
+		expect(p.lowerInclusive).toBe(true);
+		expect(p.upperInclusive).toBe(true);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("between() honors explicit inclusivity flags", () => {
+		// Each flag is independent — a regression that collapsed them
+		// into a single `inclusive` slot would not satisfy both
+		// assertions below.
+		const p = between(prop("patient", "age"), {
+			lower: literal(18),
+			upper: literal(65),
+			lowerInclusive: false,
+			upperInclusive: true,
+		});
+		expect(p.lowerInclusive).toBe(false);
+		expect(p.upperInclusive).toBe(true);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("between() omits absent bounds (does not materialize undefined keys)", () => {
+		// Same absent-not-undefined contract as `prop()` / `relationStep()`
+		// / `subcasePath()`. Zod's `.optional()` strips absent keys on
+		// parse, so a builder that materialized `lower: undefined` /
+		// `upper: undefined` would silently break round-trip equality
+		// checks like `expect(conditionSchema.parse(p)).toEqual(p)`.
+		const lowerOnly = between(prop("patient", "age"), {
+			lower: literal(18),
+		});
+		expect("upper" in lowerOnly).toBe(false);
+		expect(conditionSchema.parse(lowerOnly)).toEqual(lowerOnly);
+
+		const upperOnly = between(prop("patient", "age"), {
+			upper: literal(65),
+		});
+		expect("lower" in upperOnly).toBe(false);
+		expect(conditionSchema.parse(upperOnly)).toEqual(upperOnly);
+	});
+
+	it("between() with no bounds parses-rejects via the schema refinement", () => {
+		// TS can't structurally encode "at least one of two optional
+		// fields," so the rejection lives at the schema layer — the
+		// builder constructs whatever the caller passes and the
+		// schema's `.refine(...)` throws. Same shape as
+		// `within(prop, center, -10, "miles")`: builder typeable,
+		// schema rejects.
+		const invalid = between(prop("patient", "age"), {});
+		expect(() => conditionSchema.parse(invalid)).toThrow();
+	});
+
+	it("exists() constructs an exists with no where", () => {
+		const p = exists(ancestorPath(relationStep("parent")));
+		expect(p.kind).toBe("exists");
+		expect("where" in p).toBe(false);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("exists() constructs an exists with a where filter", () => {
+		// Canonical relational filter — "has a parent in region 'north'".
+		// The `where` predicate is whatever predicate the caller passes;
+		// the builder threads it through onto the constructed object.
+		const p = exists(
+			ancestorPath(relationStep("parent", "household")),
+			eq(prop("household", "region"), literal("north")),
+		);
+		expect(p.kind).toBe("exists");
+		expect(p.where?.kind).toBe("eq");
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("missing() constructs a missing with no where", () => {
+		const p = missing(ancestorPath(relationStep("parent")));
+		expect(p.kind).toBe("missing");
+		expect("where" in p).toBe(false);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("missing() constructs a missing with a where filter", () => {
+		const p = missing(
+			subcasePath("parent", "patient"),
+			eq(prop("patient", "status"), literal("active")),
+		);
+		expect(p.kind).toBe("missing");
+		expect(p.where?.kind).toBe("eq");
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+});
+
+// ---------- Builder-reduction integration tests ----------
+//
+// The seven construction-time reductions in `reduction.ts` are wired
+// through the `and` / `or` / `not` builders. Each test below pins one
+// reduction's behavior at the builder boundary — the integration
+// surface authors and the SA agent see. The reduction-module unit
+// tests in `reduction.test.ts` lock the structural-match logic; this
+// block locks that the builders actually call the reducers.
+//
+// Why every assertion uses the builder rather than the reducer
+// directly: the builder is the public surface, and the test's job is
+// to verify reductions land at the visible API. A reducer-only test
+// can't catch a regression that detaches the builder from the
+// reducer (e.g. a bad merge that drops the wiring). Both layers are
+// tested independently — the unit tests in `reduction.test.ts` lock
+// the reducer's correctness; this block locks the builder's wiring.
+
+describe("builder-reduction integration", () => {
+	it("and() with no clauses returns the match-all sentinel", () => {
+		// Empty conjunction is the boolean-algebra identity element.
+		// The variadic `and()` with no arguments was previously a
+		// compile-time error (locked by the `@ts-expect-error void
+		// and()` directive in the type-level block below); reductions
+		// promote it to the canonical `match-all` sentinel.
+		const p = and();
+		expect(p).toEqual(matchAll());
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("or() with no clauses returns the match-none sentinel", () => {
+		// Empty disjunction is the boolean-algebra absorbing element
+		// — `or()` over zero clauses evaluates trivially to false.
+		// Symmetric with the `and()` case above.
+		const p = or();
+		expect(p).toEqual(matchNone());
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("and(x) with a single clause unwraps to x (referential equality)", () => {
+		// Single-clause `and` is identity over the inner predicate —
+		// the reducer returns the inner clause by reference (no
+		// clone). The `toBe(x)` assertion (referential equality, not
+		// structural) confirms the inner predicate flows through
+		// unchanged. A clone would still pass `toEqual(x)` but fail
+		// `toBe(x)`.
+		const x = eq(prop("patient", "status"), literal("open"));
+		expect(and(x)).toBe(x);
+	});
+
+	it("or(x) with a single clause unwraps to x (referential equality)", () => {
+		const x = eq(prop("patient", "status"), literal("open"));
+		expect(or(x)).toBe(x);
+	});
+
+	it("not(matchAll()) returns the match-none sentinel", () => {
+		// `not(match-all)` is the boolean-algebra collapse of the
+		// universal-true predicate to the universal-false sentinel.
+		// The builder's `not` calls `reduceNot` first; if the reducer
+		// returns a non-undefined shape, the builder returns it
+		// directly without constructing the standard `{ kind: "not",
+		// clause }` envelope.
+		const p = not(matchAll());
+		expect(p).toEqual(matchNone());
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("not(matchNone()) returns the match-all sentinel", () => {
+		// Symmetric with the previous case — `not(match-none)`
+		// collapses to the universal-true sentinel.
+		const p = not(matchNone());
+		expect(p).toEqual(matchAll());
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("not(not(x)) collapses via double-negation elimination (referential equality)", () => {
+		// Double-negation elimination — the reducer unwraps two
+		// layers of `not` to surface the inner predicate. The first
+		// `not(x)` constructs the standard `{ kind: "not", clause: x
+		// }` envelope (no reduction applies on the inner). The
+		// second `not(...)` then matches the double-negation rule:
+		// `reduceNot` sees `inner.kind === "not"` and returns
+		// `inner.clause` (which is `x`). `toBe(x)` confirms
+		// referential equality.
+		const x = eq(prop("patient", "status"), literal("open"));
+		const inner = not(x);
+		expect(inner.kind).toBe("not");
+		const collapsed = not(inner);
+		expect(collapsed).toBe(x);
+	});
+
+	it("not(eq(...)) preserves the standard envelope when no reduction applies", () => {
+		// Negative case — no reduction matches `not(eq(...))`, so
+		// the builder falls through to the standard `{ kind: "not",
+		// clause }` shape. The catch-all overload pins the return
+		// type as `Extract<Expression, { kind: "not" }>`, so `p.clause`
+		// is directly accessible without re-narrowing on `kind` —
+		// demonstrating the precise return-type contract the file-level
+		// comment in `builders.ts` promises.
+		const innerEq = eq(prop("patient", "status"), literal("open"));
+		const p = not(innerEq);
+		expect(p.kind).toBe("not");
+		expect(p.clause).toBe(innerEq);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("and(x, y) preserves the n-ary envelope when two-or-more clauses are supplied", () => {
+		// Two-clause `and` has no canonical reduction — the standard
+		// `{ kind: "and", clauses: [x, y] }` envelope is the canonical
+		// shape. The n-ary overload pins the return type as
+		// `Extract<Expression, { kind: "and" }>`, so `p.clauses` is
+		// directly accessible without re-narrowing.
+		const x = eq(prop("patient", "status"), literal("open"));
+		const y = gt(prop("patient", "age"), literal(18));
+		const p = and(x, y);
+		expect(p.kind).toBe("and");
+		expect(p.clauses).toHaveLength(2);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("or(x, y) preserves the n-ary envelope when two-or-more clauses are supplied", () => {
+		// Symmetric with the `and(x, y)` case — the n-ary overload pins
+		// the precise `Extract<Expression, { kind: "or" }>` return type.
+		const x = eq(prop("patient", "status"), literal("open"));
+		const y = eq(prop("patient", "status"), literal("closed"));
+		const p = or(x, y);
+		expect(p.kind).toBe("or");
+		expect(p.clauses).toHaveLength(2);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+});
+
+// ---------- Auto-wrap (Term → Expression) tests ----------
+//
+// `toExpression` is the auto-wrap helper that lifts a `Term`
+// into the structural `term` arm of `Expression` and leaves a
+// Expression unchanged. Expression-operand builders (`eq`,
+// `isIn`, `within`, `isNull`, `isBlank`, `between`) route every
+// widened operand through this helper so call-sites can pass
+// either Term-shaped or Expression-shaped values
+// interchangeably. The block below pins the helper's contract: the
+// dispatch is purely on the discriminator-value sets (Term kinds
+// vs. Expression kinds), and Expression inputs flow
+// through unchanged.
+
+describe("toExpression — Term → Expression auto-wrap", () => {
+	it("wraps a property reference as a term-arm Expression", () => {
+		const wrapped = toExpression(prop("patient", "age"));
+		expect(wrapped.kind).toBe("term");
+		if (wrapped.kind === "term") {
+			expect(wrapped.term.kind).toBe("prop");
+		}
+		expect(valueSchema.parse(wrapped)).toEqual(wrapped);
+	});
+
+	it("wraps a search-input reference as a term-arm Expression", () => {
+		const wrapped = toExpression(input(testUuid("phone")));
+		expect(wrapped.kind).toBe("term");
+		if (wrapped.kind === "term") {
+			expect(wrapped.term.kind).toBe("input");
+		}
+	});
+
+	it("wraps a session-user reference as a term-arm Expression", () => {
+		const wrapped = toExpression(sessionUser("region"));
+		expect(wrapped.kind).toBe("term");
+	});
+
+	it("wraps a session-context reference as a term-arm Expression", () => {
+		const wrapped = toExpression(sessionContext("userid"));
+		expect(wrapped.kind).toBe("term");
+	});
+
+	it("wraps a literal as a term-arm Expression", () => {
+		const wrapped = toExpression(literal(42));
+		expect(wrapped.kind).toBe("term");
+		if (wrapped.kind === "term") {
+			expect(wrapped.term.kind).toBe("literal");
+		}
+	});
+
+	it("leaves a Expression unchanged (idempotent on already-lifted values)", () => {
+		// The auto-wrap is structural, not deep — a Expression
+		// flows through unchanged regardless of its discriminator.
+		// Tested for `today` (zero-payload constant), `arith` (binary
+		// recursive), and `if` (cross-family recursive) so all three
+		// shapes round-trip identity.
+		const constants: Expression[] = [
+			today(),
+			now(),
+			arith("+", term(literal(1)), term(literal(2))),
+			ifExpr(matchAll(), term(literal("a")), term(literal("b"))),
+		];
+		for (const c of constants) {
+			expect(toExpression(c)).toBe(c);
+		}
+	});
+});
+
+describe("predicate-operand auto-wrap (eq / isIn / within / isBlank / between)", () => {
+	// These tests pin that every widened predicate operand accepts
+	// both Term and Expression inputs. The Term path goes through
+	// the auto-wrap; the Expression path flows through unchanged.
+	// Round-trip parsing through `conditionSchema` confirms each shape
+	// is well-typed at the AST.
+
+	it("eq accepts Term operands and auto-wraps them", () => {
+		const p = eq(prop("patient", "case_name"), literal("Alice"));
+		expect(p.left.kind).toBe("term");
+		expect(p.right.kind).toBe("term");
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("eq accepts Expression operands directly (no double-wrap)", () => {
+		const p = eq(
+			arith("+", term(prop("patient", "age")), term(literal(1))),
+			term(literal(19)),
+		);
+		expect(p.left.kind).toBe("arith");
+		// `right` is a `term`-arm because we passed a `term(...)` lift.
+		expect(p.right.kind).toBe("term");
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("isIn accepts a Term left + literal candidates", () => {
+		const p = isIn(
+			prop("patient", "status"),
+			literal("open"),
+			literal("active"),
+		);
+		expect(p.left.kind).toBe("term");
+		expect(p.values).toHaveLength(2);
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("within accepts a Expression center via the typed term-lift", () => {
+		// `property` stays `PropertyRef` (no widening); `center`
+		// widens to Expression. The Term auto-wrap admits a bare
+		// `input(...)` reference, lifting it into the `term` arm.
+		const p = within(
+			prop("clinic", "location"),
+			input(testUuid("user_location")),
+			50,
+			"miles",
+		);
+		expect(p.center.kind).toBe("term");
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("between accepts Expression bounds (lower / upper widened)", () => {
+		const p = between(prop("patient", "age"), {
+			lower: literal(18),
+			upper: literal(65),
+		});
+		expect(p.left.kind).toBe("term");
+		expect(p.lower?.kind).toBe("term");
+		expect(p.upper?.kind).toBe("term");
+		expect(conditionSchema.parse(p)).toEqual(p);
+	});
+
+	it("isBlank accepts Expression operands", () => {
+		const value = isBlank(input(testUuid("phone")));
+		expect(value.left.kind).toBe("term");
+		expect(conditionSchema.parse(value)).toEqual(value);
+	});
+});
+
+// ---------- Expression builder tests ----------
+//
+// Each Expression operator gets a dedicated builder. The tests
+// below pin three things per builder: (1) the discriminator on the
+// constructed AST, (2) the structural payload, (3) the round-trip
+// parse through `valueSchema`. The round-trip is the
+// load-bearing assertion — same defense the predicate-side builder
+// tests use to lock the builder layer against schema drift.
+
+describe("valueExpression builders — leaf arms", () => {
+	it("term() lifts a Term as the term arm", () => {
+		const v = term(prop("patient", "age"));
+		expect(v.kind).toBe("term");
+		expect(v.term.kind).toBe("prop");
+		expect(valueSchema.parse(v)).toEqual(v);
+	});
+
+	it("today() / now() construct discriminator-only constants", () => {
+		expect(today()).toEqual({ kind: "today" });
+		expect(now()).toEqual({ kind: "now" });
+		expect(valueSchema.parse(today())).toEqual(today());
+		expect(valueSchema.parse(now())).toEqual(now());
+	});
+});
+
+describe("valueExpression builders — date / coercion arms", () => {
+	it("dateAdd() constructs a date-add expression with all required slots", () => {
+		const v = dateAdd(today(), "days", term(literal(7)));
+		expect(v.kind).toBe("date-add");
+		expect(v.interval).toBe("days");
+		expect(valueSchema.parse(v)).toEqual(v);
+	});
+
+	it("dateCoerce / datetimeCoerce / double construct unary value coercions", () => {
+		const text = term(prop("patient", "dob_str"));
+		const a = dateCoerce(text);
+		const b = datetimeCoerce(text);
+		const c = double(term(prop("patient", "weight")));
+		expect(a.kind).toBe("date-coerce");
+		expect(b.kind).toBe("datetime-coerce");
+		expect(c.kind).toBe("double");
+		expect(valueSchema.parse(a)).toEqual(a);
+		expect(valueSchema.parse(b)).toEqual(b);
+		expect(valueSchema.parse(c)).toEqual(c);
+	});
+});
+
+describe("valueExpression builders — arithmetic + text arms", () => {
+	it.each(["+", "-", "*", "div", "mod"] as const)(
+		"arith(%s) constructs the matching arith expression",
+		(op) => {
+			const v = arith(op, term(prop("patient", "age")), term(literal(1)));
+			expect(v.kind).toBe("arith");
+			expect(v).toStrictEqual({
+				kind: "arith",
+				op,
+				left: {
+					kind: "term",
+					term: { kind: "prop", caseType: "patient", property: "age" },
+				},
+				right: { kind: "term", term: { kind: "literal", value: 1 } },
+			});
+			expect(valueSchema.parse(v)).toEqual(v);
+		},
+	);
+
+	it("concat / coalesce construct variadic-with-required-first lists", () => {
+		const c = concat(
+			term(literal("hello, ")),
+			term(prop("patient", "case_name")),
+		);
+		const co = coalesce(
+			term(prop("patient", "nickname")),
+			term(literal("guest")),
+		);
+		expect(c.kind).toBe("concat");
+		expect(c.parts).toStrictEqual([
+			{ kind: "term", term: { kind: "literal", value: "hello, " } },
+			{
+				kind: "term",
+				term: { kind: "prop", caseType: "patient", property: "case_name" },
+			},
+		]);
+		expect(co.kind).toBe("coalesce");
+		expect(co.values).toStrictEqual([
+			{
+				kind: "term",
+				term: { kind: "prop", caseType: "patient", property: "nickname" },
+			},
+			{ kind: "term", term: { kind: "literal", value: "guest" } },
+		]);
+		expect(valueSchema.parse(c)).toEqual(c);
+		expect(valueSchema.parse(co)).toEqual(co);
+	});
+});
+
+describe("valueExpression builders — conditional + aggregation arms", () => {
+	it("ifExpr() constructs an if expression carrying a Expression cond", () => {
+		const v = ifExpr(
+			isBlank(prop("patient", "case_name")),
+			term(literal("(empty)")),
+			term(prop("patient", "case_name")),
+		);
+		expect(v.kind).toBe("if");
+		expect(v.cond.kind).toBe("is-blank");
+		expect(valueSchema.parse(v)).toEqual(v);
+	});
+
+	it("switchCase / switchExpr construct a value-driven multi-case selector", () => {
+		const v = switchExpr(
+			term(prop("patient", "risk")),
+			[
+				switchCase(literal("very-risky"), term(literal(1))),
+				switchCase(literal("risky"), term(literal(2))),
+			],
+			term(literal(3)),
+		);
+		expect(v.kind).toBe("switch");
+		expect(v.cases).toHaveLength(2);
+		expect(valueSchema.parse(v)).toEqual(v);
+	});
+
+	it("count() constructs a relational aggregation with optional where", () => {
+		const a = count(subcasePath("parent"));
+		const b = count(subcasePath("parent"), matchAll());
+		expect(a.kind).toBe("count");
+		expect(b.kind).toBe("count");
+		expect("where" in a).toBe(false); // absent-not-undefined contract
+		expect(b.where).toBeDefined();
+		expect(valueSchema.parse(a)).toEqual(a);
+		expect(valueSchema.parse(b)).toEqual(b);
+	});
+});
+
+describe("valueExpression builders — format-date", () => {
+	it("formatDate() constructs a format-date with a preset pattern", () => {
+		const v = formatDate(today(), "iso");
+		expect(v.kind).toBe("format-date");
+		expect(v.pattern).toBe("iso");
+		expect(valueSchema.parse(v)).toEqual(v);
+	});
+
+	it("formatDate() accepts an arbitrary custom pattern string", () => {
+		const v = formatDate(today(), "%Y/%m/%d");
+		expect(v.kind).toBe("format-date");
+		expect(valueSchema.parse(v)).toEqual(v);
+	});
+});

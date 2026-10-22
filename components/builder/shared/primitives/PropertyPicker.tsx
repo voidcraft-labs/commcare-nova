@@ -55,7 +55,7 @@ import {
 import { handleMenuSearchInputKeyDown } from "@/lib/ui/menuSearchInput";
 import {
 	type ExpressionChangeAdmission,
-	usePredicateEditContext,
+	useEditorVocabulary,
 } from "../editorContext";
 
 interface PropertyPickerProps {
@@ -127,7 +127,7 @@ export function PropertyPicker({
 	createNewLabel = "Create new information",
 	footerAction,
 }: PropertyPickerProps) {
-	const ctx = usePredicateEditContext();
+	const ctx = useEditorVocabulary();
 	const projectProse = useProseProjection();
 	const triggerId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);

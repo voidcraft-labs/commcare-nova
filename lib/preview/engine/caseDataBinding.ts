@@ -32,6 +32,7 @@ import {
 } from "@/lib/case-store";
 import { prepareCaptureSubmissionBytes } from "@/lib/case-store/postgres/submissionAttachments";
 import { adjudicateSubmissionReceipt } from "@/lib/case-store/submission";
+import { requireExpressionContext } from "@/lib/commcare/expressionContext";
 import { AppAccessError } from "@/lib/db/appAccess";
 import {
 	FormAttachmentWriteRejectedError,
@@ -55,13 +56,12 @@ import {
 	ownRecordValue,
 	personasOf,
 	recordFromEntries,
-	searchInputRuntimeValueType,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
-import type { ValueExpression } from "@/lib/domain/predicate";
-import { unhandledKindMessage } from "@/lib/domain/predicate/errors";
-import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/predicate/types";
+import type { Expression } from "@/lib/domain/expression";
+import { unhandledKindMessage } from "@/lib/domain/expression/errors";
+import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
 import {
@@ -121,6 +121,7 @@ import {
 } from "./runtimeBindings";
 import {
 	evaluatePreviewSearchExpression,
+	type PreviewSearchEnvironment,
 	parseExcludedOwnerIds,
 } from "./searchExpressionEvaluation";
 import {
@@ -149,6 +150,49 @@ function stripDerivedFieldParent(blueprint: unknown): unknown {
 	return typeof blueprint === "object" && blueprint !== null
 		? toPersistableDoc(blueprint as BlueprintDoc)
 		: blueprint;
+}
+
+/** A live list is evaluated against its exact candidate document. Membership and
+ * worker identity are independently resolved from the saved app before this
+ * read-only candidate reaches any expression or data query. */
+function candidateSearchEnvironment(args: {
+	blueprint?: BlueprintDoc;
+	moduleUuid?: string;
+	caseType: string;
+	caseListConfig?: CaseListConfig;
+	excludedOwnerIdsExpression?: Expression;
+}):
+	| { ok: true; environment: PreviewSearchEnvironment }
+	| { ok: false; message: string } {
+	const parsed = blueprintDocSchema.safeParse(
+		stripDerivedFieldParent(args.blueprint),
+	);
+	if (!parsed.success || args.moduleUuid === undefined)
+		return {
+			ok: false,
+			message:
+				"We couldn't match these settings to the current app. Reload the app and try again.",
+		};
+	const doc = hydratePersistedBlueprint(parsed.data);
+	const module = doc.modules[args.moduleUuid];
+	if (
+		module === undefined ||
+		module.caseType !== args.caseType ||
+		(args.caseListConfig !== undefined &&
+			(module.caseListConfig === undefined ||
+				canonicalJsonDigest(args.caseListConfig) !==
+					canonicalJsonDigest(module.caseListConfig))) ||
+		(args.excludedOwnerIdsExpression !== undefined &&
+			(module.caseSearchConfig?.excludedOwnerIds === undefined ||
+				canonicalJsonDigest(args.excludedOwnerIdsExpression) !==
+					canonicalJsonDigest(module.caseSearchConfig.excludedOwnerIds)))
+	)
+		return {
+			ok: false,
+			message:
+				"These settings changed while the cases were loading. Try again.",
+		};
+	return { ok: true, environment: { doc, moduleUuid: module.uuid } };
 }
 
 /**
@@ -181,26 +225,21 @@ function stripDerivedFieldParent(blueprint: unknown): unknown {
  * current worker id, then `readCases` composes the resolved ids into the same
  * Postgres predicate as the always-on filter and submitted prompts.
  *
- * `caseTypes` is the LIVE case-type catalog — the only blueprint slice
- * the SQL compiler reads (property data types for casts, relation
- * paths to other types). The client sends just this catalog, not the
- * whole `BlueprintDoc`: the modules/forms/fields trees are dead weight
- * here, and the bag stays plain JSON (no `Map`, no outsized body) so
- * the Server Action call never takes a wire shape the edge WAF flags.
- * Sending the live catalog rather than reading the persisted one keeps
- * the schemas consistent with the live `caseListConfig` the client
- * sends in the same call — a property rename/retype reaches both
- * together, so a calc/sort/filter never compiles against a stale type.
- * Callers reading raw rows (case-loading-form lookups) leave it
- * undefined; `readCases` only needs it when a predicate/sort/calc
- * references a typed property.
+ * A list or excluded-owner expression comes with its actual live
+ * `BlueprintDoc` and `moduleUuid`. After authorizing access and resolving
+ * the worker from the saved app, the action parses that candidate and checks
+ * that the named module owns the requested settings. Its expression slots,
+ * effective case-type catalog and worker-property names therefore come from
+ * one snapshot; a rename or retype reaches the expressions and their context
+ * together. The candidate never supplies membership or worker identity.
+ * Raw-row callers need no document; they may still pass `caseTypes` when
+ * a typed property read needs the catalog.
  */
 /**
  * The order of a Results read: the order plan of the module the call names,
- * resolved in the committed blueprint, over the live list the call carries,
+ * resolved in the validated live candidate that owns the requested list,
  * with its keys' text in the language Preview shows. A call with no list
- * (the selection check by `caseIds`), or whose module the committed
- * blueprint does not hold yet, has none.
+ * (the selection check by `caseIds`) has no order plan.
  */
 function caseStoreOrder(
 	blueprint: PersistableDoc | undefined,
@@ -234,9 +273,11 @@ export async function loadCasesAction(args: {
 	caseType: string;
 	/** Exact selected identities for a bounded, authoritative validation read. */
 	caseIds?: readonly string[];
+	/** The actual live document that owns an expression-bearing list read. */
+	blueprint?: BlueprintDoc;
 	caseListConfig?: CaseListConfig;
 	inputValues?: SearchInputValuesWire;
-	excludedOwnerIdsExpression?: ValueExpression;
+	excludedOwnerIdsExpression?: Expression;
 	parentCase?: ParentCaseSelection;
 	caseTypes?: readonly CaseType[];
 	/** Bounded Results window. Omitted by the current unpaged form-selection caller. */
@@ -249,75 +290,18 @@ export async function loadCasesAction(args: {
 	/** Which persona Preview is running as, if any. A SELECTOR — the
 	 *  identity itself is resolved server-side from the committed doc. */
 	personaUuid?: string;
-	/** The module whose list this is, passed wherever `caseListConfig` is.
-	 *  A SELECTOR: the server resolves the module in the committed
-	 *  blueprint and builds the list's order plan over it, with the live
-	 *  `caseListConfig` in place of its stored one. */
+	/** The module in the live candidate that owns the requested list or
+	 * excluded-owner expression. The action checks that the supplied settings
+	 * match that module before evaluating them or building its order plan. */
 	moduleUuid?: string;
 	/** The language Preview is showing, which a sort key's option labels
 	 *  and interval text read. */
 	language?: string;
 }): Promise<LoadCasesResult> {
 	try {
-		const caseTypeSchemas =
-			args.caseTypes && args.caseTypes.length > 0
-				? new Map(args.caseTypes.map((ct) => [ct.name, ct]))
-				: undefined;
 		const inputValues = args.inputValues
 			? searchInputValuesFromWire(args.inputValues)
 			: undefined;
-		const typeContext =
-			args.caseListConfig === undefined
-				? undefined
-				: {
-						caseTypes: [...(args.caseTypes ?? [])],
-						knownInputs: args.caseListConfig.searchInputs.map((input) => ({
-							uuid: input.uuid,
-							name: input.name,
-							data_type: searchInputRuntimeValueType(input),
-						})),
-						currentCaseType: args.caseType,
-					};
-
-		/* Reject caller-owned input/config failures before authorization opens a
-		 * case store. Session-backed conditions are intentionally skipped here
-		 * and evaluated again below with the resolved worker. */
-		if (args.caseListConfig !== undefined) {
-			const preliminaryGlobalError = searchInputRuntimeGlobalError(
-				args.caseListConfig,
-				args.caseType,
-				inputValues ?? new Map(),
-				undefined,
-				typeContext,
-				{ sessionIndependentOnly: true },
-			);
-			if (preliminaryGlobalError !== undefined) {
-				return {
-					kind: "invalid-search",
-					message: preliminaryGlobalError,
-					repair: "settings",
-				};
-			}
-			if (inputValues !== undefined) {
-				const preliminaryErrors = searchInputSubmissionErrors(
-					args.caseListConfig,
-					args.caseType,
-					inputValues,
-					undefined,
-					typeContext,
-					{ sessionIndependentOnly: true },
-				);
-				const firstError = preliminaryErrors.values().next().value;
-				if (firstError !== undefined) {
-					return {
-						kind: "invalid-search",
-						message: firstError,
-						repair: "inputs",
-					};
-				}
-			}
-		}
-
 		const context = await resolveAuthorizedPreviewContext({
 			appId: args.appId,
 			personaUuid: args.personaUuid,
@@ -326,14 +310,49 @@ export async function loadCasesAction(args: {
 		});
 		if (context.kind !== "ready") return context;
 		const { identity, store, scope } = context;
-		const searchSession = identity.session;
+		let environment: PreviewSearchEnvironment | undefined;
+		if (
+			args.caseListConfig !== undefined ||
+			args.excludedOwnerIdsExpression !== undefined
+		) {
+			const candidate = candidateSearchEnvironment(args);
+			if (!candidate.ok)
+				return {
+					kind: "invalid-search",
+					message: candidate.message,
+					repair: "settings",
+				};
+			environment = candidate.environment;
+		}
+		const requireEnvironment = (): PreviewSearchEnvironment => {
+			if (environment === undefined)
+				throw new Error(
+					"A search expression has no owning document and module.",
+				);
+			return environment;
+		};
+		const caseTypeSchemas =
+			environment === undefined
+				? args.caseTypes && args.caseTypes.length > 0
+					? new Map(args.caseTypes.map((ct) => [ct.name, ct]))
+					: undefined
+				: buildCaseTypeMap(environment.doc);
+		const searchSession =
+			environment === undefined
+				? identity.session
+				: {
+						...identity.session,
+						userPropertySlugs: recordFromEntries(
+							userPropertySlugsByUuid(environment.doc),
+						),
+					};
 		if (args.caseListConfig !== undefined) {
 			const globalRuntimeError = searchInputRuntimeGlobalError(
 				args.caseListConfig,
 				args.caseType,
 				inputValues ?? new Map(),
 				searchSession,
-				typeContext,
+				requireEnvironment(),
 			);
 			if (globalRuntimeError !== undefined) {
 				return {
@@ -353,7 +372,7 @@ export async function loadCasesAction(args: {
 				args.caseType,
 				inputValues,
 				searchSession,
-				typeContext,
+				requireEnvironment(),
 			);
 			const firstError = runtimeErrors.values().next().value;
 			if (firstError !== undefined) {
@@ -374,7 +393,7 @@ export async function loadCasesAction(args: {
 				args.caseType,
 				inputValues ?? new Map(),
 				searchSession,
-				typeContext,
+				requireEnvironment(),
 			)
 		) {
 			return {
@@ -408,12 +427,26 @@ export async function loadCasesAction(args: {
 			scope,
 			args.excludedOwnerIdsExpression,
 		);
-		const excludedOwnerIds =
+		const excludedTypes =
 			args.excludedOwnerIdsExpression === undefined
+				? undefined
+				: requireExpressionContext(
+						requireEnvironment().doc,
+						{
+							entity: "module",
+							uuid: requireEnvironment().moduleUuid,
+							slot: "excluded_owner_ids",
+						},
+						excludedLookupData?.naming,
+					);
+		const excludedOwnerIds =
+			args.excludedOwnerIdsExpression === undefined ||
+			excludedTypes === undefined
 				? undefined
 				: parseExcludedOwnerIds(
 						evaluatePreviewSearchExpression(
 							args.excludedOwnerIdsExpression,
+							excludedTypes,
 							searchSession,
 							expressionInputValues,
 							args.caseListConfig?.searchInputs ?? [],
@@ -421,11 +454,13 @@ export async function loadCasesAction(args: {
 						),
 					);
 		const authoredExcludedOwnerIds =
-			args.excludedOwnerIdsExpression === undefined
+			args.excludedOwnerIdsExpression === undefined ||
+			excludedTypes === undefined
 				? undefined
 				: parseExcludedOwnerIds(
 						evaluatePreviewSearchExpression(
 							args.excludedOwnerIdsExpression,
+							excludedTypes,
 							searchSession,
 							args.caseListConfig === undefined
 								? undefined
@@ -437,7 +472,7 @@ export async function loadCasesAction(args: {
 							excludedLookupData,
 						),
 					);
-		const order = caseStoreOrder(context.blueprint, args);
+		const order = caseStoreOrder(environment?.doc ?? context.blueprint, args);
 		return await readCases(store, {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -710,6 +745,8 @@ export async function loadCaseDataAction(
 	/** Selected nested-menu parents. When present, the identity read must belong
 	 * to their direct non-extension case-index population. */
 	parentCase?: ParentCaseSelection,
+	blueprint?: BlueprintDoc,
+	moduleUuid?: string,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -720,11 +757,30 @@ export async function loadCaseDataAction(
 		});
 		if (context.kind !== "ready") return context;
 		const { identity, store, scope } = context;
+		let environment: PreviewSearchEnvironment | undefined;
+		if (caseListConfig !== undefined) {
+			const candidate = candidateSearchEnvironment({
+				blueprint,
+				moduleUuid,
+				caseType,
+				caseListConfig,
+			});
+			if (!candidate.ok) return { kind: "error", message: candidate.message };
+			environment = candidate.environment;
+		}
 		const lookupTableSchemas = await loadLookupTableSchemas(
 			scope,
 			collectConfigLookupTableIds(caseListConfig),
 		);
-		const searchSession = identity.session;
+		const searchSession =
+			environment === undefined
+				? identity.session
+				: {
+						...identity.session,
+						userPropertySlugs: recordFromEntries(
+							userPropertySlugsByUuid(environment.doc),
+						),
+					};
 		const expressionInputValues =
 			caseListConfig === undefined
 				? undefined
@@ -748,9 +804,11 @@ export async function loadCaseDataAction(
 				viewerTimeZone,
 			),
 			caseTypeSchemas:
-				caseTypes && caseTypes.length > 0
-					? new Map(caseTypes.map((entry) => [entry.name, entry]))
-					: undefined,
+				environment === undefined
+					? caseTypes && caseTypes.length > 0
+						? new Map(caseTypes.map((entry) => [entry.name, entry]))
+						: undefined
+					: buildCaseTypeMap(environment.doc),
 			...(deviceScoped === true && { restoreScope: context.restoreScope }),
 		});
 	} catch (err) {
@@ -1061,7 +1119,7 @@ export async function replaceParkedValueAction(args: {
  *
  * Authoring-surface contract: the caller MUST suppress the action
  * while the filter editor reports `valid: false`. An invalid
- * predicate AST reaching `compilePredicate` would throw at the SQL
+ * predicate AST reaching `compileExpression` would throw at the SQL
  * layer; the editor's validity gate is the primary defense, and
  * the typed-error arms surface only the structural failures the
  * gate cannot catch.
@@ -1073,7 +1131,7 @@ export async function loadFilterPreviewAction(args: {
 	caseListConfig: CaseListConfig;
 	/** The module whose list this is, so the sample follows its order. */
 	moduleUuid?: string;
-	excludedOwnerIdsExpression?: ValueExpression;
+	excludedOwnerIdsExpression?: Expression;
 	limit?: number;
 	/** Viewer IANA timezone for `format-date` rendering; UTC when omitted. */
 	viewerTimeZone?: string;
@@ -1158,12 +1216,36 @@ export async function loadFilterPreviewAction(args: {
 				userPropertySlugsByUuid(parsedBlueprint.data),
 			),
 		};
+		const candidateDoc = hydratePersistedBlueprint(parsedBlueprint.data);
+		const candidateModule =
+			args.moduleUuid === undefined
+				? undefined
+				: candidateDoc.modules[args.moduleUuid];
+		if (
+			args.excludedOwnerIdsExpression !== undefined &&
+			candidateModule === undefined
+		)
+			return {
+				kind: "invalid-config",
+				message:
+					"The availability expression has no current menu. Reload the app and try again.",
+			};
 		const excludedOwnerIds =
-			args.excludedOwnerIdsExpression === undefined
+			args.excludedOwnerIdsExpression === undefined ||
+			candidateModule === undefined
 				? undefined
 				: parseExcludedOwnerIds(
 						evaluatePreviewSearchExpression(
 							args.excludedOwnerIdsExpression,
+							requireExpressionContext(
+								candidateDoc,
+								{
+									entity: "module",
+									uuid: candidateModule.uuid,
+									slot: "excluded_owner_ids",
+								},
+								excludedLookupData?.naming,
+							),
 							searchSession,
 							undefined,
 							undefined,

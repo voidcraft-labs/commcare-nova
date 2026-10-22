@@ -9,7 +9,7 @@ import {
 import { tileFixture } from "@/lib/commcare/__tests__/tileFixture";
 import { wireTable } from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
 import { calculatedColumn } from "@/lib/domain";
-import { eq, literal, matchAll, tableLookup } from "@/lib/domain/predicate";
+import { eq, literal, matchAll, tableLookup } from "@/lib/domain/expression";
 import { sourceSessionDatums } from "@/lib/preview/engine/formLinkEvaluation";
 
 import { getFormTool } from "../getForm";

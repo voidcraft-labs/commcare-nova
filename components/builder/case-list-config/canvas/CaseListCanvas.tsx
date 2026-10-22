@@ -26,7 +26,7 @@ import type {
 	UserProperty,
 	Uuid,
 } from "@/lib/domain";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
 import { useCanEdit } from "@/lib/session/hooks";
 import { CaseOrderingComposer } from "../SortPriorityStack";
 import {
@@ -70,13 +70,11 @@ export interface CaseListCanvasProps {
 	readonly onShowColumn: (column: Column) => void;
 	readonly filterBroken: boolean;
 	readonly excludedOwnerIdsBroken?: boolean;
-	readonly onFilterChange: (next: Predicate | undefined) => CommitOutcome;
-	readonly onClearFilter: (next: Predicate | undefined) => CommitOutcome;
+	readonly onFilterChange: (next: Expression | undefined) => CommitOutcome;
+	readonly onClearFilter: (next: Expression | undefined) => CommitOutcome;
 	readonly searchConfig: CaseSearchConfig | undefined;
 	readonly caseSearchEnabled: boolean;
-	readonly onExcludedOwnerIdsChange: (
-		next: ValueExpression | undefined,
-	) => void;
+	readonly onExcludedOwnerIdsChange: (next: Expression | undefined) => void;
 	readonly appId: string;
 	readonly dependencyReview?: CaseAvailabilityComposerProps["dependencyReview"];
 	readonly onReturnToSearchField?: () => void;

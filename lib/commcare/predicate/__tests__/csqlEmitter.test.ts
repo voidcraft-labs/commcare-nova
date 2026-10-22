@@ -41,13 +41,15 @@ import {
 	sessionUserProperty,
 	subcasePath,
 	term,
-} from "@/lib/domain/predicate/builders";
-import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
-import type { Predicate } from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression/builders";
+import type { Expression } from "@/lib/domain/expression/types";
 import {
 	csqlArgumentFixture,
+	csqlFixtureContext,
+	csqlInputContext,
 	functionLookupContext,
 } from "../../__tests__/csqlFunctionFixture";
+import type { CsqlEmissionContext } from "../../expression/csqlRuntimeExpression";
 import { runValidation } from "../../validator/runner";
 import { w } from "../../xpath/wire/builders";
 import {
@@ -59,7 +61,7 @@ import { emitCsql } from "../csqlEmitter";
 // Private formatting and normalization contracts, with positive predicates
 // admitted inside real apps. Native query evaluation/compilation lives in the
 // Search, prompt, navigation and CSQL function proof corpora.
-function contextFor(predicate: Predicate): TypeContext {
+function contextFor(predicate: Expression): CsqlEmissionContext {
 	const doc = structuredClone(csqlArgumentFixture());
 	const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
 	if (!config || !doc.caseTypes) throw new Error("Fixture has typed Search");
@@ -93,17 +95,13 @@ function contextFor(predicate: Predicate): TypeContext {
 	];
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	expect(runValidation(doc, functionLookupContext)).toEqual([]);
-	return {
-		caseTypes: doc.caseTypes,
-		currentCaseType: "patient",
-		knownInputs: [],
-	};
+	return csqlFixtureContext(doc);
 }
 const name = prop("patient", "first_name");
 const age = prop("patient", "age");
 const tags = prop("patient", "tags");
 
-it.each<[Predicate, string]>([
+it.each<[Expression, string]>([
 	[eq(name, literal("Ada")), `first_name = 'Ada'`],
 	[neq(name, literal("Bea")), `first_name != 'Bea'`],
 	[gt(age, literal(18)), "age > 18"],
@@ -250,9 +248,8 @@ it("requires current saved-name bindings for custom worker identities", () => {
 	const uuid = testUuid("worker-property");
 	const predicate = eq(name, sessionUserProperty(uuid));
 	const context = {
-		caseTypes: [],
-		knownInputs: [],
-		userPropertySlugs: new Map([[uuid, "renamed_value"]]),
+		...csqlFixtureContext(),
+		bindings: { userPropertySlugs: new Map([[uuid, "renamed_value"]]) },
 	};
 	const path = w.instance(
 		sessionInstance(),
@@ -267,7 +264,7 @@ it("requires current saved-name bindings for custom worker identities", () => {
 			),
 		},
 	]);
-	expect(() => emitCsql(predicate, { caseTypes: [], knownInputs: [] })).toThrow(
+	expect(() => emitCsql(predicate, csqlFixtureContext())).toThrow(
 		`worker-information property '${uuid}' has no current saved-name binding`,
 	);
 });
@@ -279,12 +276,16 @@ it("refuses compiler bypasses that cannot preserve property scope", () => {
 		between(age, { lower: term(parentAge) }),
 		eq(arith("+", term(age), term(literal(1))), parentAge),
 	]) {
-		expect(() => emitCsql(predicate)).toThrow(/mixed-property-scopes/);
+		expect(() => emitCsql(predicate, csqlFixtureContext())).toThrow(
+			expect.objectContaining({ reason: "mixed-property-scopes" }),
+		);
 	}
-	expect(() => emitCsql(exists(selfPath()))).toThrow(/self-walk relation/);
-	expect(() => emitCsql(eq(name, literal(`both'"`)))).toThrow(
-		/no portable escape/,
+	expect(() => emitCsql(exists(selfPath()), csqlFixtureContext())).toThrow(
+		/self-walk relation/,
 	);
+	expect(() =>
+		emitCsql(eq(name, literal(`both'"`)), csqlFixtureContext()),
+	).toThrow(/no portable escape/);
 });
 
 it("writes match-none() in the quote cascade's arm for an answer holding both quote marks", () => {
@@ -293,17 +294,9 @@ it("writes match-none() in the quote cascade's arm for an answer holding both qu
 		w.step("input"),
 		w.step("field", [w.eq(w.context([w.attr("name")]), w.str("query"))]),
 	]);
-	const context = {
-		caseTypes: [],
-		knownInputs: [
-			{
-				uuid: query,
-				name: "query",
-				label: "Query",
-				data_type: "text" as const,
-			},
-		],
-	};
+	const context = csqlInputContext([
+		advancedSearchInputDef(query, "query", "Query", "text", matchAll()),
+	]);
 	expect(emitCsql(eq(name, term(input(query))), context)).toEqual({
 		// No double quote: the double-quoted arm. A double quote and no single
 		// one: the single-quoted arm. Both: the search finds nothing.
@@ -335,17 +328,9 @@ it("folds every obligation of a clause into one match-none() guard", () => {
 		w.step("input"),
 		w.step("field", [w.eq(w.context([w.attr("name")]), w.str("query"))]),
 	]);
-	const context = {
-		caseTypes: [],
-		knownInputs: [
-			{
-				uuid: query,
-				name: "query",
-				label: "Query",
-				data_type: "text" as const,
-			},
-		],
-	};
+	const context = csqlInputContext([
+		advancedSearchInputDef(query, "query", "Query", "text", matchAll()),
+	]);
 	const wrapper = emitCsql(
 		and(eq(name, term(input(query))), gt(age, term(input(query)))),
 		context,

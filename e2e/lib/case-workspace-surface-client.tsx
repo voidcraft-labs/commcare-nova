@@ -9,7 +9,7 @@ import {
 	useCaseListInspector,
 } from "@/components/builder/case-list-config/CaseListWorkspaceProvider";
 import { Button } from "@/components/shadcn/button";
-import { buildDoc, caseListConfig, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { evaluateCommit } from "@/lib/commcare/validator/gate";
 import { columnSnapshotMutations } from "@/lib/doc/caseListColumnMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -38,7 +38,7 @@ import {
 	term,
 	today,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
@@ -160,7 +160,7 @@ const source = buildDoc({
 							kind: "text",
 							id: "stage",
 							label: proseText("Status"),
-							default_value: xp("'pending'"),
+							default_value: term(literal("pending")),
 							caseWrite: { caseType: "patient", property: "stage" },
 						},
 						{

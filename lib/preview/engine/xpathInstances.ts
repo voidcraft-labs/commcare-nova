@@ -7,7 +7,7 @@ import {
 	type CaseType,
 	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
-import { openJdk17DoubleToString } from "@/lib/preview/xpath/openJdk17DoubleString";
+import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
 import {
 	type XPathInstance,
 	type XPathNode,

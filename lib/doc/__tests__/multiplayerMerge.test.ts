@@ -47,7 +47,7 @@ import {
 	sessionUser,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 /** A Search action setting that, unlike the screen's title and subtitle,

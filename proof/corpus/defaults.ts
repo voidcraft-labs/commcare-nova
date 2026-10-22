@@ -7,3 +7,6 @@
 export const DEFAULT_CORPUS_SEED = 20260930;
 
 export const DEFAULT_SAMPLE_SIZE = 24;
+
+/** Separate stream: adding these draws does not move the original sample. */
+export const DEFAULT_EXPRESSION_SAMPLE_SIZE = 8;

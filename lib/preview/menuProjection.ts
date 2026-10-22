@@ -1,4 +1,5 @@
 import {
+	type BlueprintDoc,
 	type CaseType,
 	caseSelectionCanFlowBetweenModules,
 	type Form,
@@ -10,6 +11,7 @@ import {
 	moduleParent,
 	moduleSiblingUuids,
 } from "@/lib/domain/moduleHierarchy";
+import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import {
 	moduleDisplayVisibility,
@@ -78,7 +80,7 @@ export const OFF_THE_MENU_SUMMARY = "Off the menu";
  * menu is hidden without its condition being read, and takes its child
  * modules off the menu with it. */
 export function previewModuleVisibility(
-	doc: PreviewMenuSource,
+	doc: BlueprintDoc,
 	args: {
 		readonly authoring: boolean;
 		readonly session: PreviewSearchSessionValues;
@@ -94,11 +96,13 @@ export function previewModuleVisibility(
 					? ("shown" as const)
 					: moduleDisplayVisibility({
 							condition: mod.displayCondition,
+							types: previewExpressionContext(
+								doc,
+								{ entity: "module", uuid, slot: "module_display_condition" },
+								args.lookup.kind === "data" ? args.lookup.data : undefined,
+							),
 							hiddenFromMenu: mod.hiddenFromMenu === true,
 							session: args.session,
-							...(mod.caseType !== undefined && {
-								currentCaseType: mod.caseType,
-							}),
 							lookup: args.lookup,
 						}),
 			] as const;

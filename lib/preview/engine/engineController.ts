@@ -59,7 +59,7 @@ import {
 	type LanguageTag,
 	type Uuid,
 } from "@/lib/domain";
-import { compilerBugMessage } from "@/lib/domain/predicate/errors";
+import { compilerBugMessage } from "@/lib/domain/expression/errors";
 import type { ProseTemplate } from "@/lib/domain/prose";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import type { XPathValue } from "../xpath/types";
@@ -3607,14 +3607,7 @@ export class EngineController {
 		/* Re-evaluate the converted field + its descendants + downstream
 		 * dependents at every live instance, then sync. The selective sweep
 		 * also propagates the unplugged old-path entries. */
-		const affectedPaths = new Set<string>();
-		for (const p of [newPath, ...newDescendantPaths]) {
-			for (const concrete of this.engine.materializePaths(p)) {
-				affectedPaths.add(concrete);
-			}
-			for (const dep of this.engine.getAffectedPaths(p)) affectedPaths.add(dep);
-		}
-		this.engine.evaluatePathsInto([...affectedPaths]);
+		this.engine.evaluateChangedPathsInto([newPath, ...newDescendantPaths]);
 		this.syncAllPathsSelectively();
 	}
 
@@ -3634,11 +3627,7 @@ export class EngineController {
 		 * so the evaluation below cannot see it change: re-seed it first. */
 		const field = input.fields[uuid];
 		if (field !== undefined) this.engine.reseedRequired(path, field);
-		const affectedPaths = [
-			...this.engine.materializePaths(path),
-			...this.engine.getAffectedPaths(path),
-		];
-		this.engine.evaluatePathsInto(affectedPaths);
+		const affectedPaths = this.engine.evaluateChangedPathsInto([path]);
 		this.syncPathsToStore(affectedPaths);
 	}
 

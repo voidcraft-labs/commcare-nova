@@ -6,24 +6,25 @@
 // half-bounded range) + per-bound inclusivity toggles.
 
 "use client";
+
 import { useId } from "react";
 import { Switch } from "@/components/shadcn/switch";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { isOrdered } from "@/lib/domain";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	between,
 	betweenBoundConstraint,
 	betweenSubjectConstraint,
 	compatibleTypesFor,
+	type Expression,
 	literal,
-	type Predicate,
 	prop,
-	type ResolvedType,
+	type ScalarType,
 	type SlotConstraint,
 	tableColumn,
-	type ValueExpression,
 	term as wrapTerm,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { usePredicateEditContext, useResolvedType } from "../editorContext";
 import { type PredicateEditContext, tableRowInScope } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
@@ -38,7 +39,7 @@ import {
 
 export function betweenDefault(
 	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "between" }> {
+): ExpressionOfKind<"between"> {
 	if (tableRowInScope(ctx)) {
 		const column = ctx.tableScope?.columns.find((candidate) =>
 			isOrdered({ data_type: candidate.dataType }),
@@ -70,8 +71,8 @@ export function betweenDefault(
 }
 
 interface BetweenCardProps {
-	readonly value: Extract<Predicate, { kind: "between" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"between">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
@@ -81,15 +82,15 @@ interface BetweenCardProps {
  *  cleared, but the AST stays parseable so the editor doesn't
  *  brick on transient empty states. */
 function buildBetween(
-	value: Extract<Predicate, { kind: "between" }>,
+	value: ExpressionOfKind<"between">,
 	patch: {
-		left?: ValueExpression;
-		lower?: ValueExpression | undefined;
-		upper?: ValueExpression | undefined;
+		left?: Expression;
+		lower?: Expression | undefined;
+		upper?: Expression | undefined;
 		lowerInclusive?: boolean;
 		upperInclusive?: boolean;
 	},
-): Extract<Predicate, { kind: "between" }> {
+): ExpressionOfKind<"between"> {
 	const left = patch.left ?? value.left;
 	const lower = "lower" in patch ? patch.lower : value.lower;
 	const upper = "upper" in patch ? patch.upper : value.upper;
@@ -108,10 +109,10 @@ function buildBetween(
  *  outside the anchor's compatible set; an absent or already-compatible
  *  bound flows through unchanged. */
 function reseedBoundIfNeeded(
-	bound: ValueExpression | undefined,
-	accepts: ReadonlySet<ResolvedType>,
+	bound: Expression | undefined,
+	accepts: ReadonlySet<ScalarType>,
 	ctx: Parameters<typeof resolveExpressionType>[1],
-): ValueExpression | undefined {
+): Expression | undefined {
 	if (bound === undefined) return undefined;
 	const type = resolveExpressionType(bound, ctx);
 	return type !== undefined && !accepts.has(type)
@@ -128,7 +129,7 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 	const subjectType = useResolvedType(value.left);
 	const boundConstraint = betweenBoundConstraint(subjectType);
 
-	const setLeft = (left: ValueExpression) => {
+	const setLeft = (left: Expression) => {
 		const accepts = compatibleTypesFor(resolveExpressionType(left, ctx));
 		const lower = reseedBoundIfNeeded(value.lower, accepts, ctx);
 		const upper = reseedBoundIfNeeded(value.upper, accepts, ctx);
@@ -192,8 +193,8 @@ export function BetweenCard({ value, onChange, path }: BetweenCardProps) {
 interface BoundEditorProps {
 	readonly label: string;
 	readonly boundSlot: "lower" | "upper";
-	readonly value: ValueExpression | undefined;
-	readonly onChange: (next: ValueExpression | undefined) => void;
+	readonly value: Expression | undefined;
+	readonly onChange: (next: Expression | undefined) => void;
 	readonly inclusive: boolean;
 	readonly setInclusive: (next: boolean) => void;
 	readonly path: EditorPath;
@@ -268,7 +269,7 @@ function BoundEditor({
 			{isEnabled && value !== undefined ? (
 				<div>
 					{/* Bound value routes through `ExpressionPicker` so the
-					 *  full ValueExpression family is reachable at the
+					 *  full Expression family is reachable at the
 					 *  slot. The picker's own `CardShell` footer surfaces
 					 *  inline errors at the slot path, so no parallel
 					 *  `<InlineError>` is needed here. */}

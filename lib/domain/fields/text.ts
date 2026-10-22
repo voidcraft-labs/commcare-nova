@@ -8,16 +8,16 @@ import tablerForms from "@iconify-icons/tabler/forms";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import {
+	formLogicSchema,
 	inputFieldBaseSchema,
 	proseTemplateSchema,
-	xpathExpressionSchema,
 } from "./base";
 
 export const textFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("text"),
-	validate: xpathExpressionSchema.optional(),
+	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
-	default_value: xpathExpressionSchema.optional(),
+	default_value: formLogicSchema.optional(),
 });
 
 export type TextField = z.infer<typeof textFieldSchema>;

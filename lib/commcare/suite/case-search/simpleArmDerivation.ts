@@ -89,7 +89,7 @@ import {
 	type SearchInputMode,
 	type SimpleSearchInputDef,
 } from "@/lib/domain";
-import type { Predicate, TypeContext } from "@/lib/domain/predicate";
+import type { Expression, ExpressionContext } from "@/lib/domain/expression";
 import {
 	eq,
 	exactDateSearchPredicate,
@@ -98,7 +98,7 @@ import {
 	prop,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { emitCasePropertyWirePath } from "../../casePropertyWire";
 
 /**
@@ -232,8 +232,8 @@ export function simpleArmNeedsXPathQueryEmission(
 export function deriveSimpleArmPredicate(
 	authored: SimpleSearchInputDef,
 	caseType: string,
-	typeContext?: TypeContext,
-): Predicate {
+	typeContext: ExpressionContext,
+): Expression {
 	if (!simpleArmNeedsXPathQueryEmission(authored)) {
 		throw new Error(
 			`The wire emitter called \`deriveSimpleArmPredicate\` on a simple-arm input ("${authored.name}", property "${authored.property}", mode "${authored.mode?.kind ?? "default"}", via "${authored.via?.kind ?? "absent"}") that rides on the bare \`<prompt>\` slot, no \`_xpath_query\` predicate should be derived for it. The emission gate \`simpleArmNeedsXPathQueryEmission\` must be consulted first; check the call site for a missing gate or a stale cached result.`,
@@ -269,11 +269,6 @@ export function deriveSimpleArmPredicate(
 	switch (modeKind) {
 		case "exact": {
 			if (authored.type === "date") {
-				if (typeContext === undefined) {
-					throw new Error(
-						`Cannot derive the exact calendar-day search input "${authored.name}" without the module TypeContext. Date and datetime targets use different half-open boundary types; pass the validated module case-type catalog to the wire composer instead of guessing from the widget alone.`,
-					);
-				}
 				return whenInput(
 					inputRef,
 					exactDateSearchPredicate({

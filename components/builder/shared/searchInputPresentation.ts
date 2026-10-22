@@ -1,9 +1,9 @@
-// Search-input identity belongs to the Predicate AST, while its authored label
+// Search-input identity belongs to the Expression AST, while its authored label
 // belongs to the editor. Keep those concerns separate: type checking resolves
 // by UUID, and every visible surface asks this helper for the label.
 
+import type { SearchInputDecl } from "@/lib/domain/expression";
 import { humanizeId } from "@/lib/domain/idSlug";
-import type { SearchInputDecl } from "@/lib/domain/predicate";
 
 export type EditorSearchInputDecl = SearchInputDecl & {
 	readonly label?: string;

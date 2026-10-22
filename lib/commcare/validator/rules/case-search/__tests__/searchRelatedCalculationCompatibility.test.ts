@@ -17,11 +17,11 @@ import {
 	anyRelationPath,
 	count,
 	double,
+	type Expression,
 	prop,
 	relationStep,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE" as const;
@@ -72,7 +72,7 @@ const unsupportedWrapped = double(term(prop("patient", "score", parent)));
 type SearchActivation = "none" | "explicit" | "markerless";
 
 function findingsFor(
-	expression: ValueExpression,
+	expression: Expression,
 	options: {
 		search?: SearchActivation;
 		columnSlots?: Parameters<typeof calculatedColumn>[3];
@@ -151,7 +151,7 @@ describe("searchRelatedCalculationCompatibility", () => {
 				),
 			),
 		],
-	] satisfies ReadonlyArray<readonly [string, ValueExpression]>)(
+	] satisfies ReadonlyArray<readonly [string, Expression]>)(
 		"allows %s",
 		(_label, expression) => {
 			expect(findingsFor(expression)).toEqual([]);
@@ -161,7 +161,7 @@ describe("searchRelatedCalculationCompatibility", () => {
 	it.each([
 		["a wrapped ancestor property", unsupportedWrapped],
 		["a related-case count", count(parent)],
-	] satisfies ReadonlyArray<readonly [string, ValueExpression]>)(
+	] satisfies ReadonlyArray<readonly [string, Expression]>)(
 		"rejects %s",
 		(_label, expression) => {
 			const findings = findingsFor(expression);

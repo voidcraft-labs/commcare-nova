@@ -5,9 +5,9 @@ import {
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Field, Uuid } from "@/lib/domain";
+import { matchNone } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	admittedControllerDoc,
@@ -207,7 +207,7 @@ describe("admitted engine edits through the attachment HTTP adapter", () => {
 						id: "photo",
 						kind: "signature",
 						label: proseText("Signature"),
-						relevant: xp("false()"),
+						relevant: matchNone(),
 					},
 					{
 						uuid: B,

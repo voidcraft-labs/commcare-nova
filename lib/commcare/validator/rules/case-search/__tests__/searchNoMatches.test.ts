@@ -21,8 +21,9 @@ import {
 	blueprintDocSchema,
 	type Module,
 	simpleSearchInputDef,
+	type Uuid,
 } from "@/lib/domain";
-import { eq, literal, sessionUser } from "@/lib/domain/predicate";
+import { eq, literal, sessionUser } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../../../runner";
 
@@ -48,7 +49,7 @@ function searchList(): NonNullable<Module["caseListConfig"]> {
 	return config;
 }
 
-function nameField(searchInputUuid?: string) {
+function nameField(searchInputUuid?: Uuid) {
 	return f({
 		kind: "text",
 		id: "case_name",
@@ -58,7 +59,8 @@ function nameField(searchInputUuid?: string) {
 			? {}
 			: {
 					default_value: {
-						parts: [{ kind: "search-answer-ref", searchInputUuid }],
+						kind: "term",
+						term: { kind: "input", searchInputUuid },
 					},
 				}),
 	});
@@ -330,9 +332,8 @@ describe("INVALID_SEARCH_REF", () => {
 							id: "note",
 							label: proseText("Note"),
 							default_value: {
-								parts: [
-									{ kind: "search-answer-ref", searchInputUuid: NAME_INPUT },
-								],
+								kind: "term",
+								term: { kind: "input", searchInputUuid: NAME_INPUT },
 							},
 						}),
 					],
@@ -342,7 +343,7 @@ describe("INVALID_SEARCH_REF", () => {
 		const messages = codes(doc, "INVALID_SEARCH_REF");
 		expect(messages).toHaveLength(1);
 		expect(messages[0]).toContain(
-			"only a form that opens after a search finds no matches",
+			"only in the form opened when a search found no matches",
 		);
 	});
 
@@ -352,7 +353,9 @@ describe("INVALID_SEARCH_REF", () => {
 		});
 		const messages = codes(doc, "INVALID_SEARCH_REF");
 		expect(messages).toHaveLength(1);
-		expect(messages[0]).toContain("a Search prompt this module no longer has");
+		expect(messages[0]).toContain(
+			"a Search field that is no longer on this case list",
+		);
 	});
 });
 

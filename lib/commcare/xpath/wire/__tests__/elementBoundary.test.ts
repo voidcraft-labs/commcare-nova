@@ -1,20 +1,14 @@
 import { expect, it } from "vitest";
 import { el, type WireElementContext, xel } from "../../../elementBuilders";
 import { serializeXml } from "../../../serializeXml";
-import {
-	legacyProjectedAuthoredXPath,
-	legacyProjectedFormLinkXPath,
-	legacyXPathInstances,
-} from "../../../xform/legacyAuthoredXPath";
 import { parseXml } from "../../../xmlParse";
 import { w } from "../builders";
-import { caseDbInstance, InstanceSink } from "../instances";
+import { caseDbInstance, InstanceSink, sessionInstance } from "../instances";
 
 function context(): WireElementContext {
 	return {
 		mode: { target: "xform", constraint: false },
 		instances: new InstanceSink(),
-		resolveLegacyInstances: legacyXPathInstances,
 	};
 }
 
@@ -57,7 +51,7 @@ it("takes each bind attribute's mode and omits a withheld Vellum shadow", () => 
 	expect(ctx.instances.declarations()).toEqual([]);
 });
 
-it("collects generated and temporary authored reads in one scope without ambient instances", () => {
+it("collects every emitted tree's reads in its owning scope without ambient instances", () => {
 	const ctx = context();
 	xel(
 		"bind",
@@ -72,10 +66,15 @@ it("collects generated and temporary authored reads in one scope without ambient
 	xel(
 		"bind",
 		{
-			xpath: { nodeset: w.form(["other"]) },
-			authoredXPath: {
-				relevant: legacyProjectedAuthoredXPath(
-					"instance('commcaresession')/session/data/case_id != ''",
+			xpath: {
+				nodeset: w.form(["other"]),
+				relevant: w.ne(
+					w.instance(sessionInstance(), [
+						w.step("session"),
+						w.step("data"),
+						w.step("case_id"),
+					]),
+					w.str(""),
 				),
 			},
 		},
@@ -87,32 +86,26 @@ it("collects generated and temporary authored reads in one scope without ambient
 	]);
 });
 
-it("keeps the form-link bridge confined to stack conditions and datum values", () => {
+it("prints a form-link datum through the same tree and instance boundary", () => {
 	const ctx: WireElementContext = {
 		mode: { target: "suite" },
 		instances: new InstanceSink(),
-		resolveLegacyInstances: legacyXPathInstances,
 	};
-	const link = legacyProjectedFormLinkXPath(
-		"instance('commcaresession')/session/data/case_id",
-	);
+	const link = w.instance(sessionInstance(), [
+		w.step("session"),
+		w.step("data"),
+		w.step("case_id"),
+	]);
 	expect(
-		xel(
-			"datum",
-			{ attributes: { id: "case_id" }, legacyFormLinkXPath: { value: link } },
-			ctx,
-		).attribs.value,
-	).toBe(link.text);
+		xel("datum", { attributes: { id: "case_id" }, xpath: { value: link } }, ctx)
+			.attribs.value,
+	).toBe("instance('commcaresession')/session/data/case_id");
 	expect(ctx.instances.declarations().map(({ id }) => id)).toEqual([
 		"commcaresession",
 	]);
-	expect(() => {
-		// @ts-expect-error A form-link expression is not an XForm calculation.
-		xel("bind", { legacyFormLinkXPath: { calculate: link } }, ctx);
-	}).toThrow("legacy authored slot");
 });
 
-it("refuses string XPath, duplicate carriers and a missing legacy resolver", () => {
+it("refuses executable strings at raw and typed attribute boundaries", () => {
 	expect(() => {
 		// @ts-expect-error A raw XML builder cannot accept executable strings.
 		el("bind", { calculate: "1 + 2" });
@@ -121,26 +114,6 @@ it("refuses string XPath, duplicate carriers and a missing legacy resolver", () 
 		// @ts-expect-error Executable XML maps accept WireExpr only.
 		xel("output", { xpath: { value: "'text'" } }, context());
 	}).toThrow();
-	expect(() =>
-		xel(
-			"output",
-			{
-				xpath: { value: w.str("one") },
-				authoredXPath: { value: legacyProjectedAuthoredXPath("'two'") },
-			},
-			context(),
-		),
-	).toThrow("more than once");
-	expect(() =>
-		xel(
-			"output",
-			{ authoredXPath: { value: legacyProjectedAuthoredXPath("'text'") } },
-			{
-				mode: { target: "xform", constraint: false },
-				instances: new InstanceSink(),
-			},
-		),
-	).toThrow("instance resolver");
 	// The stack query's value is a URL, not executable XPath.
 	expect(
 		el("query", { value: "https://example.org/query" }).attribs.value,

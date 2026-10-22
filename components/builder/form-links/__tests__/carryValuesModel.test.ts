@@ -1,7 +1,6 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
 import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
 import {
 	formLinkCarryVerdict,
@@ -9,6 +8,7 @@ import {
 	formLinkRequiredDatums,
 } from "@/lib/doc/formLinkReview";
 import type { BlueprintDoc, FormLink } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression/builders";
 import { carryValuesModel } from "../carryValuesModel";
 import {
 	CARE,
@@ -53,7 +53,13 @@ describe("carried-value presentation from real admission", () => {
 			manualCarryUnavailable: true,
 			invalidManual: false,
 			presentation: "collection",
-			missing: [{ id: "selected_cases", caseType: "patient" }],
+			missing: [
+				{
+					name: { kind: "selected-case", module: CARE },
+					id: "selected_cases",
+					caseType: "patient",
+				},
+			],
 		});
 	});
 	it("a single new case can use either mode, with required identities derived from its destination", () => {
@@ -66,11 +72,22 @@ describe("carried-value presentation from real admission", () => {
 			manualCarryUnavailable: false,
 			invalidManual: false,
 			presentation: "choices",
-			missing: [{ id: "case_id", caseType: "patient" }],
+			missing: [
+				{
+					name: { kind: "selected-case", module: CARE },
+					id: "case_id",
+					caseType: "patient",
+				},
+			],
 		});
-		const manual = {
+		const manual: FormLink = {
 			...link,
-			datums: [{ name: "case_id", xpath: xp("'case-a'") }],
+			datums: [
+				{
+					name: { kind: "selected-case", module: CARE },
+					xpath: term(literal("case-a")),
+				},
+			],
 		};
 		expect(project(doc, manual)).toStrictEqual({
 			manual: true,
@@ -93,14 +110,19 @@ describe("carried-value presentation from real admission", () => {
 		const stale: FormLink = {
 			uuid: testUuid("stale"),
 			target: toVisit,
-			datums: [{ name: "case_id", xpath: xp("'case-a'") }],
+			datums: [
+				{
+					name: { kind: "selected-case", module: CARE },
+					xpath: term(literal("case-a")),
+				},
+			],
 		};
 		expect(project(doc, stale)).toStrictEqual({
 			manual: true,
 			manualCarryUnavailable: true,
 			invalidManual: true,
 			presentation: "choices",
-			missing: [{ id: "selected_cases", caseType: "patient" }],
+			missing: [],
 		});
 		expect(project(doc, { ...stale, target: toInspect }).presentation).toBe(
 			"destination-repair",

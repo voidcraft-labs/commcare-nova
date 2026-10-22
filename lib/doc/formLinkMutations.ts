@@ -23,8 +23,7 @@
 //     The settings row and the workspace's terminal row both consume it;
 //     `planSetFallback` is the single writer for both choosers.
 //
-// Conditionality is what the validator calls it: a condition that prints to
-// non-empty XPath. The planners read the same projection.
+// Conditionality is the presence of an Expression; an empty source never persists.
 
 import {
 	asUuid,
@@ -35,10 +34,9 @@ import {
 	type FormLink,
 	type FormLinkTarget,
 	type PostSubmitDestination,
-	projectXPath,
 	type Uuid,
-	xpathPrintContext,
 } from "@/lib/domain";
+import { datumRefKey } from "@/lib/domain/expression/types";
 import { deepEqual } from "./deepEqual";
 import {
 	formLinkMoveVerdicts,
@@ -47,15 +45,12 @@ import {
 } from "./formLinkReview";
 import type { Mutation } from "./types";
 
-/** Conditional = prints to non-empty XPath, exactly as the validator reads it. */
+/** Every present canonical expression is a condition, including false. */
 export function formLinkIsConditionalIn(
-	doc: BlueprintDoc,
+	_doc: BlueprintDoc,
 	link: Pick<FormLink, "condition">,
 ): boolean {
-	if (link.condition === undefined) return false;
-	return (
-		projectXPath(link.condition, xpathPrintContext(doc)).text.trim().length > 0
-	);
+	return link.condition !== undefined;
 }
 
 export type AfterSubmitFallback =
@@ -337,12 +332,23 @@ export function planFormLinkUpdate(
 		datums !== undefined
 	) {
 		const needed = new Set(
-			formLinkRequiredDatums(doc, formUuid, target).map((datum) => datum.id),
+			formLinkRequiredDatums(doc, formUuid, target).map((datum) =>
+				datumRefKey(datum.name),
+			),
+		);
+		const previousNames = new Map(
+			formLinkRequiredDatums(doc, formUuid, existing.target).map((datum) => [
+				datumRefKey(datum.name),
+				datum.id,
+			]),
 		);
 		droppedDatums = datums
-			.filter((datum) => !needed.has(datum.name))
-			.map((datum) => datum.name);
-		const kept = datums.filter((datum) => needed.has(datum.name));
+			.filter((datum) => !needed.has(datumRefKey(datum.name)))
+			.map(
+				(datum) =>
+					previousNames.get(datumRefKey(datum.name)) ?? "selected record",
+			);
+		const kept = datums.filter((datum) => needed.has(datumRefKey(datum.name)));
 		datums = kept.length > 0 ? kept : undefined;
 	}
 	/* Selection compatibility depends on the FINAL link, not only its target:

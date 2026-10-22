@@ -580,14 +580,14 @@ class Document:
         return held.get(key) if key in OPTIONAL_DERIVED_KEYS else held[key]
 
     def case_types(self, *, edit=False):
-        """Each declared case property's data type, by case type and property name, or None for a control
-        retained before this metadata. No type is inferred: a declaration without one stays None."""
+        """Each effective case property's type from the emitted catalog, by case type and property name, or
+        None for a control retained before this metadata. Python infers no type; an unknown one stays None."""
         if self.kind == "control":
             return self.derived("caseTypes", edit=edit)
         document = self.edit_document if edit else self.document
         return {
             case_type["name"]: {prop["name"]: prop.get("data_type") for prop in case_type.get("properties") or []}
-            for case_type in (document.get("doc") or {}).get("caseTypes") or []
+            for case_type in document["catalog"]
         }
 
     def _wire(self, edit):

@@ -10,7 +10,7 @@ import {
 	matchNone,
 	prop,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { compileForPlatform } from "../compileForPlatform";
 
 const visible = simpleSearchInputDef(

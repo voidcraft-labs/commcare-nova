@@ -40,17 +40,14 @@ import {
 	type OwnerOnlyCaseSearchConfig,
 } from "@/lib/domain";
 import {
+	conditionSchema,
+	type Expression,
 	expressionReadsCaseData,
-	type Predicate,
-	predicateReadsCaseData,
-	predicateSchema,
-	type ValueExpression,
-	valueExpressionSchema,
-} from "@/lib/domain/predicate";
+	valueSchema,
+} from "@/lib/domain/expression";
 
-const predicateInputSchema = predicateSchema as z.ZodType<Predicate>;
-const valueExpressionInputSchema =
-	valueExpressionSchema as z.ZodType<ValueExpression>;
+const predicateInputSchema = conditionSchema as z.ZodType<Expression>;
+const valueExpressionInputSchema = valueSchema as z.ZodType<Expression>;
 
 // ── Cluster slot tuples — source of truth ───────────────────────────
 
@@ -227,7 +224,7 @@ const globallyResolvedOwnerExpressionSchema =
  */
 const globallyResolvedDisplayConditionSchema = predicateInputSchema.superRefine(
 	(condition, ctx) => {
-		if (!predicateReadsCaseData(condition)) return;
+		if (!expressionReadsCaseData(condition)) return;
 		ctx.addIssue({
 			code: "custom",
 			message:

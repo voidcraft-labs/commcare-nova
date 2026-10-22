@@ -73,7 +73,7 @@ and holding it to the store (``proof.store.runtime``). ``--fresh`` marks
 every group fresh and reads nothing from the store (the nightly audit).
 
 A package whose tests read the corpus is keyed by what they read of it
-(``PACKAGE_DATA``): the corpus's documents, or only those a test module
+(``PACKAGE_DATA``): the corpus's documents, or only those a test module or adapter
 names in a constant (read from its source, never imported), with the
 corpus's index; and the native products it carries.
 ``--documents sample:N`` keeps N documents, a window of the corpus's
@@ -164,7 +164,7 @@ AUDIT_UNITS = 8
 SURFACE = "surface"
 EVERY = "every"
 # What each package whose tests read the corpus reads of it: ``documents`` (every one, ``EVERY``, or those a test
-# module names in a module-level constant, ``(module, constant)``, which the module reads through the corpus's
+# module or adapter names in a module-level constant, ``(module, constant)``, which reads through the corpus's
 # index), ``native`` (the native products the corpus carries), or both. A package not named reads both, whole.
 PACKAGE_DATA = {
     "proof/android": {"documents": ("proof/android/conftest.py", "DOCUMENTS")},
@@ -174,7 +174,10 @@ PACKAGE_DATA = {
     "proof/formplayer": {"documents": ("proof/formplayer/conftest.py", "DOCUMENTS")},
     "proof/hq": {"documents": ("proof/hq/conftest.py", "DOCUMENTS"), "native": EVERY},
     "proof/lane": {"documents": EVERY, "native": EVERY},
-    "proof/native": {"native": EVERY},
+    "proof/native": {
+        "documents": ("proof/native/steps/session_reads.py", "DOCUMENTS"),
+        "native": EVERY,
+    },
     "proof/rules": {"documents": ("proof/rules/conftest.py", "DOCUMENTS")},
     "proof/store": {"documents": EVERY},
     "proof/views": {"documents": ("proof/views/conftest.py", "DOCUMENTS")},
@@ -362,7 +365,7 @@ def selected(corpus: Path, identifiers: list[str]) -> list[str]:
 
 
 def declared_documents(root: Path, module: str, constant: str) -> tuple[str, ...] | None:
-    """The document ids the test module ``module`` (under the checkout ``root``) names in its module-level
+    """The document ids the module ``module`` (under the checkout ``root``) names in its module-level
     ``constant``, a string or a tuple or list of them, read from its source; None where it names none so."""
     try:
         tree = ast.parse((Path(root) / module).read_text(encoding="utf-8"))

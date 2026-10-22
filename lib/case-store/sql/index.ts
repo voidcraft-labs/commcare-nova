@@ -1,7 +1,7 @@
 // lib/case-store/sql/index.ts
 //
 // Public barrel for the case-store SQL package. The compiler stack
-// lowers `Predicate` / `ValueExpression` / `RelationPath` AST nodes
+// lowers `Expression` / `RelationPath` AST nodes
 // into Kysely typed-builder calls Postgres executes natively. Four
 // entry points compose through one shared dispatch shape:
 // `compilePredicate` recurses back into itself via `compileExpression`'s

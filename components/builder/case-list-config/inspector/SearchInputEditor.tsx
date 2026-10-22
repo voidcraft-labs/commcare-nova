@@ -52,10 +52,10 @@ import {
 	SearchableChoiceCombobox,
 } from "@/components/builder/case-list-config/SearchableChoiceCombobox";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
-import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
+import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import {
 	buildValidityIndex,
-	PredicateEditProvider,
+	EditorVocabularyProvider,
 } from "@/components/builder/shared/editorContext";
 import type { PredicateEditContext } from "@/components/builder/shared/editorSchemas";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
@@ -84,6 +84,11 @@ import {
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
+import {
+	useExpressionSlotContext,
+	useExpressionSlotContextBuilder,
+} from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	advancedSearchInputDef,
@@ -111,16 +116,17 @@ import {
 	searchInputOptions,
 	simpleSearchInputDef,
 	type UserProperty,
+	type Uuid,
 	type VisibleSearchInputDef,
 } from "@/lib/domain";
 import {
-	acceptsType,
 	ancestorPath,
-	checkExpression,
+	type Expression,
+	type ExpressionContext,
+	type ExpressionSlotRef,
 	type RelationPath,
 	relationStep,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
@@ -171,6 +177,7 @@ import { FieldRow } from "./searchInputFieldRow";
 
 export interface SearchInputEditorProps {
 	/** The input being edited. Must be a member of `siblings`. */
+	readonly moduleUuid: Uuid | undefined;
 	readonly value: SearchInputDef;
 	/** Position of `value` within `siblings`: drives the duplicate-
 	 *  name diagnostic and aria labels. */
@@ -244,6 +251,7 @@ export function SearchInputEditor(props: SearchInputEditorProps) {
 	if (props.value.kind === "hidden") {
 		return (
 			<HiddenSearchValueEditor
+				moduleUuid={props.moduleUuid}
 				value={props.value}
 				index={props.index}
 				siblings={props.siblings}
@@ -263,6 +271,7 @@ interface VisibleSearchInputEditorProps
 }
 
 function VisibleSearchInputEditor({
+	moduleUuid,
 	value,
 	index,
 	siblings,
@@ -308,9 +317,46 @@ function VisibleSearchInputEditor({
 	// Every named row is in scope: the edited row included. A custom
 	// condition is keyed to its OWN input via the when-input-present
 	// envelope `seedCustomCondition` produces, so the row must resolve
-	// its own `input(name)`. Matches the validator's full-list
-	// `moduleTypeContext`; see `searchInputDecls`.
+	// its own `input(name)`. `slotContext` applies the actual slot's
+	// answer availability to this shared editor vocabulary.
 	const knownInputs = useMemo(() => searchInputDecls(siblings), [siblings]);
+	const buildExpressionContext = useExpressionSlotContextBuilder();
+	const inputSlot = (
+		slot:
+			| "search_input_default"
+			| "search_input_options"
+			| "search_input_required_when"
+			| "search_input_validation_rule",
+	): ExpressionSlotRef | undefined =>
+		moduleUuid === undefined
+			? undefined
+			: {
+					entity: "module",
+					uuid: moduleUuid,
+					slot,
+					member: { searchInputUuid: value.uuid },
+				};
+	const requiredContext = useExpressionSlotContext(
+		inputSlot("search_input_required_when"),
+		{ entity: "search-input", value },
+	);
+	const validationContext = useExpressionSlotContext(
+		inputSlot("search_input_validation_rule"),
+		{ entity: "search-input", value },
+	);
+	const defaultFits = (candidate: VisibleSearchInputDef): boolean => {
+		const expression = searchInputDefault(candidate);
+		if (expression === undefined) return true;
+		const slot = inputSlot("search_input_default");
+		if (slot === undefined) return false;
+		const context = buildExpressionContext(slot, {
+			entity: "search-input",
+			value: candidate,
+		});
+		return (
+			context !== undefined && expressionEditVerdict(expression, context).ok
+		);
+	};
 
 	// ── Common-slot mutators ──
 
@@ -396,7 +442,12 @@ function VisibleSearchInputEditor({
 		const currentDefault = searchInputDefault(value);
 		const keepDefault =
 			currentDefault === undefined ||
-			defaultFitsInputType(currentDefault, type, caseTypes, currentCaseType);
+			defaultFits(
+				rebuildRow(value, {
+					type,
+					...(options === undefined ? {} : { options }),
+				}),
+			);
 		const next = rebuildRow(value, {
 			type,
 			...(options === undefined ? {} : { options }),
@@ -423,7 +474,7 @@ function VisibleSearchInputEditor({
 		setPendingChoiceType(null);
 		applyType(type);
 	};
-	const setDefault = (next: ValueExpression | undefined) =>
+	const setDefault = (next: Expression | undefined) =>
 		onChange(rebuildRow(value, { default: next }));
 	const setHint = (hint: string) =>
 		onChange(rebuildRow(value, { hint: hint === "" ? undefined : hint }));
@@ -459,7 +510,7 @@ function VisibleSearchInputEditor({
 			via: RelationPath | undefined;
 			type?: SearchInputType;
 			mode?: SearchInputMode | undefined;
-			default?: ValueExpression | undefined;
+			default?: Expression | undefined;
 			label?: string;
 			name?: string;
 		} = { property, via };
@@ -526,12 +577,7 @@ function VisibleSearchInputEditor({
 		const currentDefault = searchInputDefault(value);
 		if (
 			currentDefault !== undefined &&
-			!defaultFitsInputType(
-				currentDefault,
-				nextType,
-				caseTypes,
-				currentCaseType,
-			)
+			!defaultFits(rebuildRow(value, patch))
 		) {
 			patch.default = undefined;
 		}
@@ -661,11 +707,8 @@ function VisibleSearchInputEditor({
 				? undefined
 				: buildMode(kind);
 		const currentDefault = searchInputDefault(value);
-		const keepDefault =
-			currentDefault === undefined ||
-			defaultFitsInputType(currentDefault, type, caseTypes, currentCaseType);
 		const visible = visibleSlotsOf(value);
-		const next =
+		const withDefault =
 			type === "date-range"
 				? simpleSearchInputDef(
 						value.uuid,
@@ -685,7 +728,7 @@ function VisibleSearchInputEditor({
 							{
 								...visible,
 								options: currentOptions,
-								default: keepDefault ? currentDefault : undefined,
+								default: currentDefault,
 							},
 						)
 					: simpleSearchInputDef(
@@ -696,12 +739,16 @@ function VisibleSearchInputEditor({
 							propertyDef.name,
 							{
 								...visible,
-								default: keepDefault ? currentDefault : undefined,
+								default: currentDefault,
 								...(mode !== undefined && mode.kind !== "range"
 									? { mode }
 									: {}),
 							},
 						);
+		const keepDefault = defaultFits(withDefault);
+		const next = keepDefault
+			? withDefault
+			: rebuildRow(withDefault, { default: undefined });
 		const resultingMode = effectiveModeKind(next);
 		const targetPropertyLabel = propertyDisplayLabel(propertyDef, projectProse);
 		return {
@@ -743,7 +790,7 @@ function VisibleSearchInputEditor({
 			: undefined;
 
 	return (
-		<PredicateEditProvider
+		<EditorVocabularyProvider
 			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={knownInputs}
@@ -806,6 +853,10 @@ function VisibleSearchInputEditor({
 				{pendingChoiceType !== null ? (
 					<FieldRow label="Choices">
 						<SearchChoiceSourceEditor
+							slot={inputSlot("search_input_options")}
+							candidateForSource={(options) =>
+								rebuildRow(value, { type: pendingChoiceType, options })
+							}
 							value={undefined}
 							caseTypes={caseTypes}
 							userProperties={userProperties}
@@ -827,6 +878,8 @@ function VisibleSearchInputEditor({
 						}
 					>
 						<SearchChoiceSourceEditor
+							slot={inputSlot("search_input_options")}
+							candidateForSource={(options) => rebuildRow(value, { options })}
 							value={searchInputOptions(value)}
 							caseTypes={caseTypes}
 							userProperties={userProperties}
@@ -888,6 +941,8 @@ function VisibleSearchInputEditor({
 
 				{value.type === "date-range" ? null : (
 					<DefaultValueSlot
+						slot={inputSlot("search_input_default")}
+						candidate={value}
 						value={searchInputDefault(value)}
 						inputType={value.type}
 						caseTypes={caseTypes}
@@ -899,6 +954,7 @@ function VisibleSearchInputEditor({
 				)}
 
 				<RequiredSlot
+					expressionContext={requiredContext}
 					value={value.required}
 					rowIndex={index}
 					summaryContext={{
@@ -912,6 +968,7 @@ function VisibleSearchInputEditor({
 				/>
 
 				<CheckSlot
+					expressionContext={validationContext}
 					value={value.validation}
 					rowIndex={index}
 					summaryContext={{
@@ -1062,7 +1119,7 @@ function VisibleSearchInputEditor({
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
-		</PredicateEditProvider>
+		</EditorVocabularyProvider>
 	);
 }
 
@@ -1144,6 +1201,7 @@ const REQUIRED_CHOICES: readonly RequiredChoice[] = [
 ];
 
 interface RequiredSlotProps {
+	readonly expressionContext: ExpressionContext | undefined;
 	readonly value: SearchInputRequired | undefined;
 	readonly rowIndex: number;
 	readonly summaryContext: PredicateSummaryContext;
@@ -1152,6 +1210,7 @@ interface RequiredSlotProps {
 }
 
 function RequiredSlot({
+	expressionContext,
 	value,
 	rowIndex,
 	summaryContext,
@@ -1171,8 +1230,9 @@ function RequiredSlot({
 				);
 				return;
 			case "conditional": {
+				if (expressionContext === undefined) return;
 				const when = firstComparisonDefault({
-					...summaryContextToEditContext(summaryContext),
+					...summaryContextToEditContext(summaryContext, expressionContext),
 					caseDataScope: "global",
 					patternMatching: true,
 				});
@@ -1294,6 +1354,7 @@ function RequiredSlot({
 }
 
 interface CheckSlotProps {
+	readonly expressionContext: ExpressionContext | undefined;
 	readonly value: SearchInputValidation | undefined;
 	readonly rowIndex: number;
 	readonly summaryContext: PredicateSummaryContext;
@@ -1302,6 +1363,7 @@ interface CheckSlotProps {
 }
 
 function CheckSlot({
+	expressionContext,
 	value,
 	rowIndex,
 	summaryContext,
@@ -1322,9 +1384,13 @@ function CheckSlot({
 				<Button
 					type="button"
 					onClick={() => {
+						if (expressionContext === undefined) return;
 						onChange({
 							rule: firstComparisonDefault({
-								...summaryContextToEditContext(summaryContext),
+								...summaryContextToEditContext(
+									summaryContext,
+									expressionContext,
+								),
 								caseDataScope: "global",
 								patternMatching: true,
 							}),
@@ -1396,8 +1462,10 @@ function CheckSlot({
  *  adds the scope and, for the device-evaluated slots, pattern matching. */
 function summaryContextToEditContext(
 	context: PredicateSummaryContext,
+	expressionContext: ExpressionContext,
 ): Omit<PredicateEditContext, "caseDataScope" | "patternMatching"> {
 	return {
+		expressionContext,
 		caseTypes: context.caseTypes ?? [],
 		currentCaseType: context.currentCaseType ?? "",
 		knownInputs: context.knownInputs ?? [],
@@ -1614,7 +1682,7 @@ function searchModesMatch(
 	return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function expressionHasMeaningfulContent(value: ValueExpression): boolean {
+function expressionHasMeaningfulContent(value: Expression): boolean {
 	if (value.kind !== "term") return true;
 	switch (value.term.kind) {
 		case "literal":
@@ -1637,33 +1705,9 @@ function expressionHasMeaningfulContent(value: ValueExpression): boolean {
 		case "fixed-location":
 		case "owner-location-at-level":
 			return true;
-		case "table-column":
-			throw new Error(
-				"Lookup table columns are dormant and cannot reach the search-input editor.",
-			);
+		default:
+			return true;
 	}
-}
-
-function defaultFitsInputType(
-	value: ValueExpression,
-	type: SearchInputType,
-	caseTypes: readonly CaseType[],
-	currentCaseType: string,
-): boolean {
-	if (type === "date-range") return false;
-	const resolved = checkExpression(
-		value,
-		{
-			caseTypes: [...caseTypes],
-			knownInputs: [],
-			currentCaseType,
-		},
-		[],
-		[],
-	);
-	if (resolved === undefined) return false;
-	const constraint = constraintForDefault(type);
-	return constraint.accepts === "any" || acceptsType(constraint, resolved);
 }
 
 function searchModeDescription(
@@ -1717,7 +1761,7 @@ interface RowPatch {
 	readonly property?: string;
 	readonly via?: RelationPath | undefined;
 	readonly mode?: SearchInputMode | undefined;
-	readonly default?: ValueExpression | undefined;
+	readonly default?: Expression | undefined;
 	readonly hint?: string | undefined;
 	readonly required?: SearchInputRequired | undefined;
 	readonly validation?: SearchInputValidation | undefined;
@@ -1737,6 +1781,14 @@ function visibleSlotsOf(value: VisibleSearchInputDef): {
 	};
 }
 
+function rebuildRow(
+	value: SimpleSearchInputDef,
+	patch: RowPatch,
+): SimpleSearchInputDef;
+function rebuildRow(
+	value: VisibleSearchInputDef,
+	patch: RowPatch,
+): VisibleSearchInputDef;
 function rebuildRow(
 	value: VisibleSearchInputDef,
 	patch: RowPatch,
@@ -2076,16 +2128,20 @@ function MatchPicker({
 // ── Default-value slot ────────────────────────────────────────────
 
 interface DefaultValueSlotProps {
-	readonly value: ValueExpression | undefined;
+	readonly slot: ExpressionSlotRef | undefined;
+	readonly candidate: SearchInputDef;
+	readonly value: Expression | undefined;
 	readonly inputType: ScalarDefaultSearchInputType;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly userProperties: readonly UserProperty[];
 	readonly rowIndex: number;
-	readonly onChange: (next: ValueExpression | undefined) => void;
+	readonly onChange: (next: Expression | undefined) => void;
 }
 
 function DefaultValueSlot({
+	slot,
+	candidate,
 	value,
 	inputType,
 	caseTypes,
@@ -2115,16 +2171,22 @@ function DefaultValueSlot({
 				<div className="space-y-3 rounded-xl border border-white/[0.06] bg-nova-deep/30 p-3">
 					{/* Forbids input refs: the default fills the field before
 				    the search screen opens. See NO_SEARCH_INPUTS. */}
-					<ExpressionCardEditor
-						value={value}
-						onChange={onChange}
-						caseTypes={caseTypes}
-						currentCaseType={currentCaseType}
-						knownInputs={NO_SEARCH_INPUTS}
-						userProperties={userProperties}
-						caseDataScope="global"
-						constraint={constraint}
-					/>
+					{slot === undefined ? (
+						<p role="status">This value's owner is no longer available.</p>
+					) : (
+						<ExpressionSlotEditor
+							slot={slot}
+							candidate={{ entity: "search-input", value: candidate }}
+							value={value}
+							onChange={onChange}
+							caseTypes={caseTypes}
+							currentCaseType={currentCaseType}
+							knownInputs={NO_SEARCH_INPUTS}
+							userProperties={userProperties}
+							caseDataScope="global"
+							constraint={constraint}
+						/>
+					)}
 					<Button
 						type="button"
 						onClick={() => onChange(undefined)}

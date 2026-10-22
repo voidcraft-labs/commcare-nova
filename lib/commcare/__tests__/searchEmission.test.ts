@@ -3,11 +3,20 @@ import { expect, it } from "vitest";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
-import { eq, input, literal, prop, term } from "@/lib/domain/predicate";
+import {
+	eq,
+	input,
+	isBlank,
+	literal,
+	prop,
+	term,
+	whenInput,
+} from "@/lib/domain/expression";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import { COMMCARE_SERVER_IDS, type CommCareServer } from "../servers";
 import { runValidation } from "../validator/runner";
+import { collectOracleInstanceRefs } from "../validator/suiteOracle";
 import {
 	searchEmissionFixture,
 	searchEmissionScenarios,
@@ -347,6 +356,79 @@ it("rejects a Search starting value that reads another answer before answers exi
 		],
 	]);
 });
+
+it.each(["inline", "remote"] as const)(
+	"keeps %s Search answers on their supplied instance in both exports",
+	(scenario) => {
+		const doc = searchEmissionFixture(scenario);
+		const module = doc.modules[doc.moduleOrder[0]];
+		const config = module.caseListConfig;
+		if (config === undefined) throw new Error("Fixture has a case list");
+		const prompt = config.searchInputs[0];
+		if (prompt.kind === "hidden" || prompt.type === "date-range")
+			throw new Error("Fixture has a visible text prompt");
+		const answer = input(prompt.uuid);
+		config.filter = whenInput(
+			answer,
+			eq(prop("patient", "first_name"), answer),
+		);
+		config.searchInputs[0] = {
+			...prompt,
+			required: { when: isBlank(answer) },
+			validation: { rule: eq(answer, literal("Ada")), message: "Choose Ada" },
+		};
+		module.caseSearchConfig = {
+			...module.caseSearchConfig,
+			excludedOwnerIds: term(answer),
+		};
+		const { hq, suite } = exported(doc);
+		const search =
+			scenario === "inline"
+				? entry(suite, "m0-f0")
+				: onlyXml(xmlChildren(suite, "remote-request"));
+		const query = one(one(search, "session"), "query");
+		const localPrompt = one(query, "prompt");
+		const uploaded = hq.modules[0].search_config;
+		const uploadedPrompt = uploaded.properties[0];
+		const localData = (key: string) =>
+			onlyXml(
+				xmlChildren(query, "data").filter(
+					(node) => node.attributes.key === key,
+				),
+			).attributes.ref;
+		const inputInstance = `search-input:${scenario === "inline" ? "results:inline" : "results"}`;
+		for (const [local, remote] of [
+			[localData("_xpath_query"), uploaded.default_properties[0].defaultValue],
+			[
+				localData("commcare_blacklisted_owner_ids"),
+				uploaded.blacklisted_owner_ids_expression,
+			],
+			[
+				one(localPrompt, "required").attributes.test,
+				uploadedPrompt.required?.test,
+			],
+			[
+				one(localPrompt, "validation").attributes.test,
+				uploadedPrompt.validations?.[0]?.test,
+			],
+		] as const) {
+			expect(remote).toBe(local);
+			expect(collectOracleInstanceRefs(local)).toEqual(
+				new Set([inputInstance]),
+			);
+		}
+		expect(
+			xmlChildren(search, "instance")
+				.filter((node) => node.attributes.id.startsWith("search-input:"))
+				.map((node) => node.attributes),
+		).toEqual([
+			{
+				id: inputInstance,
+				src: `jr://instance/search-input/${query.attributes["storage-instance"]}`,
+			},
+		]);
+	},
+);
 
 it("writes both search labels under every wire code, blank where nothing is authored", () => {
 	const bilingual = (doc: BlueprintDoc): BlueprintDoc => {

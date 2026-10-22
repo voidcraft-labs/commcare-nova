@@ -6,6 +6,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { loadCanonicalBlueprintAtSequence } from "@/lib/agent/change-set/baseLoader";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { appendSyntheticBatch, loadApp } from "@/lib/db/apps";
+import { literal, term } from "@/lib/domain/expression/builders";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
 	migrateCaseSelectionEntry,
@@ -100,8 +101,14 @@ describe("parent-selection cutover", () => {
 								{
 									target: { type: "form", moduleUuid: plot, formUuid: visit },
 									datums: [
-										{ name: "parent_id", xpath: "'garden-id'" },
-										{ name: "case_id", xpath: "'plot-id'" },
+										{
+											name: { kind: "selected-case", module: garden },
+											xpath: term(literal("garden-id")),
+										},
+										{
+											name: { kind: "selected-case", module: plot },
+											xpath: term(literal("plot-id")),
+										},
 									],
 								},
 							],

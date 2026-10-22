@@ -1,6 +1,6 @@
 import { z } from "zod";
+import { conditionSchema } from "./expression/types";
 import { lookupColumnIdSchema, lookupTableIdSchema } from "./lookupIds";
-import { predicateSchema } from "./predicate/types";
 
 /**
  * A select whose choices come from one Project lookup table.
@@ -15,12 +15,12 @@ export const lookupOptionsSourceSchema = z.strictObject({
 	tableId: lookupTableIdSchema,
 	valueColumnId: lookupColumnIdSchema,
 	labelColumnId: lookupColumnIdSchema,
-	filter: predicateSchema.optional(),
+	filter: conditionSchema.optional(),
 });
 
 export type LookupOptionsSource = z.infer<typeof lookupOptionsSourceSchema>;
 
-// Keep recursive Predicate payloads behind one stable definition when this
+// Keep recursive Expression payloads behind one stable definition when this
 // carrier appears in generated schemas. Register in place; `.meta()` would
 // clone the shared node and duplicate recursive definitions.
 z.globalRegistry.add(lookupOptionsSourceSchema, { id: "LookupOptionsSource" });

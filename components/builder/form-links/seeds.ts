@@ -29,12 +29,7 @@ import type {
 	FormLinkCarryVerdict,
 	FormLinkRequiredDatum,
 } from "@/lib/doc/formLinkReview";
-import type {
-	FormLink,
-	FormLinkDatum,
-	FormLinkTarget,
-	XPathExpression,
-} from "@/lib/domain";
+import type { FormLink, FormLinkDatum, FormLinkTarget } from "@/lib/domain";
 
 /** The condition a fresh conditional link carries until the author replaces it. */
 export const SEED_CONDITION_TEXT = "false()";
@@ -42,17 +37,13 @@ export const SEED_CONDITION_TEXT = "false()";
 /** The expression a fresh carried value carries until the author replaces it. */
 export const SEED_CARRIED_VALUE_TEXT = "''";
 
-/** Text → stored AST, resolved against the current document. */
-type XPathParser = (text: string) => XPathExpression;
-
 /** One `''` per required selection datum, named as the destination names it. */
 export function seedCarriedValues(
 	required: readonly FormLinkRequiredDatum[],
-	parse: XPathParser,
 ): FormLinkDatum[] {
 	return required.map((datum) => ({
-		name: datum.id,
-		xpath: parse(SEED_CARRIED_VALUE_TEXT),
+		name: datum.name,
+		xpath: { kind: "term", term: { kind: "literal", value: "" } },
 	}));
 }
 
@@ -64,10 +55,9 @@ export function seedCarriedValues(
 export function carriedValuesFor(
 	carry: FormLinkCarryVerdict,
 	required: readonly FormLinkRequiredDatum[],
-	parse: XPathParser,
 ): FormLinkDatum[] | undefined {
 	return carry.kind === "manual-required"
-		? seedCarriedValues(required, parse)
+		? seedCarriedValues(required)
 		: undefined;
 }
 
@@ -80,13 +70,12 @@ interface SeedTarget {
 /** A complete conditional link to `target`, never firing until edited. */
 export function seedConditionalLink(
 	seed: SeedTarget,
-	parse: XPathParser,
 	uuid = newUuid(),
 ): FormLink {
-	const datums = carriedValuesFor(seed.carry, seed.required, parse);
+	const datums = carriedValuesFor(seed.carry, seed.required);
 	return {
 		uuid,
-		condition: parse(SEED_CONDITION_TEXT),
+		condition: { kind: "match-none" },
 		target: seed.target,
 		...(datums !== undefined && { datums }),
 	};
@@ -95,10 +84,9 @@ export function seedConditionalLink(
 /** A complete otherwise link to `target`. */
 export function seedOtherwiseLink(
 	seed: SeedTarget,
-	parse: XPathParser,
 	uuid = newUuid(),
 ): FormLink {
-	const datums = carriedValuesFor(seed.carry, seed.required, parse);
+	const datums = carriedValuesFor(seed.carry, seed.required);
 	return {
 		uuid,
 		target: seed.target,
@@ -112,12 +100,8 @@ export function seedOtherwiseLink(
  * selection is meaningless to another's, so they are reseeded for the new
  * target (or dropped when it needs none).
  */
-export function retargetLink(
-	link: FormLink,
-	seed: SeedTarget,
-	parse: XPathParser,
-): FormLink {
-	const datums = carriedValuesFor(seed.carry, seed.required, parse);
+export function retargetLink(link: FormLink, seed: SeedTarget): FormLink {
+	const datums = carriedValuesFor(seed.carry, seed.required);
 	const { datums: _previous, ...rest } = link;
 	return {
 		...rest,

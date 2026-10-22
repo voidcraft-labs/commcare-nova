@@ -1,8 +1,11 @@
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { caseListConfig } from "@/lib/__tests__/docHelpers";
+import { expressionCandidateDoc } from "@/lib/doc/hooks/useExpressionSlotContext";
 import {
+	type BlueprintDoc,
 	type CaseType,
+	type Column,
 	calculatedColumn,
 	plainColumn,
 	simpleSearchInputDef,
@@ -12,8 +15,9 @@ import {
 	double,
 	prop,
 	relationStep,
+	slotContext,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { nextColumnDisplay } from "../columnDisplayState";
 import { admittedWorkspace, commitWorkspace } from "./admittedWorkspace";
@@ -48,6 +52,34 @@ it("does not restore a related calculation after a peer enables Search", () => {
 	config.detailColumnOrder = [uuid];
 	const { doc, moduleUuid } = admittedWorkspace(caseTypes, config, "patient");
 	const plain = plainColumn(uuid, "case_name", "Score");
+	const displayContext = (current: BlueprintDoc) => ({
+		caseTypes,
+		currentCaseType: "patient",
+		moduleUuid,
+		expressionContextForColumn: (column: Column) => {
+			const slot = {
+				entity: "module",
+				uuid: moduleUuid,
+				slot: "case_list_column_expression",
+				member: { columnUuid: uuid },
+			} as const;
+			const candidate = expressionCandidateDoc(current, slot, {
+				entity: "column",
+				value: column,
+			});
+			return candidate === undefined
+				? undefined
+				: slotContext(candidate, slot, new Map());
+		},
+	});
+	expect(
+		nextColumnDisplay(
+			plain,
+			"calculated",
+			displayContext(doc),
+			new Map([["calculated", original]]),
+		),
+	).toEqual(original);
 	const after = commitWorkspace(doc, [
 		{
 			kind: "updateColumn",
@@ -70,7 +102,7 @@ it("does not restore a related calculation after a peer enables Search", () => {
 	const next = nextColumnDisplay(
 		plain,
 		"calculated",
-		{ caseTypes, currentCaseType: "patient", searchIsEffective: true },
+		displayContext(after),
 		new Map([["calculated", original]]),
 	);
 	expect(next).toMatchObject({

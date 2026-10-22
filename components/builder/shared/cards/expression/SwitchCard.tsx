@@ -1,13 +1,13 @@
 // components/builder/shared/cards/expression/SwitchCard.tsx
 //
-// Renders the `switch` ValueExpression: value-driven multi-case
+// Renders the `switch` Expression: value-driven multi-case
 // dispatch. Slots:
 //
-//   - `on`: `ValueExpression`. The discriminator value compared
+//   - `on`: `Expression`. The discriminator value compared
 //     against each case's `when` literal.
-//   - `cases[i]`: `{ when: Literal; then: ValueExpression }[]`.
+//   - `cases[i]`: `{ when: Literal; then: Expression }[]`.
 //     Drag-orderable; the schema requires non-empty.
-//   - `fallback`: `ValueExpression`. Returned when no case matches.
+//   - `fallback`: `Expression`. Returned when no case matches.
 //
 // Type-checker rules (per `checkExpression`'s `case "switch":`):
 //   - Each `case.when` literal must be comparable with `on`'s
@@ -25,6 +25,7 @@
 // scalar sub-paths and `appendKindIndexSlot` for the indexed ones.
 
 "use client";
+
 import { Icon } from "@iconify/react/offline";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
@@ -32,21 +33,21 @@ import tablerTrash from "@iconify-icons/tabler/trash";
 import { useId, useMemo, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	ANY_CONSTRAINT,
 	branchConstraint,
 	compatibleTypesFor,
+	type Expression,
 	type Literal,
 	literal,
 	literalType,
-	type ResolvedType,
+	type ScalarType,
 	type SlotConstraint,
 	type SwitchCase,
-	switchCase,
 	switchExpr,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	useEditorErrorsAt,
 	usePredicateEditContext,
@@ -82,10 +83,10 @@ import {
  *  clean (all values resolve to text). */
 export function switchDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "switch" }> {
+): ExpressionOfKind<"switch"> {
 	return switchExpr(
 		term(literal("")),
-		[switchCase(literal(""), term(literal("")))],
+		[literalSwitchCase(literal(""), term(literal("")))],
 		term(literal("")),
 	);
 }
@@ -94,14 +95,14 @@ export function switchDefault(
  *  the null literal (`_any`) is universally compatible. */
 function whenLiteralAccepted(
 	when: Literal,
-	accepts: ReadonlySet<ResolvedType>,
+	accepts: ReadonlySet<ScalarType>,
 ): boolean {
 	return accepts.has(literalType(when));
 }
 
 interface SwitchCardProps {
-	readonly value: Extract<ValueExpression, { kind: "switch" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"switch">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 	/** The switch's own result constraint propagates to every `then`
 	 *  branch and the `fallback`: the result is whichever branch
@@ -109,12 +110,37 @@ interface SwitchCardProps {
 	readonly constraint?: SlotConstraint;
 }
 
-export function SwitchCard({
+function literalSwitchCase(when: Literal, then: Expression): LiteralSwitchCase {
+	return { when, then };
+}
+
+type LiteralSwitchCase = Omit<SwitchCase, "when"> & { when: Literal };
+type LiteralSwitch = Omit<ExpressionOfKind<"switch">, "cases"> & {
+	cases: [LiteralSwitchCase, ...LiteralSwitchCase[]];
+};
+
+function hasLiteralCases(
+	value: ExpressionOfKind<"switch">,
+): value is LiteralSwitch {
+	return value.cases.every((item) => item.when.kind === "literal");
+}
+
+export function SwitchCard(props: SwitchCardProps) {
+	if (!hasLiteralCases(props.value))
+		return (
+			<p role="status">
+				This saved choice rule is available in the expression editor.
+			</p>
+		);
+	return <EditableSwitchCard {...props} value={props.value} />;
+}
+
+function EditableSwitchCard({
 	value,
 	onChange,
 	path,
 	constraint = ANY_CONSTRAINT,
-}: SwitchCardProps) {
+}: Omit<SwitchCardProps, "value"> & { readonly value: LiteralSwitch }) {
 	// Per-slot errors at `[..., "switch", "on" | "fallback"]` render
 	// via the matching `ExpressionPicker` shells' `CardShell` footers:
 	// no parallel `<InlineError>` is needed here. The `[...,
@@ -143,8 +169,8 @@ export function SwitchCard({
 	const fallbackConstraint = branchConstraint(constraint, ...branchTypes);
 
 	const apply = (
-		cases: readonly SwitchCase[],
-	): Extract<ValueExpression, { kind: "switch" }> => {
+		cases: readonly LiteralSwitchCase[],
+	): ExpressionOfKind<"switch"> => {
 		const [first, ...rest] = cases;
 		// Same call-site cast pattern as ConcatCard / CoalesceCard:
 		// `switchExpr` requires at least one case at the type layer;
@@ -153,12 +179,12 @@ export function SwitchCard({
 		return switchExpr(value.on, [first, ...rest], value.fallback);
 	};
 
-	const setOn = (next: ValueExpression) => {
+	const setOn = (next: Expression) => {
 		const nextAccepts = compatibleTypesFor(resolveExpressionType(next, ctx));
 		const reseeded = value.cases.map((item) =>
 			whenLiteralAccepted(item.when, nextAccepts)
 				? item
-				: switchCase(
+				: literalSwitchCase(
 						reseedLiteralForConstraint(item.when, nextAccepts),
 						item.then,
 					),
@@ -168,11 +194,11 @@ export function SwitchCard({
 		onChange(switchExpr(next, [first, ...rest], value.fallback));
 	};
 
-	const setFallback = (next: ValueExpression) => {
+	const setFallback = (next: Expression) => {
 		onChange(switchExpr(value.on, value.cases, next));
 	};
 
-	const updateCase = (index: number, next: SwitchCase) => {
+	const updateCase = (index: number, next: LiteralSwitchCase) => {
 		const updated = value.cases.map((item, itemIndex) =>
 			itemIndex === index ? next : item,
 		);
@@ -204,7 +230,7 @@ export function SwitchCard({
 			resultConstraint.accepts === "any"
 				? term(literal(null))
 				: reseedValueForConstraint(term(literal("")), resultConstraint.accepts);
-		const next = [...value.cases, switchCase(whenSeed, thenSeed)];
+		const next = [...value.cases, literalSwitchCase(whenSeed, thenSeed)];
 		rowIdentity.stage(next, {
 			kind: "splice",
 			index: value.cases.length,
@@ -360,10 +386,10 @@ export function SwitchCard({
 }
 
 interface CaseRowProps {
-	readonly switchCaseValue: SwitchCase;
+	readonly switchCaseValue: LiteralSwitchCase;
 	readonly caseIndex: number;
 	readonly isOnlyOne: boolean;
-	readonly onUpdate: (next: SwitchCase) => void;
+	readonly onUpdate: (next: LiteralSwitchCase) => void;
 	readonly onRemove: () => void;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
 	readonly onMove: (key: ReorderKeyboardKey) => void;
@@ -372,7 +398,7 @@ interface CaseRowProps {
 	/** The accept-set for the `when` literal: `on`'s compatible
 	 *  types. Drives the typed `when` input so an authored value can't
 	 *  disagree with `on`. */
-	readonly whenAccepts: ReadonlySet<ResolvedType>;
+	readonly whenAccepts: ReadonlySet<ScalarType>;
 	/** The switch's result constraint: propagated to the `then`
 	 *  branch. */
 	readonly thenConstraint: SlotConstraint;
@@ -403,11 +429,11 @@ function CaseRow({
 	);
 
 	const setWhen = (next: Literal) => {
-		onUpdate(switchCase(next, switchCaseValue.then));
+		onUpdate(literalSwitchCase(next, switchCaseValue.then));
 	};
 
-	const setThen = (next: ValueExpression) => {
-		onUpdate(switchCase(switchCaseValue.when, next));
+	const setThen = (next: Expression) => {
+		onUpdate(literalSwitchCase(switchCaseValue.when, next));
 	};
 
 	return (

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { lookupColumnIdSchema, lookupTableIdSchema } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
 	ancestorPath,
-	checkValueExpression,
+	checkExpression,
 	dateLiteral,
+	eq,
 	formField,
 	input,
 	literal,
@@ -14,9 +16,9 @@ import {
 	sessionUserProperty,
 	tableColumn,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
-import { buildEditorTypeContext } from "../editorTypeContext";
+import { editorExpressionContext } from "../editorTypeContext";
 import {
 	buildTermDefault,
 	classifyLiteralShape,
@@ -33,7 +35,7 @@ const tableId = lookupTableIdSchema.parse(
 const columnId = lookupColumnIdSchema.parse(
 	"00000000-0000-7000-8000-000000000002",
 );
-const ctx: TermAdmissionContext = {
+const vocabulary = {
 	caseTypes: [
 		{
 			name: "patient",
@@ -46,7 +48,7 @@ const ctx: TermAdmissionContext = {
 	currentCaseType: "patient",
 	knownInputs: [
 		{ uuid: testUuid("query-text"), name: "query", data_type: "text" },
-		{ uuid: testUuid("query-age"), name: "age", data_type: "int" },
+		{ uuid: testUuid("query-date"), name: "seen_on", data_type: "date" },
 	],
 	formFields: [
 		{
@@ -75,7 +77,19 @@ const ctx: TermAdmissionContext = {
 			},
 		],
 	},
-};
+} satisfies Parameters<typeof expressionEditorFixture>[1];
+const ctx: TermAdmissionContext = expressionEditorFixture(
+	"operation-condition",
+	vocabulary,
+).context;
+const tableCtx = expressionEditorFixture("table-filter", {
+	...vocabulary,
+	caseDataScope: "table-row" as const,
+}).context;
+const searchCtx = expressionEditorFixture(
+	"search-predicate",
+	vocabulary,
+).context;
 describe("term editor source decisions", () => {
 	it("selects the first compatible real identity for each scoped source", () => {
 		expect(buildTermDefault("property", ctx, numberOnly)).toEqual(
@@ -84,10 +98,10 @@ describe("term editor source decisions", () => {
 		expect(buildTermDefault("field", ctx, numberOnly)).toEqual(
 			formField(testUuid("field-age")),
 		);
-		expect(buildTermDefault("input", ctx, numberOnly)).toEqual(
-			input(testUuid("query-age")),
-		);
-		expect(buildTermDefault("table-column", ctx, numberOnly)).toEqual(
+		expect(
+			buildTermDefault("input", searchCtx, { accepts: new Set(["date"]) }),
+		).toEqual(input(testUuid("query-date")));
+		expect(buildTermDefault("table-column", tableCtx, numberOnly)).toEqual(
 			tableColumn(tableId, columnId),
 		);
 		expect(
@@ -95,12 +109,12 @@ describe("term editor source decisions", () => {
 		).toEqual(sessionUserProperty(testUuid("worker-region")));
 	});
 	it("refuses unavailable sources with no schema-valid invented fallback", () => {
-		const empty = {
+		const empty = expressionEditorFixture("case-filter", {
 			caseTypes: [],
 			currentCaseType: "patient",
 			knownInputs: [],
 			userProperties: [],
-		};
+		}).context;
 		const admitted = computeModeAdmission(empty, ANY_CONSTRAINT, []);
 		for (const mode of [
 			"property",
@@ -120,14 +134,14 @@ describe("term editor source decisions", () => {
 	it("applies type admission before probing whole-rule carrier admission", () => {
 		const admitted = computeModeAdmission(ctx, numberOnly, []);
 		expect(admitted.property.admitted).toBe(true);
-		expect(admitted.input.admitted).toBe(true);
+		expect(admitted.input.admitted).toBe(false);
 		expect(admitted["session-context"].admitted).toBe(false);
 		expect(admitted["session-user"].admitted).toBe(false);
 		expect(admitted["session-user-property"].admitted).toBe(false);
 		const seed = buildTermDefault("literal", ctx, numberOnly);
 		expect(
-			checkValueExpression(term(seed), buildEditorTypeContext(ctx)),
-		).toEqual({ ok: true });
+			checkExpression(eq(term(seed), literal(0)), editorExpressionContext(ctx)),
+		).toMatchObject({ errors: [] });
 	});
 
 	it("treats zero, false, null and a saved connection as authored content", () => {

@@ -11,7 +11,7 @@ import {
 	organizationLevelsOf,
 	personasOf,
 } from "@/lib/domain";
-import { walkExpressionTerms } from "@/lib/domain/predicate";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import {
 	fixedLocationOwnerIssue,
 	ownerVerdictRows,

@@ -15,8 +15,8 @@ import {
 	moduleOpensOnSearch,
 	POST_SUBMIT_DESTINATIONS,
 } from "@/lib/domain";
-import { predicateSchema } from "@/lib/domain/predicate";
-import { xpathExpressionSchema } from "@/lib/domain/xpath/ast";
+import { conditionSchema } from "@/lib/domain/expression";
+import { formLogicSchema } from "@/lib/domain/expression/types";
 import { formNavigation } from "@/lib/preview/engine/navigationProjection";
 import {
 	refineFormConnectMutations,
@@ -60,7 +60,7 @@ export const updateFormInputSchema = formAddressSchema
 			.nullable()
 			.optional()
 			.describe("What this form is for. Null removes the description."),
-		recordName: xpathExpressionSchema
+		recordName: formLogicSchema
 			.optional()
 			.describe(
 				"Name of the record this form creates or updates, using an answer or an expression.",
@@ -84,7 +84,7 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				"Refine this already-participating form after the app has a Connect mode: omitted sub-configs keep their current value, null removes one sub-config only while another remains, and a stated one replaces it. Use configureConnect/configure_connect for enable, mode switch, participant-set changes, or disable; whole-slot null is refused here.",
 			),
-		displayCondition: predicateSchema
+		displayCondition: conditionSchema
 			.nullable()
 			.optional()
 			.describe(
@@ -343,6 +343,9 @@ export const updateFormTool = {
 						applyToDoc(doc, mutations),
 						formUuid,
 						recordName,
+						[...(ctx.preparedRecordNames?.values() ?? [])].find(
+							(prepared) => prepared.form.formUuid === formUuid,
+						),
 					),
 				);
 			const commit = await guardedMutate(ctx, mutations, `form:${formUuid}`);

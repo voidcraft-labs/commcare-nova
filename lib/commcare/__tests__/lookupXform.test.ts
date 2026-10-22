@@ -3,9 +3,9 @@ import { findAll } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { SaxesParser } from "saxes";
 import { describe, expect, it } from "vitest";
-import { xp } from "@/lib/__tests__/docHelpers";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { buildXForm } from "@/lib/commcare/xform";
+import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { lookupAppFixture } from "./lookupAppFixtures";
 
 const XMLNS = "http://openrosa.org/formdesigner/lookup-proof";
@@ -92,18 +92,24 @@ describe("lookup XForm structure", () => {
 			/no lookup wire naming/i,
 		);
 	});
-	it("refuses an unknown secondary instance if a caller bypasses admission", () => {
-		const { doc, formUuid, naming } = emitted();
+	it("refuses an unknown secondary instance before it can become a default", () => {
+		const { doc, table } = emitted();
 		const field = Object.values(doc.fields).find(
 			(field) => field.id === "province",
 		);
 		if (field?.kind !== "text") throw new Error("Missing province field");
-		field.default_value = xp("instance('missing')/items/item[1]/value");
-		expect(() =>
-			buildXForm(doc, formUuid, { xmlns: XMLNS, lookupNaming: naming }),
-		).toThrow(
-			"An authored XPath reads an instance its form context does not supply. Validation must refuse that read before emission.",
+		const parsed = parseFormExpression(
+			"instance('missing')/items/item[1]/value",
+			{
+				doc,
+				slot: { entity: "field", uuid: field.uuid, slot: "default_value" },
+				lookup: new Map([[table.id, table]]),
+			},
 		);
+		expect(parsed).toMatchObject({
+			ok: false,
+			issues: [{ code: "instance-unknown" }],
+		});
 	});
 });
 

@@ -3,17 +3,18 @@ import { z } from "zod";
 import { formIconRefSchema } from "./builtinIcons";
 import { authoredCasePropertyNameSchema } from "./casePropertyName";
 import { formEntryPointSchema } from "./entryPoints";
+import {
+	conditionSchema,
+	datumRefKey,
+	type Expression,
+	formLinkDatumNameSchema,
+	formLogicSchema,
+	valueSchema,
+	XML_ELEMENT_NAME_PATTERN,
+} from "./expression/types";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
 import { mediaAssetIdSchema } from "./multimedia";
-import {
-	type Predicate,
-	predicateSchema,
-	type ValueExpression,
-	valueExpressionSchema,
-	XML_ELEMENT_NAME_PATTERN,
-} from "./predicate/types";
 import { type Uuid, uuidSchema } from "./uuid";
-import { xpathExpressionSchema } from "./xpath";
 
 export const FORM_TYPES = [
 	"registration",
@@ -161,9 +162,11 @@ const closeConditionSchema = z.strictObject({
 });
 
 const formLinkDatumSchema = z.strictObject({
-	name: z.string().min(1),
-	xpath: xpathExpressionSchema,
+	name: formLinkDatumNameSchema,
+	xpath: formLogicSchema,
 });
+
+export type { FormLinkDatumName } from "./expression/types";
 export type FormLinkDatum = z.infer<typeof formLinkDatumSchema>;
 
 /**
@@ -179,14 +182,16 @@ export function uniqueFormLinkDatumNames(
 ): void {
 	const seen = new Set<string>();
 	for (const [index, datum] of (datums ?? []).entries()) {
-		if (seen.has(datum.name)) {
+		const key = datumRefKey(datum.name);
+		if (seen.has(key)) {
 			ctx.addIssue({
 				code: "custom",
 				path: [...path, index, "name"],
-				message: `The session value "${datum.name}" is listed twice on this link. Name each value once.`,
+				message:
+					"This selected record is listed twice on the link. Include each selected record once.",
 			});
 		}
-		seen.add(datum.name);
+		seen.add(key);
 	}
 }
 
@@ -211,10 +216,8 @@ export const formLinkObjectSchema = z.strictObject({
 	/** Immutable identity: every editor, mutation anchor, and finding
 	 *  addresses the link by it. */
 	uuid: uuidSchema,
-	// The structural XPath schema permits an empty AST. Authoring text
-	// boundaries clear an empty condition, and projections interpret
-	// an empty printed condition as unconditional.
-	condition: xpathExpressionSchema.optional(),
+	// An absent condition is unconditional. Blank authored text clears it.
+	condition: formLogicSchema.optional(),
 	target: formLinkTargetSchema,
 	/**
 	 * Explicit session values for the target. Absent means CommCare
@@ -256,7 +259,7 @@ const sessionCaseTargetSchema = z.strictObject({ kind: z.literal("session") });
 
 const expressionCaseTargetSchema = z.strictObject({
 	kind: z.literal("expression"),
-	expr: valueExpressionSchema,
+	expr: valueSchema,
 });
 
 export const caseTargetSchema = z.discriminatedUnion("kind", [
@@ -292,13 +295,13 @@ export const RESERVED_CASE_OPERATION_TYPES: ReadonlySet<string> = new Set([
 
 export const caseOperationWriteSchema = z.strictObject({
 	property: authoredCasePropertyNameSchema,
-	value: valueExpressionSchema,
-	condition: predicateSchema.optional(),
+	value: valueSchema,
+	condition: conditionSchema.optional(),
 });
 export type CaseOperationWrite = {
 	property: string;
-	value: ValueExpression;
-	condition?: Predicate;
+	value: Expression;
+	condition?: Expression;
 };
 
 export const caseOperationLinkSchema = z.strictObject({
@@ -321,7 +324,7 @@ const caseOperationCommonShape = {
 	uuid: uuidSchema,
 	id: z.string(),
 	caseType: z.string(),
-	condition: predicateSchema.optional(),
+	condition: conditionSchema.optional(),
 	forEach: z.strictObject({ repeat: uuidSchema }).optional(),
 	writes: z.array(caseOperationWriteSchema).optional(),
 } as const;
@@ -331,8 +334,8 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 		...caseOperationCommonShape,
 		action: z.literal("create"),
 		target: newCaseTargetSchema,
-		name: valueExpressionSchema,
-		owner: valueExpressionSchema.optional(),
+		name: valueSchema,
+		owner: valueSchema.optional(),
 		links: z.array(caseOperationLinkSchema).optional(),
 		rename: z.never().optional(),
 		retype: z.never().optional(),
@@ -342,8 +345,8 @@ export const caseOperationSchema = z.discriminatedUnion("action", [
 		action: z.literal("update"),
 		target: existingCaseTargetSchema,
 		name: z.never().optional(),
-		owner: valueExpressionSchema.optional(),
-		rename: valueExpressionSchema.optional(),
+		owner: valueSchema.optional(),
+		rename: valueSchema.optional(),
 		retype: z.string().optional(),
 		links: z.array(caseOperationLinkSchema).optional(),
 	}),
@@ -374,11 +377,11 @@ export type CaseOperation = {
 	action: CaseOperationAction;
 	caseType: string;
 	target: CaseTarget;
-	condition?: Predicate;
+	condition?: Expression;
 	forEach?: { repeat: Uuid };
-	name?: ValueExpression;
-	owner?: ValueExpression;
-	rename?: ValueExpression;
+	name?: Expression;
+	owner?: Expression;
+	rename?: Expression;
 	retype?: string;
 	writes?: CaseOperationWrite[];
 	links?: CaseOperationLink[];
@@ -434,7 +437,7 @@ const connectAssessmentSchema = z.strictObject({
 	// time — the same contract `deliver_unit.entity_id` / `entity_name`
 	// hold. Optional here matches what's true: the doc tracks what was
 	// set, the wire layer fills the rest.
-	user_score: xpathExpressionSchema.optional(),
+	user_score: formLogicSchema.optional(),
 });
 const connectDeliverUnitSchema = z.strictObject({
 	id: connectIdSchema,
@@ -446,8 +449,8 @@ const connectDeliverUnitSchema = z.strictObject({
 	// emits the canonical defaults at bind time. Optional here matches
 	// what's true: the doc tracks what was set, the wire layer fills
 	// the rest.
-	entity_id: xpathExpressionSchema.optional(),
-	entity_name: xpathExpressionSchema.optional(),
+	entity_id: formLogicSchema.optional(),
+	entity_name: formLogicSchema.optional(),
 });
 const connectTaskSchema = z.strictObject({
 	id: connectIdSchema,
@@ -525,11 +528,11 @@ export const formSchema = z.strictObject({
 	type: z.enum(FORM_TYPES),
 	purpose: z.string().optional(),
 	/**
-	 * Optional running-app menu visibility rule. The Predicate AST keeps
+	 * Optional running-app menu visibility rule. The Expression AST keeps
 	 * references typed and rename-safe; validator context rules decide which
 	 * terms are meaningful for this form's navigation position.
 	 */
-	displayCondition: predicateSchema.optional(),
+	displayCondition: conditionSchema.optional(),
 	/**
 	 * Present when the form is off the menu: no menu lists it, whatever
 	 * `displayCondition` says. The condition keeps applying once the form

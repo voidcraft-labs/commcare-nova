@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { authoredCasePropertyNameSchema } from "../casePropertyName";
+import { caseTypeNameSchema, conditionSchema } from "../expression/types";
 import { lookupOptionsSourceSchema } from "../lookupCarriers";
-import { predicateSchema, propertyRefSchema } from "../predicate/types";
 import { type SelectOption, selectOptionSchema } from "./base";
 
 export const inlineOptionsSourceSchema = z.strictObject({
@@ -11,9 +12,11 @@ export const inlineOptionsSourceSchema = z.strictObject({
 /** Choices read the worker's available records; their values are case identities. */
 export const caseOptionsSourceSchema = z.strictObject({
 	kind: z.literal("cases"),
-	caseType: propertyRefSchema.shape.caseType,
-	labelProperty: propertyRefSchema.shape.property,
-	filter: predicateSchema.optional(),
+	caseType: caseTypeNameSchema,
+	labelProperty: authoredCasePropertyNameSchema.describe(
+		"Property name must use Nova's canonical case-property vocabulary.",
+	),
+	filter: conditionSchema.optional(),
 });
 export type CaseOptionsSource = z.infer<typeof caseOptionsSourceSchema>;
 z.globalRegistry.add(caseOptionsSourceSchema, { id: "CaseOptionsSource" });

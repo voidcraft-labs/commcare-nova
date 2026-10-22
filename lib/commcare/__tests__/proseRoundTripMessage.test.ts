@@ -56,7 +56,7 @@ describe("prose editor round-trip finding", () => {
 			(error) => error.code === "PROSE_EDITOR_ROUND_TRIP_LOSS",
 		);
 		expect(finding?.message).toBe(
-			'Field "client_summary" in "Follow up" (label) contains text or a reference that Nova\'s editor cannot preserve. Rewrite this text using plain text and supported reference parts.',
+			'Field "client_summary" in "Follow up" (label): This text changes when Nova\'s reference editor reads and writes it.',
 		);
 		expect(finding?.message).not.toContain("doesn't exist");
 		expect(finding?.message).not.toContain("typo");

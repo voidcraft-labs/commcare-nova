@@ -7,11 +7,11 @@
 
 import type { IconifyIcon } from "@iconify/react/offline";
 import type { ComponentType } from "react";
+import type { Expression } from "./expression/types";
 import type { Field, FieldKind } from "./fields";
 import type { Form } from "./forms";
 import type { Module } from "./modules";
 import type { ProseTemplate } from "./prose";
-import type { XPathExpression } from "./xpath";
 
 /** XForm control element emitted by the compiler for a given field kind. */
 export type XFormControlKind =
@@ -174,14 +174,14 @@ export type OptionalProseTemplateKeys<F extends Field> = {
 	string;
 
 /**
- * Keys of `F` whose stored value is the XPath expression AST
+ * Keys of `F` whose stored value is the canonical expression AST
  * (`relevant`, `validate`, `calculate`, `default_value`, `required`,
  * `repeat_count`). The XPathEditor mounts on these: it PRINTS the
  * stored AST for display and parses the committed text back, so its
  * surface stays text while the slot's canonical form is structural.
  */
-export type XPathExpressionKeys<F extends Field> = {
-	[K in keyof F]-?: F[K] extends XPathExpression | undefined ? K : never;
+export type FormExpressionKeys<F extends Field> = {
+	[K in keyof F]-?: F[K] extends Expression | undefined ? K : never;
 }[keyof F] &
 	string;
 

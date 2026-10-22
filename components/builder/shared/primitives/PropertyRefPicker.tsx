@@ -3,15 +3,14 @@
 // Property picker for slots whose schema is a PropertyRef directly
 // (`match.property`, `multi-select-contains.property`, and
 // `within-distance.property`) and for the prop arm inside TermCard.
-// ValueExpression slots use ExpressionPicker, which edits every term
+// Expression slots use ExpressionPicker, which edits every term
 // source and calculated expression instead of reducing them to a badge.
 //
 // Round-trip contract:
 //   - `via: RelationPath` is preserved verbatim across property
-//     name changes. The picker's `setProperty` callback rebuilds
-//     via `prop(caseType, name, via)` (three-arg builder), so a
-//     saved relation walk doesn't disappear on the user's first
-//     dropdown click. A secondary "Uses information from" disclosure
+//     name changes. The picker changes only the selected property
+//     or relation, preserving the stored current-record identity
+//     and every unrelated reference axis across dropdown changes. A secondary "Uses information from" disclosure
 //     mounts the complete RelationPathBuilder; non-self paths open by
 //     default while the common current-case path stays compact.
 
@@ -25,17 +24,16 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
-import type { CaseProperty } from "@/lib/domain";
-import { humanizeId } from "@/lib/domain/idSlug";
+import type { CaseProperty, CaseType } from "@/lib/domain";
 import {
 	type PropertyRef,
-	prop,
 	selfPath,
 	XML_ELEMENT_NAME_PATTERN,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import { humanizeId } from "@/lib/domain/idSlug";
 import {
 	type ExpressionChangeAdmission,
-	usePredicateEditContext,
+	useEditorVocabulary,
 } from "../editorContext";
 import { relatedCaseDataInScope } from "../editorSchemas";
 import { resolveRelationDestination } from "../relationDestination";
@@ -65,8 +63,8 @@ interface PropertyRefPickerSharedProps {
 
 /**
  * Property picker that round-trips every PropertyRef shape, including
- * optional `via: RelationPath` walks. Rebuilding flows through prop()'s
- * three-argument form so a relation path survives every property edit.
+ * optional `via: RelationPath` walks and relative current-record references.
+ * Each edit preserves the other stored reference axes.
  */
 export function PropertyRefPicker(props: PropertyRefPickerProps) {
 	const {
@@ -104,14 +102,15 @@ function PropertyRefEditor({
 	invalid = false,
 	admitChange,
 }: PropertyRefEditorProps) {
-	const ctx = usePredicateEditContext();
+	const ctx = useEditorVocabulary();
+	const originCaseType = value.caseType ?? ctx.currentCaseType;
 	const relation = value.via ?? selfPath();
 	const destination = resolveRelationDestination(
 		relation,
-		value.caseType,
+		originCaseType,
 		ctx.caseTypes,
 	);
-	const summary = relationSummary(relation, value.caseType, ctx.caseTypes);
+	const summary = relationSummary(relation, originCaseType, ctx.caseTypes);
 	const hasRelationWalk = value.via !== undefined && value.via.kind !== "self";
 	const [relationOpen, setRelationOpen] = useState(hasRelationWalk);
 	/* A scope evaluated for one already-chosen case can read only that
@@ -123,11 +122,7 @@ function PropertyRefEditor({
 		hasRelationWalk || (relationOpen && canReachAnotherCase);
 
 	const setProperty = (name: string) => {
-		onChange(
-			value.via === undefined
-				? prop(value.caseType, name)
-				: prop(value.caseType, name, value.via),
-		);
+		onChange({ ...value, property: name });
 	};
 
 	return (
@@ -138,11 +133,9 @@ function PropertyRefEditor({
 				caseType={destination ?? ""}
 				filter={filter}
 				admit={(property) =>
-					admitChange?.(
-						value.via === undefined
-							? prop(value.caseType, property.name)
-							: prop(value.caseType, property.name, value.via),
-					) ?? { admitted: true }
+					admitChange?.({ ...value, property: property.name }) ?? {
+						admitted: true,
+					}
 				}
 				invalid={invalid}
 				ariaLabel={ariaLabel}
@@ -188,13 +181,11 @@ function PropertyRefEditor({
 					<CollapsibleContent className="pt-2">
 						<RelationPathBuilder
 							value={relation}
-							onChange={(next) =>
-								onChange(prop(value.caseType, value.property, next))
-							}
+							onChange={(next) => onChange({ ...value, via: next })}
 							invalid={invalid}
 							allowSelf
 							admitChange={(next) =>
-								admitChange?.(prop(value.caseType, value.property, next)) ?? {
+								admitChange?.({ ...value, via: next }) ?? {
 									admitted: true,
 								}
 							}
@@ -211,11 +202,6 @@ interface RelationSummary {
 	readonly detail?: string;
 	readonly needsAttention?: boolean;
 }
-
-type SummaryCaseType = {
-	readonly name: string;
-	readonly parent_type?: string;
-};
 
 function destinationLabel(
 	prefix: string,
@@ -242,7 +228,7 @@ function savedRelationshipDetail(identifier: string): string {
 function relationSummary(
 	value: NonNullable<PropertyRef["via"]>,
 	originCaseType: string,
-	caseTypes: readonly SummaryCaseType[],
+	caseTypes: readonly CaseType[],
 ): RelationSummary {
 	const destination = resolveRelationDestination(
 		value,

@@ -19,8 +19,7 @@ import {
 	proseText,
 	type Uuid,
 } from "@/lib/domain";
-import { eq, formField, literal, term } from "@/lib/domain/predicate";
-import { directRepeatCountReference } from "@/lib/domain/repeatCount";
+import { eq, formField, literal, term } from "@/lib/domain/expression/builders";
 import { FormPath } from "../xform/formPath";
 import { emissionFixtures } from "./emissionFixtures";
 
@@ -231,12 +230,7 @@ describe("planGeneratedNodes", () => {
 					};
 					for (const uuid of orderedFieldUuids(doc, parentUuid)) {
 						const field = doc.fields[uuid];
-						if (
-							field.kind === "repeat" &&
-							field.repeat_mode === "count_bound" &&
-							directRepeatCountReference(field.repeat_count, doc.fields) ===
-								undefined
-						)
+						if (field.kind === "repeat" && field.repeat_mode === "count_bound")
 							expect(plan.count(uuid)).toBe(free(`nova_count_${field.id}`));
 						if (messages.has(uuid))
 							expect(plan.constraintMessage(uuid)).toBe(

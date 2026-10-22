@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 import type { ReachableCaseTypeIndex } from "@/lib/domain";
 import {
 	caseTypePropsForValidation,
-	type XPathLintContext,
+	type XPathReferenceContext,
 } from "../xpath-lint";
 
 /** A reachable index: own `pregnancy` (depth 0) + ancestor `mother` (depth 1). */
@@ -29,9 +29,9 @@ const index: ReachableCaseTypeIndex = new Map([
 ]);
 
 function ctx(
-	formType: XPathLintContext["formType"],
+	formType: XPathReferenceContext["formType"],
 	reachableCaseTypes: ReachableCaseTypeIndex | undefined,
-): XPathLintContext {
+): XPathReferenceContext {
 	return {
 		formUuid: "f",
 		validPaths: new Set(),

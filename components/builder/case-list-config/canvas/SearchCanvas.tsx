@@ -47,7 +47,7 @@ import {
 	searchInputDefault,
 	type Uuid,
 } from "@/lib/domain";
-import type { ValueExpression } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
 import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
@@ -774,9 +774,7 @@ function FieldBox({
  * computed shows an honest generic. Mirrors the canvas principle:
  * the inspector owns the structure.
  */
-function defaultDisplayValue(
-	expr: ValueExpression | undefined,
-): string | undefined {
+function defaultDisplayValue(expr: Expression | undefined): string | undefined {
 	if (expr === undefined) return undefined;
 	if (expr.kind === "term" && expr.term.kind === "literal") {
 		const value = expr.term.value;

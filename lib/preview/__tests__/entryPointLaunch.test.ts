@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseIndexRow, CaseRow } from "@/lib/case-store";
-import { eq, literal, prop, sessionContext } from "@/lib/domain/predicate";
+import { eq, literal, prop, sessionContext } from "@/lib/domain/expression";
 import {
 	FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL,
 	prepareEntryPointLaunch,

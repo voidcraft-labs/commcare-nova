@@ -305,9 +305,8 @@ export function sessionDataAccessInXPath(expr: string): SessionDataXPathAccess {
 
 /**
  * Given an `Invoke` node, return the unquoted id when it is an
- * `instance('<id>')` call, or `null` otherwise. Same shape as
- * `xform/instanceRefs.ts::readInstanceArgument` — kept local to keep the
- * oracle module self-contained.
+ * `instance('<id>')` call, or `null` otherwise. The oracle reads emitted
+ * syntax directly, independently of the typed wire tree and serializer.
  */
 function readInstanceCallArgument(
 	source: string,

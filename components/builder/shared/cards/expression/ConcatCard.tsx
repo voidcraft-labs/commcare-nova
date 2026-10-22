@@ -1,7 +1,7 @@
 // components/builder/shared/cards/expression/ConcatCard.tsx
 //
-// Renders the `concat` ValueExpression: variadic string
-// concatenation. Each `parts[i]` is a recursive `ValueExpression`;
+// Renders the `concat` Expression: variadic string
+// concatenation. Each `parts[i]` is a recursive `Expression`;
 // the result type is always `text`. Drag-and-drop reorders the
 // parts in place via the shared `useReorderableList`
 // + `<ReorderableRow>` primitives.
@@ -13,18 +13,20 @@
 // concat operator beyond per-part resolution failures.
 
 "use client";
+
 import { Icon } from "@iconify/react/offline";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { useId, useState } from "react";
 import { Button } from "@/components/shadcn/button";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	concat,
 	concatPartConstraint,
+	type Expression,
 	literal,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { expressionCardSchemas } from "../../expressionEditorSchemas";
 import { appendSlotIndex, type EditorPath } from "../../path";
@@ -43,7 +45,7 @@ import { useStableListIdentity } from "../../useStableListIdentity";
  *  affordance. */
 export function concatDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "concat" }> {
+): ExpressionOfKind<"concat"> {
 	return concat(term(literal("")), term(literal("")));
 }
 
@@ -52,8 +54,8 @@ export function concatDefault(
 const PART_CONSTRAINT = concatPartConstraint();
 
 interface ConcatCardProps {
-	readonly value: Extract<ValueExpression, { kind: "concat" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"concat">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
@@ -68,11 +70,9 @@ export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 	// remaining row), so destructuring `[first, ...rest]` is sound at
 	// runtime; the `concat` builder's variadic-with-required-first
 	// signature ties the call together. `concat`'s declared return
-	// type is the precise `Extract<ValueExpression, { kind: "concat" }>`
+	// type is the precise `ExpressionOfKind<"concat">`
 	// arm: no narrowing cast needed.
-	const apply = (
-		parts: readonly ValueExpression[],
-	): Extract<ValueExpression, { kind: "concat" }> => {
+	const apply = (parts: readonly Expression[]): ExpressionOfKind<"concat"> => {
 		const [first, ...rest] = parts;
 		return concat(first, ...rest);
 	};
@@ -92,7 +92,7 @@ export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 		},
 	});
 
-	const updatePart = (index: number, next: ValueExpression) => {
+	const updatePart = (index: number, next: Expression) => {
 		const updated = value.parts.map((part, partIndex) =>
 			partIndex === index ? next : part,
 		);
@@ -220,10 +220,10 @@ export function ConcatCard({ value, onChange, path }: ConcatCardProps) {
 }
 
 interface PartRowProps {
-	readonly part: ValueExpression;
+	readonly part: Expression;
 	readonly partIndex: number;
 	readonly isOnlyOne: boolean;
-	readonly onUpdate: (next: ValueExpression) => void;
+	readonly onUpdate: (next: Expression) => void;
 	readonly onRemove: () => void;
 	readonly setHandleEl: (el: HTMLElement | null) => void;
 	readonly onMove: (key: ReorderKeyboardKey) => void;

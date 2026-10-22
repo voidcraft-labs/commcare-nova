@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { fieldExpressionValue } from "@/lib/domain";
+import { expressionSlotValue, proseText } from "@/lib/domain";
+import { buildXForm } from "../xform/builder";
 import { planConstraintCollections } from "../xform/constraintCollections";
 import { FormPath } from "../xform/formPath";
-import { printWireXPathSource } from "../xpath/wireSource";
+import { onlyXml, readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
+import { xpathContains, xpathEvidence } from "./xpathEvidence";
 
 function plan(validate: string) {
 	const doc = buildDoc({
@@ -26,10 +28,14 @@ function plan(validate: string) {
 	});
 	const field = Object.values(doc.fields).find((f) => f.id === "confirm");
 	if (!field) throw new Error("Missing confirmation");
-	const expression = fieldExpressionValue(field, "validate");
+	const expression = expressionSlotValue(doc, {
+		entity: "field",
+		uuid: field.uuid,
+		slot: "validate",
+	});
 	if (!expression) throw new Error("Missing validation");
 	return {
-		original: printWireXPathSource(expression, doc),
+		original: expression,
 		...planConstraintCollections(
 			expression,
 			field.uuid,
@@ -53,7 +59,8 @@ describe("validation collection evaluation scope", () => {
 		(validate) => {
 			const result = plan(validate);
 			expect(result.calculations).toEqual([]);
-			expect(result.source).toBe(result.original);
+			expect(result.expression).toBe(result.original);
+			expect(result.overrides.size).toBe(0);
 		},
 	);
 
@@ -63,10 +70,91 @@ describe("validation collection evaluation scope", () => {
 		);
 		expect(result.calculations).toHaveLength(1);
 		const calculation = result.calculations[0];
-		expect(result.source).toBe(
-			`. = 'yes' and ${calculation.path.toXPath()} = 1 and ${calculation.path.toXPath()} < 2`,
-		);
-		expect(calculation.source).toBe("count(#form/choice[./. = 'yes'])");
+		expect(result.expression).toBe(result.original);
+		expect(result.overrides.size).toBe(2);
+		expect(calculation.expression.kind).toBe("count");
+		for (const replacement of result.overrides.values())
+			expect(replacement).toEqual(calculation.path.toWire());
 		expect(calculation.path.parent().equals(FormPath.root())).toBe(true);
 	});
 });
+
+describe("validation collection lift on the wire", () => {
+	function emit(kind: "text" | "single_select") {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Roster",
+					forms: [
+						{
+							name: "Gate",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									id: "roster",
+									children: [
+										kind === "text"
+											? f({ kind: "text", id: "answer" })
+											: f({
+													kind: "single_select",
+													id: "answer",
+													options: [
+														{ value: "x", label: proseText("X") },
+														{ value: "y", label: proseText("Y") },
+													],
+												}),
+									],
+								}),
+								f({
+									kind: "int",
+									id: "gate",
+									validate: "count(#form/roster/answer[. = 'x']) >= 1",
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const binds = readXmlEvidence(
+			buildXForm(doc, formUuid, { xmlns: "urn:constraint-collections" }),
+		);
+		const bind = (nodeset: string) =>
+			onlyXml(
+				descendants(binds, "bind").filter(
+					(node) => node.attributes.nodeset === nodeset,
+				),
+			);
+		return {
+			gate: bind("/data/gate"),
+			lifted: bind("/data/nova_constraint_gate_0"),
+		};
+	}
+
+	// Core substitutes the proposed answer while it evaluates a constraint, so
+	// a filtered count stays correct on a device only as a calculate.
+	it.each(["text", "single_select"] as const)(
+		"lifts a filtered count over a %s repeat question into a generated calculate",
+		(kind) => {
+			const { gate, lifted } = emit(kind);
+			expect(
+				xpathContains(
+					lifted.attributes.calculate,
+					"count(/data/roster/answer[./. = 'x'])",
+				),
+			).toBe(true);
+			expect(xpathEvidence(gate.attributes.constraint)).toEqual(
+				xpathEvidence("/data/nova_constraint_gate_0 >= 1"),
+			);
+		},
+	);
+});
+
+function descendants(node: XmlEvidence, name: string): XmlEvidence[] {
+	return [
+		...(node.name === name ? [node] : []),
+		...node.children.flatMap((child) => descendants(child, name)),
+	];
+}

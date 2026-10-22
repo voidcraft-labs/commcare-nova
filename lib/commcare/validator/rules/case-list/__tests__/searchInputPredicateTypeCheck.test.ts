@@ -8,7 +8,7 @@ import {
 	literal,
 	prop,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	admittedCaseListDoc,
 	findings,

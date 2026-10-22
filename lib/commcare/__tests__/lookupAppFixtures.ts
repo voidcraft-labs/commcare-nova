@@ -1,5 +1,5 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	wireRow,
 	wireTable,
@@ -23,7 +23,7 @@ import {
 	sessionContext,
 	tableColumn,
 	tableLookup,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 
 export function lookupAppFixture(reversed = false) {
@@ -95,7 +95,7 @@ export function lookupAppFixture(reversed = false) {
 								uuid: root,
 								id: "province",
 								label: proseText("Province"),
-								default_value: xp("'p1'"),
+								default_value: "'p1'",
 							}),
 							f({
 								kind: "single_select",
@@ -145,7 +145,7 @@ export function lookupAppFixture(reversed = false) {
 										uuid: repeated,
 										id: "zone",
 										label: proseText("Zone"),
-										default_value: xp("'p1'"),
+										default_value: "'p1'",
 									}),
 									f({
 										kind: "single_select",

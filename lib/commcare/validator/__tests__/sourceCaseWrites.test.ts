@@ -18,7 +18,7 @@ import { formLinkProjectionContext } from "@/lib/commcare/formLinkProjection";
 import { sourceBlockCaseWrites } from "@/lib/commcare/xform/sourceCaseWrites";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../runner";
 

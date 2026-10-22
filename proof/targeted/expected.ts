@@ -14,7 +14,11 @@
 
 import type { Uuid } from "@/lib/domain";
 
-/** An answer or a constraint check: a data path in the form, and a value as Web Apps sends it. */
+/** An answer or a constraint check, with a value as Web Apps sends it.
+ * The path is Core's fully concrete question path (for example,
+ * `/data/visits[1]/name[1]`) or its fully generic path (`/data/visits/name`).
+ * A concrete path picks one repeat row; a generic answer reaches every row.
+ */
 export interface PathValue {
 	readonly path: string;
 	readonly value: string;

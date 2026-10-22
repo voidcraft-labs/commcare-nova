@@ -31,7 +31,6 @@ import {
 	type TranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
-import type { FormHashtagContext } from "./hashtags/formContext";
 import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "./suite/case-search/noMatches";
 
 /** Namespace for synthetic module uuids; changing it re-ids every export. */
@@ -168,12 +167,15 @@ export function caseListFormLabelUnit(
 export function searchAnswersOf(
 	doc: BlueprintDoc,
 	hostModuleUuid: Uuid,
-): NonNullable<FormHashtagContext["searchAnswers"]> {
+): {
+	readonly instanceId: typeof INLINE_SEARCH_INPUT_INSTANCE_ID;
+	readonly names: ReadonlyMap<Uuid, string>;
+} {
 	return {
 		instanceId: INLINE_SEARCH_INPUT_INSTANCE_ID,
-		names: new Set(
+		names: new Map(
 			(doc.modules[hostModuleUuid]?.caseListConfig?.searchInputs ?? []).map(
-				(input) => input.name,
+				(input) => [input.uuid, input.name],
 			),
 		),
 	};

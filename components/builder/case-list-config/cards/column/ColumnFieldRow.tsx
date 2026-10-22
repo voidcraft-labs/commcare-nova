@@ -24,13 +24,13 @@
 // card mounts inside `PredicateEditProvider` so the
 // `PropertyPicker` reads `currentCaseType` from the same context
 // that drives the predicate / expression editors. A column-only
-// surface (no Predicate / Expression provider available) must
+// surface (no Expression / Expression provider available) must
 // mount its own provider: the top-level `ColumnEditor` handles
 // this.
 
 "use client";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
-import { usePredicateEditContext } from "@/components/builder/shared/editorContext";
+import { useEditorVocabulary } from "@/components/builder/shared/editorContext";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
 import { PropertyPicker } from "@/components/builder/shared/primitives/PropertyPicker";
@@ -73,7 +73,7 @@ export function ColumnFieldRow({
 	errors,
 }: ColumnFieldRowProps) {
 	const fieldInvalid = errors !== undefined && errors.length > 0;
-	const { caseTypes, currentCaseType } = usePredicateEditContext();
+	const { caseTypes, currentCaseType } = useEditorVocabulary();
 	const projectProse = useProseProjection();
 	const properties =
 		caseTypes.find((caseType) => caseType.name === currentCaseType)

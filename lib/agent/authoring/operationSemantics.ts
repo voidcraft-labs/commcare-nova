@@ -10,22 +10,17 @@ import {
 	reachableCaseTypes,
 	type Uuid,
 	writerPreloadsFromLoadedCase,
-	xpathRefParts,
 } from "@/lib/domain";
 import {
-	type Predicate,
-	type PredicateAstPath,
+	type CheckPath,
+	type Expression,
+	expressionChildPath,
+	isRelationPath,
 	type PropertyRef,
 	relationPropertyDestinationCaseType,
 	type Term,
-	type ValueExpression,
-	walkExpressionNodes,
-	walkExpressionPredicateNodes,
-	walkExpressionTermsWithPaths,
-	walkPredicateExpressionNodes,
-	walkPredicateNodes,
-	walkTermsWithPaths,
-} from "@/lib/domain/predicate";
+	walkExpression,
+} from "@/lib/domain/expression";
 
 /** A record address, not merely its type. Runtime addresses may alias; a fresh
  * generated create cannot be the selected or an already stored related row. */
@@ -40,7 +35,8 @@ export type OperationRecordScope =
 	| { readonly kind: "runtime-record" };
 
 export interface OperationPropertyRead {
-	readonly caseType: string;
+	/** Untyped case-query rows can read built-in properties across record types. */
+	readonly caseType?: string;
 	readonly property: string;
 	readonly record: OperationRecordScope;
 	/** Operation facet whose condition/value consumes this read. */
@@ -81,7 +77,6 @@ export interface OperationSemantics {
 			readonly slot: string;
 			readonly throughFieldUuids: readonly Uuid[];
 			readonly reason:
-				| "xpath-text-not-inventoried"
 				| "answer-dependency-cycle"
 				| "related-record-set"
 				| "owner-location-read";
@@ -90,8 +85,8 @@ export interface OperationSemantics {
 }
 
 /** Contextual feedback only: this inventory never changes admission or runtime
- * behavior. It follows canonical references, and reports unclassified XPath
- * text rather than parsing it or pretending the inventory is exhaustive. */
+ * behavior. It follows canonical expression identities and distinguishes
+ * runtime record sets from reads proven to address the selected record. */
 export function operationSemantics(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -122,11 +117,15 @@ export function operationSemantics(
 			return { kind: "related-record", indexPath: Array(depth).fill("parent") };
 		return { kind: "runtime-record" };
 	}
-	function propertyRecord(ref: PropertyRef, path: PredicateAstPath) {
+	function propertyRecord(
+		ref: PropertyRef,
+		path: CheckPath,
+		projectedRow = false,
+	) {
 		// A property inside a quantified where belongs to that related row. Its
 		// type alone cannot prove it is the selected row, even for a self-typed
 		// custom relation. Leave that alias unresolved instead of flattening it.
-		if (path.some((part) => part === "where"))
+		if (projectedRow || path.some((part) => part === "where"))
 			return { kind: "runtime-record" } as const;
 		if (ref.caseType !== selectedType)
 			return { kind: "runtime-record" } as const;
@@ -244,84 +243,99 @@ export function operationSemantics(
 						? field.default_value
 						: undefined;
 				if (!expression) return;
-				for (const ref of xpathRefParts(expression)) {
-					if (ref.kind === "case-ref")
-						reads.push({
-							caseType: ref.caseType,
-							property: ref.property,
-							record: selectedOrAncestor(ref.caseType),
-							slot,
-							throughFieldUuids,
-						});
-					else if (ref.kind === "field-ref" || ref.kind === "path-ref")
-						collectField(ref.uuid, slot, reads, throughFieldUuids);
-				}
-				if (
-					expression.parts.some(
-						(part) => part.kind === "text" && part.text.trim().length > 0,
-					)
-				)
-					unresolvedReads.push({
-						slot,
-						throughFieldUuids,
-						reason: "xpath-text-not-inventoried",
-					});
+				collectExpression(expression, slot, reads, throughFieldUuids);
 			}
 			function collectTerm(
 				term: Term,
-				path: PredicateAstPath,
+				path: CheckPath,
 				slot: string,
 				reads: OperationPropertyRead[],
+				throughFieldUuids: readonly Uuid[] = [],
+				projectedRow = false,
 			) {
 				if (term.kind === "prop")
 					reads.push({
 						caseType: relationPropertyDestinationCaseType(term, { caseTypes }),
 						property: term.property,
-						record: propertyRecord(term, path),
+						record: propertyRecord(term, path, projectedRow),
 						slot,
-						throughFieldUuids: [],
+						throughFieldUuids,
+					});
+				else if (term.kind === "form-case")
+					reads.push({
+						caseType: term.caseType,
+						property: term.property,
+						record: selectedOrAncestor(term.caseType),
+						slot,
+						throughFieldUuids,
 					});
 				else if (term.kind === "field")
-					collectField(term.uuid, slot, reads, []);
+					collectField(term.uuid, slot, reads, throughFieldUuids);
 				else if (term.kind === "owner-location-at-level")
 					unresolvedReads.push({
 						slot,
-						throughFieldUuids: [],
+						throughFieldUuids,
 						reason: "owner-location-read",
 					});
 			}
-			function relatedRows(node: Predicate | ValueExpression, slot: string) {
+			function relatedRows(
+				node: Expression,
+				slot: string,
+				throughFieldUuids: readonly Uuid[] = [],
+			) {
 				if (
-					(node.kind === "count" ||
+					node.kind === "cases" ||
+					((node.kind === "count" ||
 						node.kind === "exists" ||
 						node.kind === "missing") &&
-					node.via.kind !== "self"
+						isRelationPath(node.via) &&
+						node.via.kind !== "self")
 				)
 					unresolvedReads.push({
 						slot,
-						throughFieldUuids: [],
+						throughFieldUuids,
 						reason: "related-record-set",
 					});
 			}
-			function condition(predicate: Predicate | undefined, slot: string) {
+			function condition(predicate: Expression | undefined, slot: string) {
 				if (!predicate) return;
-				walkTermsWithPaths(predicate, (term, path) =>
-					collectTerm(term, path, slot, conditionReads),
-				);
-				walkPredicateNodes(predicate, (node) => relatedRows(node, slot));
-				walkPredicateExpressionNodes(predicate, (node) =>
-					relatedRows(node, slot),
-				);
+				collectExpression(predicate, slot, conditionReads, []);
 			}
-			function value(expression: ValueExpression | undefined, slot: string) {
+			function value(expression: Expression | undefined, slot: string) {
 				if (!expression) return;
-				walkExpressionTermsWithPaths(expression, (term, path) =>
-					collectTerm(term, path, slot, valueReads),
-				);
-				walkExpressionNodes(expression, (node) => relatedRows(node, slot));
-				walkExpressionPredicateNodes(expression, (node) =>
-					relatedRows(node, slot),
-				);
+				collectExpression(expression, slot, valueReads, []);
+			}
+			function collectExpression(
+				expression: Expression,
+				slot: string,
+				reads: OperationPropertyRead[],
+				throughFieldUuids: readonly Uuid[],
+			) {
+				const projectedRows: CheckPath[] = [];
+				walkExpression(expression, {
+					visitExpression(node, path) {
+						if (node.kind === "project")
+							projectedRows.push(
+								expressionChildPath(
+									node.kind,
+									{ kind: "operand", slot: "value" },
+									path,
+								),
+							);
+						relatedRows(node, slot, throughFieldUuids);
+					},
+					visitTerm: (term, path) =>
+						collectTerm(
+							term,
+							path,
+							slot,
+							reads,
+							throughFieldUuids,
+							projectedRows.some((prefix) =>
+								prefix.every((part, index) => path[index] === part),
+							),
+						),
+				});
 			}
 			condition(operation.condition, "operation");
 			for (const uuid of inherited.get(operation.uuid) ?? [])
@@ -428,5 +442,7 @@ function matchingRecord(
 		return "same-record";
 	// Different runtime expressions or relationship paths can still name one
 	// existing record. Type equality permits an alias; it does not prove one.
-	return read.caseType === targetType ? "may-alias" : undefined;
+	return read.caseType === undefined || read.caseType === targetType
+		? "may-alias"
+		: undefined;
 }

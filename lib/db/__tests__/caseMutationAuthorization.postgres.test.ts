@@ -7,7 +7,7 @@ import { CaptureSubmissionRejectedError } from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database as CaseDatabase } from "@/lib/case-store/sql/database";
-import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { proseText } from "@/lib/domain/prose";
 import { authorizeCaseMutationInTransaction } from "../caseMutationAuthorization";
 import { setupAppStateTestDb } from "./appStateTestDb";

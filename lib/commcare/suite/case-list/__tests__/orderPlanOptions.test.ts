@@ -11,7 +11,7 @@ import {
 	type Module,
 	plainColumn,
 } from "@/lib/domain";
-import { dateAdd, literal, prop, term, today } from "@/lib/domain/predicate";
+import { dateAdd, literal, prop, term, today } from "@/lib/domain/expression";
 import { caseListOrderOptions } from "../orderPlanOptions";
 
 function moduleWith(columns: Column[]): { doc: BlueprintDoc; mod: Module } {

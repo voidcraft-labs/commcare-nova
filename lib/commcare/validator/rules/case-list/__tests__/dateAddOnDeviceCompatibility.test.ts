@@ -28,7 +28,7 @@ import {
 	prop,
 	term,
 	today,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { runValidation } from "../../../runner";
 
 const CODE = "CASE_LIST_DATE_ADD_NOT_ON_DEVICE" as const;

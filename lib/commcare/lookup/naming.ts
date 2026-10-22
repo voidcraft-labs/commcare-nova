@@ -14,6 +14,7 @@
  * the body nests `<{tag}_list>` around one `<{tag}>` element per row.
  */
 
+import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import type { LookupColumn, LookupTableDefinition } from "@/lib/lookup/types";
 
@@ -166,4 +167,22 @@ export function lookupWireNaming(
 		},
 		maybeTableFor: (tableId) => byTableId.get(tableId),
 	};
+}
+
+/** The semantic column types from the same validated naming snapshot. */
+export function lookupTypeIndexFromNaming(
+	naming: LookupWireNaming | undefined,
+):
+	| ReadonlyMap<
+			LookupTableId,
+			ReadonlyMap<LookupColumnId, CasePropertyDataType>
+	  >
+	| undefined {
+	if (naming === undefined) return undefined;
+	return new Map(
+		naming.tables.map((table) => [
+			table.tableId,
+			new Map(table.columns.map((column) => [column.id, column.dataType])),
+		]),
+	);
 }

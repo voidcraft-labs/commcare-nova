@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
 import type { Field, Module } from "@/lib/domain";
 import { USERCASE_CASE_TYPE } from "@/lib/domain";
+import { literal, term, today } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { caseWriteGuidance } from "../caseWritePresentation";
 
@@ -41,7 +41,7 @@ describe("actual case-write guidance projection", () => {
 		});
 	});
 	it("warns about a starting answer and a hidden calculation", () => {
-		const expression = { parts: [{ kind: "text" as const, text: "'value'" }] };
+		const expression = term(literal("value"));
 		const withDefault = { ...ordinary, default_value: expression };
 		const hidden: Field = {
 			kind: "hidden",
@@ -105,14 +105,14 @@ describe("what the destination does when the form opens", () => {
 		kind: "hidden",
 		id: "last_seen",
 		uuid: testUuid("last_seen"),
-		calculate: xp("today()"),
+		calculate: today(),
 		caseWrite: { caseType: "patient", property: "last_seen" },
 	};
 	const hiddenSetOnce: Field = {
 		kind: "hidden",
 		id: "seeded",
 		uuid: testUuid("seeded"),
-		default_value: xp("'x'"),
+		default_value: term(literal("x")),
 		caseWrite: { caseType: "patient", property: "seeded" },
 	};
 	const image: Field = {

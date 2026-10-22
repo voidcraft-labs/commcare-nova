@@ -17,7 +17,7 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema, type Form, proseText } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { xpathEvidence } from "./xpathEvidence";
 

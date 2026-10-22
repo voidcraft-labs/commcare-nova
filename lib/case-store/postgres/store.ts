@@ -70,13 +70,13 @@ import {
 import {
 	compilerBugMessage,
 	unhandledKindMessage,
-} from "@/lib/domain/predicate/errors";
+} from "@/lib/domain/expression/errors";
 import {
 	type CaseTypeJsonSchema,
 	caseTypeToJsonSchema,
 	schemaForDataType,
-} from "@/lib/domain/predicate/jsonSchema";
-import type { RelationPath } from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression/jsonSchema";
+import type { RelationPath } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 import {
 	storageDatetimeValue,
@@ -898,6 +898,7 @@ export class PostgresCaseStore implements CaseStore {
 			caseType: args.caseType,
 			schemas: args.caseTypeSchemas ?? new Map(),
 			lookupTableSchemas: args.lookupTableSchemas,
+			knownInputs: args.knownInputs,
 			bindings: args.bindings ?? {},
 			restore,
 		});
@@ -1530,6 +1531,7 @@ export class PostgresCaseStore implements CaseStore {
 			caseType: args.caseType,
 			schemas: args.caseTypeSchemas ?? new Map(),
 			lookupTableSchemas: args.lookupTableSchemas,
+			knownInputs: args.knownInputs,
 			bindings: args.bindings ?? {},
 			restore,
 		});
@@ -4958,6 +4960,7 @@ export class PostgresCaseStore implements CaseStore {
 		caseType: string;
 		schemas: ReadonlyMap<string, CaseType>;
 		lookupTableSchemas?: PredicateCompileContext["lookupTableSchemas"];
+		knownInputs?: PredicateCompileContext["knownInputs"];
 		bindings: PredicateCompileContext["bindings"];
 		/** Bound only by a read standing at a device — see `RestoreScope`. */
 		restore?: RestoreScopeQuery;
@@ -4969,6 +4972,7 @@ export class PostgresCaseStore implements CaseStore {
 			anchorAlias: "c",
 			currentCaseType: args.caseType,
 			caseTypeSchemas: args.schemas,
+			knownInputs: args.knownInputs,
 			...(args.lookupTableSchemas === undefined
 				? {}
 				: { lookupTableSchemas: args.lookupTableSchemas }),
@@ -5911,7 +5915,7 @@ function strictStoredDataType(
  *   WKT-build form for index match.
  *
  * Properties with no declared `data_type` default to `text` (same
- * default `lib/domain/predicate/jsonSchema.ts` uses).
+ * default `lib/domain/expression/jsonSchema.ts` uses).
  */
 export function desiredIndexForProperty(
 	appId: string,
@@ -6095,7 +6099,7 @@ function indexName(
 
 /**
  * Match `CASE_PROPERTY_PATTERN` from
- * `lib/domain/predicate/types.ts` so the case-store's identifier-
+ * `lib/domain/expression/types.ts` so the case-store's identifier-
  * shape contract aligns with the blueprint AST. `kind` names the
  * fragment role for the error message.
  */
@@ -6109,7 +6113,7 @@ function assertSafeIdentifierFragment(
 				where: "case-store.assertSafeIdentifierFragment",
 				invariant: `${kind} name \`${fragment}\` contains characters other than letters, digits, underscores, and hyphens, or does not start with a letter`,
 				detail:
-					"The blueprint AST's `CASE_PROPERTY_PATTERN` (at `lib/domain/predicate/types.ts`) restricts case-type and property names to a leading letter followed by letters / digits / underscores / hyphens; the case-store's identifier-shape contract aligns with that AST pattern. Reaching this throw means a name bypassed the AST gate (e.g., a runtime-constructed blueprint that skipped Zod parsing).\n\nHint: rename the offending case type or property at the blueprint layer; restoring AST-gated construction is the structural fix.",
+					"The blueprint AST's `CASE_PROPERTY_PATTERN` (at `lib/domain/expression/types.ts`) restricts case-type and property names to a leading letter followed by letters / digits / underscores / hyphens; the case-store's identifier-shape contract aligns with that AST pattern. Reaching this throw means a name bypassed the AST gate (e.g., a runtime-constructed blueprint that skipped Zod parsing).\n\nHint: rename the offending case type or property at the blueprint layer; restoring AST-gated construction is the structural fix.",
 			}),
 		);
 	}

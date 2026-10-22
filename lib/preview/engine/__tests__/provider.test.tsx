@@ -23,10 +23,10 @@ import {
 import { type ReactNode, StrictMode, useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { PersistableDoc } from "@/lib/domain/blueprint";
+import { sessionContext, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { useFormEngine } from "@/lib/preview/hooks/useFormEngine";
 import {
@@ -195,9 +195,7 @@ describe("BuilderFormEngineProvider", () => {
 				fields: {
 					[FIELD_UUID]: {
 						...field,
-						default_value: xp(
-							"instance('commcaresession')/session/context/userid",
-						),
+						default_value: term(sessionContext("userid")),
 					},
 				},
 			}),

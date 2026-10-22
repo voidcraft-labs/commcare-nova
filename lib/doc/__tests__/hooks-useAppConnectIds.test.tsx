@@ -4,7 +4,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	type ConnectTargetState,
@@ -18,6 +18,7 @@ import {
 	type BlueprintDocStoreApi,
 	createBlueprintDocStore,
 } from "@/lib/doc/store";
+import { literal, term } from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const FORM_A = testUuid("form-a");
@@ -42,7 +43,7 @@ function setup() {
 								description: "First lesson",
 								time_estimate: 5,
 							},
-							assessment: { id: "intro_quiz", user_score: xp("100") },
+							assessment: { id: "intro_quiz", user_score: term(literal(100)) },
 						},
 						fields: [{ kind: "text", id: "answer" }],
 					},

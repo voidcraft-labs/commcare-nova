@@ -50,11 +50,7 @@ function storeForSearchRegistration() {
 								id: "name",
 								label: "Name",
 								caseWrite: { caseType: "patient", property: "case_name" },
-								default_value: {
-									parts: [
-										{ kind: "search-answer-ref", searchInputUuid: SEARCH },
-									],
-								},
+								default_value: "#search/patient_name",
 							}),
 						],
 					},

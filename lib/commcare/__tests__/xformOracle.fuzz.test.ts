@@ -32,16 +32,15 @@ it("compiles 500 field-tree samples with valid schema, bindings, and archived re
 	expect(census.sectioned / census.total).toBeGreaterThan(0.3);
 });
 
-// A raw session read is admitted exactly when the form's entry declares the
-// datum: then the compiled forms pass every oracle, the binding-resolution
-// oracle among them; otherwise the validator refuses the read at its slot and
-// nothing is compiled.
-it("admits a raw session read only of a datum the form's entry declares", {
+// A typed session read is admitted exactly when the form's entry supplies it.
+// Admitted draws pass every wire oracle; otherwise the validator locates the
+// unavailable datum at its hidden-value slot before anything is compiled.
+it("admits a typed session read only of a datum the form's entry supplies", {
 	timeout: 60_000,
 }, () => {
 	const census = { declared: 0, refused: 0 };
 	assertGenerated(
-		fc.property(sessionReadDocArbitrary, ({ doc, datumId, declared }) => {
+		fc.property(sessionReadDocArbitrary, ({ doc, datumRef, declared }) => {
 			if (declared) {
 				checkCompilerEvidence(doc);
 				census.declared++;
@@ -51,11 +50,10 @@ it("admits a raw session read only of a datum the form's entry declares", {
 			expect(findings.map((finding) => finding.code)).toEqual([
 				"SESSION_DATUM_NOT_SUPPLIED",
 			]);
-			expect(findings[0]?.details).toMatchObject({
-				datumId,
-				slot: "calculate",
+			expect(findings[0]).toMatchObject({
+				details: { ref: JSON.stringify(datumRef), slot: "calculate" },
+				location: { field: "calculate", fieldId: "session_read" },
 			});
-			expect(findings[0]?.location.fieldId).toBe("session_read");
 			census.refused++;
 		}),
 		{ seed: 20261015, numRuns: 120 },

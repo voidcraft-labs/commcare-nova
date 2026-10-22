@@ -23,7 +23,7 @@ import {
 	prop,
 	qualifiedLiteral,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
 import {
@@ -234,6 +234,7 @@ async function results(name = "") {
 		caseTypes: doc.caseTypes ?? [],
 		caseListConfig: doc.modules[MODULE_UUID].caseListConfig,
 		moduleUuid: MODULE_UUID,
+		blueprint: doc,
 		inputValues: { name },
 	});
 	if (result.kind !== "rows" && result.kind !== "empty")

@@ -9,11 +9,11 @@ import type { CasePropertyDataType } from "./casePropertyTypes";
 import type { CaseWrite, FieldKind } from "./fields";
 import type { FormType } from "./forms";
 import { projectProseTemplate } from "./prose";
+import type { ReferenceNamesDoc } from "./referenceNames";
 import {
 	STANDARD_CASE_LIST_PROPERTIES,
 	standardCasePropertyDisplayLabel,
 } from "./standardCaseProperties";
-import type { XPathPrintableDoc } from "./xpath/print";
 
 /**
  * The case-property `data_type` a field of the given kind writes.
@@ -161,7 +161,7 @@ export interface ReachableCaseType {
  * target but not a readable source.
  *
  * `depth` is the load-bearing output: the wire emitter turns a typed
- * `case-ref` into the corresponding `…/index/parent × depth …/<prop>` walk.
+ * `form-case` reference into the corresponding `…/index/parent × depth …/<prop>` walk.
  * Ordered own-first; cycle-guarded against malformed
  * `parent_type` chains. An undeclared own type still appears at depth 0 (with
  * no properties) so its namespace is recognized even before properties exist.
@@ -205,7 +205,7 @@ export type ReachableCaseTypeIndex = Map<
  * `doc` resolves worker-property references in authored catalog labels. */
 export function toReachableIndex(
 	reachable: ReachableCaseType[],
-	doc: XPathPrintableDoc,
+	doc: ReferenceNamesDoc,
 ): ReachableCaseTypeIndex {
 	const index: ReachableCaseTypeIndex = new Map();
 	for (const t of reachable) {

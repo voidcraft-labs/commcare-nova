@@ -1,7 +1,9 @@
 # lib/commcare/xpath/wire
 
-This is the resolved XPath emission boundary. `toWire` turns the record-family
-model into `WireExpr`; generated scaffolding uses `w` directly. Names in a tree
+This is the resolved XPath emission boundary. `toWire` turns the unified domain `Expression`
+into `WireExpr`; generated scaffolding uses `w` directly. Every authored call
+requires the actual slot-derived `ExpressionContext`. A caller may supply
+wire identity bindings, but cannot reconstruct a partial type context. Names in a tree
 are current wire names, resolved from domain identity before construction.
 `serializeWire` is the only printer. There is no raw XPath arm, arbitrary call
 name, grouping node, raw path fragment, union, or authored variable arm.
@@ -29,7 +31,9 @@ spelling, and the printer never parses rendered text to flatten a call.
 The modes are `xform`, `vellum`, `suite`, `hq-json` and `preview`. XForm/Vellum
 printing knows whether the slot is a constraint. A lone self path inside a
 non-constraint predicate prints `./.` so Vellum does not mistake it for the
-question's own answer. Vellum uses `#form/` only for a hashtag form root and
+question's own answer. A Vellum shadow requires a form-field read with hashtag
+spelling; constants, absolute/relative paths and hashtag-shaped literal values
+alone produce no shadow. Vellum uses `#form/` only for a hashtag form root and
 withholds the entire shadow for case/worker/search expansions, an HQ case root,
 or a hashtag form path carrying a predicate or non-child step. A withheld shadow
 contributes no declarations. The real attribute and an eligible shadow always
@@ -77,16 +81,23 @@ and its runtime guard reject known XPath slots. A stack query's URL, numeric
 maximum-selection attribute and the presence-only repeat no-add/remove flag
 remain raw XML values because Core does not evaluate them as XPath.
 
-During the form-logic transition only, `xform/legacyAuthoredXPath.ts` brands
-already projected/expanded/lowered authored text. `xel` accepts it solely in
-the finite existing XForm authored slots, or in the separate form-link map for
-stack conditions and datum values. Mixed helpers keep generated operands as
-trees and return a tree when every operand is generated. Only the branded text
-path uses the temporary Lezer instance reader. Mixed helper results retain only
-their known syntactic precedence and use the printer's shared grouping rule;
-opaque authored operands remain conservatively grouped without parsing them.
-The form-logic migration removes these brands, maps and reader; they are not
-escape hatches for new generators.
+`formReads.ts` lowers field, repeat-row and generated-node identities through
+one finite form-node graph and a target projection. Relative paths compare
+that graph's coordinates; no stored parent-hop count or printed XPath enters
+this boundary. A filter evaluates at its exact addressed step, while
+`current()` retains the immutable source carrier. The earliest filtered shared
+ancestor remains in the emitted path, so no predicate disappears in a common
+prefix. Default-value emission anchors references at `current()`.
+
+Case, lookup-table and location queries introduce lexical row scopes. Their
+filters and projected row values cannot reuse an outer selected-case override;
+legacy table lookups explicitly capture their containing case row. Projection
+appends typed leaf steps, including the two-step case-index path. Choice UUIDs
+resolve to saved values from the held document's option catalog.
+
+Every authored form slot, including prose outputs and generated mixed
+expressions, reaches `xel` as a `WireExpr`. There is no branded authored-text
+bridge or secondary instance scanner.
 
 The focused tests prove grammar structure, literal values, slot typing and
 declaration sets. Native interpolation proof calls the pinned HQ helpers;

@@ -23,7 +23,7 @@ import {
 	prop,
 	subcasePath,
 	within,
-} from "@/lib/domain/predicate/builders";
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import {
 	compilePredicate,

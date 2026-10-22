@@ -5,12 +5,8 @@ import {
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, CaseListConfig, Uuid } from "@/lib/domain";
+import { type Expression, walkExpressionNodes } from "@/lib/domain/expression";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
-import {
-	mapExpressionAst,
-	mapPredicateAst,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
 
 /**
  * Project the canonical production lookup-reference occurrence stream onto
@@ -43,34 +39,30 @@ export function caseOperationProgramLookupTableIds(
  */
 export function collectConfigLookupTableIds(
 	caseListConfig: CaseListConfig | undefined,
-	extraExpressions: readonly ValueExpression[] = [],
+	extraExpressions: readonly Expression[] = [],
 ): readonly LookupTableId[] {
 	const ids = new Set<LookupTableId>();
-	const hooks = {
-		mapExpression: (expr: ValueExpression) => {
-			if (expr.kind === "table-lookup") ids.add(expr.tableId);
-			// Returning undefined descends — a nested lookup inside a
-			// `where` is collected by the same hook.
-			return undefined;
-		},
+	const collect = (expr: Expression): void => {
+		if (expr.kind === "table-lookup" || expr.kind === "table-rows")
+			ids.add(expr.tableId);
 	};
 	if (caseListConfig !== undefined) {
 		if (caseListConfig.filter !== undefined) {
-			mapPredicateAst(caseListConfig.filter, hooks);
+			walkExpressionNodes(caseListConfig.filter, collect);
 		}
 		for (const column of caseListConfig.columns) {
 			if (column.kind === "calculated") {
-				mapExpressionAst(column.expression, hooks);
+				walkExpressionNodes(column.expression, collect);
 			}
 		}
 		for (const input of caseListConfig.searchInputs) {
 			if (input.kind === "advanced") {
-				mapPredicateAst(input.predicate, hooks);
+				walkExpressionNodes(input.predicate, collect);
 			}
 		}
 	}
 	for (const expression of extraExpressions) {
-		mapExpressionAst(expression, hooks);
+		walkExpressionNodes(expression, collect);
 	}
 	return [...ids].sort();
 }

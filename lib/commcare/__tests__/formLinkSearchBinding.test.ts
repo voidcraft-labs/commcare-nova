@@ -1,6 +1,5 @@
 import AdmZip from "adm-zip";
 import { expect, it } from "vitest";
-import { xp } from "@/lib/__tests__/docHelpers";
 import {
 	mutationCommitVerdict,
 	mutationCommitVerdictWithPrevalidation,
@@ -9,6 +8,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import { blueprintDocSchema } from "@/lib/domain";
+import { concat, literal, term } from "@/lib/domain/expression";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import { runValidation } from "../validator/runner";
@@ -56,9 +56,12 @@ it("preserves explicit new-case intent by selecting HQ's working automatic hydra
 	).toBe(selected.attributes.value);
 	expect(doc).toEqual(before);
 });
-it.each(["'other-patient'", "concat('patient-', '2')"])(
+it.each([
+	["a literal case", term(literal("other-patient"))],
+	["a calculated case", concat(term(literal("patient-")), term(literal("2")))],
+] as const)(
 	"refuses a manual Search handover that HQ cannot hydrate: %s",
-	(expression) => {
+	(_label, expression) => {
 		const doc = searchEmissionFixture("hidden-link");
 		const { form, link } = source(doc);
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
@@ -73,7 +76,17 @@ it.each(["'other-patient'", "concat('patient-', '2')"])(
 						kind: "updateFormLink",
 						formUuid: form.uuid,
 						uuid: link.uuid,
-						patch: { datums: [{ name: "case_id", xpath: xp(expression) }] },
+						patch: {
+							datums: [
+								{
+									name: {
+										kind: "selected-case",
+										module: link.target.moduleUuid,
+									},
+									xpath: expression,
+								},
+							],
+						},
 					},
 				],
 				LOOKUP_CONTEXT_UNAVAILABLE,
@@ -105,7 +118,12 @@ it("keeps manual case selection available for a destination that opens on a list
 	const doc = searchEmissionFixture("hidden-link");
 	doc.modules[doc.moduleOrder[0]].caseSearchConfig = {};
 	const { link } = source(doc);
-	link.datums = [{ name: "case_id", xpath: xp("'other-patient'") }];
+	link.datums = [
+		{
+			name: { kind: "selected-case", module: link.target.moduleUuid },
+			xpath: term(literal("other-patient")),
+		},
+	];
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	expect(expandDoc(doc).modules[1].forms[0].form_links[0].datums).toEqual([
@@ -118,8 +136,11 @@ it("keeps an existing selected case when the source has that selection", () => {
 	form.type = "followup";
 	link.datums = [
 		{
-			name: "case_id",
-			xpath: xp("instance('commcaresession')/session/data/case_id"),
+			name: { kind: "selected-case", module: link.target.moduleUuid },
+			xpath: term({
+				kind: "session-datum",
+				datum: { kind: "selected-case", module: doc.moduleOrder[1] },
+			}),
 		},
 	];
 	blueprintDocSchema.parse(toPersistableDoc(doc));

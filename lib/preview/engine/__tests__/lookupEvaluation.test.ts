@@ -2,6 +2,9 @@
 // acceptance is established separately by the CommCare wire fixtures.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type {
@@ -10,7 +13,6 @@ import type {
 	LookupTableId,
 	Uuid,
 } from "@/lib/domain";
-import { lookupRowIdSchema } from "@/lib/domain/lookupIds";
 import {
 	and,
 	arith,
@@ -23,7 +25,10 @@ import {
 	tableColumn,
 	tableLookup,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import { slotContext } from "@/lib/domain/expression/context";
+import type { Expression } from "@/lib/domain/expression/types";
+import { lookupRowIdSchema } from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type {
 	LookupFixtureRow,
@@ -32,10 +37,11 @@ import type {
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import type { EvalContext } from "@/lib/preview/xpath/types";
 import {
-	evaluateLookupChoices,
-	evaluateTableLookup,
-	foldTableLookupsInExpression,
-	foldTableLookupsInPredicate,
+	evaluateLookupChoices as evaluateChoices,
+	evaluateTableLookup as evaluateLookup,
+	foldTableLookupsInExpression as foldExpression,
+	foldTableLookupsInPredicate as foldPredicate,
+	type LookupEvaluationBindings,
 	type PreviewLookupData,
 	previewLookupData,
 } from "../lookupEvaluation";
@@ -100,6 +106,112 @@ function data(): PreviewLookupData {
 		projectRevision: parseLookupRevision("7"),
 		definitions: [DEFINITION],
 		rowsByTable: new Map([[TABLE, ROWS]]),
+	});
+}
+
+function lookupContext(
+	expression: Expression,
+	fixtureData: PreviewLookupData,
+	choices?: LookupOptionsSource,
+) {
+	const FORM = testUuid("lookup-form"),
+		VALUE = testUuid("lookup-value"),
+		CHOICE = testUuid("lookup-choice");
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Clinics",
+				forms: [
+					{
+						uuid: FORM,
+						name: "Visit",
+						type: "survey",
+						fields: [
+							{ kind: "text", id: "chosen_region", uuid: FIELD_UUID },
+							{
+								kind: "hidden",
+								id: "value",
+								uuid: VALUE,
+								calculate: expression,
+							},
+							...(choices === undefined
+								? []
+								: [
+										{
+											kind: "single_select" as const,
+											id: "choice",
+											uuid: CHOICE,
+											optionsSource: choices,
+										},
+									]),
+						],
+					},
+				],
+			},
+		],
+	});
+	const context = slotContext(
+		doc,
+		{
+			entity: "field",
+			uuid: choices === undefined ? VALUE : CHOICE,
+			slot: choices === undefined ? "calculate" : "lookup_options_source",
+		},
+		lookupTypeIndexFromNaming(fixtureData.naming) ?? new Map(),
+	);
+	if (context === undefined)
+		throw new Error("The lookup fixture has no owning slot.");
+	return context;
+}
+type Bindings = Omit<LookupEvaluationBindings, "types">;
+function evaluateLookupChoices(
+	source: LookupOptionsSource,
+	data: PreviewLookupData,
+	bindings: Bindings,
+	sortColumn?: LookupColumnId,
+) {
+	return evaluateChoices(
+		source,
+		data,
+		{
+			...bindings,
+			types: lookupContext(
+				source.filter ?? { kind: "match-all" },
+				data,
+				source,
+			),
+		},
+		sortColumn,
+	);
+}
+function evaluateTableLookup(
+	expression: Extract<Expression, { kind: "table-lookup" }>,
+	data: PreviewLookupData,
+	bindings: Bindings,
+) {
+	return evaluateLookup(expression, data, {
+		...bindings,
+		types: lookupContext(expression, data),
+	});
+}
+function foldTableLookupsInExpression(
+	expression: Expression,
+	data: PreviewLookupData,
+	bindings: Bindings,
+) {
+	return foldExpression(expression, data, {
+		...bindings,
+		types: lookupContext(expression, data),
+	});
+}
+function foldTableLookupsInPredicate(
+	expression: Expression,
+	data: PreviewLookupData,
+	bindings: Bindings,
+) {
+	return foldPredicate(expression, data, {
+		...bindings,
+		types: lookupContext(expression, data),
 	});
 }
 
@@ -286,29 +398,21 @@ describe("evaluateLookupChoices", () => {
 });
 
 describe("evaluateTableLookup", () => {
-	it("uses declared row-column and form-answer types in integer division filters", () => {
-		const lookup = tableLookup(
-			TABLE,
-			COL_CODE,
-			eq(
-				arith(
-					"div",
-					term(tableColumn(TABLE, COL_STOCK)),
-					term(formField(FIELD_UUID)),
-				),
-				literal(1),
-			),
-		);
-		for (const [type, expected] of [
-			["int", "a1"],
-			["decimal", ""],
+	it("distinguishes quotient from real division in row filters", () => {
+		for (const [op, expected] of [
+			["quotient", "a1"],
+			["div", ""],
 		] as const) {
+			const lookup = tableLookup(
+				TABLE,
+				COL_CODE,
+				eq(
+					arith(op, term(tableColumn(TABLE, COL_STOCK)), term(literal(3))),
+					literal(1),
+				),
+			);
 			expect(
-				evaluateTableLookup(lookup, data(), {
-					outer: outerContext({ "/data/divisor": "3" }),
-					formFields: new Map([[FIELD_UUID, "/data/divisor"]]),
-					formFieldTypes: new Map([[FIELD_UUID, type]]),
-				}),
+				evaluateTableLookup(lookup, data(), { outer: outerContext() }),
 			).toBe(expected);
 		}
 	});
@@ -364,18 +468,24 @@ describe("foldTableLookupsInPredicate", () => {
 			COL_STOCK,
 			eq(term(tableColumn(TABLE, COL_CODE)), literal("a1")),
 		);
-		const expression = arith("div", lookup, term(literal(3)));
+		const expression = arith("quotient", lookup, term(literal(3)));
 		const folded = foldTableLookupsInExpression(expression, data(), {
 			outer: outerContext(),
 		});
 		expect(folded).toEqual(
-			arith("div", term(qualifiedLiteral("4", "int")), term(literal(3))),
+			arith("quotient", term(qualifiedLiteral("4", "int")), term(literal(3))),
 		);
 		expect(
 			evaluate(
-				serializeWire(toWire(folded, { target: "suite", types: {} }), {
-					target: "suite",
-				}).text,
+				serializeWire(
+					toWire(folded, {
+						target: "suite",
+						types: lookupContext(folded, data()),
+					}),
+					{
+						target: "suite",
+					},
+				).text,
 				outerContext(),
 			),
 		).toBe(1);

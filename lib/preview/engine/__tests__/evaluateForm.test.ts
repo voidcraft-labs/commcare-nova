@@ -592,11 +592,7 @@ it("uses the running Search's date-range values in a no-matches registration", a
 								id: "name",
 								kind: "text",
 								label: "Name",
-								default_value: {
-									parts: [
-										{ kind: "search-answer-ref", searchInputUuid: inputUuid },
-									],
-								},
+								default_value: "#search/visit_date",
 								caseWrite: { caseType: "patient", property: "case_name" },
 							}),
 						],

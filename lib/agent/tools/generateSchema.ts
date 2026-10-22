@@ -107,8 +107,6 @@ export const generateSchemaTool = {
 			// `{name, label: name, data_type?}`) carries nothing authored, so the
 			// call ENRICHES it in place. An authored record accepts new properties
 			// only. Existing definitions remain immutable through this add path.
-			// Stored catalog rules still make a record authored until the shape
-			// cutover removes them, even though tool inputs cannot create them.
 			const existingByName = new Map(
 				(doc.caseTypes ?? []).map((ct) => [ct.name, ct]),
 			);
@@ -121,9 +119,6 @@ export const generateSchemaTool = {
 						p.label.parts[0]?.kind === "text" &&
 						p.label.parts[0].text === p.name &&
 						p.hint === undefined &&
-						p.required === undefined &&
-						p.validation === undefined &&
-						p.validation_msg === undefined &&
 						p.options === undefined,
 				);
 			const conflicts: string[] = [];

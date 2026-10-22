@@ -4,6 +4,7 @@ export type CreationEntityKind =
 	| "module"
 	| "form"
 	| "field"
+	| "form_link"
 	| "option"
 	| "case_list_column"
 	| "search_input"
@@ -26,6 +27,8 @@ export interface CreationIdentitySpec {
 	readonly path: readonly string[];
 	readonly entityKind: CreationEntityKind;
 	readonly preserveExisting?: true;
+	/** The canonical slot already describes its optional identity accurately. */
+	readonly preserveDescription?: true;
 }
 
 const spec = (
@@ -90,6 +93,12 @@ export const CREATION_IDENTITY_SPECS: Readonly<
 	createModule: [spec(["moduleUuid"], "module")],
 	createForm: [spec(["formUuid"], "form")],
 	addFields: FIELD_SPECS(["fields", "*"]),
+	addFormLinks: [
+		{
+			...spec(["links", "*", "linkUuid"], "form_link"),
+			preserveDescription: true,
+		},
+	],
 	addCaseListColumns: [
 		spec(["columns", "*", "columnUuid"], "case_list_column"),
 	],

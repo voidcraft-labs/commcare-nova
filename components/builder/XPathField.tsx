@@ -406,7 +406,7 @@ function InlineXPathEditor({
 	 * same context), so the save gate can never refuse with a sentence the
 	 * inline lint did not show, or pass a draft it underlined: a
 	 * session-scoped slot's "runs after the form has closed" reads the same
-	 * on both. Context-less validation is allowed: case-ref checks just skip.
+	 * on both. An editor whose actual slot disappeared refuses the save.
 	 */
 	const getErrors = useCallback((): string[] => {
 		if (projectionConflictRef.current) {
@@ -441,7 +441,19 @@ function InlineXPathEditor({
 			return;
 		}
 		doneRef.current = true;
-		const outcome = onSave(draftRef.current);
+		let outcome: CommitOutcome | undefined;
+		try {
+			outcome = onSave(draftRef.current);
+		} catch (error) {
+			outcome = {
+				ok: false,
+				messages: [
+					error instanceof Error
+						? error.message
+						: "This expression could not be saved. Reopen it and try again.",
+				],
+			};
+		}
 		if (outcome && outcome.ok === false && outcome.messages.length > 0) {
 			/* The doc-level commit gate refused a draft the inline lint
 			 * passed (a dependency cycle, a type error: findings only the

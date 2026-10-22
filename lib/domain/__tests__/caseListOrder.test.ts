@@ -27,7 +27,7 @@ import {
 	plainColumn,
 	type Uuid,
 } from "@/lib/domain";
-import { prop, term } from "@/lib/domain/predicate";
+import { prop, term } from "@/lib/domain/expression";
 
 const CATALOG: readonly CaseListOrderProperty[] = [
 	{ name: "case_name", data_type: "text" },

@@ -14,7 +14,7 @@ import {
 	plainColumn,
 	proseText,
 } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";

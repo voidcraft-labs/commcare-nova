@@ -1,27 +1,29 @@
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
 	arith,
 	between,
-	checkPredicate,
+	checkExpression,
 	concat,
 	eq,
 	exists,
+	expressionSchema,
+	formField,
 	gte,
 	input,
 	isBlank,
 	literal,
 	matchesPattern,
 	missing,
-	predicateSchema,
 	prop,
 	relationStep,
 	term,
 	whenInput,
 	within,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	buildPredicateKindReplacement,
@@ -59,19 +61,12 @@ const CASE_TYPES: readonly CaseType[] = [
 	},
 ];
 
-const EDIT_CTX: PredicateEditContext = {
+const EDIT_CTX: PredicateEditContext = expressionEditorFixture("case-filter", {
 	caseTypes: CASE_TYPES,
 	currentCaseType: "patient",
-	knownInputs: [
-		{ uuid: testUuid("query"), name: "query", data_type: "text" },
-		{
-			uuid: testUuid("location-query"),
-			name: "location_query",
-			data_type: "geopoint",
-		},
-	],
+	knownInputs: [{ uuid: testUuid("query"), name: "query", data_type: "text" }],
 	caseDataScope: "per-case",
-};
+}).context;
 
 describe("predicate transition planning", () => {
 	it("maps a comparison into the matching range bound without losing a computed value", () => {
@@ -193,32 +188,47 @@ describe("predicate transition planning", () => {
 			eq(prop("patient", "tags"), literal(null)),
 			EDIT_CTX,
 		);
-		const typeCtx = {
+		const typeCtx = expressionEditorFixture("case-filter", {
 			caseTypes: [...CASE_TYPES],
 			knownInputs: [...EDIT_CTX.knownInputs],
 			currentCaseType: "patient",
-		};
+		}).context.expressionContext;
 
 		for (const next of [membership, contains]) {
-			expect(predicateSchema.safeParse(next).success).toBe(true);
-			expect(checkPredicate(next, typeCtx).ok).toBe(true);
+			expect(expressionSchema.safeParse(next).success).toBe(true);
+			expect(checkExpression(next, typeCtx).errors.length === 0).toBe(true);
 			if (next.kind === "in" || next.kind === "multi-select-contains") {
-				expect(next.values.some((candidate) => candidate.value !== null)).toBe(
-					true,
-				);
+				expect(
+					next.values.some(
+						(candidate) =>
+							candidate.kind === "literal" && candidate.value !== null,
+					),
+				).toBe(true);
 			}
 		}
 	});
 
 	it("keeps a nearby center but warns that its distance settings cannot map", () => {
-		const center = term(input(testUuid("location-query")));
+		const fieldUuid = testUuid("location-answer");
+		const context = expressionEditorFixture("operation-condition", {
+			...EDIT_CTX,
+			formFields: [
+				{
+					uuid: fieldUuid,
+					id: "location_answer",
+					label: "Visit location",
+					dataType: "geopoint",
+				},
+			],
+		}).context;
+		const center = term(formField(fieldUuid));
 		const current = within(
 			prop("patient", "location"),
 			center,
 			25,
 			"kilometers",
 		);
-		const next = buildComparison("eq", current, EDIT_CTX);
+		const next = buildComparison("eq", current, context);
 		const plan = planPredicateTransition(current, next, "is");
 
 		expect(next).toEqual(eq(term(current.property), center));

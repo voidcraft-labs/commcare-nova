@@ -13,8 +13,16 @@ import {
 	useLocalizedValues,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useExpressionLookupTypes } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
-import type { CaseListConfig, CaseProperty, Column } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CaseListConfig,
+	CaseProperty,
+	Column,
+	Uuid,
+} from "@/lib/domain";
+import { slotContext } from "@/lib/domain/expression/context";
 import {
 	type CalculatedTemporalType,
 	type ColumnDisplayContext,
@@ -32,6 +40,7 @@ export function useColumnDisplayContext(
 	config: CaseListConfig | undefined,
 	currentCaseType: string | undefined,
 	fallbackProperties: readonly CaseProperty[],
+	owner: { readonly doc: BlueprintDoc; readonly moduleUuid: Uuid },
 ): ColumnDisplayContext {
 	const effectiveCaseTypes = useEffectiveCaseTypes();
 	const effectiveCaseType = effectiveCaseTypes.find(
@@ -55,22 +64,30 @@ export function useColumnDisplayContext(
 	);
 	const today = useLocalCalendarDay();
 	const projectProse = useProseProjection();
+	const lookupTypes = useExpressionLookupTypes();
+	const { doc, moduleUuid } = owner;
 	const calculatedTemporalTypes = useMemo(() => {
 		const types = new Map<Column["uuid"], CalculatedTemporalType>();
 		if (config === undefined) return types;
-		const typeContext = {
-			caseTypes: [...effectiveCaseTypes],
-			currentCaseType: effectiveCaseType?.name,
-			// Calculated-column expressions cannot read worker search inputs.
-			// Keeping this empty matches their validator slot constraint.
-			knownInputs: [],
-		};
 		for (const column of config.columns) {
-			const temporalType = resolveCalculatedTemporalType(column, typeContext);
+			if (column.kind !== "calculated") continue;
+			const context = slotContext(
+				doc,
+				{
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "case_list_column_expression",
+					member: { columnUuid: column.uuid },
+				},
+				lookupTypes,
+			);
+			if (context === undefined)
+				throw new Error("The calculated column has no owning expression slot.");
+			const temporalType = resolveCalculatedTemporalType(column, context);
 			if (temporalType !== undefined) types.set(column.uuid, temporalType);
 		}
 		return types;
-	}, [config, effectiveCaseType?.name, effectiveCaseTypes]);
+	}, [config, doc, moduleUuid, lookupTypes]);
 	return useMemo(
 		() => ({
 			language,

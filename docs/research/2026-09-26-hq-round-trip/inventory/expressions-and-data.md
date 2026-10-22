@@ -54,92 +54,92 @@ Runtime dispatch is by `src`, in order ledgerdb → casedb → fixture → sessi
 
 ## XPath functions and structure
 
-Every JavaRosa call name is admitted in Nova's `XPathExpression` slots today (`lib/commcare/xpath/functionCapabilities.ts::JAVAROSA_NATIVE_FUNCTIONS` = `ASTNodeFunctionCall.buildFuncExpr`, 76 names; Preview executes all). In the typed expression model each is a typed node; the platform cells give each function's reading on Web Apps and Android.
+Every JavaRosa call name is recognized in Nova's form-expression profile today (`lib/commcare/xpath/functionCapabilities.ts::JAVAROSA_NATIVE_FUNCTIONS` = `ASTNodeFunctionCall.buildFuncExpr`, 76 names; Preview executes all). Each has a canonical typed node; the platform cells give each function's reading on Web Apps and Android.
 
 | HQ item | Disposition | Web Apps / Android | Emission |
 |---|---|---|---|
-| `abs` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `acos` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `asin` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `atan` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `atan2` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `boolean` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `boolean-from-string` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `ceiling` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `checklist` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `checksum` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `closest-point-on-polygon` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `coalesce` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `concat` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `cond` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `contains` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `cos` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `count` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `count-selected` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `date` | **HELD-NEW**: a typed function node | RUNS / RUNS (string parsing identical; number→date: see `number`) | printed |
-| `decrypt-string` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `depend` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `distance` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `distinct-values` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `double` | **HELD-NEW**: a typed function node | DIFFERENT (on a date: fraction is server-zone wall time) / RUNS | printed |
-| `encrypt-string` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `ends-with` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `exp` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `false` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `floor` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `format-date` | **HELD-NEW**: a typed function node | RUNS / RUNS (English names on both) | printed |
-| `format-date-for-calendar` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `id-compress` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `if` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `index-of` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `int` | **HELD-NEW**: a typed function node | DIFFERENT (on a date: day number anchored to the formplayer JVM zone, Etc/UTC) / RUNS | printed |
-| `is-point-inside-polygon` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `is-selected` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `join` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `join-chunked` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `json-property` | **HELD-NEW**: a typed function node | DIFFERENT (non-string values → `""`) / DIFFERENT (framework `org.json` stringifies) | printed |
-| `log` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `log10` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `lower-case` | **HELD-NEW**: a typed function node | DIFFERENT (server JVM locale) / DIFFERENT (device locale) | printed |
-| `max` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `min` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `not` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `now` | **HELD-NEW**: a typed function node | DIFFERENT (server clock; calculates re-run every request) / RUNS (device clock) | printed |
-| `number` | **HELD-NEW**: a typed function node | DIFFERENT (on a date: JVM-zone anchor) / RUNS | printed |
-| `pi` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `position` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `pow` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `random` | **HELD-NEW**: a typed function node | DIFFERENT (a calculate changes every request) / RUNS | printed |
-| `regex` | **HELD-NEW**: a typed function node | DIFFERENT (ASCII classes) / DIFFERENT (Unicode classes; named groups need API 26) | printed |
-| `replace` | **HELD-NEW**: a typed function node | DIFFERENT / DIFFERENT (as `regex`) | printed |
-| `round` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `selected` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `selected-at` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `sin` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `sleep` | **HELD-NEW**: a typed function node | DIFFERENT (delays every request) / RUNS (only when a dependency changes) | printed |
-| `sort` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `sort-by` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `sqrt` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `starts-with` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `string` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `string-length` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `substr` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `substring-after` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `substring-before` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `sum` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `tan` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `today` | **HELD-NEW**: a typed function node | DIFFERENT (server clock, browser zone) / RUNS (device clock and zone) | printed |
-| `translate` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `true` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
-| `upper-case` | **HELD-NEW**: a typed function node | DIFFERENT / DIFFERENT (as `lower-case`) | printed |
-| `uuid` | **HELD-NEW**: a typed function node | DIFFERENT (a calculate changes every request) / RUNS | printed |
-| `weighted-checklist` | **HELD-NEW**: a typed function node | RUNS / RUNS | printed |
+| `abs` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `acos` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `asin` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `atan` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `atan2` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `boolean` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `boolean-from-string` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `ceiling` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `checklist` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `checksum` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `closest-point-on-polygon` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `coalesce` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `concat` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `cond` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `contains` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `cos` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `count` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `count-selected` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `date` | **HELD**: a typed function node | RUNS / RUNS (string parsing identical; number→date: see `number`) | printed |
+| `decrypt-string` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `depend` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `distance` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `distinct-values` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `double` | **HELD**: a typed function node | DIFFERENT (on a date: fraction is server-zone wall time) / RUNS | printed |
+| `encrypt-string` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `ends-with` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `exp` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `false` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `floor` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `format-date` | **HELD**: a typed function node | RUNS / RUNS (English names on both) | printed |
+| `format-date-for-calendar` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `id-compress` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `if` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `index-of` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `int` | **HELD**: a typed function node | DIFFERENT (on a date: day number anchored to the formplayer JVM zone, Etc/UTC) / RUNS | printed |
+| `is-point-inside-polygon` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `is-selected` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `join` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `join-chunked` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `json-property` | **HELD**: a typed function node | DIFFERENT (non-string values → `""`) / DIFFERENT (framework `org.json` stringifies) | printed |
+| `log` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `log10` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `lower-case` | **HELD**: a typed function node | DIFFERENT (server JVM locale) / DIFFERENT (device locale) | printed |
+| `max` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `min` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `not` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `now` | **HELD**: a typed function node | DIFFERENT (server clock; calculates re-run every request) / RUNS (device clock) | printed |
+| `number` | **HELD**: a typed function node | DIFFERENT (on a date: JVM-zone anchor) / RUNS | printed |
+| `pi` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `position` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `pow` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `random` | **HELD**: a typed function node | DIFFERENT (a calculate changes every request) / RUNS | printed |
+| `regex` | **HELD**: a typed function node | DIFFERENT (ASCII classes) / DIFFERENT (Unicode classes; named groups need API 26) | printed |
+| `replace` | **HELD**: a typed function node | DIFFERENT / DIFFERENT (as `regex`) | printed |
+| `round` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `selected` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `selected-at` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `sin` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `sleep` | **HELD**: a typed function node | DIFFERENT (delays every request) / RUNS (only when a dependency changes) | printed |
+| `sort` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `sort-by` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `sqrt` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `starts-with` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `string` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `string-length` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `substr` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `substring-after` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `substring-before` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `sum` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `tan` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `today` | **HELD**: a typed function node | DIFFERENT (server clock, browser zone) / RUNS (device clock and zone) | printed |
+| `translate` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `true` | **HELD**: a typed function node | RUNS / RUNS | printed |
+| `upper-case` | **HELD**: a typed function node | DIFFERENT / DIFFERENT (as `lower-case`) | printed |
+| `uuid` | **HELD**: a typed function node | DIFFERENT (a calculate changes every request) / RUNS | printed |
+| `weighted-checklist` | **HELD**: a typed function node | RUNS / RUNS | printed |
 | `instance('id')`, `current()` path roots | **HELD-NEW**: typed path roots (path initializers, `XPathPathExpr.getReference`; the `casedb` and `commcaresession` roots are held today, Secondary instances) | RUNS / RUNS | printed |
 | `jr:itext('id')` | **HELD-NEW**: itext lookup bound to a translation unit (not in Nova's registry today) | RUNS / RUNS | printed |
 | `jr:choice-name(value, 'path')` on a static-choice select | **HELD-NEW**: choice-label lookup bound to the field | RUNS / RUNS | printed |
 | `jr:choice-name` on a lookup (itemset) select | **REFUSED**: broken at runtime: "error in evaluation of xpath function [choice-name]" on both | — | — |
 | `here()` in a form | **REFUSED**: broken at runtime: no form-context handler ("cannot handle function 'here'") | — | — |
-| `here()` in a case-list calculated column or sort | **HELD-NEW**: row-context `here()` | UNAVAILABLE in case-list rows and sorts (Core's São Paulo placeholder, `EntityScreen`), RUNS in the case detail with the browser's location, blank until granted (`MenuSessionRunnerService`, `FormplayerHereFunctionHandler`) / RUNS | printed |
+| `here()` in a case-list calculated column or sort | **HELD-NEW**: row-context `here()` (admission and authoring land in pull request 6) | UNAVAILABLE in case-list rows and sorts (Core's São Paulo placeholder, `EntityScreen`), RUNS in the case detail with the browser's location, blank until granted (`MenuSessionRunnerService`, `FormplayerHereFunctionHandler`) / RUNS | printed |
 | any other function name | **REFUSED**: broken at runtime: `XPathCustomRuntimeFunc` throws at evaluation | — | — |
 | union `a \| b` | **REFUSED**: broken at runtime: `XPathUnionExpr` throws "nodeset union operation" | — | — |
 | filter expression `(expr)[…]` (root other than `instance()`/`current()`) | **REFUSED**: broken at runtime: `XPathUnsupportedException("filter expression")` (followed by a path step in a bind, not HQ-buildable: Core's parse refuses it) | — | — |
@@ -147,9 +147,10 @@ Every JavaRosa call name is admitted in Nova's `XPathExpression` slots today (`l
 | `..` after a named step (`/data/a/../b`) | **REFUSED**: not HQ-buildable in a bind, where Core's parse refuses it; broken at runtime in an output or setvalue: parents are not allowed after a named step | — | — |
 | `$var` in a form expression | **REFUSED**: broken at runtime: form contexts define no variables, so a bare `$var` reads blank and any function or operator over it throws (executed) | — | — |
 | `<`, `<=`, `>` or `>=` with a time on either side (a time answer, property or string) | **REFUSED**: broken at runtime: Core compares both sides as numbers, and a string holding `:` is NaN (`FunctionUtils.toNumeric`; a time answer reaches XPath as its string, `XPathPathExpr.unpackValue`), so the comparison is always false (executed: `'14:30' < '15:00'` is false) | — | — |
-| relative paths (`../q`, `.`, `current()/../x`) | **HELD-NEW**: typed expression model: relative paths bound as identity leaves, so renames rewrite them (admitted as opaque text today) | RUNS / RUNS | printed |
+| relative paths (`../q`, `.`, `current()/../x`) | **HELD**: relative paths bound as identity leaves; renames and moves reprint their current path | RUNS / RUNS | printed |
+| operators `and`, `or`, `=`, `!=`, `<`, `<=`, `>`, `>=`, `+`, `-`, `*`, `div`, `mod`, unary `-`, parentheses, argument commas, and number and string literals (outside the time comparisons refused above) | **HELD**: typed operator and literal nodes in the canonical expression model | RUNS / RUNS | printed |
 | `#form/…` | **HELD**: `field-ref` | RUNS / RUNS | hashtag + expanded path; in a default value, the read printed relatively (defect 13) |
-| `#case/<prop>`, `#case/parent/<prop>`, `#case/grandparent/<prop>` | **HELD**: `#<type>/<prop>` identity leaves for the module, parent and grandparent types | RUNS / RUNS | HQ hashtags + expanded paths, the `#case/parent/` or `#case/grandparent/` hashtag only where HQ's parent-type map gives the case type that ancestor (`app_schemas/case_properties.py::get_parent_type_map`, from basic child-case actions and indexed advanced open actions in the app and its case-sharing apps), and otherwise the expanded path alone: a Vellum save writes a hashtag its schema does not know into the XForm unexpanded, which Core cannot parse, and keeps an expanded path (executed); Nova's XForms carry only `#case/<prop>` hashtags, on follow-up and close forms, and the expanded path alone for an ancestor (`lib/commcare/hashtags/formContext.ts::vellumShorthandInContext`), and HQ's parent-type map counts only indices named `parent` (`app_schemas/casedb_schema.py`) |
+| `#case/<prop>`, `#case/parent/<prop>`, `#case/grandparent/<prop>` | **HELD**: `#<type>/<prop>` identity leaves for the module, parent and grandparent types | RUNS / RUNS | HQ hashtags + expanded paths, the `#case/parent/` or `#case/grandparent/` hashtag only where HQ's parent-type map gives the case type that ancestor (`app_schemas/case_properties.py::get_parent_type_map`, from basic child-case actions and indexed advanced open actions in the app and its case-sharing apps), and otherwise the expanded path alone: a Vellum save writes a hashtag its schema does not know into the XForm unexpanded, which Core cannot parse, and keeps an expanded path (executed); Nova's XForms carry expanded paths alone for module and ancestor case reads (`lib/commcare/xpath/wire/fromExpression.ts::term` marks the case expansion and `wire/serialize.ts::shadowEligibility` withholds its Vellum shadow), and HQ's parent-type map counts only indices named `parent` (`app_schemas/casedb_schema.py`) |
 | `#case:<module-slug>/…` (unrelated parent-select case) | **REFUSED**: retiring (NON_PARENT_MENU_SELECTION: only "Other" parent selection produces it) | — | — |
 | `#registry_case/…` | **REFUSED**: retiring (DATA_REGISTRY) | — | — |
 | `#user/<prop>` | → Usercase, `#user/<prop>` | — | — |

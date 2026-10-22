@@ -28,23 +28,14 @@ function fixture() {
 	return { doc, form, field };
 }
 
-/** The context's data slices. `timeOrderings` reads the document it was
- *  built from at lint time, so it is a function of the snapshot and never
- *  part of what the reference cache keys on. */
-function referenceSlices(context: ReturnType<typeof buildLintContext>) {
-	if (context === undefined) return undefined;
-	const { timeOrderings: _timeOrderings, ...slices } = context;
-	return slices;
-}
-
-function lintDoc(doc: BlueprintDoc) {
+function referenceDoc(doc: BlueprintDoc) {
 	const store = createBlueprintDocStore();
 	store.getState().load(doc);
 	return store.getState();
 }
 
 describe("Builder reference-context invalidation", () => {
-	it("does not invalidate for a case-write-only edit that leaves the actual lint projection unchanged", () => {
+	it("does not invalidate for a case-write-only edit that leaves the actual reference projection unchanged", () => {
 		const { doc, field, form } = fixture();
 		const next: BlueprintDoc = {
 			...doc,
@@ -56,21 +47,21 @@ describe("Builder reference-context invalidation", () => {
 				},
 			},
 		};
-		expect(referenceSlices(buildLintContext(lintDoc(next), form.uuid))).toEqual(
-			referenceSlices(buildLintContext(lintDoc(doc), form.uuid)),
+		expect(buildLintContext(referenceDoc(next), form.uuid)).toEqual(
+			buildLintContext(referenceDoc(doc), form.uuid),
 		);
 		expect(referenceContextChanged(next, doc)).toBe(false);
 	});
 
-	it("invalidates a field rename whose actual lint context changes", () => {
+	it("invalidates a field rename whose actual reference context changes", () => {
 		const { doc, field, form } = fixture();
 		const next: BlueprintDoc = {
 			...doc,
 			fields: { ...doc.fields, [field.uuid]: { ...field, id: "full_name" } },
 		};
-		expect(
-			referenceSlices(buildLintContext(lintDoc(next), form.uuid)),
-		).not.toEqual(referenceSlices(buildLintContext(lintDoc(doc), form.uuid)));
+		expect(buildLintContext(referenceDoc(next), form.uuid)).not.toEqual(
+			buildLintContext(referenceDoc(doc), form.uuid),
+		);
 		expect(referenceContextChanged(next, doc)).toBe(true);
 	});
 

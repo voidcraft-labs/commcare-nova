@@ -38,7 +38,7 @@ import {
 	prop,
 	subcasePath,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 

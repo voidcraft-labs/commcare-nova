@@ -40,7 +40,10 @@ const openJdkMathSourceDirectory = fileURLToPath(
 	),
 );
 const doubleStringSourcePath = fileURLToPath(
-	new URL("../../lib/preview/xpath/openJdk17DoubleString.ts", import.meta.url),
+	new URL(
+		"../../lib/domain/expression/openJdk17DoubleString.ts",
+		import.meta.url,
+	),
 );
 const [patternSource, mathSource, namesSource, doubleStringSource] =
 	await Promise.all([

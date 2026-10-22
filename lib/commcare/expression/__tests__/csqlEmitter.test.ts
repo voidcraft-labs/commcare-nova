@@ -1,6 +1,7 @@
 import AdmZip from "adm-zip";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { advancedSearchInputDef } from "@/lib/domain";
 import {
 	actingUser,
 	arith,
@@ -26,11 +27,13 @@ import {
 	term,
 	today,
 	unowned,
-} from "@/lib/domain/predicate/builders";
-import type { ValueExpression } from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression/builders";
+import type { Expression } from "@/lib/domain/expression/types";
 import {
 	csqlArgumentFixture,
+	csqlFixtureContext,
 	csqlFunctionFixture,
+	csqlInputContext,
 	functionLookupFixtures,
 	functionLookupNaming,
 } from "../../__tests__/csqlFunctionFixture";
@@ -47,7 +50,7 @@ import { emitCsqlExpressionSegments } from "../csqlEmitter";
 
 // These checks own the private segment IR. Native execution consumes complete
 // accepted exports in CsqlFunctionRuntimeTest and the HQ Search payload proof.
-it.each<[ValueExpression, string[]]>([
+it.each<[Expression, string[]]>([
 	[today(), ["today()"]],
 	[now(), ["now()"]],
 	[term(literal("Ada")), ["'Ada'"]],
@@ -88,9 +91,9 @@ it.each<[ValueExpression, string[]]>([
 ])(
 	"leaves constants separate for the surrounding clause composer: %j",
 	(expression, texts) => {
-		expect(emitCsqlExpressionSegments(expression)).toEqual(
-			texts.map((text) => ({ kind: "constant", text })),
-		);
+		expect(
+			emitCsqlExpressionSegments(expression, csqlFixtureContext()),
+		).toEqual(texts.map((text) => ({ kind: "constant", text })));
 	},
 );
 
@@ -100,9 +103,16 @@ it("resolves the renamed date input by identity and emits its quote-free argumen
 		emitCsqlExpressionSegments(
 			dateAdd(term(input(uuid)), "days", term(literal(7))),
 			{
-				caseTypes: [],
-				knownInputs: [{ uuid, name: "renamed_date", data_type: "date" }],
-				searchInputInstanceId: "search-input:custom",
+				...csqlInputContext([
+					advancedSearchInputDef(
+						uuid,
+						"renamed_date",
+						"Date",
+						"date",
+						matchAll(),
+					),
+				]),
+				bindings: { searchInputInstanceId: "search-input:custom" },
 			},
 		),
 	).toEqual([
@@ -129,6 +139,7 @@ it("refuses to guess a temporal function for an unresolved read", () => {
 		expect(() =>
 			emitCsqlExpressionSegments(
 				dateAdd(term(value), "days", term(literal(1))),
+				csqlFixtureContext(),
 			),
 		).toThrow(/cannot choose between CCHQ's date-add\(\) and datetime-add\(\)/);
 	}
@@ -152,7 +163,9 @@ it("rejects direct dispatch of runtime-only values at this private native-call b
 		unowned(),
 	];
 	for (const expression of expressions)
-		expect(() => emitCsqlExpressionSegments(expression)).toThrow(
+		expect(() =>
+			emitCsqlExpressionSegments(expression, csqlFixtureContext()),
+		).toThrow(
 			`tried to emit a value-expression of kind '${expression.kind}' as native CSQL`,
 		);
 });

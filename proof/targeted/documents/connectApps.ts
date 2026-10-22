@@ -32,8 +32,9 @@
  * Fixed values: each form holds what the worker answers (`./echo.ts`).
  */
 
-import { buildDoc, f, xpIn } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain";
+import { formField, term } from "@/lib/domain/expression";
 import { targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
@@ -139,7 +140,7 @@ export function connectLearnRename() {
 		});
 		const config = doc.forms[form].connect;
 		if (config && "assessment" in config && config.assessment) {
-			config.assessment.user_score = xpIn(doc, form, "#form/score");
+			config.assessment.user_score = term(formField(uuid("score")));
 		}
 		return doc;
 	};

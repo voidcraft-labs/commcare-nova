@@ -87,14 +87,15 @@ export function normalizeBlueprintOwnRecords(doc: BlueprintDoc): void {
 }
 
 /**
- * Cross a React Server Component boundary without leaking the in-memory
+ * Cross a React Server Component or Server Action boundary without leaking the in-memory
  * null-prototype representation into Flight. React accepts ordinary objects
  * only; the structured clone keeps every enumerable own key (including
  * `__proto__`) while rebuilding record objects with `Object.prototype`.
  *
- * `BlueprintDocProvider` hydrates this transport copy back through
- * `normalizeBlueprintOwnRecords` before any client-side document read.
+ * Document consumers hydrate this transport copy back through
+ * `normalizeBlueprintOwnRecords`. Keep immutable document references inside
+ * React subscriptions and create this copy only when dispatching across Flight.
  */
-export function toRscSerializableDoc(doc: PersistableDoc): PersistableDoc {
+export function toRscSerializableDoc<T extends PersistableDoc>(doc: T): T {
 	return structuredClone(doc);
 }

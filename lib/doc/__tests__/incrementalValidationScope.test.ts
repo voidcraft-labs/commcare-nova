@@ -8,7 +8,7 @@ import { incrementalValidationScope as actualScope } from "@/lib/doc/incremental
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid, type Mutation } from "@/lib/doc/types";
 import type { CaseOperation } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 function incrementalValidationScope(...args: Parameters<typeof actualScope>) {

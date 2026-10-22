@@ -7,8 +7,11 @@
 "use client";
 
 import { useFormLinkProjection } from "@/lib/doc/hooks/useFormLinkChoices";
+import type { Uuid } from "@/lib/domain";
 import type { LinkSentenceContext } from "./linkSentence";
 
-export function useLinkSentenceContext(): LinkSentenceContext {
-	return useFormLinkProjection();
+export function useLinkSentenceContext(
+	formUuid: Uuid | undefined,
+): LinkSentenceContext {
+	return useFormLinkProjection(formUuid);
 }

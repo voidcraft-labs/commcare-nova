@@ -8,8 +8,8 @@
  * Vincenty portions derive from Mike Gavaghan's geodesy 1.1.3 (Apache-2.0).
  */
 
+import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
 import { javaRosaSplitOnSpaces, javaTrim } from "./javaString";
-import { openJdk17DoubleToString } from "./openJdk17DoubleString";
 
 const EARTH_RADIUS_METERS = 6_371_009;
 const WGS84_A = 6_378_137;

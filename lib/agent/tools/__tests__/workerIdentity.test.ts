@@ -4,8 +4,7 @@ import {
 	makeCanonicalGenesisDoc,
 	makeToolWorkspaceHarness,
 } from "@/lib/agent/__tests__/fixtures";
-import { AuthoringScope } from "@/lib/agent/authoring/bindings";
-import { parseQueryValue } from "@/lib/agent/authoring/queryExpressions";
+import { moduleUuidOfForm } from "@/lib/domain";
 import { createEvaluationApp } from "@/lib/preview/engine/__tests__/evaluationFixture";
 import { evaluateForm } from "@/lib/preview/engine/evaluateForm";
 import {
@@ -13,13 +12,20 @@ import {
 	previewAsPersona,
 	previewSessionValues,
 } from "@/lib/preview/engine/identity";
-import { evaluatePreviewSearchExpression } from "@/lib/preview/engine/searchExpressionEvaluation";
+import { resolveSearchHiddenValues } from "@/lib/preview/engine/searchExpressionEvaluation";
 import { getUsersTool } from "../users";
 
 it("the worker readings returned to authors execute in their stated scopes and follow the simulated worker", async () => {
 	const harness = makeToolWorkspaceHarness(makeCanonicalGenesisDoc());
 	const { data } = await harness.runTool(getUsersTool, {});
 	const readings = { ...data.builtInIdentity, ...data.builtInPlaces };
+	const searchKeys = [
+		"workerId",
+		"loginName",
+		"primaryPlace",
+		"assignedPlaces",
+		"primarySharingGroup",
+	] as const;
 	const doc = await createEvaluationApp(
 		[
 			{
@@ -61,6 +67,18 @@ it("the worker readings returned to authors execute in their stated scopes and f
 					fieldUuid: "fixture_placeholder",
 				},
 			},
+			{
+				toolName: "addSearchInputs",
+				input: {
+					moduleUuid: "Approvals",
+					searchInputs: searchKeys.map((key) => ({
+						kind: "hidden",
+						name: key,
+						label: key,
+						value: readings[key].recordExpression,
+					})),
+				},
+			},
 		],
 	);
 	const actor = {
@@ -80,7 +98,10 @@ it("the worker readings returned to authors execute in their stated scopes and f
 		(form) => form.name === "Approve",
 	)?.uuid;
 	if (!formUuid) throw new Error("Approval form missing");
-	const scope = new AuthoringScope({ doc });
+	const moduleUuid = moduleUuidOfForm(doc, formUuid);
+	if (!moduleUuid) throw new Error("Approval module missing");
+	const searchInputs = doc.modules[moduleUuid].caseListConfig?.searchInputs;
+	if (!searchInputs) throw new Error("Worker Search values missing");
 	for (const [identity, expected] of [
 		[
 			previewAsMe(actor, doc),
@@ -133,21 +154,13 @@ it("the worker readings returned to authors execute in their stated scopes and f
 				),
 			},
 		});
-		for (const key of [
-			"workerId",
-			"loginName",
-			"primaryPlace",
-			"assignedPlaces",
-			"primarySharingGroup",
-		] as const) {
-			const expression = parseQueryValue(readings[key].recordExpression, scope);
-			expect(
-				evaluatePreviewSearchExpression(
-					expression,
-					previewSessionValues(identity),
-				),
-			).toBe(expected[key]);
-		}
+		const searchValues = resolveSearchHiddenValues(
+			searchInputs,
+			previewSessionValues(identity),
+			{ doc, moduleUuid },
+		);
+		for (const key of searchKeys)
+			expect(searchValues.get(key) ?? "").toBe(expected[key]);
 	}
 	expect(doc.userPropertyOrder ?? []).toEqual([]);
 });

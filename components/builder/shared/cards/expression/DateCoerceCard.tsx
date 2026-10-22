@@ -9,7 +9,7 @@
 //     emits `date(...)`: the one parse-coercion that evaluator has,
 //     whose String arm preserves time-of-day).
 //
-// Both share an identical `{ value: ValueExpression }` operand shape;
+// Both share an identical `{ value: Expression }` operand shape;
 // the `ExpressionPicker` shell's kind-replace menu treats them as a
 // structural-twin pair (`preservedExpressionSwap`) so toggling
 // between them preserves the operand verbatim.
@@ -22,14 +22,16 @@
 // editor captures them inline next to the operand picker.
 
 "use client";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
+
 import {
 	coerceOperandConstraint,
 	dateCoerce,
 	datetimeCoerce,
+	type Expression,
 	literal,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
@@ -44,23 +46,20 @@ const OPERAND_CONSTRAINT = coerceOperandConstraint();
  *  operand resolves to an incompatible type. */
 export function dateCoerceDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "date-coerce" }> {
+): ExpressionOfKind<"date-coerce"> {
 	return dateCoerce(term(literal("")));
 }
 
 /** Default `datetime-coerce`: same shape as `dateCoerce`. */
 export function datetimeCoerceDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "datetime-coerce" }> {
+): ExpressionOfKind<"datetime-coerce"> {
 	return datetimeCoerce(term(literal("")));
 }
 
 interface DateCoerceCardProps {
-	readonly value: Extract<
-		ValueExpression,
-		{ kind: "date-coerce" | "datetime-coerce" }
-	>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"date-coerce" | "datetime-coerce">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
@@ -69,7 +68,7 @@ export function DateCoerceCard({ value, onChange, path }: DateCoerceCardProps) {
 	// `CardShell` footer at `[..., "value"]`; no parallel
 	// `<InlineError>` is needed here.
 
-	const setOperand = (next: ValueExpression) => {
+	const setOperand = (next: Expression) => {
 		// Kind-preserving build: the card serves both arms; the
 		// builder selection follows the source's `kind` so the
 		// operator survives the operand edit. Kind swap goes through

@@ -37,7 +37,7 @@ import {
 	isReservedCaseOperationProperty,
 } from "@/lib/doc/identifierVerdicts";
 import { slugifyId } from "@/lib/domain";
-import type { ValueExpression } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
 import { casePropertyLabel, caseTypePhrase } from "./operationSentence";
 import { seedWriteValue, writeSeedUnavailableReason } from "./seeds";
 
@@ -54,7 +54,7 @@ export function WritePropertyPicker({
 	readonly alreadyWritten: ReadonlySet<string>;
 	/** The answers this change may read: what a write can be seeded from. */
 	readonly formFields: readonly EditorFormFieldDecl[];
-	readonly onChoose: (property: string, value: ValueExpression) => void;
+	readonly onChoose: (property: string, value: Expression) => void;
 }) {
 	const caseTypes = useEffectiveCaseTypes();
 	const [open, setOpen] = useState(false);
@@ -112,7 +112,7 @@ export function WritePropertyPicker({
 			? writeSeedUnavailableReason(declared.data_type)
 			: undefined;
 
-	const choose = (property: string, value: ValueExpression) => {
+	const choose = (property: string, value: Expression) => {
 		setOpen(false);
 		setDraft("");
 		onChoose(property, value);

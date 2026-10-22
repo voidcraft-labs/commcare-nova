@@ -66,7 +66,7 @@ import type {
 	FieldEditorComponentProps,
 	FieldEditorContext,
 	FieldEditorSchema,
-	XPathExpressionKeys,
+	FormExpressionKeys,
 } from "@/lib/domain/kinds";
 import { useSelectedFormContext } from "@/lib/routing/hooks";
 import { requiredEntry } from "./requiredEntry";
@@ -107,7 +107,7 @@ const TextEditor = dynamic(
 		),
 	{ loading: EditorLoading },
 ) as typeof TextEditorComponent;
-function WarmXPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
+function WarmXPathEditor<F extends Field, K extends FormExpressionKeys<F>>(
 	props: FieldEditorComponentProps<F, K>,
 ) {
 	const snapshot = useSyncExternalStore(
@@ -177,7 +177,7 @@ const PreloadedDefaultValueEditor = dynamic(
  * it); everywhere else it is the ordinary XPath editor. Same predicate the
  * entry's `visible` reads, so the forced-visible row and this branch agree.
  */
-function DefaultValueEditor<F extends Field, K extends XPathExpressionKeys<F>>(
+function DefaultValueEditor<F extends Field, K extends FormExpressionKeys<F>>(
 	props: FieldEditorComponentProps<F, K>,
 ) {
 	const preloads = writerPreloadsInContext(
@@ -218,18 +218,8 @@ function xpathEntry<F extends Field, K extends keyof F & string>(
 		component: XPathEditor,
 		label,
 		addable: true,
-		visible: (field) => hasParts(field[key]),
+		visible: (field) => field[key] !== undefined,
 	};
-}
-
-function hasParts(value: unknown): boolean {
-	return (
-		value !== undefined &&
-		typeof value === "object" &&
-		value !== null &&
-		"parts" in value &&
-		(value as ProseTemplate).parts.length > 0
-	);
 }
 
 // The `default_value` entry. Addable like any optional XPath slot, and
@@ -251,7 +241,8 @@ function defaultValueEntry<F extends Field & { default_value?: unknown }>(): {
 		label: "Default value",
 		addable: true,
 		visible: (field, context) =>
-			hasParts(field.default_value) || writerPreloadsInContext(field, context),
+			field.default_value !== undefined ||
+			writerPreloadsInContext(field, context),
 	};
 }
 

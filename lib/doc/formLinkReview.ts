@@ -20,6 +20,7 @@ import {
 	entryFrameDatums,
 	formLinkActionsBuildable,
 	formLinkProjectionContext,
+	formLinkTargetDatumIds,
 	matchFrameToSource,
 	owningModuleOf,
 	targetFrameChildren,
@@ -37,6 +38,7 @@ import {
 	formLinkSelectionIsCompatible,
 	type Uuid,
 } from "@/lib/domain";
+import type { FormLinkDatumName } from "@/lib/domain/expression/types";
 import { possibleFinalSessionCaseTypes } from "./caseOperationOrder";
 import { afterSubmitPlan, formLinkIsConditionalIn } from "./formLinkMutations";
 
@@ -259,6 +261,7 @@ function formLinkTargetVerdictForDatumMode(
 }
 
 export interface FormLinkRequiredDatum {
+	readonly name: FormLinkDatumName;
 	readonly id: string;
 	readonly caseType?: string;
 }
@@ -288,11 +291,18 @@ export function formLinkRequiredDatums(
 	// is never stored.
 	const probe: FormLink = { uuid: formUuid, target };
 	if (!formLinkActionsBuildable(doc, formUuid, [probe])) return [];
-	const ctx = formLinkProjectionContext(doc);
-	return targetSelectionDatums(doc, ctx, target).map((datum) => ({
-		id: datum.id,
-		...(datum.caseType !== undefined && { caseType: datum.caseType }),
-	}));
+	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+	const selections = new Map(
+		targetSelectionDatums(doc, ctx, target).map((datum) => [datum.id, datum]),
+	);
+	return formLinkTargetDatumIds(doc, ctx, target).flatMap((datum) => {
+		const name = datum.refs.find((ref) => ref.kind === "selected-case");
+		if (name === undefined || name.kind !== "selected-case") return [];
+		const caseType = selections.get(datum.id)?.caseType;
+		return [
+			{ name, id: datum.id, ...(caseType === undefined ? {} : { caseType }) },
+		];
+	});
 }
 
 export type FormLinkCarryVerdict =
@@ -324,7 +334,7 @@ export function formLinkCarryVerdict(
 ): FormLinkCarryVerdict {
 	const required = formLinkRequiredDatums(doc, formUuid, target);
 	if (required.length === 0) return { kind: "nothing-needed" };
-	const ctx = formLinkProjectionContext(doc);
+	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const sourceModule = owningModuleOf(ctx, formUuid);
 	if (sourceModule === undefined) {
 		return { kind: "manual-required", datumIds: required.map((d) => d.id) };

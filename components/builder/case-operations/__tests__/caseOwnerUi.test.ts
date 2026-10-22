@@ -6,7 +6,7 @@ import {
 	literal,
 	ownerLocationAtLevel,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	caseOwnerCopy,
 	caseOwnerMode,

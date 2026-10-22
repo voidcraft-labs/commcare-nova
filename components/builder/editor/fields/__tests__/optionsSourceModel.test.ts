@@ -4,7 +4,7 @@ import {
 	lookupTableIdSchema,
 	selectOptionsSourceSchema,
 } from "@/lib/domain";
-import { eq, literal, tableColumn } from "@/lib/domain/predicate";
+import { eq, literal, tableColumn } from "@/lib/domain/expression/builders";
 import {
 	beginOptionsSource,
 	completeLookupSource,

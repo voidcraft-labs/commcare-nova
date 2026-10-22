@@ -19,9 +19,6 @@ import {
 	localeFileValueIssue,
 	translationUnitUsesLocaleFile,
 } from "@/lib/commcare/localeFile";
-import { parseXPathExpressionWithIssues } from "@/lib/commcare/xpath";
-import { authoredXPathCarriers } from "@/lib/commcare/xpath/carriers";
-import { analyzeXPathCompatibility } from "@/lib/commcare/xpath/compatibility";
 import {
 	authoredBlueprintIdentities,
 	type BlueprintAuthoredIdentityKind,
@@ -35,23 +32,13 @@ import {
 	isConnectLearnConfig,
 	mintSelectOptionPlaceholder,
 	projectProseTemplate,
-	projectXPath,
 	proseTemplateText,
 	repairSelectOptionValue,
 	selectOptionValueProblem,
 	translationValueIntegrityIssue,
-	type Uuid,
-	xpathPrintContext,
 } from "@/lib/domain";
-import { formRootReadPositions } from "@/lib/preview/xpath/dependencies";
-import { proseTemplateSurvivesTiptapRoundTrip } from "@/lib/tiptap/proseTemplateCodec";
-import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { type ValidationError, validationError } from "../errors";
 import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";
-import {
-	findTimeOrderingComparisons,
-	TIME_ORDERING_MESSAGE,
-} from "../timeOrdering";
 import { AUTOMATION_RULES } from "./automations";
 import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
 import { ORGANIZATION_RULES } from "./organization";
@@ -68,68 +55,6 @@ function closedBlueprintTopology(doc: BlueprintDoc): ValidationError[] {
 			{ path: issue.path.join(".") },
 		),
 	);
-}
-
-/** Catalog constraints are persisted XPath carriers but are not copied onto
- * form fields. Gate their wire-runtime compatibility at app scope so they can
- * never become dormant invalid state that fails when later materialized. */
-function catalogXPathCompatible(doc: BlueprintDoc): ValidationError[] {
-	const errors: ValidationError[] = [];
-	for (const carrier of authoredXPathCarriers(doc)) {
-		if (carrier.profile !== "wire-catalog") continue;
-		for (const finding of analyzeXPathCompatibility(
-			carrier.source,
-			carrier.profile,
-		)) {
-			const slotLabel = carrier.slot.endsWith("required")
-				? "required condition"
-				: "validation condition";
-			errors.push(
-				validationError(
-					"CASE_PROPERTY_XPATH_INCOMPATIBLE",
-					"app",
-					`A case-property catalog ${slotLabel} uses XPath that CommCare cannot run. ${finding.detail}`,
-					{},
-					{
-						path: carrier.path,
-						profile: carrier.profile,
-						findingCode: finding.code,
-						owner: finding.owner,
-					},
-				),
-			);
-		}
-	}
-	return errors;
-}
-
-/** A catalog property's `required` and `validation` reach no form slot the
- * form-logic walk reads, so their orderings on a time of day are refused here,
- * at app scope, as the form slots refuse theirs (`timeOrdering.ts`). */
-function catalogTimeOrdering(doc: BlueprintDoc): ValidationError[] {
-	const errors: ValidationError[] = [];
-	for (const caseType of doc.caseTypes ?? []) {
-		for (const property of caseType.properties) {
-			for (const [slot, expression] of [
-				["required", property.required],
-				["validation", property.validation],
-			] as const) {
-				if (expression === undefined) continue;
-				const findings = findTimeOrderingComparisons(expression, { doc });
-				if (findings.length === 0) continue;
-				errors.push(
-					validationError(
-						"XPATH_TIME_ORDERING",
-						"app",
-						`The ${slot} condition of case property "${property.name}" on "${caseType.name}" has an ordering CommCare can't evaluate. ${TIME_ORDERING_MESSAGE}`,
-						{},
-						{ caseType: caseType.name, property: property.name, slot },
-					),
-				);
-			}
-		}
-	}
-	return errors;
 }
 
 /**
@@ -253,130 +178,6 @@ function catalogOptionValuesDistinct(doc: BlueprintDoc): ValidationError[] {
 						},
 					),
 				);
-			}
-		}
-	}
-	return errors;
-}
-
-function canonicalCasePropertyDefaults(doc: BlueprintDoc): ValidationError[] {
-	const errors: ValidationError[] = [];
-	const printContext = xpathPrintContext(doc);
-	const userProperties = Object.values(doc.userProperties ?? {});
-	const resolveUserProperty = (slug: string): Uuid | undefined => {
-		const matches = userProperties.filter(
-			(property) => property?.slug === slug,
-		);
-		return matches.length === 1 ? matches[0]?.uuid : undefined;
-	};
-	const flag = (
-		caseType: string,
-		property: string,
-		slot: string,
-		reason: string,
-	): void => {
-		errors.push(
-			validationError(
-				"CASE_PROPERTY_REFERENCE_INVALID",
-				"app",
-				`Case property "${caseType}.${property}" has a noncanonical ${slot} default. ${reason}`,
-				{},
-				{ caseType, property, slot },
-			),
-		);
-	};
-
-	for (const caseType of doc.caseTypes ?? []) {
-		for (const property of caseType.properties) {
-			for (const [slot, expression] of [
-				["required", property.required],
-				["validation", property.validation],
-			] as const) {
-				if (expression === undefined) continue;
-				if (
-					expression.parts.some(
-						(part) => part.kind === "field-ref" || part.kind === "path-ref",
-					)
-				) {
-					flag(
-						caseType.name,
-						property.name,
-						slot,
-						"Catalog defaults cannot read a form answer; put that reference on the field-specific override.",
-					);
-					continue;
-				}
-				const projection = projectXPath(expression, printContext);
-				if (!projection.ok) {
-					flag(
-						caseType.name,
-						property.name,
-						slot,
-						"The XPath contains an unresolved authored reference.",
-					);
-					continue;
-				}
-				const source = projection.text;
-				// The form's root alone is a form answer too: the whole form.
-				if (formRootReadPositions(source).length > 0) {
-					flag(
-						caseType.name,
-						property.name,
-						slot,
-						"Catalog defaults cannot read a form answer; put that reference on the field-specific override.",
-					);
-					continue;
-				}
-				const parsed = parseXPathExpressionWithIssues(
-					source,
-					() => undefined,
-					resolveUserProperty,
-				);
-				// Canonicalized comparison: admission may have re-serialized
-				// the stored AST with sorted object keys, and key order is
-				// not part of the identity being proved here.
-				if (
-					parsed.issues.length > 0 ||
-					canonicalJsonText(parsed.expression) !== canonicalJsonText(expression)
-				) {
-					flag(
-						caseType.name,
-						property.name,
-						slot,
-						"The XPath must parse and print to the identical identity AST, with every custom worker reference stored by UUID.",
-					);
-				}
-			}
-
-			for (const [slot, template] of [
-				["label", property.label],
-				["hint", property.hint],
-				["validation_msg", property.validation_msg],
-				...(property.options ?? []).map(
-					(option, index) => [`options[${index}].label`, option.label] as const,
-				),
-			] as const) {
-				if (template === undefined) continue;
-				const hasExternalUserCollision = template.parts.some(
-					(part) =>
-						part.kind === "user-ref" &&
-						userProperties.some(
-							(property) =>
-								property?.slug.toLowerCase() === part.property.toLowerCase(),
-						),
-				);
-				if (
-					!proseTemplateSurvivesTiptapRoundTrip(template) ||
-					template.parts.some((part) => part.kind === "field-ref") ||
-					hasExternalUserCollision
-				) {
-					flag(
-						caseType.name,
-						property.name,
-						slot,
-						"Catalog text must survive the reference editor round trip, cannot read a form answer, and must store Nova-owned worker information by UUID.",
-					);
-				}
 			}
 		}
 	}
@@ -850,12 +651,9 @@ export const APP_RULES = [
 	authoredXmlText,
 	validEntryPoints,
 	closedBlueprintTopology,
-	catalogXPathCompatible,
-	catalogTimeOrdering,
 	globallyUniqueEntityUuids,
 	catalogOptionValuesValid,
 	catalogOptionValuesDistinct,
-	canonicalCasePropertyDefaults,
 	noModules,
 	emptyAppName,
 	validTranslationOverlays,

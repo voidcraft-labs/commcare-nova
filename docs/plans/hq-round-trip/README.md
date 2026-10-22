@@ -124,8 +124,8 @@ Four findings belong to later steps and are held until then:
 finding 56 by register entries, for step 3
 ([`3-expressions.md`](3-expressions.md), "The baseline this plan was written
 against"); findings 72 and 73 by walk stops, for step 3 (the same section);
-and finding 74 by one
-walk stop, for step 4 ([`4-platforms.md`](4-platforms.md), item 6). The
+and finding 74 by two
+walk stops, for step 4 ([`4-platforms.md`](4-platforms.md), item 6). The
 register's other entries are defects 20, 21, 23 to 28 and 30, which
 `OPEN_DEFECTS` gives to steps 4 and 5.
 

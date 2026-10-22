@@ -63,7 +63,7 @@ from proof.checks.corpus import Document
 from proof.lane import blocks as lane_blocks
 from proof.lane import readers as lane_readers
 from proof.observe import unit
-from proof.store import disk, fingerprints, pack, queue, runtime
+from proof.store import disk, fingerprints, keys, pack, queue, runtime
 from proof.store.conftest import (
     copied_control,
     document_of,
@@ -166,6 +166,69 @@ def test_a_store_of_an_earlier_run_caches_what_is_unchanged_and_runs_what_its_ke
     # --fresh reads nothing from the store.
     fresh = _build(checkout, tmp_path / "fresh.json", "--fresh", corpus=corpus, stores=[store])
     assert fresh["cached"] == [] and fresh["fresh"] == ["corpus:one", "corpus:two", *packages]
+
+
+def test_native_cache_follows_each_session_target_but_not_unrelated_documents(tmp_path, lane):
+    """The adapter reads target archives, captured source and configuration outside native/.
+
+    A target-only edit must rerun native proofs even when their producer products
+    and harness code are unchanged; an unrelated document must leave them cached.
+    """
+    checkout, _ = lane
+    module = "proof/native/steps/session_reads.py"
+    documents = (
+        "targeted-form-link-session-reads",
+        "targeted-nested-menu-session-reads",
+        "targeted-tile-session-reads",
+    )
+    write_files(
+        checkout,
+        {
+            module: (fingerprints.WORKTREE / module).read_text(),
+            "proof/native/test_session_reads.py": "def test_session_reads():\n    pass\n",
+        },
+    )
+    corpus = write_corpus(tmp_path / "native-corpus", {name: {} for name in ("one", "two", *documents)})
+    write_files(corpus, {"native/form-link/form.xml": "<data/>"})
+    cold = _build(checkout, tmp_path / "cold.json", corpus=corpus)
+    original_key = _queued(cold)["proof/native"]["key"]
+    output = _ran(checkout, corpus, tmp_path / "out", tmp_path / "cold.json")
+    store = pack.write(pack.gather([output], [tmp_path / "cold.json"]), tmp_path / "store")
+    original_fingerprints = fingerprints.compute(checkout, arch="arm64")
+    original_native = keys.native_digest(corpus)
+
+    def cached():
+        warm = _build(checkout, tmp_path / "warm.json", corpus=corpus, stores=[store])
+        assert "proof/native" in warm["classes"]["cached"]
+        held = next(entry for entry in warm["cached"] if entry["group"] == "proof/native")
+        assert held["judgments"]["outcome"] == original_key
+
+    cached()
+    for identifier in documents:
+        for relative in ("local.ccz", "export/minimum/create.body", "configurations.json"):
+            path = corpus / identifier / relative
+            original = path.read_bytes()
+            try:
+                if relative == "configurations.json":
+                    configuration = json.loads(original)
+                    configuration["minimum"]["flags"] = ["changed-session-setting"]
+                    path.write_text(json.dumps(configuration))
+                else:
+                    path.write_bytes(original + b"\nchanged")
+                write_inputs(corpus / identifier)
+                changed = _build(checkout, tmp_path / "changed.json", corpus=corpus, stores=[store])
+                assert "proof/native" in changed["classes"]["observed"], (identifier, relative)
+                assert _queued(changed)["proof/native"]["key"] != original_key, (identifier, relative)
+                assert fingerprints.compute(checkout, arch="arm64") == original_fingerprints
+                assert keys.native_digest(corpus) == original_native
+            finally:
+                path.write_bytes(original)
+                write_inputs(corpus / identifier)
+            cached()
+    unrelated = corpus / "one" / "local.ccz"
+    unrelated.write_bytes(unrelated.read_bytes() + b"\nunrelated")
+    write_inputs(corpus / "one")
+    cached()
 
 
 def _control(checkout, identifier):
@@ -578,16 +641,16 @@ def test_a_split_module_and_its_tests_are_queued_as_groups_of_their_own_keyed_by
 CORPUS_READERS = frozenset({"proof.checks.cases", "proof.checks.corpus", "proof.native.produce"})
 
 
-def _reads_corpus(path) -> bool:
-    """Whether a test module imports a corpus reader itself (anywhere in it)."""
+def _corpus_readers(path) -> frozenset[str]:
+    """The corpus readers a test module or declared adapter imports (anywhere in it)."""
+    found = set()
     for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-        if isinstance(node, ast.Import) and any(alias.name in CORPUS_READERS for alias in node.names):
-            return True
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names if alias.name in CORPUS_READERS)
         if isinstance(node, ast.ImportFrom) and node.module:
             named = {node.module, *(f"{node.module}.{alias.name}" for alias in node.names)}
-            if named & CORPUS_READERS:
-                return True
-    return False
+            found.update(named & CORPUS_READERS)
+    return frozenset(found)
 
 
 def test_a_package_keyed_on_a_sample_reads_the_corpus_only_where_it_names_the_sample():
@@ -599,12 +662,13 @@ def test_a_package_keyed_on_a_sample_reads_the_corpus_only_where_it_names_the_sa
         module, constant = sample
         assert queue.declared_documents(root, module, constant), f"{module} names no documents in {constant}."
         readers = {
-            path.relative_to(root).as_posix()
+            path.relative_to(root).as_posix(): _corpus_readers(path)
             for path in sorted((root / name).rglob("*.py"))
-            if (path.name.startswith("test_") or path.name == "conftest.py") and _reads_corpus(path)
+            if path.name.startswith("test_") or path.name == "conftest.py" or path == root / module
         }
-        native = {path for path in readers if "proof.native" in (root / path).read_text(encoding="utf-8")}
-        assert readers - native == {module}, name
+        documents = {path for path, imports in readers.items() if imports - {"proof.native.produce"}}
+        native = {path for path, imports in readers.items() if "proof.native.produce" in imports}
+        assert documents == {module}, name
         assert not native or data.get("native") == queue.EVERY, name
 
 

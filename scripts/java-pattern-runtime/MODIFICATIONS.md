@@ -20,7 +20,7 @@ Nova makes these bounded portability changes:
 - Adds a dated modification notice to every changed OpenJDK-derived source
   file, with this document retaining the complete change inventory.
 - Ports the binary-to-decimal half of OpenJDK 17 `FloatingDecimal` to
-  `lib/preview/xpath/openJdk17DoubleString.ts`, replacing its private
+  `lib/domain/expression/openJdk17DoubleString.ts`, replacing its private
   `FDBigInteger` storage with exact JavaScript BigInt arithmetic while retaining
   the JDK 17 digit-generation, stopping, rounding, and formatting rules.
 - Extracts `FdLibm.Pow` and its double-bit helpers into

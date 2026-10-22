@@ -10,7 +10,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, type FieldSpec, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
@@ -27,6 +27,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import { mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -491,7 +492,7 @@ describe("setFormSections", () => {
 				id: "rows",
 				label: proseText("Rows"),
 				repeat_mode: "count_bound",
-				repeat_count: xp("2"),
+				repeat_count: term(literal(2)),
 				children: [text(B, "b")],
 			}),
 		]);

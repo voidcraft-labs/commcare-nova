@@ -34,7 +34,7 @@ import {
 	prop,
 	relationStep,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { projectProseTemplate, proseText } from "@/lib/domain/prose";
 import { BuilderSessionProvider } from "@/lib/session/provider";
 
@@ -219,6 +219,7 @@ function Fixture() {
 				style={{ width: "min(100%, 360px)" }}
 			>
 				<ColumnEditor
+					moduleUuid={moduleUuid}
 					value={value}
 					caseTypes={types}
 					currentCaseType="patient"

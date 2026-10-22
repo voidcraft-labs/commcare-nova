@@ -972,8 +972,14 @@ planned ("Found while planning step 2").
     options are the field's own; a default an expression computes is not
     decidable there. *Documents:* `fuzz-suite-20260930-5`,
     `fuzz-suite-20260930-8`, `fuzz-xform-20260930-0`,
-    `fuzz-xform-20260930-1`, `fuzz-xform-20260930-7`; each holds the stop
+    `fuzz-xform-20260930-1`, `fuzz-xform-20260930-7`; each formerly held the stop
     Formplayer, `notification:value-could-not-be-loaded-into-question`.
+    **Fixed at the authoring boundary:** `SELECT_DEFAULT_NOT_AN_OPTION`
+    refuses a static choice default outside its options. The corpus maps
+    each drawn select default to its first drawn option, without another
+    draw; the five stops are removed. No retained control is needed for a
+    reader's refusal of an invalid answer. The validator and generator's
+    focused tests hold the refusal and mapping.
 
 73. **A date question filled from a case property that holds text opens on
     no reader.** A field that writes a case property is filled from the case
@@ -1000,8 +1006,15 @@ planned ("Found while planning step 2").
     the case a project space already holds, written by another app, an
     import or HQ's API. *Documents:*
     `expander-output-references-in-labels-lowers-several-typed-e72b42c4-0`;
-    it holds the stop Formplayer,
+    it formerly held the stop Formplayer,
     `notification:invalid-data-type-in-setvalue-event-targetting`.
+    **Fixed in the corpus:** each emitted document now carries the
+    materializable effective catalog, so its writer-derived date
+    properties receive date values. Python reads those types directly and
+    never infers them from the fields. The stop is removed, with no
+    retained control; `test_the_case_database_seeds_each_property_from_the_effective_catalog`
+    holds the seeding boundary. Existing external case data remains outside
+    an authoring rule's reach.
 
 74. **Web Apps submits its own placeholder for a date and time question in
     a repetition added last, and the form can then never be submitted.**
@@ -1035,7 +1048,13 @@ planned ("Found while planning step 2").
     `proof/webapps/observe.py::submitted_alike` holds the two alike).
     *Documents:* `targeted-datetime-ordering`, whose survey form asks two
     date and time questions and nothing else (finding 56), which holds the
-    stop Formplayer, `submit-refused:validation-error`.
+    stop Formplayer, `submit-refused:validation-error`; and
+    `fuzz-xform-20260930-0`, whose "Form 1-0" opens with both selects already
+    answered and leaves that placeholder at its required `/data/itext`
+    datetime question. R5 run 39129168950 at `5447da59` shows the same
+    refusal in all four baseline states after the walk stopped resending
+    unchanged answers; the earlier R3/R4 request had masked it. Pull request
+    5 adds that second finding-74 stop, whose fix remains step 4's.
     `fuzz-xform-20260930-10` held it too, in a repetition added last, until
     step 2 drew the repeat that follows it over the open cases (finding 71),
     so the walk answers its rows after the repetition and Formplayer's next

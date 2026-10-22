@@ -25,10 +25,9 @@ import {
 	formLinkActionsBuildable,
 	formLinkIsConditional,
 	formLinkProjectionContext,
-	formLinksProjectable,
+	formLinkTargetDatumIds,
 	projectFormLinks,
 } from "@/lib/commcare/formLinkProjection";
-import { detectUnquotedStringLiteral } from "@/lib/commcare/xpath";
 import { descendantFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	appConnectIds,
@@ -37,13 +36,10 @@ import {
 	connectDeliverFormHoldsTask,
 	deriveCaseWriteInventory,
 	type Field,
-	FORM_REFERENCE_SLOTS,
 	type Form,
 	type FormLink,
-	fieldReferenceSlotsFor,
 	fieldRegistry,
 	formConnectIds,
-	formExpressionValue,
 	formLinkDestination,
 	formRootTakenIds,
 	isConnectLearnConfig,
@@ -52,18 +48,17 @@ import {
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	type PostSubmitNotOfferedReason,
-	type ProseTemplate,
 	postSubmitDestinationsAdmitted,
 	postSubmitDestinationsOffered,
 	postSubmitNotOfferedReason,
 	projectProseTemplate,
-	projectXPath,
-	readSlotValues,
 	type Uuid,
-	type XPathExpression,
-	xpathPrintContext,
 } from "@/lib/domain";
+import { slotContext } from "@/lib/domain/expression/context";
+import { checkExpression } from "@/lib/domain/expression/typeChecker";
+import { datumRefKey } from "@/lib/domain/expression/types";
 import { freeQuestionId } from "@/lib/domain/questionId";
+import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { type ValidationError, validationError } from "../errors";
 import type { LookupTypeIndex } from "../lookupTypeContext";
 import { searchNoMatchesEntry } from "./case-search/searchNoMatches";
@@ -76,7 +71,6 @@ import {
 	formLinkSelectionCardinality,
 	multiSelectFormSemantics,
 } from "./multiSelect";
-import { sessionDatumNotSupplied } from "./sessionData";
 import { casePropertyNameFormBuilderCannotKeep } from "./sourceCaseWrites";
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -554,11 +548,13 @@ function formLinkLabel(doc: BlueprintDoc, link: FormLink, index: number) {
  *     carries an empty value without prompting for a case. Nova
  *     refuses the link instead. With explicit datums, every selection datum
  *     of the target must be named.
- *   - `FORM_LINK_DATUM_UNUSED` — an explicit datum the target never reads
- *     (HQ's manual matcher iterates the TARGET's datums, so the name is
- *     dropped silently on upload).
+ * The shared expression checker owns `FORM_LINK_DATUM_UNUSED`: a carried
+ * selected-record identity the target never requests is refused before wire
+ * projection. HQ's manual matcher would otherwise drop its printed name.
+ * Distinct identities may name the same root-aligned target selection;
+ * `FORM_LINK_DATUM_TARGET_COLLISION` refuses more than one value for it.
  *
- * The datum rules project the links, which is defined only for session-scope
+ * The remaining datum rules project the links, which is defined only for session-scope
  * expressions whose targets exist; the other findings cover every document
  * where it is not, so the rule stays total. Cycle detection across forms
  * runs at app scope in `circularFormLinks`.
@@ -567,6 +563,7 @@ function formLinkValidation(
 	doc: BlueprintDoc,
 	form: Form,
 	ctx: FormContext,
+	lookupTables: LookupTypeIndex = new Map(),
 ): ValidationError[] {
 	const links = form.formLinks;
 	if (links === undefined) return [];
@@ -585,14 +582,7 @@ function formLinkValidation(
 		return errors;
 	}
 
-	// Conditional = prints to non-empty XPath. The friendly projection answers
-	// that without lowering to the wire (which is undefined for a form-local
-	// read the deep validator reports separately).
-	const printContext = xpathPrintContext(doc);
-	const isConditional = (link: FormLink): boolean =>
-		formLinkIsConditional(link, (expression) =>
-			projectXPath(expression, printContext).text.trim(),
-		);
+	const isConditional = formLinkIsConditional;
 
 	let targetsResolve = true;
 	let earlierUnconditional: { label: string } | undefined;
@@ -701,11 +691,54 @@ function formLinkValidation(
 	// actions; each "no" is a finding another rule owns.
 	if (
 		!targetsResolve ||
-		!formLinksProjectable(doc, links) ||
+		!expressionSlotValues(doc, { entity: "form", uuid: ctx.formUuid })
+			.filter(
+				({ ref }) =>
+					ref.slot === "form_link_condition" ||
+					ref.slot === "form_link_datum_xpath",
+			)
+			.every(({ ref, expression }) => {
+				const context = slotContext(doc, ref, lookupTables);
+				return (
+					context !== undefined &&
+					checkExpression(expression, context).errors.length === 0
+				);
+			}) ||
 		!formLinkActionsBuildable(doc, ctx.formUuid, links)
 	) {
 		return errors;
 	}
+	const entryContext = entryPlanContext(doc);
+	let hasDatumCollision = false;
+	for (const [index, link] of links.entries()) {
+		if (link.datums === undefined) continue;
+		const { label, details } = formLinkLabel(doc, link, index);
+		for (const target of formLinkTargetDatumIds(
+			doc,
+			entryContext,
+			link.target,
+		)) {
+			const targetRefs = new Set(target.refs.map(datumRefKey));
+			const assigned = link.datums.filter((datum) =>
+				targetRefs.has(datumRefKey(datum.name)),
+			);
+			if (assigned.length < 2) continue;
+			hasDatumCollision = true;
+			errors.push(
+				validationError(
+					"FORM_LINK_DATUM_TARGET_COLLISION",
+					"form",
+					`"${ctx.formName}" ${label} carries more than one value for the same selected case. Keep one carried value for that case.`,
+					loc,
+					{
+						...details,
+						datumRefs: JSON.stringify(assigned.map(({ name }) => name)),
+					},
+				),
+			);
+		}
+	}
+	if (hasDatumCollision) return errors;
 	const projected = projectFormLinks(
 		doc,
 		projectionContextFor(doc),
@@ -739,17 +772,6 @@ function formLinkValidation(
 					`"${ctx.formName}" ${label} assigns a different case to a destination that opens on Search. CommCare would fetch the previous case before applying this assignment. Automatic case matching can carry the case this form selected or created; removing the manual assignment lets Nova check that match. Another option is a destination that opens on its case list.`,
 					loc,
 					{ ...details, datumIds: link.unrepresentableQueryDatums.join(", ") },
-				),
-			);
-		}
-		for (const datumName of link.unused) {
-			errors.push(
-				validationError(
-					"FORM_LINK_DATUM_UNUSED",
-					"form",
-					`"${ctx.formName}" ${label} carries a value named "${datumName}" that its destination never reads, so CommCare drops it. Remove it, or rename it to a value the destination needs.`,
-					loc,
-					{ ...details, datumName },
 				),
 			);
 		}
@@ -906,75 +928,6 @@ function connectValidation(
 		);
 	}
 
-	// Per-XPath checks for the Connect expressions the bind emitter
-	// renders as `calculate="…"`. Each value gets two checks:
-	//   1. Explicit empty string → `CONNECT_EMPTY_XPATH`. CCHQ's build
-	//      pipeline rejects `<bind … calculate=""/>` outright. `undefined`
-	//      is NOT an error — the wire layer
-	//      (`lib/commcare/xform/builder.ts`) substitutes the canonical
-	//      defaults for missing `entity_id` / `entity_name` / `user_score`.
-	//      Only the explicit-empty-string state is a smell, indicating
-	//      something wrote a deliberate blank.
-	//   2. Unquoted string literal → `CONNECT_UNQUOTED_XPATH`. Same shape
-	//      as the existing field-level rule: a bare word without quotes
-	//      parses as an XPath identifier, not a literal value.
-	type ConnectXPath = { label: string; expr: string | undefined };
-	const connectXPaths: ConnectXPath[] = [];
-	const projectConnectXPath = (
-		slot: "assessment_user_score" | "deliver_entity_id" | "deliver_entity_name",
-	): string | undefined => {
-		const expression = formExpressionValue(form, slot);
-		return expression === undefined
-			? undefined
-			: projectXPath(expression, xpathPrintContext(doc)).text;
-	};
-	if (isConnectLearnConfig(form.connect) && form.connect.assessment) {
-		// `user_score` is optional in the domain — an absent value skips both
-		// checks below (the wire layer substitutes the canonical default),
-		// same as the deliver entity slots. AST-stored values project to
-		// their printed text through the shared accessor.
-		connectXPaths.push({
-			label: "Connect assessment user_score",
-			expr: projectConnectXPath("assessment_user_score"),
-		});
-	}
-	if (!isConnectLearnConfig(form.connect) && form.connect.deliver_unit) {
-		connectXPaths.push(
-			{
-				label: "Connect deliver entity_id",
-				expr: projectConnectXPath("deliver_entity_id"),
-			},
-			{
-				label: "Connect deliver entity_name",
-				expr: projectConnectXPath("deliver_entity_name"),
-			},
-		);
-	}
-	for (const { label, expr } of connectXPaths) {
-		if (expr === undefined) continue; // wire layer fills the default
-		if (expr.trim().length === 0) {
-			errors.push(
-				validationError(
-					"CONNECT_EMPTY_XPATH",
-					"form",
-					`"${ctx.formName}" ${label} is empty. CommCare HQ rejects builds with empty calculate expressions on Connect bindings. Set a valid XPath or remove the sub-config.`,
-					loc,
-				),
-			);
-			continue;
-		}
-		const bare = detectUnquotedStringLiteral(expr);
-		if (bare) {
-			errors.push(
-				validationError(
-					"CONNECT_UNQUOTED_XPATH",
-					"form",
-					`"${ctx.formName}" ${label} has "${bare}" without quotes. This looks like a string value, not an XPath expression. Wrap it in single quotes: '${bare}'.`,
-					loc,
-				),
-			);
-		}
-	}
 	return errors;
 }
 
@@ -1079,113 +1032,6 @@ function casePropertyBadFormat(
 	return errors;
 }
 
-/** Find typed case-property atoms a registration form cannot read. */
-function invalidRegistrationCaseRefs(
-	value: XPathExpression | ProseTemplate,
-	createdCaseType: string | undefined,
-): string[] {
-	const invalid: string[] = [];
-	// The general schema validator reports malformed carriers separately. Keep
-	// this semantic rule total when it receives a damaged or pre-schema doc.
-	if (
-		typeof value !== "object" ||
-		value === null ||
-		!Array.isArray(value.parts)
-	) {
-		return invalid;
-	}
-	for (const part of value.parts) {
-		if (typeof part !== "object" || part === null) continue;
-		if (part.kind !== "case-ref") continue;
-		if (part.caseType === createdCaseType && part.property === "case_id") {
-			continue;
-		}
-		invalid.push(`#${part.caseType}/${part.property}`);
-	}
-	return invalid;
-}
-
-/**
- * On a registration form, the case the form creates does not exist in
- * `casedb` at form-init — `casedb` only sees it after the
- * post-submission case transaction lands. A case-create entry declares no
- * loaded-case session datum, so reading a property from the new case during
- * form initialization cannot resolve.
- *
- * One exception: the typed `case-ref` for the created case type's `case_id`
- * points to the newly allocated id populated at `xforms-ready`.
- *
- * Every other case-property atom is invalid: the property is being set now,
- * not read from a pre-existing case. The fix is a typed form-field reference.
- *
- * The reference-slot registry supplies every field/form XPath or prose
- * carrier, including repeat cardinality and Connect bindings.
- */
-function caseHashtagOnCreateForm(
-	doc: BlueprintDoc,
-	form: Form,
-	ctx: FormContext,
-): ValidationError[] {
-	if (form.type !== "registration") return [];
-	const errors: ValidationError[] = [];
-	const loc = baseLocation(ctx);
-	const createdCaseType = doc.modules[ctx.moduleUuid]?.caseType;
-
-	/**
-	 * Emit one error per offending typed case atom. The friendly projection
-	 * names the exact reference the author sees.
-	 */
-	const flag = (
-		surface: string,
-		where: string,
-		value: XPathExpression | ProseTemplate,
-	) => {
-		for (const hashtag of invalidRegistrationCaseRefs(value, createdCaseType)) {
-			errors.push(
-				validationError(
-					"CASE_HASHTAG_ON_CREATE_FORM",
-					"form",
-					`"${ctx.formName}" references "${hashtag}" in ${surface}${where ? ` of ${where}` : ""}. On a registration form the case being created doesn't exist yet, so case-property references can't resolve. Reference the form question instead. The only valid case reference is the created case type's "case_id", it points to the newly allocated case id.`,
-					loc,
-					{ hashtag, surface },
-				),
-			);
-		}
-	};
-
-	const walkFields = (parentUuid: Uuid): void => {
-		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
-			const field = doc.fields[uuid];
-			if (!field) continue;
-			const fieldRef = `field "${field.id}"`;
-			for (const slot of fieldReferenceSlotsFor(
-				field.kind,
-				field.kind === "repeat" ? field.repeat_mode : undefined,
-			)) {
-				if (slot.kind !== "xpath-ast" && slot.kind !== "prose") continue;
-				for (const entry of readSlotValues(field, slot.path)) {
-					flag(
-						slot.slot,
-						fieldRef,
-						entry.value as XPathExpression | ProseTemplate,
-					);
-				}
-			}
-			if (doc.fieldOrder[uuid] !== undefined) walkFields(uuid);
-		}
-	};
-	walkFields(ctx.formUuid);
-
-	for (const slot of FORM_REFERENCE_SLOTS) {
-		if (slot.kind !== "xpath-ast") continue;
-		for (const entry of readSlotValues(form, slot.path)) {
-			flag(slot.slot, "", entry.value as XPathExpression);
-		}
-	}
-
-	return errors;
-}
-
 function casePropertyTooLong(
 	ctx: FormContext,
 	inventory: CaseWriteInventory,
@@ -1259,10 +1105,9 @@ export function runFormRules(
 	errors.push(
 		...formLinkSelectionCardinality(doc, form, mod, ctx, caseWriteInventory),
 	);
-	errors.push(...formLinkValidation(doc, form, ctx));
+	errors.push(...formLinkValidation(doc, form, ctx, lookupTables));
 	errors.push(...hiddenMenuLinkTargets(doc, form, baseLocation(ctx)));
 	errors.push(...connectValidation(doc, form, ctx));
-	errors.push(...caseHashtagOnCreateForm(doc, form, ctx));
 	errors.push(
 		...validateCaseOperations(doc, formUuid, moduleUuid, lookupTables),
 	);
@@ -1277,7 +1122,6 @@ export function runFormRules(
 	errors.push(
 		...multiSelectFormSemantics(doc, form, mod, ctx, caseWriteInventory),
 	);
-	errors.push(...sessionDatumNotSupplied(doc, formUuid, moduleUuid, entryPlan));
 
 	return errors;
 }

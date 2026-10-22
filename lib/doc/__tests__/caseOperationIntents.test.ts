@@ -6,7 +6,7 @@ import {
 	retargetCaseOperationLink,
 } from "@/lib/doc/caseOperationIntents";
 import type { CaseOperation, CaseOperationLink } from "@/lib/domain";
-import { literal, matchAll, term } from "@/lib/domain/predicate";
+import { literal, matchAll, term } from "@/lib/domain/expression/builders";
 
 const CREATE = testUuid("10000000-0000-4000-8000-000000000001");
 const RETYPE_CREATE = testUuid("10000000-0000-4000-8000-000000000002");

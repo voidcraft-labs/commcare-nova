@@ -14,7 +14,7 @@ import { parser } from "@/lib/commcare/xpath/parser";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema, proseText } from "@/lib/domain";
-import { formField, term } from "@/lib/domain/predicate";
+import { formField, term } from "@/lib/domain/expression";
 import { w } from "../xpath/wire/builders";
 import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr } from "../xpath/wire/tree";

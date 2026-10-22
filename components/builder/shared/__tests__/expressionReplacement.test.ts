@@ -1,24 +1,25 @@
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import {
 	dateCoerce,
 	double,
+	type Expression,
 	literal,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { planPreservedExpressionReplacement } from "../expressionReplacement";
 
-const TYPE_CONTEXT = {
+const TYPE_CONTEXT = expressionEditorFixture("calculated-column", {
 	caseTypes: [],
 	knownInputs: [],
 	currentCaseType: "patient",
-};
+}).context.expressionContext;
 
 function expectPreservedChild(
-	current: ValueExpression,
-	target: ValueExpression["kind"],
-	expected: ValueExpression,
-	child: ValueExpression,
+	current: Expression,
+	target: Expression["kind"],
+	expected: Expression,
+	child: Expression,
 ) {
 	const planned = planPreservedExpressionReplacement(
 		current,
@@ -72,7 +73,7 @@ describe("authored child preservation across expression carriers", () => {
 	it("preserves every collection child in order across compatible carriers", () => {
 		const first = term(literal("first"));
 		const second = term(literal("second"));
-		const current: ValueExpression = { kind: "concat", parts: [first, second] };
+		const current: Expression = { kind: "concat", parts: [first, second] };
 		const next = planPreservedExpressionReplacement(
 			current,
 			"coalesce",
@@ -88,7 +89,7 @@ describe("authored child preservation across expression carriers", () => {
 		).toEqual(current);
 	});
 	it("refuses a collection whose target requires incompatible result types", () => {
-		const current: ValueExpression = {
+		const current: Expression = {
 			kind: "concat",
 			parts: [term(literal("first")), term(literal(2))],
 		};

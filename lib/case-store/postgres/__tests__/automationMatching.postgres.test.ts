@@ -2,7 +2,7 @@ import type { Kysely } from "kysely";
 import type { PoolClient } from "pg";
 import { describe, expect } from "vitest";
 import type { CaseType } from "@/lib/domain";
-import { and, eq, isIn, literal, prop } from "@/lib/domain/predicate/builders";
+import { and, eq, isIn, literal, prop } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import type { AutomationHostAmbiguityError } from "../../errors";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";

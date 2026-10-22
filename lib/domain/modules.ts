@@ -15,7 +15,7 @@
 //     `visibleInList` / `visibleInDetail` flags (absent ≡ visible),
 //     plus independent `listColumnOrder` / `detailColumnOrder` UUID
 //     sequences on the containing config.
-//   - `filter?: Predicate` — single optional always-on predicate
+//   - `filter?: Expression` — single optional always-on predicate
 //     applied to every row before display.
 //   - `searchInputs: SearchInputDef[]` — discriminated union of
 //     simple `(property, mode, via)` inputs and advanced inputs
@@ -24,8 +24,8 @@
 //     ordinary one-case flow; presence makes selection an explicitly bounded
 //     ordered collection.
 //
-// `Predicate`, `ValueExpression`, and `RelationPath` come from
-// `@/lib/domain/predicate` — the AST primitives the filter,
+// `Expression`, `Expression`, and `RelationPath` come from
+// `@/lib/domain/expression` — the AST primitives the filter,
 // calculated-column expression, search-input default, and search-
 // input advanced predicate slots reference. Importing them here
 // (rather than redefining the shapes) keeps the AST cycles
@@ -38,6 +38,13 @@ import { authoredCasePropertyNameSchema } from "./casePropertyName";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
 import { entryPointSchema } from "./entryPoints";
+import type { Expression, RelationPath } from "./expression/types";
+import {
+	conditionSchema,
+	relationPathSchema,
+	valueSchema,
+	XML_ELEMENT_NAME_PATTERN,
+} from "./expression/types";
 import {
 	persistableJsonNonnegativeIntegerSchema,
 	persistableJsonPositiveIntegerSchema,
@@ -45,17 +52,6 @@ import {
 import { lookupOptionsSourceSchema } from "./lookupCarriers";
 import { lookupColumnIdSchema } from "./lookupIds";
 import { type MediaAssetId, mediaAssetIdSchema } from "./multimedia";
-import type {
-	Predicate,
-	RelationPath,
-	ValueExpression,
-} from "./predicate/types";
-import {
-	predicateSchema,
-	relationPathSchema,
-	valueExpressionSchema,
-	XML_ELEMENT_NAME_PATTERN,
-} from "./predicate/types";
 import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "./standardCaseProperties";
 import { type Uuid, uuidSchema } from "./uuid";
 
@@ -502,7 +498,7 @@ const plainColumnSchema = columnBase.extend({
  * `pattern` to produce the displayed string.
  *
  * `pattern` rejects empty strings and unsupported JavaRosa escapes — symmetric
- * with `formatDateSchema.pattern` on the ValueExpression side. Backed at the
+ * with `formatDateSchema.pattern` on the Expression side. Backed at the
  * editor by inline validation in the shared `CustomDatePatternInput`.
  */
 const dateColumnSchema = columnBase.extend({
@@ -695,7 +691,7 @@ const linkColumnSchema = columnBase.extend({
 });
 
 /**
- * Calculated column — author-defined `ValueExpression` that yields
+ * Calculated column — author-defined `Expression` that yields
  * a derived per-row value (e.g. "days since last visit",
  * "concatenated full name"). Has no `field` slot — the expression
  * is the source. The wire emitter lowers the expression into a
@@ -708,7 +704,7 @@ const linkColumnSchema = columnBase.extend({
 const calculatedColumnSchema = columnBase.extend({
 	kind: z.literal("calculated"),
 	header: z.string(),
-	expression: valueExpressionSchema,
+	expression: valueSchema,
 });
 
 export const columnSchema = z.discriminatedUnion("kind", [
@@ -856,7 +852,7 @@ export function plainColumn(
  *
  * Schema constraint: `pattern` must be non-empty (the schema layer
  * rejects empties at parse — same shape as `formatDateSchema.pattern`
- * on the ValueExpression side). The editor's `CustomDatePatternInput`
+ * on the Expression side). The editor's `CustomDatePatternInput`
  * primitive surfaces the rejection inline before save.
  */
 export function dateColumn(
@@ -1017,7 +1013,7 @@ export function intervalColumn(
 export function calculatedColumn(
 	uuid: Uuid,
 	header: string,
-	expression: ValueExpression,
+	expression: Expression,
 	slots: ColumnCommonSlots = {},
 ): Extract<Column, { kind: "calculated" }> {
 	return withCommonSlots(
@@ -1036,7 +1032,7 @@ export function calculatedColumn(
 //     mode (exact / fuzzy / range / etc.), and the optional
 //     relation walk. `property` is REQUIRED on this arm — there is
 //     no escape hatch for a property-less simple input.
-//   - `advanced` — free-form `predicate` (a `Predicate` AST). The
+//   - `advanced` — free-form `predicate` (a `Expression` AST). The
 //     wire layer emits the predicate verbatim; the editor surfaces
 //     a `PredicateCardEditor` in this arm.
 //
@@ -1142,7 +1138,7 @@ export type ScalarSearchInputMode = z.infer<typeof scalarSearchInputModeSchema>;
 // wire layer interpolates it as both an attribute value
 // (`<prompt key="X">`) and an XPath token
 // (`instance('search-input:results')/input/field[@name='X']`). The
-// `Term.input` reference shape already gates on the same pattern;
+// `Expression.input` reference shape already gates on the same pattern;
 // matching the declaration's character class keeps both halves of
 // the binding interchangeable — an authored name can always be
 // referenced from a predicate without being silently rejected by
@@ -1171,7 +1167,7 @@ const searchInputBase = z.strictObject({
  * Web Apps enforces this; Android never enforces prompt validation.
  */
 export const searchInputRequiredSchema = z.strictObject({
-	when: predicateSchema.optional(),
+	when: conditionSchema.optional(),
 	message: z.string().min(1).optional(),
 });
 export type SearchInputRequired = z.infer<typeof searchInputRequiredSchema>;
@@ -1185,7 +1181,7 @@ export type SearchInputRequired = z.infer<typeof searchInputRequiredSchema>;
  * when the rule is false.
  */
 export const searchInputValidationSchema = z.strictObject({
-	rule: predicateSchema,
+	rule: conditionSchema,
 	message: z.string().min(1),
 });
 export type SearchInputValidation = z.infer<typeof searchInputValidationSchema>;
@@ -1221,7 +1217,7 @@ const simpleSearchInputSlots = {
 	// derivations in `buildSimpleArmClause`); a value containing
 	// quotes / parentheses / angle brackets would emit malformed
 	// XPath. Keeping the constraint symmetric with the AST's
-	// reference shape closes the SearchInputDef-vs-Term asymmetry the
+	// reference shape closes the SearchInputDef-vs-Expression asymmetry the
 	// predicate validator can't catch (the simple arm derives the
 	// predicate at wire-emit, not at validate-time).
 	property: authoredCasePropertyNameSchema,
@@ -1232,7 +1228,7 @@ export const simpleScalarSearchInputSchema = visibleSearchInputBase
 	.extend({
 		...simpleSearchInputSlots,
 		type: z.enum(SCALAR_SEARCH_INPUT_TYPES),
-		default: valueExpressionSchema.optional(),
+		default: valueSchema.optional(),
 		mode: scalarSearchInputModeSchema.optional(),
 	})
 	.strict();
@@ -1305,14 +1301,14 @@ export const simpleSelectSearchInputSchema = visibleSearchInputBase
 		...simpleSearchInputSlots,
 		type: z.enum(SELECT_SEARCH_INPUT_TYPES),
 		options: searchInputLookupOptionsSchema,
-		default: valueExpressionSchema.optional(),
+		default: valueSchema.optional(),
 		mode: selectSearchInputModeSchema.optional(),
 	})
 	.strict();
 
 /**
  * Advanced search input — the `predicate` arm. The slot's body is a
- * full `Predicate` AST that replaces the (property, mode)-derived
+ * full `Expression` AST that replaces the (property, mode)-derived
  * predicate. The editor surfaces a `PredicateCardEditor` against
  * this slot.
  */
@@ -1320,8 +1316,8 @@ export const advancedScalarSearchInputSchema = visibleSearchInputBase
 	.extend({
 		kind: z.literal("advanced"),
 		type: z.enum(SCALAR_SEARCH_INPUT_TYPES),
-		default: valueExpressionSchema.optional(),
-		predicate: predicateSchema,
+		default: valueSchema.optional(),
+		predicate: conditionSchema,
 	})
 	.strict();
 
@@ -1329,7 +1325,7 @@ export const advancedDateRangeSearchInputSchema = visibleSearchInputBase
 	.extend({
 		kind: z.literal("advanced"),
 		type: z.literal("date-range"),
-		predicate: predicateSchema,
+		predicate: conditionSchema,
 	})
 	.strict();
 
@@ -1338,8 +1334,8 @@ export const advancedSelectSearchInputSchema = visibleSearchInputBase
 		kind: z.literal("advanced"),
 		type: z.enum(SELECT_SEARCH_INPUT_TYPES),
 		options: searchInputLookupOptionsSchema,
-		default: valueExpressionSchema.optional(),
-		predicate: predicateSchema,
+		default: valueSchema.optional(),
+		predicate: conditionSchema,
 	})
 	.strict();
 
@@ -1359,7 +1355,7 @@ export const advancedSelectSearchInputSchema = visibleSearchInputBase
 export const hiddenSearchInputSchema = searchInputBase
 	.extend({
 		kind: z.literal("hidden"),
-		value: valueExpressionSchema,
+		value: valueSchema,
 	})
 	.strict();
 
@@ -1448,7 +1444,7 @@ export function visibleSearchInputs(
 /** Scalar prompt seed, absent by construction on the date-range and hidden arms. */
 export function searchInputDefault(
 	input: SearchInputDef,
-): ValueExpression | undefined {
+): Expression | undefined {
 	return "default" in input ? input.default : undefined;
 }
 
@@ -1507,7 +1503,7 @@ export type SearchInputConditionSlot = "match" | SearchInputScreenPredicateSlot;
 
 export interface SearchInputScreenPredicate {
 	readonly slot: SearchInputScreenPredicateSlot;
-	readonly predicate: Predicate;
+	readonly predicate: Expression;
 }
 
 /**
@@ -1515,7 +1511,7 @@ export interface SearchInputScreenPredicate {
  * required test (an always-required input has none) and its validation rule.
  * Hidden inputs carry neither.
  */
-export function searchInputScreenPredicates(
+export function searchInputScreenExpressions(
 	input: SearchInputDef,
 ): readonly SearchInputScreenPredicate[] {
 	if (input.kind === "hidden") return [];
@@ -1537,7 +1533,7 @@ export function searchInputScreenPredicates(
  */
 export function searchInputExpressions(
 	input: SearchInputDef,
-): readonly ValueExpression[] {
+): readonly Expression[] {
 	if (input.kind === "hidden") return [input.value];
 	const seed = searchInputDefault(input);
 	return seed === undefined ? [] : [seed];
@@ -1616,7 +1612,7 @@ interface SearchInputVisibleSlots {
 
 /** Scalar-widget slot that seeds the input's initial state. */
 interface SearchInputCommonSlots extends SearchInputVisibleSlots {
-	readonly default?: ValueExpression;
+	readonly default?: Expression;
 }
 
 interface SimpleScalarSearchInputSlots extends SearchInputCommonSlots {
@@ -1653,7 +1649,7 @@ function withSearchInputCommonSlots<T extends Record<string, unknown>>(
 	slots: SearchInputCommonSlots,
 ): T & SearchInputCommonSlots {
 	const out: T & {
-		default?: ValueExpression;
+		default?: Expression;
 		hint?: string;
 		required?: SearchInputRequired;
 		validation?: SearchInputValidation;
@@ -1759,7 +1755,7 @@ export function advancedSearchInputDef(
 	name: string,
 	label: string,
 	type: ScalarSearchInputType,
-	predicate: Predicate,
+	predicate: Expression,
 	slots?: SearchInputCommonSlots,
 ): AdvancedScalarSearchInputDef;
 export function advancedSearchInputDef(
@@ -1767,7 +1763,7 @@ export function advancedSearchInputDef(
 	name: string,
 	label: string,
 	type: "date-range",
-	predicate: Predicate,
+	predicate: Expression,
 	slots?: SearchInputVisibleSlots,
 ): AdvancedDateRangeSearchInputDef;
 export function advancedSearchInputDef(
@@ -1775,7 +1771,7 @@ export function advancedSearchInputDef(
 	name: string,
 	label: string,
 	type: SelectSearchInputType,
-	predicate: Predicate,
+	predicate: Expression,
 	slots: SearchInputCommonSlots & {
 		readonly options: SearchInputLookupOptions;
 	},
@@ -1785,7 +1781,7 @@ export function advancedSearchInputDef(
 	name: string,
 	label: string,
 	type: SearchInputType,
-	predicate: Predicate,
+	predicate: Expression,
 	slots?: SearchInputCommonSlots & {
 		readonly options?: SearchInputLookupOptions;
 	},
@@ -1795,7 +1791,7 @@ export function advancedSearchInputDef(
 	name: string,
 	label: string,
 	type: SearchInputType,
-	predicate: Predicate,
+	predicate: Expression,
 	slots: SearchInputCommonSlots & {
 		readonly options?: SearchInputLookupOptions;
 	} = {},
@@ -1819,7 +1815,7 @@ export function hiddenSearchInputDef(
 	uuid: Uuid,
 	name: string,
 	label: string,
-	value: ValueExpression,
+	value: Expression,
 ): HiddenSearchInputDef {
 	return hiddenSearchInputSchema.parse({
 		uuid,
@@ -1905,7 +1901,7 @@ export const SEARCH_MODE_PROPERTY_TYPES: Readonly<
 	// `fuzzy-date` widens to text + temporal — recovers from
 	// transposed date input against typed dates AND free-form date
 	// text. Mirrors the type-checker's `MATCH_PROPERTY_TYPES_FUZZY_DATE`
-	// allow-list at `lib/domain/predicate/typeChecker.ts`.
+	// allow-list at `lib/domain/expression/typeChecker.ts`.
 	"fuzzy-date": ["text", "single_select", "multi_select", "date", "datetime"],
 	// `range` is the date-range widget's paired calendar match.
 	range: ["int", "decimal", "date", "datetime", "time"],
@@ -2338,7 +2334,7 @@ export const caseListConfigSchema = z
 		 */
 		listColumnOrder: z.array(uuidSchema),
 		detailColumnOrder: z.array(uuidSchema),
-		filter: predicateSchema.optional(),
+		filter: conditionSchema.optional(),
 		searchInputs: z.array(searchInputDefSchema),
 		/**
 		 * How many cases a worker can carry forward from Results. Absence is the
@@ -2609,7 +2605,7 @@ export const ordinaryCaseSearchConfigSchema = z.strictObject({
 	// The wire token is a CCHQ-controlled vocabulary; Nova's
 	// authoring vocabulary is `excludedOwnerIds`. The translation
 	// lives at `lib/commcare/suite/case-search/searchSession.ts`.
-	excludedOwnerIds: valueExpressionSchema.optional(),
+	excludedOwnerIds: valueSchema.optional(),
 
 	// Display labels for the search screen. The runtime renders the
 	// subtitle through a markdown formatter; the title is plain text.
@@ -2628,7 +2624,7 @@ export const ordinaryCaseSearchConfigSchema = z.strictObject({
 	// authored copy; clearing a control removes the override.
 	searchScreenTitle: z.string().min(1).optional(),
 	searchScreenSubtitle: z.string().min(1).optional(),
-	searchButtonDisplayCondition: predicateSchema.optional(),
+	searchButtonDisplayCondition: conditionSchema.optional(),
 
 	// Search first: the module opens on the Search screen and Results
 	// exist only after a completed search; the browse list goes away.
@@ -2646,7 +2642,7 @@ export const ownerOnlyCaseSearchConfigSchema = z.strictObject({
 	 * and structurally forbids all ordinary Search screen/action settings.
 	 */
 	searchActionEnabled: z.literal(false),
-	excludedOwnerIds: valueExpressionSchema,
+	excludedOwnerIds: valueSchema,
 });
 
 export const caseSearchConfigSchema = z.union([
@@ -2749,7 +2745,7 @@ export const moduleSchema = z.strictObject({
 	 * Optional home-menu visibility rule. Module navigation has no current
 	 * case row, so validator context rules admit only global/session terms.
 	 */
-	displayCondition: predicateSchema.optional(),
+	displayCondition: conditionSchema.optional(),
 	/**
 	 * Present when the module is off the menu: no menu lists it or any of
 	 * its forms, whatever `displayCondition` says. The condition keeps

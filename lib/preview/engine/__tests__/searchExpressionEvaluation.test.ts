@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import type { SearchInputDef } from "@/lib/domain";
 import { simpleSearchInputDef } from "@/lib/domain";
 import {
 	arith,
@@ -14,16 +16,98 @@ import {
 	sessionUser,
 	term,
 	today,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import { slotContext } from "@/lib/domain/expression/context";
+import type { Expression } from "@/lib/domain/expression/types";
+import type { PreviewSearchSessionValues } from "../identity";
 import { previewAsMe, previewSessionValues } from "../identity";
 import type { SearchInputValues } from "../runtimeBindings";
 import {
-	evaluatePreviewSearchExpression,
-	evaluatePreviewSearchPredicate,
+	evaluatePreviewSearchExpression as evaluateExpression,
+	evaluatePreviewSearchPredicate as evaluatePredicate,
 	parseExcludedOwnerIds,
-	resolveSearchInputDefaults,
+	resolveSearchInputDefaults as resolveDefaults,
 	sessionInstancePathValue,
 } from "../searchExpressionEvaluation";
+
+function searchEnvironment(
+	inputs: readonly SearchInputDef[],
+	expression?: Expression,
+	condition?: Expression,
+) {
+	const moduleUuid = testUuid("search-runtime-module");
+	const doc = buildDoc({
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				uuid: moduleUuid,
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: { ...caseListConfig([]), searchInputs: [...inputs] },
+				caseSearchConfig: {
+					...(expression === undefined ? {} : { excludedOwnerIds: expression }),
+					...(condition === undefined
+						? {}
+						: { searchButtonDisplayCondition: condition }),
+				},
+			},
+		],
+	});
+	return { doc, moduleUuid };
+}
+function evaluatePreviewSearchExpression(
+	expression: Expression,
+	session: PreviewSearchSessionValues,
+	values: SearchInputValues = new Map(),
+	inputs: readonly SearchInputDef[] = [],
+) {
+	const environment = searchEnvironment(inputs, expression);
+	const types = slotContext(
+		environment.doc,
+		{
+			entity: "module",
+			uuid: environment.moduleUuid,
+			slot: "excluded_owner_ids",
+		},
+		new Map(),
+	);
+	if (types === undefined)
+		throw new Error("The search fixture has no scalar context.");
+	return evaluateExpression(expression, types, session, values, inputs);
+}
+function evaluatePreviewSearchPredicate(
+	expression: Expression,
+	inputs: readonly SearchInputDef[],
+	session: PreviewSearchSessionValues,
+	values: SearchInputValues = new Map(),
+) {
+	const environment = searchEnvironment(inputs, undefined, expression);
+	const types = slotContext(
+		environment.doc,
+		{
+			entity: "module",
+			uuid: environment.moduleUuid,
+			slot: "search_button_display_condition",
+		},
+		new Map(),
+	);
+	if (types === undefined)
+		throw new Error("The search fixture has no predicate context.");
+	return evaluatePredicate(
+		expression,
+		types,
+		environment,
+		inputs,
+		session,
+		values,
+	);
+}
+function resolveSearchInputDefaults(
+	inputs: readonly SearchInputDef[],
+	session: PreviewSearchSessionValues,
+) {
+	return resolveDefaults(inputs, session, searchEnvironment(inputs));
+}
 
 beforeEach(() => {
 	vi.useFakeTimers({ toFake: ["Date"] });
@@ -40,11 +124,11 @@ const SESSION = previewSessionValues(
 );
 
 describe("preview case-search expression evaluation", () => {
-	it("evaluates integer arithmetic while explicit numeric coercion of a text prompt stays decimal", () => {
+	it("evaluates explicit quotient separately from real division of a numeric prompt", () => {
 		for (const value of [10, -10]) {
 			expect(
 				evaluatePreviewSearchExpression(
-					arith("div", term(literal(value)), term(literal(3))),
+					arith("quotient", term(literal(value)), term(literal(3))),
 					SESSION,
 				),
 			).toBe(String(value > 0 ? 3 : -3));

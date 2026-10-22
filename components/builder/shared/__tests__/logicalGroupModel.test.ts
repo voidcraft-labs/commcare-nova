@@ -7,7 +7,7 @@ import {
 	matchNone,
 	or,
 	prop,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { logicalClauses, planLogicalGroupEdit } from "../logicalGroupModel";
 
 const a = eq(prop("patient", "age"), literal(1));

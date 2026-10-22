@@ -1,3 +1,4 @@
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 // Shared valid-by-construction comparison seeds. This module has no React
 // component imports, so structural cards can seed a friendly first condition
 // without creating a component-registry cycle.
@@ -6,6 +7,7 @@ import { isOrdered } from "@/lib/domain";
 import {
 	type ComparisonKind,
 	compatibleTypesFor,
+	type Expression,
 	eq,
 	gt,
 	gte,
@@ -13,11 +15,10 @@ import {
 	lt,
 	lte,
 	neq,
-	type Predicate,
 	prop,
 	sessionContext,
 	tableColumn,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	caseDataInScope,
 	globalPlaceholderTruth,
@@ -26,14 +27,15 @@ import {
 } from "../editorSchemas";
 import { reseedLiteralForConstraint, seedLiteralForProperty } from "./reseed";
 
-type ComparisonArm<K extends ComparisonKind> = Extract<
-	Predicate,
-	{ kind: ComparisonKind }
-> & { kind: K };
+type ComparisonArm<K extends ComparisonKind> =
+	ExpressionOfKind<ComparisonKind> & { kind: K };
 
 export const KIND_BUILDERS: Record<
 	ComparisonKind,
-	(left: Parameters<typeof eq>[0], right: Parameters<typeof eq>[1]) => Predicate
+	(
+		left: Parameters<typeof eq>[0],
+		right: Parameters<typeof eq>[1],
+	) => Expression
 > = {
 	eq,
 	neq,
@@ -116,7 +118,7 @@ export function globalPlaceholder(
 export function wrapSiblingDefault(
 	combinator: "and" | "or",
 	ctx: PredicateEditContext,
-): Predicate {
+): Expression {
 	if (!caseDataInScope(ctx) && !tableRowInScope(ctx)) {
 		return globalPlaceholder(combinator === "and");
 	}

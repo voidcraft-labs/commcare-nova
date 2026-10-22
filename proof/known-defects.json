@@ -1102,16 +1102,6 @@
 		"control": "container-nested-query"
 	},
 	{
-		"id": "d25-query-repeat-form-model-iteration-reading-a-blank-answer",
-		"defect": 25,
-		"part": "query repeat reading a blank answer",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/vellum-markup:model~1instance~1~1*@vellum:role/refused/model-iteration-reading-a-blank-answer",
-		"document": "container-nested-query",
-		"control": "container-nested-query"
-	},
-	{
 		"id": "d25-query-repeat-blocks-d47a",
 		"defect": 25,
 		"part": "query repeat rewritten into model iteration",
@@ -1950,6 +1940,39 @@
 		"path": "/runs/*/trace/*/step",
 		"document": "tile-grouped-search",
 		"control": "tile-grouped-search"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-webapps-case-list-runs",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*",
+		"kind": "added",
+		"document": "targeted-list-first-places",
+		"control": "targeted-list-first-places"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-webapps-case-list-runs-viewport",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/viewport",
+		"kind": "changed",
+		"document": "targeted-list-first-places",
+		"control": "targeted-list-first-places"
+	},
+	{
+		"id": "d21-list-first-turned-search-fir-webapps-case-list-runs-viewport-removed",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "proof4",
+		"artifact": "webapps@case list@*",
+		"path": "/runs/*/viewport",
+		"kind": "removed",
+		"document": "targeted-list-first-places",
+		"control": "targeted-list-first-places"
 	},
 	{
 		"id": "d21-list-first-turned-search-fir-webapps-case-list-screens-kind",

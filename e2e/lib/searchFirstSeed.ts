@@ -26,7 +26,7 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { now } from "@/lib/domain/predicate";
+import { input, now, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { buildUrl } from "@/lib/routing/location";
 
@@ -151,27 +151,13 @@ export function buildSearchFirstBlueprint(appId = "test-app"): BlueprintDoc {
 									caseType: SEARCH_FIRST_SEED.caseType,
 									property: "case_name",
 								},
-								default_value: {
-									parts: [
-										{
-											kind: "search-answer-ref",
-											searchInputUuid: searchInputs.patientName,
-										},
-									],
-								},
+								default_value: term(input(searchInputs.patientName)),
 							}),
 							{
 								kind: "hidden",
 								uuid: register.searchTimeFieldUuid,
 								id: "search_time",
-								default_value: {
-									parts: [
-										{
-											kind: "search-answer-ref",
-											searchInputUuid: searchInputs.searchTime,
-										},
-									],
-								},
+								default_value: term(input(searchInputs.searchTime)),
 							},
 						],
 					},

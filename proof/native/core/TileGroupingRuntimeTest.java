@@ -19,6 +19,11 @@ import static org.junit.Assert.*;
 
 /** Actual session computed datum evaluation, beyond layout parsing. */
 public class TileGroupingRuntimeTest {
+ @Test public void authoredReadUsesTheNativeGroupedTileCompanion()throws Exception{
+  var document=SessionReadAssertions.targeted("tile","targeted-tile-session-reads");
+  for(boolean hq:new boolean[]{false,true})
+   SessionReadAssertions.selectedAndGroup(document,hq);
+ }
  private static final class Parser extends SuiteParser { Parser(InputStream in)throws IOException{super(in,null,"group-proof",null,true,true,false);} }
  private static final class Runtime extends TestInstanceInitializer {
   final CommCareSession session;

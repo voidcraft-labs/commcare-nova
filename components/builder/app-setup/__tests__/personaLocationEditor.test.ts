@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { OrganizationLevel, Persona } from "@/lib/domain";
-import { fixedLocation, term } from "@/lib/domain/predicate";
+import { fixedLocation, term } from "@/lib/domain/expression/builders";
 import type { StoredLocation } from "@/lib/organization/types";
 import {
 	type PersonaLocationEditorInputs,

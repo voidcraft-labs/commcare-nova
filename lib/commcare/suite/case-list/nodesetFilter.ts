@@ -12,11 +12,10 @@ import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	effectiveFilterForEmission,
-	substituteUnansweredSearchInputsInExpression,
-	substituteUnansweredSearchInputsInPredicate,
-} from "@/lib/domain/predicate";
-import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
+	substituteUnansweredSearchInputs,
+} from "@/lib/domain/expression";
+import type { ExpressionContext } from "@/lib/domain/expression/context";
+import type { Expression } from "@/lib/domain/expression/types";
 import { normalizeSpace } from "../wire";
 
 /**
@@ -25,8 +24,8 @@ import { normalizeSpace } from "../wire";
  * the surrounding case-type and status predicates and the complete nodeset.
  */
 export function emitNodesetFilter(
-	filter: Predicate | undefined,
-	relationContext: RelationEvaluationScopeContext = {},
+	filter: Expression | undefined,
+	relationContext: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
 ): WireExpr | undefined {
 	// The ordinary case list evaluates before any Search runs, so every
@@ -45,11 +44,9 @@ export function emitNodesetFilter(
 	// Either way no bracket appends, so the session-datum nodeset stays
 	// at the canonical `[@case_type='X'][@status='open']` shape rather
 	// than a tautological `[true() and …]`. See
-	// `lib/domain/predicate/simplify.ts`.
+	// `lib/domain/expression/simplify.ts`.
 	const effective = effectiveFilterForEmission(
-		filter === undefined
-			? undefined
-			: substituteUnansweredSearchInputsInPredicate(filter),
+		filter === undefined ? undefined : substituteUnansweredSearchInputs(filter),
 	);
 	if (effective === undefined) return undefined;
 
@@ -100,13 +97,12 @@ export function emitNodesetFilter(
  * ordinary case-list path cannot reveal a case the search path excludes.
  */
 export function emitExcludedOwnerFilterExpression(
-	excludedOwnerIds: ValueExpression | undefined,
-	relationContext: RelationEvaluationScopeContext = {},
+	excludedOwnerIds: Expression | undefined,
+	relationContext: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
 ): WireExpr | undefined {
 	if (excludedOwnerIds === undefined) return undefined;
-	const unanswered =
-		substituteUnansweredSearchInputsInExpression(excludedOwnerIds);
+	const unanswered = substituteUnansweredSearchInputs(excludedOwnerIds);
 	if (staticallyBlankExclusion(unanswered)) return undefined;
 	const expression = emitNormalizedExcludedOwnerIdsExpression(
 		unanswered,
@@ -124,7 +120,7 @@ export function emitExcludedOwnerFilterExpression(
  * reduces to under the unanswered substitution — matches the runtime
  * guard's "exclude nobody" arm statically, so no fragment is emitted.
  */
-function staticallyBlankExclusion(expression: ValueExpression): boolean {
+function staticallyBlankExclusion(expression: Expression): boolean {
 	return (
 		expression.kind === "term" &&
 		expression.term.kind === "literal" &&
@@ -143,26 +139,29 @@ function staticallyBlankExclusion(expression: ValueExpression): boolean {
  * upload, and Preview.
  */
 export function emitNormalizedExcludedOwnerIdsExpression(
-	excludedOwnerIds: ValueExpression,
-	relationContext: RelationEvaluationScopeContext = {},
+	excludedOwnerIds: Expression,
+	relationContext: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
+	searchInputInstanceId?: `search-input:${string}`,
 ): WireExpr {
 	return normalizeSpace(
 		toWire(excludedOwnerIds, {
 			target: "suite",
 			types: relationContext,
-			bindings:
-				lookupNaming === undefined
+			bindings: {
+				searchInputInstanceId,
+				...(lookupNaming === undefined
 					? {}
-					: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
+					: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
+			},
 		}),
 	);
 }
 
 /** The owner predicate appended to a case-loading datum's case step. */
 export function emitExcludedOwnerNodesetFilter(
-	excludedOwnerIds: ValueExpression | undefined,
-	relationContext: RelationEvaluationScopeContext = {},
+	excludedOwnerIds: Expression | undefined,
+	relationContext: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
 ): WireExpr | undefined {
 	return emitExcludedOwnerFilterExpression(

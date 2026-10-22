@@ -20,13 +20,14 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc as buildFixtureDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc as buildFixtureDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
 	fieldCaseWrite,
 	proseTemplateText,
 	type SelectOption,
 } from "@/lib/domain";
+import { concat, literal, term, today } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
@@ -250,7 +251,14 @@ describe("editField — convert to hidden", () => {
 		const h = makeToolWorkspaceHarness(doc);
 		const result = await h.runTool(editFieldTool, {
 			...address(doc, "full_name"),
-			updates: { kind: "hidden", calculate: xp('concat("a", " ", "b")') },
+			updates: {
+				kind: "hidden",
+				calculate: concat(
+					term(literal("a")),
+					term(literal(" ")),
+					term(literal("b")),
+				),
+			},
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expectAdmittedDoc(h.currentDoc());
@@ -1031,7 +1039,7 @@ describe("editField — demotions", () => {
 		const h = makeToolWorkspaceHarness(doc);
 		const result = await h.runTool(editFieldTool, {
 			...address(doc, "visit_note"),
-			updates: { kind: "hidden", calculate: xp("today()") },
+			updates: { kind: "hidden", calculate: today() },
 		});
 		if ("error" in result.result) throw new Error(result.result.error);
 		expectAdmittedDoc(h.currentDoc());

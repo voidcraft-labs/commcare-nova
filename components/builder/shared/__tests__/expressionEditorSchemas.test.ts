@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import { lookupColumnIdSchema, lookupTableIdSchema } from "@/lib/domain";
 import {
-	checkValueExpression,
+	checkExpression,
 	literal,
 	literalType,
 	prop,
-	type ResolvedType,
+	type ScalarType,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
-import { buildEditorTypeContext } from "../editorTypeContext";
+import { editorExpressionContext } from "../editorTypeContext";
 import {
 	type ExpressionEditContext,
 	expressionCardSchemas,
@@ -54,16 +55,19 @@ describe("expression contextual authorability", () => {
 	});
 });
 
-const context: ExpressionEditContext = {
-	caseTypes: [],
-	currentCaseType: "",
-	knownInputs: [],
-};
+const context: ExpressionEditContext = expressionEditorFixture(
+	"calculated-column",
+	{
+		caseTypes: [],
+		currentCaseType: "",
+		knownInputs: [],
+	},
+).context;
 describe("actual slot defaults used by expression menus", () => {
 	it.each(["if", "switch", "coalesce"] as const)(
 		"seeds all %s result branches for an integer slot",
 		(kind) => {
-			const constraint = { accepts: new Set<ResolvedType>(["int"]) };
+			const constraint = { accepts: new Set<ScalarType>(["int"]) };
 			const next =
 				kind === "if"
 					? defaultExpressionForSlot(
@@ -86,8 +90,8 @@ describe("actual slot defaults used by expression menus", () => {
 								"value",
 							);
 			expect(
-				checkValueExpression(next, buildEditorTypeContext(context)),
-			).toEqual({ ok: true });
+				checkExpression(next, editorExpressionContext(context)),
+			).toMatchObject({ errors: [] });
 			const branches =
 				next.kind === "if"
 					? [next.then, next.else]
@@ -108,16 +112,16 @@ describe("actual slot defaults used by expression menus", () => {
 		const next = defaultExpressionForSlot(
 			expressionCardSchemas["date-add"],
 			context,
-			{ accepts: new Set<ResolvedType>(["datetime"]) },
+			{ accepts: new Set<ScalarType>(["datetime"]) },
 			"value",
 		);
 		expect(next).toEqual({
 			...expressionCardSchemas["date-add"].defaultValue(context),
 			date: { kind: "now" },
 		});
-		expect(checkValueExpression(next, buildEditorTypeContext(context))).toEqual(
-			{ ok: true },
-		);
+		expect(
+			checkExpression(next, editorExpressionContext(context)),
+		).toMatchObject({ errors: [] });
 	});
 	it("prefers a compatible case property for subjects and a typed literal for ordinary values", () => {
 		const ctx: ExpressionEditContext = {
@@ -132,7 +136,7 @@ describe("actual slot defaults used by expression menus", () => {
 				},
 			],
 		};
-		const constraint = { accepts: new Set<ResolvedType>(["int"]) };
+		const constraint = { accepts: new Set<ScalarType>(["int"]) };
 		expect(
 			defaultExpressionForSlot(
 				expressionCardSchemas.term,

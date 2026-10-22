@@ -48,7 +48,6 @@
  * sibling equal to it appears or disappears, both edits to the same form.
  */
 
-import { readFieldString } from "@/lib/commcare/fieldProps";
 import { commCareLocalization } from "@/lib/commcare/localization";
 import { caseOperationConditionalGuardUuids } from "@/lib/doc/caseOperationOrder";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
@@ -56,8 +55,8 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	caseScalarTextGuards,
+	expressionSlotValue,
 	type Field,
-	fieldExpressionValue,
 	fieldKindCarriesValidation,
 	formConnectIds,
 	isCaptureField,
@@ -67,11 +66,15 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { formStructure } from "@/lib/domain/expression/formStructure";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
-import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 import { planConstraintCollections } from "./constraintCollections";
 import { constraintMessageNeedsProtection } from "./constraintMessage";
 import { descendFormPathIntoField, FormPath } from "./formPath";
+import { Namespace } from "./namespace";
+import { planRepeatCountNames } from "./repeatCountNames";
+
+export { repeatCountBaseName } from "./repeatCountNames";
 
 /** The guards an operation's block may carry, in the order they stand. */
 export const GUARD_KINDS = ["type", "retype", "text"] as const;
@@ -112,9 +115,8 @@ export interface GeneratedNodePlan {
 	 */
 	trimmed(fieldUuid: Uuid): string;
 	/**
-	 * A count-bound repeat's calculated count. A repeat whose count reads a
-	 * question directly has no count node; this is the name its count would
-	 * take, which a reader may use as the count's evaluation context.
+	 * A count-bound repeat's reserved calculated-count name. The domain
+	 * carrier plan determines whether its physical node is needed.
 	 */
 	count(repeatUuid: Uuid): string;
 	/** The operations group of an authored scope, the form root or a repeat. */
@@ -211,36 +213,12 @@ export function trimmedValuePath(
 	return path.parent().child(plan.trimmed(fieldUuid));
 }
 
-/** The name a count-bound repeat's count node takes beside no collision. */
-export function repeatCountBaseName(repeatId: string): string {
-	return `nova_count_${repeatId}`;
-}
-
 const OPERATIONS = "nova_operations";
 const SUBCASES = "nova_subcases";
 const SELECTED_CASES = "nova_selected_cases";
 const UPDATE_SELECTED_CASES = "nova_update_selected_cases";
 const CLOSE_SELECTED_CASES = "nova_close_selected_cases";
 const CLOSE = "nova_close";
-
-/** One parent element's names: authored ones first, then each allocation. */
-class Namespace {
-	private readonly taken: Set<string>;
-	constructor(authored: Iterable<string>) {
-		this.taken = new Set(authored);
-	}
-	/** The first free spelling of `base`, without taking it. */
-	peek(base: string): string {
-		let name = base;
-		for (let n = 1; this.taken.has(name); n++) name = `${base}_${n}`;
-		return name;
-	}
-	allocate(base: string): string {
-		const name = this.peek(base);
-		this.taken.add(name);
-		return name;
-	}
-}
 
 const plans = new WeakMap<BlueprintDoc, Map<Uuid, GeneratedNodePlan>>();
 
@@ -271,6 +249,12 @@ function allocateGeneratedNodes(
 		throw new Error(
 			`Nova was asked to name the generated nodes of form ${formUuid}, which the app does not hold.`,
 		);
+	const structure = formStructure(doc, formUuid);
+	if (structure === undefined)
+		throw new Error(
+			`Nova could not resolve the structure of form ${formUuid} while naming its generated nodes.`,
+		);
+	const countNames = planRepeatCountNames(structure);
 	const nodes: GeneratedNode[] = [];
 	const byOwner = new Map<string, string>();
 	const ownerKey = (purpose: GeneratedNodePurpose, owner: Uuid, part = "") =>
@@ -302,7 +286,6 @@ function allocateGeneratedNodes(
 
 	// Field namespaces: one per container's child element, in field order.
 	const fieldScopes = new Map<string, Namespace>();
-	const countBases = new Map<Uuid, { scope: Namespace; base: string }>();
 	const repeatScopes = new Map<Uuid, FormPath>();
 	const walk = (parentUuid: Uuid, parentPath: FormPath, root: boolean) => {
 		const children = orderedFieldUuids(doc, parentUuid).flatMap((uuid) => {
@@ -316,9 +299,12 @@ function allocateGeneratedNodes(
 		fieldScopes.set(parentPath.toXPath(), scope);
 		for (const field of children) {
 			const path = parentPath.child(field.id);
-			const validate = readFieldString(field, "validate", doc);
-			const expression = fieldExpressionValue(field, "validate");
-			if (fieldKindCarriesValidation(field.kind) && validate && expression) {
+			const expression = expressionSlotValue(doc, {
+				entity: "field",
+				uuid: field.uuid,
+				slot: "validate",
+			});
+			if (fieldKindCarriesValidation(field.kind) && expression !== undefined) {
 				planConstraintCollections(expression, field.uuid, doc, path, (n) => {
 					const name = scope.allocate(`nova_constraint_${field.id}_${n}`);
 					record("constraint-count", field.uuid, name, String(n));
@@ -350,10 +336,16 @@ function allocateGeneratedNodes(
 					scope.allocate(`nova_trimmed_${field.id}`),
 				);
 			if (field.kind === "repeat" && field.repeat_mode === "count_bound") {
-				const base = repeatCountBaseName(field.id);
-				if (directRepeatCountReference(field.repeat_count, doc.fields))
-					countBases.set(field.uuid, { scope, base });
-				else record("count", field.uuid, scope.allocate(base));
+				const name = countNames.get(field.uuid);
+				if (name === undefined)
+					throw new Error(
+						`Missing reserved repeat count name for ${field.uuid}.`,
+					);
+				if (scope.allocate(name) !== name)
+					throw new Error(
+						`The reserved repeat count name ${name} is already in use.`,
+					);
+				record("count", field.uuid, name);
 			}
 		}
 		for (const field of children) {
@@ -493,13 +485,7 @@ function allocateGeneratedNodes(
 		url: (fieldUuid) => lookup("url", fieldUuid),
 		datetime: (fieldUuid) => lookup("datetime", fieldUuid),
 		trimmed: (fieldUuid) => lookup("trimmed", fieldUuid),
-		count: (repeatUuid) => {
-			const planned = byOwner.get(ownerKey("count", repeatUuid));
-			if (planned !== undefined) return planned;
-			const direct = countBases.get(repeatUuid);
-			if (direct !== undefined) return direct.scope.peek(direct.base);
-			return lookup("count", repeatUuid);
-		},
+		count: (repeatUuid) => lookup("count", repeatUuid),
 		operations: (scope) => container(scope).operations,
 		subcases: (scope) => container(scope).subcases,
 		selectedCases: (scope) => container(scope).selectedCases,

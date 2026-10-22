@@ -7,7 +7,7 @@
  * `''` is not a date (`corehq/apps/case_search/xpath_functions/comparison.py::property_comparison_query`,
  * `_create_system_datetime_query`). Every other ordering goes to its range
  * query, which tries a number and then a date or a date and time and raises
- * on `''` (`comparison.py::_case_property_range_query`). No Predicate can
+ * on `''` (`comparison.py::_case_property_range_query`). No Expression can
  * spell "this runtime value is not blank" in a CSQL slot, so the emitter
  * guards it: the obligation rides an empty carrier segment, and the clause
  * wrapper answers `'match-none()'` while any guarded value is blank. The
@@ -15,7 +15,7 @@
  * value simply finds nothing.
  */
 
-import type { ComparisonKind, ValueExpression } from "@/lib/domain/predicate";
+import type { ComparisonKind, Expression } from "@/lib/domain/expression/types";
 import { SYSTEM_DATETIME_CASE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
 import { w } from "../xpath/wire/builders";
 import { serializeWire } from "../xpath/wire/serialize";
@@ -28,7 +28,7 @@ import type { CsqlSegment } from "./csqlSegment";
  * on any property.
  */
 export function needsBlankComparandGuard(
-	anchor: ValueExpression,
+	anchor: Expression,
 	kind: ComparisonKind,
 ): boolean {
 	if (anchor.kind !== "term" || anchor.term.kind !== "prop") return false;

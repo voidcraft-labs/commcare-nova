@@ -4,9 +4,13 @@ HQ imports each tile scenario and regenerates only its details, with HQ's own
 ``DetailContributor``, into ``<scenario>.hq-details.xml`` (a ``<suite>`` of
 the regenerated ``<detail>`` elements), which ``TileSuiteRuntimeTest`` parses
 beside the CCZ suite.
+
+The separate session-read target uses its actual corpus archive and captured
+app content through ``session_reads``; it adds no tile fixture record.
 """
 
 from proof.native.hq_support import import_source, native_check, sha256
+from proof.native.steps.session_reads import session_reads
 
 DOMAIN = "nova-tile-evidence"
 
@@ -37,4 +41,5 @@ def tiles(session):
                     "native": native,
                 }
             )
+    session_reads(session, "tile", "targeted-tile-session-reads", DOMAIN)
     return {"sources": [source.stem for source in sources], "records": records}

@@ -1,15 +1,15 @@
 // components/builder/shared/editorSchemas.ts
 //
-// Declarative registry mapping every Predicate kind to its card
+// Declarative registry mapping every Expression kind to its card
 // component, label, icon, default-value factory, and applicability
 // predicate. Mirrors the field-editor pattern at
 // `components/builder/editor/fieldEditorSchemas.ts`: adding a new
-// Predicate kind requires one entry here, and TypeScript flags the
-// omission at compile time via the `Record<Predicate["kind"], ...>`
+// Expression kind requires one entry here, and TypeScript flags the
+// omission at compile time via the `Record<ConditionArm["kind"], ...>`
 // shape.
 //
 // Why per-kind entries (instead of per-card-file entries): a card
-// COMPONENT can serve multiple Predicate kinds: `ComparisonCard`
+// COMPONENT can serve multiple Expression kinds: `ComparisonCard`
 // serves the six comparison kinds, `LogicalGroupCard` serves
 // `and` / `or` / `not`, `ExistsCard` serves `exists` and `missing`,
 // `SentinelCards` serves `match-all` / `match-none`, but each
@@ -40,7 +40,6 @@ import tablerSlash from "@iconify-icons/tabler/slash";
 import tablerTextRecognition from "@iconify-icons/tabler/text-recognition";
 import tablerUnlink from "@iconify-icons/tabler/unlink";
 import type { ComponentType } from "react";
-import type { ExpressionEvaluationTarget } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseProperty, CaseType, UserProperty } from "@/lib/domain";
 import {
 	effectiveDataType,
@@ -52,14 +51,13 @@ import {
 	acceptsType,
 	matchAll as buildMatchAll,
 	matchNone as buildMatchNone,
-	type ComparisonKind,
-	expressionReadsCaseData,
-	expressionReadsRelatedCaseData,
+	type ConditionArm,
+	type Expression,
+	type ExpressionContext,
+	type ExpressionOfKind,
 	inSubjectConstraint,
-	type Predicate,
 	type SlotConstraint,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { BetweenCard, betweenDefault } from "./cards/BetweenCard";
 import { ComparisonCard, comparisonDefault } from "./cards/ComparisonCard";
 import { ExistsCard, existsDefault, missingDefault } from "./cards/ExistsCard";
@@ -164,6 +162,7 @@ export const TABLE_ROW_SCOPE_CASE_DATA_REASON =
  * global slot and bounce off the commit gate.
  */
 export interface PredicateEditContext {
+	readonly expressionContext: ExpressionContext;
 	readonly caseTypes: readonly CaseType[];
 	readonly currentCaseType: string;
 	readonly knownInputs: readonly EditorSearchInputDecl[];
@@ -211,38 +210,19 @@ export interface PredicateEditContext {
 	 *  true. Ignored in per-case slots, whose seeds are friendly content
 	 *  rather than neutral placeholders. */
 	readonly globalPlaceholderHolds?: boolean;
-	/**
-	 * WHICH RUNTIME evaluates this rule: the axis that decides whether a
-	 * case-search-only capability is authorable here.
-	 *
-	 * Absent means `"on-device"`, and that default is deliberately the
-	 * STRICT value, not the permissive one. `caseDataScope` defaults the
-	 * other way and is the cautionary tale: a surface that forgets it
-	 * silently offers reads its gate refuses. Here a surface that forgets
-	 * this offers strictly less, which is visible and repairable rather
-	 * than a commit-time bounce. Only a slot that genuinely resolves as a
-	 * remote case-search query: an advanced search input's predicate:
-	 * passes `"case-search"`.
-	 *
-	 * A case-list filter in a search-enabled module passes
-	 * `"on-device-and-case-search"` because the same stored rule emits to
-	 * both runtimes. Its authoring choices must satisfy both oracles.
-	 */
+	/** Presentation metadata retained by mounting surfaces. Runtime admission
+	 * always reads expressionContext.profile.targets. */
 	readonly evaluationTarget?: EvaluationTarget;
-	/**
-	 * Whether this slot runs on the device's Java `Pattern` engine, the
-	 * one place a pattern match (`matches-pattern`, JavaRosa `regex()`)
-	 * can execute. Absent means no, the strict default, mirroring
-	 * `TypeContext.patternMatching`: a surface that forgets it offers one
-	 * verb fewer, never a verb the gate refuses. Only a Search field's
-	 * required condition and check set it.
-	 */
+	/** Presentation metadata; pattern admission reads profile.patternMatching. */
 	readonly patternMatching?: true;
 }
 
 /** The runtime a rule is evaluated by. See
  *  `PredicateEditContext.evaluationTarget`. */
-export type EvaluationTarget = ExpressionEvaluationTarget;
+export type EvaluationTarget =
+	| "on-device"
+	| "case-search"
+	| "on-device-and-case-search";
 
 /** Whether case-property / relationship reads are meaningful in this
  *  editor scope. */
@@ -264,7 +244,9 @@ export function neverMatchInScope(ctx: PredicateEditContext): boolean {
 /** Whether the scope can reach past the case being evaluated:
  *  relationship walks, relationship counts, relationship presence. Only
  *  the ordinary per-case scope can. */
-export function relatedCaseDataInScope(ctx: PredicateEditContext): boolean {
+export function relatedCaseDataInScope(
+	ctx: Pick<PredicateEditContext, "caseDataScope">,
+): boolean {
 	return ctx.caseDataScope === "per-case";
 }
 
@@ -274,87 +256,36 @@ export function globalPlaceholderTruth(ctx: PredicateEditContext): boolean {
 	return ctx.globalPlaceholderHolds ?? true;
 }
 
-export type ScopeAdmission =
-	| { readonly admitted: true }
-	| { readonly admitted: false; readonly reason: string };
-
 /**
- * Whether an evaluation scope lets a value be committed into a slot.
- *
- * `PredicateEditProvider` composes this in FRONT of any caller-supplied
- * oracle so every value-source and calculated-kind menu disables an
- * out-of-scope read with one shared reason. It lives here, as a pure
- * function of the scope alone, so a test can drive the exact rule the
- * running editor applies rather than a re-derivation of it.
- */
-export function caseDataScopeAdmission(
-	scope: CaseDataScope,
-	next: ValueExpression,
-): ScopeAdmission {
-	if (scope === "per-case") return { admitted: true };
-	const readsOutOfScope =
-		scope === "global" || scope === "table-row"
-			? expressionReadsCaseData
-			: expressionReadsRelatedCaseData;
-	if (!readsOutOfScope(next)) return { admitted: true };
-	return {
-		admitted: false,
-		reason:
-			scope === "global"
-				? GLOBAL_SCOPE_CASE_DATA_REASON
-				: scope === "table-row"
-					? TABLE_ROW_SCOPE_CASE_DATA_REASON
-					: SELECTED_CASE_SCOPE_RELATED_DATA_REASON,
-	};
-}
-
-/**
- * Resolve a per-kind precise predicate shape, falling back to a
- * structural `{ kind: K }`-compatible shape when `Extract<Predicate,
- * { kind: K }>` resolves to `never`. The fallback handles the six
- * comparison kinds, where the schema collapses all into one arm
- * via `z.enum(COMPARISON_KINDS)`: `Extract<Predicate, { kind:
- * "eq" }>` is structurally `never` because `"eq"` is narrower
- * than the schema's declared `kind: ComparisonKind`. The fallback
- * mirrors the `ComparisonPredicate<K>` shape in
- * `lib/domain/predicate/builders.ts`.
- */
-type PredicateOfKind<K extends Predicate["kind"]> = [
-	Extract<Predicate, { kind: K }>,
-] extends [never]
-	? Extract<Predicate, { kind: ComparisonKind }> & { kind: K }
-	: Extract<Predicate, { kind: K }>;
-
-/**
- * One registry entry. Generic over `K` (the Predicate kind discriminator)
+ * One registry entry. Generic over `K` (the Expression kind discriminator)
  * so each entry's `component` and `defaultValue` carry the precise
  * per-arm shape: `ComparisonCard`'s component receives the
  * comparison-arm subtype, `LogicalGroupCard`'s receives the and/or/not
  * arm, etc. The signed exhaustiveness lives at the
- * `predicateCardSchemas` declaration (a `Record<Predicate["kind"],
+ * `predicateCardSchemas` declaration (a `Record<ConditionArm["kind"],
  * ...>`): adding a kind without an entry breaks the build.
  *
  * `icon` carries imported `IconifyIcon` data (the object literal
  * shape exported by `@iconify-icons/tabler/*`). Mirrors the
  * `FieldKindMetadata` shape in `lib/domain/kinds.ts`.
  */
-export interface PredicateCardSchema<K extends Predicate["kind"]> {
+export interface PredicateCardSchema<K extends ConditionArm["kind"]> {
 	readonly kind: K;
 	readonly label: string;
 	readonly icon: IconifyIcon;
 	readonly description: string;
 	readonly component: ComponentType<{
-		readonly value: PredicateOfKind<K>;
-		readonly onChange: (next: Predicate) => void;
+		readonly value: ExpressionOfKind<K>;
+		readonly onChange: (next: Expression) => void;
 		readonly path: readonly (string | number)[];
 		/** The slot's type constraint: threaded by the dispatch shell
 		 *  for signature uniformity with the expression registry. A
-		 *  Predicate has no result type, so predicate cards compute
+		 *  Expression has no result type, so predicate cards compute
 		 *  their own child constraints from `useResolvedType` and ignore
 		 *  the incoming one (always `ANY_CONSTRAINT`). */
 		readonly constraint?: SlotConstraint;
 	}>;
-	readonly defaultValue: (ctx: PredicateEditContext) => PredicateOfKind<K>;
+	readonly defaultValue: (ctx: PredicateEditContext) => ExpressionOfKind<K>;
 	readonly applicable: (ctx: PredicateEditContext) => boolean;
 }
 
@@ -441,7 +372,7 @@ function hasScalarSubjectOfType(
  * get a generic search-field instruction for an unrelated case relationship
  * or data-type requirement. */
 export function predicateUnavailableReason(
-	kind: Predicate["kind"],
+	kind: ConditionArm["kind"],
 	ctx: PredicateEditContext,
 ): string {
 	if (kind === "match-none" && !neverMatchInScope(ctx)) {
@@ -508,7 +439,7 @@ export function predicateUnavailableReason(
 
 // ── Registry ────────────────────────────────────────────────────────────
 //
-// Keyed by `Predicate["kind"]` so the discriminator union forces an
+// Keyed by `ConditionArm["kind"]` so the discriminator union forces an
 // entry for every kind. Six comparison kinds share `ComparisonCard`,
 // `match-all` / `match-none` share `SentinelCards`, `and` / `or` /
 // `not` share `LogicalGroupCard`, `exists` / `missing` share
@@ -517,14 +448,14 @@ export function predicateUnavailableReason(
 // distinct option even when the component is shared.
 
 /**
- * Per-kind editor schema keyed by `Predicate["kind"]`. The
+ * Per-kind editor schema keyed by `ConditionArm["kind"]`. The
  * mapped-type shape forces TypeScript to fail compilation if a new
- * kind lands in the Predicate union without a parallel entry, the
+ * kind lands in the Expression union without a parallel entry, the
  * registry's exhaustivity is the structural guarantee that the
  * editor never silently bypasses a kind.
  */
 export const predicateCardSchemas: {
-	readonly [K in Predicate["kind"]]: PredicateCardSchema<K>;
+	readonly [K in ConditionArm["kind"]]: PredicateCardSchema<K>;
 } = {
 	// ── Comparison (6 kinds, one card) ──────────────────────────────
 	eq: {
@@ -762,7 +693,7 @@ export const predicateCardSchemas: {
  * kind-picker UI to render the menu.
  */
 export const predicateCardSchemaList: readonly PredicateCardSchema<
-	Predicate["kind"]
+	ConditionArm["kind"]
 >[] = Object.values(predicateCardSchemas) as readonly PredicateCardSchema<
-	Predicate["kind"]
+	ConditionArm["kind"]
 >[];

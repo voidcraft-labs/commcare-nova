@@ -22,13 +22,11 @@ import {
 	effectiveCaseTypes,
 	type Module,
 } from "@/lib/domain";
+import { checkExpression, scalarDataType } from "@/lib/domain/expression";
 import {
-	ANY_TYPE,
-	type CheckError,
-	checkExpression,
-} from "@/lib/domain/predicate";
-import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
-import { moduleTypeContext } from "../../validator/rules/case-list/shared";
+	type ModuleExpressionContexts,
+	moduleExpressionContexts,
+} from "../../expressionContext";
 import { w } from "../../xpath/wire/builders";
 import { toWire } from "../../xpath/wire/fromExpression";
 import { serializeWire } from "../../xpath/wire/serialize";
@@ -78,21 +76,29 @@ export function hqExpressionField(
 	doc: BlueprintDoc,
 	screen: "results" | "details",
 	lookupNaming?: LookupWireNaming,
-	typeContext: TypeContext = moduleTypeContext(mod, doc),
+	expressions: ModuleExpressionContexts = moduleExpressionContexts(
+		doc,
+		mod.uuid,
+		lookupNaming,
+	),
 ): WireExpr {
 	if (column.kind === "calculated") {
 		if (effectiveCaseSearchConfig(mod) !== undefined) {
-			const related = classifyRelatedCaseSearchExpression(column.expression, {
-				...typeContext,
-				...(mod.caseType === undefined
-					? {}
-					: { currentCaseType: mod.caseType }),
-			});
+			const related = classifyRelatedCaseSearchExpression(
+				column.expression,
+				expressions({
+					slot: "case_list_column_expression",
+					member: { columnUuid: column.uuid },
+				}),
+			);
 			if (related.kind === "ancestor-property") return related.hqExpression;
 		}
 		return toWire(column.expression, {
 			target: "hq-json",
-			types: typeContext,
+			types: expressions({
+				slot: "case_list_column_expression",
+				member: { columnUuid: column.uuid },
+			}),
 			bindings: {
 				lookup: {
 					naming: lookupNaming ?? identityLookupWireNaming(),
@@ -131,11 +137,15 @@ export function hqExpressionFieldText(
 	doc: BlueprintDoc,
 	screen: "results" | "details",
 	lookupNaming?: LookupWireNaming,
-	typeContext: TypeContext = moduleTypeContext(mod, doc),
+	expressions: ModuleExpressionContexts = moduleExpressionContexts(
+		doc,
+		mod.uuid,
+		lookupNaming,
+	),
 ): string {
 	try {
 		return serializeWire(
-			hqExpressionField(column, mod, doc, screen, lookupNaming, typeContext),
+			hqExpressionField(column, mod, doc, screen, lookupNaming, expressions),
 			{ target: "hq-json", interpolation: "none" },
 		).text;
 	} catch (error) {
@@ -182,23 +192,21 @@ export function caseListOrderOptions(
 	mediaOn: boolean,
 	lookupNaming?: LookupWireNaming,
 ): CaseListOrderOptions {
-	let typeContext: TypeContext | undefined;
-	const context = (): TypeContext => {
-		typeContext ??= moduleTypeContext(mod, doc);
-		return typeContext;
-	};
+	const expressions = moduleExpressionContexts(doc, mod.uuid, lookupNaming);
 	return {
 		mediaOn,
 		calculatedType: (column) => {
 			if (column.kind !== "calculated") return undefined;
-			const errors: CheckError[] = [];
-			const resolved = checkExpression(
+			const outcome = checkExpression(
 				column.expression,
-				context(),
-				errors,
-				[],
+				expressions({
+					slot: "case_list_column_expression",
+					member: { columnUuid: column.uuid },
+				}),
 			);
-			return resolved === ANY_TYPE ? undefined : resolved;
+			return outcome.errors.length > 0
+				? undefined
+				: scalarDataType(outcome.type?.data);
 		},
 		expressionText: (column) =>
 			hqExpressionFieldText(
@@ -207,7 +215,7 @@ export function caseListOrderOptions(
 				doc,
 				"results",
 				lookupNaming,
-				context(),
+				expressions,
 			),
 	};
 }

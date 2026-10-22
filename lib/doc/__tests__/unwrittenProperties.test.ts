@@ -9,7 +9,13 @@ import {
 } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { isBlank, literal, prop, term } from "@/lib/domain/predicate";
+import {
+	eq,
+	isBlank,
+	literal,
+	prop,
+	term,
+} from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import {
 	describeUnwrittenProperty,
@@ -214,7 +220,14 @@ describe("unwritten property derivation", () => {
 		const doc = orderDoc();
 		const field = doc.fields[FIELD];
 		if (field.kind !== "text") throw new Error("Expected text fixture");
-		field.relevant = { parts: [{ ...STATUS, property: "ghost_prop" }] };
+		field.relevant = eq(
+			{
+				kind: "form-case",
+				caseType: "medication_order",
+				property: "ghost_prop",
+			},
+			literal("delivered"),
+		);
 		// This intentionally invalid import is refused by the gate; the optional
 		// informational projection must not invent a catalog entry for it.
 		expect(mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE).ok).toBe(

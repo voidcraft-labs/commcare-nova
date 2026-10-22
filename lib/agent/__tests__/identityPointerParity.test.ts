@@ -25,6 +25,13 @@ import {
 	lookupTableIdSchema,
 	uuidSchema,
 } from "@/lib/domain";
+import {
+	choiceSchema,
+	datumRefSchema,
+	formNodeRefSchema,
+	itextUnitSchema,
+	locationFieldTermSchema,
+} from "@/lib/domain/expression";
 import { registerNovaTools } from "@/lib/mcp/server";
 import type { ToolContext } from "@/lib/mcp/types";
 
@@ -208,5 +215,39 @@ describe("shared-tool authored identity registry", () => {
 				),
 			),
 		).toThrow("Unclassified authored identity");
+	});
+
+	it("keeps typed expression identities in their owning authoring families", () => {
+		const pointers = collectIdentitySchemaPointers(
+			"probe",
+			z.toJSONSchema(
+				z.object({
+					choice: choiceSchema,
+					datum: datumRefSchema,
+					node: formNodeRefSchema,
+					text: z.object({ kind: z.literal("itext"), unit: itextUnitSchema }),
+					place: locationFieldTermSchema,
+				}),
+			),
+		);
+		for (const [property, family] of [
+			["options", "select-option"],
+			["module", "module"],
+			["form", "form"],
+			["repeat", "field"],
+			["field", "field"],
+			["option", "select-option"],
+			["level", "organization-level"],
+			["property", "location-property"],
+		] as const) {
+			const occurrences = pointers.filter(
+				(pointer) => pointer.property === property,
+			);
+			expect(occurrences.length, property).toBeGreaterThan(0);
+			expect(
+				new Set(occurrences.map((pointer) => pointer.family)),
+				property,
+			).toEqual(new Set([family]));
+		}
 	});
 });

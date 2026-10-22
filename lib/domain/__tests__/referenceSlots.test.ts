@@ -21,12 +21,20 @@
 // `ZodOptional/.ZodNullable.unwrap`). They stop at the predicate /
 // value-expression / relation-path / media schemas by object identity
 // — those subtrees are classified as whole slots (the AST families'
-// internals are owned by `lib/domain/predicate`, media bundles by the
+// internals are owned by `lib/domain/expression`, media bundles by the
 // `mediaRefs.ts` walk), so descending into them would audit vocabulary
 // this registry deliberately does not own.
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import {
+	conditionSchema,
+	expressionSchema,
+	formLinkDatumNameSchema,
+	formLogicSchema,
+	relationPathSchema,
+	valueSchema,
+} from "../expression/types";
 import {
 	type FieldKind,
 	fieldKinds,
@@ -74,11 +82,6 @@ import {
 	searchInputDefSchema,
 } from "../modules";
 import { mediaSchema } from "../multimedia";
-import {
-	predicateSchema,
-	relationPathSchema,
-	valueExpressionSchema,
-} from "../predicate/types";
 import { proseTemplateSchema } from "../prose";
 import {
 	FIELD_REFERENCE_SLOTS,
@@ -95,7 +98,6 @@ import {
 	rewriteSlotStrings,
 	rewriteSlotValues,
 } from "../referenceSlots";
-import { xpathExpressionSchema } from "../xpath";
 
 // Widened views of the registry tuples. The `as const` literals are
 // what make the slot-id projection types possible, but property access
@@ -144,19 +146,19 @@ const NON_REPEAT_KINDS = fieldKinds.filter(
 	(k): k is Exclude<FieldKind, "repeat"> => k !== "repeat",
 );
 
-/** The structured-AST schemas a `predicate-ast` slot must resolve to,
- *  matched by object identity. */
-const PREDICATE_AST_SCHEMAS = new Set<z.ZodType>([
-	predicateSchema,
-	valueExpressionSchema,
-	relationPathSchema,
+const EXPRESSION_SCHEMAS = new Set<z.ZodType>([
+	expressionSchema,
+	formLogicSchema,
+	conditionSchema,
+	valueSchema,
 ]);
 
 /** Subtrees the walkers treat as leaves: the AST families plus the
  *  media bundle (whose internals the media-carrier walk owns). */
 const SUBTREE_LEAF_SCHEMAS = new Set<z.ZodType>([
-	...PREDICATE_AST_SCHEMAS,
-	xpathExpressionSchema,
+	...EXPRESSION_SCHEMAS,
+	relationPathSchema,
+	formLinkDatumNameSchema,
 	proseTemplateSchema,
 	lookupOptionsSourceSchema,
 	caseOptionsSourceSchema,
@@ -389,8 +391,9 @@ describe("field slots — paths resolve exactly where claimed", () => {
 						expect(r).toBe(proseTemplateSchema);
 					}
 				}
-				if (slot.kind === "xpath-ast")
-					for (const r of resolved) expect(r).toBe(xpathExpressionSchema);
+				if (slot.kind === "expression")
+					for (const r of resolved)
+						expect(EXPRESSION_SCHEMAS.has(r)).toBe(true);
 				if (slot.kind === "case-type-ref") {
 					for (const r of resolved) {
 						expect(r).toBeInstanceOf(z.ZodString);
@@ -434,10 +437,14 @@ describe("field slots — paths resolve exactly where claimed", () => {
 
 describe("form slots — paths resolve with the promised shape", () => {
 	it.each(formSlots)("$slot resolves on the form schema", (slot) => {
-		const resolved = resolvePath(formSchema, slot.path);
+		const resolved = resolvePath(formSchema, slot.path).filter(
+			(schema) => !(schema instanceof z.ZodNever),
+		);
 		expect(resolved.length).toBeGreaterThan(0);
-		if (slot.kind === "xpath-ast")
-			for (const r of resolved) expect(r).toBe(xpathExpressionSchema);
+		if (slot.kind === "expression")
+			for (const r of resolved) expect(EXPRESSION_SCHEMAS.has(r)).toBe(true);
+		if (slot.kind === "datum-ref")
+			for (const r of resolved) expect(r).toBe(formLinkDatumNameSchema);
 	});
 });
 
@@ -445,14 +452,10 @@ describe("module slots — paths resolve with the promised shape", () => {
 	it.each(moduleSlots)("$slot resolves on the module schema", (slot) => {
 		const resolved = resolvePath(moduleSchema, slot.path);
 		expect(resolved.length).toBeGreaterThan(0);
-		if (slot.kind === "predicate-ast") {
-			// Identity, not shape: the slot must hold the actual predicate /
-			// value-expression / relation-path schema object, so a slot that
-			// drifts to a different structured type fails here.
-			for (const r of resolved) {
-				expect(PREDICATE_AST_SCHEMAS.has(r)).toBe(true);
-			}
-		}
+		if (slot.kind === "expression")
+			for (const r of resolved) expect(EXPRESSION_SCHEMAS.has(r)).toBe(true);
+		if (slot.kind === "relation-path")
+			for (const r of resolved) expect(r).toBe(relationPathSchema);
 		if (slot.kind === "case-property-ref" || slot.kind === "case-type-ref") {
 			for (const r of resolved) {
 				expect(r).toBeInstanceOf(z.ZodString);
@@ -614,7 +617,7 @@ describe("the audit gate fires on a missing classification", () => {
 				inlineOptionsSourceSchema.extend({
 					options: z.array(
 						selectOptionSchema.extend({
-							new_expression: xpathExpressionSchema,
+							new_expression: expressionSchema,
 						}),
 					),
 				}),

@@ -37,7 +37,7 @@ import {
 	prop,
 	term,
 	unowned,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import {

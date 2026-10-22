@@ -3,9 +3,8 @@
  *
  * The engine stores runtime values at CONCRETE paths — repeat children live
  * under an indexed instance segment (`/data/orders[1]/medication_name`) —
- * while every authored reference prints index-free (`printXPath` emits
- * `#form/orders/medication_name`; the dependency extractor emits
- * `/data/orders/medication_name`). These helpers convert between the two
+ * while stored field identities project to index-free template paths such
+ * as `/data/orders/medication_name`. These helpers convert between the two
  * shapes: `stripIndices` generalizes a concrete path to its index-free form,
  * and `rebaseOntoContext` binds an index-free reference onto the repeat
  * instance the evaluating expression lives in.

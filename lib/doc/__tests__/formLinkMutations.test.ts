@@ -10,7 +10,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	afterSubmitPlan,
@@ -24,6 +24,11 @@ import {
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, FormLink } from "@/lib/domain";
+import { eq, literal, term } from "@/lib/domain/expression/builders";
+import type {
+	Expression,
+	FormLinkDatumName,
+} from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -38,9 +43,9 @@ const ELSE = testUuid("lnk-else");
 
 interface Spec {
 	uuid: string;
-	condition?: string;
+	condition?: string | Expression;
 	target: FormLink["target"];
-	datums?: Array<{ name: string; xpath: string }>;
+	datums?: Array<{ name: FormLinkDatumName; xpath: string }>;
 }
 
 const toNote = { type: "form", moduleUuid: CARE, formUuid: NOTE } as const;
@@ -165,9 +170,9 @@ function commit(doc: BlueprintDoc, plan: FormLinkCommitPlan): BlueprintDoc {
 const order = (doc: BlueprintDoc) =>
 	doc.forms[SOURCE]?.formLinks?.map((link) => link.uuid) ?? [];
 
-const newLink = (uuid: string, condition?: string): FormLink => ({
+const newLink = (uuid: string, condition?: Expression): FormLink => ({
 	uuid: testUuid(uuid),
-	...(condition !== undefined && { condition: xp(condition) }),
+	...(condition !== undefined && { condition }),
 	target: toNote,
 });
 
@@ -258,10 +263,16 @@ describe("afterSubmitPlan", () => {
 		});
 	});
 
-	it("treats a condition that prints to empty XPath as unconditional", () => {
-		const plan = afterSubmitPlan(fixture([cond("lnk-1", "")]), SOURCE);
-		expect(plan?.conditional).toEqual([]);
-		expect(plan?.elseLink?.uuid).toBe(L1);
+	it("keeps a present match-all condition distinct from the terminal otherwise", () => {
+		const plan = afterSubmitPlan(
+			fixture([
+				{ uuid: "lnk-1", condition: { kind: "match-all" }, target: toNote },
+				otherwise(),
+			]),
+			SOURCE,
+		);
+		expect(plan?.conditional.map((link) => link.uuid)).toEqual([L1]);
+		expect(plan?.elseLink?.uuid).toBe(ELSE);
 	});
 
 	it("is undefined for a missing form", () => {
@@ -274,9 +285,14 @@ describe("planFormLinkAdd", () => {
 		const doc = multipleSelectionFixture();
 		const link: FormLink = {
 			uuid: L1,
-			condition: xp("1 = 1"),
+			condition: eq(literal(1), literal(1)),
 			target: toVisit,
-			datums: [{ name: "case_id", xpath: xp("'patient-id'") }],
+			datums: [
+				{
+					name: { kind: "selected-case", module: CARE },
+					xpath: term(literal("patient-id")),
+				},
+			],
 		};
 
 		expectSelectionCardinalityRefusal(doc, [
@@ -293,7 +309,11 @@ describe("planFormLinkAdd", () => {
 
 	it("appends a conditional link and pins the fallback when it is the first with no otherwise", () => {
 		const doc = fixture([]);
-		const plan = planFormLinkAdd(doc, SOURCE, newLink("lnk-1", "1 = 1"));
+		const plan = planFormLinkAdd(
+			doc,
+			SOURCE,
+			newLink("lnk-1", eq(literal(1), literal(1))),
+		);
 		expect(plan).toMatchObject({ ok: true, pinsFallback: "app_home" });
 		if (!plan.ok) return;
 		expect(plan.mutations.map((m) => m.kind)).toEqual([
@@ -309,13 +329,17 @@ describe("planFormLinkAdd", () => {
 		const stored = planFormLinkAdd(
 			fixture([], { postSubmit: "module" }),
 			SOURCE,
-			newLink("lnk-1", "1 = 1"),
+			newLink("lnk-1", eq(literal(1), literal(1))),
 		);
 		expect(stored).toMatchObject({ ok: true });
 		expect(stored.ok && stored.pinsFallback).toBeUndefined();
 		commit(fixture([], { postSubmit: "module" }), stored);
 		const withElse = fixture([otherwise()]);
-		const plan = planFormLinkAdd(withElse, SOURCE, newLink("lnk-1", "1 = 1"));
+		const plan = planFormLinkAdd(
+			withElse,
+			SOURCE,
+			newLink("lnk-1", eq(literal(1), literal(1))),
+		);
 		expect(plan.ok && plan.pinsFallback).toBeUndefined();
 		// ...and the conditional link lands ABOVE the otherwise by default.
 		expect(order(commit(withElse, plan))).toEqual([L1, ELSE]);
@@ -325,17 +349,27 @@ describe("planFormLinkAdd", () => {
 		const doc = fixture([cond("lnk-1", "1 = 1"), otherwise()], {
 			postSubmit: "app_home",
 		});
-		const first = planFormLinkAdd(doc, SOURCE, newLink("lnk-2", "2 = 2"), null);
+		const first = planFormLinkAdd(
+			doc,
+			SOURCE,
+			newLink("lnk-2", eq(literal(2), literal(2))),
+			null,
+		);
 		expect(order(commit(doc, first))).toEqual([L2, L1, ELSE]);
 		const afterFirst = planFormLinkAdd(
 			doc,
 			SOURCE,
-			newLink("lnk-2", "2 = 2"),
+			newLink("lnk-2", eq(literal(2), literal(2))),
 			L1,
 		);
 		expect(order(commit(doc, afterFirst))).toEqual([L1, L2, ELSE]);
 		expect(
-			planFormLinkAdd(doc, SOURCE, newLink("lnk-2", "2 = 2"), ELSE),
+			planFormLinkAdd(
+				doc,
+				SOURCE,
+				newLink("lnk-2", eq(literal(2), literal(2))),
+				ELSE,
+			),
 		).toEqual({
 			ok: false,
 			reason: { kind: "after-else", elseUuid: ELSE },
@@ -359,14 +393,20 @@ describe("planFormLinkAdd", () => {
 
 	it("refuses a duplicate uuid, a self target, a cycle, and a missing target", () => {
 		const doc = fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" });
-		expect(planFormLinkAdd(doc, SOURCE, newLink("lnk-1", "2 = 2"))).toEqual({
+		expect(
+			planFormLinkAdd(
+				doc,
+				SOURCE,
+				newLink("lnk-1", eq(literal(2), literal(2))),
+			),
+		).toEqual({
 			ok: false,
 			reason: { kind: "duplicate-uuid", uuid: L1 },
 		});
 		expect(
 			planFormLinkAdd(doc, SOURCE, {
 				uuid: L2,
-				condition: xp("2 = 2"),
+				condition: eq(literal(2), literal(2)),
 				target: { type: "form", moduleUuid: INTAKE, formUuid: SOURCE },
 			}),
 		).toEqual({ ok: false, reason: { kind: "self-target" } });
@@ -383,14 +423,20 @@ describe("planFormLinkAdd", () => {
 			];
 		});
 		assertAdmittedDoc(looped);
-		expect(planFormLinkAdd(looped, SOURCE, newLink("lnk-2", "2 = 2"))).toEqual({
+		expect(
+			planFormLinkAdd(
+				looped,
+				SOURCE,
+				newLink("lnk-2", eq(literal(2), literal(2))),
+			),
+		).toEqual({
 			ok: false,
 			reason: { kind: "cycle", chain: [NOTE, SOURCE] },
 		});
 		expect(
 			planFormLinkAdd(doc, SOURCE, {
 				uuid: L2,
-				condition: xp("2 = 2"),
+				condition: eq(literal(2), literal(2)),
 				target: { type: "module", moduleUuid: testUuid("ghost") },
 			}),
 		).toEqual({ ok: false, reason: { kind: "target-not-found" } });
@@ -407,7 +453,12 @@ describe("planFormLinkUpdate", () => {
 	};
 
 	it("refuses datum-only and retarget edits that the collection gate refuses", () => {
-		const held = [{ name: "case_id", xpath: xp("'patient-id'") }];
+		const held: NonNullable<FormLink["datums"]> = [
+			{
+				name: { kind: "selected-case", module: CARE },
+				xpath: term(literal("patient-id")),
+			},
+		];
 		const direct = multipleSelectionFixture([
 			{ uuid: "lnk-1", condition: "1 = 1", target: toVisit },
 		]);
@@ -459,8 +510,13 @@ describe("planFormLinkUpdate", () => {
 			SOURCE,
 			{
 				...current,
-				condition: xp("2 = 2"),
-				datums: [{ name: "case_id", xpath: xp("'x'") }],
+				condition: eq(literal(2), literal(2)),
+				datums: [
+					{
+						name: { kind: "selected-case", module: CARE },
+						xpath: term(literal("x")),
+					},
+				],
 			},
 			current,
 		);
@@ -472,8 +528,13 @@ describe("planFormLinkUpdate", () => {
 				formUuid: SOURCE,
 				uuid: L1,
 				patch: {
-					condition: xp("2 = 2"),
-					datums: [{ name: "case_id", xpath: xp("'x'") }],
+					condition: eq(literal(2), literal(2)),
+					datums: [
+						{
+							name: { kind: "selected-case", module: CARE },
+							xpath: term(literal("x")),
+						},
+					],
 				},
 			},
 		]);
@@ -506,7 +567,9 @@ describe("planFormLinkUpdate", () => {
 					uuid: "lnk-1",
 					condition: "1 = 1",
 					target: toVisit,
-					datums: [{ name: "case_id", xpath: "'x'" }],
+					datums: [
+						{ name: { kind: "selected-case", module: CARE }, xpath: "'x'" },
+					],
 				},
 			],
 			{ postSubmit: "app_home" },
@@ -576,13 +639,13 @@ describe("planFormLinkUpdate", () => {
 		const peerEdited = produce(doc, (draft) => {
 			const link = draft.forms[SOURCE]?.formLinks?.[0];
 			if (link === undefined) throw new Error("fixture");
-			link.condition = xp("9 = 9");
+			link.condition = eq(literal(9), literal(9));
 		});
 		expect(
 			planFormLinkUpdate(
 				peerEdited,
 				SOURCE,
-				{ ...opened, condition: xp("2 = 2") },
+				{ ...opened, condition: eq(literal(2), literal(2)) },
 				opened,
 			),
 		).toEqual({ ok: false, reason: { kind: "stale-base" } });
@@ -593,7 +656,12 @@ describe("planFormLinkUpdate", () => {
 			{
 				...opened,
 				target: toVisit,
-				datums: [{ name: "case_id", xpath: xp("'p'") }],
+				datums: [
+					{
+						name: { kind: "selected-case", module: CARE },
+						xpath: term(literal("p")),
+					},
+				],
 			},
 			opened,
 		);
@@ -603,14 +671,14 @@ describe("planFormLinkUpdate", () => {
 		});
 		const rebased = commit(peerEdited, retarget);
 		expect(rebased.forms[SOURCE].formLinks?.[0]).toMatchObject({
-			condition: xp("9 = 9"),
+			condition: eq(literal(9), literal(9)),
 			target: toVisit,
 		});
 		expect(
 			planFormLinkUpdate(
 				fixture([]),
 				SOURCE,
-				{ ...opened, condition: xp("2 = 2") },
+				{ ...opened, condition: eq(literal(2), literal(2)) },
 				opened,
 			),
 		).toEqual({ ok: false, reason: { kind: "link-not-found", uuid: L1 } });
@@ -634,7 +702,7 @@ describe("planFormLinkUpdate", () => {
 		const plan = planFormLinkUpdate(
 			doc,
 			SOURCE,
-			{ ...elseLink, condition: xp("2 = 2") },
+			{ ...elseLink, condition: eq(literal(2), literal(2)) },
 			elseLink,
 		);
 		expect(plan).toMatchObject({ ok: true, pinsFallback: "app_home" });

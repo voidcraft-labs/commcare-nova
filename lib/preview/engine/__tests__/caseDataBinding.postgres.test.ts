@@ -44,7 +44,7 @@ import {
 	sessionUser,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
@@ -756,7 +756,7 @@ describe("readCases", () => {
 		expect(staleFinalPage.rows.map((row) => row.case_id)).toEqual([caseIds[0]]);
 	});
 
-	it("uses Results order, not Details order, to break equal sort priorities", async () => {
+	it("uses authored sort priorities independently of Results and Details column order", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
@@ -789,9 +789,13 @@ describe("readCases", () => {
 					"age",
 					"Age",
 					{
-						sort: { direction: "asc", priority: 0 },
+						sort: { direction: "asc", priority: 1 },
 					},
 				),
+			],
+			listColumnOrder: [
+				testUuid("10000000-0000-0000-0000-000000000003"),
+				NAME_COLUMN_UUID,
 			],
 			detailColumnOrder: [
 				testUuid("10000000-0000-0000-0000-000000000003"),
@@ -799,24 +803,28 @@ describe("readCases", () => {
 			],
 			searchInputs: [],
 		});
-		const mod = blueprint.modules[blueprint.moduleOrder[0]];
+		const moduleUuid = blueprint.moduleOrder[0];
+		const mod = {
+			...blueprint.modules[moduleUuid],
+			caseType: "patient",
+			caseListConfig: resultsConfig,
+		};
+		const candidate = assertAdmittedPreviewDoc({
+			...blueprint,
+			modules: { ...blueprint.modules, [moduleUuid]: mod },
+		});
 		const result = await readCases(store, {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: resultsConfig,
-			order: previewCaseStoreOrder(
-				{ ...mod, caseType: "patient" },
-				blueprint,
-				resultsConfig,
-				"en",
-			),
+			order: previewCaseStoreOrder(mod, candidate, resultsConfig, "en"),
 		});
 
 		expect(result.kind).toBe("rows");
 		if (result.kind !== "rows") return;
-		// Results order makes `name` primary, then `age`: B, A, C. If
-		// Details order leaked into sorting, `age` would lead: C, B, A.
+		// Both views put Age first, but authored priorities make Name primary,
+		// then Age: B, A, C. Either presentation order would yield C, B, A.
 		expect(result.rows.map((row) => row.case_id)).toEqual([
 			BOB_CASE_ID,
 			ALICE_CASE_ID,
@@ -3099,19 +3107,23 @@ describe("readFilterPreview", () => {
 				}),
 			],
 		});
-		const mod = blueprint.modules[blueprint.moduleOrder[0]];
+		const moduleUuid = blueprint.moduleOrder[0];
+		const mod = {
+			...blueprint.modules[moduleUuid],
+			caseType: "patient",
+			caseListConfig: config,
+		};
+		const candidate = assertAdmittedPreviewDoc({
+			...blueprint,
+			modules: { ...blueprint.modules, [moduleUuid]: mod },
+		});
 		const result = await readFilterPreview(store, {
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
 			caseListConfig: config,
 			limit: 1,
-			order: previewCaseStoreOrder(
-				{ ...mod, caseType: "patient" },
-				blueprint,
-				config,
-				"en",
-			),
+			order: previewCaseStoreOrder(mod, candidate, config, "en"),
 		});
 		expect(result).toMatchObject({ kind: "rows", totalCount: 2 });
 		if (result.kind !== "rows") return;

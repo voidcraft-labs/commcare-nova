@@ -1499,7 +1499,7 @@
 		],
 		"valueClass": "link-condition",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `formLinks[].condition` (`XPathExpression`, session profile)",
+		"dispositionCell": "**HELD**: `formLinks[].condition` (`Expression`, form-link profile)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",

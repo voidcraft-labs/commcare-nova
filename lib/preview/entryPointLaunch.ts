@@ -2,6 +2,7 @@ import { entryPointRequirements } from "@/lib/doc/entryPointProjection";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { entryPointInventory } from "@/lib/domain/entryPoints";
 import { moduleParent } from "@/lib/domain/moduleHierarchy";
+import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import { caseRowToFormPreload } from "./engine/caseDataBindingClient";
 import {
@@ -154,7 +155,15 @@ export function prepareEntryPointLaunch(args: {
 					condition: mod.displayCondition,
 					hiddenFromMenu: mod.hiddenFromMenu === true,
 					session: args.session,
-					currentCaseType: mod.caseType,
+					types: previewExpressionContext(
+						args.doc,
+						{
+							entity: "module",
+							uuid: moduleUuid,
+							slot: "module_display_condition",
+						},
+						args.lookup.kind === "data" ? args.lookup.data : undefined,
+					),
 					lookup: args.lookup,
 				}) !== "shown"
 			)
@@ -164,7 +173,6 @@ export function prepareEntryPointLaunch(args: {
 			moduleUuid = moduleParent(args.doc, moduleUuid);
 		}
 		if (item.target.kind === "form") {
-			const mod = args.doc.modules[item.target.moduleUuid];
 			const selection = previewMenuCaseContext(
 				{ ...args.doc, caseTypes: args.doc.caseTypes ?? [] },
 				item.target.moduleUuid,
@@ -180,7 +188,15 @@ export function prepareEntryPointLaunch(args: {
 					hiddenFromMenu:
 						args.doc.forms[item.target.formUuid].hiddenFromMenu === true,
 					session: args.session,
-					currentCaseType: mod.caseType,
+					types: previewExpressionContext(
+						args.doc,
+						{
+							entity: "form",
+							uuid: item.target.formUuid,
+							slot: "form_display_condition",
+						},
+						args.lookup.kind === "data" ? args.lookup.data : undefined,
+					),
 					caseProjection,
 					lookup: args.lookup,
 				}) !== "shown"

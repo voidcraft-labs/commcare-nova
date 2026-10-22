@@ -13,19 +13,21 @@
 // Search screen reports an unparseable one when the check first runs.
 
 "use client";
+
 import { useEffect, useId, useRef, useState } from "react";
 import { FieldError } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	absenceSubjectConstraint,
+	type Expression,
 	input,
 	matchesPattern,
 	PATTERN_MAX_LENGTH,
-	type Predicate,
 	prop,
 	sessionContext,
 	tableColumn,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	caseDataInScope,
 	type PredicateEditContext,
@@ -42,7 +44,7 @@ const SEED_PATTERN = "^[0-9]+$";
 
 export function matchesPatternDefault(
 	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "matches-pattern" }> {
+): ExpressionOfKind<"matches-pattern"> {
 	if (tableRowInScope(ctx)) {
 		const column = ctx.tableScope?.columns[0];
 		if (ctx.tableScope === undefined || column === undefined) {
@@ -74,16 +76,33 @@ export function matchesPatternDefault(
 }
 
 interface MatchesPatternCardProps {
-	readonly value: Extract<Predicate, { kind: "matches-pattern" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"matches-pattern">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
-export function MatchesPatternCard({
+export function MatchesPatternCard(props: MatchesPatternCardProps) {
+	if (typeof props.value.pattern !== "string")
+		return (
+			<p role="status">This saved expression cannot be edited here yet.</p>
+		);
+	return (
+		<EditableMatchesPatternCard
+			{...props}
+			value={{ ...props.value, pattern: props.value.pattern }}
+		/>
+	);
+}
+
+function EditableMatchesPatternCard({
 	value,
 	onChange,
 	path,
-}: MatchesPatternCardProps) {
+}: MatchesPatternCardProps & {
+	readonly value: MatchesPatternCardProps["value"] & {
+		readonly pattern: string;
+	};
+}) {
 	return (
 		<div className="space-y-2">
 			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto] gap-2 items-start">

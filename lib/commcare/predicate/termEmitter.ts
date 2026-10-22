@@ -1,8 +1,5 @@
 // CSQL leaves and runtime interpolation. Device lowering lives in xpath/wire.
-import type {
-	SearchInputDecl,
-	SearchInputInstanceId,
-} from "@/lib/domain/predicate/typeChecker";
+import { choiceValue } from "@/lib/domain/expression/choiceValue";
 import type {
 	PropertyRef,
 	RelationStep,
@@ -10,11 +7,14 @@ import type {
 	SessionContextRef,
 	SessionUserRef,
 	Term,
-} from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression/types";
 import type { Uuid } from "@/lib/domain/uuid";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
+import type { CsqlEmissionContext } from "../expression/csqlRuntimeExpression";
 import { w } from "../xpath/wire/builders";
+import type { SearchInputInstanceId } from "../xpath/wire/fromExpression";
 import { toWire } from "../xpath/wire/fromExpression";
+import { searchInputInstance } from "../xpath/wire/instances";
 import type { WireExpr } from "../xpath/wire/tree";
 import type { CsqlSegment } from "./csqlSegment";
 import { formatNumeric, quoteLiteral } from "./stringQuoting";
@@ -53,27 +53,26 @@ export type RuntimeCsqlQuoteStyle = "single" | "double";
  */
 export function emitTermSegment(
 	t: Term,
-	context: {
-		readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
-		readonly knownInputs?: ReadonlyArray<SearchInputDecl>;
-		readonly searchInputInstanceId?: SearchInputInstanceId;
-	} = {},
+	context: CsqlEmissionContext,
 ): TermEmission {
 	switch (t.kind) {
 		case "prop":
 			return { kind: "constant", text: emitCsqlPropertyRefText(t) };
 		case "input": {
 			const searchInputNames = new Map(
-				(context.knownInputs ?? []).map((input) => [input.uuid, input.name]),
+				(context.types.profile.searchInputs ?? []).map((input) => [
+					input.uuid,
+					input.name,
+				]),
 			);
-			const declaredType = (context.knownInputs ?? []).find(
+			const declaredType = (context.types.profile.searchInputs ?? []).find(
 				(input) => input.uuid === t.searchInputUuid,
 			)?.data_type;
 			return {
 				kind: "runtime",
 				xpath: emitSearchInputXPath(t, {
 					searchInputNames,
-					searchInputInstanceId: context.searchInputInstanceId,
+					searchInputInstanceId: context.bindings?.searchInputInstanceId,
 				}),
 				inputNames: [resolveSearchInputName(t, { searchInputNames })],
 				// A `date`-widget input's runtime value is picker-formatted
@@ -83,9 +82,12 @@ export function emitTermSegment(
 			};
 		}
 		case "session-user":
-			return { kind: "runtime", xpath: emitSessionUserXPath(t) };
+			return { kind: "runtime", xpath: emitSessionUserXPath(t, context) };
 		case "session-user-property": {
-			const slug = context.userPropertySlugs?.get(t.userPropertyUuid);
+			const slug = (
+				context.bindings?.userPropertySlugs ??
+				context.types.facts.userPropertySlugs
+			).get(t.userPropertyUuid);
 			if (slug === undefined) {
 				throw new Error(
 					`emitTermSegment: worker-information property '${t.userPropertyUuid}' has no current saved-name binding.`,
@@ -93,16 +95,29 @@ export function emitTermSegment(
 			}
 			return {
 				kind: "runtime",
-				xpath: emitSessionUserXPath({ kind: "session-user", field: slug }),
+				xpath: emitSessionUserXPath(
+					{
+						kind: "session-user",
+						field: slug,
+						...(t.source === undefined ? {} : { source: t.source }),
+					},
+					context,
+				),
 			};
 		}
 		case "session-context":
-			return { kind: "runtime", xpath: emitSessionContextXPath(t) };
+			return { kind: "runtime", xpath: emitSessionContextXPath(t, context) };
 		case "form-case":
 		case "field":
 			throw new Error(
 				"emitTermSegment: form-field terms are form-submission values and cannot be emitted into server-side CSQL.",
 			);
+		case "choice":
+			return emitCsqlLiteralSegment(
+				choiceValue(t, context.types.facts.options),
+			);
+		case "case-type":
+			return emitCsqlLiteralSegment(t.caseType);
 		case "literal":
 			return emitCsqlLiteralSegment(t.value);
 		case "fixed-location":
@@ -114,12 +129,10 @@ export function emitTermSegment(
 			throw new Error(
 				"emitTermSegment: a lookup-table column term is valid only inside its table-lookup row predicate. It cannot be emitted directly into a case-query CSQL value; validation should reject the escaped table-row term before emission.",
 			);
-		default: {
-			const _exhaustive: never = t;
+		default:
 			throw new Error(
-				`emitTermSegment: unhandled term kind ${String(_exhaustive)}`,
+				`emitTermSegment: '${t.kind}' is unavailable in a server case-search query.`,
 			);
-		}
 	}
 }
 
@@ -131,7 +144,7 @@ export function emitTermSegment(
  * User-defined properties pass through bare.
  *
  * The `via` slot is always `self` (or absent) at this emission
- * layer: `lib/domain/predicate/normalizeRelationReads.ts`
+ * layer: `lib/domain/expression/normalizeRelationReads.ts`
  * rewrites every `prop(via)` reference that reaches native CSQL
  * emission — directly or through a native value function — into an
  * enclosing `exists` envelope before the segment emitter runs, so
@@ -181,9 +194,15 @@ export function emitSearchInputXPath(
 	t: SearchInputRef,
 	context: CsqlSearchInputContext = {},
 ): WireExpr {
-	return toWire(
-		{ kind: "term", term: t },
-		{ target: "csql-runtime", types: {}, bindings: context },
+	const name = resolveSearchInputName(t, context);
+	return w.instance(
+		searchInputInstance(
+			context.searchInputInstanceId ?? STANDALONE_SEARCH_INPUT_INSTANCE_ID,
+		),
+		[
+			w.step("input"),
+			w.step("field", [w.eq(w.context([w.attr("name")]), w.str(name))]),
+		],
 	);
 }
 
@@ -209,10 +228,13 @@ function resolveSearchInputName(
  * the open-namespace custom user-data tree populated by
  * `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java::SessionInstanceBuilder.addUserProperties`.
  */
-export function emitSessionUserXPath(t: SessionUserRef): WireExpr {
+export function emitSessionUserXPath(
+	t: SessionUserRef,
+	context: CsqlEmissionContext,
+): WireExpr {
 	return toWire(
 		{ kind: "term", term: t },
-		{ target: "csql-runtime", types: {} },
+		{ ...context, target: "csql-runtime" },
 	);
 }
 
@@ -222,10 +244,13 @@ export function emitSessionUserXPath(t: SessionUserRef): WireExpr {
  * the closed-namespace framework-controlled context tree populated by
  * `commcare-core/src/main/java/org/commcare/session/SessionInstanceBuilder.java::SessionInstanceBuilder.addMetadata`.
  */
-export function emitSessionContextXPath(t: SessionContextRef): WireExpr {
+export function emitSessionContextXPath(
+	t: SessionContextRef,
+	context: CsqlEmissionContext,
+): WireExpr {
 	return toWire(
 		{ kind: "term", term: t },
-		{ target: "csql-runtime", types: {} },
+		{ ...context, target: "csql-runtime" },
 	);
 }
 

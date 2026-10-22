@@ -1,3 +1,6 @@
+import { activeRowScope } from "@/lib/domain/expression/context";
+import { isConditionArm } from "@/lib/domain/expression/types";
+import { materializeCsqlChoices } from "../expression/csqlChoices";
 // lib/commcare/predicate/csqlEmitter.ts
 //
 // Per-dialect emitter producing the on-device XPath wrapper that builds
@@ -85,7 +88,7 @@
 // produces the runtime XPath fragment and it lands as a single
 // `runtime` segment inside the outer concat.
 //
-// Operand-side ValueExpression dispatch:
+// Operand-side Expression dispatch:
 //
 //   - `term` arms unwrap to terms via the shared term emitter.
 //   - The seven CSQL value-function whitelist arms (`today`, `now`,
@@ -106,21 +109,21 @@
 //     type coercion, so the double-quote wrap is uniform whether the
 //     resolved value parses as a number, string, or date.
 
-import { normalizeRelationEvaluationScopes } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
-import { normalizeRelationPropertyReads } from "@/lib/domain/predicate/normalizeRelationReads";
+import { normalizeRelationEvaluationScopes } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import { normalizeRelationPropertyReads } from "@/lib/domain/expression/normalizeRelationReads";
 import type {
 	ComparisonKind,
-	Predicate,
+	Expression,
 	RelationStep,
-	ValueExpression,
-} from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression/types";
 import {
 	emitCsqlExpressionSegments,
 	isNativeCsqlValueExpression,
 } from "../expression/csqlEmitter";
 import {
+	type CsqlEmissionContext,
+	csqlChildContext,
 	emitCsqlRuntimeExpression,
-	type CsqlEmissionContext as TypeContext,
 } from "../expression/csqlRuntimeExpression";
 import { assertCsqlQueryFunction } from "../xpath/functionCapabilities";
 import { w } from "../xpath/wire/builders";
@@ -225,7 +228,7 @@ const PREC_AND = 2;
  *   - `comparison-operand` — directly underneath one of the six
  *     comparison operators. `count` with `via.kind === "subcase"`
  *     survives here as native `subcase-count(...)`.
- *   - `value` — every other ValueExpression slot. All count shapes
+ *   - `value` — every other Expression slot. All count shapes
  *     inline as on-device XPath.
  */
 type OperandPosition = "comparison-operand" | "value";
@@ -291,19 +294,32 @@ export function collectRelatedCaseQueries<T>(emit: () => T): {
  * redundant scan.
  */
 export function emitCsql(
-	predicate: Predicate,
-	typeContext?: TypeContext,
+	predicate: Expression,
+	typeContext: CsqlEmissionContext,
 ): CsqlEmissionResult {
+	const row = activeRowScope(typeContext.types);
+	const currentCaseType =
+		row?.kind === "case"
+			? row.caseType
+			: row?.kind === "table"
+				? row.capturedCase?.caseType
+				: undefined;
+	const relationContext = {
+		caseTypes: typeContext.types.facts.caseTypes,
+		currentCaseType,
+	};
 	const normalized = normalizeRelationEvaluationScopes(
-		normalizeCsqlPredicate(predicate),
-		typeContext ?? {},
+		normalizeCsqlPredicate(
+			materializeCsqlChoices(predicate, typeContext.types),
+		),
+		relationContext,
 	);
 	// The shared evaluation-scope pass above gives every dialect identical
 	// same-row semantics. The older CSQL lift remains as a grammar adapter and
 	// defensive backstop for a bypassed shape; it must never be the pass that
 	// decides relation correlation one PropertyRef at a time.
 	const lifted = normalizeRelationPropertyReads(normalized, {
-		...(typeContext === undefined ? {} : { caseTypes: typeContext.caseTypes }),
+		...relationContext,
 		unsupportedPropertyOperands: "throw",
 	});
 	return emitLiftedResult(lifted, typeContext);
@@ -324,8 +340,8 @@ export function emitCsql(
  * an answer whose clause is inert.
  */
 function emitLiftedResult(
-	predicate: Predicate,
-	typeContext?: TypeContext,
+	predicate: Expression,
+	typeContext: CsqlEmissionContext,
 ): CsqlEmissionResult {
 	if (predicate.kind === "when-input-present") {
 		return emitPresenceGatedClause(predicate, typeContext);
@@ -341,15 +357,20 @@ function emitLiftedResult(
  * wrap, whose guards then sit inside the presence branch.
  */
 function emitPresenceGatedClause(
-	p: Extract<Predicate, { kind: "when-input-present" }>,
-	typeContext?: TypeContext,
+	p: Extract<Expression, { kind: "when-input-present" }>,
+	typeContext: CsqlEmissionContext,
 ): CsqlEmissionResult {
 	assertCsqlQueryFunction("match-all");
 	const triggerXPath = emitSearchInputXPath(p.input, {
-		searchInputNames: new Map(
-			(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
-		),
-		searchInputInstanceId: typeContext?.searchInputInstanceId,
+		searchInputNames:
+			typeContext.bindings?.searchInputNames ??
+			new Map(
+				(typeContext.types.profile.searchInputs ?? []).map((input) => [
+					input.uuid,
+					input.name,
+				]),
+			),
+		searchInputInstanceId: typeContext.bindings?.searchInputInstanceId,
 	});
 	const inner =
 		p.clause.kind === "when-input-present"
@@ -577,10 +598,14 @@ function buildConcatExpression(segments: readonly CsqlSegment[]): {
  * arm code does not pre-merge.
  */
 function emitPredicateSegments(
-	p: Predicate,
+	p: Expression,
 	parentPrec: number,
-	typeContext?: TypeContext,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
+	if (!isConditionArm(p))
+		throw new Error(
+			`csqlEmitter: '${p.kind}' is unavailable as a native search clause.`,
+		);
 	switch (p.kind) {
 		case "match-all":
 			assertCsqlQueryFunction("match-all");
@@ -663,7 +688,7 @@ function emitPredicateSegments(
 		default: {
 			const _exhaustive: never = p;
 			throw new Error(
-				`csqlEmitter: hit an unhandled predicate kind '${String(_exhaustive)}' while emitting CSQL segments. Expected one of the kinds listed on the Predicate union in lib/domain/predicate/types.ts. Whoever added the kind needs to extend the emission dispatch.`,
+				`csqlEmitter: hit an unhandled predicate kind '${String(_exhaustive)}' while emitting CSQL segments. Expected one of the kinds listed on the Expression union in lib/domain/expression/types.ts. Whoever added the kind needs to extend the emission dispatch.`,
 			);
 		}
 	}
@@ -699,15 +724,20 @@ function emitPredicateSegments(
  * segment spliced into the surrounding clause's segment list.
  */
 function emitWhenInputPresentSegments(
-	p: Extract<Predicate, { kind: "when-input-present" }>,
-	typeContext?: TypeContext,
+	p: Extract<Expression, { kind: "when-input-present" }>,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	assertCsqlQueryFunction("match-all");
 	const triggerXPath = emitSearchInputXPath(p.input, {
-		searchInputNames: new Map(
-			(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
-		),
-		searchInputInstanceId: typeContext?.searchInputInstanceId,
+		searchInputNames:
+			typeContext.bindings?.searchInputNames ??
+			new Map(
+				(typeContext.types.profile.searchInputs ?? []).map((input) => [
+					input.uuid,
+					input.name,
+				]),
+			),
+		searchInputInstanceId: typeContext.bindings?.searchInputInstanceId,
 	});
 	const innerSegments = emitPredicateSegments(p.clause, 0, typeContext);
 	const inner = buildConcatExpression(innerSegments);
@@ -749,8 +779,8 @@ function emitWhenInputPresentSegments(
  * XPath produces a numeric literal that the RHS dispatcher accepts.
  */
 function emitComparisonSegments(
-	p: Extract<Predicate, { kind: ComparisonKind }>,
-	typeContext?: TypeContext,
+	p: Extract<Expression, { kind: ComparisonKind }>,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	const leftSegs = emitOperandSegments(
 		p.left,
@@ -771,7 +801,7 @@ function emitComparisonSegments(
 	];
 }
 
-function isSubcaseCountAnchor(expression: ValueExpression): boolean {
+function isSubcaseCountAnchor(expression: Expression): boolean {
 	return expression.kind === "count" && expression.via.kind === "subcase";
 }
 
@@ -782,13 +812,13 @@ function isSubcaseCountAnchor(expression: ValueExpression): boolean {
  * nonnegative integer token and carry a runtime guard for editable prompts.
  */
 function emitSubcaseCountBoundSegments(
-	expression: ValueExpression,
-	typeContext?: TypeContext,
+	expression: Expression,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	const classification = classifySubcaseCountBound(
 		expression,
-		typeContext?.knownInputs,
-		typeContext?.searchInputInstanceId,
+		typeContext.types.profile.searchInputs,
+		typeContext.bindings?.searchInputInstanceId,
 	);
 	if (classification.kind === "static-valid") {
 		return [{ kind: "constant", text: formatNumeric(classification.value) }];
@@ -840,7 +870,7 @@ function emitSubcaseCountBoundSegments(
  *      shape. Emits as a single runtime segment wrapping
  *      `toWire(expr, context)`, double-quote-bracketed so the
  *      resolved string interpolates as a CSQL value.
- *   3. `term`-arm ValueExpression — wrap via the shared
+ *   3. `term`-arm Expression — wrap via the shared
  *      `wrapTermAsSegmentList` helper so a runtime-resolved term
  *      interpolates as a CSQL double-quoted value.
  *   4. CSQL value-function whitelist arm (`today`, `now`,
@@ -851,21 +881,21 @@ function emitSubcaseCountBoundSegments(
  *      value directly.
  */
 function emitComparisonOperandSegments(
-	expr: ValueExpression,
-	typeContext?: TypeContext,
+	expr: Expression,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	return emitOperandSegments(expr, "comparison-operand", typeContext);
 }
 
 /**
  * Per-position operand emitter. `comparison-operand` admits native
- * `subcase-count`; `value` (any other ValueExpression slot) does
+ * `subcase-count`; `value` (any other Expression slot) does
  * not — those `count` shapes inline as on-device XPath.
  */
 function emitOperandSegments(
-	expr: ValueExpression,
+	expr: Expression,
 	position: OperandPosition,
-	typeContext?: TypeContext,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	if (expr.kind === "count") {
 		if (position === "comparison-operand" && expr.via.kind === "subcase") {
@@ -886,7 +916,10 @@ function emitOperandSegments(
 				expr.via.ofCaseType,
 				expr.where === undefined
 					? [{ kind: "constant", text: "match-all()" }]
-					: emitFilterArgumentSegments(expr.where, typeContext),
+					: emitFilterArgumentSegments(
+							expr.where,
+							csqlChildContext(expr, "where", typeContext),
+						),
 			);
 			return [
 				{ kind: "constant", text: `subcase-count(${identifierLiteral}, ` },
@@ -938,14 +971,14 @@ function emitOperandSegments(
  * CSQL fragment.
  */
 function inlineAsRuntimeOperand(
-	expr: ValueExpression,
-	typeContext?: TypeContext,
+	expr: Expression,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	const xpath = emitCsqlRuntimeExpression(expr, typeContext);
 	return quoteRuntimeCsqlValue(xpath, "double", [
 		...collectRuntimeCsqlStringExpressionInputNames(
 			expr,
-			typeContext?.knownInputs,
+			typeContext.types.profile.searchInputs,
 		),
 	]);
 }
@@ -958,17 +991,17 @@ function inlineAsRuntimeOperand(
  * `(A or B) and C` must keep the parens around the `or`.
  */
 function emitLogicalSegments(
-	clauses: readonly Predicate[],
+	clauses: readonly Expression[],
 	separator: string,
 	prec: number,
 	parentPrec: number,
-	typeContext?: TypeContext,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	const parts: CsqlSegment[] = [];
 	for (let i = 0; i < clauses.length; i += 1) {
 		if (i > 0) parts.push({ kind: "constant", text: separator });
 		parts.push(
-			...emitPredicateSegments(clauses[i] as Predicate, prec, typeContext),
+			...emitPredicateSegments(clauses[i] as Expression, prec, typeContext),
 		);
 	}
 	if (parentPrec > prec) {
@@ -993,21 +1026,19 @@ function emitLogicalSegments(
  * multi-word values.
  */
 function emitInSegments(
-	p: Extract<Predicate, { kind: "in" }>,
-	typeContext?: TypeContext,
+	p: Extract<Expression, { kind: "in" }>,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	const left = emitComparisonOperandSegments(p.left, typeContext);
-	const emitRight = (value: (typeof p.values)[number]["value"]) =>
+	const emitRight = (value: (typeof p.values)[number]) =>
 		isSubcaseCountAnchor(p.left)
-			? emitSubcaseCountBoundSegments({
-					kind: "term",
-					term: { kind: "literal", value },
-				})
-			: wrapTermAsSegmentList(
-					emitTermSegment({ kind: "literal", value }, typeContext),
-				);
+			? emitSubcaseCountBoundSegments(
+					{ kind: "term", term: value },
+					typeContext,
+				)
+			: wrapTermAsSegmentList(emitTermSegment(value, typeContext));
 	if (p.values.length === 1) {
-		const right = emitRight(p.values[0].value);
+		const right = emitRight(p.values[0]);
 		return [...left, { kind: "constant", text: " = " }, ...right];
 	}
 	// Multi-value — wrap the OR-of-equalities in parens defensively so a
@@ -1015,7 +1046,7 @@ function emitInSegments(
 	const parts: CsqlSegment[] = [{ kind: "constant", text: "(" }];
 	for (let i = 0; i < p.values.length; i += 1) {
 		if (i > 0) parts.push({ kind: "constant", text: " or " });
-		const right = emitRight(p.values[i].value);
+		const right = emitRight(p.values[i]);
 		parts.push(...left, { kind: "constant", text: " = " }, ...right);
 	}
 	parts.push({ kind: "constant", text: ")" });
@@ -1046,8 +1077,8 @@ function emitInSegments(
  * call against ElasticSearch and fail.
  */
 function emitBetweenSegments(
-	p: Extract<Predicate, { kind: "between" }>,
-	typeContext?: TypeContext,
+	p: Extract<Expression, { kind: "between" }>,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	const left = emitComparisonOperandSegments(p.left, typeContext);
 	const lowerOp = p.lowerInclusive ? ">=" : ">";
@@ -1056,13 +1087,13 @@ function emitBetweenSegments(
 	const lowerSegs =
 		p.lower !== undefined
 			? subcaseCountAnchor
-				? emitSubcaseCountBoundSegments(p.lower)
+				? emitSubcaseCountBoundSegments(p.lower, typeContext)
 				: emitOperandSegments(p.lower, "value", typeContext)
 			: undefined;
 	const upperSegs =
 		p.upper !== undefined
 			? subcaseCountAnchor
-				? emitSubcaseCountBoundSegments(p.upper)
+				? emitSubcaseCountBoundSegments(p.upper, typeContext)
 				: emitOperandSegments(p.upper, "value", typeContext)
 			: undefined;
 	// A range is two orderings, so a blank runtime bound is guarded on any
@@ -1121,8 +1152,8 @@ function emitBetweenSegments(
  * matching absent / cleared / empty alike on every CSQL emission.
  */
 function emitAbsenceSegments(
-	p: Extract<Predicate, { kind: "is-blank" }>,
-	typeContext?: TypeContext,
+	p: Extract<Expression, { kind: "is-blank" }>,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	if (p.left.kind === "term" && p.left.term.kind === "literal") {
 		return [
@@ -1160,11 +1191,15 @@ function emitAbsenceSegments(
  * logic applies.
  */
 function emitMatchSegments(
-	p: Extract<Predicate, { kind: "match" }>,
-	typeContext?: TypeContext,
+	p: Extract<Expression, { kind: "match" }>,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	const wireFunction = matchModeToWireFunction(p.mode);
 	assertCsqlQueryFunction(wireFunction);
+	if (p.property.kind !== "prop")
+		throw new Error(
+			"csqlEmitter: a text match needs a case property in a server search.",
+		);
 	const propEmission = emitCsqlPropertyRefSegment(p.property);
 	// The full value expression routes through the standard value-position
 	// emitter so literals, input/session refs, native CSQL value functions,
@@ -1258,11 +1293,19 @@ function matchModeToWireFunction(
  * `multiSelectContainsSchema.refine`).
  */
 function emitMultiSelectSegments(
-	p: Extract<Predicate, { kind: "multi-select-contains" }>,
+	p: Extract<Expression, { kind: "multi-select-contains" }>,
 ): CsqlSegment[] {
 	assertCsqlQueryFunction("selected");
+	if (p.property.kind !== "prop")
+		throw new Error(
+			"csqlEmitter: a selection test needs a case property in a server search.",
+		);
 	const propText = emitCsqlPropertyRefText(p.property);
 	const calls = p.values.map((v) => {
+		if (v.kind !== "literal")
+			throw new Error(
+				"csqlEmitter: selection values must be fixed literals before server search emission.",
+			);
 		const valueLiteral = quoteLiteral(stringifyLiteralValue(v.value), "csql");
 		return `selected(${propText}, ${valueLiteral})`;
 	});
@@ -1303,19 +1346,23 @@ function stringifyLiteralValue(
  * (4) unit identifier validated against
  * `commcare-hq/corehq/apps/es/queries.py::DISTANCE_UNITS`.
  *
- * The center coordinate is a ValueExpression slot — usually a
+ * The center coordinate is a Expression slot — usually a
  * `literal("<lat,lon>")` term but possibly a search-input ref for
  * runtime user-typed coordinates. The standard `value`-position
  * operand emitter handles literal / search-input refs / non-grammar
  * inline expressions uniformly via `emitOperandSegments`.
  */
 function emitWithinDistanceSegments(
-	p: Extract<Predicate, { kind: "within-distance" }>,
-	typeContext?: TypeContext,
+	p: Extract<Expression, { kind: "within-distance" }>,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	assertCsqlQueryFunction("within-distance");
 	const propText = emitCsqlPropertyRefText(p.property);
 	const centerSegments = emitGeopointCenterSegments(p.center, typeContext);
+	if (typeof p.distance !== "number" || typeof p.unit !== "string")
+		throw new Error(
+			"csqlEmitter: runtime distance and unit operands are unavailable in server search.",
+		);
 	const distanceText = formatNumeric(p.distance);
 	const unitText = quoteLiteral(p.unit, "csql");
 	return [
@@ -1332,8 +1379,8 @@ function emitWithinDistanceSegments(
  * before quote selection so quote-safety still sees the final bytes.
  */
 function emitGeopointCenterSegments(
-	center: ValueExpression,
-	typeContext?: TypeContext,
+	center: Expression,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	if (
 		center.kind === "term" &&
@@ -1360,7 +1407,9 @@ function emitGeopointCenterSegments(
 	const inputNames = [...collectGeopointCenterInputNames(center)]
 		.map(
 			(uuid) =>
-				typeContext?.knownInputs.find((input) => input.uuid === uuid)?.name,
+				typeContext.types.profile.searchInputs.find(
+					(input) => input.uuid === uuid,
+				)?.name,
 		)
 		.filter((name): name is string => name !== undefined)
 		.sort();
@@ -1410,11 +1459,14 @@ function emitGeopointCenterSegments(
  * '")')` interpolates a runtime user clinic id into the inner CSQL.
  */
 function emitExistsSegments(
-	p: Extract<Predicate, { kind: "exists" | "missing" }>,
+	p: Extract<Expression, { kind: "exists" | "missing" }>,
 	kind: "exists" | "missing",
-	typeContext?: TypeContext,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
-	const fragments = emitExistsCallSegments(p, typeContext);
+	const fragments = emitExistsCallSegments(
+		p,
+		csqlChildContext(p, "where", typeContext),
+	);
 	if (kind === "missing") {
 		return [
 			{ kind: "constant", text: "not(" },
@@ -1426,8 +1478,8 @@ function emitExistsSegments(
 }
 
 function emitExistsCallSegments(
-	p: Extract<Predicate, { kind: "exists" | "missing" }>,
-	typeContext?: TypeContext,
+	p: Extract<Expression, { kind: "exists" | "missing" }>,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	const via = p.via;
 	if (via.kind === "self") {
@@ -1510,8 +1562,8 @@ function emitExistsCallSegments(
  */
 function emitAncestorExistsCall(
 	steps: readonly RelationStep[],
-	where: Predicate | undefined,
-	typeContext?: TypeContext,
+	where: Expression | undefined,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	writeRelatedCaseQuery("ancestor-exists");
 	assertCsqlQueryFunction("match-all");
@@ -1538,8 +1590,8 @@ function emitAncestorExistsCall(
  */
 function emitQualifiedAncestorExistsChain(
 	steps: readonly RelationStep[],
-	where: Predicate | undefined,
-	typeContext: TypeContext | undefined,
+	where: Expression | undefined,
+	typeContext: CsqlEmissionContext,
 	index: number,
 ): CsqlSegment[] {
 	writeRelatedCaseQuery("ancestor-exists");
@@ -1592,8 +1644,8 @@ function prependCaseTypeFilter(
 function emitSubcaseExistsCall(
 	identifier: string,
 	ofCaseType: string | undefined,
-	where: Predicate | undefined,
-	typeContext?: TypeContext,
+	where: Expression | undefined,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	writeRelatedCaseQuery("subcase-exists");
 	assertCsqlQueryFunction("match-all");
@@ -1634,8 +1686,8 @@ function emitSubcaseExistsCall(
  * segment list at the call site.
  */
 function emitFilterArgumentSegments(
-	p: Predicate,
-	typeContext?: TypeContext,
+	p: Expression,
+	typeContext: CsqlEmissionContext,
 ): CsqlSegment[] {
 	return emitPredicateSegments(p, 0, typeContext);
 }

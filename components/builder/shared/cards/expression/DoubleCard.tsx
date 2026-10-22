@@ -1,8 +1,8 @@
 // components/builder/shared/cards/expression/DoubleCard.tsx
 //
-// Renders the `double` ValueExpression: forced numeric coercion via
+// Renders the `double` Expression: forced numeric coercion via
 // CSQL's `double(...)` value function. Single-slot: a
-// `ValueExpression` operand resolving to a text-shaped or numeric
+// `Expression` operand resolving to a text-shaped or numeric
 // type. The result type is always `decimal`.
 //
 // Type-checker rule (per `checkExpression`'s `case "double":`):
@@ -11,13 +11,15 @@
 // coercion is undefined. Errors land at `[..., "value"]`.
 
 "use client";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
+
 import {
 	double,
 	doubleOperandConstraint,
+	type Expression,
 	literal,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
@@ -31,13 +33,13 @@ const OPERAND_CONSTRAINT = doubleOperandConstraint();
  *  shape edit through the operand picker. */
 export function doubleDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "double" }> {
+): ExpressionOfKind<"double"> {
 	return double(term(literal("")));
 }
 
 interface DoubleCardProps {
-	readonly value: Extract<ValueExpression, { kind: "double" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"double">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
@@ -46,7 +48,7 @@ export function DoubleCard({ value, onChange, path }: DoubleCardProps) {
 	// `CardShell` footer at `[..., "value"]`; no parallel
 	// `<InlineError>` is needed here.
 
-	const setOperand = (next: ValueExpression) => {
+	const setOperand = (next: Expression) => {
 		onChange(double(next));
 	};
 

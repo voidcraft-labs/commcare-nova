@@ -99,14 +99,6 @@ RUN npx esbuild scripts/migrate-language-identity.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=language-identity-repair.cjs
-RUN npx esbuild scripts/migrate-case-status-filters.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=case-status-filter-repair.cjs
-RUN npx esbuild scripts/migrate-select-option-values.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=select-option-value-repair.cjs
 
 FROM ${NODE_IMAGE} AS maintenance
 WORKDIR /app
@@ -158,7 +150,7 @@ RUN --mount=type=cache,id=nova-next-cache,target=/app/.next/cache \
 RUN mkdir -p public/third-party && \
     tar -czf public/third-party/java-pattern-runtime-source.tar.gz \
       scripts/java-pattern-runtime \
-      lib/preview/xpath/openJdk17DoubleString.ts \
+      lib/domain/expression/openJdk17DoubleString.ts \
       lib/preview/xpath/vendor/javaMathRuntime.generated.js \
       lib/preview/xpath/vendor/javaMathRuntime.generated.d.ts \
       lib/preview/xpath/vendor/javaPatternRuntime.generated.js \

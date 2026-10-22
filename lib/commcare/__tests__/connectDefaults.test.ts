@@ -4,13 +4,14 @@ import { findAll, textContent } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { SaxesParser } from "saxes";
 import { describe, expect, it } from "vitest";
-import { caseListConfig, xp } from "@/lib/__tests__/docHelpers";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema, proseText } from "@/lib/domain";
+import { term } from "@/lib/domain/expression/builders";
 import { connectWireFixtures } from "./connectWireFixtures";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { xpathEvidence } from "./xpathEvidence";
@@ -265,8 +266,16 @@ it("joins case-backed Connect calculations and HQ dependency paths to the select
 		deliver_unit: {
 			id: "vendor_visit",
 			name: "Visit",
-			entity_id: xp("#visit/beneficiary_id"),
-			entity_name: xp("#visit/case_name"),
+			entity_id: term({
+				kind: "form-case",
+				caseType: "visit",
+				property: "beneficiary_id",
+			}),
+			entity_name: term({
+				kind: "form-case",
+				caseType: "visit",
+				property: "case_name",
+			}),
 		},
 	};
 	blueprintDocSchema.parse(toPersistableDoc(doc));

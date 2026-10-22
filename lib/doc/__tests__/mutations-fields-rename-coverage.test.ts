@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f, xpIn } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { planConnectTargetState } from "@/lib/doc/connectTargetState";
+import { projectFormExpression } from "@/lib/doc/expressionText";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
@@ -11,13 +12,23 @@ import {
 } from "@/lib/doc/types";
 import {
 	canonicalProseTemplate,
-	expressionSource,
-	formExpressionSource,
+	expressionAt,
 	printProseTemplate,
-	printXPath,
+	proseSource,
 	proseText,
-	xpathPrintContext,
 } from "@/lib/domain";
+import {
+	arith,
+	concat,
+	eq,
+	formField,
+	gt,
+	literal,
+	sessionUser,
+	term,
+	today,
+} from "@/lib/domain/expression/builders";
+import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const Q = (key: string) => testUuid(`rename-projection-${key}`);
@@ -42,13 +53,21 @@ function fixture(): BlueprintDoc {
 						formLinks: [
 							{
 								uuid: Q("link"),
-								condition: "#user/username = 'supervisor'",
+								condition: eq(sessionUser("username"), literal("supervisor")),
 								target: {
 									type: "form",
 									moduleUuid: Q("case-module"),
 									formUuid: Q("visit"),
 								},
-								datums: [{ name: "case_id", xpath: "'patient-id'" }],
+								datums: [
+									{
+										name: {
+											kind: "selected-case" as const,
+											module: Q("case-module"),
+										},
+										xpath: "'patient-id'",
+									},
+								],
 							},
 						],
 						fields: [
@@ -199,6 +218,19 @@ function commit(
 	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 	return verdict.nextDoc;
 }
+function projectSlot(doc: BlueprintDoc, slot: ExpressionSlotRef): string {
+	const expression = expressionAt(doc, slot);
+	if (expression === undefined)
+		throw new Error("Expected a stored expression.");
+	const projection = projectFormExpression(
+		doc,
+		slot,
+		expression,
+		"unavailable",
+	);
+	expect(projection.unresolved).toEqual([]);
+	return projection.text;
+}
 describe("field reference projection after rename and move", () => {
 	it("projects the actual field, repeat and option carriers while leaving stored ASTs and literal values unchanged", () => {
 		const before = fixture();
@@ -227,26 +259,45 @@ describe("field reference projection after rename and move", () => {
 			["validate", ". > #form/years"],
 			["default_value", "#form/years"],
 			["relevant", "#form/group/age > 0"],
+		] as const) {
+			expect(
+				projectSlot(next, { entity: "field", uuid: Q("answer"), slot }),
+			).toBe(expected);
+		}
+		for (const [slot, expected] of [
 			["label", "Compare #form/years"],
 			["hint", "Compare #form/group/age"],
 			["help", "Compare #form/years"],
 			["validate_msg", "Compare #form/years"],
-		] as const) {
-			expect(expressionSource(next.fields[Q("answer")], slot, next)).toBe(
-				expected,
-			);
-		}
-		expect(expressionSource(next.fields[Q("hidden")], "calculate", next)).toBe(
-			"/data/years + 1",
-		);
+		] as const)
+			expect(proseSource(next.fields[Q("answer")], slot, next)).toBe(expected);
 		expect(
-			expressionSource(next.fields[Q("count-repeat")], "repeat_count", next),
+			projectSlot(next, {
+				entity: "field",
+				uuid: Q("hidden"),
+				slot: "calculate",
+			}),
+		).toBe("/data/years + 1");
+		expect(
+			projectSlot(next, {
+				entity: "field",
+				uuid: Q("count-repeat"),
+				slot: "repeat_count",
+			}),
 		).toBe("/data/years");
 		expect(
-			expressionSource(next.fields[Q("query-repeat")], "ids_query", next),
+			projectSlot(next, {
+				entity: "field",
+				uuid: Q("query-repeat"),
+				slot: "ids_query",
+			}),
 		).toBe("#form/case_ids");
 		expect(
-			expressionSource(next.fields[Q("other-watch")], "calculate", next),
+			projectSlot(next, {
+				entity: "field",
+				uuid: Q("other-watch"),
+				slot: "calculate",
+			}),
 		).toBe("/data/age + 2");
 		const select = next.fields[Q("select")];
 		if (
@@ -261,13 +312,28 @@ describe("field reference projection after rename and move", () => {
 		const link = next.forms[Q("form")].formLinks?.[0];
 		if (!link?.condition || !link.datums?.[0])
 			throw new Error("Expected conditioned link with datum");
-		expect(printXPath(link.condition, xpathPrintContext(next))).toBe(
-			"#user/username = 'supervisor'",
+		expect(
+			projectSlot(next, {
+				entity: "form",
+				uuid: Q("form"),
+				slot: "form_link_condition",
+				member: { linkUuid: Q("link") },
+			}),
+		).toBe(
+			"instance('commcaresession')/session/user/data/username = 'supervisor'",
 		);
-		expect(printXPath(link.datums[0].xpath, xpathPrintContext(next))).toBe(
-			"'patient-id'",
-		);
-		expect(link.datums[0].name).toBe("case_id");
+		expect(
+			projectSlot(next, {
+				entity: "form",
+				uuid: Q("form"),
+				slot: "form_link_datum_xpath",
+				member: { linkUuid: Q("link"), datum: link.datums[0].name },
+			}),
+		).toBe("'patient-id'");
+		expect(link.datums[0].name).toEqual({
+			kind: "selected-case",
+			module: Q("case-module"),
+		});
 		expect(next.fields[Q("answer")]).toEqual(before.fields[Q("answer")]);
 		expect(next.forms[Q("form")]).toEqual(before.forms[Q("form")]);
 	});
@@ -277,12 +343,18 @@ describe("field reference projection after rename and move", () => {
 			const before = fixture();
 			const patch =
 				slot === "condition"
-					? { condition: xpIn(before, Q("form"), "#form/age > 17") }
+					? { condition: gt(formField(Q("age")), literal(17)) }
 					: {
 							datums: [
 								{
-									name: "case_id",
-									xpath: xpIn(before, Q("form"), "/data/selected_case"),
+									name: {
+										kind: "selected-case" as const,
+										module: Q("case-module"),
+									},
+									xpath: term({
+										...formField(Q("selected")),
+										spelling: "absolute",
+									}),
 								},
 							],
 						};
@@ -315,15 +387,23 @@ describe("field reference projection after rename and move", () => {
 				patch: { id: "details" },
 			},
 		]);
-		expect(expressionSource(next.fields[Q("answer")], "relevant", next)).toBe(
-			"#form/details/age > 0",
-		);
-		expect(expressionSource(next.fields[Q("answer")], "hint", next)).toBe(
+		expect(
+			projectSlot(next, {
+				entity: "field",
+				uuid: Q("answer"),
+				slot: "relevant",
+			}),
+		).toBe("#form/details/age > 0");
+		expect(proseSource(next.fields[Q("answer")], "hint", next)).toBe(
 			"Compare #form/details/age",
 		);
-		expect(expressionSource(next.fields[Q("answer")], "required", next)).toBe(
-			"/data/age > 17",
-		);
+		expect(
+			projectSlot(next, {
+				entity: "field",
+				uuid: Q("answer"),
+				slot: "required",
+			}),
+		).toBe("/data/age > 17");
 	});
 	it.each(["learn", "deliver"] as const)(
 		"projects %s Connect expressions established by the real whole-app planner",
@@ -334,19 +414,23 @@ describe("field reference projection after rename and move", () => {
 					? {
 							assessment: {
 								id: "quiz",
-								user_score: xpIn(base, Q("form"), "/data/age * 10"),
+								user_score: arith(
+									"*",
+									term({ ...formField(Q("age")), spelling: "absolute" }),
+									term(literal(10)),
+								),
 							},
 						}
 					: {
 							deliver_unit: {
 								id: "delivery",
 								name: "Delivery",
-								entity_id: xpIn(
-									base,
-									Q("form"),
-									"concat(#form/age, '-', today())",
+								entity_id: concat(
+									term(formField(Q("age"))),
+									term(literal("-")),
+									today(),
 								),
-								entity_name: xpIn(base, Q("form"), "#form/age"),
+								entity_name: term(formField(Q("age"))),
 							},
 						};
 			const plan = planConnectTargetState(base, {
@@ -376,26 +460,26 @@ describe("field reference projection after rename and move", () => {
 			);
 			if (mode === "learn")
 				expect(
-					formExpressionSource(
-						moved.forms[Q("form")],
-						"assessment_user_score",
-						moved,
-					),
+					projectSlot(moved, {
+						entity: "form",
+						uuid: Q("form"),
+						slot: "assessment_user_score",
+					}),
 				).toBe("/data/group/score * 10");
 			else {
 				expect(
-					formExpressionSource(
-						moved.forms[Q("form")],
-						"deliver_entity_id",
-						moved,
-					),
+					projectSlot(moved, {
+						entity: "form",
+						uuid: Q("form"),
+						slot: "deliver_entity_id",
+					}),
 				).toBe("concat(#form/group/score, '-', today())");
 				expect(
-					formExpressionSource(
-						moved.forms[Q("form")],
-						"deliver_entity_name",
-						moved,
-					),
+					projectSlot(moved, {
+						entity: "form",
+						uuid: Q("form"),
+						slot: "deliver_entity_name",
+					}),
 				).toBe("#form/group/score");
 			}
 		},

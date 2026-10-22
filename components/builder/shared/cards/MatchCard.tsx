@@ -6,20 +6,21 @@
 // / starts-with).
 
 "use client";
+
 import { useMemo } from "react";
 import { type CaseProperty, isDateTyped, isTextShaped } from "@/lib/domain";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
+	type Expression,
 	formField,
 	input,
 	match,
 	matchValueConstraint,
-	type Predicate,
 	type PropertyRef,
 	prop,
 	sessionContext,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { useEditorErrorsAt } from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
@@ -48,7 +49,7 @@ const MATCH_FUZZY_DATE_FILTER = (p: CaseProperty): boolean =>
 
 export function matchDefault(
 	ctx: PredicateEditContext,
-): Extract<Predicate, { kind: "match" }> {
+): ExpressionOfKind<"match"> {
 	const ct = ctx.caseTypes.find((c) => c.name === ctx.currentCaseType);
 	const property = ct?.properties.find(isTextShaped);
 	const propName = property?.name ?? "";
@@ -77,7 +78,7 @@ export function matchDefault(
  * DOES carry an empty value keeps it, and the verb stays disabled with
  * the reason: there the copy points at a control that is on screen.
  */
-function matchSeedValue(ctx: PredicateEditContext): ValueExpression {
+function matchSeedValue(ctx: PredicateEditContext): Expression {
 	const searchInput = ctx.knownInputs[0];
 	if (searchInput !== undefined) return term(input(searchInput.uuid));
 	const answer = ctx.formFields?.[0];
@@ -86,12 +87,31 @@ function matchSeedValue(ctx: PredicateEditContext): ValueExpression {
 }
 
 interface MatchCardProps {
-	readonly value: Extract<Predicate, { kind: "match" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"match">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
-export function MatchCard({ value, onChange, path }: MatchCardProps) {
+export function MatchCard(props: MatchCardProps) {
+	if (props.value.property.kind !== "prop")
+		return (
+			<p role="status">This saved expression cannot be edited here yet.</p>
+		);
+	return (
+		<EditableMatchCard
+			{...props}
+			value={{ ...props.value, property: props.value.property }}
+		/>
+	);
+}
+
+function EditableMatchCard({
+	value,
+	onChange,
+	path,
+}: MatchCardProps & {
+	readonly value: MatchCardProps["value"] & { readonly property: PropertyRef };
+}) {
 	const propertyErrors = useEditorErrorsAt(appendSlot(path, "property"));
 
 	const setProperty = (next: PropertyRef) => {

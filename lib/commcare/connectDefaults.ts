@@ -21,12 +21,26 @@
  * Turbopack tree-shakes them out of client bundles.
  */
 
-import type {
-	ConnectAssessment,
-	ConnectDeliverUnit,
-	XPathPrintableDoc,
-} from "@/lib/domain";
-import { printWireXPathSource } from "./xpath/wireSource";
+import type { ConnectAssessment, ConnectDeliverUnit } from "@/lib/domain";
+import { printFormExpression } from "@/lib/domain/expression/print";
+import type { Expression } from "@/lib/domain/expression/types";
+
+export const DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION: Expression = {
+	kind: "term",
+	term: { kind: "session-user", field: "username", source: "worker-record" },
+};
+export const DEFAULT_DELIVER_ENTITY_ID_EXPRESSION: Expression = {
+	kind: "concat",
+	parts: [
+		DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
+		{ kind: "term", term: { kind: "literal", value: "-" } },
+		{ kind: "today" },
+	],
+};
+export const DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION: Expression = {
+	kind: "term",
+	term: { kind: "literal", value: 100 },
+};
 
 /**
  * Default XPath expression substituted for a Connect deliver_unit's
@@ -41,7 +55,9 @@ import { printWireXPathSource } from "./xpath/wireSource";
  *
  * Exported so tests can assert on the exact XPath the emitter writes.
  */
-export const DEFAULT_DELIVER_ENTITY_ID = "concat(#user/username, '-', today())";
+export const DEFAULT_DELIVER_ENTITY_ID = printFormExpression(
+	DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
+).text;
 
 /**
  * Default XPath expression substituted for a Connect deliver_unit's
@@ -51,7 +67,9 @@ export const DEFAULT_DELIVER_ENTITY_ID = "concat(#user/username, '-', today())";
  * obvious case-side naming property to point at. Same emit-time-only
  * fallback contract as {@link DEFAULT_DELIVER_ENTITY_ID}.
  */
-export const DEFAULT_DELIVER_ENTITY_NAME = "#user/username";
+export const DEFAULT_DELIVER_ENTITY_NAME = printFormExpression(
+	DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
+).text;
 
 /**
  * Default XPath expression substituted for a Connect assessment's
@@ -64,7 +82,9 @@ export const DEFAULT_DELIVER_ENTITY_NAME = "#user/username";
  * learner on a missing expression. Same emit-time-only fallback contract
  * as {@link DEFAULT_DELIVER_ENTITY_ID}.
  */
-export const DEFAULT_ASSESSMENT_USER_SCORE = "100";
+export const DEFAULT_ASSESSMENT_USER_SCORE = printFormExpression(
+	DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION,
+).text;
 
 /**
  * Resolve the effective `user_score` XPath expression for a Connect
@@ -73,25 +93,8 @@ export const DEFAULT_ASSESSMENT_USER_SCORE = "100";
  */
 export function effectiveAssessmentUserScore(
 	assessment: ConnectAssessment,
-	doc: XPathPrintableDoc,
-): string {
-	return (
-		projectConnectXPath(assessment.user_score, doc) ??
-		DEFAULT_ASSESSMENT_USER_SCORE
-	);
-}
-
-/** Project a canonical stored Connect XPath slot. Live Connect expressions
- * are AST-only; pre-cutover text is handled exclusively by the frozen
- * migration before a Blueprint reaches this boundary. */
-function projectConnectXPath(
-	value:
-		| ConnectAssessment["user_score"]
-		| ConnectDeliverUnit["entity_id"]
-		| ConnectDeliverUnit["entity_name"],
-	doc: XPathPrintableDoc,
-): string | undefined {
-	return value === undefined ? undefined : printWireXPathSource(value, doc);
+): Expression {
+	return assessment.user_score ?? DEFAULT_ASSESSMENT_USER_SCORE_EXPRESSION;
 }
 
 /**
@@ -115,14 +118,12 @@ export function deliverUnitTakesDefaultEntity(du: ConnectDeliverUnit): boolean {
  * Single home for the wire-default policy. Only an absent slot gets a
  * default; an authored expression is emitted exactly.
  */
-export function effectiveDeliverEntities(
-	du: ConnectDeliverUnit,
-	doc: XPathPrintableDoc,
-): { entityId: string; entityName: string } {
+export function effectiveDeliverEntities(du: ConnectDeliverUnit): {
+	entityId: Expression;
+	entityName: Expression;
+} {
 	return {
-		entityId:
-			projectConnectXPath(du.entity_id, doc) ?? DEFAULT_DELIVER_ENTITY_ID,
-		entityName:
-			projectConnectXPath(du.entity_name, doc) ?? DEFAULT_DELIVER_ENTITY_NAME,
+		entityId: du.entity_id ?? DEFAULT_DELIVER_ENTITY_ID_EXPRESSION,
+		entityName: du.entity_name ?? DEFAULT_DELIVER_ENTITY_NAME_EXPRESSION,
 	};
 }

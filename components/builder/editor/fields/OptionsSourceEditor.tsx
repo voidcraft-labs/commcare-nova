@@ -28,6 +28,7 @@ import {
 } from "@/components/shadcn/select";
 import { lookupFilterEligibleFormFields } from "@/lib/doc/formFieldEntries";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type {
@@ -38,8 +39,8 @@ import type {
 	SelectOptionsSource,
 	SingleSelectField,
 } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
-import type { Predicate } from "@/lib/domain/predicate";
 import { useSelectedFormContext } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { CaseOptionsEditor } from "./CaseOptionsEditor";
@@ -90,6 +91,19 @@ export function OptionsSourceEditor<
 		table === undefined
 			? undefined
 			: { tableId: table.id, columns: table.columns };
+	const completeSource =
+		active.kind === "lookup" ? completeLookupSource(active, table) : active;
+	const expressionContext = useExpressionSlotContext(
+		completeSource === undefined || completeSource.kind === "inline"
+			? undefined
+			: { entity: "field", uuid: field.uuid, slot: "lookup_options_source" },
+		completeSource === undefined
+			? undefined
+			: {
+					entity: "field",
+					value: { ...field, optionsSource: completeSource },
+				},
+	);
 	const formFields = useMemo<readonly EditorFormFieldDecl[]>(
 		() =>
 			formUuid === undefined
@@ -148,7 +162,7 @@ export function OptionsSourceEditor<
 		});
 	};
 
-	const changeFilter = (next: Predicate | undefined): void => {
+	const changeFilter = (next: Expression | undefined): void => {
 		if (activeLookup === undefined) return;
 		const identity = withoutFilter(activeLookup);
 		writeLookup(next === undefined ? identity : { ...identity, filter: next });
@@ -277,6 +291,7 @@ export function OptionsSourceEditor<
 				</>
 			) : active.kind === "cases" ? (
 				<CaseOptionsEditor
+					expressionContext={expressionContext}
 					source={active}
 					caseTypes={caseTypes}
 					formContext={formContext}
@@ -419,7 +434,11 @@ export function OptionsSourceEditor<
 							/>
 							Rows people can choose
 						</p>
-						{active.filter === undefined ? (
+						{expressionContext === undefined ? (
+							<p role="status" className="text-[13px] text-nova-text-muted">
+								Choose the saved-value and display columns to add a row rule.
+							</p>
+						) : active.filter === undefined ? (
 							<>
 								<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 									Every row of “{table.name}” is offered. Add a rule to match
@@ -442,6 +461,7 @@ export function OptionsSourceEditor<
 											if (tableScope === undefined) return;
 											changeFilter(
 												firstComparisonDefault({
+													expressionContext,
 													caseTypes,
 													currentCaseType: "",
 													knownInputs: [],
@@ -468,6 +488,7 @@ export function OptionsSourceEditor<
 								</p>
 								<fieldset disabled={!canEdit} className="contents">
 									<PredicateWorkbench
+										expressionContext={expressionContext}
 										value={active.filter}
 										onChange={changeFilter}
 										onRemoveRoot={() => changeFilter(undefined)}

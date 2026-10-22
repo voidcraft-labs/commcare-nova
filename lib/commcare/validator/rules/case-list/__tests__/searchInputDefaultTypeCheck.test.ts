@@ -4,13 +4,13 @@ import { advancedSearchInputDef, simpleSearchInputDef } from "@/lib/domain";
 import {
 	concat,
 	dateCoerce,
+	type Expression,
 	matchAll,
 	now,
 	prop,
 	term,
 	today,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	admittedCaseListDoc,
 	findings,
@@ -59,7 +59,7 @@ describe("search starting-value admission", () => {
 		{ type: "text", value: undefined, valid: true },
 	] satisfies {
 		type: "text" | "date";
-		value: ValueExpression | undefined;
+		value: Expression | undefined;
 		valid: boolean;
 	}[])("$type with $value.kind", ({ type, value, valid }) => {
 		const input = simpleSearchInputDef(

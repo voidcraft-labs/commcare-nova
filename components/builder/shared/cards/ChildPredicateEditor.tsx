@@ -40,18 +40,22 @@ import {
 	and,
 	COMPARISON_KINDS,
 	type ComparisonKind,
+	type ConditionArm,
+	type Expression,
+	type ExpressionOfKind,
 	exists,
+	isConditionArm,
 	missing,
 	not,
 	or,
-	type Predicate,
 	type SlotConstraint,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	predicateEditContextFrom,
 	useEditorErrorsAt,
 	useEditorErrorsBelow,
 	usePredicateEditContext,
+	WithExpressionContext,
 } from "../editorContext";
 import {
 	type PredicateCardSchema,
@@ -73,8 +77,8 @@ import { KIND_BUILDERS as COMPARISON_BUILDERS } from "./ComparisonCard";
 import { wrapSiblingDefault } from "./comparisonSeed";
 
 interface ChildPredicateEditorProps {
-	readonly value: Predicate;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: Expression;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 	/**
 	 * Optional remove handler: when provided, the card surfaces a
@@ -103,7 +107,7 @@ interface ChildPredicateEditorProps {
 	readonly dragHandleRef?: (el: HTMLElement | null) => void;
 	/**
 	 * The slot's type constraint: threaded for signature uniformity
-	 * with the ValueExpression-side `ExpressionPicker`. A Predicate has
+	 * with the Expression-side `ExpressionPicker`. A Expression has
 	 * no result type, so every clause recurses with `ANY_CONSTRAINT`
 	 * and predicate cards compute their own child constraints from
 	 * `useResolvedType` rather than reading the incoming one.
@@ -114,7 +118,7 @@ interface ChildPredicateEditorProps {
 /** Sentence-shaped kinds: these render headerless rows whose verb
  *  chip (the in-card `PredicateVerbMenu`) carries the operation AND
  *  the kind switching. Container kinds keep the titled card shell. */
-const SENTENCE_KINDS: ReadonlySet<Predicate["kind"]> = new Set([
+const SENTENCE_KINDS: ReadonlySet<string> = new Set([
 	...COMPARISON_KINDS,
 	"in",
 	"between",
@@ -127,7 +131,7 @@ const SENTENCE_KINDS: ReadonlySet<Predicate["kind"]> = new Set([
 	"match-none",
 ]);
 
-/** Focus-aware boundary for Predicate slots inside a ValueExpression. The
+/** Focus-aware boundary for Expression slots inside a Expression. The
  * workbench shows the child as one semantic row; opening it promotes that
  * subtree into the same full-width editor as every other condition. Outside
  * the workbench this remains the ordinary recursive card editor. */
@@ -146,7 +150,11 @@ export function PredicateFocusBoundary(props: ChildPredicateEditorProps) {
 	const operatorErrors = useEditorErrorsAt(path);
 	const descendantErrors = useEditorErrorsBelow(path);
 
-	if (focus !== null && !pathsEqual(path, focus.activePath)) {
+	if (
+		isConditionArm(value) &&
+		focus !== null &&
+		!pathsEqual(path, focus.activePath)
+	) {
 		const schema = predicateCardSchemas[value.kind];
 		return (
 			<PredicateRowShell
@@ -183,7 +191,22 @@ export function PredicateFocusBoundary(props: ChildPredicateEditorProps) {
  * the when-field gate) keep the titled `CardShell` with the
  * kind-replace menu in the header.
  */
-export function ChildPredicateEditor({
+export function ChildPredicateEditor(props: ChildPredicateEditorProps) {
+	if (!isConditionArm(props.value)) {
+		return (
+			<p role="status" className="text-[13px] text-nova-text-muted">
+				This saved expression is not available in the condition editor.
+			</p>
+		);
+	}
+	return (
+		<WithExpressionContext path={props.path}>
+			<ChildPredicateEditorBody {...props} value={props.value} />
+		</WithExpressionContext>
+	);
+}
+
+function ChildPredicateEditorBody({
 	value,
 	onChange,
 	path,
@@ -193,12 +216,12 @@ export function ChildPredicateEditor({
 	variant = "normal",
 	dragHandleRef,
 	constraint = ANY_CONSTRAINT,
-}: ChildPredicateEditorProps) {
+}: ChildPredicateEditorProps & { readonly value: ConditionArm }) {
 	const operatorErrors = useEditorErrorsAt(path);
 	const schema = predicateCardSchemas[value.kind];
 	const Component = schema.component as React.ComponentType<{
-		value: Predicate;
-		onChange: (next: Predicate) => void;
+		value: Expression;
+		onChange: (next: Expression) => void;
 		path: EditorPath;
 		constraint?: SlotConstraint;
 	}>;
@@ -248,8 +271,8 @@ export function ChildPredicateEditor({
 }
 
 interface PredicateKindReplaceMenuProps {
-	readonly currentValue: Predicate;
-	readonly onChange: (next: Predicate) => void;
+	readonly currentValue: Expression;
+	readonly onChange: (next: Expression) => void;
 	readonly label?: string;
 }
 
@@ -259,7 +282,7 @@ export interface PredicateTransitionConfirmation {
 }
 
 export interface PredicateTransitionPlan {
-	readonly next: Predicate;
+	readonly next: Expression;
 	readonly confirmation?: PredicateTransitionConfirmation;
 }
 
@@ -270,11 +293,8 @@ interface PreservationGroup {
 }
 
 function subjectNodes(
-	value: Extract<
-		Predicate,
-		{
-			kind: ComparisonKind | "in" | "between" | "is-blank" | "matches-pattern";
-		}
+	value: ExpressionOfKind<
+		ComparisonKind | "in" | "between" | "is-blank" | "matches-pattern"
 	>["left"],
 ): readonly object[] {
 	// Property-only target shapes (`match`, containment, near) unwrap the
@@ -317,7 +337,7 @@ function containsReference(root: unknown, target: object): boolean {
 	return Object.values(root).some((item) => containsReference(item, target));
 }
 
-function preservationGroups(value: Predicate): readonly PreservationGroup[] {
+function preservationGroups(value: Expression): readonly PreservationGroup[] {
 	switch (value.kind) {
 		case "eq":
 		case "neq":
@@ -410,6 +430,8 @@ function preservationGroups(value: Predicate): readonly PreservationGroup[] {
 		case "match-all":
 		case "match-none":
 			return [];
+		default:
+			return [{ values: [value], allLost: "the saved value" }];
 	}
 }
 
@@ -440,8 +462,8 @@ function structurallyEqual(left: unknown, right: unknown): boolean {
 }
 
 function preservesBetweenBoundaryChoices(
-	current: Extract<Predicate, { kind: "between" }>,
-	next: Predicate,
+	current: ExpressionOfKind<"between">,
+	next: Expression,
 ): boolean {
 	if (containsReference(next, current)) return true;
 	if (next.kind === "between") {
@@ -482,8 +504,8 @@ function formatConsequenceList(parts: readonly string[]): string {
  * authored operand, subtree, or setting. Callers are expected to build the
  * most-preserving target first; this function is the shared loss backstop. */
 export function planPredicateTransition(
-	current: Predicate,
-	next: Predicate,
+	current: Expression,
+	next: Expression,
 	targetLabel: string,
 ): PredicateTransitionPlan {
 	const losses = preservationGroups(current).flatMap((group) => {
@@ -574,13 +596,11 @@ export function PredicateTransitionAlert({
 }
 
 /** Comparison-kind membership Set, sourced from the canonical
- *  `COMPARISON_KINDS` constant in `lib/domain/predicate/types.ts`.
+ *  `COMPARISON_KINDS` constant in `lib/domain/expression/types.ts`.
  *  Single source of truth: adding a comparison kind to the
  *  predicate package widens this Set without a parallel edit
  *  here. */
-const COMPARISON_KIND_SET: ReadonlySet<Predicate["kind"]> = new Set(
-	COMPARISON_KINDS,
-);
+const COMPARISON_KIND_SET: ReadonlySet<string> = new Set(COMPARISON_KINDS);
 
 /**
  * Map a kind to the structural-twin set it shares: pairs of
@@ -588,15 +608,15 @@ const COMPARISON_KIND_SET: ReadonlySet<Predicate["kind"]> = new Set(
  * verbatim across replacement. Three twin groups, one per operand
  * shape:
  *
- *   - `{ clauses: [Predicate, ...Predicate[]] }`, `and` ↔ `or`.
+ *   - `{ clauses: [Expression, ...Expression[]] }`, `and` ↔ `or`.
  *     Switching the discriminator preserves the author's clause
  *     list verbatim. Routes through the matching `and` / `or`
  *     builder so the construction-time reductions apply.
- *   - `{ left, right: ValueExpression }`, the six comparison
+ *   - `{ left, right: Expression }`, the six comparison
  *     kinds (`eq` / `neq` / `gt` / `gte` / `lt` / `lte`). Routes
  *     through `COMPARISON_BUILDERS` (the table exported by
  *     `ComparisonCard`).
- *   - `{ via: RelationPath, where?: Predicate }`, `exists` ↔
+ *   - `{ via: RelationPath, where?: Expression }`, `exists` ↔
  *     `missing`. Same shape; the in-card `KindMenu` toggles
  *     between them and the outer "Change" menu now produces the
  *     same result. Routes through the `exists` / `missing`
@@ -611,9 +631,9 @@ const COMPARISON_KIND_SET: ReadonlySet<Predicate["kind"]> = new Set(
  * unit tests call it directly rather than driving the menu chrome.
  */
 export function preservedOperandSwap(
-	currentValue: Predicate,
-	targetKind: Predicate["kind"],
-): Predicate | null {
+	currentValue: Expression,
+	targetKind: ConditionArm["kind"],
+): Expression | null {
 	// and ↔ or: same `{ clauses }`.
 	if (
 		(currentValue.kind === "and" || currentValue.kind === "or") &&
@@ -625,7 +645,7 @@ export function preservedOperandSwap(
 		// empty + single-clause envelopes via reduction). The cast
 		// widens to the implementation signature; the runtime
 		// non-empty guarantee comes from the source AST's schema.
-		return (builder as (...args: Predicate[]) => Predicate)(
+		return (builder as (...args: Expression[]) => Expression)(
 			...currentValue.clauses,
 		);
 	}
@@ -634,10 +654,7 @@ export function preservedOperandSwap(
 		COMPARISON_KIND_SET.has(currentValue.kind) &&
 		COMPARISON_KIND_SET.has(targetKind)
 	) {
-		const comparison = currentValue as Extract<
-			Predicate,
-			{ kind: ComparisonKind }
-		>;
+		const comparison = currentValue as ExpressionOfKind<ComparisonKind>;
 		const builder = COMPARISON_BUILDERS[targetKind as ComparisonKind];
 		return builder(comparison.left, comparison.right);
 	}
@@ -665,10 +682,10 @@ export function preservedOperandSwap(
  * cannot represent the existing work still fall back to their valid default;
  * `planPredicateTransition` then requires an explicit confirmation. */
 export function buildPredicateKindReplacement(
-	currentValue: Predicate,
-	targetKind: Predicate["kind"],
+	currentValue: Expression,
+	targetKind: ConditionArm["kind"],
 	ctx: PredicateEditContext,
-): Predicate {
+): Expression {
 	const preserved = preservedOperandSwap(currentValue, targetKind);
 	if (preserved !== null) return preserved;
 
@@ -713,7 +730,7 @@ export function PredicateKindReplaceMenu({
 	label = "Change condition",
 }: PredicateKindReplaceMenuProps) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	const [pendingKind, setPendingKind] = useState<Predicate["kind"] | null>(
+	const [pendingKind, setPendingKind] = useState<ConditionArm["kind"] | null>(
 		null,
 	);
 	const ctx = usePredicateEditContext();
@@ -728,7 +745,7 @@ export function PredicateKindReplaceMenu({
 					predicateCardSchemas[pendingKind].label,
 				);
 
-	const replaceWith = <K extends Predicate["kind"]>(
+	const replaceWith = <K extends ConditionArm["kind"]>(
 		schema: PredicateCardSchema<K>,
 	) => {
 		const plan = planPredicateTransition(
@@ -771,6 +788,17 @@ export function PredicateKindReplaceMenu({
 							{predicateCardSchemaList.map((s) => {
 								const isCurrent = s.kind === currentKind;
 								const isApplicable = s.applicable(editCtx);
+								const admission =
+									isApplicable && !isCurrent
+										? ctx.admitExpressionChange?.(
+												ctx.expressionPath,
+												buildPredicateKindReplacement(
+													currentValue,
+													s.kind,
+													editCtx,
+												),
+											)
+										: undefined;
 								return (
 									<DropdownMenuItem
 										key={s.kind}
@@ -784,7 +812,11 @@ export function PredicateKindReplaceMenu({
 										// would author a kind whose semantics don't fit the
 										// scope. Symmetric with the kind-replace menu in
 										// `primitives/ExpressionPicker.tsx`.
-										disabled={isCurrent || !isApplicable}
+										disabled={
+											isCurrent ||
+											!isApplicable ||
+											admission?.admitted === false
+										}
 										className={
 											isCurrent
 												? "bg-nova-violet/10 text-nova-violet-bright"
@@ -810,9 +842,11 @@ export function PredicateKindReplaceMenu({
 														: "text-nova-text-muted"
 												}`}
 											>
-												{isApplicable
-													? s.description
-													: predicateUnavailableReason(s.kind, editCtx)}
+												{admission?.admitted === false
+													? admission.reason
+													: isApplicable
+														? s.description
+														: predicateUnavailableReason(s.kind, editCtx)}
 											</div>
 										</span>
 									</DropdownMenuItem>

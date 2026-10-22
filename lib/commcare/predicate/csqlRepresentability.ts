@@ -16,19 +16,22 @@
  * case where the sole query anchor was authored on the right.
  */
 
-import { resolveCommCareDatePattern } from "@/lib/domain/dateFormats";
+import type { ExpressionContext } from "@/lib/domain/expression/context";
+import { fixedDatePattern } from "@/lib/domain/expression/datePattern";
+import { unhandledKindMessage } from "@/lib/domain/expression/errors";
+import { mapExpressionChildren } from "@/lib/domain/expression/mapAst";
 import type {
 	ComparisonKind,
+	Expression,
 	Literal,
-	Predicate,
-	ValueExpression,
-} from "@/lib/domain/predicate";
-import { unhandledKindMessage } from "@/lib/domain/predicate";
+} from "@/lib/domain/expression/types";
+import { isConditionArm, type Term } from "@/lib/domain/expression/types";
 import {
 	SYSTEM_DATETIME_CASE_PROPERTIES,
 	standardCasePropertyDisplayLabel,
 } from "@/lib/domain/standardCaseProperties";
 import { isNativeCsqlValueExpression } from "../expression/csqlCapabilities";
+import { materializeCsqlChoices } from "../expression/csqlChoices";
 import {
 	isRepresentableCalendarDateAddQuantity,
 	isRepresentableSubcaseCountBound,
@@ -76,10 +79,11 @@ const SWAPPED_COMPARISON_KIND: Readonly<
 
 /** Return every CSQL boundary violation without changing the authored AST. */
 export function checkCsqlRepresentability(
-	predicate: Predicate,
+	predicate: Expression,
+	context: ExpressionContext,
 ): readonly CsqlRepresentabilityIssue[] {
 	const issues: CsqlRepresentabilityIssue[] = [];
-	checkQueryPredicate(predicate, [], issues);
+	checkQueryPredicate(materializeCsqlChoices(predicate, context), [], issues);
 	return issues;
 }
 
@@ -91,246 +95,55 @@ export function checkCsqlRepresentability(
  * Property-via lifting runs after this pass, so a related property authored on
  * the right is canonicalized before its relation becomes an exists envelope.
  */
-export function normalizeCsqlPredicate(predicate: Predicate): Predicate {
-	switch (predicate.kind) {
-		case "match-all":
-		case "match-none":
-			return predicate;
-		case "eq":
-		case "neq":
-		case "gt":
-		case "gte":
-		case "lt":
-		case "lte": {
-			const left = normalizeExpression(predicate.left);
-			const right = normalizeExpression(predicate.right);
-			if (!isQueryAnchor(left) && isQueryAnchor(right)) {
-				return {
-					kind: SWAPPED_COMPARISON_KIND[predicate.kind],
-					left: right,
-					right: left,
-				};
-			}
-			return { kind: predicate.kind, left, right };
-		}
-		case "in":
-			return {
-				...predicate,
-				left: normalizeExpression(predicate.left),
-			};
-		case "between":
-			return {
-				...predicate,
-				left: normalizeExpression(predicate.left),
-				...(predicate.lower !== undefined
-					? { lower: normalizeExpression(predicate.lower) }
-					: {}),
-				...(predicate.upper !== undefined
-					? { upper: normalizeExpression(predicate.upper) }
-					: {}),
-			};
-		case "is-blank":
-			return {
-				kind: predicate.kind,
-				left: normalizeExpression(predicate.left),
-			};
-		case "matches-pattern":
-			return { ...predicate, left: normalizeExpression(predicate.left) };
-		case "match":
-			return {
-				...predicate,
-				value: normalizeExpression(predicate.value),
-			};
-		case "within-distance":
-			return {
-				...predicate,
-				center: normalizeExpression(predicate.center),
-			};
-		case "multi-select-contains":
-			return predicate;
-		case "and":
-		case "or":
-			return {
-				kind: predicate.kind,
-				clauses: predicate.clauses.map(normalizeCsqlPredicate) as [
-					Predicate,
-					...Predicate[],
-				],
-			};
-		case "not":
-			return {
-				kind: "not",
-				clause: normalizeCsqlPredicate(predicate.clause),
-			};
-		case "when-input-present":
-			return {
-				...predicate,
-				clause: normalizeCsqlPredicate(predicate.clause),
-			};
-		case "exists":
-		case "missing":
-			return {
-				kind: predicate.kind,
-				via: predicate.via,
-				...(predicate.where !== undefined
-					? { where: normalizeCsqlPredicate(predicate.where) }
-					: {}),
-			};
-		default: {
-			const _exhaustive: never = predicate;
-			throw new Error(
-				unhandledKindMessage({
-					where: "normalizeCsqlPredicate",
-					family: "Predicate",
-					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-					knownKinds: [
-						"match-all",
-						"match-none",
-						"eq",
-						"neq",
-						"gt",
-						"gte",
-						"lt",
-						"lte",
-						"in",
-						"between",
-						"is-blank",
-						"matches-pattern",
-						"match",
-						"within-distance",
-						"multi-select-contains",
-						"and",
-						"or",
-						"not",
-						"when-input-present",
-						"exists",
-						"missing",
-					],
-				}),
-			);
-		}
+export function normalizeCsqlPredicate(expression: Expression): Expression {
+	const normalized = mapExpressionChildren(expression, (child) =>
+		child.kind === "expression"
+			? normalizeCsqlPredicate(child.value)
+			: child.kind === "term"
+				? normalizeTerm(child.value)
+				: child.value,
+	);
+	if (
+		(normalized.kind === "eq" ||
+			normalized.kind === "neq" ||
+			normalized.kind === "lt" ||
+			normalized.kind === "lte" ||
+			normalized.kind === "gt" ||
+			normalized.kind === "gte") &&
+		!isQueryAnchor(normalized.left) &&
+		isQueryAnchor(normalized.right)
+	) {
+		return {
+			kind: SWAPPED_COMPARISON_KIND[normalized.kind],
+			left: normalized.right,
+			right: normalized.left,
+		};
 	}
+	return normalized;
 }
-
-function normalizeExpression(expression: ValueExpression): ValueExpression {
-	switch (expression.kind) {
-		case "term":
-		case "today":
-		case "now":
-		case "id-of":
-		case "acting-user":
-		case "unowned":
-			return expression;
-		case "date-add":
-			return {
-				...expression,
-				date: normalizeExpression(expression.date),
-				quantity: normalizeExpression(expression.quantity),
-			};
-		case "date-coerce":
-		case "datetime-coerce":
-		case "double":
-			return {
-				kind: expression.kind,
-				value: normalizeExpression(expression.value),
-			};
-		case "arith":
-			return {
-				...expression,
-				left: normalizeExpression(expression.left),
-				right: normalizeExpression(expression.right),
-			};
-		case "concat":
-			return {
-				kind: "concat",
-				parts: expression.parts.map(normalizeExpression) as [
-					ValueExpression,
-					...ValueExpression[],
-				],
-			};
-		case "coalesce":
-			return {
-				kind: "coalesce",
-				values: expression.values.map(normalizeExpression) as [
-					ValueExpression,
-					...ValueExpression[],
-				],
-			};
-		case "if":
-			return {
-				kind: "if",
-				cond: normalizeCsqlPredicate(expression.cond),
-				// biome-ignore lint/suspicious/noThenProperty: mirrors the typed ValueExpression AST; the value is never callable.
-				then: normalizeExpression(expression.then),
-				else: normalizeExpression(expression.else),
-			};
-		case "switch":
-			return {
-				kind: "switch",
-				on: normalizeExpression(expression.on),
-				cases: expression.cases.map((entry) => ({
-					when: entry.when,
-					// biome-ignore lint/suspicious/noThenProperty: mirrors the typed SwitchCase AST; the value is never callable.
-					then: normalizeExpression(entry.then),
-				})) as typeof expression.cases,
-				fallback: normalizeExpression(expression.fallback),
-			};
-		case "count":
-			return {
-				kind: "count",
-				via: expression.via,
-				...(expression.where !== undefined
-					? { where: normalizeCsqlPredicate(expression.where) }
-					: {}),
-			};
-		case "table-lookup":
-			return {
-				...expression,
-				where: normalizeCsqlPredicate(expression.where),
-			};
-		case "format-date":
-			return {
-				...expression,
-				date: normalizeExpression(expression.date),
-			};
-		default: {
-			const _exhaustive: never = expression;
-			throw new Error(
-				unhandledKindMessage({
-					where: "normalizeCsqlExpression",
-					family: "ValueExpression",
-					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-					knownKinds: [
-						"term",
-						"today",
-						"now",
-						"id-of",
-						"acting-user",
-						"unowned",
-						"date-add",
-						"date-coerce",
-						"datetime-coerce",
-						"double",
-						"arith",
-						"concat",
-						"coalesce",
-						"if",
-						"switch",
-						"count",
-						"format-date",
-						"table-lookup",
-					],
-				}),
-			);
-		}
-	}
+function normalizeTerm(term: Term): Term {
+	return mapExpressionChildren(term, (child) =>
+		child.kind === "expression"
+			? normalizeCsqlPredicate(child.value)
+			: child.kind === "term"
+				? normalizeTerm(child.value)
+				: child.value,
+	);
 }
 
 function checkQueryPredicate(
-	predicate: Predicate,
+	predicate: Expression,
 	path: readonly (string | number)[],
 	issues: CsqlRepresentabilityIssue[],
 ): void {
+	if (!isConditionArm(predicate)) {
+		issues.push({
+			reason: "comparison-needs-case-property",
+			path,
+			message: "This search needs a case condition.",
+		});
+		return;
+	}
 	switch (predicate.kind) {
 		case "match-all":
 		case "match-none":
@@ -390,9 +203,9 @@ function checkQueryPredicate(
 			checkSystemDatetimeValue(
 				predicate.left,
 				predicate.values.map(
-					(value): ValueExpression => ({
+					(value): Expression => ({
 						kind: "term",
-						term: { kind: "literal", value: value.value },
+						term: { kind: "literal", value: literalValue(value) },
 					}),
 				),
 				path,
@@ -406,14 +219,18 @@ function checkQueryPredicate(
 							kind: "term",
 							term: {
 								kind: "literal",
-								value: predicate.values[index].value,
+								value: literalValue(predicate.values[index]),
 							},
 						},
 						valuePath,
 						issues,
 					);
 				} else {
-					checkCsqlLiteral(predicate.values[index].value, valuePath, issues);
+					checkCsqlLiteral(
+						literalValue(predicate.values[index]),
+						valuePath,
+						issues,
+					);
 				}
 			}
 			return;
@@ -496,18 +313,48 @@ function checkQueryPredicate(
 			});
 			return;
 		case "match":
+			checkPropertyOnlyLeft(
+				predicate.property.kind === "prop"
+					? { kind: "term", term: predicate.property }
+					: predicate.property,
+				[...path, "property"],
+				issues,
+			);
 			checkRuntimeValue(predicate.value, [...path, "value"], issues, "csql");
 			return;
 		case "within-distance":
+			if (
+				typeof predicate.distance !== "number" ||
+				typeof predicate.unit !== "string"
+			) {
+				issues.push({
+					reason: "form-context-value-not-csql",
+					path,
+					message: "Remote search uses a fixed distance and distance unit.",
+				});
+			}
 			checkRuntimeValue(predicate.center, [...path, "center"], issues, "csql");
 			return;
 		case "multi-select-contains":
+			checkPropertyOnlyLeft(
+				predicate.property.kind === "prop"
+					? { kind: "term", term: predicate.property }
+					: predicate.property,
+				[...path, "property"],
+				issues,
+			);
 			for (let index = 0; index < predicate.values.length; index += 1) {
-				checkCsqlLiteral(
-					predicate.values[index].value,
-					[...path, "values", index],
-					issues,
-				);
+				const value = predicate.values[index];
+				if (value.kind !== "literal") {
+					issues.push({
+						reason: "form-context-value-not-csql",
+						path: [...path, "values", index],
+						message:
+							"Remote search compares selected answers with fixed choices.",
+					});
+					continue;
+				}
+				checkCsqlLiteral(value.value, [...path, "values", index], issues);
 			}
 			return;
 		case "and":
@@ -553,7 +400,7 @@ function checkQueryPredicate(
 			throw new Error(
 				unhandledKindMessage({
 					where: "checkCsqlRepresentability",
-					family: "Predicate",
+					family: "Expression",
 					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
 					knownKinds: [
 						"match-all",
@@ -590,9 +437,7 @@ function checkQueryPredicate(
  * query whatever the operator, and that query raises on `''`
  * (`corehq/apps/case_search/xpath_functions/comparison.py::property_comparison_query`).
  */
-function systemDatetimeProperty(
-	expression: ValueExpression,
-): string | undefined {
+function systemDatetimeProperty(expression: Expression): string | undefined {
 	return expression.kind === "term" &&
 		expression.term.kind === "prop" &&
 		SYSTEM_DATETIME_CASE_PROPERTIES.has(expression.term.property)
@@ -607,8 +452,8 @@ function systemDatetimeProperty(
  * a runtime value is guarded by the emitter (`runtimeCsqlDateSafety.ts`).
  */
 function checkSystemDatetimeValue(
-	anchor: ValueExpression,
-	values: readonly ValueExpression[],
+	anchor: Expression,
+	values: readonly Expression[],
 	path: readonly (string | number)[],
 	issues: CsqlRepresentabilityIssue[],
 ): void {
@@ -630,7 +475,7 @@ function checkSystemDatetimeValue(
 }
 
 function checkPropertyOnlyLeft(
-	expression: ValueExpression,
+	expression: Expression,
 	path: readonly (string | number)[],
 	issues: CsqlRepresentabilityIssue[],
 ): void {
@@ -644,7 +489,7 @@ function checkPropertyOnlyLeft(
 }
 
 function checkQueryAnchor(
-	expression: ValueExpression,
+	expression: Expression,
 	path: readonly (string | number)[],
 	issues: CsqlRepresentabilityIssue[],
 ): void {
@@ -677,7 +522,7 @@ function checkQueryAnchor(
 }
 
 function checkSubcaseCountBound(
-	expression: ValueExpression,
+	expression: Expression,
 	path: readonly (string | number)[],
 	issues: CsqlRepresentabilityIssue[],
 ): void {
@@ -696,11 +541,15 @@ function checkSubcaseCountBound(
 }
 
 function checkRuntimeValue(
-	expression: ValueExpression,
+	expression: Expression,
 	path: readonly (string | number)[],
 	issues: CsqlRepresentabilityIssue[],
 	dialect: RuntimeValueDialect,
 ): void {
+	if (isConditionArm(expression)) {
+		checkRuntimePredicate(expression, path, issues);
+		return;
+	}
 	const nativeCsql =
 		dialect === "csql" && isNativeCsqlValueExpression(expression);
 	if (
@@ -776,6 +625,7 @@ function checkRuntimeValue(
 		case "date-coerce":
 		case "datetime-coerce":
 		case "double":
+		case "negate":
 			checkRuntimeValue(
 				expression.value,
 				[...path, "value"],
@@ -883,12 +733,29 @@ function checkRuntimeValue(
 			// on-device compatibility rule; applying CSQL's case-query grammar to
 			// that nested row predicate would manufacture false anchor errors.
 			return;
+		case "call":
+		case "itext":
+		case "choice-name":
+		case "here":
+		case "value-list":
+		case "cases":
+		case "table-rows":
+		case "locations":
+		case "selected-cases":
+		case "project":
+			issues.push({
+				reason: "form-context-value-not-csql",
+				path,
+				message:
+					"This value is unavailable while the remote case-search query runs.",
+			});
+			return;
 		default: {
 			const _exhaustive: never = expression;
 			throw new Error(
 				unhandledKindMessage({
 					where: "checkCsqlRuntimeValue",
-					family: "ValueExpression",
+					family: "Expression",
 					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
 					knownKinds: [
 						"term",
@@ -948,7 +815,7 @@ function pushUnquotableCsqlStringIssue(
  * failed search.
  */
 function staticallyKnownOnDeviceString(
-	expression: ValueExpression,
+	expression: Expression,
 ): string | undefined {
 	switch (expression.kind) {
 		case "term":
@@ -1004,10 +871,8 @@ function staticallyKnownOnDeviceString(
 		case "format-date":
 		case "table-lookup":
 			return undefined;
-		default: {
-			const _exhaustive: never = expression;
-			throw new Error(`Unhandled ValueExpression ${String(_exhaustive)}`);
-		}
+		default:
+			return undefined;
 	}
 }
 
@@ -1018,7 +883,7 @@ function staticallyKnownOnDeviceString(
  * authored state even when a condition decides whether that branch runs.
  */
 function hasReachableStaticallyUnquotableOutput(
-	expression: ValueExpression,
+	expression: Expression,
 ): boolean {
 	const exact = staticallyKnownOnDeviceString(expression);
 	if (exact !== undefined && !isCsqlStringLiteralRepresentable(exact)) {
@@ -1072,7 +937,7 @@ function hasReachableStaticallyUnquotableOutput(
 		}
 		case "format-date":
 			return !isCsqlStringLiteralRepresentable(
-				resolveCommCareDatePattern(expression.pattern),
+				fixedDatePattern(expression.pattern) ?? "",
 			);
 		case "term":
 		case "today":
@@ -1088,15 +953,13 @@ function hasReachableStaticallyUnquotableOutput(
 		case "count":
 		case "table-lookup":
 			return false;
-		default: {
-			const _exhaustive: never = expression;
-			return _exhaustive;
-		}
+		default:
+			return false;
 	}
 }
 
 /** Whether every evaluation returns a non-empty string. */
-function isGuaranteedNonemptyString(expression: ValueExpression): boolean {
+function isGuaranteedNonemptyString(expression: Expression): boolean {
 	const known = staticallyKnownOnDeviceString(expression);
 	if (known !== undefined) return known.length > 0;
 
@@ -1130,7 +993,7 @@ function isGuaranteedNonemptyString(expression: ValueExpression): boolean {
 		case "format-date":
 			return (
 				isGuaranteedTemporalValue(expression.date) &&
-				resolveCommCareDatePattern(expression.pattern).length > 0
+				(fixedDatePattern(expression.pattern) ?? "").length > 0
 			);
 		case "term":
 		case "today":
@@ -1146,10 +1009,8 @@ function isGuaranteedNonemptyString(expression: ValueExpression): boolean {
 		case "count":
 		case "table-lookup":
 			return false;
-		default: {
-			const _exhaustive: never = expression;
-			return _exhaustive;
-		}
+		default:
+			return false;
 	}
 }
 
@@ -1159,7 +1020,7 @@ interface QuoteGuarantee {
 }
 
 /** Quote kinds present in every possible string output of an expression. */
-function guaranteedQuoteKinds(expression: ValueExpression): QuoteGuarantee {
+function guaranteedQuoteKinds(expression: Expression): QuoteGuarantee {
 	const known = staticallyKnownOnDeviceString(expression);
 	if (known !== undefined) {
 		return { single: known.includes("'"), double: known.includes('"') };
@@ -1207,7 +1068,7 @@ function guaranteedQuoteKinds(expression: ValueExpression): QuoteGuarantee {
 			if (!isGuaranteedTemporalValue(expression.date)) {
 				return { single: false, double: false };
 			}
-			const pattern = resolveCommCareDatePattern(expression.pattern);
+			const pattern = fixedDatePattern(expression.pattern) ?? "";
 			return {
 				single: pattern.includes("'"),
 				double: pattern.includes('"'),
@@ -1233,7 +1094,7 @@ interface StaticallyKnownPrimitive {
 }
 
 function staticallyKnownPrimitive(
-	expression: ValueExpression,
+	expression: Expression,
 ): StaticallyKnownPrimitive | undefined {
 	if (expression.kind === "term" && expression.term.kind === "literal") {
 		return { value: expression.term.value };
@@ -1264,7 +1125,7 @@ function staticPrimitiveEqual(
 
 /** Resolve only predicates whose result is independent of case/session data. */
 function staticallyKnownPredicateBoolean(
-	predicate: Predicate,
+	predicate: Expression,
 ): boolean | undefined {
 	switch (predicate.kind) {
 		case "match-all":
@@ -1324,20 +1185,21 @@ function staticallyKnownPredicateBoolean(
 		case "exists":
 		case "missing":
 			return undefined;
-		default: {
-			const _exhaustive: never = predicate;
-			throw new Error(`Unhandled Predicate ${String(_exhaustive)}`);
-		}
+		default:
+			return undefined;
 	}
 }
 
 function staticallySelectedSwitchBranch(
-	expression: Extract<ValueExpression, { kind: "switch" }>,
-): ValueExpression | undefined {
+	expression: Extract<Expression, { kind: "switch" }>,
+): Expression | undefined {
 	const discriminator = staticallyKnownPrimitive(expression.on);
 	if (discriminator === undefined) return undefined;
 	for (const entry of expression.cases) {
-		const equal = staticPrimitiveEqual(discriminator.value, entry.when.value);
+		const equal = staticPrimitiveEqual(
+			discriminator.value,
+			literalValue(entry.when),
+		);
 		if (equal === undefined) return undefined;
 		if (equal) return entry.then;
 	}
@@ -1345,7 +1207,7 @@ function staticallySelectedSwitchBranch(
 }
 
 /** Whether a value is guaranteed to evaluate to a real temporal scalar. */
-function isGuaranteedTemporalValue(expression: ValueExpression): boolean {
+function isGuaranteedTemporalValue(expression: Expression): boolean {
 	switch (expression.kind) {
 		case "today":
 		case "now":
@@ -1394,10 +1256,8 @@ function isGuaranteedTemporalValue(expression: ValueExpression): boolean {
 		case "format-date":
 		case "table-lookup":
 			return false;
-		default: {
-			const _exhaustive: never = expression;
-			return _exhaustive;
-		}
+		default:
+			return false;
 	}
 }
 
@@ -1413,10 +1273,14 @@ function agreedStaticString(
 
 /** Predicates inside a runtime-only `if` value cannot read case rows. */
 function checkRuntimePredicate(
-	predicate: Predicate,
+	predicate: Expression,
 	path: readonly (string | number)[],
 	issues: CsqlRepresentabilityIssue[],
 ): void {
+	if (!isConditionArm(predicate)) {
+		checkRuntimeValue(predicate, path, issues, "on-device");
+		return;
+	}
 	switch (predicate.kind) {
 		case "match-all":
 		case "match-none":
@@ -1502,7 +1366,7 @@ function checkRuntimePredicate(
 			throw new Error(
 				unhandledKindMessage({
 					where: "checkCsqlRuntimePredicate",
-					family: "Predicate",
+					family: "Expression",
 					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
 					knownKinds: [
 						"match-all",
@@ -1533,15 +1397,15 @@ function checkRuntimePredicate(
 	}
 }
 
-function isPropertyExpression(expression: ValueExpression): boolean {
+function isPropertyExpression(expression: Expression): boolean {
 	return expression.kind === "term" && expression.term.kind === "prop";
 }
 
-function isSubcaseCountQueryAnchor(expression: ValueExpression): boolean {
+function isSubcaseCountQueryAnchor(expression: Expression): boolean {
 	return expression.kind === "count" && expression.via.kind === "subcase";
 }
 
-function isQueryAnchor(expression: ValueExpression): boolean {
+function isQueryAnchor(expression: Expression): boolean {
 	return (
 		isPropertyExpression(expression) || isSubcaseCountQueryAnchor(expression)
 	);
@@ -1555,7 +1419,7 @@ function isQueryAnchor(expression: ValueExpression): boolean {
  * half. CSQL also forbids a property Step on the value side.
  */
 function hasMultiplePropertyScopes(
-	expressions: readonly ValueExpression[],
+	expressions: readonly Expression[],
 ): boolean {
 	const scopes = new Set<string>();
 	for (const expression of expressions) {
@@ -1566,7 +1430,7 @@ function hasMultiplePropertyScopes(
 }
 
 function collectPropertyScopesFromExpression(
-	expression: ValueExpression,
+	expression: Expression,
 	out: Set<string>,
 ): void {
 	switch (expression.kind) {
@@ -1632,15 +1496,13 @@ function collectPropertyScopesFromExpression(
 		case "format-date":
 			collectPropertyScopesFromExpression(expression.date, out);
 			return;
-		default: {
-			const _exhaustive: never = expression;
-			throw new Error(`Unhandled ValueExpression ${String(_exhaustive)}`);
-		}
+		default:
+			return;
 	}
 }
 
 function collectPropertyScopesFromPredicate(
-	predicate: Predicate,
+	predicate: Expression,
 	out: Set<string>,
 ): void {
 	switch (predicate.kind) {
@@ -1670,14 +1532,18 @@ function collectPropertyScopesFromPredicate(
 			return;
 		case "match":
 			collectPropertyScopesFromExpression(
-				{ kind: "term", term: predicate.property },
+				predicate.property.kind === "prop"
+					? { kind: "term", term: predicate.property }
+					: predicate.property,
 				out,
 			);
 			collectPropertyScopesFromExpression(predicate.value, out);
 			return;
 		case "multi-select-contains":
 			collectPropertyScopesFromExpression(
-				{ kind: "term", term: predicate.property },
+				predicate.property.kind === "prop"
+					? { kind: "term", term: predicate.property }
+					: predicate.property,
 				out,
 			);
 			return;
@@ -1706,9 +1572,15 @@ function collectPropertyScopesFromPredicate(
 				collectPropertyScopesFromPredicate(predicate.where, out);
 			}
 			return;
-		default: {
-			const _exhaustive: never = predicate;
-			throw new Error(`Unhandled Predicate ${String(_exhaustive)}`);
-		}
+		default:
+			return;
 	}
+}
+
+function literalValue(value: Expression | Term): Literal["value"] {
+	if (value.kind !== "literal")
+		throw new Error(
+			"CSQL fixed values must be materialized literals before representability checks.",
+		);
+	return value.value;
 }

@@ -89,7 +89,7 @@ export function HomeScreen() {
 	 * shows everything. Hidden modules stay reachable through the reveal
 	 * affordance below: ghosted, with each condition's summary. */
 	const moduleVisibility = useMemo(() => {
-		return previewModuleVisibility(menuSource, {
+		return previewModuleVisibility(menuSource.doc, {
 			authoring: mode === "edit",
 			session,
 			lookup,

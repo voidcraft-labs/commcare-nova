@@ -1,17 +1,17 @@
 """The case database each corpus document's sessions run over, and the restore that carries it.
 
-A document's case database is made from its own case types (``document.json``,
-``doc.caseTypes``; a control retains the database itself,
+A document's case database is made from its effective materializable catalog (``document.json``,
+``catalog``; a control retains the database itself,
 ``document_case_database``), deterministically, so every run and every build
 sees the same cases:
 
 - cases of each case type the document declares, names as a parent, or
   gives a menu, parents before their children: ``CASES_PER_TYPE``, or as
   many as one of its properties has values (at most ``MAX_CASES_PER_TYPE``);
-- each declared property takes values from its type (``VALUES``), then the
+- each catalog property takes values from its effective type (``VALUES``), then the
   values the document itself gives it (``document_values``: its options, the
-  values a case list column maps, the literals a case list or search
-  condition compares it with), case ``n`` taking the ``n``-th, so the
+  values a case list column maps, the literals a module, form or field
+  expression compares it with), case ``n`` taking the ``n``-th, so the
   document's own filters and mappings find cases they select. Every type
   whose values have an order holds values whose text order and numeric order
   differ ("10" and "2" for text, integers and selects; "10.5" and "2.25" for
@@ -91,6 +91,28 @@ VALUES = {
 STANDARD_PROPERTIES = frozenset(
     {"case_id", "case_name", "date_opened", "last_modified", "owner_id", "external_id", "status"}
 )
+# HQ copies custom user data before setting its managed worker fields
+# (callcenter/sync_usercase.py::_get_user_case_fields). These names read the
+# worker's own record, never invented custom user data; case_name is the
+# restore spelling of HQ's name. Nova's matching inventory is
+# lib/domain/usercase.ts::USERCASE_BUILT_IN_KEYS.
+USERCASE_BUILT_IN_FIELDS = STANDARD_PROPERTIES | frozenset(
+    {
+        "username",
+        "email",
+        "first_name",
+        "last_name",
+        "hq_user_id",
+        "language",
+        "phone_number",
+        "last_device_id_used",
+        "commcare_profile",
+        "commcare_location_id",
+        "commcare_location_ids",
+        "commcare_primary_case_sharing_id",
+        "commcare_project",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -149,10 +171,10 @@ def _literal(value):
 
 
 def _property(value):
-    """The (case type, property) a predicate value reads, following an ancestor or related read to its type."""
+    """The (case type, property) an expression reads, following an ancestor or related read to its type."""
     if isinstance(value, dict) and value.get("kind") == "term":
         value = value.get("term")
-    if not isinstance(value, dict) or value.get("kind") != "prop":
+    if not isinstance(value, dict) or value.get("kind") not in {"prop", "form-case"}:
         return None
     case_type, via = value.get("caseType"), value.get("via") or {"kind": "self"}
     if via.get("kind") == "ancestor":
@@ -168,7 +190,7 @@ def document_values(doc):
 
     Read from the document's typed structures, never from expression text:
     each case list column that maps values (``mapping[].value`` beside its
-    ``field``), and each case list or search condition that compares a
+    ``field``), and each module, form or field expression that compares a
     property with literals (a comparison, ``in``, ``between``,
     ``multi-select-contains``).
     """
@@ -207,13 +229,15 @@ def document_values(doc):
                 for entry in column["mapping"]:
                     if isinstance(entry, dict) and isinstance(entry.get("value"), str):
                         add((case_type, column["field"]), entry["value"])
-    walk(doc.get("modules"))
+    for collection in ("modules", "forms", "fields"):
+        walk(doc.get(collection))
     return {key: list(values) for key, values in found.items()}
 
 
-def _case_types(doc):
-    """Every case type the document declares, names as a parent or gives a menu, parents first."""
-    declared = {case_type["name"]: case_type for case_type in doc.get("caseTypes") or []}
+def _case_types(document_json):
+    """Every effective case type, named parent or menu type, parents first; Python never re-infers a type."""
+    doc = document_json["doc"]
+    declared = {case_type["name"]: case_type for case_type in document_json["catalog"]}
     names = list(declared)
     for case_type in declared.values():
         parent = case_type.get("parent_type")
@@ -243,10 +267,12 @@ def _case_types(doc):
 
 
 def _session_user_fields(value, found):
-    """The user-data fields the document's expressions read (``session-user`` terms), in document order."""
+    """The custom user-data fields expressions read, including worker-record reads, in document order."""
     if isinstance(value, dict):
         if value.get("kind") == "session-user" and isinstance(value.get("field"), str):
-            found.setdefault(value["field"], None)
+            field = value["field"]
+            if value.get("source") != "worker-record" or field not in USERCASE_BUILT_IN_FIELDS:
+                found.setdefault(field, None)
         for item in value.values():
             _session_user_fields(item, found)
     elif isinstance(value, list):
@@ -271,7 +297,7 @@ def case_database(document_json) -> CaseDatabase:
         user_data.setdefault(field, f"proof {field}")
 
     given = document_values(doc)
-    types = _case_types(doc)
+    types = _case_types(document_json)
     values_of = {}
     for name, case_type in types:
         declared = [prop for prop in case_type.get("properties") or [] if isinstance(prop.get("name"), str)]
@@ -332,7 +358,11 @@ def case_database(document_json) -> CaseDatabase:
             opened_on=_stamp(stamp),
             modified_on=_stamp(stamp),
             external_id=None,
-            properties=(("hq_user_id", USER_ID), ("username", USERNAME), *sorted(user_data.items())),
+            properties=(
+                ("hq_user_id", USER_ID),
+                ("username", USERNAME),
+                *((key, value) for key, value in sorted(user_data.items()) if key not in USERCASE_BUILT_IN_FIELDS),
+            ),
         )
     )
     return CaseDatabase(USER_ID, USERNAME, tuple(user_data.items()), tuple(cases))

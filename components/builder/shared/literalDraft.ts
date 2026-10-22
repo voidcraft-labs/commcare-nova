@@ -1,4 +1,4 @@
-import { type Literal, literal } from "@/lib/domain/predicate";
+import { type Literal, literal } from "@/lib/domain/expression";
 import { rebuildLiteralPreservingDataType } from "./literalRebuild";
 
 export function finiteLiteralDraft(

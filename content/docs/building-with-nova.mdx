@@ -284,6 +284,12 @@ can't play.
 When a formula needs correction, your draft and keyboard focus stay in the
 editor so you can keep typing while its explanation is visible.
 
+Formula references follow the question or choice they name when you rename it.
+Relative paths begin at the setting being edited: in a question's validation,
+`.` reads that answer and `../name` reads its sibling. `#form/name` reads a
+named answer without depending on that position. Nova checks the whole formula
+before saving and points to names or expressions it cannot resolve.
+
 Nova checks formulas against the functions CommCare's device runtime actually
 implements and the same formulas run in Preview. A function being part of
 XPath 1.0 or XPath 2.0 is not enough by itself. Functions that CommCare does
@@ -302,10 +308,9 @@ run their formulas or migrates them without changing their meaning. A defensive
 Preview error is treated as a Nova bug and contained so the rest of the Builder
 stays available; it is not an expected state the author needs to repair.
 
-Lookup-table formulas use Nova's table and column references, which keep their
-identity when a table tag changes. Raw XPath can use the stable `casedb` and
-`commcaresession` instances, but it cannot name a lookup table by its mutable
-wire tag.
+Choices and record filters that use a Project data table keep their table and
+column references when those names change. Formulas can read the records and
+session values available in their current setting.
 
 A hidden value has one expression and a choice of when it runs, or no
 expression at all. **Keep in

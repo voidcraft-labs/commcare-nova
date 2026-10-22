@@ -1,3 +1,4 @@
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 // Global-slot placeholders must be NEUTRAL: committing an unchosen seed
 // may never change what the rule decides, because a global slot gates a
 // whole surface (the Search action) the moment the placeholder commits.
@@ -21,7 +22,7 @@ import {
 	type PredicateEditContext,
 	predicateCardSchemas,
 } from "@/components/builder/shared/editorSchemas";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	previewAsMe,
@@ -29,7 +30,7 @@ import {
 } from "@/lib/preview/engine/identity";
 import { evaluatePreviewSearchPredicate } from "@/lib/preview/engine/searchExpressionEvaluation";
 
-const GLOBAL_CTX: PredicateEditContext = {
+const GLOBAL_FIXTURE = expressionEditorFixture("global-condition", {
 	caseTypes: [
 		{
 			name: "patient",
@@ -41,7 +42,8 @@ const GLOBAL_CTX: PredicateEditContext = {
 	currentCaseType: "patient",
 	knownInputs: [],
 	caseDataScope: "global",
-};
+});
+const GLOBAL_CTX: PredicateEditContext = GLOBAL_FIXTURE.context;
 
 const HOLD_FALSE_CTX: PredicateEditContext = {
 	...GLOBAL_CTX,
@@ -57,8 +59,14 @@ const SESSION = previewSessionValues(
 		email: "amina@example.org",
 	}),
 );
-function evalSeed(predicate: Predicate): boolean {
-	return evaluatePreviewSearchPredicate(predicate, [], SESSION);
+function evalSeed(predicate: Expression): boolean {
+	return evaluatePreviewSearchPredicate(
+		predicate,
+		GLOBAL_CTX.expressionContext,
+		{ doc: GLOBAL_FIXTURE.doc, moduleUuid: GLOBAL_FIXTURE.doc.moduleOrder[0] },
+		[],
+		SESSION,
+	);
 }
 
 describe("global placeholders hold the truth value their destination needs", () => {

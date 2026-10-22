@@ -29,14 +29,14 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	type Expression,
 	formField,
 	isValueStorageAssignable,
 	literal,
 	now,
 	term,
 	today,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 
 /** What an author is choosing when they add a change. */
 export type CaseOperationSeedKind =
@@ -76,7 +76,7 @@ export function nextOperationId(
 }
 
 /** The case name a fresh create carries until the author replaces it. */
-function seededCaseName(caseType: string): ValueExpression {
+function seededCaseName(caseType: string): Expression {
 	return term(literal(humanizeId(caseType)));
 }
 
@@ -134,7 +134,7 @@ export function seedCaseOperation(
  */
 export function seedCaseOperationWrite(
 	property: string,
-	value: ValueExpression,
+	value: Expression,
 ): CaseOperationWrite {
 	return { property, value };
 }
@@ -158,7 +158,7 @@ export function seedWriteValue(
 		readonly uuid: Uuid;
 		readonly dataType: CasePropertyDataType | undefined;
 	}[],
-): ValueExpression | undefined {
+): Expression | undefined {
 	// An undeclared property is declared by this very batch, so any storable
 	// value fits; text is the least surprising.
 	if (dataType === undefined) return term(literal(""));
@@ -205,7 +205,7 @@ export function seedRenameValue(
 		readonly uuid: Uuid;
 		readonly dataType: CasePropertyDataType | undefined;
 	}[],
-): ValueExpression {
+): Expression {
 	const answer = formFields.find((field) =>
 		isValueStorageAssignable(field.dataType ?? "text", "text"),
 	);

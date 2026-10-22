@@ -9,16 +9,16 @@ import tabler123 from "@iconify-icons/tabler/123";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
 import {
+	formLogicSchema,
 	inputFieldBaseSchema,
 	proseTemplateSchema,
-	xpathExpressionSchema,
 } from "./base";
 
 export const intFieldSchema = inputFieldBaseSchema.extend({
 	kind: z.literal("int"),
-	validate: xpathExpressionSchema.optional(),
+	validate: formLogicSchema.optional(),
 	validate_msg: proseTemplateSchema.optional(),
-	default_value: xpathExpressionSchema.optional(),
+	default_value: formLogicSchema.optional(),
 });
 
 export type IntField = z.infer<typeof intFieldSchema>;

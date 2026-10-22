@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import type { FormLink } from "@/lib/domain";
-import { eq, literal, sessionUser } from "@/lib/domain/predicate";
+import { eq, literal, sessionUser } from "@/lib/domain/expression/builders";
 import { formLinkTargetVisibility } from "../useFormLinkFacts";
 
 const targets = testUuid("visibility-targets");

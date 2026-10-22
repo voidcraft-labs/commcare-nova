@@ -34,7 +34,7 @@
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { proseText, type Uuid } from "@/lib/domain";
-import { eq, literal, not, sessionUser } from "@/lib/domain/predicate";
+import { eq, literal, not, sessionUser } from "@/lib/domain/expression";
 import { targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 

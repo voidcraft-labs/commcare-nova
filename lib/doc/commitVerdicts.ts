@@ -34,7 +34,6 @@
 import { produce } from "immer";
 import {
 	findOnDeviceDateAddIssue,
-	findOnDeviceDateAddIssueInPredicate,
 	type OnDeviceDateAddIssue,
 } from "@/lib/commcare/expression/onDeviceCompatibility";
 import {
@@ -49,6 +48,7 @@ import {
 	type ValidationError,
 	validationError,
 } from "@/lib/commcare/validator/errors";
+import { formLogicFinding } from "@/lib/commcare/validator/formLogicFindings";
 import {
 	evaluateBoundary,
 	evaluateCommit,
@@ -56,6 +56,10 @@ import {
 } from "@/lib/commcare/validator/gate";
 import { validateLookupReferences } from "@/lib/commcare/validator/lookupReferences";
 import { lookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
+
+export { formLogicFinding } from "@/lib/commcare/validator/formLogicFindings";
+export { lookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
+
 import {
 	CASE_LIST_ORDER_RULES,
 	MODULE_RULES,
@@ -96,23 +100,13 @@ import {
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
-import type {
-	MatchMode,
-	Predicate,
-	RelationEvaluationScopeContext,
-	TypeContext,
-	ValueExpression,
-} from "@/lib/domain/predicate";
+import type { ExpressionContext } from "@/lib/domain/expression/context";
+import { checkExpression } from "@/lib/domain/expression/typeChecker";
+import type { Expression, MatchMode } from "@/lib/domain/expression/types";
 
 export type PredicateEditVerdict =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly reason: string };
-
-/** The runtime family that will evaluate one authored expression carrier. */
-export type ExpressionEvaluationTarget =
-	| "on-device"
-	| "case-search"
-	| "on-device-and-case-search";
 
 function predicateEditIssueReason(issue: CsqlRepresentabilityIssue): string {
 	if (issue.reason === "case-property-on-value-side") {
@@ -131,85 +125,59 @@ function dateAddEditIssueReason(issue: OnDeviceDateAddIssue): string {
 }
 
 function caseSearchDateAddIssue(
-	predicate: Predicate,
-	context: TypeContext,
+	predicate: Expression,
+	context: ExpressionContext,
 ): OnDeviceDateAddIssue | undefined {
 	let issue: OnDeviceDateAddIssue | undefined;
-	walkCsqlOnDeviceNodes(predicate, {
-		visitExpression(expression) {
+	walkCsqlOnDeviceNodes(predicate, context, {
+		visitExpression(expression, lexicalContext) {
 			if (issue === undefined) {
-				issue = findOnDeviceDateAddIssue(expression, context);
+				issue = findOnDeviceDateAddIssue(expression, lexicalContext);
 			}
 		},
 	});
 	return issue;
 }
 
-/**
- * Whole-candidate authoring verdict for a predicate expression edit.
- *
- * A remote case-search rule is mixed-runtime: CSQL-native date functions stay
- * on the server, while a non-native expression subtree is interpolated as
- * JavaRosa XPath and must obey the on-device restriction. The shared dialect
- * walker keeps this projection aligned with the validator and emitter.
- */
-export function predicateExpressionRuntimeEditVerdict(
-	candidate: Predicate,
-	target: ExpressionEvaluationTarget,
-	context: TypeContext,
+/** One actual-slot verdict for every expression editor. */
+export function expressionEditVerdict(
+	candidate: Expression,
+	context: ExpressionContext,
 ): PredicateEditVerdict {
-	if (target !== "on-device") {
-		const representabilityIssue = checkCsqlRepresentability(candidate)[0];
-		if (representabilityIssue !== undefined) {
-			return {
-				ok: false,
-				reason: predicateEditIssueReason(representabilityIssue),
-			};
-		}
+	const checked = checkExpression(candidate, context);
+	if (checked.errors.length > 0)
+		return {
+			ok: false,
+			reason: formLogicFinding(checked.errors[0], context, candidate).message,
+		};
+	const targets = context.profile.targets;
+	const remote = targets.has("CS");
+	const device = targets.has("XF") || targets.has("SU");
+	if (remote && context.profile.expectation.kind === "condition") {
+		const issue = checkCsqlRepresentability(candidate, context)[0];
+		if (issue !== undefined)
+			return { ok: false, reason: predicateEditIssueReason(issue) };
 	}
-
-	const dateIssue =
-		target === "case-search"
+	if (
+		remote &&
+		context.slot.slot === "case_list_column_expression" &&
+		classifyRelatedCaseSearchExpression(candidate, context).kind ===
+			"unsupported"
+	) {
+		return {
+			ok: false,
+			reason:
+				"Search can show one parent property by itself, but it can't use other related-case information in this calculated item. Choose the parent property by itself, or build the calculation from this case.",
+		};
+	}
+	const dateIssue = device
+		? findOnDeviceDateAddIssue(candidate, context)
+		: remote
 			? caseSearchDateAddIssue(candidate, context)
-			: findOnDeviceDateAddIssueInPredicate(candidate, context);
+			: undefined;
 	return dateIssue === undefined
 		? { ok: true }
 		: { ok: false, reason: dateAddEditIssueReason(dateIssue) };
-}
-
-/** Whole-candidate authoring verdict for a standalone value expression. */
-export function valueExpressionRuntimeEditVerdict(
-	candidate: ValueExpression,
-	target: ExpressionEvaluationTarget,
-	context: TypeContext,
-): PredicateEditVerdict {
-	if (target === "case-search") return { ok: true };
-	const issue = findOnDeviceDateAddIssue(candidate, context);
-	return issue === undefined
-		? { ok: true }
-		: { ok: false, reason: dateAddEditIssueReason(issue) };
-}
-
-const SEARCH_RELATED_CALCULATION_EDIT_REASON =
-	"Search can show one parent property by itself, but it can't use other related-case information in this calculated item. Choose the parent property by itself, or build the calculation from this case.";
-
-/**
- * Whole-candidate authoring verdict for a calculated Results/Details value in
- * an effective Search module.
- *
- * Builder authoring asks the compile boundary's classifier whether the whole
- * expression is current-case-only or one directly projected ancestor
- * property. Keeping the decision there also preserves its graph resolution
- * and reserved-path rules without restating them here.
- */
-export function caseSearchCalculatedExpressionEditVerdict(
-	candidate: ValueExpression,
-	context: RelationEvaluationScopeContext,
-): PredicateEditVerdict {
-	return classifyRelatedCaseSearchExpression(candidate, context).kind !==
-		"unsupported"
-		? { ok: true }
-		: { ok: false, reason: SEARCH_RELATED_CALCULATION_EDIT_REASON };
 }
 
 /**
@@ -226,19 +194,6 @@ export function caseSearchCalculatedExpressionEditVerdict(
  */
 export function matchModeAvailableOnDevice(mode: MatchMode): boolean {
 	return matchModeRunsOnDevice(mode);
-}
-
-/** Absolute readiness verdict for a predicate that will execute as a remote
- * case-search query. Whole-config status surfaces use this to mark an imported
- * unsupported rule before the author touches it; edit menus use the same
- * absolute verdict so an invalid rule cannot be retained. */
-export function caseSearchPredicateVerdict(
-	predicate: Predicate,
-): PredicateEditVerdict {
-	const issue = checkCsqlRepresentability(predicate)[0];
-	return issue === undefined
-		? { ok: true }
-		: { ok: false, reason: predicateEditIssueReason(issue) };
 }
 
 /** Absolute validator projection for the case-list workspace. Running the
@@ -283,11 +238,8 @@ const CASE_WORKSPACE_VERDICT_CACHE = new WeakMap<
 /** Run the same module-rule inventory as the commit/export boundary and retain
  * only findings owned by a case-workspace AST slot.
  *
- * The client workspace deliberately supplies `LOOKUP_CONTEXT_UNAVAILABLE`: it
- * has no rows-free Project definition snapshot, and pretending an empty
- * registry were authoritative would hide historical carriers. Structural
- * lookup findings still mark their owning workspace surface broken; fetching
- * definitions belongs to a future context-owning boundary, not this selector.
+ * The client workspace supplies its current rows-free Project definition
+ * snapshot, matching the definition context used by its expression editors.
  *
  * Memoized per (doc reference, lookup-context identity, module uuid) — the
  * `validationContextFor` discipline. The inventory includes expensive rules

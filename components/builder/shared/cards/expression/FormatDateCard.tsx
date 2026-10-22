@@ -1,9 +1,9 @@
 // components/builder/shared/cards/expression/FormatDateCard.tsx
 //
-// Renders the `format-date` ValueExpression: render a date or
+// Renders the `format-date` Expression: render a date or
 // datetime as text. Two slots:
 //
-//   - `date`: `ValueExpression` resolving to date or datetime.
+//   - `date`: `Expression` resolving to date or datetime.
 //   - `pattern`: `"short" | "long" | "iso" | string` (a closed
 //     enum or a validated JavaRosa pattern string per CommCare's
 //     `format-date(date, pattern)` value function).
@@ -27,14 +27,16 @@
 // land at `[..., "date"]`. Result type is always `text`.
 
 "use client";
+
 import { DATE_FORMAT_PRESET_DEFINITIONS } from "@/lib/domain";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	dateOperandConstraint,
+	type Expression,
 	FORMAT_DATE_PRESETS,
 	formatDate,
 	today,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import {
@@ -65,22 +67,41 @@ const FORMAT_DATE_PRESET_TABLE: readonly DatePatternPreset[] =
  *  the result type resolves to text. */
 export function formatDateDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "format-date" }> {
+): ExpressionOfKind<"format-date"> {
 	return formatDate(today(), "short");
 }
 
 interface FormatDateCardProps {
-	readonly value: Extract<ValueExpression, { kind: "format-date" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"format-date">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
-export function FormatDateCard({ value, onChange, path }: FormatDateCardProps) {
+export function FormatDateCard(props: FormatDateCardProps) {
+	if (typeof props.value.pattern !== "string")
+		return (
+			<p role="status">This saved expression cannot be edited here yet.</p>
+		);
+	return (
+		<EditableFormatDateCard
+			{...props}
+			value={{ ...props.value, pattern: props.value.pattern }}
+		/>
+	);
+}
+
+function EditableFormatDateCard({
+	value,
+	onChange,
+	path,
+}: FormatDateCardProps & {
+	readonly value: FormatDateCardProps["value"] & { readonly pattern: string };
+}) {
 	// Date-operand errors render via the `ExpressionPicker` shell's
 	// `CardShell` footer at `[..., "date"]`; no parallel
 	// `<InlineError>` is needed here.
 
-	const setDate = (next: ValueExpression) => {
+	const setDate = (next: Expression) => {
 		onChange(formatDate(next, value.pattern));
 	};
 

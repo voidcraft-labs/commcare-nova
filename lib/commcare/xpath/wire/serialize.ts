@@ -165,25 +165,32 @@ function children(expr: WireExpr): readonly WireExpr[] {
 	}
 }
 
-function withholdsShadow(
+function shadowEligibility(
 	expr: WireExpr,
 	visited = new WeakSet<WireExpr>(),
-): boolean {
-	if (visited.has(expr)) return false;
+): "eligible" | "absent" | "withheld" {
+	if (visited.has(expr)) return "absent";
 	visited.add(expr);
-	if (expr.k === "expansion") return true;
+	if (expr.k === "expansion") return "withheld";
+	let eligible = false;
 	if (expr.k === "path") {
-		if (expr.root.k === "hq-case") return true;
-		if (
-			expr.root.k === "form" &&
-			expr.root.spelling === "hashtag" &&
-			expr.steps.some(
-				(step) => step.axis !== "child" || step.predicates.length > 0,
+		if (expr.root.k === "hq-case") return "withheld";
+		if (expr.root.k === "form" && expr.root.spelling === "hashtag") {
+			if (
+				expr.steps.some(
+					(step) => step.axis !== "child" || step.predicates.length > 0,
+				)
 			)
-		)
-			return true;
+				return "withheld";
+			eligible = expr.steps.length > 0;
+		}
 	}
-	return children(expr).some((child) => withholdsShadow(child, visited));
+	for (const child of children(expr)) {
+		const eligibility = shadowEligibility(child, visited);
+		if (eligibility === "withheld") return "withheld";
+		if (eligibility === "eligible") eligible = true;
+	}
+	return eligible ? "eligible" : "absent";
 }
 
 function stepName(step: WireStep): string {
@@ -208,7 +215,8 @@ export function serializeWire(
 	expr: WireExpr,
 	mode: WireMode,
 ): SerializedWire | undefined {
-	if (mode.target === "vellum" && withholdsShadow(expr)) return undefined;
+	if (mode.target === "vellum" && shadowEligibility(expr) !== "eligible")
+		return undefined;
 	const instances = new InstanceSink();
 	const ordinary = new WeakMap<WireExpr, string>();
 	const predicate = new WeakMap<WireExpr, string>();

@@ -96,10 +96,13 @@ import {
 	type Module,
 	orderedColumns,
 	type TranslationUnitId,
-	userPropertySlugsByUuid,
 } from "@/lib/domain";
-import { simplifyForEmission } from "@/lib/domain/predicate";
-import type { Predicate } from "@/lib/domain/predicate/types";
+import { simplifyForEmission } from "@/lib/domain/expression";
+import type { Expression } from "@/lib/domain/expression/types";
+import {
+	type ModuleExpressionContexts,
+	moduleExpressionContexts,
+} from "../../expressionContext";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
 import { buildCarrierField, buildColumnField } from "./columns";
 import {
@@ -138,7 +141,7 @@ import type {
  */
 export interface SearchActionContext {
 	readonly autoLaunch: boolean;
-	readonly displayCondition?: Predicate;
+	readonly displayCondition?: Expression;
 }
 
 /**
@@ -240,11 +243,12 @@ export function buildShortDetail(args: {
 	const detailId = `m${moduleIndex}_${target}_short`;
 	const instances = new InstanceSink();
 	const wire: WireElementContext = { mode: { target: "suite" }, instances };
-	const relationContext = {
-		caseTypes: effectiveCaseTypes(doc),
-		...(mod.caseType === undefined ? {} : { currentCaseType: mod.caseType }),
-		userPropertySlugs: userPropertySlugsByUuid(doc),
-	};
+	const expressions = moduleExpressionContexts(
+		doc,
+		mod.uuid,
+		args.lookupNaming,
+	);
+
 	// `<action>` lives only on the case-target detail per the
 	// canonical fixture. A `searchAction` arg passed alongside
 	// `target: "search"` would be a logic error at the orchestrator
@@ -269,7 +273,7 @@ export function buildShortDetail(args: {
 				undefined,
 				texts.elements,
 				moduleIndex,
-				relationContext,
+				expressions,
 				wire,
 				args.lookupNaming,
 			),
@@ -298,10 +302,9 @@ export function buildShortDetail(args: {
 		target,
 		...(args.caseSource !== undefined && { caseSource: args.caseSource }),
 		caseProperties,
+		caseType: mod.caseType,
 		proseDoc: doc,
-		caseTypes: relationContext.caseTypes,
-		currentCaseType: mod.caseType,
-		userPropertySlugs: userPropertySlugsByUuid(doc),
+		expressions,
 		...(config.tile !== undefined && { tileLayout: config.tile }),
 		...(args.assets && { assets: args.assets }),
 		...(args.lookupNaming && { lookupNaming: args.lookupNaming }),
@@ -346,7 +349,7 @@ export function buildShortDetail(args: {
 			config.tile?.grouping,
 			texts.elements,
 			moduleIndex,
-			relationContext,
+			expressions,
 			wire,
 			args.lookupNaming,
 		),
@@ -429,11 +432,7 @@ function buildDetailShell(
 	grouping: CaseTileGrouping | undefined,
 	texts: readonly Element[],
 	moduleIndex: number,
-	relationContext: {
-		readonly caseTypes: ReturnType<typeof effectiveCaseTypes>;
-		readonly currentCaseType?: string;
-		readonly userPropertySlugs: ReturnType<typeof userPropertySlugsByUuid>;
-	},
+	expressions: ModuleExpressionContexts,
 	wire: WireElementContext,
 	lookupNaming?: LookupWireNaming,
 ): Element {
@@ -452,7 +451,7 @@ function buildDetailShell(
 			buildSearchActionBlock(
 				searchAction,
 				moduleIndex,
-				relationContext,
+				expressions,
 				wire,
 				lookupNaming,
 			),
@@ -534,11 +533,7 @@ function buildRegisterActionBlock(
 function buildSearchActionBlock(
 	searchAction: SearchActionContext,
 	moduleIndex: number,
-	relationContext: {
-		readonly caseTypes: ReturnType<typeof effectiveCaseTypes>;
-		readonly currentCaseType?: string;
-		readonly userPropertySlugs: ReturnType<typeof userPropertySlugsByUuid>;
-	},
+	expressions: ModuleExpressionContexts,
 	wire: WireElementContext,
 	lookupNaming?: LookupWireNaming,
 ): Element {
@@ -562,7 +557,7 @@ function buildSearchActionBlock(
 			simplifyForEmission(searchAction.displayCondition),
 			{
 				target: "suite",
-				types: relationContext,
+				types: expressions({ slot: "search_button_display_condition" }),
 				bindings:
 					lookupNaming === undefined
 						? {}

@@ -7,13 +7,13 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	ReconcilerContext,
 	type ReconcilerContextValue,
 } from "@/lib/collab/context";
-import type { CaseListConfig, CaseType } from "@/lib/domain";
-import { literal, matchAll, term } from "@/lib/domain/predicate";
+import type { BlueprintDoc, CaseListConfig, CaseType } from "@/lib/domain";
+import { literal, matchAll, term } from "@/lib/domain/expression";
 import type {
 	CaseRowWithCalculated,
 	LoadCasesResult,
@@ -381,6 +381,8 @@ describe("useCases query constraints", () => {
 			constraintSource: "unconstrained",
 		});
 		const consoleError = vi.spyOn(console, "error");
+		let blueprint: BlueprintDoc | undefined;
+		let moduleUuid: string | undefined;
 		let caseListConfig: CaseListConfig | undefined;
 		let excludedOwnerIdsExpression: ReturnType<typeof term> | undefined;
 		let caseTypes: readonly CaseType[] | undefined;
@@ -389,6 +391,8 @@ describe("useCases query constraints", () => {
 				useCases({
 					appId: APP_ID,
 					caseType: PATIENT.name,
+					blueprint,
+					moduleUuid,
 					caseListConfig,
 					excludedOwnerIdsExpression,
 					caseTypes,
@@ -403,11 +407,26 @@ describe("useCases query constraints", () => {
 			});
 			excludedOwnerIdsExpression = term(literal("owner-a"));
 			caseTypes = [PATIENT];
+			blueprint = buildDoc({
+				appId: APP_ID,
+				caseTypes: [...caseTypes],
+				modules: [
+					{
+						name: "Patients",
+						caseType: PATIENT.name,
+						caseListConfig,
+						caseSearchConfig: { excludedOwnerIds: excludedOwnerIdsExpression },
+					},
+				],
+			});
+			moduleUuid = blueprint.moduleOrder[0];
 			hook.rerender();
 
 			await waitFor(() => expect(loadCasesAction).toHaveBeenCalledTimes(2));
 			expect(loadCasesAction).toHaveBeenLastCalledWith(
 				expect.objectContaining({
+					blueprint,
+					moduleUuid,
 					caseListConfig,
 					excludedOwnerIdsExpression,
 					caseTypes,

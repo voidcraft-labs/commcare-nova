@@ -4,14 +4,14 @@
  * Wraps the existing blueprint resolution functions into a single interface
  * consumed by both CodeMirror chip decorations and TipTap suggestion/autocomplete.
  *
- * Consumes the thin `XPathLintContext` pre-collected by `buildLintContext` —
+ * Consumes the thin `XPathReferenceContext` pre-collected by `buildLintContext` —
  * no nested-tree walking here anymore. All the information the provider needs
  * (form field entries, case property names + labels, valid paths) lives on
  * that context already; the provider caches the derived search indexes so
  * per-keystroke autocomplete lookups stay O(entries) even without re-walking.
  */
 
-import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import type { XPathReferenceContext } from "@/lib/codemirror/xpath-lint";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import {
 	BUILT_IN_USER_PROPERTIES,
@@ -24,8 +24,8 @@ import {
 	type ProseReferencePart,
 	type ProseTemplate,
 	projectProseTemplate,
+	type ReferenceNamesDoc,
 	type Uuid,
-	type XPathPrintableDoc,
 } from "@/lib/domain";
 import { classifyNamespace } from "./config";
 import type { Reference, ReferenceType } from "./types";
@@ -104,7 +104,7 @@ export { fpath };
  *  namespaces never re-run the narrowing rule and never disagree with the
  *  validator). */
 interface FormCacheEntry {
-	ctx: XPathLintContext;
+	ctx: XPathReferenceContext;
 	byPath: Map<string, { uuid: Uuid; label: string; kind: FieldKind }>;
 	byUuid: Map<Uuid, { path: FieldPath; label: string; kind: FieldKind }>;
 	accept: Map<string, Set<string>>;
@@ -128,7 +128,7 @@ export class ReferenceProvider {
 	constructor(
 		private getContextForForm: (
 			formUuid: string,
-		) => XPathLintContext | undefined,
+		) => XPathReferenceContext | undefined,
 	) {}
 
 	/** Clear all cached form scopes. Call when the blueprint mutates. */
@@ -571,9 +571,9 @@ export interface FieldEntryField {
 export interface FieldEntrySource {
 	readonly fields: Readonly<Record<string, FieldEntryField>>;
 	readonly fieldOrder: Readonly<Record<string, readonly Uuid[]>>;
-	readonly forms: XPathPrintableDoc["forms"];
-	readonly fieldParent?: XPathPrintableDoc["fieldParent"];
-	readonly userProperties?: XPathPrintableDoc["userProperties"];
+	readonly forms: ReferenceNamesDoc["forms"];
+	readonly fieldParent?: ReferenceNamesDoc["fieldParent"];
+	readonly userProperties?: ReferenceNamesDoc["userProperties"];
 }
 
 /**

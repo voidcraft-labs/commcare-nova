@@ -1,3 +1,4 @@
+import { slotContext } from "@/lib/domain/expression/context";
 /**
  * Shared validation for module/form navigation display conditions.
  *
@@ -34,28 +35,27 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
-	checkPredicate,
+	checkExpression,
 	displayConditionStartsWithNever,
-	type Predicate,
-	type PropertyRef,
-	type TypeContext,
-	walkPredicateExpressionNodes,
-	walkPredicateNodes,
-	walkTerms,
-} from "@/lib/domain/predicate";
+	type Expression,
+	type ExpressionContext,
+	walkConditionArms,
+	walkExpressionNodes,
+} from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../errors";
 import {
+	checkErrorDetails,
 	type LookupTypeIndex,
 	semanticCheckErrors,
 } from "../lookupTypeContext";
-import { formatPath, moduleTypeContext } from "./case-list/shared";
+import { formatPath } from "./case-list/shared";
 
 type Carrier =
 	| {
 			readonly kind: "module";
 			readonly moduleUuid: Uuid;
 			readonly mod: Module;
-			readonly condition: Predicate;
+			readonly condition: Expression;
 	  }
 	| {
 			readonly kind: "form";
@@ -63,7 +63,7 @@ type Carrier =
 			readonly mod: Module;
 			readonly formUuid: Uuid;
 			readonly form: Form;
-			readonly condition: Predicate;
+			readonly condition: Expression;
 			readonly caseFirst: boolean;
 	  };
 
@@ -84,53 +84,16 @@ function subject(carrier: Carrier): string {
 		: `Form "${carrier.form.name}" in module "${carrier.mod.name}"`;
 }
 
-function hasSearchInputReference(condition: Predicate): boolean {
-	let found = false;
-	walkTerms(condition, (term) => {
-		if (term.kind === "input") found = true;
-	});
-	return found;
-}
-
-function propertyAllowedOnForm(
-	property: PropertyRef,
-	carrier: Extract<Carrier, { kind: "form" }>,
-): boolean {
-	return (
-		carrier.caseFirst &&
-		carrier.mod.caseType !== undefined &&
-		property.caseType === carrier.mod.caseType &&
-		(property.via === undefined || property.via.kind === "self")
-	);
-}
-
-function hasUnavailableCaseRead(carrier: Carrier): boolean {
-	let unavailable = false;
-	walkTerms(carrier.condition, (term) => {
-		if (term.kind !== "prop") return;
-		if (carrier.kind === "module" || !propertyAllowedOnForm(term, carrier)) {
-			unavailable = true;
-		}
-	});
-	walkPredicateExpressionNodes(carrier.condition, (node) => {
-		if (node.kind === "count") unavailable = true;
-	});
-	walkPredicateNodes(carrier.condition, (node) => {
-		if (node.kind === "exists" || node.kind === "missing") unavailable = true;
-	});
-	return unavailable;
-}
-
 function firstPortabilityIssue(
-	condition: Predicate,
-	ctx: TypeContext,
+	condition: Expression,
+	ctx: ExpressionContext,
 ):
 	| { readonly message: string; readonly details?: Record<string, string> }
 	| undefined {
 	let issue:
 		| { readonly message: string; readonly details?: Record<string, string> }
 		| undefined;
-	walkPredicateNodes(condition, (node) => {
+	walkConditionArms(condition, (node) => {
 		if (issue !== undefined) return;
 		if (node.kind === "match" && !matchModeRunsOnDevice(node.mode)) {
 			issue = {
@@ -175,7 +138,7 @@ function firstPortabilityIssue(
 		}
 	}
 
-	walkPredicateExpressionNodes(condition, (node) => {
+	walkExpressionNodes(condition, (node) => {
 		if (issue !== undefined) return;
 		const scalarIssue = findOnDeviceScalarExpressionIssue(node, ctx);
 		if (scalarIssue !== undefined) {
@@ -196,6 +159,26 @@ function validateCarrier(
 	const errors: ValidationError[] = [];
 	const loc = location(carrier);
 	const who = subject(carrier);
+	const ctx = slotContext(
+		doc,
+		carrier.kind === "module"
+			? {
+					entity: "module",
+					uuid: carrier.moduleUuid,
+					slot: "module_display_condition",
+				}
+			: {
+					entity: "form",
+					uuid: carrier.formUuid,
+					slot: "form_display_condition",
+				},
+		lookupTables ?? new Map(),
+	);
+	if (ctx === undefined)
+		throw new Error("A saved display condition has no owning slot.");
+	const allErrors = semanticCheckErrors(
+		checkExpression(carrier.condition, ctx),
+	);
 
 	// `never`, or an `and` that starts with it, prints exactly what
 	// `hiddenFromMenu` prints, so the flag is the one spelling of "off the
@@ -214,7 +197,13 @@ function validateCarrier(
 		);
 	}
 
-	if (hasSearchInputReference(carrier.condition)) {
+	if (
+		allErrors.some(
+			(error) =>
+				error.code === "search-answer-unavailable" ||
+				error.code === "unknown-search-input",
+		)
+	) {
 		errors.push(
 			validationError(
 				"DISPLAY_CONDITION_SEARCH_INPUT_UNAVAILABLE",
@@ -225,7 +214,7 @@ function validateCarrier(
 		);
 	}
 
-	if (hasUnavailableCaseRead(carrier)) {
+	if (allErrors.some((error) => error.code === "case-data-unavailable")) {
 		const code =
 			carrier.kind === "module"
 				? "MODULE_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE"
@@ -246,9 +235,10 @@ function validateCarrier(
 		);
 	}
 
-	const ctx = moduleTypeContext(carrier.mod, doc, lookupTables);
-	const typeErrors = semanticCheckErrors(
-		checkPredicate(carrier.condition, ctx),
+	const typeErrors = allErrors.filter(
+		(error) =>
+			error.code !== "case-data-unavailable" &&
+			error.code !== "search-answer-unavailable",
 	);
 	if (typeErrors.length > 0) {
 		const code =
@@ -263,7 +253,7 @@ function validateCarrier(
 					carrier.kind,
 					`${who} has a type error in its display condition${path ? ` (at ${path})` : ""}: ${error.message}`,
 					loc,
-					{ path },
+					checkErrorDetails(error),
 				),
 			);
 		}

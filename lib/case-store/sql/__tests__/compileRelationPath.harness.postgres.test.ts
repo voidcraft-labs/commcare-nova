@@ -5,8 +5,8 @@ import {
 	anyRelationPath,
 	relationStep,
 	subcasePath,
-} from "@/lib/domain/predicate/builders";
-import type { RelationPath } from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression/builders";
+import type { RelationPath } from "@/lib/domain/expression/types";
 import { compileRelationPath } from "../compileRelationPath";
 import { expect, makeCaseRow, test } from "./setup";
 

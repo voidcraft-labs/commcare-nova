@@ -9,6 +9,7 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, FormLink } from "@/lib/domain";
+import type { FormLinkDatumName } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 
 export const INTAKE = testUuid("mod-intake");
@@ -23,7 +24,7 @@ export interface LinkSpec {
 	uuid: string;
 	condition?: string;
 	target: FormLink["target"];
-	datums?: Array<{ name: string; xpath: string }>;
+	datums?: Array<{ name: FormLinkDatumName; xpath: string }>;
 }
 
 export const toVisit = {

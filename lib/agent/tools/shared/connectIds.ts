@@ -39,9 +39,15 @@ const KIND_LABEL = {
 } as const;
 
 type ConnectKind = keyof typeof KIND_LABEL;
+export type ConnectIdDraft = Partial<
+	Record<ConnectKind, { readonly id?: string }>
+>;
+export type ConnectIdPlan = Partial<
+	Record<ConnectKind, { readonly id: string }>
+>;
 
 function explicitIdEntries(
-	config: ConnectConfigDraft,
+	config: ConnectIdDraft,
 ): readonly { readonly kind: ConnectKind; readonly id: string }[] {
 	const entries: Array<{ kind: ConnectKind; id: string }> = [];
 	if (config.learn_module?.id !== undefined) {
@@ -60,9 +66,7 @@ function explicitIdEntries(
 }
 
 /** Every already-present id in one draft/final config, in wire block order. */
-export function connectIdsInConfig(
-	config: ConnectConfigDraft,
-): readonly string[] {
+export function connectIdsInConfig(config: ConnectIdDraft): readonly string[] {
 	return explicitIdEntries(config).map(({ id }) => id);
 }
 
@@ -75,7 +79,7 @@ export function connectIdsInConfig(
  * compete for derived suffixes afterward.
  */
 export function reserveExplicitConnectIds(
-	config: ConnectConfigDraft,
+	config: ConnectIdDraft,
 	taken: Set<string>,
 	rootFieldIds: ReadonlySet<string> = new Set(),
 ): readonly string[] {
@@ -115,14 +119,14 @@ export type EnforceConnectIdsResult =
  * omitted ids derive in wire-block order. An omitted earlier kind therefore
  * cannot steal the spelling of an unchanged later kind.
  */
-export function enforceConnectIds(
-	config: ConnectConfigDraft,
+export function planConnectIds(
+	config: ConnectIdDraft,
 	connectType: BlueprintDoc["connectType"],
 	moduleName: string,
 	formName: string,
 	existingIds: Set<string>,
 	rootFieldIds: ReadonlySet<string> = new Set(),
-): EnforceConnectIdsResult {
+): { ok: true; config: ConnectIdPlan } | { ok: false; error: string } {
 	if (connectType === null) {
 		return {
 			ok: false,
@@ -144,7 +148,7 @@ export function enforceConnectIds(
 		};
 	}
 
-	const out: ConnectConfigDraft = { ...config };
+	const out: ConnectIdDraft = { ...config };
 	const pairName = `${moduleName} ${formName}`;
 
 	const errors = [...reserveExplicitConnectIds(out, existingIds, rootFieldIds)];
@@ -187,12 +191,54 @@ export function enforceConnectIds(
 			error: `Connect ${errors.join("; Connect ")}`,
 		};
 	}
+	return { ok: true, config: out as ConnectIdPlan };
+}
+
+/** Final content validation consumes the same structural ID plan used before
+ * authoring text is decoded. Prepared calls already carry every planned id. */
+export function enforceConnectIds(
+	config: ConnectConfigDraft,
+	connectType: BlueprintDoc["connectType"],
+	moduleName: string,
+	formName: string,
+	existingIds: Set<string>,
+	rootFieldIds: ReadonlySet<string> = new Set(),
+): EnforceConnectIdsResult {
+	const planned = planConnectIds(
+		config,
+		connectType,
+		moduleName,
+		formName,
+		existingIds,
+		rootFieldIds,
+	);
+	if (!planned.ok) return planned;
+	const out: ConnectConfigDraft = { ...config };
+	if (
+		out.learn_module !== undefined &&
+		planned.config.learn_module !== undefined
+	)
+		out.learn_module = {
+			...out.learn_module,
+			id: planned.config.learn_module.id,
+		};
+	if (out.assessment !== undefined && planned.config.assessment !== undefined)
+		out.assessment = { ...out.assessment, id: planned.config.assessment.id };
+	if (
+		out.deliver_unit !== undefined &&
+		planned.config.deliver_unit !== undefined
+	)
+		out.deliver_unit = {
+			...out.deliver_unit,
+			id: planned.config.deliver_unit.id,
+		};
+	if (out.task !== undefined && planned.config.task !== undefined)
+		out.task = { ...out.task, id: planned.config.task.id };
 	const final = connectConfigSchema.safeParse(out);
-	if (!final.success) {
+	if (!final.success)
 		return {
 			ok: false,
 			error: `Connect configuration is incomplete: ${final.error.issues.map((issue) => issue.message).join("; ")}`,
 		};
-	}
 	return { ok: true, config: final.data };
 }

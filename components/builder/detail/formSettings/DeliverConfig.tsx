@@ -16,15 +16,12 @@ import {
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import {
-	useParseXPathForForm,
-	useXPathText,
+	useFormExpressionText,
+	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
-import type {
-	CommitOutcome,
-	ConnectDeliverConfig,
-	XPathExpression,
-} from "@/lib/domain";
+import type { CommitOutcome, ConnectDeliverConfig } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression/types";
 import { InlineField } from "./InlineField";
 import { LabeledXPathField } from "./LabeledXPathField";
 import { StagedCommitRow } from "./StagedCommitRow";
@@ -72,12 +69,24 @@ export function DeliverConfig({
 	const lastTaskRef = useRef(task);
 	if (du) lastDeliverRef.current = du;
 	if (task) lastTaskRef.current = task;
-	const getLintContext = useFormLintContext(formUuid);
+	const idSlot = {
+		entity: "form" as const,
+		uuid: formUuid,
+		slot: "deliver_entity_id" as const,
+	};
+	const nameSlot = {
+		entity: "form" as const,
+		uuid: formUuid,
+		slot: "deliver_entity_name" as const,
+	};
+	const getIdLintContext = useFormLintContext(idSlot);
+	const getNameLintContext = useFormLintContext(nameSlot);
 	// AST-stored slots ⇄ text: display prints against the live doc,
 	// commit parses against the doc of the moment.
-	const entityIdText = useXPathText(du?.entity_id);
-	const entityNameText = useXPathText(du?.entity_name);
-	const parseForForm = useParseXPathForForm(formUuid);
+	const entityIdText = useFormExpressionText(du?.entity_id, idSlot);
+	const entityNameText = useFormExpressionText(du?.entity_name, nameSlot);
+	const parseId = useParseFormExpression(idSlot);
+	const parseName = useParseFormExpression(nameSlot);
 	/** In-flight staged blocks: component state only, until committed
 	 *  (or toggled off, which discards). */
 	const [stagedDeliver, setStagedDeliver] = useState<
@@ -124,7 +133,7 @@ export function DeliverConfig({
 	// inactive, the gate refuses the edit and the inline finding remains.
 
 	const updateDeliverUnit = useCallback(
-		(field: string, value: string | XPathExpression) => {
+		(field: string, value: string | Expression) => {
 			const current = connect.deliver_unit;
 			if (current === undefined) {
 				throw new Error("Deliver-unit edit reached a disabled block.");
@@ -136,8 +145,7 @@ export function DeliverConfig({
 
 	/**
 	 * Clear an optional field on the deliver_unit by removing the key
-	 * outright (rather than writing `""`, which would trip the
-	 * `CONNECT_EMPTY_XPATH` validator). Result: the user clears the
+	 * outright. An empty editor is absence, not a stored expression. The user clears the
 	 * editor → the field becomes absent on the doc → the wire-emit
 	 * fallback substitutes the canonical default XPath. This is what
 	 * makes "leave blank → wire default applies" reachable from the UI.
@@ -292,33 +300,26 @@ export function DeliverConfig({
 											 * Marking required would tell the user a
 											 * lie. Saving an empty value clears the key
 											 * outright (via `clearDeliverField`) so the
-											 * wire-emit fallback kicks in: writing
-											 * `""` would trip `CONNECT_EMPTY_XPATH`. */
+											 * wire-emit fallback kicks in. */
 											value={entityIdText}
 											onSave={(v) => {
 												if (v.trim())
-													return updateDeliverUnit(
-														"entity_id",
-														parseForForm(v),
-													);
+													return updateDeliverUnit("entity_id", parseId(v));
 												clearDeliverField("entity_id");
 												return undefined;
 											}}
-											getLintContext={getLintContext}
+											getLintContext={getIdLintContext}
 										/>
 										<LabeledXPathField
 											label="Entity name"
 											value={entityNameText}
 											onSave={(v) => {
 												if (v.trim())
-													return updateDeliverUnit(
-														"entity_name",
-														parseForForm(v),
-													);
+													return updateDeliverUnit("entity_name", parseName(v));
 												clearDeliverField("entity_name");
 												return undefined;
 											}}
-											getLintContext={getLintContext}
+											getLintContext={getNameLintContext}
 										/>
 									</>
 								) : stagedDeliver ? (

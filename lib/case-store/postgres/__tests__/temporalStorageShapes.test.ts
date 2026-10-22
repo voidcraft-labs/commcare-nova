@@ -14,7 +14,7 @@ import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import type { CasePropertyDataType } from "@/lib/domain";
 import { DATE_DATA_TYPES } from "@/lib/domain";
-import { schemaForDataType } from "@/lib/domain/predicate/jsonSchema";
+import { schemaForDataType } from "@/lib/domain/expression/jsonSchema";
 import {
 	storageDatetimeValue,
 	storageTimeValue,

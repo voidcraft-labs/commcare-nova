@@ -11,7 +11,7 @@ import {
 	tileCell,
 	type Uuid,
 } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/expression";
 import { splitTileGridByGroupHeader } from "../caseTileGrouping";
 import {
 	projectTileGrid,

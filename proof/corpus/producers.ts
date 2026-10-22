@@ -21,7 +21,7 @@
 import { isTag } from "domhandler";
 import { textContent } from "domutils";
 import { caseChoiceDoc } from "@/lib/__tests__/caseChoiceFixture";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { arithmeticFixture } from "@/lib/commcare/__tests__/arithmeticFixture";
 import {
 	caseCaptureFixture,
@@ -252,7 +252,7 @@ function xpathContextDoc(): BlueprintDoc {
 								kind: "text",
 								id: "answer",
 								label: proseText("Answer"),
-								default_value: xp("'  alpha\tbeta\r\ngamma  '"),
+								default_value: "'  alpha\tbeta\r\ngamma  '",
 							}),
 							f({
 								kind: "hidden",
@@ -268,7 +268,7 @@ function xpathContextDoc(): BlueprintDoc {
 										kind: "text",
 										id: "value",
 										label: proseText("Value"),
-										default_value: xp("'nested'"),
+										default_value: "'nested'",
 									}),
 									f({ kind: "text", id: "other", label: proseText("Other") }),
 								],

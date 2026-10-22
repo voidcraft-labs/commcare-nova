@@ -29,7 +29,7 @@ import {
 	proseText,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { datetimeLiteral, eq, neq, prop, term } from "@/lib/domain/predicate";
+import { datetimeLiteral, eq, neq, prop, term } from "@/lib/domain/expression";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";
 

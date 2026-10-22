@@ -27,7 +27,7 @@ import {
 	prop,
 	term,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import { caseListConfigVerdicts } from "../configValidity";
 import { admittedWorkspace } from "./admittedWorkspace";
@@ -195,6 +195,13 @@ describe("caseListConfigVerdicts", () => {
 			caseTypes,
 			"patient",
 			projectProse,
+			{
+				boundary: caseWorkspaceBoundaryVerdicts(
+					admitted.doc,
+					admitted.moduleUuid,
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				),
+			},
 		);
 		expect(v.errorAreas).toEqual(CLEAN);
 		expect(v.brokenColumns.size).toBe(0);

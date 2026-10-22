@@ -1,6 +1,9 @@
 import type { Uuid } from "@/lib/domain";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
-import { walkPredicateNodes, walkTerms } from "@/lib/domain/predicate/walk";
+import type { Expression } from "@/lib/domain/expression/types";
+import {
+	walkConditionArms,
+	walkExpressionTerms,
+} from "@/lib/domain/expression/walk";
 
 // Geopoint text normalization shared by on-device distance evaluation and the
 // runtime CSQL query builder. Stored case properties and search centers both
@@ -45,10 +48,10 @@ export function isValidStaticGeopointCenter(value: string): boolean {
 
 /** Search inputs whose bytes contribute to a runtime geopoint center. */
 export function collectRuntimeGeopointInputNames(
-	predicate: Predicate,
+	predicate: Expression,
 ): ReadonlySet<Uuid> {
 	const names = new Set<Uuid>();
-	walkPredicateNodes(predicate, (node) => {
+	walkConditionArms(predicate, (node) => {
 		if (node.kind !== "within-distance") return;
 		for (const name of collectGeopointCenterInputNames(node.center)) {
 			names.add(name);
@@ -59,16 +62,16 @@ export function collectRuntimeGeopointInputNames(
 
 /**
  * Search prompts whose values can flow into one computed geopoint center.
- * Predicate selectors (`if.cond`, `switch.on`, `count.where`) decide which
+ * Expression selectors (`if.cond`, `switch.on`, `count.where`) decide which
  * output is used but do not themselves become location text, so they are not
  * blamed with a location-format error.
  */
 export function collectGeopointCenterInputNames(
-	expression: ValueExpression,
+	expression: Expression,
 ): ReadonlySet<Uuid> {
 	const names = new Set<Uuid>();
 
-	const visit = (value: ValueExpression): void => {
+	const visit = (value: Expression): void => {
 		switch (value.kind) {
 			case "term":
 				if (value.term.kind === "input") {
@@ -117,18 +120,14 @@ export function collectGeopointCenterInputNames(
 				// The lookup result, not the filter input bytes, becomes the
 				// geopoint. Still collect input refs from the row-selection
 				// predicate because changing one can select a different result.
-				walkTerms(value.where, (term) => {
+				walkExpressionTerms(value.where, (term) => {
 					if (term.kind === "input") {
 						names.add(term.searchInputUuid);
 					}
 				});
 				return;
-			default: {
-				const _exhaustive: never = value;
-				throw new Error(
-					`collectGeopointCenterInputNames: unhandled expression ${String(_exhaustive)}`,
-				);
-			}
+			default:
+				return;
 		}
 	};
 

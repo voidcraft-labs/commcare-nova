@@ -26,10 +26,10 @@
  *   - another case-type record declaring it as `parent_type`;
  *   - a field's `caseWrite.caseType` (the field writes to it);
  *   - an automation's target or related case-type references;
- *   - a typed `case-ref` atom in any XPath or prose slot (the reference-slot
- *     registry enumerates them);
- *   - a predicate/expression AST leaf whose `PropertyRef.caseType` or
- *     relation-walk hints (`throughCaseType` / `ofCaseType`) name it,
+ *   - a typed `case-ref` atom in a prose slot or an explicitly named case
+ *     identity in an Expression slot (the reference-slot registry enumerates them);
+ *   - expression terms, collection restrictions and relation-walk hints
+ *     (`throughCaseType` / `ofCaseType`) that name it,
  *     and a simple search input whose `via` hints name it.
  * Contextual property names (a case-list column's `field`, a simple
  * search input's `property`) follow the module's CURRENT case type and
@@ -52,10 +52,9 @@ import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
 import {
 	automationsOf,
 	caseTypeTargetKey,
-	FORM_REFERENCE_SLOTS,
+	expressionSlotValues,
 	fieldReferenceSlotsFor,
 	isOwnerOnlyCaseSearchConfig,
-	isXPathExpression,
 	MODULE_REFERENCE_SLOTS,
 	ownRecordValue,
 	type ProseTemplate,
@@ -64,20 +63,16 @@ import {
 	searchInputDefault,
 	searchInputOptions,
 	uuidSchema,
-	xpathRefParts,
 } from "@/lib/domain";
 import {
-	type Predicate,
+	type Expression,
+	type ExpressionSlotRef,
+	type FormExpressionSlotRef,
+	isExpression,
 	type RelationPath,
 	type Term,
-	type ValueExpression,
-	walkExpressionNodes,
-	walkExpressionPredicateNodes,
-	walkExpressionTerms,
-	walkPredicateExpressionNodes,
-	walkPredicateNodes,
-	walkTerms,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression/types";
+import { walkExpression } from "@/lib/domain/expression/walk";
 
 // ── Outcome shape ───────────────────────────────────────────────────────
 
@@ -284,7 +279,7 @@ function userBlockedRetirementMessage(
  * The carriers come from ONE reference-index lookup on the case type's
  * name — never a doc walk. The index's `t:` bucket holds exactly the
  * type-NAMING reference classes this planner adjudicates (a field's
- * `caseWrite.caseType`, typed XPath/prose case atoms, AST origin types and
+ * `caseWrite.caseType`, typed expression/prose case atoms, AST origin types and
  * relation-walk hints) and deliberately excludes contextual shapes that follow
  * a module's current type (column `field`s, simple search-input properties). The
  * per-entity collectors below then re-derive each carrier's
@@ -363,7 +358,7 @@ function findCaseTypeReferences(
 		const form = doc.forms[uuid];
 		if (form) {
 			const where = `form "${form.name}" (module "${mod.name}")`;
-			collectFormSlotReferences(form, caseType, where, references);
+			collectFormSlotReferences(doc, form, caseType, where, references);
 		}
 	}
 	references.push(...automationReferences);
@@ -495,14 +490,12 @@ function collectFieldReferences(
 				}
 				break;
 			}
-			case "xpath-ast": {
+			case "expression": {
 				// Identity leaves name their case type directly — a leaf walk,
 				// never a re-parse.
 				for (const entry of readSlotValues(field, slot.path)) {
-					if (!isXPathExpression(entry.value)) continue;
-					const names = xpathRefParts(entry.value).some(
-						(part) => part.kind === "case-ref" && part.caseType === caseType,
-					);
+					if (!isExpression(entry.value)) continue;
+					const names = expressionRefsCaseType(entry.value, caseType);
 					if (names) {
 						out.push({
 							verbose: `field "${field.id}" in ${where} references #${caseType}/… in its "${slot.slot}" expression`,
@@ -530,7 +523,7 @@ function collectFieldReferences(
 					((field.optionsSource.kind === "cases" &&
 						field.optionsSource.caseType === caseType) ||
 						(field.optionsSource.filter !== undefined &&
-							predicateRefsCaseType(field.optionsSource.filter, caseType)))
+							expressionRefsCaseType(field.optionsSource.filter, caseType)))
 				) {
 					out.push({
 						verbose: `field "${field.id}" in ${where} reads a "${caseType}" property in its choice source`,
@@ -538,9 +531,10 @@ function collectFieldReferences(
 					});
 				}
 				break;
-			case "predicate-ast":
 			case "entity-uuid":
 			case "case-property-ref":
+			case "relation-path":
+			case "datum-ref":
 				// No field slot carries these kinds today — kept explicit so
 				// the registry's kind union stays exhaustively handled here,
 				// the same contract the rename rewriters hold.
@@ -553,12 +547,40 @@ function collectFieldReferences(
 	}
 }
 
+type OperationExpressionSlotRef = Extract<
+	FormExpressionSlotRef,
+	{ readonly member: { readonly operationUuid: Uuid } }
+>;
+
+function isOperationExpressionSlot(
+	ref: ExpressionSlotRef,
+): ref is OperationExpressionSlotRef {
+	return (
+		ref.entity === "form" && "member" in ref && "operationUuid" in ref.member
+	);
+}
+
 function collectFormSlotReferences(
+	doc: BlueprintDoc,
 	form: Form,
 	caseType: string,
 	where: string,
 	out: RetirementReference[],
 ): void {
+	const expressions = expressionSlotValues(doc, {
+		entity: "form",
+		uuid: form.uuid,
+	});
+	const operationExpressions = new Map<
+		Uuid,
+		{ ref: OperationExpressionSlotRef; expression: Expression }[]
+	>();
+	for (const { ref, expression } of expressions) {
+		if (!isOperationExpressionSlot(ref)) continue;
+		const entries = operationExpressions.get(ref.member.operationUuid) ?? [];
+		entries.push({ ref, expression });
+		operationExpressions.set(ref.member.operationUuid, entries);
+	}
 	for (const operation of form.caseOperations ?? []) {
 		const operationLabel = `case operation "${operation.id || operation.uuid}"`;
 		if (operation.caseType === caseType) {
@@ -569,51 +591,59 @@ function collectFormSlotReferences(
 				sameRef(`${operationLabel} in ${where} retypes to "${caseType}"`),
 			);
 		}
-		if (
-			operation.target.kind === "expression" &&
-			expressionRefsCaseType(operation.target.expr, caseType)
-		) {
-			out.push(
-				sameRef(`${operationLabel} in ${where} resolves a "${caseType}" case`),
-			);
-		}
-		if (
-			operation.condition &&
-			predicateRefsCaseType(operation.condition, caseType)
-		) {
-			out.push(
-				sameRef(
-					`${operationLabel} in ${where} has a condition using "${caseType}"`,
-				),
-			);
-		}
-		for (const [label, expression] of [
-			["name", operation.name],
-			["owner", operation.owner],
-			["rename", operation.rename],
-		] as const) {
-			if (expression && expressionRefsCaseType(expression, caseType)) {
-				out.push(
-					sameRef(
-						`${operationLabel} in ${where} derives its ${label} from "${caseType}"`,
-					),
-				);
-			}
-		}
-		for (const write of operation.writes ?? []) {
-			if (expressionRefsCaseType(write.value, caseType)) {
-				out.push(
-					sameRef(
-						`${operationLabel} in ${where} derives "${write.property}" from "${caseType}"`,
-					),
-				);
-			}
-			if (write.condition && predicateRefsCaseType(write.condition, caseType)) {
-				out.push(
-					sameRef(
-						`${operationLabel} in ${where} conditionally writes "${write.property}" using "${caseType}"`,
-					),
-				);
+		for (const { ref, expression } of operationExpressions.get(
+			operation.uuid,
+		) ?? []) {
+			if (!expressionRefsCaseType(expression, caseType)) continue;
+			switch (ref.slot) {
+				case "case_operation_target_expression":
+					out.push(
+						sameRef(
+							`${operationLabel} in ${where} resolves a "${caseType}" case`,
+						),
+					);
+					break;
+				case "case_operation_condition":
+					out.push(
+						sameRef(
+							`${operationLabel} in ${where} has a condition using "${caseType}"`,
+						),
+					);
+					break;
+				case "case_operation_name":
+				case "case_operation_owner":
+				case "case_operation_rename":
+					out.push(
+						sameRef(
+							`${operationLabel} in ${where} derives its ${ref.slot.slice("case_operation_".length)} from "${caseType}"`,
+						),
+					);
+					break;
+				case "case_operation_write_value":
+					out.push(
+						sameRef(
+							`${operationLabel} in ${where} derives "${ref.member.property}" from "${caseType}"`,
+						),
+					);
+					break;
+				case "case_operation_write_condition":
+					out.push(
+						sameRef(
+							`${operationLabel} in ${where} conditionally writes "${ref.member.property}" using "${caseType}"`,
+						),
+					);
+					break;
+				case "case_operation_link_target_expression":
+					out.push(
+						sameRef(
+							`${operationLabel} in ${where} resolves link "${ref.member.identifier}" from "${caseType}"`,
+						),
+					);
+					break;
+				default: {
+					const _exhaustive: never = ref;
+					break;
+				}
 			}
 		}
 		for (const link of operation.links ?? []) {
@@ -624,43 +654,26 @@ function collectFormSlotReferences(
 					),
 				);
 			}
-			if (
-				link.target?.kind === "expression" &&
-				expressionRefsCaseType(link.target.expr, caseType)
-			) {
-				out.push(
-					sameRef(
-						`${operationLabel} in ${where} resolves link "${link.identifier}" from "${caseType}"`,
-					),
-				);
-			}
 		}
 	}
-	for (const slot of FORM_REFERENCE_SLOTS) {
-		if (slot.slot === "form_display_condition") {
-			if (
-				form.displayCondition &&
-				predicateRefsCaseType(form.displayCondition, caseType)
-			) {
-				out.push({
-					verbose: `${where} reads a "${caseType}" property in its "${slot.slot}" condition`,
-					concise: `${where} uses it in its ${slotLabel(slot.slot)}`,
-				});
-			}
+	for (const { ref, expression } of expressions) {
+		if (
+			ref.entity !== "form" ||
+			isOperationExpressionSlot(ref) ||
+			!expressionRefsCaseType(expression, caseType)
+		)
+			continue;
+		if (ref.slot === "form_display_condition") {
+			out.push({
+				verbose: `${where} reads a "${caseType}" property in its "${ref.slot}" condition`,
+				concise: `${where} uses it in its ${slotLabel(ref.slot)}`,
+			});
 			continue;
 		}
-		if (slot.kind !== "xpath-ast") continue;
-		for (const entry of readSlotValues(form, slot.path)) {
-			if (!isXPathExpression(entry.value)) continue;
-			const names = xpathRefParts(entry.value).some(
-				(part) => part.kind === "case-ref" && part.caseType === caseType,
-			);
-			if (!names) continue;
-			out.push({
-				verbose: `${where} references #${caseType}/… in its "${slot.slot}" expression`,
-				concise: `${where} uses it in its ${slotLabel(slot.slot)}`,
-			});
-		}
+		out.push({
+			verbose: `${where} references #${caseType}/… in its "${ref.slot}" expression`,
+			concise: `${where} uses it in its ${slotLabel(ref.slot)}`,
+		});
 	}
 }
 
@@ -702,7 +715,7 @@ function collectModuleConfigReferences(
 			case "module_display_condition": {
 				if (
 					mod.displayCondition &&
-					predicateRefsCaseType(mod.displayCondition, caseType)
+					expressionRefsCaseType(mod.displayCondition, caseType)
 				) {
 					out.push({
 						verbose: `the display condition on ${where} reads a "${caseType}" property`,
@@ -736,7 +749,7 @@ function collectModuleConfigReferences(
 				break;
 			}
 			case "case_list_filter": {
-				if (list?.filter && predicateRefsCaseType(list.filter, caseType)) {
+				if (list?.filter && expressionRefsCaseType(list.filter, caseType)) {
 					out.push({
 						verbose: `the case-list filter on ${where} reads a "${caseType}" property`,
 						concise: `the Cases available setting on ${where} uses "${caseType}" information`,
@@ -777,7 +790,7 @@ function collectModuleConfigReferences(
 				for (const input of list?.searchInputs ?? []) {
 					if (
 						input.kind === "advanced" &&
-						predicateRefsCaseType(input.predicate, caseType)
+						expressionRefsCaseType(input.predicate, caseType)
 					) {
 						out.push({
 							verbose: `${inputName(input.name)} reads a "${caseType}" property`,
@@ -793,7 +806,10 @@ function collectModuleConfigReferences(
 			case "search_input_options": {
 				for (const input of list?.searchInputs ?? []) {
 					const filter = searchInputOptions(input)?.filter;
-					if (filter !== undefined && predicateRefsCaseType(filter, caseType)) {
+					if (
+						filter !== undefined &&
+						expressionRefsCaseType(filter, caseType)
+					) {
 						out.push({
 							verbose: `${inputName(input.name)} narrows its choices with a "${caseType}" property`,
 							concise: `the row rule for ${searchField(input)} uses "${caseType}" information`,
@@ -807,7 +823,7 @@ function collectModuleConfigReferences(
 					if (
 						input.kind !== "hidden" &&
 						input.required?.when !== undefined &&
-						predicateRefsCaseType(input.required.when, caseType)
+						expressionRefsCaseType(input.required.when, caseType)
 					) {
 						out.push({
 							verbose: `${inputName(input.name)} is required under a "${caseType}" property`,
@@ -822,7 +838,7 @@ function collectModuleConfigReferences(
 					if (
 						input.kind !== "hidden" &&
 						input.validation !== undefined &&
-						predicateRefsCaseType(input.validation.rule, caseType)
+						expressionRefsCaseType(input.validation.rule, caseType)
 					) {
 						out.push({
 							verbose: `${inputName(input.name)} is checked against a "${caseType}" property`,
@@ -851,7 +867,7 @@ function collectModuleConfigReferences(
 					search !== undefined &&
 					!isOwnerOnlyCaseSearchConfig(search) &&
 					search.searchButtonDisplayCondition &&
-					predicateRefsCaseType(search.searchButtonDisplayCondition, caseType)
+					expressionRefsCaseType(search.searchButtonDisplayCondition, caseType)
 				) {
 					out.push({
 						verbose: `the search-button display condition on ${where} reads a "${caseType}" property`,
@@ -884,13 +900,38 @@ function collectModuleConfigReferences(
 // ── Leaf matchers ───────────────────────────────────────────────────────
 
 function termRefsCaseType(term: Term, caseType: string): boolean {
-	if (term.kind === "owner-location-at-level") {
-		return term.ownerCaseType === caseType;
+	switch (term.kind) {
+		case "owner-location-at-level":
+			return term.ownerCaseType === caseType;
+		case "form-case":
+		case "case-type":
+		case "case-index":
+		case "prop":
+			return term.caseType === caseType;
+		case "session-datum":
+			return (
+				term.datum.kind === "new-child-case" && term.datum.caseType === caseType
+			);
+		case "literal":
+		case "input":
+		case "session-user":
+		case "session-user-property":
+		case "session-context":
+		case "field":
+		case "table-column":
+		case "fixed-location":
+		case "choice":
+		case "form-node":
+		case "case-row-type":
+		case "repeat-row":
+		case "location-level":
+		case "location-field":
+			return false;
+		default: {
+			const _exhaustive: never = term;
+			return _exhaustive;
+		}
 	}
-	if (term.kind === "form-case") return term.caseType === caseType;
-	if (term.kind !== "prop") return false;
-	if (term.caseType === caseType) return true;
-	return viaNamesCaseType(term.via, caseType);
 }
 
 function viaNamesCaseType(
@@ -904,50 +945,21 @@ function viaNamesCaseType(
 	return via.ofCaseType === caseType;
 }
 
-function predicateRefsCaseType(
-	predicate: Predicate,
-	caseType: string,
-): boolean {
-	let found = false;
-	walkTerms(predicate, (term) => {
-		if (termRefsCaseType(term, caseType)) found = true;
-	});
-	walkPredicateNodes(predicate, (node) => {
-		if (
-			(node.kind === "exists" || node.kind === "missing") &&
-			viaNamesCaseType(node.via, caseType)
-		) {
-			found = true;
-		}
-	});
-	walkPredicateExpressionNodes(predicate, (node) => {
-		if (node.kind === "count" && viaNamesCaseType(node.via, caseType)) {
-			found = true;
-		}
-	});
-	return found;
-}
-
+/** One walk covers conditions, values, collection scopes and form-path filters.
+ * Selected-case identities name their module and follow its current type; only
+ * explicitly named case types belong in the retirement index's type bucket. */
 function expressionRefsCaseType(
-	expression: ValueExpression,
+	expression: Expression,
 	caseType: string,
 ): boolean {
 	let found = false;
-	walkExpressionTerms(expression, (term) => {
-		if (termRefsCaseType(term, caseType)) found = true;
-	});
-	walkExpressionNodes(expression, (node) => {
-		if (node.kind === "count" && viaNamesCaseType(node.via, caseType)) {
-			found = true;
-		}
-	});
-	walkExpressionPredicateNodes(expression, (node) => {
-		if (
-			(node.kind === "exists" || node.kind === "missing") &&
-			viaNamesCaseType(node.via, caseType)
-		) {
-			found = true;
-		}
+	walkExpression(expression, {
+		visitTerm: (term) => {
+			if (termRefsCaseType(term, caseType)) found = true;
+		},
+		visitRelation: (relation) => {
+			if (viaNamesCaseType(relation, caseType)) found = true;
+		},
 	});
 	return found;
 }

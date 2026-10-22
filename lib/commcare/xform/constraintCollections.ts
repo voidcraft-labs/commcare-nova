@@ -1,155 +1,159 @@
-import type { SyntaxNode } from "@lezer/common";
-import { parser } from "@/lib/commcare/xpath/parser";
-import { spellPredicateSelf } from "@/lib/commcare/xpath/selfSteps";
-import { printWireXPathSource } from "@/lib/commcare/xpath/wireSource";
+import { type BlueprintDoc, isContainer, type Uuid } from "@/lib/domain";
 import {
-	type BlueprintDoc,
-	isContainer,
-	type Uuid,
-	type XPathExpression,
-} from "@/lib/domain";
+	type Expression,
+	type FormFieldRef,
+	isRelationPath,
+} from "@/lib/domain/expression/types";
+import {
+	type ExpressionNode,
+	expressionChildren,
+} from "@/lib/domain/expression/walk";
+import type { WireExpr } from "../xpath/wire/tree";
 import type { FormPath } from "./formPath";
 
-interface ReferenceSpan {
-	readonly from: number;
-	readonly to: number;
-	readonly uuid?: Uuid;
-}
 interface Calculation {
 	readonly name: string;
 	readonly path: FormPath;
-	readonly source: string;
+	readonly expression: Expression;
 }
 
 /** Core substitutes a validation candidate at the predicate's current node too.
  * Count a different question's filtered answers outside that candidate context.
  * Only explicit scalar-field collections with context-independent predicates
- * qualify. The proposed answer and ambiguous/relative paths stay in validation.
- * `nameFor` names the `ordinal`th count, asked in ordinal order from 0; the
- * form's plan of generated nodes answers it (`generatedNodes.ts`).
+ * qualify. The proposed answer and relative/current reads stay in validation.
+ * The identities remain unchanged; only wire emission substitutes count nodes.
  */
 export function planConstraintCollections(
-	expression: XPathExpression,
+	expression: Expression,
 	fieldUuid: Uuid,
 	doc: BlueprintDoc,
 	path: FormPath,
 	nameFor: (ordinal: number) => string,
-): { source: string; calculations: Calculation[] } {
-	let source = "";
-	const references: ReferenceSpan[] = [];
-	for (const part of expression.parts) {
-		const from = source.length;
-		source += printWireXPathSource({ parts: [part] }, doc);
-		if (part.kind !== "text")
-			references.push({
-				from,
-				to: source.length,
-				...(part.kind === "field-ref" || part.kind === "path-ref"
-					? { uuid: part.uuid }
-					: {}),
-			});
-	}
-	const tree = parser.parse(source);
-	let invalid = false;
-	tree.iterate({
-		enter(node) {
-			if (node.type.isError) invalid = true;
-		},
-	});
-	if (invalid) return { source, calculations: [] };
+): {
+	expression: Expression;
+	calculations: readonly Calculation[];
+	overrides: ReadonlyMap<Expression, WireExpr>;
+} {
 	const calculations: Calculation[] = [];
-	const edits: { from: number; to: number; replacement: string }[] = [];
-	const bySource = new Map<string, Calculation>();
-	tree.iterate({
-		enter(cursor) {
-			const node = cursor.node;
-			if (node.name !== "Invoke") return;
-			const name = node.getChild("FunctionName"),
-				args = node.getChild("ArgumentList");
-			if (!name || source.slice(name.from, name.to) !== "count" || !args)
-				return;
-			const children: SyntaxNode[] = [];
-			for (let c = args.firstChild; c; c = c.nextSibling)
-				if (c.name !== "(" && c.name !== ")") children.push(c);
-			if (children.length !== 1 || children[0].name !== "Filtered") return;
-			for (let ancestor = node.parent; ancestor; ancestor = ancestor.parent) {
-				if (ancestor.name === "Filtered") return;
-			}
-			const argument = children[0];
-			let base = argument;
-			while (base.name === "Filtered" && base.firstChild)
-				base = base.firstChild;
-			const baseReference = references.find(
-				(r) => r.from === base.from && r.to === base.to,
-			);
-			if (!baseReference?.uuid || baseReference.uuid === fieldUuid) return;
-			const baseField = doc.fields[baseReference.uuid];
-			if (!baseField || isContainer(baseField)) return;
-			if (
-				references.some(
-					(r) =>
-						r.from >= argument.from &&
-						r.to <= argument.to &&
-						r.uuid === fieldUuid,
-				)
-			)
-				return;
-			if (!safePredicateTree(argument, references)) return;
-			const countSource = source.slice(node.from, node.to);
-			let calculation = bySource.get(countSource);
-			if (!calculation) {
-				const syntheticName = nameFor(calculations.length);
+	const overrides = new Map<Expression, WireExpr>();
+	const byStructure = new Map<string, Calculation>();
+	const visit = (node: ExpressionNode, insideFilter: boolean): void => {
+		if (
+			!insideFilter &&
+			node.kind === "count" &&
+			!isRelationPath(node.via) &&
+			node.via.kind === "term" &&
+			node.via.term.kind === "field" &&
+			independentCollection(node.via.term, fieldUuid, doc)
+		) {
+			const key = JSON.stringify(node);
+			let calculation = byStructure.get(key);
+			if (calculation === undefined) {
+				const name = nameFor(calculations.length);
 				calculation = {
-					name: syntheticName,
-					path: path.parent().child(syntheticName),
-					// Lifted out of the validation condition, the count is a
-					// calculate, where HQ's form builder reads a bare `.` as the
-					// question itself (`xpath/selfSteps.ts`).
-					source: spellPredicateSelf(countSource),
+					name,
+					path: path.parent().child(name),
+					expression: node,
 				};
 				calculations.push(calculation);
-				bySource.set(countSource, calculation);
+				byStructure.set(key, calculation);
 			}
-			edits.push({
-				from: node.from,
-				to: node.to,
-				replacement: calculation.path.toXPath(),
-			});
-			return false;
-		},
-	});
-	for (const edit of edits.sort((a, b) => b.from - a.from))
-		source =
-			source.slice(0, edit.from) + edit.replacement + source.slice(edit.to);
-	return { source, calculations };
+			overrides.set(node, calculation.path.toWire());
+			return;
+		}
+		for (const child of expressionChildren(node)) {
+			if (child.kind === "relation") continue;
+			const filter =
+				child.role.kind === "form-step-filter" ||
+				((child.role.kind === "operand" || child.role.kind === "item") &&
+					child.role.slot === "where");
+			visit(child.value, insideFilter || filter);
+		}
+	};
+	visit(expression, false);
+	return { expression, calculations, overrides };
 }
 
-/** No implicit outer/current context, positional functions, variables, or paths
- * that could reach the answer being validated. Typed references carry identity;
- * a predicate's dot reads only the explicitly selected other scalar field.
- */
-function safePredicateTree(
-	node: SyntaxNode,
-	references: readonly ReferenceSpan[],
+function independentCollection(
+	field: FormFieldRef,
+	validated: Uuid,
+	doc: BlueprintDoc,
 ): boolean {
-	if (references.some((r) => r.from === node.from && r.to === node.to))
-		return true;
-	if (
-		[
-			"Invoke",
-			"ParentStep",
-			"Child",
-			"Descendant",
-			"RootPath",
-			"NameTest",
-			"AttrSpecified",
-			"AxisSpecified",
-			"VariableReference",
-			"HashtagRef",
-		].includes(node.name)
-	)
-		return false;
-	for (let child = node.firstChild; child; child = child.nextSibling)
-		if (!safePredicateTree(child, references)) return false;
-	return true;
+	const target = doc.fields[field.uuid];
+	return (
+		field.uuid !== validated &&
+		target !== undefined &&
+		!isContainer(target) &&
+		field.role === undefined &&
+		(field.spelling === undefined || field.spelling === "absolute") &&
+		field.filters?.every(
+			(filter) =>
+				filter.step.kind === "field" &&
+				filter.step.uuid === field.uuid &&
+				filter.step.role === undefined &&
+				filter.where.every((where) =>
+					safePredicateTree(where, validated, field.uuid),
+				),
+		) === true
+	);
+}
+
+/** The bounded correction allows arithmetic/comparisons, constant values,
+ * explicit references and a predicate's own scalar field. A choice, a case
+ * type and an organization level are typed constants: each emits a string
+ * literal, so a predicate comparing against one reads no evaluation context.
+ * Calls and implicit outer/current context may depend on the validation
+ * candidate and never move. */
+function safePredicateTree(
+	node: ExpressionNode,
+	validated: Uuid,
+	candidate: Uuid,
+): boolean {
+	switch (node.kind) {
+		case "literal":
+		case "choice":
+		case "case-type":
+		case "location-level":
+		case "form-case":
+		case "input":
+			return true;
+		case "session-user":
+		case "session-user-property":
+			return node.source === "worker-record";
+		case "field": {
+			if (node.uuid === validated || node.role !== undefined) return false;
+			if (node.spelling === "current") return false;
+			if (node.spelling === "relative")
+				return node.uuid === candidate && node.filters === undefined;
+			return (
+				node.filters?.every(
+					(filter) =>
+						filter.step.kind === "field" &&
+						filter.step.uuid === node.uuid &&
+						filter.step.role === undefined &&
+						filter.where.every((where) =>
+							safePredicateTree(where, validated, node.uuid),
+						),
+				) ?? true
+			);
+		}
+		case "term":
+		case "eq":
+		case "neq":
+		case "lt":
+		case "lte":
+		case "gt":
+		case "gte":
+		case "arith":
+		case "negate":
+		case "and":
+		case "or":
+			return expressionChildren(node).every(
+				(child) =>
+					child.kind !== "relation" &&
+					safePredicateTree(child.value, validated, candidate),
+			);
+		default:
+			return false;
+	}
 }

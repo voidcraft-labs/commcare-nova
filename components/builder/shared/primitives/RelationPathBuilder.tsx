@@ -59,7 +59,7 @@ import {
 	relationStep,
 	subcasePath,
 	XML_ELEMENT_NAME_PATTERN,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 import {
 	type ExpressionChangeAdmission,

@@ -22,8 +22,9 @@
 
 import { useMemo } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
-import type { CaseListConfig, CaseType } from "@/lib/domain";
-import type { ValueExpression } from "@/lib/domain/predicate";
+import { toRscSerializableDoc } from "@/lib/doc/ownRecords";
+import type { BlueprintDoc, CaseListConfig, CaseType } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression";
 import {
 	loadCaseCountAction,
 	loadCaseDataAction,
@@ -164,13 +165,15 @@ export function useCases(args: {
 	 * return frame re-keys the inline search to the new case, so Results
 	 * shows that one case. */
 	caseIds?: readonly string[];
+	/** Exact live document that owns an expression-bearing list read. */
+	blueprint?: BlueprintDoc;
 	caseListConfig?: CaseListConfig;
 	/** The module whose list `caseListConfig` is; passed with it. */
 	moduleUuid?: string;
 	/** The language Preview is showing; passed with `caseListConfig`. */
 	language?: string;
 	inputValues?: SearchInputValues;
-	excludedOwnerIdsExpression?: ValueExpression;
+	excludedOwnerIdsExpression?: Expression;
 	/** A different-type parent selected by the containing menu. The server
 	 * constrains this child list through its canonical `parent` case index. */
 	parentCase?: ParentCaseSelection;
@@ -200,6 +203,7 @@ export function useCases(args: {
 		appId,
 		caseType,
 		caseIds,
+		blueprint,
 		caseListConfig,
 		moduleUuid,
 		language,
@@ -236,6 +240,7 @@ export function useCases(args: {
 	const reloadToken = useMemo(
 		() => [
 			requestIdentity,
+			blueprint,
 			caseListConfig,
 			moduleUuid,
 			language,
@@ -247,6 +252,7 @@ export function useCases(args: {
 		],
 		[
 			requestIdentity,
+			blueprint,
 			caseListConfig,
 			moduleUuid,
 			language,
@@ -280,6 +286,10 @@ export function useCases(args: {
 								appId,
 								caseType,
 								...(caseIds === undefined ? {} : { caseIds }),
+								blueprint:
+									blueprint === undefined
+										? undefined
+										: toRscSerializableDoc(blueprint),
 								caseListConfig,
 								...(moduleUuid === undefined ? {} : { moduleUuid }),
 								...(language === undefined ? {} : { language }),
@@ -554,6 +564,9 @@ export function useCaseData(args: {
 	ancestorDepth: number;
 	/** Optional one-row display projection for canonical Details URLs. */
 	caseListConfig?: CaseListConfig;
+	/** Exact live document and menu that own the calculated projection. */
+	blueprint?: BlueprintDoc;
+	moduleUuid?: string;
 	/** Live compiler catalog paired with `caseListConfig`. */
 	caseTypes?: readonly CaseType[];
 	/** The review surface's View case dialog reads a HELD case by
@@ -579,6 +592,8 @@ export function useCaseData(args: {
 		parentCase,
 		ancestorDepth,
 		caseListConfig,
+		blueprint,
+		moduleUuid,
 		caseTypes,
 		includeHeld,
 		deviceScoped,
@@ -605,14 +620,16 @@ export function useCaseData(args: {
 		? `${requestKey}\u0000${personaUuid ?? "me"}`
 		: "";
 	const reloadToken = useMemo(
-		() => [personaRequestKey, caseListConfig, caseTypes],
-		[personaRequestKey, caseListConfig, caseTypes],
+		() => [personaRequestKey, caseListConfig, caseTypes, blueprint, moduleUuid],
+		[personaRequestKey, caseListConfig, caseTypes, blueprint, moduleUuid],
 	);
 	interface KeyedCaseDataState {
 		readonly kind: "case-data";
 		readonly key: string;
 		readonly caseListConfig: CaseListConfig | undefined;
 		readonly caseTypes: readonly CaseType[] | undefined;
+		readonly blueprint: BlueprintDoc | undefined;
+		readonly moduleUuid: string | undefined;
 		readonly value: LoadingState<LoadCaseDataResult>;
 	}
 	const resource = useReloadableResource<KeyedCaseDataState>({
@@ -624,6 +641,8 @@ export function useCaseData(args: {
 							key: "",
 							caseListConfig,
 							caseTypes,
+							blueprint,
+							moduleUuid,
 							value: { kind: "idle" },
 						},
 					}
@@ -633,6 +652,8 @@ export function useCaseData(args: {
 							key: personaRequestKey,
 							caseListConfig,
 							caseTypes,
+							blueprint,
+							moduleUuid,
 							value: await loadCaseDataAction(
 								appId,
 								caseType,
@@ -645,6 +666,10 @@ export function useCaseData(args: {
 								personaUuid,
 								deviceScoped,
 								parentCase,
+								blueprint === undefined
+									? undefined
+									: toRscSerializableDoc(blueprint),
+								moduleUuid,
 							),
 						}),
 					},
@@ -653,6 +678,8 @@ export function useCaseData(args: {
 			key: personaRequestKey,
 			caseListConfig,
 			caseTypes,
+			blueprint,
+			moduleUuid,
 			value: { kind: "loading" },
 		},
 		toError: (err) => ({
@@ -660,6 +687,8 @@ export function useCaseData(args: {
 			key: personaRequestKey,
 			caseListConfig,
 			caseTypes,
+			blueprint,
+			moduleUuid,
 			value: {
 				kind: "error",
 				message: err instanceof Error ? err.message : "Failed to load case.",
@@ -674,7 +703,9 @@ export function useCaseData(args: {
 		state:
 			resource.state.key === personaRequestKey &&
 			resource.state.caseListConfig === caseListConfig &&
-			resource.state.caseTypes === caseTypes
+			resource.state.caseTypes === caseTypes &&
+			resource.state.blueprint === blueprint &&
+			resource.state.moduleUuid === moduleUuid
 				? resource.state.value
 				: { kind: "loading" },
 		reload: resource.reload,

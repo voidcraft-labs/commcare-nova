@@ -2,7 +2,7 @@
 //
 // Path-encoding helpers for the predicate card editor.
 //
-// `checkPredicate` (in `lib/domain/predicate/typeChecker.ts`) emits
+// `checkExpression` (in `lib/domain/expression/typeChecker.ts`) emits
 // `CheckError.path: (string | number)[]` segments locating each
 // violation inside the AST. The shape matches the walker's structure
 // in `walk(...)`: recursive wrappers (`and` / `or` / `not` /
@@ -23,7 +23,7 @@
 
 /**
  * A path through the predicate AST. Mirrors `CheckPath` from
- * `lib/domain/predicate/typeChecker.ts`. Strings name slots
+ * `lib/domain/expression/typeChecker.ts`. Strings name slots
  * (`"left"`, `"property"`, `"clause"`, etc.) or operator-kind
  * segments (`"and"`, `"or"`, `"not"`, `"when-input-present"`,
  * `"exists"`, `"missing"`); numbers locate clauses or values inside
@@ -53,7 +53,7 @@ export function appendSlot(path: EditorPath, slot: string): EditorPath {
  * wrappers when descending into a single-slot child (`not.clause`,
  * `when-input-present.clause`, `exists.where`).
  *
- * Mirrors the walker's pattern in `lib/domain/predicate/typeChecker.ts`:
+ * Mirrors the walker's pattern in `lib/domain/expression/typeChecker.ts`:
  *   `walk(p.clause, ctx, errors, [...path, p.kind, "clause"])`
  */
 export function appendKindSlot(
@@ -92,7 +92,7 @@ export function appendSlotIndex(
 
 /**
  * Append an operator-kind segment plus an array index. Used by
- * recursive ValueExpression wrappers when descending into an indexed
+ * recursive Expression wrappers when descending into an indexed
  * sub-slot (`switch.cases[i]`):
  *
  *   `walk(c.then, ctx, errors, [...path, "switch", "cases", i, "then"])`

@@ -59,7 +59,6 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	type CaseTarget,
-	caseDataTypeForFieldKind,
 	closeConditionPlacement,
 	effectiveCaseTypes,
 	isCaptureField,
@@ -72,10 +71,10 @@ import {
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import type {
-	Predicate,
+	Expression,
+	FormExpressionSlotRef,
 	PropertyRef,
-	ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression/types";
 import { w } from "../xpath/wire/builders";
 import { toWire, type WireTermBindings } from "../xpath/wire/fromExpression";
 import {
@@ -92,6 +91,7 @@ import {
 import type { WireExpr } from "../xpath/wire/tree";
 import { datetimeCaseValueExpression } from "./datetimeCaseValue";
 import { appendChildren, prependChildren } from "./domSplice";
+import type { FormExpressionEmission } from "./formExpressions";
 import { FormPath, originalContextWirePath } from "./formPath";
 import {
 	type GeneratedNodePlan,
@@ -380,6 +380,7 @@ export function buildCaseOperations(
 	generatedNodes: GeneratedNodePlan,
 	moduleCaseType: string | undefined,
 	instances: InstanceSink,
+	expressions: FormExpressionEmission,
 	lookupNaming?: LookupWireNaming,
 	selectedCaseIdRef: WireExpr = SESSION_CASE_ID,
 	selectedCasesInstanceId?: string,
@@ -413,16 +414,7 @@ export function buildCaseOperations(
 		return null;
 
 	const fields = collectFieldLocations(doc, formUuid);
-	const expressionTypes = {
-		currentCaseType: moduleCaseType,
-		caseTypes: effectiveCaseTypes(doc),
-		formFields: new Map(
-			[...fields.keys()].map((uuid) => [
-				uuid,
-				caseDataTypeForFieldKind(doc.fields[uuid].kind),
-			]),
-		),
-	};
+	const caseTypes = effectiveCaseTypes(doc);
 	const attachmentSourcePaths = new Set(
 		[...fields].flatMap(([uuid, location]) => {
 			const field = doc.fields[uuid];
@@ -568,10 +560,17 @@ export function buildCaseOperations(
 	for (const placed of locations) {
 		const { operation, repeat } = placed;
 		const relevancePredicates = [
-			...[...(inheritedGuardUuids.get(operation.uuid) ?? [])]
-				.map((uuid) => operationByUuid.get(uuid)?.condition)
-				.filter((predicate): predicate is Predicate => predicate !== undefined),
-			...(operation.condition === undefined ? [] : [operation.condition]),
+			...[...(inheritedGuardUuids.get(operation.uuid) ?? [])].flatMap(
+				(uuid) => {
+					const condition = operationByUuid.get(uuid)?.condition;
+					return condition === undefined
+						? []
+						: [{ expression: condition, operationUuid: uuid }];
+				},
+			),
+			...(operation.condition === undefined
+				? []
+				: [{ expression: operation.condition, operationUuid: operation.uuid }]),
 		];
 		const conditional = relevancePredicates.length > 0;
 		const create = operation.action === "create";
@@ -608,27 +607,44 @@ export function buildCaseOperations(
 			}),
 		});
 		const emitExpression = (
-			expression: ValueExpression,
+			expression: Expression,
 			targetPath: FormPath,
+			slot: FormExpressionSlotRef,
 		): WireExpr =>
 			toWire(expression, {
 				target: "xform",
-				types: expressionTypes,
+				types: expressions.context(slot),
+				form: expressions.projection,
 				bindings: operationBindings(targetPath),
 			});
-		const emitPredicate = (
-			predicate: Predicate,
-			targetPath: FormPath,
-		): WireExpr =>
-			toWire(predicate, {
-				target: "xform",
-				types: expressionTypes,
-				bindings: operationBindings(targetPath),
-			});
+		const ownSlot = (
+			slot:
+				| "case_operation_target_expression"
+				| "case_operation_condition"
+				| "case_operation_name"
+				| "case_operation_owner"
+				| "case_operation_rename",
+		): FormExpressionSlotRef => ({
+			entity: "form",
+			uuid: formUuid,
+			slot,
+			member: { operationUuid: operation.uuid },
+		});
+		const targetExpression = (expression: Expression, targetPath: FormPath) =>
+			emitExpression(
+				expression,
+				targetPath,
+				ownSlot("case_operation_target_expression"),
+			);
 		const relevanceAt = (targetPath: FormPath): WireExpr =>
 			w.and(
-				...relevancePredicates.map((predicate) =>
-					emitPredicate(predicate, targetPath),
+				...relevancePredicates.map(({ expression, operationUuid }) =>
+					emitExpression(expression, targetPath, {
+						entity: "form",
+						uuid: formUuid,
+						slot: "case_operation_condition",
+						member: { operationUuid },
+					}),
 				),
 			);
 
@@ -773,7 +789,11 @@ export function buildCaseOperations(
 							xpath: {
 								nodeset: namePath.toWire(),
 								calculate: caseScalarTextValueCalculation(
-									emitExpression(operation.name, namePath),
+									emitExpression(
+										operation.name,
+										namePath,
+										ownSlot("case_operation_name"),
+									),
 								),
 							},
 						},
@@ -792,7 +812,11 @@ export function buildCaseOperations(
 							calculate: caseScalarTextValueCalculation(
 								operation.owner === undefined
 									? META_USER_ID
-									: emitExpression(operation.owner, ownerPath),
+									: emitExpression(
+											operation.owner,
+											ownerPath,
+											ownSlot("case_operation_owner"),
+										),
 							),
 						},
 					},
@@ -813,7 +837,11 @@ export function buildCaseOperations(
 							xpath: {
 								nodeset: renamePath.toWire(),
 								calculate: caseScalarTextValueCalculation(
-									emitExpression(operation.rename, renamePath),
+									emitExpression(
+										operation.rename,
+										renamePath,
+										ownSlot("case_operation_rename"),
+									),
 								),
 							},
 						},
@@ -845,7 +873,11 @@ export function buildCaseOperations(
 							xpath: {
 								nodeset: ownerPath.toWire(),
 								calculate: caseScalarTextValueCalculation(
-									emitExpression(operation.owner, ownerPath),
+									emitExpression(
+										operation.owner,
+										ownerPath,
+										ownSlot("case_operation_owner"),
+									),
 								),
 							},
 						},
@@ -858,15 +890,25 @@ export function buildCaseOperations(
 				const attributes: NonNullable<WireElementSpec<"bind">["xpath"]> = {
 					nodeset: writePath.toWire(),
 				};
-				const destination = expressionTypes.caseTypes
+				const destination = caseTypes
 					.find(
 						(type) => type.name === (operation.retype ?? operation.caseType),
 					)
 					?.properties.find((property) => property.name === write.property);
 				if (write.condition !== undefined) {
-					attributes.relevant = emitPredicate(write.condition, writePath);
+					attributes.relevant = emitExpression(write.condition, writePath, {
+						entity: "form",
+						uuid: formUuid,
+						slot: "case_operation_write_condition",
+						member: { operationUuid: operation.uuid, property: write.property },
+					});
 				}
-				const emitted = emitExpression(write.value, writePath);
+				const emitted = emitExpression(write.value, writePath, {
+					entity: "form",
+					uuid: formUuid,
+					slot: "case_operation_write_value",
+					member: { operationUuid: operation.uuid, property: write.property },
+				});
 				// HQ's form builder writes a row's bind with no `type`, so a
 				// datetime leaf stays untyped and the value carries its own clock.
 				const value =
@@ -902,6 +944,16 @@ export function buildCaseOperations(
 			const indexPath = casePath.child("index");
 			for (const [linkIndex, link] of links.entries()) {
 				if (link.target === null) continue;
+				const linkExpression = (expression: Expression, targetPath: FormPath) =>
+					emitExpression(expression, targetPath, {
+						entity: "form",
+						uuid: formUuid,
+						slot: "case_operation_link_target_expression",
+						member: {
+							operationUuid: operation.uuid,
+							identifier: link.identifier,
+						},
+					});
 				const linkPath = indexPath.child(link.identifier);
 				const linkSnapshotType =
 					operationSnapshotTypes?.links.get(linkIndex) ?? link.targetType;
@@ -917,7 +969,7 @@ export function buildCaseOperations(
 									repeat,
 									fields,
 									priorCreates,
-									emitExpression,
+									linkExpression,
 
 									linkSnapshotType,
 									selectedCaseRef(linkPath),
@@ -935,7 +987,7 @@ export function buildCaseOperations(
 						repeat,
 						fields,
 						priorCreates,
-						emitExpression,
+						linkExpression,
 
 						linkSnapshotType,
 						selectedCaseRef(guardIdPath),
@@ -965,7 +1017,7 @@ export function buildCaseOperations(
 								repeat,
 								fields,
 								priorCreates,
-								emitExpression,
+								targetExpression,
 
 								operationSnapshotTypes?.target ?? operation.caseType,
 								selectedCaseRef(caseIdPath),
@@ -1939,10 +1991,7 @@ function emitTarget(
 	consumerRepeat: Uuid | undefined,
 	fields: ReadonlyMap<Uuid, FieldLocation>,
 	creates: ReadonlyMap<Uuid, OperationLocation>,
-	emitExpression: (
-		expression: ValueExpression,
-		targetPath: FormPath,
-	) => WireExpr,
+	emitExpression: (expression: Expression, targetPath: FormPath) => WireExpr,
 	expectedCaseType: string,
 	selectedCaseIdRef: WireExpr,
 ): WireExpr {

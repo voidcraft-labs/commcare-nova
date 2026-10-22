@@ -16,10 +16,10 @@
 import { Icon } from "@iconify/react/offline";
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import { useMemo } from "react";
-import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
+import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
 import {
 	buildValidityIndex,
-	PredicateEditProvider,
+	EditorVocabularyProvider,
 } from "@/components/builder/shared/editorContext";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
@@ -30,8 +30,9 @@ import {
 	hiddenSearchInputDef,
 	type SearchInputDef,
 	type UserProperty,
+	type Uuid,
 } from "@/lib/domain";
-import type { ValueExpression } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
 import {
 	NO_SEARCH_INPUTS,
 	type ResolvedRow,
@@ -40,6 +41,7 @@ import {
 import { FieldRow } from "./searchInputFieldRow";
 
 export interface HiddenSearchValueEditorProps {
+	readonly moduleUuid: Uuid | undefined;
 	readonly value: HiddenSearchInputDef;
 	readonly index: number;
 	readonly siblings: readonly SearchInputDef[];
@@ -50,6 +52,7 @@ export interface HiddenSearchValueEditorProps {
 }
 
 export function HiddenSearchValueEditor({
+	moduleUuid,
 	value,
 	index,
 	siblings,
@@ -84,7 +87,7 @@ export function HiddenSearchValueEditor({
 	const rebuild = (patch: {
 		readonly name?: string;
 		readonly label?: string;
-		readonly value?: ValueExpression;
+		readonly value?: Expression;
 	}) =>
 		onChange(
 			hiddenSearchInputDef(
@@ -96,7 +99,7 @@ export function HiddenSearchValueEditor({
 		);
 
 	return (
-		<PredicateEditProvider
+		<EditorVocabularyProvider
 			caseTypes={caseTypes}
 			currentCaseType={currentCaseType}
 			knownInputs={NO_SEARCH_INPUTS}
@@ -133,16 +136,27 @@ export function HiddenSearchValueEditor({
 					hint="Worked out once when the Search screen opens"
 				>
 					<div className="rounded-xl border border-white/[0.06] bg-nova-deep/30 p-3">
-						<ExpressionCardEditor
-							value={value.value}
-							onChange={(next) => rebuild({ value: next })}
-							caseTypes={caseTypes}
-							currentCaseType={currentCaseType}
-							knownInputs={NO_SEARCH_INPUTS}
-							userProperties={userProperties}
-							caseDataScope="global"
-							constraint={{ accepts: "any" }}
-						/>
+						{moduleUuid === undefined ? (
+							<p role="status">This value's owner is no longer available.</p>
+						) : (
+							<ExpressionSlotEditor
+								slot={{
+									entity: "module",
+									uuid: moduleUuid,
+									slot: "search_input_hidden_value",
+									member: { searchInputUuid: value.uuid },
+								}}
+								candidate={{ entity: "search-input", value }}
+								value={value.value}
+								onChange={(next) => rebuild({ value: next })}
+								caseTypes={caseTypes}
+								currentCaseType={currentCaseType}
+								knownInputs={NO_SEARCH_INPUTS}
+								userProperties={userProperties}
+								caseDataScope="global"
+								constraint={{ accepts: "any" }}
+							/>
+						)}
 					</div>
 				</FieldRow>
 
@@ -167,6 +181,6 @@ export function HiddenSearchValueEditor({
 					)}
 				</FieldRow>
 			</div>
-		</PredicateEditProvider>
+		</EditorVocabularyProvider>
 	);
 }

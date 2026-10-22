@@ -1,15 +1,16 @@
 "use client";
 
 import { useMemo } from "react";
+import { projectFormExpression } from "@/lib/doc/expressionText";
 import { formLinkTargetChoices } from "@/lib/doc/formLinkTargetChoices";
+import { lookupExpressionDefinitions } from "@/lib/doc/lookupExpressionContext";
 import {
 	type FormLink,
 	type FormLinkTarget,
 	formLinkDestination,
-	projectXPath,
 	type Uuid,
-	xpathPrintContext,
 } from "@/lib/domain";
+import { useLookupCommitState } from "../lookupCommitContext";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 
 /** Destinations can reference any module, and admission walks the link graph. */
@@ -27,18 +28,35 @@ export function useFormLinkTargetChoices(
 	);
 }
 
-/** Resolve a link's identities and expressions against the current document. */
-export function useFormLinkProjection() {
+const EMPTY_FORM_LINK_PROJECTION = {
+	destinationOf: (_target: FormLinkTarget) => undefined,
+	conditionText: (_link: FormLink) => "",
+};
+
+/** Resolve a link against its owning form, or stay empty off a form route. */
+export function useFormLinkProjection(formUuid: Uuid | undefined) {
+	const { lookupContext } = useLookupCommitState();
 	const doc = useBlueprintDoc((state) => state);
-	return useMemo(
-		() => ({
+	return useMemo(() => {
+		if (formUuid === undefined || doc.forms[formUuid] === undefined)
+			return EMPTY_FORM_LINK_PROJECTION;
+		return {
 			destinationOf: (target: FormLinkTarget) =>
 				formLinkDestination(doc, target),
 			conditionText: (link: FormLink) =>
 				link.condition === undefined
 					? ""
-					: projectXPath(link.condition, xpathPrintContext(doc)).text,
-		}),
-		[doc],
-	);
+					: projectFormExpression(
+							doc,
+							{
+								entity: "form",
+								uuid: formUuid,
+								slot: "form_link_condition",
+								member: { linkUuid: link.uuid },
+							},
+							link.condition,
+							lookupExpressionDefinitions(lookupContext),
+						).text,
+		};
+	}, [doc, formUuid, lookupContext]);
 }

@@ -7,9 +7,8 @@
 import {
 	type ProseTemplate,
 	printProseTemplate,
-	projectProseTemplate,
+	type ReferenceNamesDoc,
 	resolveProseTemplate,
-	type XPathPrintableDoc,
 } from "@/lib/domain";
 import { isNodesetCardinalityFailure } from "../xpath/runtimeError";
 
@@ -40,34 +39,12 @@ export async function resolveConstraintMessageAsync(
 }
 
 /**
- * Project typed prose atoms to friendly reference expressions. Used by the
- * TriggerDag to register label dependencies.
- */
-export function proseReferenceExpressions(
-	template: ProseTemplate | undefined,
-	doc: XPathPrintableDoc,
-	mode: "strict" | "inspection" = "strict",
-): string[] {
-	if (!template) return [];
-	return template.parts
-		.filter((part) => part.kind !== "text")
-		.map((part) =>
-			mode === "strict"
-				? printProseTemplate({ parts: [part] }, doc)
-				: projectProseTemplate({ parts: [part] }, doc).text,
-		);
-}
-
-/**
- * Replace each bare hashtag reference in display text with the result of a
- * transform function. Used by the form engine to evaluate hashtags to their
- * runtime values, and by MutableBlueprint to rewrite hashtags during rename
- * propagation. The `g` flag is created fresh each call because `lastIndex`
- * is stateful — sharing a module-level regex would be a correctness bug.
+ * Resolve each typed prose reference against the captured runtime context.
+ * Literal text is preserved, including text that looks like a reference.
  */
 export function resolveLabel(
 	template: ProseTemplate | undefined,
-	doc: XPathPrintableDoc,
+	doc: ReferenceNamesDoc,
 	evaluator: (expr: string) => string,
 ): string | undefined {
 	if (!template) return undefined;
@@ -78,7 +55,7 @@ export function resolveLabel(
  * while each typed reference is projected and evaluated in document order. */
 export async function resolveLabelAsync(
 	template: ProseTemplate | undefined,
-	doc: XPathPrintableDoc,
+	doc: ReferenceNamesDoc,
 	evaluator: (expr: string) => Promise<string>,
 ): Promise<string | undefined> {
 	if (!template?.parts.some((part) => part.kind !== "text")) {

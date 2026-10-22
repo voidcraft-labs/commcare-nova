@@ -5,16 +5,21 @@ import {
 	type LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema, type Uuid } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/predicate";
+import { eq, literal, prop, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../validator/runner";
 export function admitNestedDoc(
 	doc: BlueprintDoc,
 	lookup: LookupValidationContext = LOOKUP_CONTEXT_UNAVAILABLE,
-) {
-	blueprintDocSchema.parse(toPersistableDoc(doc));
-	const findings = runValidation(doc, lookup);
+): BlueprintDoc {
+	// These fixture builders assemble their variants in place. Admission reads
+	// the completed identity, like a production document after a mutation, so
+	// an earlier variant's memoized selection facts cannot survive the edit.
+	const admitted = structuredClone(doc);
+	blueprintDocSchema.parse(toPersistableDoc(admitted));
+	const findings = runValidation(admitted, lookup);
 	if (findings.length) throw new Error(JSON.stringify(findings, null, 2));
+	return admitted;
 }
 export function nestSecondModule(doc: BlueprintDoc): {
 	root: Uuid;
@@ -135,8 +140,7 @@ export function followupNestedDoc(
 	nestSecondModule(doc);
 	if (options.parentSelect)
 		doc.modules[doc.moduleOrder[1]].parentCaseModuleUuid = doc.moduleOrder[0];
-	admitNestedDoc(doc);
-	return doc;
+	return admitNestedDoc(doc);
 }
 
 export function registrationNestedDoc(createsChild = false): BlueprintDoc {
@@ -218,8 +222,7 @@ export function registrationNestedDoc(createsChild = false): BlueprintDoc {
 		],
 	});
 	nestSecondModule(doc);
-	admitNestedDoc(doc);
-	return doc;
+	return admitNestedDoc(doc);
 }
 
 export function sameTypeFormlessRootDoc(): BlueprintDoc {
@@ -264,8 +267,7 @@ export function sameTypeFormlessRootDoc(): BlueprintDoc {
 		],
 	});
 	nestSecondModule(doc);
-	admitNestedDoc(doc);
-	return doc;
+	return admitNestedDoc(doc);
 }
 
 /** A form over several cases has shared answers; scalar case reads are invalid. */
@@ -276,9 +278,7 @@ export function setSharedFormAnswers(doc: BlueprintDoc, moduleUuid: Uuid) {
 		for (const fieldUuid of doc.fieldOrder[formUuid]) {
 			const field = doc.fields[fieldUuid];
 			if (field.kind === "hidden")
-				field.calculate = {
-					parts: [{ kind: "text", text: "'shared answer'" }],
-				};
+				field.calculate = term(literal("shared answer"));
 		}
 	}
 }
@@ -328,6 +328,5 @@ export function nestedMenuWireFixture(
 			setSharedFormAnswers(doc, uuid);
 		}
 	}
-	admitNestedDoc(doc);
-	return doc;
+	return admitNestedDoc(doc);
 }

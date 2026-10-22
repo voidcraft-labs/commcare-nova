@@ -8,6 +8,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { projectLocalizedModule } from "@/lib/domain/localizedBlueprintProjection";
+import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
 import { formDisplayVisibility } from "../engine/displayConditionEvaluation";
@@ -82,7 +83,11 @@ export function appTestForms(
 					condition: form.displayCondition,
 					hiddenFromMenu: form.hiddenFromMenu === true,
 					session: previewSessionValues(identity),
-					currentCaseType: mod.caseType,
+					types: previewExpressionContext(
+						doc,
+						{ entity: "form", uuid, slot: "form_display_condition" },
+						lookup,
+					),
 					caseProjection: properties
 						? new Map(Object.entries(properties))
 						: undefined,

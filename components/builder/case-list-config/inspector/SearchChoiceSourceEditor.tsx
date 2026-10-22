@@ -32,17 +32,23 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import type {
 	CaseType,
 	LookupColumnId,
 	LookupTableId,
+	SearchInputDef,
 	SearchInputLookupOptions,
 	UserProperty,
 } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { Expression, ExpressionSlotRef } from "@/lib/domain/expression";
 import { useCanEdit } from "@/lib/session/hooks";
 
 export interface SearchChoiceSourceEditorProps {
+	readonly slot: ExpressionSlotRef | undefined;
+	readonly candidateForSource: (
+		source: SearchInputLookupOptions,
+	) => SearchInputDef;
 	/** The saved source, or `undefined` while the author is still choosing
 	 *  one for a field that has no choices yet. */
 	readonly value: SearchInputLookupOptions | undefined;
@@ -61,7 +67,7 @@ interface LookupSourceDraft {
 	readonly labelColumnId?: LookupColumnId;
 	/** Absent means the choices are ordered by the label column. */
 	readonly sortColumnId?: LookupColumnId;
-	readonly filter?: Predicate;
+	readonly filter?: Expression;
 }
 
 /** The sort picker's item for "order by the label column". */
@@ -96,6 +102,8 @@ function completeSource(
 }
 
 export function SearchChoiceSourceEditor({
+	slot,
+	candidateForSource,
 	value,
 	caseTypes,
 	userProperties,
@@ -125,6 +133,14 @@ export function SearchChoiceSourceEditor({
 	const staging = draft !== null || value === undefined;
 	const completeDraft =
 		draft === null ? undefined : completeSource(draft, columnIds);
+	const completeActive =
+		active === undefined ? undefined : completeSource(active, columnIds);
+	const expressionContext = useExpressionSlotContext(
+		completeActive === undefined ? undefined : slot,
+		completeActive === undefined
+			? undefined
+			: { entity: "search-input", value: candidateForSource(completeActive) },
+	);
 
 	const chooseTable = (next: string | null) => {
 		if (next === null) return;
@@ -161,7 +177,7 @@ export function SearchChoiceSourceEditor({
 		onCommit(complete);
 	};
 
-	const changeFilter = (next: Predicate | undefined) => {
+	const changeFilter = (next: Expression | undefined) => {
 		if (active === undefined) return;
 		const { filter: _filter, ...identity } = active;
 		write(next === undefined ? identity : { ...identity, filter: next });
@@ -390,7 +406,11 @@ export function SearchChoiceSourceEditor({
 							/>
 							Rows people can choose
 						</p>
-						{active.filter === undefined ? (
+						{expressionContext === undefined ? (
+							<p role="status" className="text-[13px] text-nova-text-muted">
+								Choose the saved value and label columns to add a row rule.
+							</p>
+						) : active.filter === undefined ? (
 							<>
 								<p className="text-[13px] leading-relaxed text-nova-text-secondary">
 									Every row of “{table.name}” is offered. Add a rule to match
@@ -412,6 +432,7 @@ export function SearchChoiceSourceEditor({
 										onClick={() =>
 											changeFilter(
 												firstComparisonDefault({
+													expressionContext,
 													caseTypes,
 													currentCaseType: "",
 													knownInputs: [],
@@ -439,6 +460,7 @@ export function SearchChoiceSourceEditor({
 								</p>
 								<fieldset disabled={!canEdit} className="contents">
 									<PredicateWorkbench
+										expressionContext={expressionContext}
 										value={active.filter}
 										onChange={changeFilter}
 										onRemoveRoot={() => changeFilter(undefined)}

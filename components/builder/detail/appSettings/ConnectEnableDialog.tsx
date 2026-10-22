@@ -5,7 +5,6 @@ import tablerX from "@iconify-icons/tabler/x";
 import { type ReactNode, useCallback, useId, useState } from "react";
 import { useAppPublishedAnywhere } from "@/components/builder/app-setup/usePublishingRecords";
 import { LabeledXPathField } from "@/components/builder/detail/formSettings/LabeledXPathField";
-import { useFormLintContext } from "@/components/builder/detail/formSettings/useFormLintContext";
 import { RejectionBody } from "@/components/builder/RejectionNotice";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -21,12 +20,15 @@ import {
 	DEFAULT_DELIVER_ENTITY_ID,
 	DEFAULT_DELIVER_ENTITY_NAME,
 } from "@/lib/doc/connectConfig";
-import { parseXPathForForm } from "@/lib/doc/expressionText";
 import {
 	useAppConnectIds,
 	useRootFieldIdsByForm,
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useConnectExpressionStructure } from "@/lib/doc/hooks/useConnectExpressionStructure";
+import { useFormExpressionLintContext } from "@/lib/doc/hooks/useXPathSlots";
+import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
+import { lookupExpressionDefinitions } from "@/lib/doc/lookupExpressionContext";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
 import { asUuid, CONNECT_TYPE_LABELS } from "@/lib/domain";
 import { CurrentFormScope } from "@/lib/references/ReferenceContext";
@@ -47,6 +49,10 @@ import {
 	type IdValidator,
 	type SubConfigKind,
 } from "./connectDraft";
+import {
+	connectDraftDeclarations,
+	connectDraftParser,
+} from "./connectDraftExpressions";
 
 export {
 	assignDraftConnectIds,
@@ -335,7 +341,28 @@ export function FormSubConfigs({
 }) {
 	const idCheck = (kind: SubConfigKind) => (value: string) =>
 		value === "" ? null : validateId(kind, value);
-	const getLintContext = useFormLintContext(asUuid(formUuid));
+	const { blocks, sources } = connectDraftDeclarations(draft, mode, derivedId);
+	const prepared = useConnectExpressionStructure(
+		asUuid(formUuid),
+		mode,
+		blocks,
+		sources,
+	);
+	const scoreLint = useFormExpressionLintContext(
+		{ entity: "form", uuid: asUuid(formUuid), slot: "assessment_user_score" },
+		undefined,
+		prepared,
+	);
+	const entityIdLint = useFormExpressionLintContext(
+		{ entity: "form", uuid: asUuid(formUuid), slot: "deliver_entity_id" },
+		undefined,
+		prepared,
+	);
+	const entityNameLint = useFormExpressionLintContext(
+		{ entity: "form", uuid: asUuid(formUuid), slot: "deliver_entity_name" },
+		undefined,
+		prepared,
+	);
 	const publishedNote = (kind: keyof typeof CONNECT_ID_PUBLISHED_NOTES) =>
 		published ? CONNECT_ID_PUBLISHED_NOTES[kind] : undefined;
 	/* A deliver unit and a task each go in a form without the other. */
@@ -472,7 +499,7 @@ export function FormSubConfigs({
 						value={draft.userScoreText}
 						defaultText={DEFAULT_ASSESSMENT_USER_SCORE}
 						onChange={(v) => onPatch({ userScoreText: v })}
-						getLintContext={getLintContext}
+						getLintContext={scoreLint}
 					/>
 					<AdvancedDisclosure>
 						<DraftField
@@ -505,14 +532,14 @@ export function FormSubConfigs({
 						value={draft.entityIdText}
 						defaultText={DEFAULT_DELIVER_ENTITY_ID}
 						onChange={(v) => onPatch({ entityIdText: v })}
-						getLintContext={getLintContext}
+						getLintContext={entityIdLint}
 					/>
 					<ConnectXPathField
 						label="Entity name"
 						value={draft.entityNameText}
 						defaultText={DEFAULT_DELIVER_ENTITY_NAME}
 						onChange={(v) => onPatch({ entityNameText: v })}
-						getLintContext={getLintContext}
+						getLintContext={entityNameLint}
 					/>
 					<AdvancedDisclosure>
 						<DraftField
@@ -636,6 +663,8 @@ function ConnectEnableBody({
 	onConfirm: (blocks: Record<string, ConnectConfig>) => void;
 }) {
 	const { mode, targets, restoredFormCount, rejectionMessages } = request;
+	const { lookupContext } = useLookupCommitState();
+	const [parseRejections, setParseRejections] = useState<string[]>([]);
 	const [drafts, setDrafts] = useState<Record<string, BlockDraft>>(() =>
 		Object.fromEntries(targets.map((t) => [t.formUuid, { ...EMPTY_DRAFT }])),
 	);
@@ -695,21 +724,37 @@ function ConnectEnableBody({
 	const docApi = useBlueprintDocApi();
 	const confirm = () => {
 		const doc = docApi.getState();
-		onConfirm(
-			Object.fromEntries(
-				targets
-					.filter((t) => draftParticipates(draftOf(t.formUuid), mode))
-					.map((t) => [
-						t.formUuid,
-						draftToConfig(
-							draftOf(t.formUuid),
-							mode,
-							(text) => parseXPathForForm(doc, asUuid(t.formUuid), text),
-							idHelpers[t.formUuid].derivedId,
-						),
-					]),
-			),
-		);
+		try {
+			onConfirm(
+				Object.fromEntries(
+					targets
+						.filter((t) => draftParticipates(draftOf(t.formUuid), mode))
+						.map((t) => [
+							t.formUuid,
+							draftToConfig(
+								draftOf(t.formUuid),
+								mode,
+								connectDraftParser(
+									doc,
+									asUuid(t.formUuid),
+									draftOf(t.formUuid),
+									mode,
+									idHelpers[t.formUuid].derivedId,
+									lookupExpressionDefinitions(lookupContext),
+								),
+								idHelpers[t.formUuid].derivedId,
+							),
+						]),
+				),
+			);
+			setParseRejections([]);
+		} catch (error) {
+			setParseRejections([
+				error instanceof Error
+					? error.message
+					: "This Connect expression could not be saved. Check its references and try again.",
+			]);
+		}
 	};
 
 	const single = targets.length === 1 && restoredFormCount === 0;
@@ -781,7 +826,9 @@ function ConnectEnableBody({
 			</div>
 
 			<div className="space-y-2 border-t border-nova-border px-5 py-3">
-				<RejectionNoticeBlock messages={rejectionMessages} />
+				<RejectionNoticeBlock
+					messages={[...rejectionMessages, ...parseRejections]}
+				/>
 				<div className="flex items-center justify-between gap-3">
 					<span className="text-[11px] text-nova-text-muted">{hint}</span>
 					<div className="flex gap-2">

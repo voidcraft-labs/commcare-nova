@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	planCaseTypeRetirementOnRemove,
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import {
@@ -22,7 +23,8 @@ import {
 	prop,
 	subcasePath,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression/builders";
+import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -31,6 +33,18 @@ const VISIT = testUuid("retire-visit-module");
 const PATIENT_FORM = testUuid("retire-patient-form");
 const VISIT_FORM = testUuid("retire-visit-form");
 const SUMMARY = testUuid("retire-summary");
+
+function expressionForSlot(
+	doc: BlueprintDoc,
+	slot: ExpressionSlotRef,
+	source: string,
+) {
+	const parsed = parseFormExpressionForSlot(doc, slot, source, "unavailable");
+	if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+	if (parsed.expression === undefined)
+		throw new Error("Expected an expression");
+	return parsed.expression;
+}
 
 function fixture(): BlueprintDoc {
 	const doc = buildDoc({
@@ -308,7 +322,11 @@ describe("case type retirement from admitted workflows", () => {
 				uuid: SUMMARY,
 				targetKind: "text",
 				patch: {
-					relevant: xp("#visit/case_name != ''"),
+					relevant: expressionForSlot(
+						doc,
+						{ entity: "field", uuid: SUMMARY, slot: "relevant" },
+						"#visit/case_name != ''",
+					),
 					label: {
 						parts: [
 							{ kind: "text", text: "Visit " },
@@ -325,6 +343,94 @@ describe("case type retirement from admitted workflows", () => {
 			'field "summary" in form "Review patient" (module "Patients") references #visit/… in its "label" text',
 		]);
 		expect(plan.userMessage).not.toContain("#visit/");
+	});
+	it("names a type restriction nested inside a filtered case collection", () => {
+		const doc = fixture();
+		const relevant = expressionForSlot(
+			doc,
+			{ entity: "field", uuid: SUMMARY, slot: "relevant" },
+			"count(instance('casedb')/casedb/case[@case_type = 'visit'][case_name = 'Open']) > 0",
+		);
+		const next = commit(doc, [
+			{
+				kind: "updateField",
+				uuid: SUMMARY,
+				targetKind: "text",
+				patch: { relevant },
+			},
+		]);
+		expect(blocked(next).references).toEqual([
+			'field "summary" in form "Review patient" (module "Patients") references #visit/… in its "relevant" expression',
+		]);
+	});
+	it("names a newly created child record's typed session datum", () => {
+		const doc = fixture();
+		parent(doc, "visit", "patient");
+		const next = commit(doc, [
+			{
+				kind: "addField",
+				parentUuid: PATIENT_FORM,
+				field: {
+					uuid: testUuid("retire-datum-child-name"),
+					id: "visit_name",
+					kind: "text",
+					label: proseText("Visit name"),
+					caseWrite: { caseType: "visit", property: "case_name" },
+				},
+			},
+			{
+				kind: "updateField",
+				uuid: SUMMARY,
+				targetKind: "text",
+				patch: {
+					relevant: eq(
+						term({
+							kind: "session-datum",
+							datum: { kind: "new-child-case", caseType: "visit" },
+						}),
+						literal(""),
+					),
+				},
+			},
+		]);
+		expect(blocked(next).references).toContain(
+			'field "summary" in form "Review patient" (module "Patients") references #visit/… in its "relevant" expression',
+		);
+	});
+	it("keeps selected-record datums attached to their module during a retype", () => {
+		const doc = fixture();
+		const fieldUuid = doc.fieldOrder[VISIT_FORM][0];
+		const next = commit(doc, [
+			{
+				kind: "updateField",
+				uuid: fieldUuid,
+				targetKind: "text",
+				patch: {
+					caseWrite: null,
+					relevant: eq(
+						term({
+							kind: "session-datum",
+							datum: { kind: "selected-case", module: VISIT },
+						}),
+						literal(""),
+					),
+				},
+			},
+		]);
+		const plan = planCaseTypeRetirementOnRetype(next, VISIT, "patient");
+		expect(plan.kind).toBe("retire");
+		if (plan.kind !== "retire") throw new Error("Expected retirement");
+		const retyped = commit(next, [
+			{ kind: "updateModule", uuid: VISIT, patch: { caseType: "patient" } },
+			...plan.mutations,
+		]);
+		const beforeField = next.fields[fieldUuid];
+		const retypedField = retyped.fields[fieldUuid];
+		if (beforeField?.kind !== "text" || retypedField?.kind !== "text")
+			throw new Error(
+				"Expected the text question to survive the module retype",
+			);
+		expect(retypedField.relevant).toEqual(beforeField.relevant);
 	});
 	it("names a case-list relation filter and a search input's child relation", () => {
 		const doc = fixture();

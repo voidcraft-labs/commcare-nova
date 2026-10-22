@@ -1,6 +1,6 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
-import { xpIn } from "@/lib/__tests__/docHelpers";
+import { parseFixtureExpression } from "@/lib/__tests__/docHelpers";
 import {
 	buildConnectSlugMap,
 	connectIdConflictError,
@@ -9,8 +9,8 @@ import {
 } from "@/lib/commcare/connectSlugs";
 import { expandDoc } from "@/lib/commcare/expander";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { BlueprintDoc } from "@/lib/domain";
 import {
 	questionIdProblem,
 	RESERVED_CONNECT_BLOCK_IDS,
@@ -210,22 +210,24 @@ describe("Connect data paths in validator admission", () => {
 			const { doc } = fixture(name);
 			const formUuid = doc.formOrder[doc.moduleOrder[0]][formIndex];
 			const field = doc.fields[doc.fieldOrder[formUuid][0]];
-			const setReference = (target: BlueprintDoc, path: string) => {
-				const targetField = target.fields[field.uuid];
-				if (targetField.kind !== "int" && targetField.kind !== "label")
-					throw new Error("Expected the form's first question or label");
-				targetField.relevant = xpIn(target, formUuid, `${path} = 'x'`);
-			};
-			setReference(doc, `/data/${wrapper}`);
+			if (field.kind !== "int" && field.kind !== "label")
+				throw new Error("Expected the form's first question or label");
+			const slot = {
+				entity: "field",
+				uuid: field.uuid,
+				slot: "relevant",
+			} as const;
+			field.relevant = parseFixtureExpression(doc, slot, `../${wrapper} = 'x'`);
 			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
-			setReference(doc, "/data/no_such_connect_node");
-			const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-			expect(findings).toHaveLength(1);
-			expect(findings[0]).toMatchObject({
-				code: "INVALID_REF",
-				location: { formUuid, fieldUuid: field.uuid },
+			const parsed = parseFormExpression("../no_such_connect_node = 'x'", {
+				doc,
+				slot,
+				lookup: "unavailable",
 			});
-			expect(findings[0].message).toContain("no_such_connect_node");
+			expect(parsed).toMatchObject({
+				ok: false,
+				issues: [{ code: "relative-unknown" }],
+			});
 		},
 	);
 });

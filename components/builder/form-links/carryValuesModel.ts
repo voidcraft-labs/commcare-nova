@@ -4,6 +4,7 @@ import type {
 	FormLinkTargetVerdict,
 } from "@/lib/doc/formLinkReview";
 import type { FormLink } from "@/lib/domain";
+import { datumRefKey } from "@/lib/domain/expression/types";
 
 /** One presentation decision from the real shared admission verdicts. The
  * recovery branches are defensive views of previously stored invalid maps. */
@@ -33,7 +34,10 @@ export function carryValuesModel(
 								? ("choices" as const)
 								: ("none" as const),
 		missing: required.filter(
-			(datum) => !(link.datums ?? []).some((held) => held.name === datum.id),
+			(datum) =>
+				!(link.datums ?? []).some(
+					(held) => datumRefKey(held.name) === datumRefKey(datum.name),
+				),
 		),
 	};
 }

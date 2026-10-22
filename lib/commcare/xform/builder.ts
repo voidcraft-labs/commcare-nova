@@ -1,4 +1,5 @@
 import { caseOptionsNodeset, fieldTakesCaseChoices } from "../caseOptions";
+import { caseTypeDepthMap } from "../caseTypeDepths";
 /**
  * XForm XML emitter.
  *
@@ -51,14 +52,6 @@ import {
 	type WireElementSpec,
 	xel,
 } from "@/lib/commcare/elementBuilders";
-import { readFieldString } from "@/lib/commcare/fieldProps";
-import {
-	caseTypeDepthMap,
-	expandHashtagsForDefaultValue,
-	expandHashtagsInContext,
-	type FormHashtagContext,
-	vellumShorthandInContext,
-} from "@/lib/commcare/hashtags/formContext";
 import { commCareLocalization } from "@/lib/commcare/localization";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
@@ -92,12 +85,7 @@ import {
 import { caseSaveReferences } from "@/lib/commcare/xform/caseSaveReferences";
 import { planConstraintCollections } from "@/lib/commcare/xform/constraintCollections";
 import { xformDataRootRuntimeAttributes } from "@/lib/commcare/xform/dataRootAttributes";
-import {
-	descendFormPathIntoField,
-	FormPath,
-} from "@/lib/commcare/xform/formPath";
-import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
-import { spellPredicateSelf } from "@/lib/commcare/xpath/selfSteps";
+import { FormPath } from "@/lib/commcare/xform/formPath";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
@@ -105,29 +93,33 @@ import {
 	caseCreateNameFields,
 	caseScalarTextGuardIsChecked,
 	caseScalarTextGuards,
+	expressionSlotValue,
 	type Field,
 	type FieldKind,
-	fieldExpressionValue,
 	fieldKindCarriesValidation,
 	isCaptureField,
 	isCaptureFieldKind,
 	isContainer,
 	type Media,
-	makeTranslationUnitId,
+	type ProseReferencePart,
 	type ProseTemplate,
-	printProseTemplate,
 	proseTemplateIsEmpty,
-	type TranslationUnitId,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
+import { isMatchAll } from "@/lib/domain/expression/builders";
+import { simplifyForEmission } from "@/lib/domain/expression/simplify";
+import type { DatumRef, Expression } from "@/lib/domain/expression/types";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
 import { formWireName } from "@/lib/domain/formWireName";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
-import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
-import { directRepeatCountReference } from "@/lib/domain/repeatCount";
-import { xpathPrintContext } from "@/lib/domain/xpath/print";
+import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
+import {
+	entryDatumIdResolver,
+	entryDatumIds,
+	formLinkProjectionContext,
+} from "../formLinkProjection";
 import { w } from "../xpath/wire/builders";
 import { toWire } from "../xpath/wire/fromExpression";
 import {
@@ -136,7 +128,6 @@ import {
 	sessionInstance,
 } from "../xpath/wire/instances";
 import { caseById, casePropertyStep } from "../xpath/wire/rowScope";
-import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr } from "../xpath/wire/tree";
 import { protectConstraintMessage } from "./constraintMessage";
 import {
@@ -144,22 +135,24 @@ import {
 	datetimeCaseValuePath,
 } from "./datetimeCaseValue";
 import {
+	type FormExpressionEmission,
+	formExpressionEmission,
+} from "./formExpressions";
+import {
 	type GeneratedNodePlan,
 	planGeneratedNodes,
 	trimmedValuePath,
 } from "./generatedNodes";
 import {
-	type AuthoredXPathValue,
-	legacyAuthoredAnd,
-	legacyAuthoredCall,
-	legacyProjectedAuthoredXPath,
-	legacyXPathInstances,
-	partitionAuthoredXPath,
-} from "./legacyAuthoredXPath";
+	fieldItextKey,
+	formItextUnits,
+	itextProseSlot,
+	itextTranslationUnitId,
+} from "./itextIds";
 
 interface ItextRegistration {
 	readonly registered: boolean;
-	readonly protectedConstraint?: AuthoredXPathValue;
+	readonly protectedConstraint?: WireExpr;
 }
 type AddItext = (
 	id: string,
@@ -257,9 +250,8 @@ function literalLabelNodes(
  *     Core's json-property. Embedded NBSP uses the same protected spelling
  *     because Vellum replaces literal NBSP throughout its serialized XML.
  *   - Each typed reference atom becomes a constructed self-closing `<output>`
- *     element: `value` holds the expanded instance XPath, and the parallel
- *     `vellum:value` holds the original shorthand — but only when expansion
- *     changed the string (a non-expanding ref needs no round-trip shadow).
+ *     element. Its runtime value and eligible Vellum shadow serialize the
+ *     same typed tree; the serializer withholds unsupported editor vocabulary.
  *
  * Author-written `<output ...>` markup or hashtag-looking literal text is
  * deliberately not recognized. Both serialize as ordinary escaped text.
@@ -272,35 +264,19 @@ function literalLabelNodes(
  */
 function buildLabelNodes(
 	template: ProseTemplate,
-	doc: BlueprintDoc,
-	expand: (expr: string) => string,
-	shorthand: (expr: string) => string | undefined,
+	lower: (part: ProseReferencePart) => WireExpr,
 	context: WireElementContext,
 ): ChildNode[] {
 	const nodes: ChildNode[] = [];
 	for (const part of template.parts) {
 		if (part.kind === "text") {
-			const literal = decodeXML(part.text);
-			nodes.push(...literalLabelNodes(literal, context));
+			nodes.push(...literalLabelNodes(decodeXML(part.text), context));
 			continue;
 		}
-		const original = printProseTemplate({ parts: [part] }, doc);
-		const expanded = expand(original);
-		if (expanded !== original) {
-			const outputAttribs: NonNullable<
-				WireElementSpec<"output">["authoredXPath"]
-			> = { value: legacyProjectedAuthoredXPath(expanded) };
-			const editorRef = shorthand(original);
-			if (editorRef !== undefined)
-				outputAttribs["vellum:value"] = legacyProjectedAuthoredXPath(editorRef);
-			nodes.push(xel("output", { authoredXPath: outputAttribs }, context));
-		} else {
-			// A valid non-expanding external/case reference remains literal text.
-			// UUID-backed identities were resolved by `printProseTemplate` above;
-			// a dangling one throws there, so wire emission cannot serialize a
-			// UUID or repair marker into the form.
-			nodes.push(text(decodeXML(original)));
-		}
+		const value = lower(part);
+		nodes.push(
+			xel("output", { xpath: { value, "vellum:value": value } }, context),
+		);
 	}
 	return nodes;
 }
@@ -317,10 +293,9 @@ const CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn";
  * a bind per declared sub-node so CommCare has paths to write to.
  */
 function buildConnectBlocks(
-	doc: BlueprintDoc,
 	connect: ResolvedConnectConfig | undefined,
 	context: WireElementContext,
-	expand: (expr: string) => string,
+	expressions: FormExpressionEmission,
 ): { dataElements: Element[]; binds: Element[] } {
 	const dataElements: Element[] = [];
 	const binds: Element[] = [];
@@ -353,7 +328,6 @@ function buildConnectBlocks(
 						"vellum:nodeset": lmPath.toWire("hashtag"),
 						nodeset: lmPath.toWire(),
 					},
-					authoredXPath: {},
 				},
 				context,
 			),
@@ -367,7 +341,7 @@ function buildConnectBlocks(
 		// session-preload builder calls, so the bind XML and the
 		// case-references load map agree on which XPath actually runs at
 		// form-fill time.
-		const userScore = effectiveAssessmentUserScore(connect.assessment, doc);
+		const userScore = effectiveAssessmentUserScore(connect.assessment);
 		const assessPath = FormPath.root().child(assessId);
 		dataElements.push(
 			el(assessId, { "vellum:role": "ConnectAssessment" }, [
@@ -384,7 +358,6 @@ function buildConnectBlocks(
 						"vellum:nodeset": assessPath.toWire("hashtag"),
 						nodeset: assessPath.toWire(),
 					},
-					authoredXPath: {},
 				},
 				context,
 			),
@@ -396,11 +369,11 @@ function buildConnectBlocks(
 							.child("assessment")
 							.child("user_score")
 							.toWire(),
-					},
-					authoredXPath: {
-						calculate: legacyProjectedAuthoredXPath(
-							spellPredicateSelf(expand(userScore)),
-						),
+						calculate: expressions.lower(userScore, {
+							entity: "form",
+							uuid: expressions.form.formUuid,
+							slot: "assessment_user_score",
+						}),
 					},
 				},
 				context,
@@ -416,7 +389,7 @@ function buildConnectBlocks(
 		// defaults — same helper the session-preload builder calls, so
 		// the bind XML and the case-references load map agree on which
 		// XPaths actually run at form-fill time.
-		const { entityId, entityName } = effectiveDeliverEntities(du, doc);
+		const { entityId, entityName } = effectiveDeliverEntities(du);
 		const duPath = FormPath.root().child(duId);
 		dataElements.push(
 			el(duId, { "vellum:role": "ConnectDeliverUnit" }, [
@@ -441,7 +414,6 @@ function buildConnectBlocks(
 						"vellum:nodeset": duPath.toWire("hashtag"),
 						nodeset: duPath.toWire(),
 					},
-					authoredXPath: {},
 				},
 				context,
 			),
@@ -450,11 +422,11 @@ function buildConnectBlocks(
 				{
 					xpath: {
 						nodeset: duPath.child("deliver").child("entity_id").toWire(),
-					},
-					authoredXPath: {
-						calculate: legacyProjectedAuthoredXPath(
-							spellPredicateSelf(expand(entityId)),
-						),
+						calculate: expressions.lower(entityId, {
+							entity: "form",
+							uuid: expressions.form.formUuid,
+							slot: "deliver_entity_id",
+						}),
 					},
 				},
 				context,
@@ -464,11 +436,11 @@ function buildConnectBlocks(
 				{
 					xpath: {
 						nodeset: duPath.child("deliver").child("entity_name").toWire(),
-					},
-					authoredXPath: {
-						calculate: legacyProjectedAuthoredXPath(
-							spellPredicateSelf(expand(entityName)),
-						),
+						calculate: expressions.lower(entityName, {
+							entity: "form",
+							uuid: expressions.form.formUuid,
+							slot: "deliver_entity_name",
+						}),
 					},
 				},
 				context,
@@ -479,7 +451,6 @@ function buildConnectBlocks(
 					xpath: {
 						nodeset: duPath.child("deliver").child("work_area_id").toWire(),
 					},
-					authoredXPath: {},
 				},
 				context,
 			),
@@ -506,7 +477,6 @@ function buildConnectBlocks(
 						"vellum:nodeset": taskPath.toWire("hashtag"),
 						nodeset: taskPath.toWire(),
 					},
-					authoredXPath: {},
 				},
 				context,
 			),
@@ -542,7 +512,14 @@ export interface BuildXFormOptions {
 	 * the inline search's search-input instance and the host module's prompt
 	 * names. The instance is declared when a `#search/` read is present.
 	 */
-	searchAnswers?: FormHashtagContext["searchAnswers"];
+	searchAnswers?: {
+		readonly instanceId: `search-input:${string}`;
+		readonly names: ReadonlyMap<Uuid, string>;
+	};
+	/** Canonical authored ownership before a wire-only menu placement. */
+	expressionDoc?: BlueprintDoc;
+	/** The entry's emitted datum names, resolved from domain identity. */
+	datumId?: (datum: DatumRef) => string | undefined;
 	/** Collection-valued selected-entities instance for a multi-select entry. */
 	selectedCasesInstanceId?: string;
 	/** Ordinary primary writes lowered through the selected-case iteration. */
@@ -651,7 +628,6 @@ export function buildXFormSource(
 	formUuid: Uuid,
 	opts: BuildXFormOptions,
 ): XFormSource {
-	const form = doc.forms[formUuid];
 	const localization = commCareLocalization(doc);
 
 	// The case types this form can READ, name → parent-index hop depth (own = 0,
@@ -670,10 +646,6 @@ export function buildXFormSource(
 	const context: WireElementContext = {
 		mode: { target: "xform", constraint: false },
 		instances,
-		resolveLegacyInstances: (value) =>
-			legacyXPathInstances(value, {
-				searchInputInstanceId: opts.searchAnswers?.instanceId,
-			}),
 	};
 	const lookupSelects = deriveLookupSelectKit(
 		doc,
@@ -690,43 +662,48 @@ export function buildXFormSource(
 	const itextEntries = new Map(
 		localization.languages.map((language) => [language, [] as Element[]]),
 	);
-	const itextUnitIds = new Map<string, TranslationUnitId>();
-	const indexItextUnits = (parentUuid: Uuid, keyPrefix: string): void => {
-		for (const fieldUuid of orderedFieldUuids(doc, parentUuid)) {
-			const field = doc.fields[fieldUuid];
-			if (field === undefined) continue;
-			const key = keyPrefix + field.id;
-			const carrier = field as unknown as Record<string, unknown>;
-			for (const [suffix, slot] of [
-				["label", "label"],
-				["hint", "hint"],
-				["help", "help"],
-				["constraintMsg", "validate_msg"],
-			] as const) {
-				if (carrier[slot] !== undefined) {
-					itextUnitIds.set(
-						`${key}-${suffix}`,
-						makeTranslationUnitId("field", fieldUuid, slot),
+	let datumId = opts.datumId;
+	const expressions = formExpressionEmission(
+		doc,
+		formUuid,
+		opts.lookupNaming,
+		{
+			formCaseProperty: lookupSelects.formCaseProperty,
+			userPropertySlugs: lookupSelects.userPropertySlugs,
+			organizationLevels: doc.organizationLevels ?? {},
+			...(opts.lookupNaming === undefined
+				? {}
+				: { lookup: { naming: opts.lookupNaming, instanceScope: "xform" } }),
+			...(opts.searchAnswers === undefined
+				? {}
+				: {
+						searchInputInstanceId: opts.searchAnswers.instanceId,
+						searchInputNames: opts.searchAnswers.names,
+					}),
+			datumId: (ref) => {
+				if (datumId === undefined) {
+					const moduleUuid = moduleUuidOfForm(doc, formUuid);
+					if (moduleUuid === undefined)
+						throw new Error("A form datum needs its owning module.");
+					const entryContext = formLinkProjectionContext(doc, {
+						expressionDoc: opts.expressionDoc,
+						entryMetadataOnly: true,
+						attachmentTarget: opts.attachmentTarget ?? null,
+						lookupNaming: opts.lookupNaming,
+					});
+					datumId = entryDatumIdResolver(
+						entryDatumIds(doc, entryContext, moduleUuid, formUuid),
 					);
 				}
-			}
-			if (
-				(field.kind === "single_select" || field.kind === "multi_select") &&
-				field.optionsSource.kind === "inline"
-			) {
-				field.optionsSource.options.forEach((option, index) => {
-					itextUnitIds.set(
-						`${key}-opt${index}-label`,
-						makeTranslationUnitId("field", fieldUuid, "option", option.uuid),
-					);
-				});
-			}
-			if (isContainer(field)) {
-				indexItextUnits(fieldUuid, `${key}-`);
-			}
-		}
-	};
-	indexItextUnits(formUuid, "");
+				return datumId(ref);
+			},
+		},
+		opts.expressionDoc,
+	);
+	const itextUnits = formItextUnits(expressions.form);
+	const itextUnitIds = new Map(
+		[...itextUnits].map(([id, unit]) => [id, itextTranslationUnitId(unit)]),
+	);
 
 	// The OpenRosa `<meta>` block is NOT emitted here. It is a CCHQ build-time
 	// artifact (`xform.py::_add_meta_2`): the HQ-upload source omits it and CCHQ
@@ -737,79 +714,6 @@ export function buildXFormSource(
 	// step. This emitter therefore requires `commcaresession` only when a field
 	// XPath, case datum, or Connect expression actually references it — never
 	// unconditionally.
-
-	// Form-context-aware hashtag expander, captured once and threaded through
-	// every helper (binds, defaults, itext prose, connect exprs, repeat counts).
-	// It carries `caseTypeDepths`, so a `#<case_type>/<prop>` ref resolves to the
-	// right parent-index walk. On case-create (registration) forms,
-	// `#<own_type>/case_id` reads the session datum the entry mints the new
-	// case's id into (`ownNewCaseIdRef`); the case-loading lookup shape is
-	// reserved for forms that load an existing case.
-	const authoredPaths = xpathPrintContext(doc);
-	const formPaths = new Map<string, FormPath>();
-	for (const [uuid, location] of collectFieldLocations(doc, formUuid)) {
-		const segments = authoredPaths.fieldPathSegments(uuid);
-		if (segments !== undefined) {
-			// A repeat reference denotes its rows, including a query repeat's
-			// derived item nodes. Structural binds still address the wrapper.
-			formPaths.set(
-				segments.join("/"),
-				descendFormPathIntoField(doc.fields[uuid], location.path),
-			);
-		}
-	}
-	const formCtx: FormHashtagContext = {
-		formPaths,
-		formType: form.type,
-		caseTypeDepths,
-		...(opts.selectedCaseIdRef !== undefined && {
-			currentCaseIdRef: serializeWire(opts.selectedCaseIdRef, {
-				target: "xform",
-				constraint: false,
-			}).text,
-		}),
-		...(opts.searchAnswers !== undefined && {
-			searchAnswers: opts.searchAnswers,
-		}),
-		...(form.type === "registration" &&
-			opts.moduleCaseType !== undefined && {
-				ownNewCaseIdRef: serializeWire(
-					w.instance(sessionInstance(), [
-						w.step("session"),
-						w.step("data"),
-						w.step(newCaseIdDatumId(opts.moduleCaseType)),
-					]),
-					{ target: "xform", constraint: false },
-				).text,
-			}),
-	};
-	const expand = (expr: string): string =>
-		lowerXPathForJavaRosa(expandHashtagsInContext(expr, formCtx));
-	// A default's form reads print relative to the question it sets.
-	const expandDefault = (expr: string, target: FormPath): string =>
-		spellPredicateSelf(
-			lowerXPathForJavaRosa(
-				expandHashtagsForDefaultValue(expr, formCtx, target),
-			),
-		);
-
-	// Editor-vocabulary projector for the `vellum:*` shadow attributes, threaded
-	// like `expand`. Returns the shadow text, which carries `#form/` references
-	// alone, or `undefined` when the slot must emit no shadow. Memoized per
-	// expression string: this runs inside the deep-validator compile loop on
-	// every commit-gated mutation batch, and labels alone invoke it twice per
-	// itext entry (plain + markdown `<value>`).
-	const shorthandMemo = new Map<string, string | undefined>();
-	const shorthand = (expr: string): string | undefined => {
-		if (shorthandMemo.has(expr)) return shorthandMemo.get(expr);
-		const editorXPath = vellumShorthandInContext(expr, formCtx);
-		const projected =
-			editorXPath === undefined
-				? undefined
-				: lowerXPathForJavaRosa(editorXPath);
-		shorthandMemo.set(expr, projected);
-		return projected;
-	};
 
 	// Register an itext `<text>` entry. Every entry emits both the plain value
 	// AND a `<value form="markdown">` duplicate — CommCare only renders
@@ -846,6 +750,12 @@ export function buildXFormSource(
 		);
 		const sourceTemplate = label ?? { parts: [] };
 		const unitId = itextUnitIds.get(id);
+		const unit = itextUnits.get(id);
+		const lowerProse = (part: ProseReferencePart): WireExpr => {
+			if (unit === undefined)
+				throw new Error(`The reference in ${id} has no owning prose slot.`);
+			return expressions.prose(part, itextProseSlot(unit));
+		};
 		const localizedTemplates = localization.languages.map((language) =>
 			unitId === undefined
 				? sourceTemplate
@@ -864,8 +774,7 @@ export function buildXFormSource(
 						language,
 						template: localizedTemplates[index] ?? sourceTemplate,
 					})),
-					doc,
-					expand,
+					lowerProse,
 				)
 			: undefined;
 		for (const [index, language] of localization.languages.entries()) {
@@ -876,15 +785,11 @@ export function buildXFormSource(
 			const labelTemplate = localizedTemplates[index] ?? sourceTemplate;
 			languageEntries.push(
 				el("text", { id }, [
-					el(
-						"value",
-						{},
-						buildLabelNodes(labelTemplate, doc, expand, shorthand, context),
-					),
+					el("value", {}, buildLabelNodes(labelTemplate, lowerProse, context)),
 					el(
 						"value",
 						{ form: "markdown" },
-						buildLabelNodes(labelTemplate, doc, expand, shorthand, context),
+						buildLabelNodes(labelTemplate, lowerProse, context),
 					),
 					...itextMediaValues(media, opts.assets, "buildXForm"),
 					...(protectedMessage?.forms.get(language) ?? []),
@@ -909,9 +814,6 @@ export function buildXFormSource(
 			doc,
 			fieldUuid,
 			FormPath.root(),
-			// Top-level fields get an empty itext-key prefix, so their key is
-			// just `field.id` — the common flat-form case.
-			"",
 			dataElements,
 			binds,
 			setvalues,
@@ -919,9 +821,7 @@ export function buildXFormSource(
 			false,
 			addItext,
 			context,
-			expand,
-			expandDefault,
-			shorthand,
+			expressions,
 			opts.assets,
 			lookupSelects,
 			opts.attachmentTarget,
@@ -931,7 +831,7 @@ export function buildXFormSource(
 	}
 
 	// Connect data + binds are data-only (no body elements).
-	const connectParts = buildConnectBlocks(doc, opts.connect, context, expand);
+	const connectParts = buildConnectBlocks(opts.connect, context, expressions);
 	dataElements.push(...connectParts.dataElements);
 	binds.push(...connectParts.binds);
 
@@ -966,6 +866,7 @@ export function buildXFormSource(
 		generatedNodes,
 		opts.moduleCaseType,
 		instances,
+		expressions,
 		opts.lookupNaming,
 		opts.selectedCaseIdRef,
 		opts.selectedCasesInstanceId,
@@ -1065,8 +966,7 @@ function readOptions(
 
 /**
  * Read a field's `Media` slot (`label_media` / `help_media`) regardless
- * of which kind declares it — same untyped-lookup rationale as `readFieldString` /
- * `readOptions`. Returns `undefined` for kinds that don't carry the
+ * of which kind declares it — the same union-wide lookup as `readOptions`. Returns `undefined` for kinds that don't carry the
  * slot (so the caller emits no media for it).
  */
 function readFieldMedia(field: Field, key: string): Media | undefined {
@@ -1089,27 +989,14 @@ function readFieldMedia(field: Field, key: string): Media | undefined {
  * Generated count values are siblings of their repeat. Data and bind slots
  * are rewritten in place after children are assembled.
  *
- * `itextKeyPrefix` is the ancestry prefix every itext id this field emits is
- * built from: `itextKey = itextKeyPrefix + field.id`, and children recurse
- * with `itextKey + "-"`. itext ids share a single flat namespace per form
- * (`<text id="...">`), and JavaRosa hard-rejects a duplicate id at parse
- * (`commcare-core .../xform/parse/XFormParser.java::parseTextHandle`). But a
- * `field.id` is unique only among SIBLINGS — cousins in different containers
- * may legally share one (the validator's `duplicateFieldIds` scopes
- * uniqueness to one level). Keying itext by `field.id` alone therefore
- * collides for two cousins sharing an id, producing an invalid form from a
- * valid authoring state. Threading the key forward from the field-id ancestry
- * (NOT recovered from the assembled node path — synthetic path segments like
- * the query_bound `/item` level must not leak into the key) makes every id
- * form-unique: cousins differ because their prefixes differ, siblings can't
- * collide because their ids are unique. itext ids are regenerated every emit
- * and never persisted, so the scheme carries no migration concern.
+ * Itext IDs follow the logical field ancestry in `itextIds.ts`. Physical
+ * query-repeat item steps never enter those IDs, and cousin fields with the
+ * same authored id remain distinct in the form's flat itext namespace.
  */
 function buildFieldParts(
 	doc: BlueprintDoc,
 	fieldUuid: Uuid,
 	parentPath: FormPath,
-	itextKeyPrefix: string,
 	dataElements: Element[],
 	binds: Element[],
 	setvalues: Element[],
@@ -1117,9 +1004,7 @@ function buildFieldParts(
 	insideRepeat: boolean,
 	addItext: AddItext,
 	context: WireElementContext,
-	expand: (expr: string) => string,
-	expandDefault: (expr: string, target: FormPath) => string,
-	shorthand: (expr: string) => string | undefined,
+	expressions: FormExpressionEmission,
 	assets: AssetManifest | undefined,
 	lookupSelects: LookupSelectEmissionKit | undefined,
 	attachmentTarget: AttachmentUrlTarget | undefined,
@@ -1138,16 +1023,37 @@ function buildFieldParts(
 		);
 	}
 	const nodePath = parentPath.child(field.id);
-	// Form-unique itext key, built forward from the field-id ancestry (see the
-	// `itextKeyPrefix` paragraph above). Every `<text id>` definition and every
-	// `jr:itext('...')` reference this field emits derives from this one value.
-	const itextKey = itextKeyPrefix + field.id;
+	// Itext identity follows logical authored ancestry, shared with parsing
+	// and expression printing even when physical repeats add an item node.
+	const itextKey = fieldItextKey(expressions.form, fieldUuid);
+	if (itextKey === undefined)
+		throw new Error(`Field ${fieldUuid} has no reachable itext identity.`);
 
-	const relevant = readFieldString(field, "relevant", doc);
-	const validate = readFieldString(field, "validate", doc);
-	const calculate = readFieldString(field, "calculate", doc);
-	const defaultValue = readFieldString(field, "default_value", doc);
-	const required = readFieldString(field, "required", doc);
+	const relevant = expressionSlotValue(doc, {
+		entity: "field",
+		uuid: fieldUuid,
+		slot: "relevant",
+	});
+	const validate = expressionSlotValue(doc, {
+		entity: "field",
+		uuid: fieldUuid,
+		slot: "validate",
+	});
+	const calculate = expressionSlotValue(doc, {
+		entity: "field",
+		uuid: fieldUuid,
+		slot: "calculate",
+	});
+	const defaultValue = expressionSlotValue(doc, {
+		entity: "field",
+		uuid: fieldUuid,
+		slot: "default_value",
+	});
+	const required = expressionSlotValue(doc, {
+		entity: "field",
+		uuid: fieldUuid,
+		slot: "required",
+	});
 	const carrier = field as unknown as Record<string, unknown>;
 	const label = carrier.label as ProseTemplate | undefined;
 	const hint = carrier.hint as ProseTemplate | undefined;
@@ -1186,23 +1092,13 @@ function buildFieldParts(
 	const dataSlot = dataElements.length;
 	dataElements.push(el(field.id, {}));
 
-	// Bind: real attributes get expanded XPath; `vellum:*` attrs carry the
-	// shorthand PROJECTED INTO THE EDITOR'S VOCABULARY (`shorthand` — see
-	// `vellumShorthandInContext`) for the Vellum round-trip. Every attribute
-	// but `constraint` is spelled with a predicate's own node as `./.`
-	// (`xpath/selfSteps.ts`): there HQ's form builder reads a bare `.` as the
-	// question itself. In a validation condition `.` is the answer and the
-	// editor allows it. Attributes are accumulated in an ordered object so the
-	// emitted attribute sequence matches the prior emitter (the serializer
-	// preserves insertion order).
-	const computed = (expr: string) =>
-		legacyProjectedAuthoredXPath(spellPredicateSelf(expand(expr)));
-	const computedShorthand = (expr: string) => {
-		const projected = shorthand(expr);
-		return projected === undefined
-			? undefined
-			: legacyProjectedAuthoredXPath(spellPredicateSelf(projected));
-	};
+	// Both runtime and editor attributes serialize the same typed expression.
+	// The Vellum serializer decides whether that expression has an editor spelling.
+	const lower = (
+		expression: Expression,
+		slot: "required" | "relevant" | "calculate" | "default_value" | "validate",
+	) =>
+		expressions.lower(expression, { entity: "field", uuid: fieldUuid, slot });
 	// A case name or an external id is checked at the question a worker
 	// answers, on the kinds `caseScalarTextGuardIsChecked` names; Preview's
 	// form engine checks the same ones.
@@ -1214,12 +1110,6 @@ function buildFieldParts(
 		"vellum:nodeset": nodePath.toWire("hashtag"),
 		nodeset: nodePath.toWire(),
 	};
-	const bindAuthored: Partial<
-		Record<
-			keyof NonNullable<WireElementSpec<"bind">["authoredXPath"]>,
-			AuthoredXPathValue
-		>
-	> = {};
 	const bindType =
 		fieldValueType(field, effectiveCaseTypes(doc)) === "datetime"
 			? "xsd:dateTime"
@@ -1236,10 +1126,9 @@ function buildFieldParts(
 		// deliberately NOT emitted — JavaRosa ignores it with an "unrecognized
 		// attributes" parse warning, and Vellum reconstructs the condition from
 		// `required` when it's absent.
-		const requiredShorthand = computedShorthand(required);
-		if (requiredShorthand !== undefined)
-			bindAuthored["vellum:requiredCondition"] = requiredShorthand;
-		bindAuthored.required = computed(required);
+		const value = lower(required, "required");
+		bindXPath["vellum:requiredCondition"] = value;
+		bindXPath.required = value;
 	}
 	// CommCare requires an answer to the question that names a case the form
 	// creates. The stamp replaces an authored required condition, as HQ's
@@ -1247,8 +1136,8 @@ function buildFieldParts(
 	// A Hidden Value takes no `required`: HQ's form builder marks one
 	// "Required is not allowed." on every save.
 	if (caseScalarText.createNames.has(fieldUuid) && field.kind !== "hidden") {
-		delete bindAuthored["vellum:requiredCondition"];
-		bindAuthored.required = w.call("true");
+		delete bindXPath["vellum:requiredCondition"];
+		bindXPath.required = w.call("true");
 	}
 
 	// Validation (constraint + constraintMsg) is meaningful only on input
@@ -1265,33 +1154,24 @@ function buildFieldParts(
 					caseScalarTextValueCalculation(w.context([w.self()])),
 					scalarGuard,
 				);
-	const withScalarCheck = (
-		constraint: string,
-		target: "xform" | "vellum",
-	): AuthoredXPathValue => {
-		const authored = legacyProjectedAuthoredXPath(constraint);
-		return checksScalar
-			? legacyAuthoredAnd([authored, scalarCheck], { target, constraint: true })
-			: authored;
-	};
 	if (canValidate && validate) {
-		const expression = fieldExpressionValue(field, "validate");
-		const plan = expression
-			? planConstraintCollections(expression, fieldUuid, doc, nodePath, (n) =>
-					generatedNodes.constraintCount(fieldUuid, n),
-				)
-			: { source: validate, calculations: [] };
-		const validateShorthand = shorthand(plan.source);
-		if (validateShorthand !== undefined)
-			bindAuthored["vellum:constraint"] = withScalarCheck(
-				validateShorthand,
-				"vellum",
-			);
-		bindAuthored.constraint = withScalarCheck(expand(plan.source), "xform");
+		const plan = planConstraintCollections(
+			validate,
+			fieldUuid,
+			doc,
+			nodePath,
+			(n) => generatedNodes.constraintCount(fieldUuid, n),
+		);
+		const value = expressions.lower(
+			plan.expression,
+			{ entity: "field", uuid: fieldUuid, slot: "validate" },
+			plan.overrides,
+		);
+		const constraint = checksScalar ? w.and(value, scalarCheck) : value;
+		bindXPath["vellum:constraint"] = constraint;
+		bindXPath.constraint = constraint;
 		for (const calculation of plan.calculations) {
 			dataElements.push(el(calculation.name, {}));
-			// No `vellum:calculate`: the count filters a form reference, which
-			// the editor cannot parse as a hashtag.
 			binds.push(
 				xel(
 					"bind",
@@ -1300,15 +1180,15 @@ function buildFieldParts(
 						xpath: {
 							nodeset: calculation.path.toWire(),
 							relevant: w.gt(w.call("count", [nodePath.toWire()]), w.num(0)),
+							calculate: lower(calculation.expression, "validate"),
 						},
-						authoredXPath: { calculate: computed(calculation.source) },
 					},
 					context,
 				),
 			);
 		}
 	} else if (checksScalar) {
-		bindAuthored.constraint = scalarCheck;
+		bindXPath.constraint = scalarCheck;
 	}
 
 	// Standard messages use an itext reference. Protected messages compose
@@ -1322,22 +1202,20 @@ function buildFieldParts(
 	// (a `jr:constraintMsg` ref against a non-registered entry is parse-fatal
 	// at JavaRosa install).
 	if (hasValidationMessage) {
-		bindAuthored["jr:constraintMsg"] =
+		bindXPath["jr:constraintMsg"] =
 			validationMessage.protectedConstraint ??
 			w.call("jr:itext", [w.str(`${itextKey}-constraintMsg`)]);
 	}
 
 	if (relevant) {
-		const relevantShorthand = computedShorthand(relevant);
-		if (relevantShorthand !== undefined)
-			bindAuthored["vellum:relevant"] = relevantShorthand;
-		bindAuthored.relevant = computed(relevant);
+		const value = lower(relevant, "relevant");
+		bindXPath["vellum:relevant"] = value;
+		bindXPath.relevant = value;
 	}
 	if (calculate) {
-		const calculateShorthand = computedShorthand(calculate);
-		if (calculateShorthand !== undefined)
-			bindAuthored["vellum:calculate"] = calculateShorthand;
-		bindAuthored.calculate = computed(calculate);
+		const value = lower(calculate, "calculate");
+		bindXPath["vellum:calculate"] = value;
+		bindXPath.calculate = value;
 	}
 
 	// Setvalue for `default_value`. Inside a repeat group we fire on `jr-insert`
@@ -1355,11 +1233,7 @@ function buildFieldParts(
 					xpath: {
 						"vellum:ref": nodePath.toWire("hashtag"),
 						ref: nodePath.toWire(),
-					},
-					authoredXPath: {
-						value: legacyProjectedAuthoredXPath(
-							expandDefault(defaultValue, nodePath),
-						),
+						value: lower(defaultValue, "default_value"),
 					},
 				},
 				context,
@@ -1372,14 +1246,12 @@ function buildFieldParts(
 	// a generated sibling's bind to this same array, so a blind `pop()` would
 	// remove the wrong entry.
 	const bindSlot = binds.length;
-	const projectedBind = partitionAuthoredXPath(bindAuthored);
 	binds.push(
 		xel(
 			"bind",
 			{
 				attributes: bindAttributes,
-				xpath: { ...bindXPath, ...projectedBind.xpath },
-				authoredXPath: projectedBind.authoredXPath,
+				xpath: bindXPath,
 			},
 			context,
 		),
@@ -1531,9 +1403,7 @@ function buildFieldParts(
 			bodyElements,
 			addItext,
 			context,
-			expand,
-			expandDefault,
-			shorthand,
+			expressions,
 			assets,
 			lookupSelects,
 			attachmentTarget,
@@ -1552,17 +1422,26 @@ function buildFieldParts(
 		: undefined;
 	let caseItemset: Element | undefined;
 	if (caseSource) {
-		const nodeset = caseOptionsNodeset(caseSource, effectiveCaseTypes(doc), {
-			formFields: lookupSelects?.filterFieldPaths(nodePath),
-			formCaseProperty: lookupSelects?.formCaseProperty,
-			userPropertySlugs: userPropertySlugsByUuid(doc),
-			...(lookupSelects?.naming && {
-				lookup: {
-					naming: lookupSelects.naming,
-					instanceScope: "xform" as const,
-				},
+		const nodeset = caseOptionsNodeset(
+			caseSource,
+			expressions.context({
+				entity: "field",
+				uuid: fieldUuid,
+				slot: "lookup_options_source",
 			}),
-		});
+			{
+				formFields: lookupSelects?.filterFieldPaths(nodePath),
+				formCaseProperty: lookupSelects?.formCaseProperty,
+				userPropertySlugs: userPropertySlugsByUuid(doc),
+				...(lookupSelects?.naming && {
+					lookup: {
+						naming: lookupSelects.naming,
+						instanceScope: "xform" as const,
+					},
+				}),
+			},
+			expressions.projection,
+		);
 		caseItemset = xel("itemset", { xpath: { nodeset } }, context, [
 			xel(
 				"label",
@@ -1579,7 +1458,14 @@ function buildFieldParts(
 	const itemset =
 		caseItemset ??
 		(lookupSource !== undefined && lookupSelects !== undefined
-			? buildLookupItemset(lookupSource, lookupSelects, nodePath, context)
+			? buildLookupItemset(
+					lookupSource,
+					lookupSelects,
+					nodePath,
+					context,
+					expressions,
+					fieldUuid,
+				)
 			: undefined);
 	bodyElements.push(
 		buildLeafControl(
@@ -1715,6 +1601,8 @@ function buildLookupItemset(
 	lookupSelects: LookupSelectEmissionKit,
 	nodePath: FormPath,
 	context: WireElementContext,
+	expressions: FormExpressionEmission,
+	fieldUuid: Uuid,
 ): Element {
 	if (!lookupSelects.naming)
 		throw new Error("Lookup choices need a wire naming catalog.");
@@ -1726,7 +1614,12 @@ function buildLookupItemset(
 			predicates.push(
 				toWire(filter, {
 					target: "xform",
-					types: {},
+					types: expressions.context({
+						entity: "field",
+						uuid: fieldUuid,
+						slot: "lookup_options_source",
+					}),
+					form: expressions.projection,
 					anchor: { kind: "unaddressable" },
 					bindings: {
 						formFields: lookupSelects.filterFieldPaths(nodePath),
@@ -1940,7 +1833,7 @@ function buildContainer(
 	nodePath: FormPath,
 	itextKey: string,
 	hasLabel: boolean,
-	relevant: string | undefined,
+	relevant: Expression | undefined,
 	insideRepeat: boolean,
 	dataSlot: number,
 	bindSlot: number,
@@ -1950,9 +1843,7 @@ function buildContainer(
 	bodyElements: Element[],
 	addItext: AddItext,
 	context: WireElementContext,
-	expand: (expr: string) => string,
-	expandDefault: (expr: string, target: FormPath) => string,
-	shorthand: (expr: string) => string | undefined,
+	expressions: FormExpressionEmission,
 	assets: AssetManifest | undefined,
 	lookupSelects: LookupSelectEmissionKit | undefined,
 	attachmentTarget: AttachmentUrlTarget | undefined,
@@ -1986,10 +1877,6 @@ function buildContainer(
 			doc,
 			childUuid,
 			childParentPath,
-			// Children's itext keys hang off this field's key — the ancestry
-			// prefix grows by one segment per nesting level, keeping cousins in
-			// distinct subtrees from ever colliding.
-			`${itextKey}-`,
 			childData,
 			childBinds,
 			childSetvalues,
@@ -1997,9 +1884,7 @@ function buildContainer(
 			childInsideRepeat,
 			addItext,
 			context,
-			expand,
-			expandDefault,
-			shorthand,
+			expressions,
 			assets,
 			lookupSelects,
 			attachmentTarget,
@@ -2050,23 +1935,19 @@ function buildContainer(
 	// is dropped entirely. Child binds always append at the end (order is
 	// irrelevant to JavaRosa).
 	if (relevant) {
-		const relevantShorthand = shorthand(relevant);
+		const value = expressions.lower(relevant, {
+			entity: "field",
+			uuid: fieldUuid,
+			slot: "relevant",
+		});
 		binds[bindSlot] = xel(
 			"bind",
 			{
 				xpath: {
 					"vellum:nodeset": nodePath.toWire("hashtag"),
 					nodeset: nodePath.toWire(),
-				},
-				authoredXPath: {
-					relevant: legacyProjectedAuthoredXPath(
-						spellPredicateSelf(expand(relevant)),
-					),
-					...(relevantShorthand !== undefined && {
-						"vellum:relevant": legacyProjectedAuthoredXPath(
-							spellPredicateSelf(relevantShorthand),
-						),
-					}),
+					relevant: value,
+					"vellum:relevant": value,
 				},
 			},
 			context,
@@ -2097,7 +1978,6 @@ function buildContainer(
 	if (field.kind === "repeat") {
 		bodyElements.push(
 			buildRepeatBody(
-				doc,
 				field,
 				nodePath,
 				labelEl,
@@ -2107,7 +1987,7 @@ function buildContainer(
 				binds,
 				dataElements,
 				context,
-				expand,
+				expressions,
 				generatedNodes,
 			),
 		);
@@ -2174,7 +2054,6 @@ function buildContainer(
  *     data-element rewrite).
  */
 function buildRepeatBody(
-	doc: BlueprintDoc,
 	field: Field & { kind: "repeat" },
 	nodePath: FormPath,
 	labelEl: Element | undefined,
@@ -2184,26 +2063,32 @@ function buildRepeatBody(
 	binds: Element[],
 	scopeDataElements: Element[],
 	context: WireElementContext,
-	expand: (expr: string) => string,
+	expressions: FormExpressionEmission,
 	generatedNodes: GeneratedNodePlan,
 ): Element {
 	let repeatNodeset = nodePath.toWire();
 	const repeatXPath: NonNullable<WireElementSpec<"repeat">["xpath"]> = {};
 	const repeatAttributes: Record<string, string> = {};
 	if (field.repeat_mode === "count_bound") {
-		const repeatCount = readFieldString(field, "repeat_count", doc) ?? "";
-		const expandedCount = spellPredicateSelf(expand(repeatCount));
-		// Core's jr:count takes a location path, so other expressions calculate
-		// into a generated integer sibling. A direct field is already a path.
-		const directReference = directRepeatCountReference(
-			field.repeat_count,
-			doc.fields,
-		);
-		let countPath: FormPath;
-		if (directReference === undefined) {
-			const name = generatedNodes.count(field.uuid);
-			countPath = nodePath.parent().child(name);
-			scopeDataElements.push(el(name, {}));
+		const carrier = expressions.counts.forRepeat(field.uuid);
+		if (carrier === undefined)
+			throw new Error(`Repeat ${field.id} has no count carrier plan.`);
+		const countPath = carrier.materialized
+			? expressions.projection.path({
+					kind: "repeat",
+					repeat: field.uuid,
+					role: "count-result",
+				})
+			: carrier.directReference === undefined
+				? undefined
+				: expressions.projection.path({
+						kind: "field",
+						uuid: carrier.directReference,
+					});
+		if (countPath === undefined)
+			throw new Error(`Repeat ${field.id} has no projected count path.`);
+		if (carrier.materialized) {
+			scopeDataElements.push(el(generatedNodes.count(field.uuid), {}));
 			binds.push(
 				xel(
 					"bind",
@@ -2212,15 +2097,17 @@ function buildRepeatBody(
 						xpath: {
 							nodeset: countPath.toWire(),
 							"vellum:nodeset": countPath.toWire("hashtag"),
-						},
-						authoredXPath: {
-							calculate: legacyProjectedAuthoredXPath(expandedCount),
+							calculate: expressions.lower(carrier.expression, {
+								entity: "field",
+								uuid: field.uuid,
+								slot: "repeat_count",
+							}),
 						},
 					},
 					context,
 				),
 			);
-		} else countPath = FormPath.parse(expandedCount.trim());
+		}
 		// Both slots name the same node, including query-repeat item segments.
 		repeatXPath["jr:count"] = countPath.toWire();
 		repeatXPath["vellum:jr__count"] = countPath.toWire("hashtag");
@@ -2235,15 +2122,17 @@ function buildRepeatBody(
 		repeatNodeset = itemPath.toWire();
 		repeatXPath["jr:count"] = countAttrPath;
 		repeatAttributes["jr:noAddRemove"] = "true()";
-		const idsQuery = readFieldString(field, "ids_query", doc) ?? "";
-		const idsValue = legacyAuthoredCall(
-			"join",
-			[
-				w.str(" "),
-				legacyProjectedAuthoredXPath(spellPredicateSelf(expand(idsQuery))),
-			],
-			context.mode,
-		);
+		const idsQuery = field.data_source.ids_query;
+		if (idsQuery === undefined)
+			throw new Error(`Repeat ${field.id} has no row query.`);
+		const idsValue = w.call("join", [
+			w.str(" "),
+			expressions.lower(idsQuery, {
+				entity: "field",
+				uuid: field.uuid,
+				slot: "ids_query",
+			}),
+		]);
 		// Counts recalculate when a previously irrelevant repeat becomes relevant.
 		binds.push(
 			xel(
@@ -2282,14 +2171,12 @@ function buildRepeatBody(
 		);
 		// The outer insertion seeds a nested query. Each item then gets its own id.
 		const seedEvent = insideRepeat ? "jr-insert" : "xforms-ready";
-		const projectedIds = partitionAuthoredXPath({ value: idsValue });
 		setvalues.push(
 			xel(
 				"setvalue",
 				{
 					attributes: { event: seedEvent },
-					xpath: { ref: idsAttrPath, ...projectedIds.xpath },
-					authoredXPath: projectedIds.authoredXPath,
+					xpath: { ref: idsAttrPath, value: idsValue },
 				},
 				context,
 			),

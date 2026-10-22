@@ -4,13 +4,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import {
-	buildDoc,
-	caseListConfig,
-	f,
-	xp,
-	xpIn,
-} from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { Mutation } from "@/lib/doc/types";
 import type {
 	BlueprintDoc,
@@ -19,7 +13,8 @@ import type {
 	ConnectLearnConfig,
 	Uuid,
 } from "@/lib/domain";
-import { formExpressionSource, isConnectLearnConfig } from "@/lib/domain";
+import { isConnectLearnConfig } from "@/lib/domain";
+import { concat, formField, literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { type AddFieldsInput, addFieldsTool } from "../../tools/addFields";
 import { type UpdateFormInput, updateFormTool } from "../../tools/updateForm";
@@ -158,7 +153,7 @@ function makeDocWithFullConnect(): BlueprintDoc {
 		},
 		assessment: {
 			id: "patient_enroll_quiz",
-			user_score: xp("100"),
+			user_score: term(literal(100)),
 		},
 	};
 	return {
@@ -472,7 +467,7 @@ describe("updateFormTool partial connect-config updates", () => {
 			formUuid: FORM_A,
 			connect: {
 				// Touch only `assessment` — `learn_module` must survive.
-				assessment: { user_score: xp("80") },
+				assessment: { user_score: term(literal(80)) },
 			},
 		} satisfies UpdateFormInput);
 
@@ -496,9 +491,8 @@ describe("updateFormTool partial connect-config updates", () => {
 		const patchedDoc = h.currentDoc();
 		const patchedForm = patchedDoc.forms[FORM_A];
 		expect(
-			patchedForm &&
-				formExpressionSource(patchedForm, "assessment_user_score", patchedDoc),
-		).toBe("80");
+			requireLearnConnect(patchedForm?.connect).assessment?.user_score,
+		).toEqual(term(literal(80)));
 	});
 
 	it("patching only `learn_module` preserves the existing `assessment`", async () => {
@@ -531,9 +525,8 @@ describe("updateFormTool partial connect-config updates", () => {
 		const patchedDoc = h.currentDoc();
 		const patchedForm = patchedDoc.forms[FORM_A];
 		expect(
-			patchedForm &&
-				formExpressionSource(patchedForm, "assessment_user_score", patchedDoc),
-		).toBe("100");
+			requireLearnConnect(patchedForm?.connect).assessment?.user_score,
+		).toEqual(term(literal(100)));
 		/* Merge semantics: the spread keeps pre-existing `id` from the
 		 * existing learn_module plus the new name/description/time
 		 * the patch supplied. */
@@ -582,7 +575,7 @@ describe("updateFormTool connect-id validity", () => {
 			moduleUuid: MOD_A,
 			formUuid: FORM_A,
 			connect: {
-				assessment: { id: "a".repeat(60), user_score: xp("100") },
+				assessment: { id: "a".repeat(60), user_score: term(literal(100)) },
 			},
 		} satisfies UpdateFormInput);
 		expect(result.mutations).toEqual([]);
@@ -602,7 +595,7 @@ describe("updateFormTool connect-id validity", () => {
 			formUuid: FORM_A,
 			// learn_module already has id "patient_module" on this form.
 			connect: {
-				assessment: { id: "patient_module", user_score: xp("100") },
+				assessment: { id: "patient_module", user_score: term(literal(100)) },
 			},
 		} satisfies UpdateFormInput);
 		expect(result.mutations).toEqual([]);
@@ -726,8 +719,12 @@ describe("updateFormTool deliver_unit", () => {
 						deliver_unit: {
 							id: "vendor_visit",
 							name: "Vendor visit",
-							entity_id: xp("concat('vendor-', uuid())"),
-							entity_name: xp("'Vendor'"),
+							entity_id: concat(term(literal("vendor-")), {
+								kind: "call",
+								fn: "uuid",
+								args: [],
+							}),
+							entity_name: term(literal("Vendor")),
 						},
 					},
 				},
@@ -753,13 +750,13 @@ describe("updateFormTool deliver_unit", () => {
 			name: "Vendor visit (updated)",
 		});
 		expect(
-			finalForm &&
-				formExpressionSource(finalForm, "deliver_entity_id", finalDoc),
-		).toBe("concat('vendor-', uuid())");
+			requireDeliverConnect(finalForm?.connect).deliver_unit?.entity_id,
+		).toEqual(
+			concat(term(literal("vendor-")), { kind: "call", fn: "uuid", args: [] }),
+		);
 		expect(
-			finalForm &&
-				formExpressionSource(finalForm, "deliver_entity_name", finalDoc),
-		).toBe("'Vendor'");
+			requireDeliverConnect(finalForm?.connect).deliver_unit?.entity_name,
+		).toEqual(term(literal("Vendor")));
 	});
 
 	it("accepts SA-supplied entity_id and entity_name and lands them on the doc verbatim", async () => {
@@ -789,8 +786,8 @@ describe("updateFormTool deliver_unit", () => {
 			connect: {
 				deliver_unit: {
 					name: "Beneficiary visit",
-					entity_id: xpIn(doc, FORM_A, "#form/case_name"),
-					entity_name: xpIn(doc, FORM_A, "#form/case_name"),
+					entity_id: term(formField(fieldUuid(doc, "case_name"))),
+					entity_name: term(formField(fieldUuid(doc, "case_name"))),
 				},
 			},
 		} satisfies UpdateFormInput);
@@ -805,13 +802,11 @@ describe("updateFormTool deliver_unit", () => {
 			name: "Beneficiary visit",
 		});
 		expect(
-			finalForm &&
-				formExpressionSource(finalForm, "deliver_entity_id", finalDoc),
-		).toBe("#form/case_name");
+			requireDeliverConnect(finalForm?.connect).deliver_unit?.entity_id,
+		).toEqual(term(formField(fieldUuid(doc, "case_name"))));
 		expect(
-			finalForm &&
-				formExpressionSource(finalForm, "deliver_entity_name", finalDoc),
-		).toBe("#form/case_name");
+			requireDeliverConnect(finalForm?.connect).deliver_unit?.entity_name,
+		).toEqual(term(formField(fieldUuid(doc, "case_name"))));
 	});
 
 	it("schema accepts a partial deliver_unit with only entity_id set (entity_name still falls through to wire default)", async () => {
@@ -828,7 +823,7 @@ describe("updateFormTool deliver_unit", () => {
 			connect: {
 				deliver_unit: {
 					name: "Site visit",
-					entity_id: xpIn(doc, FORM_A, "#form/case_name"),
+					entity_id: term(formField(fieldUuid(doc, "case_name"))),
 				},
 			},
 		} satisfies UpdateFormInput);
@@ -843,9 +838,8 @@ describe("updateFormTool deliver_unit", () => {
 			name: "Site visit",
 		});
 		expect(
-			finalForm &&
-				formExpressionSource(finalForm, "deliver_entity_id", finalDoc),
-		).toBe("#form/case_name");
+			requireDeliverConnect(finalForm?.connect).deliver_unit?.entity_id,
+		).toEqual(term(formField(fieldUuid(doc, "case_name"))));
 		expect(
 			requireDeliverConnect(finalForm?.connect).deliver_unit?.entity_name,
 		).toBeUndefined();

@@ -15,7 +15,6 @@ import {
 	caseListConfig,
 	type FormSpec,
 	f,
-	xp,
 } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
@@ -28,6 +27,7 @@ import {
 	type PostSubmitDestination,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import { eq, literal, sessionUser } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "../../__tests__/admittedDoc";
 
@@ -294,7 +294,7 @@ const linkFrom = (doc: BlueprintDoc, formUuid: typeof PARENT_FORM) => {
 		{
 			uuid: LINK,
 			target: { type: "module", moduleUuid: OTHER },
-			condition: xp("#user/username = 'reviewer'"),
+			condition: eq(sessionUser("username"), literal("reviewer")),
 		},
 	];
 };

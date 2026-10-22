@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
-import { dateAdd, dateCoerce, literal, term } from "@/lib/domain/predicate";
+import { dateAdd, dateCoerce, literal, term } from "@/lib/domain/expression";
+import { slotContext } from "@/lib/domain/expression/context";
 import { xpathToString } from "../coerce";
 import { evaluate } from "../evaluator";
 import type { EvalContext } from "../types";
@@ -18,17 +20,40 @@ function evaluateDateAdd(
 	interval: "seconds" | "minutes" | "hours" | "days" | "weeks",
 	quantity: number,
 ): { readonly xpath: string; readonly result: string } {
-	const xpath = serializeWire(
-		toWire(
-			dateAdd(
-				dateCoerce(term(literal(base))),
-				interval,
-				term(literal(quantity)),
-			),
-			{ target: "xform", types: {} },
-		),
-		{ target: "xform", constraint: false },
-	).text;
+	const expression = dateAdd(
+		dateCoerce(term(literal(base))),
+		interval,
+		term(literal(quantity)),
+	);
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Dates",
+				forms: [
+					{
+						name: "Date calculation",
+						type: "survey",
+						fields: [
+							{ id: "date_result", kind: "hidden", calculate: expression },
+						],
+					},
+				],
+			},
+		],
+	});
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	const fieldUuid = doc.fieldOrder[formUuid][0];
+	const types = slotContext(
+		doc,
+		{ entity: "field", uuid: fieldUuid, slot: "calculate" },
+		new Map(),
+	);
+	if (types === undefined)
+		throw new Error("The date calculation has no expression slot context.");
+	const xpath = serializeWire(toWire(expression, { target: "xform", types }), {
+		target: "xform",
+		constraint: false,
+	}).text;
 	return { xpath, result: xpathToString(evaluate(xpath, context)) };
 }
 

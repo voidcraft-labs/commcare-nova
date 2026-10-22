@@ -8,8 +8,8 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
-import { and, eq, literal, matchAll, prop } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
+import { and, eq, literal, matchAll, prop } from "@/lib/domain/expression";
 import { setCaseListFilterTool } from "../setCaseListFilter";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
@@ -25,7 +25,7 @@ describe("setCaseListFilter", () => {
 
 	it("sets the case list filter to the supplied predicate", async () => {
 		const h = fixtureWithConfig();
-		const filter: Predicate = eq(prop("patient", "status"), literal("open"));
+		const filter: Expression = eq(prop("patient", "status"), literal("open"));
 
 		const result = await h.runTool(setCaseListFilterTool, {
 			moduleUuid: MOD_A,
@@ -73,7 +73,7 @@ describe("setCaseListFilter", () => {
 		// the SA reads the predicate's discriminator off `result.kind`
 		// rather than parsing it back out of the prose message.
 		const h = makeCaseListFixture();
-		const filter: Predicate = eq(prop("patient", "status"), literal("open"));
+		const filter: Expression = eq(prop("patient", "status"), literal("open"));
 
 		const result = await h.runTool(setCaseListFilterTool, {
 			moduleUuid: MOD_A,

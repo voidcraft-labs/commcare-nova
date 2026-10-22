@@ -6,7 +6,7 @@ import type { AppTestScope } from "@/lib/db/appTests";
 import type { AppDatabase } from "@/lib/db/pg";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { asUuid, ownRecordValue } from "@/lib/domain";
-import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { balancedKeysBetween } from "@/lib/lookup/orderKeys";
 import {
 	assertLocationPlacementsValid,

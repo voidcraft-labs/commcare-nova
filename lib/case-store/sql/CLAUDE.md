@@ -1,10 +1,12 @@
 # lib/case-store/sql — AST → Kysely compilers
 
-Lowers `Predicate` / `ValueExpression` / `RelationPath` AST nodes into Kysely typed-builder calls Postgres executes natively. The test harness is documented in the parent `lib/case-store/CLAUDE.md`; this file holds the compiler-stack contracts.
+Lowers `Expression` / `RelationPath` AST nodes into Kysely typed-builder calls Postgres executes natively. The test harness is documented in the parent `lib/case-store/CLAUDE.md`; this file holds the compiler-stack contracts.
 
 ## Dispatch + the cycle break
 
-Every `ValueExpression` operand slot routes through one shared helper that forks term vs expression. `expressionContextFor` lifts a predicate context into an expression context by attaching a `compilePredicate` callback — that callback is the cycle break letting the expression compiler's predicate-bearing arms (`if.cond`, `count.where`) recurse back without an import cycle. The per-data-type cast/read-operator tables live in one data-only module so extending the `data_type` enum surfaces a single `Record` exhaustivity error.
+Every operand is one `Expression`; condition arms dispatch through the predicate compiler and value arms through the expression compiler. `expressionContextFor` lifts a predicate context into an expression context by attaching a `compilePredicate` callback — that callback is the cycle break letting the expression compiler's predicate-bearing arms (`if.cond`, `count.where`) recurse back without an import cycle. The per-data-type cast/read-operator tables live in one data-only module so extending the `data_type` enum surfaces a single `Record` exhaustivity error.
+
+Every type-dependent SQL decision uses `recordQueryContextFor`: a `RecordQueryContext` derived from the current row schemas, lookup-row scope, form field types, search input declarations, and resolved operation identities. This runtime context has no authored slot or device profile. It is rebuilt after lexical rebinding rather than cached beside mutable compiler metadata.
 
 The generic AST also carries contextual case-operation leaves: `field { uuid }`, `id-of { opUuid }`, `acting-user`, and `unowned`. SQL callers that genuinely evaluate an operation must supply `TermBindings.formFields`, `TermBindings.operationIds`, and a server-resolved `TermBindings.actingUserId` when referenced; each runtime identity is bound as data, never interpolated. `formFields` alone admits the real multi-select answer shape (`readonly string[]`); the term compiler serializes that array and casts it explicitly to JSONB, rather than letting node-postgres turn it into a Postgres text array. Other binding namespaces remain scalar. `unowned` resolves only to Nova's fixed CommCare `-` sentinel. Case-list/search callers omit submission bindings and the compiler throws a missing-binding invariant if a contextual leaf escapes its admitted context. There is no fallback to UUID text or client-provided identity.
 
@@ -55,7 +57,7 @@ custom datetime values retain their existing shapes.
 
 A Results read orders by the case list's order plan
 (`lib/domain/caseListOrder.ts`), each rule one `SortKey` of `lib/case-store/store.ts`.
-Most keys are a `ValueExpression` this compiler already compiles (a property,
+Most keys are a `Expression` this compiler already compiles (a property,
 a calculation, a select's label `switch`, a link's markdown `concat`), read as the text a device reads
 (`compileExpression.ts::compileDeviceTextExpression`): a multi select's stored
 JSON array is its tokens joined by one space, blank when none is selected. The
@@ -76,7 +78,7 @@ orders an ID mapping or an image map by `selected()`, which finds an entry as
 one space-separated token of the value, so `store.ts::compileMappingPosition`
 tests each entry with `strpos` over the padded device text.
 
-The other key that is no `ValueExpression` is an interval column's shown text: a
+The other key that is no `Expression` is an interval column's shown text: a
 date difference, which `arith` refuses. `compileIntervalText.ts` is its own
 compiler entry, built from typed-builder calls, spelling the branches the
 device evaluates and `formatIntervalForPreview` shows. It reads the stored
@@ -92,7 +94,7 @@ query; its calendar day is the viewer's (`compilePinnedInstant`).
 Numeric and boolean literals carry their SQL type explicitly, so expressions such as
 `1 + 2` work as prepared statements. Whole numbers in int4 range use `integer`;
 fractions and wider numbers use `numeric`. Explicit authored types still win.
-Every arithmetic node preserves its grouping, including a nested right operand
+`div` is real division; `quotient` is explicit truncating division. Every arithmetic node preserves its grouping, including a nested right operand
 with the same precedence: `10 - (5 - 2)` must return `7`.
 
 Numeric coercion binds its input through `text` before the numeric cast. Inside

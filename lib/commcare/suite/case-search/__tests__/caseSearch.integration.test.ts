@@ -16,7 +16,7 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema } from "@/lib/domain";
-import { eq, literal, sessionUser, term } from "@/lib/domain/predicate";
+import { eq, literal, sessionUser, term } from "@/lib/domain/expression";
 
 // Shared tools and the canonical workspace, followed by the real exporters.
 // The workspace host holds committed state in memory; no DB persistence is exercised.

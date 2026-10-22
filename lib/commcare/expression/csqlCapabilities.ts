@@ -7,9 +7,9 @@
  * never executes.
  */
 
-import type { ValueExpression } from "@/lib/domain/predicate/types";
+import type { Expression } from "@/lib/domain/expression/types";
 
-export function isNativeCsqlValueExpression(expr: ValueExpression): boolean {
+export function isNativeCsqlValueExpression(expr: Expression): boolean {
 	switch (expr.kind) {
 		case "term":
 		case "today":
@@ -31,9 +31,7 @@ export function isNativeCsqlValueExpression(expr: ValueExpression): boolean {
 		case "unowned":
 		case "table-lookup":
 			return false;
-		default: {
-			const _exhaustive: never = expr;
-			return _exhaustive;
-		}
+		default:
+			return false;
 	}
 }

@@ -591,24 +591,7 @@ it("requires a saved role and parent selection, then executes additional operati
 		formUuid: "Receipt",
 		post_submit: "previous",
 	});
-	await write("addFields", {
-		formUuid: "Receipt",
-		moduleUuid: "Equipment",
-		fields: [
-			{
-				kind: "hidden",
-				id: "inspection_count",
-				calculate:
-					"count(instance('casedb')/casedb/case[@case_type = 'inspection'])",
-			},
-			{
-				kind: "text",
-				id: "saved_worker_note",
-				label: "Saved worker note",
-				default_value: "#user/last_inspection",
-			},
-		],
-	});
+
 	await write("addCaseOperations", {
 		moduleUuid: "Equipment",
 		formUuid: "Inspect",
@@ -642,6 +625,24 @@ it("requires a saved role and parent selection, then executes additional operati
 					},
 					writes: [{ property: "last_equipment_id", value: "#case/case_id" }],
 				},
+			},
+		],
+	});
+	await write("addFields", {
+		formUuid: "Receipt",
+		moduleUuid: "Equipment",
+		fields: [
+			{
+				kind: "hidden",
+				id: "inspection_count",
+				calculate:
+					"count(instance('casedb')/casedb/case[@case_type = 'inspection'])",
+			},
+			{
+				kind: "text",
+				id: "saved_worker_note",
+				label: "Saved worker note",
+				default_value: "#user/last_inspection",
 			},
 		],
 	});

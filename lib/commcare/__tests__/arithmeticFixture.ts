@@ -1,7 +1,7 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain";
-import { arith, formField, literal, term } from "@/lib/domain/predicate";
+import { arith, formField, literal, term } from "@/lib/domain/expression";
 
 /** One admitted workflow consumed by both native Core and the real SQL store. */
 export function arithmeticFixture() {
@@ -54,7 +54,7 @@ export function arithmeticFixture() {
 				{
 					property: "quotient",
 					value: arith(
-						"div",
+						"quotient",
 						term(formField(numerator)),
 						term(formField(denominator)),
 					),
@@ -77,7 +77,7 @@ export function arithmeticFixture() {
 				},
 				{
 					property: "large",
-					value: arith("div", term(literal(2147483648)), term(literal(3))),
+					value: arith("quotient", term(literal(2147483648)), term(literal(3))),
 				},
 			],
 		},

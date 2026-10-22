@@ -43,7 +43,6 @@ import {
 import { Button } from "@/components/shadcn/button";
 import type { FormLinkMoveVerdict } from "@/lib/doc/formLinkReview";
 import { useFormLinks } from "@/lib/doc/hooks/useFormLinks";
-import { useParseXPathForForm } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
 import type { FormLink, FormLinkTarget } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
@@ -69,8 +68,7 @@ export function FormLinksCanvas({
 	readonly formUuid: Uuid;
 }) {
 	const view = useFormLinks(formUuid);
-	const sentenceContext = useLinkSentenceContext();
-	const parse = useParseXPathForForm(formUuid);
+	const sentenceContext = useLinkSentenceContext(formUuid);
 	const navigate = useNavigate();
 	const canEdit = useCanEdit();
 	const containerKey = useId();
@@ -207,8 +205,8 @@ export function FormLinksCanvas({
 		};
 		const link =
 			kind === "conditional"
-				? seedConditionalLink(seed, parse)
-				: seedOtherwiseLink(seed, parse);
+				? seedConditionalLink(seed)
+				: seedOtherwiseLink(seed);
 		const outcome = view.add(link);
 		if (!outcome.ok) {
 			setRefusal(outcome.messages.join(" "));

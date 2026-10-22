@@ -1,30 +1,29 @@
 /**
  * FormEngine runtime projections over schema-shaped field trees.
  *
- * The engine consumes a `FormEngineInput` (form + fields map + fieldOrder) —
- * the same domain shape produced by the normalized doc store. These tests
- * build fixtures directly in that shape via the `dTree` helper.
+ * The engine consumes an actual app document plus its active form projection.
+ * These fixtures bind source in that document before exercising the runtime.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
-import { parseXPathExpression } from "@/lib/commcare/xpath";
+import {
+	buildDoc,
+	caseListConfig,
+	type FieldSpec,
+	f,
+} from "@/lib/__tests__/docHelpers";
 import type {
 	CaseType,
 	CaseWrite,
 	Field,
-	FieldKind,
-	Form,
 	FormType,
 	ProseTemplate,
 	SelectOptionsSource,
-	Uuid,
-	XPathExpression,
 } from "@/lib/domain";
 import {
-	fieldSchema,
 	makeTranslationUnitId,
+	simpleSearchInputDef,
 	translationUnitsById,
 	USERCASE_CASE_TYPE,
 	writerPreloadsFromLoadedCase,
@@ -43,6 +42,7 @@ import {
 	type FormEngineInput,
 } from "../formEngine";
 import { previewAsMe } from "../identity";
+import { engineFixtureInput } from "./fixtures/engineInput";
 
 const runtimes = new Set<XPathRuntime>();
 function ownedRuntime(options: ConstructorParameters<typeof XPathRuntime>[0]) {
@@ -74,37 +74,33 @@ function caseDataFor(
 /** Convenience type for building field subtrees in test fixtures. The engine
  *  itself works on flat maps — this nested shape is purely for readability at
  *  the call site and is flattened by `dTree()` before construction. */
-interface DField {
-	id: string;
-	kind: FieldKind;
-	label?: ProseTemplate;
-	hint?: ProseTemplate;
-	help?: ProseTemplate;
-	required?: XPathExpression;
-	relevant?: XPathExpression;
-	calculate?: XPathExpression;
-	default_value?: XPathExpression;
-	validate?: XPathExpression;
-	validate_msg?: ProseTemplate;
-	caseWrite?: CaseWrite;
-	optionsSource?: SelectOptionsSource;
-	repeat_mode?: "user_controlled" | "count_bound" | "query_bound";
-	repeat_count?: XPathExpression;
-	data_source?: { ids_query: XPathExpression };
-	children?: DField[];
-}
+type DField = FieldSpec;
+
+const patientFixtureType: CaseType = {
+	name: "patient",
+	properties: [
+		{ name: "case_name", label: proseText("Name"), data_type: "text" },
+		{ name: "age", label: proseText("Age"), data_type: "int" },
+		{ name: "wake_time", label: proseText("Wake time"), data_type: "time" },
+		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
+		{ name: "wake", label: proseText("Wake"), data_type: "time" },
+		{ name: "seen", label: proseText("Seen"), data_type: "datetime" },
+		{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
+		{ name: "hiv_status", label: proseText("HIV status"), data_type: "text" },
+	],
+};
+const ancestorFixtureTypes: CaseType[] = [
+	{ ...patientFixtureType, parent_type: "household" },
+	{
+		name: "household",
+		parent_type: "village",
+		properties: [{ name: "head_name", label: proseText("Head name") }],
+	},
+	{ name: "village", properties: [] },
+];
 
 function prose(...parts: ProseTemplate["parts"]): ProseTemplate {
 	return { parts };
-}
-
-/** Parse `#form/...` fixture text to the deterministic UUIDs `dTree` mints. */
-function formXp(text: string): XPathExpression {
-	return parseXPathExpression(
-		text,
-		(segments) => testUuid(`form.${segments.join(".")}`),
-		() => undefined,
-	);
 }
 
 function inlineOptions(
@@ -121,56 +117,24 @@ function inlineOptions(
 	};
 }
 
-/**
- * Build a `FormEngineInput` from a nested test-fixture tree.
- *
- * Walks the nested `DField` tree and emits (1) a Form entity, (2) a flat
- * `fields` map keyed by uuid, and (3) a `fieldOrder` adjacency map. UUIDs
- * are deterministic — derived from the field's position path — so assertion
- * failures are reproducible and nothing in a test depends on
- * `crypto.randomUUID`.
- */
+/** Bind fixture expressions only after their complete app and slot exist. */
 function dTree(
 	fields: DField[],
 	formType: FormType = "registration",
 	caseTypes: CaseType[] = [],
+	caseType?: string,
+	metadata: Pick<
+		Parameters<typeof engineFixtureInput>[1],
+		"form" | "module" | "userProperties"
+	> = {},
 ): FormEngineInput {
-	const formUuid = testUuid("test-form-uuid");
-	const form: Form = {
-		uuid: formUuid,
-		id: "test-form",
-		name: "Test Form",
-		type: formType,
-	};
-	const fieldMap: Record<string, Field> = {};
-	const fieldOrder: Record<string, Uuid[]> = {};
-
-	// Walk depth-first; the uuid is a stable deterministic path like
-	// "form.groupId.childId" so each fixture position always maps to the
-	// same uuid, keeping test IDs reproducible.
-	function walk(nodes: DField[], parentUuid: Uuid, pathPrefix: string) {
-		const order: Uuid[] = [];
-		for (const n of nodes) {
-			const uuid = testUuid(`${pathPrefix}.${n.id}`);
-			order.push(uuid);
-			const { children, ...rest } = n;
-			fieldMap[uuid as string] = fieldSchema.parse({
-				uuid,
-				...(n.kind === "hidden" ? {} : { label: proseText(n.id) }),
-				...(n.kind === "repeat" ? { repeat_mode: "user_controlled" } : {}),
-				...rest,
-			});
-			// Containers get an entry in fieldOrder even when empty — the engine's
-			// tree builder treats the presence of an entry as the signal to recurse.
-			if (n.kind === "group" || n.kind === "repeat" || n.kind === "section") {
-				walk(children ?? [], uuid, `${pathPrefix}.${n.id}`);
-			}
-		}
-		fieldOrder[parentUuid as string] = order;
-	}
-
-	walk(fields, formUuid, "form");
-	return { form, formUuid, fields: fieldMap, fieldOrder, caseTypes };
+	return engineFixtureInput(fields, {
+		formUuid: testUuid("test-form-uuid"),
+		formType,
+		caseTypes,
+		caseType,
+		...metadata,
+	});
 }
 
 /** Build the real in-process worker seam for one staged engine initialization.
@@ -213,7 +177,7 @@ describe("FormEngine", () => {
 			dTree(
 				[
 					{ id: "bare", kind: "hidden" },
-					{ id: "seeded", kind: "hidden", default_value: xp("'x'") },
+					{ id: "seeded", kind: "hidden", default_value: "'x'" },
 				],
 				"survey",
 			),
@@ -231,14 +195,14 @@ describe("FormEngine", () => {
 						{
 							id: "name",
 							kind: "hidden",
-							calculate: xp("'Contact'"),
+							calculate: "'Contact'",
 							caseWrite: { caseType: "contact", property: "case_name" },
 						},
 						{ id: "method", kind: "text" },
 						...(["phone", "email"] as const).map((kind) => ({
 							id: `${kind}_group`,
 							kind: "group" as const,
-							relevant: formXp(`#form/method = '${kind}'`),
+							relevant: `#form/method = '${kind}'`,
 							children: [
 								{
 									id: kind,
@@ -250,7 +214,7 @@ describe("FormEngine", () => {
 						{
 							id: "saved_method",
 							kind: "hidden",
-							calculate: formXp("#form/method"),
+							calculate: "#form/method",
 							caseWrite: { caseType: "contact", property: "method" },
 						},
 					],
@@ -265,6 +229,7 @@ describe("FormEngine", () => {
 							})),
 						},
 					],
+					"contact",
 				),
 				"contact",
 			);
@@ -297,29 +262,29 @@ describe("FormEngine", () => {
 					{
 						id: "case_name",
 						kind: "hidden",
-						calculate: xp("'Timestamp record'"),
+						calculate: "'Timestamp record'",
 						caseWrite: { caseType: "patient", property: "case_name" },
 					},
 					{
 						id: "calculated_at",
 						kind: "hidden",
-						calculate: xp("now()"),
+						calculate: "now()",
 						caseWrite: { caseType: "patient", property: "calculated_at" },
 					},
 					{
 						id: "defaulted_at",
 						kind: "hidden",
-						default_value: xp("now()"),
+						default_value: "now()",
 						caseWrite: { caseType: "patient", property: "defaulted_at" },
 					},
 					{
 						id: "visible_at",
 						kind: "datetime",
-						default_value: xp("now()"),
+						default_value: "now()",
 						caseWrite: { caseType: "patient", property: "visible_at" },
 					},
-					{ id: "plain_hidden", kind: "hidden", calculate: xp("now()") },
-					{ id: "day", kind: "date", default_value: xp("today()") },
+					{ id: "plain_hidden", kind: "hidden", calculate: "now()" },
+					{ id: "day", kind: "date", default_value: "today()" },
 				],
 				"registration",
 				[
@@ -332,6 +297,7 @@ describe("FormEngine", () => {
 						})),
 					},
 				],
+				"patient",
 			);
 			const engine = new FormEngine(
 				input,
@@ -398,7 +364,7 @@ describe("FormEngine", () => {
 							kind: "text",
 							...(slot === "help"
 								? { help: wording }
-								: { validate: xp("false()"), validate_msg: wording }),
+								: { validate: "false()", validate_msg: wording }),
 						};
 			const input = dTree([{ id: "name", kind: "text" }, target]);
 			const engine = new FormEngine(
@@ -452,8 +418,8 @@ describe("FormEngine", () => {
 		const engine = new FormEngine(
 			dTree([
 				{ id: "source", kind: "text" },
-				{ id: "normalized", kind: "hidden", calculate: xp(normalized) },
-				{ id: "round_trip", kind: "hidden", calculate: xp(roundTrip) },
+				{ id: "normalized", kind: "hidden", calculate: normalized },
+				{ id: "round_trip", kind: "hidden", calculate: roundTrip },
 			]),
 			undefined,
 			undefined,
@@ -530,19 +496,34 @@ describe("FormEngine", () => {
 
 	describe("search answers", () => {
 		const NAME_INPUT = testUuid("search-input-patient-name");
-		const seeded = () => ({
-			...dTree([
+		const searchInput = simpleSearchInputDef(
+			NAME_INPUT,
+			"patient_name",
+			"Name",
+			"text",
+			"case_name",
+		);
+		const searchForm = (fields: DField[]) =>
+			dTree(fields, "registration", [patientFixtureType], "patient", {
+				form: { entry: { kind: "search-no-matches" } },
+				module: {
+					caseListOnly: true,
+					caseSearchConfig: { searchFirst: true },
+					caseListConfig: {
+						...caseListConfig([]),
+						searchInputs: [searchInput],
+					},
+				},
+			});
+		const seeded = () =>
+			searchForm([
 				{
 					id: "name",
 					kind: "text",
 					label: proseText("Name"),
-					default_value: {
-						parts: [{ kind: "search-answer-ref", searchInputUuid: NAME_INPUT }],
-					},
+					default_value: "#search/patient_name",
 				},
-			]),
-			searchInputs: [{ uuid: NAME_INPUT, name: "patient_name" }],
-		});
+			]);
 
 		it("seeds #search/<name> from the completed search's answers", () => {
 			const engine = new FormEngine(
@@ -563,16 +544,14 @@ describe("FormEngine", () => {
 		});
 
 		it("counts #search/<name> as a node of the search-input instance", () => {
-			const counted = () => ({
-				...dTree([
+			const counted = () =>
+				searchForm([
 					{
 						id: "answered",
 						kind: "hidden",
-						calculate: xp("count(#search/patient_name)"),
+						calculate: "count(#search/patient_name)",
 					},
-				]),
-				searchInputs: [{ uuid: NAME_INPUT, name: "patient_name" }],
-			});
+				]);
 			const withAnswer = new FormEngine(
 				counted(),
 				undefined,
@@ -604,13 +583,13 @@ describe("FormEngine", () => {
 					{
 						id: "section",
 						kind: "group",
-						relevant: xp("/data/gate = 'yes'"),
+						relevant: "/data/gate = 'yes'",
 						children: [{ id: "note", kind: "text" }],
 					},
 					{
 						id: "visible_notes",
 						kind: "hidden",
-						calculate: xp("count(/data/section/note)"),
+						calculate: "count(/data/section/note)",
 					},
 				]),
 			);
@@ -630,13 +609,13 @@ describe("FormEngine", () => {
 					{
 						id: "section",
 						kind: "group",
-						relevant: xp("/data/gate = 'yes'"),
+						relevant: "/data/gate = 'yes'",
 						children: [{ id: "note", kind: "text" }],
 					},
 					{
 						id: "visible_notes",
 						kind: "hidden",
-						calculate: xp("count(/data/section/note)"),
+						calculate: "count(/data/section/note)",
 					},
 				]),
 				undefined,
@@ -708,7 +687,7 @@ describe("FormEngine", () => {
 					id: "num_children",
 					kind: "int",
 					label: proseText("How many?"),
-					relevant: xp('/data/has_children = "yes"'),
+					relevant: '/data/has_children = "yes"',
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -732,7 +711,7 @@ describe("FormEngine", () => {
 				{
 					id: "bmi",
 					kind: "hidden",
-					calculate: xp("/data/weight div (/data/height * /data/height)"),
+					calculate: "/data/weight div (/data/height * /data/height)",
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -745,28 +724,30 @@ describe("FormEngine", () => {
 		});
 
 		it("rejects raw authored #case references instead of treating them as an alias", () => {
-			const input = dTree(
-				[{ id: "copied", kind: "hidden", calculate: xp("#case/age") }],
-				"followup",
-				[
-					{
-						name: "patient",
-						properties: [
-							{ name: "age", label: proseText("Age"), data_type: "int" },
-						],
-					},
-				],
-			);
+			const input = () =>
+				dTree(
+					[{ id: "copied", kind: "hidden", calculate: "#case/age" }],
+					"followup",
+					[
+						{
+							name: "patient",
+							properties: [
+								{ name: "age", label: proseText("Age"), data_type: "int" },
+							],
+						},
+					],
+					"patient",
+				);
 
 			expect(
 				() =>
 					new FormEngine(
-						input,
+						input(),
 						"patient",
 						caseDataFor("patient", [["age", "30"]]),
 					),
 			).toThrow(
-				'Authored "#case/..." is not a Nova reference; Preview requires an explicit case-type namespace',
+				"Name the record type with #<record-type>/<property> in this formula.",
 			);
 		});
 	});
@@ -778,7 +759,7 @@ describe("FormEngine", () => {
 					id: "age",
 					kind: "int",
 					label: proseText("Age"),
-					validate: xp(". > 0 and . < 150"),
+					validate: ". > 0 and . < 150",
 					validate_msg: proseText("Must be 1-149"),
 				},
 			]);
@@ -802,7 +783,7 @@ describe("FormEngine", () => {
 						{
 							id: "count",
 							kind: "int",
-							validate: xp(". >= 0"),
+							validate: ". >= 0",
 							validate_msg: proseText("Use zero or more."),
 						},
 						{ id: "quantity", kind: "decimal" },
@@ -907,6 +888,7 @@ describe("FormEngine", () => {
 						],
 					},
 				],
+				"patient",
 			),
 			"patient",
 		);
@@ -964,9 +946,7 @@ describe("FormEngine", () => {
 		it("leaves an empty answer to required", () => {
 			// Empty is not ill-shaped. Whether it is allowed is a different
 			// question with a different message and a different moment.
-			const input = dTree([
-				{ id: "wake", kind: "time", required: xp("true()") },
-			]);
+			const input = dTree([{ id: "wake", kind: "time", required: "true()" }]);
 			const engine = new FormEngine(input);
 
 			engine.touch("/data/wake");
@@ -1003,7 +983,7 @@ describe("FormEngine", () => {
 				{
 					id: "wake",
 					kind: "time",
-					validate: xp(". > '08:00:00.000Z'"),
+					validate: ". > '08:00:00.000Z'",
 					validate_msg: proseText("Must be after 8am"),
 				},
 			]);
@@ -1050,7 +1030,7 @@ describe("FormEngine", () => {
 			// always read that as the date's midnight; the gate must not turn
 			// it into a submission blocker the person cannot clear.
 			const input = dTree([
-				{ id: "seen", kind: "datetime", default_value: xp("today()") },
+				{ id: "seen", kind: "datetime", default_value: "today()" },
 			]);
 			const engine = new FormEngine(input);
 
@@ -1104,6 +1084,8 @@ describe("FormEngine", () => {
 					},
 				],
 				"followup",
+				[patientFixtureType],
+				"patient",
 			);
 			const engine = new FormEngine(
 				input,
@@ -1125,7 +1107,7 @@ describe("FormEngine", () => {
 					id: "name",
 					kind: "text",
 					label: proseText("Name"),
-					required: xp("true()"),
+					required: "true()",
 				},
 				{ id: "notes", kind: "text", label: proseText("Notes") },
 			]);
@@ -1134,6 +1116,72 @@ describe("FormEngine", () => {
 			expect(engine.getState("/data/name").required).toBe(true);
 			expect(engine.getState("/data/notes").required).toBe(false);
 		});
+
+		it.each([false, true])(
+			"refreshes own and calculated-answer metadata after values settle (worker: %s)",
+			async (stagedAsync) => {
+				const input = dTree(
+					[
+						{ id: "name", kind: "text", required: "string-length(.) > 2" },
+						{ id: "answer", kind: "text", required: "#form/size > 2" },
+						{
+							id: "metadata_only",
+							kind: "text",
+							required: "#form/answer != ''",
+							relevant: "today() = date('2026-05-06')",
+						},
+						{
+							id: "size",
+							kind: "hidden",
+							calculate: "string-length(#form/answer)",
+						},
+						{ id: "next_size", kind: "hidden", calculate: "#form/size + 1" },
+					],
+					"survey",
+				);
+				const engine = new FormEngine(
+					input,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					undefined,
+					{ stagedAsync },
+				);
+				const { evaluateAsync, runtime } = fixedWorldEvaluator(
+					engine,
+					"required-metadata",
+				);
+				try {
+					if (stagedAsync) await engine.initializeAsync(evaluateAsync);
+					const change = async (path: string, value: string) => {
+						if (stagedAsync)
+							await engine.setValueAsync(path, value, evaluateAsync);
+						else engine.setValue(path, value);
+					};
+					expect(engine.getState("/data/name").required).toBe(false);
+					expect(engine.getState("/data/answer").required).toBe(false);
+					await change("/data/name", "Ada");
+					expect(engine.getState("/data/name").required).toBe(true);
+					await change("/data/name", "Al");
+					expect(engine.getState("/data/name").required).toBe(false);
+					expect(engine.getState("/data/metadata_only").visible).toBe(true);
+					vi.setSystemTime(new Date("2026-05-08T12:00:00Z"));
+					await change("/data/answer", "abc");
+					expect(engine.getState("/data/size").value).toBe("3");
+					expect(engine.getState("/data/next_size").value).toBe("4");
+					expect(engine.getState("/data/answer").required).toBe(true);
+					expect(engine.getState("/data/metadata_only").required).toBe(true);
+					expect(engine.getState("/data/metadata_only").visible).toBe(true);
+					await change("/data/answer", "a");
+					expect(engine.getState("/data/size").value).toBe("1");
+					expect(engine.getState("/data/next_size").value).toBe("2");
+					expect(engine.getState("/data/answer").required).toBe(false);
+				} finally {
+					runtime.dispose();
+				}
+			},
+		);
 	});
 
 	describe("followup form preloading", () => {
@@ -1152,6 +1200,8 @@ describe("FormEngine", () => {
 					},
 				],
 				"followup",
+				[patientFixtureType],
+				"patient",
 			);
 
 			const caseData = caseDataFor("patient", [
@@ -1211,8 +1261,10 @@ describe("FormEngine", () => {
 				{ id: "scratch", kind: "text" },
 			];
 			const REGION = testUuid("worker-property-region");
-			const input: FormEngineInput = {
-				...dTree(fields, "followup", [
+			const input: FormEngineInput = dTree(
+				fields,
+				"followup",
+				[
 					{
 						name: "patient",
 						properties: [
@@ -1225,11 +1277,14 @@ describe("FormEngine", () => {
 						parent_type: "patient",
 						properties: [{ name: "notes", label: proseText("Notes") }],
 					},
-				]),
-				userProperties: {
-					[REGION]: { uuid: REGION, slug: "region", label: "Region" },
+				],
+				"patient",
+				{
+					userProperties: {
+						[REGION]: { uuid: REGION, slug: "region", label: "Region" },
+					},
 				},
-			};
+			);
 			const SENTINEL = "from-the-case";
 			const caseData = caseDataFor(
 				"patient",
@@ -1262,23 +1317,30 @@ describe("FormEngine", () => {
 		it.each(["followup", "close"] as const)(
 			"does not preload a representative case into an authored several-case %s form",
 			(formType) => {
-				const input: FormEngineInput = {
-					...dTree(
-						[
-							{
-								id: "case_name",
-								kind: "text",
-								caseWrite: {
-									caseType: "patient",
-									property: "case_name",
-								},
-								default_value: xp("'Shared starting value'"),
+				const input: FormEngineInput = dTree(
+					[
+						{
+							id: "case_name",
+							kind: "text",
+							caseWrite: {
+								caseType: "patient",
+								property: "case_name",
 							},
-						],
-						formType,
-					),
-					caseSelectionCardinality: "multiple",
-				};
+							default_value: "'Shared starting value'",
+						},
+					],
+					formType,
+					[patientFixtureType],
+					"patient",
+					{
+						module: {
+							caseListConfig: {
+								...caseListConfig([]),
+								selection: { kind: "multiple", maximum: 2 },
+							},
+						},
+					},
+				);
 				const engine = new FormEngine(
 					input,
 					"patient",
@@ -1320,6 +1382,8 @@ describe("FormEngine", () => {
 					},
 				],
 				"followup",
+				[patientFixtureType],
+				"patient",
 			);
 
 			const caseData = caseDataFor("patient", [
@@ -1354,9 +1418,11 @@ describe("FormEngine", () => {
 						kind: "time",
 						caseWrite: { caseType: "patient", property: "wake_time" },
 					},
-					{ id: "echoed", kind: "hidden", calculate: xp("#patient/wake_time") },
+					{ id: "echoed", kind: "hidden", calculate: "#patient/wake_time" },
 				],
 				"followup",
+				[patientFixtureType],
+				"patient",
 			);
 			const engine = new FormEngine(
 				input,
@@ -1400,6 +1466,7 @@ describe("FormEngine", () => {
 				],
 				"registration",
 				roundTripCaseTypes,
+				"patient",
 			);
 			const writer = new FormEngine(registration, "patient");
 			writer.setValue("/data/case_name", "Alice");
@@ -1428,6 +1495,7 @@ describe("FormEngine", () => {
 				],
 				"followup",
 				roundTripCaseTypes,
+				"patient",
 			);
 			const reader = new FormEngine(
 				followup,
@@ -1460,7 +1528,7 @@ describe("FormEngine", () => {
 					id: "visit_date",
 					kind: "date",
 					label: proseText("Visit Date"),
-					default_value: xp("today()"),
+					default_value: "today()",
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -1482,25 +1550,25 @@ describe("FormEngine", () => {
 						kind: "text",
 						label: proseText("Name"),
 						caseWrite: { caseType: "patient", property: "case_name" },
-						default_value: xp(
-							"concat(#patient/age, ' - ', #patient/case_name)",
-						),
+						default_value: "concat(#patient/age, ' - ', #patient/case_name)",
 					},
 					{
 						id: "nickname",
 						kind: "text",
 						label: proseText("Nickname"),
 						caseWrite: { caseType: "patient", property: "nickname" },
-						default_value: xp("'suggested'"),
+						default_value: "'suggested'",
 					},
 					{
 						id: "note",
 						kind: "text",
 						label: proseText("Note"),
-						default_value: xp("'fresh'"),
+						default_value: "'fresh'",
 					},
 				],
 				"followup",
+				[patientFixtureType],
+				"patient",
 			);
 			const caseData = caseDataFor("patient", [
 				["case_name", "Alice"],
@@ -1524,9 +1592,7 @@ describe("FormEngine", () => {
 						kind: "text",
 						label: proseText("Name"),
 						caseWrite: { caseType: "patient", property: "case_name" },
-						default_value: xp(
-							"concat(#patient/age, ' - ', #patient/case_name)",
-						),
+						default_value: "concat(#patient/age, ' - ', #patient/case_name)",
 					},
 				],
 				"followup",
@@ -1535,6 +1601,7 @@ describe("FormEngine", () => {
 						name: "patient",
 						properties: [
 							{ name: "case_name", label: proseText("Patient name") },
+							{ name: "age", label: proseText("Age"), data_type: "int" },
 						],
 					},
 					{
@@ -1546,6 +1613,7 @@ describe("FormEngine", () => {
 						],
 					},
 				],
+				"patient",
 			);
 			const caseData = caseDataFor("patient", [
 				["case_name", "Alice"],
@@ -1584,6 +1652,8 @@ describe("FormEngine", () => {
 					},
 				],
 				"followup",
+				[patientFixtureType],
+				"patient",
 			);
 			const caseData = caseDataFor("patient", [
 				["case_name", "Mary Smith"],
@@ -1593,6 +1663,17 @@ describe("FormEngine", () => {
 
 			expect(engine.getState("/data/summary").resolvedLabel).toBe(
 				"Patient: Mary Smith (negative)",
+			);
+			engine.updateSchema(
+				input,
+				"patient",
+				caseDataFor("patient", [
+					["case_name", "Amina Diallo"],
+					["hiv_status", "positive"],
+				]),
+			);
+			expect(engine.getState("/data/summary").resolvedLabel).toBe(
+				"Patient: Amina Diallo (positive)",
 			);
 		});
 
@@ -1609,7 +1690,7 @@ describe("FormEngine", () => {
 							caseType: "medication_order",
 							property: "patient_name",
 						},
-						default_value: xp("#patient/case_name"),
+						default_value: "#patient/case_name",
 					},
 					{
 						id: "case_name",
@@ -1635,6 +1716,7 @@ describe("FormEngine", () => {
 						],
 					},
 				],
+				"patient",
 			);
 			const caseData = caseDataFor("patient", [["case_name", "Mary Smith"]]);
 			const engine = new FormEngine(input, "patient", caseData);
@@ -1665,10 +1747,17 @@ describe("FormEngine", () => {
 						id: "not_delivered_warning",
 						kind: "label",
 						label: proseText("Not yet delivered"),
-						relevant: xp("#medication_order/order_status != 'delivered'"),
+						relevant: "#medication_order/order_status != 'delivered'",
 					},
 				],
 				"followup",
+				[
+					{
+						name: "medication_order",
+						properties: [{ name: "order_status", label: proseText("Status") }],
+					},
+				],
+				"medication_order",
 			);
 			const engine = new FormEngine(
 				input,
@@ -1687,7 +1776,7 @@ describe("FormEngine", () => {
 					{
 						id: "copy",
 						kind: "hidden",
-						default_value: xp("#household/head_name"),
+						default_value: "#household/head_name",
 					},
 					{
 						id: "banner",
@@ -1703,6 +1792,8 @@ describe("FormEngine", () => {
 					},
 				],
 				"followup",
+				ancestorFixtureTypes,
+				"patient",
 			);
 			const engine = new FormEngine(
 				input,
@@ -1753,6 +1844,8 @@ describe("FormEngine", () => {
 					},
 				],
 				"followup",
+				ancestorFixtureTypes,
+				"patient",
 			);
 			const engine = new FormEngine(
 				input,
@@ -1775,10 +1868,12 @@ describe("FormEngine", () => {
 					{
 						id: "copy",
 						kind: "hidden",
-						default_value: xp("#household/head_name"),
+						default_value: "#household/head_name",
 					},
 				],
 				"followup",
+				ancestorFixtureTypes,
+				"patient",
 			);
 			const engine = new FormEngine(
 				input,
@@ -1810,6 +1905,7 @@ describe("FormEngine", () => {
 				],
 				"followup",
 				caseTypes,
+				"patient",
 			);
 			const householdInput = dTree(
 				[
@@ -1821,6 +1917,7 @@ describe("FormEngine", () => {
 				],
 				"followup",
 				caseTypes,
+				"household",
 			);
 			const caseData: CaseDataByType = new Map([
 				["patient", new Map([["case_name", "Mary"]])],
@@ -1846,10 +1943,12 @@ describe("FormEngine", () => {
 					{
 						id: "own",
 						kind: "hidden",
-						default_value: xp("#patient/case_name"),
+						default_value: "#patient/case_name",
 					},
 				],
 				"followup",
+				[patientFixtureType],
+				"patient",
 			);
 			const engine = new FormEngine(
 				input,
@@ -1872,7 +1971,7 @@ describe("FormEngine", () => {
 					id: "dob",
 					kind: "date",
 					label: proseText("Date of birth"),
-					validate: xp(". <= today()"),
+					validate: ". <= today()",
 					validate_msg: proseText("DOB cannot be in the future"),
 				},
 			]);
@@ -1897,6 +1996,8 @@ describe("FormEngine", () => {
 					},
 				],
 				"close",
+				[patientFixtureType],
+				"patient",
 			);
 			const engine = new FormEngine(
 				input,
@@ -1916,7 +2017,7 @@ describe("FormEngine", () => {
 					id: "greeting",
 					kind: "text",
 					label: proseText("Greeting"),
-					default_value: xp("'hello'"),
+					default_value: "'hello'",
 				},
 				{ id: "name", kind: "text", label: proseText("Name") },
 			]);
@@ -1934,7 +2035,7 @@ describe("FormEngine", () => {
 					id: "greeting",
 					kind: "text",
 					label: proseText("Greeting"),
-					default_value: xp("'goodbye'"),
+					default_value: "'goodbye'",
 				},
 				{ id: "name", kind: "text", label: proseText("Name") },
 			]);
@@ -1953,7 +2054,7 @@ describe("FormEngine", () => {
 					id: "status",
 					kind: "text",
 					label: proseText("Status"),
-					default_value: xp("'active'"),
+					default_value: "'active'",
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -1970,7 +2071,7 @@ describe("FormEngine", () => {
 					id: "status",
 					kind: "text",
 					label: proseText("Status"),
-					default_value: xp("'archived'"),
+					default_value: "'archived'",
 				},
 			]);
 			const newEngine = new FormEngine(updatedInput);
@@ -2172,7 +2273,7 @@ describe("FormEngine", () => {
 					id: "members",
 					kind: "repeat",
 					label: proseText("Members"),
-					relevant: xp('/data/show = "yes"'),
+					relevant: '/data/show = "yes"',
 					children: [{ id: "name", kind: "text", label: proseText("Name") }],
 				},
 			]);
@@ -2219,7 +2320,7 @@ describe("FormEngine", () => {
 					id: "name",
 					kind: "text",
 					label: proseText("Name"),
-					required: xp("true()"),
+					required: "true()",
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -2252,7 +2353,7 @@ describe("FormEngine", () => {
 					id: "age",
 					kind: "int",
 					label: proseText("Age"),
-					validate: xp(". > 0"),
+					validate: ". > 0",
 					validate_msg: proseText("Must be positive"),
 				},
 			]);
@@ -2279,13 +2380,13 @@ describe("FormEngine", () => {
 					id: "name",
 					kind: "text",
 					label: proseText("Name"),
-					required: xp("true()"),
+					required: "true()",
 				},
 				{
 					id: "email",
 					kind: "text",
 					label: proseText("Email"),
-					required: xp("true()"),
+					required: "true()",
 				},
 				{ id: "notes", kind: "text", label: proseText("Notes") },
 			]);
@@ -2305,7 +2406,7 @@ describe("FormEngine", () => {
 					id: "name",
 					kind: "text",
 					label: proseText("Name"),
-					required: xp("true()"),
+					required: "true()",
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -2329,8 +2430,8 @@ describe("FormEngine", () => {
 					id: "conditional",
 					kind: "text",
 					label: proseText("Details"),
-					required: xp("true()"),
-					relevant: xp('/data/toggle = "yes"'),
+					required: "true()",
+					relevant: '/data/toggle = "yes"',
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -2347,13 +2448,13 @@ describe("FormEngine", () => {
 					id: "section",
 					kind: "group",
 					label: proseText("Section"),
-					relevant: xp("/data/gate = 'yes'"),
+					relevant: "/data/gate = 'yes'",
 					children: [
 						{
 							id: "photo",
 							kind: "image",
 							label: proseText("Photo"),
-							required: xp("true()"),
+							required: "true()",
 						},
 					],
 				},
@@ -2374,13 +2475,13 @@ describe("FormEngine", () => {
 					id: "visits",
 					kind: "repeat",
 					label: proseText("Visits"),
-					relevant: xp("/data/gate = 'yes'"),
+					relevant: "/data/gate = 'yes'",
 					children: [
 						{
 							id: "photo",
 							kind: "image",
 							label: proseText("Photo"),
-							required: xp("true()"),
+							required: "true()",
 						},
 					],
 				},
@@ -2483,6 +2584,8 @@ describe("FormEngine", () => {
 					},
 				],
 				"followup",
+				[patientFixtureType],
+				"patient",
 			);
 			const caseData = caseDataFor("patient", [["case_name", "John Smith"]]);
 			const engine = new FormEngine(input, "patient", caseData);
@@ -2542,7 +2645,7 @@ describe("FormEngine", () => {
 				{
 					id: "echo",
 					kind: "hidden",
-					calculate: formXp("#form/demographics/name"),
+					calculate: "#form/demographics/name",
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -2600,7 +2703,7 @@ describe("FormEngine", () => {
 				{
 					id: "status",
 					kind: "hidden",
-					calculate: xp("if(/data/age > 18, 'Adult', 'Minor')"),
+					calculate: "if(/data/age > 18, 'Adult', 'Minor')",
 				},
 				{
 					id: "info",
@@ -2637,16 +2740,31 @@ describe("FormEngine", () => {
 			email: "amina@example.org",
 		});
 
+		const workerInput = (fields: DField[]) =>
+			dTree(fields, "survey", [], undefined, {
+				userProperties: Object.fromEntries(
+					["userid", "phone_number", "constructor"].map((slug) => {
+						const uuid = testUuid(`worker-detail-${slug}`);
+						return [uuid, { uuid, slug, label: slug }];
+					}),
+				),
+			});
+
 		it("resolves #user/* from the identity's usercase projection", () => {
 			// `#user/<prop>` is the usercase, whose built-in keys are HQ's
 			// `_get_user_case_fields` set — `hq_user_id`, not `userid`, and the
 			// unprefixed name fields. The session block's `commcare_`-prefixed
 			// keys live on the other projection and do not resolve here.
-			const input = dTree([
-				{ id: "who", kind: "hidden", calculate: xp("#user/username") },
-				{ id: "first", kind: "hidden", calculate: xp("#user/first_name") },
-				{ id: "uid", kind: "hidden", calculate: xp("#user/hq_user_id") },
-				{ id: "session_key", kind: "hidden", calculate: xp("#user/userid") },
+			const input = workerInput([
+				{ id: "who", kind: "hidden", calculate: "#user/username" },
+				{ id: "first", kind: "hidden", calculate: "#user/first_name" },
+				{ id: "uid", kind: "hidden", calculate: "#user/hq_user_id" },
+				{ id: "session_key", kind: "hidden", calculate: "#user/userid" },
+				{
+					id: "greeting",
+					kind: "label",
+					label: prose({ kind: "user-ref", property: "username" }),
+				},
 			]);
 			const engine = new FormEngine(input, undefined, undefined, identity);
 
@@ -2654,11 +2772,14 @@ describe("FormEngine", () => {
 			expect(engine.getState("/data/first").value).toBe("Amina");
 			expect(engine.getState("/data/uid").value).toBe("worker-7");
 			expect(engine.getState("/data/session_key").value).toBe("");
+			expect(engine.getState("/data/greeting").resolvedLabel).toBe(
+				"amina@example.org",
+			);
 		});
 
 		it("reads an absent user-data key as blank, never a placeholder", () => {
-			const input = dTree([
-				{ id: "phone", kind: "hidden", calculate: xp("#user/phone_number") },
+			const input = workerInput([
+				{ id: "phone", kind: "hidden", calculate: "#user/phone_number" },
 			]);
 			const engine = new FormEngine(input, undefined, undefined, identity);
 
@@ -2666,12 +2787,58 @@ describe("FormEngine", () => {
 		});
 
 		it("reads every user slice as absent without an identity", () => {
-			const input = dTree([
-				{ id: "who", kind: "hidden", calculate: xp("#user/username") },
+			const input = workerInput([
+				{ id: "who", kind: "hidden", calculate: "#user/username" },
 			]);
 			const engine = new FormEngine(input);
 
 			expect(engine.getState("/data/who").value).toBe("");
+		});
+
+		it("reads a restored worker row before the identity fallback", () => {
+			const input = workerInput([
+				{ id: "who", kind: "hidden", calculate: "#user/username" },
+				{ id: "first", kind: "hidden", calculate: "#user/first_name" },
+				{
+					id: "greeting",
+					kind: "label",
+					label: prose({ kind: "user-ref", property: "username" }),
+				},
+			]);
+			const engine = new FormEngine(
+				input,
+				undefined,
+				undefined,
+				identity,
+				undefined,
+				{
+					rows: [
+						{
+							case_id: "worker-record",
+							app_id: "app-1",
+							case_type: USERCASE_CASE_TYPE,
+							owner_id: "worker-7",
+							status: "open",
+							opened_on: null,
+							modified_on: null,
+							closed_on: null,
+							case_name: "Restored worker",
+							external_id: null,
+							parent_case_id: null,
+							properties: {
+								hq_user_id: "worker-7",
+								username: "restored@example.org",
+							},
+						},
+					],
+					indices: [],
+				},
+			);
+			expect(engine.getState("/data/who").value).toBe("restored@example.org");
+			expect(engine.getState("/data/first").value).toBe("");
+			expect(engine.getState("/data/greeting").resolvedLabel).toBe(
+				"restored@example.org",
+			);
 		});
 
 		it("does not resolve #user through an inherited prototype key", () => {
@@ -2683,8 +2850,8 @@ describe("FormEngine", () => {
 					string
 				>,
 			};
-			const input = dTree([
-				{ id: "who", kind: "hidden", calculate: xp("#user/constructor") },
+			const input = workerInput([
+				{ id: "who", kind: "hidden", calculate: "#user/constructor" },
 			]);
 			const engine = new FormEngine(
 				input,
@@ -2768,7 +2935,9 @@ describe("FormEngine", () => {
 		const boundInput = (
 			fields: DField[],
 			formType: FormType = "registration",
-		): FormEngineInput => dTree(fields, formType, caseTypes);
+			metadata: Parameters<typeof dTree>[4] = {},
+		): FormEngineInput =>
+			dTree(fields, formType, caseTypes, "patient", metadata);
 
 		describe("registration", () => {
 			it("emits primary properties for fields bound to the module's case type", () => {
@@ -3175,39 +3344,44 @@ describe("FormEngine", () => {
 			});
 
 			it("omits blank shared values while preserving zero and false-like answers", () => {
-				const input: FormEngineInput = {
-					...boundInput(
-						[
-							{
-								id: "case_name",
-								kind: "text",
-								caseWrite: { caseType: "patient", property: "case_name" },
+				const input: FormEngineInput = boundInput(
+					[
+						{
+							id: "case_name",
+							kind: "text",
+							caseWrite: { caseType: "patient", property: "case_name" },
+						},
+						{
+							id: "external_id",
+							kind: "text",
+							caseWrite: { caseType: "patient", property: "external_id" },
+						},
+						{
+							id: "notes",
+							kind: "text",
+							caseWrite: { caseType: "patient", property: "notes" },
+						},
+						{
+							id: "age",
+							kind: "int",
+							caseWrite: { caseType: "patient", property: "age" },
+						},
+						{
+							id: "extra",
+							kind: "int",
+							caseWrite: { caseType: "patient", property: "extra" },
+						},
+					],
+					"followup",
+					{
+						module: {
+							caseListConfig: {
+								...caseListConfig([]),
+								selection: { kind: "multiple", maximum: 2 },
 							},
-							{
-								id: "external_id",
-								kind: "text",
-								caseWrite: { caseType: "patient", property: "external_id" },
-							},
-							{
-								id: "notes",
-								kind: "text",
-								caseWrite: { caseType: "patient", property: "notes" },
-							},
-							{
-								id: "age",
-								kind: "int",
-								caseWrite: { caseType: "patient", property: "age" },
-							},
-							{
-								id: "extra",
-								kind: "int",
-								caseWrite: { caseType: "patient", property: "extra" },
-							},
-						],
-						"followup",
-					),
-					caseSelectionCardinality: "multiple",
-				};
+						},
+					},
+				);
 				const engine = new FormEngine(input, "patient");
 
 				engine.setValue("/data/case_name", " \t");
@@ -3846,7 +4020,7 @@ describe("FormEngine", () => {
 						id: "notes",
 						kind: "text",
 						caseWrite: { caseType: "patient", property: "notes" },
-						relevant: xp('/data/show = "yes"'),
+						relevant: '/data/show = "yes"',
 					},
 				]);
 				const engine = new FormEngine(input, "patient");
@@ -3913,7 +4087,7 @@ describe("FormEngine", () => {
 					id: "members",
 					kind: "repeat",
 					repeat_mode: "count_bound",
-					repeat_count: xp("3"),
+					repeat_count: "3",
 					children: [{ id: "name", kind: "text" }],
 				},
 			]);
@@ -3934,14 +4108,14 @@ describe("FormEngine", () => {
 						{
 							id: "desired_count",
 							kind: "int",
-							default_value: xp("1"),
+							default_value: "1",
 							caseWrite: { caseType: "patient", property: "desired_count" },
 						},
 						{
 							id: "members",
 							kind: "repeat",
 							repeat_mode: "count_bound",
-							repeat_count: formXp("#form/desired_count"),
+							repeat_count: "#form/desired_count",
 							children: [],
 						},
 					],
@@ -3958,6 +4132,7 @@ describe("FormEngine", () => {
 							],
 						},
 					],
+					"patient",
 				);
 				const engine = new FormEngine(
 					input,
@@ -3997,25 +4172,24 @@ describe("FormEngine", () => {
 						id: "parents",
 						kind: "repeat",
 						repeat_mode: "count_bound",
-						repeat_count: formXp("#form/n"),
+						repeat_count: "#form/n",
 						children: [
 							{ id: "size", kind: "int" },
 							{
 								id: "derived",
 								kind: "hidden",
-								calculate: formXp("#form/parents/size + 0.7"),
+								calculate: "#form/parents/size + 0.7",
 							},
 							{
 								id: "rows",
 								kind: "repeat",
 								repeat_mode: "count_bound",
-								repeat_count: formXp(
+								repeat_count:
 									calculated === "hidden"
 										? "#form/parents/derived"
 										: calculated
 											? "#form/parents/size + 0.7"
 											: "#form/parents/size",
-								),
 								children: [{ id: "answer", kind: "text" }],
 							},
 						],
@@ -4076,13 +4250,13 @@ describe("FormEngine", () => {
 			"preserves hidden count result types for %s",
 			async (source, expected) => {
 				const input = dTree([
-					{ id: "derived", kind: "hidden", calculate: xp(source) },
-					{ id: "copy", kind: "hidden", calculate: formXp("#form/derived") },
+					{ id: "derived", kind: "hidden", calculate: source },
+					{ id: "copy", kind: "hidden", calculate: "#form/derived" },
 					{
 						id: "members",
 						kind: "repeat",
 						repeat_mode: "count_bound",
-						repeat_count: formXp("#form/copy"),
+						repeat_count: "#form/copy",
 						children: [],
 					},
 				]);
@@ -4122,17 +4296,17 @@ describe("FormEngine", () => {
 
 		it("updates the worker when a hidden type changes without changing its text", async () => {
 			const input = dTree([
-				{ id: "n", kind: "int", default_value: xp("1") },
+				{ id: "n", kind: "int", default_value: "1" },
 				{
 					id: "derived",
 					kind: "hidden",
-					calculate: formXp("if(#form/n = 1, true(), 'true')"),
+					calculate: "if(#form/n = 1, true(), 'true')",
 				},
 				{
 					id: "members",
 					kind: "repeat",
 					repeat_mode: "count_bound",
-					repeat_count: formXp("#form/derived"),
+					repeat_count: "#form/derived",
 					children: [],
 				},
 			]);
@@ -4166,7 +4340,7 @@ describe("FormEngine", () => {
 					id: "members",
 					kind: "repeat",
 					repeat_mode: "count_bound",
-					repeat_count: xp("2.5"),
+					repeat_count: "2.5",
 					children: [],
 				},
 			]);
@@ -4208,7 +4382,7 @@ describe("FormEngine", () => {
 						id: "members",
 						kind: "repeat",
 						repeat_mode: "count_bound",
-						repeat_count: xp(source),
+						repeat_count: source,
 						children: [],
 					},
 				]);
@@ -4243,7 +4417,7 @@ describe("FormEngine", () => {
 					id: "members",
 					kind: "repeat",
 					repeat_mode: "count_bound",
-					repeat_count: xp("'2.5'"),
+					repeat_count: "'2.5'",
 					children: [],
 				},
 			]);
@@ -4281,20 +4455,20 @@ describe("FormEngine", () => {
 							? "hidden"
 							: "text",
 					...(ordering === "standalone"
-						? { calculate: xp("'north'") }
+						? { calculate: "'north'" }
 						: ordering === "triggered"
-							? { calculate: formXp("#form/seed") }
-							: { default_value: xp("'north'") }),
+							? { calculate: "#form/seed" }
+							: { default_value: "'north'" }),
 				};
 				const rows: DField = {
 					id: "assets",
 					kind: "repeat",
 					repeat_mode: "query_bound",
 					data_source: {
-						ids_query: formXp("if(#form/zone = 'north', 'pump tap', '')"),
+						ids_query: "if(#form/zone = 'north', 'pump tap', '')",
 					},
 					children: [
-						{ id: "row_id", kind: "hidden", calculate: xp("current()/../@id") },
+						{ id: "row_id", kind: "hidden", calculate: "current()/../@id" },
 					],
 				};
 				const input = dTree(
@@ -4302,7 +4476,7 @@ describe("FormEngine", () => {
 						? [rows, zone]
 						: ordering === "triggered"
 							? [
-									{ id: "seed", kind: "text", default_value: xp("'north'") },
+									{ id: "seed", kind: "text", default_value: "'north'" },
 									zone,
 									rows,
 								]
@@ -4354,7 +4528,7 @@ describe("FormEngine", () => {
 			"applies relevance cascades before initial and inserted snapshots (worker: %s)",
 			async (stagedAsync) => {
 				const input = dTree([
-					{ id: "enabled", kind: "text", default_value: xp("'no'") },
+					{ id: "enabled", kind: "text", default_value: "'no'" },
 					{
 						id: "visits",
 						kind: "repeat",
@@ -4362,29 +4536,28 @@ describe("FormEngine", () => {
 							{
 								id: "details",
 								kind: "group",
-								relevant: formXp("#form/visits/gate = 'yes'"),
+								relevant: "#form/visits/gate = 'yes'",
 								children: [
-									{ id: "zone", kind: "text", default_value: xp("'north'") },
+									{ id: "zone", kind: "text", default_value: "'north'" },
 								],
 							},
 							{
 								id: "derived",
 								kind: "hidden",
-								calculate: formXp("string(#form/visits/details/zone)"),
+								calculate: "string(#form/visits/details/zone)",
 							},
 							{
 								id: "gate",
 								kind: "hidden",
-								default_value: formXp("#form/enabled"),
+								default_value: "#form/enabled",
 							},
 							{
 								id: "assets",
 								kind: "repeat",
 								repeat_mode: "query_bound",
 								data_source: {
-									ids_query: formXp(
+									ids_query:
 										"if(#form/visits/derived = 'north', 'pump tap', '')",
-									),
 								},
 								children: [{ id: "note", kind: "text" }],
 							},
@@ -4430,26 +4603,25 @@ describe("FormEngine", () => {
 			"initializes only the new outer row and its bound descendants (worker: %s)",
 			async (stagedAsync) => {
 				const input = dTree([
-					{ id: "zone", kind: "text", default_value: xp("'north'") },
+					{ id: "zone", kind: "text", default_value: "'north'" },
 					{
 						id: "visits",
 						kind: "repeat",
 						children: [
-							{ id: "zone", kind: "text", default_value: formXp("#form/zone") },
+							{ id: "zone", kind: "text", default_value: "#form/zone" },
 							{
 								id: "assets",
 								kind: "repeat",
 								repeat_mode: "query_bound",
 								data_source: {
-									ids_query: formXp(
+									ids_query:
 										"if(#form/visits/zone = 'north', 'pump tap', 'tank')",
-									),
 								},
 								children: [
 									{
 										id: "row_id",
 										kind: "hidden",
-										calculate: xp("current()/../@id"),
+										calculate: "current()/../@id",
 									},
 									{ id: "note", kind: "text" },
 								],
@@ -4518,12 +4690,12 @@ describe("FormEngine", () => {
 						id: "assets",
 						kind: "repeat",
 						repeat_mode: "query_bound",
-						data_source: { ids_query: xp("'pump tap'") },
+						data_source: { ids_query: "'pump tap'" },
 						children: [
 							{
 								id: "row_id",
 								kind: "hidden",
-								calculate: xp("current()/../@id"),
+								calculate: "current()/../@id",
 							},
 							{
 								id: "tasks",
@@ -4531,18 +4703,14 @@ describe("FormEngine", () => {
 								repeat_mode: "query_bound",
 								data_source: {
 									ids_query: raw
-										? xp(
-												"if(current()/../../@id = 'pump', concat(current()/../../@id, '_task'), '')",
-											)
-										: formXp(
-												"if(#form/assets/row_id = 'pump', concat(#form/assets/row_id, '_task'), '')",
-											),
+										? "if(current()/../../@id = 'pump', concat(current()/../../@id, '_task'), '')"
+										: "if(#form/assets/row_id = 'pump', concat(#form/assets/row_id, '_task'), '')",
 								},
 								children: [
 									{
 										id: "task_id",
 										kind: "hidden",
-										calculate: xp("current()/../@id"),
+										calculate: "current()/../@id",
 									},
 								],
 							},
@@ -4555,8 +4723,8 @@ describe("FormEngine", () => {
 										kind: "repeat",
 										repeat_mode: "count_bound",
 										repeat_count: raw
-											? xp("if(current()/../../@id = 'pump', 2, 0)")
-											: formXp("if(#form/assets/row_id = 'pump', 2, 0)"),
+											? "if(current()/../../@id = 'pump', 2, 0)"
+											: "if(#form/assets/row_id = 'pump', 2, 0)",
 										children: [{ id: "note", kind: "text" }],
 									},
 								],
@@ -4602,14 +4770,14 @@ describe("FormEngine", () => {
 					id: "leading",
 					kind: "repeat",
 					repeat_mode: "query_bound",
-					data_source: { ids_query: xp("' alpha'") },
+					data_source: { ids_query: "' alpha'" },
 					children: [],
 				},
 				{
 					id: "tabbed",
 					kind: "repeat",
 					repeat_mode: "query_bound",
-					data_source: { ids_query: xp("'alpha\tbeta'") },
+					data_source: { ids_query: "'alpha\tbeta'" },
 					children: [],
 				},
 			]);
@@ -4672,13 +4840,13 @@ describe("FormEngine", () => {
 						id: "members",
 						kind: "repeat",
 						repeat_mode: "count_bound",
-						repeat_count: xp("0"),
+						repeat_count: "0",
 						children: [{ id: "name", kind: "text" }],
 					},
 					{
 						id: "observed_count",
 						kind: "text",
-						default_value: xp("count(/data/members)"),
+						default_value: "count(/data/members)",
 					},
 				]),
 				undefined,
@@ -4729,31 +4897,34 @@ describe("FormEngine", () => {
 		});
 
 		it("materializes a query-bound repeat from the device-scoped casedb nodeset", () => {
-			const input = dTree([
-				{
-					id: "patients",
-					kind: "repeat",
-					repeat_mode: "query_bound",
-					data_source: {
-						ids_query: xp(
-							"instance('casedb')/casedb/case[@case_type='patient']/@case_id",
-						),
+			const input = dTree(
+				[
+					{
+						id: "patients",
+						kind: "repeat",
+						repeat_mode: "query_bound",
+						data_source: {
+							ids_query:
+								"instance('casedb')/casedb/case[@case_type='patient']/@case_id",
+						},
+						children: [
+							{ id: "note", kind: "text" },
+							{
+								id: "selected_id",
+								kind: "hidden",
+								calculate: "current()/../@id",
+							},
+							{
+								id: "selected_index",
+								kind: "hidden",
+								calculate: "current()/../@index",
+							},
+						],
 					},
-					children: [
-						{ id: "note", kind: "text" },
-						{
-							id: "selected_id",
-							kind: "hidden",
-							calculate: xp("current()/../@id"),
-						},
-						{
-							id: "selected_index",
-							kind: "hidden",
-							calculate: xp("current()/../@index"),
-						},
-					],
-				},
-			]);
+				],
+				"registration",
+				[patientFixtureType],
+			);
 			const caseRow = (caseId: string) => ({
 				case_id: caseId,
 				app_id: "app-1",
@@ -4793,25 +4964,28 @@ describe("FormEngine", () => {
 		});
 
 		it("preserves query-bound ids through the async worker boundary", async () => {
-			const input = dTree([
-				{
-					id: "patients",
-					kind: "repeat",
-					repeat_mode: "query_bound",
-					data_source: {
-						ids_query: xp(
-							"instance('casedb')/casedb/case[@case_type='patient']/@case_id",
-						),
-					},
-					children: [
-						{
-							id: "selected_id",
-							kind: "hidden",
-							calculate: xp("current()/../@id"),
+			const input = dTree(
+				[
+					{
+						id: "patients",
+						kind: "repeat",
+						repeat_mode: "query_bound",
+						data_source: {
+							ids_query:
+								"instance('casedb')/casedb/case[@case_type='patient']/@case_id",
 						},
-					],
-				},
-			]);
+						children: [
+							{
+								id: "selected_id",
+								kind: "hidden",
+								calculate: "current()/../@id",
+							},
+						],
+					},
+				],
+				"registration",
+				[patientFixtureType],
+			);
 			const engine = new FormEngine(
 				input,
 				undefined,
@@ -4919,7 +5093,7 @@ describe("FormEngine", () => {
 					{
 						id: "patient_name",
 						kind: "hidden",
-						default_value: xp("'Patient'"),
+						default_value: "'Patient'",
 						caseWrite: { caseType: "patient", property: "case_name" },
 					},
 					{
@@ -4939,9 +5113,8 @@ describe("FormEngine", () => {
 							{
 								id: "case_name",
 								kind: "hidden",
-								calculate: formXp(
+								calculate:
 									"coalesce(#form/orders/medication_name, 'Medication order')",
-								),
 								caseWrite: {
 									caseType: "medication_order",
 									property: "case_name",
@@ -4967,6 +5140,7 @@ describe("FormEngine", () => {
 						],
 					},
 				],
+				"patient",
 			);
 
 		it("a calculate inside a repeat reads its typed sibling", () => {
@@ -5042,7 +5216,7 @@ describe("FormEngine", () => {
 							id: "details",
 							kind: "text",
 							label: proseText("Details"),
-							relevant: formXp("#form/orders/flag = 'yes'"),
+							relevant: "#form/orders/flag = 'yes'",
 						},
 					],
 				},
@@ -5065,7 +5239,7 @@ describe("FormEngine", () => {
 							id: "qty",
 							kind: "text",
 							label: proseText("Qty"),
-							validate: xp(". != 'bad'"),
+							validate: ". != 'bad'",
 							validate_msg: proseText("No bad values"),
 						},
 					],
@@ -5128,7 +5302,7 @@ describe("FormEngine", () => {
 						{
 							id: "tag",
 							kind: "hidden",
-							calculate: formXp("concat(#form/prefix, '-', position())"),
+							calculate: "concat(#form/prefix, '-', position())",
 						},
 					],
 				},
@@ -5146,9 +5320,7 @@ describe("FormEngine", () => {
 				{
 					id: "orders",
 					kind: "repeat",
-					children: [
-						{ id: "idx", kind: "hidden", calculate: xp("position()") },
-					],
+					children: [{ id: "idx", kind: "hidden", calculate: "position()" }],
 				},
 			]);
 			const engine = new FormEngine(input);
@@ -5171,7 +5343,7 @@ describe("FormEngine", () => {
 							id: "stamp",
 							kind: "text",
 							label: proseText("Stamp"),
-							default_value: xp("concat('entry-', position())"),
+							default_value: "concat('entry-', position())",
 						},
 					],
 				},
@@ -5194,7 +5366,7 @@ describe("FormEngine", () => {
 							id: "extras",
 							kind: "group",
 							label: proseText("Extras"),
-							relevant: formXp("#form/orders/flag = 'yes'"),
+							relevant: "#form/orders/flag = 'yes'",
 							children: [
 								{ id: "note", kind: "text", label: proseText("Note") },
 							],
@@ -5224,7 +5396,7 @@ describe("FormEngine", () => {
 							id: "grp",
 							kind: "group",
 							label: proseText("Extras"),
-							relevant: formXp("#form/show = 'yes'"),
+							relevant: "#form/show = 'yes'",
 							children: [],
 						},
 					],
@@ -5284,7 +5456,7 @@ describe("FormEngine", () => {
 							id: "final_note",
 							kind: "text",
 							label: proseText("Note"),
-							relevant: xp("position() = 0"),
+							relevant: "position() = 0",
 						},
 					],
 				},
@@ -5308,14 +5480,14 @@ describe("FormEngine", () => {
 					{
 						id: "case_name",
 						kind: "hidden",
-						default_value: xp("'Patient'"),
+						default_value: "'Patient'",
 						caseWrite: { caseType: "patient", property: "case_name" },
 					},
 					{
 						id: "note",
 						kind: "text",
 						label: proseText("Note"),
-						default_value: xp("'draft'"),
+						default_value: "'draft'",
 						caseWrite: { caseType: "patient", property: "note" },
 					},
 				],
@@ -5329,6 +5501,7 @@ describe("FormEngine", () => {
 						],
 					},
 				],
+				"patient",
 			);
 			const engine = new FormEngine(input, "patient");
 			engine.setValue("/data/note", "Alice's note");
@@ -5482,7 +5655,7 @@ describe("FormEngine", () => {
 					kind: "group",
 					children: [{ id: "x", kind: "text", label: proseText("X") }],
 				},
-				{ id: "copy", kind: "hidden", calculate: formXp("#form/c/x") },
+				{ id: "copy", kind: "hidden", calculate: "#form/c/x" },
 			]);
 			const engine = new FormEngine(input);
 			engine.setValue("/data/c/x", "5");
@@ -5512,9 +5685,8 @@ describe("FormEngine", () => {
 								{
 									id: "full",
 									kind: "hidden",
-									calculate: formXp(
+									calculate:
 										"concat(#form/households/members/first, ' ', #form/households/surname)",
-									),
 								},
 							],
 						},
@@ -5547,11 +5719,8 @@ describe("FormEngine", () => {
 	// are what notice.
 	describe("the worker's own record", () => {
 		const PROPERTY = testUuid("worker-property-visits-done");
-		const usercaseInput = (): FormEngineInput => ({
-			// A survey, deliberately: the worker's record is written by every
-			// form type, and a survey is the arm with no case of its own, so it
-			// proves the collection is independent of the primary case action.
-			...dTree(
+		const usercaseInput = (): FormEngineInput =>
+			dTree(
 				[
 					{
 						id: "visits",
@@ -5564,15 +5733,18 @@ describe("FormEngine", () => {
 					},
 				],
 				"survey",
-			),
-			userProperties: {
-				[PROPERTY]: {
-					uuid: PROPERTY,
-					slug: "visits_done",
-					label: "Visits done",
+				[],
+				undefined,
+				{
+					userProperties: {
+						[PROPERTY]: {
+							uuid: PROPERTY,
+							slug: "visits_done",
+							label: "Visits done",
+						},
+					},
 				},
-			},
-		});
+			);
 
 		it("opens a form whose field saves to a declared worker detail", () => {
 			expect(() => new FormEngine(usercaseInput())).not.toThrow();
@@ -5625,6 +5797,7 @@ describe("sections on submission", () => {
 				],
 				"registration",
 				sectionedCaseTypes,
+				"patient",
 			),
 			"patient",
 		);
@@ -5649,19 +5822,19 @@ describe("section entry initializes later rows", () => {
 					{
 						id: "first",
 						kind: "section",
-						children: [{ id: "n", kind: "int", default_value: xp("5") }],
+						children: [{ id: "n", kind: "int", default_value: "5" }],
 					},
 					{
 						id: "second",
 						kind: "section",
 						children: [
-							{ id: "show", kind: "int", default_value: xp("0") },
+							{ id: "show", kind: "int", default_value: "0" },
 							{
 								id: "rows",
 								kind: "repeat",
 								repeat_mode: "count_bound",
-								repeat_count: formXp("#form/first/n"),
-								relevant: formXp("#form/second/show = 1"),
+								repeat_count: "#form/first/n",
+								relevant: "#form/second/show = 1",
 								children: [{ id: "answer", kind: "text" }],
 							},
 						],
@@ -5713,9 +5886,7 @@ describe("section entry initializes later rows", () => {
 				{
 					id: "first",
 					kind: "section",
-					children: [
-						{ id: "zone", kind: "text", default_value: xp("'north'") },
-					],
+					children: [{ id: "zone", kind: "text", default_value: "'north'" }],
 				},
 				{
 					id: "second",
@@ -5725,22 +5896,21 @@ describe("section entry initializes later rows", () => {
 							id: "rounds",
 							kind: "repeat",
 							repeat_mode: "count_bound",
-							repeat_count: xp("1"),
+							repeat_count: "1",
 							children: [
 								{
 									id: "assets",
 									kind: "repeat",
 									repeat_mode: "query_bound",
 									data_source: {
-										ids_query: formXp(
+										ids_query:
 											"if(#form/first/zone = 'north', 'pump tap', 'tank')",
-										),
 									},
 									children: [
 										{
 											id: "note",
 											kind: "text",
-											default_value: xp("current()/../@id"),
+											default_value: "current()/../@id",
 										},
 									],
 								},
@@ -5833,18 +6003,18 @@ it("inserts newly relevant rows on the current page and resolves a later page wi
 				id: "first",
 				kind: "section",
 				children: [
-					{ id: "gate", kind: "text", default_value: xp("'no'") },
+					{ id: "gate", kind: "text", default_value: "'no'" },
 					{
 						id: "rows",
 						kind: "repeat",
 						repeat_mode: "count_bound",
-						repeat_count: xp("1"),
-						relevant: formXp("#form/first/gate = 'yes'"),
+						repeat_count: "1",
+						relevant: "#form/first/gate = 'yes'",
 						children: [
 							{
 								id: "saved_gate",
 								kind: "text",
-								default_value: formXp("#form/first/gate"),
+								default_value: "#form/first/gate",
 							},
 						],
 					},
@@ -5858,8 +6028,8 @@ it("inserts newly relevant rows on the current page and resolves a later page wi
 						id: "rows",
 						kind: "repeat",
 						repeat_mode: "count_bound",
-						repeat_count: xp("1"),
-						children: [{ id: "note", kind: "text", relevant: xp("false()") }],
+						repeat_count: "1",
+						children: [{ id: "note", kind: "text", relevant: "false()" }],
 					},
 				],
 			},
@@ -5894,7 +6064,7 @@ it.each([false, true])(
 	async (stagedAsync) => {
 		const engine = new FormEngine(
 			dTree([
-				{ id: "n", kind: "int", default_value: xp("0") },
+				{ id: "n", kind: "int", default_value: "0" },
 				{
 					id: "a",
 					kind: "repeat",
@@ -5905,7 +6075,7 @@ it.each([false, true])(
 					id: "b",
 					kind: "repeat",
 					repeat_mode: "count_bound",
-					repeat_count: formXp("if(count(#form/a) = 2, 0, number(#form/n))"),
+					repeat_count: "if(count(#form/a) = 2, 0, number(#form/n))",
 					children: [{ id: "answer", kind: "text" }],
 				},
 			]),
@@ -5953,9 +6123,7 @@ describe("the form's data node name", () => {
 							uuid: FORM,
 							name: "Register",
 							type: "survey",
-							fields: [
-								f({ kind: "hidden", id: "named", calculate: "/data/@name" }),
-							],
+							fields: [f({ kind: "text", id: "answer" })],
 						},
 					],
 				},
@@ -5992,7 +6160,12 @@ describe("the form's data node name", () => {
 			if (input === undefined) throw new Error("The form has no input.");
 			const engine = new FormEngine(input);
 			expect(formWireName(doc, FORM)).toBe("Registrar");
-			expect(engine.getState("/data/named").value).toBe("Registrar");
+			const data = engine
+				.workerInstances("", "/data/answer")
+				.main?.root.children.find((node) => node.name === "data");
+			expect(
+				data?.attributes.find((attribute) => attribute.name === "name")?.value,
+			).toBe("Registrar");
 		},
 	);
 });

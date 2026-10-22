@@ -8,7 +8,7 @@ import {
 	type Module,
 	plainColumn,
 } from "@/lib/domain";
-import { literal, prop, term } from "@/lib/domain/predicate";
+import { literal, prop, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
 	decodeProjectSpaceCompatibilityReport,

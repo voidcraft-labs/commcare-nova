@@ -19,29 +19,38 @@ import { classifyRelatedCaseSearchExpression } from "@/lib/commcare/suite/case-s
 import {
 	type BlueprintDoc,
 	effectiveCaseSearchConfig,
-	effectiveCaseTypes,
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
+import { slotContext } from "@/lib/domain/expression";
 import { type ValidationError, validationError } from "../../errors";
+import type { LookupTypeIndex } from "../../lookupTypeContext";
 
 export function searchRelatedCalculationCompatibility(
 	mod: Module,
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
+	lookupTables?: LookupTypeIndex,
 ): ValidationError[] {
 	if (effectiveCaseSearchConfig(mod) === undefined) return [];
 
 	const columns = mod.caseListConfig?.columns ?? [];
-	const context = {
-		caseTypes: effectiveCaseTypes(doc),
-		...(mod.caseType === undefined ? {} : { currentCaseType: mod.caseType }),
-	};
 	const errors: ValidationError[] = [];
 
 	for (let index = 0; index < columns.length; index++) {
 		const column = columns[index];
 		if (column.kind !== "calculated") continue;
+		const context = slotContext(
+			doc,
+			{
+				entity: "module",
+				uuid: moduleUuid,
+				slot: "case_list_column_expression",
+				member: { columnUuid: column.uuid },
+			},
+			lookupTables ?? new Map(),
+		);
+		if (context === undefined) continue;
 		if (
 			classifyRelatedCaseSearchExpression(column.expression, context).kind !==
 			"unsupported"

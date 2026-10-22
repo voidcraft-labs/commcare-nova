@@ -1,127 +1,73 @@
 import { describe, expect, it } from "vitest";
 import {
+	formFixture,
+	ids,
+	requireContext,
+} from "@/lib/domain/expression/__tests__/formFixture";
+import type { Expression } from "@/lib/domain/expression/types";
+import {
+	formLogicFindings,
 	SESSION_FORM_READ_MESSAGE,
-	validateXPath,
-} from "@/lib/commcare/validator/xpathValidator";
+} from "../formLogicFindings";
 
-const accept = new Map([
-	["patient", new Set(["case_id", "mood", "last_note"])],
-	["household", new Set(["case_id", "village"])],
-]);
-
-describe("validateXPath under session scope", () => {
-	it("refuses a #form/ reference with the session sentence, once", () => {
-		const errors = validateXPath(
-			"#form/note = 'yes'",
-			new Set(),
-			accept,
-			false,
-			"session",
-		);
-		expect(errors).toEqual([
-			{
-				code: "INVALID_REF",
-				message: SESSION_FORM_READ_MESSAGE,
-				position: 0,
-				ref: "#form/note",
-			},
-		]);
+describe("form-link evaluation after the form closes", () => {
+	const doc = formFixture();
+	const ctx = requireContext(doc, {
+		entity: "form",
+		uuid: ids.form,
+		slot: "form_link_condition",
+		member: { linkUuid: ids.link },
 	});
-
-	it("refuses a /data/ path with the session sentence at its text", () => {
-		const errors = validateXPath(
-			"1 = /data/note",
-			new Set(),
-			accept,
-			false,
-			"session",
-		);
-		expect(errors).toEqual([
-			{
-				code: "INVALID_REF",
-				message: SESSION_FORM_READ_MESSAGE,
-				position: 4,
-				ref: "/data/note",
-			},
-		]);
-	});
-
-	it("refuses a bare relative name: there is no context node after the form closes", () => {
-		const errors = validateXPath(
-			"mood = 'good'",
-			new Set(),
-			accept,
-			false,
-			"session",
-		);
-		expect(errors).toHaveLength(1);
-		expect(errors[0]).toMatchObject({
-			code: "INVALID_REF",
-			position: 0,
-			ref: "mood",
-		});
-		expect(errors[0]?.message).toContain("after the form has closed");
-	});
-
-	it("accepts readable case and user references", () => {
-		expect(
-			validateXPath(
-				"#patient/mood = 'good' and #household/village != '' and #user/role = 'chw'",
-				new Set(),
-				accept,
-				false,
-				"session",
-			),
-		).toEqual([]);
-	});
-
-	it("still refuses an unknown case property by the case rule", () => {
-		const errors = validateXPath(
-			"#patient/nope = 1",
-			new Set(),
-			accept,
-			false,
-			"session",
-		);
-		expect(errors).toHaveLength(1);
-		expect(errors[0]?.code).toBe("INVALID_CASE_REF");
-	});
-
-	it.each([
-		".",
-		"..",
-		"@status",
-		"child::answer",
-		"self::node()",
-		"parent::node()",
-		"current()",
-		"current()/answer",
-		"position()",
-	])("refuses a main-context-dependent session shape: %s", (source) => {
-		expect(
-			validateXPath(source, new Set(), accept, false, "session").some(
-				(error) => error.code === "XPATH_CARRIER_CONTEXT_UNAVAILABLE",
-			),
-		).toBe(true);
-	});
-
-	it.each([
-		"instance('casedb')/casedb/case/@case_id",
-		"position(instance('casedb')/casedb/case)",
-		"instance('casedb')/casedb/case[position() = 1 and @status = 'open']",
-	])(
-		"accepts a session shape whose context is explicitly supplied: %s",
-		(source) => {
-			expect(
-				validateXPath(source, new Set(), accept, false, "session"),
-			).toEqual([]);
+	it.each([undefined, "absolute", "current"] as const)(
+		"refuses a question reference regardless of spelling %s",
+		(spelling) => {
+			const expr: Expression = {
+				kind: "term",
+				term: {
+					kind: "field",
+					uuid: ids.text,
+					...(spelling === undefined ? {} : { spelling }),
+				},
+			};
+			expect(formLogicFindings(expr, ctx)).toEqual([
+				expect.objectContaining({
+					code: "INVALID_REF",
+					message: SESSION_FORM_READ_MESSAGE,
+				}),
+			]);
 		},
 	);
-
-	it("accepts the same known references while the form remains open", () => {
-		const valid = new Set(["/data/note"]);
-		expect(validateXPath("#form/note = 'yes'", valid, accept)).toEqual([]);
-		expect(validateXPath("/data/note = 'yes'", valid, accept)).toEqual([]);
-		expect(validateXPath("mood = 'good'", valid, accept)).toEqual([]);
+	it("accepts the source entry's selected case and ordinary worker information", () => {
+		for (const expr of [
+			{
+				kind: "term",
+				term: {
+					kind: "session-datum",
+					datum: { kind: "selected-case", module: ids.module },
+				},
+			},
+			{ kind: "term", term: { kind: "session-user", field: "username" } },
+		] satisfies Expression[])
+			expect(formLogicFindings(expr, ctx)).toEqual([]);
+	});
+	it("refuses an identity its entry does not supply", () => {
+		expect(
+			formLogicFindings(
+				{
+					kind: "term",
+					term: { kind: "session-datum", datum: { kind: "new-case" } },
+				},
+				ctx,
+			),
+		).toEqual([
+			expect.objectContaining({
+				code: "SESSION_DATUM_NOT_SUPPLIED",
+				checkCode: "datum-not-supplied",
+				details: expect.objectContaining({
+					carrier: "form-link",
+					reason: "new-case",
+				}),
+			}),
+		]);
 	});
 });

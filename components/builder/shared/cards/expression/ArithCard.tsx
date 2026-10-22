@@ -1,12 +1,12 @@
 // components/builder/shared/cards/expression/ArithCard.tsx
 //
-// Renders the `arith` ValueExpression: five-op binary numeric
+// Renders the `arith` Expression: five-op binary numeric
 // arithmetic (`+` / `-` / `*` / `div` / `mod`). The `op` discriminator
 // stays inline at the operator slot so authors flip between the five
 // operations without a kind swap.
 //
 // Slot shape: `left` + `op` + `right`. Each operand is a recursive
-// `ValueExpression`; the result type follows `int×int=int / mixed=
+// `Expression`; the result type follows `int×int=int / mixed=
 // decimal` promotion. The `div` and `mod` operators use the spelled-
 // out CCHQ vocabulary names rather than `/` (the XPath path
 // separator) and `%` (no XPath meaning).
@@ -17,6 +17,7 @@
 // inline next to its operand picker.
 
 "use client";
+
 import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import { useRef } from "react";
@@ -29,15 +30,14 @@ import {
 	DropdownMenuPositioner,
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
-	ARITH_OPS,
-	type ArithOp,
 	arith,
 	arithOperandConstraint,
+	type Expression,
 	literal,
 	term,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
@@ -46,7 +46,9 @@ import { ExpressionPicker } from "../../primitives/ExpressionPicker";
  *  stable filter identity across renders. */
 const OPERAND_CONSTRAINT = arithOperandConstraint();
 
-const OP_LABELS: Record<ArithOp, { symbol: string; label: string }> = {
+const EDITABLE_ARITH_OPS = ["+", "-", "*", "div", "mod"] as const;
+type EditableArithOp = (typeof EDITABLE_ARITH_OPS)[number];
+const OP_LABELS: Record<EditableArithOp, { symbol: string; label: string }> = {
 	"+": { symbol: "+", label: "Add" },
 	"-": { symbol: "−", label: "Subtract" },
 	"*": { symbol: "×", label: "Multiply" },
@@ -60,32 +62,55 @@ const OP_LABELS: Record<ArithOp, { symbol: string; label: string }> = {
  *  inline op menu. */
 export function arithDefault(
 	_ctx: ExpressionEditContext,
-): Extract<ValueExpression, { kind: "arith" }> {
+): ExpressionOfKind<"arith"> {
 	return arith("+", term(literal(0)), term(literal(0)));
 }
 
 interface ArithCardProps {
-	readonly value: Extract<ValueExpression, { kind: "arith" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"arith">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
-export function ArithCard({ value, onChange, path }: ArithCardProps) {
+export function ArithCard(props: ArithCardProps) {
+	if (props.value.op === "quotient")
+		return (
+			<p role="status">
+				This saved integer division cannot be edited here yet.
+			</p>
+		);
+	return (
+		<EditableArithCard
+			{...props}
+			value={{ ...props.value, op: props.value.op }}
+		/>
+	);
+}
+
+function EditableArithCard({
+	value,
+	onChange,
+	path,
+}: Omit<ArithCardProps, "value"> & {
+	readonly value: Omit<ArithCardProps["value"], "op"> & {
+		readonly op: EditableArithOp;
+	};
+}) {
 	// Per-slot errors render via each `ExpressionPicker` shell's
 	// `CardShell` footer: the picker mounted at `[..., "left"]`
 	// looks up errors at the same path the type checker emits to,
 	// so a parallel `<InlineError>` here would render the same
 	// message twice.
 
-	const setLeft = (next: ValueExpression) => {
+	const setLeft = (next: Expression) => {
 		onChange(arith(value.op, next, value.right));
 	};
 
-	const setOp = (op: ArithOp) => {
+	const setOp = (op: EditableArithOp) => {
 		onChange(arith(op, value.left, value.right));
 	};
 
-	const setRight = (next: ValueExpression) => {
+	const setRight = (next: Expression) => {
 		onChange(arith(value.op, value.left, next));
 	};
 
@@ -113,8 +138,8 @@ export function ArithCard({ value, onChange, path }: ArithCardProps) {
 }
 
 interface OpMenuProps {
-	readonly op: ArithOp;
-	readonly setOp: (op: ArithOp) => void;
+	readonly op: EditableArithOp;
+	readonly setOp: (op: EditableArithOp) => void;
 }
 
 function OpMenu({ op, setOp }: OpMenuProps) {
@@ -149,7 +174,7 @@ function OpMenu({ op, setOp }: OpMenuProps) {
 					anchor={triggerRef}
 				>
 					<DropdownMenuPopup>
-						{ARITH_OPS.map((o) => {
+						{EDITABLE_ARITH_OPS.map((o) => {
 							const isActive = o === op;
 							const m = OP_LABELS[o];
 							return (

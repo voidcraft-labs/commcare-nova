@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { type BlueprintDoc, fieldSchema, type Module } from "@/lib/domain";
-import { eq, literal, sessionUser } from "@/lib/domain/predicate";
+import { eq, literal, sessionUser } from "@/lib/domain/expression";
 import {
 	combineNavigationVisibility,
 	inheritedModuleVisibility,

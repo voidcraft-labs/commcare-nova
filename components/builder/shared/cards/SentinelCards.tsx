@@ -5,28 +5,29 @@
 // row; the kind-picker chrome lives in the parent group.
 
 "use client";
+
 import { Icon } from "@iconify/react/offline";
 import tablerAsterisk from "@iconify-icons/tabler/asterisk";
 import tablerSlash from "@iconify-icons/tabler/slash";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { Expression, ExpressionOfKind } from "@/lib/domain/expression";
 import type { EditorPath } from "../path";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 /** Props for `MatchAllCard`. The `kind: "match-all"` arm is
  *  discriminator-only at the AST layer, so the props carry the
- *  precisely-narrowed shape rather than the wider `Predicate`
+ *  precisely-narrowed shape rather than the wider `Expression`
  *  union: matches the per-arm typing convention every other
  *  card uses. */
 interface MatchAllCardProps {
-	readonly value: Extract<Predicate, { kind: "match-all" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"match-all">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 
 /** Props for `MatchNoneCard`. Mirrors `MatchAllCardProps`. */
 interface MatchNoneCardProps {
-	readonly value: Extract<Predicate, { kind: "match-none" }>;
-	readonly onChange: (next: Predicate) => void;
+	readonly value: ExpressionOfKind<"match-none">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 }
 

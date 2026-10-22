@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	type CaseListConfig,
@@ -28,7 +28,7 @@ import {
 	today,
 	whenInput,
 	within,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { evaluateAsync } from "../../xpath/asyncEvaluator";
 import { toBoolean } from "../../xpath/coerce";
 import type { PreviewSearchSessionValues } from "../identity";
@@ -80,6 +80,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 				config,
 				"patient",
 				new Map([["query", `O'Brien said "hello"`]]),
+				undefined,
+				validationEnvironment(config),
 			).get("query"),
 		).toContain("quotation mark");
 		for (const accepted of ["O'Brien", 'She said "hello"', "plain text"]) {
@@ -88,6 +90,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					config,
 					"patient",
 					new Map([["query", accepted]]),
+					undefined,
+					validationEnvironment(config),
 				).size,
 				accepted,
 			).toBe(0);
@@ -117,6 +121,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 				config,
 				"patient",
 				new Map([["query", `$' O'Brien said "hello"`]]),
+				undefined,
+				validationEnvironment(config),
 			).get("query"),
 		).toContain("quotation mark");
 		for (const accepted of ["$&", "$$", "pay $& now"]) {
@@ -125,6 +131,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					config,
 					"patient",
 					new Map([["query", accepted]]),
+					undefined,
+					validationEnvironment(config),
 				).size,
 				accepted,
 			).toBe(0);
@@ -165,6 +173,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					["second", 'The "Boss"'],
 				]),
 				session,
+				validationEnvironment(config),
 			),
 		]).toEqual([]);
 		expect(
@@ -176,6 +185,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					["second", "plain"],
 				]),
 				session,
+				validationEnvironment(config),
 			).get("first"),
 		).toContain("quotation mark");
 	});
@@ -206,6 +216,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 				["first", "O'Brien"],
 				["second", 'The "Boss"'],
 			]),
+			undefined,
+			validationEnvironment(config),
 		);
 		expect([...errors.keys()].sort()).toEqual(["first", "second"]);
 		expect(
@@ -216,6 +228,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					["first", "O'Brien"],
 					["second", "The Boss"],
 				]),
+				undefined,
+				validationEnvironment(config),
 			).size,
 		).toBe(0);
 	});
@@ -249,6 +263,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 				user: { nickname: 'The "Boss"' },
 				userPropertySlugs: {},
 			},
+			validationEnvironment(config),
 		);
 		expect([...errors.keys()]).toEqual(["query"]);
 	});
@@ -273,22 +288,34 @@ describe("searchInputRuntimeQuoteErrors", () => {
 				config,
 				"patient",
 				new Map([["months", "1.5"]]),
+				undefined,
+				validationEnvironment(config),
 			).get("months"),
 		).toContain("whole number");
 		expect(
-			searchInputSubmissionErrors(config, "patient", new Map([["months", "2"]]))
-				.size,
+			searchInputSubmissionErrors(
+				config,
+				"patient",
+				new Map([["months", "2"]]),
+				undefined,
+				validationEnvironment(config),
+			).size,
 		).toBe(0);
 		expect(
-			searchInputSubmissionErrors(config, "patient", new Map([["months", ""]]))
-				.size,
+			searchInputSubmissionErrors(
+				config,
+				"patient",
+				new Map([["months", ""]]),
+				undefined,
+				validationEnvironment(config),
+			).size,
 		).toBe(0);
 	});
 
 	it("rejects negative or fractional prompted child-count bounds", () => {
 		const predicate = whenInput(
 			input(FIRST),
-			gt(count(subcasePath("child")), double(term(input(FIRST)))),
+			gt(count(subcasePath("parent", "child")), double(term(input(FIRST)))),
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
@@ -303,6 +330,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					config,
 					"patient",
 					new Map([["minimum", invalid]]),
+					undefined,
+					validationEnvironment(config),
 				).get("minimum"),
 			).toContain("zero or greater");
 		}
@@ -312,6 +341,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					config,
 					"patient",
 					new Map([["minimum", valid]]),
+					undefined,
+					validationEnvironment(config),
 				).size,
 			).toBe(0);
 		}
@@ -333,6 +364,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 				["near_home", "not a location"],
 				["near_work", "42.3601 -71.0589"],
 			]),
+			undefined,
+			validationEnvironment(config),
 		);
 		expect([...errors.keys()]).toEqual(["near_home"]);
 		expect(errors.get("near_home")).toContain("latitude and longitude");
@@ -355,6 +388,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					config,
 					"patient",
 					new Map([["nearby", value]]),
+					undefined,
+					validationEnvironment(config),
 				),
 				value,
 			).toEqual(new Map());
@@ -383,6 +418,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					config,
 					"patient",
 					new Map([["nearby", value]]),
+					undefined,
+					validationEnvironment(config),
 				).get("nearby"),
 				value,
 			).toContain("latitude and longitude");
@@ -425,6 +462,8 @@ describe("searchInputRuntimeQuoteErrors", () => {
 					["months", "1.5"],
 					["nearby", "42 -71"],
 				]),
+				undefined,
+				validationEnvironment(config),
 			).size,
 		).toBe(0);
 	});
@@ -437,29 +476,47 @@ describe("searchInputRuntimeQuoteErrors", () => {
 		});
 
 		expect(
-			searchInputRuntimeGlobalError(config, "patient", new Map(), {
-				context: {},
-				user: { search_label: `O'Brien "Clinic"` },
-				userPropertySlugs: {},
-			}),
+			searchInputRuntimeGlobalError(
+				config,
+				"patient",
+				new Map(),
+				{
+					context: {},
+					user: { search_label: `O'Brien "Clinic"` },
+					userPropertySlugs: {},
+				},
+				validationEnvironment(config),
+			),
 		).toContain("quotation marks");
 		expect(
-			searchInputRuntimeGlobalError(config, "patient", new Map(), {
-				context: {},
-				user: { search_label: "O'Brien Clinic" },
-				userPropertySlugs: {},
-			}),
+			searchInputRuntimeGlobalError(
+				config,
+				"patient",
+				new Map(),
+				{
+					context: {},
+					user: { search_label: "O'Brien Clinic" },
+					userPropertySlugs: {},
+				},
+				validationEnvironment(config),
+			),
 		).toBeUndefined();
 
 		const inherited = Object.create({
 			search_label: `O'Brien "Clinic"`,
 		}) as Record<string, string>;
 		expect(
-			searchInputRuntimeGlobalError(config, "patient", new Map(), {
-				context: {},
-				user: inherited,
-				userPropertySlugs: {},
-			}),
+			searchInputRuntimeGlobalError(
+				config,
+				"patient",
+				new Map(),
+				{
+					context: {},
+					user: inherited,
+					userPropertySlugs: {},
+				},
+				validationEnvironment(config),
+			),
 		).toBeUndefined();
 	});
 
@@ -476,18 +533,30 @@ describe("searchInputRuntimeQuoteErrors", () => {
 		});
 
 		expect(
-			searchInputRuntimeGlobalError(config, "patient", new Map(), {
-				context: {},
-				user: { default_location: "not a location" },
-				userPropertySlugs: {},
-			}),
+			searchInputRuntimeGlobalError(
+				config,
+				"patient",
+				new Map(),
+				{
+					context: {},
+					user: { default_location: "not a location" },
+					userPropertySlugs: {},
+				},
+				validationEnvironment(config),
+			),
 		).toContain("latitude and longitude");
 		expect(
-			searchInputRuntimeGlobalError(config, "patient", new Map(), {
-				context: {},
-				user: { default_location: "42.3601 -71.0589" },
-				userPropertySlugs: {},
-			}),
+			searchInputRuntimeGlobalError(
+				config,
+				"patient",
+				new Map(),
+				{
+					context: {},
+					user: { default_location: "42.3601 -71.0589" },
+					userPropertySlugs: {},
+				},
+				validationEnvironment(config),
+			),
 		).toBeUndefined();
 	});
 });
@@ -524,7 +593,13 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 	});
 
 	it("reports a blank required prompt with its message", () => {
-		const errors = searchInputSubmissionErrors(config, "patient", new Map());
+		const errors = searchInputSubmissionErrors(
+			config,
+			"patient",
+			new Map(),
+			undefined,
+			validationEnvironment(config),
+		);
 		expect(errors.get("full_name")).toBe(SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE);
 		expect(errors.get("phone")).toBe("Give a name or a phone number.");
 	});
@@ -534,6 +609,8 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 			config,
 			"patient",
 			new Map([["full_name", "Asha"]]),
+			undefined,
+			validationEnvironment(config),
 		);
 		expect(errors.has("phone")).toBe(false);
 		expect(errors.has("full_name")).toBe(false);
@@ -544,6 +621,8 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 			config,
 			"patient",
 			new Map([["full_name", "Asha"]]),
+			undefined,
+			validationEnvironment(config),
 		);
 		expect(errors.has("email")).toBe(false);
 	});
@@ -556,6 +635,8 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 				["full_name", "Asha"],
 				["email", "not-an-address"],
 			]),
+			undefined,
+			validationEnvironment(config),
 		);
 		expect(errors.has("email")).toBe(false);
 	});
@@ -570,7 +651,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 				["email", "not-an-address"],
 			]),
 			undefined,
-			undefined,
+			validationEnvironment(config),
 			{
 				evaluateOnDevice: async (source) => {
 					sources.push(source);
@@ -598,7 +679,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 				["email", "asha@example.org"],
 			]),
 			undefined,
-			undefined,
+			validationEnvironment(config),
 			{
 				evaluateOnDevice: async (source) =>
 					toBoolean(
@@ -621,7 +702,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 			"patient",
 			new Map(),
 			undefined,
-			undefined,
+			validationEnvironment(config),
 			{
 				evaluateOnDevice: async () => {
 					devicePasses += 1;
@@ -631,7 +712,13 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 		);
 		expect(devicePasses).toBe(0);
 		expect(onDevice).toEqual(
-			searchInputSubmissionErrors(config, "patient", new Map()),
+			searchInputSubmissionErrors(
+				config,
+				"patient",
+				new Map(),
+				undefined,
+				validationEnvironment(config),
+			),
 		);
 	});
 
@@ -663,10 +750,22 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 		const value = new Map([["query", `O'Brien said "hello"`]]);
 
 		expect(
-			searchInputRuntimeQuoteErrors(quoted, "patient", value).get("query"),
+			searchInputRuntimeQuoteErrors(
+				quoted,
+				"patient",
+				value,
+				undefined,
+				validationEnvironment(quoted),
+			).get("query"),
 		).toContain("quotation mark");
 		expect(
-			searchInputSubmissionErrors(quoted, "patient", value).get("query"),
+			searchInputSubmissionErrors(
+				quoted,
+				"patient",
+				value,
+				undefined,
+				validationEnvironment(quoted),
+			).get("query"),
 		).toBe("Leave the query blank.");
 	});
 });
@@ -691,7 +790,13 @@ describe("searchFindsNothing", () => {
 	it("finds nothing, with no message, while a session value compared with date_opened is blank", () => {
 		for (const blank of [undefined, ""]) {
 			expect(
-				searchFindsNothing(config, "patient", new Map(), session(blank)),
+				searchFindsNothing(
+					config,
+					"patient",
+					new Map(),
+					session(blank),
+					validationEnvironment(config),
+				),
 			).toBe(true);
 			expect(
 				searchInputRuntimeGlobalError(
@@ -699,6 +804,7 @@ describe("searchFindsNothing", () => {
 					"patient",
 					new Map(),
 					session(blank),
+					validationEnvironment(config),
 				),
 			).toBeUndefined();
 		}
@@ -706,7 +812,42 @@ describe("searchFindsNothing", () => {
 
 	it("searches once the value holds a date", () => {
 		expect(
-			searchFindsNothing(config, "patient", new Map(), session("2026-01-01")),
+			searchFindsNothing(
+				config,
+				"patient",
+				new Map(),
+				session("2026-01-01"),
+				validationEnvironment(config),
+			),
 		).toBe(false);
 	});
 });
+
+function validationEnvironment(config: CaseListConfig) {
+	const doc = buildDoc({
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "label", label: "Label", data_type: "text" },
+					{ name: "due_date", label: "Due date", data_type: "date" },
+					{ name: "home_location", label: "Home location", data_type: "text" },
+					{ name: "work_location", label: "Work location", data_type: "text" },
+					{ name: "location", label: "Location", data_type: "text" },
+					{ name: "full_name", label: "Full name", data_type: "text" },
+					{ name: "phone", label: "Phone", data_type: "text" },
+					{ name: "email", label: "Email", data_type: "text" },
+				],
+			},
+			{
+				name: "child",
+				parent_type: "patient",
+				properties: [],
+			},
+		],
+		modules: [
+			{ name: "Patients", caseType: "patient", caseListConfig: config },
+		],
+	});
+	return { doc, moduleUuid: doc.moduleOrder[0] };
+}

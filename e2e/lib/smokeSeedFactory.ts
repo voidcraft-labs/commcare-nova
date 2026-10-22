@@ -8,7 +8,7 @@ import {
 	caseChoiceSnapshot,
 	choiceUuid,
 } from "@/lib/__tests__/caseChoiceFixture";
-import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { getAuthDb } from "@/lib/auth/db";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
@@ -30,7 +30,12 @@ import {
 } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { asUuid, organizationLevelSchema } from "@/lib/domain";
-import { eq, literal, sessionUserProperty, term } from "@/lib/domain/predicate";
+import {
+	eq,
+	literal,
+	sessionUserProperty,
+	term,
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
@@ -694,7 +699,7 @@ export async function createSmokeBuilders(
 										id: "note",
 										kind: "text",
 										label: "Visit note",
-										required: xp("true()"),
+										required: "true()",
 									}),
 								],
 							},

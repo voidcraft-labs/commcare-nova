@@ -27,7 +27,7 @@
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
-import { eq, literal, prop, term } from "@/lib/domain/predicate/builders";
+import { eq, literal, prop, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";

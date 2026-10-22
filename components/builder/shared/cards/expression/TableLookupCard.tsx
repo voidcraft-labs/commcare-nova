@@ -8,14 +8,15 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	ANY_CONSTRAINT,
 	acceptsType,
+	type Expression,
 	matchAll,
 	type SlotConstraint,
 	tableLookup,
-	type ValueExpression,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import {
 	useEditorErrorsAt,
 	usePredicateEditContext,
@@ -44,7 +45,7 @@ function firstResultColumn(
 export function tableLookupDefault(
 	ctx: ExpressionEditContext,
 	constraint: SlotConstraint = ANY_CONSTRAINT,
-): Extract<ValueExpression, { kind: "table-lookup" }> {
+): ExpressionOfKind<"table-lookup"> {
 	for (const table of ctx.lookupTables ?? []) {
 		const column = firstResultColumn(table, constraint);
 		if (column !== undefined) {
@@ -57,8 +58,8 @@ export function tableLookupDefault(
 }
 
 interface TableLookupCardProps {
-	readonly value: Extract<ValueExpression, { kind: "table-lookup" }>;
-	readonly onChange: (next: ValueExpression) => void;
+	readonly value: ExpressionOfKind<"table-lookup">;
+	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
 	readonly constraint?: SlotConstraint;
 }

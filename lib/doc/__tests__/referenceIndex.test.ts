@@ -18,9 +18,14 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	f,
+	parseFixtureExpression,
+	resolveCaseListConfig,
+} from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { parseXPathForForm } from "@/lib/doc/expressionText";
+import { projectFormExpression } from "@/lib/doc/expressionText";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { planModuleChildDependentsOnRemove } from "@/lib/doc/moduleDependents";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -38,7 +43,6 @@ import {
 	casePropertyTargetKey,
 	caseTypeTargetKey,
 	entityTargetKey,
-	expressionSource,
 	hiddenSearchInputDef,
 	locationTargetKey,
 	plainColumn,
@@ -48,23 +52,25 @@ import {
 	userPropertyTargetKey,
 } from "@/lib/domain";
 import {
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
-import {
 	ancestorPath,
 	and,
 	eq,
 	fixedLocation,
+	formField,
 	input,
 	isBlank,
 	literal,
+	neq,
 	ownerLocationAtLevel,
 	prop,
 	sessionUserProperty,
 	tableColumn,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { assertAdmittedDoc } from "./admittedDoc";
@@ -87,7 +93,14 @@ function slotsFor(
 /** Printed text of an AST-stored relevant slot. */
 function printedRelevant(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 	const field = doc.fields[uuid];
-	return field ? expressionSource(field, "relevant", doc) : undefined;
+	return field && "relevant" in field && field.relevant
+		? projectFormExpression(
+				doc,
+				{ entity: "field", uuid, slot: "relevant" },
+				field.relevant,
+				"unavailable",
+			).text
+		: undefined;
 }
 
 function apply(doc: BlueprintDoc, mutations: Mutation[]): BlueprintDoc {
@@ -422,7 +435,11 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		doc.userPropertyOrder = [propertyUuid];
 		const field = doc.fields[fieldUuid];
 		if (field.kind !== "text") throw new Error("expected text field");
-		field.relevant = parseXPathForForm(doc, formUuid, "#user/region = 'north'");
+		field.relevant = parseFixtureExpression(
+			doc,
+			{ entity: "field", uuid: field.uuid, slot: "relevant" },
+			"#user/region = 'north'",
+		);
 		assertAdmittedDoc(doc);
 
 		const slots = slotsFor(doc, userPropertyTargetKey(propertyUuid));
@@ -572,9 +589,10 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		expect(slotsFor(doc, userPropertyTargetKey(hiddenPropertyUuid))).toEqual({
 			[moduleUuid]: { search_input_hidden_value: true },
 		});
-		// A sibling read is a removal dependency (`searchInputMutations.ts`),
-		// not an index edge.
-		expect(slotsFor(doc, entityTargetKey(regionUuid))).toEqual({});
+		// Search inputs are identity-bearing terms in the same reference graph.
+		expect(slotsFor(doc, entityTargetKey(regionUuid))).toEqual({
+			[moduleUuid]: { search_input_required_when: true },
+		});
 	});
 
 	it("indexes selected-case form display-condition Predicate leaves", () => {
@@ -818,7 +836,7 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 						{ kind: "text", text: "Fresh " },
 						{ kind: "field-ref", uuid: caseName },
 					]),
-					relevant: parseXPathForForm(doc, formUuid, "#form/case_name != ''"),
+					relevant: neq(formField(caseName), literal("")),
 				},
 			},
 			{

@@ -12,7 +12,7 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain";
-import { eq, literal, tableColumn, tableLookup } from "@/lib/domain/predicate";
+import { eq, literal, tableColumn, tableLookup } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { makeToolWorkspaceHarness } from "../../../__tests__/fixtures";
 import { getFormTool } from "../../getForm";

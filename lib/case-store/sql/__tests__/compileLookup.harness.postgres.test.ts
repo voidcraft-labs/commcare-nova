@@ -18,12 +18,6 @@ import { sql } from "kysely";
 import { describe } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import {
-	type LookupColumnId,
-	lookupColumnIdSchema,
-	lookupRowIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
-import {
 	and,
 	eq,
 	isBlank,
@@ -31,7 +25,13 @@ import {
 	prop,
 	tableColumn,
 	tableLookup,
-} from "@/lib/domain/predicate/builders";
+} from "@/lib/domain/expression/builders";
+import {
+	type LookupColumnId,
+	lookupColumnIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import { compileExpression } from "../compileExpression";
 import type { LookupTableSchemas } from "../compileLookup";

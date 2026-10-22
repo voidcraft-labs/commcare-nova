@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import type { SearchInputDef } from "@/lib/domain";
 import {
 	hiddenSearchInputDef,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
@@ -13,7 +15,7 @@ import {
 	matchesPattern,
 	sessionContext,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { evaluateAsync } from "../../xpath/asyncEvaluator";
 import { toBoolean } from "../../xpath/coerce";
 import type { PreviewSearchSessionValues } from "../identity";
@@ -70,19 +72,30 @@ const INPUTS = [name, phone, ssn];
 
 describe("searchInputConstraintErrors", () => {
 	it("fires an unconditional requirement on a blank answer with the authored or default message", () => {
-		const errors = searchInputConstraintErrors(INPUTS, new Map(), SESSION);
+		const errors = searchInputConstraintErrors(
+			INPUTS,
+			new Map(),
+			SESSION,
+			constraintEnvironment(INPUTS),
+		);
 		expect(errors.get("name")).toBe(SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE);
 	});
 
 	it("fires a conditional requirement only when its condition holds over the siblings", () => {
 		expect(
-			searchInputConstraintErrors(INPUTS, new Map(), SESSION).get("phone"),
+			searchInputConstraintErrors(
+				INPUTS,
+				new Map(),
+				SESSION,
+				constraintEnvironment(INPUTS),
+			).get("phone"),
 		).toBe("Give a name or a phone");
 		expect(
 			searchInputConstraintErrors(
 				INPUTS,
 				new Map([["name", "Asha"]]),
 				SESSION,
+				constraintEnvironment(INPUTS),
 			).has("phone"),
 		).toBe(false);
 	});
@@ -92,6 +105,7 @@ describe("searchInputConstraintErrors", () => {
 			INPUTS,
 			new Map([["name", "Asha"]]),
 			SESSION,
+			constraintEnvironment(INPUTS),
 		);
 		expect(errors.has("ssn")).toBe(false);
 		expect(errors.size).toBe(0);
@@ -108,6 +122,7 @@ describe("searchInputConstraintErrors", () => {
 				["ssn", "not-a-number"],
 			]),
 			SESSION,
+			constraintEnvironment(INPUTS),
 		);
 		expect(errors.has("ssn")).toBe(false);
 	});
@@ -127,12 +142,23 @@ describe("searchInputConstraintErrors", () => {
 			},
 		);
 		expect(
-			searchInputConstraintErrors([bySession], new Map(), SESSION, undefined, {
-				sessionIndependentOnly: true,
-			}).has("phone"),
+			searchInputConstraintErrors(
+				[bySession],
+				new Map(),
+				SESSION,
+				constraintEnvironment([bySession]),
+				{
+					sessionIndependentOnly: true,
+				},
+			).has("phone"),
 		).toBe(false);
 		expect(
-			searchInputConstraintErrors([bySession], new Map(), SESSION).get("phone"),
+			searchInputConstraintErrors(
+				[bySession],
+				new Map(),
+				SESSION,
+				constraintEnvironment([bySession]),
+			).get("phone"),
 		).toBe("Asha must give a phone");
 	});
 });
@@ -147,7 +173,7 @@ describe("searchInputConstraintErrorsOnDevice", () => {
 				["ssn", "12-345"],
 			]),
 			SESSION,
-			undefined,
+			constraintEnvironment(INPUTS),
 			{
 				evaluateOnDevice: async (source) => {
 					sources.push(source);
@@ -169,7 +195,7 @@ describe("searchInputConstraintErrorsOnDevice", () => {
 				["ssn", "123-45-6789"],
 			]),
 			SESSION,
-			undefined,
+			constraintEnvironment(INPUTS),
 			{ evaluateOnDevice: evaluatePatternSource },
 		);
 		expect(errors.size).toBe(0);
@@ -181,7 +207,7 @@ describe("searchInputConstraintErrorsOnDevice", () => {
 			INPUTS,
 			new Map(),
 			SESSION,
-			undefined,
+			constraintEnvironment(INPUTS),
 			{
 				evaluateOnDevice: async () => {
 					devicePasses += 1;
@@ -197,7 +223,14 @@ describe("searchInputConstraintErrorsOnDevice", () => {
 
 describe("searchInputRequiredMarks", () => {
 	it("marks an unconditional requirement always and a conditional one by its verdict over the draft", () => {
-		expect([...searchInputRequiredMarks(INPUTS, new Map(), SESSION)]).toEqual([
+		expect([
+			...searchInputRequiredMarks(
+				INPUTS,
+				new Map(),
+				SESSION,
+				constraintEnvironment(INPUTS),
+			),
+		]).toEqual([
 			["name", true],
 			["phone", true],
 		]);
@@ -206,6 +239,7 @@ describe("searchInputRequiredMarks", () => {
 				INPUTS,
 				new Map([["name", "Asha"]]),
 				SESSION,
+				constraintEnvironment(INPUTS),
 			).get("phone"),
 		).toBe(false);
 	});
@@ -226,14 +260,19 @@ describe("searchInputRequiredMarks", () => {
 		);
 		const draft = new Map([["name", "Dr Asha"]]);
 		expect(
-			searchInputRequiredMarks([name, byPattern], draft, SESSION).get("phone"),
+			searchInputRequiredMarks(
+				[name, byPattern],
+				draft,
+				SESSION,
+				constraintEnvironment([name, byPattern]),
+			).get("phone"),
 		).toBeUndefined();
 		const sources: string[] = [];
 		const marks = await searchInputRequiredMarksOnDevice(
 			[name, byPattern],
 			draft,
 			SESSION,
-			undefined,
+			constraintEnvironment([name, byPattern]),
 			{
 				evaluateOnDevice: async (source) => {
 					sources.push(source);
@@ -273,14 +312,20 @@ describe("hidden inputs on the Search screen", () => {
 
 	it("judges a condition reading a hidden input against its seeded value", () => {
 		expect(
-			searchInputConstraintErrors([mode, strictPhone], new Map(), SESSION).get(
-				"phone",
-			),
+			searchInputConstraintErrors(
+				[mode, strictPhone],
+				new Map(),
+				SESSION,
+				constraintEnvironment([mode, strictPhone]),
+			).get("phone"),
 		).toBe("Strict searches need a phone");
 		expect(
-			searchInputRequiredMarks([mode, strictPhone], new Map(), SESSION).get(
-				"phone",
-			),
+			searchInputRequiredMarks(
+				[mode, strictPhone],
+				new Map(),
+				SESSION,
+				constraintEnvironment([mode, strictPhone]),
+			).get("phone"),
 		).toBe(true);
 	});
 
@@ -290,6 +335,7 @@ describe("hidden inputs on the Search screen", () => {
 				[mode, strictPhone],
 				new Map([["search_mode", "loose"]]),
 				SESSION,
+				constraintEnvironment([mode, strictPhone]),
 			).has("phone"),
 		).toBe(false);
 	});
@@ -299,7 +345,33 @@ describe("hidden inputs on the Search screen", () => {
 			[mode, strictPhone],
 			new Map(),
 			SESSION,
+			constraintEnvironment([mode, strictPhone]),
 		);
 		expect(marks.has("search_mode")).toBe(false);
 	});
 });
+
+function constraintEnvironment(searchInputs: readonly SearchInputDef[]) {
+	const doc = buildDoc({
+		caseTypes: [
+			{
+				name: "person",
+				properties: [
+					{ name: "phone", label: "Phone", data_type: "text" },
+					{ name: "ssn", label: "SSN", data_type: "text" },
+				],
+			},
+		],
+		modules: [
+			{
+				name: "People",
+				caseType: "person",
+				caseListConfig: {
+					...caseListConfig([]),
+					searchInputs: [...searchInputs],
+				},
+			},
+		],
+	});
+	return { doc, moduleUuid: doc.moduleOrder[0] };
+}

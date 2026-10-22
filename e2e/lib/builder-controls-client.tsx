@@ -1,6 +1,7 @@
 import { StrictMode, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import { ValueField } from "@/components/builder/app-setup/ValueField";
 import { WorkerInformationSubsection } from "@/components/builder/app-setup/WorkerInformationSubsection";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
@@ -19,9 +20,9 @@ import { CaseTypePicker } from "@/components/builder/shared/CaseTypePicker";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import {
 	buildValidityIndex,
+	EditorVocabularyProvider,
 	PredicateEditProvider,
 } from "@/components/builder/shared/editorContext";
-import { buildEditorTypeContext } from "@/components/builder/shared/editorTypeContext";
 import { PredicateCardEditor } from "@/components/builder/shared/PredicateCardEditor";
 import { PredicateSlotCard } from "@/components/builder/shared/PredicateSlotCard";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
@@ -102,24 +103,21 @@ import {
 	type UserProperty,
 	uuidSchema,
 } from "@/lib/domain";
-import {
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
-import type { Literal } from "@/lib/domain/predicate";
+import type { Literal } from "@/lib/domain/expression";
 import {
 	ancestorPath,
 	and,
 	arith,
-	checkPredicate,
-	checkValueExpression,
+	checkExpression,
 	coalesce,
 	comparisonObjectConstraint,
 	concat,
 	count,
 	dateLiteral,
+	type Expression,
 	eq,
 	exists,
+	expressionSchema,
 	gt,
 	ifExpr,
 	isBlank,
@@ -132,8 +130,6 @@ import {
 	multiSelectAny,
 	not,
 	or,
-	type Predicate,
-	predicateSchema,
 	prop,
 	type RelationPath,
 	relationStep,
@@ -143,10 +139,12 @@ import {
 	switchCase,
 	switchExpr,
 	term,
-	type ValueExpression,
-	valueExpressionSchema,
 	within,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
@@ -393,24 +391,35 @@ const EDITOR_CASE_TYPES: readonly CaseType[] = [
 	},
 	{ name: "visit", parent_type: "patient", properties: [] },
 ];
-const EDITOR_TYPE_CONTEXT = buildEditorTypeContext({
+const EDITOR_VOCABULARY = {
 	caseTypes: EDITOR_CASE_TYPES,
 	currentCaseType: "patient",
 	knownInputs: [],
-});
+} as const;
 function ExpressionFixture() {
-	const [value, setValue] = useState<ValueExpression>(() =>
-		valueExpressionSchema.parse(term(literal("42"))),
+	const [value, setValue] = useState<Expression>(() =>
+		expressionSchema.parse(term(literal("42"))),
 	);
 	const [commits, setCommits] = useState(0);
+	const fixture = expressionEditorFixture(
+		"calculated-column",
+		EDITOR_VOCABULARY,
+	);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<ExpressionCardEditor
+				expressionContext={fixture.context.expressionContext}
 				value={value}
 				caseTypes={EDITOR_CASE_TYPES}
 				currentCaseType="patient"
 				onChange={(next) => {
-					if (!checkValueExpression(next, EDITOR_TYPE_CONTEXT).ok)
+					if (
+						checkExpression(next, fixture.context.expressionContext).errors
+							.length > 0
+					)
 						throw new Error("Expression edit must type-check");
 					setValue(next);
 					setCommits((n) => n + 1);
@@ -422,8 +431,8 @@ function ExpressionFixture() {
 	);
 }
 function PredicateFixture({ mode }: { mode: string }) {
-	const [value, setValue] = useState<Predicate>(() =>
-		predicateSchema.parse(
+	const [value, setValue] = useState<Expression>(() =>
+		expressionSchema.parse(
 			mode === "pattern"
 				? matchesPattern(prop("patient", "case_name"), "^A[0-9]+$")
 				: mode === "membership"
@@ -432,15 +441,23 @@ function PredicateFixture({ mode }: { mode: string }) {
 		),
 	);
 	const [commits, setCommits] = useState(0);
+	const fixture = expressionEditorFixture("case-filter", EDITOR_VOCABULARY);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<PredicateCardEditor
+				expressionContext={fixture.context.expressionContext}
 				value={value}
 				caseTypes={EDITOR_CASE_TYPES}
 				currentCaseType="patient"
 				onChange={(next) => {
-					if (!checkPredicate(next, EDITOR_TYPE_CONTEXT).ok)
-						throw new Error("Predicate edit must type-check");
+					if (
+						checkExpression(next, fixture.context.expressionContext).errors
+							.length > 0
+					)
+						throw new Error("Expression edit must type-check");
 					setValue(next);
 					setCommits((n) => n + 1);
 				}}
@@ -460,9 +477,18 @@ function RelationFixture({ custom }: { custom: boolean }) {
 				),
 	);
 	const [commits, setCommits] = useState(0);
+	const fixture = expressionEditorFixture("case-filter", {
+		...EDITOR_VOCABULARY,
+		currentCaseType: "visit",
+	});
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<PredicateEditProvider
+				expression={exists(value)}
+				expressionContext={fixture.context.expressionContext}
 				caseTypes={EDITOR_CASE_TYPES}
 				currentCaseType="visit"
 				knownInputs={[]}
@@ -488,9 +514,18 @@ function LiteralFixture() {
 		data_type: "int",
 	});
 	const [date, setDate] = useState<Literal>(dateLiteral("2025-01-02"));
+	const fixture = expressionEditorFixture(
+		"calculated-column",
+		EDITOR_VOCABULARY,
+	);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<PredicateEditProvider
+				expression={term(value)}
+				expressionContext={fixture.context.expressionContext}
 				caseTypes={EDITOR_CASE_TYPES}
 				currentCaseType="patient"
 				knownInputs={[]}
@@ -557,7 +592,7 @@ function CaseTypeFixture() {
 }
 
 function ListExpressionFixture({ kind }: { kind: string }) {
-	const [value, setValue] = useState<ValueExpression>(() => {
+	const [value, setValue] = useState<Expression>(() => {
 		const parts = [
 			term(literal("first")),
 			term(literal("second")),
@@ -577,18 +612,29 @@ function ListExpressionFixture({ kind }: { kind: string }) {
 						term(literal(0)),
 					);
 	});
+	const fixture = expressionEditorFixture(
+		"calculated-column",
+		EDITOR_VOCABULARY,
+	);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<Button onClick={() => setValue(structuredClone(value))}>
 				Clone expression
 			</Button>
 			<ExpressionCardEditor
+				expressionContext={fixture.context.expressionContext}
 				value={value}
 				caseTypes={EDITOR_CASE_TYPES}
 				currentCaseType="patient"
 				onChange={(next) => {
-					valueExpressionSchema.parse(next);
-					if (!checkValueExpression(next, EDITOR_TYPE_CONTEXT).ok)
+					expressionSchema.parse(next);
+					if (
+						checkExpression(next, fixture.context.expressionContext).errors
+							.length > 0
+					)
 						throw new Error("List edits must type-check");
 					setValue(structuredClone(next));
 				}}
@@ -599,13 +645,18 @@ function ListExpressionFixture({ kind }: { kind: string }) {
 }
 function OptionalConditionFixture() {
 	// Deliberately invalid historical AST at the lower-level editor boundary.
-	const [value, setValue] = useState<Predicate | undefined>(
+	const [value, setValue] = useState<Expression | undefined>(
 		gt(prop("patient", "age"), literal("wrong type")),
 	);
 	const [valid, setValid] = useState<boolean | undefined>();
+	const fixture = expressionEditorFixture("case-filter", EDITOR_VOCABULARY);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<PredicateSlotCard
+				expressionContext={fixture.context.expressionContext}
 				title="Filter"
 				description="Cases available here"
 				addLabel="Add filter"
@@ -626,15 +677,23 @@ function OptionalConditionFixture() {
 }
 
 function DiagnosticFixture({ kind }: { kind: string }) {
-	const [value, setValue] = useState<ValueExpression>(() =>
+	const [value, setValue] = useState<Expression>(() =>
 		kind === "arith-error"
 			? arith("+", term(literal("bad number")), term(literal(1)))
 			: ifExpr(matchAll(), term(literal(1)), term(literal("text"))),
 	);
 	const [valid, setValid] = useState<boolean | undefined>();
+	const fixture = expressionEditorFixture(
+		"calculated-column",
+		EDITOR_VOCABULARY,
+	);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<ExpressionCardEditor
+				expressionContext={fixture.context.expressionContext}
 				value={value}
 				onChange={setValue}
 				caseTypes={EDITOR_CASE_TYPES}
@@ -673,7 +732,7 @@ function PropertyPickerFixture() {
 	const [created, setCreated] = useState(0);
 	return (
 		<BlueprintDocProvider appId="native-editor">
-			<PredicateEditProvider
+			<EditorVocabularyProvider
 				caseTypes={PICKER_CASES}
 				currentCaseType="patient"
 				knownInputs={[]}
@@ -690,7 +749,7 @@ function PropertyPickerFixture() {
 				</Button>
 				<output aria-label="Selected information">{value}</output>
 				<output aria-label="Create requests">{created}</output>
-			</PredicateEditProvider>
+			</EditorVocabularyProvider>
 		</BlueprintDocProvider>
 	);
 }
@@ -1480,7 +1539,7 @@ const STABLE_CASE_TYPES: readonly CaseType[] = [
 ];
 function StableAstFixture({ mode }: { readonly mode: string }) {
 	const comparison = lt(prop("patient", "dob"), dateLiteral("2026-01-01"));
-	const [value, setValue] = useState<Predicate | ValueExpression>(() =>
+	const [value, setValue] = useState<Expression>(() =>
 		mode === "stable-active"
 			? comparison
 			: mode === "stable-membership"
@@ -1517,35 +1576,45 @@ function StableAstFixture({ mode }: { readonly mode: string }) {
 										eq(prop("patient", "region"), literal("North")),
 									),
 	);
-	const ctx = buildEditorTypeContext({
-		caseTypes: STABLE_CASE_TYPES,
-		currentCaseType: "patient",
-		knownInputs: [],
-	});
 	const expression = ["concat", "coalesce", "switch"].includes(value.kind);
-	const change = (next: Predicate | ValueExpression) => {
+	const change = (next: Expression) => {
 		const parsed = expression
-			? valueExpressionSchema.parse(next)
-			: predicateSchema.parse(next);
+			? expressionSchema.parse(next)
+			: expressionSchema.parse(next);
 		const checked = expression
-			? checkValueExpression(valueExpressionSchema.parse(parsed), ctx)
-			: checkPredicate(predicateSchema.parse(parsed), ctx);
-		if (!checked.ok) throw new Error(JSON.stringify(checked));
+			? checkExpression(
+					expressionSchema.parse(parsed),
+					fixture.context.expressionContext,
+				)
+			: checkExpression(
+					expressionSchema.parse(parsed),
+					fixture.context.expressionContext,
+				);
+		if (checked.errors.length > 0) throw new Error(JSON.stringify(checked));
 		setValue(parsed);
 	};
 	const props = { caseTypes: STABLE_CASE_TYPES, currentCaseType: "patient" };
+	const fixture = expressionEditorFixture(
+		expression ? "calculated-column" : "case-filter",
+		{ ...EDITOR_VOCABULARY, caseTypes: STABLE_CASE_TYPES },
+	);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			{expression ? (
 				<ExpressionCardEditor
+					expressionContext={fixture.context.expressionContext}
 					{...props}
-					value={valueExpressionSchema.parse(value)}
+					value={expressionSchema.parse(value)}
 					onChange={change}
 				/>
 			) : mode === "stable-workbench" || mode === "stable-active" ? (
 				<PredicateWorkbench
+					expressionContext={fixture.context.expressionContext}
 					{...props}
-					value={predicateSchema.parse(value)}
+					value={expressionSchema.parse(value)}
 					onChange={change}
 					focusRequest={
 						mode === "stable-active" ? { token: 1, path: ["right"] } : undefined
@@ -1553,8 +1622,9 @@ function StableAstFixture({ mode }: { readonly mode: string }) {
 				/>
 			) : (
 				<PredicateCardEditor
+					expressionContext={fixture.context.expressionContext}
 					{...props}
-					value={predicateSchema.parse(value)}
+					value={expressionSchema.parse(value)}
 					onChange={change}
 				/>
 			)}
@@ -1563,18 +1633,23 @@ function StableAstFixture({ mode }: { readonly mode: string }) {
 	);
 }
 function LogicalDragFixture() {
-	const [value, setValue] = useState<Predicate>(
+	const [value, setValue] = useState<Expression>(
 		and(
 			eq(prop("patient", "case_name"), literal("North")),
 			eq(prop("patient", "case_name"), literal("South")),
 			eq(prop("patient", "case_name"), literal("West")),
 		),
 	);
+	const fixture = expressionEditorFixture("case-filter", EDITOR_VOCABULARY);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<PredicateCardEditor
+				expressionContext={fixture.context.expressionContext}
 				value={value}
-				onChange={(next) => setValue(predicateSchema.parse(next))}
+				onChange={(next) => setValue(expressionSchema.parse(next))}
 				caseTypes={EDITOR_CASE_TYPES}
 				currentCaseType="patient"
 			/>
@@ -1604,37 +1679,55 @@ const RELATED_FILTER_CASE_TYPES: readonly CaseType[] = [
 	},
 ];
 function RelatedFilterFixture({ mode }: { readonly mode: string }) {
-	const [value, setValue] = useState<Predicate | ValueExpression>(() => {
+	const [value, setValue] = useState<Expression>(() => {
 		const via = subcasePath("parent", "patient");
 		const where = mode.endsWith("seed")
 			? undefined
 			: eq(prop("patient", "enrollment"), literal("active"));
 		return mode.includes("count") ? count(via, where) : exists(via, where);
 	});
-	const change = (next: Predicate | ValueExpression) =>
+	const change = (next: Expression) =>
 		setValue(
 			next.kind === "count"
-				? valueExpressionSchema.parse(next)
-				: predicateSchema.parse(next),
+				? expressionSchema.parse(next)
+				: expressionSchema.parse(next),
 		);
 	const props = {
 		caseTypes: RELATED_FILTER_CASE_TYPES,
 		currentCaseType: "household",
 	};
+	const fixture = expressionEditorFixture(
+		value.kind === "count" ? "calculated-column" : "case-filter",
+		{
+			...EDITOR_VOCABULARY,
+			caseTypes: RELATED_FILTER_CASE_TYPES,
+			currentCaseType: "household",
+		},
+	);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			{value.kind === "count" ? (
-				<ExpressionCardEditor {...props} value={value} onChange={change} />
+				<ExpressionCardEditor
+					expressionContext={fixture.context.expressionContext}
+					{...props}
+					value={value}
+					onChange={change}
+				/>
 			) : mode.includes("workbench") ? (
 				<PredicateWorkbench
+					expressionContext={fixture.context.expressionContext}
 					{...props}
-					value={predicateSchema.parse(value)}
+					value={expressionSchema.parse(value)}
 					onChange={change}
 				/>
 			) : (
 				<PredicateCardEditor
+					expressionContext={fixture.context.expressionContext}
 					{...props}
-					value={predicateSchema.parse(value)}
+					value={expressionSchema.parse(value)}
 					onChange={change}
 				/>
 			)}
@@ -1643,14 +1736,22 @@ function RelatedFilterFixture({ mode }: { readonly mode: string }) {
 	);
 }
 function LiteralShapeFixture() {
-	const [value, setValue] = useState<ValueExpression>(
+	const [value, setValue] = useState<Expression>(
 		term(dateLiteral("2026-07-17")),
 	);
+	const fixture = expressionEditorFixture(
+		"calculated-column",
+		EDITOR_VOCABULARY,
+	);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<ExpressionCardEditor
+				expressionContext={fixture.context.expressionContext}
 				value={value}
-				onChange={(next) => setValue(valueExpressionSchema.parse(next))}
+				onChange={(next) => setValue(expressionSchema.parse(next))}
 				caseTypes={EDITOR_CASE_TYPES}
 				currentCaseType="patient"
 			/>
@@ -1684,13 +1785,21 @@ function WorkerTermFixture() {
 	const [properties, setProperties] = useState<UserProperty[]>([
 		{ uuid: WORKER_ID, slug: "assigned_region", label: "Assigned region" },
 	]);
-	const [value, setValue] = useState<ValueExpression>(() =>
+	const [value, setValue] = useState<Expression>(() =>
 		term(sessionUserProperty(WORKER_ID)),
 	);
 	const [valid, setValid] = useState<boolean | undefined>();
+	const fixture = expressionEditorFixture("calculated-column", {
+		...EDITOR_VOCABULARY,
+		userProperties: properties,
+	});
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<ExpressionCardEditor
+				expressionContext={fixture.context.expressionContext}
 				value={value}
 				onChange={setValue}
 				caseTypes={EDITOR_CASE_TYPES}
@@ -1731,7 +1840,7 @@ const MEMBERSHIP_CASE_TYPES: CaseType[] = [
 	},
 ];
 function RelatedMembershipFixture() {
-	const [value, setValue] = useState<Predicate>(() =>
+	const [value, setValue] = useState<Expression>(() =>
 		isIn(
 			prop(
 				"patient",
@@ -1741,23 +1850,31 @@ function RelatedMembershipFixture() {
 			dateLiteral("2026-01-01"),
 		),
 	);
+	const fixture = expressionEditorFixture("case-filter", {
+		...EDITOR_VOCABULARY,
+		caseTypes: MEMBERSHIP_CASE_TYPES,
+	});
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<PredicateCardEditor
+				expressionContext={fixture.context.expressionContext}
 				value={value}
 				onChange={(next) => {
 					if (
-						!checkPredicate(
+						checkExpression(
 							next,
-							buildEditorTypeContext({
+							expressionEditorFixture("case-filter", {
 								caseTypes: MEMBERSHIP_CASE_TYPES,
 								currentCaseType: "patient",
 								knownInputs: [],
-							}),
-						).ok
+							}).context.expressionContext,
+						).errors.length > 0
 					)
 						throw new Error("Invalid related membership fixture commit");
-					setValue(predicateSchema.parse(next));
+					setValue(expressionSchema.parse(next));
 				}}
 				caseTypes={MEMBERSHIP_CASE_TYPES}
 				currentCaseType="patient"
@@ -1767,7 +1884,7 @@ function RelatedMembershipFixture() {
 	);
 }
 function PredicateDiagnosticFixture({ kind }: { kind: string }) {
-	const [value, setValue] = useState<Predicate>(() =>
+	const [value, setValue] = useState<Expression>(() =>
 		kind === "comparison-missing"
 			? eq(prop("patient", "missing"), literal("value"))
 			: match(
@@ -1777,9 +1894,14 @@ function PredicateDiagnosticFixture({ kind }: { kind: string }) {
 				),
 	);
 	const [valid, setValid] = useState<boolean | undefined>();
+	const fixture = expressionEditorFixture("case-filter", EDITOR_VOCABULARY);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<PredicateCardEditor
+				expressionContext={fixture.context.expressionContext}
 				value={value}
 				onChange={setValue}
 				caseTypes={EDITOR_CASE_TYPES}
@@ -1827,7 +1949,7 @@ const CHOICE_CASE_TYPES: CaseType[] = [
 	},
 ];
 function MultiSelectFixture() {
-	const [value, setValue] = useState<Predicate>(() =>
+	const [value, setValue] = useState<Expression>(() =>
 		multiSelectAny(
 			prop(
 				"patient",
@@ -1838,21 +1960,29 @@ function MultiSelectFixture() {
 			literal("closed"),
 		),
 	);
+	const fixture = expressionEditorFixture("case-filter", {
+		...EDITOR_VOCABULARY,
+		caseTypes: CHOICE_CASE_TYPES,
+	});
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<PredicateCardEditor
+				expressionContext={fixture.context.expressionContext}
 				value={value}
 				onChange={(next) => {
-					const parsed = predicateSchema.parse(next);
+					const parsed = expressionSchema.parse(next);
 					if (
-						!checkPredicate(
+						checkExpression(
 							parsed,
-							buildEditorTypeContext({
+							expressionEditorFixture("case-filter", {
 								caseTypes: CHOICE_CASE_TYPES,
 								currentCaseType: "patient",
 								knownInputs: [],
-							}),
-						).ok
+							}).context.expressionContext,
+						).errors.length > 0
 					)
 						throw new Error("Invalid chip fixture commit");
 					setValue(parsed);
@@ -1873,26 +2003,34 @@ const DISTANCE_CASE_TYPES: CaseType[] = [
 	},
 ];
 function DistanceFixture() {
-	const [value, setValue] = useState<Predicate>(() =>
+	const [value, setValue] = useState<Expression>(() =>
 		within(prop("patient", "location"), term(literal("0 0")), 1, "miles"),
 	);
+	const fixture = expressionEditorFixture("case-filter", {
+		...EDITOR_VOCABULARY,
+		caseTypes: DISTANCE_CASE_TYPES,
+	});
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<PredicateCardEditor
+				expressionContext={fixture.context.expressionContext}
 				value={value}
 				onChange={(next) => {
 					if (
-						!checkPredicate(
+						checkExpression(
 							next,
-							buildEditorTypeContext({
+							expressionEditorFixture("case-filter", {
 								caseTypes: DISTANCE_CASE_TYPES,
 								currentCaseType: "patient",
 								knownInputs: [],
-							}),
-						).ok
+							}).context.expressionContext,
+						).errors.length > 0
 					)
 						throw new Error("Invalid distance fixture commit");
-					setValue(predicateSchema.parse(next));
+					setValue(expressionSchema.parse(next));
 				}}
 				caseTypes={DISTANCE_CASE_TYPES}
 				currentCaseType="patient"
@@ -1920,7 +2058,7 @@ function WorkbenchFixture({ mode }: { readonly mode: string }) {
 	const first = eq(prop("patient", "case_name"), literal("North"));
 	const second = eq(prop("patient", "case_name"), literal("South"));
 	const third = eq(prop("patient", "case_name"), literal("West"));
-	const [value, setValue] = useState<Predicate>(() =>
+	const [value, setValue] = useState<Expression>(() =>
 		mode === "workbench-navigation"
 			? and(first, or(second, not(first)))
 			: mode === "workbench-group"
@@ -1930,8 +2068,15 @@ function WorkbenchFixture({ mode }: { readonly mode: string }) {
 	const [request, setRequest] = useState<
 		{ token: number; path: readonly (string | number)[] } | undefined
 	>();
+	const fixture = expressionEditorFixture(
+		mode === "workbench-search" ? "search-predicate" : "case-filter",
+		EDITOR_VOCABULARY,
+	);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<Button
 				onClick={() =>
 					setRequest((current) => ({
@@ -1949,10 +2094,14 @@ function WorkbenchFixture({ mode }: { readonly mode: string }) {
 			>
 				<div style={{ height: 300 }} />
 				<PredicateWorkbench
+					expressionContext={fixture.context.expressionContext}
 					value={value}
 					onChange={(next) => {
-						const parsed = predicateSchema.parse(next);
-						if (!checkPredicate(parsed, EDITOR_TYPE_CONTEXT).ok)
+						const parsed = expressionSchema.parse(next);
+						if (
+							checkExpression(parsed, fixture.context.expressionContext).errors
+								.length > 0
+						)
 							throw new Error("Invalid workbench fixture commit");
 						setValue(parsed);
 					}}
@@ -1970,7 +2119,7 @@ function WorkbenchFixture({ mode }: { readonly mode: string }) {
 	);
 }
 function TermSourceFixture({ raw = false }: { readonly raw?: boolean }) {
-	const [value, setValue] = useState<ValueExpression>(() =>
+	const [value, setValue] = useState<Expression>(() =>
 		raw
 			? term(literal(""))
 			: term(
@@ -1982,13 +2131,24 @@ function TermSourceFixture({ raw = false }: { readonly raw?: boolean }) {
 				),
 	);
 	const [commits, setCommits] = useState(0);
+	const fixture = expressionEditorFixture(
+		"calculated-column",
+		EDITOR_VOCABULARY,
+	);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<ExpressionCardEditor
+				expressionContext={fixture.context.expressionContext}
 				value={value}
 				onChange={(next) => {
-					const parsed = valueExpressionSchema.parse(next);
-					if (!checkValueExpression(parsed, EDITOR_TYPE_CONTEXT).ok)
+					const parsed = expressionSchema.parse(next);
+					if (
+						checkExpression(parsed, fixture.context.expressionContext).errors
+							.length > 0
+					)
 						throw new Error("Invalid term source fixture commit");
 					setValue(parsed);
 					setCommits((n) => n + 1);
@@ -2003,10 +2163,18 @@ function TermSourceFixture({ raw = false }: { readonly raw?: boolean }) {
 	);
 }
 function IntegerTermFixture() {
-	const [value, setValue] = useState<ValueExpression>(term(literal(7)));
+	const [value, setValue] = useState<Expression>(term(literal(7)));
+	const fixture = expressionEditorFixture(
+		"calculated-column",
+		EDITOR_VOCABULARY,
+	);
 	return (
-		<BlueprintDocProvider appId="native-editor">
+		<BlueprintDocProvider
+			initialDoc={toPersistableDoc(fixture.doc)}
+			appId="native-editor"
+		>
 			<ExpressionCardEditor
+				expressionContext={fixture.context.expressionContext}
 				value={value}
 				onChange={setValue}
 				caseTypes={EDITOR_CASE_TYPES}

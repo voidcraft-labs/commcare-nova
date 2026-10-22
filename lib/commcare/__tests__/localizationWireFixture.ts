@@ -23,7 +23,7 @@ import {
 	matchesPattern,
 	prop,
 	whenInput,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { searchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
 import { runValidation } from "../validator/runner";
 

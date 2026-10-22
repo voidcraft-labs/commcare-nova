@@ -55,10 +55,16 @@ import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
-import { formRecordNameMutations } from "@/lib/doc/formRecordName";
+import {
+	formRecordNameMutations,
+	type PreparedFormRecordName,
+} from "@/lib/doc/formRecordName";
 import type { FormSectionPlan } from "@/lib/doc/formSectionMutations";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
-import { planKindConversion } from "@/lib/doc/kindConversionCascade";
+import {
+	planKindConversion,
+	withChoicePreservation,
+} from "@/lib/doc/kindConversionCascade";
 import {
 	type LookupCommitState,
 	useLookupCommitState,
@@ -68,7 +74,10 @@ import {
 	type ModuleAuthoringPatch,
 	modulePatchMutations,
 } from "@/lib/doc/modulePatchMutations";
-import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
+import {
+	notifyPreservedChoices,
+	notifyRejectedCommit,
+} from "@/lib/doc/mutations/notify";
 import {
 	addLocationPropertyMutations,
 	addOrganizationLevelMutations,
@@ -110,7 +119,6 @@ import {
 	updateUserTypeMutations,
 	updateUserTypeValueMutations,
 } from "@/lib/doc/userMutations";
-import type { XPathExpression } from "@/lib/domain";
 import {
 	type AppSettings,
 	type Automation,
@@ -138,6 +146,7 @@ import {
 	type UserProperty,
 	type UserType,
 } from "@/lib/domain";
+import type { Expression } from "@/lib/domain/expression/types";
 
 /**
  * Outcome of an entity-adding dispatch: the minted uuid on success, the
@@ -369,7 +378,11 @@ export interface BlueprintMutations {
 	 * planner may add or remove a participant.
 	 */
 	updateForm: (uuid: Uuid, patch: FormAuthoringPatch) => CommitOutcome;
-	setFormRecordName: (uuid: Uuid, value: XPathExpression) => CommitOutcome;
+	setFormRecordName: (
+		uuid: Uuid,
+		value: Expression,
+		prepared?: Pick<PreparedFormRecordName, "fieldUuid" | "fieldId">,
+	) => CommitOutcome;
 	/**
 	 * Refine the complete configuration of a form that already participates
 	 * in Connect. This cannot add or remove participation; those membership
@@ -962,19 +975,21 @@ export function createBlueprintMutations(
 					typeof nextType === "string" && nextType.length > 0
 						? declareCaseTypeMutations(doc, nextType)
 						: [];
-				return toOutcome(
-					guardedApply([
-						...declare,
-						{
-							kind: "updateField",
-							uuid,
-							targetKind,
-							patch: jsonStableClearPatch(
-								patch as Readonly<Record<string, unknown>>,
-							) as FieldPatchFor<typeof targetKind>,
-						} as Mutation,
-					]),
-				);
+				const planned = withChoicePreservation(doc, [
+					...declare,
+					{
+						kind: "updateField",
+						uuid,
+						targetKind,
+						patch: jsonStableClearPatch(
+							patch as Readonly<Record<string, unknown>>,
+						) as FieldPatchFor<typeof targetKind>,
+					} as Mutation,
+				]);
+				const applied = guardedApply(planned.mutations);
+				if (applied.ok && planned.preservedChoiceCount > 0)
+					notifyPreservedChoices(planned.preservedChoiceCount);
+				return toOutcome(applied);
 			},
 
 			removeField(uuid) {
@@ -1142,7 +1157,11 @@ export function createBlueprintMutations(
 					};
 				}
 				batch.push(...plan.mutations);
-				return toOutcome(guardedApply(batch));
+				const planned = withChoicePreservation(doc, batch);
+				const applied = guardedApply(planned.mutations);
+				if (applied.ok && planned.preservedChoiceCount > 0)
+					notifyPreservedChoices(planned.preservedChoiceCount);
+				return toOutcome(applied);
 			},
 
 			addForm(moduleUuid, form) {
@@ -1206,10 +1225,10 @@ export function createBlueprintMutations(
 				return toOutcome(guardedApply(mutations));
 			},
 
-			setFormRecordName(uuid, value) {
+			setFormRecordName(uuid, value, prepared) {
 				try {
 					return toOutcome(
-						guardedApply(formRecordNameMutations(get(), uuid, value)),
+						guardedApply(formRecordNameMutations(get(), uuid, value, prepared)),
 					);
 				} catch (error) {
 					const messages = [

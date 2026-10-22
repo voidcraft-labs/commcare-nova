@@ -49,9 +49,9 @@ import {
 	datetimeLiteral,
 	type Literal,
 	literal,
-	type ResolvedType,
+	type ScalarType,
 	timeLiteral,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { usePredicateEditContext } from "../editorContext";
 import { finiteLiteralDraft, planLiteralDraft } from "../literalDraft";
 import { rebuildLiteralPreservingDataType } from "../literalRebuild";
@@ -83,7 +83,7 @@ interface LiteralValueInputProps {
 	 * value whose `left` isn't a property ref). Ignored once a
 	 * property or `overrideDataType` is in play.
 	 */
-	readonly accepts?: ReadonlySet<ResolvedType>;
+	readonly accepts?: ReadonlySet<ScalarType>;
 	/**
 	 * When true, the text widget refuses to commit an empty value:
 	 * an emptied draft reverts to the prior value rather than emitting
@@ -112,13 +112,13 @@ const WIDGETABLE_TYPES = [
 ] as const;
 
 /** Whether the slot accepts any type a typed widget can author. */
-function hasWidgetableType(accepts: ReadonlySet<ResolvedType>): boolean {
+function hasWidgetableType(accepts: ReadonlySet<ScalarType>): boolean {
 	return WIDGETABLE_TYPES.some((t) => accepts.has(t));
 }
 
 /** The widget data type to render when no property anchors one:
  *  the first concrete type the slot accepts, preferring text. */
-function widgetDataTypeFromAccepts(accepts: ReadonlySet<ResolvedType>): string {
+function widgetDataTypeFromAccepts(accepts: ReadonlySet<ScalarType>): string {
 	for (const t of WIDGETABLE_TYPES) {
 		if (accepts.has(t)) return t;
 	}

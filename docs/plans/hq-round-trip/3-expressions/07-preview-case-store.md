@@ -483,7 +483,7 @@ In Preview a calculated column runs in Postgres (§5), so `here()` is a bound pa
 `TermBindings.viewerLocation: string | null`, the Formplayer spelling (Preview plays Web Apps' browser
 here; Android's four values are step 4's, with its per-platform Preview), built on the server from the
 plain `{ latitude, longitude } | null` the client sends, formatted by Java's double text
-(`lib/preview/xpath/openJdk17DoubleString.ts`). `null` compiles to `''`, as both runtimes give
+(`lib/domain/expression/openJdk17DoubleString.ts`). `null` compiles to `''`, as both runtimes give
 without a fix. Not refusing it keeps a working affordance working; a refusal would leave every
 distance column blank in Preview while it works on a device.
 
@@ -1060,6 +1060,19 @@ invariants until pull request 10 admits them and gives their rows of §5.1. The 
 segment and stay invariants in step 3, but for the chosen case's `project`, which compiles from pull
 request 10 (§5.1).
 
+**Pull request 5 also owns the structural dependency adaptation** (§1.4). Its removal of
+`XPathExpression`, `expressionSource`, `expressionInspectionSource` and the old predicate walkers
+removes `triggerDag.ts`'s inputs, so its form reads come directly from the canonical tree through
+`wire/formReads.ts` and the form-node projection. The corresponding `dependencies.ts` and
+`countDependencies.ts` text walkers leave here. This is the dependency-forced ownership change;
+the Preview target, protocol, date semantics and new runtime supplies still land in pull request 7.
+
+**Pull request 5 also owns finite numeric select-answer conversion.** With static-choice default
+admission, `formEngine.ts::computedFieldValue` converts a finite numeric result for a single- or
+multi-select through the shared `lib/domain/expression/numberLiteral.ts::numericAnswerText`, so
+Preview stores the same answer text that admission checks. The full bind-type and `SetValueAction`
+cast infrastructure of §4 remains in pull request 7.
+
 **Pull request 7, Preview**, above pull request 4, the wire tree, and pull request 5, the shape, and
 below pull request 8, the lowering:
 
@@ -1077,8 +1090,9 @@ below pull request 8, the lowering:
    `lib/commcare/__tests__/instantOrderingTable.ts`, which pull request 1 adds.
 4. **The Preview target and protocol 8** (§1): every slot printed through
    `toWire(…, { target: "preview" })`, which needs pull request 4's wire tree and pull request 5's form
-   logic through `toWire`; structural dependencies (§1.4); worker protocol 8 (§1.5); the retirements
-   of §1.6 except the CSQL path's; and the supplies of the reads pull request 5 makes printable: the
+   logic through `toWire`; worker protocol 8 (§1.5); the retirements
+   of §1.6 except the structural dependency walkers already removed in pull request 5 and the CSQL path's;
+   and the supplies of the reads pull request 5 makes printable: the
    device snapshot behind `form-case` and `#user/` reads (`cases` queries in form logic print from pull
    request 9), today's lookup and Search answer instances, `search-input:results` for the Search
    screen, `here()`'s browser position with Android's refresh rule (§3.4), and part 05 §1.8's session

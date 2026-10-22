@@ -1,3 +1,4 @@
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 // components/builder/shared/__tests__/selectedCaseScope.test.ts
 //
 // The `"selected-case"` scope's valid-by-construction proof.
@@ -13,24 +14,23 @@
 // input predicate: the three places a related read could enter.
 
 import { describe, expect, it } from "vitest";
+import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseType } from "@/lib/domain";
 import {
-	ancestorPath,
 	count,
+	eq,
+	expressionReadsRelatedCaseData,
 	literal,
-	predicateReadsRelatedCaseData,
 	prop,
-	relationStep,
 	selfPath,
 	subcasePath,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { firstConditionSeed } from "../conditionSeed";
 import {
 	type CaseDataScope,
 	caseDataInScope,
-	caseDataScopeAdmission,
 	NEVER_MATCH_UNAVAILABLE_REASON,
 	neverMatchInScope,
 	type PredicateEditContext,
@@ -57,7 +57,19 @@ function ctx(
 	caseTypes: readonly CaseType[] = [MOTHER, CHILD],
 	currentCaseType = "mother",
 ): PredicateEditContext {
-	return { caseTypes, currentCaseType, knownInputs: [], caseDataScope };
+	return expressionEditorFixture(
+		caseDataScope === "selected-case"
+			? "selected-case-condition"
+			: caseDataScope === "global"
+				? "global-condition"
+				: "case-filter",
+		{
+			caseTypes,
+			currentCaseType,
+			knownInputs: [],
+			caseDataScope,
+		},
+	).context;
 }
 
 /** A navigation display condition: no rule that can never match. */
@@ -122,38 +134,47 @@ describe("offered predicate kinds", () => {
 	it("seeds an own-property comparison for a selected case that has one", () => {
 		const seed = firstConditionSeed(ctx("selected-case"));
 		expect(seed).toBeDefined();
-		expect(seed && predicateReadsRelatedCaseData(seed)).toBe(false);
+		expect(seed && expressionReadsRelatedCaseData(seed)).toBe(false);
 	});
 });
 
 describe("scope admission at the editor boundary", () => {
-	it("refuses related counts and property reads for the selected case but permits own reads", () => {
-		const related = term(
-			prop("child", "status", ancestorPath(relationStep("parent"))),
-		);
+	it("uses the actual form display slot to refuse related reads while accepting its own case", () => {
+		const related = term(prop("mother", "age", subcasePath("parent", "child")));
 		const countChildren = count(subcasePath("parent", "child"));
 		for (const value of [related, countChildren]) {
-			expect(caseDataScopeAdmission("selected-case", value)).toMatchObject({
-				admitted: false,
-			});
-			expect(caseDataScopeAdmission("per-case", value)).toEqual({
-				admitted: true,
-			});
+			const candidate = eq(value, literal(0));
+			expect(
+				expressionEditVerdict(
+					candidate,
+					ctx("selected-case").expressionContext,
+				),
+			).toMatchObject({ ok: false });
+			expect(
+				expressionEditVerdict(candidate, ctx("per-case").expressionContext),
+			).toEqual({ ok: true });
 		}
 		for (const value of [
 			term(prop("mother", "status")),
 			term(prop("mother", "status", selfPath())),
 		]) {
-			expect(caseDataScopeAdmission("selected-case", value)).toEqual({
-				admitted: true,
-			});
-			expect(caseDataScopeAdmission("global", value)).toMatchObject({
-				admitted: false,
-			});
+			const candidate = eq(value, literal("open"));
+			expect(
+				expressionEditVerdict(
+					candidate,
+					ctx("selected-case").expressionContext,
+				),
+			).toEqual({ ok: true });
+			expect(
+				expressionEditVerdict(candidate, ctx("global").expressionContext),
+			).toMatchObject({ ok: false });
 		}
-		expect(caseDataScopeAdmission("global", term(literal("constant")))).toEqual(
-			{ admitted: true },
-		);
+		expect(
+			expressionEditVerdict(
+				eq(literal("constant"), literal("constant")),
+				ctx("global").expressionContext,
+			),
+		).toEqual({ ok: true });
 	});
 });
 

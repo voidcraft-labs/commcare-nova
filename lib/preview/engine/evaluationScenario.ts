@@ -3,7 +3,7 @@ import addFormats from "ajv-formats";
 import { z } from "zod";
 import type { CaseRow } from "@/lib/case-store";
 import { type BlueprintDoc, materializableCaseTypes } from "@/lib/domain";
-import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
+import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { FormEvaluationInputError } from "@/lib/preview/engine/formEvaluationTypes";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 

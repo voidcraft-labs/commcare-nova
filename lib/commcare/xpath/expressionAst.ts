@@ -1,445 +1,605 @@
-// lib/commcare/xpath/expressionAst.ts
-//
-// The parser half of the expression round-trip pair: source text →
-// stored `XPathExpression` (shape, printer, and walks live in
-// `lib/domain/xpath`). The Lezer grammar locates the reference-shaped
-// spans — hashtag refs and absolute `/data/...` chains — and
-// everything between them is kept as verbatim text runs. Identity leaves print
-// canonically; the migration separately rejects a legacy noncanonical absolute
-// path instead of preserving separator bytes in the stored AST.
-//
-// Reference classification mirrors the long-standing extractor/rewriter
-// rules exactly — an identity leaf is minted precisely where a rename
-// would have rewritten text:
-//
-//   - `#form/<path>` with a FULL id-path resolution → `field-ref`.
-//     Partial/failed resolution is reported as a parse issue.
-//   - `/data/<path>` as a PURE step chain (only `/`-or-`//` separators
-//     and plain name steps — a predicate, axis, or function call
-//     breaks the chain, exactly as it broke segment collection before)
-//     with a full resolution → canonical `path-ref { uuid }`.
-//   - `#<type>/<prop>` (one segment, explicit namespace) → `case-ref`.
-//     Case properties are name-keyed; the name pair IS the identity,
-//     so no doc lookup gates this.
-//   - `#user/<prop>` → `user-property-ref` when it names Nova-authored
-//     worker information, otherwise the final raw `user-ref` form.
-//   - Raw `#case/...`, multi-segment non-form shapes, and unknown namespaces
-//     are reported as parse issues and cannot enter a stored expression.
-//
-// A source with any Lezer parse error stays ONE opaque text run: ref
-// classification over a broken tree is unreliable, and the syntax
-// diagnostic (computed from printed text, as ever) is the signal.
-// Parsing is total — there is no failure path; the commit gate
-// adjudicates the PRINTED text with the same validator findings it
-// always used.
-
-import type { SyntaxNode } from "@lezer/common";
+import { expressionChildren } from "@/lib/domain/expression/children";
+import type { ExpressionContext } from "@/lib/domain/expression/context";
+import { printFormExpression } from "@/lib/domain/expression/print";
+import { type ExpressionSpans, spanKey } from "@/lib/domain/expression/spans";
 import {
-	asUuid,
-	opaqueXPathExpression,
-	type ResolveFieldPath,
-	type ResolveSearchInputName,
-	type ResolveUserPropertySlug,
-	type XPathExpression,
-	type XPathPart,
-} from "@/lib/domain";
-import { parser } from "./parser";
+	CALL_FUNCTIONS,
+	type CallFunction,
+	type CheckPath,
+	type Expression,
+	type Term,
+} from "@/lib/domain/expression/types";
+import {
+	FUNCTION_REGISTRY,
+	functionArityIssue,
+} from "@/lib/domain/expressionFunctions";
+import { organizationLevelsOf } from "@/lib/domain/organization";
+import { itextIdFor, itextUnitForId } from "../xform/itextIds";
+import { formNodeProjection } from "./formNodeProjection";
+import {
+	type FormParseIssue,
+	FormParseRefusal,
+	refuse,
+} from "./formParseIssues";
+import type { FormParseScope } from "./formParseScope";
+import { bindFormPath, type FormPathBinder } from "./formPathBinding";
+import { formPrintContext, formScopeContext } from "./formPrintContext";
+import {
+	type FormSyntax,
+	formSyntaxKey,
+	matchFormSyntax,
+	readFormSyntax,
+} from "./formSyntax";
+import { formUserProperty } from "./referenceBindings";
 
-export type {
-	ResolveFieldPath,
-	ResolveSearchInputName,
-	ResolveUserPropertySlug,
-};
+export type { FormParseIssue, FormParseIssueCode } from "./formParseIssues";
+export type { FormParseScope, ResolveFieldPath } from "./formParseScope";
+export type FormParseResult =
+	| {
+			readonly ok: true;
+			readonly expression: Expression | undefined;
+			readonly spans: ExpressionSpans;
+	  }
+	| { readonly ok: false; readonly issues: readonly FormParseIssue[] };
 
-const NO_SEARCH_INPUTS: ResolveSearchInputName = () => undefined;
+type Bounds = { readonly from: number; readonly to: number };
+const comparisons = {
+	"=": "eq",
+	"!=": "neq",
+	">": "gt",
+	">=": "gte",
+	"<": "lt",
+	"<=": "lte",
+} as const;
+const arithmetic = new Set(["+", "-", "*", "div", "mod"]);
 
-// Pre-resolved node types. The grammar emits TWO distinct `Child` /
-// `Descendant` node types (root-step rule vs expression rule), so
-// membership is a Set check — same pattern as the extractor/rewriters.
-const T = (() => {
-	const all = parser.nodeSet.types;
-	const one = (name: string) => {
-		const found = all.find((t) => t.name === name);
-		if (!found) throw new Error(`Unknown node type: ${name}`);
-		return found;
-	};
-	const many = (name: string) => new Set(all.filter((t) => t.name === name));
-	return {
-		Children: many("Child"),
-		Descendants: many("Descendant"),
-		NameTest: one("NameTest"),
-		RootPath: one("RootPath"),
-		HashtagRef: one("HashtagRef"),
-		HashtagType: one("HashtagType"),
-		HashtagSegment: one("HashtagSegment"),
-		Slash: one("/"),
-	};
-})();
-
-interface LeafSpan {
-	from: number;
-	to: number;
-	part: XPathPart | XPathUnresolvedReference;
-}
-
-interface XPathUnresolvedReference {
-	readonly kind: "unresolved-reference";
-	readonly namespace: string;
-	readonly segments: readonly string[];
-}
-
-export interface XPathParseIssue {
-	readonly kind: "syntax" | "unresolved-reference";
-	readonly source: string;
-	readonly from: number;
-	readonly to: number;
-}
-
-export interface XPathParseResult {
-	readonly expression: XPathExpression;
-	readonly issues: readonly XPathParseIssue[];
-}
-
-/**
- * Parse one expression source to its stored AST, resolving form-local
- * references through `resolveFieldPath` (build one with
- * `fieldPathResolver(doc, formUuid)` from `lib/domain`).
- */
-export function parseXPathExpression(
+/** Parse source into identities and structured operators. No source text,
+ * unresolved names or grouping trivia can enter the returned tree. */
+export function parseFormExpression(
 	source: string,
-	resolveFieldPath: ResolveFieldPath,
-	resolveUserPropertySlug: ResolveUserPropertySlug,
-	resolveSearchInputName: ResolveSearchInputName = NO_SEARCH_INPUTS,
-): XPathExpression {
-	return parseXPathExpressionWithIssues(
-		source,
-		resolveFieldPath,
-		resolveUserPropertySlug,
-		resolveSearchInputName,
-	).expression;
-}
-
-/**
- * `resolveSearchInputName` binds `#search/<name>`; it defaults to binding
- * nothing, which is right everywhere but a no-matches registration form
- * (build one with `searchInputNameResolver(doc, formUuid)`).
- */
-export function parseXPathExpressionWithIssues(
-	source: string,
-	resolveFieldPath: ResolveFieldPath,
-	resolveUserPropertySlug: ResolveUserPropertySlug,
-	resolveSearchInputName: ResolveSearchInputName = NO_SEARCH_INPUTS,
-	options: {
-		requireBoundNames?: boolean;
-		selectedCaseType?: string;
-		/** Optional authoring names for #form only; /data paths stay exact. */
-		resolveFormReference?: ResolveFieldPath;
-	} = {},
-): XPathParseResult {
-	if (source.length === 0) return { expression: { parts: [] }, issues: [] };
-	const tree = parser.parse(source);
-
-	let hasError = false;
-	tree.iterate({
-		enter(node) {
-			if (node.type.isError) {
-				hasError = true;
-				return false;
-			}
-			return undefined;
-		},
-	});
-	if (hasError) {
+	scope: FormParseScope,
+): FormParseResult {
+	let syntax: ReturnType<typeof readFormSyntax>;
+	try {
+		syntax = readFormSyntax(source);
+	} catch {
 		return {
-			expression: opaqueXPathExpression(source),
-			issues: [{ kind: "syntax", source, from: 0, to: source.length }],
+			ok: false,
+			issues: [
+				{
+					code: "syntax",
+					from: 0,
+					to: source.length,
+					message:
+						"This expression can't be read. A bracket, a quote or an operator may be missing.",
+				},
+			],
 		};
 	}
-
-	const spans: LeafSpan[] = [];
-	collectLeafSpans(
-		tree.topNode,
-		source,
-		resolveFieldPath,
-		resolveUserPropertySlug,
-		resolveSearchInputName,
-		spans,
-		options.selectedCaseType,
-		options.resolveFormReference ?? resolveFieldPath,
-	);
-	spans.sort((a, b) => a.from - b.from);
-
-	const issues: XPathParseIssue[] = [];
-	const identitySpans: Array<LeafSpan & { readonly part: XPathPart }> = [];
-	for (const span of spans) {
-		if (span.part.kind === "unresolved-reference") {
-			issues.push({
-				kind: "unresolved-reference",
-				source: source.slice(span.from, span.to),
-				from: span.from,
-				to: span.to,
+	if (!syntax.ok)
+		return {
+			ok: false,
+			issues: syntax.issues.map((issue) => ({ code: "syntax", ...issue })),
+		};
+	if (syntax.node === undefined)
+		return { ok: true, expression: undefined, spans: new Map() };
+	const rootNode = syntax.node;
+	const context = formScopeContext(scope);
+	if (context === undefined)
+		return {
+			ok: false,
+			issues: [
+				{
+					code: "relative-no-context",
+					from: 0,
+					to: source.length,
+					message:
+						"This expression's question or form is no longer available. You can reopen it and try again.",
+				},
+			],
+		};
+	const positions = new WeakMap<object, Bounds>();
+	const hints = new Map<object, Expression | Term>();
+	const printed =
+		scope.current === undefined
+			? undefined
+			: printFormExpression(
+					scope.current,
+					formPrintContext({
+						...scope,
+						form: undefined,
+						sourceProjection: undefined,
+					}),
+				);
+	if (
+		scope.current !== undefined &&
+		printed !== undefined &&
+		printed.unresolved.length === 0
+	) {
+		const before = readFormSyntax(printed.text);
+		if (before.ok && before.node !== undefined) {
+			const byBounds = new Map<string, Expression | Term>();
+			const collect = (node: Expression | Term, path: CheckPath): void => {
+				const span = printed.spans.get(spanKey(path));
+				if (span !== undefined)
+					byBounds.set(
+						`${span.from}:${span.to}`,
+						node.kind === "term" ? node.term : node,
+					);
+				for (const child of expressionChildren(node, path))
+					if (child.kind !== "relation") collect(child.value, child.path);
+			};
+			collect(scope.current, []);
+			matchFormSyntax(before.node, syntax.node, (oldNode, newNode) => {
+				if (formSyntaxKey(oldNode) !== formSyntaxKey(newNode)) return;
+				const hint = byBounds.get(`${oldNode.from}:${oldNode.to}`);
+				if (hint !== undefined) hints.set(newNode, hint);
 			});
-		} else {
-			identitySpans.push(span as LeafSpan & { readonly part: XPathPart });
 		}
 	}
-	// Strict authoring cannot retain a name-dependent XPath path as plain text:
-	// its meaning would be relative to the current node and evade later renames.
-	// Grammar nodes distinguish paths from function names and quoted literals.
-	if (options.requireBoundNames) {
-		tree.iterate({
-			enter(node) {
-				if (
-					node.type === T.NameTest &&
-					!spans.some((span) => span.from <= node.from && span.to >= node.to) &&
-					!hasExplicitPathContext(node.node, source)
-				)
-					issues.push({
-						kind: "unresolved-reference",
-						source: source.slice(node.from, node.to),
-						from: node.from,
-						to: node.to,
-					});
-			},
-		});
-	}
-
-	const parts: XPathPart[] = [];
-	let cursor = 0;
-	for (const span of identitySpans) {
-		// Overlap guard — structurally unreachable (hashtags can't occur
-		// inside a pure step chain, and path spans nest strictly), kept so
-		// a grammar evolution degrades a span to text instead of
-		// corrupting byte coverage.
-		if (span.from < cursor) continue;
-		if (span.from > cursor) {
-			parts.push({ kind: "text", text: source.slice(cursor, span.from) });
+	const remember = <T extends Expression | Term>(value: T, node: Bounds): T => {
+		positions.set(value, node);
+		return value;
+	};
+	const term = (value: Term, node: Bounds): Expression =>
+		remember({ kind: "term", term: remember(value, node) }, node);
+	const literal = (value: string | number, node: Bounds): Expression =>
+		term({ kind: "literal", value }, node);
+	const expressionTerm = (value: Expression): Term | undefined =>
+		value.kind === "term" ? value.term : undefined;
+	function bindMany(
+		nodes: readonly FormSyntax[],
+		ctx: ExpressionContext,
+	): Expression[] {
+		const results: Expression[] = [];
+		const issues: FormParseIssue[] = [];
+		for (const node of nodes) {
+			try {
+				results.push(bind(node, ctx));
+			} catch (error) {
+				if (!(error instanceof FormParseRefusal)) throw error;
+				issues.push(...error.issues);
+			}
 		}
-		parts.push(span.part);
-		cursor = span.to;
+		if (issues.length > 0) throw new FormParseRefusal(issues);
+		return results;
 	}
-	if (cursor < source.length) {
-		parts.push({ kind: "text", text: source.slice(cursor) });
-	}
-	return { expression: { parts }, issues };
-}
-
-/** An explicit XPath initializer owns its path steps and predicate context.
- * These are existing carrier paths, whose namespaces and capabilities are
- * checked by canonical admission. A sibling expression cannot inherit them.
- * Whether a name step sits in a path an `instance()` or `current()` call
- * starts is read from the syntax tree and the text alone. */
-export function hasExplicitPathContext(
-	node: SyntaxNode,
-	source: string,
-): boolean {
-	function initialized(path: SyntaxNode | null): boolean {
-		if (!path) return false;
-		if (path.name === "Invoke") {
-			const name = path.getChild("FunctionName");
-			return (
-				name !== null &&
-				["instance", "current"].includes(source.slice(name.from, name.to))
+	function choiceFor(
+		value: Expression,
+		opposite: Expression,
+		ctx: ExpressionContext,
+	): Expression {
+		if (
+			value.kind !== "term" ||
+			value.term.kind !== "literal" ||
+			typeof value.term.value !== "string"
+		)
+			return value;
+		const other = expressionTerm(opposite);
+		const bounds = positions.get(value) ?? rootNode;
+		if (other?.kind === "case-row-type")
+			return term({ kind: "case-type", caseType: value.term.value }, bounds);
+		if (other?.kind === "location-field" && other.field === "type") {
+			const code = value.term.value;
+			const levels = Object.values(organizationLevelsOf(scope.doc)).filter(
+				(level) => level.code === code,
+			);
+			if (levels.length !== 1)
+				refuse(
+					"unknown-level",
+					bounds,
+					`There's no organization level with the code ${value.term.value}. You can check the level codes in App setup, Organization.`,
+				);
+			return term(
+				{ kind: "location-level", levelUuid: levels[0].uuid },
+				bounds,
 			);
 		}
-		return (
-			(T.Children.has(path.type) ||
-				T.Descendants.has(path.type) ||
-				path.name === "Filtered") &&
-			initialized(path.firstChild)
+		if (other?.kind !== "field" || other.role !== undefined) return value;
+		const field = ctx.form?.fields.get(other.uuid);
+		if (field?.choices?.kind !== "inline") return value;
+		const prior = hints.get(bounds);
+		const priorTerm = prior?.kind === "term" ? prior.term : prior;
+		if (
+			priorTerm?.kind === "choice" &&
+			priorTerm.field === other.uuid &&
+			priorTerm.options.every(
+				(uuid) =>
+					field.choices?.kind === "inline" &&
+					field.choices.options.some((option) => option.uuid === uuid),
+			)
+		)
+			return term(priorTerm, bounds);
+		const values =
+			field.kind === "multi_select"
+				? value.term.value.split(/\s+/u).filter(Boolean)
+				: [value.term.value];
+		const options = values.map((selected) =>
+			field.choices?.kind === "inline"
+				? field.choices.options.find((option) => option.value === selected)
+						?.uuid
+				: undefined,
+		);
+		if (
+			options.length === 0 ||
+			!options.every(
+				(uuid): uuid is NonNullable<typeof uuid> => uuid !== undefined,
+			)
+		)
+			return value;
+		return term(
+			{
+				kind: "choice",
+				field: other.uuid,
+				options: options as [typeof other.uuid, ...(typeof other.uuid)[]],
+			},
+			bounds,
 		);
 	}
-	for (let parent = node.parent; parent; parent = parent.parent)
-		if (initialized(parent)) return true;
-	return false;
-}
-
-function collectLeafSpans(
-	node: SyntaxNode,
-	source: string,
-	resolveFieldPath: ResolveFieldPath,
-	resolveUserPropertySlug: ResolveUserPropertySlug,
-	resolveSearchInputName: ResolveSearchInputName,
-	spans: LeafSpan[],
-	selectedCaseType: string | undefined,
-	resolveFormReference: ResolveFieldPath,
-): void {
-	if (node.type === T.HashtagRef) {
-		const part = classifyHashtag(
+	function hashtag(
+		node: Extract<FormSyntax, { kind: "hashtag" }>,
+		ctx: ExpressionContext,
+	): Expression {
+		if (node.namespace === "form") return bindFormPath(binder, node, ctx);
+		if (node.segments.length !== 1)
+			refuse(
+				"unknown-hashtag",
+				node,
+				"This reference needs one answer path, #<record-type>/<property>, or #user/<property>.",
+			);
+		const property = node.segments[0];
+		if (node.namespace === "user")
+			return term(formUserProperty(scope, property, "worker-record"), node);
+		if (node.namespace === "search") {
+			const matches =
+				ctx.form?.searchInputs.filter((input) => input.name === property) ?? [];
+			if (matches.length !== 1)
+				refuse(
+					"unknown-search-input",
+					node,
+					`This menu's search has no field called ${property}.`,
+				);
+			return term({ kind: "input", searchInputUuid: matches[0].uuid }, node);
+		}
+		if (node.namespace === "case") {
+			const selected = scope.authoring?.selectedCaseType;
+			if (selected === undefined)
+				refuse(
+					"case-alias-unbound",
+					node,
+					"Name the record type with #<record-type>/<property> in this formula.",
+				);
+			return term({ kind: "form-case", caseType: selected, property }, node);
+		}
+		return term(
+			{ kind: "form-case", caseType: node.namespace, property },
 			node,
-			source,
-			resolveFormReference,
-			resolveUserPropertySlug,
-			resolveSearchInputName,
-			selectedCaseType,
-		);
-		if (part !== undefined) {
-			spans.push({ from: node.from, to: node.to, part });
-		}
-		return;
-	}
-	if (T.Children.has(node.type) || T.Descendants.has(node.type)) {
-		const leaf = classifyDataPath(node, source, resolveFieldPath);
-		if (leaf !== undefined) {
-			spans.push(leaf);
-			// The chain's nested nodes are its own prefixes — wholly owned
-			// by this leaf. Nothing else can hide inside a pure chain.
-			return;
-		}
-		// Not a claimable chain — nested sub-chains (e.g. a `/data/...`
-		// prefix under a predicate step) may still claim, and predicate
-		// bodies can hold further paths/hashtags. Keep recursing.
-	}
-	for (let child = node.firstChild; child; child = child.nextSibling) {
-		collectLeafSpans(
-			child,
-			source,
-			resolveFieldPath,
-			resolveUserPropertySlug,
-			resolveSearchInputName,
-			spans,
-			selectedCaseType,
-			resolveFormReference,
 		);
 	}
-}
-
-function classifyHashtag(
-	node: SyntaxNode,
-	source: string,
-	resolveFieldPath: ResolveFieldPath,
-	resolveUserPropertySlug: ResolveUserPropertySlug,
-	resolveSearchInputName: ResolveSearchInputName,
-	selectedCaseType?: string,
-): XPathPart | XPathUnresolvedReference | undefined {
-	const nsNode = node.getChild(T.HashtagType.name);
-	if (!nsNode) return undefined;
-	const namespace = source.slice(nsNode.from, nsNode.to);
-	const segments = node
-		.getChildren(T.HashtagSegment.name)
-		.map((segment) => source.slice(segment.from, segment.to));
-	if (segments.length === 0) return undefined;
-
-	if (namespace === "form") {
-		const uuid = resolveFieldPath(segments);
-		if (uuid !== undefined) return { kind: "field-ref", uuid: asUuid(uuid) };
-		return { kind: "unresolved-reference", namespace, segments };
+	function call(
+		node: Extract<FormSyntax, { kind: "call" }>,
+		ctx: ExpressionContext,
+	): Expression {
+		const special =
+			node.name === "jr:itext"
+				? { minArgs: 1, maxArgs: 1, returnType: "string" as const }
+				: node.name === "jr:choice-name"
+					? { minArgs: 2, maxArgs: 2, returnType: "string" as const }
+					: undefined;
+		const spec = special ?? FUNCTION_REGISTRY.get(node.name);
+		if (spec === undefined)
+			refuse(
+				"unknown-function",
+				node,
+				`There is no form expression function called ${node.name}(). The expressions guide lists the functions you can use.`,
+			);
+		const arity = functionArityIssue(node.name, node.args.length, spec);
+		if (arity !== undefined) refuse("arity", node, arity);
+		if (node.name === "current" || node.name === "instance")
+			return bindFormPath(binder, node, ctx);
+		if (node.name === "jr:itext") {
+			const prior = hints.get(node);
+			if (
+				prior?.kind === "itext" &&
+				itextIdFor(scope.doc, prior.unit, ctx.form) !== undefined
+			)
+				return remember(prior, node);
+			const id = node.args[0];
+			const unit =
+				id.kind !== "string" || ctx.form === undefined
+					? undefined
+					: itextUnitForId(scope.doc, ctx.form.formUuid, id.value, ctx.form);
+			if (unit === undefined)
+				refuse(
+					"unknown-itext",
+					id,
+					`This form has no translated text with that id. You can check the id against this form's translations.`,
+				);
+			return remember({ kind: "itext", unit }, node);
+		}
+		if (node.name === "jr:choice-name") {
+			const pathArg = node.args[1];
+			if (pathArg.kind !== "string")
+				refuse(
+					"choice-name-not-a-select",
+					pathArg,
+					"The choice label needs a select question's path in quotes, such as '#form/question'.",
+				);
+			const parsedPath = readFormSyntax(pathArg.value);
+			if (!parsedPath.ok || parsedPath.node === undefined)
+				refuse(
+					"choice-name-not-a-select",
+					pathArg,
+					"The choice label needs a select question's path in quotes, such as '#form/question'.",
+				);
+			const fieldValue = bindFormPath(binder, parsedPath.node, ctx);
+			const field = expressionTerm(fieldValue);
+			if (
+				field?.kind !== "field" ||
+				!["single_select", "multi_select"].includes(
+					ctx.form?.fields.get(field.uuid)?.kind ?? "",
+				)
+			)
+				refuse(
+					"choice-name-not-a-select",
+					pathArg,
+					"This question has no choices, so its choice label can't be read. You can show the answer itself instead.",
+				);
+			return remember(
+				{
+					kind: "choice-name",
+					field: field.uuid,
+					value: bind(node.args[0], ctx),
+				},
+				node,
+			);
+		}
+		const args = bindMany(node.args, ctx);
+		switch (node.name) {
+			case "true":
+				return remember({ kind: "match-all" }, node);
+			case "false":
+				return remember({ kind: "match-none" }, node);
+			case "today":
+				return remember({ kind: "today" }, node);
+			case "now":
+				return remember({ kind: "now" }, node);
+			case "date":
+				return remember({ kind: "date-coerce", value: args[0] }, node);
+			case "double":
+				return remember({ kind: "double", value: args[0] }, node);
+			case "not":
+				return remember({ kind: "not", clause: args[0] }, node);
+			case "is-blank":
+				return remember({ kind: "is-blank", left: args[0] }, node);
+			case "concat":
+				return args.length === 0
+					? literal("", node)
+					: remember(
+							{ kind: "concat", parts: args as [Expression, ...Expression[]] },
+							node,
+						);
+			case "coalesce":
+				return remember(
+					{ kind: "coalesce", values: args as [Expression, ...Expression[]] },
+					node,
+				);
+			case "if":
+				return remember(
+					// biome-ignore lint/suspicious/noThenProperty: The persisted branch is data, not a callable thenable.
+					{ kind: "if", cond: args[0], then: args[1], else: args[2] },
+					node,
+				);
+			case "count":
+				return remember({ kind: "count", via: args[0] }, node);
+			case "starts-with":
+				return remember(
+					{
+						kind: "match",
+						property:
+							args[0].kind === "term" && args[0].term.kind === "prop"
+								? args[0].term
+								: args[0],
+						value: args[1],
+						mode: "starts-with",
+					},
+					node,
+				);
+			case "regex":
+				return remember(
+					{
+						kind: "matches-pattern",
+						left: args[0],
+						pattern:
+							args[1].kind === "term" &&
+							args[1].term.kind === "literal" &&
+							typeof args[1].term.value === "string"
+								? args[1].term.value
+								: args[1],
+					},
+					node,
+				);
+			case "format-date": {
+				const pattern = args[1];
+				const scalar = expressionTerm(pattern);
+				return remember(
+					{
+						kind: "format-date",
+						date: args[0],
+						pattern:
+							scalar?.kind === "literal" &&
+							typeof scalar.value === "string" &&
+							!["short", "long", "iso"].includes(scalar.value)
+								? scalar.value
+								: pattern,
+					},
+					node,
+				);
+			}
+			case "selected":
+			case "is-selected": {
+				const selected = choiceFor(args[1], args[0], ctx);
+				return remember(
+					{
+						kind: "multi-select-contains",
+						property:
+							args[0].kind === "term" && args[0].term.kind === "prop"
+								? args[0].term
+								: args[0],
+						values: [
+							selected.kind === "term" &&
+							(selected.term.kind === "literal" ||
+								selected.term.kind === "choice")
+								? selected.term
+								: selected,
+						],
+						quantifier: "any",
+					},
+					node,
+				);
+			}
+			default:
+				if (!CALL_FUNCTIONS.includes(node.name as CallFunction))
+					refuse(
+						"unknown-function",
+						node,
+						`The form expression ${node.name}() isn't available here. The expressions guide lists the functions you can use.`,
+					);
+				return remember(
+					{ kind: "call", fn: node.name as CallFunction, args },
+					node,
+				);
+		}
 	}
-	if (namespace === "user") {
-		if (segments.length === 1) {
-			const uuid = resolveUserPropertySlug(segments[0]);
-			return uuid === undefined
-				? { kind: "user-ref", property: segments[0] }
-				: {
-						kind: "user-property-ref",
-						userPropertyUuid: asUuid(uuid),
+	function bind(node: FormSyntax, ctx: ExpressionContext): Expression {
+		switch (node.kind) {
+			case "group":
+				return bind(node.value, ctx);
+			case "number":
+				if (!Number.isFinite(node.value))
+					refuse(
+						"syntax",
+						node,
+						"This number is too large to store. You can write a finite number instead.",
+					);
+				return literal(node.value, node);
+			case "string":
+				return literal(node.value, node);
+			case "hashtag":
+				return hashtag(node, ctx);
+			case "negative": {
+				const value = bind(node.value, ctx);
+				return value.kind === "term" &&
+					value.term.kind === "literal" &&
+					typeof value.term.value === "number"
+					? literal(-value.term.value, node)
+					: remember({ kind: "negate", value }, node);
+			}
+			case "variable":
+				return refuse(
+					"variable",
+					node,
+					`Form expressions have no variables like $${node.name}. You can read the question or property that holds the value.`,
+				);
+			case "binary": {
+				if (node.op === "|")
+					refuse(
+						"union",
+						node,
+						"Two lists can't be joined with | here. You can test each list on its own and combine the results with or.",
+					);
+				if (node.op === "and" || node.op === "or") {
+					const parts: FormSyntax[] = [];
+					const collect = (part: FormSyntax): void => {
+						if (part.kind === "binary" && part.op === node.op) {
+							collect(part.left);
+							collect(part.right);
+						} else parts.push(part);
 					};
-		}
-		return { kind: "unresolved-reference", namespace, segments };
-	}
-	if (namespace === "case") {
-		// The text-authoring boundary may bind the selected record. Storage
-		// still receives its canonical type/property identity, never this alias.
-		if (selectedCaseType && segments.length === 1)
-			return {
-				kind: "case-ref",
-				caseType: selectedCaseType,
-				property: segments[0],
-			};
-		return { kind: "unresolved-reference", namespace, segments };
-	}
-	if (namespace === "search") {
-		// A search answer carried into a no-matches registration form. The
-		// namespace is reserved (`RESERVED_CASE_TYPE_NAMES`), so it never
-		// falls through to the case-ref arm below.
-		if (segments.length === 1) {
-			const uuid = resolveSearchInputName(segments[0]);
-			if (uuid !== undefined) {
-				return { kind: "search-answer-ref", searchInputUuid: asUuid(uuid) };
+					collect(node);
+					return remember(
+						{
+							kind: node.op,
+							clauses: bindMany(parts, ctx) as [Expression, ...Expression[]],
+						},
+						node,
+					);
+				}
+				const [rawLeft, rawRight] = bindMany([node.left, node.right], ctx);
+				if (arithmetic.has(node.op))
+					return remember(
+						{
+							kind: "arith",
+							op: node.op as "+" | "-" | "*" | "div" | "mod",
+							left: rawLeft,
+							right: rawRight,
+						},
+						node,
+					);
+				const kind = comparisons[node.op as keyof typeof comparisons];
+				if (kind === undefined)
+					refuse(
+						"syntax",
+						node,
+						"This expression needs a supported comparison or arithmetic operator.",
+					);
+				return remember(
+					{
+						kind,
+						left: choiceFor(rawLeft, rawRight, ctx),
+						right: choiceFor(rawRight, rawLeft, ctx),
+					},
+					node,
+				);
 			}
+			case "call":
+				return call(node, ctx);
+			case "name":
+			case "self":
+			case "parent":
+			case "root":
+			case "axis":
+			case "child":
+			case "filter":
+				return bindFormPath(binder, node, ctx);
 		}
-		return { kind: "unresolved-reference", namespace, segments };
 	}
-	if (segments.length === 1) {
-		return { kind: "case-ref", caseType: namespace, property: segments[0] };
-	}
-	return { kind: "unresolved-reference", namespace, segments };
-}
-
-/**
- * Claim an absolute `/data/...` step chain as a `path-ref` leaf. The
- * chain must be PURE — its whole span is exactly `/`-or-`//` separator
- * runs (whitespace allowed around them) interleaved with the collected
- * name steps, verified by reconstruction so a predicate, axis step,
- * wildcard, or function call anywhere in the chain disqualifies it —
- * and the id path after `data` must FULLY resolve. Separator spellings are
- * accepted by the human text parser but never stored; printing is canonical.
- */
-function classifyDataPath(
-	node: SyntaxNode,
-	source: string,
-	resolveFieldPath: ResolveFieldPath,
-): LeafSpan | undefined {
-	const collected: Array<{ text: string; from: number; to: number }> = [];
-	collectSegments(node, source, collected);
-	if (collected.length < 2 || collected[0].text !== "data") return undefined;
-	const unresolved = (): LeafSpan => ({
-		from: node.from,
-		to: node.to,
-		part: {
-			kind: "unresolved-reference",
-			namespace: "data",
-			segments: collected.slice(1).map((segment) => segment.text),
-		},
-	});
-
-	// Reconstruction check: every inter-segment run must be a single
-	// `/` or `//` with only whitespace around it, the span must start
-	// at its first separator, and end exactly at the last segment.
-	let cursor = node.from;
-	for (const segment of collected) {
-		if (segment.from < cursor) return unresolved();
-		const sep = source.slice(cursor, segment.from);
-		if (!/^\s*\/\s*$/.test(sep)) return unresolved();
-		cursor = segment.to;
-	}
-	if (cursor !== node.to) return unresolved();
-
-	const uuid = resolveFieldPath(collected.slice(1).map((s) => s.text));
-	if (uuid === undefined) return unresolved();
-	return {
-		from: node.from,
-		to: node.to,
-		part: { kind: "path-ref", uuid: asUuid(uuid) },
+	const binder: FormPathBinder = {
+		scope,
+		projection:
+			scope.sourceProjection ??
+			(context.form === undefined
+				? undefined
+				: formNodeProjection(scope.doc, context.form)),
+		bind,
+		term,
+		remember,
+		hint: (node) => hints.get(node),
+		worker: (slug, source) => formUserProperty(scope, slug, source),
 	};
-}
-
-/** Collect plain name steps with positions from a path chain —
- *  the extractor/rewriters' collection rule: recurse nested
- *  Child/Descendant nodes, take `NameTest`s and bare leaf tokens,
- *  skip slashes; compound steps (predicates, axes, calls) contribute
- *  nothing and are caught by the reconstruction check above. */
-function collectSegments(
-	node: SyntaxNode,
-	source: string,
-	segments: Array<{ text: string; from: number; to: number }>,
-): void {
-	for (let child = node.firstChild; child; child = child.nextSibling) {
-		if (T.Children.has(child.type) || T.Descendants.has(child.type)) {
-			collectSegments(child, source, segments);
-		} else if (child.type === T.RootPath || child.type === T.Slash) {
-			// Separators — reconstructed from source slices, not collected.
-		} else if (child.type === T.NameTest) {
-			segments.push({
-				text: source.slice(child.from, child.to),
-				from: child.from,
-				to: child.to,
-			});
-		} else if (!child.firstChild) {
-			const text = source.slice(child.from, child.to);
-			if (text !== "/" && text !== "//") {
-				segments.push({ text, from: child.from, to: child.to });
-			}
-		}
+	try {
+		let expression = bind(syntax.node, context);
+		if (scope.slot.entity === "field" && scope.slot.slot === "default_value")
+			expression = choiceFor(
+				expression,
+				term({ kind: "field", uuid: scope.slot.uuid }, syntax.node),
+				context,
+			);
+		const spans = new Map<string, Bounds>();
+		const visit = (
+			node: Expression | Term,
+			path: CheckPath,
+			inherited: Bounds,
+		): void => {
+			const bounds = positions.get(node) ?? inherited;
+			spans.set(spanKey(path), bounds);
+			for (const child of expressionChildren(node, path))
+				if (child.kind !== "relation") visit(child.value, child.path, bounds);
+		};
+		visit(expression, [], syntax.node);
+		return { ok: true, expression, spans };
+	} catch (error) {
+		if (!(error instanceof FormParseRefusal)) throw error;
+		return { ok: false, issues: error.issues };
 	}
 }

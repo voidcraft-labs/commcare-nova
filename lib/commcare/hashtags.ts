@@ -1,52 +1,14 @@
 /**
- * Hashtag parsing plus private CommCare wire projections.
+ * HQ's private hashtag metadata vocabulary.
  *
- * Uses the Lezer XPath parser to identify HashtagRef nodes and their structured
- * children (HashtagType, HashtagSegment), then surgically replaces them with
- * expanded XPath. The shorthand survives on the wire only in HQ's EDITOR
- * vocabulary — `#form/` in the `vellum:*` shadow attributes via
- * `hashtags/formContext.ts::vellumShorthandInContext`, and HQ's `#case/`
- * strings in the `case_references_data.load` map via {@link hqLoadReference}
- * (HQ's app summary reads that map, `app_schemas/app_case_metadata.py`) —
- * never as Nova's per-case-type namespaces, which the editor cannot parse.
+ * `hqLoadReference` projects typed case reads into the strings HQ's app
+ * summary reads in `case_references_data.load`. `VELLUM_HASHTAG_TRANSFORMS`
+ * describes the editor's worker-record prefix. Executable form expressions
+ * are emitted from typed wire trees by `xpath/wire/fromExpression.ts`.
  */
-import { parser } from "@/lib/commcare/xpath";
-import { emitCasePropertyWirePath } from "./casePropertyWire";
+
 import { USERCASE_CASE_SELECTOR } from "./usercaseWire";
 import { serializeWire } from "./xpath/wire/serialize";
-
-// Pre-resolve node types — zero string comparisons at runtime
-const T = (() => {
-	const all = parser.nodeSet.types;
-	const one = (name: string) => {
-		const found = all.find((t) => t.name === name);
-		if (!found) throw new Error(`Missing parser node type: ${name}`);
-		return found;
-	};
-	return {
-		HashtagRef: one("HashtagRef"),
-		HashtagType: one("HashtagType"),
-		HashtagSegment: one("HashtagSegment"),
-	};
-})();
-
-// ── Case-loading selector primitives ─────────────────────────────────
-// Single source of truth for the casedb `<case>` selector. Typed case refs
-// project through `expandCaseToWire`.
-const CASEDB_CASE = "instance('casedb')/casedb/case";
-/**
- * The session datum a case-loading entry selects its case into. Every form-
- * scope case reference walks from it; a session-scope reference (an
- * after-submit link) walks from whichever datum the SOURCE entry carries for
- * its own case, which `expandCaseToWire`'s `fromCaseId` names.
- */
-export const CURRENT_CASE_ID =
-	"instance('commcaresession')/session/data/case_id";
-
-/** A casedb `<case>` selected by its `@case_id` expression. */
-function caseById(idExpr: string): string {
-	return `${CASEDB_CASE}[@case_id = ${idExpr}]`;
-}
 
 /** The prefix `#user/` expands to. */
 export const VELLUM_HASHTAG_TRANSFORMS = {
@@ -65,192 +27,14 @@ export const VELLUM_HASHTAG_TRANSFORMS = {
  * sources from `generation_names = ['case', 'parent', 'grandparent']` — and its
  * XPath engine resolves an unlisted hashtag by prefix lookup against exactly
  * these (`Vellum/src/xpath.js::hashtagToXPath`). A deeper walk has NO hashtag
- * spelling the editor can expand, so depth ≥ 3 has no entry here.
+ * spelling the editor can expand, so depth ≥ 3 has no entry here. The load
+ * metadata below can still name deeper walks with repeated parent segments.
  */
-export const VELLUM_CASE_GENERATION_PREFIXES = [
+const HQ_CASE_GENERATION_PREFIXES = [
 	"#case/",
 	"#case/parent/",
 	"#case/grandparent/",
 ] as const;
-
-/**
- * Flat-prefix expansion by hashtag type, for the types whose expansion is a
- * simple prefix + property path. `#form/` is a trivial `/data/` expansion;
- * `#user/` resolves to the commcare-user case. Typed case refs require form
- * context and route through `expandCaseToWire` instead.
- */
-const EXPANSIONS = new Map<string, string>([
-	["form", "/data/"],
-	["user", VELLUM_HASHTAG_TRANSFORMS.prefixes["#user/"]],
-]);
-
-/**
- * The core case-loading walk, addressed by hop depth: `hops` parent-index hops
- * up from the form's loaded case, then `propPath` read off the target case.
- * Zero hops → the plain loaded-case selector. N hops → N
- * nested `caseById(...)/index/parent` walks from the current case to the target
- * ancestor case.
- *
- * The single wire-shape authority for canonical typed case refs. The
- * authored case-type namespace maps to its `reachableCaseTypes` depth and
- * passes that depth here; HQ's `#case/parent…` load-map spelling is generated
- * from the same depth ({@link hqLoadReference}), never accepted as Nova input.
- */
-export function expandCaseToWire(
-	hops: number,
-	propPath: string,
-	fromCaseId: string = CURRENT_CASE_ID,
-): string {
-	// Walk to the target case's id — one `/index/parent` per hop; zero hops
-	// leaves it at the current case. Everything flows through `caseById`.
-	let idExpr = fromCaseId;
-	for (let h = 0; h < hops; h++) {
-		idExpr = `${caseById(idExpr)}/index/parent`;
-	}
-	// A walk with no trailing property (a bare `#case/parent` relationship)
-	// resolves to the related case node itself.
-	if (!propPath) return caseById(idExpr);
-	// Use the same metadata leaf mapping as record lists and queries. Core
-	// stores owner, status and identity as attributes, including after a parent walk.
-	return `${caseById(idExpr)}/${emitCasePropertyWirePath(propPath)}`;
-}
-
-/**
- * Apply ALREADY-POSITION-SORTED edits in reverse order to preserve
- * source offsets.
- *
- * Deliberately NOT the rewriters' self-sorting `applyEdits`
- * (`lib/preview/xpath/rewrite.ts`): the sole producer here is
- * `tree.iterate`, which visits `HashtagRef`s in document order, so the
- * edit list arrives sorted by construction and this helper leans on
- * that precondition instead of re-sorting — the name carries the
- * contract.
- */
-function applyPresortedEdits(
-	source: string,
-	edits: Array<{ from: number; to: number; text: string }>,
-): string {
-	if (edits.length === 0) return source;
-	let result = source;
-	for (let i = edits.length - 1; i >= 0; i--) {
-		const { from, to, text } = edits[i];
-		result = result.slice(0, from) + text + result.slice(to);
-	}
-	return result;
-}
-
-/**
- * Walk every `HashtagRef` in `expr` (via the Lezer XPath parser, never a
- * substring scan — `#case/case_id` and `#case/case_id_x` differ only at a
- * segment boundary the parser respects) and replace each through `resolve`.
- * The resolver receives the hashtag's type name + segment strings and returns
- * the replacement XPath, or `undefined` to leave that ref verbatim.
- *
- * The single tree-walk shared by flat authoring refs and the form-context-aware
- * typed case-ref projection.
- */
-export function rewriteHashtags(
-	expr: string,
-	resolve: (typeName: string, segments: string[]) => string | undefined,
-): string {
-	if (!expr) return expr;
-
-	const tree = parser.parse(expr);
-	const edits: Array<{ from: number; to: number; text: string }> = [];
-
-	// tree.iterate visits in document order — edits are position-sorted for reverse apply
-	tree.iterate({
-		enter(node) {
-			if (node.type === T.HashtagRef) {
-				const ref = node.node;
-				const type = ref.getChild(T.HashtagType.id);
-				if (!type) return;
-				const typeName = expr.slice(type.from, type.to);
-				const segments = ref
-					.getChildren(T.HashtagSegment.id)
-					.map((s) => expr.slice(s.from, s.to));
-				const text = resolve(typeName, segments);
-				if (text !== undefined) {
-					edits.push({ from: node.from, to: node.to, text });
-				}
-				return false; // don't descend into children
-			}
-		},
-	});
-
-	return applyPresortedEdits(expr, edits);
-}
-
-/**
- * Flat-prefix resolution for the namespaces whose expansion is a simple
- * `prefix + property path` — `#form/` and `#user/`. Returns `undefined` for any
- * other namespace; per-case-type namespaces carry relationship/scope that
- * needs the form-context-aware `expandCaseToWire` projection instead.
- */
-export function resolveFlatHashtag(
-	typeName: string,
-	segments: string[],
-): string | undefined {
-	const prefix = EXPANSIONS.get(typeName);
-	return prefix !== undefined ? prefix + segments.join("/") : undefined;
-}
-
-/**
- * Expand the two context-free authored namespaces, `#form/` and `#user/`.
- * Typed case refs require the owning form's reachable-case-type depths and are
- * projected by `hashtags/formContext.ts::expandHashtagsInContext`.
- */
-export function expandFlatHashtags(expr: string): string {
-	return rewriteHashtags(expr, resolveFlatHashtag);
-}
-
-/**
- * Extract every case-bound hashtag reference from XPath expressions: `#case/…`,
- * `#user/…`, and every `#<case_type>/…` per-type ref — i.e. every namespace
- * EXCEPT `#form/`, which resolves to a plain in-form `/data/` path that carries
- * no HQ-side hashtag metadata or `case_references_data.load` entry, and
- * `#search/`, which reads the search-input instance. Feeds `formActions.ts`'s
- * load map, which translates the raw refs into HQ vocabulary before emission.
- */
-/** Whether the expression reads a search answer (`#search/<name>`). */
-export function referencesSearchAnswer(expr: string): boolean {
-	if (!expr) return false;
-	let found = false;
-	parser.parse(expr).iterate({
-		enter(node) {
-			if (found) return false;
-			if (node.type === T.HashtagRef) {
-				const type = node.node.getChild(T.HashtagType.id);
-				if (type && expr.slice(type.from, type.to) === "search") found = true;
-				return false;
-			}
-		},
-	});
-	return found;
-}
-
-export function extractHashtags(exprs: string[]): string[] {
-	const hashtags = new Set<string>();
-	for (const expr of exprs) {
-		if (!expr) continue;
-		parser.parse(expr).iterate({
-			enter(node) {
-				if (node.type === T.HashtagRef) {
-					const type = node.node.getChild(T.HashtagType.id);
-					if (!type) return false;
-					const typeName = expr.slice(type.from, type.to);
-					// `#search/` reads the search-input instance, not a case:
-					// no load entry, no editor metadata.
-					if (typeName !== "form" && typeName !== "search") {
-						hashtags.add(expr.slice(node.from, node.to));
-					}
-					return false;
-				}
-			},
-		});
-	}
-	return [...hashtags];
-}
 
 /** Parse the namespace out of a full hashtag ref string (`#mother/x` → `mother`).
  *  Returns `undefined` for a malformed ref (no leading `#` or no segment). */
@@ -297,7 +81,6 @@ export function hqLoadReference(
 	if (depth === undefined) return ref;
 	const rest = ref.slice(ns.length + 2);
 	const prefix =
-		VELLUM_CASE_GENERATION_PREFIXES[depth] ??
-		`#case/${"parent/".repeat(depth)}`;
+		HQ_CASE_GENERATION_PREFIXES[depth] ?? `#case/${"parent/".repeat(depth)}`;
 	return prefix + rest;
 }

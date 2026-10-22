@@ -4,8 +4,8 @@
  * A case list orders a shown interval column by the text it shows on every
  * path (`lib/domain/caseListOrder.ts`, rules 3 and 6), and an unsorted list
  * whose first field is an interval column is ordered by that text too. The
- * text is a date difference, which `arith` refuses as a `ValueExpression`
- * (`lib/domain/predicate/typeChecker.ts::checkExpression`), so this one key
+ * text is a date difference, which `arith` refuses as a `DomainExpression`
+ * (`lib/domain/expression/typeChecker.ts::checkExpression`), so this one key
  * has its own compiler entry, built from typed-builder calls inside the
  * compiler package, which stays the only evaluator.
  *
@@ -38,7 +38,7 @@
 
 import { type AliasableExpression, expressionBuilder } from "kysely";
 import type { CaseType } from "@/lib/domain/blueprint";
-import { prop, term } from "@/lib/domain/predicate";
+import { prop, term } from "@/lib/domain/expression/builders";
 import {
 	compileExpression,
 	compilePinnedInstant,

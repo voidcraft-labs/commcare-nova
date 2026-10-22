@@ -22,6 +22,7 @@ import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
+import { expectEntryDatumAgreement } from "./entryDatumAgreement";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
@@ -97,6 +98,7 @@ export function checkCompilerEvidence(doc: BlueprintDoc): void {
 	if (!schema.success)
 		throw new Error(`Invalid generated schema: ${schema.error.message}`);
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	expectEntryDatumAgreement(doc);
 	const manifest = manifestFor(doc);
 	const manifestPaths = new Set(
 		Array.from(manifest.values(), (a) => a.wirePath),

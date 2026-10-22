@@ -5,9 +5,9 @@
  * parser accepts without evaluating user-authored text as JavaScript.
  */
 
+import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
 import { parseJavaDouble } from "./javaRosaGeo";
 import { javaTrim } from "./javaString";
-import { openJdk17DoubleToString } from "./openJdk17DoubleString";
 
 const SIMPLE_VALUE_DELIMITERS = new Set(`,:]}/\\"[{;=#`.split(""));
 

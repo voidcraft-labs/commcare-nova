@@ -47,7 +47,7 @@ import {
 	moduleDestination,
 	orderedColumns,
 } from "@/lib/domain";
-import type { Predicate } from "@/lib/domain/predicate";
+import type { Expression } from "@/lib/domain/expression";
 import type { ToolInvocationContext } from "../workspace/types";
 import type { ReadToolResult } from "./common";
 import {
@@ -103,7 +103,7 @@ export type GetModuleResult =
 			case_type: string | null;
 			icon: ModuleIconRef | null;
 			audio_label: MediaAssetId | null;
-			display_condition: Predicate | null;
+			display_condition: Expression | null;
 			/** True when the module is off the menu, with every form in it. */
 			hidden_from_menu: boolean;
 			case_list_config: CaseListConfig | null;

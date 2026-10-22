@@ -24,8 +24,9 @@ under another name) is the corpus layout
   Nova's persistable shape, which a later cutover changes, what the checks
   derive from D and D' (``derived.json``, ``derived``): the wire layout and
   languages, the intent (``intent.intent_json``), the lookup tags and the
-  case database (``casedata.database_json``) and the declared case-property
-  types. Each is read where a check reads it of a document (``Document.derived``).
+  case database (``casedata.database_json``) and effective case-property
+  types from the emitted catalog. Each is read where a check reads it of a
+  document (``Document.derived``).
 
 Never ``inputs.json``: a control's part keys and the evidence store's guard
 read its input files from the files themselves

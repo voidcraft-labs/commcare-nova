@@ -18,7 +18,7 @@ import {
 	useRef,
 	useSyncExternalStore,
 } from "react";
-import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import type { XPathReferenceContext } from "@/lib/codemirror/xpath-lint";
 import type { ProseTemplate } from "@/lib/domain";
 import { ReferenceProvider } from "./provider";
 
@@ -30,11 +30,11 @@ const ReferenceCtx = createContext<ReferenceProvider | null>(null);
 const CurrentFormUuidCtx = createContext<string | undefined>(undefined);
 
 interface ReferenceProviderWrapperProps {
-	/** Resolve the lint context for a given form uuid (blueprint + form +
+	/** Resolve the reference context for a given form uuid (blueprint + form +
 	 *  reachable case types). The provider calls this with whatever form a ref
 	 *  is being resolved against — the active form for in-editor surfaces, each
 	 *  field's owning form for the sidebar. */
-	getContextForForm: (formUuid: string) => XPathLintContext | undefined;
+	getContextForForm: (formUuid: string) => XPathReferenceContext | undefined;
 	/** The form currently being edited, exposed via `useCurrentFormUuid`. */
 	currentFormUuid: string | undefined;
 	/** Subscribe to external mutations that invalidate cached data.

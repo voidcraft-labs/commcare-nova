@@ -11,6 +11,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { setFormSections } from "@/lib/doc/formSectionMutations";
 import { applyMutations } from "@/lib/doc/mutations";
 import { blueprintDocSchema, type PersistableDoc } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression/builders";
 import {
 	inspectAuthoringBaseline,
 	repairAuthoringBaselineInTransaction,
@@ -65,7 +66,7 @@ function authoredApp(id: string): PersistableDoc {
 				id: "visits",
 				kind: "repeat",
 				repeat_mode: "count_bound",
-				repeat_count: { parts: [{ kind: "text", text: "2" }] },
+				repeat_count: term(literal(2)),
 			},
 		},
 		{

@@ -12,7 +12,7 @@ import {
 	missing,
 	subcasePath,
 	term,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import { runValidation } from "../validator/runner";
 
 export const relationInstanceScenarios = [

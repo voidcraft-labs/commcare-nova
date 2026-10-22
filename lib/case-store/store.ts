@@ -35,11 +35,11 @@ import {
 	USERCASE_CASE_TYPE,
 	usercaseCaseType,
 } from "@/lib/domain";
+import type { SearchInputDecl } from "@/lib/domain/expression/context";
 import type {
-	Predicate,
+	Expression as DomainExpression,
 	RelationPath,
-	ValueExpression,
-} from "@/lib/domain/predicate/types";
+} from "@/lib/domain/expression/types";
 import type { LookupTableSchemas } from "./sql/compileLookup";
 import type { TermBindings } from "./sql/compileTerm";
 import type {
@@ -61,7 +61,7 @@ import type {
  * same column entries the editor authors without an intermediate
  * shape conversion. The `uuid` is the SELECT alias key
  * (`__nova_calc__<uuid>`); the `expression` is the per-row
- * `ValueExpression` the SQL emitter compiles into a projection.
+ * `DomainExpression` the SQL emitter compiles into a projection.
  */
 export type CalculatedColumn = Extract<Column, { kind: "calculated" }>;
 
@@ -184,16 +184,16 @@ export type CaseUpdateArgs = {
  *     every number descending.
  *   - `blanks`: where a blank or missing value sorts, whatever the direction.
  *
- * `expression` keys sort by a `ValueExpression`; `interval-text` keys by an
+ * `expression` keys sort by a `DomainExpression`; `interval-text` keys by an
  * interval column's shown text (`sql/compileIntervalText.ts`), and
  * `mapping-position` keys by the index of the first of `values` the value
  * holds as a token, as text, `""` when it holds none. Neither can be stated
- * as a `ValueExpression`.
+ * as a `DomainExpression`.
  */
 export type SortKey =
 	| {
 			readonly kind: "expression";
-			readonly expression: ValueExpression;
+			readonly expression: DomainExpression;
 			/** A calculated Results/Details column uses the same portable reads
 			 *  to sort. */
 			readonly portableCaseDates?: true;
@@ -219,7 +219,7 @@ export type SortKey =
 			readonly kind: "mapping-position";
 			/** The value read, as a device reads it (a multi select's tokens
 			 *  joined by one space). */
-			readonly expression: ValueExpression;
+			readonly expression: DomainExpression;
 			/** Each entry's value in table order, trimmed as `selected()` trims
 			 *  it (Java `String.trim`). */
 			readonly values: readonly string[];
@@ -316,7 +316,9 @@ export interface QueryArgs {
 	lookupTableSchemas?: LookupTableSchemas;
 	/** Runtime values for input/session terms used by predicates, sort keys, or calculated projections. */
 	bindings?: TermBindings;
-	predicate?: Predicate;
+	/** Declared Search input types for calculated columns and sort expressions. */
+	knownInputs?: readonly SearchInputDecl[];
+	predicate?: DomainExpression;
 	sort?: SortKey[];
 	calculated?: ReadonlyArray<CalculatedColumn>;
 	limit?: number;
@@ -412,7 +414,7 @@ export interface GroupedQueryArgs extends Omit<QueryArgs, "limit" | "offset"> {
  *
  * `caseTypeSchemas` is required when `predicate` reads a case
  * property (same data-type-resolution contract as `QueryArgs`).
- * Predicate-free callers pass `predicate: undefined`; the
+ * DomainExpression-free callers pass `predicate: undefined`; the
  * implementation skips the WHERE clause entirely so the count
  * collapses to a sequential / index scan over the case-type
  * partition.
@@ -429,7 +431,8 @@ export type CountArgs =
 			lookupTableSchemas?: LookupTableSchemas;
 			/** Runtime values for input/session terms used by the predicate. */
 			bindings?: TermBindings;
-			predicate?: Predicate;
+			knownInputs?: readonly SearchInputDecl[];
+			predicate?: DomainExpression;
 			/** Local-only automation criterion group. HQ property comparisons,
 			 * relation selection, blankness, and calendar-date arithmetic differ
 			 * intentionally from general case search, so these ephemeral leaves stay
@@ -1072,7 +1075,7 @@ export interface CaseStore extends SchemaCaseStore {
 	}): Promise<DeviceCaseDatabase>;
 
 	/**
-	 * Predicate-driven SELECT with optional inline calculated-column
+	 * DomainExpression-driven SELECT with optional inline calculated-column
 	 * projection. Default ordering (when `sort` is absent) is
 	 * `(opened_on, case_id)` ascending — creation time as the durable
 	 * ordering fact, with the id purely as a deterministic tie-break.
@@ -1095,7 +1098,7 @@ export interface CaseStore extends SchemaCaseStore {
 	query(args: QueryArgs): Promise<CaseRowWithCalculated[]>;
 
 	/**
-	 * Predicate- or owner-driven `COUNT(*)`, always scoped to the bound
+	 * DomainExpression- or owner-driven `COUNT(*)`, always scoped to the bound
 	 * Project. The case-type arm returns the row population the
 	 * `(appId, caseType, predicate?)` triple resolves to. The case-list
 	 * authoring surface's Filters
@@ -1105,7 +1108,7 @@ export interface CaseStore extends SchemaCaseStore {
 	 * as `query`, so the WHERE clause is identical to the predicate-
 	 * narrowed `query` it pairs with.
 	 *
-	 * Predicate-free case-type callers (the "no filter applied" preview state)
+	 * DomainExpression-free case-type callers (the "no filter applied" preview state)
 	 * pass `predicate: undefined`; the underlying SELECT collapses
 	 * to a tenant-scoped count over the case-type partition.
 	 *

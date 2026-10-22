@@ -1,16 +1,17 @@
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	and,
+	type Expression,
 	matchAll,
 	matchNone,
 	or,
-	type Predicate,
-} from "@/lib/domain/predicate";
+} from "@/lib/domain/expression";
 import type { StableListOperation } from "./stableListIdentity";
 
 export function logicalClauses(
 	kind: "and" | "or",
-	clauses: readonly Predicate[],
-): Predicate {
+	clauses: readonly Expression[],
+): Expression {
 	const [first, second, ...rest] = clauses;
 	if (first === undefined) return kind === "and" ? matchAll() : matchNone();
 	if (second === undefined) return first;
@@ -22,7 +23,7 @@ export type LogicalGroupAction =
 	| {
 			readonly kind: "replace";
 			readonly index: number;
-			readonly value: Predicate;
+			readonly value: Expression;
 	  }
 	| { readonly kind: "remove"; readonly index: number }
 	| {
@@ -35,11 +36,11 @@ export type LogicalGroupAction =
 /** Actual authored group edits. Structural reduction only unwraps zero/one
  * clauses; sentinel clauses and nested groups remain as the author placed them. */
 export function planLogicalGroupEdit(
-	value: Extract<Predicate, { kind: "and" | "or" }>,
+	value: ExpressionOfKind<"and" | "or">,
 	action: LogicalGroupAction,
 ):
 	| {
-			readonly clauses: readonly Predicate[];
+			readonly clauses: readonly Expression[];
 			readonly operation: StableListOperation;
 			readonly focusIndex: number;
 	  }
