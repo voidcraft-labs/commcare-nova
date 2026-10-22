@@ -35,4 +35,28 @@ export {
 export { lowerXPathForJavaRosa } from "./javaRosaLowering";
 export { parser } from "./parser";
 export * from "./parser.terms";
-export { xpathStringLiteral } from "./stringLiteral";
+export { w } from "./wire/builders";
+export {
+	caseDbInstance,
+	type InstanceDecl,
+	InstanceSink,
+	locationsInstance,
+	lookupInstance,
+	resultsInstance,
+	searchInputInstance,
+	selectedCasesInstance,
+	sessionInstance,
+} from "./wire/instances";
+export { serializeWire } from "./wire/serialize";
+export type {
+	NonShadowWireMode,
+	SerializedWire,
+	WireArithmetic,
+	WireComparison,
+	WireExpr,
+	WireFunction,
+	WireMode,
+	WirePath,
+	WireRoot,
+	WireStep,
+} from "./wire/tree";

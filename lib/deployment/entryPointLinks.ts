@@ -6,7 +6,10 @@ import {
 	readAppVersions,
 	readBuildXml,
 } from "@/lib/commcare/client";
-import { endpointSuiteSignature } from "@/lib/commcare/entryPointSignature";
+import {
+	endpointSignaturesMatch,
+	endpointSuiteSignature,
+} from "@/lib/commcare/entryPointSignature";
 import { listHqLocations } from "@/lib/commcare/hq/locations";
 import { listHqLookupTables } from "@/lib/commcare/hq/lookupTables";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
@@ -182,7 +185,7 @@ export async function getEntryPointLink(input: {
 	const actual = endpointSuiteSignature(suite.xml, entry.id, {
 		appIds: [released.id, remote.remoteId],
 	});
-	if (!actual || actual !== entry.signature)
+	if (!endpointSignaturesMatch(actual, entry.signature))
 		refuse(
 			"The released build doesn't match this published entry point. Build and release the published app on CommCare HQ, then try again.",
 		);

@@ -40,8 +40,20 @@
 // not `@input`. Both verified against the `QueryPrompt` model.
 
 import type { Element } from "domhandler";
-import { el } from "@/lib/commcare/elementBuilders";
+import {
+	el,
+	type WireElementContext,
+	xel,
+} from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
+import {
+	type InstanceDecl,
+	InstanceSink,
+	lookupInstance,
+} from "@/lib/commcare/xpath/wire/instances";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	makeTranslationUnitId,
 	type SearchInputDef,
@@ -62,12 +74,6 @@ import {
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
-import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
-import {
-	collectExpressionInstances,
-	collectPredicateInstances,
-	emitCaseListFilter,
-} from "../../predicate";
 import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
 
 /**
@@ -87,7 +93,7 @@ export interface SearchPromptsEmission {
 	 * the required / validation tests and hidden values read. The
 	 * `<remote-request>` orchestrator declares each one.
 	 */
-	readonly instances: ReadonlySet<string>;
+	readonly instances: readonly InstanceDecl[];
 }
 
 /**
@@ -99,7 +105,7 @@ export interface SearchPromptsEmission {
  * prompt involved in that effective query.
  */
 export interface RuntimeCsqlPromptValidation {
-	readonly test: string;
+	readonly test: WireExpr;
 	readonly message: string;
 	readonly messageKey: string;
 }
@@ -119,7 +125,7 @@ export function combineRuntimeCsqlPromptValidations(
 	if (validations.length === 0) return undefined;
 	if (validations.length === 1) return validations[0];
 	return {
-		test: validations.map(({ test }) => `(${test})`).join(" and "),
+		test: w.and(...validations.map(({ test }) => test)),
 		message: combinedMessage,
 		messageKey: combinedMessageKey,
 	};
@@ -191,20 +197,20 @@ export interface SearchPromptText {
 }
 
 export interface SearchPromptAssertion {
-	readonly test: string;
+	readonly test: WireExpr;
 	readonly message: SearchPromptText;
 }
 
 export interface SearchPromptItemset {
 	/** The suite fixture id the nodeset reads (`item-list:<tag>`). */
 	readonly instanceId: string;
-	readonly nodeset: string;
+	readonly nodeset: WireExpr;
 	/** Row-relative column wire names. */
-	readonly label: string;
-	readonly value: string;
+	readonly label: WireExpr;
+	readonly value: WireExpr;
 	/** The column whose text orders the choices: the sort column, else the
 	 *  label column. HQ's Case List save refuses an itemset without it. */
-	readonly sort: string;
+	readonly sort: WireExpr;
 }
 
 /**
@@ -219,14 +225,12 @@ export interface SearchPromptWire {
 	readonly hidden: boolean;
 	readonly input?: string;
 	/** On-device XPath for `@default`: a visible seed or a hidden value. */
-	readonly defaultValue?: string;
+	readonly defaultValue?: WireExpr;
 	readonly exclude: boolean;
 	readonly itemset?: SearchPromptItemset;
 	readonly required?: SearchPromptAssertion;
 	/** Core keeps only the last `<validation>`, so there is at most one. */
 	readonly validation?: SearchPromptAssertion;
-	/** Every instance id the prompt's children and attributes read. */
-	readonly instances: ReadonlySet<string>;
 }
 
 /**
@@ -241,11 +245,9 @@ export function searchPromptWire(
 	relationContext: RelationEvaluationScopeContext,
 	lookupNaming?: LookupWireNaming,
 ): SearchPromptWire {
-	const instances = new Set<string>();
 	const emission: PromptEmissionContext = {
 		relationContext,
 		lookupNaming,
-		instances,
 	};
 	const mapping = promptAttributeMapping(input);
 	// When `input.label` is empty the locale registers `input.name`
@@ -285,7 +287,6 @@ export function searchPromptWire(
 		...(itemset === undefined ? {} : { itemset }),
 		...(required === undefined ? {} : { required }),
 		...(validation === undefined ? {} : { validation }),
-		instances,
 	};
 }
 
@@ -346,7 +347,8 @@ export function buildSearchPrompts(
 	const elements: Element[] = [];
 	const strings: Record<string, string> = {};
 	const translationUnits: Record<string, WireStringSource> = {};
-	const instances = new Set<string>();
+	const instances = new InstanceSink();
+	const context: WireElementContext = { mode: { target: "suite" }, instances };
 	const promptRelationContext = searchPromptRelationContext(
 		searchInputs,
 		relationContext,
@@ -364,8 +366,6 @@ export function buildSearchPrompts(
 			promptRelationContext,
 			lookupNaming,
 		);
-		for (const id of wire.instances) instances.add(id);
-
 		const displayChildren = [
 			register(composeSearchPropertyLocaleId(moduleId, wire.key), wire.label),
 		];
@@ -379,16 +379,16 @@ export function buildSearchPrompts(
 		const children = [el("display", {}, displayChildren)];
 		if (wire.itemset !== undefined) {
 			children.push(
-				el("itemset", { nodeset: wire.itemset.nodeset }, [
-					el("label", { ref: wire.itemset.label }),
-					el("value", { ref: wire.itemset.value }),
-					el("sort", { ref: wire.itemset.sort }),
+				xel("itemset", { xpath: { nodeset: wire.itemset.nodeset } }, context, [
+					xel("label", { xpath: { ref: wire.itemset.label } }, context),
+					xel("value", { xpath: { ref: wire.itemset.value } }, context),
+					xel("sort", { xpath: { ref: wire.itemset.sort } }, context),
 				]),
 			);
 		}
 		if (wire.required !== undefined) {
 			children.push(
-				el("required", { test: wire.required.test }, [
+				xel("required", { xpath: { test: wire.required.test } }, context, [
 					register(
 						composeRequiredLocaleId(moduleId, wire.key),
 						wire.required.message,
@@ -398,7 +398,7 @@ export function buildSearchPrompts(
 		}
 		if (wire.validation !== undefined) {
 			children.push(
-				el("validation", { test: wire.validation.test }, [
+				xel("validation", { xpath: { test: wire.validation.test } }, context, [
 					register(
 						composeValidationLocaleId(moduleId, wire.key),
 						wire.validation.message,
@@ -406,10 +406,30 @@ export function buildSearchPrompts(
 				]),
 			);
 		}
-		elements.push(el("prompt", composePromptAttributes(wire), children));
+		elements.push(
+			xel(
+				"prompt",
+				{
+					attributes: composePromptAttributes(wire),
+					xpath: {
+						...(wire.defaultValue === undefined
+							? {}
+							: { default: wire.defaultValue }),
+						...(wire.exclude ? { exclude: w.call("true", []) } : {}),
+					},
+				},
+				context,
+				children,
+			),
+		);
 	}
 
-	return { elements, strings, translationUnits, instances };
+	return {
+		elements,
+		strings,
+		translationUnits,
+		instances: instances.declarations(),
+	};
 }
 
 /**
@@ -469,7 +489,6 @@ export function getAdvancedArmPredicates(
 interface PromptEmissionContext {
 	readonly relationContext: RelationEvaluationScopeContext;
 	readonly lookupNaming: LookupWireNaming | undefined;
-	readonly instances: Set<string>;
 }
 
 /**
@@ -533,45 +552,47 @@ function buildItemset(
 	options: SearchInputLookupOptions,
 	emission: PromptEmissionContext,
 ): SearchPromptItemset {
-	const { lookupNaming, relationContext, instances } = emission;
+	const { lookupNaming, relationContext } = emission;
 	if (lookupNaming === undefined) {
 		throw new Error(
 			"searchPromptWire: a lookup-backed choice input reached wire emission with no lookup wire naming. The compile boundary supplies naming; every other surface should reject lookup carriers before emission.",
 		);
 	}
 	const table = lookupNaming.tableFor(options.tableId);
-	instances.add(table.fixtureId);
-	let filterText = "";
+	const predicates: WireExpr[] = [];
 	if (options.filter !== undefined) {
 		const filter = simplifyForEmission(options.filter);
 		if (!isMatchAll(filter)) {
-			filterText = `[${emitCaseListFilter(
-				filter,
-				"casedb",
-				relationContext,
-				{ kind: "unaddressable" },
-				{
-					lookup: {
-						naming: lookupNaming,
-						instanceScope: "suite",
-						rowScope: {
-							tableId: options.tableId,
-							caseAnchor: { kind: "unaddressable" },
+			predicates.push(
+				toWire(filter, {
+					target: "suite",
+					types: relationContext,
+					anchor: { kind: "unaddressable" },
+					bindings: {
+						lookup: {
+							naming: lookupNaming,
+							instanceScope: "suite",
+							rowScope: {
+								tableId: options.tableId,
+								caseAnchor: { kind: "unaddressable" },
+							},
 						},
 					},
-				},
-			)}]`;
-			for (const id of collectPredicateInstances(filter, lookupNaming)) {
-				instances.add(id);
-			}
+				}),
+			);
 		}
 	}
 	return {
 		instanceId: table.fixtureId,
-		nodeset: `instance('${table.fixtureId}')/${table.listElementName}/${table.rowElementName}${filterText}`,
-		label: table.wireNameFor(options.labelColumnId),
-		value: table.wireNameFor(options.valueColumnId),
-		sort: table.wireNameFor(searchInputLookupSortColumnId(options)),
+		nodeset: w.instance(
+			lookupInstance(options.tableId, lookupNaming, "suite"),
+			[w.step(table.listElementName), w.step(table.rowElementName, predicates)],
+		),
+		label: w.context([w.step(table.wireNameFor(options.labelColumnId))]),
+		value: w.context([w.step(table.wireNameFor(options.valueColumnId))]),
+		sort: w.context([
+			w.step(table.wireNameFor(searchInputLookupSortColumnId(options))),
+		]),
 	};
 }
 
@@ -593,7 +614,10 @@ function buildRequired(
 	if (input.kind === "hidden" || message === undefined) return undefined;
 	const when = input.required?.when;
 	return {
-		test: when === undefined ? "true()" : emitScreenPredicate(when, emission),
+		test:
+			when === undefined
+				? w.call("true", [])
+				: emitScreenPredicate(when, emission),
 		message: {
 			text: message,
 			source:
@@ -625,7 +649,7 @@ function buildValidation(
 	if (authored === undefined && runtimeValidation === undefined) {
 		return undefined;
 	}
-	const tests: string[] = [];
+	const tests: WireExpr[] = [];
 	const messages: string[] = [];
 	const units: TranslationUnitId[] = [];
 	if (authored !== undefined) {
@@ -647,8 +671,7 @@ function buildValidation(
 		);
 	}
 	return {
-		test:
-			tests.length === 1 ? tests[0] : tests.map((t) => `(${t})`).join(" and "),
+		test: w.and(...tests),
 		message: {
 			text: messages.join(" "),
 			source: units.length === 1 ? units[0] : units,
@@ -666,25 +689,17 @@ function buildValidation(
 function emitScreenPredicate(
 	predicate: Predicate,
 	emission: PromptEmissionContext,
-): string {
-	const { lookupNaming, relationContext, instances } = emission;
-	for (const id of collectPredicateInstances(
-		predicate,
-		lookupNaming,
-		"suite",
-		relationContext.searchInputInstanceId,
-	)) {
-		instances.add(id);
-	}
-	return emitCaseListFilter(
-		predicate,
-		"casedb",
-		relationContext,
-		{ kind: "unaddressable" },
-		lookupNaming === undefined
-			? {}
-			: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
-	);
+): WireExpr {
+	const { lookupNaming, relationContext } = emission;
+	return toWire(predicate, {
+		target: "suite",
+		types: relationContext,
+		anchor: { kind: "unaddressable" },
+		bindings:
+			lookupNaming === undefined
+				? {}
+				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
+	});
 }
 
 /**
@@ -720,15 +735,6 @@ function composePromptAttributes(
 	if (wire.appearance !== undefined) attribs.appearance = wire.appearance;
 	if (wire.hidden) attribs.hidden = "true";
 	if (wire.input !== undefined) attribs.input = wire.input;
-	// `default` is the attribute form, not a child `<default>` element
-	// — see `QueryPrompt::default_value = StringField('@default', ...)`.
-	if (wire.defaultValue !== undefined) attribs.default = wire.defaultValue;
-	// `exclude="true()"` is the structural mitigation for the
-	// explicit-predicate route. CCHQ's runtime skips the auto-match
-	// against the prompt key when the boolean XPath evaluates to true;
-	// the typed value remains bound to the search-input instance for
-	// the explicit `_xpath_query` predicate to reference.
-	if (wire.exclude) attribs.exclude = "true()";
 	return attribs;
 }
 
@@ -740,23 +746,14 @@ function composePromptAttributes(
 function compileDefaultExpression(
 	expression: ValueExpression,
 	emission: PromptEmissionContext,
-): string {
-	const { lookupNaming, relationContext, instances } = emission;
-	for (const id of collectExpressionInstances(
-		expression,
-		lookupNaming,
-		"suite",
-		relationContext.searchInputInstanceId,
-	)) {
-		instances.add(id);
-	}
-	return emitOnDeviceExpression(
-		expression,
-		undefined,
-		relationContext,
-		undefined,
-		lookupNaming === undefined
-			? {}
-			: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
-	);
+): WireExpr {
+	const { lookupNaming, relationContext } = emission;
+	return toWire(expression, {
+		target: "suite",
+		types: relationContext,
+		bindings:
+			lookupNaming === undefined
+				? {}
+				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
+	});
 }

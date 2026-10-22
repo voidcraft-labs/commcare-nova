@@ -10,30 +10,31 @@ import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 // into the `<remote-request>` body.
 
 import type { Element } from "domhandler";
-import { el } from "@/lib/commcare/elementBuilders";
+import {
+	el,
+	type WireElementContext,
+	xel,
+} from "@/lib/commcare/elementBuilders";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import {
+	type InstanceDecl,
+	InstanceSink,
+	resultsInstance,
+} from "@/lib/commcare/xpath/wire/instances";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
 	type CaseListConfig,
-	caseListColumnRuns,
 	DEFAULT_CASE_SEARCH_TITLE,
 	type OrdinaryCaseSearchConfig,
-	searchInputExpressions,
 	type WireStringSource,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { validateCaseType } from "../../identifierValidation";
 import type { LookupWireNaming } from "../../lookup/naming";
-import {
-	collectExpressionInstances,
-	collectPredicateInstances,
-} from "../../predicate";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../case-list/nodesetFilter";
 import { SEARCH_SELECTED_CASES_ID } from "./claim";
 import { searchNeedsSupportingCases } from "./relatedCaseProjection";
-import { buildSearchPrompts, getAdvancedArmPredicates } from "./searchPrompts";
-import {
-	deriveSimpleArmPredicate,
-	simpleArmNeedsXPathQueryEmission,
-} from "./simpleArmDerivation";
+import { buildSearchPrompts } from "./searchPrompts";
 import {
 	searchInputInstanceId,
 	searchStorageInstance,
@@ -81,29 +82,29 @@ const XPATH_QUERY_KEY = "_xpath_query";
  *     surrounding `<remote-request>` parent.
  *   - `strings` — locale entries for the `<title>` and per-prompt
  *     labels, threaded into the per-language string tables.
- *   - `instances` — the instance ids the body references (`casedb` +
- *     `commcaresession` + the chosen `results` / `results:inline`).
- *     The orchestrator turns this set into `<instance>` declarations.
+ *   - `instances` — declarations for the instances actually read by the
+ *     emitted query and selection datum. The orchestrator combines them
+ *     with the referenced detail and post declarations.
  */
 export interface SearchSessionEmission {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
 	readonly translationUnits: Record<string, WireStringSource>;
-	readonly instances: ReadonlySet<string>;
+	readonly instances: readonly InstanceDecl[];
 }
 
 /**
  * The `<query>` alone: what a search-first module's entries embed
  * directly in `<session>` (CCHQ's `EntriesHelper.get_query_datums`), and
  * what the standalone `<remote-request>` wraps with its own datum.
- * `instances` are the ids the query body reads; the caller adds the
+ * `instances` are declarations for what the query body reads; the caller adds the
  * storage instance its datum reads and whatever its post reads.
  */
 export interface SearchQueryEmission {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
 	readonly translationUnits: Record<string, WireStringSource>;
-	readonly instances: ReadonlySet<string>;
+	readonly instances: readonly InstanceDecl[];
 	/** Whether the query carries any `<prompt>`, hidden ones included. HQ's
 	 *  `WorkflowQueryMeta.requires_selection` is `not prompts and
 	 *  default_search` over every emitted prompt (`remote_requests.py::
@@ -146,44 +147,44 @@ export function buildSearchSession(
 	const moduleId = `m${moduleIndex}`;
 	const storageInstance = searchStorageInstance(wire);
 	const query = buildSearchQuery(args);
+	const instances = new InstanceSink(query.instances);
+	const context: WireElementContext = { mode: { target: "suite" }, instances };
 
 	// `<datum>` references the search-side detail ids
 	// (`m{N}_search_short` / `m{N}_search_long`) — distinct from the
 	// `m{N}_case_short` / `m{N}_case_long` ids the local case-list
 	// entry uses.
 	const datumNodeset = composeDatumNodeset(storageInstance, caseType);
-	const multiple = caseListConfig.selection?.kind === "multiple";
-	const datumEl = el(multiple ? "instance-datum" : "datum", {
-		id: multiple ? SEARCH_SELECTED_CASES_ID : "search_case_id",
-		nodeset: datumNodeset,
-		value: "./@case_id",
-		...((args.hasDetailScreen ?? true) && {
-			"detail-confirm": `${moduleId}_search_long`,
-		}),
-		"detail-select": `${moduleId}_search_short`,
-		...(multiple && {
-			"max-select-value": String(caseListConfig.selection?.maximum),
-		}),
-	});
+	const selection = caseListConfig.selection;
+	const multiple = selection?.kind === "multiple";
+	const datumEl = xel(
+		multiple ? "instance-datum" : "datum",
+		{
+			attributes: {
+				id: multiple ? SEARCH_SELECTED_CASES_ID : "search_case_id",
+				...((args.hasDetailScreen ?? true) && {
+					"detail-confirm": `${moduleId}_search_long`,
+				}),
+				"detail-select": `${moduleId}_search_short`,
+				...(selection !== undefined && {
+					"max-select-value": String(selection.maximum),
+				}),
+			},
+			xpath: {
+				nodeset: datumNodeset,
+				value: w.context([w.self(), w.attr("case_id")]),
+			},
+		},
+		context,
+	);
 
 	const sessionEl = el("session", {}, [query.element, datumEl]);
-
-	// `casedb` and `commcaresession` are always required (the `<post
-	// relevant>` guard references both); the chosen results instance
-	// is what the `<datum nodeset>` references.
-	const instances = new Set<string>([
-		"casedb",
-		"commcaresession",
-		storageInstance,
-		...(multiple ? [SEARCH_SELECTED_CASES_ID] : []),
-		...query.instances,
-	]);
 
 	return {
 		element: sessionEl,
 		strings: query.strings,
 		translationUnits: query.translationUnits,
-		instances,
+		instances: instances.declarations(),
 	};
 }
 
@@ -211,6 +212,8 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// interpolate an unchecked string into an attribute value.
 	const caseType = validateCaseType(args.caseType);
 	const moduleId = `m${moduleIndex}`;
+	const instances = new InstanceSink();
+	const context: WireElementContext = { mode: { target: "suite" }, instances };
 
 	// `results:inline` is the inline shape (search first); `results` is
 	// the standalone post-and-query roundtrip. Every `input(...)` read in
@@ -242,7 +245,16 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// quoted literal flows raw into the `ref` attribute; the
 	// serializer escapes the surrounding `'` characters once at render
 	// time (`&apos;`).
-	dataElements.push(el("data", { key: "case_type", ref: `'${caseType}'` }));
+	dataElements.push(
+		xel(
+			"data",
+			{
+				attributes: { key: "case_type" },
+				xpath: { ref: w.str(caseType) },
+			},
+			context,
+		),
+	);
 
 	// `_xpath_query` — one `<data>` element per composed clause: the
 	// unified filter's top-level conjuncts, every advanced-arm search
@@ -276,10 +288,14 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		xpathQueryEmission,
 	)) {
 		dataElements.push(
-			el("data", {
-				key: XPATH_QUERY_KEY,
-				ref: value,
-			}),
+			xel(
+				"data",
+				{
+					attributes: { key: XPATH_QUERY_KEY },
+					xpath: { ref: value },
+				},
+				context,
+			),
 		);
 	}
 
@@ -295,12 +311,17 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		const excludedOwnerIds = emitNormalizedExcludedOwnerIdsExpression(
 			caseSearchConfig.excludedOwnerIds,
 			typeContext ?? {},
+			args.lookupNaming,
 		);
 		dataElements.push(
-			el("data", {
-				key: EXCLUDED_OWNER_IDS_WIRE_KEY,
-				ref: excludedOwnerIds,
-			}),
+			xel(
+				"data",
+				{
+					attributes: { key: EXCLUDED_OWNER_IDS_WIRE_KEY },
+					xpath: { ref: excludedOwnerIds },
+				},
+				context,
+			),
 		);
 	}
 
@@ -311,10 +332,14 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		})
 	) {
 		dataElements.push(
-			el("data", {
-				key: INCLUDE_ALL_RELATED_CASES_WIRE_KEY,
-				ref: "'true'",
-			}),
+			xel(
+				"data",
+				{
+					attributes: { key: INCLUDE_ALL_RELATED_CASES_WIRE_KEY },
+					xpath: { ref: w.str("true") },
+				},
+				context,
+			),
 		);
 	}
 
@@ -322,10 +347,18 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	// to that parent's descendants by type; CCHQ appends this last.
 	if (wire.inlineSearch && args.ancestorCaseType !== undefined) {
 		dataElements.push(
-			el("data", {
-				key: XPATH_QUERY_KEY,
-				ref: `"ancestor-exists(parent, @case_type='${validateCaseType(args.ancestorCaseType)}')"`,
-			}),
+			xel(
+				"data",
+				{
+					attributes: { key: XPATH_QUERY_KEY },
+					xpath: {
+						ref: w.str(
+							`ancestor-exists(parent, @case_type='${validateCaseType(args.ancestorCaseType)}')`,
+						),
+					},
+				},
+				context,
+			),
 		);
 	}
 
@@ -338,6 +371,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		typeContext ?? {},
 		args.lookupNaming,
 	);
+	instances.add(promptEmission.instances);
 
 	// Title locale id pattern is CCHQ's `case_search.{m}.inputs`. The
 	// default is shared with preview and HQ JSON, so every runtime renders the
@@ -402,125 +436,11 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	};
 	const translationUnits = { ...promptEmission.translationUnits };
 
-	// The ids the query body reads; the caller adds what its datum and
-	// post read.
-	const instances = new Set<string>();
-	const answerInstance = searchInputInstanceId(wire);
-
-	// Every Term ref reachable from a wire-emitted XPath needs its
-	// instance declared on the surrounding `<remote-request>`.
-	// `casedb` and `commcaresession` are always present (above);
-	// `search-input:results` appears whenever a filter / advanced-arm
-	// predicate / excluded-owner expression / explicitly-routed simple-arm
-	// derived predicate / per-prompt default expression references an
-	// `input(...)` Term, which CCHQ resolves through
-	// `instance('search-input:results')/input/field[@name='…']`.
-	// Without the accumulation, the wire would carry an
-	// instance-reference XPath the runtime can't resolve — the same
-	// gap CCHQ's `InstancesHelper.add_entry_instances` plugs on the
-	// server-regenerated suite path. Every surface that contributes
-	// XPath to the `<remote-request>` body walks here; missing one
-	// surfaces as a wire that ships valid XML but raises
-	// `XPathException` at search-execution time.
-	if (caseListConfig.filter !== undefined) {
-		for (const id of collectPredicateInstances(
-			caseListConfig.filter,
-			args.lookupNaming,
-			"suite",
-			answerInstance,
-		)) {
-			instances.add(id);
-		}
-	}
-	for (const entry of getAdvancedArmPredicates(caseListConfig.searchInputs)) {
-		for (const id of collectPredicateInstances(
-			entry.predicate,
-			args.lookupNaming,
-			"suite",
-			answerInstance,
-		)) {
-			instances.add(id);
-		}
-	}
-	for (const input of caseListConfig.searchInputs) {
-		// Simple-arm inputs whose `via` walks a relation route through
-		// the `_xpath_query` AND-composition via
-		// `deriveSimpleArmPredicate`. The derived predicate references
-		// `instance('search-input:results')` for the user's typed value;
-		// the instance accumulator must walk it the same way the
-		// advanced-arm predicates above are walked.
-		if (input.kind === "simple" && simpleArmNeedsXPathQueryEmission(input)) {
-			const derived = deriveSimpleArmPredicate(input, caseType, typeContext);
-			for (const id of collectPredicateInstances(
-				derived,
-				args.lookupNaming,
-				"suite",
-				answerInstance,
-			)) {
-				instances.add(id);
-			}
-		}
-		// `input.default` and a hidden input's `value` lower via
-		// `emitOnDeviceExpression` into the `<prompt default="…">`
-		// attribute. An expression that references another input or a
-		// session term needs the matching instance declared on
-		// `<remote-request>`.
-		for (const expression of searchInputExpressions(input)) {
-			for (const id of collectExpressionInstances(
-				expression,
-				args.lookupNaming,
-				"suite",
-				answerInstance,
-			)) {
-				instances.add(id);
-			}
-		}
-	}
-	// Prompt children — itemset fixtures and their row filters, required
-	// tests, validation rules — declare their own reads.
-	for (const id of promptEmission.instances) {
-		instances.add(id);
-	}
-	if (caseSearchConfig.excludedOwnerIds !== undefined) {
-		for (const id of collectExpressionInstances(
-			caseSearchConfig.excludedOwnerIds,
-			args.lookupNaming,
-			"suite",
-			answerInstance,
-		)) {
-			instances.add(id);
-		}
-	}
-	// Calc-column expressions land on `m{N}_search_short` /
-	// `m{N}_search_long` (the search-target details). CCHQ resolves
-	// each detail's XPath against the enclosing element's instance
-	// declarations — for the search-target details that's this
-	// `<remote-request>`. Walk every calc-arm column expression so the
-	// local `.ccz` carries the same declarations CCHQ's
-	// server-regenerated suite gets via
-	// `commcare-hq/.../suite_xml/post_process/instances.py::InstancesHelper.add_entry_instances`.
-	for (const column of caseListConfig.columns) {
-		if (
-			column.kind !== "calculated" ||
-			!caseListColumnRuns(column, caseListConfig)
-		) {
-			continue;
-		}
-		for (const id of collectExpressionInstances(
-			column.expression,
-			args.lookupNaming,
-			"suite",
-			answerInstance,
-		)) {
-			instances.add(id);
-		}
-	}
-
 	return {
 		element: queryEl,
 		strings,
 		translationUnits,
-		instances,
+		instances: instances.declarations(),
 		hasPrompts: searchQueryHasPrompts(caseListConfig),
 	};
 }
@@ -536,11 +456,22 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
  * once at render time so the wire reads `instance(&apos;…&apos;)`.
  */
 function composeDatumNodeset(
-	storageInstance: string,
+	storageInstance: "results" | "results:inline",
 	caseType: string,
-): string {
+): WireExpr {
 	// CCHQ pins the path segment to `/results/case` regardless of
 	// instance id — the instance discriminator is the colon suffix
 	// on the instance reference, not the path that follows.
-	return `instance('${storageInstance}')/results/case[@case_type='${caseType}'][not(commcare_is_related_case=true())]`;
+	return w.instance(resultsInstance(storageInstance), [
+		w.step("results"),
+		w.step("case", [
+			w.eq(w.context([w.attr("case_type")]), w.str(caseType)),
+			w.not(
+				w.eq(
+					w.context([w.step("commcare_is_related_case")]),
+					w.call("true", []),
+				),
+			),
+		]),
+	]);
 }

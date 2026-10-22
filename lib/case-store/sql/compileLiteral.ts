@@ -3,9 +3,9 @@
 // Compile a `Literal` AST node to a parameter-bound (or
 // `NULL`-keyword) Kysely expression. Two consumers share this
 // helper: `compileTerm`'s `literal` arm and `compilePredicate`'s
-// `in.values` arm. The byte-shape mirrors the on-device wire
-// emitter (`lib/commcare/expression/onDeviceEmitter.ts`) up to
-// dialect — Postgres carries `data_type` through to
+// `in.values` arm. Its wire counterpart is `wireLiteral` in
+// `lib/commcare/xpath/wire/fromExpression.ts`: Postgres carries
+// `data_type` through to
 // `cast($N as date)` while on-device embeds the literal in a
 // quoted XPath string.
 //

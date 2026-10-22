@@ -19,7 +19,8 @@
 // silently drops it, and no property at all.
 
 import type { Uuid } from "@/lib/domain";
-import { xpathStringLiteral } from "../xpath/stringLiteral";
+import { w } from "../xpath/wire/builders";
+import type { WireExpr } from "../xpath/wire/tree";
 import type { FormPath } from "./formPath";
 import type { GeneratedNodePlan } from "./generatedNodes";
 
@@ -57,7 +58,7 @@ export interface AttachmentUrlTarget {
  * resolves calculates by dependency graph after the document is whole, not
  * in document order.
  */
-const META_INSTANCE_ID = "/data/meta/instanceID";
+const META_INSTANCE_ID = w.form(["meta", "instanceID"]);
 
 /** The path segment of HQ's machine-readable attachment endpoint. */
 const FORM_ATTACHMENT_API_PATH = "/api/form_attachment/v1/";
@@ -100,13 +101,14 @@ export function captureUrlNodePath(
 export function captureUrlCalculate(
 	capturePath: FormPath,
 	target: AttachmentUrlTarget,
-): string {
-	const capture = capturePath.toXPath();
-	const prefix = xpathStringLiteral(
+): WireExpr {
+	const capture = capturePath.toWire();
+	const prefix = w.str(
 		`${target.origin}/a/${target.domain}${FORM_ATTACHMENT_API_PATH}`,
 	);
-	return (
-		`if(${capture} = '', '', ` +
-		`concat(${prefix}, ${META_INSTANCE_ID}, '/', ${capture}))`
-	);
+	return w.call("if", [
+		w.eq(capture, w.str("")),
+		w.str(""),
+		w.call("concat", [prefix, META_INSTANCE_ID, w.str("/"), capture]),
+	]);
 }

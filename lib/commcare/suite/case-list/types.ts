@@ -23,7 +23,9 @@
 //     (`<detail id>`, locale-id substring, calc-xpath instance
 //     reference) — every other byte is identical.
 
+import type { WireElementContext } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import type { InstanceDecl } from "@/lib/commcare/xpath/wire/instances";
 import type {
 	CaseProperty,
 	CaseTileLayout,
@@ -46,6 +48,7 @@ import type { ResolvedSortDirective } from "./sortKeys";
  */
 export interface CaseListEmission {
 	readonly xml: string;
+	readonly instances: readonly InstanceDecl[];
 	readonly strings: Record<string, string>;
 	/** Locale id -> semantic source slot. The compiler resolves these links
 	 * independently for every configured app language; unlinked values are
@@ -150,6 +153,8 @@ export type DetailTarget = "case" | "search";
  *     `instance('casedb')` to `instance('results')`.
  */
 export interface CaseListEmitContext {
+	/** Prints contribute their reads to the detail's owning scope. */
+	readonly wire: WireElementContext;
 	readonly moduleIndex: number;
 	readonly sortByUuid: ReadonlyMap<Uuid, ResolvedSortDirective>;
 	readonly detailKind: DetailKind;

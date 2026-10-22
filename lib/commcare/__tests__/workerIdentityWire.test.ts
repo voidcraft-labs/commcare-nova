@@ -16,7 +16,7 @@ import {
 } from "./workerWireFixture";
 
 const usercase =
-	"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]";
+	"instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]";
 function elements(xml: string, name: string) {
 	return findAll(
 		(e) => e.name === name,

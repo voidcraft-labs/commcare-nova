@@ -19,22 +19,53 @@ import {
 	formLinkExpressionProjectable,
 	formLinkProjectionContext,
 	formLinksProjectable,
+	type GuardPlan,
+	type GuardPlanLink,
 	matchFrameToManual,
 	matchFrameToSource,
 	moduleCaseTypeForActions,
 	ownCaseSessionRef,
-	planFormLinkGuards,
 	previousFrameChildren,
 	projectFormLinks,
+	planFormLinkGuards as projectGuards,
 	sessionDataRef,
 	targetFrameChildren,
 	targetSelectionDatums,
 } from "@/lib/commcare/formLinkProjection";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import {
+	type FormLinkXPathValue,
+	isLegacyFormLinkXPath,
+	legacyProjectedFormLinkXPath,
+} from "@/lib/commcare/xform/legacyAuthoredXPath";
+import { serializeWire, type WireExpr, w } from "@/lib/commcare/xpath";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import { type BlueprintDoc, blueprintDocSchema, tileCell } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+
+function wireText(value: FormLinkXPathValue | undefined): string | undefined {
+	return value === undefined
+		? undefined
+		: isLegacyFormLinkXPath(value)
+			? value.text
+			: serializeWire(value, { target: "suite" }).text;
+}
+function fallbackText(fallback: GuardPlan["fallback"]) {
+	return fallback.kind === "guarded"
+		? { ...fallback, guard: wireText(fallback.guard) }
+		: fallback;
+}
+function planFormLinkGuards(links: readonly GuardPlanLink[]) {
+	const plan = projectGuards(links);
+	return {
+		links: plan.links.map((link) => ({
+			uuid: link.uuid,
+			...(link.guard !== undefined && { guard: wireText(link.guard) }),
+		})),
+		fallback: fallbackText(plan.fallback),
+	};
+}
 
 const INTAKE = testUuid("mod-intake");
 const CARE = testUuid("mod-care");
@@ -153,7 +184,7 @@ const datum = (
 	id: string,
 	requiresSelection: boolean,
 	caseType?: string,
-	fn?: string,
+	fn?: WireExpr,
 ): FrameDatum => ({
 	id,
 	requiresSelection,
@@ -164,7 +195,9 @@ const datum = (
 describe("planFormLinkGuards", () => {
 	const L = (uuid: string, condition?: string) => ({
 		uuid: testUuid(uuid),
-		...(condition !== undefined && { condition }),
+		...(condition !== undefined && {
+			condition: legacyProjectedFormLinkXPath(condition),
+		}),
 	});
 
 	it("leaves the first guard bare, byte-identical to HQ's first frame", () => {
@@ -266,7 +299,7 @@ describe("frame children (HQ `get_frame_children`)", () => {
 				id: "case_id_new_frog_0",
 				requiresSelection: false,
 				caseType: "frog",
-				function: "uuid()",
+				function: w.call("uuid"),
 			},
 		]);
 	});
@@ -351,7 +384,7 @@ describe("frame children (HQ `get_frame_children`)", () => {
 				id: "case_id_new_frog_0",
 				requiresSelection: false,
 				caseType: "frog",
-				function: "uuid()",
+				function: w.call("uuid"),
 			},
 		]);
 	});
@@ -377,7 +410,7 @@ describe("datum matching", () => {
 
 	it("carries the source id when the same type lives under another id (HQ `_find_best_match`)", () => {
 		const match = matchFrameToSource(target, [
-			datum("case_id_new_frog_0", false, "frog", "uuid()"),
+			datum("case_id_new_frog_0", false, "frog", w.call("uuid")),
 		]);
 		expect(match.unmatched).toEqual([]);
 		expect(match.matched).toEqual([
@@ -392,7 +425,7 @@ describe("datum matching", () => {
 
 	it("takes the FIRST source datum of the type in source order", () => {
 		const match = matchFrameToSource(target, [
-			datum("case_id_new_frog_0", false, "frog", "uuid()"),
+			datum("case_id_new_frog_0", false, "frog", w.call("uuid")),
 			datum("case_id", true, "frog"),
 		]);
 		expect(match.children[2]).toEqual({
@@ -405,10 +438,10 @@ describe("datum matching", () => {
 	it("skips root-module placeholder datums when choosing an automatic source", () => {
 		const match = matchFrameToSource(target, [
 			{
-				...datum("case_id_new_frog_0", false, "frog", "uuid()"),
+				...datum("case_id_new_frog_0", false, "frog", w.call("uuid")),
 				fromParentModule: true,
 			},
-			datum("case_id_new_frog_1", false, "frog", "uuid()"),
+			datum("case_id_new_frog_1", false, "frog", w.call("uuid")),
 		]);
 		expect(match.unmatched).toEqual([]);
 		expect(match.matched).toEqual([
@@ -438,7 +471,7 @@ describe("datum matching", () => {
 				{ type: "command", id: "m1-f1" },
 				{
 					type: "datum",
-					datum: datum("case_id_new_frog_0", false, "frog", "uuid()"),
+					datum: datum("case_id_new_frog_0", false, "frog", w.call("uuid")),
 				},
 			],
 			[datum("case_id", true, "frog")],
@@ -447,7 +480,7 @@ describe("datum matching", () => {
 		expect(match.children[2]).toEqual({
 			type: "datum",
 			id: "case_id_new_frog_0",
-			value: "uuid()",
+			value: w.call("uuid"),
 		});
 	});
 
@@ -460,12 +493,15 @@ describe("datum matching", () => {
 				{ type: "datum", datum: datum("case_id", true, "frog") },
 				{
 					type: "datum",
-					datum: datum("case_id_new_visit_1", false, "visit", "uuid()"),
+					datum: datum("case_id_new_visit_1", false, "visit", w.call("uuid")),
 				},
 			],
 			[
-				{ name: "case_id", xpath: "'frog-7'" },
-				{ name: "nothing_reads_this", xpath: "'x'" },
+				{ name: "case_id", xpath: legacyProjectedFormLinkXPath("'frog-7'") },
+				{
+					name: "nothing_reads_this",
+					xpath: legacyProjectedFormLinkXPath("'x'"),
+				},
 			],
 			new Set(),
 		);
@@ -475,9 +511,13 @@ describe("datum matching", () => {
 			// reference so the frame is total — and reported as `missing`.
 			{ type: "datum", id: "parent_id", value: sessionDataRef("parent_id") },
 			{ type: "command", id: "m1-f0" },
-			{ type: "datum", id: "case_id", value: "'frog-7'" },
+			{
+				type: "datum",
+				id: "case_id",
+				value: legacyProjectedFormLinkXPath("'frog-7'"),
+			},
 			// A function datum nobody names keeps its function.
-			{ type: "datum", id: "case_id_new_visit_1", value: "uuid()" },
+			{ type: "datum", id: "case_id_new_visit_1", value: w.call("uuid") },
 		]);
 		expect(match.missing.map((d) => d.id)).toEqual(["parent_id"]);
 		expect(match.unused).toEqual(["nothing_reads_this"]);
@@ -537,6 +577,51 @@ describe("previousFrameChildren (HQ `previous_screen`)", () => {
 });
 
 describe("projectFormLinks", () => {
+	it.each([false, true])(
+		"substitutes an earlier grouped-tile case datum (manual: %s)",
+		(manual) => {
+			const doc = frogDoc();
+			const config = caseListConfig([
+				{ field: "case_name", header: "Name" },
+				{ field: "mood", header: "Mood" },
+			]);
+			config.columns = config.columns.map((column, index) => ({
+				...column,
+				tile: tileCell(0, index, 4, 1),
+			}));
+			config.tile = { grouping: { identifier: "parent", headerRows: 1 } };
+			doc.modules[CARE].caseListConfig = config;
+			doc.forms[REGISTER].formLinks = [
+				{
+					uuid: LINK_VISIT,
+					target: { type: "form", moduleUuid: CARE, formUuid: VISIT },
+					...(manual && {
+						datums: [{ name: "case_id", xpath: xp("'frog-7'") }],
+					}),
+				},
+			];
+			blueprintDocSchema.parse(toPersistableDoc(doc));
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+			const projected = projectFormLinks(
+				doc,
+				formLinkProjectionContext(doc),
+				REGISTER,
+			);
+			const companion = projected?.links[0]?.children.find(
+				(child) => child.type === "datum" && child.id === "case_id_parent_ids",
+			);
+			expect(companion?.type).toBe("datum");
+			if (companion?.type !== "datum")
+				throw new Error("Missing grouped companion datum");
+			expect(isLegacyFormLinkXPath(companion.value)).toBe(manual);
+			expect(wireText(companion.value)).toBe(
+				manual
+					? "join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = ('frog-7')]/index/parent))"
+					: "join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id_new_frog_0]/index/parent))",
+			);
+		},
+	);
+
 	it("projects two admitted destinations with exclusive guards", () => {
 		const doc = frogDoc();
 		const projected = projectFormLinks(
@@ -546,9 +631,9 @@ describe("projectFormLinks", () => {
 		);
 		expect(projected).toBeDefined();
 		if (projected === undefined) return;
-		expect(projected.links.map((link) => link.guard)).toEqual([
-			"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice'",
-			"(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'bea') and not(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice')",
+		expect(projected.links.map((link) => wireText(link.guard))).toEqual([
+			"instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice'",
+			"(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'bea') and not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice')",
 		]);
 		expect(projected.links[0]).toMatchObject({
 			uuid: LINK_VISIT,
@@ -571,13 +656,13 @@ describe("projectFormLinks", () => {
 			children: [
 				{ type: "command", id: "m1" },
 				{ type: "command", id: "m1-f1" },
-				{ type: "datum", id: "case_id_new_frog_0", value: "uuid()" },
+				{ type: "datum", id: "case_id_new_frog_0", value: w.call("uuid") },
 			],
 		});
-		expect(projected.fallback).toEqual({
+		expect(fallbackText(projected.fallback)).toEqual({
 			kind: "guarded",
 			guard:
-				"not(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice') and not((instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'bea') and not(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username = 'alice'))",
+				"not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice') and not((instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'bea') and not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice'))",
 		});
 	});
 
@@ -599,8 +684,8 @@ describe("projectFormLinks", () => {
 			formLinkProjectionContext(doc),
 			REGISTER,
 		);
-		const created = sessionDataRef("case_id_new_frog_0");
-		expect(projected?.links[0]?.guard).toBe(
+		const created = wireText(sessionDataRef("case_id_new_frog_0"));
+		expect(wireText(projected?.links[0]?.guard)).toBe(
 			`instance('casedb')/casedb/case[@case_id = ${created}]/mood = 'happy' and ${created} != ''`,
 		);
 	});
@@ -625,8 +710,8 @@ describe("projectFormLinks", () => {
 			formLinkProjectionContext(doc),
 			VISIT,
 		);
-		expect(projected?.links[0]?.guard).toBe(
-			`${sessionDataRef("case_id")} != ''`,
+		expect(wireText(projected?.links[0]?.guard)).toBe(
+			`${wireText(sessionDataRef("case_id"))} != ''`,
 		);
 	});
 
@@ -649,7 +734,7 @@ describe("ownCaseSessionRef", () => {
 				"followup",
 				entryFrameDatums(doc, ctx, CARE, VISIT),
 			),
-		).toBe(sessionDataRef("case_id"));
+		).toEqual(sessionDataRef("case_id"));
 		expect(
 			ownCaseSessionRef(
 				doc,
@@ -657,7 +742,7 @@ describe("ownCaseSessionRef", () => {
 				"registration",
 				entryFrameDatums(doc, ctx, INTAKE, REGISTER),
 			),
-		).toBe(sessionDataRef("case_id_new_frog_0"));
+		).toEqual(sessionDataRef("case_id_new_frog_0"));
 	});
 
 	it("is undefined for a survey, which carries no case", () => {

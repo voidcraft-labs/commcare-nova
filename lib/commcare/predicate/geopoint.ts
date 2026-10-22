@@ -18,13 +18,6 @@ export const GEOPOINT_PROPERTY_PATTERN = `^${GEOPOINT_NUMBER_PATTERN} ${GEOPOINT
 export const GEOPOINT_CENTER_PATTERN = `^${GEOPOINT_NUMBER_PATTERN} ${GEOPOINT_NUMBER_PATTERN}(?: ${GEOPOINT_METADATA_PATTERN} ${GEOPOINT_METADATA_PATTERN})?$`;
 export const GEOPOINT_RAW_CENTER_PATTERN = `^(?:\\s*${GEOPOINT_NUMBER_PATTERN}\\s+${GEOPOINT_NUMBER_PATTERN}(?:\\s+${GEOPOINT_METADATA_PATTERN}\\s+${GEOPOINT_METADATA_PATTERN})?\\s*|\\s*${GEOPOINT_NUMBER_PATTERN}\\s*,\\s*${GEOPOINT_NUMBER_PATTERN}\\s*)$`;
 
-/** Canonicalize commas and arbitrary whitespace using Core-registered calls. */
-export function normalizeOnDeviceGeopoint(xpath: string): string {
-	const commasToSpaces = `translate(${xpath}, ',', ' ')`;
-	const trimmed = `replace(${commasToSpaces}, '^\\s+|\\s+$', '')`;
-	return `replace(${trimmed}, '\\s+', ' ')`;
-}
-
 export function normalizeStaticGeopoint(value: string): string {
 	return value.replaceAll(",", " ").trim().split(/\s+/).join(" ");
 }
@@ -48,25 +41,6 @@ export function isValidStaticGeopointCenter(value: string): boolean {
 		longitude >= -180 &&
 		longitude <= 180
 	);
-}
-
-/**
- * Runtime validity guard for a center already canonicalized by
- * `normalizeOnDeviceGeopoint`. Boolean `and` short-circuits on JavaRosa, so
- * component extraction never reaches malformed nonempty text.
- */
-export function validOnDeviceGeopointCenter(
-	rawXpath: string,
-	normalizedXpath = normalizeOnDeviceGeopoint(rawXpath),
-): string {
-	return [
-		`regex(${rawXpath}, '${GEOPOINT_RAW_CENTER_PATTERN}')`,
-		`regex(${normalizedXpath}, '${GEOPOINT_CENTER_PATTERN}')`,
-		`double(selected-at(${normalizedXpath}, 0)) >= -90`,
-		`double(selected-at(${normalizedXpath}, 0)) <= 90`,
-		`double(selected-at(${normalizedXpath}, 1)) >= -180`,
-		`double(selected-at(${normalizedXpath}, 1)) <= 180`,
-	].join(" and ");
 }
 
 /** Search inputs whose bytes contribute to a runtime geopoint center. */

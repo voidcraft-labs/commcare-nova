@@ -15,12 +15,19 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema, proseText } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/predicate";
+import { w } from "../xpath/wire/builders";
+import { serializeWire } from "../xpath/wire/serialize";
+import type { WireExpr } from "../xpath/wire/tree";
 import {
 	caseOperationFixture,
 	type OperationScenario,
 	operationScenarios,
 } from "./caseOperationFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
+import { xpathEvidence } from "./xpathEvidence";
+
+const xformText = (expression: WireExpr) =>
+	serializeWire(expression, { target: "xform", constraint: false }).text;
 
 function one(elements: Element[]): Element {
 	expect(elements).toHaveLength(1);
@@ -190,13 +197,19 @@ it.each(operationScenarios)(
 					child(child(caseBlock("create_visit"), "index"), "parent").attribs,
 				).toEqual({ case_type: "patient", relationship: "child" });
 				expect(
-					bind(`${at("create_visit")}/case/update/source_id`).calculate,
-				).toBe(
-					`instance('casedb')/casedb/case[@case_id=${selected}]/${scenario === "sequence" ? "nickname" : "case_name"}`,
+					xpathEvidence(
+						bind(`${at("create_visit")}/case/update/source_id`).calculate,
+					),
+				).toEqual(
+					xpathEvidence(
+						`instance('casedb')/casedb/case[@case_id=${selected}]/${scenario === "sequence" ? "nickname" : "case_name"}`,
+					),
 				);
-				expect(bind(`${at("create_visit")}/case/index/parent`).calculate).toBe(
-					selected,
-				);
+				expect(
+					xpathEvidence(
+						bind(`${at("create_visit")}/case/index/parent`).calculate,
+					),
+				).toEqual(xpathEvidence(selected));
 				const id = `${at("create_visit")}/case/@case_id`;
 				const seeds = children(model).filter(
 					(element) =>
@@ -205,8 +218,10 @@ it.each(operationScenarios)(
 				if (keyed) {
 					expect(seeds).toEqual([]);
 					const key = repeated ? "current()/../../../../key" : "/data/key";
-					expect(bind(id).calculate).toBe(
-						`if(string-length(${key}) > 0 and string-length(${key}) <= 205, concat('nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:', ${key}), '')`,
+					expect(xpathEvidence(bind(id).calculate)).toEqual(
+						xpathEvidence(
+							`if(string-length(${key}) > 0 and string-length(${key}) <= 205, concat('nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:', ${key}), '')`,
+						),
 					);
 				} else if (repeated) {
 					expect(seeds).toEqual([]);
@@ -230,8 +245,10 @@ it.each(operationScenarios)(
 					),
 				).toEqual(["case_type"]);
 				expect(
-					bind(`${at("unlink_visit")}/case/update/case_type`).calculate,
-				).toBe("'visit'");
+					xpathEvidence(
+						bind(`${at("unlink_visit")}/case/update/case_type`).calculate,
+					),
+				).toEqual(xpathEvidence("'visit'"));
 				expect(binds(`${at("unlink_visit")}/case/index/parent`)).toEqual([]);
 				expect(
 					children(caseBlock("finish_visit")).map((element) => element.name),
@@ -242,15 +259,21 @@ it.each(operationScenarios)(
 					),
 				).toEqual(["final_note"]);
 				expect(
-					bind(`${at("finish_visit")}/case/update/final_note`).calculate,
-				).toBe("'Finished'");
+					xpathEvidence(
+						bind(`${at("finish_visit")}/case/update/final_note`).calculate,
+					),
+				).toEqual(xpathEvidence("'Finished'"));
 				// One block reads another through `current()`, at the root as in
 				// a repeat row; each of these stands in its condition group where
 				// the operation is conditional.
 				const grouped = scenario === "conditional" || repeated ? "../" : "";
 				for (const name of ["tag_visit", "unlink_visit", "finish_visit"]) {
-					expect(bind(`${at(name)}/case/@case_id`).calculate).toBe(
-						`current()/../../../${scenario === "conditional" || (repeated && name === "tag_visit") ? "../" : ""}create_visit/case/@case_id`,
+					expect(
+						xpathEvidence(bind(`${at(name)}/case/@case_id`).calculate),
+					).toEqual(
+						xpathEvidence(
+							`current()/../../../${scenario === "conditional" || (repeated && name === "tag_visit") ? "../" : ""}create_visit/case/@case_id`,
+						),
 					);
 				}
 				expect(bind(`${at("tag_visit")}/case/update/nickname`)).toEqual({
@@ -271,44 +294,50 @@ it.each(operationScenarios)(
 					"nova_condition_unlink_visit",
 					"nova_condition_finish_visit",
 				]);
-				expect(bind(`${base}/create_visit/case`).relevant).toBe(
-					"/data/enabled = 'yes'",
-				);
+				expect(
+					xpathEvidence(bind(`${base}/create_visit/case`).relevant),
+				).toEqual(xpathEvidence("/data/enabled = 'yes'"));
 				for (const name of sequence)
-					expect(bind(`${base}/nova_condition_${name}`).relevant).toBe(
-						"/data/enabled = 'yes'",
-					);
+					expect(
+						xpathEvidence(bind(`${base}/nova_condition_${name}`).relevant),
+					).toEqual(xpathEvidence("/data/enabled = 'yes'"));
 				for (const name of wrappers) expect(binds(at(name))).toEqual([]);
 				expect(at("nova_guard_create_visit_text")).toBe(
 					`${base}/nova_condition_create_visit/nova_guard_create_visit_text`,
 				);
 			}
 			if (expectedOperations[scenario] === transitions) {
-				expect(bind(`${base}/nova_condition_promote`).relevant).toBe(
-					"/data/enabled = 'yes'",
-				);
+				expect(
+					xpathEvidence(bind(`${base}/nova_condition_promote`).relevant),
+				).toEqual(xpathEvidence("/data/enabled = 'yes'"));
 				expect(at("promote")).toBe(`${base}/nova_condition_promote/promote`);
 				const target =
 					scenario === "retype"
 						? selected
 						: "instance('casedb')/casedb/case[@case_id=(/data/destination) and @case_type='patient']/@case_id";
 				for (const name of transitions)
-					expect(bind(`${at(name)}/case/@case_id`).calculate).toBe(target);
+					expect(
+						xpathEvidence(bind(`${at(name)}/case/@case_id`).calculate),
+					).toEqual(xpathEvidence(target));
 				// HQ's form builder writes a row's bind untyped, so the leaf is
 				// untyped and its calculate keeps the clock.
 				const changedTypeAt = bind(
 					`${at("promote")}/case/update/changed_type_at`,
 				);
 				expect(changedTypeAt.type).toBeUndefined();
-				expect(changedTypeAt.calculate).toBe(
-					datetimeCaseValueExpression("now()"),
-				);
-				expect(bind(`${at("promote")}/case/update/case_type`).calculate).toBe(
-					"'visit'",
+				expect(xpathEvidence(changedTypeAt.calculate)).toEqual(
+					xpathEvidence(xformText(datetimeCaseValueExpression(w.call("now")))),
 				);
 				expect(
-					bind(`${at("finish_promoted")}/case/update/case_type`).calculate,
-				).toBe("'visit'");
+					xpathEvidence(
+						bind(`${at("promote")}/case/update/case_type`).calculate,
+					),
+				).toEqual(xpathEvidence("'visit'"));
+				expect(
+					xpathEvidence(
+						bind(`${at("finish_promoted")}/case/update/case_type`).calculate,
+					),
+				).toEqual(xpathEvidence("'visit'"));
 				expect(
 					children(caseBlock("finish_promoted")).map((element) => element.name),
 				).toEqual(["update", "close"]);
@@ -320,17 +349,23 @@ it.each(operationScenarios)(
 				).toEqual(["update", "index"]);
 				const selector =
 					"instance('casedb')/casedb/case[@case_id=(/data/destination) and @case_type='patient']/@case_id";
-				expect(bind(`${base}/link_patient/case/index/related`).calculate).toBe(
-					selector,
-				);
+				expect(
+					xpathEvidence(
+						bind(`${base}/link_patient/case/index/related`).calculate,
+					),
+				).toEqual(xpathEvidence(selector));
 				const guard = wrappers[1];
 				expect(guard).toBe("nova_guard_link_patient_type");
 				expect(
 					children(caseBlock(guard)).map((element) => element.name),
 				).toEqual(["update"]);
 				const id = "current()/../../../link_patient/case/@case_id";
-				expect(bind(`${base}/${guard}/case/@case_id`).calculate).toBe(
-					`if(count(${selector}) > 0 and string(${selector}) != ${id}, ${id}, '')`,
+				expect(
+					xpathEvidence(bind(`${base}/${guard}/case/@case_id`).calculate),
+				).toEqual(
+					xpathEvidence(
+						`if(count(${selector}) > 0 and string(${selector}) != ${id}, ${id}, '')`,
+					),
 				);
 			}
 			if (scenario === "scalar") {
@@ -345,9 +380,13 @@ it.each(operationScenarios)(
 					["external_id", "key"],
 				]) {
 					expect(
-						bind(`${at("rename_patient")}/case/update/${property}`).calculate,
-					).toBe(
-						`replace(/data/${question}, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')`,
+						xpathEvidence(
+							bind(`${at("rename_patient")}/case/update/${property}`).calculate,
+						),
+					).toEqual(
+						xpathEvidence(
+							`replace(/data/${question}, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')`,
+						),
 					);
 				}
 				expect(wrappers).toHaveLength(2);
@@ -355,8 +394,12 @@ it.each(operationScenarios)(
 			if (scenario === "relation" || (repeated && !keyed)) {
 				const operation = repeated ? "tag_visit" : "mark_related";
 				const answer = repeated ? "current()/../../answer" : "/data/answer";
-				expect(bind(`${base}/nova_condition_${operation}`).relevant).toBe(
-					`count(${selected}) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='visit' and (nickname = ${answer})]/index/parent), ${selected})`,
+				expect(
+					xpathEvidence(bind(`${base}/nova_condition_${operation}`).relevant),
+				).toEqual(
+					xpathEvidence(
+						`count(${selected}) > 0 and selected(join(' ', instance('casedb')/casedb/case[@case_type='visit' and (nickname = ${answer})]/index/parent), ${selected})`,
+					),
 				);
 			}
 			if (scenario === "nested") {
@@ -379,28 +422,41 @@ it.each(operationScenarios)(
 				expect(
 					children(child(entry, "session"))
 						.filter((element) => element.name === "datum")
-						.map((element) => element.attribs),
+						.map((element) => ({
+							...element.attribs,
+							nodeset: xpathEvidence(element.attribs.nodeset),
+						})),
 				).toEqual([
 					{
 						id: "case_id",
-						nodeset:
+						nodeset: xpathEvidence(
 							"instance('casedb')/casedb/case[@case_type='household'][@status='open']",
+						),
 						value: "./@case_id",
 						"detail-select": "m0_case_short",
 					},
 					{
 						id: "case_id_patient",
-						nodeset:
+						nodeset: xpathEvidence(
 							"instance('casedb')/casedb/case[@case_type='patient'][@status='open'][index/*[not(@relationship='extension')]=instance('commcaresession')/session/data/case_id]",
+						),
 						value: "./@case_id",
 						"detail-select": "m1_case_short",
 						"detail-confirm": "m1_case_long",
 					},
 				]);
-				expect(bind(`${at("update_child")}/case/@case_id`).calculate).toBe(own);
 				expect(
-					bind(`${at("update_child")}/case/update/nickname`).calculate,
-				).toBe(`instance('casedb')/casedb/case[@case_id=${own}]/case_name`);
+					xpathEvidence(bind(`${at("update_child")}/case/@case_id`).calculate),
+				).toEqual(xpathEvidence(own));
+				expect(
+					xpathEvidence(
+						bind(`${at("update_child")}/case/update/nickname`).calculate,
+					),
+				).toEqual(
+					xpathEvidence(
+						`instance('casedb')/casedb/case[@case_id=${own}]/case_name`,
+					),
+				);
 			}
 			if (scenario === "sequence") {
 				for (const property of [
@@ -418,15 +474,21 @@ it.each(operationScenarios)(
 					expect(bind(questionPath).calculate).toContain(`/data/${property}`);
 				}
 				for (const [operation, property, value] of [
-					["create_visit", "occurred_at", "now()"],
-					["before_ordinary", "occurred_at", "now()"],
-					["before_ordinary", "reference_at", "'2026-04-17T14:23:41+03:00'"],
-				]) {
+					["create_visit", "occurred_at", w.call("now")],
+					["before_ordinary", "occurred_at", w.call("now")],
+					[
+						"before_ordinary",
+						"reference_at",
+						w.str("2026-04-17T14:23:41+03:00"),
+					],
+				] as const) {
 					// HQ's form builder writes a row's bind untyped, so the leaf is
 					// untyped and its calculate keeps the clock.
 					const leaf = bind(`${at(operation)}/case/update/${property}`);
 					expect(leaf.type).toBeUndefined();
-					expect(leaf.calculate).toBe(datetimeCaseValueExpression(value));
+					expect(xpathEvidence(leaf.calculate)).toEqual(
+						xpathEvidence(xformText(datetimeCaseValueExpression(value))),
+					);
 				}
 			}
 			if (scenario === "sequence" && mode === "device") {
@@ -546,7 +608,9 @@ it("writes one update-only guard of each kind after its operation's block, readi
 			`${path}/@user_id`,
 			`${path}/@case_id`,
 		]);
-		expect(guardBinds[0].attribs.calculate).toBe("'visit'");
+		expect(xpathEvidence(guardBinds[0].attribs.calculate)).toEqual(
+			xpathEvidence("'visit'"),
+		);
 		const reads = locationPaths(guardBinds[3].attribs.calculate ?? "").filter(
 			(read) => read.includes("promote/case"),
 		);
@@ -595,8 +659,10 @@ it("checks an external_id write declared datetime in its text guard", () => {
 		bindsOf(model).find((bind) => bind.attribs.nodeset === nodeset)?.attribs
 			.calculate ?? "";
 	const leaf = "/data/nova_operations/rename_patient/case/update/external_id";
-	expect(calculate(leaf)).toBe(
-		`replace(${datetimeCaseValueExpression("/data/key")}, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')`,
+	expect(xpathEvidence(calculate(leaf))).toEqual(
+		xpathEvidence(
+			`replace(${xformText(datetimeCaseValueExpression(w.form(["key"])))}, '^[\\x00-\\x20]+|[\\x00-\\x20]+$', '')`,
+		),
 	);
 	const check = calculate(
 		"/data/nova_operations/nova_guard_rename_patient_text/case/@case_id",

@@ -15,6 +15,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { compilePredicate, type Database } from "@/lib/case-store/sql";
 import { composeXPathQueryEmission } from "@/lib/commcare/suite/case-search/xpathQuery";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
 	advancedSearchInputDef,
 	type CaseListConfig,
@@ -1084,10 +1085,11 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 		expect(composeRuntimeFilter([advanced], new Map(), PATIENT)).toEqual(
 			eq(prop(PATIENT, "status"), literal("active")),
 		);
-		const wire = composeXPathQueryEmission(
-			config,
-			PATIENT,
-		)?.clauseWrappers.join("\n");
+		const wire = composeXPathQueryEmission(config, PATIENT)
+			?.clauseWrappers.map(
+				(clause) => serializeWire(clause, { target: "suite" }).text,
+			)
+			.join("\n");
 		expect(wire).toContain("status = 'active'");
 		expect(wire).not.toContain("unused_prompt");
 	});
@@ -1127,11 +1129,12 @@ describe("composeRuntimeFilter — advanced arm substitution", () => {
 				eq(prop(PATIENT, "region"), literal("north")),
 			),
 		);
-		const wire = composeXPathQueryEmission(
-			config,
-			PATIENT,
-		)?.clauseWrappers.join("\n");
-		expect(wire).toContain("@name='region'");
+		const wire = composeXPathQueryEmission(config, PATIENT)
+			?.clauseWrappers.map(
+				(clause) => serializeWire(clause, { target: "suite" }).text,
+			)
+			.join("\n");
+		expect(wire).toContain("@name = 'region'");
 		expect(wire).not.toContain("unused_prompt");
 	});
 

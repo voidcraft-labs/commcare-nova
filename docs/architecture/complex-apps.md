@@ -128,8 +128,9 @@ ambiguous destination rolls back the rows and revision together. These are
 explicit expected destinations rather than a copied serializer/evaluator pair.
 HQ footprint SQL and remote restore are outside this native corpus.
 
-A location term occupies exactly one slot, a case operation's complete owner
-expression. Its AST accumulator automatically declares the XForm instance.
+A location owner term occupies exactly one slot, a case operation's complete
+owner expression, and its XForm declaration comes from the instance set its
+printed tree reads.
 The per-worker fixture never belongs in the app's suite, and no placeholder
 question is needed to force its declaration.
 
@@ -803,9 +804,9 @@ actor/timestamp writes, or fresh checks of mutable values.
 
 Relation operators carry their own case-instance dependency. An unfiltered
 count, exists or missing condition still reads related rows, even when its AST
-contains no property leaf. The shared instance collector includes these nodes
-through both predicate and expression nesting; self-only constant relations add
-no external dependency. Native Core opens and submits independent forms for
+contains no property leaf. Each prints a `casedb` path, so the instance is
+declared because the printed tree reads it; self-only constant relations print
+no external read. Native Core opens and submits independent forms for
 each consumer so an unrelated property read cannot mask a missing declaration.
 
 Facet legality by action is closed in the stored action-discriminated schema:

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { validateSuite } from "../validator/suiteOracle";
+import {
+	collectOracleInstanceRefs,
+	validateSuite,
+} from "../validator/suiteOracle";
 import {
 	detailWire,
 	entryWire,
@@ -82,7 +85,10 @@ describe("suite wire parser checks and explicit static joins", () => {
 			entryWire("", "nested") +
 			menu(command("c", expression)) +
 			menu(command("nested"), "c");
-		expect(codes(suiteWire(xml))).toEqual(["SUITE_MISSING_INSTANCE"]);
+		expect(codes(suiteWire(xml))).toEqual([
+			"SUITE_MISSING_INSTANCE",
+			"SUITE_UNREAD_INSTANCE",
+		]);
 		const fixed =
 			fixture +
 			entryWire("") +
@@ -94,8 +100,23 @@ describe("suite wire parser checks and explicit static joins", () => {
 	it("uses a same-id menu declaration but does not inherit the containing menu", () => {
 		const xml =
 			fixture + entryWire() + menu(declaration + command("c", expression));
-		expect(codes(suiteWire(xml))).toEqual(["SUITE_MISSING_INSTANCE"]);
-		expect(codes(suiteWire(xml + menu(declaration, "c")))).toEqual([]);
+		expect(codes(suiteWire(xml))).toEqual([
+			"SUITE_MISSING_INSTANCE",
+			"SUITE_UNREAD_INSTANCE",
+		]);
+		expect(codes(suiteWire(xml + menu(declaration, "c")))).toEqual([
+			"SUITE_UNREAD_INSTANCE",
+		]);
+		expect(
+			codes(
+				suiteWire(
+					fixture +
+						entryWire() +
+						menu(command("c", expression)) +
+						menu(declaration, "c"),
+				),
+			),
+		).toEqual([]);
 	});
 	it("resolves menu relevance from its first command and falls back to its same-id entry", () => {
 		expect(
@@ -151,11 +172,125 @@ describe("suite wire parser checks and explicit static joins", () => {
 			codes(
 				suiteWire(
 					fixture +
-						entryWire(declaration + declaration) +
-						menu(declaration + declaration),
+						entryWire(
+							declaration +
+								declaration +
+								`<session><datum id="count" function="count(${expression})"/></session>`,
+						) +
+						menu(declaration + declaration, "m", expression),
 				),
 			),
 		).toEqual(["SUITE_DUPLICATE_INSTANCE", "SUITE_DUPLICATE_INSTANCE"]);
+	});
+	it("reads real instance calls independently of literal prose and invalid XPath", () => {
+		expect(
+			collectOracleInstanceRefs(
+				`concat("instance('prose')", instance('real')/items)`,
+			),
+		).toEqual(new Set(["real"]));
+		for (const source of [
+			`"instance('prose')"`,
+			"instance('a', 'b')",
+			"instance(concat('a', 'b'))",
+			"instance('a')/[",
+		]) {
+			expect(collectOracleInstanceRefs(source)).toEqual(new Set());
+		}
+	});
+	it("does not let another entry's read consume an unused declaration", () => {
+		const unused = entryWire(declaration, "unused");
+		const reading = entryWire(
+			`<session><datum id="d" function="count(${expression})"/></session>`,
+			"reading",
+		);
+		expect(codes(suiteWire(fixture + unused + reading))).toEqual([
+			"SUITE_MISSING_INSTANCE",
+			"SUITE_UNREAD_INSTANCE",
+		]);
+	});
+	it.each([
+		`<required test="${expression}"><text>Needed</text></required>`,
+		`<validation test="${expression}"><text>Invalid</text></validation>`,
+		`<itemset nodeset="${expression}"><label ref="name"/><value ref="@id"/></itemset>`,
+		`<itemset nodeset="/items/item"><label ref="${expression}"/><value ref="@id"/></itemset>`,
+		`<itemset nodeset="/items/item"><label ref="name"/><value ref="${expression}"/></itemset>`,
+		`<itemset nodeset="/items/item"><label ref="name"/><value ref="@id"/><sort ref="${expression}"/></itemset>`,
+	])("joins the search prompt read in %s", (content) => {
+		const query = `<session><query url="https://example.org/search" storage-instance="results"><prompt key="q" input="q"><display><text>Question</text></display>${content}</prompt></query></session>`;
+		expect(codes(suiteWire(fixture + entryWire(declaration + query)))).toEqual(
+			[],
+		);
+		expect(codes(suiteWire(fixture + entryWire(query)))).toEqual([
+			"SUITE_MISSING_INSTANCE",
+		]);
+	});
+	it("joins assertion and nested detail reads to their actual loading entry", () => {
+		const assertion = `<assertions><assert test="${expression}"><text>Required</text></assert></assertions>`;
+		expect(
+			codes(suiteWire(fixture + entryWire(declaration + assertion))),
+		).toEqual([]);
+		const nested = detailWire(
+			detailWire(
+				fieldWire().replace('function="name"', `function="${expression}"`),
+				"nested",
+			),
+		);
+		const session =
+			'<session><datum id="d" nodeset="/x" value="./@id" detail-select="d"/></session>';
+		expect(
+			codes(suiteWire(fixture + nested + entryWire(declaration + session))),
+		).toEqual([]);
+		expect(codes(suiteWire(fixture + nested + entryWire(session)))).toEqual([
+			"SUITE_MISSING_INSTANCE",
+		]);
+	});
+	it("counts detail grouping and relevance as reads in each referring entry", () => {
+		const session =
+			'<session><datum id="d" nodeset="/x" value="./@id" detail-select="d"/></session>';
+		for (const detail of [
+			detailWire(fieldWire(), "d").replace(
+				'id="d"',
+				`id="d" relevant="${expression}"`,
+			),
+			detailWire(`${fieldWire()}<group function="${expression}"/>`),
+		]) {
+			expect(
+				codes(suiteWire(fixture + detail + entryWire(declaration + session))),
+			).toEqual([]);
+			expect(codes(suiteWire(fixture + detail + entryWire(session)))).toEqual([
+				"SUITE_MISSING_INSTANCE",
+			]);
+		}
+	});
+	it("keeps fixture data, prose and stack query URLs out of the read set", () => {
+		const fixtureData =
+			'<fixture id="table"><items><xpath function="instance(\'lookup\')/items"/></items></fixture>';
+		const prose =
+			'<session><datum id="d" function="&quot;instance(\'lookup\')&quot;"/></session>';
+		const query =
+			'<stack><create><query id="q" value="https://example.org/instance(\'lookup\')"/></create></stack>';
+		expect(
+			codes(suiteWire(fixtureData + entryWire(declaration + prose + query))),
+		).toEqual(["SUITE_UNREAD_INSTANCE"]);
+	});
+	it("counts session selection values but ignores their value when a function takes precedence", () => {
+		const selected = `<session><datum id="d" nodeset="/x" value="${expression}"/></session>`;
+		expect(
+			codes(suiteWire(fixture + entryWire(declaration + selected))),
+		).toEqual([]);
+		const computed = selected.replace(
+			'nodeset="/x"',
+			'function="1" nodeset="/x"',
+		);
+		expect(
+			codes(suiteWire(fixture + entryWire(declaration + computed))),
+		).toEqual(["SUITE_UNREAD_INSTANCE"]);
+	});
+	it("ignores expression-shaped attributes Core does not evaluate", () => {
+		const content = `<display><text function="${expression}">Label</text></display><stack><create value="${expression}"><command value="'next'"/></create></stack>`;
+		expect(
+			codes(suiteWire(fixture + entryWire(declaration + content))),
+		).toEqual(["SUITE_UNREAD_INSTANCE"]);
 	});
 	it("joins both menu locale values and image-map string literals to archive media", () => {
 		const pathA = "commcare/a.png",

@@ -26,7 +26,7 @@ import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
  * lockstep keeps "Upload to CCHQ" honest against the running app.
  */
 
-import type { HqApplication, HqFormLink } from "@/lib/commcare";
+import type { HqApplication } from "@/lib/commcare";
 import {
 	applicationShell,
 	DERIVED_WIRE_IDENTITY,
@@ -85,9 +85,19 @@ import {
 	type ProjectedFormLink,
 	projectFormLinks,
 	selectedCaseSessionDatum,
+	sessionDataRef,
 } from "./formLinkProjection";
 import { emptyShortListColumns, projectCaseListForHq } from "./hqJson/caseList";
+import {
+	type HqFormLinkTree,
+	hqXPath,
+	serializeHqApplication,
+} from "./hqJson/xpath";
 import { buildXFormSource } from "./xform/builder";
+import {
+	type FormLinkXPathValue,
+	isLegacyFormLinkXPath,
+} from "./xform/legacyAuthoredXPath";
 import { formUpdatesSelectedCasesInSource } from "./xform/sourceCaseWrites";
 
 /**
@@ -103,7 +113,7 @@ function toHqFormLink(
 	link: ProjectedFormLink,
 	moduleUniqueIdOf: ReadonlyMap<Uuid, string>,
 	formUniqueIdOf: ReadonlyMap<Uuid, string>,
-): HqFormLink {
+): HqFormLinkTree {
 	const target = link.target;
 	const moduleId = moduleUniqueIdOf.get(target.moduleUuid);
 	if (moduleId === undefined) {
@@ -111,11 +121,13 @@ function toHqFormLink(
 			`Cannot emit form link: target module ${target.moduleUuid} is missing`,
 		);
 	}
+	const linkXPath = (value: FormLinkXPathValue) =>
+		isLegacyFormLinkXPath(value) ? value : hqXPath(value);
 	const datums = link.datums.map((datum) => ({
 		name: datum.name,
-		xpath: datum.xpath,
+		xpath: linkXPath(datum.xpath),
 	}));
-	const xpath = link.guard ?? "";
+	const xpath = link.guard === undefined ? "" : linkXPath(link.guard);
 	if (target.type === "form") {
 		const formId = formUniqueIdOf.get(target.formUuid);
 		if (formId === undefined) {
@@ -311,7 +323,7 @@ export function expandDoc(
 				}),
 				...(ownCaseDatumId !== undefined &&
 					multipleCaseDatum === undefined && {
-						selectedCaseIdRef: `instance('commcaresession')/session/data/${ownCaseDatumId}`,
+						selectedCaseIdRef: sessionDataRef(ownCaseDatumId),
 					}),
 				...(multipleCaseDatum !== undefined && {
 					selectedCasesInstanceId: multipleCaseDatum.id,
@@ -365,14 +377,20 @@ export function expandDoc(
 			formShellObj.session_endpoint_id = form.entryPoint?.id ?? "";
 			formShellObj.respect_relevancy =
 				form.entryPoint?.ignoreDisplayConditions !== true;
+			const formFilter = emitFormDisplayConditionForHq(
+				form,
+				mod.caseType,
+				opts.lookupNaming,
+				userPropertySlugs,
+				ownCaseDatumId,
+			);
 			formShellObj.form_filter =
-				emitFormDisplayConditionForHq(
-					form,
-					mod.caseType,
-					opts.lookupNaming,
-					userPropertySlugs,
-					ownCaseDatumId,
-				) ?? null;
+				formFilter === undefined
+					? null
+					: hqXPath(
+							formFilter,
+							formShellObj.requires === "case" ? "case" : "no-case",
+						);
 
 			// Stamp the form's menu-command media (icon + audio label) onto
 			// the shell. CCHQ reads these `media_image` / `media_audio` dicts
@@ -455,15 +473,18 @@ export function expandDoc(
 		// A hidden module is never on a menu (`menus.py::_generate_menu`
 		// lowers the filter to `<menu relevant>`); the Register action reaches
 		// it through a stack push, which ignores relevance.
-		shell.module_filter =
+		const moduleFilter =
 			synthetic !== undefined
 				? NEVER_RELEVANT
-				: (emitModuleDisplayCondition(
+				: emitModuleDisplayCondition(
 						mod,
 						mod.caseType,
 						opts.lookupNaming,
 						userPropertySlugs,
-					) ?? null);
+					);
+		shell.module_filter =
+			moduleFilter === undefined ? null : hqXPath(moduleFilter, "no-case");
+
 		if (noMatches !== undefined) {
 			const formId = formUniqueIdOf.get(noMatches.formUuid);
 			if (formId === undefined) {
@@ -478,7 +499,7 @@ export function expandDoc(
 					caseListFormLabelUnit(authoredDoc, noMatches.formUuid),
 				),
 				post_form_workflow: "case_list",
-				relevancy_expression: NO_MATCHES_RELEVANCY,
+				relevancy_expression: hqXPath(NO_MATCHES_RELEVANCY),
 			};
 		}
 
@@ -550,14 +571,29 @@ export function expandDoc(
 	});
 
 	const derivedProfile = derivedProfileProperties(doc);
-	return applicationShell(doc.appName, modules, attachments, {
-		...appLevelValues(doc, localization),
-		addOns: addOnsNeededBy({ modules, _attachments: attachments }),
-		profileProperties: appProfileProperties(authoredDoc),
-		...(Object.keys(derivedProfile).length > 0 && {
-			profileCustomProperties: derivedProfile,
+	const serialized = serializeHqApplication(
+		applicationShell(doc.appName, modules, attachments, {
+			...appLevelValues(doc, localization),
+			profileProperties: appProfileProperties(authoredDoc),
+			...(Object.keys(derivedProfile).length > 0 && {
+				profileCustomProperties: derivedProfile,
+			}),
 		}),
-	});
+	);
+	const addOns = addOnsNeededBy(serialized);
+	const {
+		modules: printedModules,
+		_attachments: printedAttachments,
+		...app
+	} = serialized;
+	return {
+		...app,
+		...(addOns.length === 0
+			? {}
+			: { add_ons: Object.fromEntries(addOns.map((slug) => [slug, true])) }),
+		modules: printedModules,
+		_attachments: printedAttachments,
+	};
 }
 
 /**
@@ -647,11 +683,13 @@ export type HqAppShell = Pick<HqApplication, AppShellKey>;
  * build can hold an id the update did not write.
  */
 export function expandAppShell(doc: BlueprintDoc): HqAppShell {
-	const app = applicationShell(
-		doc.appName,
-		[],
-		{},
-		appLevelValues(doc, commCareLocalization(doc)),
+	const app = serializeHqApplication(
+		applicationShell(
+			doc.appName,
+			[],
+			{},
+			appLevelValues(doc, commCareLocalization(doc)),
+		),
 	);
 	const shell: Partial<Record<AppShellKey, unknown>> = {};
 	for (const key of APP_SHELL_KEYS) {

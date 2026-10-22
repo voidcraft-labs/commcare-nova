@@ -3,7 +3,8 @@
 import { sql } from "kysely";
 import { describe } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
+import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -1100,7 +1101,15 @@ describe("compileExpression — round-trip — coalesce arm", () => {
 				.execute();
 			expect(rows).toEqual([{ value: blank ? fallback : value, blank }]);
 			const formContext = EMPTY_PREVIEW_CONTEXT;
-			expect(evaluate(emitCaseListFilter(predicate), formContext)).toBe(blank);
+			expect(
+				evaluate(
+					serializeWire(toWire(predicate, { target: "xform", types: {} }), {
+						target: "xform",
+						constraint: false,
+					}).text,
+					formContext,
+				),
+			).toBe(blank);
 			const source =
 				value === null
 					? "''"

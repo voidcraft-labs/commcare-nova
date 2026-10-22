@@ -2,7 +2,8 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { testUuid } from "../../../__tests__/helpers/uuid";
-import { emitCaseListFilter } from "../../../lib/commcare/predicate/caseListFilterEmitter";
+import { toWire } from "../../../lib/commcare/xpath/wire/fromExpression";
+import { serializeWire } from "../../../lib/commcare/xpath/wire/serialize";
 import {
 	ancestorPath,
 	and,
@@ -62,9 +63,15 @@ function probe(
 	queryPresent = true,
 ) {
 	predicateSchema.parse(predicate);
-	const xpath = emitCaseListFilter(predicate, "casedb", {
-		knownInputs: [{ uuid: query, name: "query", data_type: "text" }],
-	});
+	const xpath = serializeWire(
+		toWire(predicate, {
+			target: "suite",
+			types: {
+				knownInputs: [{ uuid: query, name: "query", data_type: "text" }],
+			},
+		}),
+		{ target: "suite" },
+	).text;
 	rows.push(
 		[
 			id,

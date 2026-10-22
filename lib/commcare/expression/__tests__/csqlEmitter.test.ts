@@ -41,6 +41,8 @@ import {
 } from "../../__tests__/xmlEvidence";
 import { compileCcz } from "../../compiler";
 import { expandDoc } from "../../expander";
+import { w } from "../../xpath/wire/builders";
+import { searchInputInstance } from "../../xpath/wire/instances";
 import { emitCsqlExpressionSegments } from "../csqlEmitter";
 
 // These checks own the private segment IR. Native execution consumes complete
@@ -108,8 +110,12 @@ it("resolves the renamed date input by identity and emits its quote-free argumen
 		{ kind: "constant", text: '"' },
 		{
 			kind: "runtime",
-			xpath:
-				"instance('search-input:custom')/input/field[@name='renamed_date']",
+			xpath: w.instance(searchInputInstance("search-input:custom"), [
+				w.step("input"),
+				w.step("field", [
+					w.eq(w.context([w.attr("name")]), w.str("renamed_date")),
+				]),
+			]),
 		},
 		{ kind: "constant", text: '"' },
 		{ kind: "constant", text: ", 'days', " },

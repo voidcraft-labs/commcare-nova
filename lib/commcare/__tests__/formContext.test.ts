@@ -50,7 +50,7 @@ describe("expandHashtagsInContext", () => {
 			"/data/x + 1",
 		);
 		expect(expandHashtagsInContext("#user/username", ctx("registration"))).toBe(
-			"instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username",
+			"instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username",
 		);
 	});
 

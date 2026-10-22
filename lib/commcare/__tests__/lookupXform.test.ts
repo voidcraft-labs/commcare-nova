@@ -102,7 +102,7 @@ describe("lookup XForm structure", () => {
 		expect(() =>
 			buildXForm(doc, formUuid, { xmlns: XMLNS, lookupNaming: naming }),
 		).toThrow(
-			"XForm XPath references an undeclared secondary instance. Validation must reject it before emission.",
+			"An authored XPath reads an instance its form context does not supply. Validation must refuse that read before emission.",
 		);
 	});
 });

@@ -2,7 +2,8 @@
 
 Contract: for eight of the ten nested-menu scenarios, every ``<entry>`` and
 ``<menu>`` HQ's suite contributors build equals Nova's, compared whole (every
-attribute, leaf text and child, in order) once each side's ``<instance>``
+attribute, leaf text and child, in order, with known XPath carriers compared
+as HQ's parser's complete expression trees) once each side's ``<instance>``
 declarations that nothing in the element reads are set aside. The other two
 (``parent-multiple``, ``same-smaller``) are the shapes Nova's HQ export
 refuses (``hq-nested-target-refusals.json``), and their entries differ: HQ
@@ -24,17 +25,21 @@ either side.
 """
 
 import json
-import subprocess
-from pathlib import Path
 
 import pytest
 from lxml import etree
 
-from proof.native.hq_support import hq_commit, sha256, shape, write_evidence
+from proof.native.hq_support import (
+    UnreadableExpression,
+    hq_commit,
+    parse_xpaths,
+    sha256,
+    shape,
+    write_evidence,
+)
 
 FAMILIES = ("nested-menu",)
 REFUSED = {"parent-multiple", "same-smaller"}
-XPATH_INSTANCES = Path(__file__).resolve().parent / "xpath_instances.mjs"
 SELECTORS = ["entry", "menu"]
 
 
@@ -60,7 +65,15 @@ SELECTORS = ["entry", "menu"]
 # Every other attribute is parsed as XPath, and <instance> declarations are
 # what the comparison sets aside, so theirs are not read.
 _DATUM_NAMES = frozenset(
-    {"id", "detail-select", "detail-confirm", "detail-inline", "detail-persistent", "autoselect", "max-select-value"}
+    {
+        "id",
+        "detail-select",
+        "detail-confirm",
+        "detail-inline",
+        "detail-persistent",
+        "autoselect",
+        "max-select-value",
+    }
 )
 NOT_XPATH = {
     "menu": frozenset({"id", "root", "style"}),
@@ -78,10 +91,6 @@ NOT_XPATH = {
     "text": frozenset({"form"}),
     "media": frozenset({"image", "audio"}),
 }
-
-
-class UnreadableExpression(AssertionError):
-    """An attribute the suite holds as XPath that HQ's XPath parser cannot parse."""
 
 
 def _expressions(element):
@@ -113,32 +122,10 @@ def instances_read(values):
     Raises ``UnreadableExpression`` naming every expression the parser could
     not parse, with its message.
     """
-    values = sorted(set(values))
-    finished = subprocess.run(
-        ["node", str(XPATH_INSTANCES)],
-        input=json.dumps(values).encode(),
-        capture_output=True,
-        timeout=120,
-        check=False,
-    )
-    if finished.returncode != 0:
-        raise RuntimeError(
-            f"HQ's XPath parser (js-xpath, through {XPATH_INSTANCES.name}) could not read the suites' attribute "
-            f"values: node exited with status {finished.returncode}.\n{finished.stderr.decode(errors='replace')}"
-        )
-    results = dict(zip(values, json.loads(finished.stdout), strict=True))
-    unreadable = {value: result["error"] for value, result in results.items() if "error" in result}
-    if unreadable:
-        raise UnreadableExpression(
-            "HQ's XPath parser (js-xpath) could not parse these attributes, which the suite holds as XPath, so the "
-            "comparison cannot tell which instances they read. If one is not XPath in Core's suite parsers, add its "
-            "element and attribute to NOT_XPATH with the parser that reads it:\n"
-            + "\n".join(f"  {value!r}: {message}" for value, message in sorted(unreadable.items()))
-        )
-    return {value: result["instances"] for value, result in results.items()}
+    return {value: result["instances"] for value, result in parse_xpaths(values).items()}
 
 
-def comparable(root, selector, reads):
+def comparable(root, selector, reads, parsed):
     """Each element ``selector`` finds, without the instance declarations nothing in it reads."""
     items = []
     for element in root.findall(selector):
@@ -148,14 +135,14 @@ def comparable(root, selector, reads):
         for instance in list(element.findall("instance")):
             if instance.get("id") not in referenced:
                 element.remove(instance)
-        items.append(shape(element))
+        items.append(shape(element, parsed))
     return items
 
 
 def test_hq_entries_and_menus_equal_novas_but_for_the_refused_shapes(native):
     records = native.step("nested-menu")
     suites = [(record, etree.fromstring(record["local"]), etree.fromstring(record["native"])) for record in records]
-    reads = instances_read(
+    parsed = parse_xpaths(
         value
         for _, local, hq in suites
         for root in (local, hq)
@@ -163,10 +150,11 @@ def test_hq_entries_and_menus_equal_novas_but_for_the_refused_shapes(native):
         for element in root.findall(selector)
         for value in _expressions(element)
     )
+    reads = {value: result["instances"] for value, result in parsed.items()}
     mismatches = []
     for record, local, native_suite in suites:
         for selector in SELECTORS:
-            if comparable(local, selector, reads) != comparable(native_suite, selector, reads):
+            if comparable(local, selector, reads, parsed) != comparable(native_suite, selector, reads, parsed):
                 mismatches.append((record["scenario"], selector))
     assert len(records) == 10, len(records)
     refusals = json.loads((native.family("nested-menu") / "hq-nested-target-refusals.json").read_text())
@@ -177,7 +165,11 @@ def test_hq_entries_and_menus_equal_novas_but_for_the_refused_shapes(native):
         "nested-menu-emission",
         {
             "results": [
-                {"scenario": r["scenario"], "sourceSha256": r["sourceSha256"], "nativeSha256": sha256(r["native"])}
+                {
+                    "scenario": r["scenario"],
+                    "sourceSha256": r["sourceSha256"],
+                    "nativeSha256": sha256(r["native"]),
+                }
                 for r in records
             ],
             "refusedShapesReproduced": mismatches,
@@ -186,7 +178,8 @@ def test_hq_entries_and_menus_equal_novas_but_for_the_refused_shapes(native):
             ),
             "hqCommit": hq_commit(),
             "limits": "Actual imported HQ model, native case/meta/Vellum XForm processing and suite contributors. "
-            "Complete entry and menu trees retain all text/attributes/children. Default build 2.53 and origin from "
+            "Complete entry and menu trees retain all text/attributes/children, comparing known XPath carriers "
+            "through HQ's parser after the existing unread-declaration exemption. Default build 2.53 and origin from "
             "the check's configuration; advanced search and follow-up case list forms on. No real search/claim "
             "HTTP, whole HQ build or resource installation.",
         },

@@ -14,7 +14,16 @@ import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 // guard, the search-case-id ref, the claim URL).
 
 import type { Element } from "domhandler";
-import { el } from "@/lib/commcare/elementBuilders";
+import { type WireElementContext, xel } from "@/lib/commcare/elementBuilders";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import {
+	caseDbInstance,
+	type InstanceDecl,
+	InstanceSink,
+	selectedCasesInstance,
+	sessionInstance,
+} from "@/lib/commcare/xpath/wire/instances";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 
 /** Portable URL used only by unbound structural emission and fixture tests.
  * Actual exports supply their resolved selected-server runtime target. */
@@ -25,27 +34,48 @@ export const CLAIM_URL_TEMPLATE = runtimeUrls().claim;
  * `CaseClaimXpath.default_relevant`. Structural defense against
  * repeat-claim writes (the underlying cause of `state hash mismatch`
  * log spam in CCHQ webapps logs). Every `<remote-request>` Nova
- * emits carries this exact string.
+ * emits carries this condition.
  */
-export const CLAIM_DEFAULT_RELEVANT =
-	"count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/search_case_id]) = 0";
+export const CLAIM_DEFAULT_RELEVANT = w.eq(
+	claimed(sessionRef("search_case_id")),
+	w.num(0),
+);
 
 /**
  * The session-data XPath that resolves to the selected search-result
  * case id. Both the `<post>` body's `<data key="case_id">` element
  * and the `<stack>` rewind frame point at this same datum.
  */
-export const SEARCH_CASE_ID_REF =
-	"instance('commcaresession')/session/data/search_case_id";
+export const SEARCH_CASE_ID_REF = sessionRef("search_case_id");
 
 export const SEARCH_SELECTED_CASES_ID = "search_selected_cases";
-export const SEARCH_SELECTED_CASES_REF =
-	"instance('commcaresession')/session/data/search_selected_cases";
-export const CLAIM_MULTI_RELEVANT = "$case_id != ''";
-export const CLAIM_MULTI_NODESET =
-	"instance('search_selected_cases')/results/value";
-export const CLAIM_MULTI_EXCLUDE =
-	"count(instance('casedb')/casedb/case[@case_id=current()/.]) = 1";
+export const SEARCH_SELECTED_CASES_REF = sessionRef(SEARCH_SELECTED_CASES_ID);
+export const CLAIM_MULTI_RELEVANT = w.ne(w.caseIdVar(), w.str(""));
+export const CLAIM_MULTI_NODESET = w.instance(
+	selectedCasesInstance(SEARCH_SELECTED_CASES_ID),
+	[w.step("results"), w.step("value")],
+);
+export const CLAIM_MULTI_EXCLUDE = w.eq(
+	claimed(w.current([w.self()])),
+	w.num(1),
+);
+
+function sessionRef(id: string): WireExpr {
+	return w.instance(sessionInstance(), [
+		w.step("session"),
+		w.step("data"),
+		w.step(id),
+	]);
+}
+
+function claimed(ref: WireExpr): WireExpr {
+	return w.call("count", [
+		w.instance(caseDbInstance(), [
+			w.step("casedb"),
+			w.step("case", [w.eq(w.context([w.attr("case_id")]), ref)]),
+		]),
+	]);
+}
 
 /**
  * Compose the `<post>` Element. The orchestrator splices the returned
@@ -67,27 +97,48 @@ export const CLAIM_MULTI_EXCLUDE =
  */
 
 export function buildClaimPost(
-	multiple = false,
+	multiple: boolean,
+	context: WireElementContext,
 	runtimeTarget?: RuntimeTarget,
 ): Element {
 	if (multiple) {
-		return el(
+		return xel(
 			"post",
-			{ url: runtimeUrls(runtimeTarget).claim, relevant: CLAIM_MULTI_RELEVANT },
+			{
+				attributes: { url: runtimeUrls(runtimeTarget).claim },
+				xpath: { relevant: CLAIM_MULTI_RELEVANT },
+			},
+			context,
 			[
-				el("data", {
-					key: "case_id",
-					nodeset: CLAIM_MULTI_NODESET,
-					exclude: CLAIM_MULTI_EXCLUDE,
-					ref: ".",
-				}),
+				xel(
+					"data",
+					{
+						attributes: { key: "case_id" },
+						xpath: {
+							nodeset: CLAIM_MULTI_NODESET,
+							exclude: CLAIM_MULTI_EXCLUDE,
+							ref: w.context([w.self()]),
+						},
+					},
+					context,
+				),
 			],
 		);
 	}
-	return el(
+	return xel(
 		"post",
-		{ url: runtimeUrls(runtimeTarget).claim, relevant: CLAIM_DEFAULT_RELEVANT },
-		[el("data", { key: "case_id", ref: SEARCH_CASE_ID_REF })],
+		{
+			attributes: { url: runtimeUrls(runtimeTarget).claim },
+			xpath: { relevant: CLAIM_DEFAULT_RELEVANT },
+		},
+		context,
+		[
+			xel(
+				"data",
+				{ attributes: { key: "case_id" }, xpath: { ref: SEARCH_CASE_ID_REF } },
+				context,
+			),
+		],
 	);
 }
 
@@ -95,7 +146,7 @@ export function buildClaimPost(
  *  its XPath reads. */
 export interface InlineClaimPost {
 	readonly element: Element;
-	readonly instances: readonly string[];
+	readonly instances: readonly InstanceDecl[];
 }
 
 /**
@@ -124,44 +175,65 @@ export function buildInlineClaimPost(args: {
 	const { sessionVar, collection } = args;
 	const parentSelect = args.parentSelect !== undefined;
 	const others = args.parentSelect?.otherSessionVars ?? [];
-	const sessionRef = (id: string): string =>
-		`instance('commcaresession')/session/data/${id}`;
-	const claimed = (ref: string): string =>
-		`count(instance('casedb')/casedb/case[@case_id=${ref}])`;
+	const instances = new InstanceSink();
+	const context: WireElementContext = { mode: { target: "suite" }, instances };
 	const own = collection
-		? el("data", {
-				key: "case_id",
-				ref: ".",
-				nodeset: `instance('${sessionVar}')/results/value`,
-				exclude: CLAIM_MULTI_EXCLUDE,
-			})
-		: el("data", {
-				key: "case_id",
-				ref: sessionRef(sessionVar),
-				...(parentSelect && {
-					exclude: `${claimed(sessionRef(sessionVar))} != 0`,
-				}),
-			});
+		? xel(
+				"data",
+				{
+					attributes: { key: "case_id" },
+					xpath: {
+						ref: w.context([w.self()]),
+						nodeset: w.instance(selectedCasesInstance(sessionVar), [
+							w.step("results"),
+							w.step("value"),
+						]),
+						exclude: CLAIM_MULTI_EXCLUDE,
+					},
+				},
+				context,
+			)
+		: xel(
+				"data",
+				{
+					attributes: { key: "case_id" },
+					xpath: {
+						ref: sessionRef(sessionVar),
+						...(parentSelect && {
+							exclude: w.ne(claimed(sessionRef(sessionVar)), w.num(0)),
+						}),
+					},
+				},
+				context,
+			);
 	const extra = others.map((id) =>
-		el("data", {
-			key: "case_id",
-			ref: sessionRef(id),
-			exclude: `${claimed(sessionRef(id))} != 0`,
-		}),
+		xel(
+			"data",
+			{
+				attributes: { key: "case_id" },
+				xpath: {
+					ref: sessionRef(id),
+					exclude: w.ne(claimed(sessionRef(id)), w.num(0)),
+				},
+			},
+			context,
+		),
 	);
 	const relevant =
 		collection || parentSelect
 			? CLAIM_MULTI_RELEVANT
-			: `${claimed(sessionRef(sessionVar))} = 0`;
+			: w.eq(claimed(sessionRef(sessionVar)), w.num(0));
+	const element = xel(
+		"post",
+		{
+			attributes: { url: runtimeUrls(args.runtimeTarget).claim },
+			xpath: { relevant },
+		},
+		context,
+		[own, ...extra],
+	);
 	return {
-		element: el(
-			"post",
-			{ url: runtimeUrls(args.runtimeTarget).claim, relevant },
-			[own, ...extra],
-		),
-		instances: [
-			"casedb",
-			...(collection && others.length === 0 ? [] : ["commcaresession"]),
-		],
+		element,
+		instances: instances.declarations(),
 	};
 }

@@ -13,6 +13,8 @@
  */
 
 import { USERCASE_CASE_TYPE } from "@/lib/domain";
+import { w } from "./xpath/wire/builders";
+import { caseDbInstance, sessionInstance } from "./xpath/wire/instances";
 
 /** `suite_xml/sections/entries.py::EntriesHelper.get_extra_case_id_datums`. */
 export const USERCASE_DATUM_ID = "usercase_id";
@@ -22,11 +24,27 @@ export const USERCASE_DATUM_ID = "usercase_id";
  * `hq_user_id`, never by an id HQ chose. That join is why Nova is free to pick
  * the case id when it materializes the row.
  */
-export const USERCASE_CASE_SELECTOR = `instance('casedb')/casedb/case[@case_type='${USERCASE_CASE_TYPE}'][hq_user_id=instance('commcaresession')/session/context/userid]`;
+export const USERCASE_CASE_SELECTOR = w.instance(caseDbInstance(), [
+	w.step("casedb"),
+	w.step("case", [
+		w.eq(w.context([w.attr("case_type")]), w.str(USERCASE_CASE_TYPE)),
+		w.eq(
+			w.context([w.step("hq_user_id")]),
+			w.instance(sessionInstance(), [
+				w.step("session"),
+				w.step("context"),
+				w.step("userid"),
+			]),
+		),
+	]),
+]);
 
 /** The computed datum's `function`. Selects rather than prompts, so the entry
  *  carries no `requires_selection` for it. */
-export const USERCASE_ID_FUNCTION = `${USERCASE_CASE_SELECTOR}/@case_id`;
+export const USERCASE_ID_FUNCTION = w.path(USERCASE_CASE_SELECTOR.root, [
+	...USERCASE_CASE_SELECTOR.steps,
+	w.attr("case_id"),
+]);
 
 /**
  * The entry assertion HQ pairs with the datum.
@@ -37,13 +55,20 @@ export const USERCASE_ID_FUNCTION = `${USERCASE_CASE_SELECTOR}/@case_id`;
  * write. Nova cannot see a target's plan, so that travels as a preflight
  * attention edge rather than an authoring gate.
  */
-export const USERCASE_MISSING_ASSERT_TEST = `count(${USERCASE_CASE_SELECTOR}) = 1`;
+export const USERCASE_MISSING_ASSERT_TEST = w.eq(
+	w.call("count", [USERCASE_CASE_SELECTOR]),
+	w.num(1),
+);
 
 /** HQ's own locale id for that assertion's message. */
 export const USERCASE_MISSING_LOCALE_ID = "case_autoload.usercase.case_missing";
 
 /** `xform.py::SESSION_USERCASE_ID` — what the XForm's `case/@case_id` reads. */
-export const SESSION_USERCASE_ID = `instance('commcaresession')/session/data/${USERCASE_DATUM_ID}`;
+export const SESSION_USERCASE_ID = w.instance(sessionInstance(), [
+	w.step("session"),
+	w.step("data"),
+	w.step(USERCASE_DATUM_ID),
+]);
 
 /**
  * What a worker sees when the assertion fails.

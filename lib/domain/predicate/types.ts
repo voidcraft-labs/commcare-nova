@@ -1245,8 +1245,8 @@ export type MatchMode = (typeof MATCH_MODES)[number];
  * property contains at least one of the values), `all` joins with
  * AND (the property contains every value). Both wire emitters
  * expand the quantifier into per-value `selected(prop, 'v')` calls
- * — the on-device emitter at
- * `caseListFilterEmitter.ts::emitMultiSelectContains` and the CSQL
+ * — the wire lowering's `multi-select-contains` arm at
+ * `xpath/wire/fromExpression.ts::predicate` and the CSQL
  * emitter at `csqlEmitter.ts::emitMultiSelectSegments`. CCHQ's
  * `selected` whitelist entry on
  * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`

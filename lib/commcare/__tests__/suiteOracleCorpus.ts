@@ -387,7 +387,9 @@ export const suiteOracleCases: readonly SuiteOracleCase[] = [
 	),
 	fixture(
 		"fixture-missing-delivery",
-		entryWire('<instance id="table" src="jr://fixture/table"/>'),
+		entryWire(
+			'<instance id="table" src="jr://fixture/table"/><session><datum id="count" function="count(instance(\'table\')/items/item)"/></session>',
+		),
 		["SUITE_FIXTURE_INVALID"],
 		true,
 		"static-join",

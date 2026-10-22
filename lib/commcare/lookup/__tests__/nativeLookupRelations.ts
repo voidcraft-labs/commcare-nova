@@ -1,6 +1,6 @@
-import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { ROOT_ON_DEVICE_CASE_ANCHOR } from "@/lib/commcare/predicate/relationPresenceEmitter";
+import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
 	ancestorPath,
 	and,
@@ -46,12 +46,13 @@ export function nativeLookupRelations(naming: LookupWireNaming) {
 		},
 	].map(({ name, where }) => ({
 		name,
-		expression: emitOnDeviceExpression(
-			tableLookup(table.tableId, label.id, where),
-			"casedb",
-			{ currentCaseType: "patient" },
-			ROOT_ON_DEVICE_CASE_ANCHOR,
-			{ lookup: { naming, instanceScope: "suite" } },
-		),
+		expression: serializeWire(
+			toWire(tableLookup(table.tableId, label.id, where), {
+				target: "suite",
+				types: { currentCaseType: "patient" },
+				bindings: { lookup: { naming, instanceScope: "suite" } },
+			}),
+			{ target: "suite" },
+		).text,
 	}));
 }

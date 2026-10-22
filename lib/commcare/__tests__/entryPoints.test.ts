@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import type { SyntaxNode } from "@lezer/common";
 import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
 import { textContent } from "domutils";
@@ -6,6 +7,7 @@ import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { serializeXml } from "@/lib/commcare/serializeXml";
+import { parser } from "@/lib/commcare/xpath";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema } from "@/lib/domain";
@@ -14,7 +16,10 @@ import {
 	entryPointProjectionIssue,
 	projectEntryPoint,
 } from "../entryPointProjection";
-import { endpointSuiteSignature } from "../entryPointSignature";
+import {
+	endpointSignaturesMatch,
+	endpointSuiteSignature,
+} from "../entryPointSignature";
 import {
 	buildEntryPointSuite,
 	entryPointClaimRequest,
@@ -29,6 +34,7 @@ import {
 	ENDPOINT_FORM as F,
 	ENDPOINT_MODULE as M,
 } from "./endpointWireFixture";
+import preWireSignature from "./fixtures/session-endpoints/pre-wire-signature.json";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 
 function fixture(multiple = false) {
@@ -39,10 +45,54 @@ function admitted(doc: ReturnType<typeof fixture>) {
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 }
 function normalized(xml: string): unknown {
+	// Compare the upstream fixture's expression structure independently of the
+	// production serializer. Whitespace and quote choice are not wire meaning.
+	const xpath = (source: string): unknown => {
+		const tree = parser.parse(source);
+		const node = (part: SyntaxNode): unknown => {
+			if (part.type.isError)
+				throw new Error(`Invalid fixture XPath: ${source}`);
+			const children: unknown[] = [];
+			for (let child = part.firstChild; child; child = child.nextSibling) {
+				if (!["(", ")", ","].includes(child.name)) children.push(node(child));
+			}
+			const text = source.slice(part.from, part.to);
+			return {
+				kind: part.name,
+				...(part.firstChild !== null
+					? { children }
+					: {
+							value: part.name === "StringLiteral" ? text.slice(1, -1) : text,
+						}),
+			};
+		};
+		return node(tree.topNode);
+	};
+	const xpathAttribute = (element: Element, name: string): boolean =>
+		["relevant", "ref", "nodeset", "function", "exclude", "if"].includes(
+			name,
+		) ||
+		(name === "value" &&
+			[
+				"datum",
+				"instance-datum",
+				"command",
+				"create",
+				"push",
+				"clear",
+				"rewind",
+			].includes(element.name));
 	const node = (e: Element): unknown => ({
 		tag: e.name,
 		text: e.children.some(isTag) ? "" : textContent(e),
-		attrs: Object.fromEntries(Object.entries(e.attribs).sort()),
+		attrs: Object.fromEntries(
+			Object.entries(e.attribs)
+				.sort()
+				.map(([name, value]) => [
+					name,
+					xpathAttribute(e, name) ? xpath(value) : value,
+				]),
+		),
 		children: e.children.filter(isTag).map(node),
 	});
 	return parseDocument(xml, { xmlMode: true, decodeEntities: true })
@@ -76,6 +126,22 @@ describe("entry points", () => {
 			expect(normalized(`<partial>${serializeXml(emitted)}</partial>`)).toEqual(
 				normalized(expected),
 			);
+			const declarations = emitted.children
+				.filter(isTag)
+				.filter((e) => e.name === "instance");
+			expect(declarations.map((e) => e.attribs.id)).toEqual([
+				"casedb",
+				"commcaresession",
+				...(multiple ? [argumentId] : []),
+			]);
+			const suite = () => `<suite version="1">${serializeXml(emitted)}</suite>`;
+			expect(validateSuite(suite(), new Set())).toEqual([]);
+			emitted.children = emitted.children.filter(
+				(child) => child !== declarations[0],
+			);
+			expect(
+				validateSuite(suite(), new Set()).map((error) => error.code),
+			).toContain("SUITE_MISSING_INSTANCE");
 		});
 	it("emits the HQ follow-up endpoint with claim then navigation push", () => {
 		const doc = fixture();
@@ -104,6 +170,56 @@ describe("entry points", () => {
 				argumentId: "selected_cases",
 			},
 		]);
+	});
+	it("keeps collection declarations scoped to reads and refuses an old extra declaration", () => {
+		const doc = fixture(true);
+		const suite = new AdmZip(
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: TEST_RUNTIME_TARGET,
+			}),
+		).readAsText("suite.xml");
+		const root = parseDocument(suite, { xmlMode: true }).children.filter(
+			isTag,
+		)[0];
+		const entry = root.children
+			.filter(isTag)
+			.find((element) => element.name === "entry");
+		const claim = root.children
+			.filter(isTag)
+			.find((element) => element.name === "remote-request");
+		if (!entry || !claim)
+			throw new Error("Missing collection endpoint fixture scopes");
+		const declarations = (element: Element) =>
+			element.children
+				.filter(isTag)
+				.filter((child) => child.name === "instance")
+				.map((child) => child.attribs.id);
+		// Pinned HQ's InstancesHelper adds declarations from expressions, not
+		// from an instance-datum's id. Selection produces the collection; only
+		// the claim's post/data nodeset reads its virtual selected_cases instance.
+		expect(declarations(entry)).toEqual(["casedb"]);
+		expect(declarations(claim)).toEqual([
+			"casedb",
+			"commcaresession",
+			"selected_cases",
+		]);
+		const published = endpointSuiteSignature(suite, "visit");
+		if (published === undefined)
+			throw new Error("Missing collection endpoint signature");
+		const oldExtra = parseDocument(
+			'<instance id="selected_cases" src="jr://instance/selected-entities/selected_cases"/>',
+			{ xmlMode: true },
+		).children.filter(isTag)[0];
+		const sessionIndex = entry.children.findIndex(
+			(child) => isTag(child) && child.name === "session",
+		);
+		entry.children.splice(sessionIndex, 0, oldExtra);
+		expect(
+			endpointSignaturesMatch(
+				endpointSuiteSignature(serializeXml(root), "visit"),
+				published,
+			),
+		).toBe(false);
 	});
 	it("omits the final selection for a case list, and retains it for a module", () => {
 		const doc = fixture();
@@ -340,9 +456,15 @@ describe("entry points", () => {
 			(node) => isTag(node) && node.name === "remote-request",
 		);
 		root.children[old] = request;
-		expect(endpointSuiteSignature(serializeXml(root), "visit")).toBe(
-			endpointSuiteSignature(suite, "visit"),
-		);
+		const published = endpointSuiteSignature(suite, "visit");
+		if (published === undefined)
+			throw new Error("Missing published fixture signature");
+		expect(
+			endpointSignaturesMatch(
+				endpointSuiteSignature(serializeXml(root), "visit"),
+				published,
+			),
+		).toBe(true);
 	});
 	it("normalizes only approved app identities in runtime URLs, preserving server and domain", () => {
 		const doc = endpointWireFixture("inline");
@@ -372,6 +494,65 @@ describe("entry points", () => {
 				{ appIds: ["released"] },
 			),
 		).not.toBe(expected);
+	});
+	it("compares a persisted pre-wire signature with the canonical current suite", () => {
+		const doc = fixture();
+		const suite = new AdmZip(
+			compileCcz(expandDoc(doc), doc.appName, doc, {
+				runtimeTarget: {
+					server: "production",
+					domain: "nova-proof",
+					appId: "working",
+				},
+			}),
+		).readAsText("suite.xml");
+		const current = endpointSuiteSignature(suite, "visit");
+		expect(current).not.toBe(preWireSignature.signature);
+		expect(endpointSignaturesMatch(current, preWireSignature.signature)).toBe(
+			true,
+		);
+		for (const corrupted of [
+			suite.replaceAll("&apos;patient&apos;", "&apos;patient &apos;"),
+			suite.replace("]) = 0", "]) != 0"),
+			suite.replaceAll("/nova-proof/", "/another-space/"),
+			suite.replace('id="claim_command.visit.case_id"', 'id="missing-claim"'),
+		]) {
+			expect(corrupted).not.toBe(suite);
+			expect(
+				endpointSignaturesMatch(
+					endpointSuiteSignature(corrupted, "visit"),
+					preWireSignature.signature,
+				),
+			).toBe(false);
+		}
+	});
+	it("ignores XPath spelling whitespace and quote choice while retaining operand grouping", () => {
+		const published = preWireSignature.signature;
+		const spaced = published.replace(
+			"count(instance('casedb')",
+			"count ( instance ( 'casedb' ) ",
+		);
+		const quoted = published.replaceAll("'casedb'", '\\"casedb\\"');
+		expect(endpointSignaturesMatch(spaced, published)).toBe(true);
+		expect(endpointSignaturesMatch(quoted, published)).toBe(true);
+		const left = published.replace("]) = 0", "]) = 1 + 2 * 3");
+		const right = published.replace("]) = 0", "]) = (1 + 2) * 3");
+		expect(endpointSignaturesMatch(left, right)).toBe(false);
+	});
+	it("refuses malformed and unknown stored signature shapes even when both sides agree", () => {
+		const signature = preWireSignature.signature;
+		for (const invalid of [
+			"not-json",
+			"{}",
+			signature.replace('"endpoint":{', '"unknown":true,"endpoint":{'),
+			signature.replace('"tag":"endpoint"', '"tag":"unknown"'),
+			signature.replace('"attributes":{}', '"attributes":[]'),
+			signature.replace("count(instance", "count[instance"),
+		]) {
+			expect(invalid).not.toBe(signature);
+			expect(endpointSignaturesMatch(invalid, invalid)).toBe(false);
+		}
+		expect(endpointSignaturesMatch(undefined, signature)).toBe(false);
 	});
 	it("accepts historical inline entry bytes and optional presentation omission", () => {
 		const doc = endpointWireFixture("inline");
@@ -407,9 +588,14 @@ describe("entry points", () => {
 		root.children[oldIndex] = actual;
 		const options = { appIds: ["working", "released"] };
 		const expected = endpointSuiteSignature(suite, "visit", options);
-		expect(endpointSuiteSignature(serializeXml(root), "visit", options)).toBe(
-			expected,
-		);
+		if (expected === undefined)
+			throw new Error("Missing published fixture signature");
+		expect(
+			endpointSignaturesMatch(
+				endpointSuiteSignature(serializeXml(root), "visit", options),
+				expected,
+			),
+		).toBe(true);
 		const session = actual.children
 			.filter(isTag)
 			.find((node) => node.name === "session");
@@ -420,9 +606,12 @@ describe("entry points", () => {
 		query.children = query.children.filter(
 			(node) => !isTag(node) || node.name !== "title",
 		);
-		expect(endpointSuiteSignature(serializeXml(root), "visit", options)).toBe(
-			expected,
-		);
+		expect(
+			endpointSignaturesMatch(
+				endpointSuiteSignature(serializeXml(root), "visit", options),
+				expected,
+			),
+		).toBe(true);
 		query.attribs.url = query.attribs.url.replace(
 			"test-domain",
 			"other-domain",

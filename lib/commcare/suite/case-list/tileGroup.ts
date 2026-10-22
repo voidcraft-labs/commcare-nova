@@ -35,20 +35,31 @@
 // one.
 
 import type { Element } from "domhandler";
-import { el } from "@/lib/commcare/elementBuilders";
+import { type WireElementContext, xel } from "@/lib/commcare/elementBuilders";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import type { CaseTileGrouping } from "@/lib/domain";
 
 /** The group key expression: `string(./index/<identifier>)`, evaluated
  *  per row against the case node and kept as an opaque string by the
  *  runtime (`commcare-core/.../cases/entity/NodeEntityFactory::getEntity`). */
-export function tileGroupFunction(identifier: string): string {
-	return `string(./index/${identifier})`;
+export function tileGroupFunction(identifier: string): WireExpr {
+	return w.call("string", [
+		w.context([w.self(), w.step("index"), w.step(identifier)]),
+	]);
 }
 
 /** The `<group>` element for a grouped short detail. */
-export function buildTileGroupElement(grouping: CaseTileGrouping): Element {
-	return el("group", {
-		function: tileGroupFunction(grouping.identifier),
-		"header-rows": String(grouping.headerRows),
-	});
+export function buildTileGroupElement(
+	grouping: CaseTileGrouping,
+	context: WireElementContext,
+): Element {
+	return xel(
+		"group",
+		{
+			attributes: { "header-rows": String(grouping.headerRows) },
+			xpath: { function: tileGroupFunction(grouping.identifier) },
+		},
+		context,
+	);
 }

@@ -17,7 +17,7 @@ interface ReferenceSpan {
 }
 interface Calculation {
 	readonly name: string;
-	readonly path: string;
+	readonly path: FormPath;
 	readonly source: string;
 }
 
@@ -101,7 +101,7 @@ export function planConstraintCollections(
 				const syntheticName = nameFor(calculations.length);
 				calculation = {
 					name: syntheticName,
-					path: path.parent().child(syntheticName).toXPath(),
+					path: path.parent().child(syntheticName),
 					// Lifted out of the validation condition, the count is a
 					// calculate, where HQ's form builder reads a bare `.` as the
 					// question itself (`xpath/selfSteps.ts`).
@@ -113,7 +113,7 @@ export function planConstraintCollections(
 			edits.push({
 				from: node.from,
 				to: node.to,
-				replacement: calculation.path,
+				replacement: calculation.path.toXPath(),
 			});
 			return false;
 		},

@@ -1,3 +1,6 @@
+import { serializeWire } from "../xpath/wire/serialize";
+import type { WireExpr } from "../xpath/wire/tree";
+
 // lib/commcare/predicate/csqlSegment.ts
 //
 // Shared segment-list IR for the CSQL emitter family. The CSQL wire
@@ -20,7 +23,7 @@
 // emitter files keeps the predicate ↔ expression composition surface
 // uniform: both emitters return the same `CsqlSegment[]` type, the
 // wrap layer is the only place that converts segment lists to the
-// final `concat(...)` XPath string, and a downstream package never
+// final `concat(...)` wire tree, and a downstream package never
 // needs to learn two different segment shapes.
 
 /**
@@ -28,10 +31,10 @@
  *
  *   - `constant` — a literal CSQL fragment (operator tokens, a
  *     compile-time-known value, a quoted property name). The wrap
- *     layer encloses each constant run in an XPath string literal,
- *     splitting on embedded quotes via the alternating-quote concat
- *     idiom when both `'` and `"` appear in the same constant.
- *   - `runtime` — an XPath expression evaluated on-device whose string
+ *     layer holds each constant run in a wire string node. The sole
+ *     wire serializer chooses the literal spelling, including split
+ *     literals when both quote characters occur.
+ *   - `runtime` — a wire tree evaluated on-device whose string
  *     result interpolates into the CSQL fragment. Runtime value segments
  *     may also carry a `rejectWhen` proof obligation when no CSQL literal
  *     can represent the resolved bytes. Runtime segments pass through as
@@ -45,7 +48,7 @@ export type CsqlSegment =
 	| { readonly kind: "constant"; readonly text: string }
 	| {
 			readonly kind: "runtime";
-			readonly xpath: string;
+			readonly xpath: WireExpr;
 			/**
 			 * The raw on-device value XPath this segment quotes into the CSQL
 			 * text with a delimiter chosen at runtime. Present only on segments
@@ -55,7 +58,7 @@ export type CsqlSegment =
 			 * quote cascade (`if(contains(v, '"'), …)`) instead of nesting the
 			 * delimiter choice inside a `concat(...)` argument.
 			 */
-			readonly stringValueXPath?: string;
+			readonly stringValueXPath?: WireExpr;
 			/**
 			 * On-device XPath condition that makes this interpolation impossible
 			 * to represent as a CSQL value without changing its bytes. The final
@@ -63,7 +66,7 @@ export type CsqlSegment =
 			 * so an unrepresentable runtime value cannot accidentally broaden a
 			 * negated, not-equal, or OR-composed filter.
 			 */
-			readonly rejectWhen?: string;
+			readonly rejectWhen?: WireExpr;
 			/**
 			 * Why the runtime interpolation is rejected. Quote safety remains the
 			 * default for older callers; numeric constraints opt into their exact
@@ -88,7 +91,7 @@ export type RuntimeCsqlRejectionKind =
 	| "blank-comparand";
 
 export interface RuntimeCsqlRejection {
-	readonly condition: string;
+	readonly condition: WireExpr;
 	readonly kind: RuntimeCsqlRejectionKind;
 	readonly inputNames?: readonly string[];
 }
@@ -110,53 +113,11 @@ export function dedupeRuntimeRejections(
 		// NUL separators: prompt names and conditions cannot contain \u0000,
 		// so the composite key cannot collide across the three components.
 		byKey.set(
-			`${rejection.kind}\u0000${rejection.condition}\u0000${rejection.inputNames?.join("\u0000") ?? ""}`,
+			`${rejection.kind}\u0000${serializeWire(rejection.condition, { target: "suite" }).text}\u0000${rejection.inputNames?.join("\u0000") ?? ""}`,
 			rejection,
 		);
 	}
 	return [...byKey.values()];
-}
-
-/**
- * Compile a constant CSQL fragment to a sequence of one or more XPath
- * string literals. XPath 1.0 string literals admit either `'` or `"`
- * as the bracketing character but never both within one literal — see
- * the grammar at `lib/commcare/xpath/grammar.lezer.grammar::StringLiteral`.
- * The wrap layer must emit each constant's content faithfully; when
- * the content contains both quote styles, we split it into sub-runs
- * of "no embedded `'`" (wrap in `'...'`) and "embedded `'` only" (wrap
- * in `"..."`) and concatenate via additional `concat(...)` arguments.
- *
- * The split rule:
- *
- *   - No `'` in the value → single-quoted XPath literal. The common
- *     case.
- *   - No `"` in the value → double-quoted XPath literal.
- *   - Both quote styles present → split on `'`. Each fragment becomes
- *     a single-quoted literal `'<frag>'`; between fragments, emit
- *     `"'"` (the literal-quote separator). Boundary fragments that
- *     are empty still emit so the output's segment count tracks the
- *     input's quote count predictably.
- *
- * The both-styles split path mirrors `stringQuoting.ts`'s
- * case-list-filter alternating-quote idiom — the pattern is XPath
- * 1.0's only portable form for embedding a `'` in a string literal.
- */
-export function quoteConstantSegmentForXPath(value: string): string[] {
-	const hasSingleQuote = value.includes("'");
-	const hasDoubleQuote = value.includes('"');
-	if (!hasSingleQuote) return [`'${value}'`];
-	if (!hasDoubleQuote) return [`"${value}"`];
-	// Both quote styles. Split the value on `'` and emit alternating
-	// single-quoted runs and `"'"` separators, matching XPath's
-	// concat-of-alternating-quotes idiom.
-	const parts = value.split("'");
-	const args: string[] = [];
-	for (let i = 0; i < parts.length; i += 1) {
-		args.push(`'${parts[i]}'`);
-		if (i < parts.length - 1) args.push(`"'"`);
-	}
-	return args;
 }
 
 /**

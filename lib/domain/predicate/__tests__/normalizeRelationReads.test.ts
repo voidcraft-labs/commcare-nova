@@ -88,8 +88,8 @@ describe("normalizeRelationPropertyReads", () => {
 		);
 		// `any-relation` has no direct CCHQ wire form; the rewrite
 		// expands to OR-of-direction-specific envelopes, mirroring
-		// the on-device emitter's any-relation expansion at
-		// `caseListFilterEmitter.ts::emitExistsOrMissing`.
+		// the wire lowering's any-relation expansion at
+		// `xpath/wire/rowScope.ts::immediateRelationPresence`.
 		const inner = eq(prop("patient", "case_name"), literal("Alice"));
 		expect(result).toEqual({
 			kind: "or",

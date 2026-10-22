@@ -861,8 +861,8 @@ function liftWithinDistanceVias(
  *   - `ancestor` / `subcase`: emit a single `exists` with the via
  *     attached and the inner predicate as the `where` filter.
  *   - `any-relation`: expand to an OR of the two direction-specific
- *     envelopes, mirroring the on-device emitter's any-relation
- *     expansion at `caseListFilterEmitter.ts::emitExistsOrMissing`.
+ *     envelopes, mirroring the wire lowering's any-relation
+ *     expansion at `xpath/wire/rowScope.ts::immediateRelationPresence`.
  *     The result is `or(exists(ancestor), exists(subcase))` so the
  *     predicate matches when the related case exists in either
  *     direction.

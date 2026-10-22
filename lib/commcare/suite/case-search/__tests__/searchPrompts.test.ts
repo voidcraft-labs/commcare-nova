@@ -19,6 +19,7 @@ import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
 	advancedSearchInputDef,
 	isSelectSearchInput,
@@ -33,7 +34,11 @@ import {
 	prop,
 	whenInput,
 } from "@/lib/domain/predicate";
-import { buildSearchPrompts } from "../searchPrompts";
+import {
+	buildSearchPrompts,
+	searchPromptRelationContext,
+	searchPromptWire,
+} from "../searchPrompts";
 import {
 	buildRuntimeCsqlPromptValidations,
 	composeXPathQueryEmission,
@@ -76,7 +81,7 @@ function projection(scenario: (typeof promptScenarios)[number]) {
 	};
 }
 const field = (name: string) =>
-	`instance('search-input:results')/input/field[@name='${name}']`;
+	`instance('search-input:results')/input/field[@name = '${name}']`;
 
 // Private metadata and dependency contracts. Native SearchPromptRuntimeTest
 // evaluates the same admitted exports with Core's actual query manager.
@@ -97,9 +102,11 @@ it("projects all widget attributes and preserves authored prompt order", () => {
 		{ key: "regions", input: "select" },
 		{ key: "hidden", hidden: "true", default: "'secret'", exclude: "true()" },
 	]);
-	expect(emission.instances).toEqual(
-		new Set(["search-input:results", "commcaresession", "item-list:regions"]),
-	);
+	expect(emission.instances.map(({ id }) => id)).toEqual([
+		"commcaresession",
+		"item-list:regions",
+		"search-input:results",
+	]);
 });
 it("binds each display and assertion locale to its own stable translation units", () => {
 	const { emission, config } = projection("prompt-widgets");
@@ -216,7 +223,8 @@ it("sorts lookup choices by the chosen column, the label column by default", () 
 it.each(promptScenarios)(
 	"carries %s prompt trees, instance declarations and locale messages through both complete exports",
 	(scenario) => {
-		const { doc, emission } = projection(scenario);
+		const { doc, config, context, validations, emission } =
+			projection(scenario);
 		const hq = expandDoc(doc, { lookupNaming: promptLookupNaming });
 		const zip = new AdmZip(
 			compileCcz(hq, doc.appName, doc, {
@@ -240,18 +248,34 @@ it.each(promptScenarios)(
 			prompts.map((prompt) => prompt.attributes.key),
 		);
 		for (let i = 0; i < prompts.length; i++) {
-			const validations = xmlChildren(prompts[i], "validation");
-			expect(
-				validations.map((validation) => validation.attributes.test),
-			).toEqual(
-				(properties[i].validations ?? []).map((validation) => validation.test),
+			const promptValidations = xmlChildren(prompts[i], "validation");
+			const input = config.searchInputs[i];
+			const wire = searchPromptWire(
+				input,
+				validations.get(input.name),
+				searchPromptRelationContext(config.searchInputs, context),
+				promptLookupNaming,
 			);
-			expect(validations.length).toBeLessThanOrEqual(1);
+			// HQ's validation slot interpolates hashtags without dot expansion;
+			// the HQ source and the direct suite use their respective modes.
+			expect(
+				(properties[i].validations ?? []).map((validation) => validation.test),
+			).toEqual(
+				wire.validation === undefined
+					? []
+					: [
+							serializeWire(wire.validation.test, {
+								target: "hq-json",
+								interpolation: "no-dots",
+							}).text,
+						],
+			);
+			expect(promptValidations.length).toBeLessThanOrEqual(1);
 		}
 		const instances = new Set(
 			xmlChildren(remote, "instance").map((instance) => instance.attributes.id),
 		);
-		for (const id of emission.instances)
+		for (const { id } of emission.instances)
 			expect(instances.has(id), id).toBe(true);
 		const strings = Object.fromEntries(
 			zip
@@ -308,8 +332,11 @@ it("assigns runtime guards to value dependencies across filters and sibling arms
 	);
 	expect([...validations.keys()]).toEqual(["filter_value", "sibling"]);
 	for (const [name, validation] of validations)
-		expect(validation).toEqual({
-			test: `not(count(${field(name)}) and (contains(${field(name)}, "'") and contains(${field(name)}, '"')))`,
+		expect({
+			...validation,
+			test: serializeWire(validation.test, { target: "suite" }).text,
+		}).toEqual({
+			test: `not(count(${field(name)}) and contains(${field(name)}, "'") and contains(${field(name)}, '"'))`,
 			message:
 				"This search can't use both single and double quotation marks. Remove one kind and try again",
 			messageKey: "quote",

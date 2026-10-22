@@ -2,6 +2,7 @@ import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
 import { findOnDeviceDateAddIssueInPredicate } from "@/lib/commcare/expression/onDeviceCompatibility";
 import { inertLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
+import { w } from "@/lib/commcare/xpath/wire/builders";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { type BlueprintDoc, effectiveCaseTypes, type Uuid } from "@/lib/domain";
 import { formRecordScope } from "@/lib/domain/formRecordScope";
@@ -87,10 +88,10 @@ export function validateCaseOptionsSources(
 						formFields: new Map(
 							[...(context.formFields?.keys() ?? [])].map((uuid) => [
 								uuid,
-								"/data/answer",
+								w.form(["answer"]),
 							]),
 						),
-						formCaseProperty: () => "'selected-case'",
+						formCaseProperty: () => w.str("selected-case"),
 						userPropertySlugs: context.userPropertySlugs,
 						organizationLevels: doc.organizationLevels,
 						lookup: { naming: inertLookupWireNaming(), instanceScope: "xform" },

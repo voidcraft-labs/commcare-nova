@@ -199,7 +199,7 @@ describe("admitted case-list archives", () => {
 		);
 		expect(descendant(sort, "xpath").map((x) => x.attribs.function)).toEqual([
 			"$calculated_property",
-			"instance('results:inline')/results/case[@case_id=current()/index/parent and @case_type='household']/rank",
+			"instance('results:inline')/results/case[@case_id = current()/index/parent and @case_type = 'household']/rank",
 		]);
 	});
 });

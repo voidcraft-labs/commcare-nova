@@ -1,8 +1,237 @@
 /** Released endpoint verification follows reachable runtime definitions, not labels. */
+
+import type { SyntaxNode } from "@lezer/common";
 import { type Element, isTag } from "domhandler";
 import { textContent } from "domutils";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
 import { tryParseXml } from "./xmlParse";
+import { parser } from "./xpath/parser";
+
+const SIGNATURE_TAGS = new Set([
+	"endpoint",
+	"argument",
+	"stack",
+	"create",
+	"push",
+	"clear",
+	"rewind",
+	"mark",
+	"jump",
+	"url",
+	"datum",
+	"instance-datum",
+	"command",
+	"query",
+	"data",
+	"remote-request",
+	"entry",
+	"form",
+	"instance",
+	"session",
+	"post",
+	"assertions",
+	"assert",
+	"prompt",
+	"itemset",
+	"label",
+	"value",
+	"sort",
+	"required",
+	"validation",
+]);
+
+function signatureRecord(value: unknown): Record<string, unknown> {
+	if (value === null || typeof value !== "object" || Array.isArray(value))
+		throw new Error("Invalid entry-point signature object.");
+	return value as Record<string, unknown>;
+}
+
+function signatureKeys(
+	value: Record<string, unknown>,
+	required: readonly string[],
+	optional: readonly string[] = [],
+): void {
+	if (
+		required.some((key) => !Object.hasOwn(value, key)) ||
+		Object.keys(value).some(
+			(key) => !required.includes(key) && !optional.includes(key),
+		)
+	)
+		throw new Error("Unknown entry-point signature shape.");
+}
+
+function signatureString(value: unknown): string {
+	if (typeof value !== "string")
+		throw new Error("Invalid entry-point signature text.");
+	return value;
+}
+
+function signatureArray(value: unknown): unknown[] {
+	if (!Array.isArray(value))
+		throw new Error("Invalid entry-point signature list.");
+	return value;
+}
+
+/** Preserve operators, operand nesting and literal contents. Only spelling
+ * whitespace and the quote delimiter disappear; no wire emitter is involved. */
+function signatureXPath(source: string): unknown {
+	const tree = parser.parse(source);
+	const node = (part: SyntaxNode): unknown => {
+		if (part.type.isError)
+			throw new Error("Invalid entry-point signature XPath.");
+		const children: unknown[] = [];
+		for (let child = part.firstChild; child; child = child.nextSibling) {
+			if (!["(", ")", ","].includes(child.name)) children.push(node(child));
+		}
+		const text = source.slice(part.from, part.to);
+		return part.firstChild !== null
+			? { kind: part.name, children }
+			: {
+					kind: part.name,
+					value: part.name === "StringLiteral" ? text.slice(1, -1) : text,
+				};
+	};
+	if (source.trim() === "")
+		throw new Error("Empty entry-point signature XPath.");
+	return node(tree.topNode);
+}
+
+function signatureXPathAttribute(
+	tag: string,
+	name: string,
+	parent?: string,
+): boolean {
+	if (["datum", "instance-datum", "form"].includes(tag))
+		return ["nodeset", "value", "function"].includes(name);
+	if (tag === "command")
+		return (
+			name === "relevant" ||
+			(name === "value" && (parent === "create" || parent === "push"))
+		);
+	if (["create", "push", "clear"].includes(tag)) return name === "if";
+	if (tag === "rewind" || tag === "mark") return name === "value";
+	if (tag === "post") return name === "relevant";
+	if (tag === "data") return ["ref", "nodeset", "exclude"].includes(name);
+	if (tag === "prompt")
+		return ["default", "exclude", "required"].includes(name);
+	if (tag === "itemset") return name === "nodeset";
+	if (["label", "value", "sort"].includes(tag))
+		return parent === "itemset" && name === "ref";
+	return ["assert", "required", "validation"].includes(tag) && name === "test";
+}
+
+function comparisonNode(value: unknown, parent?: string): unknown {
+	const node = signatureRecord(value);
+	signatureKeys(node, ["tag", "attributes", "children"], ["value"]);
+	const tag = signatureString(node.tag);
+	if (
+		!SIGNATURE_TAGS.has(tag) ||
+		(Object.hasOwn(node, "value") && tag !== "form")
+	)
+		throw new Error("Unknown entry-point signature node.");
+	const attributes = Object.fromEntries(
+		Object.entries(signatureRecord(node.attributes)).map(([key, value]) => {
+			const text = signatureString(value);
+			return [
+				key,
+				signatureXPathAttribute(tag, key, parent) ? signatureXPath(text) : text,
+			];
+		}),
+	);
+	return {
+		tag,
+		attributes,
+		children: signatureArray(node.children).map((child) =>
+			comparisonNode(child, tag),
+		),
+		...(Object.hasOwn(node, "value")
+			? { value: signatureString(node.value) }
+			: {}),
+	};
+}
+
+function comparisonSignature(source: string): string {
+	const signature = signatureRecord(JSON.parse(source));
+	signatureKeys(signature, ["endpoint", "definitions"]);
+	const endpoint = signatureRecord(signature.endpoint);
+	if (endpoint.tag !== "endpoint")
+		throw new Error("Invalid signature endpoint.");
+	const definitions = signatureArray(signature.definitions).map((value) => {
+		const definition = signatureRecord(value);
+		const id = signatureString(definition.id);
+		if (Object.hasOwn(definition, "definition")) {
+			signatureKeys(definition, ["id", "definition"]);
+			if (
+				!["entry", "remote-request"].includes(
+					signatureString(signatureRecord(definition.definition).tag),
+				)
+			)
+				throw new Error("Invalid signature definition.");
+			return { id, definition: comparisonNode(definition.definition) };
+		}
+		if (Object.hasOwn(definition, "session")) {
+			signatureKeys(definition, ["id", "session"]);
+			return {
+				id,
+				session: signatureArray(definition.session).map((value) => {
+					if (signatureRecord(value).tag !== "session")
+						throw new Error("Invalid signature session.");
+					return comparisonNode(value);
+				}),
+			};
+		}
+		signatureKeys(definition, [
+			"tag",
+			"id",
+			"root",
+			"relevant",
+			"guards",
+			"commands",
+		]);
+		if (definition.tag !== "menu") throw new Error("Invalid signature menu.");
+		const relevant = signatureString(definition.relevant);
+		return {
+			tag: "menu",
+			id,
+			root: signatureString(definition.root),
+			relevant: relevant === "" ? "" : signatureXPath(relevant),
+			guards: signatureArray(definition.guards).map((value) => {
+				if (
+					!["assertions", "instance"].includes(
+						signatureString(signatureRecord(value).tag),
+					)
+				)
+					throw new Error("Invalid signature guard.");
+				return comparisonNode(value, "menu");
+			}),
+			commands: signatureArray(definition.commands).map((value) => {
+				const command = signatureRecord(value);
+				signatureKeys(command, ["id", "relevant"]);
+				const relevant = signatureString(command.relevant);
+				return {
+					id: signatureString(command.id),
+					relevant: relevant === "" ? "" : signatureXPath(relevant),
+				};
+			}),
+		};
+	});
+	return canonicalJsonText({ endpoint: comparisonNode(endpoint), definitions });
+}
+
+/** Published manifests retain the original canonical-JSON storage format.
+ * Compare both old and current signatures through the same parsed XPath form;
+ * an unknown shape or invalid expression supplies no release evidence. */
+export function endpointSignaturesMatch(
+	actual: string | undefined,
+	published: string,
+): boolean {
+	if (actual === undefined) return false;
+	try {
+		return comparisonSignature(actual) === comparisonSignature(published);
+	} catch {
+		return false;
+	}
+}
 
 const elements = (e: Element) => e.children.filter(isTag);
 function canonical(e: Element, appIds: readonly string[] = []): unknown {

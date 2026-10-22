@@ -49,6 +49,11 @@ import {
 	functionLookupContext,
 } from "../../__tests__/csqlFunctionFixture";
 import { runValidation } from "../../validator/runner";
+import { w } from "../../xpath/wire/builders";
+import {
+	searchInputInstance,
+	sessionInstance,
+} from "../../xpath/wire/instances";
 import { emitCsql } from "../csqlEmitter";
 
 // Private formatting and normalization contracts, with positive predicates
@@ -99,40 +104,40 @@ const age = prop("patient", "age");
 const tags = prop("patient", "tags");
 
 it.each<[Predicate, string]>([
-	[eq(name, literal("Ada")), `"first_name = 'Ada'"`],
-	[neq(name, literal("Bea")), `"first_name != 'Bea'"`],
-	[gt(age, literal(18)), "'age > 18'"],
-	[gte(age, literal(18)), "'age >= 18'"],
-	[lt(age, literal(65)), "'age < 65'"],
-	[lte(age, literal(65)), "'age <= 65'"],
-	[eq(name, literal(null)), `"first_name = ''"`],
-	[isBlank(name), `"first_name = ''"`],
+	[eq(name, literal("Ada")), `first_name = 'Ada'`],
+	[neq(name, literal("Bea")), `first_name != 'Bea'`],
+	[gt(age, literal(18)), "age > 18"],
+	[gte(age, literal(18)), "age >= 18"],
+	[lt(age, literal(65)), "age < 65"],
+	[lte(age, literal(65)), "age <= 65"],
+	[eq(name, literal(null)), `first_name = ''`],
+	[isBlank(name), `first_name = ''`],
 	[
 		isIn(name, literal("Ada Lovelace"), literal("Bea")),
-		`"(first_name = 'Ada Lovelace' or first_name = 'Bea')"`,
+		`(first_name = 'Ada Lovelace' or first_name = 'Bea')`,
 	],
-	[multiSelectAny(tags, literal("doctor")), `"selected(tags, 'doctor')"`],
+	[multiSelectAny(tags, literal("doctor")), `selected(tags, 'doctor')`],
 	[
 		multiSelectAny(tags, literal("doctor"), literal("volunteer")),
-		`"(selected(tags, 'doctor') or selected(tags, 'volunteer'))"`,
+		`(selected(tags, 'doctor') or selected(tags, 'volunteer'))`,
 	],
 	[
 		multiSelectAll(tags, literal("doctor"), literal("volunteer")),
-		`"(selected(tags, 'doctor') and selected(tags, 'volunteer'))"`,
+		`(selected(tags, 'doctor') and selected(tags, 'volunteer'))`,
 	],
 	[
 		and(
 			or(eq(name, literal("Ada")), eq(name, literal("Bea"))),
 			gt(age, literal(18)),
 		),
-		`"(first_name = 'Ada' or first_name = 'Bea') and age > 18"`,
+		`(first_name = 'Ada' or first_name = 'Bea') and age > 18`,
 	],
-	[not(eq(name, literal("Bea"))), `"not(first_name = 'Bea')"`],
-	[matchAll(), "'match-all()'"],
-	[matchNone(), "'match-none()'"],
+	[not(eq(name, literal("Bea"))), `not(first_name = 'Bea')`],
+	[matchAll(), "match-all()"],
+	[matchNone(), "match-none()"],
 	[
 		between(age, { lower: term(literal(18)), upper: term(literal(65)) }),
-		"'(age >= 18 and age <= 65)'",
+		"(age >= 18 and age <= 65)",
 	],
 	[
 		between(age, {
@@ -141,22 +146,22 @@ it.each<[Predicate, string]>([
 			lowerInclusive: false,
 			upperInclusive: false,
 		}),
-		"'(age > 18 and age < 65)'",
+		"(age > 18 and age < 65)",
 	],
-	[between(age, { lower: term(literal(18)) }), "'age >= 18'"],
-	[between(age, { upper: term(literal(65)) }), "'age <= 65'"],
-	[match(name, "Ada", "fuzzy"), `"fuzzy-match(first_name, 'Ada')"`],
-	[match(name, "Ada", "phonetic"), `"phonetic-match(first_name, 'Ada')"`],
-	[match(name, "Ad", "starts-with"), `"starts-with(first_name, 'Ad')"`],
+	[between(age, { lower: term(literal(18)) }), "age >= 18"],
+	[between(age, { upper: term(literal(65)) }), "age <= 65"],
+	[match(name, "Ada", "fuzzy"), `fuzzy-match(first_name, 'Ada')`],
+	[match(name, "Ada", "phonetic"), `phonetic-match(first_name, 'Ada')`],
+	[match(name, "Ad", "starts-with"), `starts-with(first_name, 'Ad')`],
 	[
 		match(
 			prop("patient", "visit_date"),
 			dateCoerce(term(literal("2024-02-28"))),
 			"fuzzy-date",
 		),
-		`"fuzzy-date(visit_date, (date('2024-02-28')))"`,
+		`fuzzy-date(visit_date, (date('2024-02-28')))`,
 	],
-	[eq(name, literal("O'Brien")), `concat('first_name = "O', "'", 'Brien"')`],
+	[eq(name, literal("O'Brien")), `first_name = "O'Brien"`],
 	[
 		eq(
 			prop("patient", "visit_date"),
@@ -166,12 +171,14 @@ it.each<[Predicate, string]>([
 				double(term(literal("2"))),
 			),
 		),
-		`"visit_date = date-add(date('2024-02-28'), 'days', (double('2')))"`,
+		`visit_date = date-add(date('2024-02-28'), 'days', (double('2')))`,
 	],
 ])(
-	"emits the complete constant wrapper for an admitted predicate: %j",
+	"keeps the complete CSQL text as one constant for an admitted predicate: %j",
 	(predicate, wrapper) => {
-		expect(emitCsql(predicate, contextFor(predicate))).toEqual({ wrapper });
+		expect(emitCsql(predicate, contextFor(predicate))).toEqual({
+			wrapper: w.str(wrapper),
+		});
 	},
 );
 
@@ -183,7 +190,9 @@ it.each(["owner_id", "status"] as const)(
 			literal(property === "status" ? "open" : "known-id"),
 		);
 		expect(emitCsql(predicate, contextFor(predicate))).toEqual({
-			wrapper: `"@${property} = '${property === "status" ? "open" : "known-id"}'"`,
+			wrapper: w.str(
+				`@${property} = '${property === "status" ? "open" : "known-id"}'`,
+			),
 		});
 	},
 );
@@ -194,7 +203,9 @@ it("keeps comparison direction and every typed ancestor hop", () => {
 		prop("patient", "age", ancestorPath(relationStep("parent", "family"))),
 	);
 	expect(emitCsql(predicate, contextFor(predicate))).toEqual({
-		wrapper: `"ancestor-exists(parent, (@case_type = 'family' and (age < 18)))"`,
+		wrapper: w.str(
+			`ancestor-exists(parent, (@case_type = 'family' and (age < 18)))`,
+		),
 	});
 	const chain = exists(
 		ancestorPath(
@@ -203,7 +214,9 @@ it("keeps comparison direction and every typed ancestor hop", () => {
 		),
 	);
 	expect(emitCsql(chain, contextFor(chain))).toEqual({
-		wrapper: `"ancestor-exists(parent, (@case_type = 'family' and (ancestor-exists(parent, (@case_type = 'village' and (match-all()))))))"`,
+		wrapper: w.str(
+			`ancestor-exists(parent, (@case_type = 'family' and (ancestor-exists(parent, (@case_type = 'village' and (match-all()))))))`,
+		),
 	});
 });
 
@@ -214,7 +227,9 @@ it("narrows a canonical relation to its graph direction and groups a negated fil
 	] as const) {
 		const predicate = missing(anyRelationPath("parent", target));
 		expect(emitCsql(predicate, contextFor(predicate))).toEqual({
-			wrapper: `"not(${expected} (@case_type = '${target}' and (match-all()))))"`,
+			wrapper: w.str(
+				`not(${expected} (@case_type = '${target}' and (match-all()))))`,
+			),
 		});
 	}
 });
@@ -225,7 +240,9 @@ it("keeps child-count filters with a zero bound", () => {
 		literal(0),
 	);
 	expect(emitCsql(predicate, contextFor(predicate))).toEqual({
-		wrapper: `"subcase-count('parent', (@case_type = 'child' and (match-all()))) = 0"`,
+		wrapper: w.str(
+			`subcase-count('parent', (@case_type = 'child' and (match-all()))) = 0`,
+		),
 	});
 });
 
@@ -237,11 +254,17 @@ it("requires current saved-name bindings for custom worker identities", () => {
 		knownInputs: [],
 		userPropertySlugs: new Map([[uuid, "renamed_value"]]),
 	};
-	const path = "instance('commcaresession')/session/user/data/renamed_value";
+	const path = w.instance(
+		sessionInstance(),
+		["session", "user", "data", "renamed_value"].map((name) => w.step(name)),
+	);
 	expect(emitCsql(predicate, context).runtimeRejections).toEqual([
 		{
 			kind: "quote",
-			condition: `contains(${path}, "'") and contains(${path}, '"')`,
+			condition: w.and(
+				w.call("contains", [path, w.str("'")]),
+				w.call("contains", [path, w.str('"')]),
+			),
 		},
 	]);
 	expect(() => emitCsql(predicate, { caseTypes: [], knownInputs: [] })).toThrow(
@@ -266,7 +289,10 @@ it("refuses compiler bypasses that cannot preserve property scope", () => {
 
 it("writes match-none() in the quote cascade's arm for an answer holding both quote marks", () => {
 	const query = testUuid("query-input");
-	const value = "instance('search-input:results')/input/field[@name='query']";
+	const value = w.instance(searchInputInstance("search-input:results"), [
+		w.step("input"),
+		w.step("field", [w.eq(w.context([w.attr("name")]), w.str("query"))]),
+	]);
 	const context = {
 		caseTypes: [],
 		knownInputs: [
@@ -281,10 +307,21 @@ it("writes match-none() in the quote cascade's arm for an answer holding both qu
 	expect(emitCsql(eq(name, term(input(query))), context)).toEqual({
 		// No double quote: the double-quoted arm. A double quote and no single
 		// one: the single-quoted arm. Both: the search finds nothing.
-		wrapper: `if(contains(${value}, '"'), if(contains(${value}, "'"), 'match-none()', concat("first_name = '", ${value}, "'")), concat('first_name = "', ${value}, '"'))`,
+		wrapper: w.call("if", [
+			w.call("contains", [value, w.str('"')]),
+			w.call("if", [
+				w.call("contains", [value, w.str("'")]),
+				w.str("match-none()"),
+				w.call("concat", [w.str("first_name = '"), value, w.str("'")]),
+			]),
+			w.call("concat", [w.str('first_name = "'), value, w.str('"')]),
+		]),
 		runtimeRejections: [
 			{
-				condition: `contains(${value}, "'") and contains(${value}, '"')`,
+				condition: w.and(
+					w.call("contains", [value, w.str("'")]),
+					w.call("contains", [value, w.str('"')]),
+				),
 				kind: "quote",
 				inputNames: ["query"],
 			},
@@ -294,7 +331,10 @@ it("writes match-none() in the quote cascade's arm for an answer holding both qu
 
 it("folds every obligation of a clause into one match-none() guard", () => {
 	const query = testUuid("query-input");
-	const value = "instance('search-input:results')/input/field[@name='query']";
+	const value = w.instance(searchInputInstance("search-input:results"), [
+		w.step("input"),
+		w.step("field", [w.eq(w.context([w.attr("name")]), w.str("query"))]),
+	]);
 	const context = {
 		caseTypes: [],
 		knownInputs: [
@@ -310,10 +350,17 @@ it("folds every obligation of a clause into one match-none() guard", () => {
 		and(eq(name, term(input(query))), gt(age, term(input(query)))),
 		context,
 	).wrapper;
-	expect(
-		wrapper.startsWith(
-			`if((contains(${value}, "'") and contains(${value}, '"')) or (${value} = ''), 'match-none()', concat(`,
+	expect(wrapper).toMatchObject({ k: "call", fn: "if" });
+	if (wrapper.k !== "call") throw new Error("Expected an outer guard");
+	expect(wrapper.args[0]).toEqual(
+		w.or(
+			w.and(
+				w.call("contains", [value, w.str("'")]),
+				w.call("contains", [value, w.str('"')]),
+			),
+			w.eq(value, w.str("")),
 		),
-	).toBe(true);
-	expect(wrapper).not.toContain("search-value-mixes-quote-marks");
+	);
+	expect(wrapper.args[1]).toEqual(w.str("match-none()"));
+	expect(wrapper.args[2]).toMatchObject({ k: "call", fn: "concat" });
 });

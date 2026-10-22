@@ -382,6 +382,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// ── XForm parse-time oracle ──────────────────────────────────────
 	XFORM_PARSE_ERROR: "oracle",
 	XFORM_NO_INSTANCE: "oracle",
+	XFORM_UNREAD_INSTANCE: "oracle",
 	XFORM_BIND_NO_NODESET: "oracle",
 	XFORM_NON_PATH_NODESET: "oracle",
 	XFORM_DANGLING_BIND: "oracle",
@@ -444,6 +445,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	SUITE_DETAIL_SELECT_UNRESOLVED: "oracle",
 	SUITE_DETAIL_CONFIRM_UNRESOLVED: "oracle",
 	SUITE_MISSING_INSTANCE: "oracle",
+	SUITE_UNREAD_INSTANCE: "oracle",
 	SUITE_DUPLICATE_INSTANCE: "oracle",
 	SUITE_MISSING_LOCALE: "oracle",
 	SUITE_DUPLICATE_COMMAND: "oracle",

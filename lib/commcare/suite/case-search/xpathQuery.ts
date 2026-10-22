@@ -53,6 +53,9 @@ import {
 	inertLookupWireNaming,
 	type LookupWireNaming,
 } from "@/lib/commcare/lookup/naming";
+import { w } from "@/lib/commcare/xpath/wire/builders";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
+import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import { type CaseListConfig, searchInputRuntimeValueType } from "@/lib/domain";
 import { and, effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
@@ -93,7 +96,7 @@ import {
  * when a worker can repair it.
  */
 export interface ComposedXPathQuery {
-	readonly clauseWrappers: readonly string[];
+	readonly clauseWrappers: readonly WireExpr[];
 	readonly runtimeRejections?: readonly RuntimeCsqlRejection[];
 }
 
@@ -106,7 +109,7 @@ export interface ComposedXPathQuery {
  * the query string. Both export paths send it, so a worker's request is the
  * same on HQ's build and the local archive.
  */
-export const ZERO_INPUT_SEARCH_SENTINEL = "'match-all()'";
+export const ZERO_INPUT_SEARCH_SENTINEL = w.str("match-all()");
 
 /**
  * Every `_xpath_query` value the search request carries, in order: one per
@@ -118,7 +121,7 @@ export const ZERO_INPUT_SEARCH_SENTINEL = "'match-all()'";
 export function xpathQueryRequestValues(
 	caseListConfig: CaseListConfig,
 	emission: ComposedXPathQuery | undefined,
-): readonly string[] {
+): readonly WireExpr[] {
 	const clauses = emission?.clauseWrappers ?? [];
 	if (clauses.length > 0 || caseListConfig.searchInputs.length > 0) {
 		return clauses;
@@ -161,8 +164,14 @@ export function buildRuntimeCsqlPromptValidations(
 		if (message === undefined) continue;
 		for (const name of rejection.inputNames ?? []) {
 			const entries = obligations.get(name) ?? [];
-			const test = `not(${rejection.condition})`;
-			if (!entries.some((entry) => entry.test === test)) {
+			const test = w.not(rejection.condition);
+			const text = serializeWire(test, { target: "suite" }).text;
+			if (
+				!entries.some(
+					(entry) =>
+						serializeWire(entry.test, { target: "suite" }).text === text,
+				)
+			) {
 				entries.push({
 					kind: rejection.kind,
 					test,

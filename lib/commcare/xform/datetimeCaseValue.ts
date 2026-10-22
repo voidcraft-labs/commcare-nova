@@ -1,5 +1,6 @@
 import type { Uuid } from "@/lib/domain";
-import { parser } from "../xpath/parser";
+import { w } from "../xpath/wire/builders";
+import type { WireExpr } from "../xpath/wire/tree";
 import type { FormPath } from "./formPath";
 import type { GeneratedNodePlan } from "./generatedNodes";
 
@@ -27,25 +28,19 @@ export function datetimeCaseValuePath(
  * device's offset and milliseconds. A value that is already a string is
  * parsed and printed again in the device's zone.
  */
-export function datetimeCaseValueExpression(expression: string): string {
+export function datetimeCaseValueExpression(expression: WireExpr): WireExpr {
 	// Core format-date(node-set) passes through toDate(), which rounds a
 	// typed Date to midnight. coalesce unpacks the selected value first.
-	return `if(${equalityOperand(expression)} = '', '', format-date(coalesce(${expression}, ''), '%Y-%m-%dT%H:%M:%S.%3%Z'))`;
+	return w.call("if", [
+		w.eq(expression, w.str("")),
+		w.str(""),
+		w.call("format-date", [
+			w.call("coalesce", [expression, w.str("")]),
+			w.str("%Y-%m-%dT%H:%M:%S.%3%Z"),
+		]),
+	]);
 }
 
-/**
- * `expression` as the left operand of `=`. Only `and` and `or` bind more
- * loosely than `=`, so an expression whose outermost operator is one of them
- * is parenthesized; every other expression reads the same bare, which keeps
- * a path's spelling unchanged. Structure is read through the Lezer grammar.
- */
-function equalityOperand(expression: string): string {
-	const outermost = parser.parse(expression).topNode.firstChild;
-	return outermost?.name === "AndExpr" || outermost?.name === "OrExpr"
-		? `(${expression})`
-		: expression;
-}
-
-export function datetimeCaseValueCalculate(path: FormPath): string {
-	return datetimeCaseValueExpression(path.toXPath());
+export function datetimeCaseValueCalculate(path: FormPath): WireExpr {
+	return datetimeCaseValueExpression(path.toWire());
 }

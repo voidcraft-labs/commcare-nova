@@ -1,5 +1,5 @@
-/** Internal projection contracts. Complete exports and native execution live in
- * compiler, nested-menu, case-write, capture, repeat and tile evidence suites. */
+/** Entry and stack XML is the session boundary; complete export and native
+ * execution remain in compiler, nested-menu and Core evidence suites. */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -13,6 +13,7 @@ import {
 	sessionUser,
 	term,
 } from "@/lib/domain/predicate";
+import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import type { MatchedChild, ProjectedFormLinks } from "../formLinkProjection";
 import { alwaysCondition, emptyFormActions } from "../hqShells";
 import { serializeXml } from "../serializeXml";
@@ -21,13 +22,16 @@ import {
 	buildStackElement,
 	deriveCaseListEntryDefinition,
 	deriveEntryDefinition,
-	deriveFormLinkStack,
 	derivePostSubmitStack,
-	deriveSessionDatums,
 	type EntryDefinitionInput,
 	newCaseIdDatumId,
 	toHqWorkflow,
 } from "../session";
+import { w } from "../xpath/wire/builders";
+import { toWire } from "../xpath/wire/fromExpression";
+import { caseDbInstance, sessionInstance } from "../xpath/wire/instances";
+import { serializeWire } from "../xpath/wire/serialize";
+import type { WireExpr } from "../xpath/wire/tree";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
 const base: EntryDefinitionInput = {
@@ -38,8 +42,11 @@ const base: EntryDefinitionInput = {
 	caseType: "patient",
 	postSubmit: "app_home",
 };
-const sessionInstance = { id: "commcaresession", src: "jr://instance/session" };
-const caseInstance = { id: "casedb", src: "jr://instance/casedb" };
+const expectedCaseInstance = { id: "casedb", src: "jr://instance/casedb" };
+const expectedSessionInstance = {
+	id: "commcaresession",
+	src: "jr://instance/session",
+};
 const region = sessionUser("region");
 const filter = eq(prop("patient", "region"), region);
 const display = eq(region, literal("North"));
@@ -48,7 +55,13 @@ const column = concat(
 	term(literal(": ")),
 	term(prop("patient", "case_name")),
 );
-
+function printedInstances(expression: Predicate | ValueExpression) {
+	return [
+		...serializeWire(toWire(expression, { target: "suite", types: {} }), {
+			target: "suite",
+		}).instances,
+	];
+}
 function entryXml(options: Partial<EntryDefinitionInput> = {}) {
 	return readXmlEvidence(
 		serializeXml(
@@ -57,58 +70,50 @@ function entryXml(options: Partial<EntryDefinitionInput> = {}) {
 	);
 }
 
-describe("a registration form's new-case datum", () => {
-	it("is the id every in-form read of the new case's id names", () => {
-		const actions = emptyFormActions();
-		actions.open_case.condition = alwaysCondition();
-		const created = deriveSessionDatums({
-			formType: "registration",
-			moduleIndex: 0,
-			caseType: "patient",
-			actions,
-		}).filter((datum) => datum.function === "uuid()");
-		expect(created.map((datum) => datum.id)).toEqual([
-			newCaseIdDatumId("patient"),
-		]);
-		expect(newCaseIdDatumId("patient")).toBe("case_id_new_patient_0");
-	});
+it("mints a registration datum with the identity in-form reads use", () => {
+	const actions = emptyFormActions();
+	actions.open_case.condition = alwaysCondition();
+	const entry = entryXml({ formType: "registration", actions });
+	const datums = onlyXml(xmlChildren(entry, "session")).children;
+	expect(datums.map((datum) => datum.attributes)).toEqual([
+		{ id: newCaseIdDatumId("patient"), function: "uuid()" },
+	]);
+	expect(newCaseIdDatumId("patient")).toBe("case_id_new_patient_0");
+	expect(xmlChildren(entry, "instance")).toEqual([]);
 });
 
 describe("entry instance dependencies", () => {
 	it.each([
 		{ caseListFilter: filter },
 		{ excludedOwnerIds: term(region) },
-		{ searchButtonDisplayCondition: display },
-		{ caseListColumnExpressions: [column] },
-		{ formDisplayCondition: eq(prop("patient", "status"), literal("open")) },
+		{ additionalInstances: printedInstances(display) },
 	] satisfies Partial<EntryDefinitionInput>[])(
-		"declares the dependency of the individual slot %j",
+		"declares each rendered input's dependency %j",
 		(slot) => {
 			expect(
 				xmlChildren(entryXml(slot), "instance").map((node) => node.attributes),
-			).toEqual([caseInstance, sessionInstance]);
+			).toEqual([expectedCaseInstance, expectedSessionInstance]);
 		},
 	);
-	it("declares what a form condition that ends in never reads, as the emitter prints it", () => {
-		// `x and never` is held as written, `x and false()`, so `x`'s session
-		// read is declared on the entry.
+	it("keeps a condition's printed read even when its other operand is false", () => {
+		const entry = entryXml({
+			caseType: undefined,
+			formType: "survey",
+			additionalInstances: printedInstances(and(display, matchNone())),
+		});
 		expect(
-			xmlChildren(
-				entryXml({
-					caseType: undefined,
-					formType: "survey",
-					formDisplayCondition: and(display, matchNone()),
-				}),
-				"instance",
-			).map((node) => node.attributes),
-		).toEqual([sessionInstance]);
+			xmlChildren(entry, "instance").map((node) => node.attributes),
+		).toEqual([expectedSessionInstance]);
 	});
-	it("deduplicates shared dependencies for both form and browse entries", () => {
+	it("deduplicates dependencies shared by case selection and rendered details", () => {
+		const additionalInstances = [
+			...printedInstances(display),
+			...printedInstances(column),
+		];
 		const form = entryXml({
 			caseListFilter: filter,
 			excludedOwnerIds: term(region),
-			searchButtonDisplayCondition: display,
-			caseListColumnExpressions: [column],
+			additionalInstances,
 		});
 		const browse = readXmlEvidence(
 			serializeXml(
@@ -117,10 +122,13 @@ describe("entry instance dependencies", () => {
 						2,
 						"patient",
 						filter,
-						display,
-						[column],
 						false,
 						term(region),
+						{},
+						undefined,
+						undefined,
+						undefined,
+						additionalInstances,
 					),
 				),
 			),
@@ -128,7 +136,7 @@ describe("entry instance dependencies", () => {
 		for (const entry of [form, browse]) {
 			expect(
 				xmlChildren(entry, "instance").map((node) => node.attributes),
-			).toEqual([caseInstance, sessionInstance]);
+			).toEqual([expectedCaseInstance, expectedSessionInstance]);
 			const datum = onlyXml(onlyXml(xmlChildren(entry, "session")).children);
 			expect(datum.attributes["detail-select"]).toBe("m2_case_short");
 			expect(datum.attributes["detail-confirm"]).toBeUndefined();
@@ -141,44 +149,57 @@ describe("entry instance dependencies", () => {
 			id: "m2-case-list",
 		});
 	});
-	it("substitutes unanswered Search input before declaring ordinary-list dependencies", () => {
-		const xml = entryXml({
+	it("substitutes unanswered search inputs before declaring ordinary-list dependencies", () => {
+		const entry = entryXml({
 			caseListFilter: eq(prop("patient", "city"), input(testUuid("city"))),
 		});
-		expect(xmlChildren(xml, "instance").map((node) => node.attributes)).toEqual(
-			[caseInstance],
-		);
-		const datum = onlyXml(onlyXml(xmlChildren(xml, "session")).children);
+		expect(
+			xmlChildren(entry, "instance").map((node) => node.attributes),
+		).toEqual([expectedCaseInstance]);
+		const datum = onlyXml(onlyXml(xmlChildren(entry, "session")).children);
 		expect(datum.attributes.nodeset).toBe(
-			"instance('casedb')/casedb/case[@case_type='patient'][@status='open'][city = '']",
+			"instance('casedb')/casedb/case[@case_type = 'patient'][@status = 'open'][city = '']",
 		);
 	});
 });
 
-const selected = "instance('commcaresession')/session/data/case_id";
+const selected = w.instance(sessionInstance(), [
+	w.step("session"),
+	w.step("data"),
+	w.step("case_id"),
+]);
+const selectedText = "instance('commcaresession')/session/data/case_id";
 const previous: MatchedChild[] = [
 	{ type: "command", id: "m1" },
 	{ type: "datum", id: "case_id", value: selected },
 ];
 const previousChildren = [
-	{ type: "command", value: "'m1'" },
-	{ type: "datum", id: "case_id", value: selected },
+	["command", { value: "'m1'" }],
+	["datum", { id: "case_id", value: selectedText }],
 ];
 const query: MatchedChild = {
 	type: "query",
 	id: "results:inline",
-	value: "'m4'",
+	value: "https://example.test/fixture",
 	data: [
-		{ key: "case_type", ref: "'patient'" },
+		{ key: "case_type", ref: w.str("patient") },
 		{
 			key: "ids",
-			ref: "@case_id",
-			nodeset: "instance('casedb')/casedb/case",
-			exclude: "instance('commcaresession')/session/user/data/skip = 'yes'",
+			ref: w.context([w.attr("case_id")]),
+			nodeset: w.instance(caseDbInstance(), [w.step("casedb"), w.step("case")]),
+			exclude: w.eq(
+				w.instance(sessionInstance(), [
+					w.step("session"),
+					w.step("user"),
+					w.step("data"),
+					w.step("skip"),
+				]),
+				w.str("yes"),
+			),
 		},
 	],
 };
-function links(guard?: string): ProjectedFormLinks {
+function links(guard?: WireExpr): ProjectedFormLinks {
 	return {
 		links: [
 			{
@@ -195,12 +216,20 @@ function links(guard?: string): ProjectedFormLinks {
 		fallback:
 			guard === undefined
 				? { kind: "suppressed-by-else" }
-				: { kind: "guarded", guard: `not(${guard})` },
+				: { kind: "guarded", guard: w.not(guard) },
 	};
+}
+function stackXml(...args: Parameters<typeof derivePostSubmitStack>) {
+	const element = buildStackElement(derivePostSubmitStack(...args));
+	return element === null
+		? []
+		: readXmlEvidence(serializeXml(element)).children.map((operation) =>
+				operation.children.map((child) => [child.name, child.attributes]),
+			);
 }
 
 describe("projected navigation frames", () => {
-	it("maps destinations while preserving the supplied module or previous frame", () => {
+	it("maps destinations and renders the supplied module and previous frames", () => {
 		expect([
 			toHqWorkflow("app_home"),
 			toHqWorkflow("firstMenu"),
@@ -214,24 +243,18 @@ describe("projected navigation frames", () => {
 			"parent_module",
 			"previous_screen",
 		]);
-		expect(derivePostSubmitStack("app_home", 2, previous)).toEqual([]);
-		expect(derivePostSubmitStack("firstMenu", 2, previous)).toEqual([
-			{ op: "create", children: [] },
+		expect(stackXml("app_home", 2, previous)).toEqual([]);
+		expect(stackXml("firstMenu", 2, previous)).toEqual([[]]);
+		expect(stackXml("parentMenu", 2, previous)).toEqual([]);
+		expect(stackXml("parentMenu", 2, [], undefined, previous)).toEqual([
+			previousChildren,
 		]);
-		expect(derivePostSubmitStack("parentMenu", 2, previous)).toEqual([]);
-		expect(
-			derivePostSubmitStack("parentMenu", 2, [], undefined, previous),
-		).toEqual([{ op: "create", children: previousChildren }]);
-		expect(derivePostSubmitStack("previous", 2, [])).toEqual([]);
-		expect(derivePostSubmitStack("previous", 2, previous)).toEqual([
-			{ op: "create", children: previousChildren },
+		expect(stackXml("previous", 2, [])).toEqual([]);
+		expect(stackXml("previous", 2, previous)).toEqual([previousChildren]);
+		expect(stackXml("module", 2, [])).toEqual([
+			[["command", { value: "'m2'" }]],
 		]);
-		expect(derivePostSubmitStack("module", 2, [])).toEqual([
-			{ op: "create", children: [{ type: "command", value: "'m2'" }] },
-		]);
-		expect(derivePostSubmitStack("module", 2, [], previous)).toEqual([
-			{ op: "create", children: previousChildren },
-		]);
+		expect(stackXml("module", 2, [], previous)).toEqual([previousChildren]);
 	});
 	it.each([
 		"app_home",
@@ -240,57 +263,35 @@ describe("projected navigation frames", () => {
 		"parentMenu",
 		"previous",
 	] as const)("preserves query data and the %s fallback", (destination) => {
-		const guard =
-			"instance('commcaresession')/session/user/data/role = 'supervisor'";
-		const operations = deriveFormLinkStack(
-			links(guard),
-			destination,
-			2,
-			previous,
-			undefined,
-			previous,
+		const guard = w.eq(
+			w.instance(sessionInstance(), [
+				w.step("session"),
+				w.step("user"),
+				w.step("data"),
+				w.step("role"),
+			]),
+			w.str("supervisor"),
 		);
-		const fallback =
-			destination === "app_home"
-				? []
-				: [
-						{
-							op: "create",
-							ifClause: `not(${guard})`,
-							children:
-								destination === "firstMenu"
-									? []
-									: destination === "module"
-										? [{ type: "command", value: "'m2'" }]
-										: previousChildren,
-						},
-					];
-		expect(operations).toEqual([
-			{
-				op: "create",
-				ifClause: guard,
-				children: [{ type: "command", value: "'m4'" }, query],
-			},
-			...fallback,
-		]);
-		const xml = entryXml({
+		const guardText =
+			"instance('commcaresession')/session/user/data/role = 'supervisor'";
+		const entry = entryXml({
 			formLinks: links(guard),
 			postSubmit: destination,
 			previousFrame: previous,
 			parentFrame: previous,
 		});
-		expect(xmlChildren(xml, "instance").map((node) => node.attributes)).toEqual(
-			[caseInstance, sessionInstance],
-		);
-		const stack = onlyXml(xmlChildren(xml, "stack"));
+		expect(
+			xmlChildren(entry, "instance").map((node) => node.attributes),
+		).toEqual([expectedCaseInstance, expectedSessionInstance]);
+		const stack = onlyXml(xmlChildren(entry, "stack"));
 		expect(stack.children.map((node) => node.attributes)).toEqual([
-			{ if: guard },
-			...fallback.map(() => ({ if: `not(${guard})` })),
+			{ if: guardText },
+			...(destination === "app_home" ? [] : [{ if: `not(${guardText})` }]),
 		]);
 		const emittedQuery = onlyXml(xmlChildren(stack.children[0], "query"));
 		expect(emittedQuery.attributes).toEqual({
 			id: "results:inline",
-			value: "'m4'",
+			value: "https://example.test/fixture",
 		});
 		expect(
 			emittedQuery.children.map((node) => [node.name, node.attributes]),
@@ -306,18 +307,30 @@ describe("projected navigation frames", () => {
 				},
 			],
 		]);
+		if (destination !== "app_home")
+			expect(
+				stack.children[1].children.map((node) => [node.name, node.attributes]),
+			).toEqual(
+				destination === "firstMenu"
+					? []
+					: destination === "module"
+						? [["command", { value: "'m2'" }]]
+						: previousChildren,
+			);
 	});
 	it("omits an unconditional guard and suppresses fallback", () => {
-		const xml = entryXml({ formLinks: links(), postSubmit: "module" });
-		const operation = onlyXml(onlyXml(xmlChildren(xml, "stack")).children);
+		const entry = entryXml({ formLinks: links(), postSubmit: "module" });
+		const operation = onlyXml(onlyXml(xmlChildren(entry, "stack")).children);
 		expect(operation.name).toBe("create");
 		expect(operation.attributes).toEqual({});
 	});
 	it("keeps no stack distinct from the first menu's one empty frame", () => {
 		expect(buildStackElement([])).toBeNull();
 		expect(xmlChildren(entryXml(), "stack")).toEqual([]);
-		const firstMenu = entryXml({ postSubmit: "firstMenu" });
-		expect(onlyXml(xmlChildren(firstMenu, "stack")).children).toEqual([
+		expect(
+			onlyXml(xmlChildren(entryXml({ postSubmit: "firstMenu" }), "stack"))
+				.children,
+		).toEqual([
 			{ name: "create", uri: "", attributes: {}, children: [], text: "" },
 		]);
 	});

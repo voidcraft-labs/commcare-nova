@@ -25,6 +25,7 @@ import { findOne, getChildren } from "domutils";
 import { el } from "@/lib/commcare/elementBuilders";
 import { serializeXml } from "@/lib/commcare/serializeXml";
 import { parseXml } from "../xmlParse";
+import { InstanceSink } from "../xpath/wire/instances";
 
 /**
  * The XForm declaration `buildXForm` prepends. Held out of the parse→serialize
@@ -155,41 +156,45 @@ export function insertBeforeItext(model: Element, nodes: ChildNode[]): void {
 	relinkSiblings(model.children);
 }
 
-/**
- * Declare a secondary `<instance src id>` on `<model>` if it isn't already
- * present, inserted immediately after the last existing `<instance>` so it joins
- * the secondary-instance group (the canonical model child order is instance /
- * secondary instances / binds / setvalues / itext).
- *
- * Idempotent by `id`: a form that already declares the instance (because a field
- * XPath referenced it, so `buildXForm`'s instance scan emitted it) is left
- * untouched, and the element shape matches `buildXForm`'s own instance emission,
- * so whichever path declares it produces the identical element. Position among
- * sibling instances is JavaRosa-irrelevant.
- */
+/** Merge one generated read's instance declaration into the parsed model.
+ * The same sink contract as source emission rejects conflicting sources and
+ * orders casedb, session, then all other ids together. Existing nodes retain
+ * their contents; only their secondary-instance order is normalized. */
 export function ensureInstance(model: Element, id: string, src: string): void {
-	const children = getChildren(model);
-	const already = children.some(
-		(child) =>
-			child instanceof Element &&
-			child.name === "instance" &&
-			child.attribs.id === id,
-	);
-	if (already) return;
-
-	let lastInstanceIndex = -1;
-	for (let i = 0; i < children.length; i++) {
-		const child = children[i];
-		if (child instanceof Element && child.name === "instance") {
-			lastInstanceIndex = i;
-		}
+	const byId = new Map<string, Element>();
+	const declarations = new InstanceSink();
+	for (const child of model.children) {
+		if (
+			!(child instanceof Element) ||
+			child.name !== "instance" ||
+			!child.attribs.id
+		)
+			continue;
+		declarations.addOne({ id: child.attribs.id, src: child.attribs.src });
+		byId.set(child.attribs.id, child);
 	}
-
-	const instance = el("instance", { src, id });
-	instance.parent = model;
-	// After the last instance when one exists (always — the primary data
-	// instance); fall back to the front otherwise.
-	model.children.splice(lastInstanceIndex + 1, 0, instance);
+	declarations.addOne({ id, src });
+	if (!byId.has(id)) byId.set(id, el("instance", { src, id }));
+	const remaining = model.children.filter(
+		(child) =>
+			!(
+				child instanceof Element &&
+				child.name === "instance" &&
+				child.attribs.id
+			),
+	);
+	const primaryIndex = remaining.findIndex(
+		(child) => child instanceof Element && child.name === "instance",
+	);
+	const ordered = declarations.declarations().map((declaration) => {
+		const instance = byId.get(declaration.id);
+		if (instance === undefined)
+			throw new Error("A declared instance has no XML element to splice.");
+		instance.parent = model;
+		return instance;
+	});
+	remaining.splice(primaryIndex + 1, 0, ...ordered);
+	model.children = remaining;
 	relinkSiblings(model.children);
 }
 

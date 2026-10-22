@@ -64,11 +64,9 @@ describe("validation collection evaluation scope", () => {
 		expect(result.calculations).toHaveLength(1);
 		const calculation = result.calculations[0];
 		expect(result.source).toBe(
-			`. = 'yes' and ${calculation.path} = 1 and ${calculation.path} < 2`,
+			`. = 'yes' and ${calculation.path.toXPath()} = 1 and ${calculation.path.toXPath()} < 2`,
 		);
 		expect(calculation.source).toBe("count(#form/choice[./. = 'yes'])");
-		expect(
-			FormPath.parse(calculation.path).parent().equals(FormPath.root()),
-		).toBe(true);
+		expect(calculation.path.parent().equals(FormPath.root())).toBe(true);
 	});
 });

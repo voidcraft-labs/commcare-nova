@@ -10,12 +10,10 @@
  * a disagreement between "where the wrapper lands" and "where the bind
  * points" becomes unrepresentable at the type level.
  *
- * This type covers PATH REFERENCES — bind `nodeset`, control `ref`,
- * `<setvalue ref>`, splice walk steps. XPath EXPRESSIONS (calculate /
- * relevant / constraint bodies, predicates like `[@case_id='X']`,
- * function calls like `count(...)`) stay as XPath strings parsed via the
- * Lezer grammar; the typed-path discipline applies to STRUCTURAL paths,
- * not to full XPath bodies.
+ * This type owns structural form coordinates, shared by DOM splicing and
+ * generated XPath. `toWire()` and `toWireRelative()` project those coordinates
+ * into the common wire tree; the XML boundary serializes that tree. The old
+ * text projections remain only for HQ metadata and the PR5 authored transition.
  *
  * Element steps and attribute steps are the only segment kinds. Attribute
  * steps are terminal at the type level — once added, `child` / `attr`
@@ -28,6 +26,8 @@
 
 import type { Field } from "@/lib/domain";
 import { XML_ELEMENT_NAME_REGEX } from "../constants";
+import { w } from "../xpath/wire/builders";
+import type { WirePath, WireStep } from "../xpath/wire/tree";
 
 /** One step in a `FormPath`. Element steps descend; attribute steps terminate. */
 export type FormPathSegment =
@@ -185,6 +185,47 @@ export class FormPath {
 		return this._segments;
 	}
 
+	/** Project structural coordinates directly into the emitted XPath tree. */
+	toWire(spelling: "hashtag" | "absolute" = "absolute"): WirePath {
+		return w.form(
+			this._segments
+				.slice(1)
+				.map((segment) =>
+					segment.kind === "element"
+						? w.step(segment.name)
+						: w.attr(segment.name),
+				),
+			spelling,
+		);
+	}
+
+	/** Address this node from another structural node without parsing text. */
+	toWireRelative(
+		from: FormPath,
+		root: "context" | "current" = "context",
+	): WirePath {
+		const fromSegments = from.segments();
+		let shared = 0;
+		while (
+			shared < fromSegments.length &&
+			shared < this._segments.length &&
+			fromSegments[shared].kind === this._segments[shared].kind &&
+			fromSegments[shared].name === this._segments[shared].name
+		)
+			shared++;
+		const steps: WireStep[] = [];
+		for (let index = shared; index < fromSegments.length; index++)
+			steps.push(w.parent());
+		for (const segment of this._segments.slice(shared))
+			steps.push(
+				segment.kind === "element"
+					? w.step(segment.name)
+					: w.attr(segment.name),
+			);
+		if (steps.length === 0) steps.push(w.self());
+		return root === "current" ? w.current(steps) : w.context(steps);
+	}
+
 	/** True if the path ends in an attribute step. */
 	endsInAttribute(): boolean {
 		const last = this._segments[this._segments.length - 1];
@@ -192,11 +233,8 @@ export class FormPath {
 	}
 
 	/**
-	 * Serialize to the XPath string the wire expects (`/data`, `/data/foo`,
-	 * `/data/foo/@bar`). The single serializer; the only place `/` literals
-	 * appear in path emission. Every bind `nodeset`, control `ref`, and
-	 * `<setvalue ref>` attribute that consumes a `FormPath` goes through
-	 * this method at the attribute-emit site.
+	 * Project structural coordinates for HQ metadata and DOM lookup keys.
+	 * Executable XPath attributes use `toWire()` and the shared serializer.
 	 */
 	toXPath(): string {
 		let out = "";
@@ -208,10 +246,9 @@ export class FormPath {
 
 	/**
 	 * Serialize as a Vellum hashtag path — `#form` substitutes for the
-	 * `/data` root, the rest of the path is verbatim. Every bind's
-	 * `vellum:nodeset` attribute consumes this (the dual-attribute pattern
-	 * documented in `lib/commcare/CLAUDE.md` — Vellum's editor requires the
-	 * hashtag-shaped reference alongside the expanded XPath).
+	 * `/data` root, the rest of the path is verbatim. This text projection
+	 * remains for the authored transition; generated Vellum slots use
+	 * `toWire("hashtag")` and the serializer's explicit Vellum mode.
 	 */
 	toVellum(): string {
 		let out = "#form";
@@ -297,4 +334,12 @@ export function relativeXPath(from: FormPath, to: FormPath): string {
  */
 export function originalContextPath(from: FormPath, to: FormPath): string {
 	return `current()/${relativeXPath(from, to)}`;
+}
+
+/** The generated-wire counterpart; the old string projection retires in PR5. */
+export function originalContextWirePath(
+	from: FormPath,
+	to: FormPath,
+): WirePath {
+	return to.toWireRelative(from, "current");
 }

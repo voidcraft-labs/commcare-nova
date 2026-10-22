@@ -13,6 +13,7 @@
 import { parser } from "@/lib/commcare/xpath";
 import { emitCasePropertyWirePath } from "./casePropertyWire";
 import { USERCASE_CASE_SELECTOR } from "./usercaseWire";
+import { serializeWire } from "./xpath/wire/serialize";
 
 // Pre-resolve node types — zero string comparisons at runtime
 const T = (() => {
@@ -53,7 +54,7 @@ export const VELLUM_HASHTAG_TRANSFORMS = {
 		// The same selector the suite's `usercase_id` datum and its assertion
 		// are built from, so the hashtag cannot come to mean a different case
 		// than the entry guards.
-		"#user/": `${USERCASE_CASE_SELECTOR}/`,
+		"#user/": `${serializeWire(USERCASE_CASE_SELECTOR, { target: "xform", constraint: false }).text}/`,
 	},
 } as const;
 
