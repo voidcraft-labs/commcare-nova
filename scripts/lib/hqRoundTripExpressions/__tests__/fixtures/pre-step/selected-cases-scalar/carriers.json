@@ -1,0 +1,33 @@
+{
+	"root": {
+		"app_name": "Selected cases scalar",
+		"connect_type": null,
+		"case_types_text": "[{\"name\":\"patient\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}}]}]",
+		"localization_text": null,
+		"app_settings_text": "{\"showSavedForms\":false,\"showIncompleteForms\":false}",
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "54b49191-7f5f-555b-a98b-cd2d532a28be",
+			"kind": "form",
+			"parent_uuid": "fa4bc2f8-2704-5912-8337-27f5aa1dc442",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"54b49191-7f5f-555b-a98b-cd2d532a28be\",\"id\":\"visit\",\"name\":\"Visit\",\"type\":\"followup\"}"
+		},
+		{
+			"uuid": "d3316abe-d3a0-565b-9bbb-da92b6216918",
+			"kind": "field",
+			"parent_uuid": "54b49191-7f5f-555b-a98b-cd2d532a28be",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"d3316abe-d3a0-565b-9bbb-da92b6216918\",\"id\":\"selected\",\"kind\":\"hidden\",\"calculate\":{\"parts\":[{\"kind\":\"text\",\"text\":\"'Selected: '\"}]}}"
+		},
+		{
+			"uuid": "fa4bc2f8-2704-5912-8337-27f5aa1dc442",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"fa4bc2f8-2704-5912-8337-27f5aa1dc442\",\"id\":\"visit\",\"name\":\"Visit\",\"caseType\":\"patient\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"ea8c32bf-6a3a-538f-a4cf-d1931ef8ca0e\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"ea8c32bf-6a3a-538f-a4cf-d1931ef8ca0e\"],\"detailColumnOrder\":[\"ea8c32bf-6a3a-538f-a4cf-d1931ef8ca0e\"],\"searchInputs\":[],\"selection\":{\"kind\":\"multiple\",\"maximum\":3}}}"
+		}
+	]
+}

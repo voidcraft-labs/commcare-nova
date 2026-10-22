@@ -1,0 +1,33 @@
+{
+	"root": {
+		"app_name": "Catalog rules",
+		"connect_type": null,
+		"case_types_text": "[{\"name\":\"patient\",\"properties\":[{\"name\":\"case_name\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Name\"}]}},{\"name\":\"age\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Age\"}]},\"data_type\":\"int\",\"required\":{\"parts\":[{\"kind\":\"text\",\"text\":\"true()\"}]},\"validation\":{\"parts\":[{\"kind\":\"text\",\"text\":\". >= 0\"}]},\"validation_msg\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Age must be zero or greater.\"}]}}]}]",
+		"localization_text": null,
+		"app_settings_text": "{\"showSavedForms\":false,\"showIncompleteForms\":false}",
+		"logo": null
+	},
+	"rows": [
+		{
+			"uuid": "2d325cb0-2299-5076-9c2e-f4efd8749ac8",
+			"kind": "module",
+			"parent_uuid": null,
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"2d325cb0-2299-5076-9c2e-f4efd8749ac8\",\"id\":\"visit\",\"name\":\"Visit\",\"caseType\":\"patient\",\"caseListConfig\":{\"columns\":[{\"uuid\":\"07d7a157-eb0f-571d-890b-1af77bbb9423\",\"kind\":\"plain\",\"field\":\"case_name\",\"header\":\"Name\"}],\"listColumnOrder\":[\"07d7a157-eb0f-571d-890b-1af77bbb9423\"],\"detailColumnOrder\":[\"07d7a157-eb0f-571d-890b-1af77bbb9423\"],\"searchInputs\":[]}}"
+		},
+		{
+			"uuid": "6e25e301-5f6d-5ca0-9428-207455100389",
+			"kind": "field",
+			"parent_uuid": "b5743056-7a0c-5ab6-ba98-5fdbbc1ccf57",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"6e25e301-5f6d-5ca0-9428-207455100389\",\"id\":\"age\",\"label\":{\"parts\":[{\"kind\":\"text\",\"text\":\"Age\"}]},\"caseWrite\":{\"caseType\":\"patient\",\"property\":\"age\"},\"kind\":\"int\"}"
+		},
+		{
+			"uuid": "b5743056-7a0c-5ab6-ba98-5fdbbc1ccf57",
+			"kind": "form",
+			"parent_uuid": "2d325cb0-2299-5076-9c2e-f4efd8749ac8",
+			"ordinal": 0,
+			"data_text": "{\"uuid\":\"b5743056-7a0c-5ab6-ba98-5fdbbc1ccf57\",\"id\":\"visit\",\"name\":\"Visit\",\"type\":\"followup\"}"
+		}
+	]
+}

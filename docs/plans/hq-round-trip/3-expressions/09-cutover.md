@@ -223,7 +223,7 @@ is never edited after pull request 2, so both halves of the census run the same 
 
 | Script | Argument | Meaning |
 |---|---|---|
-| base emitter | `--prod` | reads production as the operator (`scripts/lib/prodDb.ts::targetProdDb`), one `REPEATABLE READ, READ ONLY` transaction; prints one JSON line per app and emitted file: `{ app, file, digest }`, and a `fleet` line with `fleetSeqDigest` (§7). No content |
+| base emitter | `--prod` | reads production as the operator (`scripts/lib/prodDb.ts::targetProdDb`), one `REPEATABLE READ, READ ONLY` transaction; prints one JSON line per app and emitted file: `{ app, file, rawDigest, digest }`, and a `fleet` line with `fleetSeqDigest` (§7). No content |
 | scan | (none) / `--prod` | the plan over the local database or production, read-only, one `REPEATABLE READ, READ ONLY` transaction, plain `SELECT`s |
 | scan | `--base-digests <file>` | adds the census head half against the base emitter's output (§7) |
 | scan | `--app <id>` / `--debug-details` | one app; with `--debug-details`, that app's blocker places by entity id and name with the expression, on the operator's terminal only, never archived |
@@ -419,11 +419,25 @@ base bytes for no named reason stops the cutover (part 04 §5.5).
   request 2's head): every live app through production's `lib/commcare/expander.ts::expandDoc` (the HQ
   body) and the local archive's XForms and suite (`lib/commcare/compiler.ts`, the XForm and suite
   writers, without media and fixture bytes, which step 3 does not change), with the Project's lookup
-  definitions; prints `{ app, file, digest }` lines and `fleetSeqDigest`, the digest of every app's
+  definitions; prints `{ app, file, rawDigest, digest }` lines and `fleetSeqDigest`, the digest of every app's
   `(id, mutation_seq)`.
 - **Head half** (`scan --base-digests <file>`, run from a checkout of the maintenance image's commit,
   pull request 14's head): the lifted target through the head emitter, normalized the same way,
   compared file by file.
+
+**Implementation clarifications in pull request 2.** Each logical file carries both its raw and
+normalized digest: without the raw digest, `unchanged` cannot be distinguished from
+`respelled-only`. Both halves use the same frozen synthetic runtime target, attachment target and
+compiler version. HQ JSON is split into root, module and form fragments with identity-based file
+keys, so the entity attribution of `named` can be checked. Local archives contribute their suite
+and XForms; fixture data and media bytes are excluded. Compilation still supplies empty-row lookup
+fixture wrappers where the suite requires them. Instance-use analysis reads XPath carriers in their
+own scopes and never interprets main-instance or fixture data as expressions.
+
+The frozen normalizer's focused tests land with it in pull request 2; pull request 13 adds the
+whole-corpus fixed-point check below. Parentheses before a predicate remain when they change which
+nodes the predicate filters: `a/b[1]` and `(a/b)[1]` are different expressions even though their
+named Lezer nodes can coincide.
 
 **Verdicts, per app**: `unchanged`; `respelled-only` (every file equal after normalization);
 `named` (a file differs after normalization, and every such file belongs to an entity a named change
@@ -762,6 +776,12 @@ property, and a device datetime ordering (`targeted-datetime-ordering`). `fixtur
 digests at every head; its validity half (each fixture parses under the pre-step `blueprintDocSchema` and
 passes the pre-step gate) runs at pull request 2 and leaves with pull request 5, the shape. A second test
 requires every step id, blocker code and reason to name at least one fixture.
+
+A blocker that the pre-step gate already prevents, such as `old-reference-dangling`, is witnessed by
+an admitted raw fixture plus explicit fault or context metadata in the manifest. The cutover test
+applies that fault at its owning boundary. Database holders, sequence drift, orphan context and
+injected writer failures likewise belong to test setup, not invalid captured documents. Thus every
+raw fixture still proves the pre-step validity contract above.
 
 | Test | Boundary |
 |---|---|
