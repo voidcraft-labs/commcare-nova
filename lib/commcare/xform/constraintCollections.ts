@@ -98,9 +98,12 @@ function independentCollection(
 	);
 }
 
-/** The old bounded correction allows arithmetic/comparisons, literal values,
- * explicit references and a predicate's own scalar field. Calls and implicit
- * outer/current context may depend on the validation candidate and never move. */
+/** The bounded correction allows arithmetic/comparisons, constant values,
+ * explicit references and a predicate's own scalar field. A choice, a case
+ * type and an organization level are typed constants: each emits a string
+ * literal, so a predicate comparing against one reads no evaluation context.
+ * Calls and implicit outer/current context may depend on the validation
+ * candidate and never move. */
 function safePredicateTree(
 	node: ExpressionNode,
 	validated: Uuid,
@@ -108,6 +111,9 @@ function safePredicateTree(
 ): boolean {
 	switch (node.kind) {
 		case "literal":
+		case "choice":
+		case "case-type":
+		case "location-level":
 		case "form-case":
 		case "input":
 			return true;
