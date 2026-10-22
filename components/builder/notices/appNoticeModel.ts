@@ -9,6 +9,7 @@
 
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { entryPointByUuid } from "@/lib/domain/entryPoints";
+import { formOfField } from "@/lib/domain/fieldForm";
 import type { Uuid } from "@/lib/domain/uuid";
 import {
 	type AppDeploymentNoticeEntry,
@@ -141,14 +142,6 @@ function moduleOfForm(doc: BlueprintDoc, formUuid: Uuid): Uuid | undefined {
 	return doc.moduleOrder.find((moduleUuid) =>
 		(doc.formOrder[moduleUuid] ?? []).includes(formUuid),
 	);
-}
-
-function formOfField(doc: BlueprintDoc, fieldUuid: Uuid): Uuid | undefined {
-	let parent = doc.fieldParent[fieldUuid];
-	while (parent !== undefined && !Object.hasOwn(doc.forms, parent)) {
-		parent = doc.fieldParent[parent];
-	}
-	return parent;
 }
 
 /**

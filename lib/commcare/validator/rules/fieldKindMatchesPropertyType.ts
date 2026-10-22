@@ -14,14 +14,15 @@
  * than emitting a single composite error against an arbitrary writer.
  *
  * The kind→data_type mapping itself lives at
- * `lib/domain/caseTypes.ts::caseDataTypeForFieldKind` — the single
+ * `lib/domain/caseTypes.ts::caseDataTypeForFieldKind`, the single
  * table this rule and the reducer-side catalog sync both consult, so
  * the data type a writer stamps into the catalog and the data type
  * this rule expects can never disagree. Coercion paths (e.g. `text`
  * field → `int` property) are explicitly rejected; `hidden` and the
  * capture kinds are skipped, because neither pins a value type from the
- * kind alone — a hidden field's calculate output does, and a capture's
- * destination mode does, and both are separate concerns.
+ * kind alone. A Hidden Value is a typed writer whose type is inferred from
+ * its value, judged by `hiddenValueWriterAgreement.ts`; a capture's value
+ * shape follows its destination mode.
  *
  * Container kinds carry no case-write slot. Capture writers do reach the
  * inventory, but their storage mode, not their field kind, determines the
@@ -44,7 +45,8 @@ import { type ValidationError, validationError } from "../errors";
  * the locked domain table (`caseDataTypeForFieldKind`) named for this
  * rule's reading: the data type a writer of this kind is EXPECTED to
  * agree with. `undefined` means the kind is skipped at this rule layer
- * (`hidden` is calculate-driven and captures are mode-dependent).
+ * (a Hidden Value's type comes from its value, which
+ * `hiddenValueWriterAgreement.ts` judges, and captures are mode-dependent).
  */
 const expectedDataType = caseDataTypeForFieldKind;
 

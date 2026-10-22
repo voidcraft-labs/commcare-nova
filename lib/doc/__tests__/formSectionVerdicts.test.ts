@@ -3,7 +3,12 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	caseListConfig,
+	type FieldSpec,
+	f,
+} from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	parseFormExpressionForSlot,
@@ -18,11 +23,18 @@ import {
 	sectionOf,
 	subtreeHasUserRepeat,
 } from "@/lib/doc/formSectionVerdicts";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import {
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupValidationContext,
+} from "@/lib/doc/lookupReferences";
 import { applyMutation } from "@/lib/doc/mutations";
-import { mutationSchema } from "@/lib/doc/types";
+import { mutationSchema, type Uuid } from "@/lib/doc/types";
+import type { BlueprintDoc } from "@/lib/domain";
+import { eq, formField, tableColumn, term } from "@/lib/domain/expression";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import { expressionSlotValue } from "@/lib/domain/referenceSlots";
+import type { LookupRevision } from "@/lib/lookup/types";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const FORM = testUuid("frm-sectioned");
@@ -398,5 +410,470 @@ describe("fieldPlacementVerdict", () => {
 				toParentUuid: S2,
 			}),
 		).toEqual({ ok: true });
+	});
+});
+
+const MANY = testUuid("frm-many");
+const Q = testUuid("fld-many-q");
+const N = testUuid("fld-many-n");
+const VISITS = testUuid("fld-many-visits");
+const INNER = testUuid("fld-many-inner");
+const BOX = testUuid("fld-many-box");
+const SUB = testUuid("fld-many-sub");
+const DEEP = testUuid("fld-many-deep");
+const READER = testUuid("fld-many-reader");
+const HOLDER = testUuid("fld-many-holder");
+const COUNTED = testUuid("fld-many-counted");
+const SPOT = testUuid("fld-many-spot");
+
+/**
+ * Root: q, n, spot(), [extra], counted (count-bound by `countSource`),
+ * visits (add-entries): inner, box(), sub (add-entries): deep, [extra]
+ */
+function manyFixture(
+	extra: {
+		readonly root?: readonly FieldSpec[];
+		readonly visits?: readonly FieldSpec[];
+		readonly sub?: readonly FieldSpec[];
+		readonly countSource?: string;
+	} = {},
+): BlueprintDoc {
+	const doc = buildDoc({
+		appName: "Repeat readers",
+		modules: [
+			{
+				name: "M",
+				forms: [
+					{
+						uuid: MANY,
+						name: "Visits",
+						type: "survey",
+						fields: [
+							f({ kind: "text", uuid: Q, id: "q" }),
+							f({ kind: "int", uuid: N, id: "n" }),
+							f({ kind: "group", uuid: SPOT, id: "spot", children: [] }),
+							...(extra.root ?? []),
+							f({
+								kind: "repeat",
+								uuid: COUNTED,
+								id: "counted",
+								repeat_mode: "count_bound",
+								repeat_count: extra.countSource ?? "2",
+								children: [],
+							}),
+							f({
+								kind: "repeat",
+								uuid: VISITS,
+								id: "visits",
+								repeat_mode: "user_controlled",
+								children: [
+									f({ kind: "text", uuid: INNER, id: "inner" }),
+									f({ kind: "group", uuid: BOX, id: "box", children: [] }),
+									f({
+										kind: "repeat",
+										uuid: SUB,
+										id: "sub",
+										repeat_mode: "user_controlled",
+										children: [
+											f({ kind: "text", uuid: DEEP, id: "deep" }),
+											...(extra.sub ?? []),
+										],
+									}),
+									...(extra.visits ?? []),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	assertAdmittedDoc(doc);
+	return doc;
+}
+
+const reader = (calculate: string): FieldSpec =>
+	f({ kind: "hidden", uuid: READER, id: "reader", calculate });
+
+function move(uuid: Uuid, toParentUuid: Uuid) {
+	return { kind: "moveField" as const, uuid, toParentUuid, after: null };
+}
+
+/** Both the precheck and the real move's commit gate refuse, at the reader. */
+function expectManyValuesRefusal(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	toParentUuid: Uuid,
+	readerUuid: Uuid,
+): string {
+	const verdict = fieldPlacementVerdict(doc, {
+		uuid,
+		kind: doc.fields[uuid].kind,
+		toParentUuid,
+	});
+	expect(verdict).toMatchObject({
+		ok: false,
+		reason: "expression-many-values",
+	});
+	if (verdict.ok) throw new Error("Expected the move precheck to refuse.");
+	const committed = mutationCommitVerdict(
+		doc,
+		[move(uuid, toParentUuid)],
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(committed.ok).toBe(false);
+	if (committed.ok) throw new Error("Expected the actual move to be refused.");
+	expect(committed.findings).toEqual(
+		expect.arrayContaining([
+			expect.objectContaining({
+				code: "XPATH_MANY_VALUES",
+				details: expect.objectContaining({ checkCode: "many-values" }),
+				location: expect.objectContaining({ fieldUuid: readerUuid }),
+			}),
+		]),
+	);
+	expect(doc.fieldParent[uuid]).not.toBe(toParentUuid);
+	return verdict.message;
+}
+
+function expectAdmittedMove(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	toParentUuid: Uuid,
+): void {
+	expect(
+		fieldPlacementVerdict(doc, {
+			uuid,
+			kind: doc.fields[uuid].kind,
+			toParentUuid,
+		}),
+	).toEqual({ ok: true });
+	expect(
+		mutationCommitVerdict(
+			doc,
+			[move(uuid, toParentUuid)],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		),
+	).toMatchObject({ ok: true });
+}
+
+describe("fieldPlacementVerdict and one-value readers of a repeat", () => {
+	it("refuses moving an answer into a repeat while a reader outside needs one value", () => {
+		const doc = manyFixture({ root: [reader("#form/q = 'yes'")] });
+		const message = expectManyValuesRefusal(doc, Q, VISITS, READER);
+		expect(message).toBe(
+			'Moving "q" here changes "reader"\'s calculated value. This reads an answer from every entry of the repeat "visits" where it needs one value. You can count or join the entries, or read just one of them.',
+		);
+	});
+
+	it.each(["count(#form/q) > 0", "join(' ', #form/q)"])(
+		"admits the same move for a reader that takes every value: %s",
+		(source) => {
+			expectAdmittedMove(manyFixture({ root: [reader(source)] }), Q, VISITS);
+		},
+	);
+
+	it("admits a move inside the repeat for a reader that names one entry", () => {
+		const doc = manyFixture({
+			root: [reader("#form/visits[1]/inner = 'yes'")],
+		});
+		expectAdmittedMove(doc, INNER, BOX);
+	});
+
+	it("admits a move inside the repeat for a reader that filters the entries", () => {
+		const doc = manyFixture({
+			root: [reader("#form/visits[inner = 'yes']/inner = 'yes'")],
+		});
+		expectAdmittedMove(doc, INNER, BOX);
+	});
+
+	it("refuses moving a reader out of the repeat whose answer it reads", () => {
+		const doc = manyFixture({ visits: [reader("../inner = 'yes'")] });
+		expectManyValuesRefusal(doc, READER, MANY, READER);
+	});
+
+	it("refuses moving a group out of the repeat while a reader inside it reads an entry's answer", () => {
+		const doc = manyFixture({
+			visits: [
+				f({
+					kind: "group",
+					uuid: HOLDER,
+					id: "holder",
+					children: [reader("#form/visits/inner = 'yes'")],
+				}),
+			],
+		});
+		expectManyValuesRefusal(doc, HOLDER, MANY, READER);
+	});
+
+	it("admits moving a reader into the repeat it reads", () => {
+		const doc = manyFixture({
+			root: [reader("count(#form/visits/inner) > 0")],
+		});
+		expectAdmittedMove(doc, READER, VISITS);
+	});
+
+	it("refuses moving a reader out of a nested repeat into the outer one", () => {
+		const doc = manyFixture({ sub: [reader("../deep = 'yes'")] });
+		expectManyValuesRefusal(doc, READER, VISITS, READER);
+	});
+
+	it("refuses moving an answer into the repeat a repeat count reads it for", () => {
+		const doc = manyFixture({ countSource: "#form/n" });
+		expectManyValuesRefusal(doc, N, COUNTED, COUNTED);
+		expectAdmittedMove(doc, N, SPOT);
+	});
+
+	it("refuses moving an answer into a repeat while a label outside shows it", () => {
+		const doc = manyFixture({
+			root: [
+				f({
+					kind: "label",
+					uuid: HOLDER,
+					id: "shown",
+					label: {
+						parts: [
+							{ kind: "text", text: "You said " },
+							{ kind: "field-ref", uuid: Q },
+						],
+					},
+				}),
+			],
+		});
+		const verdict = fieldPlacementVerdict(doc, {
+			uuid: Q,
+			kind: "text",
+			toParentUuid: VISITS,
+		});
+		expect(verdict).toMatchObject({
+			ok: false,
+			reason: "expression-many-values",
+			message: expect.stringContaining('"shown"\'s label'),
+		});
+		const committed = mutationCommitVerdict(
+			doc,
+			[move(Q, VISITS)],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(committed).toMatchObject({ ok: false });
+		if (committed.ok)
+			throw new Error("Expected the actual move to be refused.");
+		expect(committed.findings).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "XPATH_MANY_VALUES",
+					details: expect.objectContaining({ checkCode: "many-values" }),
+					location: expect.objectContaining({ fieldUuid: HOLDER }),
+				}),
+			]),
+		);
+		expectAdmittedMove(doc, Q, SPOT);
+	});
+});
+
+describe("fieldPlacementVerdict and the form's own case writes", () => {
+	const SAVER = testUuid("fld-case-saver");
+	const ENTRIES = testUuid("fld-case-entries");
+	const ELSEWHERE = testUuid("fld-case-elsewhere");
+	function caseWriteFixture(): BlueprintDoc {
+		const doc = buildDoc({
+			appName: "Case write moves",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "age", label: proseText("Age") }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Follow up",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									uuid: SAVER,
+									id: "age",
+									caseWrite: { caseType: "patient", property: "age" },
+								}),
+								f({
+									kind: "repeat",
+									uuid: ENTRIES,
+									id: "visits",
+									repeat_mode: "user_controlled",
+									children: [f({ kind: "text", id: "note" })],
+								}),
+								f({
+									kind: "group",
+									uuid: ELSEWHERE,
+									id: "other",
+									children: [],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		assertAdmittedDoc(doc);
+		return doc;
+	}
+
+	it("refuses moving a question that saves to the form's case into a repeat, before projecting it", () => {
+		const doc = caseWriteFixture();
+		const verdict = fieldPlacementVerdict(doc, {
+			uuid: SAVER,
+			kind: "text",
+			toParentUuid: ENTRIES,
+		});
+		expect(verdict).toEqual({
+			ok: false,
+			reason: "case-write-placement",
+			message: expect.stringContaining(
+				'inside the repeat "visits", and a form saves that case once',
+			),
+		});
+		expect(
+			mutationCommitVerdict(
+				doc,
+				[
+					{
+						kind: "moveField",
+						uuid: SAVER,
+						toParentUuid: ENTRIES,
+						after: null,
+					},
+				],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
+		).toBe(false);
+	});
+
+	it("admits the same question moving into a group outside the repeat", () => {
+		const doc = caseWriteFixture();
+		expect(
+			fieldPlacementVerdict(doc, {
+				uuid: SAVER,
+				kind: "text",
+				toParentUuid: ELSEWHERE,
+			}),
+		).toEqual({ ok: true });
+	});
+});
+
+describe("fieldPlacementVerdict and a choice filter's earlier answers", () => {
+	const TABLE = "00000000-0000-7000-8000-0000000000c1" as LookupTableId;
+	const COLUMN = "10000000-0000-7000-8000-0000000000c1" as LookupColumnId;
+	const REVISION = "1" as LookupRevision;
+	const lookupContext: LookupValidationContext = {
+		kind: "available",
+		projectId: "project-1",
+		projectRevision: REVISION,
+		definitions: [
+			{
+				id: TABLE,
+				name: "Districts",
+				tag: "districts",
+				definitionRevision: REVISION,
+				columns: [
+					{ id: COLUMN, wireName: "region", label: "Region", dataType: "text" },
+				],
+			},
+		],
+	};
+	const REGION = testUuid("fld-filter-region");
+	const PLACE = testUuid("fld-filter-place");
+	const DISTRICT = testUuid("fld-filter-district");
+
+	/** A group holding the answer the filter reads, and the lookup choice
+	 *  question that reads it, below the group at the form's root. */
+	function filterFixture(): BlueprintDoc {
+		const doc = buildDoc({
+			appName: "Choice filter moves",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({
+									kind: "group",
+									uuid: PLACE,
+									id: "place",
+									children: [f({ kind: "text", uuid: REGION, id: "region" })],
+								}),
+								f({
+									kind: "single_select",
+									uuid: DISTRICT,
+									id: "district",
+									optionsSource: {
+										kind: "lookup",
+										tableId: TABLE,
+										valueColumnId: COLUMN,
+										labelColumnId: COLUMN,
+										filter: eq(
+											tableColumn(TABLE, COLUMN),
+											term(formField(REGION)),
+										),
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		expect(mutationCommitVerdict(doc, [], lookupContext)).toMatchObject({
+			ok: true,
+		});
+		return doc;
+	}
+
+	it("admits moving the question into the group below the answer it reads, and the gate refuses the move that puts it above", () => {
+		const doc = filterFixture();
+		expect(
+			fieldPlacementVerdict(doc, {
+				uuid: DISTRICT,
+				kind: "single_select",
+				toParentUuid: PLACE,
+			}),
+		).toEqual({ ok: true });
+		expect(
+			mutationCommitVerdict(
+				doc,
+				[
+					{
+						kind: "moveField",
+						uuid: DISTRICT,
+						toParentUuid: PLACE,
+						after: REGION,
+					},
+				],
+				lookupContext,
+			),
+		).toMatchObject({ ok: true });
+		const above = mutationCommitVerdict(
+			doc,
+			[{ kind: "moveField", uuid: DISTRICT, toParentUuid: PLACE, after: null }],
+			lookupContext,
+		);
+		expect(above.ok).toBe(false);
+		if (above.ok)
+			throw new Error("Expected the move above the answer to be refused.");
+		expect(above.findings).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					code: "LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER",
+				}),
+			]),
+		);
 	});
 });

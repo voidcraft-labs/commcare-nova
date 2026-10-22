@@ -150,6 +150,7 @@ export function queryPrinter(context: QueryPrintContext) {
 				return term(value.term);
 			case "today":
 			case "now":
+			case "here":
 			case "acting-user":
 			case "unowned":
 				return call(value.kind);

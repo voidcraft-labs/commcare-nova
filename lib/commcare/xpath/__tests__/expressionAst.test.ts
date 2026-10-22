@@ -109,6 +109,17 @@ describe("form expression binding", () => {
 			expect(parse(printed.text, doc, value), authored).toEqual(value);
 		}
 	});
+	it("binds here() to its arm and prints it back unchanged", () => {
+		const doc = makeDoc();
+		const value = parse("here()", doc);
+		expect(value).toEqual({ kind: "here" });
+		const printed = projectFormExpression(doc, slot, value, new Map());
+		expect(printed.text).toBe("here()");
+		expect(parse(printed.text, doc, value)).toEqual(value);
+		expect(
+			parseFormExpression("here(1)", { doc, slot, lookup: new Map() }),
+		).toMatchObject({ ok: false, issues: [{ code: "arity" }] });
+	});
 	it("keeps selected-record identity separate from a query row", () => {
 		const doc = makeDoc();
 		const alias = parseFormExpression("#case/age", {

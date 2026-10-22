@@ -132,6 +132,11 @@ export type ValidationErrorCode =
 	| "CASE_LIST_TILE_GROUP_HEADER_EMPTY"
 	| "FIELD_KIND_PROPERTY_TYPE_MISMATCH"
 	| "FIELD_KIND_WRITERS_DISAGREE"
+	// A Hidden Value writer whose value does not fit the property it saves
+	// to, and a literal saved into a property a choice question starts on
+	// that is none of its choices. Both cross forms, so both are app rules.
+	| "HIDDEN_VALUE_WRITER_TYPE_MISMATCH"
+	| "SELECT_PRELOAD_WRITE_NOT_AN_OPTION"
 	// Case-search rules. Slot-specific checks read authored
 	// `caseSearchConfig`; structural compatibility checks follow effective
 	// Search, including the markerless-input path that also emits Search.
@@ -457,6 +462,8 @@ export type ValidationErrorCode =
 	| "XPATH_CARRIER_CONTEXT_UNAVAILABLE"
 	| "XPATH_FUNCTION_CONTEXT_UNAVAILABLE"
 	| "XPATH_TIME_ORDERING"
+	| "XPATH_INCOMPATIBLE_VALUES"
+	| "XPATH_MANY_VALUES"
 	| "INVALID_REF"
 	| "INVALID_CASE_REF"
 	| "INVALID_SEARCH_REF"

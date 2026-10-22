@@ -13,11 +13,11 @@
  * So the question is not "what type is this property?" but "what type is this
  * property REGARDLESS of this write?", and there are exactly three answers:
  *
- * - the catalog DECLARES a type — that binds, and the commit gate enforces
+ * - the catalog DECLARES a type: that binds, and the commit gate enforces
  *   every writer against it;
- * - it does not, but something else writes it — the writers must agree, so the
- *   effective type binds;
- * - it does not, and nothing else writes it — this write establishes the type,
+ * - it does not, but something else writes it (a question, a Hidden Value or
+ *   another operation): the writers must agree, so the effective type binds;
+ * - it does not, and nothing else writes it: this write establishes the type,
  *   and anything storable is admissible.
  */
 

@@ -361,6 +361,18 @@ recognizer is `lib/domain/fields/hidden.ts`. The same
 ordering is why the case preload below beats a `default_value` but never a
 `calculate` on a hidden writer.
 
+A Hidden Value that saves to a case property is a typed writer
+(`validator/rules/hiddenValueWriterAgreement.ts`, reading
+`lib/domain/expression/inference.ts::hiddenWriterVerdicts`): each value it can
+end with must be write-assignable to the property's agreed type
+(`lib/domain/expression/ruleSets.ts::isWriteAssignable`: storage assignability,
+plus a `format-date` fixed to `%Y-%m-%d` into a date property), a date and
+time whose clock may be gone cannot write a date-and-time property, and Hidden
+Values that alone type a property must agree (`int` with `decimal` on
+`decimal`, `text` with `single_select` on `text`). Each disagreeing writer is
+`HIDDEN_VALUE_WRITER_TYPE_MISMATCH` at the field. A blank `''` fits every
+property, and a starting value the case preload overwrites holds no opinion.
+
 ### Worker-information identity projection
 
 Custom worker information has one stable document identity and one leaf in
@@ -1636,7 +1648,9 @@ Parent-record selection is explicit on `Module.parentCaseModuleUuid`. Both the H
 ### Ordinary datetime case writes
 
 Hidden datetime writers derive their `xsd:dateTime` bind from the effective
-case-property catalog. Ordinary datetime writes use a sibling text node,
+case-property catalog. The bind follows the property the Hidden Value writes,
+not the type inferred from its calculation, because an `xsd:dateTime` bind
+makes Core cast the case's text at form open, and malformed text stops the form. Ordinary datetime writes use a sibling text node,
 `nova_datetime_<question>` (`xform/datetimeCaseValue.ts`, named by the
 allocator), as their HQ action question path. HQ creates
 untyped case-update binds, where Core would otherwise wrap a Date as DateData

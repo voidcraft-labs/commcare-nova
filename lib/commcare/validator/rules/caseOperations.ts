@@ -729,6 +729,14 @@ function validateExpressionSlot(
 				operation,
 				"CASE_OPERATION_EXPRESSION_TYPE",
 				`An expression in case operation "${operation.id}" is not valid here: ${typeErrors.map((error) => error.message).join("; ")}`,
+				// The midnight reason names the whole finding only when every error
+				// is the lost clock; another error keeps the ordinary message.
+				typeErrors.every(
+					(error) =>
+						error.code === "expected-value" && error.reason === "clock-lost",
+				)
+					? { reason: "clock-lost" }
+					: undefined,
 			),
 		);
 	else if (result.errors.length === 0)
@@ -1176,15 +1184,43 @@ function opError(
 	message: string,
 	details?: Record<string, string>,
 ): ValidationError {
-	return validationError(
+	return caseOperationError(
 		code,
-		"form",
 		message,
 		{
 			moduleUuid: ctx.moduleUuid,
 			moduleName: ctx.module.name,
 			formUuid: ctx.formUuid,
 			formName: ctx.form.name,
+		},
+		operation,
+		details,
+	);
+}
+
+/** A finding located at a case operation: form-scoped, the operation's uuid
+ * in `location.field`, its uuid and id in `details`. */
+export function caseOperationError(
+	code: Parameters<typeof validationError>[0],
+	message: string,
+	place: {
+		readonly moduleUuid: Uuid;
+		readonly moduleName: string;
+		readonly formUuid: Uuid;
+		readonly formName: string;
+	},
+	operation: CaseOperation | undefined,
+	details?: Record<string, string>,
+): ValidationError {
+	return validationError(
+		code,
+		"form",
+		message,
+		{
+			moduleUuid: place.moduleUuid,
+			moduleName: place.moduleName,
+			formUuid: place.formUuid,
+			formName: place.formName,
 			field: operation?.uuid,
 		},
 		operation === undefined

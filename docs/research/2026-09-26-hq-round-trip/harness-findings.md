@@ -1013,8 +1013,12 @@ planned ("Found while planning step 2").
     properties receive date values. Python reads those types directly and
     never infers them from the fields. The stop is removed, with no
     retained control; `test_the_case_database_seeds_each_property_from_the_effective_catalog`
-    holds the seeding boundary. Existing external case data remains outside
-    an authoring rule's reach.
+    holds the seeding boundary.
+    **Fixed at authoring:** a Hidden Value that saves to a case property
+    joins writer agreement, so no writer of Nova's puts text in a property a
+    typed question reads back (`HIDDEN_VALUE_WRITER_TYPE_MISMATCH`). A case
+    a project space already holds, written by another app, an import or
+    HQ's API, is still beyond any authoring rule.
 
 74. **Web Apps submits its own placeholder for a date and time question in
     a repetition added last, and the form can then never be submitted.**

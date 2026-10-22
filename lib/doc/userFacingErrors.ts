@@ -66,6 +66,11 @@ import {
 	sourceWritePropertySentence,
 } from "@/lib/domain/questionId";
 import { standardCasePropertyDisplayLabel } from "@/lib/domain/standardCaseProperties";
+import {
+	valueKindPhrase,
+	valueKindPluralPhrase,
+	valueKindsPhrase,
+} from "@/lib/domain/valueKindPhrases";
 
 // ── Interpolation helpers ──────────────────────────────────────────
 //
@@ -300,6 +305,19 @@ const optionValueProblemPhrase = (e: ValidationError): string => {
 
 type UserMessageBuilder = (err: ValidationError) => string;
 
+/** The formula a form-logic finding sits in: on a question, in a form, or
+ * in the rule of a case property when no form carries it. */
+const formulaSubject = (e: ValidationError): string =>
+	e.location.fieldId === undefined
+		? e.location.formName === undefined
+			? "A formula"
+			: `A formula in ${q(formName(e))}`
+		: `A formula on ${q(fieldName(e))} in ${q(formName(e))}`;
+
+/** Several kinds as one phrase, from a comma-joined list of types. */
+const valuesPhrase = (types: string | undefined, first: string | undefined) =>
+	valueKindsPhrase(types === undefined ? [first] : types.split(","));
+
 // ── The code → builder table ───────────────────────────────────────
 
 /** The field a misplaced section sits in, from `parentKind` / `parentId`. */
@@ -339,8 +357,21 @@ const USER_MESSAGE_BY_CODE: Record<
 	},
 	XPATH_CARRIER_CONTEXT_UNAVAILABLE: () =>
 		"An after-submit formula reads the form after it has closed. Save the value to a case property or read session data instead.",
-	XPATH_FUNCTION_CONTEXT_UNAVAILABLE: () =>
-		"A function in a formula needs information that isn't available here. Use it where that information is available, or rewrite the formula.",
+	XPATH_FUNCTION_CONTEXT_UNAVAILABLE: (e) => {
+		const question = q(det(e, "choiceFieldId", "that question"));
+		switch (e.details?.reason) {
+			case "here":
+				return e.details?.hereSurface === "record"
+					? `${formulaSubject(e)} uses here(), which is where the worker is. Only a case list's calculated column can read that. You can show it in a calculated column instead.`
+					: `${formulaSubject(e)} uses here(), which is where the worker is. A case list knows that and a form doesn't. You can add a location question and use its answer instead.`;
+			case "choice-name-dynamic":
+				return `${formulaSubject(e)} asks for the label of a choice of ${question}, whose choices come from a Project data table or from cases. You can read the label from where the choices come from instead.`;
+			case "choice-name":
+				return `${formulaSubject(e)} asks for the label of a choice of ${question}, which a form can't read here. You can use the answer itself instead.`;
+			default:
+				return "A function in a formula needs information that isn't available here. Use it where that information is available, or rewrite the formula.";
+		}
+	},
 	MISSING_CHILD_CASE_MODULE: (e) => {
 		const ct = det(e, "caseType", "");
 		return ct
@@ -730,6 +761,43 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, but its type doesn't match how that property is set up. Change the field's type, or save it somewhere else.`,
 	FIELD_KIND_WRITERS_DISAGREE: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a case property"))} in a different format than the other fields that use it. Change this one to match them, or save it somewhere else.`,
+	HIDDEN_VALUE_WRITER_TYPE_MISMATCH: (e) => {
+		const field = q(fieldName(e));
+		const property = q(det(e, "property", "a case property"));
+		const value = valuesPhrase(e.details?.valueTypes, e.details?.valueType);
+		const source =
+			e.location.field === "default_value"
+				? "its starting value"
+				: "its calculation";
+		switch (e.details?.reason) {
+			case "clock-lost":
+				return `${field} saves to ${property}, which holds dates and times, but its value keeps only the day because ${q(det(e, "clockSource", "an earlier hidden value"))} doesn't keep the time. You can save it from a question or now() instead.`;
+			case "hidden-disagreement":
+				return e.details?.disagreement === "own"
+					? `${field} saves ${value} to ${property} from different results, so the property has no one kind of value. You can have every result of ${source} give the same kind.`
+					: `${field} saves ${value} to ${property}, but other hidden values save a different kind of value there. You can have them all give the same kind, or save this one somewhere else.`;
+			default: {
+				const wanted = e.details?.propertyType;
+				const consequence =
+					e.details?.consequence === "stops-form"
+						? " A form that fills a question from it would stop when it opens."
+						: e.details?.consequence === "wrong-kind"
+							? " Forms and case lists that read it would get the wrong kind of value."
+							: "";
+				return `${field} saves ${value} to ${property}, which holds ${valueKindPluralPhrase(wanted)}.${consequence} You can change ${source} to give ${wanted === undefined ? "the same kind" : valueKindPhrase(wanted)}, or save it somewhere else.`;
+			}
+		}
+	},
+	SELECT_PRELOAD_WRITE_NOT_AN_OPTION: (e) => {
+		const writer =
+			e.location.fieldId !== undefined
+				? q(fieldName(e))
+				: e.details?.operationId !== undefined
+					? `The case operation ${q(e.details.operationId)}`
+					: "A value";
+		const value = q(det(e, "value", "this value"));
+		return `${writer} saves ${value} to ${q(det(e, "property", "a case property"))}, which ${q(det(e, "readerField", "a choice question"))} in ${q(det(e, "readerForm", "another form"))} starts on, but ${value} isn't one of its choices. You can save one of its choices instead, or save it somewhere else.`;
+	},
 
 	// ── Case-search config ───────────────────────────────────────────
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: (e) =>
@@ -916,6 +984,9 @@ const USER_MESSAGE_BY_CODE: Record<
 		if (e.details?.reason === "datetime-base") {
 			return "A date calculation in this case operation starts from a date and time, but the time would be lost here. Use a whole date or choose another calculation.";
 		}
+		if (e.details?.reason === "clock-lost") {
+			return "A value in this case operation keeps only the day of a date and time, so saving it here would record midnight instead of the moment. You can save it from a question or now() instead.";
+		}
 		if (e.details?.reason === "calendar-interval") {
 			return "A date calculation in this case operation uses months or years, which aren't available here. Use seconds, minutes, hours, days, or weeks.";
 		}
@@ -1054,7 +1125,27 @@ const USER_MESSAGE_BY_CODE: Record<
 		return `Some field formulas or lookup choices in ${q(formName(e))} depend on each other in a loop, so their values can't settle. ${loop} Remove one of the references to break it.`;
 	},
 	TYPE_ERROR: (e) =>
-		`A formula on ${q(fieldName(e))} in ${q(formName(e))} uses text where it needs a number, so the result might come out wrong. Check the values it's working with.`,
+		e.details?.reason === "datetime-literal-precision"
+			? `${formulaSubject(e)} has a time finer than a millisecond, and CommCare compares times to the millisecond. You can choose a time to the millisecond, second or minute.`
+			: `A formula on ${q(fieldName(e))} in ${q(formName(e))} uses text where it needs a number, so the result might come out wrong. Check the values it's working with.`,
+	XPATH_INCOMPATIBLE_VALUES: (e) => {
+		switch (e.details?.reason) {
+			case "date-datetime":
+				return `${formulaSubject(e)} compares a date with a date and time. You can wrap the date and time in date() to compare days.`;
+			case "datetime-ordering":
+				return `${formulaSubject(e)} orders a date and time against something that isn't one. You can compare it with another date and time, or wrap it in date() to compare days.`;
+			case "boolean":
+				return `${formulaSubject(e)} compares a true-or-false result with another kind of value, and anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own.`;
+			default:
+				return `${formulaSubject(e)} compares two kinds of information that don't line up. You can compare it with a value of the same kind instead.`;
+		}
+	},
+	XPATH_MANY_VALUES: (e) =>
+		e.details?.reason === "selected-cases"
+			? `${formulaSubject(e)} reads every case chosen in ${q(det(e, "menuName", "its menu"))} where it needs one value. You can count or join them.`
+			: e.details?.prose === "true"
+				? `The text of ${q(fieldName(e))} in ${q(formName(e))} shows an answer from every entry of ${e.details?.repeatId === undefined ? "a repeat" : `the repeat ${q(e.details.repeatId)}`}, where it can show only one. You can move the question into the repeat, or show a hidden value that counts or joins the entries.`
+				: `${formulaSubject(e)} reads an answer from every entry of ${e.details?.repeatId === undefined ? "a repeat" : `the repeat ${q(e.details.repeatId)}`} where it needs one value. You can count or join the entries, or read just one of them.`,
 	XPATH_TIME_ORDERING: (e) => {
 		const where =
 			e.location.formName === undefined

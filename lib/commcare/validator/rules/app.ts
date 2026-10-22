@@ -41,7 +41,9 @@ import { type ValidationError, validationError } from "../errors";
 import { RESERVED_CASE_TYPE_NAMES } from "../reservedNamespaces";
 import { AUTOMATION_RULES } from "./automations";
 import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
+import { hiddenValueWriterAgreement } from "./hiddenValueWriterAgreement";
 import { ORGANIZATION_RULES } from "./organization";
+import { selectPreloadWriterOptions } from "./selectPreloadWriterOptions";
 import { USER_RULES } from "./users";
 import { authoredXmlText } from "./xmlText";
 
@@ -666,6 +668,11 @@ export const APP_RULES = [
 	// full app's writer set, so the rule is app-scoped rather than
 	// module-scoped.
 	fieldKindMatchesPropertyType,
+	// Hidden Value writers held to the property they save to, and literals
+	// saved into a property a choice question starts on: both read writers
+	// and readers across every form.
+	hiddenValueWriterAgreement,
+	selectPreloadWriterOptions,
 	// Who runs the app: the user-data property catalog, the roles built on
 	// it, and the personas that act as those roles. App-scoped because none
 	// of the three belongs to a module or a form.

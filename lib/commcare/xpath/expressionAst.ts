@@ -285,7 +285,11 @@ export function parseFormExpression(
 				? { minArgs: 1, maxArgs: 1, returnType: "string" as const }
 				: node.name === "jr:choice-name"
 					? { minArgs: 2, maxArgs: 2, returnType: "string" as const }
-					: undefined;
+					: // A case list's location handler, not a registry function:
+						// a call would not carry its slot admission.
+						node.name === "here"
+						? { minArgs: 0, maxArgs: 0, returnType: "string" as const }
+						: undefined;
 		const spec = special ?? FUNCTION_REGISTRY.get(node.name);
 		if (spec === undefined)
 			refuse(
@@ -297,6 +301,7 @@ export function parseFormExpression(
 		if (arity !== undefined) refuse("arity", node, arity);
 		if (node.name === "current" || node.name === "instance")
 			return bindFormPath(binder, node, ctx);
+		if (node.name === "here") return remember({ kind: "here" }, node);
 		if (node.name === "jr:itext") {
 			const prior = hints.get(node);
 			if (

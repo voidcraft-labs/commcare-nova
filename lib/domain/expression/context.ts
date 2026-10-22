@@ -7,14 +7,11 @@ import {
 	toReachableIndex,
 } from "../caseTypes";
 import {
-	concreteCasePropertyWriterTypes,
-	effectiveCaseTypes,
-} from "../effectiveCaseTypes";
-import {
 	type EntryDatumSupplies,
 	entryDatumSupplies,
 	formLinkTargetSupplies,
 } from "../entryDatumSupplies";
+import { formOfField } from "../fieldForm";
 import type { SelectOption } from "../fields";
 import { orderedCaseOperations } from "../forms";
 import type { LookupColumnId, LookupTableId } from "../lookupIds";
@@ -50,8 +47,9 @@ import {
 	type FormStructureField,
 	formStructure,
 } from "./formStructure";
+import { inferExpressionTypes } from "./inference";
 import { type RuleSet, type SlotProfile, slotProfile } from "./profiles";
-import type { Held } from "./typeChecker";
+import type { Held, ScalarHeld, ScalarType } from "./typeChecker";
 import { datumRefKey, type FormNodeRef, type SlotContextRef } from "./types";
 
 export type LookupTypeIndex = ReadonlyMap<
@@ -93,9 +91,19 @@ export type RowScope =
 	  }
 	| { readonly kind: "location"; readonly root: "locations" }
 	| { readonly kind: "repeat"; readonly root: "form"; readonly repeat: Uuid };
+/** The per-document facts the checker reads. `caseTypes`, `hiddenTypes`,
+ * `hiddenHeld` and `clockLost` are inference's (`inference.ts`); the rest are
+ * read from the document as authored. */
 export interface ExpressionFacts {
+	/** The effective catalog, standard properties included. */
 	readonly caseTypes: readonly CaseType[];
+	/** A Hidden Value's data type; absent is unknown. */
 	readonly hiddenTypes: ReadonlyMap<Uuid, CasePropertyDataType>;
+	/** What Core holds for a Hidden Value, from its bind, its source slot and
+	 * its result (`Recalculate.java::wrapData`, `SetValueAction.java::processAction`). */
+	readonly hiddenHeld: ReadonlyMap<Uuid, ScalarHeld>;
+	/** Hidden Values whose date and time may have lost its clock. */
+	readonly clockLost: ReadonlySet<Uuid>;
 	readonly options: ReadonlyMap<Uuid, readonly SelectOption[]>;
 	readonly userPropertySlugs: ReadonlyMap<Uuid, string>;
 	readonly organizationLevels: Readonly<Record<string, OrganizationLevel>>;
@@ -151,9 +159,11 @@ export interface RecordQueryContext {
 	readonly rows: readonly RecordQueryRowScope[];
 	readonly lookupTables: LookupTypeIndex;
 	readonly bindings: {
+		/** `_any` is a form answer whose type is unknown; absent from the map is
+		 * no answer of this form. */
 		readonly formFieldTypes: ReadonlyMap<
 			Uuid,
-			CasePropertyDataType | undefined
+			CasePropertyDataType | Extract<ScalarType, "_any"> | undefined
 		>;
 		readonly knownInputs: readonly SearchInputDecl[];
 		readonly operationIds: ReadonlySet<Uuid>;
@@ -200,34 +210,36 @@ export function withFormContextNode(
 	return { ...ctx, contextNode: node };
 }
 
+/** The facts no inference decides. */
+export type UntypedExpressionFacts = Omit<
+	ExpressionFacts,
+	"caseTypes" | "hiddenTypes" | "hiddenHeld" | "clockLost"
+>;
+
+const untypedFacts = new WeakMap<BlueprintDoc, UntypedExpressionFacts>();
 const documentFacts = new WeakMap<BlueprintDoc, ExpressionFacts>();
 const formFacts = new WeakMap<BlueprintDoc, Map<Uuid, FormExpressionFacts>>();
+/** Form facts built over provisional facts (inference's passes), keyed by
+ * the facts object so the document's own form facts are never replaced. */
+const provisionalFormFacts = new WeakMap<
+	ExpressionFacts,
+	Map<Uuid, FormExpressionFacts>
+>();
 const countReferences = new WeakMap<
 	BlueprintDoc,
 	Map<Uuid, ReadonlySet<Uuid>>
 >();
 
-export function expressionFacts(doc: BlueprintDoc): ExpressionFacts {
-	const cached = documentFacts.get(doc);
+export function untypedExpressionFacts(
+	doc: BlueprintDoc,
+): UntypedExpressionFacts {
+	const cached = untypedFacts.get(doc);
 	if (cached !== undefined) return cached;
-	const caseTypes = effectiveCaseTypes(doc);
 	const options = new Map<Uuid, readonly SelectOption[]>();
-	const hiddenTypes = new Map<Uuid, CasePropertyDataType>();
-	for (const field of Object.values(doc.fields)) {
+	for (const field of Object.values(doc.fields))
 		if ("optionsSource" in field && field.optionsSource.kind === "inline")
 			options.set(field.uuid, field.optionsSource.options);
-		if (field.kind === "hidden" && field.caseWrite !== undefined) {
-			const destination = caseTypes
-				.find((type) => type.name === field.caseWrite?.caseType)
-				?.properties.find(
-					(property) => property.name === field.caseWrite?.property,
-				)?.data_type;
-			if (destination !== undefined) hiddenTypes.set(field.uuid, destination);
-		}
-	}
-	const result: ExpressionFacts = {
-		caseTypes,
-		hiddenTypes,
+	const result: UntypedExpressionFacts = {
 		options,
 		moduleUuids: new Set(
 			Object.values(doc.modules).map((module) => module.uuid),
@@ -265,6 +277,21 @@ export function expressionFacts(doc: BlueprintDoc): ExpressionFacts {
 			),
 		),
 	};
+	untypedFacts.set(doc, result);
+	return result;
+}
+
+export function expressionFacts(doc: BlueprintDoc): ExpressionFacts {
+	const cached = documentFacts.get(doc);
+	if (cached !== undefined) return cached;
+	const inference = inferExpressionTypes(doc);
+	const result: ExpressionFacts = {
+		...untypedExpressionFacts(doc),
+		caseTypes: inference.caseTypes,
+		hiddenTypes: inference.hiddenTypes,
+		hiddenHeld: inference.hiddenHeld,
+		clockLost: inference.clockLost,
+	};
 	documentFacts.set(doc, result);
 	return result;
 }
@@ -301,7 +328,7 @@ export function recordQueryContext(input: {
 	readonly currentCaseType?: string;
 	readonly lookupTables?: LookupTypeIndex;
 	readonly lookupTableId?: LookupTableId;
-	readonly formFieldTypes?: ReadonlyMap<Uuid, CasePropertyDataType | undefined>;
+	readonly formFieldTypes?: RecordQueryContext["bindings"]["formFieldTypes"];
 	readonly knownInputs?: readonly SearchInputDecl[];
 	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
@@ -334,28 +361,28 @@ export function recordQueryContext(input: {
 	};
 }
 
-function heldFor(type: CasePropertyDataType | undefined): Held {
+/** What a visible question's answer unpacks to
+ * (`XPathPathExpr.java::unpackValue`): a time has no TimeData arm, so its text. */
+function visibleHeld(type: CasePropertyDataType | undefined): ScalarHeld {
 	return type === "int" || type === "decimal"
 		? "number"
 		: type === "date" || type === "datetime"
 			? "date"
 			: "string";
 }
-function buildFormFacts(
-	doc: BlueprintDoc,
+/** Each field's enclosing repeats, outermost first: structure alone, so
+ * kept per structure while inference's passes rebuild the typed facts. */
+const structureRepeats = new WeakMap<
+	FormStructure,
+	ReadonlyMap<Uuid, readonly Uuid[]>
+>();
+function repeatsOf(
 	structure: FormStructure,
-): FormExpressionFacts {
-	const facts = expressionFacts(doc);
-	const module = doc.modules[structure.moduleUuid];
-	const fields = new Map<
-		Uuid,
-		FormExpressionFacts["fields"] extends ReadonlyMap<Uuid, infer F> ? F : never
-	>();
+): ReadonlyMap<Uuid, readonly Uuid[]> {
+	const cached = structureRepeats.get(structure);
+	if (cached !== undefined) return cached;
+	const result = new Map<Uuid, readonly Uuid[]>();
 	for (const [uuid, field] of structure.fields) {
-		const type =
-			field.kind === "hidden"
-				? facts.hiddenTypes.get(uuid)
-				: caseDataTypeForFieldKind(field.kind);
 		const repeats: Uuid[] = [];
 		const seen = new Set<Uuid>();
 		let parent = field.parent;
@@ -366,7 +393,69 @@ function buildFormFacts(
 			if (ancestor.kind === "repeat") repeats.unshift(parent);
 			parent = ancestor.parent;
 		}
-		fields.set(uuid, { ...field, type, held: heldFor(type), repeats });
+		result.set(uuid, repeats);
+	}
+	structureRepeats.set(structure, result);
+	return result;
+}
+/** The case types a form reads, per catalog: one catalog serves many
+ * passes of inference and every form of a module. */
+const readableByCatalog = new WeakMap<
+	readonly CaseType[],
+	WeakMap<BlueprintDoc, Map<string, ReadonlyMap<string, ReadonlySet<string>>>>
+>();
+function readableCaseTypesOf(
+	doc: BlueprintDoc,
+	caseTypes: readonly CaseType[],
+	moduleCaseType: string | undefined,
+	formType: FormStructure["type"],
+): ReadonlyMap<string, ReadonlySet<string>> {
+	let byDoc = readableByCatalog.get(caseTypes);
+	if (byDoc === undefined) {
+		byDoc = new WeakMap();
+		readableByCatalog.set(caseTypes, byDoc);
+	}
+	let byKey = byDoc.get(doc);
+	if (byKey === undefined) {
+		byKey = new Map();
+		byDoc.set(doc, byKey);
+	}
+	const key = JSON.stringify([moduleCaseType ?? null, formType]);
+	const cached = byKey.get(key);
+	if (cached !== undefined) return cached;
+	const result = caseRefAcceptMap(
+		toReachableIndex(reachableCaseTypes(moduleCaseType, [...caseTypes]), doc),
+		formType,
+	);
+	byKey.set(key, result);
+	return result;
+}
+function buildFormFacts(
+	doc: BlueprintDoc,
+	structure: FormStructure,
+	facts: ExpressionFacts,
+): FormExpressionFacts {
+	const module = doc.modules[structure.moduleUuid];
+	const fields = new Map<
+		Uuid,
+		FormExpressionFacts["fields"] extends ReadonlyMap<Uuid, infer F> ? F : never
+	>();
+	const repeatsByField = repeatsOf(structure);
+	for (const [uuid, field] of structure.fields) {
+		const type =
+			field.kind === "hidden"
+				? facts.hiddenTypes.get(uuid)
+				: caseDataTypeForFieldKind(field.kind);
+		const held: Held =
+			field.kind === "hidden"
+				? (facts.hiddenHeld.get(uuid) ?? "string")
+				: visibleHeld(type);
+		fields.set(uuid, {
+			...field,
+			type,
+			held,
+			repeats: repeatsByField.get(uuid) ?? [],
+		});
 	}
 	const searchInputs = (module?.caseListConfig?.searchInputs ?? []).map(
 		(input) => ({
@@ -380,11 +469,10 @@ function buildFormFacts(
 		fields,
 		searchInputs,
 		noMatchesForm: structure.entry?.kind === "search-no-matches",
-		readableCaseTypes: caseRefAcceptMap(
-			toReachableIndex(
-				reachableCaseTypes(module?.caseType, [...facts.caseTypes]),
-				doc,
-			),
+		readableCaseTypes: readableCaseTypesOf(
+			doc,
+			facts.caseTypes,
+			module?.caseType,
 			structure.type,
 		),
 	};
@@ -397,11 +485,29 @@ export function formExpressionFacts(
 	if (cached !== undefined) return cached;
 	const structure = formStructure(doc, formUuid);
 	if (structure === undefined) return undefined;
-	const result = buildFormFacts(doc, structure);
+	const result = buildFormFacts(doc, structure, expressionFacts(doc));
 	let byForm = formFacts.get(doc);
 	if (byForm === undefined) {
 		byForm = new Map();
 		formFacts.set(doc, byForm);
+	}
+	byForm.set(formUuid, result);
+	return result;
+}
+function provisionalFormExpressionFacts(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	facts: ExpressionFacts,
+): FormExpressionFacts | undefined {
+	const cached = provisionalFormFacts.get(facts)?.get(formUuid);
+	if (cached !== undefined) return cached;
+	const structure = formStructure(doc, formUuid);
+	if (structure === undefined) return undefined;
+	const result = buildFormFacts(doc, structure, facts);
+	let byForm = provisionalFormFacts.get(facts);
+	if (byForm === undefined) {
+		byForm = new Map();
+		provisionalFormFacts.set(facts, byForm);
 	}
 	byForm.set(formUuid, result);
 	return result;
@@ -460,36 +566,37 @@ function ownerForm(doc: BlueprintDoc, slot: SlotContextRef): Uuid | undefined {
 		return doc.forms[slot.uuid] === undefined ? undefined : slot.uuid;
 	if (slot.entity !== "field" || doc.fields[slot.uuid] === undefined)
 		return undefined;
-	const seen = new Set<Uuid>();
-	let current = slot.uuid;
-	while (!seen.has(current)) {
-		seen.add(current);
-		const parent = doc.fieldParent[current];
-		if (parent === undefined) return undefined;
-		if (doc.forms[parent] !== undefined) return parent;
-		current = parent;
-	}
-	return undefined;
+	return formOfField(doc, slot.uuid);
 }
 
-/** Resolve an actual owning slot, including an absent optional expression. */
+/**
+ * Resolve an actual owning slot, including an absent optional expression.
+ * `options.facts` replaces the document's facts: inference types each Hidden
+ * Value in its real slot over its provisional facts, which never reach the
+ * document's caches.
+ */
 export function slotContext(
 	doc: BlueprintDoc,
 	slot: SlotContextRef,
 	lookupTables: LookupTypeIndex,
-	options: { readonly form?: FormStructure } = {},
+	options: {
+		readonly form?: FormStructure;
+		readonly facts?: ExpressionFacts;
+	} = {},
 ): ExpressionContext | undefined {
+	const facts = options.facts ?? expressionFacts(doc);
 	const formUuid = options.form?.formUuid ?? ownerForm(doc, slot);
 	let form =
 		options.form === undefined
 			? formUuid === undefined
 				? undefined
-				: formExpressionFacts(doc, formUuid)
-			: buildFormFacts(doc, options.form);
+				: options.facts === undefined
+					? formExpressionFacts(doc, formUuid)
+					: provisionalFormExpressionFacts(doc, formUuid, options.facts)
+			: buildFormFacts(doc, options.form, facts);
 	const moduleUuid = slot.entity === "module" ? slot.uuid : form?.moduleUuid;
 	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
 	if (module === undefined || moduleUuid === undefined) return undefined;
-	const facts = expressionFacts(doc);
 	const searchInputs = (module.caseListConfig?.searchInputs ?? []).map(
 		(input) => ({
 			uuid: input.uuid,
@@ -536,7 +643,12 @@ export function slotContext(
 			"form",
 			"form",
 			["XF", "PV"],
-			condition ? { kind: "condition" } : { kind: "value" },
+			condition
+				? { kind: "condition" }
+				: // A query-bound repeat's ids query is the node-set of its rows.
+					slot.slot === "ids_query"
+					? { kind: "value", many: true }
+					: { kind: "value" },
 			{ searchInputs: form.searchInputs },
 		);
 		if (slot.slot === "lookup_options_source") {
@@ -687,8 +799,8 @@ export function slotContext(
 											? [property.data_type]
 											: [],
 									) ?? []),
-								...(concreteCasePropertyWriterTypes(doc)
-									.get(destinationType)
+								...(inferExpressionTypes(doc)
+									.writerOpinions.get(destinationType)
 									?.get(member.property) ?? []),
 							]),
 						]
@@ -713,6 +825,14 @@ export function slotContext(
 				},
 			);
 			rows = [{ kind: "case", root: "casedb", caseType: module.caseType }];
+			// A repeated operation's case block sits in each entry of its repeat,
+			// so its expressions read that entry's answers (Core contextualizes
+			// a bind against its own node, `TreeReference.java::contextualize`).
+			if (
+				operation.forEach !== undefined &&
+				form.fields.get(operation.forEach.repeat)?.kind === "repeat"
+			)
+				sourceNode = { kind: "field", uuid: operation.forEach.repeat };
 		} else {
 			const block =
 				slot.slot === "assessment_user_score" ? "assessment" : "deliver_unit";
@@ -805,6 +925,7 @@ export function slotContext(
 				patternMatching:
 					slot.slot === "search_input_required_when" ||
 					slot.slot === "search_input_validation_rule",
+				here: slot.slot === "case_list_column_expression",
 			},
 		);
 		if (slot.slot === "excluded_owner_ids")

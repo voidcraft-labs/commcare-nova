@@ -80,6 +80,15 @@ defects 11 (its second half), 18, 19 and 20.
      and
      `case-search/runtime-values-read-from-the-session-context-drift-window-width`
      stay HELD-NEW until then.
+   - *A form read inside a row predicate.* Core evaluates a `casedb` or
+     data-table predicate either through its predicate index, with the
+     comparison's other side in the form's context (commcare-core
+     `TreeUtilities.java::tryBatchChildFetch`), or row by row with the row as
+     context (`EvaluationContext.java::expandReferenceAccumulator`), where a
+     read of the slot's own repeat names every entry. Step 3's checker reads
+     such a read in the slot's context (its part 03 §3.4); this step decides
+     the read by the evaluation Core gives it, or spells it `current()/…`,
+     which names the entry under both.
 
 ## Cutover and migration
 

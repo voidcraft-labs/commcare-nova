@@ -744,7 +744,11 @@ export function mutationCommitVerdictWithPrevalidation(
 			prepared,
 		};
 	}
-	const validationScope = incrementalValidationScope(prevDoc, admitted);
+	const validationScope = incrementalValidationScope(
+		prevDoc,
+		admitted,
+		prepared.nextDoc,
+	);
 	return evaluatePreparedMutationCandidate(prepared, lookupContext, {
 		...(validationScope !== undefined && { validationScope }),
 	});

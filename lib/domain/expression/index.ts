@@ -20,6 +20,7 @@ export * from "./relativePath";
 export * from "./rewrite";
 export * from "./simplify";
 export * from "./slotConstraints";
+export * from "./slotLabels";
 export * from "./spans";
 export * from "./temporalType";
 export * from "./typeChecker";

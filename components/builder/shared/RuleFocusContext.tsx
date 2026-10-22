@@ -134,7 +134,7 @@ export function expressionFocusTitle(value: Expression): string {
 		case "negate":
 			return "Negative value";
 		case "here":
-			return "This value";
+			return "Worker's location";
 		case "value-list":
 			return "Values";
 		default:

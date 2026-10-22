@@ -608,6 +608,12 @@ part's. Because each is a `QUERY_FUNCTIONS` entry, the guide's function lookup
 | `session-datum { selected-case { module } }` | `chosen-case('<menu name>')` | 1 | the id of the case chosen in that menu | from pull request 10, a record slot evaluated after the datum is supplied: a CSQL runtime segment of a search, a case-list filter, a form's display condition (part 06 §3.9), where the entry passes through that menu |
 | `project` of that case's property | `chosen-case-property('<menu name>', '<property>')` | 2 | one property of the case chosen in that menu | same |
 
+**Implementation correction, 2026-10-19:** `here()`'s record spelling lands in pull request 6, the
+checker, not with the guide: the calculated-column profile admits the arm there and every stored arm
+must print, so `QUERY_FUNCTIONS` gains `here: [0, 0]`, `queryExpressions.ts`'s compiler parses it
+beside `today()` and `now()`, and `printQueryExpression.ts::queryPrinter` prints it (§3.3 for the
+version).
+
 **The chosen case.** `chosen-case('Households')` stores `session-datum` holding the `DatumRef`
 `selected-case { module }` (part 05 §1.3). `chosen-case-property('Households', 'village')` stores
 the keyed read part 06 §3.9 compiles: `cases { source: "casedb" }` with one `where`,
@@ -814,6 +820,11 @@ served-schema change the model meets lands in one pull request (part 01 decision
 schemas change once"), and pull request 5, the shape, shows no hash moved. The stored fields, their
 two rules and their rename branches leave in pull request 5 (§5.3; part 03 §2.1); between the two, a
 stored value is still validated and simply cannot be authored by the SA or MCP.
+
+**Implementation correction, 2026-10-19:** pull request 6 changes what an authored record text
+accepts (`here()`, §2.3) and does not bump `MODEL_CONTEXT_VERSION`: the stack deploys once, at pull
+request 12's value, which already retires every model context made before it, and pull request 12's
+guide sentence is what offers `here()` to the model.
 
 ### 3.4 `operationSemantics.ts`
 
@@ -1306,6 +1317,14 @@ because a case query is a text run and `lib/domain/xpath/walk.ts::mapCasePropert
   refusal becomes active in pull request 6, which owns part 03 §3.4, `XPATH_MANY_VALUES` and its
   presentation; that pull request adds both move cases to the same verdict test file. This resolves
   the original stack rows' conflict without duplicating a checker rule in the move preview.
+  **Implementation correction, 2026-10-19:** the drag gate
+  (`components/preview/form/virtual/landingGuards.ts`) and the SA's `add_fields` and `move_field`
+  read the verdict; the keyboard move and the inspector's move menu build their batch directly and
+  meet the gate's refusal, and `lib/doc/navigation.ts` holds no verdict. Pull request 6's preflight
+  also checks prose references (`expressionSource.ts::prosePartTerm`, shared with the gate), reads
+  expressions from the candidate, refuses a slot that loses its context, keys its before/after diff
+  on code, reason and path, and refuses a structural many with reason `expression-many-values`,
+  leading with the moved question and the reader's slot before the checker's sentence.
 - **Option value edit and removal.** §4.6. The gate's dangling-identity rule
   (`lib/commcare/validator/index.ts`) covers an option UUID like any other.
 - **Module removal.** A datum read of a module (`u:<module>`), in form logic or, from pull request

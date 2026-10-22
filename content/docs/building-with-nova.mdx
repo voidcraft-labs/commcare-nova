@@ -308,6 +308,19 @@ run their formulas or migrates them without changing their meaning. A defensive
 Preview error is treated as a Nova bug and contained so the rest of the Builder
 stays available; it is not an expected state the author needs to repair.
 
+Some formulas look fine but would give a worker the wrong answer or stop the
+form on their device, so Nova points them out while you edit and suggests what
+you can write instead. These include comparing a date with a date and time,
+ordering a date and time before or after something that isn't one, comparing
+a true-or-false result with another kind of value, and reading an answer from
+every entry of a repeat where the formula needs one value.
+
+`here()`, the worker's current location, belongs in a case list's calculated
+column. On Android it shows the worker's location in the list and in the
+case's details. On Web Apps it shows it in the case's details, once the browser
+shares its location, while the list's rows and sorts don't know where the
+worker is.
+
 Choices and record filters that use a Project data table keep their table and
 column references when those names change. Formulas can read the records and
 session values available in their current setting.
@@ -326,7 +339,11 @@ own property so later edits do not replace that event with the record's general
 last-modified time. A hidden value with no expression that saves to a case
 property says under it what happens: it carries the case's current value through
 unchanged where the form opens that case, and saves the property blank
-otherwise.
+otherwise. A hidden value that saves to a case property gives that property the
+kind of value its expression works out to, so it needs to fit the property's
+kind when the property or another question already sets it. When a choice
+question opens showing a case property, a fixed value saved into that property
+needs to be one of the question's choices, so the question can show it.
 
 A form's [After submit](/docs/form-links) links decide where the app goes once
 the form is submitted, and their conditions run after the form has closed.

@@ -5,9 +5,16 @@ import {
 	slotContext,
 } from "@/lib/domain/expression/context";
 import { numericAnswerText } from "@/lib/domain/expression/numberLiteral";
+import { ANY_TYPE } from "@/lib/domain/expression/ruleSets";
+import { expressionSlotLabel } from "@/lib/domain/expression/slotLabels";
 import {
 	type CheckError,
 	checkExpression,
+	expressionContextAtPath,
+	formComparisonOperandTypes,
+	type ScalarType,
+	scalarDataType,
+	typeOf,
 } from "@/lib/domain/expression/typeChecker";
 import type {
 	Expression,
@@ -15,7 +22,11 @@ import type {
 	Term,
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
+import { formOfField } from "@/lib/domain/fieldForm";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
+import { FIELD_REFERENCE_SLOTS } from "@/lib/domain/referenceSlots";
+import type { Uuid } from "@/lib/domain/uuid";
+import { valueKindPhrase } from "@/lib/domain/valueKindPhrases";
 import {
 	type ValidationError,
 	type ValidationErrorCode,
@@ -35,6 +46,8 @@ export interface FormLogicFinding {
 		| "INVALID_SEARCH_REF"
 		| "TYPE_ERROR"
 		| "XPATH_TIME_ORDERING"
+		| "XPATH_INCOMPATIBLE_VALUES"
+		| "XPATH_MANY_VALUES"
 		| "PROSE_EDITOR_ROUND_TRIP_LOSS"
 		| "SESSION_DATUM_NOT_SUPPLIED"
 		| "FORM_LINK_DATUM_UNUSED"
@@ -64,6 +77,130 @@ function termAt(
 	});
 	return result;
 }
+function expressionAt(
+	expression: Expression,
+	path: CheckError["path"],
+): Expression | undefined {
+	let result: Expression | undefined;
+	walkExpression(expression, {
+		visitExpression: (node, at) => {
+			if (result === undefined && JSON.stringify(at) === JSON.stringify(path))
+				result = node;
+		},
+	});
+	return result;
+}
+/** The first node of `kind` at or under `path`. */
+function firstUnder<K extends Expression["kind"]>(
+	expression: Expression,
+	path: CheckError["path"],
+	kind: K,
+): Extract<Expression, { kind: K }> | undefined {
+	let result: Extract<Expression, { kind: K }> | undefined;
+	walkExpression(expression, {
+		visitExpression: (node, at) => {
+			if (
+				result === undefined &&
+				node.kind === kind &&
+				path.every((part, index) => at[index] === part)
+			)
+				result = node as Extract<Expression, { kind: K }>;
+		},
+	});
+	return result;
+}
+
+/** The owner of a slot, as a sentence names it from the slot's context. */
+function slotOwner(ctx: ExpressionContext | undefined): {
+	/** `"visit"` or `This after-submit link condition`. */
+	readonly subject: string;
+	/** ` in its display condition` for a question, else nothing. */
+	readonly inSlot: string;
+	/** `"visit"'s display condition` or `This after-submit link condition`. */
+	readonly slotSubject: string;
+} {
+	const label =
+		ctx === undefined ? "formula" : expressionSlotLabel(ctx.slot.slot);
+	const field =
+		ctx?.slot.entity === "field"
+			? ctx.form?.fields.get(ctx.slot.uuid)
+			: undefined;
+	if (field === undefined)
+		return {
+			subject: `This ${label}`,
+			inSlot: "",
+			slotSubject: `This ${label}`,
+		};
+	return {
+		subject: `"${field.id}"`,
+		inSlot: ` in its ${label}`,
+		slotSubject: `"${field.id}"'s ${label}`,
+	};
+}
+
+/** The two sides of the comparison at `path`, typed as the form checker
+ * types them (`typeChecker.ts::formComparisonOperandTypes`). */
+function comparisonSides(
+	root: Expression | undefined,
+	path: CheckError["path"],
+	ctx: ExpressionContext | undefined,
+):
+	| {
+			readonly left: ScalarType | undefined;
+			readonly right: ScalarType | undefined;
+	  }
+	| undefined {
+	if (root === undefined || ctx === undefined) return undefined;
+	const node = expressionAt(root, path);
+	if (
+		node === undefined ||
+		(node.kind !== "eq" &&
+			node.kind !== "neq" &&
+			node.kind !== "gt" &&
+			node.kind !== "gte" &&
+			node.kind !== "lt" &&
+			node.kind !== "lte")
+	)
+		return undefined;
+	const at = expressionContextAtPath(root, ctx, path);
+	return formComparisonOperandTypes(
+		node,
+		scalarDataType(typeOf(node.left, at)?.data),
+		scalarDataType(typeOf(node.right, at)?.data),
+	);
+}
+/** The side of a comparison that isn't `kind`, where one side is. */
+function operandOtherThan(
+	sides: ReturnType<typeof comparisonSides>,
+	kind: ScalarType,
+): ScalarType | undefined {
+	if (sides === undefined) return undefined;
+	if (sides.left === kind) return sides.right;
+	if (sides.right === kind) return sides.left;
+	return undefined;
+}
+function selectedCasesMessage(slotSubject: string, menu: string): string {
+	return `${slotSubject} reads the cases chosen in ${menu} in a place that needs one value. This form works on several cases at once, so CommCare stops the form when more than one is chosen. You can count them, or join them.`;
+}
+
+/** The field slots that hold text, which shows a reference as written. */
+const PROSE_SLOTS: ReadonlySet<string> = new Set(
+	FIELD_REFERENCE_SLOTS.filter((entry) => entry.kind === "prose").map(
+		(entry) => entry.slot,
+	),
+);
+/** The repeat a structurally several read crosses: the outermost repeat on
+ * the read's leaf that the slot's own question is not inside. */
+function repeatCrossed(
+	error: CheckError,
+	ctx: ExpressionContext | undefined,
+): { readonly uuid: Uuid; readonly id: string } | undefined {
+	if (error.several?.reason !== "repeat") return undefined;
+	const uuid = error.several.repeat;
+	const id = ctx?.form?.fields.get(uuid)?.id;
+	return id === undefined ? undefined : { uuid, id };
+}
+
 export function formLogicFinding(
 	error: CheckError,
 	ctx?: ExpressionContext,
@@ -169,10 +306,113 @@ export function formLogicFinding(
 				}
 			}
 			break;
-		case "arm-unavailable":
-			if (error.reason === "here" || error.reason === "choice-name")
+		case "arm-unavailable": {
+			const owner = slotOwner(ctx);
+			if (error.reason === "here") {
 				code = "XPATH_FUNCTION_CONTEXT_UNAVAILABLE";
+				// A slot that reads the form's answers can read a location
+				// question instead; one that reads no answers (a case list
+				// filter, a search input, a display condition) can't.
+				const formSlot = ctx?.profile.formAnswers === true;
+				details = { reason: "here", hereSurface: formSlot ? "form" : "record" };
+				message = formSlot
+					? `${owner.slotSubject} uses here(), the worker's location, which CommCare knows only in a case list's calculated column. You can add a location question and read its answer instead.`
+					: `${owner.slotSubject} uses here(), the worker's location, which only a case list's calculated column can read. You can show it in a calculated column instead.`;
+			} else if (
+				error.reason === "choice-name" ||
+				error.reason === "choice-name-dynamic"
+			) {
+				code = "XPATH_FUNCTION_CONTEXT_UNAVAILABLE";
+				const named =
+					expression === undefined
+						? undefined
+						: firstUnder(expression, error.path, "choice-name");
+				const question =
+					named === undefined
+						? undefined
+						: ctx?.form?.fields.get(named.field)?.id;
+				details = {
+					reason: error.reason,
+					...(question === undefined ? {} : { choiceFieldId: question }),
+				};
+				const of = question === undefined ? "a question" : `"${question}"`;
+				message =
+					error.reason === "choice-name-dynamic"
+						? `${owner.slotSubject} reads the label of a choice of ${of}, whose choices come from a Project data table or from cases, so CommCare has no label to read there. You can read the label from where the choices come from instead.`
+						: `${owner.slotSubject} reads the label of a choice of ${of}, which isn't available in a form's logic. You can read the answer itself instead.`;
+			}
 			break;
+		}
+		case "incompatible-values": {
+			code = "XPATH_INCOMPATIBLE_VALUES";
+			const owner = slotOwner(ctx);
+			if (error.reason !== undefined) details = { reason: error.reason };
+			if (error.reason === "date-datetime")
+				message = `${owner.subject} compares a date with a date and time${owner.inSlot}. CommCare compares a date by its day and a date and time by its moment, so the two don't line up. You can wrap the date and time in date() to compare days.`;
+			else if (error.reason === "datetime-ordering") {
+				const other = operandOtherThan(
+					comparisonSides(expression, error.path, ctx),
+					"datetime",
+				);
+				details = {
+					reason: error.reason,
+					...(other === undefined ? {} : { otherType: other }),
+				};
+				message = `${owner.subject} orders a date and time against ${valueKindPhrase(other, "a value that isn't one")}${owner.inSlot}. CommCare can only order two dates and times by their moment. You can compare it with another date and time, or wrap it in date() to compare days.`;
+			} else if (error.reason === "boolean") {
+				const other = operandOtherThan(
+					comparisonSides(expression, error.path, ctx),
+					"boolean",
+				);
+				const kind =
+					other === undefined || other === ANY_TYPE
+						? "another kind of value"
+						: valueKindPhrase(other, "another kind of value");
+				details = {
+					reason: error.reason,
+					...(other === undefined ? {} : { otherType: other }),
+				};
+				message = `${owner.subject} compares a true-or-false result with ${kind}${owner.inSlot}. CommCare turns ${kind} into true or false before comparing, and anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own.`;
+			}
+			break;
+		}
+		case "many-values": {
+			code = "XPATH_MANY_VALUES";
+			const owner = slotOwner(ctx);
+			if (error.reason === "selected-cases") {
+				details = {
+					reason: "selected-cases",
+					...(error.several?.reason === "selected-cases"
+						? { module: error.several.module }
+						: {}),
+				};
+				message = selectedCasesMessage(owner.slotSubject, "its menu");
+			} else {
+				const repeat = repeatCrossed(error, ctx);
+				details = {
+					reason: "repeat",
+					...(repeat === undefined
+						? {}
+						: { repeatUuid: repeat.uuid, repeatId: repeat.id }),
+				};
+				const entries =
+					repeat === undefined ? "a repeat" : `the repeat "${repeat.id}"`;
+				// Text shows a reference as written, so it can't count or join.
+				const prose =
+					ctx !== undefined && PROSE_SLOTS.has(ctx.slot.slot as string);
+				if (prose) details = { ...details, prose: "true" };
+				message = prose
+					? `${owner.slotSubject} shows an answer from every entry of ${entries}, where it can show only one. CommCare stops the form when there's more than one. You can move this question into the repeat, or show a hidden value that counts or joins the entries.`
+					: `${owner.slotSubject} reads an answer from every entry of ${entries} in a place that needs one value. CommCare stops the form when there's more than one. You can count the entries, join them, or read one entry, like the first.`;
+			}
+			break;
+		}
+		case "datetime-literal-precision": {
+			const owner = slotOwner(ctx);
+			details = { reason: "datetime-literal-precision" };
+			message = `${owner.slotSubject} holds a time finer than a millisecond. CommCare compares dates and times to the millisecond, so this time names none of them exactly. You can write the time to the millisecond, second or minute.`;
+			break;
+		}
 	}
 	return {
 		code,
@@ -205,7 +445,7 @@ export function presentFormLogicFinding(
 		slot.entity === "form"
 			? slot.uuid
 			: slot.entity === "field"
-				? findForm(doc, slot.uuid)
+				? formOfField(doc, slot.uuid)
 				: undefined;
 	const moduleUuid =
 		slot.entity === "module"
@@ -220,22 +460,7 @@ export function presentFormLogicFinding(
 			: slot.entity === "form"
 				? `Form "${doc.forms[slot.uuid]?.name ?? "this form"}"`
 				: `Menu "${doc.modules[slot.uuid]?.name ?? "this menu"}"`;
-	const slotLabel =
-		slot.slot === "calculate"
-			? "calculated value"
-			: slot.slot === "default_value"
-				? "default value"
-				: slot.slot === "relevant"
-					? "display condition"
-					: slot.slot === "required"
-						? "required condition"
-						: slot.slot === "validate"
-							? "validation rule"
-							: slot.slot === "repeat_count"
-								? "repeat count"
-								: slot.slot === "ids_query"
-									? "case query"
-									: "formula";
+	const slotLabel = expressionSlotLabel(slot.slot);
 	const referenced =
 		error.checkCode === "unknown-user-property"
 			? "worker property"
@@ -245,17 +470,29 @@ export function presentFormLogicFinding(
 	const choiceFieldName =
 		error.details?.choiceFieldUuid === undefined
 			? undefined
-			: (doc.fields[
-					error.details.choiceFieldUuid as import("@/lib/domain/uuid").Uuid
-				]?.id ?? "that question");
+			: (doc.fields[error.details.choiceFieldUuid as Uuid]?.id ??
+				"that question");
+	const selectedModule =
+		error.code === "XPATH_MANY_VALUES" &&
+		error.details?.reason === "selected-cases" &&
+		error.details.module !== undefined
+			? doc.modules[error.details.module as Uuid]?.name
+			: undefined;
 	const message =
-		error.storedRef !== "dangling-identity"
-			? error.message
-			: error.details?.identity === "choice"
-				? `${owner} uses a choice that "${choiceFieldName ?? "that question"}" no longer has in its ${slotLabel}. Choose one of its current choices.`
-				: error.reason === "form-filter-step"
-					? `${owner} uses a filter position that no longer belongs to the referenced question. Choose a current position in its ${slotLabel}.`
-					: `${owner} reads a ${referenced} that no longer exists in its ${slotLabel}. Choose a current ${referenced}, or remove this reference.`;
+		selectedModule !== undefined
+			? selectedCasesMessage(
+					field === undefined
+						? `This ${slotLabel}`
+						: `"${field.id}"'s ${slotLabel}`,
+					`"${selectedModule}"`,
+				)
+			: error.storedRef !== "dangling-identity"
+				? error.message
+				: error.details?.identity === "choice"
+					? `${owner} uses a choice that "${choiceFieldName ?? "that question"}" no longer has in its ${slotLabel}. Choose one of its current choices.`
+					: error.reason === "form-filter-step"
+						? `${owner} uses a filter position that no longer belongs to the referenced question. Choose a current position in its ${slotLabel}.`
+						: `${owner} reads a ${referenced} that no longer exists in its ${slotLabel}. Choose a current ${referenced}, or remove this reference.`;
 	const details = {
 		...(error.checkCode === undefined
 			? {}
@@ -268,13 +505,12 @@ export function presentFormLogicFinding(
 		...(error.storedRef === undefined ? {} : { storedRef: error.storedRef }),
 		...error.details,
 		...(choiceFieldName === undefined ? {} : { choiceFieldName }),
+		...(selectedModule === undefined ? {} : { menuName: selectedModule }),
 		...(error.details?.datumModule === undefined
 			? {}
 			: {
 					datumModuleName:
-						doc.modules[
-							error.details.datumModule as import("@/lib/domain/uuid").Uuid
-						]?.name ?? "that menu",
+						doc.modules[error.details.datumModule as Uuid]?.name ?? "that menu",
 				}),
 		...("member" in slot && "linkUuid" in slot.member
 			? { linkUuid: slot.member.linkUuid }
@@ -298,21 +534,6 @@ export function presentFormLogicFinding(
 		},
 		details,
 	);
-}
-function findForm(
-	doc: BlueprintDoc,
-	uuid: import("@/lib/domain/uuid").Uuid,
-): import("@/lib/domain/uuid").Uuid | undefined {
-	const seen = new Set<import("@/lib/domain/uuid").Uuid>();
-	let at = uuid;
-	while (!seen.has(at)) {
-		seen.add(at);
-		const parent = doc.fieldParent[at];
-		if (parent === undefined) return undefined;
-		if (doc.forms[parent] !== undefined) return parent;
-		at = parent;
-	}
-	return undefined;
 }
 /** The editor and the gate share this exact projection for a parsed draft. */
 export function checkFormLogicSlot(

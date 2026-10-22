@@ -5,9 +5,10 @@
 // row asks for each of its landings and accepts when EITHER holds) and
 // `useDragIntent` (may the placeholder open on THIS resolved edge?):
 // no cycle — the source is not the landing container or one of its
-// ancestors — and a placement the commit gate accepts on a sectioned
-// form (`fieldPlacementVerdict`, the same verdict the rail, the
-// keyboard, and the SA tools ask). Read against the live document so
+// ancestors — and a placement `fieldPlacementVerdict` admits: the
+// section rules, and every expression or prose reference the move would
+// break, the same verdict the SA's `add_fields` and `move_field` ask.
+// The commit gate stays the authority. Read against the live document so
 // both callers judge the same state.
 
 import { fieldPlacementVerdict } from "@/lib/doc/formSectionVerdicts";

@@ -2,10 +2,16 @@
 // actual form context; prose has its own projection over current names.
 
 import { type FormPrintContext, printFormExpression } from "./expression/print";
-import type { Expression, ExpressionSlotRef } from "./expression/types";
+import type {
+	Expression,
+	ExpressionSlotRef,
+	ProseSlotRef,
+	Term,
+} from "./expression/types";
 import type { Field } from "./fields";
 import {
 	isProseTemplate,
+	type ProsePart,
 	type ProseTemplate,
 	projectProseTemplate,
 } from "./prose";
@@ -106,4 +112,51 @@ export function proseSurfaceReads(
 		}
 	}
 	return reads;
+}
+
+/** The slot a prose read occupies, the address its checking context is built
+ *  from. An option label names its option by identity; a read whose option
+ *  is gone has no slot. */
+export function proseReadSlotRef(
+	field: Field,
+	read: Pick<ProseRead, "slot" | "indices">,
+): ProseSlotRef | undefined {
+	if (read.slot !== "option_label")
+		return { entity: "field", uuid: field.uuid, slot: read.slot };
+	const option =
+		"optionsSource" in field && field.optionsSource.kind === "inline"
+			? field.optionsSource.options[read.indices[0] ?? -1]
+			: undefined;
+	return option === undefined
+		? undefined
+		: {
+				entity: "field",
+				uuid: field.uuid,
+				slot: "option_label",
+				member: { optionUuid: option.uuid },
+			};
+}
+
+/** The value a prose reference part reads, as the term the checker types.
+ *  Literal text reads nothing. */
+export function prosePartTerm(part: ProsePart): Term | undefined {
+	switch (part.kind) {
+		case "text":
+			return undefined;
+		case "field-ref":
+			return { kind: "field", uuid: part.uuid };
+		case "case-ref":
+			return {
+				kind: "form-case",
+				caseType: part.caseType,
+				property: part.property,
+			};
+		case "user-property-ref":
+			return {
+				kind: "session-user-property",
+				userPropertyUuid: part.userPropertyUuid,
+			};
+		case "user-ref":
+			return { kind: "session-user", field: part.property };
+	}
 }

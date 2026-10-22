@@ -106,7 +106,14 @@ each run.
     destination), as part 01 §3.2 states: binding a date-and-time Hidden Value as
     `xsd:dateTime` would make Core cast its case text at form open, which refuses malformed text and
     stops the form (finding 73's failure). The lowering reads the held representation that bind
-    gives.
+    gives. **Implementation correction, 2026-10-19:** that representation is bind × source slot ×
+    result (part 03 §5.1), and a date and time whose clock may be gone (a `Date` under an
+    `xsd:string` bind, or a copy of one through any Hidden Value, branch or bind, which an
+    `xsd:dateTime` bind cannot restore) is `clockLost`. Pull request 6 refuses it written into a
+    date-and-time property; pull request 8 refuses an implicit instant comparison with a clock-lost
+    operand (`incompatible-values`, reason `clock-lost`), since its instant text would be the day's
+    and read NaN, while an explicit `date()` on both sides stays admitted. The bind keeps today's
+    rule (`fieldValueType`), unchanged.
 14. **Bytes move once, for named reasons only** (§5): canonical printing (105 of the 366 corpus
     documents that send HQ XPath; 243 of 371 in any target; in production some authored
     expressions, and Nova's own scaffolding in every app with a case list, which the dry run
@@ -569,6 +576,14 @@ cycle, part 01 §3.2), the unknown side takes the row of its held representation
 known from its bind or leaf. Two unknown operands stay bare: Core's coercion is then the
 expression's meaning. A `date` against a `date` stays bare (requirement 3), and a `time` ordering
 and a `date` against a `datetime` without a coercion never reach emission (part 03 §3.1, §3.2).
+
+**Implementation correction, 2026-10-19:** the first row's "a Hidden Value under an `xsd:string`
+bind" holds `string` only when its result is text. A `Date` result there (`now()`, a date-and-time
+question, an `xsd:dateTime` Hidden Value copied) is held `date` with its clock lost (`DateData`,
+`Recalculate.java::wrapData`), and a `default_value` of a `Date` under `xsd:string` holds its day's text
+(`SetValueAction.java::processAction`); neither has an instant text, so the checker refuses such an
+operand (decision 13) and `instant.ts` takes no row for it. A Hidden Value copying date-and-time
+text is held `string`, never lost, and keeps the first row.
 
 ### 3.3 Which comparisons
 

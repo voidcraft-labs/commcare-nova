@@ -832,6 +832,12 @@ base and head with no Docker, and compares the stop (none), the census, and `ind
 ids (equal), as step 2's plan made the first check of every model change, and part 03 §7's
 `(document, code, location)` finding multiset over both corpora.
 
+**Implementation correction, 2026-10-19:** every admission point refuses on the first finding, so a
+finding multiset over two emitted corpora is empty by construction. The comparison that shows a
+moved verdict is head code validating the base corpus's D and D′ (a read-only runner, kept outside
+the repository), with `index.json`'s census and each `edit/batch.json` diffed at base and head, then
+the head emission (part 03 §7).
+
 ### 4.2 Fuzz: mapped, never drawn again
 
 `fc.sample` draws from one stream per seed, so a further draw inside a generator shifts every later

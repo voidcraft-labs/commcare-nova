@@ -28,9 +28,10 @@ import {
  * to this table; no other surface may hold a parallel mapping.
  *
  * Returns `undefined` for kinds that don't pin a value type, whether or
- * not they can write a case. `hidden` writes one, and its calculate
- * expression's output type drives the property's actual data type — a
- * separate type-checker concern. The capture kinds write one too, and what
+ * not they can write a case. `hidden` writes one, and the type inferred
+ * for its value (`expression/inference.ts`) is its opinion of the
+ * property's type, held to that property by
+ * `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` rather than by this table. The capture kinds write one too, and what
  * lands there depends on the destination's mode rather than the kind, so
  * the kind alone cannot answer. Both stamp an untyped catalog entry, which
  * `effectiveDataType` reads as text. The structural and display kinds

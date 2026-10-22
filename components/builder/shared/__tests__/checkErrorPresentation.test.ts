@@ -83,3 +83,56 @@ describe("PredicateCardEditor — user-facing diagnostics", () => {
 		},
 	);
 });
+
+describe("PredicateCardEditor — reasons and the checker's newer codes", () => {
+	const present = (code: CheckError["code"], reason?: string) =>
+		presentCheckErrorForEditor({
+			code,
+			path: ["right"],
+			message: "Detailed checker prose that must stay out of the UI",
+			...(reason === undefined ? {} : { reason }),
+		});
+
+	it.each([
+		[
+			"date-datetime",
+			"A date and a date and time don't line up. You can wrap the date and time in date() to compare days",
+		],
+		[
+			"datetime-ordering",
+			"A date and time can only be ordered against another date and time. You can wrap it in date() to compare days",
+		],
+		[
+			"boolean",
+			"Anything that isn't blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own",
+		],
+	])(
+		"gives values that don't line up for %s their own line",
+		(reason, copy) => {
+			expect(present("incompatible-values", reason)).toBe(copy);
+		},
+	);
+
+	it("keeps the general line for values that don't line up with no reason", () => {
+		expect(present("incompatible-values")).toBe(
+			"Choose values that use compatible kinds of information",
+		);
+	});
+
+	it.each([
+		[
+			"many-values",
+			"This needs one value. You can read one entry, or count or join them",
+		],
+		[
+			"datetime-literal-precision",
+			"CommCare compares times to the millisecond. You can choose a time to the millisecond, second or minute",
+		],
+		[
+			"format-date-pattern-not-fixed",
+			"This date format can't change from row to row here. You can choose a fixed format",
+		],
+	] as const)("presents %s", (code, copy) => {
+		expect(present(code)).toBe(copy);
+	});
+});

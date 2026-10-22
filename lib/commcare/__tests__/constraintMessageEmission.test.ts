@@ -592,7 +592,9 @@ describe("constraint message emission", () => {
 			const fixture = constraintMessageFixture(scenario);
 			for (const root of routes(fixture)) {
 				const path =
-					scenario === "multiple" ? "/data/rows/value" : "/data/value";
+					scenario === "multiple"
+						? "instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/worker_status"
+						: "/data/value";
 				expect(
 					xpathEvidence(bind(root).attributes["jr:constraintMsg"]),
 				).toEqual(
@@ -607,10 +609,6 @@ describe("constraint message emission", () => {
 				).toEqual([path]);
 				if (scenario === "irrelevant")
 					expect(bind(root, path).attributes.relevant).toBe("false()");
-				if (scenario === "multiple")
-					expect(
-						onlyXml(descendants(root, "repeat")).attributes["jr:count"],
-					).toContain("nova_count_rows");
 			}
 		},
 	);

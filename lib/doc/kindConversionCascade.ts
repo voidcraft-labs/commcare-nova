@@ -39,14 +39,15 @@
  *     impact dialog, the SA's needs-confirmation result) before
  *     dispatching, and the committed mutations carry no consent —
  *     replay and undo re-run the same migration unconditionally.
- *   - A conversion to `hidden` — whose writers the agreement rules
- *     exempt (`caseDataTypeForFieldKind` returns undefined) — converts
- *     ONLY the addressed field, and when it was the property's LAST
- *     typed writer on an undeclared entry, PINS the entry's `data_type`
- *     to the source kind's type. Without the pin, the hidden writer's
- *     structural expression inference (a later `today()` calculate)
- *     could silently retype the property under rows whose values are
- *     the old type.
+ *   - A conversion to `hidden` converts ONLY the addressed field: a
+ *     Hidden Value's type comes from its value, not its kind
+ *     (`caseDataTypeForFieldKind` returns undefined), so no peer has a
+ *     kind to follow. When it was the property's LAST kind-typed writer
+ *     on an undeclared entry, the plan PINS the entry's `data_type` to
+ *     the source kind's type: the converted Hidden Value has no value
+ *     yet and holds no type opinion, so without the pin a later value
+ *     (a `today()` calculation, say) could retype the property under
+ *     rows whose values are the old type.
  *
  * Same-batch cascade, computed at the batch-building layer, never a
  * reducer side effect — the `caseTypeRetirement` pattern, and for the
@@ -279,11 +280,14 @@ export function planKindConversion(args: {
 			redeclaredTo = toType;
 		}
 	} else if (toKind === "hidden" && entry !== undefined) {
-		// Hidden writers are exempt from the agreement rules, so no peer
-		// converts. But when the addressed field is the property's LAST
-		// typed writer and the entry is undeclared, pin the entry to the
-		// source kind's type so later expression inference can't retype
-		// the property under its existing rows.
+		// A Hidden Value has no kind type, so no peer converts. When the
+		// addressed field is the property's LAST kind-typed writer and the
+		// entry is undeclared, pin the entry to the source kind's type: the
+		// new Hidden Value holds no opinion yet, so later inference could
+		// otherwise retype the property under its existing rows. Only
+		// kind-typed declarers count here on purpose. A Hidden Value or
+		// case operation with its own opinion either agrees with the pin
+		// or is refused by the commit gate's writer agreement.
 		const anotherTypedWriterRemains = declarers.some(
 			(f) => caseDataTypeForFieldKind(f.kind) !== undefined,
 		);

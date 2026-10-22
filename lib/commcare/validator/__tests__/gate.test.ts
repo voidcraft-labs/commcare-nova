@@ -14,9 +14,11 @@ import {
 	eq,
 	formField,
 	literal,
+	now,
 	term,
 	today,
 } from "@/lib/domain/expression/builders";
+import type { Expression } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
 import { evaluateBoundary, evaluateCommit } from "../gate";
@@ -587,6 +589,168 @@ describe("evaluateCommit", () => {
 			verdict.findings.map(({ location }) => location.fieldUuid).sort(),
 		).toEqual([first.uuid, second.uuid].sort());
 	});
+});
+
+// ── The checker's and writer agreement's codes ─────────────────────
+
+const WRITER = testUuid("gate-stamp");
+const STAGE_WRITER = testUuid("gate-stage-value");
+const NOTES = testUuid("gate-notes");
+const DAY = testUuid("gate-day");
+const INSIDE = testUuid("gate-inside");
+
+/** A registration form whose Hidden Values save a date and a choice that a
+ * follow-up's questions fill themselves from, beside a question whose display
+ * condition the cases below rewrite. */
+function writersDoc(): BlueprintDoc {
+	return valid(
+		buildDoc({
+			appName: "Writers",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "visit_date", label: proseText("Visit date") },
+						{ name: "stage", label: proseText("Stage") },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+								f({
+									uuid: "gate-stamp",
+									kind: "hidden",
+									id: "stamp",
+									calculate: "today()",
+									caseWrite: { caseType: "patient", property: "visit_date" },
+								}),
+								f({
+									uuid: "gate-stage-value",
+									kind: "hidden",
+									id: "stage_value",
+									calculate: "'a'",
+									caseWrite: { caseType: "patient", property: "stage" },
+								}),
+								f({
+									uuid: "gate-notes",
+									kind: "text",
+									id: "notes",
+									label: proseText("Notes"),
+								}),
+								f({
+									uuid: "gate-day",
+									kind: "date",
+									id: "day",
+									label: proseText("Day"),
+								}),
+								f({
+									kind: "repeat",
+									id: "rows",
+									label: proseText("Rows"),
+									children: [
+										f({
+											uuid: "gate-inside",
+											kind: "text",
+											id: "inside",
+											label: proseText("Inside"),
+										}),
+									],
+								}),
+							],
+						},
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "date",
+									id: "visit_date",
+									label: proseText("Visit date"),
+									caseWrite: { caseType: "patient", property: "visit_date" },
+								}),
+								f({
+									kind: "single_select",
+									id: "stage_question",
+									label: proseText("Stage"),
+									caseWrite: { caseType: "patient", property: "stage" },
+									options: [
+										{ value: "a", label: "A" },
+										{ value: "b", label: "B" },
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
+}
+
+describe("evaluateCommit — the checker's and writer agreement's codes", () => {
+	const hiddenPatch = (
+		uuid: typeof WRITER,
+		calculate: Expression,
+	): Mutation => ({
+		kind: "updateField",
+		uuid,
+		targetKind: "hidden",
+		patch: { calculate },
+	});
+	const notesRelevant = (relevant: Expression): Mutation => ({
+		kind: "updateField",
+		uuid: NOTES,
+		targetKind: "text",
+		patch: { relevant },
+	});
+	it.each([
+		{
+			code: "HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			refused: hiddenPatch(WRITER, term(literal("soon"))),
+			admitted: hiddenPatch(WRITER, today()),
+		},
+		{
+			code: "SELECT_PRELOAD_WRITE_NOT_AN_OPTION",
+			refused: hiddenPatch(STAGE_WRITER, term(literal("z"))),
+			admitted: hiddenPatch(STAGE_WRITER, term(literal("b"))),
+		},
+		{
+			code: "XPATH_INCOMPATIBLE_VALUES",
+			refused: notesRelevant(eq(formField(DAY), now())),
+			admitted: notesRelevant(eq(formField(DAY), today())),
+		},
+		{
+			code: "XPATH_MANY_VALUES",
+			refused: notesRelevant(eq(formField(INSIDE), literal("yes"))),
+			admitted: notesRelevant(
+				eq({ kind: "count", via: term(formField(INSIDE)) }, literal(1)),
+			),
+		},
+	] as const)(
+		"$code gates the commit that introduces it",
+		({ code, refused, admitted }) => {
+			const doc = writersDoc();
+			expect(codes(gateCommit(doc, [refused]))).toEqual([code]);
+			expect(gateCommit(doc, [admitted])).toEqual({ ok: true });
+		},
+	);
 });
 
 // ── evaluateBoundary ───────────────────────────────────────────────

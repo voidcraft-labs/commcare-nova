@@ -82,6 +82,19 @@ export function constraintMessageFixture(scenario: ConstraintMessageScenario) {
 				],
 			};
 			break;
+		case "multiple":
+			// The worker's record is a case-database read: only the data decides
+			// how many records match, so the message is admitted and the device
+			// meets several at run time.
+			message = {
+				parts: [
+					{
+						kind: "user-property-ref",
+						userPropertyUuid: CONSTRAINT_WORKER_PROPERTY,
+					},
+				],
+			};
+			break;
 		default:
 			message = { parts: [{ kind: "field-ref", uuid: CONSTRAINT_VALUE }] };
 	}
@@ -123,17 +136,7 @@ export function constraintMessageFixture(scenario: ConstraintMessageScenario) {
 						name: "Check",
 						type: scenario === "all-kinds" ? "followup" : "survey",
 						fields: [
-							...(scenario === "multiple"
-								? [
-										f({
-											kind: "repeat",
-											id: "rows",
-											repeat_mode: "count_bound",
-											repeat_count: "2",
-											children: [value],
-										}),
-									]
-								: [value]),
+							value,
 							f({ kind: "label", id: "ordinary_output", label: message }),
 							f({
 								kind: "int",
@@ -155,7 +158,7 @@ export function constraintMessageFixture(scenario: ConstraintMessageScenario) {
 			},
 		],
 	});
-	if (scenario === "all-kinds") {
+	if (scenario === "all-kinds" || scenario === "multiple") {
 		doc.userProperties = {
 			[CONSTRAINT_WORKER_PROPERTY]: {
 				uuid: CONSTRAINT_WORKER_PROPERTY,

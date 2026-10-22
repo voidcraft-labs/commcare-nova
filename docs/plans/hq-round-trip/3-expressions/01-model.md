@@ -124,9 +124,11 @@ inventory" is `docs/research/2026-09-26-hq-round-trip/inventory/expressions-and-
     module's ordinary forms (step 4), and the authoring of the session context fields `drift`,
     `window_width`, `applanguage` (step 4; the stored enum holds all seven). Search results read
     in the forms of an inline-search module stay in step 3 (`cases.source: "search-results"`).
-15. **Integral functions are `int`.** The calls `int`, `round` (one argument), `floor`,
+15. **Integral functions are `int`.** The calls `int`, `round`, `floor`,
     `ceiling`, `string-length`, `count-selected` and `position`, like the `count` arm, return
-    `int`, because Core stores an integral `Double` as `IntegerData`.
+    `int`, because Core stores an integral `Double` as `IntegerData`. **Implementation correction,
+    2026-10-19:** Core's `round` has one argument (`XPathRoundFunc`'s `EXPECTED_ARG_COUNT`), so
+    "(one argument)" named no other form; `index-of` is not integral: `XPathIndexOfFunc.java::evalBody` returns `''` when nothing matches, so its result is text or a number by data.
 16. **`many-values` is structural only.** A node-set used as one value is refused only where its
     plurality is the app's shape: a repeat's answer read from outside that repeat, and a
     several-case module's `selected-cases`. A `cases`, `table-rows` or `locations` query used as
@@ -812,6 +814,9 @@ type ExpressionType =
 // `repeat-row` read crossing a repeat the context node is not inside, `selected-cases`, and a
 // `project` or `if` / `coalesce` branch that carries one of them. Never set on `cases`,
 // `table-rows` or `locations`, whose row count only data decides.
+// Implementation correction, 2026-10-19: a group, section, form root or Connect block, which the
+// pull request 5 checker marked `structural`, is marked `container`; and `NodeType` carries
+// `clockLost?: true`, a date and time whose clock may be gone (part 03 §5.1).
 
 type Held =                                    // what Core holds at run time
   | "boolean" | "number" | "string" | "date"
@@ -842,7 +847,11 @@ type NodeType = { data: ExpressionType; held: Held; caseIdOf?: CaseTypeName };
   arm, so its string) to a `String`. A calculated value is wrapped by its result's class and its
   bind type (`org/javarosa/core/model/condition/Recalculate.java::wrapData`): a `Date` under any
   bind but `xsd:dateTime` (a Hidden Value's `xsd:string` among them) becomes `DateData`, losing the
-  clock, and only a `DATATYPE_DATE_TIME` bind keeps `DateTimeData`.
+  clock, and only a `DATATYPE_DATE_TIME` bind keeps `DateTimeData`. **Implementation correction,
+  2026-10-19:** that is a `calculate`; a `default_value` is a setvalue, which casts the wrapped
+  value's text through the bind's answer class (`SetValueAction.java::processAction`), so under
+  `xsd:string` a starting value holds text, a `Date` as its `YYYY-MM-DD` day. A Hidden Value's held
+  class is bind × source slot × result (part 03 §5.1).
 
 Finding 56's per-operand lowering reads both: a Hidden Value copying a datetime property is
 `{ data: "datetime", held: { nodes: "string" } }`, a datetime question `{ data: "datetime",
@@ -857,7 +866,7 @@ lowering from that pair.
 | `field`, Hidden Value | the type of its value expression (`calculate` or `default_value`); `undefined` when it has neither. A Hidden Value that writes a case property takes the destination's type when its expression's type is assignable to it or unknown (part 03 §4.3, §5.1), so `if(c, #form/dt, '')` writing a date and time property keeps its `xsd:dateTime` bind; a disagreeing writer is `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` (part 03 §4.3) | nodes of the class its emitted bind and result give. The bind keeps today's rule, `lib/domain/fieldValueType.ts::fieldValueType`'s writer destination, not the inferred type (part 04, decision 13); an `xsd:string` bind holds a `Date` result as `DateData` (`Recalculate.java::wrapData`) |
 | `field`, group / repeat / section | `{ nodes: "repeat" }` for a repeat, `text` for a group | nodes `string` |
 | `field`, cases-sourced select | its select type, with `caseIdOf` the source's case type | nodes `string` |
-| `field`, cardinality | `many` and `structural` when the path crosses a repeat the context node is not inside; else `one` (a positional filter such as `[1]` on the repeat step makes it `one`) | none |
+| `field`, cardinality | `many` and `structural` when the path crosses a repeat the context node is not inside; else `one` (a positional filter such as `[1]` on the repeat step makes it `one`). **Implementation correction, 2026-10-19:** any filter on the crossed step makes the read not structural (another filter leaves the count to the data); the context is the source node for `current()`, else the lexical context node, which inside a step predicate is the step; a case operation with `forEach` evaluates in its repeat's iteration, and a slot with no context node crosses every repeat; `repeat-row` and `form-node` leaves count the same way | none |
 | `repeat-row` | `text`, `caseIdOf` the repeat's query type for `id`; `int` for `index` | nodes `string` |
 | `form-case`, `prop` | the effective catalog (`lib/domain/effectiveCaseTypes.ts::effectiveCaseTypes`); standard properties from `standardCaseProperties.ts` (`date_opened`, `last_modified` `datetime` in every row; an absent-type standard read in an untyped row takes the same table, §1.3); `closed_on` from the search-only table in server-only slots (§1.4). An untyped property reads as `text` for comparison verdicts and as **unknown** for Hidden Value inference and writer agreement (part 03 §5.1) | by the row's instance root, which the row stack carries: nodes `string`, except `date_opened` and `last_modified` read from `casedb` (a `casedb` row or a `form-case` read), which Core holds as `DateData` (`CaseChildElement.java::buildAndCacheInternalTree`): nodes `date`, the day only. In a `search-results` row (`results:inline`) both are text, nodes `string`: `last_modified` HQ's instant text (`%Y-%m-%dT%H:%M:%S.%fZ`), which the lowering orders as an instant; `date_opened` the **UTC day**, `YYYY-MM-DD` (`V2CaseXMLGenerator.add_custom_properties`, `date_to_xml_string`), which takes `day-only-on-device` by the same rule as the `casedb` pair (§1.5; part 04 §3.4) |
 | `case-index` | `text`, `caseIdOf` the relation's destination (none when `caseType` is absent, §1.3) | nodes `string` |
@@ -878,7 +887,11 @@ may be `h`). The checker computes them as a least fixpoint per document, memoise
 `effectiveCaseTypes`; a cycle leaves its members `undefined`, which compatibility treats as no
 opinion (`lib/domain/CLAUDE.md`, "Unknown is honest"). `effectiveCaseTypes`'s structural hidden
 inference (`WHOLE_EXPRESSION_TYPES`, "nothing parsed") is replaced by this typed inference, so a
-property a Hidden Value writes from `#visit/seen` takes `seen`'s type.
+property a Hidden Value writes from `#visit/seen` takes `seen`'s type. **Implementation correction,
+2026-10-19:** pull request 5 had already replaced `WHOLE_EXPRESSION_TYPES` with the closed
+`effectiveCaseTypes.ts::inferHiddenWriterType` / `inferExpressionType`, which pull request 6
+deletes; `effectiveCaseTypes`, `materializableCaseTypes` and `concreteCasePropertyWriterTypes` are
+projections of `lib/domain/expression/inference.ts::inferExpressionTypes`.
 
 Inference and writer agreement read **concrete** types only (part 03 §5.1), as
 `lib/domain/effectiveCaseTypes.ts::concreteInferenceCaseTypes` does today: a property no writer
@@ -898,6 +911,15 @@ expression agrees or is unknown, which keeps every admitted writer's bind as it 
 (say `datetime`) gives its Hidden writers that bind type; part 04 §5.4's census names each such bind
 change, and the cutover's dry run counts them at base and head.
 
+**Implementation correction, 2026-10-19: clock provenance.** The `field`, Hidden Value row's held
+class is bind × source slot × result (part 03 §5.1): a `calculate`'s text holds `string` under any
+bind, its number `number`, its `Date` `date`; a `default_value` under `xsd:string` holds `string`.
+A date and time whose clock may be gone (a `Date` of datetime or unknown data under an `xsd:string`
+bind, or a copy of one through any Hidden Value, branch or bind, since an `xsd:dateTime` bind cannot
+restore it) is `clockLost`, which `date-coerce` clears. Pull request 6 refuses it written into a
+date-and-time property; pull request 8 refuses it in an implicit instant comparison
+(`incompatible-values`, reason `clock-lost`). The bind keeps today's rule.
+
 ### 3.3 Operators
 
 | Arms | Result | Operand rule |
@@ -915,10 +937,31 @@ change, and the cutover's dry run counts them at base and head.
 | `cases`, `table-rows`, `locations` | `{ nodes: <row kind>, cardinality }` (`one` when a predicate fixes `@case_id`, or a `[1]` closes it), never `structural`; a `cases` row typed by §1.3 | predicates `boolean` |
 | `project` | `{ nodes: <value type>, cardinality and structural of of }` | a row node-set |
 | `selected-cases` | `{ nodes: "text", many, structural }`, `caseIdOf` the module's type | none |
-| `call` | the function's declared return (`lib/domain/expressionFunctions.ts::FUNCTION_REGISTRY`, and each Core function class's `evalBody` under `org/javarosa/xpath/expr/`) lifted onto the lattice: Boolean `boolean`, Double `decimal` except an integral function `int`, String `text`, Date `date`, `distinct-values` `sequence`; held likewise. The integral functions are `int`, `round` (one argument), `floor`, `ceiling`, `string-length`, `count-selected` and `position`, marked `integral: true` in `FUNCTION_REGISTRY`: Core stores an integral `Double` as `IntegerData` (`Recalculate.java::wrapData`, `isIntegral`), and step 2's manifest reader already types `count`, `count-selected` and `int` as integers (step 2 part 09, "Corpus changes") | the registry's `paramTypes`, with form coercions |
+| `call` | the function's declared return (`lib/domain/expressionFunctions.ts::FUNCTION_REGISTRY`, and each Core function class's `evalBody` under `org/javarosa/xpath/expr/`) lifted onto the lattice: Boolean `boolean`, Double `decimal` except an integral function `int`, String `text`, Date `date`, `distinct-values` `sequence`; held likewise. The integral functions are `int`, `round`, `floor`, `ceiling`, `string-length`, `count-selected` and `position` (**implementation correction, 2026-10-19:** Core's `round` has one argument, and `index-of` is not integral: `XPathIndexOfFunc.java::evalBody` returns `''` when nothing matches, so its result is text or a number by data, decision 15), marked `integral: true` in `FUNCTION_REGISTRY`: Core stores an integral `Double` as `IntegerData` (`Recalculate.java::wrapData`, `isIntegral`), and step 2's manifest reader already types `count`, `count-selected` and `int` as integers (step 2 part 09, "Corpus changes") | the registry's `paramTypes`, with form coercions |
 | `here` | `geopoint`, held `string` | none |
 | `project-day` | held by step 6 (§1.6) | none |
 | `value-list` | `{ nodes: <item type>, many }` | items agree; an item is a scalar or a `many` node-set of the item type, flattened (part 06 §3.6) |
+
+**Implementation correction, 2026-10-20 (pull request 6):** `number`, `sum`, `min` and `max` are
+`int` when every argument is `int` or yes/no, and `decimal` otherwise, as `arith` is; they carry
+`integralOverIntegers: true` in `FUNCTION_REGISTRY`. Each returns a `Double` that is whole for such
+arguments (`XPathNumberFunc.java::evalBody` is `FunctionUtils.toNumeric`, `XPathSumFunc.java::sum`
+adds each node's `toNumeric`, `XPathMinFunc.java::min` and `XPathMaxFunc.java::max` take
+`Math.min` / `Math.max` of them; `FunctionUtils.java::toNumeric` reads `true` as 1 and an integer's
+text through `Double.parseDouble`), and `Recalculate.java::wrapData` (lines 93 to 101) stores a whole
+`Double` as `IntegerData`, the reasoning that makes the seven functions above integral. So
+`number(text)` stays `decimal`. In form logic, branches agree on the scalar type they give, whether
+a node-set read or a scalar gives it, so `coalesce(#case/visits, 0)` is `int`. `cond`, the n-ary
+`if`, types as its values (each second argument and the last) agree, as an `if`'s branches do
+(`returnsBranch: true` in `FUNCTION_REGISTRY`), so `cond(c1, 1, c2, 2, 3)` is `int`, and a Hidden
+Value's write reads each `cond` value as one of its results, as it reads each `if` branch: a blank
+value holds no opinion, an ISO date text value fits a date property, and a lost clock in any value
+is refused. A single-select whose every inline option value is an optional `-` and digits within a
+Java `int`'s range (-2147483648 to 2147483647) is `int` wherever it is read as a number, in `number`, `sum`, `min`, `max` and `arith`, since `toNumeric` parses such text to a whole
+`Double` and a blank answer to NaN, which `wrapData` stores as null; a multi-select, or a select with
+any other option value, stays `decimal`. A wider whole number stays `decimal` because `wrapData`
+stores it as `LongData`, which an integer question's `IntegerData.cast` refuses through
+`Integer.parseInt`.
 
 ### 3.4 Compatibility and ordering
 
@@ -966,7 +1009,13 @@ refuse exactly:
    structural: a node-set argument of a function that takes one (`count`, `sum`, `join`, `max` and
    the rest of part 03 §3.4's `manyArguments` table), a step predicate's own content, an `if`
    branch (its caller decides), the `count` arm's `via`, a slot whose profile expects a node-set
-   (`ids_query`), and a `value-list` item, which the list flattens (part 06 §3.6);
+   (`ids_query`), and a `value-list` item, which the list flattens (part 06 §3.6).
+   **Implementation correction, 2026-10-19:** the table adds `index-of`'s first argument and
+   `depend`'s second and later, and admits `weighted-checklist`'s third and fourth only jointly; the
+   pass-through positions (`if` and `switch` branches, `coalesce`'s last argument, `depend`'s first,
+   `sleep`'s second, `cond`'s branches) carry the mark to their caller rather than exempting it; a
+   step predicate's content is admitted because the step is its context node, not by a blanket
+   exemption (part 03 §3.4);
 5. `boolean` compared with anything but `boolean` (`incompatible-values`, reason `boolean`);
 6. the literal-default rule of finding 72 (§4, "Defaults"), which admits `''` (part 03 §3.5);
 7. the target facts of the slot's profile (part 03 §3.10): `day-only-on-device` where the targets

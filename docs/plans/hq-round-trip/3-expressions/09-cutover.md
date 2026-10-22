@@ -88,6 +88,9 @@ once here, and other parts use these strings verbatim.
     `case-query-untyped`, `selected-cases` as one value, a prose repeat read used as one value and
     `day-only-on-device`. Each non-zero count is resolved by the author in the app before the window,
     and none waits on a decision there (§11).
+    **Implementation correction, 2026-10-19:** so is a clock-lost write
+    (`HIDDEN_VALUE_WRITER_TYPE_MISMATCH` or `CASE_OPERATION_EXPRESSION_TYPE`, reason `clock-lost`)
+    and a clock-lost comparison (`XPATH_INCOMPATIBLE_VALUES`, reason `clock-lost`; part 03 §5.4).
 
 ---
 
@@ -593,6 +596,7 @@ dogfooding, so each is theirs to resolve in the builder. Parts 03 and 05 count t
 | `selected-cases` as one value (`XPATH_MANY_VALUES`, part 05 §2.5): a batch form's selected cases read where one value is needed | `target-gate` | count or join the cases, or read the one the form needs | none: production holds no such read |
 | a structural repeat read in a prose part used as one value (`XPATH_MANY_VALUES`, part 03 §3.4), which the `repeat-read-first-row` step cannot filter | `target-gate` | choose a row, or count or join the rows | none or few: the scans did not read prose |
 | `day-only-on-device` (`XPATH_INCOMPATIBLE_VALUES`, part 03 §3.2, part 04 §3.4): a `casedb` system date compared with a moment | `target-gate` | compare the day with another day, or read a property that holds the moment | none or few |
+| `clock-lost` (**implementation correction, 2026-10-19**; part 03 §5.1, §5.4): a date and time that kept only its day, written into a date-and-time property (`HIDDEN_VALUE_WRITER_TYPE_MISMATCH` or `CASE_OPERATION_EXPRESSION_TYPE`) or compared as a moment (`XPATH_INCOMPATIBLE_VALUES`) | `target-gate` | read the date and time from the question or value that first recorded it, save it to a date property, or compare days with `date()` | none or few |
 
 Stops that are not an app's: a live holder (`holder`), a digest mismatch (`digest`), and in the census
 `unexplained` (§7), a defect of the stack.

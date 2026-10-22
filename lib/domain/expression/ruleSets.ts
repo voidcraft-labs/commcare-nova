@@ -62,6 +62,28 @@ export function isValueStorageAssignable(
 	);
 }
 
+/**
+ * Whether a writer's result can be saved to a destination: storage
+ * assignability, plus an ISO date text (`isoDateText`: a `format-date` with
+ * the fixed pattern `%Y-%m-%d`, `datePattern.ts::isIsoDateText`) into a
+ * `date` property. A follow-up question reads such text back through
+ * `DateData.cast` → `DateUtils.parseDate`, which takes exactly
+ * `YYYY-MM-DD`. Only a writer's verdict reads this: the value's type stays
+ * `text`, so a comparison or ordering never treats it as a date. A
+ * `datetime` property stays strict, since a day text there saves midnight,
+ * as a `date` value would.
+ */
+export function isWriteAssignable(
+	valueType: ResolvedType,
+	destinationType: CasePropertyDataType,
+	isoDateText: boolean,
+): boolean {
+	return (
+		isValueStorageAssignable(valueType, destinationType) ||
+		(isoDateText && valueType === "text" && destinationType === "date")
+	);
+}
+
 export function isNumeric(t: ResolvedType): boolean {
 	return t === "int" || t === "decimal";
 }
@@ -90,6 +112,30 @@ export function accumulateBranchType(
 		message: `${errorPrefix}; '${describe(candidate)}' is not comparable with the established '${describe(agreed)}'.`,
 	});
 	return agreed;
+}
+
+const ISO_DATE_SHAPE = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_DATETIME_SHAPE =
+	/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.(\d+))?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/;
+const TIME_SHAPE = /^\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+
+/**
+ * The type a string literal's text spells: an ISO date, an ISO date and time
+ * (with how many fraction digits its seconds carry), or a time of day. This
+ * reads a literal's value, never expression text.
+ */
+export function literalShape(
+	text: string,
+):
+	| { readonly type: "date" | "time"; readonly fractionDigits: 0 }
+	| { readonly type: "datetime"; readonly fractionDigits: number }
+	| undefined {
+	if (ISO_DATE_SHAPE.test(text)) return { type: "date", fractionDigits: 0 };
+	const datetime = ISO_DATETIME_SHAPE.exec(text);
+	if (datetime !== null)
+		return { type: "datetime", fractionDigits: datetime[1]?.length ?? 0 };
+	if (TIME_SHAPE.test(text)) return { type: "time", fractionDigits: 0 };
+	return undefined;
 }
 
 export function literalType(lit: Literal): ResolvedType {

@@ -133,7 +133,7 @@ describe("the finite form root coordinate", () => {
 			slot: "calculate",
 		});
 		expect(typeOf(root, ctx)?.data).toEqual(
-			expect.objectContaining({ structural: true }),
+			expect.objectContaining({ container: true }),
 		);
 		expect(formLogicFindings(root, ctx)).toEqual([]);
 	});

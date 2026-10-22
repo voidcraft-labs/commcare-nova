@@ -636,3 +636,203 @@ describe("userFacingError — what CommCare HQ cannot take", () => {
 		);
 	});
 });
+
+describe("userFacingError — the checker's and writer agreement's reasons", () => {
+	function finding(
+		code: ValidationErrorCode,
+		details: Record<string, string>,
+		location: Partial<ValidationError["location"]> = {},
+	): ValidationError {
+		return validationError(
+			code,
+			"field",
+			"internal implementation detail",
+			{
+				moduleName: "Clients",
+				formName: "Register Client",
+				fieldId: "visit_check",
+				field: "relevant",
+				...location,
+			},
+			details,
+		);
+	}
+
+	it.each([
+		[
+			"XPATH_INCOMPATIBLE_VALUES",
+			{ reason: "date-datetime" },
+			'A formula on "visit_check" in "Register Client" compares a date with a date and time. You can wrap the date and time in date() to compare days.',
+		],
+		[
+			"XPATH_INCOMPATIBLE_VALUES",
+			{ reason: "datetime-ordering" },
+			'A formula on "visit_check" in "Register Client" orders a date and time against something that isn\'t one. You can compare it with another date and time, or wrap it in date() to compare days.',
+		],
+		[
+			"XPATH_INCOMPATIBLE_VALUES",
+			{ reason: "boolean" },
+			'A formula on "visit_check" in "Register Client" compares a true-or-false result with another kind of value, and anything that isn\'t blank or zero counts as true. You can compare the two values themselves, or use the true-or-false result on its own.',
+		],
+		[
+			"XPATH_MANY_VALUES",
+			{ reason: "repeat", repeatId: "visits" },
+			'A formula on "visit_check" in "Register Client" reads an answer from every entry of the repeat "visits" where it needs one value. You can count or join the entries, or read just one of them.',
+		],
+		[
+			"XPATH_MANY_VALUES",
+			{ reason: "selected-cases", menuName: "Households" },
+			'A formula on "visit_check" in "Register Client" reads every case chosen in "Households" where it needs one value. You can count or join them.',
+		],
+		[
+			"XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+			{ reason: "here", hereSurface: "form" },
+			'A formula on "visit_check" in "Register Client" uses here(), which is where the worker is. A case list knows that and a form doesn\'t. You can add a location question and use its answer instead.',
+		],
+		[
+			"XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+			{ reason: "here", hereSurface: "record" },
+			'A formula on "visit_check" in "Register Client" uses here(), which is where the worker is. Only a case list\'s calculated column can read that. You can show it in a calculated column instead.',
+		],
+		[
+			"XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+			{ reason: "choice-name-dynamic", choiceFieldId: "village" },
+			'A formula on "visit_check" in "Register Client" asks for the label of a choice of "village", whose choices come from a Project data table or from cases. You can read the label from where the choices come from instead.',
+		],
+		[
+			"XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+			{ reason: "choice-name", choiceFieldId: "village" },
+			'A formula on "visit_check" in "Register Client" asks for the label of a choice of "village", which a form can\'t read here. You can use the answer itself instead.',
+		],
+		[
+			"TYPE_ERROR",
+			{ reason: "datetime-literal-precision" },
+			'A formula on "visit_check" in "Register Client" has a time finer than a millisecond, and CommCare compares times to the millisecond. You can choose a time to the millisecond, second or minute.',
+		],
+		[
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			{
+				reason: "type",
+				property: "visit_date",
+				valueType: "text",
+				propertyType: "date",
+				consequence: "stops-form",
+			},
+			'"visit_check" saves text to "visit_date", which holds dates. A form that fills a question from it would stop when it opens. You can change its calculation to give a date, or save it somewhere else.',
+		],
+		[
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			{
+				reason: "type",
+				property: "tags",
+				valueType: "text",
+				propertyType: "multi_select",
+				consequence: "wrong-kind",
+			},
+			'"visit_check" saves text to "tags", which holds several choices. Forms and case lists that read it would get the wrong kind of value. You can change its calculation to give several choices, or save it somewhere else.',
+		],
+		[
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			{
+				reason: "type",
+				property: "visit_date",
+				valueType: "text",
+				valueTypes: "text,int",
+				propertyType: "date",
+				consequence: "stops-form",
+			},
+			'"visit_check" saves text or a whole number to "visit_date", which holds dates. A form that fills a question from it would stop when it opens. You can change its calculation to give a date, or save it somewhere else.',
+		],
+		[
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			{ reason: "clock-lost", property: "seen_at", clockSource: "stamp" },
+			'"visit_check" saves to "seen_at", which holds dates and times, but its value keeps only the day because "stamp" doesn\'t keep the time. You can save it from a question or now() instead.',
+		],
+		[
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			{
+				reason: "hidden-disagreement",
+				disagreement: "others",
+				property: "score",
+				valueType: "int",
+			},
+			'"visit_check" saves a whole number to "score", but other hidden values save a different kind of value there. You can have them all give the same kind, or save this one somewhere else.',
+		],
+		[
+			"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+			{
+				reason: "hidden-disagreement",
+				disagreement: "own",
+				property: "score",
+				valueType: "int",
+				valueTypes: "int,text",
+			},
+			'"visit_check" saves a whole number or text to "score" from different results, so the property has no one kind of value. You can have every result of its calculation give the same kind.',
+		],
+		[
+			"SELECT_PRELOAD_WRITE_NOT_AN_OPTION",
+			{
+				value: "z",
+				property: "stage",
+				readerField: "stage_question",
+				readerForm: "Visit",
+			},
+			'"visit_check" saves "z" to "stage", which "stage_question" in "Visit" starts on, but "z" isn\'t one of its choices. You can save one of its choices instead, or save it somewhere else.',
+		],
+	] as const)("renders %s with %j as its own line", (code, details, line) => {
+		expect(userFacingError(finding(code, { ...details }))).toBe(line);
+	});
+
+	it("names the starting value a Hidden Value's type comes from", () => {
+		expect(
+			userFacingError(
+				finding(
+					"HIDDEN_VALUE_WRITER_TYPE_MISMATCH",
+					{ property: "score", valueType: "text", propertyType: "int" },
+					{ field: "default_value" },
+				),
+			),
+		).toBe(
+			'"visit_check" saves text to "score", which holds whole numbers. You can change its starting value to give a whole number, or save it somewhere else.',
+		);
+	});
+
+	it("names a case operation that saves a value none of the choices hold", () => {
+		expect(
+			userFacingError(
+				finding(
+					"SELECT_PRELOAD_WRITE_NOT_AN_OPTION",
+					{
+						value: "z",
+						property: "stage",
+						readerField: "stage_question",
+						readerForm: "Visit",
+						operationId: "mark_stage",
+					},
+					{ fieldId: undefined },
+				),
+			),
+		).toMatch(/^The case operation "mark_stage" saves "z" to "stage"/);
+	});
+
+	it("explains a case operation value whose clock is gone", () => {
+		expect(
+			userFacingError(
+				finding("CASE_OPERATION_EXPRESSION_TYPE", { reason: "clock-lost" }),
+			),
+		).toBe(
+			"A value in this case operation keeps only the day of a date and time, so saving it here would record midnight instead of the moment. You can save it from a question or now() instead.",
+		);
+	});
+
+	it("keeps each code's line for a finding without a reason", () => {
+		expect(userFacingError(finding("TYPE_ERROR", {}))).toBe(
+			'A formula on "visit_check" in "Register Client" uses text where it needs a number, so the result might come out wrong. Check the values it\'s working with.',
+		);
+		expect(
+			userFacingError(finding("XPATH_FUNCTION_CONTEXT_UNAVAILABLE", {})),
+		).toBe(
+			"A function in a formula needs information that isn't available here. Use it where that information is available, or rewrite the formula.",
+		);
+	});
+});
