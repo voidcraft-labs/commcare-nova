@@ -40,6 +40,27 @@ it("widens references where they are used while leaving shared creation IDs stri
 		}),
 		{ target: "draft-7", reused: "ref" },
 	);
+	const input = {
+		moduleUuid: "Visits",
+		operations: [
+			{
+				operationUuid: "01890f45-0000-7000-8000-000000000001",
+				operation: { target: { idFrom: "case_key" } },
+			},
+		],
+	};
+	expect(
+		namedIdentityInputs("addCaseOperations", canonical, input).map(
+			({ family, path, value }) => ({ family, path, value }),
+		),
+	).toEqual([
+		{ family: "module", path: ["moduleUuid"], value: "Visits" },
+		{
+			family: "field",
+			path: ["operations", 0, "operation", "target", "idFrom"],
+			value: "case_key",
+		},
+	]);
 	projectNamedIdentitySchemas("addCaseOperations", canonical);
 	expect(canonical.properties?.moduleUuid).toEqual({
 		type: "string",
@@ -47,15 +68,6 @@ it("widens references where they are used while leaving shared creation IDs stri
 		description: "Module name or stable ID.",
 	});
 	const schema = z.fromJSONSchema(canonical, { registry: z.registry() });
-	const input = {
-		moduleUuid: "Visits",
-		operations: [
-			{
-				operationUuid: "01890f45-0000-7000-8000-000000000001",
-				operation: { target: { idFrom: "register_visit" } },
-			},
-		],
-	};
 	expect(schema.safeParse(input).success).toBe(true);
 	expect(
 		schema.safeParse({

@@ -3,7 +3,7 @@
  * structured-output request. Offline checks cover the projection and local
  * validation; provider acceptance and generation remain external behavior.
  *
- * Same idiom as the SA tool surface's `wireSchemas.ts`: the WIRE shape is a
+ * Same idiom as the shared tool authoring boundary: the wire shape is a
  * projection; the Zod schema stays untouched as the real gate (including
  * refinements that the provider schema cannot express). The projection:
  *

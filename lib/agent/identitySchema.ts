@@ -177,6 +177,7 @@ export function classifyIdentity(
 		property === "parentUuid" ||
 		property === "afterFieldUuid" ||
 		property === "beforeFieldUuid" ||
+		property === "idFrom" ||
 		property === "field" ||
 		property === "repeat"
 	) {
@@ -225,8 +226,7 @@ export function classifyIdentity(
 	if (
 		property === "operationUuid" ||
 		property === "afterOperationUuid" ||
-		property === "opUuid" ||
-		property === "idFrom"
+		property === "opUuid"
 	) {
 		return "case-operation";
 	}

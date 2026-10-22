@@ -1,13 +1,10 @@
 /** Real input admission, tool planners, commit gate and reducer. The writer
  * is controlled; these tests do not prove SQL concurrency or wire execution. */
-import Ajv from "ajv";
-import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
-import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
@@ -314,12 +311,8 @@ describe("case-operation canonical author boundary", () => {
 		expect(link("update")).toEqual([]);
 	});
 
-	it("publishes the same UUID and lookup vocabulary on the chat wire", async () => {
+	it("admits UUID and lookup vocabulary in canonical schemas", () => {
 		const { moduleUuid, formUuid } = fixture();
-		const wire = wireToolSchema(addCaseOperationsInputSchema);
-		const ajv = new Ajv({ strict: false });
-		addFormats(ajv);
-		const admitsWire = ajv.compile(await wire.jsonSchema);
 		expect(
 			caseOperationInputSchema.safeParse({
 				...createVisit,
@@ -334,10 +327,9 @@ describe("case-operation canonical author boundary", () => {
 				item({ ...createVisit, owner: lookupExpression }, CREATE_UUID),
 			],
 		};
-		expect(admitsWire(validInput), JSON.stringify(admitsWire.errors)).toBe(
+		expect(addCaseOperationsInputSchema.safeParse(validInput).success).toBe(
 			true,
 		);
-		expect((await wire.validate?.(validInput))?.success).toBe(true);
 		const invalidInput = {
 			moduleUuid,
 			formUuid,
@@ -354,18 +346,17 @@ describe("case-operation canonical author boundary", () => {
 				},
 			],
 		};
-		// Nested AST slots are deliberately open in the bounded provider projection;
-		// canonical runtime validation owns the full recursive grammar.
-		expect(admitsWire(invalidInput)).toBe(true);
 		expect(
-			admitsWire({
+			addCaseOperationsInputSchema.safeParse({
 				...validInput,
 				operations: [
 					{ ...validInput.operations[0], operationUuid: "create_visit" },
 				],
-			}),
+			}).success,
 		).toBe(false);
-		expect((await wire.validate?.(invalidInput))?.success).toBe(false);
+		expect(addCaseOperationsInputSchema.safeParse(invalidInput).success).toBe(
+			false,
+		);
 	});
 
 	it("accepts UUID anchors and rejects numeric placement on add and move", () => {

@@ -4,13 +4,7 @@
  * route owns run finalization; new-app design and construction live in build/.
  */
 
-import {
-	type FlexibleSchema,
-	isStepCount,
-	ToolLoopAgent,
-	type ToolSet,
-} from "ai";
-import type { ZodType } from "zod";
+import { isStepCount, ToolLoopAgent, type ToolSet } from "ai";
 import { promptCacheKeys } from "@/lib/agent/promptCacheKeys";
 import { projectModelHistoryFromNewestCompaction } from "@/lib/chat/compaction";
 import { AuthoringAuthorityError } from "@/lib/db/authoringSessions";
@@ -39,7 +33,7 @@ import {
 } from "./sharedToolRegistry";
 import { withoutToolPresentation } from "./toolResults";
 import { askQuestionsTool } from "./tools/askQuestions";
-import { wireToolSchema } from "./wireSchemas";
+import { providerToolSchema } from "./wireSchemas";
 
 // ── Solutions Architect Agent ────────────────────────────────────────
 
@@ -48,13 +42,6 @@ import { wireToolSchema } from "./wireSchemas";
  *  request id). Typed structurally so the wrapper survives SDK minor bumps. */
 interface ToolCallOptionsLike {
 	toolCallId?: string;
-}
-
-/** Chat-surface wire projection — AST stubs on the wire, full Zod
- *  validation intact (`wireSchemas.ts`). Every SA tool is Zod-schema'd,
- *  so the cast holds. */
-function wire<I>(schema: FlexibleSchema<I>): FlexibleSchema<I> {
-	return wireToolSchema(schema as ZodType<I>);
 }
 
 /** Steps per turn: the tool loop stops here whatever the model wants next. */
@@ -100,7 +87,7 @@ export function solutionsArchitectToolDefinitions(): ToolSet {
 		},
 		askQuestions: {
 			description: askQuestionsTool.description,
-			inputSchema: wire(askQuestionsTool.inputSchema),
+			inputSchema: providerToolSchema(askQuestionsTool.inputSchema),
 			strict: false,
 		},
 		...Object.fromEntries(

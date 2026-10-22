@@ -1,5 +1,5 @@
 /** Actual author-input boundaries. Full emitted-schema generation is covered
- * by wireSchemas/lookupAuthorBoundary; this suite makes no provider-specific
+ * by lookupAuthorBoundary; this suite makes no provider-specific
  * optional-count or native wire claim. */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
