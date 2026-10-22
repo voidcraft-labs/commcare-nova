@@ -4,8 +4,10 @@
 checkout (``PROOF_CORE``, /opt/core in the image) with Gradle offline against
 the image's warm Gradle home, the proof classes in ``core/`` added to Core's
 test source set by ``core/native-proof.init.gradle``, and the harness's native
-output directory on the test JVM's classpath. It returns each class's results
-as JUnit reported them.
+output directory on the test JVM's classpath. With ``zones`` it also runs
+``novaZones``: each zone's classes in a JVM of their own after one compilation.
+It returns the suite's and each zone's results separately as JUnit reported
+them, so one zone's passing result cannot stand in for another's failure.
 
 Gradle's exit status speaks only for the build (the init script sets
 ``ignoreFailures``): a class that fails is reported from its JUnit XML, and a
@@ -29,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from proof import processes
+from proof.native.families import ZONED_CLASSES, Zone
 
 CORE_DIR = Path(os.environ.get("PROOF_CORE", "/opt/core"))
 SOURCES = Path(__file__).resolve().parent / "core"
@@ -75,6 +78,10 @@ class CoreRun:
     seconds: float
     log: Path
     classes: dict[str, CoreClass]
+    zoned: dict[tuple[str, str], CoreClass] = field(default_factory=dict)
+    # Keep even an empty directory: otherwise an unknown zone that ran no
+    # tests would disappear before the exact-coverage check could report it.
+    zone_directories: tuple[str, ...] = ()
 
 
 def _parse_report(path: Path) -> CoreClass:
@@ -94,9 +101,14 @@ def _parse_report(path: Path) -> CoreClass:
     return result
 
 
-def core_tests_command(selection: str, *, native_dir: Path, reports: Path) -> list[str]:
+def core_tests_command(selection: str, *, native_dir: Path, reports: Path, zones: tuple[Zone, ...] = ()) -> list[str]:
     """Gradle's command line for the proof classes ``selection`` names (a Gradle ``--tests`` pattern)."""
-    return [
+    if reports.resolve().is_relative_to(native_dir.resolve()):
+        raise ValueError(
+            "Core's JUnit reports must be outside the native resource directory: "
+            "that directory is every test JVM's classpath input."
+        )
+    command = [
         "gradle",
         "--offline",
         "--no-daemon",
@@ -110,14 +122,46 @@ def core_tests_command(selection: str, *, native_dir: Path, reports: Path) -> li
         "--tests",
         f"{PACKAGE}.{selection}",
     ]
+    if zones:
+        contexts = []
+        for zone in zones:
+            classes = sorted(name for name, class_zones in ZONED_CLASSES.items() if zone in class_zones)
+            if not classes:
+                raise ValueError(f"Native Core zone {zone.label!r} names no class in ZONED_CLASSES.")
+            contexts.append(
+                "|".join((zone.label, zone.jvm, zone.provider or "", str(zone.offset_only).lower(), "+".join(classes)))
+            )
+        command.extend((f"-PnovaProofZones={';'.join(contexts)}", "novaZones"))
+    return command
 
 
-def run_core_tests(selection: str, *, native_dir: Path, work_dir: Path) -> CoreRun:
+def _read_reports(reports: Path):
+    """Keep the suite's and every zone's reports apart, including unexpected zone directories."""
+    classes = {}
+    zoned = {}
+    directories = tuple(sorted(path.name for path in (reports / "zones").glob("*") if path.is_dir()))
+    for label, directory in [(None, reports / "suite"), *((label, reports / "zones" / label) for label in directories)]:
+        for path in sorted(directory.glob("TEST-*.xml")):
+            result = _parse_report(path)
+            results = classes if label is None else zoned
+            key = result.name if label is None else (result.name, label)
+            if key in results:
+                raise CoreBuildFailed(
+                    f"Core's Gradle build reported {result.name} more than once in {label or 'the suite'}. "
+                    f"Each class must run once in its JVM; inspect {directory}."
+                )
+            results[key] = result
+    return classes, zoned, directories
+
+
+def run_core_tests(
+    selection: str, *, native_dir: Path, work_dir: Path, zones: tuple[Zone, ...] = ()
+) -> CoreRun:
     """Run the proof classes ``selection`` names (a Gradle ``--tests`` pattern) and read their results."""
     reports = work_dir / "junit"
     work_dir.mkdir(parents=True, exist_ok=True)
     log = work_dir / "gradle.log"
-    command = core_tests_command(selection, native_dir=native_dir, reports=reports)
+    command = core_tests_command(selection, native_dir=native_dir, reports=reports, zones=zones)
     environment = {**os.environ, "GRADLE_OPTS": GRADLE_JVM_ARGS}
     started = time.perf_counter()
     try:
@@ -143,8 +187,7 @@ def run_core_tests(selection: str, *, native_dir: Path, work_dir: Path) -> CoreR
             f"{returncode}. A proof class that no longer compiles against Core at the pin shows here; "
             f"the whole output is in {log}.\n{tail}"
         )
-    classes = {}
-    for path in sorted(reports.glob(f"TEST-{PACKAGE}.*.xml")):
-        result = _parse_report(path)
-        classes[result.name] = result
-    return CoreRun(selection=selection, seconds=seconds, log=log, classes=classes)
+    classes, zoned, directories = _read_reports(reports)
+    return CoreRun(
+        selection=selection, seconds=seconds, log=log, classes=classes, zoned=zoned, zone_directories=directories
+    )

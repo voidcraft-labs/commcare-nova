@@ -56,8 +56,8 @@ _CERTIFICATE_DAYS = "7"
 
 
 class PeerFailed(Exception):
-    """What answers the device's network raised, which ends the request: the harness's refusal, never HQ's
-    answer (HQ's own views answer what they refuse)."""
+    """The harness could not answer the device's network, which ends the request; never HQ's answer
+    (HQ's own views answer what they refuse)."""
 
 
 class PastDeadline(Exception):
@@ -323,6 +323,13 @@ class Proxy:
                     return
                 pending = self._ready.popleft()
             with pending.connection:
+                started = time.perf_counter()
+                # Request context is bounded and excludes the query, host, credentials and content.
+                what = (
+                    f"the device's message {pending.control[:32]!r}"
+                    if pending.control is not None
+                    else f"{pending.request.method[:16]} {pending.request.path[:256]}"
+                )
                 try:
                     if pending.control is not None:
                         self.peer.control(pending.control, pending.name)
@@ -334,20 +341,19 @@ class Proxy:
                         write_answer(pending.connection, 503, (), b"")
                     except OSError:
                         pass
-                    what = (
-                        f"the device's message {pending.control}"
-                        if pending.control is not None
-                        else f"{pending.request.method} {pending.request.url}"
-                    )
                     raise PeerFailed(
                         f"What answers the Android device's network raised on {what}: {error!r}"
                     ) from error
                 try:
                     write_answer(pending.connection, status, headers, body)
-                except OSError:
+                except OSError as error:
                     # A device that stopped waiting for its answer (its JVM ended) reads none.
                     if not self._closing:
-                        raise
+                        raise PeerFailed(
+                            f"The Android device's proxy could not send HTTP {status} ({len(body)} response bytes)"
+                            f" for {what} after {time.perf_counter() - started:.3f} s answering the request:"
+                            f" {error!r}"
+                        ) from error
 
     def serve(self, command, *, timeout: float, cwd, log) -> int:
         """Runs the JVM to its end, answering each request its device makes as it comes; the JVM's exit status.

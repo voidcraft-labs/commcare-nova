@@ -238,13 +238,17 @@ run took 3.4 to 3.7 seconds by its JUnit report, including the probe's 1,000-cas
   `includeTestsMatching` for its classes, `systemProperty('user.timezone', jvm)`,
   `nova.proof.zone.label`, `nova.proof.zone.jvm`, `nova.proof.zone.provider` and
   `nova.proof.zone.offsetOnly`, and its JUnit XML under `<reports>/zones/<label>/`; `novaZones`
-  depends on all of them. The header comment says why a zoned class never shares the suite's JVM.
+  depends on all of them. The unzoned task writes `<reports>/suite/`, so their outputs are
+  disjoint. The header comment says why a zoned class never shares the suite's JVM.
 - `proof/native/core_suite.py::core_tests_command(selection, *, native_dir, reports, zones=())`
   appends `-PnovaProofZones=…` and the `novaZones` task when `zones` is given, so one Gradle
-  invocation compiles once and runs the suite's JVM and every zone's.
-  `run_core_tests` reads `zones/<label>/TEST-*.xml` into `CoreRun.zoned: dict[tuple[str, str], CoreClass]`
+  invocation compiles once and runs the suite's JVM and every zone's. It refuses reports below
+  the native classpath root: a task's output cannot also be another task's resource input.
+  `run_core_tests` reads `suite/TEST-*.xml` into `CoreRun.classes` and
+  `zones/<label>/TEST-*.xml` into `CoreRun.zoned: dict[tuple[str, str], CoreClass]`
   keyed by `(class, label)`. `NativeSession.core()` passes `families.ZONES` with `ZONED_CLASSES` for
-  the `"*"` selection; `media_certificate` passes none.
+  the `"*"` selection; `media_certificate` passes none. The session keeps Core's logs and reports
+  in the `native-core/` sibling of its `native/` resources and clears both roots at session start.
 - `proof/native/test_core_runtime.py`: `test_core_runs_the_proof_class` is parametrized over the
   unzoned classes and over `(class, zone)` pairs (ids `InstantOrderingRuntimeTest[new-york]`), each
   reading its own result. `test_gradle_runs_exactly_the_listed_classes` asserts, beside today's two
@@ -256,7 +260,7 @@ run took 3.4 to 3.7 seconds by its JUnit report, including the probe's 1,000-cas
   offset-only and for no provider). A mechanism that silently stops applying (the `GRADLE_OPTS`
   case) fails there by name, before any value is read.
 - `proof/README.md`, "Native proofs" ("How a family runs", point 4, and "What each run leaves":
-  `core/suite/junit/zones/<label>/`) and the family's own section.
+  `native-core/suite/junit/zones/<label>/`) and the family's own section.
 
 ### 2.2 The `expression` family
 
@@ -300,7 +304,7 @@ Rows, each run in all seven setups:
 | DST | America/New_York fall-back, `2026-11-01T01:30-04:00` and `01:30-05:00`, typed and as text; spring-forward, `2026-03-08T01:59-05:00` and `03:00-04:00` |
 | Dates | a date against a date (bare, both typed and text), and a date coerced to a datetime against a datetime of the same UTC day, entering as the UTC-midnight day number |
 | `now()` | a typed answer and a text operand against `now()` under the run's clock, bounded by the instants before and after |
-| Malformed | the probe's 28 malformed texts against a typed answer and each other: no evaluation throws, and every ordering with one is false |
+| Malformed-input corpus | the probe's 28 texts against a typed answer and each other; this is an input corpus, not a strict grammar classification. Every lowered evaluation must finish without throwing. The bare control preserves Core's date-only exception: `2026-01-02` orders as a calendar day (`commcare-core` at `8e9ba8d908e9`, `org/javarosa/xpath/expr/FunctionUtils.java::toNumeric`, its character check followed by `attemptDateConversion`; `DateUtils.java::parseDateTime` accepts a date without `T`). Its other datetime spellings are NaN in bare numeric comparisons. The lowering's eight numeric results, a valid nine-digit fraction and seven permissive malformed shapes, retain part 04 §3.1's specified results rather than an incorrect all-false assertion. No numeric result claims the text is a valid authored datetime. |
 
 ### 2.3 Finding 56's seven requirements, each to its test
 
@@ -1227,7 +1231,7 @@ issue with each group's rerun line. A merge early in the week gets that verdict 
 
 ## 7. Pull request 1, the lane mechanics
 
-It changes nothing Nova emits and moves no existing document's key. Its only file under `lib` is
+It changes nothing Nova emits and moves no existing document's observation key. Its only file under `lib` is
 the test table `lib/commcare/__tests__/instantOrderingTable.ts`. The cutover's pre-step half (frozen
 fixtures, frozen printer, normalizer, base emitter) is not here: it is pull request 2, the cutover
 skeleton (part 09 §3). Every entry below is the one the executed run held (R1 without readers, run
@@ -1376,10 +1380,31 @@ showed (run 39078199859, §6.4).
     document carries one, `item_group` of an item carrying the parameter `_first_document_with_forms()`
     builds is `proof/checks/test_alignment.py`, as `proof/hq/test_branches.py`'s case for a left-out
     document reads its items.
+11. **Suite locality maps Nova's four detail roles through paired module menus**, a generic lane-mechanics
+    correction in `proof/checks/proof5.py`, with a pure regression in
+    `proof/checks/test_proof5_locality.py`. A nested-menu edit can reuse `case_id` for the parent
+    selection after it named the child selection. Pairing details by that raw datum id aliases
+    the unchanged parent's details to the child's and reports changes the emitted bytes do not
+    hold. Module ownership plus a reference role also cannot distinguish a module move combined
+    with retargeting to a retained, unread detail. Instead, Core's independently placed, paired
+    module menu ids anchor a complete closed map of Nova's four generated detail roles:
+    `${menuId}_${case|search}_${short|long}`. Each exact detail definition must exist on both
+    sides, and every pair must be globally unique and one-to-one. No datum or reference pairs
+    details; no case-type, order or content fallback does; arbitrary detail ids remain unmapped.
+    Detail locales pair only through this accepted map. This narrowly amends the locality
+    contract's "never from an id's text" rule for these four Nova-owned names, whose templates
+    `lib/commcare/suite/case-list/shortDetail.ts` and `longDetail.ts` emit. It changes neither HQ
+    comparison nor emitted wire. The regression keeps the unchanged parent stable and exposes
+    real retargets and detail changes outside the footprint, including retained unread details.
+    Pull request 5's `targeted-session-reads` exposed the
+    pre-existing mapper defect; that document and its edit remain in pull request 5. This
+    correction changes the judge and harness fingerprints only, preserving observations,
+    footprint rules, spelling rules and registers.
 
 Its own checks: the slice of §6.3 with the gate told the three datetime documents;
 `proof/checks/test_registers.py`, `test_controls.py`, `test_manifest_value_classes.py`,
-`test_alignment.py`; `test_core_runtime.py`; and its pull request lane, which leaves item 7's four
+`test_alignment.py`, the pure suite-mapping regression in `test_proof5_locality.py`;
+`test_core_runtime.py`; and its pull request lane, which leaves item 7's four
 served entries and its stop to the run with every reader.
 
 ---
@@ -1393,6 +1418,7 @@ served entries and its stop to the run with every reader.
   `datetimeEquality.ts` (part 06's), `proof/targeted/index.ts`, `proof/controls/targeted-datetime-operands/`,
   `proof/controls/targeted-datetime-equality/`, `proof/known-defects.json` (eleven entries),
   `proof/walk-stops.json` (one entry, 29 to 30), `proof/checks/test_alignment.py` (§7 item 10),
+  `proof/checks/proof5.py` and `proof/checks/test_proof5_locality.py` (§7 item 11),
   `proof/checks/registers.py` (`75: 3`), `proof/checks/manifest_value_classes.py` (`_time_kind`'s
   type reader), `proof/checks/manifest_usage.py` (handing the case types to the suite documents),
   `proof/checks/controls.py` and `proof/checks/corpus.py` (the optional derived `caseTypes`),

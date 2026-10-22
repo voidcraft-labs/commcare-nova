@@ -12,6 +12,10 @@ later inside a tunnel and nothing earlier, whatever the Python it runs on would 
 deadline is stopped and the request ends with ``PastDeadline``, which the reader's client reports as a request
 left unanswered, with how far the device had walked (``proof.android.client``); the failure there is a deadline
 read as a JVM that could not start, which a ``TimeoutError`` (an ``OSError``) was.
+A response-write failure also ends the request with ``PeerFailed``: the reader retains the subprocess log
+and bounded request context, preserves the socket error as its cause, and stops and reaps the device before
+removing its temporary files. An ``OSError`` escaping the proxy used to call this a JVM that could not start
+and discard the log that could explain why the device stopped reading.
 
 The device here is a Python process making its requests through the proxy with the authority as its only
 trust, as the JVM's client does (CommCare Android's own client is held to the same proxy in
@@ -21,6 +25,7 @@ trust, as the JVM's client does (CommCare Android's own client is held to the sa
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import ssl
 import sys
@@ -137,6 +142,71 @@ def test_a_request_the_harness_cannot_answer_ends_the_request_after_the_device_i
             _serve(peer, Path(directory))
     # The request before it was answered; nothing after it was asked.
     assert [r.path for r in peer.requests] == ["/a/space/phone/restore/"]
+
+
+def test_a_response_the_device_stops_reading_keeps_its_context_and_log_and_reaps_the_device(tmp_path, monkeypatch):
+    from proof.android import client
+
+    body = b"private-response-body".ljust(8 * 1024 * 1024, b"x")
+
+    class Answered:
+        def http(self, request):
+            return 500, (("X-Private", "private-response-header"),), body
+
+    # Read the response headers, then reset the real connection before its body fits in the socket buffer.
+    # Stay alive until the proxy stops and reaps us: this is a failed response write, not a JVM exit.
+    device = textwrap.dedent(
+        r"""
+        import os, signal, socket, struct, sys
+        host, port = sys.argv[1].split(":")
+        connection = socket.create_connection((host, int(port)), timeout=10)
+        target = "http://example.test/a/space/phone/search/" + "x" * 600 + "?private-query"
+        body = b"private-request-body"
+        connection.sendall((
+            "POST " + target + " HTTP/1.1\r\nHost: example.test\r\n"
+            "Authorization: private-authorization\r\nX-Private: private-request-header\r\n"
+            "Content-Length: " + str(len(body)) + "\r\n\r\n"
+        ).encode() + body)
+        headers = b""
+        while not headers.endswith(b"\r\n\r\n"):
+            received = connection.recv(1)
+            if not received:
+                raise RuntimeError("The proxy closed before answering the request")
+            headers += received
+        print("device received HTTP 500; process " + str(os.getpid()), file=sys.stderr, flush=True)
+        connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        connection.close()
+        signal.pause()
+        """
+    )
+    reader = client.AndroidReader()
+    reader._work = tmp_path / "reader"
+
+    def command(request, answer, temporary, proxy, drawn):
+        return [sys.executable, "-I", "-c", device, proxy.address], str(tmp_path)
+
+    # Substitute only the executable boundary; request(), the proxy and process ownership remain real.
+    monkeypatch.setattr(reader, "_command", command)
+    try:
+        with pytest.raises(client.PeerFailed) as failed:
+            reader.request("app", deadline=20, peer=Answered())
+        error = failed.value
+        assert isinstance(error.__cause__, network.PeerFailed)
+        assert isinstance(error.__cause__.__cause__, OSError)
+        message = str(error.__cause__)
+        assert "POST /a/space/phone/search/" in message
+        assert f"HTTP 500 ({len(body)} response bytes)" in message
+        assert "after " in message and " s answering the request" in message
+        assert len(message) < 500
+        assert "private-" not in message
+        assert "example.test" not in message
+        assert "device received HTTP 500; process " in error.log
+        pid = int(error.log.split("process ")[-1].strip())
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+        assert not (reader._work / "request-1").exists()
+    finally:
+        reader.close()
 
 
 def test_a_device_past_its_deadline_is_stopped_and_reported_as_unanswered_with_how_far_it_walked():

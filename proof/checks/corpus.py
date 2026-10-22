@@ -68,8 +68,8 @@ documents themselves: it holds no ``document.json``, whose ``doc`` is Nova's
 persistable shape, which a later cutover changes. What the checks derive
 from D and D' is written beside the files when the control is retained
 (``derived.json``: the wire layout and languages, the intent, the lookup
-tags and the case database, ``DERIVED``), so a control reads the same
-whatever shape Nova's document later takes.
+tags, the case database and, where retained, case-property types, ``DERIVED``),
+so a control reads the same whatever shape Nova's document later takes.
 
 Nothing here runs HQ or Core; it reads files and refuses a layout it cannot
 read, naming the file and what it lacks. The one HQ reach is a
@@ -402,6 +402,8 @@ def _first_publish(directory: Path):
 # key a check reads, by the document it was derived from.
 DERIVED = "derived.json"
 DERIVED_KEYS = frozenset({"wire", "intent", "lookupTags", "caseDatabase"})
+# Controls retained before a check read this metadata keep their original bytes and answer None for it.
+OPTIONAL_DERIVED_KEYS = frozenset({"caseTypes"})
 
 
 @dataclass(frozen=True)
@@ -556,8 +558,14 @@ class Document:
         if not isinstance(value, dict) or not isinstance(value.get("D"), dict):
             raise CorpusLayoutError(f"{path} holds {{D: {{...}}, D'?: {{...}}}}, what the checks derive from each.")
         for name, held in value.items():
-            if name not in ("D", "D'") or not isinstance(held, dict) or set(held) != DERIVED_KEYS:
-                raise CorpusLayoutError(f"{path}: {name} holds exactly {sorted(DERIVED_KEYS)}.")
+            if (
+                name not in ("D", "D'")
+                or not isinstance(held, dict)
+                or not DERIVED_KEYS <= set(held) <= DERIVED_KEYS | OPTIONAL_DERIVED_KEYS
+            ):
+                raise CorpusLayoutError(
+                    f"{path}: {name} holds {sorted(DERIVED_KEYS)}, and optionally {sorted(OPTIONAL_DERIVED_KEYS)}."
+                )
         return value
 
     def derived(self, key, *, edit=False):
@@ -569,7 +577,18 @@ class Document:
         held = self._derived.get(name)
         if held is None:
             raise CorpusLayoutError(f"{self.root / DERIVED} holds nothing of {name}, which a check reads.")
-        return held[key]
+        return held.get(key) if key in OPTIONAL_DERIVED_KEYS else held[key]
+
+    def case_types(self, *, edit=False):
+        """Each declared case property's data type, by case type and property name, or None for a control
+        retained before this metadata. No type is inferred: a declaration without one stays None."""
+        if self.kind == "control":
+            return self.derived("caseTypes", edit=edit)
+        document = self.edit_document if edit else self.document
+        return {
+            case_type["name"]: {prop["name"]: prop.get("data_type") for prop in case_type.get("properties") or []}
+            for case_type in (document.get("doc") or {}).get("caseTypes") or []
+        }
 
     def _wire(self, edit):
         held = self.derived("wire", edit=edit)

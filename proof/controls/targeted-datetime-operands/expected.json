@@ -1,0 +1,88 @@
+{
+	"intent": [
+		{
+			"id": "seen-before-now-local",
+			"export": "local",
+			"form": "4e9bc530-adca-59f4-a7ff-5e0eec439560",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f1",
+					"data": {
+						"case_id": "targeted-visit-amina"
+					}
+				},
+				"expressions": [
+					"/data/now_order"
+				],
+				"clock": "2026-03-01T11:00:00.000Z"
+			},
+			"expect": [
+				{
+					"pointer": "/values/0/value",
+					"value": "seen before now"
+				}
+			]
+		},
+		{
+			"id": "seen-before-now-a",
+			"export": "A",
+			"form": "4e9bc530-adca-59f4-a7ff-5e0eec439560",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m0-f1",
+					"data": {
+						"case_id": "targeted-visit-amina"
+					}
+				},
+				"expressions": [
+					"/data/now_order"
+				],
+				"clock": "2026-03-01T11:00:00.000Z"
+			},
+			"expect": [
+				{
+					"pointer": "/values/0/value",
+					"value": "seen before now"
+				}
+			]
+		},
+		{
+			"id": "listed-before-literal-local",
+			"export": "local",
+			"form": "cc4538b6-d34b-5b72-af56-fd2c15d420e6",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m1-f0"
+				},
+				"caseList": {}
+			},
+			"expect": [
+				{
+					"pointer": "/caseList/rows/0/caseId",
+					"value": "targeted-visit-amina"
+				}
+			]
+		},
+		{
+			"id": "listed-before-due-local",
+			"export": "local",
+			"form": "af870559-e685-578d-a2e7-2e4bc91a5629",
+			"restore": "restore.xml",
+			"request": {
+				"session": {
+					"command": "m2-f0"
+				},
+				"caseList": {}
+			},
+			"expect": [
+				{
+					"pointer": "/caseList/rows/0/caseId",
+					"value": "targeted-visit-amina"
+				}
+			]
+		}
+	]
+}

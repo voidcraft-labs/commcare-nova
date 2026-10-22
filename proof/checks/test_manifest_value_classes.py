@@ -897,6 +897,7 @@ class Shape:
     readings: bool = False
     media: tuple = ()
     named: bool = True  # whether the class's entry names the key (False: a use of the class the check never sees)
+    case_types: dict | None = None  # declared types, supplied beside the recorded suite as a retained control's are
 
 
 def refused(export, source, key, where, **kw):
@@ -3144,6 +3145,44 @@ SYSTEM_DATES_SUITE = b"""<suite version="1">
   <menu id="m0" relevant="date_opened &gt;= date('2026-01-01')"><text><locale id="m"/></text></menu>
   <menu id="m1" relevant="visit_time &gt;= date('2026-01-01')"><text><locale id="m"/></text></menu>
 </suite>"""
+# A runtime case property's type is known only inside the case step whose sibling predicate names that type.
+# The observation's tree keeps instance()'s argument and every step's predicates in one list; the steps' counts
+# distinguish a comparison on the case from one on a child, and a nested path starts a fresh context.
+CASE_PROPERTY_TYPES = {
+    "visit": {
+        "seen": "datetime",
+        "due": "datetime",
+        "clock": "time",
+        "day": "date",
+        "count": "int",
+        "price": "decimal",
+        "untyped": None,
+    },
+    "other": {"seen": "date", "due": "date"},
+}
+CASE_PROPERTY_PATHS = (
+    "instance('casedb')/casedb/case[@case_type = 'visit'][seen < due]",
+    "instance('casedb')/casedb/case[@case_type = 'visit'][clock < 12]",
+    "instance('casedb')/casedb/case[@case_type = 'visit'][day < date('2026-01-01')]",
+    "instance('casedb')/casedb/case[@case_type = 'visit'][count < 2 and price < 1.5]",
+    "instance('casedb')/casedb/case[@case_type = 'visit'][untyped < 1]",
+    "instance('casedb')/casedb/case[seen < due]",
+    "instance('casedb')/casedb/case[@case_type = 'unknown'][seen < due]",
+    "instance('casedb')/casedb/case[@case_type = 'other'][seen < due]",
+    "instance('casedb')/casedb/case[@case_type = 'visit'][count(child[seen < due]) > 0]",
+    "instance('casedb')/casedb/case[@case_type = 'visit']/child[seen < due]",
+    "instance('casedb')/casedb[@case_type = 'visit']/case[seen < due]",
+    "instance('elsewhere')/casedb/case[@case_type = 'visit'][seen < due]",
+    "instance('casedb')/casedb/case[@case_type = 'visit'][coalesce(seen, due) < now()]",
+)
+CASE_PROPERTY_SUITE = (
+    '<suite version="1"><entry><instance id="casedb" src="jr://instance/casedb"/><session>'
+    + "".join(
+        f'<datum id="case_{index}" nodeset={quoteattr(path)} value="@case_id"/>'
+        for index, path in enumerate(CASE_PROPERTY_PATHS)
+    )
+    + "</session></entry></suite>"
+).encode()
 
 
 def _data_binds_and_itext():
@@ -3594,6 +3633,30 @@ def _data_binds_and_itext():
             unsettled("form", times, "xpath-expr:XPathCmpExpr", "bind[3]/@calculate", readings=True),  # a case's
             accepted("suite", SYSTEM_DATES_SUITE, "xpath-expr:XPathCmpExpr", "menu[1]/@relevant", readings=True),
             unsettled("suite", SYSTEM_DATES_SUITE, "xpath-expr:XPathCmpExpr", "menu[2]/@relevant", readings=True),
+            *(
+                Shape(
+                    "suite",
+                    CASE_PROPERTY_SUITE,
+                    "xpath-expr:XPathCmpExpr",
+                    f"datum[{index}]/@nodeset",
+                    verdict,
+                    readings=True,
+                    case_types=CASE_PROPERTY_TYPES,
+                )
+                for index, verdict in enumerate(
+                    (True, True, False, False, None, None, None, False, None, None, None, None, True), start=1
+                )
+            ),
+            # An old control has no caseTypes metadata, so even the otherwise scoped read remains undecided.
+            unsettled("suite", CASE_PROPERTY_SUITE, "xpath-token:LT", "datum[1]/@nodeset", readings=True),
+            refused(
+                "suite",
+                CASE_PROPERTY_SUITE,
+                "xpath-token:LT",
+                "datum[1]/@nodeset",
+                readings=True,
+                case_types=CASE_PROPERTY_TYPES,
+            ),
         ),
         "questions/data-parent-crossing-a-repeat": (
             refused("form", parents, "xform:input@ref", "repeat[1]/input[1]/@ref"),
@@ -3673,6 +3736,8 @@ def _shape_uses(shape, manifest, readings=None):
         manifest_usage.app_json_uses(shape.source, manifest, artifact, found)
     else:
         manifest_usage.runtime_xml_uses(shape.source, "SuiteParser", manifest, artifact, found)
+        for document in found.documents:
+            document.case_types = shape.case_types
     if readings is not None:
         manifest_usage.read_observed(found, manifest, readings)
     return found

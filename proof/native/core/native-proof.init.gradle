@@ -17,11 +17,14 @@
 // (`/<family>/<file>`). Families never share a namespace, so two families'
 // scenarios of the same name never meet.
 //
-// Every selected class runs in one test JVM, as Core's own tests do, so the
-// classes share Core's static state (the global localizer, which some set
-// without clearing, and the reference manager's roots). None of them reads
-// what another leaves there: the suite passes in one JVM with its classes in
-// alphabetical, reversed or shuffled order, and with a JVM per class.
+// Unzoned classes share the suite's test JVM as Core's own tests do. Zoned
+// classes never run there: DateUtils fixes its epoch at class load in the
+// JVM's default zone, which changing its TimezoneProvider cannot move. Each
+// zone therefore runs in its own Test task and JVM. novaProofZones names
+// label|jvm|provider|offsetOnly|Class+Class rows, separated by semicolons;
+// novaZones runs all of them after the same test-source compilation.
+// Reports live outside the native classpath root, with disjoint suite/ and
+// zones/<label>/ outputs, so no task's output becomes another task's input.
 gradle.projectsEvaluated {
     def properties = gradle.startParameter.projectProperties
     def required = { String name ->
@@ -36,13 +39,26 @@ gradle.projectsEvaluated {
     def sources = required('novaProofSources')
     def generated = required('novaProofNative')
     def reports = required('novaProofReports')
+    def zones = (properties.get('novaProofZones') ?: '').split(';').findAll { it }.collect { row ->
+        def fields = row.split('\\|', -1)
+        if (fields.size() != 5 || !(fields[0] ==~ /[a-z][a-z0-9-]*/) || !fields[1] ||
+                !(fields[3] in ['true', 'false']) || !fields[4]) {
+            throw new GradleException("Invalid native Core zone ${row}; expected label|jvm|provider|offsetOnly|Class+Class.")
+        }
+        [label: fields[0], jvm: fields[1], provider: fields[2], offsetOnly: fields[3],
+            classes: fields[4].split('\\+') as List]
+    }
+    if (zones*.label.toSet().size() != zones.size()) {
+        throw new GradleException('The native Core proof zones repeat a label; each zone needs its own JVM and reports.')
+    }
 
     rootProject.sourceSets.test.java.srcDir(sources)
-    rootProject.tasks.named('test', Test).configure { Test test ->
-        test.classpath += rootProject.files(new File(sources, 'resources'), generated)
+    def configureProof = { Test test, File output ->
+        test.testClassesDirs = rootProject.sourceSets.test.output.classesDirs
+        test.classpath = rootProject.sourceSets.test.runtimeClasspath +
+            rootProject.files(new File(sources, 'resources'), generated)
         test.systemProperty('nova.proof.native', generated.absolutePath)
-        test.filter.includeTestsMatching('nova.compatibility.*')
-        test.reports.junitXml.outputLocation.set(reports)
+        test.reports.junitXml.outputLocation.set(output)
         test.reports.html.required.set(false)
         // A failing proof is reported from the JUnit XML; Gradle's own exit
         // status then speaks only for the build itself (compilation, the JVM).
@@ -56,4 +72,23 @@ gradle.projectsEvaluated {
         // seconds, and neither changes what they compute.
         test.jvmArgs('-XX:+UseSerialGC', '-XX:TieredStopAtLevel=1')
     }
+    rootProject.tasks.named('test', Test).configure { Test test ->
+        configureProof(test, new File(reports, 'suite'))
+        test.filter.includeTestsMatching('nova.compatibility.*')
+        zones.collectMany { it.classes }.unique().each { name ->
+            test.filter.excludeTestsMatching("nova.compatibility.${name}")
+        }
+    }
+    def zonedTasks = zones.collect { zone ->
+        rootProject.tasks.register("novaZone_${zone.label}", Test) { Test test ->
+            configureProof(test, new File(reports, "zones/${zone.label}"))
+            zone.classes.each { name -> test.filter.includeTestsMatching("nova.compatibility.${name}") }
+            test.systemProperty('user.timezone', zone.jvm)
+            test.systemProperty('nova.proof.zone.label', zone.label)
+            test.systemProperty('nova.proof.zone.jvm', zone.jvm)
+            test.systemProperty('nova.proof.zone.provider', zone.provider)
+            test.systemProperty('nova.proof.zone.offsetOnly', zone.offsetOnly)
+        }
+    }
+    rootProject.tasks.register('novaZones') { dependsOn(zonedTasks) }
 }

@@ -2085,6 +2085,9 @@ def manifest_differences(document, records, manifest: Manifest | None = None):
     in the operations the check holds and while its readers read the exports."""
     manifest = manifest or load_manifest()
     found = export_uses(document, records, manifest)
+    for exported in found.documents:
+        if isinstance(exported, Runtime):
+            exported.case_types = document.case_types(edit=exported.artifact.startswith("edit/"))
     return (
         unclassified(document.id, found.uses, manifest)
         + ungated(document.id, flag_reads(document, records), manifest)

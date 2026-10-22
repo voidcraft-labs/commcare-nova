@@ -1,8 +1,8 @@
 """One test session's native proofs: each producer, HQ step and Core run happens once.
 
-``NativeSession`` owns ``$PROOF_OUT/native``. It empties it when the session
-starts, so nothing an earlier session wrote can stand in for this one's
-artifacts, and then fills it on demand:
+``NativeSession`` owns ``$PROOF_OUT/native`` and its ``native-core`` sibling.
+It empties both when the session starts, so nothing an earlier session wrote
+can stand in for this one's artifacts, and then fills them on demand:
 
 - ``family(name)`` gives the family's producer's output (``families.FAMILIES``)
   the first time any test needs it: copied from the products the lane's
@@ -38,7 +38,7 @@ from proof.connect import checkout as connect_checkout
 from proof.connect.checkout import Checkout, CheckoutFailed
 from proof.hq.boot import GUARD, HarnessRefusal, boot
 from proof.native import core_suite, produce
-from proof.native.families import CORE_CLASSES, FAMILIES, MEDIA_CERTIFICATE
+from proof.native.families import CORE_CLASSES, FAMILIES, MEDIA_CERTIFICATE, ZONES, Zone
 
 WORKTREE = Path(__file__).resolve().parents[2]
 
@@ -68,8 +68,13 @@ def native_output_dir():
 class NativeSession:
     def __init__(self, out: Path, core_runner):
         self.out = out
+        # Gradle treats the native resource root as every Test task's input.
+        # Reports must not live below it: another task's reports would then
+        # become an undeclared input, even though no proof reads them.
+        self._core_out = out.with_name(f"{out.name}-core")
         self._core_runner = core_runner
         shutil.rmtree(out, ignore_errors=True)
+        shutil.rmtree(self._core_out, ignore_errors=True)
         (out / "logs").mkdir(parents=True)
         self._produced: dict[str, BaseException | None] = {}
         self._producer_lock = threading.Lock()
@@ -201,13 +206,15 @@ class NativeSession:
 
     # Core -----------------------------------------------------------------
 
-    def core_run(self, name: str, selection: str):
+    def core_run(self, name: str, selection: str, *, zones: tuple[Zone, ...] = ()):
         """Core's Gradle test build over ``selection``, run once per session under ``name``."""
         if name not in self._core_runs:
-            work = self.out / "core" / name
+            work = self._core_out / name
             shutil.rmtree(work, ignore_errors=True)
             try:
-                self._core_runs[name] = core_suite.run_core_tests(selection, native_dir=self.out, work_dir=work)
+                self._core_runs[name] = core_suite.run_core_tests(
+                    selection, native_dir=self.out, work_dir=work, zones=zones
+                )
             except core_suite.CoreBuildFailed as failure:
                 self._core_runs[name] = failure
             if not isinstance(self._core_runs[name], BaseException):
@@ -218,7 +225,7 @@ class NativeSession:
         return run
 
     def core(self):
-        """Every proof class, run once after every family's producer and HQ step."""
+        """Every proof class, once per zone where zoned, after every family's producer and HQ step."""
         if "suite" not in self._core_runs:
             from proof.native.steps import STEPS
 
@@ -228,7 +235,7 @@ class NativeSession:
                     self.step(name)
                 except (StepFailed, ProducerFailed):
                     pass  # recorded; the classes that read the step's family report it
-        return self.core_run("suite", "*")
+        return self.core_run("suite", "*", zones=ZONES)
 
     def media_certificate(self):
         """Core's parse of the media sources HQ's media pass sends to Formplayer, as a certificate file."""

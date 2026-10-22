@@ -51,6 +51,7 @@ import base64
 import json
 import shutil
 import zipfile
+from types import SimpleNamespace
 
 import pytest
 
@@ -244,6 +245,185 @@ def _side(xml, placed=TWO_MODULES_PLACED):
 
 def _keys(elements):
     return [proof5._key(element) for element in elements]
+
+
+def _compare_suites(
+    tmp_path,
+    before,
+    after,
+    *,
+    core_after=TWO_MODULES_CORE,
+    placed_after=TWO_MODULES_PLACED,
+    strings_after=STRINGS,
+):
+    """Compare real suite archives with a controlled Core admission at the reader boundary."""
+    paths = [tmp_path / name for name in ("before.ccz", "after.ccz")]
+    for path, xml, strings in zip(paths, (before, after), (STRINGS, strings_after), strict=True):
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("suite.xml", xml)
+            for language, values in strings.items():
+                archive.writestr(
+                    f"{language}/app_strings.txt", "\n".join(f"{key}={value}" for key, value in values.items())
+                )
+    namespaces = {("form", "F0"): {"xmlns": "urn:f0"}, ("form", "F1"): {"xmlns": "urn:f1"}}
+    return proof5.suite_comparison(
+        SimpleNamespace(local_ccz=paths[0], edit=SimpleNamespace(local_ccz=paths[1])),
+        {"admissions": {"local.ccz": TWO_MODULES_CORE, "edit/local.ccz": core_after}},
+        (TWO_MODULES_PLACED, placed_after),
+        (namespaces, namespaces),
+    )
+
+
+NESTED_SELECTION = TWO_MODULES.replace(
+    '<entry><form>urn:f1</form><command id="m1-f0"/></entry>',
+    '<entry><form>urn:f1</form><command id="m1-f0"/><session>'
+    '<datum id="parent_id" detail-select="m0_case_short"/>'
+    '<datum id="case_id" detail-select="m1_case_short"/></session></entry>',
+)
+
+
+def test_a_reused_session_datum_id_does_not_rename_an_unchanged_parents_detail(tmp_path):
+    """Nesting aligns the parent's datum to case_id and renames the child's former case_id.
+
+    The parent still owns and reads the same detail. Neither its definition nor its form's reference may
+    acquire the child's detail identity through that reused session name.
+    """
+    after = NESTED_SELECTION.replace(
+        '<datum id="parent_id" detail-select="m0_case_short"/><datum id="case_id" detail-select="m1_case_short"/>',
+        '<datum id="case_id" detail-select="m0_case_short"/><datum id="case_id_visit" detail-select="m1_case_short"/>',
+    ).replace('<menu id="m1">', '<menu id="m1" root="m0">')
+    compared = _compare_suites(tmp_path, NESTED_SELECTION, after)
+    footprint = proof5.Footprint(frozenset({"M1", "F1"}), True, False)
+    assert proof5.by_entity("nested-selection", [compared], footprint) == {}
+    for entity in (("module", "M0"), ("form", "F0")):
+        assert compared.before.records[entity]["suite"].digest == compared.after.records[entity]["suite"].digest
+
+    changed = after.replace('<locale id="m0.short.title"/>', '<locale id="m0.long.title"/>', 1)
+    found = proof5.by_entity("nested-selection", [_compare_suites(tmp_path, NESTED_SELECTION, changed)], footprint)
+    assert set(found) == {("module", "M0")}
+
+
+def _swap_module_names(value):
+    return value.replace("m0", "swapping").replace("m1", "m0").replace("swapping", "m1")
+
+
+SWAPPED_CORE = {
+    "suites": [
+        {
+            "menus": [{"id": "m1", "commands": ["m1-f0"]}, {"id": "m0", "commands": ["m0-f0"]}],
+            "entries": [{"command": "m1-f0", "xmlns": "urn:f0"}, {"command": "m0-f0", "xmlns": "urn:f1"}],
+        }
+    ]
+}
+SWAPPED_PLACED = ({"M0": 1, "M1": 0}, {"F0": (1, 0), "F1": (0, 0)})
+SWAPPED_STRINGS = {
+    language: {_swap_module_names(key): value for key, value in held.items()} for language, held in STRINGS.items()
+}
+
+
+@pytest.mark.parametrize("child_selects", [False, True])
+@pytest.mark.parametrize("target", ["case", "search"])
+def test_a_detail_follows_its_module_when_the_other_modules_detail_is_read_or_unread(tmp_path, child_selects, target):
+    before = NESTED_SELECTION if child_selects else TWO_MODULES
+    before = before.replace("_case_", f"_{target}_")
+    compared = _compare_suites(
+        tmp_path,
+        before,
+        _swap_module_names(before),
+        core_after=SWAPPED_CORE,
+        placed_after=SWAPPED_PLACED,
+        strings_after=SWAPPED_STRINGS,
+    )
+    assert proof5.by_entity("swapped-modules", [compared], None) == {}
+
+
+@pytest.mark.parametrize("moved", [False, True])
+@pytest.mark.parametrize("opaque", [False, True])
+def test_a_real_detail_retarget_stays_visible_when_the_old_and_new_details_are_retained(tmp_path, moved, opaque):
+    """A formerly unread detail becoming the selection is a changed form reference, including during a move.
+
+    The module is inside the footprint, so changes to its detail definitions cannot stand in for the form's
+    own change. Opaque names have no declared positional spelling and must never acquire one from datums.
+    """
+    before = TWO_MODULES.replace(' detail-confirm="m0_case_long"', "")
+    if opaque:
+        before = before.replace("m0_case_short", "first-detail").replace("m0_case_long", "other-detail")
+    old, new = ("first-detail", "other-detail") if opaque else ("m0_case_short", "m0_case_long")
+    after = before.replace(f'detail-select="{old}"', f'detail-select="{new}"')
+    compared = _compare_suites(
+        tmp_path,
+        before,
+        _swap_module_names(after) if moved else after,
+        core_after=SWAPPED_CORE if moved else TWO_MODULES_CORE,
+        placed_after=SWAPPED_PLACED if moved else TWO_MODULES_PLACED,
+        strings_after=SWAPPED_STRINGS if moved else STRINGS,
+    )
+    found = proof5.by_entity("retargeted-detail", [compared], proof5.Footprint(frozenset({"M0"}), False, False))
+    assert ("form", "F0") in found
+    assert [(difference.artifact, difference.path, difference.kind) for difference in found[("form", "F0")]] == [
+        (proof5.SUITE, "/suite/entry[*]/session[*]/datum[@id=*]/@detail-select", "changed")
+    ]
+
+
+def test_opaque_detail_names_have_no_inferred_positional_spelling(tmp_path):
+    before = TWO_MODULES.replace("m0_case_short", "opaque-before")
+    assert proof5.by_entity("opaque-detail", [_compare_suites(tmp_path, before, before)], None) == {}
+    after = before.replace("opaque-before", "opaque-after")
+    found = proof5.by_entity(
+        "opaque-detail",
+        [_compare_suites(tmp_path, before, after)],
+        proof5.Footprint(frozenset({"M0"}), False, False),
+    )
+    assert ("form", "F0") in found
+
+
+def test_removing_a_detail_does_not_pair_its_locales_with_a_retained_detail(tmp_path):
+    after = TWO_MODULES.replace(' detail-confirm="m0_case_long"', "").replace(
+        '<detail id="m0_case_long"><title><text><locale id="m0.long.title"/></text></title></detail>\n', ""
+    )
+    compared = _compare_suites(tmp_path, TWO_MODULES, after)
+    before_record = compared.before.records[("module", "M0")]["suite"]
+    after_record = compared.after.records[("module", "M0")]["suite"]
+    root, strings = after_record.value
+    assert root.xpath('./detail[@id="m0_case_short"]/title/text/locale/@id') == ["m0.short.title"]
+    assert strings == {"default": {"m0.short.title": "Cases"}}
+    assert [
+        (difference.artifact, difference.kind)
+        for difference in proof5._suite_differences("removed-detail", before_record, after_record)
+    ] == [
+        (proof5.SUITE, "removed"),
+        (f"{proof5.STRINGS}:default", "removed"),
+    ]
+
+
+@pytest.mark.parametrize("menus", [[], [{"id": "m0"}, {"id": "other"}]])
+@pytest.mark.parametrize("side", ["before", "after"])
+def test_detail_identity_requires_one_independently_placed_menu_per_module(menus, side):
+    before = proof5.suite_of(parse_xml(TWO_MODULES), STRINGS, TWO_MODULES_CORE, {}, "?")
+    after = proof5.suite_of(parse_xml(_swap_module_names(TWO_MODULES)), SWAPPED_STRINGS, SWAPPED_CORE, {}, "?")
+    assert (
+        proof5._detail_pairs(
+            before,
+            after,
+            {("module", "M0"): {"menus": menus if side == "before" else [{"id": "m0"}]}},
+            {("module", "M0"): {"menus": menus if side == "after" else [{"id": "m1"}]}},
+        )
+        == {}
+    )
+
+
+@pytest.mark.parametrize("side", ["before", "after"])
+def test_ambiguous_menu_identity_cannot_make_two_details_alias_one(side):
+    suite = proof5.suite_of(parse_xml(TWO_MODULES), STRINGS, TWO_MODULES_CORE, {}, "?")
+    separate = {("module", f"M{index}"): {"menus": [{"id": f"m{index}"}]} for index in (0, 1)}
+    shared = {("module", f"M{index}"): {"menus": [{"id": "m0"}]} for index in (0, 1)}
+    found = proof5._detail_pairs(
+        suite,
+        suite,
+        shared if side == "before" else separate,
+        shared if side == "after" else separate,
+    )
+    assert "m0_case_short" not in found and "m1_case_short" not in found
 
 
 def test_an_unread_element_is_its_entitys_where_the_other_archive_reads_it_and_unowned_otherwise():

@@ -33,6 +33,33 @@ class Family:
         return self.command[0] == VITEST
 
 
+@dataclass(frozen=True)
+class Zone:
+    label: str
+    jvm: str
+    provider: str | None = None
+    offset_only: bool = False
+
+
+# A zone changes the test JVM itself: Core's epoch is fixed when DateUtils
+# loads, so swapping its provider alone cannot exercise another device zone.
+# The provider rows hold the browser contexts Formplayer installs on a UTC JVM.
+ZONES = (
+    Zone("utc", "UTC"),
+    Zone("new-york", "America/New_York"),
+    Zone("kolkata", "Asia/Kolkata"),
+    Zone("kiritimati", "Pacific/Kiritimati"),
+    Zone("formplayer-new-york", "UTC", "America/New_York"),
+    Zone("formplayer-kolkata", "UTC", "Asia/Kolkata"),
+    Zone("formplayer-new-york-offset", "UTC", "America/New_York", offset_only=True),
+)
+DEVICE_ZONES = ZONES[:4]
+
+# Each listed class runs in these zones' own JVMs, never the suite's JVM.
+# CORE_CLASSES still names its family, so its upstream failures are reported.
+ZONED_CLASSES = {"InstantOrderingRuntimeTest": ZONES}
+
+
 def _script(name, producer):
     return Family(name, ("node", "--import", "tsx", f"proof/native/producers/{producer}"))
 
@@ -51,6 +78,7 @@ FAMILIES = {
         _script("connect", "emit-connect-evidence.ts"),
         _script("container", "emit-container-evidence.ts"),
         _script("endpoint", "emit-endpoint-evidence.ts"),
+        _script("expression", "emit-expression-evidence.ts"),
         _script("form-link", "emit-form-link-evidence.ts"),
         _script("function", "emit-function-evidence.ts"),
         _script("localization", "emit-localization-evidence.ts"),
@@ -96,6 +124,7 @@ CORE_CLASSES = {
     "EndpointRuntimeTest": "endpoint",
     "ExpanderRuntimeTest": "expander",
     "FormLinkRuntimeTest": "form-link",
+    "InstantOrderingRuntimeTest": "expression",
     "LocalizationRuntimeTest": "localization",
     "LocationOwnerRuntimeTest": "location",
     "LookupRuntimeTest": "lookup",
