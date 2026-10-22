@@ -23,7 +23,7 @@ export type ReasoningEffort = NonNullable<
 export const OPENAI_COMPACTION_THRESHOLD = 256_000;
 
 /** A compaction item is replayable only inside this model-context contract. */
-export const MODEL_CONTEXT_VERSION = "v4-hq-round-trip-expressions.5";
+export const MODEL_CONTEXT_VERSION = "v4-hq-round-trip-expressions.12";
 
 /**
  * The `openai` provider options EVERY Nova LLM call carries. `store: false`

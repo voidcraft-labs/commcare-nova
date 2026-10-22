@@ -799,6 +799,48 @@ re-derives the path).
 value is one of its choices, written as its value in quotes, such as 'yes'; changing a choice's value
 keeps it selected, and a choice that is a starting value can't be removed until another is chosen."
 
+**Implementation correction, 2026-10-19 (pull request 12):** each sentence was checked against the
+tool surface the model writes through (`lib/agent/authoring/__tests__/guideExamples.test.ts`, the
+published grammar, the shared tool body and the commit gate), and five differ from the text above.
+Item 1's "#form/repeat/name reads it from every row" holds only outside the repeat: Core
+contextualises an absolute read against its context node along their common path, so from inside
+the repeat it reads the same row (`lib/domain/expression/typeChecker.ts::structuralSeveral`;
+`lib/domain/expression/CLAUDE.md`, "There is no stored climb"), and outside it a scalar read is
+refused as several values. It ships as "Inside a question, ../name reads the answer in the same group
+or repeat row. Inside a repeat named members, #form/members/age reads that row's age too; outside it,
+#form/members/age reads every row, as count(#form/members/age) does." Item 2's `.` clause is false:
+inside a row query `.` is refused ("This path needs the name of one property of the selected row.")
+and so is `..` (`row-leaves-record`, `lib/commcare/xpath/formPathBinding.ts::rowValue`), and
+`current()` names a question, so it ships as "Inside a query's [ ], a bare name such as region reads
+the queried record; #form/name reads the form, and so does current()/../name inside a question." Item 2's typed-query sentence drops "and what lets a rename of that
+property reach the query": an untyped read binds to the one record type that declares the property
+and stores it, so a rename reaches it either way. "Every query that reads a property" is also too
+wide: an untyped row reads `@case_id`, `@case_type`, `@owner_id`, `@status`, `index/<x>` and the
+standard properties with no type (rule 3), which is how the fields guide's
+`[@case_id = current()/../@id]/case_name` is admitted. It ships as "Name the record type in a query
+that reads a custom property, as [@case_type = 'visit'] does: the type is what tells CommCare which
+records to read. A query that reads only built-in values, such as @case_id, index/parent or
+case_name, needs no type." Item 4's `here()` clause names Details too, since the `here` fact holds for every
+calculated column (`lib/domain/expression/context.ts`, `case_list_column_expression`) and Preview
+reads it in a Details column, and calls it a GPS position, since the guide's "location" is a place:
+"here() is the worker's current GPS position, a geopoint, available only in a calculated Results or
+Details column." Item 5's old clause had already been replaced in pull request
+5 by "record queries retain the identities that can be established from their expressions", which
+this pull request replaces with "reads of queried records are reported as reads of any record of
+their type, or of any record when an untyped query reads a built-in property" (a queried row's
+property is a `runtime-record` read of the row's type, `operationSemantics.ts::propertyRecord`, and
+an untyped row's standard property carries no type, `OperationPropertyRead.caseType`). The forms sentence follows the select-default line
+("default_value sets a starting value once at form load.") and ships as "A select's fixed starting
+value is one of its choices, written as its value in quotes, such as 'yes'; a multi-select's can
+name several, separated by spaces, such as 'red blue'. Changing an inline choice's value keeps it
+selected, and the choice can't be removed until the starting value changes.": only a literal
+starting value is held to the choices, each space-separated token of a multi-select's
+(`typeChecker.ts::checkChoiceDefault`, `default-not-a-choice`), and only an inline choice carries the
+identity a value change keeps (`lib/commcare/xpath/expressionAst.ts::choiceFor`). The fields line stays as written and is true:
+`current()/../@id` and the guide's `case_name` read admit inside a query-bound repeat. No prompt
+(`lib/agent/prompts.ts`) states an expression spelling, so "the prompts" change nothing. No tool
+schema changes: the per-tool hashes equal pull request 11's.
+
 ### 3.2 `lib/agent/authoring/CLAUDE.md`
 
 Rewritten paragraphs, each to say what the code is from step 3. They describe code that reads the
@@ -852,7 +894,8 @@ expression as plain as `#form/a + 1` triggers. From step 3:
 
 - The form-answer walk reads the tree through the one leaf walker (part 01, `walk.ts`): `field`
   leaves recurse as today, `form-case` reads stay `selectedOrAncestor`, and a `prop` inside a `cases`
-  query is a read of `{ kind: "runtime-record" }` of the query's row type (any record of that type).
+  query is a read of `{ kind: "runtime-record" }` of the query's row type (any record of that type;
+  an untyped row's standard property carries no type, so any record).
 - `"xpath-text-not-inventoried"` is removed from the reason union; the three other reasons stay.
 - `throughFieldUuids` follows hidden values exactly as today.
 
@@ -948,6 +991,16 @@ since form-logic reads join the same extractors (§5.5). Nothing in the plugin c
 to the guide and the tools, against the guide text the stack ships (part 10, "The nova-plugin
 check"); pull requests 9 and 10 change the guide but run no sweep of their own, since 12's covers
 every sentence they add.
+
+**Implementation correction, 2026-10-19 (pull request 12):** the repeated sweep, at the plugin's
+head `14af38e` (v2.2.0, unchanged since planning), by claim over the tracked prose files, finds one
+sentence the stack makes false: `skills/upload_to_hq/SKILL.md`, the `lookup-table` entry of
+`left_behind`, says a table is left behind when "the last question reading it is gone". A table is
+pushed while any expression slot of the app reads it, which from step 3 includes form logic, form
+links and Connect as well as questions, case lists and Search
+(`lib/doc/lookupReferences.ts::PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS`, read by
+`lib/deployment/service.ts::currentResourceIdentities`), so the fix is one plugin pull request as
+part 10's rule 2 says, cut after this one and merged after the deploy. Every other claim stays true.
 
 ---
 
