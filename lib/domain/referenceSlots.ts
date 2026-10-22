@@ -813,6 +813,9 @@ export interface ExpressionCarrierRef {
 export interface ExpressionSlotValue {
 	readonly ref: ExpressionSlotRef;
 	readonly expression: Expression;
+	/** The key path from the owner entity to the value, collection positions
+	 * included: the walk a scope takes through what encloses the slot. */
+	readonly path: readonly (string | number)[];
 }
 
 type ExpressionRegistryEntry = Extract<
@@ -993,6 +996,7 @@ function visitExpressionSlots(
 		key: string,
 		value: unknown,
 		ref: ExpressionSlotRef,
+		path: readonly (string | number)[],
 	) => void,
 	onlySlot?: ExpressionSlotRef["slot"],
 ): void {
@@ -1029,16 +1033,29 @@ function visitExpressionSlots(
 		}
 		const path =
 			entry.kind === "options-source" ? `${entry.path}.filter` : entry.path;
-		walkSlotValues(
-			entity,
-			path.split("."),
-			[],
-			(holder, key, value, indices) => {
-				const ref = expressionRefForEntry(doc, owner, entry, indices);
-				if (ref !== undefined) visit(holder, key, value, ref);
-			},
-		);
+		const segments = path.split(".");
+		walkSlotValues(entity, segments, [], (holder, key, value, indices) => {
+			const ref = expressionRefForEntry(doc, owner, entry, indices);
+			if (ref !== undefined)
+				visit(holder, key, value, ref, concreteSlotPath(segments, indices));
+		});
 	}
+}
+
+/** A registry path with each `[]` fan-out replaced by the position the walk chose. */
+function concreteSlotPath(
+	segments: readonly string[],
+	indices: readonly number[],
+): (string | number)[] {
+	const path: (string | number)[] = [];
+	let fanOut = 0;
+	for (const segment of segments) {
+		if (segment.endsWith("[]")) {
+			path.push(segment.slice(0, -2), indices[fanOut] ?? -1);
+			fanOut++;
+		} else path.push(segment);
+	}
+	return path;
 }
 
 /** Present expressions on one owner, in registry and collection order. */
@@ -1047,8 +1064,8 @@ export function expressionSlotValues(
 	owner: ExpressionCarrierRef,
 ): readonly ExpressionSlotValue[] {
 	const values: ExpressionSlotValue[] = [];
-	visitExpressionSlots(doc, owner, (_holder, _key, value, ref) => {
-		if (isExpression(value)) values.push({ ref, expression: value });
+	visitExpressionSlots(doc, owner, (_holder, _key, value, ref, path) => {
+		if (isExpression(value)) values.push({ ref, expression: value, path });
 	});
 	return values;
 }

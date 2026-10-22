@@ -99,6 +99,91 @@ describe("noticeDialogSections", () => {
 		expect(section?.groups).toHaveLength(2);
 	});
 
+	it("groups both cutovers' notices, each in its own section with its own lines in order", () => {
+		const expressions: AppMigrationNotice = {
+			id: "expressions",
+			cutover: "hq-round-trip-expressions",
+			createdAt: "2026-10-21T09:00:00.000Z",
+			entries: [
+				migrationNoticeEntrySchema.parse({
+					kind: "document",
+					reason: "case-property-type-now-known",
+					entity: { type: "app", nameAtMigration: "Clinic visits" },
+					detail: { caseType: "visit", property: "next_due", dataType: "date" },
+				}),
+				migrationNoticeEntrySchema.parse({
+					kind: "deployment",
+					reason: "expressions-sent-at-next-publish",
+					deployment: {
+						deploymentId: "01992000-0000-7000-8000-000000000001",
+						server: "production",
+						domain: "field-ops",
+					},
+				}),
+				migrationNoticeEntrySchema.parse({
+					kind: "document",
+					reason: "expressions-respelled",
+					entity: { type: "app", nameAtMigration: "Clinic visits" },
+					detail: { count: "2" },
+				}),
+				migrationNoticeEntrySchema.parse({
+					kind: "document",
+					reason: "case-property-rules-removed",
+					entity: { type: "app", nameAtMigration: "Clinic visits" },
+					detail: { caseType: "patient", property: "age", rules: "required" },
+				}),
+				migrationNoticeEntrySchema.parse({
+					kind: "document",
+					reason: "case-property-rules-removed",
+					entity: { type: "app", nameAtMigration: "Clinic visits" },
+					detail: {
+						caseType: "patient",
+						property: "weight",
+						rules: "validation",
+					},
+				}),
+				deployment(
+					"production",
+					"field-ops",
+					"01992000-0000-7000-8000-000000000001",
+				),
+			],
+		};
+		const sections = noticeDialogSections(
+			[expressions, notice("emission", [documentEntry("a")])],
+			NAMES,
+		);
+		expect(
+			sections.map((section) => [section.noticeId, section.cutover]),
+		).toEqual([
+			["expressions", "hq-round-trip-expressions"],
+			["emission", "hq-round-trip-emission"],
+		]);
+		const [first, second] = sections;
+		expect(
+			first?.groups.map((group) =>
+				group.kind === "deployment" ? group.heading : group.reason,
+			),
+		).toEqual([
+			"At the next publish to field-ops",
+			"case-property-rules-removed",
+			"expressions-respelled",
+			"case-property-type-now-known",
+		]);
+		expect(first?.groups[0]?.lines.map((line) => line.text)).toEqual([
+			"The next publish to field-ops sends these expression changes once, so CommCare HQ keeps a new version of each form and menu they touch. Data already collected stays as it is.",
+			"Links to field-ops that you already shared keep working. New ones are ready after the next publish there.",
+		]);
+		expect(
+			first?.groups[1]?.lines.map((line) => line.text.split(":")[0]),
+		).toEqual(["patient, age", "patient, weight"]);
+		expect(
+			second?.groups.map((group) =>
+				group.kind === "deployment" ? group.heading : group.reason,
+			),
+		).toEqual(["unsaved-assistant-work-discarded"]);
+	});
+
 	it("gives one section per notice, in the order the store returns them", () => {
 		const sections = noticeDialogSections(
 			[

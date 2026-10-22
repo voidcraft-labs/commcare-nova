@@ -207,6 +207,15 @@ names members by user id, so the future whole-tenant deletion lifecycle must
 list it. Do not delete them until a successful release no longer refreshes
 them. Historical schema migrations are immutable.
 
+The HQ round-trip expressions cutover runs on `commcare-nova-historical-repair`
+from the maintenance image as `hq-round-trip-expressions.cjs`. The tool alone,
+with no further argument, is the dry run, which writes nothing; the Job's stored
+arguments stay the language repair's, so every cutover run names the tool.
+`--settle-holders` and `--execute --expect-plan-digest <digest>` are its only
+other admitted shapes.
+Its runbook is `docs/plans/hq-round-trip/3-cutover-runbook.md`; the tool, the
+runbook and this paragraph leave together once the cutover has run.
+
 ## Benchmarking
 
 `cloudbuild.benchmark.yaml` builds and inspects the full final image with a fresh

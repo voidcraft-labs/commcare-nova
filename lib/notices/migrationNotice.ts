@@ -25,7 +25,10 @@ import { uuidSchema } from "@/lib/domain/uuid";
  * The cutovers that write notices. Each has its own lead sentence in the
  * dialog (`migrationNoticeCopy.ts::MIGRATION_NOTICE_LEADS`).
  */
-export const MIGRATION_NOTICE_CUTOVERS = ["hq-round-trip-emission"] as const;
+export const MIGRATION_NOTICE_CUTOVERS = [
+	"hq-round-trip-emission",
+	"hq-round-trip-expressions",
+] as const;
 export type MigrationNoticeCutover = (typeof MIGRATION_NOTICE_CUTOVERS)[number];
 export const migrationNoticeCutoverSchema = z.enum(MIGRATION_NOTICE_CUTOVERS);
 
@@ -61,6 +64,11 @@ export const DOCUMENT_NOTICE_REASONS = [
 	"order-rule-moved-to-first-column",
 	"tile-cell-defaults-set",
 	"android-form-lists-setting-stored",
+	"case-property-rules-removed",
+	"expressions-follow-choices",
+	"expressions-respelled",
+	"case-property-declared",
+	"repeat-read-takes-first-row",
 	"lookup-tag-renamed",
 	"validation-now-enforced",
 	"follow-up-now-touches-case",
@@ -70,10 +78,14 @@ export const DOCUMENT_NOTICE_REASONS = [
 	"survey-menu-takes-case-type",
 	"case-list-order-changes",
 	"case-list-search-matches-hidden-fields",
+	"search-today-is-workers-day",
+	"search-date-time-equality-matches",
 	"hidden-order-column-not-in-sort-menu",
 	"record-id-column-now-shows",
 	"local-archive-changes",
 	"case-name-now-checked",
+	"date-time-comparison-compares-moments",
+	"case-property-type-now-known",
 	"unsaved-assistant-work-discarded",
 	"ccz-needs-project-space",
 ] as const;
@@ -90,6 +102,7 @@ export const DEPLOYMENT_NOTICE_REASONS = [
 	"menu-id-changes-once",
 	"form-ids-change-once",
 	"data-paths-move-once",
+	"expressions-sent-at-next-publish",
 	"deep-links-need-republish",
 	"next-publish-overwrites-hq-edits",
 	"next-publish-asks-before-overwriting",
@@ -117,7 +130,7 @@ export const NOTICE_ENTITY_TYPES = [
 export type NoticeEntityType = (typeof NOTICE_ENTITY_TYPES)[number];
 
 /** The longest `nameAtMigration` or `detail` value an entry stores. */
-const NOTICE_TEXT_MAX = 200;
+export const NOTICE_TEXT_MAX = 200;
 
 const noticeEntityRefSchema = z.strictObject({
 	type: z.enum(NOTICE_ENTITY_TYPES),
