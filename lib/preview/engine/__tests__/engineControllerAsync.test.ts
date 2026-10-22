@@ -22,6 +22,7 @@ import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerCl
 import type { XPathWorkerFactory } from "../../xpath/workerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import type { XPathWorkerEvaluateRequest } from "../../xpath/workerProtocol";
+import { evaluateXPathWorkerRequest } from "../../xpath/workerRuntime";
 import {
 	EngineController,
 	type EngineValidationCompletion,
@@ -399,6 +400,108 @@ describe("EngineController async runtime", () => {
 		expect(ctrl.store.getState()["/data/items[0]/name"]?.value).toBe("ready");
 		expect(ctrl.store.getState()["/data/items[1]/name"]?.value).toBe("ready");
 		expect(ctrl.entryStore.getState().fault).toBeUndefined();
+		ctrl.dispose();
+	});
+
+	it("never reverts an answer while a refused insert is probed again", async () => {
+		// The probe inserts a row, waits on the worker, then restores the entry
+		// from its checkpoint. A write accepted meanwhile would be reverted by
+		// that restore, so the probe holds the revision indivisible.
+		let armed = false;
+		let reached: () => void = () => {};
+		const probeReached = new Promise<void>((resolve) => {
+			reached = resolve;
+		});
+		let release: () => void = () => {};
+		const probeReleased = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const doc = docWith(
+			{
+				uuid: FIELD_UUID,
+				id: "answer",
+				kind: "text",
+				label: proseText("Answer"),
+			},
+			{
+				uuid: REPEAT_UUID,
+				id: "visits",
+				kind: "repeat",
+				label: proseText("Visits"),
+				repeat_mode: "user_controlled",
+			},
+			{
+				uuid: REPEAT_CHILD_UUID,
+				id: "n",
+				kind: "int",
+				label: proseText("Number"),
+				default_value: "concat('a', 'b')",
+			},
+		);
+		doc.fieldOrder = {
+			[FORM_UUID]: [FIELD_UUID, REPEAT_UUID],
+			[REPEAT_UUID]: [REPEAT_CHILD_UUID],
+		};
+		const store = createBlueprintDocStore();
+		store.getState().load(admittedControllerDoc(doc));
+		store.getState().startTracking();
+		const ctrl = ownedController(
+			new XPathRuntime({
+				workerFactory: createInProcessXPathWorkerFactory(
+					async (request, tools) => {
+						if (armed && request.source.includes("'cd'")) {
+							armed = false;
+							reached();
+							await probeReleased;
+						}
+						return evaluateXPathWorkerRequest(request, tools);
+					},
+				),
+			}),
+		);
+		ctrl.setDocStore(store);
+		await ctrl.activateFormAsync(FORM_UUID);
+		await ctrl.addRepeatAsync(REPEAT_UUID);
+		const repeatKey = REPEAT_UUID;
+		expect(ctrl.store.getState()[repeatKey]?.insertRefusal).toMatchObject({
+			value: "ab",
+		});
+		await expect(ctrl.onValueChangeAsync(FIELD_UUID, "before")).resolves.toBe(
+			true,
+		);
+
+		armed = true;
+		applyControllerEdit(store, [
+			{
+				kind: "updateField",
+				uuid: REPEAT_CHILD_UUID,
+				targetKind: "int",
+				patch: {
+					default_value: {
+						kind: "call",
+						fn: "sleep",
+						args: [term(literal(0)), term(literal("cd"))],
+					},
+				},
+			},
+		]);
+		await probeReached;
+		expect(ctrl.entryStore.getState().topologySettling).toBe(true);
+		const during = ctrl.onValueChangeAsync(FIELD_UUID, "during");
+		release();
+		await expect(during).resolves.toBe(false);
+		await ctrl.awaitSettled();
+
+		expect(ctrl.store.getState()[FIELD_UUID]?.value).toBe("before");
+		expect(ctrl.store.getState()[repeatKey]?.insertRefusal).toMatchObject({
+			value: "cd",
+		});
+		expect(ctrl.entryStore.getState().topologySettling).toBe(false);
+		expect(ctrl.entryStore.getState().fault).toBeUndefined();
+		await expect(ctrl.onValueChangeAsync(FIELD_UUID, "after")).resolves.toBe(
+			true,
+		);
+		expect(ctrl.store.getState()[FIELD_UUID]?.value).toBe("after");
 		ctrl.dispose();
 	});
 

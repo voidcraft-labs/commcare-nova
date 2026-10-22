@@ -11,7 +11,11 @@ import { projectLocalizedModule } from "@/lib/domain/localizedBlueprintProjectio
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
-import { formDisplayVisibility } from "../engine/displayConditionEvaluation";
+import {
+	formDisplayVisibility,
+	type NavigationDeviceCases,
+	navigationSelectedCase,
+} from "../engine/displayConditionEvaluation";
 import { previewSessionValues } from "../engine/identity";
 import { previousTaskFormSelectors } from "../engine/previousTask";
 import {
@@ -22,16 +26,33 @@ import {
 	previewMenuModuleUuids,
 	previewModuleVisibility,
 } from "../menuProjection";
+import { previewCaseChoiceOf } from "../searchClaims";
 import type { AppTestContext } from "./context";
 import { AppTestActionError } from "./errors";
 import type { AppTestScreen, AppTestSessionState } from "./types";
 
-export function appTestMenus(context: AppTestContext, parent: Uuid | null) {
+/** The session's device cases, as a navigation condition reads them. */
+function appTestDeviceCases(
+	context: AppTestContext,
+	state: Pick<AppTestSessionState, "deviceCases">,
+): NavigationDeviceCases {
+	return {
+		snapshot: state.deviceCases,
+		caseTypes: context.doc.caseTypes ?? [],
+	};
+}
+
+export function appTestMenus(
+	context: AppTestContext,
+	parent: Uuid | null,
+	state: Pick<AppTestSessionState, "deviceCases">,
+) {
 	const { doc, identity, lookup } = context;
 	const visibility = previewModuleVisibility(doc, {
 		authoring: false,
 		session: previewSessionValues(identity),
 		lookup: { kind: "data", data: lookup },
+		deviceCases: appTestDeviceCases(context, state),
 	});
 	return previewMenuModuleUuids(doc, parent).map((uuid) => ({
 		uuid,
@@ -68,14 +89,18 @@ export function appTestForms(
 		state.screen.kind === "menu" &&
 		state.screen.moduleUuid === moduleUuid &&
 		state.screen.selection !== undefined;
-	const properties =
+	const chosenCaseId =
 		selected?.length === 1 && caseSelectionCardinality(mod) === "single"
-			? selected[0].caseProperties
+			? selected[0].caseId
 			: undefined;
 	return menuFormUuidsOf(doc, moduleUuid).flatMap((uuid) => {
 		const form = doc.forms[uuid];
 		if ((loadingOnly || leafChooser) && !CASE_LOADING_FORM_TYPES.has(form.type))
 			return [];
+		const selectedCase =
+			chosenCaseId === undefined
+				? undefined
+				: navigationSelectedCase(doc, moduleUuid, uuid, chosenCaseId);
 		return [
 			{
 				form,
@@ -88,9 +113,8 @@ export function appTestForms(
 						{ entity: "form", uuid, slot: "form_display_condition" },
 						lookup,
 					),
-					caseProjection: properties
-						? new Map(Object.entries(properties))
-						: undefined,
+					selectedCase,
+					deviceCases: appTestDeviceCases(context, state),
 					lookup: { kind: "data", data: lookup },
 				}),
 			},
@@ -111,6 +135,7 @@ export function enterAppTestMenu(
 		authoring: false,
 		session: previewSessionValues(context.identity),
 		lookup: { kind: "data", data: context.lookup },
+		deviceCases: appTestDeviceCases(context, state),
 	});
 	const visited = new Set<Uuid>();
 	let current = moduleUuid;
@@ -230,7 +255,7 @@ export function selectAppTestRecords(
 	const selection = {
 		caseType: mod.caseType,
 		cases: rows.map((row) => ({
-			caseId: row.case_id,
+			...previewCaseChoiceOf(row),
 			caseName: row.case_name || "Case",
 			caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 		})),

@@ -15,11 +15,15 @@
  * (`lib/preview/columnDisplay.ts::formatIntervalForPreview`):
  *
  *   - `v` is the property's stored text, trimmed, read as text whatever its
- *     declared type, so a malformed stored value never fails the query.
+ *     declared type, so a malformed stored value never fails the query. A
+ *     standard property is the text its reading holds
+ *     (`compileReadingText`): under `results`, `last_modified` is HQ's
+ *     `json_format_datetime` text, as the column shows it.
  *   - `d` is its calendar day in the viewer's zone: a date-only or zone-less
  *     value is read in the viewer's zone and an authored offset is kept
  *     (`compilePinnedInstant`), and the instant's date is taken in the
- *     viewer's zone.
+ *     viewer's zone, both as `java.util.TimeZone` reads it
+ *     (`javaLocalTimestamp`, the standard offset before 1900).
  *   - `today` is the viewer's date (`compileToday`).
  *   - The guard comes before any cast: a value that is no date yields its
  *     raw text, as Preview shows it. A date is what Core's `date()` reads, a
@@ -40,12 +44,13 @@ import { type AliasableExpression, expressionBuilder } from "kysely";
 import type { CaseType } from "@/lib/domain/blueprint";
 import { prop, term } from "@/lib/domain/expression/builders";
 import {
-	compileExpression,
 	compilePinnedInstant,
+	compileReadingText,
 	compileToday,
 	type ExpressionCompileContext,
 } from "./compileExpression";
 import type { Database } from "./database";
+import { javaLocalTimestamp } from "./javaZone";
 import { resolveViewerTimeZone } from "./viewerTimeZone";
 
 const eb = expressionBuilder<Database, keyof Database>();
@@ -92,9 +97,8 @@ export function compileIntervalText(
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
 	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
-	const { portableCaseDates: _portable, ...plainCtx } = ctx;
-	const raw = compileExpression(term(prop(key.caseType, key.property)), {
-		...plainCtx,
+	const raw = compileReadingText(term(prop(key.caseType, key.property)), {
+		...ctx,
 		caseTypeSchemas: withTextRead(
 			ctx.caseTypeSchemas,
 			key.caseType,
@@ -110,7 +114,7 @@ export function compileIntervalText(
 		]),
 	);
 	const day = eb.cast(
-		eb.fn<Date>("timezone", [eb.val(zone), compilePinnedInstant(v, zone)]),
+		javaLocalTimestamp(zone, compilePinnedInstant(v, zone)),
 		"date",
 	);
 	const elapsed = eb(compileToday(ctx), "-", day);

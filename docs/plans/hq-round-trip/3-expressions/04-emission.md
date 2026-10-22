@@ -600,6 +600,11 @@ NaN equals nothing. The equality lowering covers form logic as well as record sl
 device that compared two dates and times by text would disagree with HQ's search and Postgres on
 the same values.
 
+**Implementation correction, 2026-10-19:** a `date()` on the date side leaves a date against a date
+and time, which part 03 §3.2 refuses, so `date()` and `now()` operands never reach the lowering as a
+date against a date and time; only a `date()` on the date-and-time side admits the pair, as two
+dates, which stays bare.
+
 An equality whose other side is not `datetime` stays bare. Its commonest form is the blank test
 `x = ''` (or `!=`): `''` names no instant, so lowering it would make every blank test false, and
 bare it is Core's text equality, which is the test's meaning today (`testEquality`'s last arm).

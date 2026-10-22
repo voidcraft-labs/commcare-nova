@@ -57,7 +57,6 @@ import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
 import { serializeXml } from "@/lib/commcare/serializeXml";
-import { newCaseIdDatumId } from "@/lib/commcare/session";
 import type {
 	HqCaseSaveReference,
 	OpenSubCaseAction,
@@ -95,7 +94,6 @@ import {
 	caseScalarTextGuards,
 	expressionSlotValue,
 	type Field,
-	type FieldKind,
 	fieldKindCarriesValidation,
 	isCaptureField,
 	isCaptureFieldKind,
@@ -108,8 +106,6 @@ import {
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
-import { isMatchAll } from "@/lib/domain/expression/builders";
-import { simplifyForEmission } from "@/lib/domain/expression/simplify";
 import type { DatumRef, Expression } from "@/lib/domain/expression/types";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
 import { formWireName } from "@/lib/domain/formWireName";
@@ -120,20 +116,18 @@ import {
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../formLinkProjection";
+import { lookupOptionsNodeset } from "../lookupOptions";
 import { w } from "../xpath/wire/builders";
-import { toWire } from "../xpath/wire/fromExpression";
-import {
-	InstanceSink,
-	lookupInstance,
-	sessionInstance,
-} from "../xpath/wire/instances";
-import { caseById, casePropertyStep } from "../xpath/wire/rowScope";
+import { InstanceSink } from "../xpath/wire/instances";
+import { casePropertyStep } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
+import { fieldBindType } from "./bindType";
 import { protectConstraintMessage } from "./constraintMessage";
 import {
 	datetimeCaseValueCalculate,
 	datetimeCaseValuePath,
 } from "./datetimeCaseValue";
+import { formCasePropertyRead } from "./formCaseRead";
 import {
 	type FormExpressionEmission,
 	formExpressionEmission,
@@ -1110,10 +1104,7 @@ function buildFieldParts(
 		"vellum:nodeset": nodePath.toWire("hashtag"),
 		nodeset: nodePath.toWire(),
 	};
-	const bindType =
-		fieldValueType(field, effectiveCaseTypes(doc)) === "datetime"
-			? "xsd:dateTime"
-			: getBindType(field.kind);
+	const bindType = fieldBindType(field, effectiveCaseTypes(doc));
 	if (bindType) bindAttributes.type = bindType;
 	if (required) {
 		// The editor's attribute for a required CONDITION is
@@ -1544,39 +1535,12 @@ function deriveLookupSelectKit(
 	return {
 		naming,
 		userPropertySlugs: userPropertySlugsByUuid(doc),
-		formCaseProperty: (caseType, property) => {
-			const depth = caseTypeDepths.get(caseType);
-			if (depth === undefined)
-				throw new Error("The form cannot read this record type.");
-			if (
-				doc.forms[formUuid].type === "registration" &&
-				depth === 0 &&
-				property === "case_id"
-			) {
-				if (moduleCaseType === undefined)
-					throw new Error(
-						"A registration form needs its record type to read its allocated id.",
-					);
-				return w.instance(sessionInstance(), [
-					w.step("session"),
-					w.step("data"),
-					w.step(newCaseIdDatumId(moduleCaseType)),
-				]);
-			}
-			let id: WireExpr =
-				selectedCaseId ??
-				w.instance(sessionInstance(), [
-					w.step("session"),
-					w.step("data"),
-					w.step("case_id"),
-				]);
-			for (let hop = 0; hop < depth; hop++)
-				id = w.append(caseById(id, "casedb"), [
-					w.step("index"),
-					w.step("parent"),
-				]);
-			return w.append(caseById(id, "casedb"), [casePropertyStep(property)]);
-		},
+		formCaseProperty: formCasePropertyRead({
+			formType: doc.forms[formUuid].type,
+			caseTypeDepths,
+			moduleCaseType,
+			...(selectedCaseId === undefined ? {} : { selectedCaseId }),
+		}),
 		filterFieldPaths: (questionPath) => {
 			fieldLocations ??= collectFieldLocations(doc, formUuid);
 			return bindLookupFilterFieldPaths(fieldLocations, questionPath);
@@ -1607,46 +1571,25 @@ function buildLookupItemset(
 	if (!lookupSelects.naming)
 		throw new Error("Lookup choices need a wire naming catalog.");
 	const table = lookupSelects.naming.tableFor(source.tableId);
-	const predicates: WireExpr[] = [];
-	if (source.filter !== undefined) {
-		const filter = simplifyForEmission(source.filter);
-		if (!isMatchAll(filter))
-			predicates.push(
-				toWire(filter, {
+	return xel(
+		"itemset",
+		{
+			xpath: {
+				nodeset: lookupOptionsNodeset(source, {
 					target: "xform",
 					types: expressions.context({
 						entity: "field",
 						uuid: fieldUuid,
 						slot: "lookup_options_source",
 					}),
+					naming: lookupSelects.naming,
+					instanceScope: "xform",
 					form: expressions.projection,
-					anchor: { kind: "unaddressable" },
 					bindings: {
 						formFields: lookupSelects.filterFieldPaths(nodePath),
 						userPropertySlugs: lookupSelects.userPropertySlugs,
-						lookup: {
-							naming: lookupSelects.naming,
-							instanceScope: "xform",
-							rowScope: {
-								tableId: source.tableId,
-								caseAnchor: { kind: "unaddressable" },
-							},
-						},
 					},
 				}),
-			);
-	}
-	return xel(
-		"itemset",
-		{
-			xpath: {
-				nodeset: w.instance(
-					lookupInstance(source.tableId, lookupSelects.naming, "xform"),
-					[
-						w.step(table.listElementName),
-						w.step(table.rowElementName, predicates),
-					],
-				),
 			},
 		},
 		context,
@@ -1810,7 +1753,7 @@ function buildLeafControl(
 	// Remaining input kinds: text, int, decimal, date, time, datetime,
 	// geopoint, barcode. They all render as `<input>`; their per-kind bind
 	// `type` (XSD for the scalar kinds, a bare ODK type for geopoint/barcode)
-	// is added by the caller from `BIND_TYPE_BY_KIND`.
+	// is added by the caller from `bindType.ts::fieldBindType`.
 	return xel("input", { xpath: { ref: ref } }, context, head);
 }
 
@@ -2216,71 +2159,4 @@ function buildRepeatBody(
 	);
 	const groupChildren: Element[] = labelEl ? [labelEl, repeatEl] : [repeatEl];
 	return el("group", {}, groupChildren);
-}
-
-/**
- * XForm `<bind>` `type` attribute per domain `FieldKind`.
- *
- * This value is load-bearing for how an uploaded app reads back in
- * CommCare HQ: HQ infers each question's editor type from the
- * `(control-tag, bind-type, media-type, appearance)` tuple
- * (`commcare-hq/corehq/apps/app_manager/xform.py::_infer_vellum_type`
- * against the `VELLUM_TYPES` table). So the bind type is not just
- * "how the runtime parses the value" — it decides whether HQ shows a
- * GPS-capture widget or a plain text box. A geopoint emitted with the
- * wrong type uploads as a Text question.
- *
- * Most kinds carry an `xsd:*` type, but three groups carry the bare
- * ODK type HQ's table keys on — these are NOT XSD types
- * (`commcare-hq/corehq/apps/app_manager/xform_builder.py::ODK_TYPES`
- * lists them outside `XSD_TYPES`):
- *   - `geopoint` → `geopoint` (HQ `Geopoint`: `input` + `geopoint`).
- *   - `barcode`  → `barcode`  (HQ `Barcode`:  `input` + `barcode`).
- *   - the capture kinds (`image`/`audio`/`video`/`signature`/`file`) →
- *     `binary`, which is what HQ's `<upload>` types
- *     (`Image`/`Audio`/`Video`/`Document`) key on; an `xsd:string`
- *     upload matches no row and HQ fails to classify it.
- *
- * Decide the bind type here, independently of
- * `fieldRegistry[kind].dataType` — a separate descriptor serving a
- * different purpose. Their values coincide for most kinds but not all
- * (e.g. `barcode`'s registry dataType is `xsd:string` while its bind
- * type is `barcode`), so don't derive one from the other.
- *
- * Structural kinds (`group`, `repeat`, `label`) get no `type` — HQ
- * treats them as grouping nodes. Selects rely on their `<select1>` /
- * `<select>` tag for classification, so their `xsd:string` type is
- * inert (HQ's table has no typed select row to mis-match against).
- *
- * Declaring this as a `Record<FieldKind, ...>` keyed off the domain
- * tuple makes TypeScript a gate on adding a new kind: a missing entry
- * here fails `tsc`, so the compile pipeline cannot silently emit an
- * XForm without a decided bind type for a new kind.
- */
-const BIND_TYPE_BY_KIND: Record<FieldKind, string | null> = {
-	text: "xsd:string",
-	int: "xsd:int",
-	decimal: "xsd:double",
-	date: "xsd:date",
-	time: "xsd:time",
-	datetime: "xsd:dateTime",
-	geopoint: "geopoint",
-	barcode: "barcode",
-	image: "binary",
-	audio: "binary",
-	video: "binary",
-	file: "binary",
-	signature: "binary",
-	hidden: "xsd:string",
-	secret: "xsd:string",
-	single_select: "xsd:string",
-	multi_select: "xsd:string",
-	label: null,
-	group: null,
-	repeat: null,
-	section: null,
-};
-
-function getBindType(kind: FieldKind): string | null {
-	return BIND_TYPE_BY_KIND[kind];
 }

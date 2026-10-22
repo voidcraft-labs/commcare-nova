@@ -58,6 +58,7 @@ function makeCtx(
 	overrides: Partial<TermCompileContext> = {},
 ): TermCompileContext {
 	return {
+		reading: "search",
 		db,
 		appId: APP_ID,
 		projectId: PROJECT_ID,

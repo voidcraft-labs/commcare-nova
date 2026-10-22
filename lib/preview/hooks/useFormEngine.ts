@@ -17,6 +17,7 @@
 import { useEffect, useRef } from "react";
 import type { Uuid } from "@/lib/doc/types";
 import type { EngineController } from "@/lib/preview/engine/engineController";
+import type { EntrySessionInput } from "@/lib/preview/engine/entrySessionData";
 import type { CaseDataByType } from "@/lib/preview/engine/formEngine";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
@@ -49,8 +50,16 @@ export function useFormEngine(
 	/** A selected record and its ancestors must arrive before one-time defaults
 	 * and query row membership run. Later refreshes retain the existing entry. */
 	readyToInitialize = true,
+	/** What the running app's session holds when the entry begins: the app,
+	 * the bound cases and the menu's selections. The controller builds the
+	 * entry's session map from it. */
+	session?: EntrySessionInput,
 ): EngineController {
 	const controller = useBuilderFormEngine();
+	/* Read at activation and at each same-entry rebuild; a new session alone
+	 * never starts a new entry. */
+	const sessionRef = useRef(session);
+	sessionRef.current = session;
 	const accessPhase = useAccessPhase();
 	const appId = useAppId();
 	const projectId = useProjectId();
@@ -72,7 +81,13 @@ export function useFormEngine(
 		if (readyToInitialize) {
 			appliedPreloads.current = caseData;
 			controller
-				.activateFormAsync(formUuid, caseData, caseDatabase, searchAnswers)
+				.activateFormAsync(
+					formUuid,
+					caseData,
+					caseDatabase,
+					searchAnswers,
+					sessionRef.current,
+				)
 				.catch(() => undefined);
 		} else controller.deactivate();
 		// Also owns an activation deferred to the authorized effect below.
@@ -104,7 +119,13 @@ export function useFormEngine(
 		if (controller.formUuid !== formUuid) {
 			appliedPreloads.current = caseData;
 			controller
-				.activateFormAsync(formUuid, caseData, caseDatabase, searchAnswers)
+				.activateFormAsync(
+					formUuid,
+					caseData,
+					caseDatabase,
+					searchAnswers,
+					sessionRef.current,
+				)
 				.catch(() => undefined);
 			return;
 		}
@@ -112,7 +133,7 @@ export function useFormEngine(
 		if (sameCasePreloads(appliedPreloads.current, caseData)) return;
 		appliedPreloads.current = caseData;
 		controller
-			.rebuildActiveFormAsync(formUuid, caseData)
+			.rebuildActiveFormAsync(formUuid, caseData, false, sessionRef.current)
 			.catch(() => undefined);
 	}, [
 		controller,

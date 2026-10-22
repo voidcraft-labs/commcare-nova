@@ -13,7 +13,6 @@ import type { NonShadowWireMode, WireExpr, WireMode } from "../tree";
 
 const context: EvalContext = {
 	getValue: () => undefined,
-	resolveHashtag: () => "",
 	contextPath: "/data/answer",
 	position: 1,
 };

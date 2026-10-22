@@ -81,12 +81,16 @@ export function PersistentCaseTile({
 		// selected on their device.
 		deviceScoped: true,
 		scopeKey: restoreScopeKey,
+		// Its cells are the list's tile, so a `here()` cell reads the latest
+		// position the list's watch saw.
+		positionScreen: "list",
 	});
 	const displayContext = useColumnDisplayContext(
 		config,
 		caseType,
 		fallbackProperties,
-		{ doc: blueprint, moduleUuid },
+		// The tile reads the device's own copy of the case.
+		{ doc: blueprint, moduleUuid, reading: "casedb" },
 	);
 	const tileColumns = useMemo(
 		() => tileResultsColumns(orderedColumns(config, "list"), config.tile),

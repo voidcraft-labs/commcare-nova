@@ -13,7 +13,10 @@ import { getAuthDb } from "@/lib/auth/db";
 import { ensurePersonalProject } from "@/lib/auth/provisionProject";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { withProjectContext } from "@/lib/case-store";
-import { getCaseStorePool } from "@/lib/case-store/postgres/connection";
+import {
+	getCaseStoreDatabase,
+	getCaseStorePool,
+} from "@/lib/case-store/postgres/connection";
 import { commitThreadInputPause } from "@/lib/chat/threadInputRounds";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import {
@@ -29,7 +32,11 @@ import {
 	upsertThreadTurn,
 } from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import { asUuid, organizationLevelSchema } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	organizationLevelSchema,
+} from "@/lib/domain";
 import {
 	eq,
 	literal,
@@ -74,6 +81,16 @@ import {
 	buildLocalizationBlueprint,
 	LOCALIZATION_SEED,
 } from "./localizationSeed";
+import {
+	buildFormRefusedBlueprint,
+	buildHereColumnBlueprint,
+	buildSearchClaimBlueprint,
+	FORM_REFUSED_SEED,
+	formRefusedRoute,
+	HERE_COLUMN_SEED,
+	hereColumnRoute,
+	SEARCH_CLAIM_SEED,
+} from "./previewRuntimeSeeds";
 import {
 	buildPreviousTaskBlueprint,
 	PREVIOUS_TASK_SEED,
@@ -613,6 +630,33 @@ export async function createSmokeBuilders(
 		return caseWorkspace;
 	}
 
+	/** Install one fixture blueprint into a fresh app and materialize its
+	 * case schema, as live case data requires before any row lands. */
+	async function seedRuntimeApp(
+		name: string,
+		build: (appId: string) => BlueprintDoc,
+	) {
+		const { appId, baseSeq } = await createExplicitBlankApp(
+			SEED.userId,
+			seedProjectId,
+			randomUUID(),
+			{ name, status: "complete" },
+		);
+		const blueprint = toPersistableDoc(build(appId));
+		await appendSyntheticBatch({
+			appId,
+			expectedBaseSeq: baseSeq,
+			targetDoc: blueprint,
+			authority: { kind: "user", actorUserId: SEED.userId },
+		});
+		await materializeCaseStoreSchemas({
+			appId,
+			blueprint,
+			syncedSeq: baseSeq + 1,
+		});
+		return appId;
+	}
+
 	async function seedOpen() {
 		const { appId: openAppId } = await createExplicitBlankApp(
 			SEED.userId,
@@ -1090,6 +1134,99 @@ export async function createSmokeBuilders(
 				searchFirst: {
 					appId: searchFirstAppId,
 					routes: searchFirstRoutes(searchFirstAppId),
+				},
+			};
+		},
+		"form-refused": async () => {
+			const seed = FORM_REFUSED_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildFormRefusedBlueprint,
+			);
+			/* The case store's own writers refuse a date property that is not a
+			 * date, so the imported row is written as an import leaves it. */
+			const db = await getCaseStoreDatabase();
+			const now = new Date();
+			const refused = await db
+				.insertInto("cases")
+				.values({
+					app_id: appId,
+					project_id: seedProjectId,
+					owner_id: SEED.userId,
+					case_type: seed.caseType,
+					case_name: seed.refused.caseName,
+					status: "open",
+					opened_on: now,
+					modified_on: now,
+					closed_on: null,
+					external_id: null,
+					parent_case_id: null,
+					properties: JSON.stringify({ [seed.property]: seed.refused.value }),
+				})
+				.returning("case_id")
+				.executeTakeFirstOrThrow();
+			const opens = await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.opens.caseName,
+					status: "open",
+					properties: { [seed.property]: seed.opens.value },
+				},
+			});
+			return {
+				formRefused: {
+					appId,
+					route: formRefusedRoute(appId),
+					refusedCaseId: refused.case_id,
+					opensCaseId: opens.caseId,
+				},
+			};
+		},
+		"here-column": async () => {
+			const seed = HERE_COLUMN_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildHereColumnBlueprint,
+			);
+			await caseStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.caseName,
+					status: "open",
+					properties: {},
+				},
+			});
+			return { hereColumn: { appId, route: hereColumnRoute(appId) } };
+		},
+		"search-claim": async () => {
+			const seed = SEARCH_CLAIM_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildSearchClaimBlueprint,
+			);
+			/* Owned by the persona who does not search: only the search's claim
+			 * can bring it onto the searcher's device. */
+			const ownerStore = await withProjectContext(
+				seedProjectId,
+				SEED.userId,
+				seed.owner.uuid,
+			);
+			const match = await ownerStore.insert({
+				appId,
+				row: {
+					case_type: seed.caseType,
+					case_name: seed.match.caseName,
+					status: "open",
+					properties: { last_note: seed.match.lastNote },
+				},
+			});
+			return {
+				searchClaim: {
+					appId,
+					route: `/build/${appId}`,
+					caseId: match.caseId,
 				},
 			};
 		},

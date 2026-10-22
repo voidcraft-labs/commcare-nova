@@ -48,7 +48,6 @@ it("makes linked test records available to real XPath and preloads, refusing unr
 				contextPath: "/data",
 				position: undefined,
 				getValue: () => undefined,
-				resolveHashtag: () => "",
 				mainInstance: instance,
 				resolveXPathInstance: () => instance,
 			},

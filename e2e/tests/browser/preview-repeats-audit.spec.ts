@@ -4,6 +4,13 @@ import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-repeats-client";
 
+// The visit's starting value is `'2024-01-15T14:30:00.000-05:00'`. Core holds
+// a date-and-time answer as its instant, written in the device's zone
+// (`DateTimeData.uncast`), and the browser stands in for the device, so the
+// held text and the shown clock follow the browser's zone. New York keeps
+// both as authored on every runner.
+test.use({ timezoneId: "America/New_York" });
+
 test("worker date, manual location and live announcements switch language without replacing answers", async ({
 	page,
 }, testInfo) => {
@@ -41,8 +48,14 @@ test("worker date, manual location and live announcements switch language withou
 				"/data/visit/location": "40 -74 0 0",
 				"/data/visits[0]/notes": "Retained note",
 			});
+		// A language switch rebuilds the entry, and the rebuilding form takes no
+		// answers until it is idle again. The localized text commits with the
+		// switch, so once it shows, the rebuild has begun and the body's busy
+		// state covers it.
+		const formBody = page.locator("[data-preview-form-body]");
 		await page.getByRole("button", { name: "Español", exact: true }).click();
 		await expect(date).toHaveText("9 de enero de 2024");
+		await expect(formBody).toHaveAttribute("aria-busy", "false");
 		await expect(date).toHaveAccessibleName(/Pregunta 1.*Obligatoria/);
 		await expect(
 			page.getByRole("button", { name: "Fecha", exact: true }),
@@ -107,6 +120,7 @@ test("worker date, manual location and live announcements switch language withou
 		await expect(
 			page.getByRole("textbox", { name: "Time", exact: true }),
 		).toHaveValue("2:4");
+		await expect(formBody).toHaveAttribute("aria-busy", "false");
 		await expect(
 			page.getByRole("spinbutton", { name: "Latitude", exact: true }),
 		).toHaveValue("4");
@@ -136,6 +150,7 @@ test("worker date, manual location and live announcements switch language withou
 		await expect(
 			page.getByRole("textbox", { name: "Hora", exact: true }),
 		).toHaveValue("2:4");
+		await expect(formBody).toHaveAttribute("aria-busy", "false");
 		await date.click();
 		await expect(
 			page.getByRole("button", { name: "Ir al mes siguiente" }),

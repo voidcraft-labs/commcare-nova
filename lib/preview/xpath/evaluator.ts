@@ -1,4 +1,4 @@
-import type { SyntaxNode } from "@lezer/common";
+import type { SyntaxNode, Tree } from "@lezer/common";
 import {
 	JAVAROSA_PATH_INITIALIZERS,
 	pathInitializerStringArgument,
@@ -12,6 +12,7 @@ import {
 	missingXPathBinaryOperand,
 } from "./operatorSemantics";
 import {
+	isXPathCoreNull,
 	isXPathNodeSet,
 	unpackXPathRuntimeValue,
 	type XPathNode,
@@ -96,10 +97,34 @@ export function evaluateRuntime(
 ): XPathRuntimeValue {
 	const trimmed = expr.trim();
 	if (!trimmed) return "";
+	return evalNode(parseAdmittedXPath(trimmed).topNode, trimmed, context);
+}
 
-	const tree = parser.parse(trimmed);
+/** Entries the parse cache holds per JavaScript realm (the main thread and
+ * each XPath worker keep their own). */
+export const XPATH_PARSE_CACHE_ENTRIES = 2048;
 
-	// Check for parse errors
+/** Admitted trees by their exact source, least recently used first. A Map
+ * keeps insertion order, so a hit is re-inserted at the end and the first key
+ * is the eviction candidate. */
+const admittedTrees = new Map<string, Tree>();
+
+/**
+ * The Lezer tree of one source text that passed admission, parsed once and
+ * reused while it stays among the most recently evaluated sources. The key is
+ * the exact text the tree's offsets index, because evaluation slices that
+ * source. A tree holding a parse error is refused every time and never kept:
+ * the commit gate makes it unreachable, so its refusal is the product
+ * invariant's report and not something to remember.
+ */
+export function parseAdmittedXPath(source: string): Tree {
+	const cached = admittedTrees.get(source);
+	if (cached !== undefined) {
+		admittedTrees.delete(source);
+		admittedTrees.set(source, cached);
+		return cached;
+	}
+	const tree = parser.parse(source);
 	let hasError = false;
 	tree.iterate({
 		enter(n) {
@@ -109,8 +134,12 @@ export function evaluateRuntime(
 	if (hasError) {
 		throw new Error("Preview received XPath that did not pass admission.");
 	}
-
-	return evalNode(tree.topNode, trimmed, context);
+	admittedTrees.set(source, tree);
+	if (admittedTrees.size > XPATH_PARSE_CACHE_ENTRIES) {
+		const oldest = admittedTrees.keys().next();
+		if (!oldest.done) admittedTrees.delete(oldest.value);
+	}
+	return tree;
 }
 
 /** Recursively evaluate a Lezer CST node. */
@@ -146,22 +175,14 @@ function evalNode(
 		return raw.slice(1, -1);
 	}
 
-	// ── Hashtag references (#<case-type>/prop, #form/id, #user/prop) ──
+	// ── Hashtag references ──
+	// Every surface prints its text from the stored tree through the Preview
+	// target, which spells each reference as the path the device reads, so no
+	// printed source holds a hashtag.
 	if (type === T.HashtagRef) {
-		const text = source.slice(node.from, node.to);
-		// The main-instance projection owns #form even when the context also
-		// installs the structural resolver used by case and user hashtags. Taking
-		// that hook first collapses repeat children to its scalar fallback before
-		// nodeset-aware functions can observe their cardinality.
-		if (text.startsWith("#form/") && ctx.mainInstance) {
-			return selectFormSegments(
-				ctx.mainInstance.root(),
-				["data", ...text.slice("#form/".length).split("/")],
-				ctx.contextNode,
-			);
-		}
-		if (ctx.resolveHashtagValue) return ctx.resolveHashtagValue(text);
-		return ctx.resolveHashtag(text);
+		throw new Error(
+			`Preview received the hashtag "${source.slice(node.from, node.to)}" to evaluate. Preview evaluates only the text it prints from a stored expression, and that print spells every reference as a path, so the text came from somewhere other than the Preview print.`,
+		);
 	}
 
 	// ── Variable references ($var) ──
@@ -398,7 +419,10 @@ function evalInvoke(
 		// failures and volatile functions make that order observable.
 		for (const arg of argNodes) evalNode(arg, source, ctx);
 		for (const arg of argNodes.slice(0, -1)) {
-			const scalar = unpackXPathRuntimeValue(evalNode(arg, source, ctx));
+			const candidate = evalNode(arg, source, ctx);
+			// `XpathCoalesceFunc.isNull` skips Java's null as it skips a blank.
+			if (isXPathCoreNull(candidate)) continue;
+			const scalar = unpackXPathRuntimeValue(candidate);
 			if (
 				scalar !== "" &&
 				!(typeof scalar === "number" && Number.isNaN(scalar))
@@ -645,47 +669,6 @@ function selectAttributes(base: XPathNodeSet, name: string): XPathNodeSet {
 		node.hasAttributeTemplate(name),
 	);
 	return new XPathNodeSet(nodes, base.validPath && templateExists, schemaNodes);
-}
-
-/**
- * Resolve a canonical #form path while preserving every repeat multiplicity
- * already fixed by the evaluating node. JavaRosa's references are index-free
- * in the model, but a calculation inside `/data/items[1]` reads the sibling
- * fields from `items[1]`, not every `items` occurrence in the instance.
- */
-function selectFormSegments(
-	root: XPathNode,
-	segments: readonly string[],
-	contextNode: XPathNode | undefined,
-): XPathNodeSet {
-	const contextualSegments = contextNode
-		? indexedPathSegments(contextNode.path)
-		: [];
-	let selected = new XPathNodeSet([root]);
-	for (let index = 0; index < segments.length; index += 1) {
-		const segment = segments[index] ?? "";
-		selected = selectChildren(selected, segment);
-		const contextual = contextualSegments[index];
-		if (
-			contextual?.name === segment &&
-			contextual.multiplicity !== undefined &&
-			segments
-				.slice(0, index + 1)
-				.every(
-					(name, segmentIndex) =>
-						contextualSegments[segmentIndex]?.name === name,
-				)
-		) {
-			selected = new XPathNodeSet(
-				selected.candidates.filter(
-					(node) => node.multiplicity === contextual.multiplicity,
-				),
-				selected.validPath,
-				selected.schemaNodes,
-			);
-		}
-	}
-	return selected;
 }
 
 function indexedPathSegments(

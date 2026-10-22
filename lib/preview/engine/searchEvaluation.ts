@@ -12,10 +12,7 @@ import { projectWorkerModule } from "../workerModule";
 import { toBoolean } from "../xpath/coerce";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../xpath/workerClient";
-import {
-	deserializeXPathWorkerValue,
-	snapshotXPathWorkerInstance,
-} from "../xpath/workerProjection";
+import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import type { FormEvaluationContext } from "./formEvaluationTypes";
 import { FormEvaluationInputError } from "./formEvaluationTypes";
 import { previewSessionValues } from "./identity";
@@ -25,6 +22,7 @@ import {
 	evaluatePreviewSearchExpression,
 	evaluatePreviewSearchPredicate,
 	parseExcludedOwnerIds,
+	searchScreenWorkerInstances,
 } from "./searchExpressionEvaluation";
 import { searchInputSubmissionErrorsOnDevice } from "./searchInputValidation";
 import {
@@ -33,7 +31,6 @@ import {
 	restoreSearchRun,
 	withHiddenValues,
 } from "./searchRunState";
-import { commcareSessionXPathInstance } from "./xpathInstances";
 
 export interface SearchEvaluationInput {
 	language?: LanguageTag;
@@ -126,22 +123,14 @@ export async function evaluateSearchSnapshot(
 				environment,
 				{
 					language,
-					evaluateOnDevice: async (source) => {
+					evaluateOnDevice: async (xpath) => {
 						const result = await runtime.request(
 							{
 								entryKey: `search:${input.moduleUuid}`,
 								revision: 0,
 								profile: "search",
-								source,
-								instances: {
-									secondary: [
-										snapshotXPathWorkerInstance(
-											commcareSessionXPathInstance(session),
-										),
-									],
-									contextPath: "",
-									position: 1,
-								},
+								source: xpath.source,
+								instances: searchScreenWorkerInstances(xpath),
 							},
 							{ signal: AbortSignal.timeout(30_000) },
 						);

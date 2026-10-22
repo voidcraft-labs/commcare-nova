@@ -8,6 +8,7 @@ import {
 	withSchemaContext,
 } from "@/lib/case-store";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { createEvaluationApp } from "@/lib/preview/engine/__tests__/evaluationFixture";
 import { loadFormEvaluationContext } from "../evaluationContext";
 
@@ -96,7 +97,11 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 		userId: actor,
 		projectId,
 	}).workspace;
-	const beforeRows = await own.query({ appId, caseType: "loan" });
+	const beforeRows = await own.query({
+		reading: SEARCH_READING,
+		appId,
+		caseType: "loan",
+	});
 	const beforeApp = await h
 		.db()
 		.selectFrom("apps")
@@ -178,8 +183,16 @@ it("uses the authorized worker's records and makes no case or blueprint writes",
 			patch: { properties: { condition: "Worn" } },
 		},
 	});
-	expect(await own.query({ appId, caseType: "loan" })).toEqual(beforeRows);
-	expect(await own.count({ appId, caseType: "commcare-user" })).toBe(0);
+	expect(
+		await own.query({ reading: SEARCH_READING, appId, caseType: "loan" }),
+	).toEqual(beforeRows);
+	expect(
+		await own.count({
+			reading: SEARCH_READING,
+			appId,
+			caseType: "commcare-user",
+		}),
+	).toBe(0);
 	expect(
 		await h
 			.db()

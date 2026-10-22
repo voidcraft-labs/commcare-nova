@@ -10,15 +10,16 @@ import { evaluate } from "../../xpath/evaluator";
 import type { XPathInstance } from "../../xpath/runtimeValues";
 import { XPathDate } from "../../xpath/types";
 import type { CaseRow } from "../caseDataBindingTypes";
-import { previewAsMe } from "../identity";
+import { previewAsMe, previewSessionValues } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
 import {
 	caseDatabaseXPathInstance,
 	commcareSessionXPathInstance,
 	INLINE_SEARCH_INPUT_INSTANCE_ID,
 	lookupXPathInstances,
-	previewHashtagNodeSet,
+	SEARCH_INPUT_INSTANCE_ID,
 	searchInputXPathInstance,
+	searchScreenXPathInstances,
 } from "../xpathInstances";
 
 function row(overrides: Partial<CaseRow> = {}): CaseRow {
@@ -46,10 +47,52 @@ function context(instances: ReadonlyMap<string, XPathInstance>) {
 		contextPath: "/data",
 		position: undefined,
 		getValue: () => undefined,
-		resolveHashtag: () => "",
 		mainInstance,
 		resolveXPathInstance: (id: string) => instances.get(id),
 	};
+}
+
+function regionsLookup() {
+	const tableId = lookupTableIdSchema.parse(
+		"11111111-1111-7111-8111-111111111111",
+	);
+	const valueId = lookupColumnIdSchema.parse(
+		"22222222-2222-7222-8222-222222222222",
+	);
+	const nameId = lookupColumnIdSchema.parse(
+		"33333333-3333-7333-8333-333333333333",
+	);
+	return previewLookupData({
+		projectRevision: "1",
+		definitions: [
+			{
+				id: tableId,
+				name: "Regions",
+				tag: "regions",
+				definitionRevision: parseLookupRevision("1"),
+				columns: [
+					{
+						id: valueId,
+						wireName: "value",
+						label: "Value",
+						dataType: "text",
+					},
+					{ id: nameId, wireName: "name", label: "Name", dataType: "text" },
+				],
+			},
+		],
+		rowsByTable: new Map([
+			[
+				tableId,
+				[
+					{
+						id: lookupRowIdSchema.parse("44444444-4444-7444-8444-444444444444"),
+						values: { [valueId]: "north", [nameId]: "Northern" },
+					},
+				],
+			],
+		]),
+	});
 }
 
 describe("Preview structural XPath instances", () => {
@@ -134,9 +177,9 @@ describe("Preview structural XPath instances", () => {
 		const opened = patientNode?.children("date_opened")[0]?.value();
 		const modified = patientNode?.children("last_modified")[0]?.value();
 		expect(opened).toBeInstanceOf(XPathDate);
-		expect((opened as XPathDate).time).toBeNull();
+		expect((opened as XPathDate).timeMilliseconds).toBeNull();
 		expect(modified).toBeInstanceOf(XPathDate);
-		expect((modified as XPathDate).time).toBeNull();
+		expect((modified as XPathDate).timeMilliseconds).toBeNull();
 
 		expect(
 			evaluate(
@@ -315,49 +358,6 @@ describe("Preview structural XPath instances", () => {
 		).toBe("1.0E21");
 	});
 
-	it("keeps case and user hashtags as casedb nodesets", () => {
-		const casedb = caseDatabaseXPathInstance({
-			rows: [
-				row({ case_id: "patient-1", properties: { district: "north" } }),
-				row({
-					case_id: "usercase-1",
-					case_type: "commcare-user",
-					properties: { hq_user_id: "worker-1", role: "supervisor" },
-				}),
-			],
-			indices: [],
-		});
-		const caseData = new Map([
-			["patient", new Map([["case_id", "patient-1"]])],
-		]);
-		const ctx = {
-			...context(new Map([["casedb", casedb]])),
-			resolveHashtagValue: (reference: string) =>
-				previewHashtagNodeSet(reference, {
-					casedb,
-					caseData,
-					userId: "worker-1",
-				}) ?? "",
-		};
-
-		expect(evaluate("count(#patient/district)", ctx)).toBe(1);
-		expect(evaluate("count(#patient/missing)", ctx)).toBe(0);
-		expect(evaluate("string(#patient/case_id)", ctx)).toBe("patient-1");
-		expect(evaluate("count(#user/role)", ctx)).toBe(1);
-		expect(evaluate("string(#user/role)", ctx)).toBe("supervisor");
-		expect(
-			evaluate("count(#patient/district)", {
-				...ctx,
-				resolveHashtagValue: (reference: string) =>
-					previewHashtagNodeSet(reference, {
-						casedb,
-						caseData: new Map(),
-						userId: undefined,
-					}) ?? "",
-			}),
-		).toBe(0);
-	});
-
 	it("projects commcaresession context, user data, and entry data", () => {
 		const identity = previewAsMe({
 			id: "worker-1",
@@ -414,82 +414,44 @@ describe("Preview structural XPath instances", () => {
 		).toBe(0);
 	});
 
-	it("selects #search/<name> as the instance's field node, and no node for a prompt the search left blank", () => {
-		const searchInputs = searchInputXPathInstance(
-			new Map([["patient_name", "Zzz"]]),
-		);
-		const nodes = previewHashtagNodeSet("#search/patient_name", {
-			casedb: undefined,
-			caseData: new Map(),
-			userId: "worker-1",
-			searchInputs,
+	it("gives the Search screen its answers under both of Core's ids, the session's datums and the suite fixtures", () => {
+		const instances = searchScreenXPathInstances({
+			session: previewSessionValues(
+				previewAsMe({
+					id: "worker-1",
+					name: "Ada Lovelace",
+					email: "ada@example.test",
+				}),
+			),
+			answers: new Map([["patient_name", "Zzz"]]),
+			sessionData: { case_id: "household-1" },
+			lookupData: regionsLookup(),
 		});
-		expect(nodes?.candidates.map((node) => node.path)).toEqual([
-			"/input/field",
-		]);
-		expect(
-			previewHashtagNodeSet("#search/missing", {
-				casedb: undefined,
-				caseData: new Map(),
-				userId: "worker-1",
-				searchInputs,
-			})?.candidates,
-		).toEqual([]);
-	});
+		const ctx = context(instances);
 
-	it("leaves #search/ to the engine's scalar resolver when the form has no search instance", () => {
+		for (const id of [SEARCH_INPUT_INSTANCE_ID, "search-input"]) {
+			expect(
+				evaluate(`instance('${id}')/input/field[@name='patient_name']`, ctx),
+			).toBe("Zzz");
+			// An unanswered prompt holds no node, as `getUserQueryValues(false)`
+			// leaves it out.
+			expect(
+				evaluate(`count(instance('${id}')/input/field[@name='missing'])`, ctx),
+			).toBe(0);
+		}
 		expect(
-			previewHashtagNodeSet("#search/patient_name", {
-				casedb: undefined,
-				caseData: new Map(),
-				userId: "worker-1",
-			}),
-		).toBeUndefined();
+			evaluate("instance('commcaresession')/session/data/case_id", ctx),
+		).toBe("household-1");
+		expect(
+			evaluate(
+				"instance('item-list:regions')/regions_list/regions[value='north']/name",
+				ctx,
+			),
+		).toBe("Northern");
 	});
 
 	it("projects lookup fixtures under their XForm-local table tag", () => {
-		const tableId = lookupTableIdSchema.parse(
-			"11111111-1111-7111-8111-111111111111",
-		);
-		const valueId = lookupColumnIdSchema.parse(
-			"22222222-2222-7222-8222-222222222222",
-		);
-		const nameId = lookupColumnIdSchema.parse(
-			"33333333-3333-7333-8333-333333333333",
-		);
-		const data = previewLookupData({
-			projectRevision: "1",
-			definitions: [
-				{
-					id: tableId,
-					name: "Regions",
-					tag: "regions",
-					definitionRevision: parseLookupRevision("1"),
-					columns: [
-						{
-							id: valueId,
-							wireName: "value",
-							label: "Value",
-							dataType: "text",
-						},
-						{ id: nameId, wireName: "name", label: "Name", dataType: "text" },
-					],
-				},
-			],
-			rowsByTable: new Map([
-				[
-					tableId,
-					[
-						{
-							id: lookupRowIdSchema.parse(
-								"44444444-4444-7444-8444-444444444444",
-							),
-							values: { [valueId]: "north", [nameId]: "Northern" },
-						},
-					],
-				],
-			]),
-		});
+		const data = regionsLookup();
 		const instances = lookupXPathInstances(data);
 
 		expect(

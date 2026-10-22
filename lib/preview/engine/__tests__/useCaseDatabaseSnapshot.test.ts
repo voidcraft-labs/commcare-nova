@@ -15,6 +15,53 @@ const PROPERTY_UUID = testUuid("prose-worker-property");
 const NAME_UUID = testUuid("prose-answer");
 
 describe("caseDatabaseRequirements", () => {
+	it("loads the device's cases for a session datum valued over them", () => {
+		// `usercase_id` is evaluated over casedb when the entry begins; without
+		// the snapshot it reads blank where a device reads the worker's record.
+		const readsDatum = (kind: "worker-record" | "selected-case") =>
+			buildDoc({
+				caseTypes: [{ name: "patient", properties: [] }],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								name: "Visit",
+								type: "followup",
+								postSubmit: "app_home",
+								fields: [
+									f({
+										kind: "hidden",
+										id: "datum",
+										calculate: {
+											kind: "term",
+											term: {
+												kind: "session-datum",
+												datum:
+													kind === "worker-record"
+														? { kind }
+														: { kind, module: testUuid("Patients") },
+											},
+										},
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+		expect(caseDatabaseRequirements(readsDatum("worker-record")).required).toBe(
+			true,
+		);
+		expect(caseDatabaseRequirements(readsDatum("selected-case")).required).toBe(
+			false,
+		);
+	});
+
 	it("captures the entry world for a static previous task without an authored casedb reference", () => {
 		const doc = buildDoc({
 			caseTypes: [{ name: "patient", properties: [] }],
@@ -211,9 +258,18 @@ describe("caseDatabaseRequirements", () => {
 				required: requirements.required,
 				status: "loading",
 			});
+			// The record's name reads the device's cases through the entry's
+			// session datum, so the entry opens with the record it was chosen for.
 			await ctrl.activateFormAsync(
 				formUuid,
 				caseRowsToFormPreloads(row, [], [{ name: "repair", depth: 0 }]),
+				undefined,
+				undefined,
+				{
+					appId: doc.appId,
+					boundCases: [{ caseId: row.case_id, caseName: row.case_name }],
+					menuSelections: {},
+				},
 			);
 			expect(ctrl.entryStore.getState().caseDatabaseWait).toEqual({
 				formUuid,

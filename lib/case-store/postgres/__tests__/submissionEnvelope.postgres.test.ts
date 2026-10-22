@@ -38,6 +38,7 @@ import {
 	term,
 	unowned,
 } from "@/lib/domain/expression";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import {
@@ -318,6 +319,7 @@ async function rejection(
 
 async function patientRow(store: PostgresCaseStore, caseId: string) {
 	const rows = await store.query({
+		reading: SEARCH_READING,
 		appId: APP_ID,
 		caseType: "patient",
 		includeHeld: true,
@@ -359,7 +361,11 @@ describe("authored create identity", () => {
 		// The exact literal the domain identity suite and the XForm
 		// calculate pin — the executor implements the same versioned
 		// derivation, not a lookalike.
-		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
+		const visits = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
 		expect(visits).toHaveLength(1);
 		expect(visits[0]?.case_id).toBe(`${PINNED_VECTOR_PREFIX}external-123`);
 		expect(visits[0]?.case_name).toBe("Visit A");
@@ -396,7 +402,11 @@ describe("authored create identity", () => {
 			operationUuid: VECTOR_OP_UUID,
 		});
 		expect(
-			await store.query({ appId: APP_ID, caseType: "visit" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			}),
 		).toHaveLength(0);
 	});
 
@@ -432,7 +442,11 @@ describe("authored create identity", () => {
 			maxKeyLength: 205,
 		});
 		expect(
-			await store.query({ appId: APP_ID, caseType: "visit" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			}),
 		).toHaveLength(0);
 	});
 
@@ -470,7 +484,11 @@ describe("authored create identity", () => {
 
 		// One row, the retry's facets applied over it — the same merge
 		// Core and HQ perform for a create naming a known id.
-		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
+		const visits = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
 		expect(visits).toHaveLength(1);
 		expect(visits[0]?.case_id).toBe(`${PINNED_VECTOR_PREFIX}repeat-key`);
 		expect(visits[0]?.case_name).toBe("Second");
@@ -560,6 +578,7 @@ describe("authored create identity", () => {
 		});
 
 		const visits = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "visit",
 		});
@@ -635,7 +654,11 @@ describe("whole-envelope atomicity", () => {
 			operationUuid: OP_C,
 		});
 		expect(
-			await store.query({ appId: APP_ID, caseType: "visit" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			}),
 		).toHaveLength(0);
 		expect(
 			(await patientRow(store, SESSION_CASE_ID))?.properties,
@@ -682,7 +705,11 @@ describe("whole-envelope atomicity", () => {
 		// NOTHING landed: not the operation's create, not the ordinary
 		// patch, not the lifecycle transition.
 		expect(
-			await store.query({ appId: APP_ID, caseType: "visit" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			}),
 		).toHaveLength(0);
 		const row = await patientRow(store, SESSION_CASE_ID);
 		expect(row?.properties).toMatchObject({ notes: "original" });
@@ -787,6 +814,7 @@ describe("ordered selected-case batches", () => {
 		const before = new Map(
 			(
 				await store.query({
+					reading: SEARCH_READING,
 					appId: APP_ID,
 					caseType: "patient",
 					caseIds: [SESSION_CASE_ID, SECOND_SESSION_CASE_ID],
@@ -865,7 +893,11 @@ describe("ordered selected-case batches", () => {
 			properties: { notes: "bob" },
 		});
 		expect(
-			await store.query({ appId: APP_ID, caseType: "visit" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			}),
 		).toHaveLength(0);
 		const receiptCount = await sql<{ count: string }>`
 			SELECT count(*)::text AS count
@@ -1042,7 +1074,11 @@ describe("ordered selected-case batches", () => {
 		expect(createdCaseIds).toHaveLength(2);
 		expect(new Set(createdCaseIds).size).toBe(2);
 		expect(
-			await store.query({ appId: APP_ID, caseType: "visit" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			}),
 		).toHaveLength(2);
 		for (const caseId of caseIds) {
 			expect((await patientRow(store, caseId))?.properties).toMatchObject({
@@ -1148,6 +1184,7 @@ describe("ordered selected-case batches", () => {
 
 		expect(result.primaryCaseIds).toEqual(caseIds);
 		const children = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseIds: result.createdChildren.map((child) => child.caseId),
@@ -1242,7 +1279,11 @@ describe("ordered selected-case batches", () => {
 		});
 		expect(acceptedReceipt.rows[0]?.result).not.toHaveProperty("childCaseIds");
 		expect(
-			await store.query({ appId: APP_ID, caseType: "visit" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			}),
 		).toHaveLength(2);
 	});
 });
@@ -1309,7 +1350,11 @@ describe("pre-submission snapshot", () => {
 		expect((await patientRow(store, SESSION_CASE_ID))?.properties.notes).toBe(
 			"last",
 		);
-		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
+		const visits = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
 		expect(visits).toHaveLength(1);
 		expect(visits[0]).toMatchObject({
 			case_name: "Alice",
@@ -1353,7 +1398,13 @@ describe("pre-submission snapshot", () => {
 		expect((await patientRow(store, SESSION_CASE_ID))?.properties.notes).toBe(
 			"original",
 		);
-		expect(await store.query({ appId: APP_ID, caseType: "visit" })).toEqual([]);
+		expect(
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			}),
+		).toEqual([]);
 	});
 
 	it("every expression evaluates against pre-effect values", async () => {
@@ -1487,7 +1538,11 @@ describe("blank writes", () => {
 			),
 		});
 
-		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
+		const visits = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
 		expect(visits).toHaveLength(1);
 		expect(visits[0]?.properties).not.toHaveProperty("outcome");
 	});
@@ -1540,7 +1595,11 @@ describe("conditions", () => {
 		});
 
 		expect(
-			await store.query({ appId: APP_ID, caseType: "visit" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			}),
 		).toHaveLength(0);
 		expect(result.operations.map((entry) => entry.executed)).toEqual([
 			false,
@@ -1585,7 +1644,11 @@ describe("conditions", () => {
 			expect.objectContaining({ executed: false }),
 		]);
 		expect(
-			await store.query({ appId: APP_ID, caseType: "visit" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			}),
 		).toHaveLength(0);
 	});
 
@@ -1627,7 +1690,11 @@ describe("conditions", () => {
 			),
 		});
 
-		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
+		const visits = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
 		expect(visits).toHaveLength(1);
 		expect(visits[0]?.properties).toMatchObject({ outcome: "visited" });
 		expect(result.operations.map((entry) => entry.executed)).toEqual([
@@ -1960,7 +2027,11 @@ describe("resolved sequence proof", () => {
 			reason: "authored-key-identity-is-type-stable",
 		});
 		expect(
-			await store.query({ appId: APP_ID, caseType: "patient" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			}),
 		).toHaveLength(0);
 	});
 
@@ -2046,7 +2117,11 @@ describe("resolved sequence proof", () => {
 
 		// Two rows, each named by ITS iteration's key; the conditional
 		// write landed only on iteration two's correlated create.
-		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
+		const visits = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
 		expect(visits).toHaveLength(2);
 		const byName = new Map(visits.map((row) => [row.case_name, row]));
 		expect(byName.get("key-1")?.properties).not.toHaveProperty("outcome");
@@ -2094,7 +2169,11 @@ describe("resolved sequence proof", () => {
 		// Duplicate keys for one create definition intentionally merge —
 		// one row, two executed instances addressing it.
 		expect(
-			await store.query({ appId: APP_ID, caseType: "patient" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			}),
 		).toHaveLength(1);
 		expect(result.operations).toHaveLength(2);
 		expect(new Set(result.operations.map((entry) => entry.caseId)).size).toBe(
@@ -2171,7 +2250,11 @@ describe("text facets", () => {
 			reason: "blank",
 		});
 		expect(
-			await store.query({ appId: APP_ID, caseType: "visit" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			}),
 		).toHaveLength(0);
 	});
 
@@ -2380,9 +2463,17 @@ describe("owner stamping", () => {
 			),
 		});
 
-		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
+		const visits = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
 		expect(visits[0]?.owner_id).toBe(ACTOR);
-		const patients = await store.query({ appId: APP_ID, caseType: "patient" });
+		const patients = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
 		expect(patients[0]?.owner_id).toBe("-");
 	});
 
@@ -2439,7 +2530,11 @@ describe("retype", () => {
 			]),
 		});
 
-		const rows = await store.query({ appId: APP_ID, caseType: "patient_v2" });
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient_v2",
+		});
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.case_id).toBe(SESSION_CASE_ID);
 		expect(rows[0]?.properties).toMatchObject({ notes: "kept", age: 30 });
@@ -2477,7 +2572,11 @@ describe("retype", () => {
 			]),
 		});
 
-		const rows = await store.query({ appId: APP_ID, caseType: "patient_v2" });
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient_v2",
+		});
 		expect(rows).toHaveLength(1);
 		expect(rows[0]?.case_id).toBe(SESSION_CASE_ID);
 		expect(rows[0]?.case_name).toBe("Alice v2");
@@ -2871,6 +2970,7 @@ describe("transaction-captured case database patch", () => {
 			role: "supervisor",
 		});
 		const current = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: USERCASE_CASE_TYPE,
 		});
@@ -2927,6 +3027,7 @@ describe("durable text-only submission receipt", () => {
 		const primaryCaseId = first.primaryCaseIds[0];
 		expect(primaryCaseId).toBeDefined();
 		const patients = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -2974,7 +3075,11 @@ describe("durable text-only submission receipt", () => {
 			}),
 		).rejects.toBeInstanceOf(CaptureSubmissionRejectedError);
 		expect(
-			await store.query({ appId: APP_ID, caseType: "patient" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			}),
 		).toHaveLength(1);
 	});
 
@@ -3044,7 +3149,13 @@ describe("durable text-only submission receipt", () => {
 			const [first, retry] = results;
 			expect(retry).toEqual(first);
 			expect(first.operations).toHaveLength(1);
-			expect(await store.query({ appId: APP_ID, caseType: "visit" })).toEqual([
+			expect(
+				await store.query({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "visit",
+				}),
+			).toEqual([
 				expect.objectContaining({
 					case_id: first.operations[0]?.caseId,
 					case_name: "Generated visit",
@@ -3095,10 +3206,18 @@ describe("durable text-only submission receipt", () => {
 		).rejects.toBeInstanceOf(CasePropertiesValidationError);
 
 		expect(
-			await store.query({ appId: APP_ID, caseType: "patient" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			}),
 		).toHaveLength(0);
 		expect(
-			await store.query({ appId: APP_ID, caseType: "visit" }),
+			await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "visit",
+			}),
 		).toHaveLength(0);
 		const rows = await sql<{ count: string }>`
 			SELECT count(*)::text AS count

@@ -528,6 +528,26 @@ From step 3 (this section lands in pull request 7, Preview; part 07 §8):
   rows at the slot's evaluation point (§1.3), so Preview gains no second session for them (part 07
   plans each reader).
 
+**Implementation correction, 2026-10-19** (pull request 7):
+
+- `entrySessionData(doc, formUuid, { appId, entryKey, boundCases, menuSelections, caseDatabase,
+  identity })` returns `{ data, values, newCaseId? }`: `data` for the session instance, `values`
+  with each named case's name for after-submit links, and the registration's minted id. An unsaved
+  app (no `appId`) mints no ids, so its `uuid()` datums stay unvalued. A datum that names no case
+  Nova creates is keyed `placeholder:<datum id>` (`entryCaseIdentity.ts::entryDatumCaseKey`).
+- The rejection is the existing union's `{ kind: "new-case", reason: "case-id-taken", caseId }`
+  (`lib/case-store/errors.ts`), checked by a read before the insert so it is a typed rejection
+  rather than an aborted transaction. The dedicated sentence above is not written.
+- `sourceSessionDatums` retires: `EngineController.entrySession` holds the map built at
+  `activateForm`, and `afterSubmitSessionDatums(entry, submission, registeredCaseId)` adds the
+  names the submission saved, refusing a registration whose created id differs from the minted one.
+  A child created in a repeat has no datum, so a repeat bucket of the same type never shadows a
+  non-repeat child's datum.
+- The Search screen's map for the module's query step is left to pull request 10, where its readers
+  (part 06 §3.9's runtime segments and the advanced input's chosen-case reads) land: in pull request
+  7 `PreviewSearchEnvironment.sessionData` and `searchScreenXPathInstances` take it, and the running
+  Search screen passes none.
+
 ---
 
 ## 2. Typed instance references

@@ -56,7 +56,10 @@ Test-only persona assignments do not provision workers or establish deployment
 readiness. The narrow store cannot alter schemas or dispatch media effects.
 
 Navigation shares production menu, selection and routing projections.
-Form evaluation receives a captured record snapshot before initialization. It
+Form evaluation receives a captured record snapshot before initialization.
+Each form session mints its own entry key and builds its session map from the
+session's menu selections, so its proposed submission names the case ids its
+logic read. It
 does not execute the browser's asynchronous record-loading hooks or React
 lifecycle; those boundaries need browser evidence even when a journey passes.
 Observations identify the evaluator clock and its calendar day. Form workers,
@@ -78,12 +81,30 @@ standing in for expression or submission behavior. Answers share the coordinate
 input and location-picker formatter with the real UI. Malformed supplied location values
 are test-input refusals, not observations of worker validation; map services and
 GPS capture remain outside this surface. Submission uses the production operation planner and atomic
-envelope. Its receipt overlays the entry case database, including just-closed
+envelope. A form Core would refuse at a setvalue (a preload or starting value
+that does not cast to its question's type, or a requested repeat row whose
+starting value does not) is `FormRefusedError` (`form-refused`), a test-input
+refusal with the sentence Preview shows. Its receipt overlays the entry case database, including just-closed
 records, before evaluating the next task. It separately overlays the session's
 latest record catalog, preserving unrelated rows learned by Sync while the
 submitting form was open. A direct linked form keeps the entry-plus-effects
 snapshot; an ordinary new entry uses the updated session catalog.
-Sync applies the production restore closure. A next-task failure preserves an
+Sync applies the production restore closure, seeded also by the session's
+claims. A records screen whose module has an effective Search, once its search
+has run (`records.ts::recordsReadSearch`), reads HQ's population: the
+Project's open cases of the type, with each row marked held or not by the
+session's restore, and the Details and selections of cases chosen there read it
+too. Choosing a searched record the session's restore does not hold claims it,
+where CommCare posts the claim (`run.ts::postAppTestClaims`, the browser's
+`lib/preview/searchClaims.ts` rules): a search action's at the result, a
+search-first module's when its case-loading form opens, with the entry's other
+case datums under a selected parent. A claim appends to the session's
+`AppTestSessionState.claimedCaseIds` and reads its device snapshot again, so the
+form opens over it. A worker session's claims are part of its journey state,
+committed with each action like its record catalog, and sent with every
+device-scoped read of that session; another session never holds them, they end
+when the journey finishes, and a journey never reads the running Preview's
+claims. A next-task failure preserves an
 already successful test submission.
 An action rejected before submission leaves no partial effects.
 
@@ -192,9 +213,12 @@ can restore exact custom wording on the next observation.
 The runtime preserves the synced session catalog across submission while
 direct form links retain the submitting entry plus its committed effects.
 It also pins retained worker sessions, the shared presentation
-hierarchy and distinct page/route controls, alongside portable case-list metadata reads: Results/Details,
-calculated columns and calculated ordering expose built-in dates at native
-calendar precision, while custom datetime values keep their clocks. Retained
+hierarchy and distinct page/route controls, alongside case-list metadata reads:
+Results/Details expose built-in dates at native calendar precision, and
+calculated columns and calculated ordering read them under the list's reading
+(a browse list's casedb day; over a search's results, `date_opened` the UTC day
+and `last_modified` its instant), while custom datetime values keep their
+clocks. Retained
 older observations remain readable, but a fresh journey is needed to execute
 these semantics.
 

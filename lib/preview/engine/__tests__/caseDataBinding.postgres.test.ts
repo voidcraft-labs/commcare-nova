@@ -45,6 +45,10 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/expression";
+import {
+	CASEDB_READING,
+	SEARCH_READING,
+} from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
@@ -288,6 +292,7 @@ describe("a submission made while previewing as a persona", () => {
 		);
 
 		const rows = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -308,7 +313,11 @@ describe("a submission made while previewing as a persona", () => {
 			seed: "persona-owner",
 		});
 
-		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
 		expect(rows.length).toBeGreaterThan(0);
 		for (const row of rows) expect(row.owner_id).toBe(PERSONA);
 	});
@@ -333,7 +342,11 @@ describe("a submission made while previewing as a persona", () => {
 				APP_ID,
 			),
 		);
-		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+		const rows = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
 		expect(
 			rows.find((r) => r.case_id === result.primaryCaseIds[0])?.owner_id,
 		).toBe(OWNER_A);
@@ -347,6 +360,7 @@ describe("readCases", () => {
 		await seedSchema(store, blueprint, "patient");
 
 		const result = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -380,6 +394,7 @@ describe("readCases", () => {
 		});
 
 		const result = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -439,6 +454,7 @@ describe("readCases", () => {
 		});
 
 		const result = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -501,6 +517,7 @@ describe("readCases", () => {
 		});
 
 		const result = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -552,6 +569,7 @@ describe("readCases", () => {
 		});
 
 		const result = await readCases(store, {
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -619,6 +637,7 @@ describe("readCases", () => {
 		it("counts what a bounded read left out", async () => {
 			const store = await seedTwoOwners();
 			const result = await readCases(store, {
+				reading: CASEDB_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				page: { offset: 0, limit: 10 },
@@ -633,6 +652,7 @@ describe("readCases", () => {
 		it("counts what an empty bounded read left out", async () => {
 			const store = await seedTwoOwners();
 			const result = await readCases(store, {
+				reading: CASEDB_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				page: { offset: 0, limit: 10 },
@@ -649,6 +669,7 @@ describe("readCases", () => {
 			const store = await seedTwoOwners();
 			const counts = vi.spyOn(store, "count");
 			const result = await readCases(store, {
+				reading: CASEDB_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				restoreScope: { ownerIds: [OWNER_A] },
@@ -671,6 +692,7 @@ describe("readCases", () => {
 			const store = await seedTwoOwners();
 			const counts = vi.spyOn(store, "count");
 			const result = await readCases(store, {
+				reading: CASEDB_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				restoreScope: { ownerIds: ["owner-nobody"] },
@@ -687,6 +709,7 @@ describe("readCases", () => {
 		it("stays silent when no restore is bound", async () => {
 			const store = await seedTwoOwners();
 			const result = await readCases(store, {
+				reading: CASEDB_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				page: { offset: 0, limit: 10 },
@@ -725,6 +748,7 @@ describe("readCases", () => {
 		}
 
 		const firstPage = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			page: { offset: 0, limit: 2 },
@@ -742,6 +766,7 @@ describe("readCases", () => {
 		]);
 
 		const staleFinalPage = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			page: { offset: 100, limit: 2 },
@@ -814,6 +839,7 @@ describe("readCases", () => {
 			modules: { ...blueprint.modules, [moduleUuid]: mod },
 		});
 		const result = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -849,6 +875,7 @@ describe("readCases", () => {
 
 		const storeB = makeStore(PROJECT_B, OWNER_B);
 		const result = await readCases(storeB, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -877,6 +904,7 @@ describe("readCases", () => {
 		};
 
 		const result = await readCases(store, {
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -969,6 +997,7 @@ describe("readCases — grouped tile", () => {
 		const { blueprint, north, south } = await seedVisits(store);
 
 		const result = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1016,6 +1045,7 @@ describe("readCases — grouped tile", () => {
 		const { blueprint } = await seedVisits(store);
 
 		const result = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1039,6 +1069,7 @@ describe("readCases — grouped tile", () => {
 		const { blueprint } = await seedVisits(store);
 
 		const result = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1060,6 +1091,7 @@ describe("readCases — grouped tile", () => {
 		// The form's auto-selection read wants the complete candidate set and
 		// draws no list, so it stays on the ordinary path even here.
 		const result = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1134,6 +1166,7 @@ describe("readCases — running-app search-input composition", () => {
 			.execute();
 
 		const result = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1179,6 +1212,7 @@ describe("readCases — running-app search-input composition", () => {
 		});
 
 		const result = await readCases(store, {
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1227,6 +1261,7 @@ describe("readCases — running-app search-input composition", () => {
 		});
 
 		const result = await readCases(store, {
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1285,6 +1320,7 @@ describe("readCases — running-app search-input composition", () => {
 		// `inputValues` map binds "Al" at the substitution site, so
 		// only Alice survives.
 		const result = await readCases(store, {
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1359,6 +1395,7 @@ describe("readCases — running-app search-input composition", () => {
 		});
 
 		const present = await readCases(store, {
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1371,6 +1408,7 @@ describe("readCases — running-app search-input composition", () => {
 		expect(present.constraintSource).toBe("worker-search");
 
 		const absent = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1426,6 +1464,7 @@ describe("readCases — running-app search-input composition", () => {
 		});
 
 		const result = await readCases(store, {
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1501,6 +1540,7 @@ describe("readCases — running-app search-input composition", () => {
 		});
 
 		const result = await readCases(store, {
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1557,6 +1597,7 @@ describe("readCases — running-app search-input composition", () => {
 		});
 
 		const result = await readCases(store, {
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1582,6 +1623,7 @@ describe("readCases — running-app search-input composition", () => {
 		expect(result.rows[0]?.case_id).toBe(BOB_CASE_ID);
 
 		const noMatch = await readCases(store, {
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -1660,6 +1702,7 @@ describe("readCases — running-app search-input composition", () => {
 		]);
 		const query = async (property: "dob" | "last_seen") =>
 			readCases(store, {
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas,
@@ -1710,6 +1753,7 @@ describe("resetSampleCases", () => {
 		if (seeded.kind !== "ok") return;
 		expect(seeded.inserted).toBe(SAMPLE_CASE_DEFAULT_COUNT);
 		const before = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -1727,6 +1771,7 @@ describe("resetSampleCases", () => {
 		// Population after reset MUST equal the default count — the
 		// helper deleted the old rows before regenerating.
 		const after = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -1759,6 +1804,7 @@ describe("readCaseData", () => {
 		});
 
 		const result = await readCaseData(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseId: ALICE_CASE_ID,
@@ -1830,6 +1876,7 @@ describe("readCaseData", () => {
 		`.execute(dbHandle.db);
 
 		const customIndex = await readCaseData(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseId: VISIT_CASE_ID,
@@ -1839,6 +1886,7 @@ describe("readCaseData", () => {
 		expect(customIndex.kind).toBe("row");
 
 		const extension = await readCaseData(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseId: extensionCaseId,
@@ -1879,6 +1927,7 @@ describe("readCaseData", () => {
 		});
 
 		const result = await readCaseData(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseId: ALICE_CASE_ID,
@@ -1909,6 +1958,7 @@ describe("readCaseData", () => {
 		});
 		const calculatedUuid = testUuid("00000000-0000-0000-0000-000000000d02");
 		const result = await readCaseData(store, {
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseId: ALICE_CASE_ID,
@@ -1981,6 +2031,7 @@ describe("readCaseData", () => {
 		});
 
 		const result = await readCaseData(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseId: VISIT_CASE_ID,
@@ -2049,6 +2100,7 @@ describe("readCaseData", () => {
 		// Depth 1: only the direct parent — the caller's blueprint says
 		// no ref can address deeper, so no deeper hop is paid for.
 		const shallow = await readCaseData(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseId: VISIT_CASE_ID,
@@ -2061,6 +2113,7 @@ describe("readCaseData", () => {
 		// Depth 0 (and any non-finite/negative garbage a crafted request
 		// could send) clamps to no walk at all.
 		const none = await readCaseData(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseId: VISIT_CASE_ID,
@@ -2146,6 +2199,7 @@ describe("readCaseData", () => {
 			resetSampleData: (a) => store.resetSampleData(a),
 		};
 		const result = await readCaseData(flaky, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 			caseId: VISIT_CASE_ID,
@@ -2192,6 +2246,7 @@ describe("readCaseData", () => {
 			.execute();
 
 		const result = await readCaseData(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseId: ALICE_CASE_ID,
@@ -2237,6 +2292,7 @@ describe("readCaseData", () => {
 		});
 
 		const result = await readCaseData(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseId: BOB_CASE_ID,
@@ -2253,6 +2309,7 @@ describe("readCaseData", () => {
 		await seedSchema(store, blueprint, "patient");
 
 		const result = await readCaseData(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseId: "does-not-exist",
@@ -2279,6 +2336,7 @@ describe("readCaseData", () => {
 		});
 
 		const result = await readCaseData(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseId: authoredId,
@@ -2309,6 +2367,7 @@ describe("readCaseData", () => {
 		// tenant boundary.
 		const storeB = makeStore(PROJECT_B, OWNER_B);
 		const result = await readCaseData(storeB, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseId: ALICE_CASE_ID,
@@ -2334,6 +2393,7 @@ describe("seedSampleCases", () => {
 
 		// The seeded rows should land in the same case-type's table.
 		const after = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -2485,6 +2545,7 @@ describe("applySubmission — registration", () => {
 		// the right column values + JSONB document; the visit row's
 		// `parent_case_id` is threaded from the primary's generated id.
 		const patients = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -2496,6 +2557,7 @@ describe("applySubmission — registration", () => {
 		expect(patients.rows[0]?.properties).toEqual({ age: 30 });
 
 		const visits = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 		});
@@ -2642,6 +2704,7 @@ describe("applySubmission — registration", () => {
 		expect(result.createdChildren).toEqual([]);
 
 		const patients = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -2677,6 +2740,7 @@ describe("applySubmission — registration", () => {
 		expect(result.createdChildren).toEqual([]);
 
 		const patients = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -2713,6 +2777,7 @@ describe("applySubmission — registration", () => {
 
 		// The envelope threw before its first insert — nothing landed.
 		const patients = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -2749,11 +2814,13 @@ describe("applySubmission — registration", () => {
 		// inside the one envelope transaction, so the whole submission
 		// rolled back — neither row persists.
 		const patients = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
 		expect(patients.kind).toBe("empty");
 		const visits = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 		});
@@ -2803,6 +2870,7 @@ describe("applySubmission — followup", () => {
 		// Primary's `age` updated; `name` preserved (JSONB merge, not
 		// replace); the new display name lands on the `case_name` column.
 		const patients = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -2812,6 +2880,7 @@ describe("applySubmission — followup", () => {
 
 		// Child row's `parent_case_id` matches the bound caseId.
 		const visits = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 		});
@@ -2864,6 +2933,7 @@ describe("applySubmission — followup", () => {
 		// the row still reads its pre-submission state, and no visit row
 		// landed.
 		const patients = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -2871,6 +2941,7 @@ describe("applySubmission — followup", () => {
 		expect(patients.rows[0]?.properties).toEqual({ age: 30 });
 		expect(patients.rows[0]?.case_name).toBe("Alice");
 		const visits = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
 		});
@@ -2916,6 +2987,7 @@ describe("applySubmission — close", () => {
 		expect(result.createdChildren).toHaveLength(1);
 
 		const patients = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -2975,6 +3047,7 @@ describe("applySubmission — close", () => {
 		expect(result.createdChildren).toHaveLength(1);
 
 		const patients = await readCases(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
@@ -3029,6 +3102,7 @@ describe("readFilterPreview", () => {
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
 		const result = await readFilterPreview(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3067,6 +3141,7 @@ describe("readFilterPreview", () => {
 		});
 
 		const result = await readFilterPreview(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3118,6 +3193,7 @@ describe("readFilterPreview", () => {
 			modules: { ...blueprint.modules, [moduleUuid]: mod },
 		});
 		const result = await readFilterPreview(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3160,6 +3236,7 @@ describe("readFilterPreview", () => {
 
 		// `age > 30` — only Bob matches.
 		const result = await readFilterPreview(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3196,6 +3273,7 @@ describe("readFilterPreview", () => {
 		});
 
 		const result = await readFilterPreview(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3243,6 +3321,7 @@ describe("readFilterPreview", () => {
 		});
 
 		const result = await readFilterPreview(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3270,6 +3349,7 @@ describe("readFilterPreview", () => {
 		});
 
 		const result = await readFilterPreview(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3302,6 +3382,7 @@ describe("readFilterPreview", () => {
 		});
 
 		const result = await readFilterPreview(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3338,6 +3419,7 @@ describe("readFilterPreview", () => {
 			},
 		});
 		const result = await readFilterPreview(store, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),

@@ -18,6 +18,7 @@ import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestData
 import type { Database } from "@/lib/case-store/sql/database";
 import { proseText } from "@/lib/domain";
 import { prop, term } from "@/lib/domain/expression";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 
 interface ControlOrder {
 	readonly comparator: "text" | "integer" | "decimal";
@@ -122,6 +123,7 @@ describe("the case store orders the control's rows as Core does", () => {
 					},
 				];
 				const rows = await store.query({
+					reading: SEARCH_READING,
 					appId: APP_ID,
 					caseType: CASE_TYPE,
 					caseTypeSchemas: schemas(),
@@ -185,6 +187,7 @@ describe("a multi select orders as a device reads it", () => {
 			});
 		}
 		const rows = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: CASE_TYPE,
 			caseTypeSchemas: multiSchemas,
@@ -247,6 +250,7 @@ describe("an ID mapping orders as a device's selected() reads it", () => {
 			});
 		}
 		const rows = await store.query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: CASE_TYPE,
 			caseTypeSchemas: schemas(),

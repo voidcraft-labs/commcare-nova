@@ -20,6 +20,7 @@ import { FormSettingsButton } from "@/components/builder/detail/formSettings/For
 import { EditableTitle } from "@/components/builder/EditableTitle";
 import {
 	useBuilderLanguage,
+	useLocalizedField,
 	useLocalizedText,
 	useTranslationUnitEditor,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
@@ -35,6 +36,7 @@ import {
 } from "@/lib/doc/hooks/useEntity";
 import { useEffectivePostSubmit } from "@/lib/doc/hooks/useFormLinkFacts";
 import { useHasFieldsInForm } from "@/lib/doc/hooks/useHasFieldsInForm";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
@@ -61,6 +63,7 @@ import {
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "@/lib/preview/afterSubmitRouting";
+import type { SetvalueRefusalDetails } from "@/lib/preview/engine/answerCast";
 import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
 import {
 	blueprintRevisionDigest,
@@ -78,6 +81,10 @@ import {
 	submissionWorkerValues,
 } from "@/lib/preview/engine/caseDatabasePatch";
 import type { EngineValidationCompletion } from "@/lib/preview/engine/engineController";
+import {
+	afterSubmitSessionDatums,
+	type EntrySessionData,
+} from "@/lib/preview/engine/entrySessionData";
 import type { InvalidFieldTarget } from "@/lib/preview/engine/formEngine";
 import {
 	type CarriedSubmission,
@@ -86,8 +93,6 @@ import {
 	evaluateFormLinksAsync,
 	type PostSubmissionCaseData,
 	projectTargetCaseSelectionsAsync,
-	type SelectedCaseSessionValue,
-	sourceSessionDatums,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import {
@@ -117,7 +122,7 @@ import {
 	noMatchesPostSubmit,
 	noMatchesRefusalCopy,
 } from "@/lib/preview/noMatchesForm";
-import { runtimeMessage } from "@/lib/preview/runtimeMessages";
+import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
@@ -282,6 +287,8 @@ function describeSubmissionRejection(
 			return rejection.reason === "case-link-target-is-self"
 				? "Nothing was saved: a case automation tried to connect a case to itself."
 				: "Nothing was saved: this form's case automations disagree about a case's type partway through the submission. Review the automations' order and types.";
+		case "new-case":
+			return "This form's new case is already saved. You can open it from the case list.";
 		case "retype-not-portable": {
 			const lines = rejection.failures.map((f) => {
 				const field = f.path === "" ? "<root>" : f.path.replace(/^\//, "");
@@ -333,6 +340,8 @@ interface SubmittedContextSnapshot extends SubmissionContextSnapshot {
 	readonly doc: BlueprintDoc;
 	/** The exact device casedb captured when this form entry opened. */
 	readonly caseDatabase: CaseDatabaseSnapshot;
+	/** The entry's session map: what the form read as `session/data`. */
+	readonly entrySession: EntrySessionData | undefined;
 	/** The materializable catalog from the same submit-time revision. */
 	readonly caseTypes: readonly CaseType[];
 }
@@ -675,16 +684,35 @@ export function FormScreen({ screen }: FormScreenProps) {
 
 	const editable = isReady;
 
+	/* The running session the entry starts from: its bound cases and the
+	 * menu's choices. The controller builds the entry's session map, which
+	 * the form reads as `session/data` and its links read after submit. */
+	const entrySession = useMemo(
+		() =>
+			appId === undefined || mode !== "preview"
+				? undefined
+				: {
+						appId,
+						boundCases: effectiveCases ?? [],
+						menuSelections: menuCaseSelections,
+					},
+		[appId, mode, effectiveCases, menuCaseSelections],
+	);
 	const controller = useFormEngine(
 		formUuid,
 		caseData,
 		carriedCaseDatabase,
 		searchAnswers,
 		caseBindingReady,
+		entrySession,
 	);
 	const engineEntry = useEngineEntry();
 	const runtimeFault =
 		engineEntry.fault?.formUuid === formUuid ? engineEntry.fault : undefined;
+	const formRefusal =
+		engineEntry.refusal?.formUuid === formUuid
+			? engineEntry.refusal.details
+			: undefined;
 	const caseDatabaseWait =
 		engineEntry.caseDatabaseWait?.formUuid === formUuid
 			? engineEntry.caseDatabaseWait
@@ -1267,42 +1295,19 @@ export function FormScreen({ screen }: FormScreenProps) {
 					parentCaseIds: resultCaseIds,
 				}),
 			};
-			/* Form-link evaluation consumes module-keyed CASE SESSION values, not
-			 * raw menu ancestry. The canonical menu projection resolves same-type
-			 * structural inheritance and case-type parent selection first; the wire
-			 * projection then maps those stable module identities to final datum ids. */
-			const selectedCases = new Map<Uuid, SelectedCaseSessionValue>();
-			for (const selectedModuleUuid of routeMenuSource.moduleOrder) {
-				const selected = previewMenuCaseContext(
-					routeMenuSource,
-					selectedModuleUuid,
-					menuCaseSelections,
-				).selectedCase;
-				const selectedChoice = selected?.cases[0];
-				if (
-					selected === undefined ||
-					selected.cases.length !== 1 ||
-					selectedChoice === undefined
-				)
-					continue;
-				selectedCases.set(selectedModuleUuid, {
-					caseType: selected.caseType,
-					value: selectedChoice.caseId,
-					caseName: selectedChoice.caseName,
-				});
-			}
 			const input = {
 				doc,
 				formUuid: sourceFormUuid,
 				session: previewSessionValues(previewIdentity),
 				usercase: postSubmissionUsercase,
-				sessionDatums: sourceSessionDatums(
-					doc,
-					sourceFormUuid,
+				/* The entry's own session map: the device's session does not
+				 * change when the form closes, so a link reads the ids its form
+				 * read, created cases included. */
+				sessionDatums: afterSubmitSessionDatums(
+					submitted.entrySession,
 					submission,
-					selectedCases,
+					result.kind === "registration" ? result.caseId : undefined,
 				),
-				caseData,
 				caseDatabase: refreshedCaseDatabase,
 				lookupData: controller.previewLookupDataSnapshot,
 			};
@@ -1789,6 +1794,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				links: submittedForm?.formLinks,
 				doc,
 				caseDatabase: controller.previewCaseDatabaseSnapshot,
+				entrySession: controller.entrySession,
 				caseTypes: materializableCaseTypesFromDoc(doc),
 			};
 		};
@@ -2236,6 +2242,29 @@ export function FormScreen({ screen }: FormScreenProps) {
 					</button>
 				</div>
 			</div>
+		);
+	}
+
+	/* CommCare refuses to open this form: a setvalue's cast turned away the
+	 * selected record's saved value or a question's starting value. The
+	 * running app shows no form, so neither does Preview; the next edit or
+	 * case-data change opens it again. */
+	if (mode === "preview" && formRefusal !== undefined) {
+		const caseName =
+			effectiveCases?.find((choice) => choice.caseId === formRefusal.caseId)
+				?.caseName ?? effectiveCases?.[0]?.caseName;
+		return (
+			<FormRefusalPanel
+				refusal={formRefusal}
+				caseName={caseName}
+				onChooseAnotherRecord={() => {
+					setPreviewSelectedCase(undefined);
+					setPreviewCaseTarget({ formUuid });
+					navigate.replace({ kind: "cases", moduleUuid });
+				}}
+				onBackToList={() => navigate.openCaseList(moduleUuid)}
+				onBack={() => navigate.openModule(moduleUuid)}
+			/>
 		);
 	}
 
@@ -2757,6 +2786,84 @@ export function FormScreen({ screen }: FormScreenProps) {
 				{/* FormLayoutProvider owns the group/repeat collapse set, shared across edit and live modes so a folded group stays folded when the user flips. */}
 				<FormLayoutProvider ref={formLayoutRef}>{formBody}</FormLayoutProvider>
 			</ContentFrame>
+		</div>
+	);
+}
+
+/** The refused-entry screen: what CommCare turned away, and a way on. */
+function FormRefusalPanel({
+	refusal,
+	caseName,
+	onChooseAnotherRecord,
+	onBackToList,
+	onBack,
+}: {
+	readonly refusal: SetvalueRefusalDetails;
+	readonly caseName: string | undefined;
+	readonly onChooseAnotherRecord: () => void;
+	readonly onBackToList: () => void;
+	readonly onBack: () => void;
+}) {
+	const { language } = useBuilderLanguage();
+	const projectProse = useProseProjection();
+	const question = useLocalizedField(refusal.fieldUuid);
+	const caseTypes = useMaterializableCaseTypes();
+	const property = caseTypes
+		.find((type) => type.name === refusal.caseType)
+		?.properties.find((candidate) => candidate.name === refusal.property);
+	const questionLabel =
+		question !== undefined && "label" in question && question.label
+			? projectProse(question.label)
+			: undefined;
+	const propertyLabel =
+		property === undefined
+			? undefined
+			: (property.label ? projectProse(property.label) : "") || property.name;
+	const copy = refusalCopy(language, refusal, {
+		...(caseName ? { caseName } : {}),
+		...(propertyLabel ? { property: propertyLabel } : {}),
+		...(questionLabel ? { question: questionLabel } : {}),
+	});
+	return (
+		<div className="flex h-full items-center justify-center px-6 py-10">
+			<div
+				role="alert"
+				data-form-refusal={refusal.cause}
+				className="flex max-w-md flex-col items-start gap-4 rounded-2xl border border-pv-input-border bg-pv-surface p-6 shadow-sm"
+			>
+				<div className="space-y-2">
+					<h2 className="text-lg font-semibold text-nova-text">{copy.title}</h2>
+					<p className="text-sm leading-relaxed text-nova-text-secondary">
+						{copy.body}
+					</p>
+				</div>
+				{refusal.cause === "preload" ? (
+					<div className="flex flex-wrap items-center gap-2">
+						<button
+							type="button"
+							onClick={onChooseAnotherRecord}
+							className={FORM_PRIMARY_ACTION_CLS}
+						>
+							{runtimeMessage(language, "chooseAnotherRecord")}
+						</button>
+						<button
+							type="button"
+							onClick={onBackToList}
+							className={FORM_QUIET_ACTION_CLS}
+						>
+							{runtimeMessage(language, "backToList")}
+						</button>
+					</div>
+				) : (
+					<button
+						type="button"
+						onClick={onBack}
+						className={FORM_PRIMARY_ACTION_CLS}
+					>
+						{runtimeMessage(language, "back")}
+					</button>
+				)}
+			</div>
 		</div>
 	);
 }

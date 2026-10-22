@@ -1,6 +1,14 @@
 import { JAVAROSA_PATH_INITIALIZERS } from "@/lib/commcare/xpath/functionCapabilities";
 import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
-import { toBoolean, toDate, toDouble, toNumber, xpathToString } from "./coerce";
+import {
+	expandDateSafe,
+	toBoolean,
+	toDateRounding,
+	toDouble,
+	toNumber,
+	XPathDateConversionError,
+	xpathToString,
+} from "./coerce";
 import { formatCommCareDate } from "./dateFormatting";
 import { javaRosaPow } from "./javaMathRuntime";
 import { javaRosaFormatDateForCalendar } from "./javaRosaAlternateCalendar";
@@ -13,6 +21,7 @@ import { javaRosaSplitOnSpaces, javaTrim } from "./javaString";
 import { nodeSetJavaRosaFunctions } from "./nodeSetJavaRosaFunctions";
 import {
 	unpackXPathRuntimeValue,
+	XPathCoreNull,
 	type XPathRuntimeValue,
 } from "./runtimeValues";
 import { scalarJavaRosaFunctions } from "./scalarJavaRosaFunctions";
@@ -239,52 +248,72 @@ register("position", () => 1);
  * today() → XPathDate representing midnight of the current day.
  * Matches CommCare core's XPathTodayFunc: `DateUtils.roundDate(new Date())`.
  */
-register("today", () => XPathDate.fromJSDateOnly(new Date()));
+register("today", () => XPathDate.localDateOf(Date.now()));
 
 /**
- * now() → XPathDate with time retained for double()/format-date(). Core's
- * ordinary string/number coercions still use the local calendar date.
+ * now() → XPathDate holding the current instant (XPathNowFunc's
+ * `new Date()`). Core's ordinary string/number coercions still use the local
+ * calendar date; double() and format-date() read the clock.
  */
-register("now", () => XPathDate.fromJSDate(new Date()));
+register("now", () => XPathDate.fromInstant(Date.now()));
 
 /**
- * date(value) → XPathDate.
- *
- * - number → days since epoch (e.g. `date(0)` = 1970-01-01)
- * - string → parse ISO-8601 date
- * - XPathDate → rounded to its local date
- *
- * Matches CommCare core's XPathDateFunc / FunctionUtils.toDate().
+ * date(value) → `FunctionUtils.toDate` (XPathDateFunc): a number is Core's
+ * day number, text is parsed and keeps its clock, a Date (a node holding one
+ * included) is rounded to its local date, and `""` and NaN pass through.
+ * Where Core's rounding returns Java's null (a Julian February 29 its date
+ * check refuses), `date()` gives that null (`XPathCoreNull`), which
+ * `coalesce` skips and every other read refuses.
  */
 register("date", (args) => {
-	const v = args[0] ?? "";
-	const d = isXPathDate(v) ? XPathDate.fromDays(v.days) : toDate(v);
-	if (d) return d;
-	if (v === "" || (typeof v === "number" && Number.isNaN(v))) return v;
-	throw new Error("The XPath date() value is invalid in Preview.");
+	try {
+		const date = toDateRounding(args[0] ?? "");
+		if (date !== null) return date;
+		const value = unpackXPathRuntimeValue(args[0] ?? "");
+		return new XPathCoreNull(
+			isXPathDate(value)
+				? `the date ${value.toISOString()}`
+				: `day number ${xpathToString(Math.trunc(toNumber(value)))}`,
+		);
+	} catch (error) {
+		if (error instanceof XPathDateConversionError) {
+			throw new Error("The XPath date() value is invalid in Preview.");
+		}
+		throw error;
+	}
 });
 
 /**
  * format-date(date, format) — format a date value with %-tokens.
  *
- * Accepts XPathDate, date strings, or day-numbers. The first argument
- * is coerced via toDate() so expressions like `format-date(today(), '%Y')`
- * and `format-date('2024-01-15', '%e')` both work.
+ * The first argument goes through `FunctionUtils.expandDateSafe`
+ * (XPathFormatDateFunc.dateStr): a direct Date keeps its clock, anything else
+ * (a node, text, a day number) goes through `toDate`, and a value that is not
+ * a date (`""`, NaN) formats as `""`.
  */
 register("format-date", (args) => {
-	const raw = args[0] ?? "";
 	const format = xpathToString(args[1] ?? "%Y-%m-%d");
-
-	/* Coerce first arg to a date, then to a JS Date for field extraction. */
-	const xd = toDate(raw);
-	if (!xd) {
-		if (raw === "" || (typeof raw === "number" && Number.isNaN(raw))) return "";
-		throw new Error("The XPath format-date() value is invalid in Preview.");
-	}
+	const xd = expandPreviewDate(args[0] ?? "", "format-date");
+	if (!xd) return "";
 	const result = formatCommCareDate(xd, format);
 	if (result.kind === "formatted") return result.text;
 	throw new Error("The XPath format-date() pattern is unsupported in Preview.");
 });
+
+/** `expandDateSafe`, with Core's conversion refusal in Preview's words. */
+function expandPreviewDate(
+	value: XPathRuntimeValue,
+	name: "format-date" | "format-date-for-calendar",
+): XPathDate | null {
+	try {
+		return expandDateSafe(value);
+	} catch (error) {
+		if (error instanceof XPathDateConversionError) {
+			throw new Error(`The XPath ${name}() value is invalid in Preview.`);
+		}
+		throw error;
+	}
+}
 
 // ── Misc ────────────────────────────────────────────────────────────
 
@@ -329,14 +358,9 @@ register("closest-point-on-polygon", (args) =>
 	),
 );
 register("format-date-for-calendar", (args, context) => {
-	const raw = unpackXPathRuntimeValue(args[0] ?? "");
-	const date = toDate(raw);
-	if (!date) {
-		if (raw === "" || (typeof raw === "number" && Number.isNaN(raw))) return "";
-		throw new Error(
-			"The XPath format-date-for-calendar() value is invalid in Preview.",
-		);
-	}
+	// XPathFormatDateForCalendarFunc.formatDateForCalendar: expandDateSafe.
+	const date = expandPreviewDate(args[0] ?? "", "format-date-for-calendar");
+	if (!date) return "";
 	// Core compares the evaluated argument directly with its two String
 	// constants. In particular, a path remains an XPathNodeset here and must not
 	// be made to work by Preview-only scalar coercion; authors can call string()

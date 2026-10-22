@@ -174,6 +174,42 @@ The doctrine sentence in `lib/preview/CLAUDE.md` ("Lookup carriers") becomes the
 surface: Preview prints through the device emitter and evaluates the printed XPath over instances
 shaped like the device's; it never rewrites an expression into a value before printing it.
 
+**Implementation correction, 2026-10-19:** the Preview target already existed at pull request 7's
+base (pull request 5): form logic, form links and the trigger graph printed through
+`toWire` / `serializeWire` at `preview` and read the stored tree structurally. Item 4 of §8 shrank
+to the session map, moving navigation conditions, the Search screen and lookup filters off the
+`suite` print, private tokens and folds, deleting the dead hashtag machinery, protocol 8, the parse
+cache and a per-runtime text cache. So:
+
+- `lib/preview/engine/formLogicSource.ts` is not created. A form runtime
+  (`formExpressionRuntime.ts::formExpressionRuntime`) prints each slot once and holds the text for
+  its own life, because the text depends on the runtime's bindings (a worker read with no
+  `commcare-user` row prints the identity's literal), so the memo belongs to the runtime, never to
+  the document. Requiredness already read the tree.
+- `lib/domain/expression/walk.ts::fieldReads` and `::readsDeviceCases` are not added. Field reads
+  come from `lib/commcare/xpath/wire/formReads.ts`, and the casedb load signal is
+  `lib/preview/engine/expressionCaseReads.ts::expressionReadsCaseDatabase`, widened for `project`,
+  a query-bound repeat's `repeat-row`, the worker-record and grouped-tile `session-datum`s, and,
+  through `useCaseDatabaseSnapshot.tsx`, a navigation display condition that reads case data.
+- The query-repeat flattened-row rule is not `toWire`'s: Preview passes its own form-node
+  projection, `formExpressionRuntime.ts::previewFormNodeProjection`, in which a field of a
+  query-bound repeat resolves without the `item` step.
+- `emitSelfProperty` stays on the wire (the suite's form display conditions). Preview stops using
+  its private self token and prints the shared suite emitters (`lib/commcare/suite/displayConditions.ts`)
+  at `preview` over the device snapshot, reading the chosen case through the suite's casedb walk
+  keyed on `session/data/<datum>`; `useNavigationDeviceCases.ts` hands the menus the controller's
+  device snapshot.
+- A lookup-backed choice list prints `lib/commcare/lookupOptions.ts::lookupOptionsNodeset` (new),
+  the one nodeset the XForm itemset and the Search prompt also print, and `lookupEvaluation.ts`
+  reads each selected row node back as its row; the folds and the per-row evaluation are deleted.
+- A label or hint reference prints through the Preview target as the XForm's `<output>` for it
+  reads (`labelRefs.ts`), so no prose surface keeps a second printing path.
+- A `#<type>/<prop>` read prints `lib/commcare/xform/formCaseRead.ts::formCasePropertyRead` (new),
+  the one casedb walk the XForm emitter and Preview share, keyed on the datum that holds the form's
+  case (`session/data/case_id_new_<type>_0` for a registration's own case).
+- `lib/preview/engine/xpathInstanceReferences.ts` is deleted with the hashtag machinery.
+- `formText.ts` (§3.3) is pull request 9's, with its readers.
+
 ### 1.4 Dependencies from identity
 
 `lib/domain/expression/walk.ts::fieldReads(expression)` (new) returns each `field` and `repeat-row`
@@ -335,6 +371,30 @@ and `date(<number>)` use them; `toISOString` keeps the calendar date. Fractional
 (`toDouble`, row `r4` equal in all four zones). Postgres mirrors it in the casedb and results readings
 (§5.6). Formplayer computes these from a fixed offset in a UTC JVM; its reading in these zones is
 step 4's, with its per-platform Preview.
+
+**Implementation correction, 2026-10-19:** `XPathDate` is `{ calendarDays, timeMilliseconds }`
+(the held instant, or `null` for a date). `coreDays` serves the numeric coercion of a Date through
+`toNumeric` and `date(<number>)`, which truncates the number toward zero as Core's `toInt` does and
+refuses one outside the `int` range; a direct Date in `toDouble` keeps
+`DateUtils.fractionalDaysSinceEpoch`, the wall clock, as Core does, so `toDouble` does not use the
+day number. `coerce.ts::toDateRounding` is Core's `toDate` exactly: a parsed string keeps its
+clock, and `''` and NaN pass through, so a blank node in `date()` or `format-date()` gives `''` (a
+Preview bug this fixed). Java's wall-clock resolution (the later occurrence in an overlap, forward by
+the gap) lives in `coreDays.ts::javaWallInstant`, not `types.ts::localDate`. Day arithmetic is
+Java's: `GregorianCalendar`'s Julian calendar before 1582-10-15, integer days past JavaScript's date
+range, and `DateUtils.roundDate`'s round trip wherever Core rounds, which folds a BC day to AD (the
+year is read without its era) and has no date for a Julian-only 29 February (`DateFields.check`),
+so `date()` there gives Core's null and reading it throws as Core does; the parity rows name Core's
+exception (`CORE_DATE_PARITY` schema version 2). The zone offset is Java's too, not the IANA
+history: `java.util.TimeZone` keeps transitions only from 1900-01-01T00:00Z and reads every earlier
+instant at the zone's current standard offset, never its local mean time, so Kiritimati counts
+Julian 1500-01-01 as day -171656 and its clock steps back a day at the cutoff
+(`lib/domain/javaZoneOffset.ts`, the `cutoff-*` parity rows). The parse cache is one
+module LRU per JavaScript realm (`evaluator.ts::parseAdmittedXPath`, 2,048 entries), shared by
+`evaluateRuntime` and `evaluateRuntimeAsync`, not one per evaluator instance. A calculated Date is
+held as the node's runtime value (`DataInstance`'s calculated scalars widen to `XPathDate`): a
+datetime bind keeps the instant, any other bind its date (`rounded()`), so a datetime Hidden Value
+reads as Core holds it. The engine reads an answer by its bind type, not its field kind.
 
 ### 2.4 Tests for this section
 
@@ -519,6 +579,27 @@ bound parameters only; Nova stores and logs neither. Copy, beside the list:
 - after a refusal: "Your browser isn't sharing your location, so columns that use it stay blank. You
   can allow location for this site in your browser's settings."
 
+**Implementation correction, 2026-10-19:** `distance()` cannot appear in a record column (part 03
+§3.6), so the computable uses are a raw `here()` column and `within-distance(…, here(), …)` inside
+an `if`; "every distance column" and the smoke's distance column become a raw `here()` column. At
+the HQ pin Web Apps sends no position and its list rows never read the worker's location, so
+Preview's moving-position rule is Android's, not Web Apps': a list that reads the position and
+reads again after more than 30 metres. The spelling stays the one a CommCare handler given a
+browser position returns, Formplayer's two `Double.toString` values
+(`lib/preview/engine/runtimeBindings.ts::viewerLocationText`, which refuses a position that is no
+place on Earth). The browser is asked once per session; each list that mounts starts its own watch
+(`lib/preview/hooks/useViewerPosition.ts`), which settles per mount, as Android clears its "good
+enough" on every fresh list; a read uses the latest fix and records it as shown; Details and the
+tile send the latest fix without recording it. The trigger is a Results-field predicate,
+`viewerLocation.ts::columnsReadHere(config, "list")` (and `"detail"` for Details), not
+`caseListColumnRuns`. The position state is its own module store in `lib/session`,
+`viewerPosition.ts` (`unasked`, `waiting`, `sharing`, `refused`, `unavailable`, `unsupported`). A
+`within-distance` center accepts Java's E-notation (`5.0E-4`), the spelling such a handler gives a
+small coordinate. The action is **Share your location** (Nova says "you", never "my"), and the note
+has two more states: "Your browser couldn't find your location, so columns that use it stay blank.
+You can try again." with **Try again**, and "This browser can't share your location, so columns
+that use it stay blank.", each in English and Spanish.
+
 ### 3.5 A search's population and the claim
 
 **What the device reads.** A search, whether the module opens on it (search-first, the inline shape)
@@ -614,6 +695,29 @@ journey finishes. Nothing of a journey lives in `lib/session`, the browser's ses
   (a place in the case store for a case type Nova does not author, and a way to release it) belongs
   to the search workflow setting's step, step 5 (defect 21), and this plan's own pull request writes
   that into `docs/plans/hq-round-trip/5-case-writes-forms-navigation.md`.
+
+**Implementation correction, 2026-10-19:** Preview's claims are one slot, `previewClaims { appId,
+worker, caseIds }`, `worker` the persona's uuid or `"me"` for the signed-in member
+(`lib/session/previewClaims.ts`), not keyed by the identity's `ownerId`; a key other than the
+current app and worker reads none. Every restore-bound action takes `claimedCaseIds` through
+`resolveAuthorizedPreviewContext`, which checks its shape (`previewAuthorization.ts::previewClaimedCaseIds`:
+at most 1,000 distinct ids of 1 to 255 characters) and puts it in `RestoreScope.claimedCaseIds`. The client
+keeps the 1,000 latest claims, a re-claimed id moving to the latest place, so a read never exceeds
+the bound.
+The store does not check the whole set in one read: each claimed id seeds the fixpoint only if it is
+a case of this app in the bound Project, id by id in SQL (`compileRestoreScope.ts`, carrying the
+case's own openness), so an id of another app or Project, or of no case, seeds nothing and refuses
+nothing else. The search population is `QueryArgs.searchPopulation { heldBy }` (never together with
+`restoreScope`): open cases only, and each returned row carries `heldOnDevice`, whether `heldBy`
+holds it, computed in the same statement, so only an unheld choice is claimable
+(`lib/preview/searchClaims.ts`). It covers Results, the several-case Continue check, Details opened
+from Results, and App Tests' records and details (`app-tests/records.ts::recordsReadSearch`). A
+search-first module's claim also posts at Preview's single-form auto-advance, and under a selected
+parent it offers the entry's other case datums too (`searchClaims.ts::parentSelectClaimChoices`,
+`buildInlineClaimPost`'s `parentSelect`). App Tests post at the same points
+(`app-tests/run.ts::postAppTestClaims`) and keep the claims in `AppTestSessionState.claimedCaseIds`.
+Leaving Preview, a confirmed Project change and `reset()` drop Preview's claims beside a change of
+worker; the docs sentence reads "until you change the worker, leave Preview or reload the page".
 - **Unchanged.** An entry point still opens only cases the worker's restore holds
   (`lib/preview/entryPointLaunch.ts`; a launch is not a search). A claimed case is held: the launch's
   device snapshot is a device-scoped read and sends the claims like every other, as the device holds
@@ -701,6 +805,35 @@ location".
 The property label is the catalog label in the Preview language; a value longer than 60 characters is
 shortened with "…" inside the quotes.
 
+**Implementation correction, 2026-10-19, the casts:** the bind-type function is extracted from the
+XForm builder into `lib/commcare/xform/bindType.ts::fieldBindType(field, caseTypes)`, which the
+builder and Preview both call. `answerCast.ts` holds `coreAnswerType(bindType, kind)`,
+`setvalueText(result, type)` (`Recalculate.wrapData(...).uncast()`) and
+`castAnswerText(type, text, zone)`. `javaDouble.ts` moves out of `javaRosaGeo.ts`, and its grammar
+refuses `NaNf` and `Infinityd`, which `FloatingDecimal.readJavaFormatString` accepts only as the
+exact rest of the text. After a successful cast Preview stores Core's held text for the temporal
+arms only: a date its normalized date, a date and time the held instant's canonical text, and a time
+its written clock, because Nova's stored time carries a `Z` storage tag that means UTC and holding
+Core's clock converted into the device's zone would move a saved time by the viewer's offset on every
+save. A whole number and a number hold Core's uncast text (`IntegerData` and `DecimalData`, so
+`007` holds `7` and a number `5` holds `5.0`), because that text is what the submission carries; a
+location keeps the written text, as Nova's case store holds four-token locations. The refusal paths: an
+activation preload or starting value makes the entry `refused`
+(`EngineController.recordRefusal`); a person's repeat insert, and a row Preview materializes, is not
+applied and the repeat shows the refusal in place; a refusal from a live default edit, a re-preload
+or a schema heal also makes the entry `refused`, cleared on the next document or case-data change.
+None reaches `faultReporter`. `FormRefusedError extends FormEvaluationInputError` carries
+`form-refused` for `evaluateForm` and App Tests; no served enum changes. After a document edit, Preview tries each refused insert again under an atomic revision, so an
+answer is never written while the probe's checkpoint is open.
+
+**Implementation correction, 2026-10-19, the copy:** no per-value case editor exists, so the preload
+refusal offers no **Open Case data** action and promises no correction in Case data. Its body ends
+"You can choose another record.", and its actions are **Choose another record** and **Back to the
+list**; the starting value keeps **Back**. English and Spanish ship together
+(`lib/preview/runtimeMessages.ts`, `refusal*`, `answerType*`, `chooseAnotherRecord`,
+`backToList`), and `refusalValueText` shortens a value over 60 characters with "…" inside the
+quotes.
+
 ---
 
 ## 5. The Postgres compiler
@@ -784,6 +917,18 @@ and the plain and the calculated column show one day; in a browse list both show
 Production reads neither property in a case-list filter, a calculated column, a Search predicate or a
 case operation of any live app, so the switch changes no Preview result today.
 
+**Implementation correction, 2026-10-19:** one case-list read can hold two readings when its
+module's Search is effective (HQ's query chooses the rows, the results instance holds the columns),
+so `QueryArgs.reading` is `CaseQueryReading { filter: "casedb" | "search"; columns: "casedb" |
+"results" }` (`lib/domain/expression/temporalType.ts`, with `CASEDB_READING`, `SEARCH_READING` and
+`caseQueryReadingFor(module)`), and a count takes `CaseFilterReading` alone.
+`TermCompileContext.reading: CaseReading` stays the per-compile value. `SortKey` loses its flag and
+gains no field: sort keys and calculated columns compile under the read's `columns` half
+(`postgres/store.ts::query`). `resolveCaseListTemporalType` takes the reading, and so does
+`columnDisplay.ts`. The viewer-midnight promotion applies only under `casedb`. The `closed_on`
+column is readable only under `search` (`compileTerm.ts::reservedColumnFor`), an invariant
+elsewhere, and every invariant of §5.1 throws `compilerBugMessage`'s sentence.
+
 ### 5.3 Datetime comparisons
 
 From step 3 every comparison of two datetimes compiles as an instant comparison, with these leaf
@@ -817,6 +962,14 @@ range, which HQ answers by instant for every spelling its parser reads, and adds
 alike; part 04 lowers `=`, `!=`, `in` and `switch` between two datetimes to instant equality on the
 device (part 04 decision 6, §3.3). `neq` is two-valued by §5.5. Production holds no such equality in
 a CSQL slot.
+
+**Implementation correction, 2026-10-19:** a custom `datetime` property read is a strict
+stored-instant read (`compileTerm.ts::compileStoredInstant`), not `compilePinnedInstant`: its text
+names an instant only in the shape a writer stores (`yyyy-MM-ddTHH:mm:ss`, any fraction, then `Z`,
+`±HH`, `±HH:MM` or no offset) and where `pg_input_is_valid` reads it, a naive value as UTC, and any
+other text, padded text included, reads `NULL`, so the two-valued rule gives the device lowering's
+NaN answers and the query never fails. `datetime-coerce` keeps `compilePinnedInstant`, and a
+`datetime-coerce` of a number is `coreDayNumber.ts::compileEpochDayInstant`.
 
 ### 5.4 The agreement test over the native fixture
 
@@ -887,6 +1040,19 @@ cite it (part 06 decision 17). It changes Preview for existing apps where a nega
 meets a case that lacks the property: Results, counts and operation conditions keep that case, as the
 device and HQ do.
 
+**Implementation correction, 2026-10-19:** there is no `polarity` field. The compiler maps unknown
+to false at each negation point, `NOT coalesce(<clause>, false)`: under `not`, under
+`missing(self, where)`, and for `neq`, which is the negation of the `=` atom at the leaf, after
+relation normalization (rewriting first would turn `exists(R, p != x)` into
+`not(exists(R, p = x))` and flip the empty relation); a condition read in value position is
+`coalesce(<condition>, false)`. A literal null comparand is the blank comparand `''`, as the wire
+and CSQL both print it. A positive atom stays bare, and `and`, `or` and `CASE` are monotone,
+so mapping at the leaves equals mapping the whole. `= ''` and `!= ''` are the absence check; a bound
+comparand that is blank is decided in JavaScript (`compileTerm.ts::boundComparandValue`), so the
+positive comparison keeps its index; two operands read per row that both read as device text are
+equal when both are blank, as `'' = ''` is on a device; an ordering against a decided blank is false;
+and `is-blank` is `coalesce(text, '') = ''`, so a JSON `null` reads blank.
+
 **Production.** In the slots Postgres compiles, production holds some record atoms, in a few live
 apps, that answer differently for a case that lacks the property: in case-list filters, calculated
 columns and case operation write conditions, shaped `p != 'x'`, `not(p = 'x')`, `not(in(p, …))` and
@@ -908,6 +1074,11 @@ The `search` reading compiles HQ's calendar arithmetic (`date '1970-01-01' + n`,
 states the same Postgres form). In 413 of 418 zones the two agree; in the five of §2.3 the device's
 list and HQ's search disagree by a day, and Preview shows each one as its runtime does.
 
+**Implementation correction, 2026-10-19:** `coreDayNumber.ts::compileCoreDayNumber` truncates `n`
+toward zero first, as Core's `toInt` does, and casts it to `integer`, which refuses a day outside
+the `int` range as Core does; the `search` arm is `date '1970-01-01' + trunc(n)::integer`. No
+formula for a date read as a number is compiled, because no slot with a Postgres target reaches one.
+
 ### 5.7 Sort keys
 
 `caseDataBindingHelpers.ts::buildCaseStoreSortKeys` builds `Expression`s from
@@ -926,6 +1097,13 @@ same canonical text; whether it moves any app's bytes at the cutover is part 04'
 `TermBindings.viewerLocation` (§3.4) is bound as one text parameter wherever a compiled column holds
 `here`; it is never interpolated (`lib/case-store/CLAUDE.md`). A column that holds `here` makes the
 Results read's request identity include the position, so the cached read follows it.
+
+**Implementation correction, 2026-10-19:** `TermBindings.here` is renamed `viewerLocation?: string |
+null`; null or absent compiles to `''`, bound as text. The Results read does not key on the
+position itself: it keys on the position state's move counter (`lib/session/viewerPosition.ts`,
+`moves`), which advances on the first position, on each move of more than 30 metres from the
+position last shown, and on a refusal that takes a shown position away, and the read sends the
+latest fix and records it as shown.
 
 ### 5.9 The evaluator contract
 

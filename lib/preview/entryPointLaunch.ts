@@ -8,6 +8,8 @@ import { caseRowToFormPreload } from "./engine/caseDataBindingClient";
 import {
 	formDisplayVisibility,
 	moduleDisplayVisibility,
+	type NavigationDeviceCases,
+	navigationSelectedCase,
 } from "./engine/displayConditionEvaluation";
 import type { PreviewSearchSessionValues } from "./engine/identity";
 import type { PreviewLookupStatus } from "./engine/useLookupPreviewData";
@@ -88,7 +90,7 @@ export function prepareEntryPointLaunch(args: {
 			selectedRows.some((row) => !row || row.case_type !== requirement.caseType)
 		)
 			return refuse(
-				"One or more cases are unavailable to this Preview worker. Choose cases on this worker’s device. Preview does not claim or sync cases from HQ.",
+				"One or more cases are unavailable to this Preview worker. Choose cases this worker has. Preview uses this worker’s cases, including ones they chose from a search.",
 			);
 		menuSelections[requirement.moduleUuid] = {
 			caseType: requirement.caseType,
@@ -133,6 +135,10 @@ export function prepareEntryPointLaunch(args: {
 				);
 		}
 	}
+	const deviceCases: NavigationDeviceCases = {
+		snapshot: args.database,
+		caseTypes: args.doc.caseTypes ?? [],
+	};
 	const bypass =
 		item.target.kind === "form" &&
 		item.entryPoint.ignoreDisplayConditions === true;
@@ -165,6 +171,7 @@ export function prepareEntryPointLaunch(args: {
 						args.lookup.kind === "data" ? args.lookup.data : undefined,
 					),
 					lookup: args.lookup,
+					deviceCases,
 				}) !== "shown"
 			)
 				return refuse(
@@ -178,9 +185,14 @@ export function prepareEntryPointLaunch(args: {
 				item.target.moduleUuid,
 				menuSelections,
 			).selectedCase;
-			const caseProjection =
+			const selectedCase =
 				selection?.cases.length === 1
-					? new Map(Object.entries(selection.cases[0].caseProperties ?? {}))
+					? navigationSelectedCase(
+							args.doc,
+							item.target.moduleUuid,
+							item.target.formUuid,
+							selection.cases[0].caseId,
+						)
 					: undefined;
 			if (
 				formDisplayVisibility({
@@ -197,7 +209,8 @@ export function prepareEntryPointLaunch(args: {
 						},
 						args.lookup.kind === "data" ? args.lookup.data : undefined,
 					),
-					caseProjection,
+					selectedCase,
+					deviceCases,
 					lookup: args.lookup,
 				}) !== "shown"
 			)

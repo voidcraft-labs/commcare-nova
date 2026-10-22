@@ -23,12 +23,16 @@
 import { getSession } from "@/lib/auth-utils";
 import {
 	buildCaseTypeMap,
+	CASEDB_READING,
 	CaptureSubmissionRejectedError,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
+	type CaseQueryReading,
 	type CaseStore,
 	type JsonValue,
 	ParkedValueNotFoundError,
+	type RestoreScope,
+	SEARCH_READING,
 } from "@/lib/case-store";
 import { prepareCaptureSubmissionBytes } from "@/lib/case-store/postgres/submissionAttachments";
 import { adjudicateSubmissionReceipt } from "@/lib/case-store/submission";
@@ -61,6 +65,7 @@ import {
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
 import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
+import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
@@ -129,6 +134,7 @@ import {
 	searchInputRuntimeGlobalError,
 	searchInputSubmissionErrors,
 } from "./searchInputValidation";
+import type { ViewerLocation } from "./viewerLocation";
 import type { LoadCaseDatabaseSnapshotResult } from "./xpathInstances";
 
 // Errors thrown by the case-store layer are caught and mapped to
@@ -268,6 +274,64 @@ function caseStoreOrder(
 	);
 }
 
+/**
+ * The reading of a read that names its module, for a surface not standing at
+ * a device (the review dialog's Details): its effective Search decides
+ * (`caseQueryReadingFor`). A read with no module (a raw-row read for a
+ * form's case, the selection check by id) is a device's casedb read.
+ */
+function environmentReading(
+	environment: PreviewSearchEnvironment | undefined,
+): CaseQueryReading {
+	const module =
+		environment === undefined
+			? undefined
+			: environment.doc.modules[environment.moduleUuid];
+	return module === undefined ? CASEDB_READING : caseQueryReadingFor(module);
+}
+
+/**
+ * What one running read reads and how: a read of a search's population reads
+ * HQ's search, then the results instance (`SEARCH_READING`); every other
+ * running read is the worker's device, a casedb throughout
+ * (`CASEDB_READING`), even in a module whose Search action sits beside its
+ * browse list. The reading follows the read, never the module alone.
+ */
+function runningRead(
+	searched: boolean,
+	restoreScope: RestoreScope,
+):
+	| {
+			reading: CaseQueryReading;
+			searchPopulation: { heldBy: RestoreScope };
+	  }
+	| { reading: CaseQueryReading; restoreScope: RestoreScope } {
+	// HQ's search reads the Project's open cases, not the restore
+	// (`case_search/utils.py::CaseSearchQueryBuilder._get_initial_search_es`).
+	return searched
+		? { reading: SEARCH_READING, searchPopulation: { heldBy: restoreScope } }
+		: { reading: CASEDB_READING, restoreScope };
+}
+
+/**
+ * Whether a running read stands for a search's population: the caller says
+ * it reads a search of `moduleUuid` (its Results, or cases chosen from them),
+ * and that module, in the document the read is checked against, has an
+ * effective Search. A search reads every open case of the Project, which the
+ * member may already read in the case workspace, so the caller's word only
+ * chooses between two readings the member is entitled to; the module decides
+ * whether a search exists to read.
+ */
+function readsSearchPopulation(
+	doc: PersistableDoc | BlueprintDoc | undefined,
+	moduleUuid: string | undefined,
+	searched: boolean,
+): boolean {
+	if (!searched || doc === undefined || moduleUuid === undefined) return false;
+	const module = ownRecordValue(doc.modules, moduleUuid);
+	return module !== undefined && caseQueryReadingFor(module) === SEARCH_READING;
+}
+
 export async function loadCasesAction(args: {
 	appId: string;
 	caseType: string;
@@ -297,6 +361,17 @@ export async function loadCasesAction(args: {
 	/** The language Preview is showing, which a sort key's option labels
 	 *  and interval text read. */
 	language?: string;
+	/** The worker's claims (`lib/session/previewClaims.ts`), a plain array. */
+	claimedCaseIds?: readonly string[];
+	/** The read is of a search of the module `moduleUuid` names: the Results
+	 *  of a completed search, or a check of cases chosen from them. Submitted
+	 *  `inputValues` say the same. */
+	search?: boolean;
+	/** The viewer's latest position, which a calculated column's `here()`
+	 *  reads; `null` or omitted while the browser has shared none. It travels
+	 *  in this request and the query's bound parameters only, and is never
+	 *  stored or logged. */
+	viewerLocation?: ViewerLocation | null;
 }): Promise<LoadCasesResult> {
 	try {
 		const inputValues = args.inputValues
@@ -305,6 +380,7 @@ export async function loadCasesAction(args: {
 		const context = await resolveAuthorizedPreviewContext({
 			appId: args.appId,
 			personaUuid: args.personaUuid,
+			claimedCaseIds: args.claimedCaseIds,
 			required: "view",
 			loadBlueprint: true,
 		});
@@ -414,6 +490,7 @@ export async function loadCasesAction(args: {
 			args.caseListConfig?.searchInputs,
 			expressionInputValues,
 			args.viewerTimeZone,
+			args.viewerLocation ?? null,
 		);
 		/* Lookup carriers: the SQL-bound slots (filter / calc columns /
 		 * advanced predicates) compile natively against a rows-free
@@ -473,6 +550,11 @@ export async function loadCasesAction(args: {
 						),
 					);
 		const order = caseStoreOrder(environment?.doc ?? context.blueprint, args);
+		const searched = readsSearchPopulation(
+			environment?.doc ?? context.blueprint,
+			args.moduleUuid,
+			args.search === true || inputValues !== undefined,
+		);
 		return await readCases(store, {
 			appId: args.appId,
 			caseType: args.caseType,
@@ -489,7 +571,7 @@ export async function loadCasesAction(args: {
 			// The running Results surface passes a bounded window. The form-selection
 			// caller deliberately omits it because it needs the complete candidate set.
 			page: args.page,
-			restoreScope: context.restoreScope,
+			...runningRead(searched, context.restoreScope),
 		});
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
@@ -546,6 +628,8 @@ export async function loadCaseCountAction(args: {
 		const count = await store.count({
 			appId: args.appId,
 			caseType: args.caseType,
+			// No predicate: the count reads stored rows, so the stored truth.
+			reading: SEARCH_READING,
 			parentCases: args.parentCase,
 			includeHeld: args.includeHeld === true,
 		});
@@ -747,11 +831,21 @@ export async function loadCaseDataAction(
 	parentCase?: ParentCaseSelection,
 	blueprint?: BlueprintDoc,
 	moduleUuid?: string,
+	/** The worker's claims (`lib/session/previewClaims.ts`), a plain array;
+	 *  read only with `deviceScoped`. */
+	claimedCaseIds?: readonly string[],
+	/** The case was chosen from the Results of a search of `moduleUuid`, so a
+	 *  device-scoped read reads it as the search found it. */
+	search?: boolean,
+	/** The viewer's latest position for a Details column's `here()`; `null`
+	 *  or omitted while the browser has shared none. Never stored or logged. */
+	viewerLocation?: ViewerLocation | null,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
 			appId,
 			personaUuid,
+			claimedCaseIds: deviceScoped === true ? claimedCaseIds : undefined,
 			required: "view",
 			loadBlueprint: true,
 		});
@@ -802,6 +896,7 @@ export async function loadCaseDataAction(
 				caseListConfig?.searchInputs,
 				expressionInputValues,
 				viewerTimeZone,
+				viewerLocation ?? null,
 			),
 			caseTypeSchemas:
 				environment === undefined
@@ -809,7 +904,16 @@ export async function loadCaseDataAction(
 						? new Map(caseTypes.map((entry) => [entry.name, entry]))
 						: undefined
 					: buildCaseTypeMap(environment.doc),
-			...(deviceScoped === true && { restoreScope: context.restoreScope }),
+			...(deviceScoped !== true
+				? { reading: environmentReading(environment) }
+				: runningRead(
+						readsSearchPopulation(
+							environment?.doc ?? context.blueprint,
+							moduleUuid,
+							search === true,
+						),
+						context.restoreScope,
+					)),
 		});
 	} catch (err) {
 		// A Project-membership denial (`resolveAppScope` → `AppAccessError`)
@@ -826,16 +930,20 @@ export async function loadCaseDataAction(
 }
 
 /** Load the selected worker's complete device casedb. The client supplies only
- * an app id plus optional persona selector; authorization, committed topology,
- * actor/owner separation, and restore-scope expansion are all server-owned. */
+ * an app id, an optional persona selector and the worker's claims;
+ * authorization, committed topology, actor/owner separation, and restore-scope
+ * expansion are all server-owned. */
 export async function loadCaseDatabaseSnapshotAction(
 	appId: string,
 	personaUuid?: string,
+	/** The worker's claims (`lib/session/previewClaims.ts`), a plain array. */
+	claimedCaseIds?: readonly string[],
 ): Promise<LoadCaseDatabaseSnapshotResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
 			appId,
 			personaUuid,
+			claimedCaseIds,
 			required: "view",
 			loadBlueprint: true,
 		});
@@ -1257,6 +1365,12 @@ export async function loadFilterPreviewAction(args: {
 		return await readFilterPreview(store, {
 			appId: args.appId,
 			caseType: args.caseType,
+			// The list being previewed is the draft configuration, read the way
+			// its module's Search (or its absence) makes the running list read.
+			reading: caseQueryReadingFor({
+				caseListConfig: parsedConfig.data,
+				caseSearchConfig: candidateModule?.caseSearchConfig,
+			}),
 			limit: args.limit,
 			caseListConfig: parsedConfig.data,
 			lookupTableSchemas,
@@ -1268,6 +1382,9 @@ export async function loadFilterPreviewAction(args: {
 					new Map(),
 				),
 				args.viewerTimeZone,
+				/* The builder's sample is the author's view of stored data, not
+				 * a worker standing somewhere: `here()` reads blank. */
+				null,
 			),
 			excludedOwnerIds,
 			caseTypeSchemas: buildCaseTypeMap(parsedBlueprint.data),

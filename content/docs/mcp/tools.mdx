@@ -169,7 +169,9 @@ identity. `external-user('key')` explicitly reads custom worker data provided
 outside the app.
 
 Record queries use expressions such as `#case/age >= 18`. Within a data-table
-filter, `#row/column` reads the current row. `get_authoring_guide` provides focused
+filter, `#row/column` reads the current row. In a calculated case-list column,
+`here()` reads where the worker is now; in Preview that is the browser's
+location, blank until the browser shares it. `get_authoring_guide` provides focused
 references for workflows, field types, forms, expressions, languages,
 people and places, shared data, and automations. Lookup
 choice sources retain explicit `tableId`, `valueColumnId`, and `labelColumnId`.

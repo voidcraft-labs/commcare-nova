@@ -470,6 +470,68 @@ they do, are named under their pull request.
 - `proof/README.md` (`CoreDateParityRuntimeTest` in the `expression` row), `docs/research/2026-09-26-hq-round-trip/harness-findings.md` (finding 73: Preview refuses the preload)
 - `content/docs/building-with-nova.mdx` (Preview's answer check; session values and what Preview supplies), `content/docs/case-workspace.mdx` (`here()`; a search in Preview), `content/docs/mcp/tools.mdx` (`here()`)
 
+**Implementation correction, 2026-10-19** (part 07 records each in its section; part 05 §1.8 the
+session map's):
+
+- **What pull request 7 changes, as built.** New: `lib/preview/engine/answerCast.ts`,
+  `entrySessionData.ts`, `viewerLocation.ts`, `useNavigationDeviceCases.ts`;
+  `lib/preview/hooks/useViewerPosition.ts`; `lib/preview/searchClaims.ts`;
+  `lib/preview/xpath/coreDays.ts`, `javaDouble.ts` (moved out of `javaRosaGeo.ts`);
+  `lib/session/previewClaims.ts`, `viewerPosition.ts`; `lib/domain/entryCaseIdentity.ts`;
+  `lib/case-store/sql/coreDayNumber.ts`; `lib/commcare/lookupOptions.ts` (the lookup nodeset the
+  XForm itemset, the Search prompt and Preview share), `lib/commcare/xform/bindType.ts` (extracted
+  from `builder.ts`), `lib/commcare/xform/formCaseRead.ts` (the form's case read the XForm emitter
+  and Preview share). Deleted: `lib/preview/engine/xpathInstanceReferences.ts`. Not created:
+  `formLogicSource.ts` (a form runtime holds each slot's text, `formExpressionRuntime.ts`),
+  `formText.ts` (pull request 9), `walk.ts::fieldReads` / `::readsDeviceCases` (the homes are
+  `wire/formReads.ts` and `engine/expressionCaseReads.ts`), `triggerDag.test.ts`. Unchanged:
+  `triggerDag.ts`, `runtimeValues.ts`, `lib/case-store/sql/compileLiteral.ts` and `index.ts`,
+  `lib/session/previewSearchState.ts`. Also changed: `labelRefs.ts` (prose prints through the
+  Preview target), `previewAuthorization.ts` (the claims' shape check), `menuProjection.ts`,
+  `runtimeBindings.ts::viewerLocationText`, `lib/preview/entryPointLaunch*.ts` and
+  `hooks/useEntryPointLaunch.ts` (a launch's snapshot sends the claims), `hooks/useRestoreScopeKey.ts`
+  (the key names the claims), `lib/domain/expression/temporalType.ts` (`CaseQueryReading`),
+  `lib/domain/temporalValues.ts`, `lib/case-store/errors.ts` (`case-id-taken`),
+  `components/preview/form/fields/RepeatField.tsx` (the inline insert refusal),
+  `components/preview/screens/HomeScreen.tsx`, `ModuleScreen.tsx`,
+  `components/preview/shared/PersistentCaseTile.tsx`, `SearchInputForm.tsx`,
+  `useColumnDisplayContext.ts`, `components/preview/EntryPointPreviewLaunch.tsx`,
+  `lib/agent/authoring/evaluationContext.ts`, `lib/agent/tools/evaluateForm.ts`,
+  `lib/automations/actions.ts`, `lib/db/syncUsercaseRow.ts`, `scripts/lib/authoringPilotScenario.ts`,
+  `proof/native/producers/emit-expression-evidence.ts`.
+- **Session map:** `uuid()` datums naming no created case key `placeholder:<datum id>`; the
+  submission's rejection is `{ kind: "new-case", reason: "case-id-taken" }`; the Search screen's
+  case-list-step map is left to pull request 10, where its readers land.
+- **Dates:** `XPathDate { calendarDays, timeMilliseconds }`; Core's day number through `toNumeric`
+  and `date(<number>)` (truncated as `toInt` truncates), a direct Date in `toDouble` keeping its
+  fractional days; `toDateRounding` is Core's `toDate` (a blank node in `date()` / `format-date()`
+  gives `''`); Java's wall-clock rule in `coreDays.ts::javaWallInstant`; one parse cache per realm;
+  a calculated Date held as the node's runtime value; answers read by bind type.
+- **Casts and copy:** Preview stores Core's held text for the temporal arms only, and a time holds
+  its written clock (Nova's time storage tag means UTC); the preload refusal offers **Choose another
+  record** and **Back to the list**, never **Open Case data**; `FormRefusedError extends
+  FormEvaluationInputError`; no served enum changes.
+- **Postgres:** `QueryArgs.reading` is `{ filter, columns }` and `SortKey` carries no reading;
+  `TermBindings.here` becomes `viewerLocation`; two-valued by coalescing at each negation point,
+  with no `polarity` field; a strict stored-instant read for a custom datetime property;
+  `compileCoreDayNumber` truncates as Core's `toInt` does; invariants through `compilerBugMessage`.
+- **Claims:** one slot `{ appId, worker, caseIds }`; a per-id fence in SQL rather than one
+  all-or-nothing check; `QueryArgs.searchPopulation { heldBy }` with each row's `heldOnDevice`;
+  parent-select posts offer the entry's other case datums; the single-form auto-advance posts too.
+- **`here()`:** Android's moving-position rule, because Web Apps' list rows never read the location;
+  a raw `here()` column (no `distance()` in a record column); the position state slice in
+  `lib/session/viewerPosition.ts` and its move counter in place of the position in the request
+  identity; **Share your location**, with the unavailable and unsupported states.
+- **Docs:** the `preview` mode sentence lands in `lib/commcare/xpath/wire/CLAUDE.md`, "Printing",
+  since `lib/commcare/xpath/CLAUDE.md` has no serializer section; the rows describing the trigger
+  graph's field leaves (`walk.ts::fieldReads`), `formText.ts` and `jr:itext` / `jr:choice-name` stay
+  with the pull requests that implement them. In the public docs, `building-with-nova.mdx`'s refusal
+  sentence says "you can choose another record" in place of correcting the value in Case data and
+  adds the refused repeat entry; `case-workspace.mdx`'s `here()` paragraph takes a raw location or
+  `within-distance` as its example, adds "As on an Android phone, the list updates after you move
+  more than 30 metres" and "only to run the list and the case's details"; and its search paragraph
+  ends "until you change the worker, leave Preview or reload the page".
+
 ### Pull request 8: Lowering
 
 **Nova source**

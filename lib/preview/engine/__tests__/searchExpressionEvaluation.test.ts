@@ -10,6 +10,7 @@ import {
 	double,
 	eq,
 	input,
+	isBlank,
 	literal,
 	prop,
 	sessionContext,
@@ -23,6 +24,7 @@ import type { PreviewSearchSessionValues } from "../identity";
 import { previewAsMe, previewSessionValues } from "../identity";
 import type { SearchInputValues } from "../runtimeBindings";
 import {
+	emitPreviewSearchPredicate,
 	evaluatePreviewSearchExpression as evaluateExpression,
 	evaluatePreviewSearchPredicate as evaluatePredicate,
 	parseExcludedOwnerIds,
@@ -82,13 +84,23 @@ function evaluatePreviewSearchPredicate(
 	values: SearchInputValues = new Map(),
 ) {
 	const environment = searchEnvironment(inputs, undefined, expression);
+	// A prompt's own condition reads its siblings' answers; the Search
+	// button's reads the session alone.
+	const prompt = inputs[0];
 	const types = slotContext(
 		environment.doc,
-		{
-			entity: "module",
-			uuid: environment.moduleUuid,
-			slot: "search_button_display_condition",
-		},
+		prompt === undefined
+			? {
+					entity: "module",
+					uuid: environment.moduleUuid,
+					slot: "search_button_display_condition",
+				}
+			: {
+					entity: "module",
+					uuid: environment.moduleUuid,
+					slot: "search_input_required_when",
+					member: { searchInputUuid: prompt.uuid },
+				},
 		new Map(),
 	);
 	if (types === undefined)
@@ -264,6 +276,75 @@ describe("preview case-search expression evaluation", () => {
 				values,
 			),
 		).toBe(false);
+	});
+
+	it("reads the draft through the search-input instance, never from the text", () => {
+		const clinicInput = simpleSearchInputDef(
+			testUuid("00000000-0000-4000-8000-000000000105"),
+			"clinic",
+			"Clinic",
+			"text",
+			"clinic",
+		);
+		const environment = searchEnvironment([clinicInput]);
+		const types = slotContext(
+			environment.doc,
+			{
+				entity: "module",
+				uuid: environment.moduleUuid,
+				slot: "search_input_required_when",
+				member: { searchInputUuid: clinicInput.uuid },
+			},
+			new Map(),
+		);
+		if (types === undefined)
+			throw new Error("The search fixture has no prompt context.");
+		const xpath = emitPreviewSearchPredicate(
+			eq(input(clinicInput.uuid), literal("Kolda")),
+			types,
+			environment,
+			[clinicInput],
+			SESSION,
+			new Map([["clinic", "Kolda"]]),
+		);
+		expect(xpath.source).toBe(
+			"instance('search-input:results')/input/field[@name = 'clinic'] = 'Kolda'",
+		);
+		expect(
+			xpath.instances
+				.get("search-input:results")
+				?.root()
+				.children("input")[0]
+				?.children("field")
+				.map((field) => field.value()),
+		).toEqual(["Kolda"]);
+		// Core also serves the answers under the legacy id.
+		expect(xpath.instances.has("search-input")).toBe(true);
+	});
+
+	it("reads an unanswered prompt as blank, the absent node Core leaves for it", () => {
+		const clinicInput = simpleSearchInputDef(
+			testUuid("00000000-0000-4000-8000-000000000106"),
+			"clinic",
+			"Clinic",
+			"text",
+			"clinic",
+		);
+		expect(
+			evaluatePreviewSearchPredicate(
+				isBlank(input(clinicInput.uuid)),
+				[clinicInput],
+				SESSION,
+			),
+		).toBe(true);
+		expect(
+			evaluatePreviewSearchExpression(
+				concat(term(literal("owner-")), term(input(clinicInput.uuid))),
+				SESSION,
+				new Map(),
+				[clinicInput],
+			),
+		).toBe("owner-");
 	});
 
 	it("resolves scalar defaults while date-range inputs have no default slot", () => {

@@ -1,6 +1,7 @@
 // Controlled count/select boundary interleaving, not a database concurrency proof.
 import { describe, expect, it, vi } from "vitest";
 import type { CaseRow, CaseStore, JsonObject } from "@/lib/case-store";
+import { CASEDB_READING } from "@/lib/domain/expression/temporalType";
 import { readCases } from "../caseDataBindingHelpers";
 
 const APP_ID = "app-binding";
@@ -45,6 +46,7 @@ describe("readCases boundary interleaving", () => {
 		const racingStore = { count, query } as unknown as CaseStore;
 
 		const result = await readCases(racingStore, {
+			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			page: { offset: 50, limit: 50 },

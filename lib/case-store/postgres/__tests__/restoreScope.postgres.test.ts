@@ -22,6 +22,7 @@ import {
 	relationStep,
 	subcasePath,
 } from "@/lib/domain/expression/builders";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import type { RelationPath } from "@/lib/domain/expression/types";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
@@ -128,6 +129,7 @@ describe("the outer scan", () => {
 		await addCase({ id: "theirs", caseType: "patient", owner: OTHER });
 
 		const rows = await store().query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			restoreScope: RESTORE,
@@ -139,6 +141,7 @@ describe("the outer scan", () => {
 		// three, so the agreement is the contract, not an implementation detail.
 		await expect(
 			store().count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				restoreScope: RESTORE,
@@ -153,7 +156,11 @@ describe("the outer scan", () => {
 		// No `restoreScope` is not a weaker restore — it is a different
 		// question. The case workspace, sample data, and the rename preflight
 		// are not standing at a device.
-		const rows = await store().query({ appId: APP_ID, caseType: "patient" });
+		const rows = await store().query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "patient",
+		});
 		expect(rows.map((row) => row.case_id).sort()).toEqual(["mine", "theirs"]);
 	});
 
@@ -166,6 +173,7 @@ describe("the outer scan", () => {
 		const page = async (offset: number) =>
 			(
 				await store().query({
+					reading: SEARCH_READING,
 					appId: APP_ID,
 					caseType: "patient",
 					restoreScope: RESTORE,
@@ -199,6 +207,7 @@ describe("the outer scan", () => {
 		// The household is nobody's owned case, and the device holds it anyway
 		// because its child is owned — that is the whole point of a closure.
 		const households = await store().query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "household",
 			restoreScope: RESTORE,
@@ -228,6 +237,7 @@ describe("the grouped read", () => {
 		}
 
 		const grouped = await store().queryGrouped({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			indexIdentifier: "parent",
@@ -284,6 +294,7 @@ describe("the hold", () => {
 		// value must not drop a whole subtree out of what the preview shows.
 		// So the hold is an outer filter, never a filter inside the closure.
 		const households = await store().query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "household",
 			restoreScope: RESTORE,
@@ -291,6 +302,7 @@ describe("the hold", () => {
 		expect(households).toEqual([]);
 
 		const revealed = await store().query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "household",
 			restoreScope: RESTORE,
@@ -306,6 +318,7 @@ describe("the hold", () => {
 		// household is here because its owned child pulled it in, and it stops
 		// there.
 		const patients = await store().query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
 			restoreScope: RESTORE,
@@ -344,6 +357,7 @@ describe("the emitted statement", () => {
 			db: logging,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		}).query({
+			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "household",
 			caseTypeSchemas: schemas,
@@ -419,6 +433,7 @@ describe("relation walks", () => {
 			await seed();
 
 			const withScope = await store().query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "household",
 				caseTypeSchemas: schemas,
@@ -431,6 +446,7 @@ describe("relation walks", () => {
 			// there. Without this half the assertion above would pass on a
 			// walk that is simply broken.
 			const withoutScope = await store().query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "household",
 				caseTypeSchemas: schemas,
@@ -459,6 +475,7 @@ describe("relation walks", () => {
 		const predicate = gt(countOf(subcasePath("visit", "patient")), literal(1));
 		await expect(
 			store().query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "household",
 				caseTypeSchemas: schemas,
@@ -468,6 +485,7 @@ describe("relation walks", () => {
 		).resolves.toEqual([]);
 		await expect(
 			store().query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "household",
 				caseTypeSchemas: schemas,
@@ -494,6 +512,7 @@ describe("relation walks", () => {
 		// the up-rule changed and the redundancy argument is gone with it.
 		await expect(
 			store().query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: schemas,

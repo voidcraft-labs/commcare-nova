@@ -29,6 +29,7 @@ import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { makeTranslationUnitId, moduleLanding } from "@/lib/domain";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
+import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDeviceCases";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import {
@@ -77,6 +78,7 @@ export function HomeScreen() {
 	const menuFormCounts = useMenuFormCounts();
 	const logo = useAppLogo();
 	const lookup = usePreviewLookupStatus();
+	const deviceCases = useNavigationDeviceCases(menuSource.caseTypes);
 	/* Whoever Preview is running as: the member, or the persona they
 	 * picked. The hook owns the hydration rule (Better Auth resolves a
 	 * cached session synchronously on the browser's first paint while SSR
@@ -93,8 +95,9 @@ export function HomeScreen() {
 			authoring: mode === "edit",
 			session,
 			lookup,
+			deviceCases,
 		});
-	}, [mode, session, lookup, menuSource]);
+	}, [mode, session, lookup, menuSource, deviceCases]);
 	const hiddenModules = useMemo(
 		() =>
 			modules

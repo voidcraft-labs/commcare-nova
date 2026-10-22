@@ -43,6 +43,10 @@ export type SidebarState = { open: boolean; stashed: boolean | undefined };
 export interface PreviewCaseChoice {
 	readonly caseId: string;
 	readonly caseName?: string;
+	/** Chosen from a search's Results while the worker's device does not hold
+	 *  it: the claim CommCare posts for this choice adds it to the worker's
+	 *  claims (`./previewClaims.ts`). Absent for a case the device holds. */
+	readonly claimable?: true;
 }
 
 export interface PreviewCaseTarget {

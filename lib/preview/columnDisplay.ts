@@ -12,7 +12,10 @@ import {
 	TIME_SINCE_UNIT_DAYS,
 } from "@/lib/domain";
 import type { ExpressionContext } from "@/lib/domain/expression";
-import { resolveCaseListTemporalType } from "@/lib/domain/expression/temporalType";
+import {
+	type CaseReading,
+	resolveCaseListTemporalType,
+} from "@/lib/domain/expression/temporalType";
 import {
 	caseRowDisplaySourceValue,
 	caseRowDisplayValue,
@@ -42,6 +45,9 @@ export type ColumnDisplayContext = {
 		CalculatedTemporalType
 	>;
 	readonly today: Date;
+	/** What the rows stand for: a device's case database (the default) or the
+	 *  results instance HQ's search returns, whose system dates are HQ's text. */
+	readonly reading?: Extract<CaseReading, "casedb" | "results">;
 	/** Spells an option label's references against the owning document. Rides
 	 *  the display context rather than being read per cell, so the Results
 	 *  list and the Quick Filter that matches it can never disagree. */
@@ -52,9 +58,10 @@ export type ColumnDisplayContext = {
 export function resolveCalculatedTemporalType(
 	column: Column,
 	context: ExpressionContext,
+	reading: Extract<CaseReading, "casedb" | "results">,
 ): CalculatedTemporalType | undefined {
 	if (column.kind !== "calculated") return undefined;
-	return resolveCaseListTemporalType(column.expression, context);
+	return resolveCaseListTemporalType(column.expression, context, reading);
 }
 
 /**
@@ -76,13 +83,21 @@ export function projectColumnDisplay(
 					(property) => property.name === column.field,
 				),
 				context.projectProse,
+				context.reading,
 			);
 		case "phone":
-			return { kind: "value", text: caseListDisplayValue(row, column.field) };
+			return {
+				kind: "value",
+				text: caseListDisplayValue(row, column.field, context.reading),
+			};
 		case "link": {
 			// Quick Filter follows the actual cell: authored wording for a web
 			// link, the visible raw fallback otherwise, and nothing for blank data.
-			const address = caseListDisplayValue(row, column.field).trim();
+			const address = caseListDisplayValue(
+				row,
+				column.field,
+				context.reading,
+			).trim();
 			return {
 				kind: "value",
 				text: isOpenableAddress(address) ? column.linkText : address,
@@ -90,22 +105,26 @@ export function projectColumnDisplay(
 		}
 		case "date":
 			return formatDateForPreview(
-				caseListDisplayValue(row, column.field),
+				caseListDisplayValue(row, column.field, context.reading),
 				column.pattern,
 			);
 		case "interval":
 			return formatIntervalForPreview(
-				caseListDisplayValue(row, column.field),
+				caseListDisplayValue(row, column.field, context.reading),
 				column,
 				context.today,
 			);
 		case "id-mapping": {
-			const source = caseListDisplaySourceValue(row, column.field);
+			const source = caseListDisplaySourceValue(
+				row,
+				column.field,
+				context.reading,
+			);
 			return projectMappedValue(source, column.mapping);
 		}
 		case "image-map":
 			return projectImageMappedValue(
-				caseListDisplaySourceValue(row, column.field),
+				caseListDisplaySourceValue(row, column.field, context.reading),
 				column.mapping,
 				context.caseProperties.find(
 					(property) => property.name === column.field,
@@ -120,24 +139,41 @@ export function projectColumnDisplay(
 	}
 }
 
-/** A column reads the same casedb calendar value as native Results/Details.
- * Keep the raw row/preload accessor unchanged: it also serves stored data. */
-function caseListDisplaySourceValue(row: CaseRowWithCalculated, field: string) {
+/** A column reads the value the device holds for the row. In a device's case
+ * database both system dates are the worker's day (Core's `DateData`). In HQ's
+ * search results `date_opened` is the UTC day and `last_modified` HQ's instant
+ * text (`casexml/apps/case/xml/generator.py::date_to_xml_string`,
+ * `::datetime_to_xml_string`). The raw row accessor stays unchanged: it also
+ * serves stored data. */
+function caseListDisplaySourceValue(
+	row: CaseRowWithCalculated,
+	field: string,
+	reading: Extract<CaseReading, "casedb" | "results"> = "casedb",
+) {
 	const source = caseRowDisplaySourceValue(row, field);
 	if (!isCalendarCaseProperty(field) || source === null || source === undefined)
 		return source;
 	const date = source instanceof Date ? source : new Date(String(source));
-	return Number.isNaN(date.getTime())
-		? source
-		: XPathDate.fromJSDateOnly(date).toISOString();
+	if (Number.isNaN(date.getTime())) return source;
+	if (reading === "results")
+		return field === "date_opened"
+			? date.toISOString().slice(0, 10)
+			: hqDatetimeText(date);
+	return XPathDate.localDateOf(date.getTime()).toISOString();
+}
+
+/** HQ's `json_format_datetime`: UTC, six fraction digits, `Z`. */
+function hqDatetimeText(date: Date): string {
+	return `${date.toISOString().slice(0, 23)}000Z`;
 }
 
 function caseListDisplayValue(
 	row: CaseRowWithCalculated,
 	field: string,
+	reading?: Extract<CaseReading, "casedb" | "results">,
 ): string {
 	if (!isCalendarCaseProperty(field)) return caseRowDisplayValue(row, field);
-	const source = caseListDisplaySourceValue(row, field);
+	const source = caseListDisplaySourceValue(row, field, reading);
 	return source === null || source === undefined ? "" : String(source);
 }
 
@@ -146,8 +182,9 @@ function projectPlainValue(
 	field: string,
 	property: CaseProperty | undefined,
 	projectProse: ProseProjector,
+	reading?: Extract<CaseReading, "casedb" | "results">,
 ): PreviewFormattedValue {
-	const source = caseListDisplaySourceValue(row, field);
+	const source = caseListDisplaySourceValue(row, field, reading);
 	if (
 		property?.data_type === "multi_select" &&
 		(Array.isArray(source) || typeof source === "string")
@@ -460,10 +497,10 @@ export function formatIntervalForPreview(
 	// calendar) and `today()` is the local calendar day. A date-only value
 	// already IS a calendar day; a datetime instant converts to the viewer's
 	// local day first: reading its UTC fields instead would shift the count
-	// by one near midnight for non-UTC viewers.
-	const baseDays =
-		parsed.time === null ? parsed.days : localCalendarDate(parsed.time).days;
-	const diffDays = localCalendarDate(today).days - baseDays;
+	// by one near midnight for non-UTC viewers. `calendarDays` is that local
+	// day for both shapes.
+	const diffDays =
+		XPathDate.localDateOf(today.getTime()).calendarDays - parsed.calendarDays;
 	const divisor = TIME_SINCE_UNIT_DAYS[column.unit];
 	const thresholdDays = column.threshold * divisor;
 	if (column.display === "flag") {
@@ -479,12 +516,6 @@ export function formatIntervalForPreview(
 				? column.text
 				: String(Math.trunc(diffDays / divisor)),
 	};
-}
-
-/** Device `today()` is the worker's local calendar day. XPathDate performs the
- * local-calendar-to-epoch-day projection exactly once. */
-function localCalendarDate(value: Date): XPathDate {
-	return XPathDate.fromJSDateOnly(value);
 }
 
 /**

@@ -237,7 +237,6 @@ function runtimeRejectionApplies(
 			contextPath: "",
 			position: 1,
 			getValue: () => undefined,
-			resolveHashtag: () => "",
 			resolveXPathInstance: (id) =>
 				id === "search-input:results"
 					? inputInstance

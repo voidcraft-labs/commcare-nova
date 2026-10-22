@@ -38,6 +38,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
+import tablerCurrentLocation from "@iconify-icons/tabler/current-location";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerLogin2 from "@iconify-icons/tabler/login-2";
 import tablerPlus from "@iconify-icons/tabler/plus";
@@ -141,7 +142,10 @@ import type {
 	CaseQueryConstraintContext,
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
-import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
+import {
+	formDisplayVisibility,
+	navigationSelectedCase,
+} from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { predicateLookupsCovered } from "@/lib/preview/engine/lookupEvaluation";
@@ -149,10 +153,13 @@ import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import {
 	evaluatePreviewSearchPredicate,
 	type PreviewSearchEnvironment,
+	type SearchScreenXPath,
 } from "@/lib/preview/engine/searchExpressionEvaluation";
 import { searchOutcomeFromLoad } from "@/lib/preview/engine/searchPhase";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
+import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDeviceCases";
+import { columnsReadHere } from "@/lib/preview/engine/viewerLocation";
 import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import {
 	useCaseCount,
@@ -161,9 +168,13 @@ import {
 } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
-import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
+import {
+	useOwnedRestoreScopeKey,
+	useRestoreScopeKey,
+} from "@/lib/preview/hooks/useRestoreScopeKey";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
+import { useViewerPositionWatch } from "@/lib/preview/hooks/useViewerPosition";
 import {
 	moduleHasChildren,
 	previewAutomaticForm,
@@ -181,13 +192,21 @@ import {
 	type RuntimeMessage,
 	runtimeMessage,
 } from "@/lib/preview/runtimeMessages";
+import {
+	claimableCaseIds,
+	deviceCasesHoldingClaims,
+	parentSelectClaimChoices,
+	previewCaseChoiceOf,
+} from "@/lib/preview/searchClaims";
 import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
+	useAddPreviewClaims,
 	useAppId,
 	useCanEdit,
 	usePreviewCaseTarget,
+	usePreviewClaimedCaseIds,
 	usePreviewing,
 	usePreviewMenuCaseSelections,
 	usePreviewParentCaseRequest,
@@ -207,6 +226,7 @@ import {
 	settleSearch,
 } from "@/lib/session/previewSearchState";
 import type { PreviewCaseChoice } from "@/lib/session/types";
+import type { ViewerPositionStatus } from "@/lib/session/viewerPosition";
 import { useWorkerMessage, WorkerText } from "../shared/WorkerText";
 
 /** Canvas width where search sits beside the results instead of above
@@ -218,6 +238,7 @@ const EMPTY_SEARCH_INPUT_VALUES: ReadonlyMap<string, string> = new Map();
 /** Stable empty catalog slice: a fresh `[]` per render would defeat the
  *  display context's memo. */
 const NO_CASE_PROPERTIES: readonly CaseProperty[] = [];
+const NO_CLAIMED_CASES: readonly string[] = [];
 
 interface CaseListScreenProps {
 	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
@@ -351,12 +372,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const config = mod?.caseListConfig;
 	const canonicalConfig = menuSource.doc.modules[moduleUuid]?.caseListConfig;
 	const searchConfig = mod ? effectiveCaseSearchConfig(mod) : undefined;
-	const columnDisplayContext = useColumnDisplayContext(
-		config,
-		mod?.caseType,
-		caseType?.properties ?? NO_CASE_PROPERTIES,
-		{ doc: menuSource.doc, moduleUuid },
-	);
 	const projectProse = useProseProjection();
 	const { signIn } = useAuth();
 	/* Whoever Preview is running as: the member, or the persona they
@@ -373,17 +388,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * starts a fresh one. */
 	const engine = useBuilderFormEngine();
 	const evaluateSearchScreenXPath = useCallback(
-		async (source: string) =>
-			toBoolean(
-				await engine.evaluateSearchScreenXPath(
-					moduleUuid,
-					source,
-					searchSession,
-				),
-			),
-		[engine, moduleUuid, searchSession],
+		async (xpath: SearchScreenXPath) =>
+			toBoolean(await engine.evaluateSearchScreenXPath(moduleUuid, xpath)),
+		[engine, moduleUuid],
 	);
 	const lookupStatus = usePreviewLookupStatus();
+	const navigationDeviceCases = useNavigationDeviceCases(menuSource.caseTypes);
 	const searchEnvironment = useMemo<PreviewSearchEnvironment>(
 		() => ({
 			doc: menuSource.doc,
@@ -393,16 +403,21 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		[menuSource.doc, moduleUuid, lookupStatus],
 	);
 
-	/* Case-first form conditions evaluate at THIS screen, against the
-	 * SELECTED row's projection: the wire's `<command relevant>` locus
+	/* Case-first form conditions evaluate at THIS screen, with the
+	 * SELECTED row in the session under the form's datum and the device's
+	 * cases to read it from: the wire's `<command relevant>` locus
 	 * (a case-first module's form menu renders after selection). The
 	 * decided list drives the auto-continue AND the post-selection menu,
 	 * so a false condition suppresses both. Edit-mode canvases never
-	 * reach this running-app pane, so no edit gate is needed here. */
+	 * reach this running-app pane, so no edit gate is needed here. A case
+	 * the choice just claimed is read once the device holds it: until then a
+	 * condition that reads the device's cases is still loading. */
 	const decideCaseLoadingForms = useCallback(
-		(row: CaseRowWithCalculated) => {
-			const projection = caseRowToFormPreload(row);
-			return caseLoadingForms.map((form) => ({
+		(
+			row: CaseRowWithCalculated,
+			claimedCaseIds: readonly string[] = NO_CLAIMED_CASES,
+		) =>
+			caseLoadingForms.map((form) => ({
 				form,
 				visibility: formDisplayVisibility({
 					condition: form.displayCondition,
@@ -413,15 +428,25 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
 						searchEnvironment.lookup,
 					),
-					caseProjection: projection,
+					selectedCase: navigationSelectedCase(
+						menuSource.doc,
+						moduleUuid,
+						form.uuid,
+						row.case_id,
+					),
+					deviceCases: deviceCasesHoldingClaims(
+						navigationDeviceCases,
+						claimedCaseIds,
+					),
 					lookup: lookupStatus,
 				}),
-			}));
-		},
+			})),
 		[
 			caseLoadingForms,
 			searchSession,
 			menuSource.doc,
+			moduleUuid,
+			navigationDeviceCases,
 			lookupStatus,
 			searchEnvironment.lookup,
 		],
@@ -444,6 +469,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						{ entity: "form", uuid: form.uuid, slot: "form_display_condition" },
 						searchEnvironment.lookup,
 					),
+					deviceCases: navigationDeviceCases,
 					lookup: lookupStatus,
 				}),
 			})),
@@ -451,6 +477,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			caseLoadingForms,
 			searchSession,
 			menuSource.doc,
+			navigationDeviceCases,
 			lookupStatus,
 			searchEnvironment.lookup,
 		],
@@ -787,7 +814,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	// request so an assignment edit or a place move re-asks instead of serving
 	// the previous worker's rows.
 	const restoreScopeKey = useRestoreScopeKey(previewPersonaUuid);
-	const selectionScopeKey = `${stateScopeKey}\u0000${restoreScopeKey}`;
+	const claimedCaseIds = usePreviewClaimedCaseIds(previewPersonaUuid);
+	/* A selection follows what the worker owns, not its claims: claiming the
+	 * cases being chosen must not retire the choice that claimed them. */
+	const ownedRestoreScopeKey = useOwnedRestoreScopeKey(previewPersonaUuid);
+	const selectionScopeKey = `${stateScopeKey}\u0000${ownedRestoreScopeKey}`;
 	const [multiSelectionState, setMultiSelectionState] = useState<{
 		readonly scopeKey: string;
 		readonly choices: readonly PreviewCaseChoice[];
@@ -922,6 +953,34 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				: undefined,
 		[searchState],
 	);
+	/* A completed or submitted search's Results read HQ's search population,
+	 * not the worker's restore; so do the reads of cases chosen from them. */
+	const readsSearchResults =
+		registeredCaseIds !== undefined || activeSearchInputValues !== undefined;
+	/* A search action's claim is its remote request's own post, posted as
+	 * soon as a result is chosen; a search-first module posts at the form. */
+	const claimsAtResult = !searchFirst && readsSearchResults;
+	/* Results and the Details opened from them are HQ's results rows; a
+	 * browse list is the device's own cases. */
+	const columnDisplayContext = useColumnDisplayContext(
+		config,
+		mod?.caseType,
+		caseType?.properties ?? NO_CASE_PROPERTIES,
+		{
+			doc: menuSource.doc,
+			moduleUuid,
+			reading: readsSearchResults ? "results" : "casedb",
+		},
+	);
+	const addPreviewClaims = useAddPreviewClaims();
+	const claimChoices = (choices: readonly PreviewCaseChoice[]) =>
+		addPreviewClaims(claimableCaseIds(choices));
+	/* The cases choosing this row claims at the result: none in a module
+	 * whose claim waits for the form. */
+	const claimedAtResult = (row: CaseRowWithCalculated) =>
+		claimsAtResult
+			? claimableCaseIds([previewCaseChoiceOf(row)])
+			: NO_CLAIMED_CASES;
 	const {
 		state,
 		fetching,
@@ -949,8 +1008,16 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		caseTypes,
 		parentCase: parentCaseConstraint,
 		page: casePage,
-		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
+		/* What the worker owns is the list's identity; its claims re-read the
+		 * list inside `useCases` and keep the settled rows on screen. */
+		requestScopeKey: `${stateScopeKey}\u0000${ownedRestoreScopeKey}`,
+		search: readsSearchResults,
 	});
+	/* Results that show a column reading `here()` watch the viewer's
+	 * position while they are on screen (`useViewerPositionWatch`). */
+	const resultsReadHere =
+		step !== "search" && columnsReadHere(canonicalConfig, "list");
+	const viewerPosition = useViewerPositionWatch(resultsReadHere);
 	/* Settle the module's search once the query the worker's Search fired has
 	 * come back. `awaitingSearchFetchRef` is what makes "come back" exact: the
 	 * submit commits before the query effect fires, so the first render after
@@ -1040,6 +1107,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		// the worker's device does not hold.
 		deviceScoped: true,
 		scopeKey: restoreScopeKey,
+		search: readsSearchResults,
+		positionScreen: "detail",
 	});
 	const retryCasesWithFocus = useCallback(async () => {
 		const pending = reloadCases();
@@ -1186,6 +1255,34 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			: null;
 	const displayedFormMenuCase =
 		stateBelongsToModule && !routeDrivenExit ? formMenuCase : null;
+	/* A choice whose claim had not reached the device lands on the form menu
+	 * with its device-reading conditions still loading. Once the device holds
+	 * the claimed case, the menu decides, and continues on its own into the
+	 * one form it leaves, as the choice would have done had the case been
+	 * held already. Back, or another choice, ends the wait. */
+	const [autoContinueCaseId, setAutoContinueCaseId] = useState<string | null>(
+		null,
+	);
+	const openFormAfterClaimRef = useRef<
+		((formUuid: Uuid, row: CaseRowWithCalculated) => void) | undefined
+	>(undefined);
+	useEffect(() => {
+		if (autoContinueCaseId === null) return;
+		if (displayedFormMenuCase?.case_id !== autoContinueCaseId) {
+			setAutoContinueCaseId(null);
+			return;
+		}
+		const decided = decideCaseLoadingForms(
+			displayedFormMenuCase,
+			claimedAtResult(displayedFormMenuCase),
+		);
+		if (decided.some((entry) => entry.visibility === "pending")) return;
+		setAutoContinueCaseId(null);
+		const automaticForm =
+			retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid);
+		if (automaticForm !== undefined)
+			openFormAfterClaimRef.current?.(automaticForm, displayedFormMenuCase);
+	});
 	/* Mirror the URL-backed or local selection into session so the sibling
 	 * breadcrumb names the same record the screen is actually showing. */
 	const selectedCase = stateBelongsToModule
@@ -1483,6 +1580,16 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		cases: readonly PreviewCaseChoice[],
 	) => {
 		if (!moduleUuid) return;
+		/* A search-first module's claim sits in the form's entry: choosing
+		 * the form posts it, for the chosen cases and, under a selected
+		 * parent, the entry's other case datums. Claiming before navigating
+		 * re-reads the device snapshot, so the form opens with them held. */
+		if (searchFirst) {
+			claimChoices([
+				...cases,
+				...parentSelectClaimChoices(menuSource, moduleUuid, menuCaseSelections),
+			]);
+		}
 		setOpenCase(null);
 		setFormMenuCase(null);
 		setMultiFormMenuOpen(false);
@@ -1508,9 +1615,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		navigate.openForm(moduleUuid, formUuid);
 	};
 	const openFormWithCase = (formUuid: Uuid, row: CaseRowWithCalculated) =>
-		openFormWithCases(formUuid, [
-			{ caseId: row.case_id, caseName: row.case_name },
-		]);
+		openFormWithCases(formUuid, [previewCaseChoiceOf(row)]);
+	openFormAfterClaimRef.current = openFormWithCase;
 
 	const continueAfterMenuSelection = (
 		cases: readonly (PreviewCaseChoice & {
@@ -1611,19 +1717,24 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * case-first → the single case-loading form, or the form menu when there
 	 * are several. */
 	const proceedWithCase = (row: CaseRowWithCalculated) => {
+		const claimed = claimedAtResult(row);
+		addPreviewClaims(claimed);
 		if (selectsForMenu && moduleUuid && mod.caseType) {
 			continueAfterMenuSelection([
 				{
-					caseId: row.case_id,
-					caseName: row.case_name,
+					...previewCaseChoiceOf(row),
 					caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
 				},
 			]);
 			return;
 		}
-		const decided = decideCaseLoadingForms(row);
-		const automaticForm =
-			retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid);
+		const decided = decideCaseLoadingForms(row, claimed);
+		const awaitingClaim =
+			claimed.length > 0 &&
+			decided.some((entry) => entry.visibility === "pending");
+		const automaticForm = awaitingClaim
+			? undefined
+			: (retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid));
 		if (automaticForm !== undefined) {
 			openFormWithCase(automaticForm, row);
 		} else if (decided.length > 0) {
@@ -1631,6 +1742,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			 * eligible at all land on the menu: it renders placeholders and
 			 * the hidden-items reveal honestly. */
 			setFormMenuCase(row);
+			setAutoContinueCaseId(awaitingClaim ? row.case_id : null);
 			focusNextFrame(() => formMenuBackRef.current);
 		}
 	};
@@ -1642,10 +1754,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	);
 	const toggleMultipleCase = (row: CaseRowWithCalculated) => {
 		if (validatingSelection) return;
-		const choice = {
-			caseId: row.case_id,
-			caseName: row.case_name,
-		};
+		const choice = previewCaseChoiceOf(row);
 		const alreadySelected = selectedChoices.some(
 			(selected) => selected.caseId === choice.caseId,
 		);
@@ -1659,7 +1768,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		const next = togglePreviewCaseChoice(selectedChoices, choice);
 		setSelectedChoices(next);
 		announce(alreadySelected ? "caseRemoved" : "caseSelected", {
-			name: choice.caseName,
+			name: row.case_name,
 			count: next.length,
 		});
 	};
@@ -1669,10 +1778,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			filteredGroups === undefined
 				? filteredRows
 				: filteredGroups.map((group) => group.header);
-		const visibleChoices = selectableRows.map((row) => ({
-			caseId: row.case_id,
-			caseName: row.case_name,
-		}));
+		const visibleChoices = selectableRows.map(previewCaseChoiceOf);
 		const result = addVisiblePreviewCaseChoices(
 			selectedChoices,
 			visibleChoices,
@@ -1709,6 +1815,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			);
 			return;
 		}
+		if (claimsAtResult) claimChoices(choices);
 		if (selectsForMenu) {
 			continueAfterMenuSelection(choices);
 			return;
@@ -1751,6 +1858,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				parentCase: parentCaseConstraint,
 				viewerTimeZone: viewerTimeZone(),
 				personaUuid: previewPersonaUuid,
+				claimedCaseIds: [...claimedCaseIds],
+				/* Cases chosen from a search's Results are checked against the
+				 * search's population, as HQ's claim accepts any case it finds. */
+				...(readsSearchResults && moduleUuid !== undefined
+					? { search: true, moduleUuid }
+					: {}),
 			});
 			const validationIsCurrent =
 				selectionValidationTokenRef.current === validationToken &&
@@ -1771,7 +1884,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					setReviewSelection(reconciled.choices.length > 0);
 					return;
 				}
-				finishSelectedCaseNavigation(reconciled.choices);
+				/* The check is the latest word on which choices the device holds. */
+				finishSelectedCaseNavigation(reconciled.rows.map(previewCaseChoiceOf));
 				return;
 			}
 			if (result.kind === "empty") {
@@ -2025,7 +2139,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const formMenuDecided =
 		displayedFormMenuCase === null
 			? []
-			: decideCaseLoadingForms(displayedFormMenuCase);
+			: decideCaseLoadingForms(
+					displayedFormMenuCase,
+					claimedAtResult(displayedFormMenuCase),
+				);
 	const formMenuHidden = formMenuDecided
 		.filter((entry) => entry.visibility === "hidden")
 		.map((entry) => ({
@@ -2317,6 +2434,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			{outsideRestoreCount !== undefined && state.kind === "rows" && (
 				<RestoreScopeNote count={outsideRestoreCount} worker={previewWorker} />
 			)}
+			{resultsReadHere && viewerPosition.status !== "sharing" && (
+				<HereLocationNote
+					status={viewerPosition.status}
+					onShare={viewerPosition.share}
+				/>
+			)}
 			<ResultsBody
 				state={state}
 				unfilteredCountState={unfilteredCountState}
@@ -2471,6 +2594,54 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 }
 
 // ── Results body ──────────────────────────────────────────────────
+
+/** What a list that shows `here()` says while the browser shares no
+ *  position, with the one step that can change it. */
+function HereLocationNote({
+	status,
+	onShare,
+}: {
+	readonly status: Exclude<ViewerPositionStatus, "sharing">;
+	readonly onShare: () => void;
+}) {
+	const message = useWorkerMessage();
+	const copy =
+		status === "refused"
+			? { text: message("hereColumnsRefused"), action: undefined }
+			: status === "unsupported"
+				? { text: message("hereColumnsUnsupported"), action: undefined }
+				: status === "unavailable"
+					? {
+							text: message("hereColumnsUnavailable"),
+							action: message("tryAgain"),
+						}
+					: {
+							text: message("hereColumnsWaiting"),
+							action: message("shareYourLocation"),
+						};
+	return (
+		<div
+			data-here-location-note={status}
+			className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs leading-relaxed text-nova-text-muted"
+		>
+			<p className="flex min-w-0 flex-1 basis-64 items-start gap-2">
+				<Icon
+					icon={tablerCurrentLocation}
+					width="14"
+					height="14"
+					className="mt-0.5 shrink-0"
+					aria-hidden
+				/>
+				<span>{copy.text}</span>
+			</p>
+			{copy.action !== undefined && (
+				<Button type="button" variant="outline" onClick={onShare}>
+					{copy.action}
+				</Button>
+			)}
+		</div>
+	);
+}
 
 /** The list's loading arm: shown before the first settle and while a
  *  stale-empty view revalidates. */

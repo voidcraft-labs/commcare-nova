@@ -1,17 +1,11 @@
 import type { CaseIndexRow } from "@/lib/case-store";
 import { lookupFixtureCellText } from "@/lib/commcare/lookup/cellText";
 import { COMMCARE_SESSION_CONTEXT_FIELDS } from "@/lib/commcare/sessionContext";
-import {
-	CASE_NODE_ATTRIBUTE_PROPERTIES,
-	type CasePropertyDataType,
-	type CaseType,
-	USERCASE_CASE_TYPE,
-} from "@/lib/domain";
+import type { CasePropertyDataType, CaseType } from "@/lib/domain";
 import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
-import {
-	type XPathInstance,
-	type XPathNode,
-	XPathNodeSet,
+import type {
+	XPathInstance,
+	XPathNode,
 } from "@/lib/preview/xpath/runtimeValues";
 import { XPathDate, type XPathValue } from "@/lib/preview/xpath/types";
 import type { CaseRow, JsonValue } from "./caseDataBindingTypes";
@@ -302,7 +296,7 @@ function caseDateValue(value: Date | string | null): XPathValue {
 	/* Core exposes both casedb values through DateData. DateData.getValue()
 	 * rounds its backing Date before XPath sees it, so these are calendar dates,
 	 * not DateTimeData values carrying the database timestamp. */
-	return XPathDate.fromJSDateOnly(parsed);
+	return XPathDate.localDateOf(parsed.getTime());
 }
 
 const CASE_ATTRIBUTE_TEMPLATES = [
@@ -557,13 +551,18 @@ export function secondaryXPathInstances(args: {
 /** The inline search's answers instance, `search-input:results:inline`. */
 export const INLINE_SEARCH_INPUT_INSTANCE_ID = "search-input:results:inline";
 
+/** The Search screen's answers instance, `search-input:<datum id>` over the
+ * query datum the suite names `results`. */
+export const SEARCH_INPUT_INSTANCE_ID = "search-input:results";
+
 /**
- * The device's search-input instance for a completed inline search
- * (`RemoteQuerySessionManager.getEvaluationContextWithUserInputInstance`):
+ * The device's search-input instance
+ * (`org/commcare/data/xml/VirtualInstances.java::buildSearchInputInstance`):
  * `<input><field name="<prompt>">value</field>…</input>`, one field per
- * answered prompt. A no-matches form's `#search/<name>` reads print as
- * `instance('search-input:results:inline')/input/field[@name='<name>']` on
- * the wire, so the same path resolves here.
+ * answered prompt. A no-matches form's search reads print as
+ * `instance('search-input:results:inline')/input/field[@name='<name>']`, and
+ * the Search screen's as `instance('search-input:results')/…`, so the same
+ * path resolves here.
  */
 export function searchInputXPathInstance(
 	answers: ReadonlyMap<string, string>,
@@ -581,92 +580,33 @@ export function searchInputXPathInstance(
 }
 
 /**
- * Resolve Nova's identity-bearing hashtags against the same casedb nodes the
- * emitted XPath selects. Returning a nodeset matters even when one scalar is
- * expected: JavaRosa functions such as count() and boolean() observe node
- * identity and cardinality before scalar coercion.
- *
- * Undefined means that the structural projection is unavailable and the
- * caller should retain its scalar fallback. That fallback is intentional for
- * the best-effort usercase path and for narrow unit fixtures that do not carry
- * a device database snapshot.
+ * The instances the Search screen evaluates over, as the device's query
+ * screen holds them
+ * (`org/commcare/session/RemoteQuerySessionManager.java::getEvaluationContextWithUserInputInstance`):
+ * the session with the datums chosen so far, the answers as
+ * `search-input:results` and under the legacy id `search-input` too, and every
+ * lookup table under its suite fixture id.
  */
-export function previewHashtagNodeSet(
-	reference: string,
-	args: {
-		readonly casedb: XPathInstance | undefined;
-		readonly caseData: ReadonlyMap<string, ReadonlyMap<string, string>>;
-		readonly userId: string | undefined;
-		/** The `search-input:results:inline` instance of an admitted
-		 *  no-matches form; absent when the form runs without one. */
-		readonly searchInputs?: XPathInstance | undefined;
-	},
-): XPathNodeSet | undefined {
-	if (reference.startsWith("#search/")) {
-		/* A search answer is a field of the search-input instance, the node the
-		 * wire's `instance('search-input:results:inline')/input/field[@name]`
-		 * selects, so `count()` and predicates see a prompt the search left
-		 * blank as no node. Without the instance the engine's scalar resolver
-		 * answers blank. */
-		if (args.searchInputs === undefined) return undefined;
-		const name = reference.slice("#search/".length);
-		const fields =
-			args.searchInputs.root().children("input")[0]?.children("field") ?? [];
-		return new XPathNodeSet(
-			fields.filter((node) => nodeAttributeValue(node, "name") === name),
-			true,
-		);
-	}
-	const casedb = args.casedb;
-	if (casedb === undefined) return undefined;
-	const cases = casedb.root().children("casedb")[0]?.children("case") ?? [];
-
-	if (reference.startsWith("#user/")) {
-		if (args.userId === undefined) return new XPathNodeSet([], true);
-		const property = reference.slice("#user/".length);
-		const usercases = cases.filter(
-			(node) =>
-				nodeAttributeValue(node, "case_type") === USERCASE_CASE_TYPE &&
-				nodeChildValue(node, "hq_user_id") === args.userId,
-		);
-		if (usercases.length === 0) return undefined;
-		return new XPathNodeSet(
-			usercases.flatMap((node) => [...node.children(property)]),
-			true,
-		);
-	}
-
-	const match = /^#([^/]+)\/(.+)$/.exec(reference);
-	if (match === null || match[1] === "form" || match[1] === "case") {
-		return undefined;
-	}
-	const namespace = match[1] ?? "";
-	const property = match[2] ?? "";
-	const namespaceData = args.caseData.get(namespace);
-	if (namespaceData === undefined) return new XPathNodeSet([], true);
-	const caseId = namespaceData.get("case_id");
-	if (caseId === undefined) return undefined;
-	const selected = cases.filter(
-		(node) => nodeAttributeValue(node, "case_id") === caseId,
-	);
-	return new XPathNodeSet(
-		selected.flatMap((node) =>
-			CASE_NODE_ATTRIBUTE_PROPERTIES.has(property)
-				? [...node.attributes(property)]
-				: [...node.children(property)],
-		),
-		true,
-	);
-}
-
-function nodeAttributeValue(node: XPathNode, name: string): string | undefined {
-	const value = node.attributes(name)[0]?.value();
-	return value === undefined ? undefined : String(value);
-}
-
-function nodeChildValue(node: XPathNode, name: string): string | undefined {
-	const value = node.children(name)[0]?.value();
-	return value === undefined ? undefined : String(value);
+export function searchScreenXPathInstances(args: {
+	readonly session: PreviewSearchSessionValues;
+	readonly answers: ReadonlyMap<string, string>;
+	readonly lookupData?: PreviewLookupData;
+	readonly sessionData?: Readonly<Record<string, string>>;
+}): ReadonlyMap<string, XPathInstance> {
+	return new Map<string, XPathInstance>([
+		[
+			"commcaresession",
+			commcareSessionXPathInstance(args.session, args.sessionData),
+		],
+		[
+			SEARCH_INPUT_INSTANCE_ID,
+			searchInputXPathInstance(args.answers, SEARCH_INPUT_INSTANCE_ID),
+		],
+		["search-input", searchInputXPathInstance(args.answers, "search-input")],
+		...lookupXPathInstances(args.lookupData ?? null, {
+			includeFixtureAliases: true,
+		}),
+	]);
 }
 
 /** Locate one concrete main-instance node for `.` / `current()` context. */

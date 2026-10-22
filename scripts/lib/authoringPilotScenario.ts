@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { withProjectContext } from "@/lib/case-store";
+import { SEARCH_READING, withProjectContext } from "@/lib/case-store";
 import {
 	computeFieldPath,
 	findContainingForm,
@@ -43,7 +43,11 @@ export async function observeClientPilot(args: {
 	);
 	if (
 		!args.cases &&
-		(await store.count({ appId: doc.appId, caseType: b.caseType }))
+		(await store.count({
+			appId: doc.appId,
+			caseType: b.caseType,
+			reading: SEARCH_READING,
+		}))
 	)
 		throw new Error("Scenario data requires an empty disposable app.");
 	const identity = previewAsMe(
@@ -123,13 +127,18 @@ export async function observeClientPilot(args: {
 		const [loaded] = await store.query({
 			appId: doc.appId,
 			caseType: b.caseType,
+			reading: SEARCH_READING,
 			caseIds: [caseId],
 			limit: 1,
 		});
 		if (!loaded) throw new Error("The scenario's case could not be read back.");
 		if (Number(loaded.properties[b.ageProperty]) !== age)
 			throw new Error("The recorded case no longer has the expected age.");
-		const rows = await store.query({ appId: doc.appId, caseType: b.caseType });
+		const rows = await store.query({
+			appId: doc.appId,
+			caseType: b.caseType,
+			reading: SEARCH_READING,
+		});
 		if (rows.some((row) => row.parent_case_id !== null))
 			throw new Error("This client fixture requires independent records.");
 		const update = engine(

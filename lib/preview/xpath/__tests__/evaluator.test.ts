@@ -9,15 +9,16 @@ import {
 	vi,
 } from "vitest";
 import { GEOPOINT_CENTER_PATTERN } from "@/lib/commcare/predicate/geopoint";
+import { parser } from "@/lib/commcare/xpath/parser";
+import { evaluateAsync } from "../asyncEvaluator";
 import { xpathToString } from "../coerce";
-import { evaluate } from "../evaluator";
+import { evaluate, XPATH_PARSE_CACHE_ENTRIES } from "../evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../generatedJavaRosaFunctions";
 import type { EvalContext } from "../types";
 import { isXPathDate } from "../types";
 
 function makeCtx(
 	values: Record<string, string> = {},
-	caseData: Record<string, string> = {},
 	instances: Record<string, Record<string, string>> = {},
 ): EvalContext {
 	return {
@@ -26,13 +27,6 @@ function makeCtx(
 			Object.hasOwn(instances, instanceId)
 				? { kind: "supported", value: instances[instanceId]?.[path] }
 				: { kind: "unsupported" },
-		resolveHashtag: (ref) => {
-			if (ref.startsWith("#form/"))
-				return values[`/data/${ref.slice(6)}`] ?? "";
-			if (ref.startsWith("#patient/")) return caseData[ref.slice(9)] ?? "";
-			if (ref.startsWith("#user/")) return "demo_user";
-			return "";
-		},
 		contextPath: "/data/current",
 		position: 1,
 	};
@@ -233,7 +227,6 @@ describe("XPath evaluator", () => {
 		it("resolves an instance-rooted path through the context namespace", () => {
 			const ctx = makeCtx(
 				{},
-				{},
 				{
 					commcaresession: { "/session/context/userid": "worker-1" },
 				},
@@ -262,18 +255,18 @@ describe("XPath evaluator", () => {
 	});
 
 	describe("hashtag references", () => {
-		it("resolves #form/ refs", () => {
-			const ctx = makeCtx({ "/data/age": "25" });
-			expect(evaluate("#form/age", ctx)).toBe("25");
-		});
-
-		it("resolves explicit case-type refs", () => {
-			const ctx = makeCtx({}, { risk_level: "high" });
-			expect(evaluate("#patient/risk_level", ctx)).toBe("high");
-		});
-
-		it("resolves #user/ refs", () => {
-			expect(evaluate("#user/username", makeCtx())).toBe("demo_user");
+		// Every surface evaluates its own Preview print, which spells each
+		// reference as a path, so a hashtag reaching the evaluator is a surface
+		// handing it text it did not print.
+		it.each([
+			"#form/age",
+			"#patient/risk_level",
+			"#user/username",
+			"count(#form/items)",
+		])("refuses %s", (source) => {
+			expect(() => evaluate(source, makeCtx({ "/data/age": "25" }))).toThrow(
+				/Preview received the hashtag "#[a-z]+\/[a-z_]+"/,
+			);
 		});
 	});
 
@@ -665,7 +658,7 @@ describe("XPath evaluator", () => {
 				vi.setSystemTime(new Date("2026-08-15T01:34:56Z"));
 				expect(evaluate("string(today())", makeCtx())).toBe("2026-08-14");
 				const rounded = evaluate("date(now())", makeCtx());
-				expect(isXPathDate(rounded) && rounded.time).toBeNull();
+				expect(isXPathDate(rounded) && rounded.timeMilliseconds).toBeNull();
 				expect(evaluate("string(now())", makeCtx())).toBe("2026-08-14");
 				expect(Number.isInteger(evaluate("double(now())", makeCtx()))).toBe(
 					false,
@@ -709,6 +702,63 @@ describe("XPath evaluator", () => {
 			expect(() => evaluate("[[invalid", makeCtx())).toThrow(
 				"did not pass admission",
 			);
+		});
+	});
+
+	describe("parse cache", () => {
+		// The cache is the realm's own, shared by every test in this file, so
+		// each case uses sources no other case evaluates.
+		it("parses one source once for both evaluators and keys on its exact text", async () => {
+			const parse = vi.spyOn(parser, "parse");
+			try {
+				const ctx = makeCtx({ "/data/a": "", "/data/b": "x" });
+				expect(evaluate("/data/a = 'cache-key' or /data/b", ctx)).toBe(true);
+				expect(
+					await evaluateAsync("/data/a = 'cache-key' or /data/b", ctx),
+				).toBe(true);
+				expect(evaluate("/data/a = 'cache-key'", ctx)).toBe(false);
+				expect(evaluate("  /data/a = 'cache-key'  ", ctx)).toBe(false);
+				expect(parse).toHaveBeenCalledTimes(2);
+			} finally {
+				parse.mockRestore();
+			}
+		});
+
+		it("refuses an unadmitted source every time without keeping it", () => {
+			const parse = vi.spyOn(parser, "parse");
+			try {
+				for (let attempt = 0; attempt < 2; attempt += 1) {
+					expect(() => evaluate("1 + 'cache-refusal' +", makeCtx())).toThrow(
+						"did not pass admission",
+					);
+				}
+				expect(parse).toHaveBeenCalledTimes(2);
+			} finally {
+				parse.mockRestore();
+			}
+		});
+
+		it("evicts the least recently used source past its capacity", () => {
+			const ctx = makeCtx();
+			const kept = "string('cache-kept')";
+			const evicted = "string('cache-evicted')";
+			// The older of the two is read again, so insertion order alone would
+			// evict the wrong one when one more source than the capacity arrives.
+			evaluate(kept, ctx);
+			evaluate(evicted, ctx);
+			evaluate(kept, ctx);
+			for (let index = 0; index < XPATH_PARSE_CACHE_ENTRIES - 1; index += 1) {
+				evaluate(`string('cache-fill-${index}')`, ctx);
+			}
+			const parse = vi.spyOn(parser, "parse");
+			try {
+				expect(evaluate(kept, ctx)).toBe("cache-kept");
+				expect(parse).not.toHaveBeenCalled();
+				expect(evaluate(evicted, ctx)).toBe("cache-evicted");
+				expect(parse).toHaveBeenCalledTimes(1);
+			} finally {
+				parse.mockRestore();
+			}
 		});
 	});
 });

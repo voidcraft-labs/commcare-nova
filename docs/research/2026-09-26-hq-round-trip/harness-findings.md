@@ -1019,6 +1019,13 @@ planned ("Found while planning step 2").
     typed question reads back (`HIDDEN_VALUE_WRITER_TYPE_MISMATCH`). A case
     a project space already holds, written by another app, an import or
     HQ's API, is still beyond any authoring rule.
+    **Preview refuses it too:** every setvalue Preview performs (a case
+    preload, a starting value, a repeat insert's starting value) goes
+    through Core's cast for the question's bind type
+    (`lib/preview/engine/answerCast.ts::castAnswerText`), so a typed
+    preload whose case text does not cast stops the form there too, with
+    the case, the property and the value named and a way back to another
+    record, and a refused repeat insert adds no row.
 
 74. **Web Apps submits its own placeholder for a date and time question in
     a repetition added last, and the form can then never be submitted.**

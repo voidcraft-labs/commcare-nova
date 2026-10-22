@@ -22,6 +22,7 @@ import {
 	tableLookup,
 	term,
 } from "@/lib/domain/expression";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { seedAppTest } from "@/lib/preview/app-tests/seed";
@@ -475,6 +476,7 @@ describe("conditional numeric writes", () => {
 			expect(writerState).toBe("blocked");
 			expect(await writer).toMatchObject([{ status: "fulfilled" }]);
 			const rows = await makeStore().query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: INSPECTION.name,
 			});
@@ -501,6 +503,7 @@ describe("conditional numeric writes", () => {
 			const store = makeStore();
 			await submit(store, program("no", volume, duration));
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: INSPECTION.name,
 			});
@@ -519,6 +522,7 @@ describe("conditional numeric writes", () => {
 			const store = makeStore();
 			await submit(store, program("yes", volume, duration));
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: INSPECTION.name,
 			});
@@ -547,7 +551,11 @@ describe("conditional numeric writes", () => {
 				},
 			});
 			expect(
-				await store.query({ appId: APP_ID, caseType: INSPECTION.name }),
+				await store.query({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: INSPECTION.name,
+				}),
 			).toEqual([]);
 			const intents = await sql<{ count: number }>`
 				SELECT count(*)::int AS count FROM form_submission_intents
@@ -619,6 +627,7 @@ describe("numeric answer branches", () => {
 				`numeric-branch-${index}`,
 			);
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: INSPECTION.name,
 			});

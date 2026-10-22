@@ -87,8 +87,11 @@ scope when a different one arrives, so routing a Search prompt's `required` /
 every time a worker typed on the Search screen. The provider therefore creates
 a second `createBrowserXPathRuntime` and hands it to the controller as
 `searchXPathRuntime`; `engineController.ts::evaluateSearchScreenXPath` requests
-under `search:<moduleUuid>` with the `search` profile and only the
-`commcaresession` secondary instance. It is needed because a user-authored
+under `search:<moduleUuid>` with the `search` profile and the instances the
+device's query screen holds (`xpathInstances.ts::searchScreenXPathInstances`):
+the session, the draft answers as `search-input:results`, and the lookup
+fixtures under their suite ids. The running Search screen passes no
+`session/data`. It is needed because a user-authored
 `matches-pattern` runs ONLY in the worker (the JDK `Pattern` runtime is
 worker-only; the synchronous JavaRosa function table returns `unsupported` for
 a user pattern). `engine/searchInputConstraints.ts` is the split:
@@ -222,19 +225,22 @@ as printed references.
 Each controller revision owns one worker evaluation world. Its first request
 copies the main structure plus the engine-lifetime secondary snapshots; later
 expressions reuse that world and carry only changed main-instance scalar
-values and their expression-local context. A topology change reinitializes the
+values and their expression-local context. No request carries hashtag values,
+because no printed source holds a hashtag (worker protocol 8). A topology change reinitializes the
 world. Repeat cardinality participates explicitly in that topology signature;
 a zero-row bound repeat retains one dormant template subtree whose value keys
 alone cannot distinguish it from a live row. Never restore recursive
 per-expression instance snapshots: a form with many expressions over a large
 casedb/fixture set must not clone that entire world once per expression.
 
-Case-type and `#user/` hashtags cross that worker boundary as addresses into
-the frozen casedb snapshot, not as pre-coerced strings. They remain nodesets
-until the evaluator applies JavaRosa coercion, so `count()`, `boolean()`, and
-other node-aware functions observe the same identity and cardinality as the
-expanded wire selector. A scalar fallback exists only when Preview has no
-structural usercase projection at all.
+Case and worker reads cross that worker boundary as the wire's own casedb walk
+over the frozen snapshot: printed text the evaluator parses like any other,
+never a value resolved before evaluation. They remain nodesets until the
+evaluator applies JavaRosa coercion, so `count()`, `boolean()`, and other
+node-aware functions observe the same identity and cardinality the device does.
+A worker read prints a string literal of the identity's usercase value only
+when the snapshot holds no `commcare-user` row for the worker
+(`engine/workerExpressionBindings.ts::previewWorkerPropertyBinding`).
 
 The casedb projection separates schema from cardinality. Dynamic property and
 index names remain valid through template metadata, but an absent property or
@@ -250,9 +256,15 @@ active materializable declarations fill properties absent from the stored
 catalog. This prevents existing decimal/date JSON from silently changing XPath
 text during either window.
 
-The casedb load signal is structural too: any admitted `#<case-type>/*` or
-`#user/*` carrier needs the same device snapshot as an explicit
-`instance('casedb')` reference. Typed case and worker references in prose labels,
+The casedb load signal is structural:
+`engine/expressionCaseReads.ts::expressionReadsCaseDatabase` loads the device
+snapshot when a slot's tree holds a casedb `cases` query, a `project`, a
+relation, a `form-case`, `prop`, `case-index`, `case-row-type` or
+`owner-location-at-level` read, a worker-record `#user/` read, the
+`usercase_id` or grouped-tile companion session datum (both evaluated over the
+casedb when the entry begins), or a `repeat-row` of a query-bound repeat;
+`useCaseDatabaseSnapshot.tsx` also loads it when a menu display condition reads
+case data. The request carries the worker's claims. Typed case and worker references in prose labels,
 hints, help and inline choices also require that snapshot, even when no XPath
 slot reads a case. The scan uses the prose slot registry and typed parts;
 literal hashtag text and answer-only references do not trigger a case load.
@@ -275,7 +287,18 @@ client engine also runs documents with unsaved edits, which have no
 sequence, and a stored app test would change with every unrelated edit. The
 `commcaresession/session/context` template uses the complete Core namespace,
 including `drift`, `window_width`, and `applanguage`; an unavailable value is
-an absent node, not an unknown path.
+an absent node, not an unknown path. `session/data` holds the entry's datums
+(`engine/entrySessionData.ts::entrySessionData`), each valued as Core values it
+when the session reaches it: a selection from the menu's case map; a `uuid()`
+datum minted from the entry key by
+`lib/domain/entryCaseIdentity.ts::entryDatumCaseId`, keyed by the case it names
+(`new-case`, `new-child-case:<type>`) or, for a datum that names no case Nova
+creates, `placeholder:<datum id>`; and `usercase_id` and `<datum>_parent_ids`,
+evaluated over the entry's casedb snapshot. A datum Preview has no value for (a
+several-case selection, which the batch form reads through its selected-cases
+instance, or an inline search's query datum) is absent and reads blank, and an
+unsaved app mints no ids. A registration form's read of its own case id reads
+the `new-case` value, and the submission creates the case with that id.
 
 Raw answer writes commit synchronously and remain in `pendingValuePaths` until
 some current revision settles their cascade. Every successor revision first
@@ -286,8 +309,8 @@ queue behind topology mutation, defaults/cascade, and compaction publication.
 Navigation may still retire the whole entry and discard its engine.
 
 Home ends the current running task. It clears selected parent records, the current
-Form/Details target, and transient search context while retaining the chosen worker
-and actor authorization. Reopening a related-record history therefore offers its
+Form/Details target, and transient search context while retaining the chosen worker,
+actor authorization and the worker's claims, because a claim on HQ outlives the task. Reopening a related-record history therefore offers its
 parent selection again, matching isolated app-test Home. Moving within a parent
 menu still retains the parent needed by its children.
 
@@ -325,13 +348,13 @@ parent before their detail is shown.
 
 ## First-class date type in the XPath evaluator
 
-XPath values include a `XPathDate` alongside string/number/boolean. `today()` returns a date (days-since-epoch internally, ISO string on coercion), so `today() + 1` yields tomorrow, not `NaN`. CommCare's arithmetic converts dates to day numbers; compatible typed emitters add the required wire coercion themselves. The experimental raw-XPath transpiler is not a production boundary and Preview must never assume that it ran.
+XPath values include a `XPathDate` alongside string/number/boolean. It holds its local calendar date (`calendarDays`) and, for a date and time, its instant (`timeMilliseconds`). `today()` returns a date, so `today() + 1` yields tomorrow, not `NaN`. CommCare's arithmetic converts dates to day numbers, and Preview's day number is Core's: `xpath/coreDays.ts::coreDaysSinceEpoch` and `coreDateAdd` compute it from the browser's zone as `DateUtils.daysSinceEpoch` and `dateAdd` do (the device-zone midnight of 1 January 1970, fixed 24-hour days, half-day rounding). The zone's offset is Java's, never the browser's own: `java.util.TimeZone` keeps a zone's history only from 1900-01-01T00:00Z and reads every earlier instant at the zone's current standard offset, so `lib/domain/javaZoneOffset.ts::javaZoneOffsetMs` gives the IANA offset from that instant on and the standard offset before it, and every Preview zone field (`coreDays.ts`, `instantDatetimeValue`, `format-date`'s `%Z`, a setvalue cast's clock, the offset a setvalue's uncast stamps, `string()` of a Date's zone name) reads through it rather than `Date`'s local getters, which follow the IANA history back into local mean time. Kiritimati's +14:00 before 1900 counts one day less there as well, and its clock steps back a day at the cutoff. That is a day off the calendar in `Pacific/Apia`, `Pacific/Enderbury`, `Pacific/Fakaofo`, `Pacific/Kiritimati` and `Pacific/Kwajalein`, as it is on a device. Numeric coercion of a date (`toNumeric`) and `date(<number>)` use it, `date(<number>)` truncating the number toward zero as Core's `toInt` does; a direct date in `toDouble` keeps its fractional days (`DateUtils.fractionalDaysSinceEpoch`, the wall clock), and `toISOString` keeps the calendar date, printed as `DateUtils.formatDate` prints it (the year unpadded). Calendar fields are Java's, `GregorianCalendar`'s: Julian before 1582-10-15 and Gregorian from it, both when fields become a day (`coreDays.ts::javaCalendarDays`, a date in the cutover's gap read as Julian) and when a day is read as fields (`javaCalendarDate`, the year counted in its era), so `format-date`, `format-date-for-calendar` and string coercion all print what Core prints. Core's `DateUtils.roundDate` is not the identity, and Preview runs it wherever Core does (`coreDays.ts::coreRoundDay`: every `daysSinceEpoch`, `dateAdd`, `date()` of a Date, a node's date in `format-date`, a calculated date): it reads `YEAR` without its era and sets it on an AD calendar, so a day before AD 1 folds to the AD date with the same fields (`number(date('0000-06-15'))` counts AD 1 June 15), and its proleptic Gregorian date check refuses a Julian February 29 in a year such as 100 or 1500. That refusal is Java's null: `date()` returns it as `runtimeValues.ts::XPathCoreNull`, which `coalesce` skips, `format-date` of a number or a node reads as no date, and every other read refuses (`types.ts::CoreUnroundableDateError`), as each read on a device throws. Day numbers are integer arithmetic on days, so every `int` Core accepts in `date(<number>)` has its date, past the range of a JavaScript `Date`; before 1900 a zone's offset is constant, so the far past is exact, and beyond the range's future edge the offset is the one at that edge (its final rule), which no zone's rounded day can tell apart. A date-and-time text beyond that range still has no instant in Preview and reads as no date. `date()` rounds a date and time to its local date whether it arrives directly or through a node (`coerce.ts::toDateRounding`, Core's `FunctionUtils.toDate`: a parsed string keeps its clock, `''` and NaN pass through). `format-date` and `format-date-for-calendar` keep a direct date's clock and round a node's (`expandDateSafe`), so `format-date(/data/dt, '%H')` is `00`, as on a device, and a blank node formats as `''`. `coerce.ts::toDate` keeps its name for the callers that read stored text and must not round. A datetime answer is read by the offset its canonical storage text carries, never re-resolved from wall time. A wall clock resolves as Java's `Calendar` resolves it (`coreDays.ts::javaWallInstant`): a repeated hour takes its later occurrence and a skipped one moves forward by the gap. `DateTimeData.uncast` stamps a date and time with `TimeZone.getOffset` of its local day (`coreDays.ts::javaOffsetMsOnDay`), which reads the day's midnight less the zone's raw offset as an instant and never resolves the wall clock, so Kiritimati's 1900-01-01 stamps +14 though its midnight there reads -10:29:20. A calculated date is held as the node's runtime value: a datetime bind keeps the instant, any other bind its date. The engine reads an answer by Core's type for its bind (a Hidden Value by its writer destination), never by its field kind alone. Every evaluation, synchronous or asynchronous, shares one parse cache per JavaScript realm (`evaluator.ts::parseAdmittedXPath`, 2,048 entries, keyed by the exact source). `lib/preview/xpath/__tests__/coreDateParity.test.ts` holds these rules to the fixture `proof/native/core/CoreDateParityRuntimeTest.java` holds Core to, in four device zones. Compatible typed emitters add the required wire coercion themselves. The experimental raw-XPath transpiler is not a production boundary and Preview must never assume that it ran.
 
 Always use the shared XPath-to-string helper when stringifying results. Native `String()` on a date value gives `[object Object]`.
 
 ## Two `Child` / `Descendant` node types in the grammar
 
-The Lezer grammar emits TWO distinct `Child` node types (one from the root-step rule, one from the expression rule) and likewise two `Descendant` types. `one('Child')` only finds the first. The evaluator and dependency extractor use `many('Child')` plus a `Set` / `.has()` check to catch both.
+The Lezer grammar emits TWO distinct `Child` node types (one from the root-step rule, one from the expression rule) and likewise two `Descendant` types. `one('Child')` only finds the first. The evaluator uses `many('Child')` plus a `Set` / `.has()` check to catch both.
 
 ## Form engine lifecycle rules
 
@@ -339,6 +362,7 @@ The Lezer grammar emits TWO distinct `Child` node types (one from the root-step 
 
 - **Required validation is deferred to submit.** Showing "required" on blur is bad UX because the user may have clicked in and navigated away. The red asterisk communicates requiredness until submission. Both synchronous and worker-backed blur obey this rule; a required warning already shown by submission remains until the answer changes.
 - **Typed answers are checked before authored validation.** `answerShapeError` checks numeric and temporal answers on blur and at submission. Empty values belong to requiredness. Integer answers use signed decimal digits in the signed 32-bit range; decimal answers accept finite decimal and exponent notation. The numeric widget preserves incomplete text so an optional malformed answer cannot become an empty value through native input sanitization. Numeric case-write projection uses the same full-answer parser and never truncates a prefix. Temporal checks accept every spelling `isReadableTemporalValue` can canonicalize, including older stored values. Errors stay beside the owning question instead of surfacing later as a case-property refusal. Submit retains answer focus during a mouse press so blur validation cannot move the button out from under its release; activation then blurs the current control so local coordinate drafts and clock normalization commit before submission captures answers. A refusal reveals and focuses the first invalid question. Keyboard activation remains native.
+- **A setvalue casts as Core casts, and refuses as Core refuses.** Every value Preview writes into a typed node outside a calculate (a case preload, a starting value, a repeat insert's defaults) goes through `engine/answerCast.ts`: `coreAnswerType` from the XForm emitter's own bind-type function (`lib/commcare/xform/bindType.ts::fieldBindType`, so a Hidden Value binds by its writer destination), `setvalueText` (`Recalculate.wrapData(...).uncast()`) and `castAnswerText`, the port of `SetValueAction`'s cast (decimals through `xpath/javaDouble.ts`, Java's `Double.parseDouble` grammar). Blank text never casts. A cast that succeeds stores Core's held text for a date and a date and time (the held instant's canonical text); a time keeps its written clock, because Nova's stored time carries a `Z` storage tag meaning UTC and holding the converted clock would move a saved time by the viewer's offset; a whole number and a number hold Core's held text, never the written one, because a later setvalue's uncast and the submission both carry it (`IntegerData`/`DecimalData` uncast, Java's print of the parsed value: `007` and `+7` hold `7`, `٧` holds `7`, `-0` into a whole number holds `0`; into a number `5` holds `5.0`, ` 1e3` holds `1000.0`, `0x1p3` holds `8.0`, `-0` holds `-0.0`); a location keeps the written text. One that fails at activation makes the entry `refused` (`EngineController.recordRefusal`): a terminal state beside the missing-selected-record state, with no controls and a route back (**Choose another record** and **Back to the list** for a preload, **Back** for a starting value), cleared when the document or the case data next changes. At a repeat insert the row is not added, and the repeat shows why in place; after the document changes (an edited starting value, or a rebuild restoring the entry) each user-controlled repeat's refused insert is tried again and rolled back, so the note stays only while the insert would still be refused. A refusal never reaches `faultReporter`. App Tests and `engine/evaluateForm.ts` report the same refusal as `FormRefusedError` (`form-refused`, a `FormEvaluationInputError`, with the sentence Preview shows). A calculate never casts, so it never refuses.
 - **Default text remains text.** A default evaluating to `"false"` is a nonempty answer in both synchronous and worker execution; only the empty string means no default value. XPath numeric coercion and `selected()` use Java ASCII-control trimming, so nonbreaking spaces remain significant.
 - **`reset()` is a full reinitialization** — rebuild instance, replay scoped initialization actions, re-cascade. Returns to the exact initial state.
 - **`resetValidation()` clears touched state + errors only** — called when leaving test mode so fields start clean on re-entry.
@@ -474,7 +498,10 @@ runtime answers and `deactivate` wipes the store — so leaving a form starts a
 new entry. The controller exposes that identity through `entryStore`; form
 lifecycle code must subscribe to it rather than sampling the imperative getter,
 because a materially changed worker projection can rotate the entry from a
-provider effect without changing the persona UUID or route.
+provider effect without changing the persona UUID or route. The key also names
+the cases the entry creates: a registration's primary case and each child a
+one-case form creates outside a repeat take `entryDatumCaseId(appId, entryKey,
+…)`, so an exact retry derives the same ids and **Clear form** mints new ones.
 
 Confirmed row ownership lives at `(app, entryKey, stableSlotKey)` above any one
 rendered field. A stable slot is the field UUID plus every enclosing repeat's
@@ -687,7 +714,7 @@ language change retains the current announcement in its new presentation languag
 
 Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one FieldState per live instance. Authored expressions retain UUID-based node identities. `formExpressionRuntime` lowers them through `toWire` using their actual slot context and the private Preview form-node projection; `formReads` maps the same identities to index-free dependency paths. `instancePaths.ts` bridges those paths to live instances:
 
-- **Evaluation binds to the instance.** `createEvalContext` rebases scalar reads — `#form/` hashtags and absolute `/data/` paths — onto the evaluating node's own repeat instance by longest-common-repeat-prefix (`rebaseOntoContext`), CommCare's relative-reference semantic. A reference from OUTSIDE a repeat to children inside it materializes the complete nodeset for node-aware functions, predicates, and Core-compatible scalar coercion; it must never collapse to one guessed value or blank merely because Preview is evaluating it.
+- **Evaluation binds to the instance.** `createEvalContext` rebases absolute `/data/` reads (the `preview` print of a `#form/` read is one) onto the evaluating node's own repeat instance by longest-common-repeat-prefix (`rebaseOntoContext`), CommCare's relative-reference semantic. A relative read (`../`, `current()/`) evaluates from the context node itself. A reference from OUTSIDE a repeat to children inside it materializes the complete nodeset for node-aware functions, predicates, and Core-compatible scalar coercion; it must never collapse to one guessed value or blank merely because Preview is evaluating it.
 - **The TriggerDag topology is index-free; queries materialize.** Nodes and edges are keyed by generic paths, and `getAffected` / `getAllPaths` fan each generic node out over the live instance counts (a `RepeatCountResolver` the engine supplies). Repeat add/remove therefore needs NO DAG bookkeeping; both cardinality changes re-evaluate EVERY instance (`position()` and renumbered sibling reads can shift on removal) plus outside dependents, and `addRepeat` runs defaults-then-evaluate for the new instance, the same order as form load.
 - **Authoring cycle proof is a strict superset of runtime triggers.**
   `TriggerDag.reportCycles` also rejects live count feedback through count expressions, calculations, and repeat descendants. A count cannot depend on rows it creates: Core parses that loop but entry can keep creating rows indefinitely.
@@ -733,7 +760,7 @@ Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one Fie
 
 In render paths, read repeat instance counts from `state.repeatCount` (via the engine-state hooks), not from `controller.getRepeatCount(uuid)` — the latter is a non-reactive method call. `addRepeat` / `removeRepeat` bump `repeatCount` on the repeat's own `FieldState` precisely to give subscribers that signal. `getRepeatCount` is fine outside render or in render paths whose lifecycle guarantees no add/remove can happen while mounted (e.g. edit-mode-only rows).
 
-## Lookup carriers — one printing path, one snapshot
+## One printing path for every surface, one lookup snapshot
 
 `FormEngineInput` carries the real `BlueprintDoc` and form UUID.
 `formExpressionRuntime` reads the stored slot directly; authoring display text
@@ -748,18 +775,29 @@ filter. A single-expression helper requires that expression's own context.
 A table lookup's nested filter obtains its lexical row context from the typed
 expression path, rather than inheriting a caller's case-type bag.
 
-Carrier evaluation never grows a second AST interpreter: every surface lowers
-the authored AST through `toWire` with its actual slot-derived
-`ExpressionContext`, prints the same tree with `serializeWire`, and evaluates
-the printed XPath with the preview evaluator
-(`lookupEvaluation.ts`). A lookup-backed select's row filter emits ONCE with
-the fixture-row scope — same-table columns print as bare wire names the
-per-row `EvalContext` resolves against the row's lexicalized cells — and a
-`table-lookup` folds bottom-up to a plain text literal: exact Core parity,
-because a string literal and a node read unpack identically under every
-scalar operator, and a no-match folds to `""` (Core's empty-node-set unpack;
-missing and stored-empty cells both read blank, the fixture boundary's
-semantics). The `item-list:` instance vocabulary never enters the browser.
+Preview never grows a second interpreter and never rewrites an expression
+into a value before printing it. Every surface (form logic, prose outputs,
+Connect, form links, navigation display conditions, Search defaults, hidden
+values, conditions and checks, lookup filters, case-backed choices) builds its
+slot's wire tree with the one device emitter, `toWire(expression, { target:
+"preview" })` with its actual slot-derived `ExpressionContext`, prints it with
+`serializeWire(tree, { target: "preview" })`, and evaluates the printed text
+with Preview's evaluator over instances shaped like the device's. A label or
+hint reference prints the same way, as the XForm's `<output>` for it reads
+(`labelRefs.ts`). The Preview target differs from the wire in one addressing
+rule: a query-bound repeat's flattened rows carry `@id` / `@index` and have no
+`item` step (`formExpressionRuntime.ts::previewFormNodeProjection`). Every
+lowering is therefore the same code in Preview and on the wire. A form
+runtime prints each slot once and holds the text for its own life
+(`formExpressionRuntime`); the text depends on the runtime's bindings, so the
+memo belongs to the runtime, never to the document. A lookup-backed choice
+list prints the wire's nodeset (`lib/commcare/lookupOptions.ts::lookupOptionsNodeset`,
+shared with the XForm itemset and the Search prompt) and evaluates as Core
+evaluates the itemset, over the fixture instance built under each table's
+XForm id (`lookupEvaluation.ts` reads each selected row node back as its row).
+A `table-lookup` prints the wire's `instance('<tag>')/<tag>_list/<tag>[…]`
+read: a no-match is Core's empty node-set, and missing and stored-empty cells
+both read blank, the fixture boundary's semantics.
 
 Data is ONE Project fixture snapshot (definitions + complete ordered rows for
 the doc's referenced tables): `PreviewLookupDataProvider` fetches it
@@ -788,9 +826,11 @@ neither unique nor non-blank values).
 Navigation display conditions (`displayConditionEvaluation.ts`) evaluate at
 render through the same printing path: module conditions gate the home
 screen's module list; form conditions gate the case-list screen's
-post-selection form menu + single-form auto-continue (against the selected
-row's projection, with a private context path for typed self reads) and the module
-screen's forms-first list. Raw absent-node semantics hold — absent
+post-selection form menu + single-form auto-continue (over the device
+snapshot, reading the chosen case through the suite's own casedb walk keyed on
+`session/data/<datum>`, with the same suite emitters `compiler.ts` writes the
+attributes with) and the module screen's forms-first list. A condition that
+reads case data is `pending` until the snapshot covers it. Raw absent-node semantics hold — absent
 string-unpacks to `""`, numeric ordering yields NaN, no presence guards.
 Visibility is three-valued: a carrier-bearing condition without loaded data
 is `pending` (placeholder, never a guess); hidden items surface through the
@@ -817,7 +857,7 @@ Blueprint mutations in edit mode recreate the engine. The engine hook snapshots 
 
 ## Resolved preview identity
 
-`engine/identity.ts` is the ONE identity contract every preview surface speaks — Search/Results session evaluation, form XPath `#user/*`, the SQL compiler's session bindings, and the acting user behind case writes. Providers are the sole constructors of `ResolvedPreviewIdentity`, and every provider must present a persisted user id: `previewAsMe` and `previewAsPersona` both refuse without one, and no session-only pseudo-persona is constructible.
+`engine/identity.ts` is the ONE identity contract every preview surface speaks — Search/Results session evaluation, form XPath's `commcaresession` user data, the SQL compiler's session bindings, and the acting user behind case writes. Providers are the sole constructors of `ResolvedPreviewIdentity`, and every provider must present a persisted user id: `previewAsMe` and `previewAsPersona` both refuse without one, and no session-only pseudo-persona is constructible.
 
 **Two ids, and they are NOT interchangeable.** `actorUserId` is the signed-in member and the ONLY thing that ever authorizes. `ownerId` is the CommCare worker the preview acts as — the `owner_id` stamped on rows it writes and what `session/context/userid` resolves to. Previewing as yourself makes them the same string; previewing as a persona makes `ownerId` that persona's UUID while the member still authorizes. `ownerId` is authored blueprint content, so keying an authorization decision on it would let an app choose whose data a request reads; `resolveAuthorizedPreviewContext` passes `actorUserId` into the locked authorized-app snapshot before resolving any persona and threads `ownerId` through `withProjectContext(projectId, actorUserId, ownerId)` as the worker only, and the consumer tests pin that the two cannot be re-conflated (including Project-scoped lookup reads, which always use the actor). A Server Action accepts a persona SELECTOR (a uuid) and resolves it against the committed document; it never accepts an identity.
 
@@ -834,6 +874,34 @@ persona's own uuid plus every place it receives cases from
 (`lib/organization/ownerSets.ts`); previewing as the member is a worker
 assigned nowhere, so it is their own id alone.
 
+A search is not a restore. A Results read of a module with an effective Search,
+once its search has run (a search-first module's completed search, or a
+submitted Search action), and the Details and selections of cases chosen from
+it, pass a search population instead of a restore scope
+(`QueryArgs.searchPopulation`, `lib/case-store/CLAUDE.md`): the Project's open
+cases of the module's case type, with the owner exclusion and filters, as HQ's
+case search reads them, each row marked `heldOnDevice` by the worker's restore.
+Choosing a row the device does not hold claims it (`searchClaims.ts`): its id
+joins the worker's `previewClaims` (`lib/session`). Preview posts the claim
+where CommCare does: when a search action's result is chosen, and in a
+search-first module, whose claim sits in each form's entry, once a form is
+chosen (Preview's single-form auto-advance included) with the entry's other
+case datums under a selected parent, so the form menu and its display
+conditions are evaluated before it. Every device-scoped read of that worker
+(the device snapshot, a form's preload, the persistent tile, an entry-point
+launch) sends the set as plain JSON `claimedCaseIds`;
+`resolveAuthorizedPreviewContext` checks its shape
+(`previewAuthorization.ts::previewClaimedCaseIds`, at most 1,000 distinct ids)
+and puts it in the restore scope, and the restore scope key names it, so the
+snapshot is read again when the set grows and the form opens with the case as
+on a device. An App Test journey holds its claims in its own server-side
+state, `AppTestSessionState.claimedCaseIds`, one set per retained worker
+session (`app-tests/CLAUDE.md`); it never reads `previewClaims`.
+`engine/evaluateForm.ts`'s capture runs no search and belongs to no running
+worker, so it sends no claims and reads the restore closure alone. Preview
+writes no claim row. An entry point is not a search: it opens only cases the
+worker's restore holds, claimed cases included.
+
 It rides on `AuthorizedPreviewContext`, NOT on `ResolvedPreviewIdentity`. The
 identity is the one contract the browser and the server both speak, and the
 browser cannot derive this — expanding a persona's assignments reads the place
@@ -841,16 +909,17 @@ tree out of Postgres. A server-only field on the shared identity would make
 the client's copy quietly wrong, and `samePreviewIdentity` would then compare
 a field only one side can fill.
 
-Running screens opt in; builder chrome does not. Results, the canonical
-Details URL read, a case-loading form's preload, and the persistent tile pass
-it. The case workspace, sample data, and the rename preflight do not.
+Running screens opt in; builder chrome does not. A browse list's Results, the
+canonical Details URL read, a case-loading form's preload, and the persistent
+tile pass it; a search's Results does not. The case workspace, sample data, and the rename preflight do not.
 `loadCaseDataAction` serves both, which is why it takes an explicit
 `deviceScoped` argument rather than deriving one from the context — the
 review dialog shares that action, and a derived scope would have silently
 stopped it from opening the very rows it exists to inspect.
 
 Fewer rows than the builder shows is not data loss, so `RestoreScopeNote` says
-so beside Results: how many cases the same query matches that this worker
+so beside a browse list's Results (a search's Results shows none, because HQ's
+search is not a restore): how many cases the same query matches that this worker
 would not have, named to the worker. Same doctrine as `HiddenItemsReveal` —
 authoring-only inspection sitting BESIDE a runtime-faithful list, never a
 blend of the two modes. It cannot list the rows, because the preview never
@@ -871,7 +940,7 @@ into its request identity. Without it the preview keeps serving the previous
 worker's rows with nothing on screen to say so, which is the exact failure the
 note exists to prevent, arriving through the back door.
 
-Server side, every persona-aware running path — Results/Details reads, sample populate/reset, and submission — calls `resolveAuthorizedPreviewContext` once. It authenticates the member, resolves membership plus the committed blueprint under the same app-row and membership locks, resolves the selector from that one authorized snapshot, and binds the explicit actor/owner pair. A selector naming a missing persona returns `persona-unavailable`; it never silently runs a read or write as the member. The selected owner rides populate/reset and `submitFormAction`, so all rows the persona creates belong to the persona, while the actor remains the authorization and lookup identity. Client side, `useSelectedPreviewIdentityState()` makes selected-but-missing a distinct `persona-unavailable` state rather than collapsing it with signed-out/loading or falling back to the member for one frame. `PreviewShell` replaces the running screens with an explicit unavailable-persona refusal and a **Preview as me** recovery action, while `BuilderFormEngineProvider` marks the `EngineController` blocked so activation cannot execute behind that refusal. Leaving Preview clears the persona selector before edit-only sample/data surfaces become active; the next preview therefore starts as the member unless the author chooses another persona. Visual consumers of the compatibility `useSelectedPreviewIdentity()` keep the server/client hydration render identity-free, while `BuilderFormEngineProvider` opts into a warm cached session and seeds that result on the `EngineController` inside its `useState` initializer — the provider itself renders no identity-dependent markup, and child effects flush before parent effects, so an effect-only install would hand every warm-session form mount an identity-less engine plus an immediate rebuild. A follow-up effect tracks later session changes. Identity is engine-lifetime state: a materially different identity rebuilds any active engine (one evaluation world), a re-derived-but-identical identity is a no-op (`samePreviewIdentity`), a cold session resolving mid-entry restores edited or blurred answers through the engine's shared snapshot/restore (the same contract as blueprint-edit recreation; untouched defaults may depend on the worker and must re-derive), and replacing a NON-null identity (sign-out, different worker) discards — restoring would leak one worker's entries into another's session. React adapter tests that mount `BuilderFormEngineProvider` control `@/lib/auth/hooks/useAuth` so the session atom cannot start an unowned session fetch. Native browser tests may instead exercise the real auth hook against a controlled `/api/auth/get-session` transport, and must join that request and close their browser context. `#user/<prop>` resolves from the identity's `usercase` projection — the `commcare-user` case the wire's `#user/` hashtag expands to, NOT the session block, whose built-in keys differ (`first_name` there, `commcare_first_name` in the session). An absent key reads blank at evaluation, matching the device's missing property. The signed-out projection (`previewSessionValues(null)`) carries device context only.
+Server side, every persona-aware running path — Results/Details reads, sample populate/reset, and submission — calls `resolveAuthorizedPreviewContext` once. It authenticates the member, resolves membership plus the committed blueprint under the same app-row and membership locks, resolves the selector from that one authorized snapshot, and binds the explicit actor/owner pair. A selector naming a missing persona returns `persona-unavailable`; it never silently runs a read or write as the member. The selected owner rides populate/reset and `submitFormAction`, so all rows the persona creates belong to the persona, while the actor remains the authorization and lookup identity. Client side, `useSelectedPreviewIdentityState()` makes selected-but-missing a distinct `persona-unavailable` state rather than collapsing it with signed-out/loading or falling back to the member for one frame. `PreviewShell` replaces the running screens with an explicit unavailable-persona refusal and a **Preview as me** recovery action, while `BuilderFormEngineProvider` marks the `EngineController` blocked so activation cannot execute behind that refusal. Leaving Preview clears the persona selector before edit-only sample/data surfaces become active; the next preview therefore starts as the member unless the author chooses another persona. Visual consumers of the compatibility `useSelectedPreviewIdentity()` keep the server/client hydration render identity-free, while `BuilderFormEngineProvider` opts into a warm cached session and seeds that result on the `EngineController` inside its `useState` initializer — the provider itself renders no identity-dependent markup, and child effects flush before parent effects, so an effect-only install would hand every warm-session form mount an identity-less engine plus an immediate rebuild. A follow-up effect tracks later session changes. Identity is engine-lifetime state: a materially different identity rebuilds any active engine (one evaluation world), a re-derived-but-identical identity is a no-op (`samePreviewIdentity`), a cold session resolving mid-entry restores edited or blurred answers through the engine's shared snapshot/restore (the same contract as blueprint-edit recreation; untouched defaults may depend on the worker and must re-derive), and replacing a NON-null identity (sign-out, different worker) discards — restoring would leak one worker's entries into another's session. React adapter tests that mount `BuilderFormEngineProvider` control `@/lib/auth/hooks/useAuth` so the session atom cannot start an unowned session fetch. Native browser tests may instead exercise the real auth hook against a controlled `/api/auth/get-session` transport, and must join that request and close their browser context. `#user/<prop>` prints the wire's walk to the worker's `commcare-user` row in the device snapshot, NOT the session block, whose built-in keys differ (`first_name` there, `commcare_first_name` in the session). An absent key reads blank at evaluation, matching the device's missing property. The signed-out projection (`previewSessionValues(null)`) carries device context only.
 
 ## Several-case selection and batch forms
 
@@ -1045,7 +1114,7 @@ Four things the rest of the preview has to know:
 
 The nav stack carries only `caseId`. Case data is looked up by id at the point of use, not stored in navigation state.
 
-**Per-case-type refs resolve at every reachable depth, positionally.** The engine's case data is a per-case-type map (`CaseDataByType`, case-type name → property map) built by `caseRowsToFormPreloads` with the WIRE's semantic: each reachable type's namespace binds to the row at that type's blueprint depth — the wire's case read (`lib/commcare/xpath/wire/formReads.ts`) emits a blueprint-fixed `index/parent × depth` casedb walk with no case-type filter, so when the live parent chain doesn't mirror the blueprint's `parent_type` chain, preview and device read the SAME row at the hop count (and a depth past the chain's end reads blank on both). The rows come from `readCaseData`, which walks the bound case's `parent_case_id` chain server-side through the `parent` index edges, exactly `ancestorDepth` hops (the form's `reachableCaseTypes(...).length - 1`, client-supplied, server-clamped at 64 — any deeper `parent_type` chain is pathological authoring); the chain is ENRICHMENT — a dangling parent or a mid-walk failure degrades to the rows already fetched, never fails the load. The hashtag resolver (`formEngine.ts::createEvalContext`) looks an explicit `#<case_type>/<prop>` namespace up by type name and throws on raw `#case/...`; `caseRefAcceptMap` decides at authoring time which namespaces a form may reference. Both case-loading form types preload (`followup` AND `close`) only in the module's one-case mode — from the OWN type's entry only, since ancestor namespaces are read-only reference data, and only while the engine's supplied-under type still matches the module's (a mid-preview module retype withholds preload rather than seed field values from an ancestor's row — `ownCaseData`). Several-case mode supplies no primary case-data map at all; the complete device casedb snapshot remains available for admitted operations and after-submit evaluation. Each per-row map (`caseRowToFormPreload`) carries the JSONB document PLUS the reserved scalar columns under their canonical Nova names (`date_opened`, `last_modified`, `case_id`, …), mirroring what the device's casedb exposes.
+**Per-case-type refs resolve at every reachable depth, positionally.** The engine's case data is a per-case-type map (`CaseDataByType`, case-type name → property map) built by `caseRowsToFormPreloads` with the WIRE's semantic: each reachable type's namespace binds to the row at that type's blueprint depth — the wire's case read (`lib/commcare/xpath/wire/formReads.ts`) emits a blueprint-fixed `index/parent × depth` casedb walk with no case-type filter, so when the live parent chain doesn't mirror the blueprint's `parent_type` chain, preview and device read the SAME row at the hop count (and a depth past the chain's end reads blank on both). The rows come from `readCaseData`, which walks the bound case's `parent_case_id` chain server-side through the `parent` index edges, exactly `ancestorDepth` hops (the form's `reachableCaseTypes(...).length - 1`, client-supplied, server-clamped at 64 — any deeper `parent_type` chain is pathological authoring); the chain is ENRICHMENT — a dangling parent or a mid-walk failure degrades to the rows already fetched, never fails the load. A `#<case_type>/<prop>` read prints the wire's own casedb walk (`lib/commcare/xform/formCaseRead.ts::formCasePropertyRead`, keyed on the datum that holds the form's case, `session/data/case_id_new_<type>_0` for a registration's own case) and evaluates over the device snapshot, so Preview and device read the same row by construction. The per-type map feeds preloads only. `caseRefAcceptMap` decides at authoring time which namespaces a form may reference. Both case-loading form types preload (`followup` AND `close`) only in the module's one-case mode — from the OWN type's entry only, since ancestor namespaces are read-only reference data, and only while the engine's supplied-under type still matches the module's (a mid-preview module retype withholds preload rather than seed field values from an ancestor's row — `ownCaseData`). Several-case mode supplies no primary case-data map at all; the complete device casedb snapshot remains available for admitted operations and after-submit evaluation. Each per-row map (`caseRowToFormPreload`) carries the JSONB document PLUS the reserved scalar columns under their canonical Nova names (`date_opened`, `last_modified`, `case_id`, …), mirroring what the device's casedb exposes.
 
 Case-list sorting belongs to the Results composition. Equal authored sort priorities tie-break by Results position (`listColumnOrder`), never by Details; this is shared with the short-detail wire emitter. The confirmation screen independently renders `detailColumnOrder`, so rearranging Details has no effect on row query order. Both are read through `orderedColumns(config, surface)`.
 
@@ -1109,8 +1178,8 @@ worker leaves the task and with the ordinary worker/mode/Project/Home resets. Ch
 
 A form's `formLinks` run in the running app the way they run on a device, through the ONE projection the wire reads (`lib/commcare/formLinkProjection.ts`): which link fires and which case the next form opens with are never re-derived preview-side. `engine/formLinkEvaluation.ts` is the rule, `lib/preview/afterSubmitRouting.ts` is the routing table, and `FormScreen`'s `dispatchAfterSubmit` performs the effect once the submission has landed; a form with no links takes its `postSubmit` destination.
 
-- **First true wins, evaluated from the stored tree after the write.** Each condition lowers through `projectFormLinkSessionExpression` with its actual document, source form, and link slot, then the common wire serializer supplies the preview evaluator. The entry's post-form scope supplies worker identity, the source entry's typed datums, the committed worker row, and case rows AS THEY ARE AFTER THE SUBMISSION. The shared checker refuses reads of the closed form. Any case-bearing app with an after-submit link or Previous loads the complete entry-time device casedb even when no expression reads the case database: a link can carry an unchanged existing case or ancestor, while the transaction patch contains only affected rows. `applySubmission` reads every affected row and direct index edge before its transaction commits and persists that exact patch in the durable receipt. Preview applies the patch to the device casedb captured when the entry opened, then derives source and target case preloads from that one world. There is no post-commit case read: it could observe a later writer, and a fresh restore can omit a just-closed case the device still retains locally until sync. Registration-created cases, advanced-operation targets, and the worker usercase all enter through the same patch. A survey with no case or usercase effects contributes an empty patch. A direct linked form carries both its case preload and this patched casedb across navigation so its first render cannot replace a just-closed case with a newer restore. The write is announced to the other running surfaces (`invalidateCaseData`) only once the route is decided: announcing earlier could reload or clear the source binding before routing finishes.
-- **The carried case is the wire's match, valued from the complete case session.** `carriedCaseFor` asks `selectedCaseDatumId` for the target's projected own-case selection datum (`case_id` when flat, potentially `case_id_<type>` after root-menu alignment), evaluates a manual datum under that exact id when the link names its datums, and otherwise reads the source datum `matchFrameToSource` picked. `sourceSessionDatums` is the one mapping from source datum ids to values: the projected own-case datum is the case the form loaded; every projected ancestor/inherited selection reads the module-keyed case session that `FormScreen` already resolved through `previewMenuCaseContext`; a registration's `case_id_new_<module type>_0` is the case it created; and a subcase datum is the child case of its type the submission created. `projectTargetCaseSelections` values EVERY matched selection datum in the target frame; the exact `FrameDatum` already carries its stable source-module UUID through root alignment and frame-prefix projection, so Preview never reconstructs ownership from menu shape or display names. `FormScreen` applies that root-to-leaf projection before navigating, so manual parent datums and automatically matched created cases establish the same nested menu session the device frame establishes. Parent changes clear stale descendants before later target selections replace them; a defined blank datum stays installed so Core and Preview both skip a picker, while its empty id still binds no case. A nonblank selection is hydrated from the exact matching row in the transaction-captured post-submit patch before a module menu evaluates case-property conditions. Module landing is decided from that prospective session, including same-type structural inheritance, not from the pre-submit menu snapshot. The created-child mapping comes from the durable structured receipt: every concrete child names its authored child index and selected/generated parent, so `FormScreen` never infers metadata from flat result order. A historical receipt that carries only flat child ids remains replayable, but contributes no created-child metadata because that mapping cannot be proved. A non-repeat child bucket is one per case type (`caseWriteInventory.ts::childBucketKey`); when the form ALSO has a repeat bucket of that type the children cannot be told apart, so the datum stays unvalued rather than guessed. A manual XPath reads the same map, so `instance('commcaresession')/session/data/case_id_new_patient_1` names the created child.
+- **First true wins, evaluated as the device's XPath after the write.** Each condition lowers through `projectFormLinkSessionExpression` with its actual document, source form, and link slot, prints at the `preview` target, and the preview evaluator decides it in the entry's post-form scope: `instance('commcaresession')/session/context|user/...` from the identity, `/session/data/<id>` from the entry's session map, which the form's close leaves unchanged, as a device's session is, and `#user/<prop>` and `#<type>/<prop>` through the wire's casedb walk over the device casedb captured at entry and patched by the submission, with the lookup fixtures beside them. The shared checker refuses reads of the closed form. Any case-bearing app with an after-submit link or Previous loads the complete entry-time device casedb even when no expression reads the case database: a link can carry an unchanged existing case or ancestor, while the transaction patch contains only affected rows. `applySubmission` reads every affected row and direct index edge before its transaction commits and persists that exact patch in the durable receipt. Preview applies the patch to the device casedb captured when the entry opened, then derives source and target case preloads from that one world. There is no post-commit case read: it could observe a later writer, and a fresh restore can omit a just-closed case the device still retains locally until sync. Registration-created cases, advanced-operation targets, and the worker usercase all enter through the same patch. A survey with no case or usercase effects contributes an empty patch. A direct linked form carries both its case preload and this patched casedb across navigation so its first render cannot replace a just-closed case with a newer restore. The write is announced to the other running surfaces (`invalidateCaseData`) only once the route is decided: announcing earlier could reload or clear the source binding before routing finishes.
+- **The carried case is the wire's match, valued from the complete case session.** `carriedCaseFor` asks `selectedCaseDatumId` for the target's projected own-case selection datum (`case_id` when flat, potentially `case_id_<type>` after root-menu alignment), evaluates a manual datum under that exact id when the link names its datums, and otherwise reads the source datum `matchFrameToSource` picked. The entry's session map (`entrySessionData`, held by `EngineController.entrySession`; `afterSubmitSessionDatums` adds the names the submission saved) is the one mapping from source datum ids to values: the projected own-case datum is the case the form loaded; every projected ancestor/inherited selection reads the module-keyed case session that `FormScreen` already resolved through `previewMenuCaseContext`; a registration's `case_id_new_<module type>_0` is the id the submission created its case with: the id the entry minted, or the id a receipt replayed from before entries minted ids saved; and a non-repeat child's `case_id_new_<type>_<n>` is the id its child was created with. `projectTargetCaseSelections` values EVERY matched selection datum in the target frame; the exact `FrameDatum` already carries its stable source-module UUID through root alignment and frame-prefix projection, so Preview never reconstructs ownership from menu shape or display names. `FormScreen` applies that root-to-leaf projection before navigating, so manual parent datums and automatically matched created cases establish the same nested menu session the device frame establishes. Parent changes clear stale descendants before later target selections replace them; a defined blank datum stays installed so Core and Preview both skip a picker, while its empty id still binds no case. A nonblank selection is hydrated from the exact matching row in the transaction-captured post-submit patch before a module menu evaluates case-property conditions. Module landing is decided from that prospective session, including same-type structural inheritance, not from the pre-submit menu snapshot. The created-child mapping comes from the durable structured receipt: every concrete child names its authored child index and selected/generated parent, so `FormScreen` never infers metadata from flat result order. A historical receipt that carries only flat child ids remains replayable, but contributes no created-child metadata because that mapping cannot be proved. A child created in a repeat takes a fresh id per iteration and has no session datum, as on a device, so a repeat bucket of the same type never shadows a non-repeat child's datum. A manual XPath reads the same map, so `instance('commcaresession')/session/data/case_id_new_patient_1` names the created child.
 - **A blank carried value binds nothing, visibly.** `previewCaseTarget.caseId === ""` is a case the navigation bound, to nothing; `FormScreen` opens the form without auto-selecting a case, loads nothing, disables Submit, and says the link carried no case. Absent `caseId` keeps meaning "direct preview, auto-select the first case".
 - **Running menus use one UUID/topology projection.** `menuProjection.ts` consumes `lib/domain/moduleHierarchy.ts`: Home renders root modules only, while a parent module renders its native Forms (or an explicit **Cases** entry) plus its child-module tiles. `PreviewScreen` carries module/Form UUIDs, and retained component + scroll keys come from those UUIDs, so reorder cannot transfer state to a sibling. Module conditions combine through ancestry with `hidden` winning over `pending`; a child condition previews on its structural parent menu rather than Home.
 - **A module target lands where the home screen lands it.** `moduleLanding.ts` reads the module-URL rule (`moduleScreenNavigation.ts`) from the outside: a module with children always lands on its menu so those children remain reachable; a terminal case-first or bare-case-list module opens Results unless its menu already has a selected case. Home tiles and after-submit module targets use the same rule.
@@ -1157,11 +1226,10 @@ and the engine never activates. An admitted launch hands the attempt's answers
 to `useFormEngine → engineController → FormEngine.runtimeOptions.searchAnswers`:
 `xpathInstances.ts::searchInputXPathInstance` synthesizes the
 `search-input:results:inline` instance beside `commcaresession`, and
-`previewHashtagNodeSet` selects `#search/<name>` as that instance's field
-node (the wire's `input/field[@name]`, so `count()` sees a prompt the search
-left blank as no node); the worker path reaches the same nodes through
-`workerInstances.hashtagValues`, and `FormEngine.resolveHashtag` answers the
-scalar (blank when absent) only for a form running without the instance.
+`#search/<name>` prints as the wire's
+`instance('search-input:results:inline')/input/field[@name='<name>']`, so
+`count()` sees a prompt the search left blank as no node, on the synchronous
+and the worker path alike.
 
 After submit, `FormScreen.dispatchAfterSubmit` lands a no-matches registration
 BEFORE any link (the form has none), as the wire's return frame does. A host
@@ -1182,7 +1250,7 @@ screen.
 
 Two rules govern the args these `caseDataBinding` Server Actions take. The edge Cloud Armor CRS rules that punish breaking them run in **log-only / preview** mode today (`scripts/infra/setup-cloud-armor-lb.sh` — they record would-be blocks, they don't 403), so this is wire hygiene that keeps the previewed-match logs clean enough to eventually enforce, not a hard gate:
 
-- **Args must be plain JSON — never a `Map`/`Set`/`File`/`Blob`/`Date`.** React also refuses records with a null prototype; document arguments use `toRscSerializableDoc` at dispatch to make plain-object copies. React encodes a Server Action call as `multipart/form-data` the moment any argument holds one of those built-in objects (a `Map` serializes as `$Q`, which forces a `FormData`); a plain-JSON payload goes as a `text/plain` body. The multipart envelope's `\r\nContent-Disposition: form-data; name=` part-header is what CRS `921150` reads as header injection. The running-app search bag is a `Map` in the client (`SearchInputValues`) and crosses as a plain object (`searchInputValuesToWire` / `…FromWire`) for exactly this reason.
+- **Args must be plain JSON — never a `Map`/`Set`/`File`/`Blob`/`Date`.** React also refuses records with a null prototype; document arguments use `toRscSerializableDoc` at dispatch to make plain-object copies. React encodes a Server Action call as `multipart/form-data` the moment any argument holds one of those built-in objects (a `Map` serializes as `$Q`, which forces a `FormData`); a plain-JSON payload goes as a `text/plain` body. The multipart envelope's `\r\nContent-Disposition: form-data; name=` part-header is what CRS `921150` reads as header injection. The running-app search bag is a `Map` in the client (`SearchInputValues`) and crosses as a plain object (`searchInputValuesToWire` / `…FromWire`) for exactly this reason. The worker's claims cross as a plain string array (`claimedCaseIds`), and the viewer's position as a plain `{ latitude, longitude }` or `null`.
 - **Expression-bearing reads carry their actual live document.** `loadCasesAction` and the Details projection of `loadCaseDataAction` take the live `BlueprintDoc` and `moduleUuid` beside their list settings. They validate the document's shape and require the supplied settings to match that exact module before deriving slot context, catalog types and order. Membership, actor and worker identity still resolve from the saved app; the candidate never authorizes data access. This keeps a property rename, retype or expression edit in one evaluation world. The payload is plain JSON, including its document and search answers. Raw form loads omit the expression context. `loadCaseCountAction` takes `(appId, caseType)` plus an optional parent selection, while sample populate/reset take the live `CaseType`. A nested parent-select Results or Details request carries one plain-JSON `ParentCaseSelection` with the selected parent type and ordered case-id set. The case store validates the complete set against the app, Project and type, then constrains both reads through the same union of direct non-extension case-index populations.
 
 ## `commcare_project` comes from the deployment record
@@ -1287,6 +1355,10 @@ lookup projection and XPath dispatcher as Preview. The thread captures authorize
 records and lookup rows without materializing schemas, usercases or sample data.
 It is bounded to 30 seconds and a 128 MiB V8 heap, and the host always terminates and joins
 it. A result is question state and a proposed submission, not a storage receipt.
+A form Core would refuse at a setvalue is `FormRefusedError` (`form-refused`),
+with the sentence Preview shows. Each evaluation mints its own entry key before
+it builds the entry's session map, so its proposed submission names the case ids
+its logic read.
 The authoring tool can supply an explicit scenario instead of reading stored
 records. That population is admitted against the app's derived case schemas,
 kept separate from real records, and discarded after evaluation. It does not
@@ -1353,8 +1425,8 @@ an empty result re-anchors through the shared paging projection. Revealing an
 uncreated repeat on the current page also inserts it, under the controller’s
 atomic topology barrier. Later input cannot interrupt a partially created row.
 
-`previewHashtagNodeSet` uses the canonical case-attribute set for record metadata,
-matching form export. The casedb projection includes external ID as both its
+The `preview` print reads record metadata (`case_id`, `case_type`, `owner_id`,
+`status`) through the attribute steps form export writes. The casedb projection includes external ID as both its
 attribute and copied child, as Core does. Its opening/modification DateData values
 remain calendar dates in expressions, even though Postgres stores timestamps.
 
@@ -1364,12 +1436,33 @@ available without a running entry; entering Preview supplies its selected record
 before one-time defaults or query membership run. Returning to Edit from an
 already initialized Preview retains that entry and its answers.
 
-Results/Details and their Quick Filter share `columnDisplay`'s portable read
-projection: built-in opening/modification timestamps show the worker's calendar
-date, including direct plain, date, mapping and interval columns. Raw row and
-form-preload accessors remain unchanged. Calculated columns use the same
-portable SQL context, and their display type follows value branches without
-changing authored admission. A custom datetime retains its clock; metadata
+Results/Details and their Quick Filter share `columnDisplay`'s read projection
+under the list's reading: in a browse list (`casedb`) built-in
+opening/modification timestamps show the worker's calendar date, and over a
+search's results (`results`) `date_opened` shows HQ's UTC day and
+`last_modified` its instant, including direct plain, date, mapping and interval
+columns. Raw row and form-preload accessors remain unchanged. Calculated
+columns compile under the same reading (`lib/case-store/sql/CLAUDE.md`,
+"Readings"), so a search's plain and calculated `date_opened` show one day, and
+their display type follows value branches without changing authored admission.
+A column that reads `here()` runs with the browser's position as one bound text
+parameter (`TermBindings.viewerLocation`, the spelling a CommCare location
+handler given a browser position returns, `''` until a position arrives). The
+browser asks only while a list whose Results show such a column is on screen
+(`engine/viewerLocation.ts::columnsReadHere`), once per session; each list
+that mounts watches (`hooks/useViewerPosition.ts`), and the list's read keys
+on the position state's move counter (`lib/session/viewerPosition.ts`), so it
+reads again on the first position and after a move of more than 30 metres from
+the position it last showed, and the watch stops once a fix of 1,600 metres
+accuracy or better is in hand. That is CommCare Android's rule
+(`AndroidHereFunctionHandler.java::REFRESH_METER_DELTA`,
+`::shouldRefreshEntityList`, `GeoUtils.java::DEFAULT_ACCEPTABLE_ACCURACY`): Web
+Apps' list rows never read the worker's location, so Android's handler is the
+one CommCare rule for a moving position. A list read sends the latest fix and
+records it as shown; Details and the tile send the latest without recording it.
+The note beside the list (`runtimeMessages.ts`, `hereColumns*`) says why the
+columns are blank and offers **Share your location** while the browser has
+not answered, or **Try again** after it could not find a position. Nova stores and logs neither. A custom datetime retains its clock; metadata
 columns cannot recover time by adding a clock pattern.
 
 Case-backed single/multiple-choice questions join the same choices DAG and

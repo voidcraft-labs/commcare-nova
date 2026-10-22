@@ -46,12 +46,12 @@ import {
 	xel,
 } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";
 import {
 	type InstanceDecl,
 	InstanceSink,
-	lookupInstance,
 } from "@/lib/commcare/xpath/wire/instances";
 import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import {
@@ -66,11 +66,7 @@ import {
 	type TranslationUnitId,
 	type WireStringSource,
 } from "@/lib/domain";
-import {
-	type Expression,
-	isMatchAll,
-	simplifyForEmission,
-} from "@/lib/domain/expression";
+import type { Expression } from "@/lib/domain/expression";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import type { ModuleExpressionSlotRef } from "@/lib/domain/expression/types";
 import type { ModuleExpressionContexts } from "../../expressionContext";
@@ -552,35 +548,14 @@ function buildItemset(
 		);
 	}
 	const table = lookupNaming.tableFor(options.tableId);
-	const predicates: WireExpr[] = [];
-	if (options.filter !== undefined) {
-		const filter = simplifyForEmission(options.filter);
-		if (!isMatchAll(filter)) {
-			predicates.push(
-				toWire(filter, {
-					target: "suite",
-					types: emission.types("search_input_options"),
-					anchor: { kind: "unaddressable" },
-					bindings: {
-						lookup: {
-							naming: lookupNaming,
-							instanceScope: "suite",
-							rowScope: {
-								tableId: options.tableId,
-								caseAnchor: { kind: "unaddressable" },
-							},
-						},
-					},
-				}),
-			);
-		}
-	}
 	return {
 		instanceId: table.fixtureId,
-		nodeset: w.instance(
-			lookupInstance(options.tableId, lookupNaming, "suite"),
-			[w.step(table.listElementName), w.step(table.rowElementName, predicates)],
-		),
+		nodeset: lookupOptionsNodeset(options, {
+			target: "suite",
+			types: emission.types("search_input_options"),
+			naming: lookupNaming,
+			instanceScope: "suite",
+		}),
 		label: w.context([w.step(table.wireNameFor(options.labelColumnId))]),
 		value: w.context([w.step(table.wireNameFor(options.valueColumnId))]),
 		sort: w.context([

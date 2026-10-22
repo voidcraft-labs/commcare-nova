@@ -1,37 +1,97 @@
+import {
+	fieldBindType,
+	fieldKindBindType,
+} from "@/lib/commcare/xform/bindType";
 import type { XFormDataRootRuntimeAttributes } from "@/lib/commcare/xform/dataRootAttributes";
-import type { Field } from "@/lib/domain";
+import type { CaseType, Field } from "@/lib/domain";
 import type {
 	XPathInstance,
 	XPathNode,
 } from "@/lib/preview/xpath/runtimeValues";
 import { XPathDate, type XPathValue } from "@/lib/preview/xpath/types";
+import { type CoreAnswerType, coreAnswerType } from "./answerCast";
 import type { FieldTreeNode } from "./fieldTree";
 
-/** JavaRosa-shaped scalar value of one submitted form answer. Shared by the
- * live main instance and the server's committed close-condition evaluation so
- * a numeric or temporal condition cannot change meaning at the submit seam. */
-export function formAnswerXPathValue(
-	kind: Field["kind"],
+/** JavaRosa-shaped scalar value of one held answer, by the data type Core
+ * gives its node (`answerCast.ts::coreAnswerType`, from the field's bind):
+ * `XPathPathExpr.unpackValue` reads an IntegerData or DecimalData as a
+ * number, a DateData or DateTimeData as a Date, every other answer as text.
+ *
+ * A datetime answer is held as Nova's canonical text, which carries the
+ * offset of its own instant, so it reads by that offset exactly: the instant
+ * Core's `DateTimeData` holds, a repeated hour's occurrence included. A date
+ * answer reads as Core's `DateData` of its local midnight. */
+export function answerXPathValue(
+	type: CoreAnswerType,
 	raw: string,
 ): XPathValue {
 	if (raw === "") return "";
-	switch (kind) {
+	switch (type) {
 		case "int":
 		case "decimal": {
 			const numeric = Number(raw);
 			return Number.isNaN(numeric) ? raw : numeric;
 		}
 		case "date":
-		case "datetime":
 			return XPathDate.parse(raw) ?? raw;
+		case "datetime":
+			return XPathDate.parseExactInstant(raw) ?? raw;
 		default:
 			return raw;
 	}
 }
 
+/** `answerXPathValue` for a field read by its kind alone, which is its bind
+ * type for every field but a Hidden Value writing a typed property. Shared
+ * by the server's committed close-condition evaluation so a numeric or
+ * temporal condition cannot change meaning at the submit seam. */
+export function formAnswerXPathValue(
+	kind: Field["kind"],
+	raw: string,
+): XPathValue {
+	return answerXPathValue(coreAnswerType(fieldKindBindType(kind), kind), raw);
+}
+
+/** A hidden calculation's runtime value, kept beside its answer text: Core
+ * holds a calculate's number, boolean or Date as that type
+ * (`Recalculate.wrapData`), never as the text Nova submits. */
+export type CalculatedScalar = number | boolean | XPathDate;
+
+/** A `CalculatedScalar` as a checkpoint holds it: structured clone keeps no
+ * class, so a Date travels as its two parts. */
+export type CalculatedScalarSnapshot =
+	| number
+	| boolean
+	| {
+			readonly kind: "date";
+			readonly calendarDays: number;
+			readonly timeMilliseconds: number | null;
+	  };
+
+function snapshotCalculatedScalar(
+	value: CalculatedScalar,
+): CalculatedScalarSnapshot {
+	return value instanceof XPathDate
+		? {
+				kind: "date",
+				calendarDays: value.calendarDays,
+				timeMilliseconds: value.timeMilliseconds,
+			}
+		: value;
+}
+
+function restoreCalculatedScalar(
+	value: CalculatedScalarSnapshot,
+): CalculatedScalar {
+	return typeof value === "object"
+		? XPathDate.fromParts(value.calendarDays, value.timeMilliseconds)
+		: value;
+}
+
 interface XPathTemplateNode {
 	readonly name: string;
-	readonly kind: FieldTreeNode["field"]["kind"];
+	/** The data type Core gives the node, which decides how it reads. */
+	readonly answerType: CoreAnswerType;
 	readonly repeat: boolean;
 	readonly children: readonly XPathTemplateNode[];
 	readonly attributes?: Readonly<Record<string, string>>;
@@ -53,7 +113,10 @@ interface XPathTemplateNode {
 export interface DataInstanceSnapshot {
 	readonly values: readonly (readonly [string, string])[];
 	readonly counts: readonly (readonly [string, number])[];
-	readonly calculatedScalars: readonly (readonly [string, number | boolean])[];
+	readonly calculatedScalars: readonly (readonly [
+		string,
+		CalculatedScalarSnapshot,
+	])[];
 	readonly attributes: readonly (readonly [
 		string,
 		Readonly<Record<string, string>>,
@@ -63,9 +126,9 @@ export interface DataInstanceSnapshot {
 export class DataInstance {
 	private data = new Map<string, string>();
 	private counts = new Map<string, number>();
-	/** Hidden calculations retain Core's numeric/boolean answer type even though
-	 * the UI and submission answer store use text. */
-	private calculatedScalars = new Map<string, number | boolean>();
+	/** Hidden calculations retain Core's number, boolean or Date answer type
+	 * even though the UI and submission answer store use text. */
+	private calculatedScalars = new Map<string, CalculatedScalar>();
 	/** Per-occurrence attributes absent from Nova's authored field tree. Query-
 	 * bound repeats use these for the JavaRosa-created `@id` and `@index`
 	 * values on each materialized iteration. */
@@ -87,7 +150,9 @@ export class DataInstance {
 	checkpoint(): DataInstanceSnapshot {
 		return structuredClone({
 			values: [...this.data],
-			calculatedScalars: [...this.calculatedScalars],
+			calculatedScalars: [...this.calculatedScalars].map(
+				([path, value]) => [path, snapshotCalculatedScalar(value)] as const,
+			),
 			counts: [...this.counts],
 			attributes: [...this.elementAttributes],
 		});
@@ -95,7 +160,12 @@ export class DataInstance {
 
 	restoreCheckpoint(snapshot: DataInstanceSnapshot): void {
 		this.data = new Map(snapshot.values);
-		this.calculatedScalars = new Map(snapshot.calculatedScalars);
+		this.calculatedScalars = new Map(
+			snapshot.calculatedScalars.map(([path, value]) => [
+				path,
+				restoreCalculatedScalar(value),
+			]),
+		);
 		this.counts = new Map(snapshot.counts);
 		this.elementAttributes = new Map(structuredClone(snapshot.attributes));
 	}
@@ -104,15 +174,24 @@ export class DataInstance {
 		this.rootAttributes = { ...rootAttributes };
 	}
 
-	/** Refresh authored topology without resetting live answers or repeat counts. */
-	refreshTemplate(tree: readonly FieldTreeNode[]): void {
-		this.xpathTemplate = xpathTemplateFromFields(tree);
+	/** Refresh authored topology without resetting live answers or repeat
+	 * counts. `caseTypes` is the effective catalog a Hidden Value's bind type
+	 * reads its destination from. */
+	refreshTemplate(
+		tree: readonly FieldTreeNode[],
+		caseTypes: readonly CaseType[] = [],
+	): void {
+		this.xpathTemplate = xpathTemplateFromFields(tree, caseTypes);
 	}
 
 	/** Initialize from a field tree, creating an entry for each non-structural field. */
-	initFromFields(tree: FieldTreeNode[], prefix = "/data"): void {
+	initFromFields(
+		tree: FieldTreeNode[],
+		prefix = "/data",
+		caseTypes: readonly CaseType[] = [],
+	): void {
 		if (prefix === "/data") {
-			this.refreshTemplate(tree);
+			this.refreshTemplate(tree, caseTypes);
 		}
 		for (const node of tree) {
 			const f = node.field;
@@ -120,11 +199,12 @@ export class DataInstance {
 
 			if (f.kind === "group" || f.kind === "section") {
 				// Groups and sections don't have values — recurse into children
-				if (node.children) this.initFromFields(node.children, path);
+				if (node.children) this.initFromFields(node.children, path, caseTypes);
 			} else if (f.kind === "repeat") {
 				// Repeats start with one instance [0]
 				this.counts.set(path, 1);
-				if (node.children) this.initFromFields(node.children, `${path}[0]`);
+				if (node.children)
+					this.initFromFields(node.children, `${path}[0]`, caseTypes);
 			} else {
 				// Leaf field — empty string initial value
 				this.set(path, "");
@@ -148,14 +228,14 @@ export class DataInstance {
 		return this.data.get(path);
 	}
 
-	set(path: string, value: string, calculatedScalar?: number | boolean): void {
+	set(path: string, value: string, calculatedScalar?: CalculatedScalar): void {
 		this.data.set(path, value);
 		if (calculatedScalar === undefined) this.calculatedScalars.delete(path);
 		else this.calculatedScalars.set(path, calculatedScalar);
 		this.extendCountsFor(path);
 	}
 
-	calculatedScalar(path: string): number | boolean | undefined {
+	calculatedScalar(path: string): CalculatedScalar | undefined {
 		return this.calculatedScalars.get(path);
 	}
 
@@ -373,14 +453,19 @@ export class DataInstance {
 		return [...this.data.entries()];
 	}
 
-	/** Values addressable by the XPath worker, including runtime attributes. */
+	/** Values addressable by the XPath worker, including runtime attributes. A
+	 * calculated Date is named by its answer text, which changes exactly when
+	 * the held value does; its value itself crosses through the node. */
 	xpathValueEntries(): [string, string | number | boolean][] {
 		return [
 			...[...this.data].map(
-				([path, raw]): [string, string | number | boolean] => [
-					path,
-					this.calculatedScalars.get(path) ?? raw,
-				],
+				([path, raw]): [string, string | number | boolean] => {
+					const scalar = this.calculatedScalars.get(path);
+					return [
+						path,
+						scalar === undefined || scalar instanceof XPathDate ? raw : scalar,
+					];
+				},
 			),
 			...[...this.elementAttributes.entries()].flatMap(([path, attributes]) =>
 				Object.entries(attributes).map(
@@ -421,12 +506,16 @@ export class DataInstance {
 
 function xpathTemplateFromFields(
 	tree: readonly FieldTreeNode[],
+	caseTypes: readonly CaseType[],
 ): readonly XPathTemplateNode[] {
 	return tree.map((node) => ({
 		name: node.field.id,
-		kind: node.field.kind,
+		answerType: coreAnswerType(
+			fieldBindType(node.field, caseTypes),
+			node.field.kind,
+		),
 		repeat: node.field.kind === "repeat",
-		children: xpathTemplateFromFields(node.children ?? []),
+		children: xpathTemplateFromFields(node.children ?? [], caseTypes),
 		...(node.field.kind === "repeat" && node.field.repeat_mode === "query_bound"
 			? { attributes: { id: "", index: "" } }
 			: {}),
@@ -451,7 +540,7 @@ class FormXPathInstance implements XPathInstance {
 			children: [
 				{
 					name: "data",
-					kind: "group",
+					answerType: "untyped",
 					repeat: false,
 					children: template,
 					attributes: rootAttributes,
@@ -503,7 +592,7 @@ class FormXPathNode implements XPathNode {
 		const raw = this.instance.data.get(this.path) ?? "";
 		return (
 			this.instance.data.calculatedScalar(this.path) ??
-			formAnswerXPathValue(this.template.kind, raw)
+			answerXPathValue(this.template.answerType, raw)
 		);
 	}
 

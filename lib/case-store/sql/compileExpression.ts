@@ -45,6 +45,7 @@ import {
 } from "@/lib/domain/commCareDatePattern";
 import { fixedDatePattern } from "@/lib/domain/expression/datePattern";
 import {
+	compilerBugMessage,
 	missingPredicateThunkMessage,
 	typeCheckerBypassMessage,
 	unhandledKindMessage,
@@ -52,6 +53,7 @@ import {
 import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
 import {
 	asTemporalType,
+	readingCaseMetadataType,
 	resolveCaseListTemporalType,
 	type TemporalType,
 } from "@/lib/domain/expression/temporalType";
@@ -76,8 +78,14 @@ import {
 	recordQueryContextFor,
 	type TermCompileContext,
 } from "./compileTerm";
+import { compileCoreDayNumber, compileEpochDayInstant } from "./coreDayNumber";
 import type { Database } from "./database";
 import { NAIVE_TEMPORAL_TEXT_PATTERN } from "./dataTypeTokens";
+import {
+	javaLocalTimestamp,
+	javaOffsetMinutes,
+	javaWallInstant,
+} from "./javaZone";
 import { resolveViewerTimeZone } from "./viewerTimeZone";
 
 // ---------------------------------------------------------------
@@ -146,7 +154,13 @@ export function compileExpression(
 					slot: "A condition needs its SQL compiler.",
 				}),
 			);
-		return ctx.compilePredicate(expr, ctx) as AliasableExpression<unknown>;
+		// A condition read as a value is two-valued: a row that lacks what the
+		// condition reads gives `false`, as the device's `'' = 'x'` does, never
+		// a blank.
+		return eb.fn.coalesce(
+			ctx.compilePredicate(expr, ctx) as Expression<boolean>,
+			eb.lit(false),
+		) as AliasableExpression<unknown>;
 	}
 	switch (expr.kind) {
 		case "term":
@@ -168,8 +182,16 @@ export function compileExpression(
 		case "date-add":
 			return compileDateAdd(expr.date, expr.interval, expr.quantity, ctx);
 		case "date-coerce":
+			if (isNumericOperand(expr.value, ctx))
+				return compileCoreDayNumber(
+					compileExpression(expr.value, ctx),
+					ctx.reading,
+					ctx.bindings.viewerTimeZone,
+				);
 			return compileCast(expr.value, "date", ctx);
 		case "datetime-coerce":
+			if (isNumericOperand(expr.value, ctx))
+				return compileEpochDayInstant(compileExpression(expr.value, ctx));
 			return compileDatetimeCoerce(expr.value, ctx);
 		case "double":
 			return compileCast(expr.value, "numeric", ctx);
@@ -180,7 +202,9 @@ export function compileExpression(
 				compileCast(expr.value, "numeric", ctx),
 			);
 		case "here":
-			return compileBoundValue(ctx.bindings.here ?? "", "the current location");
+			// One text parameter, never interpolated; no fix yet reads `''`, as
+			// both runtimes give before the first position arrives.
+			return eb.cast(eb.val(ctx.bindings.viewerLocation ?? ""), "text");
 		case "arith":
 			return compileArith(expr.op, expr.left, expr.right, ctx);
 		case "concat":
@@ -194,7 +218,12 @@ export function compileExpression(
 		case "count":
 			if (!isRelationPath(expr.via))
 				throw new Error(
-					"compileExpression: a form node-set count cannot be evaluated in a server record query.",
+					compilerBugMessage({
+						where: "compileExpression",
+						invariant: "a `count` over a form node-set reached a server query",
+						detail:
+							"The profiles with a Postgres target admit `count` only through a relation path.",
+					}),
 				);
 			return compileCount(expr.via, expr.where, ctx);
 		case "format-date":
@@ -211,7 +240,12 @@ export function compileExpression(
 		case "selected-cases":
 		case "project":
 			throw new Error(
-				`compileExpression: '${expr.kind}' is unavailable in a server record query.`,
+				compilerBugMessage({
+					where: "compileExpression",
+					invariant: `a \`${expr.kind}\` read reached a server record query`,
+					detail:
+						"The profiles with a Postgres target keep this read out; in a CSQL slot it appears only inside a runtime segment, which the fold evaluates in the browser first.",
+				}),
 			);
 		default: {
 			const _exhaustive: never = expr;
@@ -246,9 +280,38 @@ export function compileExpression(
 	}
 }
 
+/** HQ's `json_format_datetime` as a Postgres pattern: UTC, six fraction
+ *  digits, `Z` (`lib/preview/columnDisplay.ts::hqDatetimeText`). */
+const HQ_DATETIME_PATTERN = 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"';
+
+/**
+ * A value as the text its reading holds. Every value reads as
+ * `compileExpression` gives it but a standard property the `results` reading
+ * holds as an instant (`last_modified`): HQ's results instance carries it as
+ * `json_format_datetime` text, so its text is that, built at UTC, never the
+ * stored `timestamptz` cast, whose spelling the session's zone decides.
+ */
+export function compileReadingText(
+	expr: DomainExpression,
+	ctx: ExpressionCompileContext,
+): AliasableExpression<unknown> {
+	const compiled = compileExpression(expr, ctx);
+	if (
+		ctx.reading !== "results" ||
+		expr.kind !== "term" ||
+		expr.term.kind !== "prop" ||
+		readingCaseMetadataType(expr.term.property, ctx.reading) !== "datetime"
+	)
+		return compiled;
+	return eb.fn<string>("to_char", [
+		eb.fn<Date>("timezone", [eb.val("UTC"), compiled]),
+		eb.val(HQ_DATETIME_PATTERN),
+	]);
+}
+
 /**
  * A `DomainExpression` as the text a device reads for it, for a case list's
- * order. Every value reads as `compileExpression` gives it, but a multi
+ * order. Every value reads as `compileReadingText` gives it, but a multi
  * select: Nova stores its tokens as a JSON array, and a device reads them
  * joined by one space, so the order compares that text, blank when no token
  * is selected. A stored value that is not an array reads as its own text.
@@ -257,7 +320,7 @@ export function compileDeviceTextExpression(
 	expr: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
-	const compiled = compileExpression(expr, ctx);
+	const compiled = compileReadingText(expr, ctx);
 	if (
 		scalarDataType(typeOf(expr, recordQueryContextFor(ctx))?.data) !==
 		"multi_select"
@@ -368,9 +431,12 @@ function branchAlias(ctx: ExpressionCompileContext, name: string): string {
  * — see `NAIVE_TEMPORAL_TEXT_PATTERN`) carries no timezone of its own, and a
  * bare `::timestamptz` cast reads it in the connection's current `TimeZone`
  * — which the preview pools do not pin. Naive shapes therefore lift through
- * `timezone(<zone>, <text>::timestamp)`; offset-bearing values keep the
- * ordinary `timestamptz` cast so an authored `Z` or numeric offset remains
- * authoritative.
+ * `<text>::timestamp` read as a wall clock in `zone` the way
+ * `java.util.Calendar` reads it (`javaWallInstant`: the standard offset
+ * before 1900, a repeated clock at its later reading, a skipped one forward
+ * by the gap), which for UTC is `timezone('UTC', …)`; offset-bearing values
+ * keep the ordinary `timestamptz` cast so an authored `Z` or numeric offset
+ * remains authoritative.
  *
  * `btrim` accepts a value pasted with harmless surrounding whitespace. The
  * `timestamp` cast in the pinned arm still lets Postgres reject impossible
@@ -384,10 +450,7 @@ export function compilePinnedInstant(
 ): AliasableExpression<unknown> {
 	const trimmedText = eb.fn<string>("btrim", [eb.cast(inner, "text")]);
 	const isNaive = eb(trimmedText, "~", eb.val(NAIVE_TEMPORAL_TEXT_PATTERN));
-	const pinned = eb.fn<Date>("timezone", [
-		eb.val(zone),
-		eb.cast(trimmedText, "timestamp"),
-	]);
+	const pinned = javaWallInstant(zone, eb.cast(trimmedText, "timestamp"));
 	return eb
 		.case()
 		.when(isNaive)
@@ -484,10 +547,8 @@ function resolveDateAddBaseType(
 	date: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): TemporalType {
-	if (ctx.portableCaseDates) {
-		const portable = portableTemporalType(date, ctx);
-		if (portable !== undefined) return portable;
-	}
+	const reading = readingTemporalType(date, ctx);
+	if (reading !== undefined) return reading;
 
 	const resolved = scalarDataType(
 		typeOf(date, recordQueryContextFor(ctx))?.data,
@@ -598,10 +659,13 @@ function compileConcat(
 	return eb.fn<string>("concat", partExprs);
 }
 
-/** In a portable column, mixed date/datetime operands need an explicit
- * viewer-midnight promotion. PostgreSQL's implicit date -> timestamptz cast
- * otherwise uses the connection timezone and moves the worker's calendar day.
- * Homogeneous calendar branches remain dates; raw server expressions are unchanged. */
+/** Under the `casedb` reading, mixed date/datetime operands need an explicit
+ * viewer-midnight promotion: the date Core holds for a casedb system date is
+ * local midnight, so that is the instant it compares as. PostgreSQL's implicit
+ * date -> timestamptz cast would otherwise use the connection timezone and
+ * move the worker's calendar day. The checker refuses an uncoerced date against
+ * a datetime everywhere else, so no other reading promotes; homogeneous
+ * calendar branches remain dates. */
 export function compileTemporalValues(
 	values: readonly DomainExpression[],
 	ctx: ExpressionCompileContext,
@@ -616,9 +680,10 @@ function temporalBranchPromotions(
 	values: readonly DomainExpression[],
 	ctx: ExpressionCompileContext,
 ): boolean[] {
-	const types = ctx.portableCaseDates
-		? values.map((value) => portableTemporalType(value, ctx))
-		: [];
+	const types =
+		ctx.reading === "casedb"
+			? values.map((value) => readingTemporalType(value, ctx))
+			: [];
 	const mixed = types.includes("date") && types.includes("datetime");
 	return values.map((_, index) => mixed && types[index] === "date");
 }
@@ -637,11 +702,25 @@ function compileTemporalBranch(
 		: compiled;
 }
 
-function portableTemporalType(
+function readingTemporalType(
 	value: DomainExpression,
 	ctx: ExpressionCompileContext,
 ): TemporalType | undefined {
-	return resolveCaseListTemporalType(value, recordQueryContextFor(ctx));
+	return resolveCaseListTemporalType(
+		value,
+		recordQueryContextFor(ctx),
+		ctx.reading,
+	);
+}
+
+/** Whether a coercion's operand is a number, which the coercion reads as epoch
+ * days rather than as text. */
+function isNumericOperand(
+	value: DomainExpression,
+	ctx: ExpressionCompileContext,
+): boolean {
+	const type = scalarDataType(typeOf(value, recordQueryContextFor(ctx))?.data);
+	return type === "int" || type === "decimal";
 }
 
 /** A blank numeric question is a legitimate branch result, not numeric text.
@@ -912,7 +991,10 @@ function compileCount(
 	);
 	if (compiledPath.kind === "self") {
 		throw new Error(
-			"compileExpression.compileCount: canonical non-self relation unexpectedly compiled as self",
+			compilerBugMessage({
+				where: "compileExpression.compileCount",
+				invariant: "a canonical non-self relation compiled as `self`",
+			}),
 		);
 	}
 	// Type-erased via `DynamicCountQuery` — runtime leaf alias.
@@ -975,7 +1057,9 @@ function compileCount(
  * zone: a naive stored value reads as viewer wall time (what the device does
  * with its local parse), an offset-bearing value keeps its own instant. The
  * instant then converts to a viewer wall-clock `timestamp` that
- * `to_char` / `date_part` render zone-independently.
+ * `to_char` / `date_part` render zone-independently, read as
+ * `java.util.TimeZone` reads it (`javaLocalTimestamp`: the zone's standard
+ * offset before 1900, where Postgres would read local mean time).
  *
  * A null guard preserves the former `to_char(NULL, ...) → NULL` behavior;
  * Postgres `concat` would otherwise skip a null token and leave any
@@ -989,11 +1073,17 @@ function compileFormatDate(
 	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
 	const dateExpr = compileExpression(date, ctx);
 	const instant = compilePinnedInstant(dateExpr, zone);
-	const wallClock = eb.fn<Date>("timezone", [eb.val(zone), instant]);
+	const wallClock = javaLocalTimestamp(zone, instant);
 	const wirePattern = fixedDatePattern(pattern);
 	if (wirePattern === undefined)
 		throw new Error(
-			"compileExpression: format-date needs a fixed pattern in a server record query.",
+			compilerBugMessage({
+				where: "compileExpression.compileFormatDate",
+				invariant:
+					"a `format-date` with a computed pattern reached a server query",
+				detail:
+					"The checker's `format-date-pattern-not-fixed` keeps a computed pattern out of every profile with a Postgres target.",
+			}),
 		);
 	const parsed = parseCommCareDatePattern(wirePattern);
 	if (parsed.kind === "unsupported-pattern") {
@@ -1102,30 +1192,16 @@ function compileCommCareDateToken(
  * with `:MM` appended whenever the minute remainder is nonzero.
  * `to_char(..., 'OF')` can't produce this — it reads the SESSION zone's
  * offset, and the viewer-zone `timestamp` the other tokens render from has
- * no offset left to read — so the offset is computed as minutes between
- * the zone's wall clock and UTC's at the instant. Postgres integer
- * division truncates toward zero, matching Java's, so the hour count
- * agrees for negative sub-hour offsets.
+ * no offset left to read — so the offset is Java's at the instant
+ * (`javaOffsetMinutes`: whole minutes truncated toward zero, the standard
+ * offset before 1900). Postgres integer division truncates toward zero,
+ * matching Java's, so the hour count agrees for negative sub-hour offsets.
  */
 function compileTimezoneOffsetToken(
 	instant: AliasableExpression<unknown>,
 	zone: string,
 ): AliasableExpression<unknown> {
-	const minutes = eb.cast(
-		eb(
-			eb.fn<number>("date_part", [
-				eb.val("epoch"),
-				eb(
-					eb.fn<Date>("timezone", [eb.val(zone), instant]),
-					"-",
-					eb.fn<Date>("timezone", [eb.val("UTC"), instant]),
-				),
-			]),
-			"/",
-			eb.val(60),
-		),
-		"integer",
-	);
+	const minutes = javaOffsetMinutes(zone, instant);
 	const twoDigit = (value: AliasableExpression<unknown>) =>
 		eb.fn<string>("lpad", [
 			eb.cast(value, "text"),

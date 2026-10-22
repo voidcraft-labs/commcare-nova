@@ -1,5 +1,6 @@
 import type { LanguageTag, Uuid } from "@/lib/domain";
 import type { XPathRuntimeFailureReason } from "../xpath/workerProtocol";
+import type { SetvalueRefusalDetails } from "./answerCast";
 import type { FormAnswerValue } from "./formAnswerValue";
 import type { ResolvedPreviewIdentity } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
@@ -17,6 +18,25 @@ export class FormEvaluationInputError extends Error {
 		readonly fault?: FormEvaluationFault,
 	) {
 		super(message);
+	}
+}
+
+/** A form CommCare refuses to run as asked: a setvalue's cast turned away a
+ * preloaded value, a starting value or a repeat insert's starting value. */
+export interface FormRefusalDetails extends SetvalueRefusalDetails {
+	readonly kind: "form-refused";
+	/** The refusal as one sentence, in English. */
+	readonly sentence: string;
+}
+
+/** The running app refuses this form (or one requested repeat insert); an
+ * evaluation reports why instead of a result. */
+export class FormRefusedError extends FormEvaluationInputError {
+	readonly refusal: FormRefusalDetails;
+
+	constructor(refusal: FormRefusalDetails) {
+		super(refusal.sentence);
+		this.refusal = refusal;
 	}
 }
 
@@ -47,4 +67,14 @@ export interface FormEvaluationContext {
 		PreviewLookupData,
 		"projectRevision" | "definitions" | "rowsByTable"
 	>;
+	/** The running session the entry starts from: the app its `uuid()`
+	 * datums are minted in and the menu's case choices
+	 * (`entrySessionData.ts`). Without it the entry holds its selected
+	 * records alone. */
+	session?: {
+		readonly appId: string;
+		readonly menuSelections: Readonly<
+			Record<string, import("@/lib/session/types").PreviewMenuCaseSelection>
+		>;
+	};
 }

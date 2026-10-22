@@ -1,3 +1,6 @@
+// What a case row stands for decides how its system dates read. Each test
+// sets the session `TimeZone` apart from the viewer's zone, so neither can
+// decide a result the other should.
 import { sql } from "kysely";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { type CaseType, calculatedColumn } from "@/lib/domain";
@@ -12,6 +15,7 @@ import {
 	eq,
 	formatDate,
 	gt,
+	gte,
 	ifExpr,
 	isIn,
 	literal,
@@ -22,15 +26,20 @@ import {
 	switchExpr,
 	term,
 } from "@/lib/domain/expression/builders";
+import {
+	CASEDB_READING,
+	type CaseReading,
+	SEARCH_READING,
+} from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
+import { PostgresCaseStore } from "../../postgres/store";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
-import { expect, makeCaseRow, test } from "../../sql/__tests__/setup";
 import {
 	compileExpression,
 	type ExpressionCompileContext,
-} from "../../sql/compileExpression";
-import { compilePredicate } from "../../sql/compilePredicate";
-import { PostgresCaseStore } from "../store";
+} from "../compileExpression";
+import { compilePredicate } from "../compilePredicate";
+import { expect, makeCaseRow, test } from "./setup";
 
 const APP = "app-expression-compiler";
 const PROJECT = "owner-expression-compiler";
@@ -55,8 +64,10 @@ const SCHEMAS = new Map<string, CaseType>([
 function context(
 	db: ExpressionCompileContext["db"],
 	zone: string,
+	reading: CaseReading = "casedb",
 ): ExpressionCompileContext {
 	return {
+		reading,
 		db,
 		appId: APP,
 		projectId: PROJECT,
@@ -64,7 +75,6 @@ function context(
 		currentCaseType: "visit",
 		caseTypeSchemas: SCHEMAS,
 		bindings: { viewerTimeZone: zone },
-		portableCaseDates: true,
 		compilePredicate: (predicate, ctx) => compilePredicate(predicate, ctx),
 	};
 }
@@ -119,7 +129,105 @@ async function seed(db: ExpressionCompileContext["db"]) {
 		.execute();
 }
 
-test("portable calculations read calendar metadata through self, parent and nested predicates while custom datetimes and stored reads keep their clock", async ({
+test("each reading gives the system dates the class its runtime holds them in, and closed_on only to search", async ({
+	db,
+	pgClient,
+}) => {
+	const caseId = testUuid("reading-row");
+	await db
+		.insertInto("cases")
+		.values(
+			makeCaseRow({
+				case_id: caseId,
+				case_type: "visit",
+				app_id: APP,
+				project_id: PROJECT,
+				opened_on: new Date("2026-01-02T03:00:00Z"),
+				modified_on: new Date("2026-01-02T03:00:00Z"),
+				closed_on: new Date("2026-01-03T10:00:00Z"),
+			}),
+		)
+		.execute();
+	await pgClient.query("SET LOCAL TIME ZONE 'Asia/Kolkata'");
+	const opened = term(prop("visit", "date_opened"));
+	const modified = term(prop("visit", "last_modified"));
+	const read = async (reading: CaseReading) => {
+		const ctx = context(db, "America/New_York", reading);
+		const openedSql = compileExpression(opened, ctx);
+		const modifiedSql = compileExpression(modified, ctx);
+		return db
+			.selectFrom("cases as c")
+			.where("c.case_id", "=", caseId)
+			.select([
+				sql<string>`${openedSql}::text`.as("opened"),
+				sql<string>`pg_typeof(${openedSql})::text`.as("openedType"),
+				sql<string>`pg_typeof(${modifiedSql})::text`.as("modifiedType"),
+			])
+			.executeTakeFirstOrThrow();
+	};
+	// A device's casedb holds both as the worker's day: 22:00 on 1 January
+	// in New York.
+	expect(await read("casedb")).toEqual({
+		opened: "2026-01-01",
+		openedType: "date",
+		modifiedType: "date",
+	});
+	// HQ's results instance writes `date_opened` as the UTC day and
+	// `last_modified` as its instant text.
+	expect(await read("results")).toEqual({
+		opened: "2026-01-02",
+		openedType: "date",
+		modifiedType: "timestamp with time zone",
+	});
+	// HQ's search compares both as instants.
+	expect((await read("search")).openedType).toBe("timestamp with time zone");
+	expect((await read("search")).modifiedType).toBe("timestamp with time zone");
+
+	// Against an instant, a casedb day is its midnight in the viewer's zone:
+	// 1 January 00:00 in New York is 05:00 UTC.
+	const viewerMidnight = term(datetimeLiteral("2026-01-01T05:00:00Z"));
+	const verdicts = await db
+		.selectFrom("cases as c")
+		.where("c.case_id", "=", caseId)
+		.select([
+			sql<boolean>`${compilePredicate(
+				gte(opened, viewerMidnight),
+				context(db, "America/New_York"),
+			)}`.as("atOrAfter"),
+			sql<boolean>`${compilePredicate(
+				gt(opened, viewerMidnight),
+				context(db, "America/New_York"),
+			)}`.as("after"),
+			sql<boolean>`${compilePredicate(
+				gt(opened, viewerMidnight),
+				context(db, "America/New_York", "search"),
+			)}`.as("instantAfter"),
+		])
+		.executeTakeFirstOrThrow();
+	expect(verdicts).toEqual({
+		atOrAfter: true,
+		after: false,
+		instantAfter: true,
+	});
+
+	const closed = term(prop("visit", "closed_on"));
+	const closedRow = await db
+		.selectFrom("cases as c")
+		.where("c.case_id", "=", caseId)
+		.select(
+			compileExpression(closed, context(db, "America/New_York", "search")).as(
+				"closed",
+			),
+		)
+		.executeTakeFirstOrThrow();
+	expect(closedRow.closed).toEqual(new Date("2026-01-03T10:00:00Z"));
+	for (const reading of ["casedb", "results"] as const)
+		expect(() =>
+			compileExpression(closed, context(db, "America/New_York", reading)),
+		).toThrow(/Internal bug: .*`closed_on` reached the `.*` reading/);
+});
+
+test("casedb calculations read calendar metadata through self, parent and nested predicates while custom datetimes and search reads keep their clock", async ({
 	db,
 	pgClient,
 }) => {
@@ -165,10 +273,10 @@ test("portable calculations read calendar metadata through self, parent and nest
 				...Object.entries(columns).map(([name, expression]) =>
 					compileExpression(expression, ctx).as(name),
 				),
-				compileExpression(formatDate(opened, "%Y-%m-%d %H:%M"), {
-					...ctx,
-					portableCaseDates: undefined,
-				}).as("stored"),
+				compileExpression(
+					formatDate(opened, "%Y-%m-%d %H:%M"),
+					context(db, zone, "search"),
+				).as("stored"),
 				sql<string>`pg_typeof(${compileExpression(opened, ctx)})::text`.as(
 					"type",
 				),
@@ -187,7 +295,7 @@ test("portable calculations read calendar metadata through self, parent and nest
 	}
 });
 
-test("case-store calculations and calculated ordering share portable reads in ordinary and grouped Results without changing filters or stored rows", async ({
+test("one store read gives its filter and its columns their own readings, in ordinary and grouped Results", async ({
 	db,
 }) => {
 	await seed(db);
@@ -199,45 +307,72 @@ test("case-store calculations and calculated ordering share portable reads in or
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
 	const opened = term(prop("visit", "date_opened"));
-	const expression = formatDate(opened, "%H:%M");
-	const column = calculatedColumn(
-		testUuid("portable-column"),
-		"When",
-		expression,
+	const modified = term(prop("visit", "last_modified"));
+	const day = calculatedColumn(
+		testUuid("reading-day-column"),
+		"Opened",
+		formatDate(opened, "%Y-%m-%d"),
 	);
-	const args = {
+	const clock = calculatedColumn(
+		testUuid("reading-clock-column"),
+		"Modified",
+		formatDate(modified, "%Y-%m-%d %H:%M"),
+	);
+	const byName = {
+		kind: "expression" as const,
+		expression: term(prop("visit", "case_name")),
+		comparator: "text" as const,
+		direction: "asc" as const,
+		blanks: "first" as const,
+	};
+	const base = {
 		appId: APP,
 		caseType: "visit",
 		caseTypeSchemas: SCHEMAS,
 		bindings: { viewerTimeZone: "America/Los_Angeles" },
-		calculated: [column],
+		calculated: [day, clock],
+		// A plain `date_opened` key sorts by the columns' reading; under
+		// casedb both cases opened on the worker's 29 September, so they
+		// tie and the name decides (by their instants B opened first).
 		sort: [
 			{
 				kind: "expression" as const,
-				expression,
-				comparator: "text" as const,
-				direction: "asc" as const,
-				blanks: "first" as const,
-				portableCaseDates: true as const,
-			},
-			{
-				kind: "expression" as const,
-				expression: term(prop("visit", "case_name")),
+				expression: opened,
 				comparator: "text" as const,
 				direction: "asc" as const,
 				blanks: "first" as const,
 			},
+			byName,
 		],
 	};
-	const rows = await store.query(args);
-	expect(rows.map((row) => row.case_id)).toEqual([CHILD, SECOND]);
-	expect(rows.map((row) => row.calculated[column.uuid])).toEqual([
-		"00:00",
-		"00:00",
+	const browse = await store.query({ ...base, reading: CASEDB_READING });
+	expect(browse.map((row) => row.case_id)).toEqual([CHILD, SECOND]);
+	expect(browse.map((row) => row.calculated[day.uuid])).toEqual([
+		"2026-09-29",
+		"2026-09-29",
 	]);
-	expect(rows[0].opened_on).toEqual(INSTANT);
+	expect(browse.map((row) => row.calculated[clock.uuid])).toEqual([
+		"2026-09-29 00:00",
+		"2026-09-29 00:00",
+	]);
+	// The stored row keeps its instant.
+	expect(browse[0].opened_on).toEqual(INSTANT);
+
+	// An effective Search's columns read the results row: the UTC day, and
+	// `last_modified`'s instant shown in the viewer's zone.
+	const results = await store.query({ ...base, reading: SEARCH_READING });
+	expect(results.map((row) => row.calculated[day.uuid])).toEqual([
+		"2026-09-30",
+		"2026-09-30",
+	]);
+	expect(results.map((row) => row.calculated[clock.uuid])).toEqual([
+		"2026-09-29 23:57",
+		"2026-09-29 23:57",
+	]);
+
 	const grouped = await store.queryGrouped({
-		...args,
+		...base,
+		reading: CASEDB_READING,
 		indexIdentifier: "parent",
 		groupOffset: 0,
 		groupLimit: 10,
@@ -248,29 +383,41 @@ test("case-store calculations and calculated ordering share portable reads in or
 	expect(
 		grouped.groups
 			.flatMap((group) => group.rows)
-			.map((row) => row.calculated[column.uuid]),
-	).toEqual(["00:00", "00:00"]);
-	const filtered = await store.query({
-		...args,
-		predicate: gt(opened, term(datetimeLiteral("2026-09-30T06:45:00Z"))),
+			.map((row) => row.calculated[day.uuid]),
+	).toEqual(["2026-09-29", "2026-09-29"]);
+
+	// The same filter: a casedb day promotes to the viewer's midnight
+	// (29 September 07:00 UTC), which is not after 30 September 06:45 UTC;
+	// HQ's search compares the stored instants.
+	const afterQuarterTo = gt(
+		opened,
+		term(datetimeLiteral("2026-09-30T06:45:00Z")),
+	);
+	const browseFiltered = await store.query({
+		...base,
+		reading: CASEDB_READING,
+		predicate: afterQuarterTo,
 	});
-	expect(filtered.map((row) => row.case_id)).toEqual([CHILD]);
-	const storedSort = await store.query({
-		...args,
-		sort: [
-			{
-				kind: "expression",
-				expression: opened,
-				comparator: "text",
-				direction: "asc",
-				blanks: "first",
-			},
-		],
+	expect(browseFiltered).toEqual([]);
+	const searchFiltered = await store.query({
+		...base,
+		reading: SEARCH_READING,
+		predicate: afterQuarterTo,
 	});
-	expect(storedSort.map((row) => row.case_id)).toEqual([SECOND, CHILD]);
+	expect(searchFiltered.map((row) => row.case_id)).toEqual([CHILD]);
+	expect(
+		await store.count({
+			appId: APP,
+			caseType: "visit",
+			caseTypeSchemas: SCHEMAS,
+			bindings: base.bindings,
+			reading: SEARCH_READING,
+			predicate: afterQuarterTo,
+		}),
+	).toBe(1);
 });
 
-test("mixed temporal branches promote metadata at viewer midnight rather than the database timezone", async ({
+test("mixed temporal branches promote casedb metadata at viewer midnight rather than the database timezone", async ({
 	db,
 	pgClient,
 }) => {
@@ -313,7 +460,7 @@ test("mixed temporal branches promote metadata at viewer midnight rather than th
 	}
 });
 
-test("portable typed SQL comparisons use viewer midnight in direct and nested predicates independently of the database timezone", async ({
+test("casedb comparisons use viewer midnight in direct and nested predicates independently of the database timezone", async ({
 	db,
 }) => {
 	await seed(db);
@@ -360,7 +507,7 @@ test("portable typed SQL comparisons use viewer midnight in direct and nested pr
 				).as("selected"),
 				sql<boolean>`${compilePredicate(
 					eq(opened, term(datetimeLiteral(INSTANT.toISOString()))),
-					{ ...ctx, portableCaseDates: undefined },
+					context(db, "America/Los_Angeles", "search"),
 				)}`.as("storedEquality"),
 			])
 			.executeTakeFirstOrThrow();

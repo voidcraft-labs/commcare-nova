@@ -994,6 +994,7 @@ refuse exactly:
    `incompatible-values`, reason `datetime-ordering`; part 03 §3.2). Finding 56's lowering is
    defined for an instant against an instant, and a bare `now() > 20000` orders whole days, the
    defect itself. An operand of unknown type has no opinion and is admitted;
+   **Implementation correction, 2026-10-19:** in rule 2 the exemption is a `date()` on the date-and-time side, which makes both sides dates (in a record slot a `datetime-coerce` on the date side likewise makes both dates and times). A `date()` on the date side leaves the pair a date against a date and time, and it is refused: `date(#form/dt) < now()` is refused, `date(#form/dt) < date(now())` is admitted (`typeChecker.ts::dateDatetimeReason` reads the two operand types alone).
 3. a provably non-numeric string literal in a numeric position (today's `TYPE_ERROR`,
    `lib/commcare/validator/typeChecker.ts::checkTypes`);
 4. a **structural** `many` node-set where one value is needed (`many-values`; today form logic

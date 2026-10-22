@@ -1,6 +1,7 @@
 import type { Uuid } from "@/lib/domain";
 import type { AppSetupSection } from "@/lib/routing/types";
 import type { PreviewCaseChoice } from "@/lib/session/types";
+import type { SetvalueRefusalDetails } from "./answerCast";
 
 /** One rendered choice of a lookup-backed select, in authored row order.
  *  `key` is the source row's stable id — lookup rows, unlike static
@@ -45,6 +46,10 @@ export interface FieldState {
 	 *  on `single_select` / `multi_select` fields with an `optionsSource`;
 	 *  static-option selects keep reading options off the doc entity. */
 	choices?: readonly LookupChoice[];
+	/** The last insert of this repeat CommCare refused: a starting value in
+	 *  the new entry its cast turns away (`answerCast.ts`). Only set on
+	 *  `repeat` kinds, until an insert of the repeat succeeds. */
+	insertRefusal?: SetvalueRefusalDetails;
 }
 
 /** Value-equality over the ordered choice list of two states. */
@@ -90,6 +95,7 @@ export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
 		a.resolvedHelp === b.resolvedHelp &&
 		stringRecordsEqual(a.resolvedOptionLabels, b.resolvedOptionLabels) &&
 		a.repeatCount === b.repeatCount &&
+		a.insertRefusal === b.insertRefusal &&
 		lookupChoicesEqual(a.choices, b.choices)
 	);
 }

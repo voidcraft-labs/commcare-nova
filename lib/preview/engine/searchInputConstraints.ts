@@ -11,9 +11,9 @@
 //     when its rule evaluates false against the answer and its siblings.
 //
 // Both predicates read the search-input instance, so a bare `input(...)` of
-// any sibling is meaningful here; an unanswered sibling reads blank. There is
-// no case row on this screen, and the validator has already refused every
-// case read in these slots.
+// any sibling is meaningful here; an unanswered sibling holds no node there
+// and reads blank. There is no case row on this screen, and the validator
+// has already refused every case read in these slots.
 //
 // A predicate is judged by whichever evaluator can run it. The scalar
 // evaluator on the calling thread runs everything except a pattern match:
@@ -52,6 +52,7 @@ import {
 	emitPreviewSearchPredicate,
 	evaluatePreviewSearchPredicate,
 	type PreviewSearchEnvironment,
+	type SearchScreenXPath,
 } from "./searchExpressionEvaluation";
 
 export interface SearchInputConstraintOptions {
@@ -66,12 +67,13 @@ export interface SearchInputConstraintOptions {
 export interface SearchInputConstraintDeviceOptions
 	extends SearchInputConstraintOptions {
 	/**
-	 * Run one emitted on-device XPath (the session instance still to resolve)
-	 * where a Java Pattern engine is available, and answer its boolean. Only a
+	 * Run one printed Search screen XPath over the instances it reads where a
+	 * Java Pattern engine is available, and answer its boolean. Only a
 	 * pattern-bearing predicate takes this path; everything else stays on the
-	 * scalar evaluator so the two paths cannot disagree on plain rules.
+	 * calling thread's evaluator, over the same text and instances, so the two
+	 * paths cannot disagree on plain rules.
 	 */
-	readonly evaluateOnDevice: (source: string) => Promise<boolean>;
+	readonly evaluateOnDevice: (xpath: SearchScreenXPath) => Promise<boolean>;
 }
 
 /**

@@ -1,11 +1,13 @@
-// Preview navigation evaluation over typed conditions and loaded lookup data.
-// This suite executes Nova emission and evaluation; native Core compatibility
-// is established separately by the independent wire corpus.
+// Preview navigation evaluation: the suite's own display-condition text,
+// evaluated over the session, the device's cases and the lookup fixtures.
+// Native Core compatibility is established separately by the wire corpus.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, withUserSequences } from "@/lib/__tests__/docHelpers";
 import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
+import { emitFormDisplayConditionForSuite } from "@/lib/commcare/suite/displayConditions";
+import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain";
 import { asUuid, lookupRowIdSchema, proseText } from "@/lib/domain";
 import {
@@ -24,6 +26,7 @@ import {
 	term,
 } from "@/lib/domain/expression";
 import { slotContext } from "@/lib/domain/expression/context";
+import type { Expression } from "@/lib/domain/expression/types";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type {
 	LookupFixtureRow,
@@ -32,6 +35,8 @@ import type {
 import {
 	formDisplayVisibility as evaluateFormDisplayVisibility,
 	moduleDisplayVisibility as evaluateModuleDisplayVisibility,
+	type NavigationDeviceCases,
+	navigationSelectedCase,
 } from "../displayConditionEvaluation";
 import {
 	type PreviewSearchSessionValues,
@@ -44,9 +49,11 @@ type FormVisibilityArgs = Omit<
 	Parameters<typeof evaluateFormDisplayVisibility>[0],
 	"types"
 >;
-function visibilityContext(args: FormVisibilityArgs, form: boolean) {
-	const moduleUuid = testUuid("visibility-module"),
-		formUuid = testUuid("visibility-form");
+const MODULE = testUuid("visibility-module");
+const FORM = testUuid("visibility-form");
+/** The worker property a role gate reads, declared as the doc declares it. */
+const ROLE = asUuid("33333333-3333-4333-8333-333333333333");
+function visibilityDoc(condition: Expression | undefined, form: boolean) {
 	const doc = buildDoc({
 		caseTypes: [
 			{
@@ -59,28 +66,36 @@ function visibilityContext(args: FormVisibilityArgs, form: boolean) {
 		],
 		modules: [
 			{
-				uuid: moduleUuid,
+				uuid: MODULE,
 				name: "Patients",
 				caseType: "patient",
-				...(form ? {} : { displayCondition: args.condition }),
+				...(form ? {} : { displayCondition: condition }),
 				forms: [
 					{
-						uuid: formUuid,
+						uuid: FORM,
 						name: "Visit",
 						type: "followup",
-						...(form ? { displayCondition: args.condition } : {}),
+						...(form ? { displayCondition: condition } : {}),
 					},
 				],
 			},
 		],
 	});
+	return {
+		...doc,
+		...withUserSequences({
+			userProperties: { [ROLE]: { uuid: ROLE, slug: "role", label: "Role" } },
+		}),
+	};
+}
+function visibilityContext(args: FormVisibilityArgs, form: boolean) {
 	const context = slotContext(
-		doc,
+		visibilityDoc(args.condition, form),
 		form
-			? { entity: "form", uuid: formUuid, slot: "form_display_condition" }
+			? { entity: "form", uuid: FORM, slot: "form_display_condition" }
 			: {
 					entity: "module",
-					uuid: moduleUuid,
+					uuid: MODULE,
 					slot: "module_display_condition",
 				},
 		lookupTypeIndexFromNaming(
@@ -104,6 +119,48 @@ function moduleDisplayVisibility(
 		...args,
 		types: visibilityContext(args, false),
 	});
+}
+
+/** A worker's device holding one patient, `p1`, with these properties. */
+function devicePatient(
+	properties: Readonly<Record<string, string>>,
+): NavigationDeviceCases {
+	return {
+		snapshot: {
+			rows: [
+				{
+					case_id: "p1",
+					app_id: "app-1",
+					case_type: "patient",
+					owner_id: "u1",
+					status: "open",
+					opened_on: new Date("2026-08-01T00:00:00.000Z"),
+					modified_on: new Date("2026-08-02T00:00:00.000Z"),
+					closed_on: null,
+					case_name: "Ada",
+					external_id: null,
+					parent_case_id: null,
+					properties: { ...properties },
+				},
+			],
+			indices: [],
+		},
+		caseTypes: visibilityDoc(undefined, true).caseTypes ?? [],
+	};
+}
+
+/** The case-first form menu reached with `p1`, under the datum its form
+ * selects it as. */
+function chosenPatient() {
+	const selected = navigationSelectedCase(
+		visibilityDoc(undefined, true),
+		MODULE,
+		FORM,
+		"p1",
+	);
+	if (selected === undefined)
+		throw new Error("The follow-up form selects no case.");
+	return selected;
 }
 
 const SESSION: PreviewSearchSessionValues = {
@@ -142,7 +199,7 @@ const LOOKUP_DATA: PreviewLookupStatus = {
 
 describe("moduleDisplayVisibility", () => {
 	it("waits for identity hydration before deciding a role gate", () => {
-		const property = asUuid("33333333-3333-4333-8333-333333333333");
+		const property = ROLE;
 		const condition = eq(
 			term(sessionUserProperty(property)),
 			literal("visitor"),
@@ -280,7 +337,7 @@ describe("moduleDisplayVisibility", () => {
 		}
 	});
 
-	it("folds a table-lookup over loaded data and pends without it", () => {
+	it("reads a table-lookup over the loaded fixture and pends without it", () => {
 		const condition = eq(
 			tableLookup(
 				TABLE,
@@ -388,13 +445,17 @@ describe("moduleDisplayVisibility", () => {
 });
 
 describe("formDisplayVisibility", () => {
-	const statusOpen = eq(prop("patient", "status"), literal("open"));
+	const regionNorth = eq(prop("patient", "region"), literal("north"));
+
+	it("selects the case under the datum the suite writes the form's command with", () => {
+		expect(chosenPatient()).toEqual({ datumId: "case_id", caseId: "p1" });
+	});
 
 	it.each([
 		["north", "shown"],
 		["south", "hidden"],
 	] as const)(
-		"keeps the selected case's %s region distinct from the fixture row",
+		"keeps the chosen case's %s region distinct from the fixture row",
 		(region, visibility) => {
 			const condition = eq(
 				tableLookup(
@@ -408,40 +469,83 @@ describe("formDisplayVisibility", () => {
 				formDisplayVisibility({
 					condition,
 					session: SESSION,
-					caseProjection: new Map([["region", region]]),
+					selectedCase: chosenPatient(),
+					deviceCases: devicePatient({ region }),
 					lookup: LOOKUP_DATA,
 				}),
 			).toBe(visibility);
 		},
 	);
 
-	it("resolves direct self properties from the selected row's projection", () => {
+	it("reads the chosen case's properties from the device's cases", () => {
 		expect(
 			formDisplayVisibility({
-				condition: statusOpen,
+				condition: regionNorth,
 				session: SESSION,
-				caseProjection: new Map([["status", "open"]]),
+				selectedCase: chosenPatient(),
+				deviceCases: devicePatient({ region: "north" }),
 				lookup: NO_LOOKUP,
 			}),
 		).toBe("shown");
 		expect(
 			formDisplayVisibility({
-				condition: statusOpen,
+				condition: regionNorth,
 				session: SESSION,
-				caseProjection: new Map([["status", "closed"]]),
+				selectedCase: chosenPatient(),
+				deviceCases: devicePatient({ region: "south" }),
 				lookup: NO_LOOKUP,
 			}),
 		).toBe("hidden");
 	});
 
-	it("an absent property reads blank — raw equality against '' holds", () => {
+	it("waits for the device's cases before reading the chosen case", () => {
+		for (const deviceCases of [
+			undefined,
+			{ snapshot: null, caseTypes: [] },
+		] as const) {
+			expect(
+				formDisplayVisibility({
+					condition: regionNorth,
+					session: SESSION,
+					selectedCase: chosenPatient(),
+					deviceCases,
+					lookup: NO_LOOKUP,
+				}),
+			).toBe("pending");
+		}
+	});
+
+	it("an absent property reads blank: raw equality against '' holds", () => {
 		expect(
 			formDisplayVisibility({
-				condition: eq(prop("patient", "status"), literal("")),
+				condition: eq(prop("patient", "region"), literal("")),
 				session: SESSION,
-				caseProjection: new Map(),
+				selectedCase: chosenPatient(),
+				deviceCases: devicePatient({}),
 				lookup: NO_LOOKUP,
 			}),
 		).toBe("shown");
+	});
+
+	it("evaluates the suite's own command text", () => {
+		const doc = visibilityDoc(regionNorth, true);
+		const types = slotContext(
+			doc,
+			{ entity: "form", uuid: FORM, slot: "form_display_condition" },
+			new Map(),
+		);
+		if (types === undefined) throw new Error("The fixture has no context.");
+		const wire = emitFormDisplayConditionForSuite(
+			{ displayCondition: regionNorth },
+			types,
+			undefined,
+			"case_id",
+		);
+		if (wire === undefined) throw new Error("The condition wrote nothing.");
+		// The suite's text, as compiled, reads the chosen case through
+		// `session/data/case_id`; Preview evaluates the same tree.
+		expect(serializeWire(wire, { target: "preview" }).text).toBe(
+			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/region = 'north'",
+		);
 	});
 });

@@ -25,7 +25,7 @@
  * - **Label/hint without refs, options, kind** → do nothing
  * - **Field kind change (retype)** → drop the stale value, re-init the field
  * - **Expression field** → rebuild DAG, re-evaluate that field + cascade
- * - **Label/hint with hashtag refs** → re-evaluate resolved labels only
+ * - **Label/hint with references** → re-evaluate resolved labels only
  * - **Field ID rename** → already handled by the preceding batch-topology pass
  * - **Default value** → re-evaluate default + cascade
  *
@@ -64,13 +64,16 @@ import type { ProseTemplate } from "@/lib/domain/prose";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import type { XPathValue } from "../xpath/types";
 import type { XPathRuntime } from "../xpath/workerClient";
-import {
-	deserializeXPathWorkerValue,
-	snapshotXPathWorkerInstance,
-} from "../xpath/workerProjection";
+import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
+import { SetvalueRefusal, type SetvalueRefusalDetails } from "./answerCast";
 import type { SubmissionMutation } from "./caseDataBindingTypes";
 import { buildEngineInput, repeatCountNamesOf } from "./engineInput";
+import {
+	type EntrySessionData,
+	type EntrySessionInput,
+	entrySessionData,
+} from "./entrySessionData";
 import type { FieldTreeNode } from "./fieldTree";
 import { buildFieldTree } from "./fieldTree";
 import {
@@ -82,17 +85,14 @@ import {
 	type SectionPage,
 } from "./formEngine";
 import type { FormLinkAsyncEvaluator } from "./formLinkEvaluation";
-import {
-	type PreviewSearchSessionValues,
-	type ResolvedPreviewIdentity,
-	samePreviewIdentity,
-} from "./identity";
+import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
-import { type FieldState, fieldStatesEqual } from "./types";
 import {
-	type CaseDatabaseSnapshot,
-	commcareSessionXPathInstance,
-} from "./xpathInstances";
+	type SearchScreenXPath,
+	searchScreenWorkerInstances,
+} from "./searchExpressionEvaluation";
+import { type FieldState, fieldStatesEqual } from "./types";
+import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 // ── Runtime store types ─────────────────────────────────────────────────
 
@@ -160,6 +160,11 @@ export interface EngineEntryState {
 	 * never a draft/document state. The raw exception deliberately stays out of
 	 * this observable UI contract. */
 	readonly fault: EngineRuntimeFault | undefined;
+	/** CommCare refuses to open this entry: a setvalue's cast turned away a
+	 * preloaded value or a starting value (`answerCast.ts`). Author data, not
+	 * a fault, so it is never reported; it clears on the next document
+	 * revision or case-data change, which open the form again. */
+	readonly refusal: EngineFormRefusal | undefined;
 	/** A casedb-dependent form requested before its device snapshot is ready.
 	 * This is resource readiness, not an invalid-document fault. */
 	readonly caseDatabaseWait:
@@ -207,6 +212,11 @@ export type EngineFaultOperation =
 	| "repeat-change"
 	| "reset"
 	| "submission";
+
+export interface EngineFormRefusal {
+	readonly formUuid: Uuid;
+	readonly details: SetvalueRefusalDetails;
+}
 
 export interface EngineRuntimeFault {
 	readonly formUuid: Uuid;
@@ -606,14 +616,21 @@ export class EngineController {
 	 * invalid persisted expression. */
 	private runtimeFault: EngineRuntimeFault | undefined;
 	private faultReporter: EngineFaultReporter | undefined;
+	/** The refused entry, and the document watch that opens it again. */
+	private formRefusal: EngineFormRefusal | undefined;
+	private stopWatchingRefusal: (() => void) | undefined;
 	private requestedActivation:
 		| {
 				readonly formUuid: Uuid;
 				readonly caseData?: CaseDataByType;
 				readonly caseDatabase?: CaseDatabaseSnapshot;
 				readonly searchAnswers?: ReadonlyMap<string, string>;
+				readonly session?: EntrySessionInput;
 		  }
 		| undefined;
+	/** The mounted entry's session map, built from its entry key; a rebuild in
+	 * the same entry mints the same ids, a new entry mints new ones. */
+	private activeEntrySession: EntrySessionData | undefined;
 	private repeatCompactionListeners = new Set<
 		(event: RepeatCompactionEvent) => void
 	>();
@@ -666,6 +683,7 @@ export class EngineController {
 	private caseDatabaseGate: CaseDatabaseControllerState = { required: false };
 	private caseDatabaseState: CaseDatabaseControllerState = { required: false };
 	private caseDatabaseSnapshot: CaseDatabaseSnapshot | null = null;
+	private readonly caseDatabaseListeners = new Set<() => void>();
 	private mountedCaseDatabaseSnapshot: CaseDatabaseSnapshot | null | undefined;
 	/** Selected worker-content language for presentation-bearing engine input.
 	 * `null` keeps standalone/non-Builder controller consumers canonical. */
@@ -727,6 +745,7 @@ export class EngineController {
 			settling: false,
 			topologySettling: false,
 			fault: undefined,
+			refusal: undefined,
 			caseDatabaseWait: undefined,
 		}));
 	}
@@ -754,6 +773,35 @@ export class EngineController {
 			: undefined;
 	}
 
+	/** The session the requested entry starts from, kept through every
+	 * rebuild of the same entry. */
+	private sessionFor(formUuid: Uuid): EntrySessionInput | undefined {
+		return this.requestedActivation?.formUuid === formUuid
+			? this.requestedActivation.session
+			: undefined;
+	}
+
+	/** Build the mounted entry's session map. Without a session input (an
+	 * entry no running app opened) no datum is valued. */
+	private mountEntrySession(
+		state: BlueprintDocState,
+		formUuid: Uuid,
+		entryKey: string,
+		caseDatabase: CaseDatabaseSnapshot | null | undefined,
+	): EntrySessionData | undefined {
+		const input = this.sessionFor(formUuid);
+		this.activeEntrySession =
+			input === undefined
+				? undefined
+				: entrySessionData(state, formUuid, {
+						...input,
+						entryKey,
+						caseDatabase: caseDatabase ?? null,
+						identity: this.previewIdentity,
+					});
+		return this.activeEntrySession;
+	}
+
 	/** The admitted search answers of the requested no-matches launch, kept
 	 * through every rebuild of the same entry. */
 	private searchAnswersFor(
@@ -775,6 +823,7 @@ export class EngineController {
 			current.settling === this.settling &&
 			current.topologySettling === this.atomicRevisionsPending > 0 &&
 			current.fault === this.runtimeFault &&
+			current.refusal === this.formRefusal &&
 			current.caseDatabaseWait?.formUuid === caseDatabaseWait?.formUuid &&
 			current.caseDatabaseWait?.status === caseDatabaseWait?.status
 		) {
@@ -790,6 +839,7 @@ export class EngineController {
 				settling: this.settling,
 				topologySettling: this.atomicRevisionsPending > 0,
 				fault: this.runtimeFault,
+				refusal: this.formRefusal,
 				caseDatabaseWait,
 			},
 			true,
@@ -808,6 +858,10 @@ export class EngineController {
 		formUuid: Uuid,
 		error: unknown,
 	): void {
+		if (error instanceof SetvalueRefusal) {
+			this.recordRefusal(formUuid, error.details);
+			return;
+		}
 		if (this.runtimeFault !== undefined) return;
 		this.requestedActivation = undefined;
 		this.clearActiveForm();
@@ -826,6 +880,50 @@ export class EngineController {
 			/* Telemetry is best effort. A reporting transport or test seam must
 			 * never re-open the runtime exception this boundary just contained. */
 		}
+	}
+
+	/**
+	 * CommCare refused the entry. The form closes like a fault, with no
+	 * report: the requested activation stays, and the next document revision
+	 * opens it again, so an author's fix is seen at once. A case-data change
+	 * re-activates through the ordinary activation path.
+	 */
+	private recordRefusal(formUuid: Uuid, details: SetvalueRefusalDetails): void {
+		if (this.runtimeFault !== undefined || this.formRefusal !== undefined)
+			return;
+		this.clearActiveForm();
+		this.formRefusal = { formUuid, details };
+		const docStore = this.docStore;
+		const requested = this.requestedActivation;
+		if (docStore !== undefined && requested?.formUuid === formUuid) {
+			const refusedState = docStore.getState();
+			const unsubscribe = docStore.subscribe((current) => {
+				if (current === refusedState) return;
+				this.clearRefusal();
+				if (this.xpathRuntime) {
+					this.activateFormAsync(
+						requested.formUuid,
+						requested.caseData,
+						requested.caseDatabase,
+						requested.searchAnswers,
+					).catch(() => undefined);
+				} else
+					this.activateForm(
+						requested.formUuid,
+						requested.caseData,
+						requested.caseDatabase,
+						requested.searchAnswers,
+					);
+			});
+			this.stopWatchingRefusal = unsubscribe;
+		}
+		this.publishEntryState();
+	}
+
+	private clearRefusal(): void {
+		this.stopWatchingRefusal?.();
+		this.stopWatchingRefusal = undefined;
+		this.formRefusal = undefined;
 	}
 
 	private contain<T>(
@@ -876,12 +974,7 @@ export class EngineController {
 					revision,
 					profile: "form",
 					source,
-					instances: engine.workerInstances(
-						source,
-						path,
-						world,
-						stateOverrides,
-					),
+					instances: engine.workerInstances(path, world, stateOverrides),
 					resultMode,
 				},
 				{ signal },
@@ -1121,6 +1214,7 @@ export class EngineController {
 		}
 		return (
 			this.runtimeFault === undefined &&
+			this.formRefusal === undefined &&
 			!this.settling &&
 			(entryKey === undefined || entryKey === this.currentEntryKey)
 		);
@@ -1237,6 +1331,23 @@ export class EngineController {
 		} else this.rebuildActiveForm(formUuid, this.activeCaseData);
 	}
 
+	/** The worker's device cases as the menus read them: the provider's ready
+	 * snapshot, or `null` while none is ready. A post-submit entry's patched
+	 * world belongs to that entry, not to the menus. */
+	get deviceCaseDatabase(): CaseDatabaseSnapshot | null {
+		return this.caseDatabaseSnapshot;
+	}
+
+	/** Observe {@link deviceCaseDatabase}; returns the unsubscribe. */
+	readonly subscribeDeviceCaseDatabase = (
+		listener: () => void,
+	): (() => void) => {
+		this.caseDatabaseListeners.add(listener);
+		return () => {
+			this.caseDatabaseListeners.delete(listener);
+		};
+	};
+
 	/** Reconcile the device-case resource state after commit. A required form never runs
 	 * against a guessed empty casedb: its activation request waits here until a
 	 * real snapshot arrives. Snapshot identity remains the material-version
@@ -1256,6 +1367,7 @@ export class EngineController {
 		this.caseDatabaseGate = state;
 		this.caseDatabaseSnapshot =
 			state.required && state.status === "ready" ? state.snapshot : null;
+		for (const listener of this.caseDatabaseListeners) listener();
 		/* A direct post-submit form link carries the submitting entry's patched
 		 * local-device snapshot. Provider refreshes still update the base snapshot
 		 * for the next ordinary entry, but cannot replace or clear this entry's
@@ -1301,6 +1413,7 @@ export class EngineController {
 				requested.caseData,
 				requested.caseDatabase,
 				requested.searchAnswers,
+				requested.session,
 			).catch(() => undefined);
 		} else {
 			this.activateForm(
@@ -1308,6 +1421,7 @@ export class EngineController {
 				requested.caseData,
 				requested.caseDatabase,
 				requested.searchAnswers,
+				requested.session,
 			);
 		}
 	}
@@ -1346,6 +1460,7 @@ export class EngineController {
 		caseData?: CaseDataByType,
 		caseDatabase?: CaseDatabaseSnapshot,
 		searchAnswers?: ReadonlyMap<string, string>,
+		session?: EntrySessionInput,
 	): void {
 		if (this.previewIdentityBlocked) {
 			this.deactivate();
@@ -1356,8 +1471,10 @@ export class EngineController {
 			caseData,
 			caseDatabase,
 			searchAnswers,
+			session: session ?? this.sessionFor(formUuid),
 		};
 		this.runtimeFault = undefined;
+		this.clearRefusal();
 		if (
 			caseDatabase === undefined &&
 			this.caseDatabaseGate.required &&
@@ -1380,9 +1497,16 @@ export class EngineController {
 		caseData?: CaseDataByType,
 		caseDatabase?: CaseDatabaseSnapshot,
 		searchAnswers?: ReadonlyMap<string, string>,
+		session?: EntrySessionInput,
 	): Promise<boolean> {
 		if (this.xpathRuntime === undefined) {
-			this.activateForm(formUuid, caseData, caseDatabase, searchAnswers);
+			this.activateForm(
+				formUuid,
+				caseData,
+				caseDatabase,
+				searchAnswers,
+				session,
+			);
 			return this.engine !== undefined;
 		}
 		if (this.previewIdentityBlocked) {
@@ -1394,8 +1518,10 @@ export class EngineController {
 			caseData,
 			caseDatabase,
 			searchAnswers,
+			session: session ?? this.sessionFor(formUuid),
 		};
 		this.runtimeFault = undefined;
+		this.clearRefusal();
 		if (
 			caseDatabase === undefined &&
 			this.caseDatabaseGate.required &&
@@ -1418,7 +1544,9 @@ export class EngineController {
 		formUuid: Uuid,
 		caseData?: CaseDataByType,
 		preserveAllValues = false,
+		session?: EntrySessionInput,
 	): Promise<boolean> {
+		this.updateEntrySessionInput(formUuid, session);
 		if (this.deferCaseDatabaseRebuild(formUuid, caseData)) return false;
 		if (this.xpathRuntime === undefined) {
 			this.rebuildActiveForm(formUuid, caseData, preserveAllValues);
@@ -1556,6 +1684,12 @@ export class EngineController {
 		this.currentEntryKey = entryKey;
 		const caseDatabase = caseDatabaseOverride ?? this.caseDatabaseSnapshot;
 		const searchAnswers = this.searchAnswersFor(formUuid);
+		const session = this.mountEntrySession(
+			state,
+			formUuid,
+			entryKey,
+			caseDatabase,
+		);
 		const engine = new FormEngine(
 			input,
 			state.modules[moduleUuid]?.caseType,
@@ -1567,6 +1701,7 @@ export class EngineController {
 				stagedAsync: true,
 				restoredEntry: restore,
 				...(searchAnswers === undefined ? {} : { searchAnswers }),
+				...(session === undefined ? {} : { sessionData: session.data }),
 			},
 		);
 		this.engine = engine;
@@ -1698,6 +1833,7 @@ export class EngineController {
 		if (this.deferCaseDatabaseRebuild(formUuid, caseData)) return;
 		if (this.runtimeFault?.formUuid === formUuid) return;
 		this.runtimeFault = undefined;
+		this.clearRefusal();
 		this.contain("rebuild", formUuid, undefined, () => {
 			const entryKey =
 				this.activeFormUuid === formUuid && this.currentEntryKey !== undefined
@@ -1714,6 +1850,20 @@ export class EngineController {
 				checkpoint ? { checkpoint, preserveAllValues } : undefined,
 			);
 		});
+	}
+
+	/** A later session input for the same requested entry: the bound case
+	 * that settled after activation. The entry key stays, so its minted ids
+	 * stay too. */
+	private updateEntrySessionInput(
+		formUuid: Uuid,
+		session: EntrySessionInput | undefined,
+	): void {
+		if (
+			session !== undefined &&
+			this.requestedActivation?.formUuid === formUuid
+		)
+			this.requestedActivation = { ...this.requestedActivation, session };
 	}
 
 	private deferCaseDatabaseRebuild(
@@ -1786,6 +1936,7 @@ export class EngineController {
 		const mod = s.modules[moduleUuid];
 		const caseDatabase = caseDatabaseOverride ?? this.caseDatabaseSnapshot;
 		const searchAnswers = this.searchAnswersFor(formUuid);
+		const session = this.mountEntrySession(s, formUuid, entryKey, caseDatabase);
 		this.engine = new FormEngine(
 			input,
 			mod?.caseType,
@@ -1796,6 +1947,7 @@ export class EngineController {
 			{
 				restoredEntry,
 				...(searchAnswers === undefined ? {} : { searchAnswers }),
+				...(session === undefined ? {} : { sessionData: session.data }),
 			},
 		);
 		this.mountedCaseDatabaseSnapshot = caseDatabase;
@@ -1855,6 +2007,7 @@ export class EngineController {
 		this.pathToUuid = new Map();
 		this.activeFormUuid = undefined;
 		this.activeCaseData = undefined;
+		this.activeEntrySession = undefined;
 		this.currentEntryKey = undefined;
 		if (!this.rebuilding) this.store.setState({}, true);
 	}
@@ -1864,6 +2017,7 @@ export class EngineController {
 		this.requestedActivation = undefined;
 		this.clearActiveForm();
 		this.runtimeFault = undefined;
+		this.clearRefusal();
 		this.publishEntryState();
 	}
 
@@ -1891,17 +2045,17 @@ export class EngineController {
 	}
 
 	/**
-	 * Evaluate one emitted Search-screen XPath in the worker, where the
-	 * device's Java Pattern engine runs. The draft's answers are already bound
-	 * into `source` (`emitPreviewSearchPredicate`); only the session instance
-	 * is supplied. `scopeKey` names the module's Search screen, so repeated
+	 * Evaluate one printed Search screen XPath in the worker, where the
+	 * device's Java Pattern engine runs, over the instances it reads
+	 * (`emitPreviewSearchPredicate`): the session with the datums chosen so
+	 * far, the draft's answers as `search-input:results`, and the lookup
+	 * fixtures. `scopeKey` names the module's Search screen, so repeated
 	 * submissions reuse one loaded worker and a module switch starts a fresh
 	 * one. There is no revision: every request carries its complete input.
 	 */
 	async evaluateSearchScreenXPath(
 		scopeKey: string,
-		source: string,
-		session: PreviewSearchSessionValues,
+		xpath: SearchScreenXPath,
 		signal?: AbortSignal,
 	): Promise<XPathValue> {
 		if (this.searchXPathRuntime === undefined) {
@@ -1914,14 +2068,8 @@ export class EngineController {
 				entryKey: `search:${scopeKey}`,
 				revision: 0,
 				profile: "search",
-				source,
-				instances: {
-					secondary: [
-						snapshotXPathWorkerInstance(commcareSessionXPathInstance(session)),
-					],
-					contextPath: "",
-					position: 1,
-				},
+				source: xpath.source,
+				instances: searchScreenWorkerInstances(xpath),
 			},
 			signal === undefined ? {} : { signal },
 		);
@@ -1933,6 +2081,12 @@ export class EngineController {
 	 *  active. Capture widgets stage against it; submission reconciles it. */
 	get entryKey(): string | undefined {
 		return this.currentEntryKey;
+	}
+
+	/** The mounted entry's session map: what its form read as `session/data`
+	 *  and what its after-submit links read once it closes. */
+	get entrySession(): EntrySessionData | undefined {
+		return this.activeEntrySession;
 	}
 
 	/** The form identity paired with `entryKey`, for queued-mutation fencing. */
@@ -2606,7 +2760,7 @@ export class EngineController {
 				if (engine !== this.engine || entryKey !== this.currentEntryKey)
 					return 0;
 				this.syncAllPathsSelectively();
-				return index;
+				return index ?? 0;
 			},
 			0,
 			{ atomic: true },
@@ -3383,17 +3537,41 @@ export class EngineController {
 				);
 				const pendingDefaults = [...this.pendingDefaultFieldUuids];
 				const input = this.currentEngineInput();
-				if (input !== undefined) {
-					for (const uuid of pendingDefaults) {
-						const path = this.uuidToPath.get(uuid);
-						const field = input.fields[uuid];
-						if (
-							path !== undefined &&
-							field !== undefined &&
-							!isContainer(field)
-						) {
-							await engine.reevaluateDefaultAsync(path, field, evaluator);
+				// A refused insert's probe inserts a row and then restores the
+				// entry from a checkpoint across worker awaits, so an answer
+				// written meanwhile would be reverted. Once a probe starts, the
+				// revision is indivisible, as a live count's insertion is, and
+				// writes are refused until the probes finish.
+				let probing = false;
+				const beforeProbe = () => {
+					if (probing) return;
+					probing = true;
+					this.atomicRevisionsPending += 1;
+					this.publishEntryState();
+				};
+				try {
+					if (input !== undefined) {
+						for (const uuid of pendingDefaults) {
+							const path = this.uuidToPath.get(uuid);
+							const field = input.fields[uuid];
+							if (
+								path !== undefined &&
+								field !== undefined &&
+								!isContainer(field)
+							) {
+								await engine.reevaluateDefaultAsync(
+									path,
+									field,
+									evaluator,
+									beforeProbe,
+								);
+							}
 						}
+					}
+				} finally {
+					if (probing) {
+						this.atomicRevisionsPending -= 1;
+						this.publishEntryState();
 					}
 				}
 				await engine.settleAsync(evaluator);
@@ -3631,7 +3809,7 @@ export class EngineController {
 		this.syncPathsToStore(affectedPaths);
 	}
 
-	/** A field's label/hint with hashtag references changed. Rebuild the
+	/** A field's label/hint with references changed. Rebuild the
 	 *  DAG (it carries the printDoc the output resolution reads the new
 	 *  label text through), then re-resolve at every live instance. */
 	private onLabelRefsChanged(uuid: Uuid): void {

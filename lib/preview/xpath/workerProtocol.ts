@@ -8,7 +8,7 @@ import type { XPathInitializationContext } from "./initializationContext";
  * not add request payloads to diagnostics.
  */
 
-export const XPATH_WORKER_PROTOCOL_VERSION = 7 as const;
+export const XPATH_WORKER_PROTOCOL_VERSION = 8 as const;
 
 /** Build identity shared by the host chunk and the independently bundled
  * public Worker. Production receives Cloud Build's immutable UUID; local and
@@ -24,9 +24,11 @@ export type XPathWorkerProfile =
 	| "navigation"
 	| "search";
 
+/** An XPath Date as its two parts: the local calendar day it was built on and
+ * the instant it holds, when it has a clock. */
 export interface SerializedXPathDate {
 	readonly kind: "date";
-	readonly days: number;
+	readonly calendarDays: number;
 	readonly timeMilliseconds: number | null;
 }
 
@@ -71,23 +73,6 @@ export interface XPathWorkerPathRelevance {
 	readonly relevant: boolean;
 }
 
-export interface XPathWorkerScalarHashtagValue {
-	readonly reference: string;
-	readonly kind: "scalar";
-	readonly value: SerializedXPathValue;
-}
-
-export interface XPathWorkerNodesetHashtagValue {
-	readonly reference: string;
-	readonly kind: "nodeset";
-	readonly candidates: readonly XPathWorkerNodeAddress[];
-	readonly validPath: boolean;
-}
-
-export type XPathWorkerHashtagValue =
-	| XPathWorkerScalarHashtagValue
-	| XPathWorkerNodesetHashtagValue;
-
 /**
  * One immutable evaluation-world projection. The host may provide a
  * structural main instance, named secondary instances, scalar path fallbacks,
@@ -107,7 +92,6 @@ export interface XPathWorkerInstances {
 	 * Ancestor relevance is folded in by the host before crossing the worker
 	 * boundary, matching the relevant flags in the initial snapshot. */
 	readonly pathRelevance?: readonly XPathWorkerPathRelevance[];
-	readonly hashtagValues?: readonly XPathWorkerHashtagValue[];
 	readonly contextPath: string;
 	readonly initializationContext?: XPathInitializationContext;
 	readonly position?: number;

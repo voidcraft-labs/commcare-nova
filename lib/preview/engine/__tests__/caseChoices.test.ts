@@ -46,7 +46,7 @@ function workerFor(engine: FormEngine) {
 			profile: "form",
 			source,
 			resultMode,
-			instances: engine.workerInstances(source, path, world, stateOverrides),
+			instances: engine.workerInstances(path, world, stateOverrides),
 		});
 		if (!result.ok) throw new Error(`${result.error.code}`);
 		return result.nodesetValues === undefined
@@ -69,7 +69,8 @@ describe("case choices in the captured device world", () => {
 				undefined,
 				undefined,
 				caseChoiceSnapshot(),
-				{ stagedAsync },
+				// The entry's session holds the chosen clinic, as a device's does.
+				{ stagedAsync, sessionData: { case_id: CLINIC_A } },
 			);
 			const { runtime, evaluateAsync } = workerFor(engine);
 			try {

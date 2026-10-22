@@ -183,9 +183,29 @@ describe("entry point launch responses", () => {
 			selections: [],
 			personaUuid: undefined,
 			expectedSeq: 4,
+			claimedCaseIds: [],
 		});
 		expect(h.session.getState().previewCaseTarget).toBe(launch.formTarget);
 		expect(push).toHaveBeenCalledWith(launch.location);
+	});
+	it("sends the claims of the worker it launches as, and only theirs", async () => {
+		const h = harness();
+		h.session.getState().addPreviewClaims(["claimed-case"]);
+		const view = renderHook(() => useEntryPointLaunch(), {
+			wrapper: h.wrapper,
+		});
+		await act(async () => {
+			await view.result.current(E, []);
+		});
+		expect(action).toHaveBeenLastCalledWith(
+			expect.objectContaining({ claimedCaseIds: ["claimed-case"] }),
+		);
+		await act(async () => {
+			await view.result.current(E, [], testUuid("other-persona"));
+		});
+		expect(action).toHaveBeenLastCalledWith(
+			expect.objectContaining({ claimedCaseIds: [] }),
+		);
 	});
 	it("waits for the save barrier before sending the admitted revision", async () => {
 		const h = harness();

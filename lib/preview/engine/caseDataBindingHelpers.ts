@@ -39,12 +39,14 @@ import type { AppCapability } from "@/lib/auth/projectRoles";
 import type {
 	ApplySubmissionArgs,
 	CaseOperationProgram,
+	CaseQueryReading,
 	CaseRow,
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	LookupTableSchemas,
 	OrdinarySubmissionAction,
 	RestoreScope,
+	SearchPopulation,
 	SubmissionCaseSeed,
 	SubmissionReceiptIdentity,
 	TermBindings,
@@ -55,6 +57,7 @@ import {
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
+import { fieldBindType } from "@/lib/commcare/xform/bindType";
 import { resolveAppScope } from "@/lib/db/appAccess";
 import { loadApp } from "@/lib/db/apps";
 import {
@@ -100,6 +103,7 @@ import {
 	captureContentType,
 	committedCapturePath,
 } from "@/lib/domain/captureFormats";
+import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type { Expression, Term } from "@/lib/domain/expression";
 import { walkExpressionTerms } from "@/lib/domain/expression";
 import {
@@ -139,6 +143,7 @@ import {
 import type { LookupScope } from "@/lib/lookup/types";
 import { compareEqual } from "../xpath/coerce";
 import { javaTrim } from "../xpath/javaString";
+import { coreAnswerType } from "./answerCast";
 import type { CaptureSubmissionProjection } from "./captureSubmissionValidation";
 import type {
 	CaseQueryConstraintSource,
@@ -152,7 +157,8 @@ import type {
 	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
 import type { CaseListOrderLocale } from "./caseListOrder";
-import { formAnswerXPathValue } from "./dataInstance";
+import { answerXPathValue } from "./dataInstance";
+import { entryCreatedCaseKeys } from "./entrySessionData";
 import type { ResolvedPreviewIdentity } from "./identity";
 import { type PreviewLookupData, previewLookupData } from "./lookupEvaluation";
 import {
@@ -209,12 +215,14 @@ function caseReadCore(
 	args: {
 		readonly appId: string;
 		readonly caseType: string;
+		readonly reading: CaseQueryReading;
 		readonly caseIds?: readonly string[];
 		readonly parentCase?: ParentCaseSelection;
 		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		readonly bindings?: TermBindings;
 		readonly lookupTableSchemas?: LookupTableSchemas;
 		readonly restoreScope?: RestoreScope;
+		readonly searchPopulation?: SearchPopulation;
 		readonly caseListConfig?: CaseListConfig;
 	},
 	predicate: Expression | undefined,
@@ -222,6 +230,7 @@ function caseReadCore(
 	return {
 		appId: args.appId,
 		caseType: args.caseType,
+		reading: args.reading,
 		caseIds: args.caseIds,
 		parentCases: args.parentCase,
 		caseTypeSchemas: args.caseTypeSchemas,
@@ -234,6 +243,7 @@ function caseReadCore(
 			data_type: searchInputRuntimeValueType(input),
 		})),
 		restoreScope: args.restoreScope,
+		searchPopulation: args.searchPopulation,
 	};
 }
 
@@ -325,6 +335,10 @@ export async function readCases(
 	args: {
 		appId: string;
 		caseType: string;
+		/** What the read stands for (`lib/domain/expression/temporalType.ts`):
+		 *  a search's population reads `SEARCH_READING`, the worker's device
+		 *  `CASEDB_READING`, whatever else the module offers. */
+		reading: CaseQueryReading;
 		caseIds?: readonly string[];
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		caseListConfig?: CaseListConfig;
@@ -350,6 +364,13 @@ export async function readCases(
 		 * the tenant, because neither is standing at a device.
 		 */
 		restoreScope?: RestoreScope;
+		/**
+		 * Read as a search does: the Project's open cases, each row saying
+		 * whether the searching worker's restore holds it. Never with
+		 * `restoreScope`; the Results of a search show no restore note,
+		 * because HQ's search is not a restore.
+		 */
+		searchPopulation?: SearchPopulation;
 	},
 ): Promise<LoadCasesResult> {
 	const composedQuery = composeQueryPredicate(
@@ -591,6 +612,7 @@ async function countAuthoredCasePopulation(
 	args: {
 		readonly appId: string;
 		readonly caseType: string;
+		readonly reading: CaseQueryReading;
 		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		readonly caseListConfig?: CaseListConfig;
 		readonly parentCase?: ParentCaseSelection;
@@ -598,6 +620,7 @@ async function countAuthoredCasePopulation(
 		readonly lookupTableSchemas?: LookupTableSchemas;
 		readonly authoredExcludedOwnerIds?: readonly string[];
 		readonly restoreScope?: RestoreScope;
+		readonly searchPopulation?: SearchPopulation;
 	},
 ): Promise<number> {
 	const authoredQuery = composeQueryPredicate(
@@ -831,6 +854,9 @@ export async function readFilterPreview(
 	args: {
 		appId: string;
 		caseType: string;
+		/** What the previewed list stands for: `caseQueryReadingFor` of its
+		 *  module. */
+		reading: CaseQueryReading;
 		caseTypeSchemas: ReadonlyMap<string, CaseType>;
 		caseListConfig: CaseListConfig;
 		bindings?: TermBindings;
@@ -891,7 +917,8 @@ export interface CaseStoreOrder {
  * (`lib/domain/caseListOrder.ts`), built from the compiler's own arms:
  *
  *   - `property`: the raw value.
- *   - `calculated`: the column's expression, read with portable case dates.
+ *   - `calculated`: the column's expression, read under the columns'
+ *     reading, as every key is (`QueryArgs.reading`).
  *   - `option-label`: a single select's label in the worker's language
  *     (`switch`, the raw value where no option matches, first match winning
  *     as the device's nested `if` does); a multi select's known labels in
@@ -958,11 +985,9 @@ function sortKeysForRule(
 	const expressionKey = (
 		expression: Expression,
 		keyComparator: CaseListComparator = comparator,
-		portableCaseDates = false,
 	): CaseStoreSortKey => ({
 		kind: "expression",
 		expression,
-		...(portableCaseDates && { portableCaseDates: true as const }),
 		comparator: keyComparator,
 		direction,
 		blanks,
@@ -1016,7 +1041,7 @@ function sortKeysForRule(
 	if (column === undefined) return [];
 	if (key.kind === "calculated") {
 		if (column.kind !== "calculated") return [];
-		return [expressionKey(column.expression, comparator, true)];
+		return [expressionKey(column.expression, comparator)];
 	}
 	if (column.kind === "calculated") return [];
 	const raw = prop(caseType, column.field);
@@ -1103,6 +1128,11 @@ export async function readCaseData(
 		appId: string;
 		caseType: string;
 		caseId: string;
+		/** What the case's row stands for: a case chosen from a search's
+		 *  Results is a results row, one on the worker's device a casedb row,
+		 *  and the review dialog's tenant read follows its module
+		 *  (`caseQueryReadingFor`). */
+		reading: CaseQueryReading;
 		ancestorDepth: number;
 		/** Restrict this identity read to the selected nested-menu parents'
 		 * direct non-extension case-index population. */
@@ -1125,6 +1155,9 @@ export async function readCaseData(
 		 * up-rule), so the chain cannot leave the restore.
 		 */
 		restoreScope?: RestoreScope;
+		/** Read a case chosen from a search's Results as the search found it
+		 *  (`readCases`' contract); its row says whether the worker holds it. */
+		searchPopulation?: SearchPopulation;
 	},
 ): Promise<LoadCaseDataResult> {
 	const rows = await store.query({
@@ -1750,6 +1783,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 			? {}
 			: { closeCase: ordinaryCloseCase }),
 		childRelationships: ordinaryChildRelationships,
+		entryCaseKeys: entryCreatedCaseKeys(doc, formUuid),
 	});
 	const ordinaryStructure = {
 		ordinaryAction,
@@ -1983,6 +2017,8 @@ function projectOrdinaryDestinationValues(
 function projectOrdinaryChildren(args: {
 	readonly mutation: Exclude<SubmissionMutation, { kind: "survey" }>;
 	readonly authorities: ReadonlyMap<string, OrdinaryChildAuthority>;
+	/** The cases the committed entry's session names (`entryCreatedCaseKeys`). */
+	readonly entryCaseKeys: ReadonlySet<string>;
 }): ReadonlyArray<SubmissionCaseSeed> {
 	const identities = args.mutation.ordinaryChildBuckets;
 	if (args.mutation.children.length === 0) {
@@ -2034,10 +2070,18 @@ function projectOrdinaryChildren(args: {
 			if (seenRepeatInstances.has(instance)) return rejectOrdinaryStructure();
 			seenRepeatInstances.add(instance);
 		}
+		/* The entry's one non-repeat child of a type is the case its
+		 * `case_id_new_<type>` datum names, so it takes the id the form read. */
+		const entryCaseKey =
+			authority.bucket.repeatUuid === undefined
+				? `new-child-case:${authority.bucket.caseType}`
+				: undefined;
 		return {
 			caseType: authority.bucket.caseType,
 			...projectOrdinaryDestinationValues(child, authority.destination),
 			parentRelationship: authority.relationship,
+			...(entryCaseKey !== undefined &&
+				args.entryCaseKeys.has(entryCaseKey) && { entryCaseKey }),
 		};
 	});
 }
@@ -2054,6 +2098,7 @@ function projectOrdinaryAction(args: {
 		string,
 		NonNullable<CaseType["relationship"]>
 	>;
+	readonly entryCaseKeys: ReadonlySet<string>;
 }): OrdinarySubmissionAction {
 	if (args.form.type !== args.mutation.kind) return rejectOrdinaryStructure();
 	if (args.form.type === "survey") return { kind: "none" };
@@ -2080,6 +2125,7 @@ function projectOrdinaryAction(args: {
 	const children = projectOrdinaryChildren({
 		mutation: args.mutation,
 		authorities: childAuthorities,
+		entryCaseKeys: args.entryCaseKeys,
 	});
 	const primaryAuthority = ordinaryDestinationAuthority(primary);
 
@@ -2095,6 +2141,9 @@ function projectOrdinaryAction(args: {
 					args.mutation.primary,
 					primaryAuthority,
 				),
+				...(args.entryCaseKeys.has("new-case") && {
+					entryCaseKey: "new-case",
+				}),
 			},
 			children,
 		};
@@ -2165,7 +2214,18 @@ function committedCloseConditionResult(
 	if (condition.operator === "selected") {
 		return ` ${raw} `.includes(` ${javaTrim(condition.answer)} `);
 	}
-	return compareEqual(formAnswerXPathValue(field.kind, raw), condition.answer);
+	// Read the answer as Core holds it: a Hidden Value bound as a date and time
+	// holds its instant.
+	return compareEqual(
+		answerXPathValue(
+			coreAnswerType(
+				fieldBindType(field, effectiveCaseTypes(blueprint)),
+				field.kind,
+			),
+			raw,
+		),
+		condition.answer,
+	);
 }
 
 /** The module owning `formUuid`, walked off the committed doc. */

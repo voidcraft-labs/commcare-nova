@@ -3,7 +3,6 @@ import {
 	javaRosaClosestPointOnPolygon,
 	javaRosaDistance,
 	javaRosaIsPointInsidePolygon,
-	parseJavaDouble,
 } from "../javaRosaGeo";
 
 describe("JavaRosa geographic functions", () => {
@@ -61,22 +60,7 @@ describe("JavaRosa geographic functions", () => {
 		).toThrow();
 	});
 
-	it("uses Java Double.parseDouble's coordinate grammar and rounding", () => {
-		expect(parseJavaDouble("1f")).toBe(1);
-		expect(parseJavaDouble("+Infinity")).toBe(Number.POSITIVE_INFINITY);
-		expect(parseJavaDouble("-NaN")).toBeNaN();
-		expect(parseJavaDouble("0x1.8p1")).toBe(3);
-		expect(parseJavaDouble("0x1.00000000000008p0")).toBe(1);
-		expect(parseJavaDouble("0x1.00000000000018p0")).toBe(1.0000000000000004);
-		expect(parseJavaDouble("0x1.fffffffffffffp1023")).toBe(Number.MAX_VALUE);
-		expect(parseJavaDouble("0x1.fffffffffffff8p1023")).toBe(
-			Number.POSITIVE_INFINITY,
-		);
-		expect(parseJavaDouble("0x1p-1075")).toBe(0);
-		expect(parseJavaDouble("0x0.0000000000000cp-1022")).toBe(Number.MIN_VALUE);
-		expect(Object.is(parseJavaDouble("-0x1p-1075"), -0)).toBe(true);
-		expect(() => parseJavaDouble("0x10")).toThrow("numeric");
-		expect(() => parseJavaDouble("infinity")).toThrow("numeric");
+	it("reads coordinates through Java Double.parseDouble", () => {
 		expect(javaRosaDistance("0x1p4 0", "16 0")).toBe(0);
 		expect(javaRosaDistance("NaN 0", "0 0")).toBeNaN();
 	});

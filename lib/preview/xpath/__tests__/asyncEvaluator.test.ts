@@ -69,7 +69,6 @@ function fixture(relevant: (path: string) => boolean = () => true): {
 			contextPath: contextNode.path,
 			position: undefined,
 			getValue: (path) => data.get(path),
-			resolveHashtag: () => "",
 		},
 	};
 }

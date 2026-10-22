@@ -75,40 +75,23 @@ export function formatConcreteCommCareDate(
 	return { kind: "formatted", text };
 }
 
+/** `DateUtils.format(Date, String)` reads `getFields(d)`: the local fields of
+ * the instant Core's `Date` holds, in Java's calendar (Julian before
+ * 1582-10-15, the year counted in its era), and `%Z` from that instant's
+ * offset. A date-only value is its local midnight, which a zone that skips
+ * midnight shows as the first hour after the gap, as Core does. */
 function dateFields(value: XPathDate): DateFields {
-	const instant = value.toJSDate();
-	if (value.time !== null) {
-		return {
-			year: instant.getFullYear(),
-			month: instant.getMonth() + 1,
-			day: instant.getDate(),
-			hour: instant.getHours(),
-			minute: instant.getMinutes(),
-			second: instant.getSeconds(),
-			milliseconds: instant.getMilliseconds(),
-			dayOfWeek: instant.getDay(),
-			timezoneOffsetMinutes: -instant.getTimezoneOffset(),
-		};
-	}
-
-	// Date-only values are calendar dates, not UTC instants. `XPathDate` stores
-	// their day count at UTC midnight; extract those calendar components and
-	// create a local midnight only for weekday/offset lookup. This prevents a
-	// negative-offset browser from moving `2026-07-14` back to July 13.
-	const year = instant.getUTCFullYear();
-	const monthIndex = instant.getUTCMonth();
-	const day = instant.getUTCDate();
-	const localMidnight = new Date(year, monthIndex, day);
+	const fields = value.localFields();
 	return {
-		year,
-		month: monthIndex + 1,
-		day,
-		hour: 0,
-		minute: 0,
-		second: 0,
-		milliseconds: 0,
-		dayOfWeek: localMidnight.getDay(),
-		timezoneOffsetMinutes: -localMidnight.getTimezoneOffset(),
+		year: fields.year,
+		month: fields.month,
+		day: fields.day,
+		hour: fields.hour,
+		minute: fields.minute,
+		second: fields.second,
+		milliseconds: fields.millisecond,
+		dayOfWeek: fields.dayOfWeek,
+		timezoneOffsetMinutes: fields.offsetMinutes,
 	};
 }
 
@@ -170,13 +153,17 @@ function pad(value: number, length: number): string {
  * compileTimezoneOffsetToken`) emits the same shape.
  */
 export function formatTimezoneOffset(offsetMinutes: number): string {
-	const hours = Math.trunc(offsetMinutes / 60);
+	// Core divides an offset in milliseconds by integer arithmetic, so the
+	// seconds of a local mean time Java's zone holds from 1900 on (Kolkata's
+	// +5:21:10) are truncated away.
+	const wholeMinutes = Math.trunc(offsetMinutes);
+	const hours = Math.trunc(wholeMinutes / 60);
 	const head =
 		hours > 0
 			? `+${pad(hours, 2)}`
 			: hours === 0
 				? "Z"
 				: `-${pad(Math.abs(hours), 2)}`;
-	const remainderMinutes = Math.abs(offsetMinutes) % 60;
+	const remainderMinutes = Math.abs(wholeMinutes) % 60;
 	return remainderMinutes === 0 ? head : `${head}:${pad(remainderMinutes, 2)}`;
 }

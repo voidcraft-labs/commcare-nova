@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
+	instantDatetimeValue,
 	isReadableTemporalValue,
 	paddedTimeOfDay,
 	storageDatetimeValue,
@@ -325,4 +326,55 @@ describe("stored datetime instants at timezone transitions", () => {
 			).toEqual(nativeInstants);
 		},
 	);
+});
+
+describe("instantDatetimeValue", () => {
+	it("writes the instant's wall clock and offset in the zone", () => {
+		expect(
+			instantDatetimeValue(Date.parse("2024-01-15T19:30:00.000Z"), "UTC"),
+		).toBe("2024-01-15T19:30:00.000Z");
+		expect(
+			instantDatetimeValue(
+				Date.parse("2024-01-15T19:30:00.000Z"),
+				"America/New_York",
+			),
+		).toBe("2024-01-15T14:30:00.000-05:00");
+	});
+
+	it("keeps years 0-99 and BC years in their own century", () => {
+		// Java's zone holds no history before 1900, so an earlier instant takes
+		// the zone's standard offset, never its local mean time (-4:56:02).
+		const year50 = Date.parse("0050-01-01T10:00:00.000Z");
+		expect(instantDatetimeValue(year50, "America/New_York")).toBe(
+			"0050-01-01T05:00:00.000-05:00",
+		);
+		expect(instantDatetimeValue(year50, "UTC")).toBe(
+			"0050-01-01T10:00:00.000Z",
+		);
+		expect(
+			instantDatetimeValue(
+				Date.parse("-000100-06-01T10:00:00.000Z"),
+				"Asia/Kolkata",
+			),
+		).toMatch(/-06-01T15:30:00\.000\+05:30$/);
+	});
+
+	it("reads each zone as Java does either side of 1900-01-01T00:00Z", () => {
+		// From the cutoff on, the tzdb's own offset, local mean time included;
+		// the stored text rounds it to whole minutes and still round-trips.
+		const before = Date.parse("1899-12-31T23:59:59.000Z");
+		const after = Date.parse("1900-01-01T00:00:01.000Z");
+		expect(instantDatetimeValue(before, "Asia/Kolkata")).toBe(
+			"1900-01-01T05:29:59.000+05:30",
+		);
+		expect(instantDatetimeValue(after, "Asia/Kolkata")).toBe(
+			"1900-01-01T05:21:01.000+05:21",
+		);
+		expect(instantDatetimeValue(before, "Pacific/Kiritimati")).toBe(
+			"1900-01-01T13:59:59.000+14:00",
+		);
+		expect(instantDatetimeValue(after, "Pacific/Kiritimati")).toBe(
+			"1899-12-31T13:31:01.000-10:29",
+		);
+	});
 });

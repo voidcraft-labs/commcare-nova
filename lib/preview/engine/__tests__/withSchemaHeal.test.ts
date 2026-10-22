@@ -1,5 +1,6 @@
 /** Mocked persistence boundary: retry eligibility, ordering, identity and error
  * propagation. Database rollback and persisted effects belong to native tests. */
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
@@ -8,6 +9,7 @@ import {
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
+import { CASEDB_READING } from "@/lib/domain/expression/temporalType";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 
 const { drainPendingMock, loadAppMock, materializeMock } = vi.hoisted(() => ({
@@ -179,6 +181,7 @@ describe("schemaHealingCaseStore adapter", () => {
 		const request = {
 			appId: "app-1",
 			caseType: "patient",
+			reading: CASEDB_READING,
 			indexIdentifier: "parent",
 			groupOffset: 0,
 			groupLimit: 50,

@@ -10,7 +10,7 @@ import { tileFixture } from "@/lib/commcare/__tests__/tileFixture";
 import { wireTable } from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
 import { calculatedColumn } from "@/lib/domain";
 import { eq, literal, matchAll, tableLookup } from "@/lib/domain/expression";
-import { sourceSessionDatums } from "@/lib/preview/engine/formLinkEvaluation";
+import { entrySessionData } from "@/lib/preview/engine/entrySessionData";
 
 import { getFormTool } from "../getForm";
 import { getModuleTool } from "../getModule";
@@ -70,10 +70,14 @@ describe("navigation through authoring reads", () => {
 			moduleUuid: MODULE,
 		});
 		expect([
-			...sourceSessionDatums(doc, RETURN, {
-				caseId: "loan-a",
-				childCases: [],
-			}).values(),
+			...entrySessionData(doc, RETURN, {
+				appId: "app-test",
+				entryKey: "entry-test",
+				boundCases: [{ caseId: "loan-a" }],
+				menuSelections: {},
+				caseDatabase: null,
+				identity: null,
+			}).values.values(),
 		]).toContainEqual({ value: "loan-a" });
 	});
 	it("resolves grouped tiles with lookup-backed display expressions without lowering their selectors", async () => {
@@ -119,10 +123,14 @@ describe("navigation through authoring reads", () => {
 			selectingModuleUuids: [mod.uuid],
 		});
 		expect([
-			...sourceSessionDatums(doc, formUuid, {
-				caseId: "visit-a",
-				childCases: [],
-			}).values(),
+			...entrySessionData(doc, formUuid, {
+				appId: "app-test",
+				entryKey: "entry-test",
+				boundCases: [{ caseId: "visit-a" }],
+				menuSelections: {},
+				caseDatabase: null,
+				identity: null,
+			}).values.values(),
 		]).toContainEqual({ value: "visit-a" });
 	});
 	it("returns concrete preceding-task navigation from update and read", async () => {

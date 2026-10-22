@@ -1050,7 +1050,14 @@ the supplied sync log is valid and proves the device already holds every
 requested case, and none changed since that sync. A new claim, missing/stale
 sync proof, absent local case, or changed case returns 201 so the client
 restores. No ids returns 400; any nonexistent id returns 410 before any case is
-claimed. Nova does not reproduce that restore lifecycle in Preview.
+claimed. Preview plays the claim's effect where CommCare posts it and writes no
+claim row: a claim for a result the worker's restore does not hold adds it to
+that worker's claims, which seed the restore scope as HQ's claim extension
+does, so the form opens with the case as it does on a device. A search action's
+claim posts when the result is chosen; a search-first module's claim sits in
+each form's entry and posts once a form is chosen, with the entry's other case
+datums under a selected parent, so its form menu shows before it
+(`lib/preview/searchClaims.ts`).
 
 Grouped tiles remain legal and use the existing selected-values join for their
 companion parent-id datum, pinned by
@@ -1230,9 +1237,10 @@ single body element, no `user_id`, every declared `jr://fixture/` src
 delivered) and the XForm oracle checks itemset shape
 (`XFORM_ITEMSET_INVALID`). Validator dry-runs use `inertLookupWireNaming` so
 portability checks stay total without real definitions. Preview and
-case-store SQL evaluate carriers (the preview reuses these
-emitters row-scoped over its loaded fixture snapshot — see
-`lib/preview/CLAUDE.md`); CSQL and the case-search `_xpath_query` path keep
+case-store SQL evaluate carriers (Preview evaluates the same wire tree in
+`preview` mode over its loaded fixture snapshot, a lookup-backed choice list's
+through the one `lookupOptions.ts::lookupOptionsNodeset` the XForm itemset and
+the Search prompt print; see `lib/preview/CLAUDE.md`); CSQL and the case-search `_xpath_query` path keep
 rejecting them.
 
 `workbook.ts` is the OTHER carrier: the `.xlsx` CommCare HQ's fixture upload

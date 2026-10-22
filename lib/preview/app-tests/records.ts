@@ -1,5 +1,11 @@
 import type { AppTestScope } from "@/lib/db/appTests";
 import { noMatchesFormOf } from "@/lib/domain";
+import {
+	CASEDB_READING,
+	type CaseQueryReading,
+	caseQueryReadingFor,
+	SEARCH_READING,
+} from "@/lib/domain/expression/temporalType";
 import { readCases } from "../engine/caseDataBindingHelpers";
 import { previewCaseStoreOrder } from "../engine/caseListOrder";
 import { evaluateSearch } from "../engine/evaluateForm";
@@ -66,12 +72,20 @@ export async function appTestRecords(
 	);
 	if (caseContext.requiredParentCase)
 		throw new AppTestActionError("Select the required parent record first.");
+	/* A completed or submitted search's Results read HQ's search population,
+	 * as the browser's do; a browse list reads the session's restore. */
+	const searched = recordsReadSearch(mod, {
+		searchAnswers:
+			search.relevant && search.hasSubmitted ? search.submitted : undefined,
+		registeredCaseId: next.screen.registeredCaseId,
+	});
 	const result =
 		!resultVisible || Object.keys(search.errors).length > 0
 			? undefined
 			: await readCases(context.store, {
 					appId: scope.appId,
 					caseType: mod.caseType,
+					reading: searchedReading(searched),
 					caseIds: next.screen.registeredCaseId
 						? [next.screen.registeredCaseId]
 						: undefined,
@@ -111,7 +125,9 @@ export async function appTestRecords(
 					excludedOwnerIds: search.excludedOwnerIds,
 					authoredExcludedOwnerIds: search.authoredExcludedOwnerIds,
 					page: { offset: next.screen.offset ?? 0, limit: 50 },
-					restoreScope: context.restoreScope,
+					...(searched
+						? { searchPopulation: { heldBy: context.restoreScope } }
+						: { restoreScope: context.restoreScope }),
 				});
 	const candidate = noMatchesFormOf(context.doc, screen.moduleUuid);
 	// Each action serializes a completed read, so its launch and search share
@@ -138,7 +154,38 @@ export async function appTestRecords(
 	return {
 		state: next,
 		search,
+		searched,
 		result,
 		registration: admission.kind === "admitted" ? candidate : undefined,
 	};
+}
+
+/**
+ * What a session's read stands for: a search's population reads HQ's search,
+ * then the results instance; every other read is the session's device, a
+ * casedb throughout, even in a module whose Search action sits beside its
+ * browse list.
+ */
+export function searchedReading(searched: boolean): CaseQueryReading {
+	return searched ? SEARCH_READING : CASEDB_READING;
+}
+
+/**
+ * Whether a records screen shows a search's Results: the module has an
+ * effective Search, and the screen holds a submitted search or the case its
+ * no-matches form registered. Its Results, and the Details and selections of
+ * cases chosen from them, read the search's population.
+ */
+export function recordsReadSearch(
+	mod: Parameters<typeof caseQueryReadingFor>[0],
+	screen: {
+		readonly searchAnswers?: readonly unknown[];
+		readonly registeredCaseId?: string;
+	},
+): boolean {
+	return (
+		caseQueryReadingFor(mod) === SEARCH_READING &&
+		(screen.searchAnswers !== undefined ||
+			screen.registeredCaseId !== undefined)
+	);
 }

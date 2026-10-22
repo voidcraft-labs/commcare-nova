@@ -71,6 +71,7 @@ import {
 	term,
 	today,
 } from "@/lib/domain/expression/builders";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import {
 	CaseNotFoundError,
@@ -309,6 +310,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(inserted.caseId).toBe(PATIENT_ALICE_ID);
 
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -346,6 +348,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -389,6 +392,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// (`(properties->>'age')::int`) executes correctly on
 			// the live engine.
 			const matched = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -418,6 +422,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				});
 			}
 			const selected = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				caseIds: [PATIENT_BOB_ID, PATIENT_CAROL_ID],
@@ -425,6 +430,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(selected.map((row) => row.case_id)).toEqual([PATIENT_BOB_ID]);
 			await expect(
 				store.query({
+					reading: SEARCH_READING,
 					appId: APP_ID,
 					caseType: "patient",
 					caseIds: [PATIENT_BOB_ID, PATIENT_BOB_ID],
@@ -432,6 +438,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			).rejects.toThrow("ordered unique set");
 			await expect(
 				store.query({
+					reading: SEARCH_READING,
 					appId: APP_ID,
 					caseType: "patient",
 					caseIds: Array.from({ length: 101 }, (_, index) => `case-${index}`),
@@ -439,6 +446,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			).rejects.toThrow("100-case ceiling");
 			expect(
 				await store.query({
+					reading: SEARCH_READING,
 					appId: APP_ID,
 					caseType: "patient",
 					caseIds: [],
@@ -477,6 +485,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -515,6 +524,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -554,6 +564,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -588,6 +599,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await store.close({ appId: APP_ID, caseId: PATIENT_ALICE_ID });
 
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -626,6 +638,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 
 			const beforeClose = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -641,6 +654,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseId: PATIENT_ALICE_ID,
 			});
 			const afterSecond = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -694,6 +708,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			// Primary row landed, born open.
 			const households = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "household",
 			});
@@ -705,6 +720,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// `parent_case_id` — the implicit threading the envelope's
 			// registration contract pins.
 			const patients = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -770,12 +786,14 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Primary's case-type is empty after rollback — the
 			// transaction undid the household insert too.
 			const households = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "household",
 			});
 			expect(households).toHaveLength(0);
 			// Children's case-type is empty too.
 			const patients = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -842,11 +860,13 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// All three rows materialize: 1 household, 2 patients,
 			// 1 visit, all under the same primary id.
 			const patients = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
 			expect(patients).toHaveLength(2);
 			const visits = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "visit",
 			});
@@ -902,6 +922,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(result.createdChildren).toHaveLength(0);
 
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -1111,12 +1132,14 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// other property intact — but the default read no longer sees
 			// him: his park HOLDS the case out of the running app.
 			const visible = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
 			expect(visible.map((r) => r.case_id)).toEqual([PATIENT_ALICE_ID]);
 			expect(visible[0]?.properties).toEqual({ age: 30 });
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				includeHeld: true,
@@ -1136,6 +1159,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				patch: { properties: makeProperties({ note: "still editable" }) },
 			});
 			const afterWrite = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				includeHeld: true,
@@ -1160,6 +1184,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(revert.restored).toBe(1); // Bob's "abc" came back
 			expect(revert.parkedIds).toEqual([]);
 			const restored = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -1244,7 +1269,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(revert.retyped).toBe(0); // widening — rows untouched
 			expect(revert.restored).toBe(1); // Bob's value came back anyway
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			const byId = new Map(rows.map((r) => [r.case_id, r]));
 			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({
 				visit: "2026-01-05",
@@ -1324,7 +1353,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(report.migrated).toBe(0);
 			expect(report.parkedIds).toEqual([]);
 
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			const byId = new Map(rows.map((r) => [r.case_id, r]));
 			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({
 				language: ["en"],
@@ -1340,7 +1373,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseId: PATIENT_ALICE_ID,
 				patch: { properties: makeProperties({ note: "updated" }) },
 			});
-			const after = await store.query({ appId: APP_ID, caseType: "patient" });
+			const after = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(
 				after.find((r) => r.case_id === PATIENT_ALICE_ID)?.properties,
 			).toEqual({ language: ["en"], note: "updated" });
@@ -1399,7 +1436,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(report.reshaped).toBe(1);
 
 			// The XForms multi-value convention: space-joined.
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(rows[0]?.properties).toEqual({ languages: "en fr" });
 
 			await store.update({
@@ -1407,7 +1448,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseId: PATIENT_ALICE_ID,
 				patch: { properties: makeProperties({ languages: "en" }) },
 			});
-			const after = await store.query({ appId: APP_ID, caseType: "patient" });
+			const after = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(after[0]?.properties).toEqual({ languages: "en" });
 		});
 
@@ -1461,7 +1506,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// The coarse gate no-opped the WHOLE call: the row keeps its
 			// scalar, and the stored schema still validates scalars — a
 			// fresh scalar write passes.
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(rows[0]?.properties).toEqual({ language: "en" });
 			await store.update({
 				appId: APP_ID,
@@ -1527,6 +1576,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(report.parkedIds).toHaveLength(1);
 			// Alice's park holds her case; the storage read opts in.
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				includeHeld: true,
@@ -1579,7 +1629,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(report.reshaped).toBe(0);
 			expect(report.retyped).toBe(1);
 			expect(report.parkedIds).toEqual([]);
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(rows[0]?.properties).toEqual({ age: ["30"] });
 		});
 
@@ -1629,7 +1683,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// The calendar date IS what the conversion asked to keep — and
 			// the row's next write must pass the regenerated `format:
 			// "date"` schema (the stranding this closes).
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(rows[0]?.properties).toEqual({ seen_at: "2026-06-15" });
 			await store.update({
 				appId: APP_ID,
@@ -1646,7 +1704,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(back.retyped).toBe(1);
 			expect(back.parkedIds).toEqual([]);
-			const after = await store.query({ appId: APP_ID, caseType: "patient" });
+			const after = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(after[0]?.properties).toEqual({
 				seen_at: "2026-07-01T00:00:00.000Z",
 			});
@@ -1702,7 +1764,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(report.migrated).toBe(1);
 			expect(report.reshaped).toBe(0);
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(rows[0]?.properties).toEqual({ language: ["en"] });
 		});
 
@@ -1782,6 +1848,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// BOTH rows remain in storage; Alice's `color` key is gone and
 			// her park HOLDS her case out of the default read.
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				includeHeld: true,
@@ -1790,7 +1857,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(rows).toHaveLength(2);
 			expect(byId.get(PATIENT_ALICE_ID)?.properties).toEqual({});
 			expect(byId.get(PATIENT_BOB_ID)?.properties).toEqual({ color: "blue" });
-			const visible = await store.query({ appId: APP_ID, caseType: "patient" });
+			const visible = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(visible.map((r) => r.case_id)).toEqual([PATIENT_BOB_ID]);
 		});
 
@@ -1852,6 +1923,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// faithful rather than a merge puzzle. The park holds the
 			// case, so reading the row opts in.
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				includeHeld: true,
@@ -1930,6 +2002,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			// The preview is read-only — nothing parked, nothing held.
 			const population = await store.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -2039,7 +2112,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(back.restored).toBe(1);
 			expect(back.parkedIds).toEqual([]);
 
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			const byId = new Map(rows.map((r) => [r.case_id, r]));
 			// Both cases visible again — the restore released the hold.
 			expect(rows).toHaveLength(2);
@@ -2159,11 +2236,22 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Held: Bob is out of the default read AND the default count —
 			// the running app simply doesn't see him. The opt-in read (the
 			// review dialog, the case-data population count) still does.
-			const visible = await store.query({ appId: APP_ID, caseType: "patient" });
+			const visible = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(visible.map((r) => r.case_id)).toEqual([PATIENT_ALICE_ID]);
-			expect(await store.count({ appId: APP_ID, caseType: "patient" })).toBe(1);
 			expect(
 				await store.count({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "patient",
+				}),
+			).toBe(1);
+			expect(
+				await store.count({
+					reading: SEARCH_READING,
 					appId: APP_ID,
 					caseType: "patient",
 					includeHeld: true,
@@ -2179,7 +2267,13 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					dismissed: true,
 				}),
 			).toBe(1);
-			expect(await store.count({ appId: APP_ID, caseType: "patient" })).toBe(2);
+			expect(
+				await store.count({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "patient",
+				}),
+			).toBe(2);
 
 			// Moving the entry back to review re-holds the case.
 			expect(
@@ -2189,7 +2283,13 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					dismissed: false,
 				}),
 			).toBe(1);
-			expect(await store.count({ appId: APP_ID, caseType: "patient" })).toBe(1);
+			expect(
+				await store.count({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "patient",
+				}),
+			).toBe(1);
 
 			// Resolving the value releases the case: replace writes a
 			// fitting value and archives the entry in one flow.
@@ -2199,6 +2299,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				value: 42,
 			});
 			const released = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -2354,7 +2455,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([textAge])),
 			});
 			expect(revert.restored).toBe(0);
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(rows[0]?.properties).toEqual({});
 
 			// The archived entry now stands fits (text again, key free) —
@@ -2388,6 +2493,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				}),
 			).toEqual({ restored: 1, kept: 0, displaced: 0 });
 			const restoredRows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -2458,7 +2564,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([textAge])),
 			});
 			expect(revert.restored).toBe(1);
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(rows[0]?.properties).toEqual({ age: "abc" });
 		});
 
@@ -2517,7 +2627,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				id: parkedId,
 				value: 42,
 			});
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(rows[0]?.properties).toEqual({ age: 42 });
 			// The entry archives rather than deletes — the original value
 			// stays readable under the Dismissed filter. "abc" fails the
@@ -2627,7 +2741,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(backToSelect.migrated).toBe(0);
 			expect(backToSelect.parkedIds).toEqual([]);
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(rows[0]?.properties).toEqual({ condition: "well" });
 		});
 
@@ -2735,7 +2853,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				ids: listed.map((e) => e.id),
 			});
 			expect(result).toEqual({ restored: 2, kept: 0, displaced: 0 });
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(rows[0]?.properties).toEqual({
 				color: "red",
 				symptoms: ["fever", "chills"],
@@ -2802,7 +2924,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					ids: report.parkedIds,
 				}),
 			).toEqual({ restored: 1, kept: 0, displaced: 1 });
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(rows[0]?.properties).toEqual({ age: "abc" });
 			const listed = await store.listParkedValues({
 				appId: APP_ID,
@@ -2864,7 +2990,11 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					ids: report.parkedIds,
 				}),
 			).toEqual({ restored: 0, kept: 1, displaced: 0 });
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+			const rows = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			expect(rows[0]?.properties).toEqual({ age: 42 });
 			const listed = await store.listParkedValues({
 				appId: APP_ID,
@@ -2985,12 +3115,14 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 
 			const seenByA = await storeA.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
 			expect(seenByA).toHaveLength(1);
 
 			const seenByB = await storeB.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -3026,6 +3158,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			// memberTwo (same Project, different actor) sees memberOne's row…
 			const seenByTwo = await memberTwo.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -3076,6 +3209,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			// The row's data is untouched as seen through owner A.
 			const rows = await storeA.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -3109,6 +3243,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 
 			const rows = await storeA.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -3226,6 +3361,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Both members see the same Project row; case ownership still records
 			// the member who created it.
 			const seenByB = await storeB.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -3234,6 +3370,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(seenByB[0]?.owner_id).toBe(USER_B);
 
 			const seenByA = await storeA.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -3256,12 +3393,14 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 
 			const seenByA = await storeA.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
 			expect(seenByA).toHaveLength(5);
 
 			const seenByB = await storeB.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -3302,12 +3441,14 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Both members now see exactly the regenerated shared set, attributed
 			// to the member who performed the reset.
 			const afterBRows = await storeB.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
 			expect(afterBRows).toHaveLength(2);
 			expect(afterBRows.every((row) => row.owner_id === USER_A)).toBe(true);
 			const afterARows = await storeA.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -3332,6 +3473,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(result).toEqual({ inserted: 5 });
 
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -3375,10 +3517,12 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// without an explicit sort is implementation-leaky;
 			// sorting here pins the contract.
 			const sharedRows = await storeA.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
 			const rowsSeenByB = await storeB.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -3416,6 +3560,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				seed: "before-reset",
 			});
 			const beforeRows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -3434,6 +3579,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(result.inserted).toBe(2);
 
 			const afterRows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -3481,10 +3627,12 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Every child row carries a non-null `parent_case_id`
 			// pointing at one of the household rows.
 			const households = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "household",
 			});
 			const patients = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -3566,6 +3714,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			const ageNextYearUuid = testUuid("age_next_year");
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3609,6 +3758,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const nullExpr = term({ kind: "literal", value: null });
 			const nothingUuid = testUuid("nothing");
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3638,6 +3788,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3688,6 +3839,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			const ageNextYearUuid = testUuid("age_next_year");
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3745,6 +3897,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			const ageNextYearUuid = testUuid("age_next_year");
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3788,9 +3941,14 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				},
 			});
 
-			const before = await store.query({ appId: APP_ID, caseType: "patient" });
+			const before = await store.query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+			});
 			const aliasUnderTestUuid = testUuid("alias_under_test");
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3824,6 +3982,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			await seedSchema(store, blueprint, "patient");
 
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3858,6 +4017,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			const todayUuid = testUuid("today_iso");
 			const rows = await store.query({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3979,6 +4139,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			// `age > 30` matches Bob + Carol; not Alice.
 			const matchedCount = await store.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 				caseTypeSchemas: buildCaseTypeMap(blueprint),
@@ -3990,6 +4151,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// pair-shape contract the Filters preview relies on
 			// ("X of Y total" requires both numbers).
 			const totalCount = await store.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -4016,6 +4178,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// the tenant-isolation tests above.
 			const storeB = await options.factory(TENANT_B);
 			const otherCount = await storeB.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});
@@ -4023,6 +4186,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 
 			// Owner A sees the row they inserted.
 			const myCount = await storeA.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
 			});

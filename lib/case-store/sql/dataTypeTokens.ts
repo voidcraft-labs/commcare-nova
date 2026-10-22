@@ -90,9 +90,11 @@ export interface ReservedScalarColumn {
  * (`lib/preview/engine/caseDataBindingClient.ts::caseRowDisplayValue`)
  * resolves the same names off the row object.
  *
- * Truly internal columns (`app_id`, `project_id`, `closed_on`,
- * `parent_case_id`) stay unmapped — tenant / FK plumbing with no
- * authoring-vocabulary name.
+ * Truly internal columns (`app_id`, `project_id`, `parent_case_id`)
+ * stay unmapped — tenant / FK plumbing with no authoring-vocabulary
+ * name. `closed_on` is not here because only one reading reads it:
+ * `compileTerm.ts::reservedColumnFor` maps it under `search` and refuses
+ * it under every other reading.
  *
  * **Shadowing:** these names are also syntactically valid property
  * identifiers, but a field cannot write one — the validator's
@@ -148,3 +150,12 @@ export const RESERVED_SCALAR_COLUMN_BY_PROPERTY: ReadonlyMap<
 export const NAIVE_TEMPORAL_TEXT_PATTERN =
 	"^[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}((T|[ ]+)[0-9]{1,2}:[0-9]{1,2}(:[0-9]{1,2}(\\.[0-9]+)?)?)?$";
 export const NAIVE_TEMPORAL_TEXT_RE = new RegExp(NAIVE_TEMPORAL_TEXT_PATTERN);
+
+/**
+ * The shape a writer stores a date and time in, as the device lowering
+ * reads one (part 04's instant parse): `yyyy-MM-ddTHH:mm:ss`, any fraction,
+ * then `Z`, `±HH`, `±HH:MM` or no offset. `compileTerm.ts::compileStoredInstant`
+ * reads a stored datetime property as an instant only in this shape.
+ */
+export const STORED_INSTANT_TEXT_PATTERN =
+	"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}(:[0-9]{2})?)?$";

@@ -402,6 +402,13 @@ export type SubmissionRejection =
 				| "authored-key-identity-is-type-stable";
 	  }
 	| {
+			/** The id the entry's session gave a case this form creates names a
+			 *  case that already exists. */
+			readonly kind: "new-case";
+			readonly reason: "case-id-taken";
+			readonly caseId: string;
+	  }
+	| {
 			readonly kind: "retype-not-portable";
 			readonly operationUuid: string;
 			readonly caseId: string;

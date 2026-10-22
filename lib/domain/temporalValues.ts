@@ -64,6 +64,8 @@
 // Nova stores the spelling that cannot be invalidated by a stricter
 // validator later.
 
+import { javaZoneOffsetMs } from "./javaZoneOffset";
+
 /** The three kinds of temporal answer, spelled the same way by a field's
  *  `kind` and a case property's `data_type`. */
 export type TemporalValueKind = "date" | "time" | "datetime";
@@ -200,6 +202,7 @@ function zoneFormatter(zone: string): Intl.DateTimeFormat {
 		formatter = new Intl.DateTimeFormat("en-US", {
 			timeZone: zone,
 			hourCycle: "h23",
+			era: "short",
 			year: "numeric",
 			month: "2-digit",
 			day: "2-digit",
@@ -214,24 +217,39 @@ function zoneFormatter(zone: string): Intl.DateTimeFormat {
 	return formatter;
 }
 
-/** Minutes `zone` is ahead of UTC at a given instant. */
-function zoneOffsetMinutesAt(zone: string, instantMs: number): number {
-	const parts = zoneFormatter(zone).formatToParts(new Date(instantMs));
+/** Milliseconds `zone` is ahead of UTC at an instant in the IANA history,
+ * seconds included. The formatter reads whole seconds, so the instant is
+ * floored to its second first. */
+function ianaZoneOffsetMs(zone: string, instantMs: number): number {
+	const second = Math.floor(instantMs / 1000) * 1000;
+	const parts = zoneFormatter(zone).formatToParts(new Date(second));
 	const read = (type: Intl.DateTimeFormatPartTypes): number => {
 		const part = parts.find((candidate) => candidate.type === type);
 		return part === undefined ? 0 : Number(part.value);
 	};
+	// The formatter counts years in their era (proleptic Gregorian, 1 BC is
+	// year 1 BC), so a BC year is turned back into an astronomical one.
+	const eraYear = read("year");
+	const era = parts.find((candidate) => candidate.type === "era")?.value;
+	const year = era === "BC" ? 1 - eraYear : eraYear;
 	// `hourCycle: "h23"` should already keep midnight at 0, but ICU has
-	// historically reported 24 here and the modulo costs nothing.
-	const wallAsUtc = Date.UTC(
-		read("year"),
-		read("month") - 1,
-		read("day"),
-		read("hour") % 24,
-		read("minute"),
-		read("second"),
+	// historically reported 24 here and the modulo costs nothing. The fields
+	// go through `setUTCFullYear`, never `Date.UTC`, which reads years 0-99 as
+	// 1900-1999.
+	const wall = new Date(0);
+	wall.setUTCFullYear(year, read("month") - 1, read("day"));
+	wall.setUTCHours(read("hour") % 24, read("minute"), read("second"), 0);
+	return wall.getTime() - second;
+}
+
+/** Minutes `zone` is ahead of UTC at an instant, as `java.util.TimeZone`
+ * gives it (`javaZoneOffset.ts`): the IANA offset from 1900 on, the zone's
+ * standard offset before it. */
+function zoneOffsetMinutesAt(zone: string, instantMs: number): number {
+	const offsetMs = javaZoneOffsetMs(instantMs, (instant) =>
+		ianaZoneOffsetMs(zone, instant),
 	);
-	return Math.round((wallAsUtc - instantMs) / 60_000);
+	return Math.round(offsetMs / 60_000);
 }
 
 function formatZoneOffset(offsetMinutes: number): string {
@@ -239,6 +257,28 @@ function formatZoneOffset(offsetMinutes: number): string {
 	const sign = offsetMinutes > 0 ? "+" : "-";
 	const magnitude = Math.abs(offsetMinutes);
 	return `${sign}${pad(Math.floor(magnitude / 60), 2)}:${pad(magnitude % 60, 2)}`;
+}
+
+/**
+ * The canonical stored text of an INSTANT in `zone`: its wall clock there,
+ * `YYYY-MM-DDTHH:MM:SS.mmm`, and the offset in force at that instant. This
+ * is the text Core's `DateTimeData` holds for the instant
+ * (`DateTimeData::uncast`), Nova-spelled `±HH:MM`.
+ *
+ * Total and exact: no wall clock is resolved, so an instant in a repeated
+ * hour keeps its own occurrence's offset, and reading the text back by that
+ * offset returns the same instant.
+ */
+export function instantDatetimeValue(instantMs: number, zone: string): string {
+	const offsetMinutes = zoneOffsetMinutesAt(zone, instantMs);
+	const wall = new Date(instantMs + offsetMinutes * 60_000);
+	return `${pad(wall.getUTCFullYear(), 4)}-${pad(wall.getUTCMonth() + 1, 2)}-${pad(
+		wall.getUTCDate(),
+		2,
+	)}T${pad(wall.getUTCHours(), 2)}:${pad(wall.getUTCMinutes(), 2)}:${pad(
+		wall.getUTCSeconds(),
+		2,
+	)}.${pad(wall.getUTCMilliseconds(), 3)}${formatZoneOffset(offsetMinutes)}`;
 }
 
 /**

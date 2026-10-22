@@ -120,7 +120,7 @@ async function contextFor(
 		// use it too, independently of the database connection's timezone.
 		clock: {
 			timeZone: viewerTimeZone(),
-			today: XPathDate.fromJSDateOnly(new Date()).toISOString(),
+			today: XPathDate.localDateOf(Date.now()).toISOString(),
 		},
 		locations: snapshot.locations,
 		testPlaceIds: snapshot.testPlaceIds,
@@ -136,6 +136,8 @@ async function contextFor(
 			ownerIds: persona
 				? personaOwnerIds(doc, persona, snapshot.locations)
 				: memberOwnerIds(scope.actorUserId),
+			// The session's claims seed its Results, Details, preloads and Sync.
+			claimedCaseIds: state.claimedCaseIds,
 		},
 		lookup: previewLookupData({
 			...snapshot.lookup,

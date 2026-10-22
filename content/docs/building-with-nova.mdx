@@ -115,6 +115,13 @@ can correct it. Optional questions can be left empty.
 When a form opens an existing record, its questions become available after that
 record finishes loading. This keeps early answers from being replaced as the
 form starts.
+When a form opens a case whose saved value doesn't fit its question, such as
+text that isn't a date for a date question, CommCare won't open the form for
+that case, and Preview doesn't either. Preview names the value, and you can
+choose another record. A starting value that works out to the wrong kind of
+value stops the form the same way, and Preview names the question so you can
+change its starting value. A new repeated entry whose starting value doesn't
+fit isn't added, and the section says why.
 
 Preview saves changes to your case records. It does not provide an archive of
 each submitted form's answers. Independent visit reports collected through
@@ -324,6 +331,12 @@ worker is.
 Choices and record filters that use a Project data table keep their table and
 column references when those names change. Formulas can read the records and
 session values available in their current setting.
+
+A formula can read values the app's menus supply to a form, such as the ID of
+the case chosen in a menu or the ID this form's new case will get, through
+`instance('commcaresession')/session/data/`. Preview supplies them as a device
+does, so a registration form that reads its new case's ID reads the ID the case
+is saved with.
 
 A hidden value has one expression and a choice of when it runs, or no
 expression at all. **Keep in

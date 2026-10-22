@@ -19,7 +19,7 @@ import {
 import { evaluateAsync } from "../../xpath/asyncEvaluator";
 import { toBoolean } from "../../xpath/coerce";
 import type { PreviewSearchSessionValues } from "../identity";
-import { sessionInstancePathValue } from "../searchExpressionEvaluation";
+import type { SearchScreenXPath } from "../searchExpressionEvaluation";
 import {
 	searchInputConstraintErrors,
 	searchInputConstraintErrorsOnDevice,
@@ -27,20 +27,17 @@ import {
 	searchInputRequiredMarksOnDevice,
 } from "../searchInputConstraints";
 
-async function evaluatePatternSource(source: string): Promise<boolean> {
+/** The worker's side of the device path: the printed text over the
+ * instances it was sent with, through the real async Java Pattern evaluator. */
+async function evaluatePatternSource(
+	xpath: SearchScreenXPath,
+): Promise<boolean> {
 	return toBoolean(
-		await evaluateAsync(source, {
+		await evaluateAsync(xpath.source, {
 			contextPath: "",
 			position: 1,
-			getValue: (path) => sessionInstancePathValue(path, SESSION),
-			resolveHashtag: () => "",
-			resolveInstance: (instanceId, path) =>
-				instanceId === "commcaresession"
-					? {
-							kind: "supported",
-							value: sessionInstancePathValue(path, SESSION),
-						}
-					: { kind: "unsupported" },
+			getValue: () => undefined,
+			resolveXPathInstance: (instanceId) => xpath.instances.get(instanceId),
 		}),
 	);
 }
@@ -175,15 +172,17 @@ describe("searchInputConstraintErrorsOnDevice", () => {
 			SESSION,
 			constraintEnvironment(INPUTS),
 			{
-				evaluateOnDevice: async (source) => {
-					sources.push(source);
-					return evaluatePatternSource(source);
+				evaluateOnDevice: async (xpath) => {
+					sources.push(xpath.source);
+					return evaluatePatternSource(xpath);
 				},
 			},
 		);
 		expect(errors.get("ssn")).toBe("Use the 123-45-6789 shape");
+		// The answer is read from the search-input instance, as the device
+		// reads it, never substituted into the text.
 		expect(sources).toEqual([
-			"regex('12-345', '^[0-9]{3}-[0-9]{2}-[0-9]{4}$')",
+			"regex(instance('search-input:results')/input/field[@name = 'ssn'], '^[0-9]{3}-[0-9]{2}-[0-9]{4}$')",
 		]);
 	});
 
@@ -274,14 +273,16 @@ describe("searchInputRequiredMarks", () => {
 			SESSION,
 			constraintEnvironment([name, byPattern]),
 			{
-				evaluateOnDevice: async (source) => {
-					sources.push(source);
-					return evaluatePatternSource(source);
+				evaluateOnDevice: async (xpath) => {
+					sources.push(xpath.source);
+					return evaluatePatternSource(xpath);
 				},
 			},
 		);
 		expect([...marks]).toEqual([["phone", true]]);
-		expect(sources).toEqual(["regex('Dr Asha', '^Dr')"]);
+		expect(sources).toEqual([
+			"regex(instance('search-input:results')/input/field[@name = 'name'], '^Dr')",
+		]);
 	});
 });
 

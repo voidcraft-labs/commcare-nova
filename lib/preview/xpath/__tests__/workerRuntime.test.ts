@@ -1,21 +1,29 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	caseDatabaseXPathInstance,
-	previewHashtagNodeSet,
+	commcareSessionXPathInstance,
 } from "../../engine/xpathInstances";
 import { createInProcessXPathWorkerFactory } from "../inProcessWorkerClient";
+import { XPathDate } from "../types";
 import { XPathRuntime } from "../workerClient";
 import {
-	serializeXPathWorkerHashtagValue,
+	deserializeXPathWorkerValue,
+	serializeXPathWorkerValue,
 	snapshotXPathWorkerInstance,
 } from "../workerProjection";
-import type {
-	XPathRuntimeRequest,
-	XPathWorkerInstanceSnapshot,
-	XPathWorkerNodeSnapshot,
+import {
+	type SerializedXPathValue,
+	XPATH_WORKER_BUILD_ID,
+	XPATH_WORKER_PROTOCOL_VERSION,
+	type XPathRuntimeRequest,
+	type XPathWorkerInstanceSnapshot,
+	type XPathWorkerNodeSnapshot,
+	type XPathWorkerRequest,
+	type XPathWorkerResponse,
 } from "../workerProtocol";
 import {
 	asyncXPathWorkerFunctions,
+	createXPathWorkerDispatcher,
 	xpathRequiresAsyncWorker,
 } from "../workerRuntime";
 
@@ -34,7 +42,7 @@ afterEach(() => {
 function node(
 	name: string,
 	path: string,
-	value = "",
+	value: SerializedXPathValue = "",
 	children: readonly XPathWorkerNodeSnapshot[] = [],
 ): XPathWorkerNodeSnapshot {
 	return {
@@ -72,6 +80,85 @@ function request(
 }
 
 describe("XPath worker runtime", () => {
+	it("refuses a host speaking the previous protocol", () => {
+		const responses: XPathWorkerResponse[] = [];
+		const dispatcher = createXPathWorkerDispatcher({
+			postMessage: (response) => responses.push(response),
+		});
+		dispatcher.handleMessage({
+			...request(),
+			protocolVersion: 7,
+			buildId: XPATH_WORKER_BUILD_ID,
+			operation: "evaluate",
+			requestId: 1,
+		} as unknown as XPathWorkerRequest);
+		expect(XPATH_WORKER_PROTOCOL_VERSION).toBe(8);
+		expect(responses).toMatchObject([
+			{ ok: false, requestId: 1, error: { code: "protocol-mismatch" } },
+		]);
+		dispatcher.retire();
+	});
+
+	it("carries a date's calendar day and instant exactly, in both directions", async () => {
+		const originalTimeZone = process.env.TZ;
+		try {
+			// Built in Kiritimati, 05:45Z on 11 March is the local 11 March.
+			process.env.TZ = "Pacific/Kiritimati";
+			const instant = Date.parse("2026-03-10T15:45:00.000Z");
+			const sent = serializeXPathWorkerValue(XPathDate.fromInstant(instant));
+			expect(sent).toEqual({
+				kind: "date",
+				calendarDays: 20523,
+				timeMilliseconds: instant,
+			});
+			// The receiver keeps the sent day rather than re-reading it.
+			process.env.TZ = "UTC";
+			const received = deserializeXPathWorkerValue(sent);
+			expect(received).toBeInstanceOf(XPathDate);
+			expect((received as XPathDate).calendarDays).toBe(20523);
+			expect((received as XPathDate).timeMilliseconds).toBe(instant);
+
+			const runtime = ownedRuntime({
+				workerFactory: createInProcessXPathWorkerFactory(),
+			});
+			const main: XPathWorkerInstanceSnapshot = {
+				id: null,
+				root: node("", "/", "", [
+					node("data", "/data", "", [node("dt", "/data/dt", sent)]),
+				]),
+			};
+			const evaluated = await runtime.request(
+				request({
+					source: "date(/data/dt)",
+					instances: { main, contextPath: "/data/dt" },
+				}),
+			);
+			expect(evaluated).toMatchObject({
+				ok: true,
+				value: { kind: "date", calendarDays: 20523, timeMilliseconds: null },
+			});
+		} finally {
+			if (originalTimeZone === undefined) delete process.env.TZ;
+			else process.env.TZ = originalTimeZone;
+		}
+	});
+
+	it("carries a date past JavaScript's Date range back from the worker", async () => {
+		// Core accepts any int day number; Preview's day arithmetic is integral,
+		// so the worker's reply names the day rather than throwing at the seam.
+		const runtime = ownedRuntime({
+			workerFactory: createInProcessXPathWorkerFactory(),
+		});
+		const reply = await runtime.request(request({ source: "date(200000000)" }));
+		expect(reply).toMatchObject({
+			ok: true,
+			value: { kind: "date", timeMilliseconds: null },
+		});
+		const value = reply.ok ? deserializeXPathWorkerValue(reply.value) : null;
+		expect(value).toBeInstanceOf(XPathDate);
+		expect((value as XPathDate).coreDays).toBe(200_000_000);
+	});
+
 	it("detects async functions from the parsed AST without substring guesses", () => {
 		expect(
 			asyncXPathWorkerFunctions(
@@ -110,7 +197,7 @@ describe("XPath worker runtime", () => {
 			value: 42,
 		});
 		await expect(
-			runtime.request(request({ source: "count(#form/age)" })),
+			runtime.request(request({ source: "count(/data/age)" })),
 		).resolves.toMatchObject({ ok: true, value: 1 });
 		runtime.dispose();
 	});
@@ -177,7 +264,7 @@ describe("XPath worker runtime", () => {
 		runtime.dispose();
 	});
 
-	it("preserves hashtag nodesets through structured clone", async () => {
+	it("evaluates a case read over the casedb and session it was sent, with no hashtag values", async () => {
 		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
@@ -200,28 +287,26 @@ describe("XPath worker runtime", () => {
 			],
 			indices: [],
 		});
-		const reference = "#patient/status_text";
-		const nodeset = previewHashtagNodeSet(reference, {
-			casedb,
-			caseData: new Map([["patient", new Map([["case_id", "case-1"]])]]),
-			userId: undefined,
-		});
-		expect(nodeset).toBeDefined();
+		// The Preview print of a form's case read: the casedb walk keyed on the
+		// entry's session datum.
+		const caseRead =
+			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/status_text";
+		const instances = {
+			main: mainInstance(),
+			secondary: [
+				snapshotXPathWorkerInstance(casedb),
+				snapshotXPathWorkerInstance(
+					commcareSessionXPathInstance(null, { case_id: "case-1" }),
+				),
+			],
+			contextPath: "/data/age",
+		};
 
 		await expect(
-			runtime.request(
-				request({
-					source: `count(${reference})`,
-					instances: {
-						main: mainInstance(),
-						secondary: [snapshotXPathWorkerInstance(casedb)],
-						hashtagValues: [
-							serializeXPathWorkerHashtagValue(reference, nodeset ?? ""),
-						],
-						contextPath: "/data/age",
-					},
-				}),
-			),
+			runtime.request(request({ source: caseRead, instances })),
+		).resolves.toMatchObject({ ok: true, value: "open" });
+		await expect(
+			runtime.request(request({ source: `count(${caseRead})`, instances })),
 		).resolves.toMatchObject({ ok: true, value: 1 });
 		runtime.dispose();
 	});

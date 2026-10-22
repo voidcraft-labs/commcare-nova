@@ -35,6 +35,7 @@ import {
 	deriveStatusMessage,
 	deriveValidationAttempt,
 } from "./lifecycle";
+import { claimsFor, previewClaimsWorker } from "./previewClaims";
 import {
 	BuilderSessionContext,
 	useBuilderSession,
@@ -190,6 +191,25 @@ export function useSetPreviewPersonaUuid(): (
 	personaUuid: string | undefined,
 ) => void {
 	return useBuilderSession((s) => s.setPreviewPersonaUuid);
+}
+
+/** The cases `personaUuid` (undefined: the signed-in member) claimed from a
+ *  search in this app, in the order of each one's latest claim. Every
+ *  device-scoped read of that worker sends them. The array keeps its
+ *  reference until the claims change, so it can sit in a request identity. Reads the fallback store
+ *  outside a builder, where no worker has claimed anything. */
+export function usePreviewClaimedCaseIds(
+	personaUuid: string | undefined,
+): readonly string[] {
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	return useStore(store, (s) =>
+		claimsFor(s.previewClaims, s.appId, previewClaimsWorker(personaUuid)),
+	);
+}
+
+/** Add searched cases the current worker chose to that worker's claims. */
+export function useAddPreviewClaims(): (caseIds: readonly string[]) => void {
+	return useBuilderSession((s) => s.addPreviewClaims);
 }
 
 // ── Active field ──────────────────────────────────────────────────────────

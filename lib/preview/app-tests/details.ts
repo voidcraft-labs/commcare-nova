@@ -5,6 +5,7 @@ import {
 	orderedColumns,
 } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
+import type { CaseQueryReading } from "@/lib/domain/expression/temporalType";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { caseColumnLabel } from "../caseColumnLabel";
 import {
@@ -20,6 +21,7 @@ import { previewMenuCaseContext } from "../menuProjection";
 import { projectWorkerModule } from "../workerModule";
 import type { AppTestContext } from "./context";
 import { AppTestActionError } from "./errors";
+import { recordsReadSearch, searchedReading } from "./records";
 import type { AppTestSessionState } from "./types";
 
 /** Details addresses the selected identity, not its old Results page/filter. */
@@ -45,10 +47,14 @@ export async function appTestDetails(
 	);
 	if (selected.requiredParentCase)
 		throw new AppTestActionError("Select the required parent record first.");
+	const searched = recordsReadSearch(mod, screen.source);
+	const reading = searchedReading(searched);
 	const result = await readCaseData(context.store, {
 		appId: scope.appId,
 		caseType: mod.caseType,
 		caseId: screen.caseId,
+		// Details of a Search's result is the results row.
+		reading,
 		ancestorDepth: 0,
 		caseListConfig: mod.caseListConfig,
 		caseTypeSchemas: context.caseTypeSchemas,
@@ -64,7 +70,10 @@ export async function appTestDetails(
 				new Map(table.columns.map((column) => [column.id, column.dataType])),
 			]),
 		),
-		restoreScope: context.restoreScope,
+		// A record chosen from a search's Results reads as the search found it.
+		...(searched
+			? { searchPopulation: { heldBy: context.restoreScope } }
+			: { restoreScope: context.restoreScope }),
 		parentCase: selected.parentCase
 			? {
 					caseType: selected.parentCase.caseType,
@@ -72,7 +81,12 @@ export async function appTestDetails(
 				}
 			: undefined,
 	});
-	const project = appTestCellProjector(context, screen.moduleUuid, "detail");
+	const project = appTestCellProjector(
+		context,
+		screen.moduleUuid,
+		"detail",
+		reading,
+	);
 	return {
 		result,
 		fields: result.kind === "row" ? project(result.row) : [],
@@ -83,6 +97,8 @@ export function appTestCellProjector(
 	context: AppTestContext,
 	moduleUuid: import("@/lib/domain").Uuid,
 	surface: "list" | "detail",
+	/** What the read the cells come from stands for (`searchedReading`). */
+	reading: CaseQueryReading,
 ) {
 	const mod = projectWorkerModule(context.doc, context.language, moduleUuid);
 	if (!mod) throw new AppTestActionError("This menu is unavailable.");
@@ -94,6 +110,9 @@ export function appTestCellProjector(
 			)
 		: [];
 	const caseTypes = effectiveCaseTypes(context.doc);
+	// A Search's Results and its Details read results rows; a browse list
+	// and its Details read casedb rows.
+	const columnsReading = reading.columns;
 	const display: ColumnDisplayContext = {
 		caseProperties: projectLocalizedCaseProperties(
 			mod.caseType,
@@ -128,11 +147,16 @@ export function appTestCellProjector(
 					throw new AppTestActionError(
 						"This calculated column is unavailable.",
 					);
-				const type = resolveCalculatedTemporalType(column, types);
+				const type = resolveCalculatedTemporalType(
+					column,
+					types,
+					columnsReading,
+				);
 				return type ? [[column.uuid, type] as const] : [];
 			}),
 		),
 		today: new Date(),
+		reading: columnsReading,
 		projectProse: (template) =>
 			projectProseTemplate(template, context.doc).text,
 	};

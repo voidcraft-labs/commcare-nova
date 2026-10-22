@@ -23,6 +23,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { slotContext } from "@/lib/domain/expression/context";
+import type { CaseQueryReading } from "@/lib/domain/expression/temporalType";
 import {
 	type CalculatedTemporalType,
 	type ColumnDisplayContext,
@@ -40,7 +41,13 @@ export function useColumnDisplayContext(
 	config: CaseListConfig | undefined,
 	currentCaseType: string | undefined,
 	fallbackProperties: readonly CaseProperty[],
-	owner: { readonly doc: BlueprintDoc; readonly moduleUuid: Uuid },
+	owner: {
+		readonly doc: BlueprintDoc;
+		readonly moduleUuid: Uuid;
+		/** Which rows the surface shows: the device's cases or HQ's
+		 *  results rows. The read decides it, never the module. */
+		readonly reading: CaseQueryReading["columns"];
+	},
 ): ColumnDisplayContext {
 	const effectiveCaseTypes = useEffectiveCaseTypes();
 	const effectiveCaseType = effectiveCaseTypes.find(
@@ -65,7 +72,7 @@ export function useColumnDisplayContext(
 	const today = useLocalCalendarDay();
 	const projectProse = useProseProjection();
 	const lookupTypes = useExpressionLookupTypes();
-	const { doc, moduleUuid } = owner;
+	const { doc, moduleUuid, reading: columnsReading } = owner;
 	const calculatedTemporalTypes = useMemo(() => {
 		const types = new Map<Column["uuid"], CalculatedTemporalType>();
 		if (config === undefined) return types;
@@ -83,19 +90,31 @@ export function useColumnDisplayContext(
 			);
 			if (context === undefined)
 				throw new Error("The calculated column has no owning expression slot.");
-			const temporalType = resolveCalculatedTemporalType(column, context);
+			const temporalType = resolveCalculatedTemporalType(
+				column,
+				context,
+				columnsReading,
+			);
 			if (temporalType !== undefined) types.set(column.uuid, temporalType);
 		}
 		return types;
-	}, [config, doc, moduleUuid, lookupTypes]);
+	}, [config, doc, moduleUuid, lookupTypes, columnsReading]);
 	return useMemo(
 		() => ({
 			language,
 			calculatedTemporalTypes,
 			caseProperties,
 			today,
+			reading: columnsReading,
 			projectProse,
 		}),
-		[language, calculatedTemporalTypes, caseProperties, today, projectProse],
+		[
+			language,
+			calculatedTemporalTypes,
+			caseProperties,
+			today,
+			columnsReading,
+			projectProse,
+		],
 	);
 }

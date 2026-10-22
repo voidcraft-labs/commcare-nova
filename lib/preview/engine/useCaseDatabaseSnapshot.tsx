@@ -17,6 +17,7 @@ import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import {
 	useAccessPhase,
 	useAppId,
+	usePreviewClaimedCaseIds,
 	usePreviewPersonaUuid,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
@@ -84,7 +85,7 @@ export function caseDatabaseRequirements(
 		expressionSlotValues(doc, owner).some(
 			({ ref, expression }) =>
 				slotContext(doc, ref, new Map())?.ruleSet === "form" &&
-				expressionReadsCaseDatabase(expression),
+				expressionReadsCaseDatabase(expression, doc),
 		),
 	);
 	// Prose has typed references too, but deliberately is not an XPath carrier.
@@ -99,6 +100,18 @@ export function caseDatabaseRequirements(
 					part.kind === "user-property-ref",
 			),
 		),
+	);
+	/* Menu display conditions are navigation XPath, not form XPath, so the
+	 * scan above passes over them; one that reads the device's cases (a
+	 * worker property, a case-first form's chosen case) waits on the same
+	 * snapshot (`displayConditionEvaluation.ts`). */
+	const navigationReference = [
+		...Object.values(doc.modules),
+		...Object.values(doc.forms),
+	].some(
+		(item) =>
+			item.displayCondition !== undefined &&
+			expressionReadsCaseDatabase(item.displayCondition, doc),
 	);
 	/* After-submit routing can carry an existing case, select an unchanged
 	 * related case, or walk an unchanged ancestor even when none of its authored
@@ -122,6 +135,7 @@ export function caseDatabaseRequirements(
 		caseChoices ||
 		explicitReference ||
 		proseReference ||
+		navigationReference ||
 		(hasAfterSubmitTask && hasCaseBearingModule);
 	const caseTypes = required
 		? [
@@ -166,6 +180,7 @@ export function PreviewCaseDatabaseProvider({
 	const scopeEpoch = useProjectScopeEpoch();
 	const personaUuid = usePreviewPersonaUuid();
 	const restoreScopeKey = useRestoreScopeKey(personaUuid);
+	const claimedCaseIds = usePreviewClaimedCaseIds(personaUuid);
 	const reconciler = useReconcilerContext();
 	const runtimeScopeId = reconciler?.projectScopeId ?? "provider-light";
 	const requirements = useCaseDatabaseRequirements();
@@ -210,6 +225,7 @@ export function PreviewCaseDatabaseProvider({
 					const result = await loadCaseDatabaseSnapshotAction(
 						selectedAppId,
 						personaUuid,
+						[...claimedCaseIds],
 					);
 					return result.kind === "data"
 						? { kind: "data", token: reloadToken, snapshot: result.snapshot }

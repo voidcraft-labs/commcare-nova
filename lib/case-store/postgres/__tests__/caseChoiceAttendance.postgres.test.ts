@@ -9,12 +9,14 @@ import {
 	choiceUuid,
 	memberId,
 } from "@/lib/__tests__/caseChoiceFixture";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
 import { validateCaptureSubmissionProjection } from "@/lib/preview/engine/captureSubmissionValidation";
 import {
 	buildCaseOperationProgramFromDoc,
 	submissionEnvelopeArgs,
 } from "@/lib/preview/engine/caseDataBindingHelpers";
+import { entrySessionData } from "@/lib/preview/engine/entrySessionData";
 import { FormEngine } from "@/lib/preview/engine/formEngine";
 import { previewAsMe } from "@/lib/preview/engine/identity";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
@@ -102,6 +104,17 @@ it("offers only restored cases, includes relationship closure, and updates only 
 	).toEqual([CLINIC_A]);
 	const identity = previewAsMe({ id: "worker-a", name: "Worker" }, doc);
 	if (!identity) throw new Error("Expected a worker identity");
+	// The entry's session names the chosen clinic, which the checklist's
+	// `form-case` filter reads, as a device's does.
+	const session = entrySessionData(doc, choiceUuid("attendance"), {
+		appId,
+		entryKey: choiceUuid("submit"),
+		boundCases: [{ caseId: CLINIC_A }],
+		menuSelections: {},
+		caseDatabase: cases,
+		identity,
+	});
+	expect(session.data).toEqual({ case_id: CLINIC_A });
 	const engine = new FormEngine(
 		caseChoiceInput(doc, choiceUuid("attendance")),
 		"clinic",
@@ -109,6 +122,7 @@ it("offers only restored cases, includes relationship closure, and updates only 
 		identity,
 		undefined,
 		cases,
+		{ sessionData: session.data },
 	);
 	expect(engine.getState("/data/entry/attendees").choices).toHaveLength(30);
 	engine.setValue("/data/entry/attendees", `${memberId(0)} ${memberId(1)}`);
@@ -138,7 +152,11 @@ it("offers only restored cases, includes relationship closure, and updates only 
 			},
 		}),
 	);
-	const persisted = await store.query({ appId, caseType: "member" });
+	const persisted = await store.query({
+		reading: SEARCH_READING,
+		appId,
+		caseType: "member",
+	});
 	expect(persisted).toHaveLength(32);
 	for (const row of persisted)
 		expect(row.properties).toEqual(

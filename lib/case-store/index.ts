@@ -68,11 +68,13 @@ export type {
 	ApplySchemaChangeArgs,
 	CalculatedColumn,
 	CalculatedValue,
+	CaseFilterReading,
 	CaseGroup,
 	CaseIndexRow,
 	CaseInsert,
 	CasePropertyRenameEntry,
 	CasePropertyRenameReport,
+	CaseQueryReading,
 	CaseRow,
 	CaseRowWithCalculated,
 	CaseStore,
@@ -95,12 +97,15 @@ export type {
 	RestoreScope,
 	SchemaCaseStore,
 	SchemaChangeKind,
+	SearchPopulation,
 	SortKey,
 	TransactionalSchemaCaseStore,
 } from "./store";
 export {
 	buildCaseTypeMap,
+	CASEDB_READING,
 	CasePropertyRenameStorageConflictError,
+	SEARCH_READING,
 } from "./store";
 export type {
 	ApplySubmissionArgs,

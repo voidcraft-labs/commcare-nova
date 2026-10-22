@@ -6,7 +6,7 @@
  */
 
 import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
-import { parseJavaDouble } from "./javaRosaGeo";
+import { parseJavaDouble } from "./javaDouble";
 import { javaTrim } from "./javaString";
 
 const SIMPLE_VALUE_DELIMITERS = new Set(`,:]}/\\"[{;=#`.split(""));
@@ -226,14 +226,10 @@ function orgJsonNumber(token: string): JavaJsonNumber | undefined {
 	// latter adds Java float/double suffixes and hexadecimal floating-point
 	// literals. JSONObject only reaches this branch when isDecimalNotation()
 	// spotted '.', 'e', or 'E', even for a hexadecimal token.
-	try {
-		const value = parseJavaDouble(token);
-		return Number.isFinite(value)
-			? { kind: "number", keyText: openJdk17DoubleToString(value) }
-			: undefined;
-	} catch {
-		return undefined;
-	}
+	const value = parseJavaDouble(token);
+	return value !== undefined && Number.isFinite(value)
+		? { kind: "number", keyText: openJdk17DoubleToString(value) }
+		: undefined;
 }
 
 /** BigDecimal(String).toString(), for JSONObject's first numeric parse arm. */

@@ -16,9 +16,7 @@ import {
 	unpackXPathRuntimeValue,
 	type XPathInstance,
 	type XPathNode,
-	XPathNodeSet,
 	XPathNodesetCardinalityError,
-	type XPathRuntimeValue,
 } from "./runtimeValues";
 import type { EvalContext, XPathValue } from "./types";
 import {
@@ -79,8 +77,6 @@ export function xpathRequiresAsyncWorker(source: string): boolean {
 	return asyncXPathWorkerFunctions(source).size > 0;
 }
 
-/** Parsed hashtag tokens used to snapshot only the values one request can
- * observe. This deliberately does not regex-scan authored text. */
 interface XPathWorkerNodesetValues {
 	readonly kind: "nodeset-values";
 	readonly values: readonly string[];
@@ -457,21 +453,6 @@ export async function evaluateXPathWorkerRequest(
 					: secondary.get(address.instanceId);
 			return instance?.node(address.path);
 		};
-		const hashtagValues = new Map(
-			(request.instances.hashtagValues ?? []).map((hashtag) => {
-				const value: XPathRuntimeValue =
-					hashtag.kind === "scalar"
-						? deserializeXPathWorkerValue(hashtag.value)
-						: new XPathNodeSet(
-								hashtag.candidates.flatMap((address) => {
-									const node = resolveNode(address);
-									return node === undefined ? [] : [node];
-								}),
-								hashtag.validPath,
-							);
-				return [hashtag.reference, value] as const;
-			}),
-		);
 
 		const carrier = request.instances.initializationContext;
 		const carrierParent =
@@ -492,9 +473,6 @@ export async function evaluateXPathWorkerRequest(
 				const node = main?.node(path);
 				return node === undefined ? undefined : xpathToString(node.value());
 			},
-			resolveHashtag: (reference) =>
-				xpathToString(hashtagValues.get(reference) ?? ""),
-			resolveHashtagValue: (reference) => hashtagValues.get(reference) ?? "",
 			resolveInstance: (instanceId, path) => {
 				const instance = secondary.get(instanceId);
 				if (instance === undefined) return { kind: "unsupported" };

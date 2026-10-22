@@ -62,8 +62,11 @@ import {
 	unhandledKindMessage,
 } from "@/lib/domain/expression/errors";
 import { canonicalizeRelationPath } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import {
+	type CaseReading,
+	readingCaseMetadataType,
+} from "@/lib/domain/expression/temporalType";
 import type { RelationPath, Term } from "@/lib/domain/expression/types";
-import { isCalendarCaseProperty } from "@/lib/domain/standardCaseProperties";
 import { compileLiteral } from "./compileLiteral";
 import {
 	compileLookupColumnTerm,
@@ -77,9 +80,13 @@ import {
 import type { Database } from "./database";
 import {
 	JSONB_READ_OPERATOR_FOR_DATA_TYPE,
+	NAIVE_TEMPORAL_TEXT_PATTERN,
 	POSTGRES_CAST_FOR_DATA_TYPE,
 	RESERVED_SCALAR_COLUMN_BY_PROPERTY,
+	type ReservedScalarColumn,
+	STORED_INSTANT_TEXT_PATTERN,
 } from "./dataTypeTokens";
+import { javaLocalTimestamp } from "./javaZone";
 import { resolveViewerTimeZone } from "./viewerTimeZone";
 
 // ---------------------------------------------------------------
@@ -157,8 +164,15 @@ export interface TermBindings {
 
 	/** Resolved identity submitting this atomic form envelope. */
 	actingUserId?: TermBindingValue;
-	/** Current location supplied by a runtime that owns location access. */
-	here?: TermBindingValue;
+	/**
+	 * The worker's current position as `here()` reads it: a CommCare location
+	 * handler's text, supplied by a runtime that owns location access.
+	 * Preview binds Formplayer's two values (`lat lon`); a device's handler
+	 * gives four (`lat lon altitude accuracy`), which the compiler reads the
+	 * same way. `null` or absent is no fix yet, which both runtimes read as
+	 * `''`. Always bound as one text parameter.
+	 */
+	viewerLocation?: string | null;
 
 	/**
 	 * The viewer's IANA timezone (`Intl.DateTimeFormat().resolvedOptions()
@@ -179,9 +193,12 @@ export interface TermBindings {
  * and forwards the rest unchanged into downstream calls.
  */
 export interface TermCompileContext {
-	/** Portable Results/Details calculations read built-in case dates like Core.
-	 * Absent for server filters, search and operation values. */
-	portableCaseDates?: true;
+	/**
+	 * What the anchor row stands for (`CaseReading`): it decides the class
+	 * `date_opened` and `last_modified` read in, whether `closed_on` is
+	 * readable, and how a number becomes a date. Every compile site names it.
+	 */
+	reading: CaseReading;
 	db: Kysely<Database>;
 	/** First half of the `(app_id, project_id)` tenant pair — forwarded to `compileRelationPath`. */
 	appId: string;
@@ -296,7 +313,12 @@ export function compileTerm(
 			return (eb as DynamicExprBuilder).ref(`${ctx.anchorAlias}.case_type`);
 		case "choice":
 			throw new Error(
-				"compileTerm: resolve choice identities from the committed document before compiling a server query.",
+				compilerBugMessage({
+					where: "compileTerm",
+					invariant: "a `choice` term reached a server record query unresolved",
+					detail:
+						"The operation program builder resolves each `choice` to the text literal the XForm prints, from the committed document, before the program reaches the store; no other Postgres slot admits a static-select read.",
+				}),
 			);
 		case "form-node":
 		case "case-index":
@@ -304,12 +326,14 @@ export function compileTerm(
 		case "repeat-row":
 		case "location-level":
 		case "location-field":
-			throw new Error(
-				`compileTerm: '${term.kind}' is unavailable in a server record query.`,
-			);
 		case "form-case":
 			throw new Error(
-				"Selected form records are unavailable in a server case query.",
+				compilerBugMessage({
+					where: "compileTerm",
+					invariant: `a \`${term.kind}\` term reached a server record query`,
+					detail:
+						"The profiles with a Postgres target (case-list filter, calculated columns, sort keys, Search predicates, operations, excluded owners) keep this read out; it is evaluated only on a device or in Preview's form runtime.",
+				}),
 			);
 		case "prop":
 			return compilePropertyRef(term, ctx);
@@ -334,7 +358,12 @@ export function compileTerm(
 			const slug = ctx.bindings.userPropertySlugs?.get(term.userPropertyUuid);
 			if (slug === undefined) {
 				throw new Error(
-					`Unknown user property identity '${term.userPropertyUuid}' while compiling a session-user term`,
+					compilerBugMessage({
+						where: "compileTerm",
+						invariant: `the worker property identity '${term.userPropertyUuid}' has no bound slug`,
+						detail:
+							"Every compile site that admits a worker property threads `TermBindings.userPropertySlugs` from the committed document.",
+					}),
 				);
 			}
 			if (term.source === "worker-record")
@@ -360,7 +389,13 @@ export function compileTerm(
 				term.filters !== undefined
 			)
 				throw new Error(
-					"compileTerm: a form path must be resolved to its answer binding before compiling a server query.",
+					compilerBugMessage({
+						where: "compileTerm",
+						invariant:
+							"a form path with a role, spelling or filters reached a server query",
+						detail:
+							"Only a plain field read, bound to its answer through `TermBindings.formFields`, reaches an operation program.",
+					}),
 				);
 			return compileBoundRef(
 				term.uuid,
@@ -375,7 +410,10 @@ export function compileTerm(
 		case "owner-location-at-level": {
 			if (ctx.currentCaseType === undefined) {
 				throw new Error(
-					"compileTerm: an owner-to-place hop requires a selected case.",
+					compilerBugMessage({
+						where: "compileTerm",
+						invariant: "an owner-to-place hop compiled without a selected case",
+					}),
 				);
 			}
 			const levels = ctx.organizationLevels;
@@ -386,7 +424,10 @@ export function compileTerm(
 					: ancestorLevels(destination, levels).find(levelOwnsCases);
 			if (destination === undefined || source === undefined) {
 				throw new Error(
-					`compileTerm: organization level '${term.levelUuid}' has no resolvable case-owning ancestor.`,
+					compilerBugMessage({
+						where: "compileTerm",
+						invariant: `organization level '${term.levelUuid}' has no resolvable case-owning ancestor`,
+					}),
 				);
 			}
 			// Same flat-lineage lookup as the device fixture, expressed through
@@ -535,7 +576,10 @@ function compilePropertyRef(
 	const caseType = term.caseType ?? ctx.currentCaseType;
 	if (caseType === undefined)
 		throw new Error(
-			"compileTerm: a server property read needs its selected record type.",
+			compilerBugMessage({
+				where: "compileTerm.compilePropertyRef",
+				invariant: "a server property read compiled without its record type",
+			}),
 		);
 	const isSelfVia = via === undefined || via.kind === "self";
 
@@ -544,7 +588,7 @@ function compilePropertyRef(
 				anchorAlias: ctx.anchorAlias,
 				caseType,
 				property,
-				schemas: ctx.caseTypeSchemas,
+				ctx,
 			})
 		: compileNonSelfViaPropertyRef({
 				via,
@@ -553,12 +597,78 @@ function compilePropertyRef(
 				property,
 				ctx,
 			});
-	if (!ctx.portableCaseDates || !isCalendarCaseProperty(property)) return value;
-	// Convert the actual instant into the viewer's calendar BEFORE dropping the
-	// clock. Applying this outside the scalar subquery covers parent reads too.
-	const zone = resolveViewerTimeZone(ctx.bindings.viewerTimeZone);
-	return eb.cast(eb.fn<Date>("timezone", [eb.val(zone), value]), "date");
+	return compileReadingDate(value, property, ctx);
 }
+
+/**
+ * The reading's class for a system date, applied outside the scalar subquery
+ * so parent reads take it too:
+ *
+ * - `casedb`: both `date_opened` and `last_modified` are the viewer's
+ *   calendar date of the stored instant, as Core's casedb holds `DateData`
+ *   (`CaseInstanceTreeElement` builds both from the case's `Date` fields),
+ *   read as `java.util.TimeZone` reads the zone (`javaLocalTimestamp`).
+ * - `results`: `date_opened` is the UTC calendar date of `opened_on`, the
+ *   text HQ's results instance carries (`json_format_date`); `last_modified`
+ *   stays its instant.
+ * - `search`: both stay instants, as HQ's `_create_system_datetime_query`
+ *   compares them.
+ */
+function compileReadingDate(
+	value: AliasableExpression<unknown>,
+	property: string,
+	ctx: TermCompileContext,
+): AliasableExpression<unknown> {
+	if (!isCalendarPropertyUnder(ctx.reading, property)) return value;
+	if (ctx.reading !== "casedb")
+		return eb.cast(eb.fn<Date>("timezone", [eb.val("UTC"), value]), "date");
+	return eb.cast(
+		javaLocalTimestamp(
+			resolveViewerTimeZone(ctx.bindings.viewerTimeZone),
+			value,
+		),
+		"date",
+	);
+}
+
+/** Whether a reading holds this standard property as a calendar date. */
+function isCalendarPropertyUnder(
+	reading: CaseReading,
+	property: string,
+): boolean {
+	return readingCaseMetadataType(property, reading) === "date";
+}
+
+/**
+ * The scalar column a standard property reads under the context's reading.
+ * `closed_on` is a column only HQ's search reads (part of its indexed
+ * metadata, `corehq/apps/case_search/const.py::INDEXED_METADATA_BY_KEY`);
+ * neither casedb nor a results row carries it, so the checker keeps it out of
+ * every other reading.
+ */
+export function reservedColumnFor(
+	property: string,
+	ctx: TermCompileContext,
+): ReservedScalarColumn | undefined {
+	if (property === "closed_on") {
+		if (ctx.reading !== "search")
+			throw new Error(
+				compilerBugMessage({
+					where: "compileTerm.reservedColumnFor",
+					invariant: `\`closed_on\` reached the \`${ctx.reading}\` reading`,
+					detail:
+						"Only HQ's search reads `closed_on`; the checker's search-only standard table refuses it in every slot a device evaluates.",
+				}),
+			);
+		return CLOSED_ON_COLUMN;
+	}
+	return RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(property);
+}
+
+const CLOSED_ON_COLUMN: ReservedScalarColumn = {
+	column: "closed_on",
+	blankable: false,
+};
 
 /**
  * Self-via read: JSONB or scalar-column off the anchor row.
@@ -570,14 +680,14 @@ function compileSelfViaPropertyRef(args: {
 	anchorAlias: string;
 	caseType: string;
 	property: string;
-	schemas: ReadonlyMap<string, CaseType>;
+	ctx: TermCompileContext;
 }): AliasableExpression<unknown> {
-	const { anchorAlias, caseType, property, schemas } = args;
-	const reserved = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(property);
+	const { anchorAlias, caseType, property, ctx } = args;
+	const reserved = reservedColumnFor(property, ctx);
 	if (reserved !== undefined) {
 		return scalarColumnRef(anchorAlias, reserved.column);
 	}
-	const dataType = lookupDataType(caseType, property, schemas);
+	const dataType = lookupDataType(caseType, property, ctx.caseTypeSchemas);
 	return jsonbColumnRead({ sourceAlias: anchorAlias, property, dataType });
 }
 
@@ -625,7 +735,7 @@ function compileNonSelfViaPropertyRef(args: {
 	}
 
 	const leafAlias = compiledPath.leafAlias;
-	const leafReserved = RESERVED_SCALAR_COLUMN_BY_PROPERTY.get(property);
+	const leafReserved = reservedColumnFor(property, ctx);
 	const innerRead =
 		leafReserved !== undefined
 			? scalarColumnRef(leafAlias, leafReserved.column)
@@ -689,7 +799,44 @@ function jsonbColumnRead(args: {
 	const jsonRead = (eb as DynamicExprBuilder)
 		.ref(propertiesRef, readOperator)
 		.key(property);
+	if (dataType === "datetime") return compileStoredInstant(jsonRead);
 	return eb.cast(jsonRead, cast);
+}
+
+/**
+ * A stored datetime property's text as an instant, or `NULL` where the text
+ * names none. The text names an instant only in the shape a writer stores
+ * (`yyyy-MM-ddTHH:mm:ss`, any fraction, then `Z`, `±HH`, `±HH:MM` or no
+ * offset) and where Postgres reads it (`pg_input_is_valid`, so an impossible
+ * calendar date is no instant rather than a failed query). A value with an
+ * offset is that instant; a naive one is UTC, as HQ reads it
+ * (`corehq/form_processor/utils/xform.py::adjust_datetimes` writes every
+ * received date and time as `…Z`), never the session `TimeZone`.
+ *
+ * No `btrim`: a padded or otherwise malformed value is no instant, so the
+ * two-valued comparison rule gives the device lowering's NaN answers
+ * (an ordering and `=` false, `!=` true). The nested `CASE` keeps every cast
+ * behind its guard.
+ */
+function compileStoredInstant(
+	text: AliasableExpression<unknown>,
+): AliasableExpression<unknown> {
+	const readable = eb.and([
+		eb(text, "~", eb.val(STORED_INSTANT_TEXT_PATTERN)),
+		eb.fn<boolean>("pg_input_is_valid", [text, eb.val("timestamptz")]),
+	]);
+	const instant = eb
+		.case()
+		.when(eb(text, "~", eb.val(NAIVE_TEMPORAL_TEXT_PATTERN)))
+		.then(eb.fn<Date>("timezone", [eb.val("UTC"), eb.cast(text, "timestamp")]))
+		.else(eb.cast(text, "timestamptz"))
+		.end();
+	return eb
+		.case()
+		.when(readable)
+		.then(instant)
+		.else(eb.cast(eb.val(null), "timestamptz"))
+		.end();
 }
 
 /**
@@ -975,6 +1122,70 @@ export function compileBoundRef<Key extends string>(
 	return eb.val(value);
 }
 
+/**
+ * The value a term the read binds holds (`input`, a session field, a form
+ * field), decided before the query runs. `undefined` for every term Postgres
+ * reads per row, and for a bound term whose binding is missing, which
+ * `compileTerm` then refuses.
+ * A comparison decides a blank one in JavaScript (the absence check) rather
+ * than in SQL, so a positive comparison keeps its expression index.
+ */
+export function boundComparandValue(
+	term: Term,
+	ctx: TermCompileContext,
+): { readonly value: FormFieldBindingValue } | undefined {
+	const bound = <Key extends string>(
+		key: Key,
+		bindings: ReadonlyMap<Key, RuntimeBindingValue> | undefined,
+		missingFallback?: RuntimeBindingValue,
+	) => {
+		if (bindings?.has(key)) return { value: bindings.get(key) ?? null };
+		return missingFallback === undefined
+			? undefined
+			: { value: missingFallback };
+	};
+	switch (term.kind) {
+		case "input":
+			return bound(term.searchInputUuid, ctx.bindings.searchInputs);
+		case "session-user":
+			if (term.source === "worker-record") return undefined;
+			return bound(
+				term.field,
+				ctx.bindings.sessionUser,
+				ctx.bindings.sessionUserFallback,
+			);
+		case "session-user-property": {
+			if (term.source === "worker-record") return undefined;
+			const slug = ctx.bindings.userPropertySlugs?.get(term.userPropertyUuid);
+			if (slug === undefined) return undefined;
+			return bound(
+				slug,
+				ctx.bindings.sessionUser,
+				ctx.bindings.sessionUserFallback,
+			);
+		}
+		case "session-context":
+			return bound(term.field, ctx.bindings.sessionContext, "");
+		case "field":
+			if (
+				term.role !== undefined ||
+				term.spelling !== undefined ||
+				term.filters !== undefined
+			)
+				return undefined;
+			return bound(term.uuid, ctx.bindings.formFields);
+		default:
+			return undefined;
+	}
+}
+
+/** Whether a decided comparand is blank as a device reads it: `''`, an
+ *  absent value, or a multi-select answer holding no choice. */
+export function isBlankComparand(value: FormFieldBindingValue): boolean {
+	if (value === null || value === "") return true;
+	return Array.isArray(value) && value.length === 0;
+}
+
 /** Resolve one required runtime binding that is singular rather than keyed. */
 export function compileBoundValue(
 	value: TermBindingValue | undefined,
@@ -982,7 +1193,12 @@ export function compileBoundValue(
 ): AliasableExpression<unknown> {
 	if (value === undefined) {
 		throw new Error(
-			`\`compileExpression\`. Missing binding for ${descriptor}. Thread the server-resolved value through \`ctx.bindings\` before compiling this operation expression.`,
+			compilerBugMessage({
+				where: "compileExpression",
+				invariant: `the binding for ${descriptor} is missing`,
+				detail:
+					"Thread the server-resolved value through `ctx.bindings` before compiling this operation expression.",
+			}),
 		);
 	}
 	return eb.val(value);

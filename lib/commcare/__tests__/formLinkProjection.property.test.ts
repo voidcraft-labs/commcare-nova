@@ -70,7 +70,6 @@ describe("first matching link guard algebra", () => {
 							evaluate(serializeWire(value, { target: "suite" }).text, {
 								getValue: (path) =>
 									bits[Number(path.slice(-1))] ? "yes" : "no",
-								resolveHashtag: () => "",
 								contextPath: "/data",
 								position: 1,
 							}),

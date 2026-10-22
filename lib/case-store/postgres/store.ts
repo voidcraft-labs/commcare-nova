@@ -121,6 +121,7 @@ import type {
 	ApplySchemaChangeArgs,
 	CalculatedColumn,
 	CalculatedValue,
+	CaseFilterReading,
 	CaseInsert,
 	CaseRow,
 	CaseRowWithCalculated,
@@ -536,12 +537,7 @@ function compileSortKey(
 						},
 						exprCtx,
 					)
-				: compileDeviceTextExpression(key.expression, {
-						...exprCtx,
-						...(key.portableCaseDates
-							? { portableCaseDates: true as const }
-							: {}),
-					});
+				: compileDeviceTextExpression(key.expression, exprCtx);
 	const blanks = {
 		expression: sql<unknown>`((${value}) is null or (${value})::text = '')`,
 		direction: key.blanks === "first" ? ("desc" as const) : ("asc" as const),
@@ -583,6 +579,9 @@ const GROUP_FIRST_ALIAS = "__nova_group_first";
 const GROUP_ORDINAL_ALIAS = "__nova_group_ordinal";
 const TOTAL_GROUPS_ALIAS = "__nova_total_groups";
 const TOTAL_ROWS_ALIAS = "__nova_total_rows";
+/** Whether the searching worker's restore holds a search population row;
+ *  moved onto the row's `heldOnDevice`. */
+const HELD_ON_DEVICE_ALIAS = "__nova_held_on_device";
 const GROUPED_ROW_ALIASES = [
 	GROUP_KEY_ALIAS,
 	ROW_ORDINAL_ALIAS,
@@ -591,6 +590,15 @@ const GROUPED_ROW_ALIASES = [
 	TOTAL_GROUPS_ALIAS,
 	TOTAL_ROWS_ALIAS,
 ] as const;
+
+function searchPopulationWithRestoreMessage(where: "query" | "count"): string {
+	return compilerBugMessage({
+		where: `case-store.PostgresCaseStore.${where}`,
+		invariant: "a read carried both a restore scope and a search population",
+		detail:
+			"A device read is bound by the worker's restore; a search reads the Project's open cases past it. Pass `restoreScope` for the one and `searchPopulation` for the other.",
+	});
+}
 
 export class PostgresCaseStore implements CaseStore {
 	/**
@@ -885,6 +893,10 @@ export class PostgresCaseStore implements CaseStore {
 		// filtered by "households with an open member" must count only members
 		// the worker's device holds.
 		const restore = this.buildRestoreScopeFor(args.appId, args.restoreScope);
+		// A search reads past the restore, relation walks included; the
+		// searching worker's closure only answers, per returned row, whether
+		// the device already holds it.
+		const heldBy = this.searchPopulationHeldBy(args);
 		const ctx = this.buildPredicateContext({
 			// The PLAIN handle, deliberately. `restore.creator` carries the
 			// `WITH` clause into every query built from it, and the compile
@@ -901,8 +913,15 @@ export class PostgresCaseStore implements CaseStore {
 			knownInputs: args.knownInputs,
 			bindings: args.bindings ?? {},
 			restore,
+			reading: args.reading.filter,
 		});
-		const exprCtx = expressionContextFor(ctx);
+		// Calculated columns and sort keys read the row as the columns'
+		// reading holds it; under an effective Search that is the results
+		// instance, not the query that chose the rows.
+		const exprCtx = expressionContextFor({
+			...ctx,
+			reading: args.reading.columns,
+		});
 
 		// Calculated-column aliases are EMITTED with a fixed prefix so
 		// they cannot collide with any `cases` column the
@@ -986,12 +1005,18 @@ export class PostgresCaseStore implements CaseStore {
 		// `selectAll("c")` first so every `cases` column lands; the
 		// per-calculated-column projection chains via `select(...)`
 		// under prefixed aliases.
-		let qb = (restore?.creator ?? this.db)
+		let qb = (restore?.creator ?? heldBy?.creator ?? this.db)
 			.selectFrom("cases as c")
 			.selectAll("c")
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
 			.where("c.project_id", "=", this.requireProjectId());
+		if (args.searchPopulation !== undefined) {
+			qb = qb.where("c.status", "is distinct from", "closed");
+		}
+		if (heldBy !== undefined) {
+			qb = qb.select(heldBy.holds("c").as(HELD_ON_DEVICE_ALIAS));
+		}
 		if (args.caseIds !== undefined) {
 			qb =
 				args.caseIds.length === 0
@@ -1032,10 +1057,7 @@ export class PostgresCaseStore implements CaseStore {
 
 		// Project each calculated column under its prefixed alias.
 		for (const column of calculated) {
-			const expr = compileExpression(column.expression, {
-				...exprCtx,
-				portableCaseDates: true,
-			});
+			const expr = compileExpression(column.expression, exprCtx);
 			qb = qb.select(expr.as(aliasFor(column.uuid)));
 		}
 
@@ -1112,6 +1134,7 @@ export class PostgresCaseStore implements CaseStore {
 				appId: args.appId,
 				projectId,
 				ownerIds: args.restoreScope.ownerIds,
+				claimedCaseIds: args.restoreScope.claimedCaseIds,
 			});
 			let rowQuery = rowRestore.creator
 				.selectFrom("cases as c")
@@ -1139,6 +1162,7 @@ export class PostgresCaseStore implements CaseStore {
 				appId: args.appId,
 				projectId,
 				ownerIds: args.restoreScope.ownerIds,
+				claimedCaseIds: args.restoreScope.claimedCaseIds,
 			});
 			let indexQuery = indexRestore.creator
 				.selectFrom("case_indices as ci")
@@ -1323,9 +1347,14 @@ export class PostgresCaseStore implements CaseStore {
 		const cleaned = stripTenantKey(row) as Record<string, unknown>;
 		for (const { alias } of calcAliases) delete cleaned[alias];
 		for (const alias of extraAliases) delete cleaned[alias];
+		const held = Object.hasOwn(cleaned, HELD_ON_DEVICE_ALIAS)
+			? cleaned[HELD_ON_DEVICE_ALIAS] === true
+			: undefined;
+		delete cleaned[HELD_ON_DEVICE_ALIAS];
 		return {
 			...(cleaned as unknown as CaseRow),
 			calculated: calculatedMap,
+			...(held !== undefined && { heldOnDevice: held }),
 		};
 	}
 
@@ -1518,6 +1547,9 @@ export class PostgresCaseStore implements CaseStore {
 		// any divergence between the two compile paths would surface
 		// as a count vs row-list mismatch.
 		const restore = this.buildRestoreScopeFor(args.appId, args.restoreScope);
+		if (restore !== undefined && args.searchPopulation !== undefined) {
+			throw new Error(searchPopulationWithRestoreMessage("count"));
+		}
 		const ctx = this.buildPredicateContext({
 			// The PLAIN handle, deliberately. `restore.creator` carries the
 			// `WITH` clause into every query built from it, and the compile
@@ -1534,6 +1566,7 @@ export class PostgresCaseStore implements CaseStore {
 			knownInputs: args.knownInputs,
 			bindings: args.bindings ?? {},
 			restore,
+			reading: args.reading.filter,
 		});
 
 		// pg-driver returns BIGINT counts as
@@ -1594,6 +1627,10 @@ export class PostgresCaseStore implements CaseStore {
 		// mismatch, not as a missing filter.
 		if (restore !== undefined) {
 			qb = restore.restrict(qb, "c");
+		}
+		// Same open-cases population `query` reads for a search.
+		if (args.searchPopulation !== undefined) {
+			qb = qb.where("c.status", "is distinct from", "closed");
 		}
 		// Same HOLD exclusion `query` applies — a count must agree with
 		// the row list its caller pairs it with.
@@ -1831,6 +1868,12 @@ export class PostgresCaseStore implements CaseStore {
 	 * is minted/derived up front (the envelope's create allocations);
 	 * `ownerId` overrides the bound owner for an operation's evaluated
 	 * owner expression. Ordinary callers omit both.
+	 *
+	 * `caseIdTaken` makes the insert itself decide whether `caseId` is free:
+	 * the row goes in `ON CONFLICT (case_id) DO NOTHING`, and when another
+	 * row (in any tenant, committed or committing concurrently) already holds
+	 * the id, nothing is written and `caseIdTaken` throws the caller's typed
+	 * refusal inside the same transaction.
 	 */
 	private async insertRowInTransaction(
 		trx: Transaction<Database>,
@@ -1840,6 +1883,7 @@ export class PostgresCaseStore implements CaseStore {
 			caseId?: string;
 			ownerId?: string;
 			parentRelationship?: CaseIndicesTable["relationship"];
+			caseIdTaken?: () => never;
 		},
 	): Promise<string> {
 		const propertiesObject = parseJsonbInput(args.row.properties);
@@ -1890,11 +1934,20 @@ export class PostgresCaseStore implements CaseStore {
 			...creationStamps(args.row),
 			properties: JSON.stringify(propertiesObject),
 		};
-		const inserted = await trx
-			.insertInto("cases")
-			.values(insertRow)
-			.returning("case_id")
-			.executeTakeFirstOrThrow();
+		const plain = trx.insertInto("cases").values(insertRow);
+		const insert =
+			args.caseIdTaken === undefined
+				? plain
+				: plain.onConflict((conflict) =>
+						conflict.column("case_id").doNothing(),
+					);
+		const inserted = await insert.returning("case_id").executeTakeFirst();
+		if (inserted === undefined) {
+			args.caseIdTaken?.();
+			throw new Error(
+				"A case insert wrote no row, yet only an insert that refuses a taken id may skip.",
+			);
+		}
 		const caseId = inserted.case_id;
 
 		// Direct-edge derivation: depth=1 edges only; recursive
@@ -2037,6 +2090,9 @@ export class PostgresCaseStore implements CaseStore {
 					...(a.seed.parentRelationship === undefined
 						? {}
 						: { parentRelationship: a.seed.parentRelationship }),
+					...(a.caseIdTaken === undefined
+						? {}
+						: { caseIdTaken: a.caseIdTaken }),
 				}),
 			updateCase: (trx, a) => this.updateInTransaction(trx, a),
 			updateCases: (trx, a) => {
@@ -4964,8 +5020,11 @@ export class PostgresCaseStore implements CaseStore {
 		bindings: PredicateCompileContext["bindings"];
 		/** Bound only by a read standing at a device — see `RestoreScope`. */
 		restore?: RestoreScopeQuery;
+		/** The predicate's reading — see `CaseFilterReading`. */
+		reading: CaseFilterReading["filter"];
 	}): PredicateCompileContext {
 		return {
+			reading: args.reading,
 			db: args.db,
 			appId: args.appId,
 			projectId: this.requireProjectId(),
@@ -4997,7 +5056,20 @@ export class PostgresCaseStore implements CaseStore {
 					appId,
 					projectId: this.requireProjectId(),
 					ownerIds: scope.ownerIds,
+					claimedCaseIds: scope.claimedCaseIds,
 				});
+	}
+
+	/** The searching worker's closure for a search population read; nothing
+	 *  for any other read. A read is a device's or a search's, never both. */
+	private searchPopulationHeldBy(
+		args: Pick<QueryArgs, "appId" | "restoreScope" | "searchPopulation">,
+	): RestoreScopeQuery | undefined {
+		if (args.searchPopulation === undefined) return undefined;
+		if (args.restoreScope !== undefined) {
+			throw new Error(searchPopulationWithRestoreMessage("query"));
+		}
+		return this.buildRestoreScopeFor(args.appId, args.searchPopulation.heldBy);
 	}
 
 	/**

@@ -58,6 +58,7 @@ import {
 	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
+import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
 	compilerBugMessage,
 	unhandledKindMessage,
@@ -135,6 +136,9 @@ export interface SubmissionEnvelopeHost {
 			};
 			caseId?: string;
 			ownerId?: string;
+			/** Inserts `caseId` only if no row holds it, deciding in the insert
+			 * itself; a taken id writes nothing and calls this, which throws. */
+			caseIdTaken?: () => never;
 		},
 	): Promise<string>;
 	/** The merge + orphan-shed + validate + stamp update core. */
@@ -431,6 +435,9 @@ async function evaluateBatch(
 			const alias = `e${offset}`;
 			const session = sessionFor(request.instance);
 			const ctx: PredicateCompileContext = {
+				// An operation's values and conditions are the form's, which a
+				// device evaluates over its casedb.
+				reading: "casedb",
 				db: trx,
 				appId,
 				projectId: host.projectId,
@@ -2190,6 +2197,39 @@ function omitBlankSharedAnswers(
 	};
 }
 
+/**
+ * The id a case the entry's session names is created with
+ * (`SubmissionCaseSeed.entryCaseKey`): the one its form read as
+ * `session/data/<datum>` while it ran. A case no datum names takes a fresh
+ * id. The insert itself decides whether the id is free: a row already holding
+ * it, in any tenant, makes the insert write nothing and refuses the whole
+ * submission with a typed rejection inside the same transaction, never an
+ * upsert. An exact retry of a saved entry replays its receipt before reaching
+ * here.
+ */
+function entryNamedCaseId(
+	appId: string,
+	args: ApplySubmissionArgs,
+	seed: SubmissionCaseSeed,
+): { readonly caseId?: string; readonly caseIdTaken?: () => never } {
+	if (seed.entryCaseKey === undefined) return {};
+	const caseId = entryDatumCaseId(
+		appId,
+		args.submissionReceipt.entryKey,
+		seed.entryCaseKey,
+	);
+	return {
+		caseId,
+		caseIdTaken: () => {
+			throw new SubmissionRejectedError({
+				kind: "new-case",
+				reason: "case-id-taken",
+				caseId,
+			});
+		},
+	};
+}
+
 async function applyOrdinaryAction(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
@@ -2211,11 +2251,13 @@ async function applyOrdinaryAction(
 						: { externalId: ordinary.primary.externalId }),
 					properties: ordinary.primary.properties,
 				},
+				...entryNamedCaseId(appId, args, ordinary.primary),
 			});
 			const createdChildren: CreatedChildCaseReceipt[] = [];
 			for (const [authoredChildIndex, child] of ordinary.children.entries()) {
 				const caseId = await host.insertCase(trx, {
 					appId,
+					...entryNamedCaseId(appId, args, child),
 					seed: {
 						caseType: child.caseType,
 						caseName: requireCaseName(child, "child"),
@@ -2288,6 +2330,9 @@ async function applyOrdinaryAction(
 				for (const parentCaseId of ordinary.caseIds) {
 					const caseId = await host.insertCase(trx, {
 						appId,
+						// Only a one-case form's child is named by its entry; the
+						// server never marks a several-case form's children.
+						...entryNamedCaseId(appId, args, child),
 						seed: {
 							caseType: child.caseType,
 							caseName: requireCaseName(child, "child"),

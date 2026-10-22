@@ -7,6 +7,7 @@ import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { commitAppProjectMove } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { USERCASE_CASE_TYPE } from "@/lib/domain";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
 import { FormEngine } from "@/lib/preview/engine/formEngine";
 import { resolveAuthorizedPreviewContext } from "@/lib/preview/engine/previewAuthorization";
@@ -387,7 +388,11 @@ it("does not write a normal case whose id happens to equal the worker id", async
 	);
 	expect(result.kind).toBe("case-not-found");
 	expect(await rows(app.appId)).toEqual([]);
-	const actual = await store.query({ appId: app.appId, caseType: "patient" });
+	const actual = await store.query({
+		reading: SEARCH_READING,
+		appId: app.appId,
+		caseType: "patient",
+	});
 	expect(actual).toHaveLength(1);
 	expect(actual[0].properties.visits).toBe("unchanged");
 });

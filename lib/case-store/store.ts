@@ -37,6 +37,10 @@ import {
 } from "@/lib/domain";
 import type { SearchInputDecl } from "@/lib/domain/expression/context";
 import type {
+	CaseFilterReading,
+	CaseQueryReading,
+} from "@/lib/domain/expression/temporalType";
+import type {
 	Expression as DomainExpression,
 	RelationPath,
 } from "@/lib/domain/expression/types";
@@ -194,9 +198,6 @@ export type SortKey =
 	| {
 			readonly kind: "expression";
 			readonly expression: DomainExpression;
-			/** A calculated Results/Details column uses the same portable reads
-			 *  to sort. */
-			readonly portableCaseDates?: true;
 			readonly comparator: "text" | "integer" | "decimal";
 			readonly direction: "asc" | "desc";
 			readonly blanks: "first" | "last";
@@ -227,6 +228,12 @@ export type SortKey =
 			readonly blanks: "first" | "last";
 	  };
 
+export {
+	CASEDB_READING,
+	SEARCH_READING,
+} from "@/lib/domain/expression/temporalType";
+export type { CaseFilterReading, CaseQueryReading };
+
 /**
  * Restrict a read to what one worker's device would actually hold.
  *
@@ -239,7 +246,8 @@ export type SortKey =
  * Absent means today's behavior: the whole tenant. That is the contract for
  * every AUTHORING surface — the case workspace, sample data, the property
  * rename preflight, and the automation sweep all read the tenant, because
- * none of them is standing at a device. Only the running preview passes one.
+ * none of them is standing at a device, and they read it under the `search`
+ * reading, the stored truth. Only the running preview passes one.
  */
 export interface RestoreScope {
 	/**
@@ -249,6 +257,27 @@ export interface RestoreScope {
 	 * refuses an empty set rather than answering it with an empty restore.
 	 */
 	readonly ownerIds: readonly string[];
+	/**
+	 * The worker's claims: searched cases it chose that its restore did not
+	 * hold. Each seeds the fixpoint as HQ's claim, an open extension case the
+	 * worker owns, would (`compileRestoreScope.ts`), and only if it is a case
+	 * of this app in the bound Project; any other id seeds nothing. Absent or
+	 * empty is a worker that claimed nothing.
+	 */
+	readonly claimedCaseIds?: readonly string[];
+}
+
+/**
+ * HQ's case search population, for a read that stands for a search
+ * (`case_search/utils.py::CaseSearchQueryBuilder._get_initial_search_es`:
+ * `.case_type(...).is_closed(False)`): every open case of the type in the
+ * bound Project, bound by no restore. `heldBy` is the restore of the worker
+ * searching; each row a query returns says whether that restore holds it
+ * (`heldOnDevice`), computed in the same statement, so a caller claims only
+ * the cases the worker's device does not hold.
+ */
+export interface SearchPopulation {
+	readonly heldBy: RestoreScope;
 }
 
 /**
@@ -288,6 +317,13 @@ export interface SelectedParentCases {
 export interface QueryArgs {
 	appId: string;
 	caseType: string;
+	/**
+	 * What the predicate and the compiled columns stand for. Every read names
+	 * it, because it decides how `date_opened` and `last_modified` read, whether
+	 * `closed_on` is readable, and how a number becomes a date
+	 * (`CaseQueryReading`).
+	 */
+	reading: CaseQueryReading;
 	/**
 	 * Restrict the read to this exact selected-case identity set. The SQL still
 	 * enforces app, Project, type, restore, hold, and optional parent scope.
@@ -339,6 +375,11 @@ export interface QueryArgs {
 	 * the whole tenant, which is what every authoring surface wants.
 	 */
 	restoreScope?: RestoreScope;
+	/**
+	 * Read as a search does. See {@link SearchPopulation}; never together
+	 * with `restoreScope`.
+	 */
+	searchPopulation?: SearchPopulation;
 }
 
 /**
@@ -423,6 +464,8 @@ export type CountArgs =
 	| {
 			appId: string;
 			caseType: string;
+			/** Same contract as `QueryArgs.reading`'s filter half. */
+			reading: CaseFilterReading;
 			ownerId?: never;
 			/** Same selected-parent population contract as `QueryArgs.parentCases`. */
 			parentCases?: SelectedParentCases;
@@ -493,6 +536,9 @@ export type CountArgs =
 			 * involved.
 			 */
 			restoreScope?: RestoreScope;
+			/** Same population contract as `QueryArgs.searchPopulation`. A count
+			 * holds no rows, so it only reads the open cases. */
+			searchPopulation?: SearchPopulation;
 	  }
 	| {
 			/**
@@ -627,6 +673,9 @@ export type CalculatedValue = JsonValue | Date;
  */
 export type CaseRowWithCalculated = CaseRow & {
 	readonly calculated: Readonly<Record<string, CalculatedValue>>;
+	/** Whether the searching worker's restore holds this row; present only
+	 *  on a read with a `searchPopulation`. */
+	readonly heldOnDevice?: boolean;
 };
 
 /**
@@ -1059,7 +1108,9 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
 export interface CaseStore extends SchemaCaseStore {
 	/** Read the complete bound worker restore without partitioning through the
 	 * active Blueprint catalog. The restore closure and tenant predicates live
-	 * in SQL; callers cannot supply case ids or approximate its population. */
+	 * in SQL. The only caller-supplied ids are the worker's claims
+	 * (`RestoreScope.claimedCaseIds`), each of which seeds the closure only if
+	 * it is a case of this app in the bound Project. */
 	readDeviceCaseDatabase(args: {
 		readonly appId: string;
 		readonly restoreScope: RestoreScope;

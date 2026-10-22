@@ -32,6 +32,7 @@ import {
 import { evaluateAsync } from "../../xpath/asyncEvaluator";
 import { toBoolean } from "../../xpath/coerce";
 import type { PreviewSearchSessionValues } from "../identity";
+import type { SearchScreenXPath } from "../searchExpressionEvaluation";
 import {
 	searchFindsNothing,
 	searchInputRuntimeGlobalError,
@@ -39,6 +40,19 @@ import {
 	searchInputSubmissionErrors,
 	searchInputSubmissionErrorsOnDevice,
 } from "../searchInputValidation";
+
+/** The worker's side of the device path: the printed text over the
+ * instances it was sent with, through the real async evaluator. */
+async function evaluateOnWorker(xpath: SearchScreenXPath): Promise<boolean> {
+	return toBoolean(
+		await evaluateAsync(xpath.source, {
+			contextPath: "",
+			position: 1,
+			getValue: () => undefined,
+			resolveXPathInstance: (instanceId) => xpath.instances.get(instanceId),
+		}),
+	);
+}
 
 const FIRST = testUuid("00000000-0000-0000-0000-0000000000a1");
 const SECOND = testUuid("00000000-0000-0000-0000-0000000000a2");
@@ -653,21 +667,16 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 			undefined,
 			validationEnvironment(config),
 			{
-				evaluateOnDevice: async (source) => {
-					sources.push(source);
-					return toBoolean(
-						await evaluateAsync(source, {
-							contextPath: "",
-							position: 1,
-							getValue: () => undefined,
-							resolveHashtag: () => "",
-						}),
-					);
+				evaluateOnDevice: async (xpath) => {
+					sources.push(xpath.source);
+					return evaluateOnWorker(xpath);
 				},
 			},
 		);
 		expect(errors.get("email")).toBe("Enter an email address.");
-		expect(sources).toEqual(["regex('not-an-address', '@')"]);
+		expect(sources).toEqual([
+			"regex(instance('search-input:results')/input/field[@name = 'email'], '@')",
+		]);
 	});
 
 	it("clears the check on the device path when the answer fits", async () => {
@@ -681,15 +690,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 			undefined,
 			validationEnvironment(config),
 			{
-				evaluateOnDevice: async (source) =>
-					toBoolean(
-						await evaluateAsync(source, {
-							contextPath: "",
-							position: 1,
-							getValue: () => undefined,
-							resolveHashtag: () => "",
-						}),
-					),
+				evaluateOnDevice: evaluateOnWorker,
 			},
 		);
 		expect(errors.size).toBe(0);

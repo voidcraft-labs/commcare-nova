@@ -3,6 +3,7 @@ import {
 	classicWideningTarget,
 	iso6391CodeForSet3,
 } from "@/lib/domain/languageRegistry/classicRuntime";
+import { javaCalendarDate } from "./coreDays";
 import type { XPathDate } from "./types";
 
 /** Pinned from CommCare Android's locale arrays at 79d8418ab2dcd984. */
@@ -221,19 +222,11 @@ export function javaRosaFormatDateForCalendar(
 	throw new Error(`Unsupported calendar type: ${calendar}`);
 }
 
+/** The value's local calendar date, the fields Core's converters read from
+ * the held `Date` in the device zone (`DateUtils.getFields`, Julian before
+ * 1582-10-15) and hand to a Gregorian chronology. */
 function gregorianFields(value: XPathDate): CalendarDate {
-	const date = value.toJSDate();
-	return value.time === null
-		? {
-				year: date.getUTCFullYear(),
-				month: date.getUTCMonth() + 1,
-				day: date.getUTCDate(),
-			}
-		: {
-				year: date.getFullYear(),
-				month: date.getMonth() + 1,
-				day: date.getDate(),
-			};
+	return javaCalendarDate(value.calendarDays);
 }
 
 function toEthiopian(date: CalendarDate): CalendarDate {

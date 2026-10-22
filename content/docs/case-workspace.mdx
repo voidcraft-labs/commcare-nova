@@ -63,6 +63,15 @@ just as form questions do. On a device they use the device’s local day. This
 keeps a case due today from appearing overdue because the server is already
 on tomorrow’s date.
 
+A calculated value can use `here()`, the worker's current location, for
+example to show where the worker is, or to mark the cases within a set
+distance of them with `within-distance`. In Preview your browser asks to share
+your location the first time a list on screen needs it. Until it does, those
+values stay blank, as they do on a device that has no location yet. As on an
+Android phone, the list updates after you move more than 30 metres. Nova uses
+your location only to run the list and the case's details, and doesn't save or
+log it.
+
 Select a Results or Details row, then use **Hide from Results** or **Hide from
 Details** at the bottom of its properties when you only want it off that
 screen. Hiding is reversible. An item hidden from Results stays part of the
@@ -641,7 +650,11 @@ data and try the complete experience, use **Preview** in the builder header.
 Preview runs the configured journey against the same case data. When Search is
 configured, it appears before Results and Details. Entering a search leaves the
 current results in place until you choose the screen's Search button, matching
-the app people will ultimately use. A one-case row opens that case. In a
+the app people will ultimately use. A search in Preview finds every open case
+in the Project that matches, as CommCare's search does, including cases the
+worker doesn't have yet. When you choose one, it's added to the worker's cases,
+as it would be on a device, until you change the worker, leave Preview or
+reload the page. A one-case row opens that case. In a
 several-case workflow, its checkbox adds or removes the case and **Details**
 opens it without changing the selection. Other actions inside the row, such as
 calling a phone number or checking why a value is shown, work independently.

@@ -8,15 +8,24 @@
 import { sql } from "kysely";
 import { describe } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import type { CaseRowWithCalculated } from "@/lib/case-store";
 import {
 	type CaseType,
 	type Column,
 	intervalColumn,
+	plainColumn,
 	TIME_SINCE_UNIT_DAYS,
 } from "@/lib/domain";
+import { prop, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
-import { formatIntervalForPreview } from "@/lib/preview/columnDisplay";
-import type { ExpressionCompileContext } from "../compileExpression";
+import {
+	formatIntervalForPreview,
+	projectColumnDisplay,
+} from "@/lib/preview/columnDisplay";
+import {
+	compileDeviceTextExpression,
+	type ExpressionCompileContext,
+} from "../compileExpression";
 import { compileIntervalText } from "../compileIntervalText";
 import { compilePredicate } from "../compilePredicate";
 import { expect, makeCaseRow, test } from "./setup";
@@ -141,6 +150,8 @@ describe("compileIntervalText", () => {
 			)
 			.execute();
 		const ctx: ExpressionCompileContext = {
+			// A browse list's interval column reads the casedb row.
+			reading: "casedb",
 			db,
 			appId: APP_ID,
 			projectId: PROJECT_ID,
@@ -187,5 +198,135 @@ describe("compileIntervalText", () => {
 				).toBe(formatIntervalForPreview(value ?? "", column, now).text);
 			});
 		}
+	});
+
+	test("reads a results row's last modified as the text HQ's results carry, for its order and both displays", async ({
+		db,
+	}) => {
+		// The session's zone spells a stored instant's own text; HQ's results
+		// text is UTC whatever it is.
+		await sql`SET LOCAL TimeZone = 'America/New_York'`.execute(db);
+		const DAY = 24 * 60 * 60 * 1000;
+		const started = Date.now();
+		// Milliseconds only, the precision Preview's row holds.
+		const modified = [4, 0.25, 40, 1.5, 0].map(
+			(daysAgo, index) => new Date(started - daysAgo * DAY - index * 7),
+		);
+		const caseIds = modified.map((_, index) =>
+			testUuid(`results-modified-${index}`),
+		);
+		await db
+			.insertInto("cases")
+			.values(
+				modified.map((instant, index) =>
+					makeCaseRow({
+						case_id: caseIds[index],
+						case_type: "visit",
+						app_id: APP_ID,
+						project_id: PROJECT_ID,
+						modified_on: instant,
+					}),
+				),
+			)
+			.execute();
+		const ctx: ExpressionCompileContext = {
+			// An effective Search's results list reads HQ's results instance.
+			reading: "results",
+			db,
+			appId: APP_ID,
+			projectId: PROJECT_ID,
+			anchorAlias: "c",
+			currentCaseType: "visit",
+			caseTypeSchemas: new Map([["visit", VISIT]]),
+			bindings: { viewerTimeZone: VIEWER_ZONE },
+			compilePredicate: (predicate, context) =>
+				compilePredicate(predicate, context),
+		};
+		const columns = [
+			intervalColumn(
+				testUuid("modified-days"),
+				"last_modified",
+				"Days",
+				30,
+				"days",
+				"always",
+				"Stale",
+			),
+			intervalColumn(
+				testUuid("modified-flag"),
+				"last_modified",
+				"Flag",
+				2,
+				"days",
+				"flag",
+				"Quiet",
+			),
+		];
+		const shown = compileDeviceTextExpression(
+			term(prop("visit", "last_modified")),
+			ctx,
+		);
+		const rows = await db
+			.selectFrom("cases as c")
+			.selectAll("c")
+			.where("c.app_id", "=", APP_ID)
+			.where("c.project_id", "=", PROJECT_ID)
+			.where("c.case_type", "=", "visit")
+			.select([
+				sql<Date>`now()`.as("now"),
+				shown.as("shown"),
+				...columns.map((column, index) =>
+					compileIntervalText(
+						{
+							caseType: "visit",
+							property: "last_modified",
+							display: column.display,
+							thresholdDays:
+								column.threshold * TIME_SINCE_UNIT_DAYS[column.unit],
+							divisorDays: TIME_SINCE_UNIT_DAYS[column.unit],
+							text: column.text,
+						},
+						ctx,
+					).as(`text_${index}`),
+				),
+			])
+			.orderBy(sql`(${shown})::text`)
+			.execute();
+		expect(rows.map((row) => row.case_id)).toEqual(
+			caseIds
+				.map((caseId, index) => ({ caseId, at: modified[index].getTime() }))
+				.sort((a, b) => a.at - b.at)
+				.map((entry) => entry.caseId),
+		);
+		const plain = plainColumn(
+			testUuid("modified-plain"),
+			"last_modified",
+			"Modified",
+		);
+		for (const row of rows) {
+			const record = row as unknown as Record<string, unknown>;
+			const display = {
+				caseProperties: [],
+				calculatedTemporalTypes: new Map(),
+				today: new Date(row.now),
+				reading: "results" as const,
+				projectProse: () => "",
+			};
+			const previewRow = {
+				...row,
+				calculated: {},
+			} as unknown as CaseRowWithCalculated;
+			expect(record.shown).toBe(
+				projectColumnDisplay(plain, previewRow, display).text,
+			);
+			columns.forEach((column, index) => {
+				expect(record[`text_${index}`], column.header).toBe(
+					projectColumnDisplay(column, previewRow, display).text,
+				);
+			});
+		}
+		expect(
+			rows.map((row) => (row as unknown as Record<string, unknown>).text_1),
+		).toEqual(["Quiet", "Quiet", "", "", ""]);
 	});
 });

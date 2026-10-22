@@ -32,7 +32,10 @@ import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useId } from "react";
-import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
+import {
+	useBuilderLanguage,
+	useLocalizedField,
+} from "@/components/builder/localization/BuilderLocalizationProvider";
 import type { FieldPath } from "@/lib/doc/fieldPath";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { RepeatField as RepeatFieldEntity } from "@/lib/domain";
@@ -41,7 +44,7 @@ import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
 import { useVisibleRepeatInstances } from "@/lib/preview/hooks/useVisibleFieldOrder";
-import { runtimeMessage } from "@/lib/preview/runtimeMessages";
+import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
 import { useFormLayout } from "../FormLayoutContext";
 import { CONTAINER_HEADER_STYLES, FIELD_STYLES } from "../fieldStyles";
@@ -196,6 +199,26 @@ export function RepeatField({
 	// instance dividers only for iterations with worker-facing content;
 	// hidden calculations still run for every concrete instance.
 	const isUserControlled = field.repeat_mode === "user_controlled";
+
+	// CommCare refused the last insert: a starting value in the new entry
+	// failed its cast, so the entry was not added.
+	const insertRefusal = state.insertRefusal;
+	const refusedQuestion = useLocalizedField(
+		insertRefusal?.fieldUuid ?? field.uuid,
+	);
+	const refusedQuestionLabel =
+		refusedQuestion !== undefined &&
+		"label" in refusedQuestion &&
+		refusedQuestion.label
+			? projectProse(refusedQuestion.label)
+			: undefined;
+	const insertRefusalText =
+		insertRefusal === undefined
+			? undefined
+			: refusalCopy(language, insertRefusal, {
+					repeat: addLabel,
+					...(refusedQuestionLabel ? { question: refusedQuestionLabel } : {}),
+				}).body;
 
 	const removeInstance = useCallback(
 		(index: number, expectedInstanceKey: string) => {
@@ -386,6 +409,20 @@ export function RepeatField({
 						 *  Suppressed entirely for non-`user_controlled` modes:
 						 *  counted and record-query repeats derive their own
 						 *  rows, so they never offer manual Add/Remove. */}
+						{insertRefusalText !== undefined && (
+							<div
+								role="alert"
+								data-repeat-insert-refusal
+								className="mb-3 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-sm leading-relaxed text-nova-text-secondary"
+								style={{
+									marginLeft: depthPadding(depth + 1),
+									marginRight: depthPadding(depth + 1),
+								}}
+							>
+								{insertRefusalText}
+							</div>
+						)}
+
 						{isUserControlled && (
 							<div
 								className="mb-6"

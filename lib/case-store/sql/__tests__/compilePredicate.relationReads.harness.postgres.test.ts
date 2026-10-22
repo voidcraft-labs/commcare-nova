@@ -65,6 +65,7 @@ const SCHEMAS = new Map<string, CaseType>([
 
 function makeCtx(db: PredicateCompileContext["db"]): PredicateCompileContext {
 	return {
+		reading: "search",
 		db,
 		appId: APP_ID,
 		projectId: PROJECT_ID,

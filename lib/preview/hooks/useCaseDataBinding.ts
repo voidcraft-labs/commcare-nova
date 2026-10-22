@@ -55,18 +55,24 @@ import {
 	type SearchInputValues,
 	searchInputValuesToWire,
 } from "@/lib/preview/engine/runtimeBindings";
+import { columnsReadHere } from "@/lib/preview/engine/viewerLocation";
 import {
 	invalidateCaseData,
 	useCaseDataReplacementRevision,
 	useCaseDataRevision,
 } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource";
+import { useViewerPositionMoves } from "@/lib/preview/hooks/useViewerPosition";
 import {
 	useAccessPhase,
+	usePreviewClaimedCaseIds,
 	usePreviewPersonaUuid,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
+import { viewerPositionStore } from "@/lib/session/viewerPosition";
+
+const NO_CLAIMS: readonly string[] = [];
 
 function parentCaseSelectionKey(
 	parentCase: ParentCaseSelection | undefined,
@@ -156,6 +162,17 @@ type LoadingState<T extends { kind: string }> =
  * Optional `excludedOwnerIdsExpression` remains a typed expression until the
  * authenticated Server Action so session-backed values (notably the current
  * worker id) resolve authoritatively before the local query is composed.
+ *
+ * The worker's claims (`lib/session/previewClaims.ts`) ride every read: they
+ * widen the restore of a device read and decide which rows of a search's
+ * population the device already holds.
+ *
+ * A list whose Results show a column that reads `here()` sends the viewer's
+ * latest position with each read and records it as the one the list shows
+ * (`lib/session/viewerPosition.ts`). A move that re-reads the list (the first
+ * position, then each one past 30 metres) re-fires the load, keeping the
+ * settled rows on screen while it runs, as any other query edit does. Other
+ * lists send no position and never re-read for one.
  */
 export function useCases(args: {
 	appId: string | undefined;
@@ -184,6 +201,10 @@ export function useCases(args: {
 	 * with different modules/configuration. Rows stay stale only within this
 	 * scope while prompt edits revalidate. */
 	requestScopeKey?: string;
+	/** The read is the Results of a completed search of `moduleUuid`
+	 *  (submitted `inputValues` say the same), so it reads the search's
+	 *  population rather than the worker's restore. */
+	search?: boolean;
 }): {
 	state: LoadingState<LoadCasesResult>;
 	/** Server-derived cause of the effective query's narrowing. Blank prompt
@@ -213,6 +234,7 @@ export function useCases(args: {
 		caseTypes,
 		page,
 		requestScopeKey = "",
+		search = false,
 	} = args;
 	const caseIdsKey = caseIds === undefined ? "all" : caseIds.join("\u0001");
 	const pageOffset = page?.offset;
@@ -229,13 +251,19 @@ export function useCases(args: {
 	 * the query returns (owner-scoped rules, session-backed prompt values),
 	 * so it must re-fire the load, not reuse another worker's rows. */
 	const personaUuid = usePreviewPersonaUuid();
+	const claimedCaseIds = usePreviewClaimedCaseIds(personaUuid);
+	const readsHere = columnsReadHere(caseListConfig, "list");
+	const positionMoves = useViewerPositionMoves();
+	const positionKey = readsHere ? positionMoves : "no-position";
 	const ready = Boolean(appId && caseType && accessPhase === "authorized");
 	/* Query edits within one case type deliberately keep settled rows visible,
 	 * but an app/case-type change is an identity boundary. Keep that identity
 	 * beside the result so the render that precedes the refetch effect can never
-	 * project old rows through the new module's columns or row actions. */
+	 * project old rows through the new module's columns or row actions. A new
+	 * claim is no such boundary: it only adds a case the device holds, so it
+	 * re-reads through the reload token and the settled rows stay on screen. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -249,6 +277,8 @@ export function useCases(args: {
 			parentCase,
 			caseTypes,
 			caseDataRevision,
+			positionKey,
+			claimedCaseIds,
 		],
 		[
 			requestIdentity,
@@ -261,6 +291,8 @@ export function useCases(args: {
 			parentCase,
 			caseTypes,
 			caseDataRevision,
+			positionKey,
+			claimedCaseIds,
 		],
 	);
 	interface KeyedCasesState {
@@ -305,6 +337,11 @@ export function useCases(args: {
 										: { offset: pageOffset, limit: pageLimit },
 								viewerTimeZone: viewerTimeZone(),
 								personaUuid,
+								claimedCaseIds: [...claimedCaseIds],
+								...(search && { search }),
+								viewerLocation: readsHere
+									? viewerPositionStore.getState().takeForListRead()
+									: null,
 							}),
 						}),
 					},
@@ -581,6 +618,15 @@ export function useCaseData(args: {
 	 * tree rather than in any argument here — `useRestoreScopeKey` signs them
 	 * and the running surfaces pass it. */
 	scopeKey?: string;
+	/** A device-scoped read of a case chosen from the Results of a search of
+	 *  `moduleUuid`: it reads the case as the search found it. */
+	search?: boolean;
+	/** The running screen that shows this row's calculated columns: `"detail"`
+	 *  for Details, `"list"` for the tile pinned above a form. When that
+	 *  screen shows a column that reads `here()`, the read sends the viewer's
+	 *  latest position. It is not part of the read's identity: like Android's
+	 *  Details, the row does not re-read as the position moves. */
+	positionScreen?: "list" | "detail";
 }): {
 	state: LoadingState<LoadCaseDataResult>;
 	reload: () => Promise<void>;
@@ -598,7 +644,13 @@ export function useCaseData(args: {
 		includeHeld,
 		deviceScoped,
 		scopeKey = "",
+		search = false,
+		positionScreen,
 	} = args;
+	const sendsPosition =
+		deviceScoped === true &&
+		positionScreen !== undefined &&
+		columnsReadHere(caseListConfig, positionScreen);
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
 	const caseDataRevision = useCaseDataRevision(appId, caseType);
@@ -606,6 +658,10 @@ export function useCaseData(args: {
 	 * calculated columns that read the session, so two personas asking for
 	 * the same row are two different requests. */
 	const personaUuid = usePreviewPersonaUuid();
+	/* A device-scoped read holds the worker's claimed cases, so it cannot
+	 * forget them; any other read is the tenant and sends none. */
+	const workerClaims = usePreviewClaimedCaseIds(personaUuid);
+	const claimedCaseIds = deviceScoped === true ? workerClaims : NO_CLAIMS;
 	const ready = Boolean(
 		appId && caseType && caseId && accessPhase === "authorized",
 	);
@@ -614,7 +670,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${claimedCaseIds.join(",")}`
 		: "";
 	const personaRequestKey = ready
 		? `${requestKey}\u0000${personaUuid ?? "me"}`
@@ -670,6 +726,11 @@ export function useCaseData(args: {
 									? undefined
 									: toRscSerializableDoc(blueprint),
 								moduleUuid,
+								[...claimedCaseIds],
+								search,
+								sendsPosition
+									? viewerPositionStore.getState().latestLocation()
+									: null,
 							),
 						}),
 					},

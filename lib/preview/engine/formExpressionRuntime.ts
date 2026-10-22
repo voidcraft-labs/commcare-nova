@@ -1,5 +1,16 @@
+import { caseTypeDepthMap } from "@/lib/commcare/caseTypeDepths";
+import {
+	entryDatumIdResolver,
+	entryDatumIds,
+	formLinkProjectionContext,
+	owningModuleOf,
+	selectedCaseSessionDatum,
+	sessionDataRef,
+} from "@/lib/commcare/formLinkProjection";
 import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
+import { formCasePropertyRead } from "@/lib/commcare/xform/formCaseRead";
 import { FormPath } from "@/lib/commcare/xform/formPath";
+import { proseReferenceExpression } from "@/lib/commcare/xform/proseExpression";
 import {
 	type FormNodeProjection,
 	formNodeProjection,
@@ -22,8 +33,11 @@ import {
 	type ExpressionSlotRef,
 	type FormNodeRef,
 	formNodeKey,
+	type ProseSlotRef,
+	type SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { expressionAt } from "@/lib/domain/expressionSource";
+import type { ProseReferencePart } from "@/lib/domain/prose";
 import type { PreviewLookupData } from "./lookupEvaluation";
 
 /** The current Preview instance stores query rows directly beneath their
@@ -78,17 +92,93 @@ export function previewFormNodeProjection(
 	};
 }
 
+/**
+ * The session bindings a form's logic prints with, the XForm emitter's own:
+ * each session datum by the id the entry prints (`entryDatumIds`), and the
+ * form's case as the casedb walk keyed on the session datum that holds it
+ * (`formCasePropertyRead`). Preview then serves `session/data` from the
+ * entry's session map (`entrySessionData.ts`) and casedb from the device
+ * snapshot, so a case read evaluates the text a device reads.
+ */
+export function formSessionBindings(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): Required<Pick<WireTermBindings, "datumId" | "formCaseProperty">> {
+	/* Derived on the first read: deriving an entry runs the form's case
+	 * actions, which a form reading no session never needs. */
+	let derived:
+		| Pick<WireTermBindings, "datumId" | "formCaseProperty">
+		| undefined;
+	const bindings = () => {
+		derived ??= deriveFormSessionBindings(doc, formUuid);
+		return derived;
+	};
+	return {
+		datumId: (datum) => bindings().datumId?.(datum),
+		formCaseProperty: (caseType, property) => {
+			const read = bindings().formCaseProperty;
+			if (read === undefined)
+				throw new Error(
+					"This form belongs to no module, so it has no case to read.",
+				);
+			return read(caseType, property);
+		},
+	};
+}
+
+function deriveFormSessionBindings(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): Pick<WireTermBindings, "datumId" | "formCaseProperty"> {
+	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+	const moduleUuid = owningModuleOf(ctx, formUuid);
+	const form = doc.forms[formUuid];
+	const mod = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	if (moduleUuid === undefined || form === undefined || mod === undefined)
+		return {};
+	const own = selectedCaseSessionDatum(doc, ctx, moduleUuid, formUuid);
+	return {
+		datumId: entryDatumIdResolver(
+			entryDatumIds(doc, ctx, moduleUuid, formUuid),
+		),
+		formCaseProperty: formCasePropertyRead({
+			formType: form.type,
+			caseTypeDepths: caseTypeDepthMap(mod.caseType, doc.caseTypes ?? []),
+			moduleCaseType: mod.caseType,
+			// A several-case form names no one case; the emitter keys its case
+			// reads on `session/data/case_id` there, and so does Preview.
+			...(own !== undefined &&
+				own.maxSelectValue === undefined && {
+					selectedCaseId: sessionDataRef(own.id),
+				}),
+		}),
+	};
+}
+
 export interface FormExpressionRuntime {
 	readonly doc: BlueprintDoc;
 	readonly formUuid: Uuid;
 	readonly projection: FormNodeProjection;
-	context(slot: ExpressionSlotRef): ExpressionContext;
+	context(slot: SlotContextRef): ExpressionContext;
+	/** The slot's stored tree, for reads that decide by its shape. */
+	expression(slot: ExpressionSlotRef): Expression | undefined;
+	/** The slot's printed text, printed once per runtime. */
 	source(slot: ExpressionSlotRef): string | undefined;
-	lower(expression: Expression, slot: ExpressionSlotRef): string;
+	/** One prose reference's printed text, the value the XForm's `<output>`
+	 * for it reads (`xform/formExpressions.ts::prose`), printed once per
+	 * runtime. */
+	prose(part: ProseReferencePart, slot: ProseSlotRef): string;
+	lower(expression: Expression, slot: SlotContextRef): string;
 }
 
 /** Stored trees enter the shared wire emitter with their real owning slot.
- * The resulting text is an evaluator input, never a display-text round trip. */
+ * The resulting text is an evaluator input, never a display-text round trip.
+ *
+ * A runtime is fixed to one document, lookup capture and set of bindings, and
+ * the engine builds a new one whenever any of them changes, so each slot's
+ * text is printed once per runtime and held here. The text depends on the
+ * bindings (a worker read with no `commcare-user` row prints the identity's
+ * literal), so the memo belongs to the runtime and never to the document. */
 export function formExpressionRuntime(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -97,7 +187,7 @@ export function formExpressionRuntime(
 ): FormExpressionRuntime {
 	const projection = previewFormNodeProjection(doc, formUuid);
 	const contexts = new Map<string, ExpressionContext>();
-	const context = (slot: ExpressionSlotRef): ExpressionContext => {
+	const context = (slot: SlotContextRef): ExpressionContext => {
 		const key = JSON.stringify(slot);
 		const cached = contexts.get(key);
 		if (cached !== undefined) return cached;
@@ -113,7 +203,7 @@ export function formExpressionRuntime(
 		contexts.set(key, result);
 		return result;
 	};
-	const lower = (expression: Expression, slot: ExpressionSlotRef): string => {
+	const lower = (expression: Expression, slot: SlotContextRef): string => {
 		for (const { node } of formReads(expression)) {
 			if (
 				(node.kind === "field" && node.role === "query-wrapper") ||
@@ -143,15 +233,31 @@ export function formExpressionRuntime(
 			{ target: "preview" },
 		).text;
 	};
+	const texts = new Map<string, string | undefined>();
+	const proseTexts = new Map<string, string>();
 	return {
 		doc,
 		formUuid,
 		projection,
 		context,
 		lower,
+		expression: (slot) => expressionAt(doc, slot),
 		source(slot) {
+			const key = JSON.stringify(slot);
+			if (texts.has(key)) return texts.get(key);
 			const expression = expressionAt(doc, slot);
-			return expression === undefined ? undefined : lower(expression, slot);
+			const text =
+				expression === undefined ? undefined : lower(expression, slot);
+			texts.set(key, text);
+			return text;
+		},
+		prose(part, slot) {
+			const key = JSON.stringify([slot, part]);
+			const cached = proseTexts.get(key);
+			if (cached !== undefined) return cached;
+			const text = lower(proseReferenceExpression(part), slot);
+			proseTexts.set(key, text);
+			return text;
 		},
 	};
 }

@@ -34,8 +34,8 @@ import { XPathDate } from "@/lib/preview/xpath/types";
 import { datePatternProblem, insertDatePiece } from "../datePatternDraft";
 
 /** A memorable sample with leading-zero and time pieces that differ clearly. */
-const DATE_STYLE_EXAMPLE = XPathDate.fromJSDate(
-	new Date(2026, 6, 7, 9, 5, 6, 9),
+const DATE_STYLE_EXAMPLE = XPathDate.fromInstant(
+	new Date(2026, 6, 7, 9, 5, 6, 9).getTime(),
 );
 
 /** A preset's stable key, person-facing label, and stored pattern value. */

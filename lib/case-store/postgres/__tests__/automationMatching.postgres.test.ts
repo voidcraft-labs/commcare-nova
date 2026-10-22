@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 import { describe, expect } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { and, eq, isIn, literal, prop } from "@/lib/domain/expression/builders";
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import type { AutomationHostAmbiguityError } from "../../errors";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
@@ -239,6 +240,7 @@ describe("automation criteria SQL", () => {
 
 		await expect(
 			caseStore.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "visit",
 				caseTypeSchemas: schemas,
@@ -275,6 +277,7 @@ describe("automation criteria SQL", () => {
 		await insertExtensionFixtures(pgClient);
 		const count = (scope: "case" | "parent" | "host") =>
 			caseStore.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "visit",
 				caseTypeSchemas: schemas,
@@ -341,6 +344,7 @@ describe("automation criteria SQL", () => {
 	}) => {
 		const count = (operator: "all" | "any") =>
 			caseStore.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "visit",
 				caseTypeSchemas: schemas,
@@ -372,6 +376,7 @@ describe("automation criteria SQL", () => {
 		} as const;
 		const count = (property: "case_id" | "case_type", value: string) =>
 			caseStore.count({
+				reading: SEARCH_READING,
 				...base,
 				automationCriteria: {
 					requiresUnambiguousHost: false,
@@ -398,6 +403,7 @@ describe("automation criteria SQL", () => {
 	}) => {
 		const count = (locationOwnerSets: readonly (readonly string[])[]) =>
 			caseStore.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "visit",
 				caseTypeSchemas: schemas,
@@ -430,6 +436,7 @@ describe("automation criteria SQL", () => {
 
 		await expect(
 			caseStore.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "visit",
 				caseTypeSchemas: schemas,
@@ -454,6 +461,7 @@ describe("automation criteria SQL", () => {
 
 		await expect(
 			caseStore.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "visit",
 				caseTypeSchemas: schemas,
@@ -506,6 +514,7 @@ describe("automation criteria SQL", () => {
 
 		await expect(
 			caseStore.count({
+				reading: SEARCH_READING,
 				...base,
 				automationCriteria: {
 					requiresUnambiguousHost: false,
@@ -523,6 +532,7 @@ describe("automation criteria SQL", () => {
 		).resolves.toBe(2);
 		await expect(
 			caseStore.count({
+				reading: SEARCH_READING,
 				...base,
 				automationCriteria: {
 					requiresUnambiguousHost: false,
@@ -540,6 +550,7 @@ describe("automation criteria SQL", () => {
 		).resolves.toBe(4);
 		await expect(
 			caseStore.count({
+				reading: SEARCH_READING,
 				...base,
 				automationCriteria: {
 					requiresUnambiguousHost: false,
@@ -585,6 +596,7 @@ describe("automation criteria SQL", () => {
 		}
 		const count = (pattern: string) =>
 			caseStore.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "visit",
 				caseTypeSchemas: schemas,
@@ -636,6 +648,7 @@ describe("automation criteria SQL", () => {
 		);
 		const count = (property: "external_id" | "owner_id") =>
 			caseStore.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "visit",
 				caseTypeSchemas: schemas,
@@ -671,6 +684,7 @@ describe("automation criteria SQL", () => {
 		} as const;
 		const count = (scope: "parent" | "host", hasValue: boolean) =>
 			caseStore.count({
+				reading: SEARCH_READING,
 				...base,
 				automationCriteria: {
 					requiresUnambiguousHost: scope === "host",
@@ -701,6 +715,7 @@ describe("automation criteria SQL", () => {
 			hasValue: boolean,
 		) =>
 			caseStore.count({
+				reading: SEARCH_READING,
 				...base,
 				predicate: eq(prop("visit", "case_name"), literal(caseName)),
 				automationCriteria: {
@@ -745,6 +760,7 @@ describe("automation criteria SQL", () => {
 			scope: "case" | "parent" | "host";
 		}) =>
 			caseStore.count({
+				reading: SEARCH_READING,
 				...base,
 				automationCriteria: {
 					requiresUnambiguousHost: comparison.scope === "host",
@@ -910,6 +926,7 @@ describe("automation criteria SQL", () => {
 				| "date-days",
 		) =>
 			caseStore.count({
+				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "visit",
 				caseTypeSchemas: schemas,

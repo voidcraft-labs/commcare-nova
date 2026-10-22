@@ -30,6 +30,7 @@ import {
 	term,
 } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
+import { SetvalueRefusal, type SetvalueRefusalDetails } from "../answerCast";
 import { DEFAULT_RUNTIME_STATE, EngineController } from "../engineController";
 import { FormEngine } from "../formEngine";
 import { previewAsMe, type ResolvedPreviewIdentity } from "../identity";
@@ -277,6 +278,51 @@ describe("EngineController", () => {
 				formUuid: FORM_UUID,
 				operation: "activate",
 			});
+		});
+
+		it("publishes a CommCare refusal without reporting it, and opens the form again on the next edit", () => {
+			const store = createLoadedStore();
+			const ctrl = ownedController();
+			const report = vi.fn();
+			ctrl.setFaultReporter(report);
+			ctrl.setDocStore(store);
+			const details: SetvalueRefusalDetails = {
+				cause: "starting-value",
+				fieldUuid: Q2_UUID,
+				path: "/data/age",
+				value: "ab",
+				answerType: "int",
+			};
+			vi.spyOn(
+				FormEngine.prototype,
+				"enterFirstSection",
+			).mockImplementationOnce(() => {
+				throw new SetvalueRefusal(details);
+			});
+
+			expect(() => ctrl.activateForm(FORM_UUID)).not.toThrow();
+			expect(ctrl.entryStore.getState()).toMatchObject({
+				entryKey: undefined,
+				formUuid: undefined,
+				ready: false,
+				fault: undefined,
+				refusal: { formUuid: FORM_UUID, details },
+			});
+			expect(ctrl.store.getState()).toEqual({});
+			expect(report).not.toHaveBeenCalled();
+
+			applyControllerEdit(store, [
+				{
+					kind: "updateField",
+					uuid: Q2_UUID,
+					targetKind: "int",
+					patch: { help: proseText("How old they are") },
+				},
+			]);
+			expect(ctrl.entryStore.getState().refusal).toBeUndefined();
+			expect(ctrl.formUuid).toBe(FORM_UUID);
+			expect(Object.keys(ctrl.store.getState())).toHaveLength(2);
+			expect(report).not.toHaveBeenCalled();
 		});
 
 		it("initializes runtime state for every field in the form", () => {

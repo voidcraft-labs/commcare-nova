@@ -13,6 +13,7 @@ import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { CanonicalMutationWorkspace } from "@/lib/agent/workspace/canonicalWorkspace";
 import { appTestNamespace } from "@/lib/case-store/appTestNamespace";
 import {
+	FOLLOWUP_FORM,
 	HOST_MODULE,
 	noMatchesDoc,
 	REGISTER_FORM,
@@ -295,7 +296,12 @@ it.each([false, true])(
 	},
 );
 
-it("starts at visible entry, preserves answers between calls and persists a close only in disposable records", async () => {
+// A start, fourteen persisted worker actions (two of them submissions) and two
+// evidence reads, each its own durable transaction. Give the journey the same
+// budget as the other complete journeys.
+it("starts at visible entry, preserves answers between calls and persists a close only in disposable records", {
+	timeout: 15_000,
+}, async () => {
 	const doc = await createEvaluationApp(
 		[
 			{
@@ -3439,4 +3445,148 @@ it("returns invalid seed data as authoring input and retains a completed prefix 
 		}),
 	);
 	expect(repaired.observation).not.toHaveProperty("completed", false);
+});
+
+it("finds a searched record beyond the session's restore and claims it when its form opens, in that session alone", {
+	timeout: 30_000,
+}, async () => {
+	const author = makeAuthoringHarness({}, noMatchesDoc());
+	expect(
+		await author.call("addPersonas", {
+			personas: [{ name: "Alice" }, { name: "Bob" }],
+		}),
+	).not.toHaveProperty("error");
+	expect(
+		await author.call("addFields", {
+			moduleUuid: HOST_MODULE,
+			formUuid: FOLLOWUP_FORM,
+			fields: [
+				{ kind: "hidden", id: "seen_name", calculate: "#patient/case_name" },
+			],
+		}),
+	).not.toHaveProperty("error");
+	const doc = author.currentDoc();
+	const bob = Object.values(doc.personas ?? {}).find(
+		(persona) => persona.name === "Bob",
+	);
+	if (!bob) throw new Error("Missing saved worker.");
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	const call = sharedJourneyCalls(doc);
+	let current = stepSchema.parse(
+		await call("startAppTest", {
+			purpose: "Search for another worker's patient and visit them",
+			sessions: [
+				{ id: "alice", personaUuid: "Alice" },
+				{ id: "again", personaUuid: "Alice" },
+			],
+			scenario: {
+				records: [{ id: "p-bob", caseType: "patient", name: "Maya" }],
+			},
+			owners: [
+				{
+					recordId: "p-bob",
+					owner: { kind: "persona", personaUuid: bob.uuid },
+				},
+			],
+		}),
+	);
+	let request = 0;
+	const advance = async (actions: unknown[]) => {
+		current = stepSchema.parse(
+			await call(
+				"continueAppTest",
+				{ testId: current.testId, expectedStep: current.step, actions },
+				`claim-${++request}`,
+			),
+		);
+		return current.observation;
+	};
+	const claimedIn = async (sessionId: string) => {
+		const row = await h
+			.db()
+			.selectFrom("app_test_sessions")
+			.select("state")
+			.where("id", "=", current.testId)
+			.executeTakeFirstOrThrow();
+		const state = row.state as {
+			sessions?: Record<string, { claimedCaseIds?: unknown }>;
+		};
+		return state.sessions?.[sessionId]?.claimedCaseIds;
+	};
+	const searchFor = (sessionId: string) => [
+		{ sessionId, action: { kind: "menu", moduleUuid: HOST_MODULE } },
+		{
+			sessionId,
+			action: {
+				kind: "search",
+				answers: [{ name: "patient_name", value: "Maya" }],
+			},
+		},
+	];
+
+	// The search reads the Project's open patients, not Alice's restore.
+	expect(await advance(searchFor("alice"))).toMatchObject({
+		results: {
+			kind: "rows",
+			rows: [
+				expect.objectContaining({ case_id: "p-bob", heldOnDevice: false }),
+			],
+		},
+	});
+	expect(await claimedIn("alice")).toEqual([]);
+	// Choosing the record opens its Details; a search-first module claims
+	// only once a form is chosen.
+	await advance([{ action: { kind: "select", caseIds: ["p-bob"] } }]);
+	expect(await claimedIn("alice")).toEqual([]);
+	// Continue opens the module's one case form, which posts the claim, so
+	// the form opens with the record held and its case data preloaded.
+	expect(await advance([{ action: { kind: "continue" } }])).toMatchObject({
+		screen: "form",
+		questions: expect.arrayContaining([
+			expect.objectContaining({ path: "seen_name", value: "Maya" }),
+		]),
+	});
+	expect(await claimedIn("alice")).toEqual(["p-bob"]);
+
+	// Another session of the same worker holds none of Alice's claims.
+	expect(await advance(searchFor("again"))).toMatchObject({
+		sessionId: "again",
+		results: {
+			kind: "rows",
+			rows: [
+				expect.objectContaining({ case_id: "p-bob", heldOnDevice: false }),
+			],
+		},
+	});
+	expect(await claimedIn("again")).toEqual([]);
+
+	// Home and Sync keep the claim, as a claim on HQ outlives the task.
+	expect(
+		await advance([
+			{ sessionId: "alice", action: { kind: "home" } },
+			{ sessionId: "alice", action: { kind: "sync" } },
+		]),
+	).toMatchObject({
+		sessionId: "alice",
+		synced: true,
+		availableRecords: expect.arrayContaining([
+			{ id: "p-bob", type: "patient" },
+		]),
+	});
+	expect(await claimedIn("alice")).toEqual(["p-bob"]);
+
+	// The journey leaves no claim behind.
+	await advance([{ sessionId: "alice", action: { kind: "finish" } }]);
+	const finished = await h
+		.db()
+		.selectFrom("app_test_sessions")
+		.select("state")
+		.where("id", "=", current.testId)
+		.executeTakeFirstOrThrow();
+	expect(finished.state).toEqual({});
 });
