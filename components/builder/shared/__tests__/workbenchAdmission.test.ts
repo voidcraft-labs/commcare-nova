@@ -3,9 +3,11 @@ import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFix
 import {
 	and,
 	arith,
+	concat,
 	dateAdd,
 	eq,
 	literal,
+	match,
 	matchNone,
 	now,
 	prop,
@@ -14,6 +16,7 @@ import {
 } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { editorExpressionContext } from "../editorTypeContext";
+import { replaceRuleNodeAtPath } from "../ruleNavigation";
 import { workbenchExpressionAdmission } from "../workbenchAdmission";
 
 function context(
@@ -33,6 +36,7 @@ function context(
 						properties: [
 							{ name: "age", label: proseText("Age"), data_type: "int" },
 							{ name: "score", label: proseText("Score"), data_type: "int" },
+							{ name: "note", label: proseText("Note"), data_type: "text" },
 							{
 								name: "dob",
 								label: proseText("Date of birth"),
@@ -191,5 +195,54 @@ describe("whole-rule expression admission used by the workbench", () => {
 			admitted: false,
 			reason: expect.stringContaining("time would be lost"),
 		});
+	});
+	it("judges a match subject stored as a bare case property at its own slot", () => {
+		// Every subject choice the editor offers is judged at the subject's path
+		// while the card renders, so that path must address the stored property.
+		const source = match(prop("patient", "note"), "A", "starts-with");
+		const slot = context("on-device");
+		expect(
+			workbenchExpressionAdmission(
+				source,
+				["property"],
+				term(prop("patient", "note")),
+				slot,
+			),
+		).toEqual({ admitted: true });
+		expect(
+			workbenchExpressionAdmission(
+				source,
+				["property"],
+				concat(term(literal("x")), term(prop("patient", "note"))),
+				slot,
+			),
+		).toEqual({ admitted: true });
+		expect(
+			workbenchExpressionAdmission(
+				source,
+				["property"],
+				term(prop("patient", "age")),
+				slot,
+			).admitted,
+		).toBe(false);
+	});
+	it("writes a match subject's case property bare and a calculated subject as its expression", () => {
+		const source = match(prop("patient", "note"), "A", "starts-with");
+		expect(
+			replaceRuleNodeAtPath(source, ["property"], {
+				family: "expression",
+				value: term(prop("patient", "case_name")),
+			}),
+		).toEqual(match(prop("patient", "case_name"), "A", "starts-with"));
+		const calculated = concat(
+			term(literal("x")),
+			term(prop("patient", "note")),
+		);
+		expect(
+			replaceRuleNodeAtPath(source, ["property"], {
+				family: "expression",
+				value: calculated,
+			}),
+		).toEqual(match(calculated, "A", "starts-with"));
 	});
 });

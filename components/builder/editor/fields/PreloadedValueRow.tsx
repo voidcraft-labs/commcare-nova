@@ -26,7 +26,11 @@ import {
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { XPathField } from "@/components/builder/XPathField";
 import { Button } from "@/components/shadcn/button";
-import { useFormExpressionProjection } from "@/lib/doc/hooks/useXPathSlots";
+import type { ExpressionEditorContext } from "@/lib/codemirror/expressionEditorContext";
+import {
+	useExpressionEditorContext,
+	useExpressionProjection,
+} from "@/lib/doc/hooks/useXPathSlots";
 import type { Field } from "@/lib/domain";
 import type {
 	Expression,
@@ -48,6 +52,7 @@ export function PreloadedValueRow({
 	keyName,
 	stored,
 	onRemoveStored,
+	getEditorContext,
 }: {
 	/** The row's label; omitted when a parent control already names it. */
 	readonly label?: string;
@@ -57,6 +62,8 @@ export function PreloadedValueRow({
 	readonly stored?: { readonly ok: boolean; readonly text: string };
 	/** Clears the stored expression. */
 	readonly onRemoveStored: () => void;
+	/** The slot's editor context, so the stored expression shows its chips. */
+	readonly getEditorContext?: () => ExpressionEditorContext | undefined;
 }) {
 	return (
 		<div>
@@ -69,7 +76,10 @@ export function PreloadedValueRow({
 					<>
 						{stored.ok ? (
 							<>
-								<XPathField value={stored.text} />
+								<XPathField
+									value={stored.text}
+									getEditorContext={getEditorContext}
+								/>
 								<InspectorHint>{DEAD_EXPRESSION_HINT}</InspectorHint>
 							</>
 						) : (
@@ -96,17 +106,20 @@ export function PreloadedDefaultValueEditor<
 	K extends FormExpressionKeys<F>,
 >({ field, value, onChange, label, keyName }: FieldEditorComponentProps<F, K>) {
 	const expression = value as Expression | undefined;
-	const projection = useFormExpressionProjection(expression, {
+	const slot: FieldExpressionSlotRef = {
 		entity: "field",
 		uuid: field.uuid,
 		slot: keyName as FieldExpressionSlotRef["slot"],
-	});
+	};
+	const projection = useExpressionProjection(expression, slot);
+	const getEditorContext = useExpressionEditorContext(slot);
 	return (
 		<PreloadedValueRow
 			label={label}
 			keyName={keyName}
 			stored={expression === undefined ? undefined : projection}
 			onRemoveStored={() => onChange(undefined as F[K])}
+			getEditorContext={getEditorContext}
 		/>
 	);
 }

@@ -4,14 +4,14 @@
  * Wraps the existing blueprint resolution functions into a single interface
  * consumed by both CodeMirror chip decorations and TipTap suggestion/autocomplete.
  *
- * Consumes the thin `XPathReferenceContext` pre-collected by `buildLintContext` —
+ * Consumes the thin `FormReferenceContext` pre-collected by `buildFormReferenceContext` —
  * no nested-tree walking here anymore. All the information the provider needs
  * (form field entries, case property names + labels, valid paths) lives on
  * that context already; the provider caches the derived search indexes so
  * per-keystroke autocomplete lookups stay O(entries) even without re-walking.
  */
 
-import type { XPathReferenceContext } from "@/lib/codemirror/xpath-lint";
+import type { FormReferenceContext } from "@/lib/codemirror/formReferenceContext";
 import { type FieldPath, fpath } from "@/lib/doc/fieldPath";
 import {
 	BUILT_IN_USER_PROPERTIES,
@@ -98,20 +98,20 @@ const NAMESPACE_RE = new RegExp(`^${HASHTAG_SEGMENT_SOURCE}$`);
  *  the `lib/references/provider` import surface. */
 export { fpath };
 
-/** A cached form scope: the form's lint context plus the derived indexes the
+/** A cached form scope: the form's reference context plus the derived indexes the
  *  hot paths read. `byPath` is the `#form/` path index; `accept` is the
  *  per-case-type accept map already narrowed by form type (so resolve/search/
  *  namespaces never re-run the narrowing rule and never disagree with the
  *  validator). */
 interface FormCacheEntry {
-	ctx: XPathReferenceContext;
+	ctx: FormReferenceContext;
 	byPath: Map<string, { uuid: Uuid; label: string; kind: FieldKind }>;
 	byUuid: Map<Uuid, { path: FieldPath; label: string; kind: FieldKind }>;
 	accept: Map<string, Set<string>>;
 }
 
 export class ReferenceProvider {
-	/** Per-form cache, keyed by form uuid: the lint context + its derived
+	/** Per-form cache, keyed by form uuid: the reference context + its derived
 	 *  indexes. Built lazily and cleared wholesale by `invalidate()` on any
 	 *  blueprint mutation. A Map (not a single slot) because one render — the
 	 *  app-tree sidebar — resolves refs across many forms at once; a single slot
@@ -121,14 +121,14 @@ export class ReferenceProvider {
 	private invalidationListeners = new Set<() => void>();
 
 	/**
-	 * @param getContextForForm Resolve the lint context for a given form uuid.
+	 * @param getContextForForm Resolve the reference context for a given form uuid.
 	 *   The app-wide provider builds it from the doc store; a per-editor
 	 *   provider may ignore the argument and return its single bound form.
 	 */
 	constructor(
 		private getContextForForm: (
 			formUuid: string,
-		) => XPathReferenceContext | undefined,
+		) => FormReferenceContext | undefined,
 	) {}
 
 	/** Clear all cached form scopes. Call when the blueprint mutates. */
@@ -472,7 +472,7 @@ export class ReferenceProvider {
 	// ── Private helpers ──────────────────────────────────────────────────
 
 	/**
-	 * Build (or reuse) the cached scope for a form: its lint context plus the
+	 * Build (or reuse) the cached scope for a form: its reference context plus the
 	 * `#form/` path index and the narrowed per-type accept map. One full
 	 * `getContextForForm` walk per form per invalidation cycle; every resolve /
 	 * search / namespace lookup after that reads the cache.

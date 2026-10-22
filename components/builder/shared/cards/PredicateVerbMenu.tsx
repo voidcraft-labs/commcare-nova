@@ -99,6 +99,10 @@ import {
 } from "../editorSchemas";
 import { MATCH_MODE_VOCABULARY } from "../matchModeVocabulary";
 import {
+	matchSubjectCalculable,
+	matchSubjectFromExpression,
+} from "../matchSubjectModel";
+import {
 	PATTERN_MATCH_UNAVAILABLE_REASON,
 	patternMatchingInScope,
 } from "../patternMatchingScope";
@@ -467,13 +471,25 @@ export function buildMatch(
 	}
 	const fallback = predicateCardSchemas.match.defaultValue(ctx);
 	const ref = subjectRefOf(value);
-	// Carry the subject only when it's a property the mode can match;
-	// otherwise the fallback already anchored a matchable property.
-	const carriedType = ref !== undefined ? propertyType(ctx, ref) : undefined;
+	const subject = subjectOf(value);
+	// Carry the subject when the mode can match it: a property anywhere, and
+	// a calculated value where no server search needs a property in its
+	// place (`matchSubjectModel.ts`). Otherwise the fallback already anchored
+	// a matchable property.
+	const carriedType =
+		ref !== undefined
+			? propertyType(ctx, ref)
+			: subject !== undefined && matchSubjectCalculable(ctx.expressionContext)
+				? resolveExpressionType(subject, ctx)
+				: undefined;
 	const property =
-		ref !== undefined && carriedType !== undefined && allow.has(carriedType)
-			? ref
-			: fallback.property;
+		carriedType === undefined || !allow.has(carriedType)
+			? fallback.property
+			: ref !== undefined
+				? ref
+				: subject !== undefined
+					? matchSubjectFromExpression(subject)
+					: fallback.property;
 	const carried = singleValueCandidate(value);
 	const matchValue =
 		carried !== undefined

@@ -115,7 +115,6 @@ const EDIT_CTX: PredicateEditContext = expressionEditorFixture(
 		caseTypes: CASE_TYPES,
 		currentCaseType: "ct",
 		knownInputs: KNOWN_INPUTS,
-		caseDataScope: "per-case",
 	},
 ).context;
 const TYPE_CTX: ExpressionContext = expressionEditorFixture(
@@ -253,7 +252,6 @@ describe("valid by construction — every admitted verb build type-checks", () =
 				caseTypes: [origin, destination],
 				currentCaseType: "child",
 				knownInputs: [],
-				caseDataScope: "per-case",
 			},
 		).context;
 		const typeCtx: ExpressionContext = expressionEditorFixture(
@@ -341,7 +339,6 @@ describe("valid by construction — every registry default seeds a valid AST", (
 					caseTypes: [PARENT, ct],
 					currentCaseType: "ct",
 					knownInputs: KNOWN_INPUTS,
-					caseDataScope: "per-case",
 				},
 			).context;
 			const typeCtx: ExpressionContext = expressionEditorFixture(

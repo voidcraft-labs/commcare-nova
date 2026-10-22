@@ -162,10 +162,10 @@ export const TABLE_ROW_SCOPE_CASE_DATA_REASON =
  * (e.g. `multi-select-contains` is only applicable when the case
  * type has a multi_select-typed property).
  *
- * `caseDataScope` is REQUIRED (not defaulted) so every construction
- * site states which evaluation scope its slot runs in: a surface
- * that silently dropped the axis would offer case reads into a
- * global slot and bounce off the commit gate.
+ * The axes (`caseDataScope`, `evaluationTarget`, `ownerValues`,
+ * `patternMatching`, `tableScope`) come from the slot's profile through
+ * `editorAxes.ts::editorAxesOf`, so no surface chooses or forgets one:
+ * a mount spreads the axes of its own slot's context.
  */
 export interface PredicateEditContext {
 	readonly expressionContext: ExpressionContext;
@@ -216,10 +216,10 @@ export interface PredicateEditContext {
 	 *  true. Ignored in per-case slots, whose seeds are friendly content
 	 *  rather than neutral placeholders. */
 	readonly globalPlaceholderHolds?: boolean;
-	/** Presentation metadata retained by mounting surfaces. Runtime admission
-	 * always reads expressionContext.profile.targets. */
+	/** The runtimes the slot's profile names, in the menus' vocabulary.
+	 * Admission itself reads expressionContext.profile.targets. */
 	readonly evaluationTarget?: EvaluationTarget;
-	/** Presentation metadata; pattern admission reads profile.patternMatching. */
+	/** The profile's pattern-matching fact, in the menus' vocabulary. */
 	readonly patternMatching?: true;
 }
 
@@ -232,7 +232,9 @@ export type EvaluationTarget =
 
 /** Whether case-property / relationship reads are meaningful in this
  *  editor scope. */
-export function caseDataInScope(ctx: PredicateEditContext): boolean {
+export function caseDataInScope(
+	ctx: Pick<PredicateEditContext, "caseDataScope">,
+): boolean {
 	return (
 		ctx.caseDataScope === "per-case" || ctx.caseDataScope === "selected-case"
 	);

@@ -1,6 +1,6 @@
 import type { BlueprintDoc } from "@/lib/domain";
 
-/** `buildLintContext` reads only these field slots. A scalar edit to case
+/** `buildFormReferenceContext` reads only these field slots. A scalar edit to case
  * storage, validation, defaults, media, or choice configuration cannot change
  * a reference's path, display label, or value-producing kind. */
 function referenceFieldsChanged(

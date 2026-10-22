@@ -71,7 +71,6 @@ const ctx: PredicateEditContext = expressionEditorFixture("case-filter", {
 	caseTypes: [PATIENT],
 	currentCaseType: "patient",
 	knownInputs: KNOWN_INPUTS,
-	caseDataScope: "per-case",
 }).context;
 
 describe("predicateCardSchemas — applicable predicates", () => {
@@ -116,7 +115,6 @@ describe("predicateCardSchemas — applicable predicates", () => {
 				],
 				currentCaseType: "geo",
 				knownInputs: [],
-				caseDataScope: "per-case",
 			},
 		).context;
 
@@ -161,7 +159,6 @@ describe("predicateCardSchemas — applicable predicates", () => {
 				caseTypes: [{ name: "patient", properties: [] }],
 				currentCaseType: "patient",
 				knownInputs: KNOWN_INPUTS,
-				caseDataScope: "per-case",
 			},
 		).context;
 		expect(
@@ -180,7 +177,6 @@ describe("predicateCardSchemas — applicable predicates", () => {
 			caseTypes: [{ name: "patient", properties: [] }],
 			currentCaseType: "patient",
 			knownInputs: [],
-			caseDataScope: "per-case",
 		}).context;
 		expect(predicateCardSchemas["match-all"].applicable(empty)).toBe(true);
 		expect(predicateCardSchemas["match-none"].applicable(empty)).toBe(true);
@@ -215,7 +211,6 @@ describe("predicateCardSchemas — applicable predicates", () => {
 				],
 				currentCaseType: "patient",
 				knownInputs: [],
-				caseDataScope: "per-case",
 			},
 		).context;
 
@@ -236,7 +231,6 @@ describe("predicateCardSchemas — applicable predicates", () => {
 				],
 				currentCaseType: "household",
 				knownInputs: [],
-				caseDataScope: "per-case",
 			},
 		).context;
 
@@ -260,7 +254,6 @@ describe("predicateCardSchemas — applicable predicates", () => {
 				caseTypes: [{ name: "patient", properties: [] }],
 				currentCaseType: "patient",
 				knownInputs: [],
-				caseDataScope: "per-case",
 			},
 		).context;
 		expect(predicateCardSchemas.exists.applicable(noRelation)).toBe(false);
@@ -277,7 +270,6 @@ describe("predicateCardSchemas — applicable predicates", () => {
 				],
 				currentCaseType: "household",
 				knownInputs: KNOWN_INPUTS,
-				caseDataScope: "per-case",
 			},
 		).context;
 
@@ -373,7 +365,6 @@ describe("predicateCardSchemas — global scope (no case selected)", () => {
 				caseTypes: [{ name: "patient", properties: [] }],
 				currentCaseType: "patient",
 				knownInputs: [],
-				caseDataScope: "global",
 			},
 		).context;
 		expect(predicateCardSchemas.eq.applicable(emptyGlobal)).toBe(true);
@@ -399,7 +390,6 @@ describe("predicateCardSchemas — Depends on a condition", () => {
 			caseTypes: [PATIENT],
 			currentCaseType: "patient",
 			knownInputs: [],
-			caseDataScope: "global",
 		}).context;
 		expect(predicateCardSchemas.if.applicable(display)).toBe(false);
 		expect(predicateUnavailableReason("if", display)).toBe(

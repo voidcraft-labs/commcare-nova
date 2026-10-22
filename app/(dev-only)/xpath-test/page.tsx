@@ -2,7 +2,6 @@
 import { EditorView } from "@codemirror/view";
 import CodeMirror from "@uiw/react-codemirror";
 import { useCallback, useState } from "react";
-import { formatXPath, prettyPrintXPath } from "@/lib/codemirror/xpath-format";
 import { xpath } from "@/lib/codemirror/xpath-language";
 import { novaXPathTheme } from "@/lib/codemirror/xpath-theme";
 
@@ -25,14 +24,6 @@ const SAMPLES = [
 export default function XPathTestPage() {
 	const [value, setValue] = useState(SAMPLES[0]);
 
-	const handleFormat = useCallback(() => {
-		setValue(formatXPath(value));
-	}, [value]);
-
-	const handlePrettyPrint = useCallback(() => {
-		setValue(prettyPrintXPath(value));
-	}, [value]);
-
 	const loadSample = useCallback((sample: string) => {
 		setValue(sample);
 	}, []);
@@ -44,8 +35,8 @@ export default function XPathTestPage() {
 					XPath Playground
 				</h1>
 				<p className="text-sm text-nova-text-muted">
-					Test CommCare XPath highlighting and formatting. Type or paste an
-					expression, then hit Format.
+					Try CommCare XPath syntax highlighting. Type or paste an expression,
+					or pick a sample below.
 				</p>
 
 				{/* Editor */}
@@ -61,26 +52,7 @@ export default function XPathTestPage() {
 					/>
 				</div>
 
-				{/* Actions */}
-				<div className="flex items-center gap-3">
-					<button
-						type="button"
-						onClick={handleFormat}
-						className="px-4 py-2 rounded-lg bg-nova-action text-nova-action-ink text-sm font-medium hover:bg-nova-action-hover transition-colors"
-					>
-						Simple Format
-					</button>
-					<button
-						type="button"
-						onClick={handlePrettyPrint}
-						className="px-4 py-2 rounded-lg bg-nova-action text-nova-action-ink text-sm font-medium hover:bg-nova-action-hover transition-colors"
-					>
-						Pretty Format
-					</button>
-					<span className="text-xs text-nova-text-muted">
-						{value.length} chars
-					</span>
-				</div>
+				<p className="text-xs text-nova-text-muted">{value.length} chars</p>
 
 				{/* Samples */}
 				<div>

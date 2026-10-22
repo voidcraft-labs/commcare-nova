@@ -17,29 +17,23 @@ import {
 } from "@/components/builder/RejectionNotice";
 import {
 	reconcileXPathDraft,
-	type XPathUserPropertyProjection,
+	type XPathDraftReading,
 } from "@/components/builder/xpathDraftReconciliation";
+import type { ExpressionEditorContext } from "@/lib/codemirror/expressionEditorContext";
 import { xpathAutocomplete } from "@/lib/codemirror/xpath-autocomplete";
-import { xpathChips } from "@/lib/codemirror/xpath-chips";
-import { formatXPath, prettyPrintXPath } from "@/lib/codemirror/xpath-format";
-import { xpath } from "@/lib/codemirror/xpath-language";
 import {
-	type XPathLintContext,
-	xpathDiagnostics,
-	xpathLinter,
-} from "@/lib/codemirror/xpath-lint";
+	refreshExpressionChips,
+	xpathChips,
+} from "@/lib/codemirror/xpath-chips";
+import { xpath } from "@/lib/codemirror/xpath-language";
+import { xpathDiagnostics, xpathLinter } from "@/lib/codemirror/xpath-lint";
 import {
 	novaAutocompleteTheme,
 	novaChipTheme,
 	novaXPathTheme,
 } from "@/lib/codemirror/xpath-theme";
-import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
+import { useExpressionScopeRevision } from "@/lib/doc/hooks/useXPathSlots";
 import type { CommitOutcome } from "@/lib/domain";
-import { ReferenceProvider } from "@/lib/references/provider";
-import {
-	useCurrentFormUuid,
-	useReferenceProvider,
-} from "@/lib/references/ReferenceContext";
 import { FLOATING_LAYER_CLS, POPOVER_POPUP_CLS } from "@/lib/styles";
 
 // ── Read-only theme ────────────────────────────────────────────────────
@@ -119,7 +113,8 @@ const XPATH_PROJECTION_CONFLICT_MESSAGE =
 // ── Props ──────────────────────────────────────────────────────────────
 
 interface XPathFieldProps {
-	/** The XPath expression value. */
+	/** The stored expression's canonical text, as its slot's projection
+	 *  prints it (laid out over lines past the printer's width). */
 	value: string;
 	/** Callback to save the edited value. Presence enables click-to-edit.
 	 *  May return the gated dispatch's `CommitOutcome`: an `ok: false`
@@ -129,8 +124,10 @@ interface XPathFieldProps {
 	 *  the user's typed expression must survive the bounce. `void` reads
 	 *  as committed. */
 	onSave?: (value: string) => CommitOutcome | undefined;
-	/** Context getter for linting and autocomplete. Required when onSave is present. */
-	getLintContext?: () => XPathLintContext | undefined;
+	/** The slot's editor context: lint, autocomplete and chips read it.
+	 *  Required when onSave is present; a read-only display without one
+	 *  shows plain text. */
+	getEditorContext?: () => ExpressionEditorContext | undefined;
 	/** Start in editing mode immediately (for newly added fields). */
 	autoEdit?: boolean;
 	/** Called when editing state changes (used by parent to guard dismiss handlers). */
@@ -152,19 +149,18 @@ interface XPathFieldProps {
  * cannot be saved: a rose tooltip shows the validation error message on
  * rejected save attempts.
  *
- * Hashtag references render as styled chips automatically when a
- * ReferenceProvider is available via context.
+ * Identity reads render as chips over their parse spans, from the slot's
+ * editor context. Saving stores the parse, and the editor closes onto the
+ * canonical print of what was stored.
  */
 export function XPathField({
 	value,
 	onSave,
-	getLintContext,
+	getEditorContext,
 	autoEdit,
 	onEditingChange,
 }: XPathFieldProps) {
 	const [editing, setEditing] = useState(autoEdit ?? false);
-	const provider = useReferenceProvider();
-	const currentFormUuid = useCurrentFormUuid();
 	/** Viewport coordinates of the activation click for cursor placement. */
 	const clickPosRef = useRef<{ x: number; y: number } | null>(null);
 
@@ -173,16 +169,36 @@ export function XPathField({
 		onEditingChange?.(editing);
 	}, [editing, onEditingChange]);
 
-	// ── Read-only extensions (memoized on provider) ────────────────────
+	// ── Read-only extensions (memoized on the context getter) ──────────
 
+	/* Mounts rebuild their getter each render; the extensions read the
+	 * latest one through a ref so the display is not reconfigured. */
+	const readOnlyContextRef = useRef(getEditorContext);
+	readOnlyContextRef.current = getEditorContext;
+	const hasEditorContext = getEditorContext !== undefined;
 	const readOnlyExtensions = useMemo(() => {
-		if (!provider) return baseReadOnlyExtensions;
+		if (!hasEditorContext) return baseReadOnlyExtensions;
 		return [
 			...baseReadOnlyExtensions,
-			xpathChips(provider, () => currentFormUuid),
+			xpathChips(() => readOnlyContextRef.current?.()),
 			novaChipTheme,
 		];
-	}, [provider, currentFormUuid]);
+	}, [hasEditorContext]);
+
+	/* A rename can change what a chip names without changing the printed
+	 * text (a question's label, a table's name), so the idle display
+	 * recomputes its chips whenever what their labels resolve against
+	 * moves. The chip widgets compare by label, so an unrelated edit
+	 * leaves the display's DOM untouched. */
+	const scopeRevision = useExpressionScopeRevision();
+	const readOnlyEditorRef = useRef<ReactCodeMirrorRef>(null);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the scope revision is what a rename changes; the chips read it through the context getter.
+	useEffect(() => {
+		if (!hasEditorContext) return;
+		readOnlyEditorRef.current?.view?.dispatch({
+			effects: refreshExpressionChips.of(null),
+		});
+	}, [scopeRevision, hasEditorContext]);
 
 	/* Standalone read-only display layers its own box on top; the
 	 * editable-idle state instead gets its well from the wrapping button. */
@@ -194,13 +210,12 @@ export function XPathField({
 	// ── Read-only / idle states ────────────────────────────────────────
 
 	if (!editing) {
-		const formatted = prettyPrintXPath(value);
-
 		/* No onSave = pure read-only display, which owns its own box. */
 		if (!onSave) {
 			return (
 				<CodeMirror
-					value={formatted}
+					ref={readOnlyEditorRef}
+					value={value}
 					theme={novaXPathTheme}
 					extensions={standaloneReadOnlyExtensions}
 					basicSetup={false}
@@ -223,7 +238,8 @@ export function XPathField({
 				className="w-full text-left cursor-pointer rounded-lg border border-white/[0.06] bg-nova-deep/50 hover:border-nova-violet/30 transition-colors min-h-11 flex flex-col justify-center"
 			>
 				<CodeMirror
-					value={formatted}
+					ref={readOnlyEditorRef}
+					value={value}
 					theme={novaXPathTheme}
 					extensions={readOnlyExtensions}
 					basicSetup={false}
@@ -239,12 +255,12 @@ export function XPathField({
 		<InlineXPathEditor
 			value={value}
 			onSave={(v) => {
-				const normalized = formatXPath(v);
 				/* Always propagate empty commits: the parent needs the callback
 				 * to clean up addable-field state (e.g. xpathField.clear(),
-				 * setAddingCondition(false)). Skip only non-empty no-ops. */
-				if (!normalized.trim() || normalized !== formatXPath(value)) {
-					const outcome = onSave?.(normalized);
+				 * setAddingCondition(false)). Skip only an unchanged draft: the
+				 * text is stored as its parse, never as typed. */
+				if (!v.trim() || v !== value) {
+					const outcome = onSave?.(v);
 					if (outcome && outcome.ok === false && outcome.messages.length > 0) {
 						/* The commit gate refused the edit: hand the rejection
 						 * back so the inline editor stays open with the draft. */
@@ -264,9 +280,7 @@ export function XPathField({
 				clickPosRef.current = null;
 				setEditing(false);
 			}}
-			getLintContext={getLintContext}
-			provider={provider}
-			currentFormUuid={currentFormUuid}
+			getEditorContext={getEditorContext}
 			clickPosition={clickPosRef.current}
 		/>
 	);
@@ -281,23 +295,8 @@ interface InlineXPathEditorProps {
 	onSave: (draft: string) => CommitOutcome | undefined;
 	/** Cancel editing and revert to the original value (no save). */
 	onCancel: () => void;
-	getLintContext?: () => XPathLintContext | undefined;
-	provider: ReferenceProvider | null;
-	/** The form being edited: scopes chip resolution. */
-	currentFormUuid: string | undefined;
+	getEditorContext?: () => ExpressionEditorContext | undefined;
 	clickPosition: { x: number; y: number } | null;
-}
-
-function userPropertyProjection(
-	properties: readonly XPathUserPropertyProjection[],
-): XPathUserPropertyProjection[] {
-	return [...properties]
-		.map(({ uuid, slug }) => ({ uuid, slug }))
-		.sort(
-			(left, right) =>
-				left.uuid.localeCompare(right.uuid) ||
-				left.slug.localeCompare(right.slug),
-		);
 }
 
 /**
@@ -323,22 +322,26 @@ function InlineXPathEditor({
 	value,
 	onSave,
 	onCancel,
-	getLintContext,
-	provider: _provider,
-	currentFormUuid,
+	getEditorContext,
 	clickPosition,
 }: InlineXPathEditorProps) {
-	const projectedValue = prettyPrintXPath(value);
-	const userProperties = useUserProperties();
-	const currentUserProperties = useMemo(
-		() => userPropertyProjection(userProperties),
-		[userProperties],
-	);
+	const projectedValue = value;
+	/* The document and lookup definitions the draft's identities resolve
+	 * against: a peer's rename changes them, sometimes without changing the
+	 * stored expression's own text. */
+	const scopeRevision = useExpressionScopeRevision();
 	const editorRef = useRef<ReactCodeMirrorRef>(null);
 	const wrapperRef = useRef<HTMLDivElement>(null);
 	const baseProjectionRef = useRef(projectedValue);
-	const baseUserPropertiesRef = useRef(currentUserProperties);
+	/* Set by the reconciliation effect, whose first run (a clean draft) needs
+	 * no base scope. */
+	const baseScopeRef = useRef<ExpressionEditorContext["scope"] | undefined>(
+		undefined,
+	);
 	const draftRef = useRef(projectedValue);
+	/* What the draft read at the last reconciliation, so the next one does
+	 * not parse it again. */
+	const draftReadingRef = useRef<XPathDraftReading | undefined>(undefined);
 	const projectionConflictRef = useRef(false);
 	const [draft, setDraft] = useState(projectedValue);
 	/** Guards against double-fire: once save or cancel runs, block the other. */
@@ -354,30 +357,43 @@ function InlineXPathEditor({
 
 	const [tooltipMessage, setTooltipMessage] = useState<string | null>(null);
 
+	/* Stable ref so closures always read the latest context getter. */
+	const getEditorContextRef = useRef(getEditorContext);
+	getEditorContextRef.current = getEditorContext;
+
 	/*
 	 * Identity-backed projections can change while this editor remains mounted
-	 * (for example, a peer renames custom worker information). Rebase a clean
-	 * draft or a non-overlapping local addition; preserve and flag overlapping
-	 * edits so the controlled CodeMirror value never erases local work.
+	 * (a peer renames a question, a choice's value, a table). A clean draft
+	 * follows; a dirty one is respelled at each renamed identity's span, and
+	 * any change to the stored expression itself conflicts, so the controlled
+	 * CodeMirror value never erases local work.
 	 */
+	// biome-ignore lint/correctness/useExhaustiveDependencies: the scope revision is what a peer's rename changes; the context getter reads it.
 	useEffect(() => {
+		const incomingScope = getEditorContextRef.current?.()?.scope;
 		const reconciled = reconcileXPathDraft({
 			base: baseProjectionRef.current,
 			draft: draftRef.current,
 			incoming: projectedValue,
-			baseUserProperties: baseUserPropertiesRef.current,
-			incomingUserProperties: currentUserProperties,
+			baseScope: baseScopeRef.current,
+			incomingScope,
 			conflict: projectionConflictRef.current,
+			reading: draftReadingRef.current,
 		});
+		draftReadingRef.current = reconciled.reading;
 		baseProjectionRef.current = reconciled.base;
-		baseUserPropertiesRef.current = currentUserProperties;
+		baseScopeRef.current = incomingScope;
 		draftRef.current = reconciled.draft;
 		projectionConflictRef.current = reconciled.conflict;
 		setDraft(reconciled.draft);
+		/* The chips name what the new document calls each identity. */
+		editorRef.current?.view?.dispatch({
+			effects: refreshExpressionChips.of(null),
+		});
 		if (reconciled.conflict) {
 			setTooltipMessage(XPATH_PROJECTION_CONFLICT_MESSAGE);
 		}
-	}, [projectedValue, currentUserProperties]);
+	}, [projectedValue, scopeRevision]);
 
 	/* Auto-dismiss tooltip after 4 seconds. */
 	useEffect(() => {
@@ -385,18 +401,6 @@ function InlineXPathEditor({
 		const timer = setTimeout(() => setTooltipMessage(null), 4000);
 		return () => clearTimeout(timer);
 	}, [tooltipMessage]);
-
-	// ── Lint context & chip provider ────────────────────────────────────
-
-	/* Stable ref so closures always read the latest getLintContext getter. */
-	const getLintContextRef = useRef(getLintContext);
-	getLintContextRef.current = getLintContext;
-
-	/* ReferenceProvider for chip resolution: shares the same getter. */
-	const chipProvider = useMemo(
-		() => new ReferenceProvider(() => getLintContextRef.current?.()),
-		[],
-	);
 
 	// ── Validation & save gate ──────────────────────────────────────────
 
@@ -414,7 +418,7 @@ function InlineXPathEditor({
 		}
 		const currentDraft = draftRef.current;
 		if (!currentDraft.trim()) return [];
-		return xpathDiagnostics(currentDraft, getLintContextRef.current?.()).map(
+		return xpathDiagnostics(currentDraft, getEditorContextRef.current?.()).map(
 			(diagnostic) => diagnostic.message,
 		);
 	}, []);
@@ -602,16 +606,16 @@ function InlineXPathEditor({
 			/* Portal tooltips to body so they aren't clipped by overflow on
 			 * the scrolling ancestor (the inspector rail, FormSettingsPanel). */
 			tooltips({ parent: document.body }),
-			xpathLinter(() => getLintContextRef.current?.()),
-			xpathAutocomplete(() => getLintContextRef.current?.()),
-			xpathChips(chipProvider, () => currentFormUuid),
+			xpathLinter(() => getEditorContextRef.current?.()),
+			xpathAutocomplete(() => getEditorContextRef.current?.()),
+			xpathChips(() => getEditorContextRef.current?.()),
 			novaAutocompleteTheme,
 			novaChipTheme,
 			saveKeymap,
 			escapeDom,
 			tooltipDismissExt,
 		],
-		[chipProvider, currentFormUuid, saveKeymap, escapeDom, tooltipDismissExt],
+		[saveKeymap, escapeDom, tooltipDismissExt],
 	);
 
 	return (

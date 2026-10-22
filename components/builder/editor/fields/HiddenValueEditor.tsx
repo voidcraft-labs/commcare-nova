@@ -50,7 +50,7 @@ import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
-	useFormExpressionProjection,
+	useExpressionProjection,
 	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import {
@@ -107,9 +107,9 @@ export function HiddenValueEditor({
 	const mode: HiddenValueMode = awaitingCalculation ? "calculate" : storedMode;
 	const expression = mode === storedMode ? field[storedMode] : undefined;
 	const slot = { entity: "field" as const, uuid: field.uuid, slot: mode };
-	const projection = useFormExpressionProjection(expression, slot);
+	const projection = useExpressionProjection(expression, slot);
 	const parseForField = useParseFormExpression(slot);
-	const getLintContext = useFormLintContext(slot);
+	const getEditorContext = useFormLintContext(slot);
 	const focusHint = useSessionFocusHint();
 	const {
 		inline: { updateField },
@@ -213,6 +213,7 @@ export function HiddenValueEditor({
 					keyName="default_value"
 					stored={stored}
 					onRemoveStored={() => dispatch(HIDDEN_VALUE_EMPTY_PATCH)}
+					getEditorContext={getEditorContext}
 				/>
 			) : (
 				<div data-field-id={mode}>
@@ -223,7 +224,7 @@ export function HiddenValueEditor({
 						key={chosen === true ? `${mode}:chosen` : mode}
 						value={projection.text}
 						onSave={handleSave}
-						getLintContext={getLintContext}
+						getEditorContext={getEditorContext}
 						autoEdit={!!autoFocus || focusHint === mode || chosen === true}
 						onEditingChange={handleEditingChange}
 					/>

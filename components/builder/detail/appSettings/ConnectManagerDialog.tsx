@@ -139,7 +139,8 @@ function seedModeDrafts(
 					{ entity: "form", uuid: asUuid(f.formUuid), slot },
 					expression,
 					lookup,
-					{ form: prepared },
+					// The draft seeds an editor, which shows the laid-out print.
+					{ form: prepared, layout: true },
 				).text,
 		);
 	}

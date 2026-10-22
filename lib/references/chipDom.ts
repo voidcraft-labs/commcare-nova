@@ -27,6 +27,15 @@ function buildIconSvg(icon: IconifyIcon, color: string): SVGSVGElement {
 	return svg;
 }
 
+/** What one chip shows: its family's colors, the text it stands for, the
+ *  label it reads as and its icon. */
+export interface ChipFace {
+	readonly type: Reference["type"];
+	readonly raw: string;
+	readonly label: string;
+	readonly icon?: IconifyIcon;
+}
+
 /**
  * Create a DOM element for a reference chip. Produces the same visual output
  * as ReferenceChip.tsx (Tailwind), but as a live DOM node for CodeMirror's
@@ -36,10 +45,23 @@ export function createChipElement(
 	ref: Reference,
 	config: ReferenceTypeConfig,
 ): HTMLElement {
+	return createLabeledChipElement(
+		{ type: ref.type, raw: ref.raw, label: displayId(ref), icon: ref.icon },
+		config,
+	);
+}
+
+/** A chip element for any face, the expression editor's identity chips
+ *  among them. The text it stands for is its title. */
+export function createLabeledChipElement(
+	face: ChipFace,
+	config: ReferenceTypeConfig,
+): HTMLElement {
 	const chip = document.createElement("span");
 	chip.className = "cm-hashtag-chip";
-	chip.setAttribute("data-ref-type", ref.type);
-	chip.setAttribute("data-ref-raw", ref.raw);
+	chip.setAttribute("data-ref-type", face.type);
+	chip.setAttribute("data-ref-raw", face.raw);
+	chip.title = face.raw;
 	chip.style.cssText = `
     display: inline-flex;
     align-items: center;
@@ -58,11 +80,11 @@ export function createChipElement(
     vertical-align: baseline;
   `;
 
-	const iconSvg = buildIconSvg(ref.icon ?? config.icon, config.cssColor);
+	const iconSvg = buildIconSvg(face.icon ?? config.icon, config.cssColor);
 	chip.appendChild(iconSvg);
 
 	const labelSpan = document.createElement("span");
-	labelSpan.textContent = displayId(ref);
+	labelSpan.textContent = face.label;
 	labelSpan.style.cssText = `white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: ${CHIP.maxLabelWidth}px;`;
 	chip.appendChild(labelSpan);
 

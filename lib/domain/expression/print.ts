@@ -82,17 +82,67 @@ function precedence(node: Expression): number {
 	}
 }
 
+/** The width past which a laid-out print breaks its argument lists. */
+export const LAYOUT_WIDTH = 60;
+const INDENT = "    ";
+
+export interface FormPrintOptions {
+	/** Lay the text out for reading: one line when it fits within
+	 * `LAYOUT_WIDTH`, else each argument list and predicate opened over
+	 * indented lines, with `and` / `or` starting a line inside them. Layout
+	 * adds whitespace only, which the parser discards, so a laid-out print
+	 * parses to the same tree as the one-line print. */
+	readonly layout?: boolean;
+}
+
 /** Human source, never an emission boundary. A missing identity stays visible
  * as repair text and a structured finding; it never becomes a guessed name. */
 export function printFormExpression(
 	expression: Expression,
 	context: FormPrintContext = {},
+	options: FormPrintOptions = {},
+): FormExpressionProjection {
+	const line = printWith(expression, context, false);
+	return options.layout === true && line.text.length > LAYOUT_WIDTH
+		? printWith(expression, context, true)
+		: line;
+}
+
+function printWith(
+	expression: Expression,
+	context: FormPrintContext,
+	broken: boolean,
 ): FormExpressionProjection {
 	let text = "";
+	let depth = 0;
 	const spans = new Map<string, { from: number; to: number }>();
 	const unresolved: UnresolvedExpressionProjection[] = [];
 	const emit = (value: string) => {
 		text += value;
+	};
+	const newline = () => emit(`\n${INDENT.repeat(depth)}`);
+	/** The separator between two arguments. */
+	const separator = () => {
+		if (!broken) emit(", ");
+		else {
+			emit(",");
+			newline();
+		}
+	};
+	/** Arguments or a predicate between their brackets, opened over
+	 * indented lines in a broken layout. */
+	const bracketed = (open: string, close: string, action: () => void) => {
+		emit(open);
+		if (broken) {
+			depth++;
+			newline();
+		}
+		action();
+		if (broken) {
+			depth--;
+			newline();
+		}
+		emit(close);
 	};
 	function missing(
 		path: CheckPath,
@@ -149,10 +199,9 @@ export function printFormExpression(
 		values: readonly (Expression | Term)[],
 		path: CheckPath,
 		ctx: FormPrintContext,
-		separator = ", ",
 	): void {
 		values.forEach((value, index) => {
-			if (index > 0) emit(separator);
+			if (index > 0) separator();
 			const next = expressionChildPath(
 				parent.kind,
 				{ kind: "item", slot, index },
@@ -186,22 +235,22 @@ export function printFormExpression(
 		term.filters?.forEach((filter, filterIndex) => {
 			if (formNodeKey(filter.step) !== formNodeKey(node)) return;
 			filter.where.forEach((where, predicateIndex) => {
-				emit("[");
-				write(
-					where,
-					expressionChildPath(
-						term.kind,
-						{
-							kind: "form-step-filter",
-							step: filter.step,
-							filterIndex,
-							predicateIndex,
-						},
-						path,
+				bracketed("[", "]", () =>
+					write(
+						where,
+						expressionChildPath(
+							term.kind,
+							{
+								kind: "form-step-filter",
+								step: filter.step,
+								filterIndex,
+								predicateIndex,
+							},
+							path,
+						),
+						{ ...ctx, contextNode: filter.step },
 					),
-					{ ...ctx, contextNode: filter.step },
 				);
-				emit("]");
 			});
 		});
 	}
@@ -411,9 +460,26 @@ export function printFormExpression(
 		spans.set(spanKey(path), { from, to: text.length });
 	}
 	function call(name: string, action: () => void): void {
-		emit(`${name}(`);
-		action();
-		emit(")");
+		bracketed(`${name}(`, ")", action);
+	}
+	function predicates(
+		node: Extract<Expression, { kind: "cases" | "table-rows" | "locations" }>,
+		path: CheckPath,
+		ctx: FormPrintContext,
+	): void {
+		node.where.forEach((where, index) => {
+			bracketed("[", "]", () =>
+				write(
+					where,
+					expressionChildPath(
+						node.kind,
+						{ kind: "item", slot: "where", index },
+						path,
+					),
+					ctx,
+				),
+			);
+		});
 	}
 	function tableRoot(
 		table: LookupTableId,
@@ -469,7 +535,10 @@ export function printFormExpression(
 			case "and":
 			case "or":
 				node.clauses.forEach((clause, index) => {
-					if (index > 0) emit(` ${node.kind} `);
+					if (index > 0 && broken && depth > 0) {
+						newline();
+						emit(`${node.kind} `);
+					} else if (index > 0) emit(` ${node.kind} `);
 					const grouped =
 						precedence(clause) < precedence(node) || clause.kind === node.kind;
 					if (grouped) emit("(");
@@ -518,9 +587,9 @@ export function printFormExpression(
 			case "if":
 				call("if", () => {
 					child(node, "cond", node.cond, path, ctx);
-					emit(", ");
+					separator();
 					child(node, "then", node.then, path, ctx);
-					emit(", ");
+					separator();
 					child(node, "else", node.else, path, ctx);
 				});
 				break;
@@ -533,7 +602,7 @@ export function printFormExpression(
 			case "format-date":
 				call("format-date", () => {
 					child(node, "date", node.date, path, ctx);
-					emit(", ");
+					separator();
 					if (typeof node.pattern === "string") {
 						if (isDateFormatPreset(node.pattern))
 							unresolved.push({ path, reason: "arm" });
@@ -547,7 +616,7 @@ export function printFormExpression(
 			case "matches-pattern":
 				call("regex", () => {
 					child(node, "left", node.left, path, ctx);
-					emit(", ");
+					separator();
 					if (typeof node.pattern === "string") literal(node.pattern, path);
 					else child(node, "pattern", node.pattern, path, ctx);
 				});
@@ -557,7 +626,7 @@ export function printFormExpression(
 				else
 					call("starts-with", () => {
 						child(node, "property", node.property, path, ctx);
-						emit(", ");
+						separator();
 						child(node, "value", node.value, path, ctx);
 					});
 				break;
@@ -567,12 +636,13 @@ export function printFormExpression(
 				else
 					call("selected", () => {
 						child(node, "property", node.property, path, ctx);
-						emit(", ");
+						separator();
 						list(node, "values", node.values, path, ctx);
 					});
 				break;
 			case "call":
-				call(node.fn, () => list(node, "args", node.args, path, ctx));
+				if (node.args.length === 0) emit(`${node.fn}()`);
+				else call(node.fn, () => list(node, "args", node.args, path, ctx));
 				break;
 			case "itext": {
 				const id = named(ctx.itextId?.(node.unit), path);
@@ -585,7 +655,7 @@ export function printFormExpression(
 				else
 					call("jr:choice-name", () => {
 						child(node, "value", node.value, path, ctx);
-						emit(", ");
+						separator();
 						literal(`#form/${segments.join("/")}`, path);
 					});
 				break;
@@ -596,51 +666,14 @@ export function printFormExpression(
 						? "instance('casedb')/casedb/case"
 						: "instance('results:inline')/results/case[not(commcare_is_related_case = true())]",
 				);
-				node.where.forEach((where, index) => {
-					emit("[");
-					write(
-						where,
-						expressionChildPath(
-							node.kind,
-							{ kind: "item", slot: "where", index },
-							path,
-						),
-						ctx,
-					);
-					emit("]");
-				});
+				predicates(node, path, ctx);
 				break;
 			case "table-rows":
-				if (tableRoot(node.tableId, path, ctx))
-					node.where.forEach((where, index) => {
-						emit("[");
-						write(
-							where,
-							expressionChildPath(
-								node.kind,
-								{ kind: "item", slot: "where", index },
-								path,
-							),
-							ctx,
-						);
-						emit("]");
-					});
+				if (tableRoot(node.tableId, path, ctx)) predicates(node, path, ctx);
 				break;
 			case "locations":
 				emit("instance('locations')/locations/location");
-				node.where.forEach((where, index) => {
-					emit("[");
-					write(
-						where,
-						expressionChildPath(
-							node.kind,
-							{ kind: "item", slot: "where", index },
-							path,
-						),
-						ctx,
-					);
-					emit("]");
-				});
+				predicates(node, path, ctx);
 				break;
 			case "selected-cases": {
 				const id = named(ctx.selectedCasesId?.(node.module), path);
@@ -658,9 +691,10 @@ export function printFormExpression(
 				break;
 			case "table-lookup":
 				if (tableRoot(node.tableId, path, ctx)) {
-					emit("[");
-					child(node, "where", node.where, path, ctx);
-					emit("][1]/");
+					bracketed("[", "]", () =>
+						child(node, "where", node.where, path, ctx),
+					);
+					emit("[1]/");
 					const name = named(
 						ctx.tableColumnName?.(node.tableId, node.resultColumnId),
 						path,

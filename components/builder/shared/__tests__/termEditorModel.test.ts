@@ -109,7 +109,6 @@ const ctx: TermAdmissionContext = expressionEditorFixture(
 ).context;
 const tableCtx = expressionEditorFixture("table-filter", {
 	...vocabulary,
-	caseDataScope: "table-row" as const,
 }).context;
 const searchCtx = expressionEditorFixture(
 	"search-predicate",

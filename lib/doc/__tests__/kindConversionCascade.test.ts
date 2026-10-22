@@ -17,11 +17,14 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
-import { mutationSchema } from "@/lib/doc/types";
+import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, FieldKind, Form } from "@/lib/domain";
-import { today } from "@/lib/domain/expression";
+import { eq, formField, literal, term, today } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
-import { planKindConversion } from "../kindConversionCascade";
+import {
+	planKindConversion,
+	withChoicePreservation,
+} from "../kindConversionCascade";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 /** Two forms writing the same `visit_on` date property (declared), so a
@@ -350,5 +353,112 @@ describe("planKindConversion — dataLossRisk verdict", () => {
 		const result = plan(doc, "when", "time");
 		expect(result.dataLossRisk).toBeUndefined();
 		expect(result.mutations).toHaveLength(1);
+	});
+});
+
+describe("withChoicePreservation — a source replacement a choice label read holds back", () => {
+	it("turns each choice into its value, and refuses the replacement while a formula reads a choice's label", () => {
+		const select = testUuid("cascade-select");
+		const yes = testUuid("cascade-yes");
+		const reader = testUuid("cascade-reader");
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Review",
+							type: "followup",
+							fields: [
+								{
+									uuid: select,
+									kind: "single_select",
+									id: "status",
+									options: [
+										{ uuid: yes, value: "yes", label: "Yes" },
+										{ uuid: testUuid("cascade-no"), value: "no", label: "No" },
+									],
+								},
+								{
+									uuid: reader,
+									kind: "text",
+									id: "note",
+									default_value: term({
+										kind: "choice",
+										field: select,
+										options: [yes],
+									}),
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+		assertAdmittedDoc(doc);
+		const toCases: Mutation = {
+			kind: "updateField",
+			uuid: select,
+			targetKind: "single_select",
+			patch: {
+				optionsSource: {
+					kind: "cases",
+					caseType: "patient",
+					labelProperty: "case_name",
+				},
+			},
+		} as Mutation;
+		const planned = withChoicePreservation(doc, [toCases]);
+		expect(planned.preservedChoiceCount).toBe(1);
+		const admitted = mutationCommitVerdict(
+			doc,
+			planned.mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(admitted.ok ? [] : admitted.findings).toEqual([]);
+		expect(admitted.nextDoc.fields[reader]).toMatchObject({
+			default_value: term(literal("yes")),
+		});
+
+		// A formula that reads a choice's label can't follow the choices to
+		// cases: CommCare writes no labels for them, so the replacement is
+		// refused, naming the read.
+		const labelled = structuredClone(doc);
+		const note = labelled.fields[reader];
+		if (note?.kind !== "text") throw new Error("Fixture requires the note");
+		note.relevant = eq(
+			{
+				kind: "choice-name",
+				field: select,
+				value: term(formField(select)),
+			},
+			literal("Yes"),
+		);
+		labelled.refIndex = buildReferenceIndex(labelled);
+		assertAdmittedDoc(labelled);
+		const refused = mutationCommitVerdict(
+			labelled,
+			withChoicePreservation(labelled, [toCases]).mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(refused.ok ? [] : refused.findings).toContainEqual(
+			expect.objectContaining({
+				code: "XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+				details: expect.objectContaining({
+					reason: "choice-name-dynamic",
+					choiceFieldId: "status",
+				}),
+			}),
+		);
 	});
 });

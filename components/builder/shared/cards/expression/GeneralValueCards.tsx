@@ -31,7 +31,7 @@ export function NegateCard({
 export function HereCard(_props: GeneralValueCardProps<"here">) {
 	return (
 		<p className="text-[13px] text-nova-text-muted">
-			Uses the current worker's location.
+			Where the worker is when the case list shows.
 		</p>
 	);
 }

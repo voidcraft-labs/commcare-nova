@@ -12,6 +12,7 @@ import {
 	VERB_ENTRIES,
 	verbEntryAdmitted,
 } from "@/components/builder/shared/cards/PredicateVerbMenu";
+import { editorAxesOf } from "@/components/builder/shared/editorAxes";
 import {
 	type PredicateEditContext,
 	predicateCardSchemas,
@@ -62,7 +63,6 @@ import { proseText } from "@/lib/domain/prose";
 import {
 	caseOperationRuntimeTargetConstraint,
 	caseOperationTextConstraint,
-	operationCaseDataScope,
 	RUNTIME_TARGET_OPERATION_SCOPE,
 } from "../editorScope";
 import { operationFormFieldDecls } from "../formFieldScope";
@@ -226,6 +226,12 @@ function fixture(kind: FixtureKind): {
  */
 function editorVocabulary(shape: ReturnType<typeof fixture>) {
 	const entries = formFieldEntriesFor(shape.doc, shape.formUuid);
+	const expressionContext = operationContext(shape, subjectOperation(), {
+		entity: "form",
+		uuid: shape.formUuid,
+		slot: "case_operation_condition",
+		member: { operationUuid: SUBJECT },
+	});
 	return {
 		caseTypes: effectiveCaseTypes(shape.doc),
 		currentCaseType: shape.doc.modules[shape.moduleUuid]?.caseType ?? "",
@@ -233,13 +239,9 @@ function editorVocabulary(shape: ReturnType<typeof fixture>) {
 		userProperties: [WORKER],
 		formFields: operationFormFieldDecls(entries, undefined),
 		operationScope: { creates: [{ uuid: CREATE, label: "create_visit" }] },
-		caseDataScope: operationCaseDataScope(shape.sessionCaseAvailable),
-		expressionContext: operationContext(shape, subjectOperation(), {
-			entity: "form",
-			uuid: shape.formUuid,
-			slot: "case_operation_condition",
-			member: { operationUuid: SUBJECT },
-		}),
+		// The axes the editor reads from the slot, as every mount does.
+		...editorAxesOf(expressionContext),
+		expressionContext,
 	} as const;
 }
 
@@ -490,6 +492,12 @@ describe("case-operation fixtures", () => {
 			const shape = fixture(kind);
 			expect(shape.caseFirst).toBe(kind === "case-first-followup");
 			expect(shape.sessionCaseAvailable).toBe(kind !== "registration");
+			// The editor reads the form's case from the slot: a case-loading form
+			// reads it even in a forms-first module, and a registration form reads
+			// none, which is the line `validateCaseSnapshotUse` draws.
+			expect(editorVocabulary(shape).caseDataScope).toBe(
+				shape.sessionCaseAvailable ? "per-case" : "global",
+			);
 			// Any finding below is caused by the injected candidate, never by
 			// the surrounding operations.
 			expect(gateFindings(shape, subjectOperation())).toEqual([]);
@@ -600,8 +608,8 @@ describe("offered value corpus passes the complete commit gate", () => {
 			);
 			const editCtx: ExpressionEditContext = {
 				...vocabulary,
+				...editorAxesOf(slotTypeCtx),
 				operationScope: scope,
-				ownerValues: slot.ownerValues,
 				expressionContext: slotTypeCtx,
 			};
 

@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
-import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
+import type { ExpressionEditorContext } from "@/lib/codemirror/expressionEditorContext";
 import type { CommitOutcome } from "@/lib/domain";
 
 /**
@@ -17,7 +17,7 @@ export function LabeledXPathField({
 	required,
 	value,
 	onSave,
-	getLintContext,
+	getEditorContext,
 }: {
 	label: string;
 	required?: boolean;
@@ -26,7 +26,7 @@ export function LabeledXPathField({
 	 *  keeps the draft + finding in the inline editor; void reads as
 	 *  committed. */
 	onSave: (value: string) => CommitOutcome | undefined;
-	getLintContext: () => XPathLintContext | undefined;
+	getEditorContext: () => ExpressionEditorContext | undefined;
 }) {
 	const [editing, setEditing] = useState(false);
 
@@ -40,7 +40,7 @@ export function LabeledXPathField({
 			<XPathField
 				value={value}
 				onSave={onSave}
-				getLintContext={getLintContext}
+				getEditorContext={getEditorContext}
 				onEditingChange={setEditing}
 			/>
 		</fieldset>

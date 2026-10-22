@@ -26,7 +26,7 @@ import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { Switch } from "@/components/shadcn/switch";
 import {
-	useFormExpressionProjection,
+	useExpressionProjection,
 	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Field } from "@/lib/domain";
@@ -64,7 +64,7 @@ export function RequiredEditor<F extends Field>({
 		uuid: field.uuid,
 		slot: "required" as const,
 	};
-	const projection = useFormExpressionProjection(
+	const projection = useExpressionProjection(
 		value as Expression | undefined,
 		slot,
 	);
@@ -82,7 +82,7 @@ export function RequiredEditor<F extends Field>({
 
 	// `field.uuid` is already branded `Uuid` by the Field type, no
 	// second cast is needed before calling into the doc-store hook.
-	const getLintContext = useFormLintContext(slot);
+	const getEditorContext = useFormLintContext(slot);
 
 	// Local state: whether the user is composing a brand-new condition.
 	// Distinct from the XPathField's own edit state: the flag lets the
@@ -202,7 +202,7 @@ export function RequiredEditor<F extends Field>({
 											<XPathField
 												value={conditionValue}
 												onSave={handleConditionSave}
-												getLintContext={getLintContext}
+												getEditorContext={getEditorContext}
 												autoEdit={addingCondition || shouldOpenCondition}
 												onEditingChange={setEditing}
 											/>

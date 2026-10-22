@@ -30,6 +30,11 @@ export interface FormExpressionOptions {
 	readonly form?: FormStructure;
 }
 
+export interface FormProjectionOptions extends FormExpressionOptions {
+	/** Lay the text out over lines past the printer's width (`print.ts`). */
+	readonly layout?: boolean;
+}
+
 export interface ProseReferenceScope {
 	readonly doc: BlueprintDoc;
 	readonly formUuid?: Uuid;
@@ -101,6 +106,29 @@ export function parseProseReference(
 	return valid.success && valid.data.kind !== "text" ? valid.data : fail();
 }
 
+/** The one scope a slot's text is parsed against: its document, its lookup
+ * definitions, pending declarations, and the stored tree as the binding
+ * hint. The editor's lint, completion, chips and draft reconciliation read
+ * this same scope. */
+export function formParseScopeForSlot(
+	doc: BlueprintDoc,
+	slot: ExpressionSlotRef,
+	lookup: LookupDefinitionIndex | "unavailable",
+	options: FormExpressionOptions = {},
+): FormParseScope {
+	const current =
+		options.form !== undefined && slot.entity !== "module"
+			? options.form.expressionAt(slot)
+			: expressionSlotValue(doc, slot);
+	return {
+		doc,
+		slot,
+		lookup,
+		current,
+		...(options.form === undefined ? {} : { form: options.form }),
+	};
+}
+
 /** Empty text clears an optional slot. Requiredness is owned by the caller's
  * schema/commit contract, so no empty expression is ever constructed here. */
 export function parseFormExpressionForSlot(
@@ -110,11 +138,10 @@ export function parseFormExpressionForSlot(
 	lookup: LookupDefinitionIndex | "unavailable",
 	options: FormExpressionOptions = {},
 ): FormParseResult {
-	const current =
-		options.form !== undefined && slot.entity !== "module"
-			? options.form.expressionAt(slot)
-			: expressionSlotValue(doc, slot);
-	return parseFormExpression(text, { doc, slot, lookup, current, ...options });
+	return parseFormExpression(
+		text,
+		formParseScopeForSlot(doc, slot, lookup, options),
+	);
 }
 
 export function parseAuthoredFormExpression(
@@ -134,10 +161,11 @@ export function projectFormExpression(
 	slot: ExpressionSlotRef,
 	expression: Expression,
 	lookup: LookupDefinitionIndex | "unavailable",
-	options: FormExpressionOptions = {},
+	options: FormProjectionOptions = {},
 ): FormExpressionProjection {
-	const context = formPrintContext({ doc, slot, lookup, ...options });
-	const projection = printFormExpression(expression, context);
+	const { layout, ...structure } = options;
+	const context = formPrintContext({ doc, slot, lookup, ...structure });
+	const projection = printFormExpression(expression, context, { layout });
 	return context === undefined
 		? {
 				...projection,

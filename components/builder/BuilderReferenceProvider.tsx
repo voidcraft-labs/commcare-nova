@@ -21,7 +21,7 @@
 "use client";
 
 import { useCallback, useContext } from "react";
-import { buildLintContext } from "@/lib/codemirror/buildLintContext";
+import { buildFormReferenceContext } from "@/lib/codemirror/formReferenceContext";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { asUuid } from "@/lib/domain";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
@@ -38,7 +38,7 @@ export function BuilderReferenceProvider({
 	const docStore = useContext(BlueprintDocContext);
 	const currentFormUuid = useSelectedFormUuid();
 
-	/** Build the `XPathLintContext` for any form by uuid. Called by
+	/** Build the `FormReferenceContext` for any form by uuid. Called by
 	 *  `ReferenceProvider` whenever it resolves a ref: the active form for
 	 *  in-editor surfaces, each field's owning form for the sidebar. Reads the
 	 *  doc store imperatively so we don't subscribe to blueprint state here
@@ -46,7 +46,7 @@ export function BuilderReferenceProvider({
 	const getContextForForm = useCallback(
 		(formUuid: string) =>
 			docStore
-				? buildLintContext(docStore.getState(), asUuid(formUuid))
+				? buildFormReferenceContext(docStore.getState(), asUuid(formUuid))
 				: undefined,
 		[docStore],
 	);
@@ -54,11 +54,11 @@ export function BuilderReferenceProvider({
 	/** The form the user is currently editing, surfaced via `useCurrentFormUuid`
 	 *  so editor/canvas chip surfaces resolve without threading the uuid.
 	 *  A form's own configuration URLs name the same form. */
-	/** Subscribe to every document projection read by `buildLintContext`. Field
+	/** Subscribe to every document projection read by `buildFormReferenceContext`. Field
 	 *  moves change only `fieldOrder`; form moves change only `formOrder`;
 	 *  worker-information renames and case-catalog edits likewise live outside
 	 *  the field/module/form entity maps. Entity maps are compared through the
-	 *  exact slots the lint context consumes, so a case-write or ordinary logic
+	 *  exact slots the reference walk consumes, so a case-write or ordinary logic
 	 *  edit does not clear every form cache and wake every projected tree label. */
 	const subscribeMutation = useCallback(
 		(listener: () => void) => {

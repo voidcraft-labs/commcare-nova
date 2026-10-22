@@ -460,7 +460,7 @@ Once a save in HQ's form builder has written its own `#case/x` shadow and `x` la
 
 ### Bare hashtags in prose
 
-Reference-capable label/hint text is a typed `ProseTemplate`; only explicit reference atoms lower to dynamic `<output>` values, while hashtag-looking text remains literal. Whitespace-only text runs use literal outputs as described below. `lib/domain/hashtagSegments.ts` still owns the friendly projection's segment vocabulary for editor chips and, via `xpath/__tests__/hashtagMatchers.divergence.test.ts`, keeps that projection in lockstep with the Lezer grammar's `HashtagType`/`HashtagSegment` tokens.
+Reference-capable label/hint text is a typed `ProseTemplate`; only explicit reference atoms lower to dynamic `<output>` values, while hashtag-looking text remains literal. Whitespace-only text runs use literal outputs as described below. `lib/domain/hashtagSegments.ts` owns the segment vocabulary of prose chips and, via `xpath/__tests__/hashtagMatchers.divergence.test.ts`, keeps it in lockstep with the Lezer grammar's `HashtagType`/`HashtagSegment` tokens. Expression chips come from parse spans.
 
 ### Markdown itext
 

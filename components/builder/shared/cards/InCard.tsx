@@ -16,6 +16,7 @@ import { effectiveDataType } from "@/lib/domain";
 import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	acceptsType,
+	type Choice,
 	compatibleTypesFor,
 	type Expression,
 	inSubjectConstraint,
@@ -34,6 +35,12 @@ import {
 	caseTypeValueGroups,
 	defaultCaseTypeValue,
 } from "../caseTypeValueModel";
+import {
+	asLiteral,
+	firstUntakenChoice,
+	retargetSelectionValues,
+	staticSelectSubject,
+} from "../choiceValueModel";
 import { comparesCaseType, possibleRowCaseTypes } from "../comparisonModel";
 import {
 	useEditorErrorsAt,
@@ -49,9 +56,10 @@ import { removeAndRestoreFocus } from "../focusAfterRemoval";
 import { membershipLiteralContext } from "../membershipLiteralContext";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
+import { ChoiceValuePicker } from "../primitives/ChoiceValuePicker";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { LiteralValueInput } from "../primitives/LiteralValueInput";
-import { isLiteralList } from "../recordCardShape";
+import { isSelectionValueList } from "../recordCardShape";
 import { useStableListIdentity } from "../useStableListIdentity";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 import {
@@ -104,7 +112,7 @@ interface InCardProps {
 }
 
 export function InCard(props: InCardProps) {
-	if (!isLiteralList(props.value.values))
+	if (!isSelectionValueList(props.value.values))
 		return (
 			<p role="status">This saved expression cannot be edited here yet.</p>
 		);
@@ -122,11 +130,14 @@ function EditableInCard({
 	path,
 }: Omit<InCardProps, "value"> & {
 	readonly value: Omit<InCardProps["value"], "values"> & {
-		readonly values: [Literal, ...Literal[]];
+		readonly values: [Literal | Choice, ...(Literal | Choice)[]];
 	};
 }) {
 	const ctx = usePredicateEditContext();
 	const rowIdentity = useStableListIdentity(value.values);
+	// A form answer from a select with written choices is one of them, so each
+	// value is picked from its choices ("A choice of this question").
+	const choiceSubject = staticSelectSubject(value.left, ctx.expressionContext);
 
 	const { propertyName, caseTypeName } = membershipLiteralContext(
 		value,
@@ -149,8 +160,12 @@ function EditableInCard({
 	// (decision D5), each one a name of the catalog.
 	const caseTypeNames = ctx.caseTypes.map((type) => type.name);
 	const comparesType = comparesCaseType(value.left);
-	const caseTypeSeed = (taken: readonly Literal[]): Literal | undefined => {
-		const used = new Set(taken.map((item) => item.value));
+	const caseTypeSeed = (
+		taken: readonly (Literal | Choice)[],
+	): Literal | undefined => {
+		const used = new Set(
+			taken.flatMap((item) => (item.kind === "literal" ? [item.value] : [])),
+		);
 		const groups = caseTypeValueGroups(
 			caseTypeNames,
 			possibleRowCaseTypes(ctx),
@@ -166,9 +181,11 @@ function EditableInCard({
 			const seed = caseTypeSeed([]);
 			const names = new Set(caseTypeNames);
 			const reseeded = value.values.map((item) =>
-				typeof item.value === "string" && names.has(item.value)
+				item.kind === "literal" &&
+				typeof item.value === "string" &&
+				names.has(item.value)
 					? item
-					: (seed ?? item),
+					: (seed ?? asLiteral(item, ctx.expressionContext)),
 			);
 			const [first, ...rest] = reseeded;
 			rowIdentity.stage(reseeded, { kind: "replace" });
@@ -176,8 +193,15 @@ function EditableInCard({
 			return;
 		}
 		const accepts = compatibleTypesFor(resolveExpressionType(left, ctx));
-		const reseeded = value.values.map((item) =>
-			accepts.has(literalType(item))
+		// Choices follow the new subject first, so a written value that names a
+		// choice of it becomes that choice and a choice it no longer has becomes
+		// its value, and only then is a written value reseeded to the type.
+		const reseeded = retargetSelectionValues(
+			value.values,
+			staticSelectSubject(left, ctx.expressionContext),
+			ctx.expressionContext,
+		).map((item) =>
+			item.kind === "choice" || accepts.has(literalType(item))
 				? item
 				: reseedLiteralForConstraint(item, accepts),
 		);
@@ -186,7 +210,7 @@ function EditableInCard({
 		onChange(isIn(left, first, ...rest));
 	};
 
-	const setValueAt = (index: number, next: Literal) => {
+	const setValueAt = (index: number, next: Literal | Choice) => {
 		const updated = value.values.map((item, itemIndex) =>
 			itemIndex === index ? next : item,
 		);
@@ -213,6 +237,9 @@ function EditableInCard({
 		// Seed the new value of the subject's type so the appended row
 		// lands type-correct (an int `in` can't add a text `literal("")`).
 		const seed =
+			(choiceSubject === undefined
+				? undefined
+				: firstUntakenChoice(choiceSubject, value.values)) ??
 			(comparesType ? caseTypeSeed(value.values) : undefined) ??
 			reseedLiteralForConstraint(literal(""), compatibleTypesFor(subjectType));
 		const [first, ...rest] = value.values;
@@ -305,8 +332,8 @@ function ValueRow({
 	indexPath,
 	caseTypeValues,
 }: {
-	readonly value: Literal;
-	readonly onChange: (next: Literal) => void;
+	readonly value: Literal | Choice;
+	readonly onChange: (next: Literal | Choice) => void;
 	readonly onRemove: () => void;
 	readonly isOnlyOne: boolean;
 	readonly caseTypeName: string;
@@ -323,7 +350,14 @@ function ValueRow({
 		<div className="space-y-0.5" data-removal-focus-row>
 			<div className="flex items-start gap-1.5">
 				<div className="flex-1">
-					{caseTypeValues === undefined ? (
+					{value.kind === "choice" ? (
+						<ChoiceValuePicker
+							field={value.field}
+							value={value}
+							onChange={onChange}
+							invalid={errors.length > 0}
+						/>
+					) : caseTypeValues === undefined ? (
 						<LiteralValueInput
 							value={value}
 							onChange={onChange}

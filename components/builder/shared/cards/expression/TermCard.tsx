@@ -38,6 +38,7 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerForms from "@iconify-icons/tabler/forms";
+import tablerListCheck from "@iconify-icons/tabler/list-check";
 import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import tablerSwitch from "@iconify-icons/tabler/switch";
@@ -110,6 +111,7 @@ import {
 	term as wrapTerm,
 } from "@/lib/domain/expression";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
+import { asChoiceOf, type StaticSelectSubject } from "../../choiceValueModel";
 import {
 	type AdmitExpressionChange,
 	type ExpressionChangeAdmission,
@@ -127,6 +129,7 @@ import { rebuildLiteralPreservingDataType } from "../../literalRebuild";
 import { lookupColumnDisplayLabel } from "../../lookupTablePresentation";
 import type { EditorPath } from "../../path";
 import { InlineError } from "../../primitives/CardShell";
+import { ChoiceValuePicker } from "../../primitives/ChoiceValuePicker";
 import { FormCasePropertyPicker } from "../../primitives/FormCasePropertyPicker";
 import { PropertyRefPicker } from "../../primitives/PropertyRefPicker";
 import { searchInputDisplayLabel } from "../../searchInputPresentation";
@@ -224,6 +227,9 @@ interface TermCardProps {
 	 * would rebuild its expression (a comparison moves its value with "Case
 	 * type"). Absent, a choice is judged in place. */
 	readonly admitReplacement?: (next: Expression) => ExpressionChangeAdmission;
+	/** The select question this value is compared with, when its choices are
+	 * written in the form: offers "A choice of this question". */
+	readonly choiceSubject?: StaticSelectSubject;
 }
 
 /**
@@ -247,6 +253,7 @@ const EDITABLE_TERM_KINDS: ReadonlySet<string> = new Set([
 	"table-column",
 	"case-row-type",
 	"session-datum",
+	"choice",
 ]);
 
 export function TermCard(props: TermCardProps) {
@@ -297,8 +304,16 @@ function EditableTermCard({
 	computedItems,
 	chosenProperty,
 	admitReplacement,
+	choiceSubject,
 }: TermCardProps) {
-	const ctx = usePredicateEditContext();
+	const editCtx = usePredicateEditContext();
+	// The value's source menu offers the compared question's written choices,
+	// so the term model sees that question beside the editor's own context.
+	const ctx = useMemo(
+		() =>
+			choiceSubject === undefined ? editCtx : { ...editCtx, choiceSubject },
+		[editCtx, choiceSubject],
+	);
 	const { modules } = useDocEntityMaps();
 	const projectProse = useProseProjection();
 	const menuName = useCallback(
@@ -398,6 +413,17 @@ function EditableTermCard({
 				explicitTarget === undefined
 					? draftsByModeRef.current.get(next)
 					: { value: explicitTarget, authored: true };
+			// Picking "A choice of this question" over a written value that
+			// names one of its choices keeps that value as the choice.
+			const carriedChoice =
+				targetDraft === undefined &&
+				next === "choice" &&
+				choiceSubject !== undefined &&
+				term.kind === "literal"
+					? asChoiceOf(term, choiceSubject, ctx.expressionContext)
+					: undefined;
+			if (carriedChoice !== undefined)
+				targetDraft = { value: carriedChoice, authored: true };
 			if (targetDraft === undefined) {
 				targetDraft = {
 					value: buildTermDefault(next, ctx, constraint),
@@ -407,7 +433,7 @@ function EditableTermCard({
 			draftsByModeRef.current.set(next, targetDraft);
 			onChange(wrapTerm(targetDraft.value));
 		},
-		[constraint, ctx, mode, onChange, term],
+		[choiceSubject, constraint, ctx, mode, onChange, term],
 	);
 
 	const requestMode = useCallback(
@@ -657,6 +683,7 @@ function EditableTermCard({
 						activeChosenModule={chosenModule}
 						onChosen={requestChosenCase}
 						sourceContext={sourceContext}
+						offersChoice={choiceSubject !== undefined}
 						computedItems={computedItems}
 						triggerRef={sourceTriggerRef}
 						setTriggerRef={setSourceTriggerRef}
@@ -851,6 +878,8 @@ interface ModeMenuProps {
 	readonly activeChosenModule: Uuid | undefined;
 	readonly onChosen: (module: Uuid) => void;
 	readonly sourceContext: "value" | "subject";
+	/** Whether the compared question has written choices to pick from. */
+	readonly offersChoice: boolean;
 	readonly computedItems?: React.ReactNode;
 	readonly triggerRef: RefObject<HTMLButtonElement | null>;
 	readonly setTriggerRef: (target: HTMLButtonElement | null) => void;
@@ -867,6 +896,7 @@ function ModeMenu({
 	activeChosenModule,
 	onChosen,
 	sourceContext,
+	offersChoice,
 	computedItems,
 	triggerRef,
 	setTriggerRef,
@@ -881,6 +911,17 @@ function ModeMenu({
 		readonly { mode: TermMode; label: string; icon: IconifyIcon }[]
 	>(() => {
 		const base: { mode: TermMode; label: string; icon: IconifyIcon }[] = [
+			// Opposite a question with written choices, its choices come first:
+			// they are what the answer can be.
+			...(mode === "choice" || offersChoice
+				? [
+						{
+							mode: "choice" as const,
+							label: termModeLabel("choice", sourceContext),
+							icon: tablerListCheck,
+						},
+					]
+				: []),
 			{
 				mode: "literal",
 				label: termModeLabel("literal", sourceContext),
@@ -942,6 +983,7 @@ function ModeMenu({
 		ctx.knownInputs,
 		ctx.tableScope,
 		mode,
+		offersChoice,
 		sourceContext,
 	]);
 
@@ -1291,6 +1333,18 @@ function TermBodyInput({
 					onChange={onChange}
 					constraint={constraint}
 					invalid={invalid}
+				/>
+			);
+		case "choice":
+			return (
+				<ChoiceValuePicker
+					field={term.field}
+					value={term}
+					onChange={onChange}
+					invalid={invalid}
+					admit={(next) =>
+						admitExpressionChange?.(path, wrapTerm(next)) ?? { admitted: true }
+					}
 				/>
 			);
 	}

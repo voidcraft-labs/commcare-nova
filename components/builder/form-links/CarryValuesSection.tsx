@@ -27,8 +27,8 @@ import { XPathField } from "@/components/builder/XPathField";
 import { Button } from "@/components/shadcn/button";
 import type { FormLinksView } from "@/lib/doc/hooks/useFormLinks";
 import {
-	useFormExpressionLintContext,
-	useFormExpressionProjection,
+	useExpressionEditorContext,
+	useExpressionProjection,
 	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
@@ -306,8 +306,8 @@ function CarriedValueRow({
 		member: { linkUuid, datum: datum.name },
 	};
 	const parse = useParseFormExpression(slot);
-	const projection = useFormExpressionProjection(datum.xpath, slot);
-	const getLintContext = useFormExpressionLintContext(slot);
+	const projection = useExpressionProjection(datum.xpath, slot);
+	const getEditorContext = useExpressionEditorContext(slot);
 	const untouched = projection.text.trim() === SEED_CARRIED_VALUE_TEXT;
 
 	return (
@@ -328,7 +328,7 @@ function CarriedValueRow({
 							}
 						: undefined
 				}
-				getLintContext={getLintContext}
+				getEditorContext={getEditorContext}
 			/>
 			<p className="mt-2 text-[13px] leading-relaxed text-nova-text-muted">
 				{untouched

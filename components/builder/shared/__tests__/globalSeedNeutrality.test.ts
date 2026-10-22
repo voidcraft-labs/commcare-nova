@@ -41,7 +41,6 @@ const GLOBAL_FIXTURE = expressionEditorFixture("global-condition", {
 	],
 	currentCaseType: "patient",
 	knownInputs: [],
-	caseDataScope: "global",
 });
 const GLOBAL_CTX: PredicateEditContext = GLOBAL_FIXTURE.context;
 

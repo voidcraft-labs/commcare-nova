@@ -11,7 +11,7 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { TIME_ORDERING_MESSAGE } from "@/lib/domain/expression/ruleSets";
 import { proseText } from "@/lib/domain/prose";
-import { buildExpressionLintContext } from "../buildLintContext";
+import { buildExpressionEditorContext } from "../expressionEditorContext";
 import { xpathDiagnostics } from "../xpath-lint";
 
 function context() {
@@ -35,12 +35,12 @@ function context() {
 	});
 	const field = Object.values(doc.fields).find((entry) => entry.id === "end");
 	if (field === undefined) throw new Error("Missing field fixture");
-	const ctx = buildExpressionLintContext(
+	const ctx = buildExpressionEditorContext(
 		doc,
 		{ entity: "field", uuid: field.uuid, slot: "relevant" },
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
-	if (ctx === undefined) throw new Error("Missing lint context");
+	if (ctx === undefined) throw new Error("Missing editor context");
 	return ctx;
 }
 

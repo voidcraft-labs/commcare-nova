@@ -405,11 +405,11 @@ the original media branch unchanged.
 Search-input references are identity too: Predicate and ValueExpression store
 `{ kind: "input", searchInputUuid }` (`lib/domain/predicate/types.ts`),
 resolved to the input's current saved wire name only at projection. Which
-runtime evaluates a rule is a separate authoring axis: `EvaluationTarget`
-(`components/builder/shared/editorSchemas.ts`) is `on-device`, `case-search`,
-or both, and an absent value means the STRICT `on-device` one — a surface that
-forgets it then offers less, visible and repairable, rather than offering a
-choice the gate would bounce. A case-list filter in a search-enabled module
+runtimes evaluate a rule is a fact of the slot's profile
+(`lib/domain/expression/profiles.ts`, its targets). The editor reads every axis
+from that profile (`components/builder/shared/editorAxes.ts::editorAxesForSlot`),
+so the editor's offer set is the gate's accept set and no surface writes an axis
+by hand. A case-list filter in a search-enabled module
 carries the both-runtimes value, since the same stored rule emits to the
 device nodeset and the remote CSQL query and must satisfy both oracles.
 
@@ -735,9 +735,9 @@ and their relatives), `selected-case` (one chosen case's own properties —
 relationship walks, counts, and presence tests withheld with the scope's own
 explanation), or `global` (no case at all). A module condition and a
 forms-first form condition are `global`; a case-first form condition is
-`selected-case`. `PredicateEditProvider` composes the matching admission
-oracle in front of any caller oracle, so no surface can silently offer a read
-the commit gate would reject.
+`selected-case`. `PredicateEditProvider` reads the slot's profile
+(`editorAxesForSlot`), so no surface can silently offer a read the commit gate
+would reject.
 
 A second, independent axis governs **Never match**.
 A navigation condition that is, or starts with, `match-none` is refused by a

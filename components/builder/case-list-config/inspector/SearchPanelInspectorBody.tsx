@@ -207,7 +207,6 @@ export function SearchPanelInspectorBody({
 						knownInputs={knownInputs}
 						// The Search action's relevance resolves before any case is
 						// selected, so the seed compares a session value.
-						caseDataScope="global"
 					/>
 				)}
 			</AdvancedSearchSettings>

@@ -20,6 +20,9 @@ import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChr
 import { MediaSlot } from "@/components/builder/media/MediaSlot";
 import { RefLabelInput } from "@/components/builder/RefLabelInput";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
+import { Button } from "@/components/shadcn/button";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { useOptionRemovalBlockers } from "@/lib/doc/hooks/useOptionRemovalBlockers";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	asUuid,
@@ -72,6 +75,14 @@ export function OptionsEditorWidget({
 	// read as plain text; a screen reader hears the same words the sighted
 	// author sees in the chip, so it goes through the document too.
 	const projectProse = useProseProjection();
+	// Why each row can't be removed: a formula that names the choice (its
+	// starting value, a comparison) would be left naming nothing, which the
+	// commit gate refuses. Asked of the live reference index by option UUID,
+	// so a row added in this draft and not yet saved has no readers.
+	const removalBlockers = useOptionRemovalBlockers(
+		draft.map((option) => option.uuid),
+	);
+	const blockerIdBase = useId();
 
 	// Ref on the fieldset element: used by the blur handler to check
 	// whether focus moved outside the group. Checking
@@ -296,17 +307,30 @@ export function OptionsEditorWidget({
 								data-1p-ignore
 							/>
 						</div>
-						<button
-							type="button"
-							onClick={() => removeOption(i)}
-							disabled={draft.length <= 2}
-							aria-label={`Remove ${
-								projectProse(opt.label).trim() || `option ${i + 1}`
-							}`}
-							className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg text-nova-text-muted transition-colors hover:bg-nova-rose/10 hover:text-nova-rose disabled:cursor-not-allowed disabled:opacity-30"
-						>
-							<Icon icon={tablerTrash} width="16" height="16" />
-						</button>
+						<SimpleTooltip content={removalBlockers[i]}>
+							<Button
+								type="button"
+								variant="ghost-destructive"
+								size="icon"
+								onClick={() => removeOption(i)}
+								disabled={draft.length <= 2 || removalBlockers[i] !== undefined}
+								aria-label={`Remove ${
+									projectProse(opt.label).trim() || `option ${i + 1}`
+								}`}
+								aria-describedby={
+									removalBlockers[i] === undefined
+										? undefined
+										: `${blockerIdBase}-${opt.uuid}`
+								}
+							>
+								<Icon icon={tablerTrash} width="16" height="16" />
+							</Button>
+						</SimpleTooltip>
+						{removalBlockers[i] === undefined ? null : (
+							<span id={`${blockerIdBase}-${opt.uuid}`} className="sr-only">
+								{removalBlockers[i]}
+							</span>
+						)}
 						<OptionValueRefusal message={optionValueRefusal(draft, i)} />
 						<div className="basis-full pl-1">
 							<MediaSlot

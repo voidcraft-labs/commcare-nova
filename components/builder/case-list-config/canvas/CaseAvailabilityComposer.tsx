@@ -11,6 +11,7 @@ import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerFilter from "@iconify-icons/tabler/filter";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { editorAxesOf } from "@/components/builder/shared/editorAxes";
 import {
 	AddConditionMenu,
 	PredicateWorkbench,
@@ -72,10 +73,6 @@ export interface CaseAvailabilityComposerProps {
 	readonly onClearFilter: (next: Expression | undefined) => CommitOutcome;
 	/** Search-side state that also carries the one assigned-case rule. */
 	readonly searchConfig: CaseSearchConfig | undefined;
-	/** Whether this module has an effective Search action. The raw config can be
-	 * present solely to store assigned-case availability, so it cannot answer
-	 * this question by itself. */
-	readonly caseSearchEnabled: boolean;
 	readonly onExcludedOwnerIdsChange: (next: Expression | undefined) => void;
 	readonly caseTypes: readonly CaseType[];
 	readonly userProperties?: readonly UserProperty[];
@@ -106,7 +103,6 @@ export function CaseAvailabilityComposer({
 	onFilterChange,
 	onClearFilter,
 	searchConfig,
-	caseSearchEnabled,
 	onExcludedOwnerIdsChange,
 	caseTypes,
 	userProperties = [],
@@ -165,9 +161,7 @@ export function CaseAvailabilityComposer({
 					caseTypes,
 					currentCaseType,
 					knownInputs: inputDecls,
-					// Cases available runs against every Results row: the ordinary
-					// per-case scope where property reads are meaningful.
-					caseDataScope: "per-case",
+					...editorAxesOf(expressionContext),
 				} as const);
 	const ownerMode = assignedCasesMode(searchConfig?.excludedOwnerIds);
 	const hasAssignedCaseRule = ownerMode !== "all";
@@ -253,9 +247,6 @@ export function CaseAvailabilityComposer({
 							currentCaseType={currentCaseType}
 							knownInputs={inputDecls}
 							userProperties={userProperties}
-							evaluationTarget={
-								caseSearchEnabled ? "on-device-and-case-search" : "on-device"
-							}
 							focusRequest={
 								dependencyReview?.kind === "cases-available"
 									? dependencyReview

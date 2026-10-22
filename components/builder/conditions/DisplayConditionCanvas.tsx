@@ -27,6 +27,7 @@ import { useEffect, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { ClearConditionButton } from "@/components/builder/shared/ClearConditionButton";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
+import { editorAxesOf } from "@/components/builder/shared/editorAxes";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
@@ -211,7 +212,7 @@ export function DisplayConditionCanvas({
 										caseTypes,
 										currentCaseType,
 										knownInputs: [],
-										caseDataScope: copy.caseDataScope,
+										...editorAxesOf(expressionContext),
 									}),
 								)
 							}
@@ -229,8 +230,6 @@ export function DisplayConditionCanvas({
 						caseTypes={caseTypes}
 						currentCaseType={currentCaseType}
 						userProperties={userProperties}
-						evaluationTarget="on-device"
-						caseDataScope={copy.caseDataScope}
 						/* An item nobody could ever open is refused by the commit
 						 * gate, so the editor does not offer "never match" here.
 						 * Its own axis: the Search action's condition is `global`

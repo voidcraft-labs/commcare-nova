@@ -20,7 +20,6 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowLeft from "@iconify-icons/tabler/arrow-left";
 import { useEffect, useRef } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
-import type { CaseDataScope } from "@/components/builder/shared/editorSchemas";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import type { EditorPath } from "@/components/builder/shared/path";
 import type { EditorSearchInputDecl } from "@/components/builder/shared/searchInputPresentation";
@@ -67,14 +66,10 @@ interface CanvasCopy {
 	readonly title: string;
 	readonly description: string;
 	readonly sectionTitle: string;
-	readonly evaluationTarget: "case-search" | "on-device";
-	readonly caseDataScope: CaseDataScope;
-	/** Set for the two slots the device evaluates with its Pattern engine. */
-	readonly patternMatching?: true;
 }
 
-/** Every word and scope axis the canvas shows, derived from the context alone
- *  so the explanation cannot drift from what the editor admits. */
+/** Every word the canvas shows, derived from the context alone. What the
+ *  editor admits comes from the slot itself (`shared/editorAxes.ts`). */
 export function searchConditionCanvasCopy(
 	context: SearchConditionCanvasContext,
 ): CanvasCopy {
@@ -83,8 +78,6 @@ export function searchConditionCanvasCopy(
 			title: "When Search is available",
 			description: "Choose when the Search action can run",
 			sectionTitle: "Search is available when",
-			evaluationTarget: "on-device",
-			caseDataScope: "global",
 		};
 	}
 	switch (context.slot) {
@@ -94,8 +87,6 @@ export function searchConditionCanvasCopy(
 				description:
 					"Use the answer to this search field to decide which cases match",
 				sectionTitle: "Cases match when",
-				evaluationTarget: "case-search",
-				caseDataScope: "per-case",
 			};
 		case "required":
 			return {
@@ -103,9 +94,6 @@ export function searchConditionCanvasCopy(
 				description:
 					"Decide when people must answer this field before they search. Other answers on the Search screen are available here; case information isn't, because no case has been chosen yet",
 				sectionTitle: "An answer is required when",
-				evaluationTarget: "on-device",
-				caseDataScope: "global",
-				patternMatching: true,
 			};
 		case "validation":
 			return {
@@ -113,9 +101,6 @@ export function searchConditionCanvasCopy(
 				description:
 					"Decide what an answer must satisfy before the search runs. The rule is checked only when the field has an answer, and other answers on the Search screen are available here",
 				sectionTitle: "The answer passes when",
-				evaluationTarget: "on-device",
-				caseDataScope: "global",
-				patternMatching: true,
 			};
 	}
 }
@@ -201,9 +186,6 @@ export function SearchConditionCanvas({
 						currentCaseType={currentCaseType}
 						knownInputs={knownInputs}
 						userProperties={userProperties}
-						evaluationTarget={copy.evaluationTarget}
-						caseDataScope={copy.caseDataScope}
-						patternMatching={copy.patternMatching}
 						focusRequest={dependencyReview ?? focusRequest}
 					/>
 				)}

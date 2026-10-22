@@ -6,7 +6,7 @@
  * locate friendly refs:
  *
  *   1. `lib/references/config.ts::HASHTAG_REF_PATTERN` — locates printed
- *      references for editor chips.
+ *      references in prose for chips (expression chips come from parse spans).
  *   2. The Lezer XPath grammar's `HashtagType` / `HashtagSegment` tokens
  *      (`lib/commcare/xpath/grammar.lezer.grammar::localName`) — defines a
  *      ref's structure inside human-authored XPath.

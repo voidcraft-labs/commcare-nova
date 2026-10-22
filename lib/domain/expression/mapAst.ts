@@ -55,6 +55,18 @@ function mapChild(
 			return hooks.mapRelation?.(child.value, child.path) ?? child.value;
 	}
 }
+/** A subject slot that stores a case property as a bare reference and any
+ * other value as an expression. */
+function isWidenedPropertySlot(
+	parent: ExpressionNode,
+	role: ExpressionChildRole,
+): boolean {
+	return (
+		role.kind === "operand" &&
+		role.slot === "property" &&
+		(parent.kind === "match" || parent.kind === "multi-select-contains")
+	);
+}
 function guardDirectTerm(
 	parent: ExpressionNode,
 	role: ExpressionChildRole,
@@ -64,11 +76,7 @@ function guardDirectTerm(
 	if (role.kind === "operand") {
 		if (role.slot === "property" && parent.kind === "within-distance")
 			valid = value.kind === "prop";
-		if (
-			role.slot === "property" &&
-			(parent.kind === "match" || parent.kind === "multi-select-contains")
-		)
-			valid = value.kind === "prop";
+		if (isWidenedPropertySlot(parent, role)) valid = value.kind === "prop";
 		if (role.slot === "input" && parent.kind === "when-input-present")
 			valid = value.kind === "input";
 		if (role.slot === "value" && parent.kind === "project")
@@ -98,12 +106,7 @@ function canonicalChild(
 	value: Expression | Term | RelationPath,
 ): Expression | Term | RelationPath | string | number {
 	if (!isExpression(value) || value.kind !== "term") return value;
-	if (
-		role.kind === "operand" &&
-		role.slot === "property" &&
-		(parent.kind === "match" || parent.kind === "multi-select-contains") &&
-		value.term.kind === "prop"
-	)
+	if (isWidenedPropertySlot(parent, role) && value.term.kind === "prop")
 		return value.term;
 	if (
 		role.kind === "item" &&
@@ -200,18 +203,29 @@ export function mapExpressionChildren<T extends ExpressionNode>(
 ): T {
 	let result: ExpressionNode = node;
 	for (const child of expressionChildren(node, path)) {
-		const replacement = map(child);
+		let replacement = map(child);
 		if (replacement === child.value) continue;
 		if (child.kind === "term") {
-			if (isExpression(replacement) || isRelationPath(replacement))
+			// A widened subject slot takes any expression in place of its stored
+			// property; any other term slot takes a term, written bare even when it
+			// arrives wrapped as a term expression.
+			if (
+				isExpression(replacement) &&
+				replacement.kind === "term" &&
+				!isWidenedPropertySlot(node, child.role)
+			)
+				replacement = replacement.term;
+			if (
+				isRelationPath(replacement) ||
+				(isExpression(replacement) && !isWidenedPropertySlot(node, child.role))
+			)
 				throw new Error("A term mapper must return a term.");
-			guardDirectTerm(node, child.role, replacement);
+			if (!isExpression(replacement))
+				guardDirectTerm(node, child.role, replacement);
 		}
-		result = replaceChild(
-			result,
-			child.role,
-			canonicalChild(node, child.role, replacement),
-		);
+		const canonical = canonicalChild(node, child.role, replacement);
+		if (canonical === child.value) continue;
+		result = replaceChild(result, child.role, canonical);
 	}
 	return result as T;
 }

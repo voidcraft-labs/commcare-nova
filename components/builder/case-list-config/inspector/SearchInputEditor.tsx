@@ -53,6 +53,7 @@ import {
 } from "@/components/builder/case-list-config/SearchableChoiceCombobox";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { ExpressionSlotEditor } from "@/components/builder/shared/ExpressionSlotEditors";
+import { editorAxesOf } from "@/components/builder/shared/editorAxes";
 import {
 	buildValidityIndex,
 	EditorVocabularyProvider,
@@ -1231,11 +1232,9 @@ function RequiredSlot({
 				return;
 			case "conditional": {
 				if (expressionContext === undefined) return;
-				const when = firstComparisonDefault({
-					...summaryContextToEditContext(summaryContext, expressionContext),
-					caseDataScope: "global",
-					patternMatching: true,
-				});
+				const when = firstComparisonDefault(
+					summaryContextToEditContext(summaryContext, expressionContext),
+				);
 				onChange({
 					...(value?.message === undefined ? {} : { message: value.message }),
 					when,
@@ -1386,14 +1385,9 @@ function CheckSlot({
 					onClick={() => {
 						if (expressionContext === undefined) return;
 						onChange({
-							rule: firstComparisonDefault({
-								...summaryContextToEditContext(
-									summaryContext,
-									expressionContext,
-								),
-								caseDataScope: "global",
-								patternMatching: true,
-							}),
+							rule: firstComparisonDefault(
+								summaryContextToEditContext(summaryContext, expressionContext),
+							),
 							message: SEARCH_INPUT_CHECK_SEED_MESSAGE,
 						});
 						onEditRule();
@@ -1458,14 +1452,14 @@ function CheckSlot({
 }
 
 /** The seed context for a Search-screen condition: every named sibling is
- *  readable, case data is not (nothing has been selected yet). The caller
- *  adds the scope and, for the device-evaluated slots, pattern matching. */
+ *  readable, and the slot says what else is (`shared/editorAxes.ts`). */
 function summaryContextToEditContext(
 	context: PredicateSummaryContext,
 	expressionContext: ExpressionContext,
-): Omit<PredicateEditContext, "caseDataScope" | "patternMatching"> {
+): PredicateEditContext {
 	return {
 		expressionContext,
+		...editorAxesOf(expressionContext),
 		caseTypes: context.caseTypes ?? [],
 		currentCaseType: context.currentCaseType ?? "",
 		knownInputs: context.knownInputs ?? [],
@@ -2183,7 +2177,6 @@ function DefaultValueSlot({
 							currentCaseType={currentCaseType}
 							knownInputs={NO_SEARCH_INPUTS}
 							userProperties={userProperties}
-							caseDataScope="global"
 							constraint={constraint}
 						/>
 					)}

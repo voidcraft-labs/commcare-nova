@@ -2107,9 +2107,6 @@ function WorkbenchFixture({ mode }: { readonly mode: string }) {
 					}}
 					caseTypes={EDITOR_CASE_TYPES}
 					currentCaseType="patient"
-					evaluationTarget={
-						mode === "workbench-search" ? "case-search" : "on-device"
-					}
 					focusRequest={request}
 				/>
 				<div style={{ height: 900 }} />

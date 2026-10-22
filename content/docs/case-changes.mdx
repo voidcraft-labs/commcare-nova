@@ -171,6 +171,12 @@ fixed values, from information about the person using the app, from Project data
 or from a calculation you build. A Project data value is found by matching one of
 the table's rows; the complete change remains editable.
 
+When a condition compares a single-choice or multiple-choice question whose
+choices are written in the form, its value is **A choice of this question**:
+pick one of the question's choices by its label. The condition stays connected
+to that choice, so changing the choice's saved value updates the condition too,
+and the choice can't be removed while the condition compares with it.
+
 When a value's condition is false, that property stays as it was. Preview skips
 the value's calculation, so unanswered inputs used only by that skipped value
 do not block submission.

@@ -7,6 +7,9 @@
 // .patternMatching`). The match is unanchored: `^` and `$` test the whole
 // answer.
 //
+// The pattern is written out or calculated (`patternSourceModel.ts`); each
+// source is offered where the whole rule's verdict admits it.
+//
 // The pattern's Java syntax is not checked here. The main thread carries no
 // Pattern engine for user-authored patterns (`lib/preview/CLAUDE.md`), so
 // the card pins what the schema pins, a nonblank pattern, and the running
@@ -25,22 +28,35 @@ import {
 	matchesPattern,
 	PATTERN_MAX_LENGTH,
 	prop,
+	type SlotConstraint,
 	sessionContext,
 	tableColumn,
 } from "@/lib/domain/expression";
+import { usePredicateEditContext } from "../editorContext";
 import {
 	caseDataInScope,
 	type PredicateEditContext,
 	tableRowInScope,
 } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
+import {
+	calculatedPatternSeed,
+	patternSourceAdmission,
+	patternSourceOf,
+	storedPattern,
+	textPatternFor,
+} from "../patternSourceModel";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
+import { PatternSourceMenu } from "../primitives/PatternSourceMenu";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
 /** A recognizable starting pattern: digits only, anchored to the whole
  *  answer. The author replaces it; it exists so the seed is a complete,
  *  valid condition rather than a blank the gate refuses. */
 const SEED_PATTERN = "^[0-9]+$";
+
+/** A calculated pattern is read as text; every value can be. */
+const PATTERN_TEXT_CONSTRAINT: SlotConstraint = { accepts: "any" };
 
 export function matchesPatternDefault(
 	ctx: PredicateEditContext,
@@ -81,28 +97,36 @@ interface MatchesPatternCardProps {
 	readonly path: EditorPath;
 }
 
-export function MatchesPatternCard(props: MatchesPatternCardProps) {
-	if (typeof props.value.pattern !== "string")
-		return (
-			<p role="status">This saved expression cannot be edited here yet.</p>
-		);
-	return (
-		<EditableMatchesPatternCard
-			{...props}
-			value={{ ...props.value, pattern: props.value.pattern }}
-		/>
-	);
-}
-
-function EditableMatchesPatternCard({
+export function MatchesPatternCard({
 	value,
 	onChange,
 	path,
-}: MatchesPatternCardProps & {
-	readonly value: MatchesPatternCardProps["value"] & {
-		readonly pattern: string;
+}: MatchesPatternCardProps) {
+	const ctx = usePredicateEditContext();
+	const source = patternSourceOf(value.pattern);
+	const writtenText =
+		typeof value.pattern === "string"
+			? value.pattern
+			: textPatternFor(value.pattern, SEED_PATTERN).text;
+	const candidates = {
+		text: matchesPattern(value.left, writtenText),
+		calculated: matchesPattern(
+			value.left,
+			typeof value.pattern === "string"
+				? calculatedPatternSeed(value.pattern)
+				: value.pattern,
+		),
 	};
-}) {
+	const admission = patternSourceAdmission(
+		source,
+		candidates,
+		ctx.admitExpressionChange === undefined
+			? undefined
+			: (candidate) =>
+					ctx.admitExpressionChange?.(path, candidate) ?? { admitted: true },
+	);
+	const setPattern = (pattern: string | Expression) =>
+		onChange(matchesPattern(value.left, pattern));
 	return (
 		<div className="space-y-2">
 			<div className="grid grid-cols-1 @md:grid-cols-[1.4fr_auto] gap-2 items-start">
@@ -116,14 +140,36 @@ function EditableMatchesPatternCard({
 				/>
 				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
-			<PatternInput
-				value={value.pattern}
-				onChange={(pattern) => onChange(matchesPattern(value.left, pattern))}
-			/>
+			<div className="grid grid-cols-1 @md:grid-cols-[auto_1fr] gap-2 items-start">
+				<PatternSourceMenu
+					label="Pattern"
+					source={source}
+					admission={admission}
+					replaces={(next) =>
+						next === "text" &&
+						typeof value.pattern !== "string" &&
+						textPatternFor(value.pattern, SEED_PATTERN).losesCalculation
+							? "the calculated pattern"
+							: undefined
+					}
+					onSelect={(next) => onChange(candidates[next])}
+				/>
+				{typeof value.pattern === "string" ? (
+					<PatternInput value={value.pattern} onChange={setPattern} />
+				) : (
+					<ExpressionPicker
+						value={value.pattern}
+						onChange={(next) => setPattern(storedPattern(next))}
+						path={appendSlot(path, "pattern")}
+						constraint={PATTERN_TEXT_CONSTRAINT}
+						variant="nested"
+					/>
+				)}
+			</div>
 			<div className="text-[13px] leading-relaxed text-nova-text-muted">
-				A Java regular expression, checked on the device once the field has an
-				answer. It matches anywhere in the answer, so start with ^ and end with
-				$ to test the whole thing
+				{source === "text"
+					? "A Java regular expression, checked on the device once the field has an answer. It matches anywhere in the answer, so start with ^ and end with $ to test the whole thing"
+					: "Worked out as text when the check runs, then read as a Java regular expression. It matches anywhere in the answer, so start with ^ and end with $ to test the whole thing"}
 			</div>
 		</div>
 	);

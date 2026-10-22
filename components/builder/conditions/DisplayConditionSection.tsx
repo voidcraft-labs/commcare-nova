@@ -127,7 +127,6 @@ export function DisplayConditionSection({
 				clearConsequence={copy.clearConsequence}
 				caseTypes={caseTypes}
 				currentCaseType={currentCaseType}
-				caseDataScope={copy.caseDataScope}
 			/>
 		</div>
 	);

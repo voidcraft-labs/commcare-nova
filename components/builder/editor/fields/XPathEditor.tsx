@@ -25,7 +25,7 @@ import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import { XPathField } from "@/components/builder/XPathField";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
-	useFormExpressionProjection,
+	useExpressionProjection,
 	useParseFormExpression,
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Field, FieldPatchFor, ProseTemplate } from "@/lib/domain";
@@ -61,7 +61,7 @@ export function XPathEditor<F extends Field, K extends FormExpressionKeys<F>>(
 		uuid: field.uuid,
 		slot: keyName as FieldExpressionSlotRef["slot"],
 	};
-	const projection = useFormExpressionProjection(
+	const projection = useExpressionProjection(
 		value as Expression | undefined,
 		slot,
 	);
@@ -69,7 +69,7 @@ export function XPathEditor<F extends Field, K extends FormExpressionKeys<F>>(
 	const parseForField = useParseFormExpression(slot);
 
 	// `field.uuid` is already branded `Uuid` by the Field type.
-	const getLintContext = useFormLintContext(slot);
+	const getEditorContext = useFormLintContext(slot);
 	const focusHint = useSessionFocusHint();
 	const [editing, setEditing] = useState(false);
 
@@ -180,7 +180,7 @@ export function XPathEditor<F extends Field, K extends FormExpressionKeys<F>>(
 				<XPathField
 					value={current}
 					onSave={handleSave}
-					getLintContext={getLintContext}
+					getEditorContext={getEditorContext}
 					autoEdit={!!autoFocus || focusHint === keyName}
 					onEditingChange={setEditing}
 				/>

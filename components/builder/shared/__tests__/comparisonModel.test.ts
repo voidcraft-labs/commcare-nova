@@ -28,7 +28,6 @@ const context: PredicateEditContext = expressionEditorFixture("case-filter", {
 	],
 	currentCaseType: "patient",
 	knownInputs: [],
-	caseDataScope: "per-case",
 }).context;
 describe("comparison subject atomic edits", () => {
 	it("changes an incompatible object in the same candidate as the subject", () => {

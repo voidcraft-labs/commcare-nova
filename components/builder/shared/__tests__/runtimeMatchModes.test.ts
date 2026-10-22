@@ -42,7 +42,7 @@ const CASE_TYPES: readonly CaseType[] = [
 function context(
 	evaluationTarget: PredicateEditContext["evaluationTarget"],
 ): PredicateEditContext {
-	return expressionEditorFixture(
+	const fixture = expressionEditorFixture(
 		evaluationTarget === "case-search"
 			? "search-predicate"
 			: evaluationTarget === "on-device-and-case-search"
@@ -52,10 +52,11 @@ function context(
 			caseTypes: CASE_TYPES,
 			currentCaseType: "patient",
 			knownInputs: [],
-			caseDataScope: "per-case",
-			...(evaluationTarget === undefined ? {} : { evaluationTarget }),
 		},
 	).context;
+	// The carrier's slot decides its runtime; no surface passes it.
+	expect(fixture.evaluationTarget).toBe(evaluationTarget ?? "on-device");
+	return fixture;
 }
 
 /** A filled comparison: the real starting point for a verb switch, and

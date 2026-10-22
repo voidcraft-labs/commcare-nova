@@ -33,7 +33,9 @@ export function useFormRecordName(formUuid: Uuid) {
 			prepared.slot,
 			value,
 			lookupExpressionDefinitions(lookupContext),
-			{ form: prepared.form },
+			// The record name's editor shows it as every editor does: laid
+			// out over lines past the printer's width.
+			{ form: prepared.form, layout: true },
 		);
 		return { ...projection, ok: projection.unresolved.length === 0, prepared };
 	}, [doc, formUuid, lookupContext, prospectiveUuid, occupied]);
