@@ -952,6 +952,19 @@ export function slotContext(
 					caseType: module.caseType,
 				},
 			];
+		// The case list filter and an advanced search input's condition run at
+		// the module's case list step, after the selections before its own
+		// (part 05 §1.3, "Evaluation points").
+		if (slot.slot === "case_list_filter")
+			supplies = entryDatumSupplies(doc, {
+				kind: "case-list",
+				module: moduleUuid,
+			});
+		if (slot.slot === "search_input_predicate")
+			supplies = entryDatumSupplies(doc, {
+				kind: "search",
+				module: moduleUuid,
+			});
 		if (slot.slot === "search_input_options") {
 			if (input === undefined || !("options" in input)) return undefined;
 			rows = [{ kind: "table", root: "table", tableId: input.options.tableId }];

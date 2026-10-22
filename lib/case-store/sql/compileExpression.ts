@@ -43,6 +43,7 @@ import {
 	type CommCareDateFormatToken,
 	parseCommCareDatePattern,
 } from "@/lib/domain/commCareDatePattern";
+import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import { fixedDatePattern } from "@/lib/domain/expression/datePattern";
 import {
 	compilerBugMessage,
@@ -74,6 +75,7 @@ import {
 import {
 	compileBoundRef,
 	compileBoundValue,
+	compileChosenCaseProperty,
 	compileTerm,
 	recordQueryContextFor,
 	type TermCompileContext,
@@ -230,15 +232,35 @@ export function compileExpression(
 			return compileFormatDate(expr.date, expr.pattern, ctx);
 		case "table-lookup":
 			return compileTableLookup(expr, ctx);
+		case "project": {
+			const chosen = readChosenCaseProperty(expr);
+			if (chosen !== undefined) return compileChosenCaseProperty(chosen, ctx);
+			throw new Error(
+				compilerBugMessage({
+					where: "compileExpression",
+					invariant: "a `project` read reached a server record query",
+					detail:
+						"The one `project` a Postgres slot admits is a property of the case chosen in an earlier menu; any other appears only inside a CSQL runtime segment, which the fold evaluates in the browser first.",
+				}),
+			);
+		}
+		case "value-list":
+			throw new Error(
+				compilerBugMessage({
+					where: "compileExpression",
+					invariant:
+						"a `value-list` reached a server query outside an equality",
+					detail:
+						"The checker admits a list of values only as the other side of `=` or `!=`, which `compilePredicate.ts::compileValueListEquality` compiles as exact text equality with the stored value.",
+				}),
+			);
 		case "call":
 		case "itext":
 		case "choice-name":
-		case "value-list":
 		case "cases":
 		case "table-rows":
 		case "locations":
 		case "selected-cases":
-		case "project":
 			throw new Error(
 				compilerBugMessage({
 					where: "compileExpression",

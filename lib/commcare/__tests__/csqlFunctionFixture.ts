@@ -42,7 +42,7 @@ import {
 } from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
-import type { CsqlEmissionContext } from "../expression/csqlRuntimeExpression";
+import type { CsqlEmissionContext } from "../csql/emitter";
 import { buildLookupFixtures } from "../lookup/fixtures";
 import { lookupWireNaming } from "../lookup/naming";
 import { runValidation } from "../validator/runner";

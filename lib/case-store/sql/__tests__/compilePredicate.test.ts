@@ -13,8 +13,12 @@ import {
 	literal,
 	match,
 	multiSelectAny,
+	neq,
 	prop,
+	sessionUser,
 	subcasePath,
+	term,
+	within,
 } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import {
@@ -124,4 +128,131 @@ it.each([
 	expect(() =>
 		compilePredicate(predicate, makeCtx({ currentCaseType: "household" })),
 	).toThrow(expect.objectContaining({ reason: "mixed-property-scopes" }));
+});
+
+const valueList = (...values: (string | number | null)[]) => ({
+	kind: "value-list" as const,
+	items: values.map((value) => term(literal(value))) as [
+		ReturnType<typeof term>,
+		...ReturnType<typeof term>[],
+	],
+});
+const compiledWhere = (predicate: Parameters<typeof compilePredicate>[0]) =>
+	db
+		.selectFrom("cases as c")
+		.select("c.case_id")
+		.where(compilePredicate(predicate, makeCtx()))
+		.compile();
+
+it("binds each listed value as its own parameter, and negates the list two-valued", () => {
+	const hostile = "x'); SELECT 1; --";
+	const list = valueList("a", hostile);
+	const equal = compiledWhere(eq(prop("patient", "nickname"), list));
+	expect(equal.sql).toContain(`"c"."properties"->>'nickname' in ($1, $2)`);
+	expect(equal.parameters).toEqual(["a", hostile]);
+	const differs = compiledWhere(neq(prop("patient", "nickname"), list));
+	expect(differs.sql).toMatch(/not coalesce\(.* in \(\$1, \$2\), false\)/);
+});
+
+it.each([
+	["dob", ["2026-02-30", "2026-2-1"]],
+	["nickname", ["05", "5.0"]],
+] as const)(
+	"compares a list with %s's stored text exactly, never read as its type",
+	(property, items) => {
+		// HQ answers the list with exact `terms` on the stored text: nothing
+		// is cast, and no item is dropped or respelled.
+		const compiled = compiledWhere(
+			eq(prop("patient", property), valueList(...items)),
+		);
+		expect(compiled.sql).toContain(
+			`"c"."properties"->>'${property}' in (${items.map((_, index) => `$${index + 1}`).join(", ")})`,
+		);
+		expect(compiled.sql).not.toContain("cast(");
+		expect(compiled.parameters).toEqual(items);
+	},
+);
+
+it.each([
+	["age", ["5.0", "05", " 5", "5e0", 5], ["5"]],
+	["bmi", ["1.10", "2.50", 2.5, "1e-7"], ["1.1", "2.5", "0.0000001"]],
+	["age", ["five", "5"], ["five", "5"]],
+] as const)(
+	"compares a list with %s's stored number by the text Nova stores for each item",
+	(property, items, texts) => {
+		// Nova stores a number property's value as the JSONB number, whose
+		// text is its canonical spelling: a device's `1.10` is stored `1.1`,
+		// so the item `'1.10'` is compared as `'1.1'`. An item that reads as
+		// no number is kept as written.
+		const compiled = compiledWhere(
+			eq(prop("patient", property), valueList(...items)),
+		);
+		expect(compiled.sql).toContain(
+			`"c"."properties"->>'${property}' in (${texts.map((_, index) => `$${index + 1}`).join(", ")})`,
+		);
+		expect(compiled.sql).not.toContain("cast(");
+		expect(compiled.parameters).toEqual(texts);
+	},
+);
+
+it("matches a blank item against a property absent or empty, on any type", () => {
+	// A device's blank answer is stored as the key's absence, and HQ's terms
+	// [''] finds the case holding it blank.
+	const compiled = compiledWhere(
+		eq(prop("patient", "age"), valueList("", null, "3")),
+	);
+	expect(compiled.sql).toContain(
+		`("c"."properties"->>'age' in ($1) or coalesce("c"."properties"->>'age', cast($2 as text)) = cast($3 as text))`,
+	);
+	expect(compiled.parameters).toEqual(["3", "", ""]);
+	const blankOnly = compiledWhere(eq(prop("patient", "age"), valueList("")));
+	expect(blankOnly.sql).not.toContain(" in (");
+});
+
+it("compares the case type and system text properties by their column's text", () => {
+	const caseType = compiledWhere(
+		eq({ kind: "term", term: { kind: "case-row-type" } }, valueList("patient")),
+	);
+	expect(caseType.sql).toContain(`"c"."case_type" in ($1)`);
+	const owner = compiledWhere(
+		eq(prop("patient", "owner_id"), valueList("u1", "u2")),
+	);
+	expect(owner.sql).toContain(`"c"."owner_id" in ($1, $2)`);
+});
+
+it("reads a multi-select's stored choices as the text a device stores", () => {
+	const compiled = compiledWhere(
+		eq(prop("patient", "tags"), valueList("urgent follow-up")),
+	);
+	expect(compiled.sql).toContain("string_agg(choice, ' ' order by ordinality)");
+	expect(compiled.parameters).toContain("urgent follow-up");
+});
+
+it("binds a runtime radius and unit and never inlines them", () => {
+	const ctx = makeCtx({
+		bindings: {
+			sessionUser: new Map([
+				["radius", "5'); SELECT 1; --"],
+				["unit", "meters'); SELECT 1; --"],
+			]),
+		},
+	});
+	const compiled = db
+		.selectFrom("cases as c")
+		.select("c.case_id")
+		.where(
+			compilePredicate(
+				within(
+					prop("patient", "loc"),
+					term(literal("1 2")),
+					term(sessionUser("radius")),
+					term(sessionUser("unit")),
+				),
+				ctx,
+			),
+		)
+		.compile();
+	expect(compiled.parameters).toContain("5'); SELECT 1; --");
+	expect(compiled.parameters).toContain("meters'); SELECT 1; --");
+	expect(compiled.sql).not.toContain("SELECT 1");
 });

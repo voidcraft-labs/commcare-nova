@@ -30,6 +30,7 @@ import {
 import { hostLowersNoMatchesForm } from "./emissionPlan";
 import { moduleExpressionContexts } from "./expressionContext";
 import {
+	caseListStepDatumId,
 	moduleCaseTypeForActions,
 	parentSelectModuleUuid,
 } from "./formLinkProjection";
@@ -171,7 +172,8 @@ function relatedCaseSearchReasons(doc: BlueprintDoc, module: Module): string[] {
 		xpathQueryUsesRelatedLookup(
 			list,
 			module.caseType,
-			expressions({ slot: "case_list_filter" }),
+			expressions,
+			caseListStepDatumId(doc, module.uuid),
 		)
 	) {
 		reasons.push("A Search filter looks at related cases.");

@@ -845,11 +845,18 @@ def test_csql_comparisons_by_what_stands_on_their_value_side(hq, manifest, core_
         "blank_metadata": "'date_opened > \"\"'",
         "today_metadata": "'date_opened >= today()'",
         "runtime": "concat('visits > ', /data/n)",
+        # The device's today(), quoted: only the run time knows it, but Core always writes it as a date.
+        "today": "concat('due <= \"', today(), '\"')",
+        # A related case's property: eulxml builds the path with "/", which is no CSQL operator.
+        "ancestor": "concat(\"parent/@case_id = '\", /data/p, \"'\")",
+        # A unit only the run time knows names no unit of its own.
+        "unit": "concat('within-distance(gps, ', \"'0 0'\", ', 200, \"', /data/u, '\")')",
     }
     suite = (
         b'<suite version="1"><remote-request><session><query url="u" storage-instance="results">'
         + b"".join(
-            f'<data key="_xpath_query" ref="{text.replace(chr(34), "&quot;")}"/>'.encode() for text in queries.values()
+            f'<data key="_xpath_query" ref="{text.replace(chr(34), "&quot;").replace("<", "&lt;")}"/>'.encode()
+            for text in queries.values()
         )
         + b"</query></session></remote-request></suite>"
     )
@@ -869,6 +876,15 @@ def test_csql_comparisons_by_what_stands_on_their_value_side(hq, manifest, core_
     assert verdict(classes.non_date_value, "csql-metadata:date_opened", 5) is False
     # A value only the run time knows, spliced in unquoted: whether a guard keeps it a number is not read.
     assert verdict(classes.untyped_right_side, "csql-op:>", 6) is None
+    assert verdict(classes.untyped_right_side, "csql-op:<=", 7) is False
+
+    def keys(index):
+        return {use.key for use in found.uses if f"/data[{index}]/" in use.where and use.key.startswith("csql-")}
+
+    assert {"csql-op:=", "csql-metadata:@case_id"} <= keys(8)
+    assert not {key for key in keys(8) if key.startswith("csql-op:") and key != "csql-op:="}
+    assert "csql-fn:within-distance" in keys(9)
+    assert not {key for key in keys(9) if key.startswith("csql-unit:")}
 
 
 # Every reader, by its class's shapes ----------------------------------------------------------------------------

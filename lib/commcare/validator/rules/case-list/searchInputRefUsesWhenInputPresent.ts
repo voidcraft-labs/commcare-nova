@@ -72,6 +72,15 @@
  * branch cannot express that contract and would reject every useful
  * `input(...)` return value.
  *
+ * **A read the device makes before the search runs needs no gate.** In a
+ * slot CommCare's search reads (the filter while Search is on, and an
+ * advanced input's condition), a condition that chooses between clauses and
+ * a clause that reads no case row are `runtime` subtrees in `query`
+ * position (`lib/domain/expression/csqlPositions.ts`): Core evaluates them
+ * on the device, where an unanswered input reads `''`, a defined value, and
+ * HQ never sees the input at all (part 06 §3.10). So the envelope is
+ * required only of an input whose value is interpolated into the query.
+ *
  * **Walker contract.** The rule walks the AST top-down maintaining
  * a set of input names "currently gated by an enclosing
  * `when-input-present`." Entering a `when-input-present(input(X), …)`
@@ -88,6 +97,7 @@
 
 import {
 	type BlueprintDoc,
+	effectiveCaseSearchConfig,
 	isOwnerOnlyCaseSearchConfig,
 	type Module,
 	searchInputDefault,
@@ -99,6 +109,7 @@ import {
 	expressionChildren,
 	type Term,
 } from "@/lib/domain/expression";
+import { csqlRuntimeRoots } from "@/lib/domain/expression/csqlPositions";
 import { type ValidationError, validationError } from "../../errors";
 
 interface BareRef {
@@ -119,7 +130,11 @@ export function searchInputRefUsesWhenInputPresent(
 
 	// Slot: always-on filter — input refs are valid if wrapped.
 	if (listConfig?.filter !== undefined) {
-		const refs = findBareInputRefs(listConfig.filter, "requires-envelope");
+		const refs = findBareInputRefs(
+			listConfig.filter,
+			"requires-envelope",
+			effectiveCaseSearchConfig(mod) !== undefined,
+		);
 		for (const ref of refs) {
 			errors.push(
 				buildError({
@@ -142,7 +157,11 @@ export function searchInputRefUsesWhenInputPresent(
 
 		// Advanced-arm predicate — input refs are valid if wrapped.
 		if (input.kind === "advanced") {
-			const refs = findBareInputRefs(input.predicate, "requires-envelope");
+			const refs = findBareInputRefs(
+				input.predicate,
+				"requires-envelope",
+				true,
+			);
 			for (const ref of refs) {
 				errors.push(
 					buildError({
@@ -277,14 +296,28 @@ function buildError(args: {
 
 /** The unified child inventory carries every reference, including newly recursive
  * field filters and dynamic operands. Only the presence gate changes admission. */
-function findBareInputRefs(expression: Expression, mode: SlotMode): BareRef[] {
+function findBareInputRefs(
+	expression: Expression,
+	mode: SlotMode,
+	searched = false,
+): BareRef[] {
 	const out: BareRef[] = [];
+	const deviceConditions = searched
+		? csqlRuntimeRoots(expression).filter((root) => root.within === "query")
+		: [];
+	const readOnDevice = (path: CheckPath) =>
+		deviceConditions.some(
+			(root) =>
+				root.path.length <= path.length &&
+				root.path.every((part, index) => path[index] === part),
+		);
 	function visit(
 		node: Expression | Term,
 		path: CheckPath,
 		gated: ReadonlySet<Uuid>,
 	): void {
 		if (node.kind === "input") {
+			if (mode === "requires-envelope" && readOnDevice(path)) return;
 			if (mode === "forbids-input-ref" || !gated.has(node.searchInputUuid))
 				out.push({ inputUuid: node.searchInputUuid, path: path.join(".") });
 			return;

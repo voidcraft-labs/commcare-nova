@@ -55,9 +55,9 @@ def test_the_registers_hold_what_decision_12_needs():
 
 
 def test_every_live_defect_is_a_later_steps():
-    """Step 2's exit: the known-defect register holds no entry of a defect step 2 fixed. Each live entry's defect
-    is one ``registers.OPEN_DEFECTS`` gives to a later step, so an entry of any other is a fix left listed or a
-    regression registered as a symptom. Each defect the map names still has a live entry, so a defect a later step
+    """Step 3's exit: the known-defect register holds no entry of a defect steps 2 and 3 fixed. Each live entry's
+    defect is one ``registers.OPEN_DEFECTS`` gives to a later step, so an entry of any other is a fix left listed or
+    a regression registered as a symptom. Each defect the map names still has a live entry, so a defect a later step
     fixes leaves the map with its entries and a regression of it is registered again only by adding it back."""
     live = registers.load_known_defects(registers.KNOWN_DEFECTS)
     stray = sorted(entry.id for entry in live if entry.defect not in registers.OPEN_DEFECTS)
@@ -71,7 +71,7 @@ def test_every_live_defect_is_a_later_steps():
         f"registers.OPEN_DEFECTS names {unheld}, which no entry of proof/known-defects.json holds. A defect whose"
         " entries all moved to proof/fixed-defects.json leaves the map with them."
     )
-    assert all(step > 2 for step in registers.OPEN_DEFECTS.values())
+    assert all(step > 3 for step in registers.OPEN_DEFECTS.values())
 
 
 def _write(path, value):

@@ -1278,8 +1278,8 @@ class Predicates(unittest.TestCase):
 
     def test_a_search_answer_holding_both_quote_marks_sends_match_none_and_finds_nothing(self):
         """Finding 48, the document's side. Contract: where the suite's quote cascade writes ``match-none()`` for
-        an answer holding both quote marks, as Nova's emitter writes it now (``csqlEmitter.ts::buildQuoteCascade``),
-        Android's search screen sends that query; when the server answers 200 with no case, as HQ answers a search
+        an answer holding both quote marks, as Nova's emitter writes it now (``lib/commcare/csql/print.ts::quoteCascade``,
+        inside the input's presence guard), Android's search screen sends that query; when the server answers 200 with no case, as HQ answers a search
         that finds nothing (``casexml/apps/case/fixtures.py::CaseDBFixture.fixture``: an empty ``<results
         id="case">``), the screen shows its toast "Query response had no results"
         (``QueryRequestActivity.processSuccess``, ``query.response.empty``), stays, shows no error, and the prompt

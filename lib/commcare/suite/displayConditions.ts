@@ -11,6 +11,7 @@ import {
 import type { WireExpr, WirePath } from "@/lib/commcare/xpath/wire/tree";
 import type { Expression, ExpressionContext } from "@/lib/domain/expression";
 import { displayConditionForEmission } from "@/lib/domain/expression";
+import type { DatumRef } from "@/lib/domain/expression/types";
 import { casePropertyPath } from "./wire";
 
 /** A menu or a form, as its display condition is emitted: the stored
@@ -86,12 +87,16 @@ export function emitFormDisplayConditionForSuite(
 	types: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
 	selectedCaseDatumId?: string,
+	/** The ids the form's entry prints its datums under, which a read of the
+	 * case chosen in an earlier menu names (`entryDatumIdResolver`). */
+	datumId?: (ref: DatumRef) => string | undefined,
 ): WireExpr | undefined {
 	return withMenuPresence(carrier, (rest) =>
 		toWire(rest, {
 			target: "suite",
 			types,
 			bindings: {
+				...(datumId === undefined ? {} : { datumId }),
 				emitSelfProperty: (property) =>
 					w.append(
 						selectedCase(selectedCaseDatumId),
@@ -121,12 +126,16 @@ export function emitFormDisplayConditionForHq(
 	types: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
 	selectedCaseDatumId?: string,
+	/** The ids the form's entry prints its datums under, after root
+	 * alignment: HQ copies `form_filter` into the command as written. */
+	datumId?: (ref: DatumRef) => string | undefined,
 ): WireExpr | undefined {
 	return withMenuPresence(carrier, (rest) =>
 		toWire(rest, {
 			target: "hq-json",
 			types,
 			bindings: {
+				...(datumId === undefined ? {} : { datumId }),
 				emitSelfProperty: (property) =>
 					RESERVED_CASE_ATTRIBUTES.has(property.property)
 						? w.append(selectedCase(selectedCaseDatumId), [

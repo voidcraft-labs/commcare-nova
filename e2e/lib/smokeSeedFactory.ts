@@ -84,14 +84,17 @@ import {
 import {
 	buildFormRefusedBlueprint,
 	buildHereColumnBlueprint,
+	buildSearchChoiceBlueprint,
 	buildSearchClaimBlueprint,
 	buildSearchResultsBlueprint,
 	FORM_REFUSED_SEED,
 	formRefusedRoute,
 	HERE_COLUMN_SEED,
 	hereColumnRoute,
+	SEARCH_CHOICE_SEED,
 	SEARCH_CLAIM_SEED,
 	SEARCH_RESULTS_SEED,
+	searchChoiceRoute,
 } from "./previewRuntimeSeeds";
 import {
 	buildPreviousTaskBlueprint,
@@ -1255,6 +1258,26 @@ export async function createSmokeBuilders(
 					route: `/build/${appId}`,
 					caseId: match.caseId,
 				},
+			};
+		},
+		"search-choice": async () => {
+			const seed = SEARCH_CHOICE_SEED;
+			const appId = await seedRuntimeApp(
+				seed.appName,
+				buildSearchChoiceBlueprint,
+			);
+			for (const site of seed.sites)
+				await caseStore.insert({
+					appId,
+					row: {
+						case_type: seed.caseType,
+						case_name: site.caseName,
+						status: "open",
+						properties: { home: site.home },
+					},
+				});
+			return {
+				searchChoice: { appId, route: searchChoiceRoute(appId) },
 			};
 		},
 		localization: async () => {

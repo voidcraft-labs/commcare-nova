@@ -54,13 +54,20 @@ def native_check(
     privileges=(),
     commcare_version: str = NATIVE_COMMCARE_VERSION,
     server_origin: str | None = None,
+    case_search_enabled: bool = False,
 ):
-    """One HQ check for the named project space; yields ``(state, record)``."""
+    """One HQ check for the named project space; yields ``(state, record)``.
+
+    ``case_search_enabled`` gives the project space an enabled case search
+    config, without which HQ's case search pillow indexes none of its cases
+    (``pillows/case_search.py::domain_needs_search_index``).
+    """
     configuration = Configuration(
         flags=frozenset(flags),
         privileges=frozenset(privileges),
         commcare_version=commcare_version,
         domain=domain,
+        case_search_enabled=case_search_enabled,
     )
     with hq_check(configuration, validate=validate) as (state, record), ExitStack() as stack:
         if server_origin is not None:

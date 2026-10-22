@@ -55,6 +55,7 @@ import {
 	type SearchInputValues,
 	searchInputValuesToWire,
 } from "@/lib/preview/engine/runtimeBindings";
+import type { SearchCsqlRuntimeWire } from "@/lib/preview/engine/searchCsqlRuntime";
 import { columnsReadHere } from "@/lib/preview/engine/viewerLocation";
 import {
 	invalidateCaseData,
@@ -205,6 +206,12 @@ export function useCases(args: {
 	 *  (submitted `inputValues` say the same), so it reads the search's
 	 *  population rather than the worker's restore. */
 	search?: boolean;
+	/** What the device worked out for the search's `_xpath_query` rows,
+	 *  which the server folds (`useSearchCsqlRuntime`). */
+	csqlRuntime?: SearchCsqlRuntimeWire;
+	/** The case chosen in each menu before the list, by module UUID, which a
+	 *  browse list's filter reads (`useCaseListStepSession`). */
+	chosenCaseIds?: Readonly<Record<string, string>>;
 }): {
 	state: LoadingState<LoadCasesResult>;
 	/** Server-derived cause of the effective query's narrowing. Blank prompt
@@ -235,6 +242,8 @@ export function useCases(args: {
 		page,
 		requestScopeKey = "",
 		search = false,
+		csqlRuntime,
+		chosenCaseIds,
 	} = args;
 	const caseIdsKey = caseIds === undefined ? "all" : caseIds.join("\u0001");
 	const pageOffset = page?.offset;
@@ -279,6 +288,8 @@ export function useCases(args: {
 			caseDataRevision,
 			positionKey,
 			claimedCaseIds,
+			csqlRuntime,
+			chosenCaseIds,
 		],
 		[
 			requestIdentity,
@@ -293,6 +304,8 @@ export function useCases(args: {
 			caseDataRevision,
 			positionKey,
 			claimedCaseIds,
+			csqlRuntime,
+			chosenCaseIds,
 		],
 	);
 	interface KeyedCasesState {
@@ -339,6 +352,8 @@ export function useCases(args: {
 								personaUuid,
 								claimedCaseIds: [...claimedCaseIds],
 								...(search && { search }),
+								...(csqlRuntime !== undefined && { csqlRuntime }),
+								...(chosenCaseIds !== undefined && { chosenCaseIds }),
 								viewerLocation: readsHere
 									? viewerPositionStore.getState().takeForListRead()
 									: null,

@@ -356,6 +356,20 @@ supplied, so it admits no `session-datum` (part 01 §4). Only `selected-case` is
 three record points; the other kinds name a form's own creates, the worker's record and a tile
 group's parents, which no list, search or menu reads.
 
+**Implementation correction, 2026-10-19** (pull request 10): the `case-list` and `search` points
+are one set, computed in `entryDatumSupplies.ts::caseListStepSupplies` over one representative entry
+per module that reaches the list (its first case-loading menu form, else its browse entry when
+`caseListOnly`): the module's own and every module whose parent-selection chain passes through it
+(`modulesSelectingThrough`). Each selection carries a key equal for two selections exactly when they
+print one datum id: the place counted back from the entry's last selection with its cardinality,
+or, for one aligned to a root datum, the root datum's key, or, for an unaligned one whose key a root
+selection also holds, a renamed key with its case type (HQ's collision rename; a root datum other
+than a selection never collides). `differs` entries are `{ ref, module }`, naming a reaching entry's
+module that holds the ref at another key or not at all. The halves-agreement test is
+`lib/commcare/validator/__tests__/caseListStepAgreement.test.ts` (fixed shapes and generated suites,
+as written, nested and chained), beside the domain cases in `entryDatumSupplies.test.ts` over
+`lib/domain/__tests__/chosenCaseFixture.ts`.
+
 ### 1.4 Printing a `DatumRef` in every carrier
 
 A ref prints as `instance('commcaresession')/session/data/<id>` (part 01 §2.4) through the entry
@@ -453,6 +467,12 @@ setting of …"). `details.carrier` gains `case-list`, `search` and
 `lib/doc/userFacingErrors.ts` picks the sentence from `details.reason` and `details.carrier`. Part 02's parse table takes the parse sentences verbatim and adds the
 `placeholder-datum` code, and part 03 §3.9 uses the checker sentences.
 
+**Implementation correction, 2026-10-19** (pull request 10): a ref listed at a record point but
+held as several cases has its own reason, `several-cases`, with the sentence part 06 §3.9's
+correction gives. A record slot's checker finding reaches `SESSION_DATUM_NOT_SUPPLIED` through
+`lib/commcare/validator/recordFindings.ts::sharedRecordFinding` at the end of `runValidation`, whose
+details add `slotCode`, `datumModuleName` and, for `differs`, `otherModuleName`.
+
 ### 1.7 Renames, moves and removals
 
 Part 01 §5 gives the behaviour; this part adds the index keys. `lib/doc/referenceIndex.ts` indexes
@@ -475,6 +495,13 @@ module like every `selected-case`. So:
   chosen case;
 - a rename or a reorder that moves a derived id (root alignment, a subcase's index shifting when a
   repeat child is added before it) reprints and rewrites nothing.
+
+**Implementation correction, 2026-10-19** (pull request 10): the Builder's selection footprint
+(`lib/doc/incrementalValidationScope.ts::addCaseSelectionDependencies`) also runs the module and
+form rules of every module that chooses through the edited one and every menu nested under it, so
+a switch to several cases that refuses another list's, search's or form menu's chosen-case read is
+caught by the scoped gate as by the absolute one. Every other edit that moves a supply (a parent
+selection, a move, `caseListOnly`, a form's type or entry) already takes the absolute gate.
 
 ### 1.8 Preview supplies the session
 

@@ -67,6 +67,14 @@ XPATH_QUERY_KEY = "_xpath_query"
 # What a CSQL string holds where its expression reads a value only the run time knows: a name, so it stays
 # CSQL whether the expression quotes it or not.
 CSQL_HOLE = "proofvalue"
+# What it holds where the value is the device's today(): only the run time knows it, but it is always a date,
+# written as its ISO date (Core's ``xpathStrings``, ``Shapes.java``), which HQ's comparison parses as one.
+CSQL_DATE_HOLE = "proofdate"
+CSQL_HOLES = frozenset({CSQL_HOLE, CSQL_DATE_HOLE})
+# The operators eulxml's grammar builds a relative location path with (``parent/@case_id``): a path's steps,
+# which HQ's CSQL reads as a related case's property (``ancestor_functions.py::is_ancestor_comparison``),
+# never an operator.
+PATH_OPERATORS = frozenset({"/", "//"})
 # The argument of HQ's within-distance that names its unit (query_functions.py::within_distance).
 DISTANCE_FUNCTION, DISTANCE_UNIT_ARGUMENT = "within-distance", 3
 RUNTIME_FILES = ("suite.xml", "media_suite.xml", "profile.ccpr")
@@ -197,9 +205,10 @@ def question_types(xml: bytes):
 def csql_reading(query):
     """What HQ's CSQL parser (``eulxml.xpath.parse``, which ``case_search/filter_dsl.py::build_filter_from_xpath``
     runs) reads in one query string: each function (``["fn", name]``), each operator (``["op", op]``),
-    ``within-distance``'s unit (``["unit", unit]``) and each step (``["step", <the step as eulxml serializes
-    it>]``), and each comparison with what stands on either side of it (``["cmp", op, left, right]``,
-    ``comparison_side``); None where the parser refuses the string."""
+    ``within-distance``'s unit (``["unit", unit]``, unless only the run time knows it), each relative location
+    path (``["path", <the path as eulxml serializes it>]``, whose ``/`` is no operator) and each step
+    (``["step", <the step as eulxml serializes it>]``), and each comparison with what stands on either side of it
+    (``["cmp", op, left, right]``, ``comparison_side``); None where the parser refuses the string."""
     from eulxml.xpath import parse as parse_xpath
     from eulxml.xpath import serialize
     from eulxml.xpath.ast import (
@@ -225,9 +234,18 @@ def csql_reading(query):
         if isinstance(node, FunctionCall):
             found.append(["fn", node.name])
             for index, argument in enumerate(node.args):
-                if node.name == DISTANCE_FUNCTION and index == DISTANCE_UNIT_ARGUMENT and isinstance(argument, str):
+                if (
+                    node.name == DISTANCE_FUNCTION
+                    and index == DISTANCE_UNIT_ARGUMENT
+                    and isinstance(argument, str)
+                    and argument not in CSQL_HOLES
+                ):
                     found.append(["unit", argument])
                 visit(argument)
+        elif isinstance(node, BinaryExpression) and node.op in PATH_OPERATORS:
+            found.append(["path", serialize(node)])
+            visit(node.left)
+            visit(node.right)
         elif isinstance(node, BinaryExpression):
             found.append(["op", node.op])
             if node.op in COMPARISONS:
@@ -259,19 +277,22 @@ COMPARISONS = frozenset({"=", "!=", "<", "<=", ">", ">="})
 def comparison_side(node):
     """What stands on one side of a CSQL comparison, as HQ's comparison reads it
     (``xpath_functions/comparison.py::property_comparison_query``, ``dsl_utils.py::unwrap_value``): ``hole``
-    for a value only the run time knows spliced in unquoted (``CSQL_HOLE`` as a step), ``hole-text`` for one
-    quoted (``CSQL_HOLE`` as text), ``step:<step>`` for a step,
+    for a value only the run time knows spliced in unquoted (``CSQL_HOLES`` as a step), ``hole-text`` for one
+    quoted (``CSQL_HOLE`` as text), ``hole-date`` for the device's today() quoted (``CSQL_DATE_HOLE`` as text),
+    ``step:<step>`` for a step, ``path:<path>`` for a relative location path (a related case's property),
     ``number`` for a number (a literal, or text ``float`` reads), ``date`` or ``datetime`` for text HQ's own
     parser reads as one (``comparison.py::_parse_date_or_datetime``), ``invalid-date`` for text it refuses as
     a date, ``text`` for any other text, ``function:<name>`` for a call (``XPATH_VALUE_FUNCTIONS`` values
     among them) and ``other`` for anything else."""
     from corehq.apps.case_search.xpath_functions.comparison import _parse_date, _parse_datetime
     from eulxml.xpath import serialize
-    from eulxml.xpath.ast import FunctionCall, Step
+    from eulxml.xpath.ast import BinaryExpression, FunctionCall, Step
 
     if isinstance(node, Step):
         text = serialize(node)
-        return "hole" if text == CSQL_HOLE else f"step:{text}"
+        return "hole" if text in CSQL_HOLES else f"step:{text}"
+    if isinstance(node, BinaryExpression) and node.op in PATH_OPERATORS:
+        return f"path:{serialize(node)}"
     if isinstance(node, bool):
         return "other"
     if isinstance(node, (int, float)):
@@ -279,6 +300,8 @@ def comparison_side(node):
     if isinstance(node, str):
         if node == CSQL_HOLE:
             return "hole-text"
+        if node == CSQL_DATE_HOLE:
+            return "hole-date"
         try:
             float(node)
         except ValueError:
@@ -754,7 +777,7 @@ def readings(core_runner, *, forms=(), runtimes=(), apps=(), media=()):
     for app in apps:
         app_queries(app, queries)
         app_expressions(app, texts)
-    strings = _runner_reading(core_runner, "xpathStrings", sorted(queries), hole=CSQL_HOLE)
+    strings = _runner_reading(core_runner, "xpathStrings", sorted(queries), hole=CSQL_HOLE, dateHole=CSQL_DATE_HOLE)
     sent = sorted({string for result in strings.values() for string in result.get("strings", ())})
     expressions = _runner_reading(core_runner, "xpathParse", sorted(texts))
     trees, conditions = structure_tables(roots, expressions)

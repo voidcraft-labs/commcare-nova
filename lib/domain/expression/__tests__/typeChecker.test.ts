@@ -2326,13 +2326,17 @@ describe("checkExpression — date / coercion arms", () => {
 		expect(errors).toEqual([]);
 	});
 
-	it("date-coerce rejects a numeric operand", () => {
-		const v = dateCoerce(term(prop("patient", "age")));
-		const { type, errors } = resolve(v);
-		expect(type).toBe("date");
-		expect(
-			errors.some((e) => /text-shaped or date-shaped operand/.test(e.message)),
-		).toBe(true);
+	it("date-coerce reads a number as days since 1970 and rejects a time", () => {
+		// HQ's `value_to_date` and Core's `date(n)` both count days from
+		// 1 January 1970 (part 06 §3.5).
+		const days = resolve(dateCoerce(term(prop("patient", "age"))));
+		expect(days.type).toBe("date");
+		expect(days.errors).toEqual([]);
+		const time = resolve(dateCoerce(term(prop("patient", "appointment_time"))));
+		expect(time.type).toBe("date");
+		expect(time.errors.map((error) => error.code)).toEqual([
+			"text-or-date-value",
+		]);
 	});
 
 	it("date-coerce accepts a date operand — identity coercion is legal", () => {

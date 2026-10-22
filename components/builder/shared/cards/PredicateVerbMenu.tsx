@@ -24,6 +24,7 @@
 import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerAbc from "@iconify-icons/tabler/abc";
 import tablerArrowsHorizontal from "@iconify-icons/tabler/arrows-horizontal";
+import tablerArrowsSplit from "@iconify-icons/tabler/arrows-split";
 import tablerAsterisk from "@iconify-icons/tabler/asterisk";
 import tablerCalendarQuestion from "@iconify-icons/tabler/calendar-question";
 import tablerCheck from "@iconify-icons/tabler/check";
@@ -61,7 +62,7 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { matchModeAvailableOnDevice } from "@/lib/doc/commitVerdicts";
 import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
-import type { ConditionArm, ExpressionOfKind } from "@/lib/domain/expression";
+import type { ExpressionOfKind } from "@/lib/domain/expression";
 import {
 	acceptsType,
 	and,
@@ -90,6 +91,7 @@ import {
 	usePredicateEditContext,
 	useResolvedType,
 } from "../editorContext";
+import type { PredicateCardKind } from "../editorSchemas";
 import {
 	type PredicateEditContext,
 	predicateCardSchemas,
@@ -107,6 +109,7 @@ import {
 	preservedOperandSwap,
 } from "./ChildPredicateEditor";
 import { KIND_BUILDERS as COMPARISON_BUILDERS } from "./ComparisonCard";
+import { wrapInConditionChoice } from "./ConditionChoiceCard";
 import { wrapSiblingDefault } from "./comparisonSeed";
 import {
 	reseedLiteralForConstraint,
@@ -127,7 +130,7 @@ export interface VerbEntry {
 	/** Scan anchor: menus are skimmed by glyph before they're read. */
 	readonly icon: IconifyIcon;
 	/** The schema kind backing applicability dimming. */
-	readonly schemaKind: ConditionArm["kind"];
+	readonly schemaKind: PredicateCardKind;
 	readonly isCurrent: (value: Expression) => boolean;
 	readonly build: (value: Expression, ctx: PredicateEditContext) => Expression;
 	/**
@@ -944,6 +947,18 @@ export const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
 		},
 	},
 	{
+		id: "if",
+		label: "Depends on a condition",
+		icon: tablerArrowsSplit,
+		description:
+			"Use this condition or another, decided by something like a search answer",
+		schemaKind: "if",
+		isCurrent: (p) => p.kind === "if",
+		// Wrap: the current condition becomes both branches, so the rule's
+		// meaning holds until the person edits the choice.
+		build: (p, ctx) => (p.kind === "if" ? p : wrapInConditionChoice(p, ctx)),
+	},
+	{
 		id: "match-all",
 		label: "Always match",
 		icon: tablerAsterisk,
@@ -972,7 +987,9 @@ export const STRUCTURE_ENTRIES: readonly VerbEntry[] = [
  */
 const SPECIAL_CONDITION_ENTRIES = STRUCTURE_ENTRIES.filter(
 	(entry) =>
-		entry.schemaKind === "match-all" || entry.schemaKind === "match-none",
+		entry.schemaKind === "match-all" ||
+		entry.schemaKind === "match-none" ||
+		entry.schemaKind === "if",
 );
 
 /** The verb the current node reads as: shown on the trigger chip. */

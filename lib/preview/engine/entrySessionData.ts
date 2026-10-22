@@ -17,6 +17,7 @@
 // the ids the form read.
 
 import {
+	caseListSessionDatums,
 	entryDatumIds,
 	entrySessionDatums,
 	formLinkProjectionContext,
@@ -219,6 +220,104 @@ export function entrySessionData(
 			? {}
 			: { searchResults: args.searchResults }),
 	};
+}
+
+/** The session at a module's case list step. */
+export interface CaseListStepSession {
+	/** `session/data/<id>` → value for the datums supplied before the list:
+	 * what the list's filter, its Search screen and the search request read. */
+	readonly data: Readonly<Record<string, string>>;
+	/** The case chosen in each menu before the list, by that menu's module:
+	 * what a browse list's filter reads its chosen case by
+	 * (`TermBindings.chosenCaseIds`). */
+	readonly chosenCaseIds: Readonly<Record<string, string>>;
+}
+
+/**
+ * The session a module's case list step holds: the datums the session
+ * supplies before the module's own selection (part 05 §1.8), valued as Core
+ * values them when the session reaches them. A selection is the case the
+ * menu chose (a parent selection, a copied root datum); the worker's record
+ * and a grouped tile's companion are their functions over the device's cases
+ * and the datums before them. The Search screen of the module runs at its
+ * query step, after the same datums, so it reads this map too. A datum
+ * Preview has no value for is absent, as an unvalued datum reads blank.
+ */
+export function caseListStepSession(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	args: {
+		readonly menuSelections: Readonly<Record<string, PreviewMenuCaseSelection>>;
+		readonly caseDatabase: CaseDatabaseSnapshot | null;
+		readonly identity:
+			| ResolvedPreviewIdentity
+			| PreviewSearchSessionValues
+			| null;
+	},
+): CaseListStepSession {
+	if (doc.modules[moduleUuid] === undefined)
+		return { data: {}, chosenCaseIds: {} };
+	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
+	const datums = caseListSessionDatums(doc, ctx, moduleUuid);
+	const ids = entryDatumIds(doc, ctx, moduleUuid);
+	if (ids.length !== datums.length)
+		throw new Error(
+			"The case list's datum identities disagree with its session datums. Both come from one projection; check `entryDatumIds`.",
+		);
+	const own = ids.findLastIndex((row) =>
+		row.refs.some(
+			(ref) => ref.kind === "selected-case" && ref.module === moduleUuid,
+		),
+	);
+	const before = own === -1 ? ids.length : own;
+	const menuSource = { ...doc, caseTypes: doc.caseTypes ?? [] };
+	const casedb = caseDatabaseXPathInstance(
+		args.caseDatabase,
+		materializableCaseTypes(doc),
+	);
+	const data: Record<string, string> = {};
+	const chosenCaseIds: Record<string, string> = {};
+	const chosenCases = (module: Uuid): readonly PreviewCaseChoice[] =>
+		previewMenuCaseContext(menuSource, module, args.menuSelections).selectedCase
+			?.cases ?? [];
+	for (const [index, datum] of datums.slice(0, before).entries()) {
+		const row = ids[index];
+		if (row === undefined || row.id !== datum.id)
+			throw new Error(
+				"The case list's datum identities are out of order with its session datums.",
+			);
+		if (datum.query !== undefined) continue;
+		const selection = row.refs.filter(
+			(ref): ref is Extract<DatumRef, { kind: "selected-case" }> =>
+				ref.kind === "selected-case",
+		);
+		if (selection.length > 0) {
+			if (!row.scalar) continue;
+			for (const ref of selection) {
+				const chosen = chosenCases(ref.module)[0];
+				if (chosen === undefined) continue;
+				data[datum.id] ??= chosen.caseId;
+				chosenCaseIds[ref.module] = chosen.caseId;
+			}
+			continue;
+		}
+		if (datum.function === undefined) continue;
+		const ref = row.refs[0];
+		if (ref?.kind === "worker-record" || ref?.kind === "tile-group-parents")
+			data[datum.id] =
+				ref.kind === "tile-group-parents" && datumSelectsSeveral(datums, datum)
+					? groupedParentIds(
+							doc,
+							ref.module,
+							chosenCases(ref.module),
+							args.caseDatabase,
+						)
+					: evaluateDatumFunction(
+							serializeWire(datum.function, { target: "preview" }).text,
+							{ identity: args.identity, data, casedb },
+						);
+	}
+	return { data, chosenCaseIds };
 }
 
 /**

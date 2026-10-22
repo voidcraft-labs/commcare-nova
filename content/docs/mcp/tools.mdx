@@ -180,7 +180,20 @@ identity. `external-user('key')` explicitly reads custom worker data provided
 outside the app.
 
 Record queries use expressions such as `#case/age >= 18`. Within a data-table
-filter, `#row/column` reads the current row. In a calculated case-list column,
+filter, `#row/column` reads the current row. A case-list filter, an advanced
+Search input's rule or a form's display condition that runs after a case is
+chosen in an earlier menu reads that case as `chosen-case('<menu name>')` and
+its properties as `chosen-case-property('<menu name>', '<property>')`.
+`record-type()` reads the record type of the record a rule looks at, as in
+`in(record-type(), 'visit', 'referral')`. In a case-list filter or a Search
+rule, `if(condition, rule, rule)` chooses between two rules. In a Search rule,
+`today()` is the worker's own day, as it is on the device, and an advanced
+Search input's rule can read `#case/closed_on`, which only CommCare HQ's search
+holds. Equality on a date and time matches the same moment however it is
+written. `within-distance(property, center, distance, 'unit')` takes any of
+the nine units CommCare HQ's search reads, from millimeters to nautical miles,
+and its distance and unit can be values; `selected-any` and `selected-all`
+take values as well as fixed choices. In a calculated case-list column,
 `here()` reads where the worker is now; in Preview that is the browser's
 location, blank until the browser shares it. `get_authoring_guide` provides focused
 references for workflows, field types, forms, expressions, languages,

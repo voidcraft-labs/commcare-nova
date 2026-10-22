@@ -2,12 +2,19 @@
 //
 // Renders the `within-distance` predicate. Property picker
 // (geopoint-typed only) + center-coordinate input (a Term-shaped
-// Expression: typed-text via the picker) + numeric distance
-// + unit menu (miles / kilometers).
+// Expression: typed-text via the picker) + the distance and its unit.
+// The distance is a fixed positive number or a value worked out when the
+// search runs (a number); the unit is one of HQ's nine or a value naming
+// one (text or a single choice), part 06 §3.8. Each offers "Use a value"
+// and the way back to a fixed one, gated by the whole-rule verdict.
 
 "use client";
 
+import { Icon } from "@iconify/react/offline";
+import tablerPencil from "@iconify-icons/tabler/pencil";
+import tablerVariable from "@iconify-icons/tabler/variable";
 import { useEffect, useId, useRef, useState } from "react";
+import { Button } from "@/components/shadcn/button";
 import { FieldError } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
 import {
@@ -28,21 +35,27 @@ import {
 	within,
 	withinCenterConstraint,
 } from "@/lib/domain/expression";
-import { positiveDistance } from "../distanceDraft";
-import { useEditorErrorsAt } from "../editorContext";
+import {
+	DISTANCE_UNIT_CHOICES,
+	DISTANCE_UNIT_LABELS,
+	DISTANCE_UNIT_VALUE_CONSTRAINT,
+	DISTANCE_VALUE_CONSTRAINT,
+	type DistanceSourceChoice,
+	distanceSourceChoices,
+	isDistanceUnit,
+	positiveDistance,
+} from "../distanceDraft";
+import {
+	type ExpressionChangeAdmission,
+	useEditorErrorsAt,
+	usePredicateEditContext,
+} from "../editorContext";
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
 import { PropertyRefPicker } from "../primitives/PropertyRefPicker";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
-
-const EDITABLE_DISTANCE_UNITS = ["miles", "kilometers"] as const;
-type EditableDistanceUnit = (typeof EDITABLE_DISTANCE_UNITS)[number];
-const UNIT_LABELS: Record<EditableDistanceUnit, string> = {
-	miles: "miles",
-	kilometers: "kilometers",
-};
 
 /** Module-level filter so render-time identity stays stable:
  *  `PropertyPicker`'s `useMemo` on `[caseType, filter]` invalidates
@@ -70,43 +83,24 @@ interface WithinDistanceCardProps {
 	readonly path: EditorPath;
 }
 
-export function WithinDistanceCard(props: WithinDistanceCardProps) {
-	if (
-		typeof props.value.distance !== "number" ||
-		(props.value.unit !== "miles" && props.value.unit !== "kilometers")
-	)
-		return (
-			<p role="status">This saved expression cannot be edited here yet.</p>
-		);
-	return (
-		<EditableWithinDistanceCard
-			{...props}
-			value={{
-				...props.value,
-				distance: props.value.distance,
-				unit: props.value.unit,
-			}}
-		/>
-	);
-}
-
-function EditableWithinDistanceCard({
+export function WithinDistanceCard({
 	value,
 	onChange,
 	path,
-}: Omit<WithinDistanceCardProps, "value"> & {
-	readonly value: Omit<
-		WithinDistanceCardProps["value"],
-		"distance" | "unit"
-	> & {
-		readonly distance: number;
-		readonly unit: EditableDistanceUnit;
-	};
-}) {
+}: WithinDistanceCardProps) {
+	const ctx = usePredicateEditContext();
 	// Center errors render via the `ExpressionPicker` shell's
 	// `CardShell` footer at the matching slot path: rendering them
 	// here too would double the diagnostic row count.
 	const propertyErrors = useEditorErrorsAt(appendSlot(path, "property"));
+	const fixedUnit = typeof value.unit === "string" ? value.unit : undefined;
+	const sources = distanceSourceChoices(
+		value,
+		ctx.knownInputs,
+		ctx.admitExpressionChange === undefined
+			? undefined
+			: (next) => ctx.admitExpressionChange?.(path, next) ?? { admitted: true },
+	);
 
 	const setProperty = (next: PropertyRef) => {
 		onChange(within(next, value.center, value.distance, value.unit));
@@ -116,11 +110,11 @@ function EditableWithinDistanceCard({
 		onChange(within(value.property, next, value.distance, value.unit));
 	};
 
-	const setDistance = (next: number) => {
+	const setDistance = (next: number | Expression) => {
 		onChange(within(value.property, value.center, next, value.unit));
 	};
 
-	const setUnit = (unit: EditableDistanceUnit) => {
+	const setUnit = (unit: DistanceUnit | Expression) => {
 		onChange(within(value.property, value.center, value.distance, unit));
 	};
 
@@ -141,49 +135,131 @@ function EditableWithinDistanceCard({
 				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
 
-			<div className="grid grid-cols-1 @md:grid-cols-[1.6fr_auto_auto] gap-2 items-start">
-				<div>
-					<div className="mb-1 text-[13px] font-medium text-nova-text-secondary">
-						Center
-					</div>
-					{/* Center coordinate routes through `ExpressionPicker`.
-					 *  CCHQ accepts a typed-geopoint search input as the
-					 *  natural shape AND a wire-form coordinate string
-					 *  (per `query_functions.py::within_distance`:
-					 *  `GeoPoint.from_string` parses the text fallback), so
-					 *  `withinCenterConstraint` admits `geopoint` OR `text`
-					 *  and the picker offers only kinds / sources that
-					 *  produce one. The picker's own `CardShell` footer
-					 *  surfaces errors at the slot path. */}
-					<ExpressionPicker
-						value={value.center}
-						onChange={setCenter}
-						path={appendSlot(path, "center")}
-						constraint={CENTER_CONSTRAINT}
-						variant="nested"
-					/>
+			<div>
+				<div className="mb-1 text-[13px] font-medium text-nova-text-secondary">
+					Center
 				</div>
-				<div>
+				{/* Center coordinate routes through `ExpressionPicker`.
+				 *  CCHQ accepts a typed-geopoint search input as the
+				 *  natural shape AND a wire-form coordinate string
+				 *  (per `query_functions.py::within_distance`:
+				 *  `GeoPoint.from_string` parses the text fallback), so
+				 *  `withinCenterConstraint` admits `geopoint` OR `text`
+				 *  and the picker offers only kinds / sources that
+				 *  produce one. The picker's own `CardShell` footer
+				 *  surfaces errors at the slot path. */}
+				<ExpressionPicker
+					value={value.center}
+					onChange={setCenter}
+					path={appendSlot(path, "center")}
+					constraint={CENTER_CONSTRAINT}
+					variant="nested"
+				/>
+			</div>
+
+			<div className="grid grid-cols-1 @md:grid-cols-2 gap-2 items-start">
+				<div className="min-w-0">
 					<div className="mb-1 text-[13px] font-medium text-nova-text-secondary">
 						Distance
 					</div>
-					<DistanceInput
-						value={value.distance}
-						unit={value.unit}
-						onChange={setDistance}
+					{typeof value.distance === "number" ? (
+						<DistanceInput
+							value={value.distance}
+							unit={fixedUnit}
+							onChange={setDistance}
+						/>
+					) : (
+						<ExpressionPicker
+							value={value.distance}
+							onChange={setDistance}
+							path={appendSlot(path, "distance")}
+							constraint={DISTANCE_VALUE_CONSTRAINT}
+							variant="nested"
+						/>
+					)}
+					<SourceSwitch
+						choice={sources.distance}
+						label={
+							typeof value.distance === "number"
+								? "Use a value"
+								: "Use a fixed distance"
+						}
+						toValue={typeof value.distance === "number"}
+						onSelect={() => onChange(sources.distance.next)}
 					/>
 				</div>
-				<div>
+				<div className="min-w-0">
 					<div className="mb-1 text-[13px] font-medium text-nova-text-secondary">
 						Unit
 					</div>
-					<UnitMenu
-						unit={value.unit}
-						distance={value.distance}
-						setUnit={setUnit}
+					{typeof value.unit === "string" ? (
+						<UnitMenu
+							unit={value.unit}
+							distance={value.distance}
+							setUnit={setUnit}
+						/>
+					) : (
+						<ExpressionPicker
+							value={value.unit}
+							onChange={setUnit}
+							path={appendSlot(path, "unit")}
+							constraint={DISTANCE_UNIT_VALUE_CONSTRAINT}
+							variant="nested"
+						/>
+					)}
+					<SourceSwitch
+						choice={sources.unit}
+						label={fixedUnit !== undefined ? "Use a value" : "Choose a unit"}
+						toValue={fixedUnit !== undefined}
+						onSelect={() => onChange(sources.unit.next)}
 					/>
 				</div>
 			</div>
+		</div>
+	);
+}
+
+/** "Use a value" and its way back. Disabled with the gate's reason when the
+ * switched predicate would be refused, so a click never commits a shape the
+ * gate refuses. */
+function SourceSwitch({
+	choice,
+	label,
+	toValue,
+	onSelect,
+}: {
+	readonly choice: DistanceSourceChoice;
+	readonly label: string;
+	readonly toValue: boolean;
+	readonly onSelect: () => void;
+}) {
+	const reasonId = useId();
+	const admission: ExpressionChangeAdmission = choice.admission;
+	return (
+		<div className="mt-1">
+			<Button
+				type="button"
+				variant="ghost"
+				className="nova-add-slot gap-1.5"
+				disabled={!admission.admitted}
+				aria-describedby={admission.admitted ? undefined : reasonId}
+				onClick={onSelect}
+			>
+				<Icon
+					icon={toValue ? tablerVariable : tablerPencil}
+					width="13"
+					height="13"
+				/>
+				<span>{label}</span>
+			</Button>
+			{admission.admitted ? null : (
+				<p
+					id={reasonId}
+					className="mt-0.5 text-[12px] leading-4 text-nova-text-muted"
+				>
+					{admission.reason}
+				</p>
+			)}
 		</div>
 	);
 }
@@ -194,7 +270,8 @@ function DistanceInput({
 	onChange,
 }: {
 	readonly value: number;
-	readonly unit: DistanceUnit;
+	/** The fixed unit, or undefined when a value supplies it. */
+	readonly unit: DistanceUnit | undefined;
 	readonly onChange: (next: number) => void;
 }) {
 	const inputRef = useRef<HTMLInputElement>(null);
@@ -265,13 +342,13 @@ function UnitMenu({
 	distance,
 	setUnit,
 }: {
-	readonly unit: EditableDistanceUnit;
-	readonly distance: number;
-	readonly setUnit: (unit: EditableDistanceUnit) => void;
+	readonly unit: DistanceUnit;
+	readonly distance: number | Expression;
+	readonly setUnit: (unit: DistanceUnit) => void;
 }) {
 	const errorId = useId();
 	const [errorState, setErrorState] = useState<{
-		readonly distance: number;
+		readonly distance: number | Expression;
 		readonly unit: DistanceUnit;
 		readonly message: string;
 	}>();
@@ -284,12 +361,15 @@ function UnitMenu({
 			<Select
 				value={unit}
 				onValueChange={(next) => {
-					if (next !== "miles" && next !== "kilometers") return;
-					if (distanceValidationIssue(distance, next) === "meters-overflow") {
+					if (!isDistanceUnit(next)) return;
+					if (
+						typeof distance === "number" &&
+						distanceValidationIssue(distance, next) === "meters-overflow"
+					) {
 						setErrorState({
 							distance,
 							unit,
-							message: `Enter a smaller distance before switching to ${UNIT_LABELS[next]}`,
+							message: `Enter a smaller distance before switching to ${DISTANCE_UNIT_LABELS[next]}`,
 						});
 						return;
 					}
@@ -298,7 +378,7 @@ function UnitMenu({
 				}}
 			>
 				<SelectTrigger
-					aria-label={`Distance unit ${UNIT_LABELS[unit]}`}
+					aria-label={`Distance unit ${DISTANCE_UNIT_LABELS[unit]}`}
 					aria-invalid={error !== undefined || undefined}
 					aria-describedby={error === undefined ? undefined : errorId}
 					className={`h-auto min-h-11 bg-nova-deep/50 px-3 text-sm text-nova-violet-bright dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50 ${
@@ -307,12 +387,12 @@ function UnitMenu({
 							: "nova-focusable border-nova-rose/40"
 					}`}
 				>
-					<SelectValue>{UNIT_LABELS[unit]}</SelectValue>
+					<SelectValue>{DISTANCE_UNIT_LABELS[unit]}</SelectValue>
 				</SelectTrigger>
 				<SelectContent align="end">
-					{EDITABLE_DISTANCE_UNITS.map((nextUnit) => (
+					{DISTANCE_UNIT_CHOICES.map((nextUnit) => (
 						<SelectItem key={nextUnit} value={nextUnit}>
-							{UNIT_LABELS[nextUnit]}
+							{DISTANCE_UNIT_LABELS[nextUnit]}
 						</SelectItem>
 					))}
 				</SelectContent>

@@ -1,6 +1,6 @@
-"""HQ's entries and remote requests for Nova's search, prompt, CSQL, quote and link corpora equal Nova's.
+"""HQ's entries and remote requests for Nova's search, prompt, CSQL, quote, link and composition corpora equal Nova's.
 
-Contract: for every scenario of the six corpora, every ``<entry>`` and
+Contract: for every scenario of the seven corpora, every ``<entry>`` and
 ``<remote-request>`` HQ's suite contributors build equals Nova's, compared
 whole (every attribute, leaf text and child, in order), with known XPath
 carriers compared as HQ's parser's complete expression trees. An unprompted,
@@ -8,7 +8,8 @@ unfiltered search (``automatic``) sends the same ``match-all()`` ``_xpath_query`
 paths, so it is compared whole. The family's Core class then runs both paths
 (``SearchRuntimeTest``, ``SearchPromptRuntimeTest``,
 ``CsqlFunctionRuntimeTest``, ``CsqlQuoteRuntimeTest``,
-``StaticQuoteRuntimeTest``, ``FormLinkRuntimeTest``). The plausible failures:
+``StaticQuoteRuntimeTest``, ``FormLinkRuntimeTest``,
+``CsqlCompositionRuntimeTest``). The plausible failures:
 a query, prompt, claim or stack frame HQ builds differently, and a scenario
 missing from a corpus.
 """
@@ -18,7 +19,7 @@ from lxml import etree
 
 from proof.native.hq_support import hq_commit, parse_xml_xpaths, sha256, shape, write_evidence
 
-FAMILIES = ("search", "prompt", "function", "quote", "static-quote", "form-link")
+FAMILIES = ("search", "prompt", "function", "quote", "static-quote", "form-link", "csql")
 CORPORA = {
     "search": {
         "inline",
@@ -39,6 +40,20 @@ CORPORA = {
     "quote": {"runtime-quotes"},
     "static-quote": {"static-quotes"},
     "form-link": {"else", "module", "home", "previous", "unconditional", "overlap", "manual"},
+    "csql": {
+        "datetime-equality",
+        "closed-on",
+        "case-types",
+        "epoch-days",
+        "value-list",
+        "runtime-selected",
+        "distance-units",
+        "runtime-choice",
+        "chosen-case",
+        "chosen-blank",
+        "worker-day",
+        "worker-values",
+    },
 }
 
 

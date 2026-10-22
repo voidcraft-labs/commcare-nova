@@ -21,7 +21,9 @@
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import { noMatchesFormOf, orderedCaseOperations } from "@/lib/domain";
+import { modulesSelectingThrough } from "@/lib/domain/entryDatumSupplies";
 import { inferenceFingerprint } from "@/lib/domain/expression/inference";
+import { moduleParent } from "@/lib/domain/moduleHierarchy";
 
 /** Structural twin of the validator scope kept on the domain side of the
  * CommCare boundary. `commitVerdicts` is the allowlisted adapter that passes
@@ -91,6 +93,31 @@ function addCaseSelectionDependencies(
 	for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 		if (doc.forms[formUuid] === undefined) return false;
 		scope.formUuids.add(formUuid);
+	}
+	/* A case list, a search or a form menu that reads the case chosen in this
+	 * module runs in a module that chooses through it, or in a menu nested
+	 * under it whose selections align with its own (part 05 §1.7): a switch
+	 * to several cases refuses those reads, so their rules must run. */
+	const readers = new Set<Uuid>(modulesSelectingThrough(doc, moduleUuid));
+	for (let grew = true; grew; ) {
+		grew = false;
+		for (const candidate of Object.keys(doc.modules) as Uuid[]) {
+			const parent = moduleParent(doc, candidate);
+			if (
+				!readers.has(candidate) &&
+				parent !== undefined &&
+				parent !== null &&
+				(parent === moduleUuid || readers.has(parent))
+			) {
+				readers.add(candidate);
+				grew = true;
+			}
+		}
+	}
+	for (const reader of readers) {
+		scope.moduleUuids.add(reader);
+		for (const formUuid of doc.formOrder[reader] ?? [])
+			scope.formUuids.add(formUuid);
 	}
 	addFormLinkSources(doc, scope);
 	return true;

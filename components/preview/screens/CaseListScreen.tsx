@@ -172,6 +172,11 @@ import {
 	useOwnedRestoreScopeKey,
 	useRestoreScopeKey,
 } from "@/lib/preview/hooks/useRestoreScopeKey";
+import {
+	useCaseListStepSession,
+	useSubmissionKey,
+	useSubmittedSearchDeviceValues,
+} from "@/lib/preview/hooks/useSearchCsqlRuntime";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useViewerPositionWatch } from "@/lib/preview/hooks/useViewerPosition";
@@ -239,6 +244,12 @@ const EMPTY_SEARCH_INPUT_VALUES: ReadonlyMap<string, string> = new Map();
  *  display context's memo. */
 const NO_CASE_PROPERTIES: readonly CaseProperty[] = [];
 const NO_CLAIMED_CASES: readonly string[] = [];
+/** The Results while the device's cases a search reads have failed to load:
+ * a cases-load failure, retried by reading the device's cases again. */
+const CASES_LOAD_FAILED: ReturnType<typeof useCases>["state"] = {
+	kind: "error",
+	message: "The device's cases this search reads didn't load.",
+};
 
 interface CaseListScreenProps {
 	/** Passed from PreviewShell so the component stays valid while Activity hides it. */
@@ -394,13 +405,25 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	);
 	const lookupStatus = usePreviewLookupStatus();
 	const navigationDeviceCases = useNavigationDeviceCases(menuSource.caseTypes);
+	/* The session at this list's step: the datums chosen before it, which
+	 * its Search screen reads, and the cases chosen in earlier menus, which
+	 * a browse filter reads. */
+	const stepSession = useCaseListStepSession(menuSource.doc, moduleUuid);
 	const searchEnvironment = useMemo<PreviewSearchEnvironment>(
 		() => ({
 			doc: menuSource.doc,
 			moduleUuid,
 			...(lookupStatus.kind === "data" && { lookup: lookupStatus.data }),
+			sessionData: stepSession.data,
+			caseDatabase: navigationDeviceCases.snapshot,
 		}),
-		[menuSource.doc, moduleUuid, lookupStatus],
+		[
+			menuSource.doc,
+			moduleUuid,
+			lookupStatus,
+			stepSession.data,
+			navigationDeviceCases.snapshot,
+		],
 	);
 
 	/* Case-first form conditions evaluate at THIS screen, with the
@@ -433,6 +456,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						moduleUuid,
 						form.uuid,
 						row.case_id,
+						stepSession.data,
 					),
 					deviceCases: deviceCasesHoldingClaims(
 						navigationDeviceCases,
@@ -449,6 +473,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			navigationDeviceCases,
 			lookupStatus,
 			searchEnvironment.lookup,
+			stepSession.data,
 		],
 	);
 	/* A several-case form menu uses the same three-valued display-condition
@@ -981,6 +1006,49 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		claimsAtResult
 			? claimableCaseIds([previewCaseChoiceOf(row)])
 			: NO_CLAIMED_CASES;
+	/* What the device works out for the submitted search's `_xpath_query`
+	 * before HQ reads it, once, as it sends the search; the server folds the
+	 * rows with it. A search-first module's search has it worked out and
+	 * kept on the session (`SearchDeviceValuesRecorder.tsx`), so its forms
+	 * read the same value and returning to Results does not work it out
+	 * again; a search action works it out here, per Search press. Results
+	 * wait for it. */
+	const ownSubmissionKey = useSubmissionKey(activeSearchInputValues);
+	const searchAttempt =
+		searchFirst &&
+		searchState !== undefined &&
+		searchState.kind !== "not-searched"
+			? searchState
+			: undefined;
+	const deviceValues = useSubmittedSearchDeviceValues({
+		doc: menuSource.doc,
+		moduleUuid,
+		submission:
+			registeredCaseIds !== undefined || activeSearchInputValues === undefined
+				? undefined
+				: {
+						key:
+							searchAttempt === undefined
+								? (ownSubmissionKey ?? "")
+								: searchAttempt.submission,
+						answers: activeSearchInputValues,
+					},
+		...(searchAttempt?.deviceValues === undefined
+			? {}
+			: {
+					kept: {
+						key: searchAttempt.submission,
+						values: searchAttempt.deviceValues,
+					},
+				}),
+		sessionData: stepSession.data,
+		/* A module's search has them worked out on the session from its
+		 * Search press (`SearchDeviceValuesRecorder.tsx`), so leaving
+		 * Results before they are in loses nothing; the screen waits. */
+		waitsForRecord: searchAttempt !== undefined,
+	});
+	const csqlRuntime =
+		deviceValues.kind === "ready" ? deviceValues.value : undefined;
 	const {
 		state,
 		fetching,
@@ -989,8 +1057,14 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	} = useCases({
 		appId,
 		/* On the Search step no results query runs: the list does not exist
-		 * until the worker's search completes. */
-		caseType: step === "search" ? undefined : caseType?.name,
+		 * until the worker's search completes, nor before the device has
+		 * worked out what the search sends. */
+		caseType:
+			step === "search" ||
+			deviceValues.kind === "pending" ||
+			deviceValues.kind === "unavailable"
+				? undefined
+				: caseType?.name,
 		...(registeredCaseIds === undefined ? {} : { caseIds: registeredCaseIds }),
 		caseListConfig: canonicalConfig,
 		blueprint: menuSource.doc,
@@ -1012,6 +1086,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		 * list inside `useCases` and keep the settled rows on screen. */
 		requestScopeKey: `${stateScopeKey}\u0000${ownedRestoreScopeKey}`,
 		search: readsSearchResults,
+		...(csqlRuntime !== undefined && { csqlRuntime }),
+		chosenCaseIds: stepSession.chosenCaseIds,
 	});
 	/* Results that show a column reading `here()` watch the viewer's
 	 * position while they are on screen (`useViewerPositionWatch`). */
@@ -1116,6 +1192,14 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		await pending;
 		focusNextFrame(() => resultsTitleRef.current);
 	}, [focusNextFrame, reloadCases]);
+	const retryDeviceCases =
+		deviceValues.kind === "unavailable" ? deviceValues.retry : undefined;
+	const retryDeviceCasesWithFocus = useCallback(async () => {
+		const pending = retryDeviceCases?.();
+		focusNextFrame(() => resultsTitleRef.current);
+		await pending;
+		focusNextFrame(() => resultsTitleRef.current);
+	}, [focusNextFrame, retryDeviceCases]);
 	const retryCountWithFocus = useCallback(async () => {
 		const pending = reloadUnfilteredCount();
 		focusNextFrame(() => resultsTitleRef.current);
@@ -2441,13 +2525,22 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				/>
 			)}
 			<ResultsBody
-				state={state}
+				state={
+					/* The device's cases the search reads didn't load: the
+					 * Results can't be read until they do. */
+					deviceValues.kind === "unavailable" ? CASES_LOAD_FAILED : state
+				}
 				unfilteredCountState={unfilteredCountState}
 				authoredMatchingCount={authoredMatchingCount}
 				outsideRestoreCount={outsideRestoreCount}
 				previewWorker={previewWorker}
 				fetching={fetching}
-				onRetryCases={retryCasesWithFocus}
+				onRetryCases={
+					deviceValues.kind === "unavailable"
+						? retryDeviceCasesWithFocus
+						: retryCasesWithFocus
+				}
+				deviceCasesFailed={deviceValues.kind === "unavailable"}
 				onRetryCount={retryCountWithFocus}
 				onSignIn={() => void signIn()}
 				rows={filteredRows}
@@ -2692,6 +2785,7 @@ function ResultsBody({
 	onOpenCase,
 	selection,
 	busy,
+	deviceCasesFailed,
 }: {
 	readonly state: ReturnType<typeof useCases>["state"];
 	/** Complete case-type population, before Results/search conditions. Keeping
@@ -2732,6 +2826,8 @@ function ResultsBody({
 	) => void;
 	readonly selection: MultipleResultSelection | undefined;
 	readonly busy: boolean;
+	/** The device's cases the search reads didn't load. */
+	readonly deviceCasesFailed: boolean;
 }) {
 	const message = useWorkerMessage();
 	if (state.kind === "idle" || state.kind === "loading") {
@@ -2739,7 +2835,12 @@ function ResultsBody({
 	}
 
 	if (state.kind === "error") {
-		return <CasesLoadFailureNotice onRetry={onRetryCases} />;
+		return (
+			<CasesLoadFailureNotice
+				onRetry={onRetryCases}
+				deviceCasesFailed={deviceCasesFailed}
+			/>
+		);
 	}
 	if (state.kind === "invalid-search") {
 		return searchErrorShown ? (
@@ -3178,14 +3279,19 @@ function AvailabilityConditionsEmptyNotice() {
 
 function CasesLoadFailureNotice({
 	onRetry,
+	deviceCasesFailed,
 }: {
 	readonly onRetry: () => Promise<void>;
+	/** The device's cases the search reads didn't load, not the list. */
+	readonly deviceCasesFailed: boolean;
 }) {
 	const message = useWorkerMessage();
 	return (
 		<CaseListEmptyNotice
 			title={message("casesLoadFailed")}
-			description={message("retryCases")}
+			description={message(
+				deviceCasesFailed ? "searchDeviceCasesLoadFailed" : "retryCases",
+			)}
 			tone="error"
 			action={{ label: message("tryAgain"), onClick: () => void onRetry() }}
 		/>

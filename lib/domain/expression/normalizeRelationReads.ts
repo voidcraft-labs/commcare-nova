@@ -1126,13 +1126,13 @@ type ExpressionViaLift =
  * path on an `exists` envelope and recurses, so additional vias lift
  * one at a time without mutating the authored AST.
  *
- * The traversal mirrors `isCsqlValueFunctionArm` and
- * `emitCsqlExpressionSegments`: `term`, date/datetime coercion,
- * `double`, and `date-add` reach the native CSQL term emitter.
- * Non-native roots (`arith`, `concat`, `coalesce`, `if`,
- * `switch`, `count`, `format-date`) deliberately stop here because
- * `inlineAsRuntimeOperand` evaluates them through the on-device
- * emitter, which already retains PropertyRef.via in its XPath.
+ * The traversal follows the values CommCare's search evaluates itself
+ * (`csqlPositions.ts::isCsqlServerValueFunction`): `term`, date/datetime
+ * coercion, `double`, and `date-add` are printed into the CSQL text.
+ * Every other value (`arith`, `concat`, `coalesce`, `if`, `switch`,
+ * `count`, `format-date`, `today`) deliberately stops here because it is
+ * a runtime segment of on-device XPath (`lib/commcare/csql/emitter.ts`,
+ * its runtime holes), whose emission already keeps PropertyRef.via.
  */
 function liftFirstViaInCsqlExpression(
 	expr: Expression,

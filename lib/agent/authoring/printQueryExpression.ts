@@ -1,4 +1,9 @@
+import {
+	readChosenCaseId,
+	readChosenCaseProperty,
+} from "@/lib/domain/expression/chosenCase";
 import type { RecordQueryContext } from "@/lib/domain/expression/context";
+import { DISTANCE_UNITS } from "@/lib/domain/expression/distance";
 import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
 import {
 	type Expression,
@@ -21,7 +26,7 @@ export interface QueryPrintContext {
 		options: readonly Uuid[],
 	): readonly string[] | undefined;
 	name(
-		kind: "table" | "column" | "operation" | "location" | "level",
+		kind: "table" | "column" | "operation" | "location" | "level" | "module",
 		id: string,
 		owner?: string,
 	): string;
@@ -138,6 +143,14 @@ export function queryPrinter(context: QueryPrintContext) {
 					identity("level", value.levelUuid),
 					quote(value.ownerCaseType),
 				);
+			case "session-datum": {
+				const chosen = readChosenCaseId(value);
+				if (chosen === undefined)
+					throw new Error(
+						`The saved ${value.datum.kind} datum has no record-dialect spelling.`,
+					);
+				return call("chosen-case", identity("module", chosen.datum.module));
+			}
 			default:
 				throw new Error(
 					`The saved ${value.kind} reference has no record-dialect spelling.`,
@@ -225,7 +238,23 @@ export function queryPrinter(context: QueryPrintContext) {
 						? quote(value.pattern)
 						: expression(value.pattern),
 				);
+			case "project": {
+				const chosen = readChosenCaseProperty(value);
+				if (chosen !== undefined)
+					return call(
+						"chosen-case-property",
+						identity("module", chosen.module),
+						quote(chosen.property),
+					);
+				throw new Error(
+					"The saved record read has no record value spelling: only a property of the case chosen in a menu has one.",
+				);
+			}
 			default:
+				// `value-list` and the other held reads (`cases`, `table-rows`,
+				// `locations`, `selected-cases`) have no record spelling, and no
+				// step-3 surface stores one; part 06 §7 leaves their read-back to
+				// the step that imports them.
 				throw new Error(
 					`The saved ${value.kind} tree has no record value spelling.`,
 				);
@@ -239,7 +268,7 @@ export function queryPrinter(context: QueryPrintContext) {
 			case "gte":
 			case "lt":
 			case "lte":
-				return `(${expression(value.left)} ${comparisonOperators[value.kind]} ${expression(value.right)})`;
+				return `(${comparand(value.left, value.right)} ${comparisonOperators[value.kind]} ${comparand(value.right, value.left)})`;
 			case "match-all":
 				return "true()";
 			case "match-none":
@@ -268,7 +297,24 @@ export function queryPrinter(context: QueryPrintContext) {
 						: expression(value.distance),
 					typeof value.unit === "string"
 						? quote(value.unit)
-						: expression(value.unit),
+						: computedUnit(value.unit),
+				);
+			case "if":
+				return call(
+					value.kind,
+					predicate(value.cond),
+					predicate(value.then),
+					predicate(value.else),
+				);
+			case "switch":
+				return call(
+					value.kind,
+					expression(value.on),
+					...value.cases.flatMap((entry) => [
+						term(entry.when),
+						predicate(entry.then),
+					]),
+					predicate(value.fallback),
 				);
 			case "is-blank":
 				return call(value.kind, expression(value.left));
@@ -331,6 +377,36 @@ export function queryPrinter(context: QueryPrintContext) {
 					`The saved ${value.kind} tree has no record condition spelling.`,
 				);
 		}
+	}
+	/**
+	 * A comparison operand. The parser reads a quoted name opposite
+	 * `record-type()` as a record type, so a stored text literal there prints
+	 * as `literal(…)`, which reads back as the literal it is.
+	 */
+	function comparand(value: Expression, opposite: Expression): string {
+		if (
+			opposite.kind === "term" &&
+			opposite.term.kind === "case-row-type" &&
+			value.kind === "term" &&
+			value.term.kind === "literal" &&
+			value.term.data_type === undefined &&
+			typeof value.term.value === "string"
+		)
+			return call("literal", quote(value.term.value));
+		return expression(value);
+	}
+	/** A computed distance unit. A quoted unit name reads back as the unit
+	 *  itself, so stored text that names no unit prints as `literal(…)`. */
+	function computedUnit(unit: Expression): string {
+		if (
+			unit.kind === "term" &&
+			unit.term.kind === "literal" &&
+			unit.term.data_type === undefined &&
+			typeof unit.term.value === "string" &&
+			!(DISTANCE_UNITS as readonly string[]).includes(unit.term.value)
+		)
+			return call("literal", quote(unit.term.value));
+		return expression(unit);
 	}
 	return { value: expression, predicate, term, relationship: relation };
 }

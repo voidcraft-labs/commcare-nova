@@ -488,7 +488,10 @@ describe("matchModeOnDeviceCompatibility", () => {
 		expect(compatibilityFindings(doc)).toEqual([]);
 	});
 
-	it("rejects a match inside a count shape that CSQL evaluates on-device", () => {
+	it("leaves a count of this case on a query side to the CSQL anchor rule", () => {
+		// A count over this case is no child-case count, so HQ cannot read it as
+		// a query side (06-csql.md §2.1): the search refuses it as an anchor and
+		// nothing inside it runs on the device.
 		const doc = buildDoc({
 			appName: "T",
 			modules: [
@@ -525,12 +528,14 @@ describe("matchModeOnDeviceCompatibility", () => {
 			caseTypes: standardCaseTypes,
 		});
 
-		const hits = compatibilityFindings(doc);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].details).toMatchObject({
-			mode: "fuzzy-date",
-			surface: "advanced-input",
-		});
+		const all = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(all.filter((error) => error.code === CODE)).toEqual([]);
+		expect(
+			all.map((error) => [error.code, error.details?.reason]),
+		).toContainEqual([
+			"CASE_LIST_CSQL_NOT_REPRESENTABLE",
+			"unsupported-related-count",
+		]);
 	});
 
 	it("drops an advanced runtime finding when match-none absorbs the composed CSQL", () => {

@@ -210,7 +210,7 @@ public class NavigationRuntimeTest {
                 if (!supplied) for (String text : queries) assertEquals("match-all()", text);
                 else if (state.equals("blank")) for (String text : queries) assertEquals("match-none()", text);
                 else if (scenario.equals("date-add")) assertEquals(Collections.singletonList("visit_date = date-add(\"2024-02-29\", 'days', 7)"), queries);
-                else if (scenario.equals("datetime-add")) assertEquals(Collections.singletonList("last_seen = datetime-add(datetime(\"2024-02-29\"), 'hours', 1)"), queries);
+                else if (scenario.equals("datetime-add")) assertEquals(Collections.singletonList("(last_seen >= datetime-add(datetime(\"2024-02-29\"), 'hours', 1) and last_seen <= datetime-add(datetime(\"2024-02-29\"), 'hours', 1))"), queries);
                 else if (scenario.equals("day-range")) assertEquals(Arrays.asList(
                     "visit_date >= date(\"2024-02-29\") and visit_date < date-add(date(\"2024-02-29\"), 'days', 1)",
                     "last_seen >= datetime(\"2024-02-29\") and last_seen < datetime(date-add(date(\"2024-02-29\"), 'days', 1))",

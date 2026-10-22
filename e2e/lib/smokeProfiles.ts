@@ -23,6 +23,7 @@ export const SMOKE_PROFILES = [
 	"here-column",
 	"search-claim",
 	"search-results",
+	"search-choice",
 	"localization",
 	"sections",
 	"threads",

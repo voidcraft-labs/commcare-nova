@@ -64,18 +64,20 @@ import {
 } from "@/lib/domain/expression/children";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { compilerBugMessage } from "@/lib/domain/expression/errors";
-import type { Expression } from "@/lib/domain/expression/types";
+import type { DatumRef, Expression } from "@/lib/domain/expression/types";
 import {
 	type SearchRuntimeValidationKind,
 	searchRuntimeValidationMessage,
 } from "@/lib/domain/searchRuntimeValidationMessages";
+import { collectRelatedCaseQueries, emitCsql } from "../../csql/emitter";
+import { csqlPositionKey, csqlRuntimeRoots } from "../../csql/positions";
+import { checkCsqlRepresentability } from "../../csql/representability";
 import {
-	checkCsqlRepresentability,
-	collectRelatedCaseQueries,
 	dedupeRuntimeRejections,
-	emitCsql,
+	isSilentRuntimeCsqlRejection,
 	type RuntimeCsqlRejection,
-} from "../../predicate";
+} from "../../csql/segment";
+import type { ModuleExpressionContexts } from "../../expressionContext";
 import {
 	combineRuntimeCsqlPromptValidations,
 	getAdvancedArmPredicates,
@@ -161,10 +163,11 @@ export function buildRuntimeCsqlPromptValidations(
 		>
 	>();
 	for (const rejection of emission.runtimeRejections ?? []) {
-		// A blank comparand names no prompt and has no message for a worker:
-		// the search finds nothing (`runtimeCsqlDateSafety.ts`).
-		if (rejection.kind === "blank-comparand") continue;
-		const message = searchRuntimeValidationMessage(new Set([rejection.kind]));
+		// A blank comparand or a list item names no prompt and has no message
+		// for a worker: the search finds nothing (`runtimeCsqlDateSafety.ts`).
+		const kind = rejection.kind;
+		if (isSilentRuntimeCsqlRejection(kind)) continue;
+		const message = searchRuntimeValidationMessage(new Set([kind]));
 		if (message === undefined) continue;
 		for (const name of rejection.inputNames ?? []) {
 			const entries = obligations.get(name) ?? [];
@@ -177,7 +180,7 @@ export function buildRuntimeCsqlPromptValidations(
 				)
 			) {
 				entries.push({
-					kind: rejection.kind,
+					kind,
 					test,
 					message: message.message,
 					messageKey: message.key,
@@ -244,26 +247,21 @@ export function buildRuntimeCsqlPromptValidations(
 export function composeXPathQueryEmission(
 	caseListConfig: CaseListConfig,
 	caseType: string | undefined,
-	typeContext: ExpressionContext,
+	contexts: XPathQueryContexts,
 	lookupNaming?: LookupWireNaming,
 	searchInputInstanceId?: `search-input:${string}`,
+	datumId?: (ref: DatumRef) => string | undefined,
 ): ComposedXPathQuery | undefined {
-	const composed = composeXPathQueryPredicate(
-		caseListConfig,
-		caseType,
-		typeContext,
-	);
-	if (composed === undefined) return undefined;
-	const csqlContext = {
-		types: typeContext,
-		bindings: {
-			searchInputInstanceId,
-			...(lookupNaming === undefined
-				? {}
-				: {
-						lookup: { naming: lookupNaming, instanceScope: "suite" as const },
-					}),
-		},
+	const clauses = composeXPathQueryClauses(caseListConfig, caseType, contexts);
+	if (clauses === undefined) return undefined;
+	const bindings = {
+		searchInputInstanceId,
+		...(datumId === undefined ? {} : { datumId }),
+		...(lookupNaming === undefined
+			? {}
+			: {
+					lookup: { naming: lookupNaming, instanceScope: "suite" as const },
+				}),
 	};
 
 	// Defense in depth — the validator rule
@@ -276,21 +274,19 @@ export function composeXPathQueryEmission(
 	// the validator should have caught it, and reaching this throw
 	// means the validator was bypassed (an AST built at runtime, an
 	// `as any` cast, or a partial discriminated-union widening).
-	// Same shape as the defensive throw at
-	// `lib/commcare/predicate/csqlEmitter.ts::emitComparisonOperandSegments`
-	// for `count` arms the hoist pass should have lifted.
-	assertNoBareSearchInputRefs(composed);
-	assertCsqlRepresentable(composed, typeContext);
+	for (const clause of clauses) {
+		assertNoBareSearchInputRefs(clause.expression);
+		assertCsqlRepresentable(clause.expression, clause.context);
+	}
 
-	// One clause per top-level conjunct. `composeXPathQueryPredicate`
-	// AND-composes the sources and `effectiveFilterForEmission` already
-	// dropped boolean identities at every depth, so a top-level `and`
-	// root's clause list IS the conjunct list; any other root is one
-	// clause. Each conjunct emits independently — its own presence
-	// gate, its own value guards — and the server's AND loop restores
-	// the combined meaning.
-	const clauses = composed.kind === "and" ? composed.clauses : [composed];
-	const emissions = clauses.map((clause) => emitCsql(clause, csqlContext));
+	// One clause per top-level conjunct, each typed and emitted in its own
+	// source's slot: its own presence gate and value guards, and the reads
+	// only its slot admits (`closed_on` and the system-date range in an
+	// advanced input's predicate). The server's AND loop restores the
+	// combined meaning.
+	const emissions = clauses.map((clause) =>
+		emitCsql(clause.expression, { types: clause.context, bindings }),
+	);
 	const runtimeRejections = dedupeRuntimeRejections(
 		emissions.flatMap((emission) => emission.runtimeRejections ?? []),
 	);
@@ -298,6 +294,84 @@ export function composeXPathQueryEmission(
 		clauseWrappers: emissions.map((emission) => emission.wrapper),
 		...(runtimeRejections.length === 0 ? {} : { runtimeRejections }),
 	};
+}
+
+/**
+ * The typing contexts of a module's `_xpath_query` sources: each slot's own
+ * (`case_list_filter`, each advanced input's `search_input_predicate`), or
+ * one context every source shares, for a caller that holds only one.
+ */
+export type XPathQueryContexts = ExpressionContext | ModuleExpressionContexts;
+
+/** One `_xpath_query` clause and the context of the slot it comes from. */
+export interface XPathQueryClause {
+	readonly expression: Expression;
+	readonly context: ExpressionContext;
+}
+
+function contextFor(
+	contexts: XPathQueryContexts,
+	address: Parameters<ModuleExpressionContexts>[0],
+): ExpressionContext {
+	return typeof contexts === "function" ? contexts(address) : contexts;
+}
+
+/**
+ * The clauses `_xpath_query` sends, each with its source's context: the
+ * case list filter, each advanced input's predicate, and the clause each
+ * simple input derives (typed in the filter's context, the slot it narrows
+ * with). Each source is simplified on its own, so boolean identities never
+ * reach the wire; a source that finds nothing makes the whole search
+ * `match-none()`, and a search no source narrows has no clause.
+ */
+export function composeXPathQueryClauses(
+	caseListConfig: CaseListConfig,
+	caseType: string | undefined,
+	contexts: XPathQueryContexts,
+): readonly XPathQueryClause[] | undefined {
+	const filterContext = contextFor(contexts, { slot: "case_list_filter" });
+	const sources: XPathQueryClause[] = [];
+	if (caseListConfig.filter !== undefined)
+		sources.push({ expression: caseListConfig.filter, context: filterContext });
+	for (const entry of getAdvancedArmPredicates(caseListConfig.searchInputs))
+		sources.push({
+			expression: entry.predicate,
+			context: contextFor(contexts, {
+				slot: "search_input_predicate",
+				member: { searchInputUuid: entry.uuid },
+			}),
+		});
+	// Simple-arm inputs whose authored semantics cannot ride Core's
+	// implicit exact matcher derive an advanced-style predicate at the
+	// wire boundary. A plain non-date exact self target can stay on the
+	// bare prompt; date exact always contributes its typed whole-day
+	// interval, even on self. The gate at
+	// `simpleArmNeedsXPathQueryEmission` is the single contract.
+	if (caseType !== undefined)
+		for (const input of caseListConfig.searchInputs) {
+			if (input.kind !== "simple") continue;
+			if (!simpleArmNeedsXPathQueryEmission(input)) continue;
+			sources.push({
+				expression: deriveSimpleArmPredicate(input, caseType, filterContext),
+				context: filterContext,
+			});
+		}
+	const clauses: XPathQueryClause[] = [];
+	for (const source of sources) {
+		// `effectiveFilterForEmission` drops boolean identities at every
+		// depth and folds an all-true source to `undefined`. Without it a
+		// `match-all` conjunct (a filter the builder seeded with `matchAll()`
+		// and left untouched) would emit a literal `match-all() and …` prefix.
+		const effective = effectiveFilterForEmission(source.expression);
+		if (effective === undefined) continue;
+		if (effective.kind === "match-none")
+			return [{ expression: effective, context: source.context }];
+		for (const clause of effective.kind === "and"
+			? effective.clauses
+			: [effective])
+			clauses.push({ expression: clause, context: source.context });
+	}
+	return clauses.length === 0 ? undefined : clauses;
 }
 
 /**
@@ -310,53 +384,13 @@ export function composeXPathQueryEmission(
 export function composeXPathQueryPredicate(
 	caseListConfig: CaseListConfig,
 	caseType: string | undefined,
-	typeContext: ExpressionContext,
+	contexts: XPathQueryContexts,
 ): Expression | undefined {
-	const clauses: Expression[] = [];
-	if (caseListConfig.filter !== undefined) {
-		clauses.push(caseListConfig.filter);
-	}
-	for (const entry of getAdvancedArmPredicates(caseListConfig.searchInputs)) {
-		clauses.push(entry.predicate);
-	}
-	// Simple-arm inputs whose authored semantics cannot ride Core's
-	// implicit exact matcher derive an advanced-style predicate at the
-	// wire boundary. A plain non-date exact self target can stay on the
-	// bare prompt; date exact always contributes its typed whole-day
-	// interval, even on self. The gate at
-	// `simpleArmNeedsXPathQueryEmission` is the single contract. Simple
-	// properties are structurally nonblank before this boundary.
-	if (caseType !== undefined) {
-		for (const input of caseListConfig.searchInputs) {
-			if (input.kind !== "simple") continue;
-			if (!simpleArmNeedsXPathQueryEmission(input)) continue;
-			clauses.push(deriveSimpleArmPredicate(input, caseType, typeContext));
-		}
-	}
-	if (clauses.length === 0) {
-		return undefined;
-	}
-
-	// AND-compose, then normalize via `effectiveFilterForEmission`: it
-	// drops boolean identities at every depth and folds an all-true
-	// result to `undefined`. Without it a `match-all` conjunct would
-	// emit a literal `concat('match-all() and ', …)` prefix (the
-	// reported bug) — usually from a `caseListConfig.filter` the builder
-	// seeded with `matchAll()` on "Add a Filter" and left untouched, or
-	// a `match-all` nested inside an authored `and` filter. `undefined`
-	// means nothing narrows, so omit the slot (CCHQ matches every case
-	// by default); a `match-none` composition rides through and emits
-	// `match-none()` (the author asked for "match nothing").
-	const composed = effectiveFilterForEmission(
-		clauses.length === 1
-			? clauses[0]
-			: and(clauses[0], clauses[1], ...clauses.slice(2)),
-	);
-	if (composed === undefined) {
-		return undefined;
-	}
-
-	return composed;
+	const clauses = composeXPathQueryClauses(caseListConfig, caseType, contexts);
+	if (clauses === undefined) return undefined;
+	const [first, second, ...rest] = clauses.map((clause) => clause.expression);
+	if (first === undefined) return undefined;
+	return second === undefined ? first : and(first, second, ...rest);
 }
 
 /**
@@ -406,7 +440,20 @@ function assertCsqlRepresentable(
  * validator was bypassed at authoring time.
  */
 function assertNoBareSearchInputRefs(expression: Expression): void {
-	const visit = (node: ExpressionNode, gated: ReadonlySet<string>): void => {
+	// A condition the device decides (a choice between clauses, or a clause
+	// that reads no case row) reads an unanswered input as `''`, a defined
+	// value, so an input there needs no gate (06-csql.md §3.10).
+	const controls = new Set(
+		csqlRuntimeRoots(expression)
+			.filter((root) => root.within === "query")
+			.map((root) => csqlPositionKey(root.path)),
+	);
+	const visit = (
+		node: ExpressionNode,
+		path: readonly (string | number)[],
+		gated: ReadonlySet<string>,
+	): void => {
+		if (controls.has(csqlPositionKey(path))) return;
 		if (node.kind === "input" && !gated.has(node.searchInputUuid)) {
 			throw new Error(
 				compilerBugMessage({
@@ -421,11 +468,11 @@ function assertNoBareSearchInputRefs(expression: Expression): void {
 			node.kind === "when-input-present"
 				? new Set([...gated, node.input.searchInputUuid])
 				: gated;
-		for (const child of expressionChildren(node)) {
-			if (child.kind !== "relation") visit(child.value, next);
+		for (const child of expressionChildren(node, path)) {
+			if (child.kind !== "relation") visit(child.value, child.path, next);
 		}
 	};
-	visit(expression, new Set());
+	visit(expression, [], new Set());
 }
 
 /**
@@ -443,15 +490,18 @@ function assertNoBareSearchInputRefs(expression: Expression): void {
 export function xpathQueryUsesRelatedLookup(
 	caseListConfig: CaseListConfig,
 	caseType: string | undefined,
-	typeContext: ExpressionContext,
+	contexts: XPathQueryContexts,
+	datumId?: (ref: DatumRef) => string | undefined,
 ): boolean {
 	return (
 		collectRelatedCaseQueries(() =>
 			composeXPathQueryEmission(
 				caseListConfig,
 				caseType,
-				typeContext,
+				contexts,
 				inertLookupWireNaming(),
+				undefined,
+				datumId,
 			),
 		).written.size > 0
 	);

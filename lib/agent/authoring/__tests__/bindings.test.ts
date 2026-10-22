@@ -405,3 +405,32 @@ it("keeps literal opening braces separate from an adjacent prose or message refe
 		).toEqual(message);
 	}
 });
+
+it("resolves a menu by its UUID, name or id to exactly one module, and names it back only when the name is its own", () => {
+	const doc = buildDoc({
+		modules: [
+			{ uuid: "menu-binding-households", name: "Households", id: "homes" },
+			{ uuid: "menu-binding-a", name: "Clinics" },
+			{ uuid: "menu-binding-b", name: "Clinics" },
+			{ uuid: "menu-binding-shadow", name: "homes_list", id: "Households" },
+		],
+	});
+	const [households, clinicA, clinicB, shadow] = doc.moduleOrder;
+	const scope = new AuthoringScope({ doc });
+	expect(scope.identity("module", households)).toBe(households);
+	expect(scope.identity("module", "homes")).toBe(households);
+	expect(scope.identity("module", "homes_list")).toBe(shadow);
+	// "Households" is one menu's name and another's id: no single match.
+	expect(() => scope.identity("module", "Households")).toThrow(
+		`More than one menu is called Households. You can name the one you mean by its ID: ${households}, ${shadow}.`,
+	);
+	expect(() => scope.identity("module", "Clinics")).toThrow(
+		`More than one menu is called Clinics. You can name the one you mean by its ID: ${clinicA}, ${clinicB}.`,
+	);
+	expect(scope.name("module", households)).toBe(households);
+	expect(scope.name("module", clinicA)).toBe(clinicA);
+	expect(scope.name("module", shadow)).toBe("homes_list");
+	expect(() => scope.identity("module", "Wards")).toThrow(
+		"This app has no menu called Wards. You can use one of its menus: Households, Clinics, Clinics, homes_list.",
+	);
+});

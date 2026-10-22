@@ -15,7 +15,7 @@ import {
 } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type { Expression } from "@/lib/domain/expression/types";
-import { emitCsql } from "../../../predicate/csqlEmitter";
+import { emitCsql } from "../../../csql/emitter";
 import { formNodeProjection } from "../../formNodeProjection";
 import { toWire, type WireTarget } from "../fromExpression";
 import type { WireExpr } from "../tree";

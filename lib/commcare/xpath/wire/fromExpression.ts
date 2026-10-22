@@ -10,7 +10,13 @@ import {
 	type ExpressionContext,
 	pushRowScope,
 } from "@/lib/domain/expression/context";
-import { distanceToMeters } from "@/lib/domain/expression/distance";
+import {
+	DISTANCE_UNITS,
+	type DistanceUnit,
+	distanceToMeters,
+	METERS_PER_DISTANCE_UNIT,
+} from "@/lib/domain/expression/distance";
+import { GEOPOINT_PROPERTY_PATTERN } from "@/lib/domain/expression/geopoint";
 import {
 	comparisonOperands,
 	comparisonPlan,
@@ -43,9 +49,8 @@ import {
 import { FUNCTION_REGISTRY } from "@/lib/domain/expressionFunctions";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { Uuid } from "@/lib/domain/uuid";
+import { matchModeRunsOnDevice } from "../../csql/matchModes";
 import type { LookupWireNaming } from "../../lookup/naming";
-import { GEOPOINT_PROPERTY_PATTERN } from "../../predicate/geopoint";
-import { matchModeRunsOnDevice } from "../../predicate/matchModes";
 import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
 import type { FormNodeProjection } from "../formNodeProjection";
 import { w } from "./builders";
@@ -1208,10 +1213,6 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 			return expr.kind === "exists" ? presence : w.not(presence);
 		}
 		case "within-distance": {
-			if (typeof expr.distance !== "number" || typeof expr.unit !== "string")
-				throw new Error(
-					"A runtime distance radius or unit needs the CSQL query lowering.",
-				);
 			const property = term(expr.property, ctx),
 				raw = val(expr.center),
 				center = normalizeGeopoint(raw);
@@ -1230,7 +1231,7 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				w.gte(longitude, w.num(-180)),
 				w.lte(longitude, w.num(180)),
 				w.gte(distance, w.num(0)),
-				w.lte(distance, w.num(distanceToMeters(expr.distance, expr.unit))),
+				w.lte(distance, metersBound(expr.distance, expr.unit, emit)),
 			);
 		}
 		default: {
@@ -1240,6 +1241,39 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 			);
 		}
 	}
+}
+/**
+ * A `within-distance` radius in meters. A fixed radius and unit are one
+ * number; a runtime radius is `number(<d>)` and a runtime unit a factor
+ * chosen among HQ's nine units (`es/queries.py::DISTANCE_UNITS`), ending in
+ * `0 div 0`, so an invalid radius or unit makes the comparison false where
+ * HQ's search answers `match-none()`: both find nothing.
+ */
+function metersBound(
+	distance: number | Expression,
+	unit: DistanceUnit | Expression,
+	emit: (input: Expression) => WireExpr,
+): WireExpr {
+	if (typeof distance === "number" && typeof unit === "string")
+		return w.num(distanceToMeters(distance, unit));
+	const radius =
+		typeof distance === "number"
+			? w.num(distance)
+			: w.call("number", [emit(distance)]);
+	if (typeof unit === "string")
+		return w.mul(radius, w.num(METERS_PER_DISTANCE_UNIT[unit]));
+	const read = emit(unit);
+	let factor: WireExpr = w.div(w.num(0), w.num(0));
+	for (let index = DISTANCE_UNITS.length - 1; index >= 0; index--) {
+		const name = DISTANCE_UNITS[index];
+		if (name === undefined) continue;
+		factor = w.call("if", [
+			w.eq(read, w.str(name)),
+			w.num(METERS_PER_DISTANCE_UNIT[name]),
+			factor,
+		]);
+	}
+	return w.mul(radius, factor);
 }
 function count(
 	via: RelationPath,

@@ -4,11 +4,11 @@ import {
 	MAX_CASE_PROPERTY_LENGTH,
 	MAX_CASE_TYPE_LENGTH,
 } from "@/lib/commcare/constants";
+import { inertLookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	findOnDeviceDateAddIssue,
 	type OnDeviceDateAddIssue,
-} from "@/lib/commcare/expression/onDeviceCompatibility";
-import { inertLookupWireNaming } from "@/lib/commcare/lookup/naming";
+} from "@/lib/commcare/validator/onDeviceCompatibility";
 import { formNodeProjection } from "@/lib/commcare/xpath/formNodeProjection";
 import { w } from "@/lib/commcare/xpath/wire/builders";
 import { toWire } from "@/lib/commcare/xpath/wire/fromExpression";

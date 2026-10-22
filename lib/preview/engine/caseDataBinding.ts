@@ -60,6 +60,7 @@ import {
 	ownRecordValue,
 	personasOf,
 	recordFromEntries,
+	searchRuntimeGlobalValidationMessage,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
@@ -84,6 +85,7 @@ import {
 	gatedCaseStore,
 	gatedCaseStoreWithScope,
 	loadExpressionLookupData,
+	loadLookupDefinitionsFor,
 	loadLookupTableSchemas,
 	readCaseData,
 	readCaseDatabaseSnapshot,
@@ -126,6 +128,14 @@ import {
 	searchInputValuesFromWire,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
+import {
+	parseChosenCaseIds,
+	parseSearchCsqlRuntimeWire,
+	SEARCH_CSQL_UNEVALUATED_MESSAGE,
+	type SearchCsqlRuntimeWire,
+	searchCsqlForRead,
+	searchCsqlRejected,
+} from "./searchCsqlRuntime";
 import {
 	evaluatePreviewSearchExpression,
 	type PreviewSearchEnvironment,
@@ -381,6 +391,12 @@ type RunningCaseReadArgs = {
 	 *  in this request and the query's bound parameters only, and is never
 	 *  stored or logged. */
 	viewerLocation?: ViewerLocation | null;
+	/** What the device worked out for the search's `_xpath_query` rows
+	 *  (`searchCsqlRuntime.ts::evaluateSearchCsqlRuntime`), plain objects. */
+	csqlRuntime?: SearchCsqlRuntimeWire;
+	/** The case chosen in each menu before the list, by module UUID, which a
+	 *  browse list's filter reads (`entrySessionData.ts::caseListStepSession`). */
+	chosenCaseIds?: Readonly<Record<string, string>>;
 };
 
 /** A running read made ready: the store bound to the worker and the read's
@@ -446,7 +462,18 @@ async function prepareRunningCaseRead(
 						userPropertySlugsByUuid(environment.doc),
 					),
 				};
-	if (args.caseListConfig !== undefined) {
+	const csqlRuntime = parseSearchCsqlRuntimeWire(args.csqlRuntime);
+	const searched = readsSearchPopulation(
+		environment?.doc ?? context.blueprint,
+		args.moduleUuid,
+		args.search === true || inputValues !== undefined,
+	);
+	/* The case the no-matches form registered: the device shows it by its id
+	 * (the wire's return frame), not by the search, so neither the search's
+	 * checks nor its rows apply to the read. */
+	const keyedSearch =
+		searched && args.caseIds !== undefined && args.caseListConfig !== undefined;
+	if (args.caseListConfig !== undefined && !keyedSearch) {
 		const globalRuntimeError = searchInputRuntimeGlobalError(
 			args.caseListConfig,
 			args.caseType,
@@ -454,13 +481,31 @@ async function prepareRunningCaseRead(
 			searchSession,
 			requireEnvironment(),
 		);
-		if (globalRuntimeError !== undefined) {
+		/* An obligation with no prompt that reads what only the browser holds
+		 * (the device's cases, places, a lookup or a session datum) is judged
+		 * there, and reaches this read as the search's `refusal`; its message
+		 * is the same one the server's own pass gives. */
+		const refusal =
+			globalRuntimeError ??
+			(csqlRuntime?.refusal === undefined
+				? undefined
+				: searchRuntimeGlobalValidationMessage(csqlRuntime.refusal).message);
+		if (refusal !== undefined) {
 			return {
 				kind: "invalid-search",
-				message: globalRuntimeError,
+				message: refusal,
 				repair: "settings",
 			};
 		}
+		/* A row whose device value Preview's evaluator could not work out:
+		 * answering without it would show cases the device's search would not
+		 * find, or hide ones it would. */
+		if (csqlRuntime?.unevaluated === true)
+			return {
+				kind: "invalid-search",
+				message: SEARCH_CSQL_UNEVALUATED_MESSAGE,
+				repair: "settings",
+			};
 	}
 	if (inputValues !== undefined && args.caseListConfig !== undefined) {
 		/* The full pass with the resolved worker. A pattern-bearing required
@@ -483,18 +528,22 @@ async function prepareRunningCaseRead(
 			};
 		}
 	}
-	/* A blank value compared where CommCare's search cannot compare one:
-	 * the exported search sends `match-none()` and finds nothing, with no
-	 * message, so Preview answers the same before reaching the case store. */
+	const chosenCaseIds = parseChosenCaseIds(args.chosenCaseIds);
+	/* A blank value compared where CommCare's search cannot compare one, or
+	 * a row whose obligations the device found holding: the exported search
+	 * sends `match-none()` and finds nothing, with no message, so Preview
+	 * answers the same before reaching the case store. */
 	if (
 		args.caseListConfig !== undefined &&
-		searchFindsNothing(
-			args.caseListConfig,
-			args.caseType,
-			inputValues ?? new Map(),
-			searchSession,
-			requireEnvironment(),
-		)
+		!keyedSearch &&
+		((csqlRuntime !== undefined && searchCsqlRejected(csqlRuntime)) ||
+			searchFindsNothing(
+				args.caseListConfig,
+				args.caseType,
+				inputValues ?? new Map(),
+				searchSession,
+				requireEnvironment(),
+			))
 	) {
 		return {
 			kind: "empty",
@@ -509,21 +558,25 @@ async function prepareRunningCaseRead(
 					args.caseListConfig.searchInputs,
 					inputValues,
 				);
-	const bindings = previewCaseStoreBindings(
-		searchSession,
-		args.caseListConfig?.searchInputs,
-		expressionInputValues,
-		args.viewerTimeZone,
-		args.viewerLocation ?? null,
-	);
+	const bindings = {
+		...previewCaseStoreBindings(
+			searchSession,
+			args.caseListConfig?.searchInputs,
+			expressionInputValues,
+			args.viewerTimeZone,
+			args.viewerLocation ?? null,
+		),
+		...(chosenCaseIds === undefined ? {} : { chosenCaseIds }),
+	};
 	/* Lookup carriers: the SQL-bound slots (filter / calc columns /
 	 * advanced predicates) compile natively against a rows-free
 	 * definitions snapshot; the excluded-owner expression evaluates
 	 * scalar-side, so its carriers fold over loaded fixture rows. */
-	const lookupTableSchemas = await loadLookupTableSchemas(
+	const lookupDefinitions = await loadLookupDefinitionsFor(
 		scope,
 		collectConfigLookupTableIds(args.caseListConfig),
 	);
+	const lookupTableSchemas = lookupDefinitions?.schemas;
 	const excludedLookupData = await loadExpressionLookupData(
 		scope,
 		args.excludedOwnerIdsExpression,
@@ -572,11 +625,28 @@ async function prepareRunningCaseRead(
 					),
 				);
 	const order = caseStoreOrder(environment?.doc ?? context.blueprint, args);
-	const searched = readsSearchPopulation(
-		environment?.doc ?? context.blueprint,
-		args.moduleUuid,
-		args.search === true || inputValues !== undefined,
-	);
+	/* A search's rows reach the store folded with what the device worked
+	 * out; a browse list's filter compiles as authored, its chosen case
+	 * bound. */
+	const searchCsql =
+		searched && environment !== undefined && args.caseListConfig !== undefined
+			? searchCsqlForRead({
+					keyed: keyedSearch,
+					doc: environment.doc,
+					moduleUuid: environment.moduleUuid,
+					caseListConfig: args.caseListConfig,
+					wire: csqlRuntime,
+					lookupNaming: lookupDefinitions?.naming,
+				})
+			: undefined;
+	/* A device read no value arrived for: the store can't read it, and
+	 * answering without it would not be the device's search. */
+	if (searchCsql?.unfoldedDeviceRead === true)
+		return {
+			kind: "invalid-search",
+			message: SEARCH_CSQL_UNEVALUATED_MESSAGE,
+			repair: "settings",
+		};
 	return {
 		kind: "read",
 		store,
@@ -589,6 +659,7 @@ async function prepareRunningCaseRead(
 			...(order !== undefined && { order }),
 			parentCase: args.parentCase,
 			inputValues,
+			...(searchCsql !== undefined && { searchCsql }),
 			bindings,
 			lookupTableSchemas,
 			excludedOwnerIds,

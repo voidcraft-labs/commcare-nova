@@ -243,7 +243,7 @@ export async function formSearchResults(
 		throw new FormEvaluationInputError(
 			"This form reads what its module's search found, but the module's Search action is hidden for this worker: its display condition is false here, so the worker never runs the search and the form cannot open. Check the form as a worker the Search action shows for (personaUuid), or change the Search action's display condition so this worker sees it.",
 		);
-	const { search, read } =
+	const { search, read, refusal } =
 		form.searchAnswers === undefined
 			? await serverRecordsRead(
 					searchWorld,
@@ -256,6 +256,7 @@ export async function formSearchResults(
 		throw new FormEvaluationInputError(
 			`The search before this form did not pass its checks: ${firstError} Supply searchAnswers the search accepts.`,
 		);
+	if (refusal !== undefined) throw new FormEvaluationInputError(refusal);
 	/* An unpublished workspace has no records, so its search finds none. */
 	if (world.store === undefined) return { rows: [], totalMatches: 0 };
 	const found = await serverSearchResults(world.store, read);

@@ -1,7 +1,16 @@
+import {
+	chosenCaseId,
+	chosenCaseProperty,
+} from "@/lib/domain/expression/chosenCase";
 import type { RecordQueryContext } from "@/lib/domain/expression/context";
+import {
+	DISTANCE_UNITS,
+	type DistanceUnit,
+} from "@/lib/domain/expression/distance";
 import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
 import {
 	type Choice,
+	caseTypeNameSchema,
 	conditionSchema,
 	type Expression,
 	type Literal,
@@ -30,10 +39,13 @@ export interface QueryBindings {
 	/** Resolvers reject missing or ambiguous names in their current scope. */
 	reference(namespace: string, path: readonly string[]): Term;
 	identity(
-		kind: "table" | "column" | "operation" | "location" | "level",
+		kind: "table" | "column" | "operation" | "location" | "level" | "module",
 		name: string,
 		owner?: string,
 	): string;
+	/** The menu a chosen-case read names, refused unless one case is chosen
+	 *  there: its module and that module's case type. */
+	chosenCaseMenu(name: string): { module: Uuid; caseType: string };
 	forRelation(relation: RelationPath): QueryBindings;
 	forTable(tableId: string): QueryBindings;
 }
@@ -124,6 +136,55 @@ function literal(node: Node): ObjectValue {
 	};
 }
 
+/** Whether `literal()` reads this argument as a literal constructor rather
+ *  than a value to compute. */
+function isLiteralNode(node: Node): boolean {
+	if (node.kind === "literal") return true;
+	if (node.kind === "negative")
+		return (
+			node.value.kind === "literal" && typeof node.value.value === "number"
+		);
+	if (node.kind !== "call") return false;
+	if (["true", "false", "null", "literal"].includes(node.name)) return true;
+	return (
+		node.name === "concat" &&
+		node.args.every(
+			(arg) =>
+				(arg.kind === "literal" && typeof arg.value === "string") ||
+				(arg.kind === "call" && arg.name === "concat" && isLiteralNode(arg)),
+		)
+	);
+}
+
+/** A number argument written as a number, which `number()` reads. */
+function isNumberNode(node: Node): boolean {
+	const literalNode = node.kind === "negative" ? node.value : node;
+	return (
+		literalNode.kind === "literal" && typeof literalNode.value === "number"
+	);
+}
+
+const DISTANCE_UNIT_ALIASES: Readonly<Record<string, DistanceUnit>> = {
+	km: "kilometers",
+	kilometer: "kilometers",
+	mi: "miles",
+	mile: "miles",
+};
+
+/** A distance unit written as quoted text: one of the nine names or an
+ *  alias of one. */
+function distanceUnit(node: Node): DistanceUnit {
+	const name = string(node);
+	const unit = Object.hasOwn(DISTANCE_UNIT_ALIASES, name)
+		? DISTANCE_UNIT_ALIASES[name]
+		: name;
+	if ((DISTANCE_UNITS as readonly string[]).includes(unit))
+		return unit as DistanceUnit;
+	throw new AuthoringInputError(
+		`CommCare doesn't measure distance in ${name}. Use one of ${DISTANCE_UNITS.join(", ")}.`,
+	);
+}
+
 function relation(node: Node): RelationPath {
 	if (node.kind !== "call")
 		throw new AuthoringInputError(
@@ -207,6 +268,7 @@ function compiler(bindings: QueryBindings) {
 			if (name === "session") {
 				return { kind: "session-context", field: string(args[0]) };
 			}
+			if (name === "record-type") return { kind: "case-row-type" };
 			if (name === "external-user") {
 				return { kind: "session-user", field: string(args[0]) };
 			}
@@ -260,6 +322,26 @@ function compiler(bindings: QueryBindings) {
 		)
 			return candidate;
 		return { ...candidate, term: choiceFor(literal as ObjectValue, opposite) };
+	}
+	/** A comparison operand. A quoted name compared with `record-type()` names
+	 *  a record type; `literal('…')` there stays the text it spells. */
+	function comparisonOperand(
+		node: Node,
+		candidate: ObjectValue,
+		opposite: ObjectValue,
+	): ObjectValue {
+		if (
+			node.kind === "literal" &&
+			typeof node.value === "string" &&
+			opposite.kind === "term" &&
+			(opposite.term as ObjectValue | undefined)?.kind === "case-row-type" &&
+			caseTypeNameSchema.safeParse(node.value).success
+		)
+			return {
+				kind: "term",
+				term: { kind: "case-type", caseType: node.value },
+			};
+		return oppositeValue(candidate, opposite);
 	}
 
 	function value(node: Node): ObjectValue {
@@ -391,7 +473,21 @@ function compiler(bindings: QueryBindings) {
 			arity(name, args);
 			return { kind: name, date: value(args[0]), pattern: string(args[1]) };
 		}
+		if (name === "chosen-case") {
+			arity(name, args);
+			return chosenCaseId(bindings.chosenCaseMenu(string(args[0])).module);
+		}
+		if (name === "chosen-case-property") {
+			arity(name, args);
+			const menu = bindings.chosenCaseMenu(string(args[0]));
+			return chosenCaseProperty(menu.module, menu.caseType, string(args[1]));
+		}
 		return { kind: "term", term: term(node) };
+	}
+	/** A selection value: a literal is one choice as written, anything else a
+	 *  value worked out when the condition runs. */
+	function selectionValue(node: Node): ObjectValue {
+		return isLiteralNode(node) ? literal(node) : value(node);
 	}
 
 	function property(node: Node): ObjectValue {
@@ -415,8 +511,8 @@ function compiler(bindings: QueryBindings) {
 					right = value(node.right);
 				return {
 					kind,
-					left: oppositeValue(left, right),
-					right: oppositeValue(right, left),
+					left: comparisonOperand(node.left, left, right),
+					right: comparisonOperand(node.right, right, left),
 				};
 			}
 		}
@@ -485,23 +581,48 @@ function compiler(bindings: QueryBindings) {
 				kind: "multi-select-contains",
 				quantifier: name === "selected-any" ? "any" : "all",
 				property: property(args[0]),
-				values: args.slice(1).map(literal),
+				values: args.slice(1).map(selectionValue),
 			};
 		}
 		if (name === "within-distance") {
 			arity(name, args);
-			const unit = string(args[3]);
+			const [, , distance, unit] = args;
 			return {
 				kind: name,
 				property: property(args[0]),
 				center: value(args[1]),
-				distance: number(args[2]),
+				distance: isNumberNode(distance) ? number(distance) : value(distance),
 				unit:
-					unit === "km" || unit === "kilometer"
-						? "kilometers"
-						: unit === "mi" || unit === "mile"
-							? "miles"
-							: unit,
+					unit.kind === "literal" && typeof unit.value === "string"
+						? distanceUnit(unit)
+						: value(unit),
+			};
+		}
+		if (name === "if") {
+			arity(name, args);
+			return {
+				kind: name,
+				cond: predicate(args[0]),
+				// biome-ignore lint/suspicious/noThenProperty: Canonical AST data, never a callable thenable.
+				then: predicate(args[1]),
+				else: predicate(args[2]),
+			};
+		}
+		if (name === "switch") {
+			arity(name, args);
+			const cases = [];
+			const on = value(args[0]);
+			for (let i = 1; i < args.length - 1; i += 2)
+				cases.push({
+					when: choiceFor(literal(args[i]), on),
+					// biome-ignore lint/suspicious/noThenProperty: Canonical AST data, never a callable thenable.
+					then: predicate(args[i + 1]),
+				});
+			return {
+				kind: name,
+				on,
+				cases,
+				fallback: predicate(args[args.length - 1]),
 			};
 		}
 		if (name === "when-provided") {

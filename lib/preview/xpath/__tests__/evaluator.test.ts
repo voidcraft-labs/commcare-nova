@@ -8,8 +8,8 @@ import {
 	it,
 	vi,
 } from "vitest";
-import { GEOPOINT_CENTER_PATTERN } from "@/lib/commcare/predicate/geopoint";
 import { parser } from "@/lib/commcare/xpath/parser";
+import { GEOPOINT_CENTER_PATTERN } from "@/lib/domain/expression/geopoint";
 import { evaluateAsync } from "../asyncEvaluator";
 import { xpathToString } from "../coerce";
 import { evaluate, XPATH_PARSE_CACHE_ENTRIES } from "../evaluator";

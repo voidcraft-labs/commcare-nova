@@ -11,6 +11,14 @@
  */
 
 import {
+	DISTANCE_SEARCH_SETUP_CAVEATS,
+	DISTANCE_SEARCH_SETUP_TITLE,
+	type DistanceSearchSetupProperty,
+	distanceSearchSetupReaders,
+	distanceSearchSetupStep,
+	distanceSearchSetupSummary,
+} from "./distanceSearchSetup";
+import {
 	PROJECT_SPACE_COMPATIBILITY_DOCS_URL,
 	PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL,
 } from "./projectSpaceCompatibility";
@@ -24,7 +32,8 @@ export type ManualImportStepKind =
 	| "plan-features"
 	| "logo"
 	| "flat-location-fixture"
-	| "connect-forwarding";
+	| "connect-forwarding"
+	| "distance-search";
 
 const STEP_KINDS: ReadonlySet<string> = new Set<ManualImportStepKind>([
 	"lookup-tables",
@@ -36,6 +45,7 @@ const STEP_KINDS: ReadonlySet<string> = new Set<ManualImportStepKind>([
 	"logo",
 	"flat-location-fixture",
 	"connect-forwarding",
+	"distance-search",
 ]);
 
 export interface ManualImportStep {
@@ -70,6 +80,8 @@ export interface ManualImportGuideInput {
 	readonly readsLocations: boolean;
 	/** Whether the app's forms hold a CommCare Connect block. */
 	readonly sendsToConnect: boolean;
+	/** Each case property a search measures distance on; empty for none. */
+	readonly distanceSearches: readonly DistanceSearchSetupProperty[];
 }
 
 /** The ZIP's member that holds the lookup tables. */
@@ -255,6 +267,29 @@ function connectForwardingStep(): ManualImportStep {
 	};
 }
 
+/** Each property a search measures distance on needs the GPS type in HQ's Data Dictionary. */
+function distanceSearchStep(
+	properties: readonly DistanceSearchSetupProperty[],
+): ManualImportStep {
+	return {
+		kind: "distance-search",
+		title: DISTANCE_SEARCH_SETUP_TITLE,
+		lines: [
+			distanceSearchSetupSummary(null),
+			"",
+			"Open the Data Dictionary in CommCare HQ:",
+			"  https://www.commcarehq.org/a/<your-project>/data_dictionary/",
+			"",
+			...properties.map(
+				(entry) =>
+					`  - ${distanceSearchSetupStep(entry)} ${distanceSearchSetupReaders(entry)}`,
+			),
+			"",
+			...DISTANCE_SEARCH_SETUP_CAVEATS,
+		],
+	};
+}
+
 /** The steps that apply to this file, in the order a person takes them. */
 export function manualImportGuide(
 	input: ManualImportGuideInput,
@@ -275,6 +310,9 @@ export function manualImportGuide(
 		...(input.logo === null ? [] : [logoStep(input.logo)]),
 		...(input.readsLocations ? [flatLocationFixtureStep()] : []),
 		...(input.sendsToConnect ? [connectForwardingStep()] : []),
+		...(input.distanceSearches.length > 0
+			? [distanceSearchStep(input.distanceSearches)]
+			: []),
 	];
 }
 

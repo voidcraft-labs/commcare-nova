@@ -58,6 +58,7 @@ import {
 import type { SearchInputValues } from "./runtimeBindings";
 import { searchInputInstanceValues } from "./runtimeBindings";
 import {
+	type CaseDatabaseSnapshot,
 	SEARCH_INPUT_INSTANCE_ID,
 	searchScreenXPathInstances,
 } from "./xpathInstances";
@@ -68,8 +69,14 @@ export interface PreviewSearchEnvironment {
 	readonly doc: BlueprintDoc;
 	readonly moduleUuid: Uuid;
 	readonly lookup?: PreviewLookupData;
-	/** The session datums chosen before this Search screen, `session/data`. */
+	/** The session datums chosen before this Search screen, `session/data`:
+	 * the map `entrySessionData.ts::caseListStepSession` builds for the
+	 * module's case list step. */
 	readonly sessionData?: Readonly<Record<string, string>>;
+	/** The device's cases and places, where the evaluator holds them (the
+	 * browser does; the server's Results read does not). `null` while the
+	 * snapshot loads. */
+	readonly caseDatabase?: CaseDatabaseSnapshot | null;
 }
 
 /**

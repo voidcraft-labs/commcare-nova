@@ -731,6 +731,7 @@ export class EngineController {
 	 * it. `caseDatabaseState` is the last post-commit reconciliation. */
 	private caseDatabaseGate: CaseDatabaseControllerState = { required: false };
 	private caseDatabaseState: CaseDatabaseControllerState = { required: false };
+	private caseDatabaseReload: (() => Promise<void>) | undefined;
 	private caseDatabaseSnapshot: CaseDatabaseSnapshot | null = null;
 	/** The requested form whose logic reads a table the session's lookup
 	 * snapshot does not cover yet. Printing that logic needs the table's
@@ -1669,7 +1670,26 @@ export class EngineController {
 		return this.caseDatabaseSnapshot;
 	}
 
-	/** Observe {@link deviceCaseDatabase}; returns the unsubscribe. */
+	/** Where the device's cases stand: not needed, loading, ready, or a load
+	 * that failed and waits for {@link retryDeviceCaseDatabase}. */
+	get deviceCaseDatabaseLoad(): "idle" | "loading" | "ready" | "error" {
+		const state = this.caseDatabaseState;
+		return state.required ? state.status : "idle";
+	}
+
+	/** The provider's reload of the device's cases, installed by
+	 * `useCaseDatabaseSnapshot.tsx::PreviewCaseDatabaseProvider`. */
+	setDeviceCaseDatabaseReload(reload: (() => Promise<void>) | undefined): void {
+		this.caseDatabaseReload = reload;
+	}
+
+	/** Read the device's cases again after a failed load. */
+	retryDeviceCaseDatabase(): Promise<void> {
+		return this.caseDatabaseReload?.() ?? Promise.resolve();
+	}
+
+	/** Observe {@link deviceCaseDatabase} and {@link deviceCaseDatabaseLoad};
+	 * returns the unsubscribe. */
 	readonly subscribeDeviceCaseDatabase = (
 		listener: () => void,
 	): (() => void) => {

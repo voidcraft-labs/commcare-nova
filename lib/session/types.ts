@@ -14,6 +14,7 @@
 import type { Uuid } from "@/lib/doc/types";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import type { CaseDataByType } from "@/lib/preview/engine/formEngine";
+import type { SearchCsqlRuntimeWire } from "@/lib/preview/engine/searchCsqlRuntime";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 import type { Location } from "@/lib/routing/types";
 
@@ -86,6 +87,18 @@ export type PreviewSearchFailure =
 	| "persona-unavailable";
 
 /**
+ * What the device worked out for a search's `_xpath_query` rows when the
+ * search was sent (`searchCsqlRuntime.ts::evaluateSearchCsqlRuntime`). A
+ * device evaluates them once, as it sends the request, and keeps that query
+ * for the session's query step, so Results and the module's forms read this
+ * one value: a claim or a lookup that changes later reads nothing again.
+ * `value` is `undefined` for a search with no row to fold.
+ */
+export interface PreviewSearchDeviceValues {
+	readonly value: SearchCsqlRuntimeWire | undefined;
+}
+
+/**
  * One module's search context in the running app: not searched yet, a
  * search running, the last search failed, or the last search completed
  * with a match count. Kept per module in the session store so the
@@ -97,19 +110,31 @@ export type PreviewSearchState =
 	| {
 			readonly kind: "running";
 			readonly attempt: number;
+			/** This search's own identity, unique across every search Preview
+			 * runs: the key its device values are kept under. */
+			readonly submission: string;
 			readonly answers: PreviewSearchAnswers;
+			readonly deviceValues?: PreviewSearchDeviceValues;
 	  }
 	| {
 			readonly kind: "failed";
 			readonly attempt: number;
+			/** This search's own identity, unique across every search Preview
+			 * runs: the key its device values are kept under. */
+			readonly submission: string;
 			readonly answers: PreviewSearchAnswers;
 			readonly reason: PreviewSearchFailure;
+			readonly deviceValues?: PreviewSearchDeviceValues;
 	  }
 	| {
 			readonly kind: "completed";
 			readonly attempt: number;
+			/** This search's own identity, unique across every search Preview
+			 * runs: the key its device values are kept under. */
+			readonly submission: string;
 			readonly answers: PreviewSearchAnswers;
 			readonly matchCount: number;
+			readonly deviceValues?: PreviewSearchDeviceValues;
 			/** Set once the no-matches form registers a case: Results then
 			 * shows that one case, as the wire's return frame does. */
 			readonly registeredCaseId?: string;

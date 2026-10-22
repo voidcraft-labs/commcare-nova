@@ -46,7 +46,7 @@ export async function prepareAppTestRecords(
 		throw new AppTestActionError("Open a record list first.");
 	const registeredCaseId =
 		answers === undefined ? screen.registeredCaseId : undefined;
-	const { search, searched, read } = await serverRecordsRead(
+	const { search, searched, read, refusal } = await serverRecordsRead(
 		appTestSearchWorld(context, scope, state),
 		{
 			moduleUuid: screen.moduleUuid,
@@ -72,7 +72,7 @@ export async function prepareAppTestRecords(
 			offset: answers === undefined ? screen.offset : 0,
 		},
 	};
-	return { state: next, search, searched, read };
+	return { state: next, search, searched, read, refusal };
 }
 
 export async function appTestRecords(
@@ -82,15 +82,21 @@ export async function appTestRecords(
 	answers?: readonly { name: string; value: string }[],
 ) {
 	const prepared = await prepareAppTestRecords(context, scope, state, answers);
-	const { state: next, search, searched, read } = prepared;
+	const { state: next, search, searched, read, refusal } = prepared;
 	const screen = next.screen;
 	const result =
-		read === undefined
-			? undefined
-			: await readCases(context.store, {
-					...read,
-					page: { offset: screen.offset ?? 0, limit: 50 },
-				});
+		refusal !== undefined
+			? ({
+					kind: "invalid-search",
+					message: refusal,
+					repair: "settings",
+				} as const)
+			: read === undefined
+				? undefined
+				: await readCases(context.store, {
+						...read,
+						page: { offset: screen.offset ?? 0, limit: 50 },
+					});
 	const candidate = noMatchesFormOf(context.doc, screen.moduleUuid);
 	// Each action serializes a completed read, so its launch and search share
 	// this one attempt. No caller can provide a stale or privileged launch.
@@ -106,6 +112,7 @@ export async function appTestRecords(
 				? {
 						kind: "completed",
 						attempt: 0,
+						submission: "app-test-read",
 						answers: Object.fromEntries(
 							(search.submitted ?? []).map(({ name, value }) => [name, value]),
 						),

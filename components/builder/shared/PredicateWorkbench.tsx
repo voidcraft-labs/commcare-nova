@@ -62,6 +62,7 @@ import {
 import {
 	type CaseDataScope,
 	type EvaluationTarget,
+	isPredicateCardValue,
 	type PredicateEditContext,
 	predicateCardSchemas,
 	predicateUnavailableReason,
@@ -344,9 +345,40 @@ export function AddConditionMenu({
 							</DropdownMenuItem>
 						);
 					})}
+					<ConditionChoiceAddItem ctx={ctx} onAdd={add} />
 				</DropdownMenuGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
+	);
+}
+
+/** "Depends on a condition" in the Add condition menu, offered where the
+ * gate admits a runtime choice and otherwise disabled with the reason. */
+function ConditionChoiceAddItem({
+	ctx,
+	onAdd,
+}: {
+	readonly ctx: PredicateEditContext;
+	readonly onAdd: (value: Expression) => void;
+}) {
+	const schema = predicateCardSchemas.if;
+	const applicable = schema.applicable(ctx);
+	return (
+		<DropdownMenuItem
+			disabled={!applicable}
+			closeOnClick
+			onClick={() => onAdd(schema.defaultValue(ctx))}
+		>
+			<Icon icon={schema.icon} />
+			<span className="min-w-0">
+				<span className="block text-sm font-medium">{schema.label}</span>
+				<span className="block text-[13px] leading-snug text-nova-text-muted">
+					{applicable
+						? schema.description
+						: predicateUnavailableReason("if", ctx)}
+				</span>
+			</span>
+		</DropdownMenuItem>
 	);
 }
 
@@ -1585,7 +1617,7 @@ function workbenchBreadcrumb(
 		case "missing":
 			return "No related case";
 		default:
-			return isConditionArm(value)
+			return isPredicateCardValue(value)
 				? predicateCardSchemas[value.kind].label
 				: "Saved expression";
 	}
@@ -1640,7 +1672,7 @@ function structureLabel(
 		case "missing":
 			return "Has no related case";
 		default:
-			return isConditionArm(value)
+			return isPredicateCardValue(value)
 				? predicateCardSchemas[value.kind].label
 				: "Saved expression";
 	}

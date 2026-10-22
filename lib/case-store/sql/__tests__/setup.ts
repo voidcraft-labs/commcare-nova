@@ -64,6 +64,7 @@ const HARNESS_APP_PROJECTS = [
 	["app-restore-scope", "project-restore-scope"],
 	["app-restore-scope-other", "project-restore-scope-other"],
 	["app-term-compiler", "owner-term-compiler"],
+	["app-csql-composition", "project-csql-composition"],
 ] as const;
 
 afterAll(async () => {

@@ -6,6 +6,9 @@ export const searchRuntimeValidationKinds = [
 	"geopoint",
 	"whole-number",
 	"nonnegative-whole-number",
+	"decimal-number",
+	"positive-number",
+	"distance-unit",
 	"quote",
 ] as const;
 export type SearchRuntimeValidationKind =
@@ -66,6 +69,18 @@ const SINGLE_MESSAGES: Readonly<
 		message: "Enter a whole number that is zero or greater",
 		description: "Search nonnegative whole-number format",
 	},
+	"decimal-number": {
+		message: "Enter a number",
+		description: "Search number format",
+	},
+	"positive-number": {
+		message: "Enter a distance greater than zero",
+		description: "Search distance format",
+	},
+	"distance-unit": {
+		message: "Choose a distance unit",
+		description: "Search distance unit",
+	},
 	quote: {
 		message:
 			"This search can't use both single and double quotation marks. Remove one kind and try again",
@@ -93,6 +108,20 @@ const GLOBAL_MESSAGES: Readonly<
 			"This search's current value needs to be a whole number that is zero or greater",
 		description: "Computed search nonnegative whole-number format",
 	},
+	"decimal-number": {
+		message: "This search's current value needs to be a number",
+		description: "Computed search number format",
+	},
+	"positive-number": {
+		message:
+			"This search's current distance needs to be a number greater than zero",
+		description: "Computed search distance format",
+	},
+	"distance-unit": {
+		message:
+			"This search's current distance unit isn't one CommCare recognizes",
+		description: "Computed search distance unit",
+	},
 	quote: {
 		message:
 			"This search can't use the current value because it contains both single and double quotation marks",
@@ -107,20 +136,39 @@ export function searchRuntimeGlobalValidationMessage(
 	return { key: `global:${kind}`, ...GLOBAL_MESSAGES[kind] };
 }
 
+/** The number kinds, strictest first: a value held to a stricter one is held
+ * to every looser one too, so one instruction covers them. */
+const NUMBER_KINDS = [
+	"nonnegative-whole-number",
+	"whole-number",
+	"decimal-number",
+] as const satisfies readonly SearchRuntimeValidationKind[];
+
 function normalizedKinds(
 	kinds: ReadonlySet<SearchRuntimeValidationKind>,
 ): readonly SearchRuntimeValidationKind[] {
-	const numberKind = kinds.has("nonnegative-whole-number")
-		? "nonnegative-whole-number"
-		: kinds.has("whole-number")
-			? "whole-number"
-			: undefined;
+	const numberKind = NUMBER_KINDS.find((kind) => kinds.has(kind));
 	const normalized: SearchRuntimeValidationKind[] = [];
 	if (kinds.has("geopoint")) normalized.push("geopoint");
 	if (numberKind !== undefined) normalized.push(numberKind);
+	if (kinds.has("positive-number")) normalized.push("positive-number");
+	if (kinds.has("distance-unit")) normalized.push("distance-unit");
 	if (kinds.has("quote")) normalized.push("quote");
 	return normalized;
 }
+
+/** Each kind's instruction inside a combined message, after the first. */
+const COMBINED_INSTRUCTIONS: Readonly<
+	Record<SearchRuntimeValidationKind, string>
+> = {
+	geopoint: "enter a location as latitude and longitude",
+	"nonnegative-whole-number": "enter a whole number that is zero or greater",
+	"whole-number": "enter a whole number",
+	"decimal-number": "enter a number",
+	"positive-number": "enter a distance greater than zero",
+	"distance-unit": "choose a distance unit",
+	quote: "don't use both kinds of quotation mark",
+};
 
 export function searchRuntimeValidationMessage(
 	kinds: ReadonlySet<SearchRuntimeValidationKind>,
@@ -131,21 +179,12 @@ export function searchRuntimeValidationMessage(
 		const kind = normalized[0];
 		return { key: kind, ...SINGLE_MESSAGES[kind] };
 	}
-	const instructions: string[] = [];
-	if (normalized.includes("geopoint")) {
-		instructions.push("Enter a location as latitude and longitude");
-	}
-	if (normalized.includes("nonnegative-whole-number")) {
-		instructions.push("enter a whole number that is zero or greater");
-	} else if (normalized.includes("whole-number")) {
-		instructions.push("enter a whole number");
-	}
-	if (normalized.includes("quote")) {
-		instructions.push("don't use both kinds of quotation mark");
-	}
+	const message = normalized
+		.map((kind) => COMBINED_INSTRUCTIONS[kind])
+		.join(", and ");
 	return {
 		key: `combined:${normalized.join("+")}`,
-		message: instructions.join(", and "),
+		message: message.charAt(0).toUpperCase() + message.slice(1),
 		description: `Combined search validation: ${normalized.join(", ")}`,
 	};
 }
@@ -154,20 +193,19 @@ export function searchRuntimeValidationMessage(
 export const SEARCH_RUNTIME_VALIDATION_MESSAGES: readonly SearchRuntimeValidationMessage[] =
 	(() => {
 		const out = new Map<string, SearchRuntimeValidationMessage>();
-		for (const geopoint of [false, true]) {
-			for (const number of [
-				undefined,
-				"whole-number",
-				"nonnegative-whole-number",
-			] as const) {
-				for (const quote of [false, true]) {
-					const kinds = new Set<SearchRuntimeValidationKind>();
-					if (geopoint) kinds.add("geopoint");
-					if (number !== undefined) kinds.add(number);
-					if (quote) kinds.add("quote");
-					const entry = searchRuntimeValidationMessage(kinds);
-					if (entry !== undefined) out.set(entry.key, entry);
-				}
+		// Every combination one prompt value can carry: at most one number
+		// kind (normalizedKinds keeps the strictest), each other kind or not.
+		const others = searchRuntimeValidationKinds.filter(
+			(kind) => !(NUMBER_KINDS as readonly string[]).includes(kind),
+		);
+		for (const number of [undefined, ...NUMBER_KINDS]) {
+			for (let mask = 0; mask < 1 << others.length; mask++) {
+				const kinds = new Set<SearchRuntimeValidationKind>(
+					others.filter((_, index) => (mask & (1 << index)) !== 0),
+				);
+				if (number !== undefined) kinds.add(number);
+				const entry = searchRuntimeValidationMessage(kinds);
+				if (entry !== undefined) out.set(entry.key, entry);
 			}
 		}
 		for (const message of DATE_RANGE_MESSAGES) out.set(message.key, message);

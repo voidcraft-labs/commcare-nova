@@ -1,5 +1,5 @@
 /** The shared slot checker owns leaf scope, order and type admission. */
-import { findOnDeviceDateAddIssueInPredicate } from "@/lib/commcare/expression/onDeviceCompatibility";
+import { findOnDeviceDateAddIssueInPredicate } from "@/lib/commcare/validator/onDeviceCompatibility";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
 	formExpressionFacts,

@@ -31,6 +31,7 @@
 // the section remains worth reading after the work is done.
 
 import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
+import { distanceSearchProperties } from "@/lib/commcare/distanceSearches";
 import { formsUsingWorkerRecord } from "@/lib/commcare/planPrivileges";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import type { BlueprintDoc, OrganizationLevel } from "@/lib/domain";
@@ -45,6 +46,13 @@ import {
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
 import {
+	DISTANCE_SEARCH_SETUP_CAVEATS,
+	DISTANCE_SEARCH_SETUP_TITLE,
+	distanceSearchSetupReaders,
+	distanceSearchSetupStep,
+	distanceSearchSetupSummary,
+} from "@/lib/publish/distanceSearchSetup";
+import {
 	LOGO_UPLOAD_STEP_TEXT,
 	webAppsOffText,
 } from "@/lib/publish/planFeatures";
@@ -58,6 +66,7 @@ type SetupArtifactSectionId =
 	| "place-data"
 	| "places"
 	| "automations"
+	| "distance-search"
 	| "build-and-release"
 	| "web-apps"
 	| "logo"
@@ -422,6 +431,46 @@ function automationsSection(
 	};
 }
 
+/**
+ * The case properties this app's searches measure distance on, which
+ * CommCare HQ's search can measure only once its data dictionary types them
+ * GPS (`lib/commcare/distanceSearches.ts` holds the HQ chain). The page and
+ * its Data Type column sit behind the `DATA_DICTIONARY` and
+ * `DATA_DICT_TYPES` privileges, both first on the Advanced plan
+ * (`accounting/bootstrap/features.py::advanced_v0`; the column is the
+ * template's `uses_data_type_validation` branch), and its edits take a
+ * signed-in person (`data_dictionary/views.py::update_case_property`). Every
+ * app save lists the properties its forms update
+ * (`models/applications.py::ApplicationBase.save` →
+ * `tasks.py::_refresh_data_dictionary_from_app`), so a published app's
+ * written properties are already there. The
+ * pillow reads the type as each case is indexed and the save triggers no
+ * reindex, so a case saved before the type is set is found once it changes.
+ * The project's own case location property (`GeoConfig`, `gps_point` by
+ * default) needs no type, but no API key reads which one that is, so every
+ * property stays listed.
+ */
+function distanceSearchSection(
+	input: SetupArtifactInput,
+): SetupArtifactSection | null {
+	const properties = distanceSearchProperties(input.doc);
+	if (properties.length === 0) return null;
+	return {
+		id: "distance-search",
+		title: DISTANCE_SEARCH_SETUP_TITLE,
+		summary: distanceSearchSetupSummary(input.domain),
+		url: `${hqBase(input.server)}/a/${input.domain}/data_dictionary/`,
+		steps: properties.map((entry) =>
+			step(
+				`${entry.caseType}/${entry.property}`,
+				distanceSearchSetupStep(entry),
+				[distanceSearchSetupReaders(entry)],
+			),
+		),
+		caveats: DISTANCE_SEARCH_SETUP_CAVEATS,
+	};
+}
+
 function buildAndReleaseSection(
 	input: SetupArtifactInput,
 ): SetupArtifactSection {
@@ -747,6 +796,7 @@ export function buildSetupArtifact(input: SetupArtifactInput): SetupArtifact {
 		placeDataSection(input),
 		placesSection(input),
 		automationsSection(input),
+		distanceSearchSection(input),
 		buildAndReleaseSection(input),
 		webAppsSection(input),
 		logoSection(input),

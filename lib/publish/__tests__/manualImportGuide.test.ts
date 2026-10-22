@@ -4,6 +4,7 @@ import {
 	temporalSearchFixture,
 	temporalSearchScenarios,
 } from "@/lib/commcare/__tests__/compilerNavigationFixture";
+import { searchPromptFixture } from "@/lib/commcare/__tests__/searchPromptFixture";
 import { hqImportFileGuide } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import {
 	HQ_PRIVATE_FEATURE_FLAG_SYMBOLS,
@@ -32,6 +33,7 @@ const BARE: ManualImportGuideInput = {
 	logo: null,
 	readsLocations: false,
 	sendsToConnect: false,
+	distanceSearches: [],
 };
 
 const kinds = (input: ManualImportGuideInput) =>
@@ -188,6 +190,47 @@ describe("manualImportGuide", () => {
 				"It helps to check that the project space's plan includes Data Forwarding and that it has a forwarder set up as Forward Form Metadata to Commcare Connect.",
 			],
 		});
+	});
+
+	it("closes with the Data Dictionary step for each property a search measures distance on", () => {
+		const doc = searchPromptFixture("prompt-dataflow");
+		const steps = hqImportFileGuide({
+			appName: "Tracker",
+			doc,
+			assets: new Map(),
+			lookupWorkbook: undefined,
+			attachmentTarget: null,
+		});
+		expect(steps.at(-1)?.kind).toBe("distance-search");
+		const step = steps.at(-1);
+		const menu = doc.modules[doc.moduleOrder[0]]?.name;
+		expect(step?.title).toBe("Finding cases by distance");
+		expect(step?.lines.filter((line) => line.startsWith("  - "))).toEqual([
+			`  - In the “patient” case type, set the data type of “home_location” to GPS. The search in “${menu}” measures distance on it.`,
+			`  - In the “patient” case type, set the data type of “work_location” to GPS. The search in “${menu}” measures distance on it.`,
+		]);
+		expect(step?.lines).toContain(
+			"  https://www.commcarehq.org/a/<your-project>/data_dictionary/",
+		);
+		expect(step?.lines[0]).toContain("in your project space");
+		expect(
+			kinds({
+				...BARE,
+				sendsToConnect: true,
+				distanceSearches: [
+					{ caseType: "patient", property: "home", moduleNames: ["Find"] },
+				],
+			}).slice(-2),
+		).toEqual(["connect-forwarding", "distance-search"]);
+		expect(
+			hqImportFileGuide({
+				appName: "Tracker",
+				doc: searchPromptFixture("prompt-guards"),
+				assets: new Map(),
+				lookupWorkbook: undefined,
+				attachmentTarget: null,
+			}).map((item) => item.kind),
+		).not.toContain("distance-search");
 	});
 
 	it("renders every step, numbered, as the README holds it", () => {

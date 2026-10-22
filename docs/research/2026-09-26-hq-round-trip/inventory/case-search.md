@@ -124,25 +124,25 @@ A default filter's value is XPath evaluated on the device into CSQL text; HQ com
 | `p = ''` where `p` is not `date_opened`, `closed_on` or `last_modified` | **HELD**: `is-blank` | RUNS / RUNS | `p = ''` |
 | `date_opened`, `closed_on` or `last_modified` compared with any operator to a value that is not a date or datetime (`''` included, a number, or a runtime value with no guard against blank) | **REFUSED**: broken at runtime: HQ parses the value as a date or datetime for these, the same way whatever the operator, and fails the search with `CaseFilterError`: "… is not a correctly formatted date or datetime" for text and `''`, and "Malformed search query" for a number, whose `TypeError` `filter_dsl.py::build_filter_from_xpath` converts (`comparison.py::_create_system_datetime_query` → `_parse_date_or_datetime`; executed) | — | — (Nova emits it for a blank check on these today: defect 6) |
 | metadata `@case_id`, `@owner_id`, `@status`, `name`/`case_name`, `external_id`, `date_opened`, `last_modified` | **HELD**: standard readables | RUNS / RUNS | HQ spellings |
-| metadata `closed_on` | **HELD-NEW**: `closed_on` standard readable in search predicates | RUNS / RUNS | `closed_on` |
-| authored `@case_type` comparisons (other than a hop qualifier) | **HELD-NEW**: case-type term | RUNS / RUNS | `@case_type OP 'x'` |
+| metadata `closed_on` | **HELD**: `closed_on` standard readable in search predicates | RUNS / RUNS | `closed_on` |
+| authored `@case_type` comparisons (other than a hop qualifier) | **HELD**: case-type term | RUNS / RUNS | `@case_type OP 'x'` |
 | date-only comparison on `date_opened`/`closed_on`/`last_modified` (project-timezone day) | **HELD-NEW**: project-timezone date comparison | RUNS / RUNS | the date literal |
 | `date(v)` string/date, `datetime(v)` string | **HELD**: `date-coerce`/`datetime-coerce` | RUNS / RUNS | `date()`/`datetime()` |
-| `date(<int>)`, `datetime(<number>)` (epoch days) | **HELD-NEW**: epoch-day coercion | RUNS / RUNS | same |
+| `date(<int>)`, `datetime(<number>)` (epoch days) | **HELD**: epoch-day coercion | RUNS / RUNS | same |
 | `double(v)`, `today()`, `now()` | **HELD**: `double`, `today`, `now` | RUNS / RUNS | same |
 | `date-add(d, interval, n)`, `datetime-add(…)` | **HELD**: `date-add` | RUNS / RUNS | same |
-| `unwrap-list('[…]')` | **HELD-NEW**: list-literal value (runtime-assembled lists included) | RUNS / RUNS | `unwrap-list(...)` |
+| `unwrap-list('[…]')` | **HELD**: list-literal value (runtime-assembled lists included) | RUNS / RUNS | `unwrap-list(...)` |
 | `selected(p, v)`, `selected-any`, `selected-all` with a literal `v` | **HELD**: `multi-select-contains` | RUNS / RUNS | `selected*(...)` |
-| `selected*` with a runtime-assembled `v` | **HELD-NEW**: runtime value in `multi-select-contains` | RUNS / RUNS | same |
+| `selected*` with a runtime-assembled `v` | **HELD**: runtime value in `multi-select-contains` | RUNS / RUNS | same |
 | `starts-with`, `fuzzy-match`, `phonetic-match`, `fuzzy-date` | **HELD**: `match` modes | RUNS / RUNS | same |
 | `within-distance` in `miles`/`kilometers` with static radius | **HELD**: `within-distance` | RUNS / RUNS | same |
-| `within-distance` in `yards`/`feet`/`inch`/`meters`/`centimeters`/`millimeters`/`nauticalmiles` | **HELD-NEW**: distance unit token preserved | RUNS / RUNS | the unit |
-| `within-distance` with a runtime radius or unit | **HELD-NEW**: runtime distance operands | RUNS / RUNS | same |
+| `within-distance` in `yards`/`feet`/`inch`/`meters`/`centimeters`/`millimeters`/`nauticalmiles` | **HELD**: distance unit token preserved | RUNS / RUNS | the unit |
+| `within-distance` with a runtime radius or unit | **HELD**: runtime distance operands | RUNS / RUNS | same |
 | `subcase-exists('id'[, q])`, `subcase-count('id'[, q]) OP N`, `ancestor-exists(path, q)`, `a/b/prop OP v` | **HELD**: `exists`/`missing`/`count` relation arms, and for `a/b/prop OP v` a comparison on an ancestor's property | RUNS / RUNS | same; CASE_SEARCH_RELATED_LOOKUPS precondition (HQ raises "You cannot query related cases here" without it, except `@case_id` ancestor comparisons) |
 | clause chosen at runtime by input presence | **HELD**: `when-input-present` | RUNS / RUNS | on-device `if(count(input), <csql>, 'match-all()')` |
-| clause chosen at runtime by a condition over session, worker, lookup, case or input values | **HELD-NEW**: typed CSQL composition (conditional choice among typed clauses) | RUNS / RUNS | the same `if(…)` composition |
+| clause chosen at runtime by a condition over session, worker, lookup, case or input values | **HELD**: typed CSQL composition (conditional choice among typed clauses) | RUNS / RUNS | the same `if(…)` composition |
 | property names, operators or function names computed at runtime | **REFUSED**: untypeable: the query's structure exists only at runtime | — | — |
-| runtime values read from casedb or session datums | **HELD-NEW**: case and datum terms in CSQL values | RUNS / RUNS | printed |
+| runtime values read from casedb or session datums | **HELD**: case and datum terms in CSQL values | RUNS / RUNS | printed |
 | runtime values read from the session context `drift`, `window_width` or `applanguage` | **HELD-NEW**: context terms in CSQL values | DIFFERENT (as under Secondary instances) / RUNS (`window_width` UNAVAILABLE) | printed |
 | a function call written unparenthesized as the 2nd or later argument of a function (eulxml `OPERATOR_FORCERS` defect, e.g. `fuzzy-date(dob, today())`, `date-add('2020-01-01', 'days', count(x))`) | **REFUSED**: broken at runtime: HQ fails to parse it (`CaseFilterError` "We didn't understand what you were trying to do with …") | — | — (Nova groups such arguments: `csqlSegment.ts::groupCsqlArgument`) |
 | a function on the left side, a property on the right side, arithmetic, `\|`, `$var`, absolute paths, unknown function names, a bare step with no operator | **REFUSED**: broken at runtime: `CaseFilterError` / `XPathFunctionException` (`filter_dsl.py::build_filter_from_ast`) | — | — |

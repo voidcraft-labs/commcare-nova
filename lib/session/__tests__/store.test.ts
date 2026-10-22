@@ -318,6 +318,7 @@ describe("BuilderSession store", () => {
 		const running = {
 			kind: "running" as const,
 			attempt: 1,
+			submission: "search-1",
 			answers: { patient_name: "Zzz" },
 		};
 		store.getState().setPreviewSearchState(moduleUuid, running);

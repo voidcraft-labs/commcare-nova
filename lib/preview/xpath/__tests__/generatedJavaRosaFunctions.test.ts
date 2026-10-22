@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { CSQL_LIST_ITEM_UNSAFE_PATTERN } from "@/lib/commcare/csql/segment";
 import {
 	GEOPOINT_CENTER_PATTERN,
 	GEOPOINT_RAW_CENTER_PATTERN,
-} from "@/lib/commcare/predicate/geopoint";
+} from "@/lib/domain/expression/geopoint";
 import { invokeGeneratedJavaRosaFunction } from "../generatedJavaRosaFunctions";
 import { javaRosaRegex, javaRosaReplace } from "../javaPatternRuntime";
 
@@ -14,6 +15,7 @@ const GENERATED_PATTERNS = [
 	"^[\\x00-\\x20]+|[\\x00-\\x20]+$",
 	"[ \\t\\r\\n]+",
 	"^ | $",
+	CSQL_LIST_ITEM_UNSAFE_PATTERN,
 ] as const;
 
 const VALUES = [
@@ -30,6 +32,11 @@ const VALUES = [
 	"-90 180 NaN 3e2",
 	"91 181",
 	"$1 $& \\tail",
+	'say "hi"',
+	"back\\slash",
+	"delete\u007f",
+	"it's",
+	"p{Cntrl}",
 ] as const;
 
 describe("generated JavaRosa functions", () => {

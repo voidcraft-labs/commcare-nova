@@ -763,6 +763,64 @@ form of the module, part 03 §3.8's correction) and `lib/commcare/validator/suit
 
 ### Pull request 10: CSQL
 
+**As built, 2026-10-19.** The tree differs from the lists below in these files; the reasons are
+the implementation corrections listed after them.
+
+- New and not named below: `lib/commcare/csql/tree.ts` (the `CsqlNode` constructors `printCsql`
+  reads), `csql/choices.ts` (`expression/csqlChoices.ts` moved whole, `materializeCsqlChoices`),
+  `csql/runtimeWalk.ts` and `csql/matchModes.ts` (`predicate/csqlRuntimeWalk.ts` and
+  `predicate/matchModes.ts` under those names), `csql/runtimeCsqlNumericSafety.ts`;
+  `lib/domain/expression/csqlPositions.ts` (the position function's core, which `csql/positions.ts`
+  re-exports, decision D1), `lib/domain/expression/chosenCase.ts` (builds and recognizes the
+  chosen-case reads), `lib/commcare/suite/case-search/moduleXPathQuery.ts` (a module's composed
+  search under its own slot contexts and datum resolver), `lib/commcare/validator/recordFindings.ts`
+  (`sharedRecordFinding`, part 03 §1.5), `lib/preview/engine/searchCsqlRuntime.ts` and
+  `lib/preview/hooks/useSearchCsqlRuntime.ts` (the browser half of the fold),
+  `components/builder/shared/caseTypeValueModel.ts`; tests `csql/__tests__/emitter.test.ts`,
+  `print.test.ts` and `runtimeWalk.test.ts` (moved), `lib/domain/expression/__tests__/typeCheckerCsql.test.ts`,
+  `lib/commcare/validator/__tests__/caseListStepAgreement.test.ts`,
+  `components/builder/shared/__tests__/csqlCardsValidByConstruction.test.ts`,
+  `lib/preview/engine/__tests__/searchCsqlRuntime.test.ts`, the fixture
+  `lib/domain/__tests__/chosenCaseFixture.ts`; the smoke is `e2e/tests/app/preview-search-choice.spec.ts`,
+  not under `e2e/tests/browser/`.
+- Named below and not touched: `lib/models.ts` (`MODEL_CONTEXT_VERSION` waits for pull request 12,
+  decision D11, so this pull request's row's `".10"` does not happen here),
+  `xpath/wire/serialize.ts` as `formatNumeric`'s home (it stays in
+  `lib/domain/expression/numberLiteral.ts`, decision D9), `lib/domain/expression/profiles.ts` (the
+  chosen-case admission is `typeChecker.ts::chosenCaseAdmission`), `distance.ts`, `temporalType.ts`,
+  `lib/case-store/sql/dataTypeTokens.ts`, `lib/preview/engine/runtimeBindings.ts`,
+  `simpleArmDerivation.ts`, `shared/primitives/LiteralValueInput.tsx`, `lib/doc/referenceIndex.ts`
+  (its test only), and `lib/commcare/surface/entries/gates.json` (no sensitivity failure asked for it).
+- The Preview fold reports a holding obligation with no prompt as the wire's `refusal`, which the
+  Results read answers with its global message (part 06 §4's correction).
+- The register move keeps "25 stops" here; the rebase onto pull request 9 makes it 26.
+
+Implementation corrections this pull request wrote, 2026-10-19:
+
+- Part 02 §2.4: `chosen-case(…)` in a condition position is refused by the compiler's positional
+  `predicate()`, and the menu refusals carry no code field.
+- Part 03 §1.5: `closed-on-not-on-device` and a record slot's `datum-not-supplied` are re-coded once by
+  `recordFindings.ts::sharedRecordFinding`.
+- Part 05 §1.3: the `case-list` and `search` points are one set, `caseListStepSupplies`.
+- Part 05 §1.6: the `several-cases` reason, and the finding's route to `SESSION_DATUM_NOT_SUPPLIED`.
+- Part 05 §1.7: the Builder's selection footprint covers every module choosing through the edited one.
+- Part 06 §2.3: where the halves live (positions in the domain, `formatNumeric`, `choices.ts`).
+- Part 06 §3.1: where `closed_on` resolves.
+- Part 06 §3.2: a text literal opposite `case-row-type` names a catalog case type.
+- Part 06 §3.5 (two): epoch coercions' operands and reasons, and a runtime `decimal` operand.
+- Part 06 §3.6: `value-list` only in an advanced Search input's rule.
+- Part 06 §3.7: both runtime-`selected*` rules in every record slot.
+- Part 06 §3.8: the distance findings' copy.
+- Part 06 §3.9 (two): held reads only in a runtime position, and the chosen case's datum resolver.
+- Part 06 §3.10: `if` and `switch` in a condition position wherever CS is a target.
+- Part 06 §3.12: which comparand takes the flag-free ancestor spelling.
+- Part 06 §3.13: `readsInstantByRange` and the range's value node.
+- Part 06 §4: the fold's signature, wire, rows and server pass.
+- Part 06 §5: the obligations as written.
+- Part 06 §7 (two): the record dialect without a `MODEL_CONTEXT_VERSION` bump, and a runtime radius
+  or unit compiled in Postgres.
+- Part 07 §5.1: the browse list's `chosenCaseIds` and the Results read's check of them.
+
 **Nova source** (part 06 §2.3, §3, §7)
 
 - `lib/commcare/csql/positions.ts`, `print.ts`, `fold.ts` (new); `representability.ts`, `emitter.ts`, `segment.ts`, `runtimeCsql*Safety.ts` (moved from `lib/commcare/predicate/` and `lib/commcare/expression/`)
@@ -1859,7 +1917,7 @@ and every page under `claude-code/` and `mcp/` but `tools.mdx`.
 | new heading after "Found while planning step 2" (before "Found of the lane itself") | (none) | adds "### Found while planning step 3" + "Step 3's plan ran its new targeted documents through the lane without the served readers before writing them (run 39061011794), and then with every reader (run 39078199859), and one thing it ran was a defect no check had yet shown. It has a targeted document with its register entries and its control." + finding 75 below | 1 |
 | finding 75 | (none) | "75. **A case list filter or a search that asks for a date and time equal to a value finds nothing on CommCare, and Preview finds the cases.** Nova writes every search comparison as `<property> <op> <value>` whatever the property's type (`lib/commcare/predicate/csqlEmitter.ts::emitComparisonSegments`), and a literal as written (`lib/commcare/predicate/termEmitter.ts::emitCsqlLiteralSegment`). HQ's receiver rewrites every date-and-time-shaped string of a submission before saving it (`form_processor/parsers/form.py::_create_new_xform`, `form_processor/utils/xform.py::adjust_datetimes`) as the UTC instant with six fraction digits (`dimagi/utils/parsing.py::json_format_datetime`: `2026-01-02T04:30:00.000000Z`), whichever writer submitted it (Nova's form, HQ's case API, HQ's case importer), so the case, its search index entry and a device's restore all hold that spelling. HQ's search compares a custom property with `=` as text (`case_search/xpath_functions/comparison.py::property_comparison_query`, `es/case_search.py::case_property_query`, an exact term on `case_properties.value.exact`), and `!=` is its `NOT`; an ordering parses the value and compares instants (`case_property_range_query`). Executed against HQ at the pin, with cases saved through HQ's receiver in twelve spellings of one instant: `= '2026-01-02T09:30:00.000+05'` finds none of them, `= '2026-01-02T04:30:00.000000Z'` finds all twelve, and every ordering finds by instant. HQ's `now()` and `datetime()` print `isoformat()` (`value_functions.py::now`, `::datetime_`) and a value Core prints carries the device's offset, so nothing Nova sends equals the stored text. On a system date HQ sends a date-and-time value as a raw term (`_create_system_datetime_query`), which Elasticsearch parses against the index's date formats (`corehq/pillows/core.py::DATE_FORMATS_STRING`), each of which with a time requires seconds, so the minute-precision value the builder's picker writes makes the search fail: executed with every reader, HQ answers `date_opened = '2026-01-02T09:30'` with a 500 (`ESError`, Elasticsearch's `RequestError(400)`, "failed to parse date field [2026-01-02T09:30]"), Formplayer answers with its internal-server-error notification, the Web Apps client shows HQ's error alert, and Android "Server-side error (code 500)". The device's case list filter compares two strings by text too (commcare-core `XPathEqExpr.java::testEquality`). Preview compiles the same filter in Postgres, which casts the property to `timestamptz` (`lib/case-store/sql/dataTypeTokens.ts::POSTGRES_CAST_FOR_DATA_TYPE`) and compares instants. *Harm:* a worker's list or search for visits at a given time shows none on the device or on HQ while Preview shows them; `!=` shows every case; on a system date the search fails. *Documents:* `targeted-datetime-equality` (intent, `/caseList/rows/*/caseId` on the local export: "Visits" filters `seen` equal to a date and time and Core lists none of the one case Nova's meaning lists; "Other visits" filters it not equal and Core lists every case; with every reader, "Opened visits" searches `date_opened` equal to a minute-precision date and time, HQ answers 500, Formplayer's walk stops (`proof/walk-stops.json`), and proofs 3 and 4 hold Formplayer's answer at `/hq/app_aware_remote_search/500/corehq.apps.es.exceptions.ESError` and `/runs/*/steps/*/response/exception`)." | 1 |
 | finding 75 | (PR 1 text) | adds "*Device half fixed (#<PR 8>):* `=`, `!=`, `in` and `switch` between two dates and times lower to an equality of integer microseconds (`lib/commcare/xpath/wire/instant.ts`), exact at that resolution, so the device lists the cases Preview lists. Its two entries are in the fixed-defect register, held on the control `targeted-datetime-equality`." | 8 |
-| finding 75 | (PR 8 text) | adds "*Fixed (#<PR 10>):* a search's `=`, `!=` and `in` on a date and time are a closed instant range (`(p >= v and p <= v)`, `lib/commcare/csql/emitter.ts`), which HQ's range query reads in every spelling, and a date-and-time literal is held to milliseconds (`datetime-literal-precision`), the resolution HQ's index keeps. The `csql` native family's `datetime-equality` scenario holds it: HQ's case search over cases its receiver saved returns the expected ids, as Postgres does. Its four search entries are in the fixed-defect register and its walk stop is held on the control `targeted-datetime-equality`, which keeps the search from before the fix." | 10 |
+| finding 75 | (PR 8 text) | adds "*Fixed (#785):* a search's `=`, `!=` and `in` on a date and time are a closed instant range (`(p >= v and p <= v)`, `lib/commcare/csql/emitter.ts`), which HQ's range query reads in every spelling, and a date-and-time literal is held to milliseconds (`datetime-literal-precision`), the resolution HQ's index keeps. The `csql` native family's `datetime-equality` scenario holds it: HQ's case search over cases its receiver saved returns the expected ids, as Postgres does. Its four search entries are in the fixed-defect register and its walk stop is held on the control `targeted-datetime-equality`, which keeps the search from before the fix." | 10 |
 
 ## Edits to the other plans
 

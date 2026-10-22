@@ -177,10 +177,11 @@ function collectMatches(predicate: Expression): WhitespaceMatch[] {
 			});
 		},
 		visitMultiSelect: (node) => {
-			// `multi-select-contains.values` is `[Literal, ...Literal[]]` —
-			// every value is statically inspectable. CCHQ's `selected` and
-			// `selected-any` are the SAME runtime function; both tokenize
-			// their value argument. Flag every whitespace-bearing value.
+			// A literal value of `multi-select-contains` is one choice, and
+			// CCHQ's `selected` and `selected-any` are the SAME runtime
+			// function; both tokenize their value argument, so flag every
+			// whitespace-bearing literal. A value read at run time is a list
+			// of choices by meaning (part 06 §3.7), so its words are wanted.
 			for (const literal of node.values) {
 				const value =
 					literal.kind === "literal"

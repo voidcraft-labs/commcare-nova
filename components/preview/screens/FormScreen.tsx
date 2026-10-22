@@ -2690,7 +2690,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 					className="mx-6 mt-4 flex items-center justify-between gap-3 rounded-lg border border-nova-amber/30 bg-nova-amber/[0.06] px-3 py-2 text-sm leading-relaxed text-nova-text-secondary"
 				>
 					<span>
-						{runtimeMessage(language.language, "searchResultsLoadFailed")}
+						{runtimeMessage(
+							language.language,
+							searchResults.state.reason === "device-cases"
+								? "searchDeviceCasesLoadFailed"
+								: "searchResultsLoadFailed",
+						)}
 					</span>
 					<button
 						type="button"

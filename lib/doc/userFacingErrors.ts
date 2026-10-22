@@ -54,6 +54,7 @@ import type {
 	ValidationErrorCode,
 } from "@/lib/commcare/validator/errors";
 import type { UserFacingValidationCode } from "@/lib/commcare/validator/gate";
+import { chosenCaseReadSentence } from "@/lib/commcare/validator/recordFindings";
 import {
 	type EntryPointIdProblem,
 	entryPointIdProblemSentence,
@@ -338,6 +339,23 @@ const dayOnlyCopy = (e: ValidationError) =>
 			: {}),
 	});
 
+/** The sentence after a record setting's subject for a checker finding of a
+ * search's shape (part 06 §3), keyed by the checker code. */
+const RECORD_CHECK_SENTENCES: Readonly<Record<string, string>> = {
+	"case-type-ordering":
+		"orders case types. Case types can be compared only as equal or not equal. You can check whether the case type is one you choose.",
+	"epoch-fraction-on-device":
+		"turns a number with a fraction into a date and time, but on a device CommCare counts only whole days, so the time of day would be lost. You can use a whole number of days.",
+	"runtime-selected-value-type":
+		"looks for choices named by a value that isn't text or a choice. You can choose a text value or a choice question's answer.",
+	"runtime-selected-value-on-device":
+		"looks for choices named by a value that can hold several of them, which the device reads differently from the server. Choose a single-choice value here, or use it in a search field's condition.",
+	"distance-not-numeric":
+		"uses a distance that isn't a number. You can choose a number value.",
+	"distance-unit-type":
+		"uses a distance unit that isn't text naming a unit, like miles or meters. You can choose a text value or a single choice.",
+};
+
 /** A record slot's sentence for a comparison a device can't run between two
  * moments (`typeChecker.ts::checkInstantComparison`) or for a read of places,
  * which no record slot declares, or undefined for any other finding. The
@@ -352,6 +370,11 @@ const recordFindingCopy = (
 		e.details.checkReason === "places-unavailable"
 	)
 		return `${subject} reads places, which only a form's questions and its links can read. You can read them there instead.`;
+	const sentence =
+		e.details?.checkCode === undefined
+			? undefined
+			: RECORD_CHECK_SENTENCES[e.details.checkCode];
+	if (sentence !== undefined) return `${subject} ${sentence}`;
 	if (e.details?.checkCode !== "incompatible-values") return undefined;
 	switch (e.details.checkReason ?? e.details.reason) {
 		case "day-only-on-device": {
@@ -362,6 +385,31 @@ const recordFindingCopy = (
 			return `${subject} compares ${e.details?.clockSource === undefined ? "a value" : q(e.details.clockSource)}, which has kept only the day of a date and time, with a moment, so the two can't line up. You can compare the date and time from the question or value that first recorded it, or wrap both sides in date() to compare days.`;
 		default:
 			return undefined;
+	}
+};
+
+/** The record setting a shared record finding sits in, named by the slot
+ * code its rule gave it (`recordFindings.ts::sharedRecordFinding`). */
+const recordSettingSubject = (e: ValidationError): string => {
+	switch (e.details?.slotCode) {
+		case "CASE_LIST_FILTER_TYPE_ERROR":
+			return `The Cases available setting in ${q(modName(e))}`;
+		case "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR":
+			return `A calculated value in ${q(modName(e))}`;
+		case "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR":
+			return `The condition of search field ${q(det(e, "inputName", "in this module"))}`;
+		case "FORM_DISPLAY_CONDITION_TYPE_ERROR":
+			return `The display condition for ${q(formName(e))}`;
+		case "MODULE_DISPLAY_CONDITION_TYPE_ERROR":
+			return `The display condition for ${q(modName(e))}`;
+		case undefined:
+			return formulaSubject(e);
+		default:
+			return e.location.formName !== undefined
+				? `A setting in ${q(formName(e))}`
+				: e.location.moduleName !== undefined
+					? `A setting in ${q(modName(e))}`
+					: "This setting";
 	}
 };
 
@@ -682,6 +730,10 @@ const USER_MESSAGE_BY_CODE: Record<
 	CASE_LIST_MULTI_SELECT_INPUT_NEEDS_DIRECT_MATCH: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} lets people choose several values, so it needs to be named after the case information it searches on this case type. Rename it to match, or switch it to a single-choice field.`,
 	CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR: (e) =>
+		recordFindingCopy(
+			e,
+			`The condition of search field ${q(det(e, "inputName", "in this module"))}`,
+		) ??
 		`The search field ${q(det(e, "inputName", "in this module"))} has a condition that compares values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} looks for ${q(det(e, "property", "case information"))}, but that information isn't saved on this case type. Choose information that exists.`,
@@ -794,6 +846,8 @@ const USER_MESSAGE_BY_CODE: Record<
 	},
 	CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK: (e) =>
 		`A condition in ${q(modName(e))} checks a child case inside a parent case, which search can't run. Put the checks side by side or split them into separate search fields.`,
+	CASE_LIST_CLOSED_ON_NOT_ON_DEVICE: (e) =>
+		`${recordSettingSubject(e)} reads Date closed. Date closed is known only to CommCare's server search, so it can't be read here. Case status shows whether a case is closed.`,
 	CASE_LIST_CSQL_NOT_REPRESENTABLE: (e) => {
 		const inputLabel = e.details?.inputLabel || e.details?.inputName;
 		const subject = inputLabel
@@ -820,6 +874,12 @@ const USER_MESSAGE_BY_CODE: Record<
 				return `${subject} shifts a date by months or years without a whole number. Use a fixed whole number or convert one search answer to Number.`;
 			case "subcase-count-needs-nonnegative-whole-number":
 				return `${subject} compares a child-case count with an unsupported value. Use a whole number that is zero or greater.`;
+			case "epoch-days-not-whole":
+				return `${subject} turns a number with a fraction into a date. CommCare's search counts days in whole numbers. Use a whole number of days.`;
+			case "raw-argument-not-evaluated":
+				return `${subject} gives the search a value to work out. CommCare's search uses this value as written and won't calculate it. Choose a fixed value or one the device can work out.`;
+			case "value-list-placement":
+				return `${subject} compares a list of values in a way CommCare's search can't. A list of values can be compared only as equal or not equal to a case value.`;
 			case "system-datetime-value": {
 				const label = standardCasePropertyDisplayLabel(
 					det(e, "property", "date_opened"),
@@ -983,6 +1043,20 @@ const USER_MESSAGE_BY_CODE: Record<
 	CONNECT_DELIVER_FORM_HOLDS_TASK: (e) =>
 		`${q(formName(e))} holds both a deliver unit and a task. CommCare Connect checks the delivery before it completes the task, so it turns away the visit in this form while the task is assigned. A task goes in a form of its own.`,
 	SESSION_DATUM_NOT_SUPPLIED: (e) => {
+		const carrier = det(e, "carrier", "");
+		if (
+			carrier === "case-list" ||
+			carrier === "search" ||
+			carrier === "form-display-condition"
+		)
+			return chosenCaseReadSentence({
+				carrier,
+				reason: det(e, "reason", "not-before"),
+				moduleName: modName(e),
+				formName: formName(e),
+				menuName: det(e, "datumModuleName", "that menu"),
+				otherModuleName: det(e, "otherModuleName", "another module"),
+			});
 		const subject =
 			e.location.fieldUuid !== undefined
 				? q(fieldName(e))

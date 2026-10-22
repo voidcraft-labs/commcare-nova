@@ -382,6 +382,7 @@ export function inlineSearchFor(
 		expressions: moduleExpressionContexts(doc, mod.uuid, ctx.lookupNaming),
 		lookupNaming: ctx.lookupNaming,
 		...(ancestorCaseType !== undefined && { ancestorCaseType }),
+		datumId: caseListStepDatumId(ctx.expressionDoc, moduleUuid),
 	});
 	ctx.inlineSearches.set(moduleUuid, built);
 	return built;
@@ -563,7 +564,21 @@ function selectableDatums(
 					: `${"parent_".repeat(remaining)}id`;
 		const parentSelection = datums.at(-1);
 		const moduleIndex = moduleIndexOf(ctx, selectedModuleUuid);
+		// A case chosen earlier in this chain prints under the id its datum
+		// holds when the nodeset renders: after root alignment, which renames
+		// it, `refreshDatumReferences` renders again.
+		const before = [...datums];
+		const datumId = (ref: DatumRef): string | undefined =>
+			ref.kind !== "selected-case"
+				? undefined
+				: before.find(
+						(earlier) =>
+							earlier.maxSelectValue === undefined &&
+							(ctx.selectionSourceModules.get(earlier) === ref.module ||
+								ctx.alignedSelectionSources.get(earlier) === ref.module),
+					)?.id;
 		const datum = deriveCaseSelectionDatum({
+			datumId,
 			entryMetadataOnly: ctx.entryMetadataOnly,
 			id,
 			caseType: selectedModule.caseType,
@@ -831,6 +846,54 @@ export function entryDatumIdResolver(
 		),
 	);
 	return (ref) => ids.get(datumRefKey(ref));
+}
+
+/**
+ * The datum ids a module's case list step prints, by ref: the rows its
+ * case-list entry holds before the module's own selection datum (part 05
+ * §1.3, "Evaluation points"). Every entry that reaches the list prints a
+ * ref at one id wherever the checker admits the read (`differs` refuses the
+ * rest), so the module's own entry speaks for all of them. `which` picks the
+ * id after root alignment, which every carrier prints, or before it
+ * (`chainId`), which HQ JSON's `case_details.short.filter` holds because
+ * HQ's build renames it as it aligns.
+ *
+ * Built on first use over its own metadata-only projection, so a carrier
+ * printed while the session projection runs never re-enters it.
+ */
+export function caseListStepDatumId(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	which: "id" | "chainId" = "id",
+): (ref: DatumRef) => string | undefined {
+	let ids: Map<string, string> | undefined;
+	return (ref) => {
+		if (ids === undefined) {
+			const rows = entryDatumIds(
+				doc,
+				formLinkProjectionContext(doc, { entryMetadataOnly: true }),
+				moduleUuid,
+			);
+			const own = rows.findLastIndex((row) =>
+				row.refs.some(
+					(entry) =>
+						entry.kind === "selected-case" && entry.module === moduleUuid,
+				),
+			);
+			ids = new Map(
+				(own === -1 ? rows : rows.slice(0, own)).flatMap((row) =>
+					row.refs.map(
+						(entry) =>
+							[
+								datumRefKey(entry),
+								which === "chainId" ? (row.chainId ?? row.id) : row.id,
+							] as const,
+					),
+				),
+			);
+		}
+		return ids.get(datumRefKey(ref));
+	};
 }
 
 /** Selected own-case datum id used by XForm and form-condition carriers. */

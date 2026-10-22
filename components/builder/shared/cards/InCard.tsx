@@ -29,6 +29,12 @@ import {
 	sessionContext,
 	tableColumn,
 } from "@/lib/domain/expression";
+import { CaseTypeValuePicker } from "../CaseTypeValuePicker";
+import {
+	caseTypeValueGroups,
+	defaultCaseTypeValue,
+} from "../caseTypeValueModel";
+import { comparesCaseType, possibleRowCaseTypes } from "../comparisonModel";
 import {
 	useEditorErrorsAt,
 	usePredicateEditContext,
@@ -139,7 +145,36 @@ function EditableInCard({
 	const valueAccepts =
 		valueConstraint.accepts === "any" ? undefined : valueConstraint.accepts;
 
+	// "Case type" is compared with case types of the app, kept as literals
+	// (decision D5), each one a name of the catalog.
+	const caseTypeNames = ctx.caseTypes.map((type) => type.name);
+	const comparesType = comparesCaseType(value.left);
+	const caseTypeSeed = (taken: readonly Literal[]): Literal | undefined => {
+		const used = new Set(taken.map((item) => item.value));
+		const groups = caseTypeValueGroups(
+			caseTypeNames,
+			possibleRowCaseTypes(ctx),
+		);
+		const name =
+			[...groups.likely, ...groups.others].find((n) => !used.has(n)) ??
+			defaultCaseTypeValue(caseTypeNames, possibleRowCaseTypes(ctx));
+		return name === undefined ? undefined : literal(name);
+	};
+
 	const setLeft = (left: Expression) => {
+		if (comparesCaseType(left)) {
+			const seed = caseTypeSeed([]);
+			const names = new Set(caseTypeNames);
+			const reseeded = value.values.map((item) =>
+				typeof item.value === "string" && names.has(item.value)
+					? item
+					: (seed ?? item),
+			);
+			const [first, ...rest] = reseeded;
+			rowIdentity.stage(reseeded, { kind: "replace" });
+			onChange(isIn(left, first, ...rest));
+			return;
+		}
 		const accepts = compatibleTypesFor(resolveExpressionType(left, ctx));
 		const reseeded = value.values.map((item) =>
 			accepts.has(literalType(item))
@@ -177,10 +212,9 @@ function EditableInCard({
 	const append = () => {
 		// Seed the new value of the subject's type so the appended row
 		// lands type-correct (an int `in` can't add a text `literal("")`).
-		const seed = reseedLiteralForConstraint(
-			literal(""),
-			compatibleTypesFor(subjectType),
-		);
+		const seed =
+			(comparesType ? caseTypeSeed(value.values) : undefined) ??
+			reseedLiteralForConstraint(literal(""), compatibleTypesFor(subjectType));
 		const [first, ...rest] = value.values;
 		const next = [...value.values, seed];
 		rowIdentity.stage(next, {
@@ -202,6 +236,23 @@ function EditableInCard({
 					constraint={inSubjectConstraint()}
 					presentation="subject"
 					variant="nested"
+					admitReplacement={(left) => {
+						if (!comparesCaseType(left))
+							return (
+								ctx.admitExpressionChange?.(appendSlot(path, "left"), left) ?? {
+									admitted: true,
+								}
+							);
+						const seed = caseTypeSeed([]);
+						return seed === undefined
+							? {
+									admitted: false,
+									reason: "Add a case type to the app first",
+								}
+							: (ctx.admitExpressionChange?.(path, isIn(left, seed)) ?? {
+									admitted: true,
+								});
+					}}
 				/>
 				<PredicateVerbMenu value={value} onChange={onChange} />
 			</div>
@@ -218,6 +269,14 @@ function EditableInCard({
 						propertyName={propertyName}
 						accepts={valueAccepts}
 						indexPath={appendSlotIndex(path, "values", i)}
+						caseTypeValues={
+							comparesType
+								? {
+										caseTypes: caseTypeNames,
+										possible: possibleRowCaseTypes(ctx),
+									}
+								: undefined
+						}
 					/>
 				))}
 				<Button
@@ -244,6 +303,7 @@ function ValueRow({
 	propertyName,
 	accepts,
 	indexPath,
+	caseTypeValues,
 }: {
 	readonly value: Literal;
 	readonly onChange: (next: Literal) => void;
@@ -253,20 +313,34 @@ function ValueRow({
 	readonly propertyName: string | undefined;
 	readonly accepts: ReadonlySet<ScalarType> | undefined;
 	readonly indexPath: EditorPath;
+	readonly caseTypeValues?: {
+		readonly caseTypes: readonly string[];
+		readonly possible: readonly string[];
+	};
 }) {
 	const errors = useEditorErrorsAt(indexPath);
 	return (
 		<div className="space-y-0.5" data-removal-focus-row>
 			<div className="flex items-start gap-1.5">
 				<div className="flex-1">
-					<LiteralValueInput
-						value={value}
-						onChange={onChange}
-						caseTypeName={caseTypeName}
-						propertyName={propertyName}
-						accepts={accepts}
-						invalid={errors.length > 0}
-					/>
+					{caseTypeValues === undefined ? (
+						<LiteralValueInput
+							value={value}
+							onChange={onChange}
+							caseTypeName={caseTypeName}
+							propertyName={propertyName}
+							accepts={accepts}
+							invalid={errors.length > 0}
+						/>
+					) : (
+						<CaseTypeValuePicker
+							value={typeof value.value === "string" ? value.value : undefined}
+							onChange={(name) => onChange(literal(name))}
+							caseTypes={caseTypeValues.caseTypes}
+							possible={caseTypeValues.possible}
+							invalid={errors.length > 0}
+						/>
+					)}
 				</div>
 				{!isOnlyOne && (
 					<SimpleTooltip content="Remove this value">

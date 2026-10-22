@@ -158,8 +158,18 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 		"Search results come in no fixed order. You can count them instead",
 	"search-results-other-type": () => "This search can't find that kind of case",
 	"row-scope": () => "Choose information from the row being checked",
-	"datum-not-supplied": () =>
-		"Choose information supplied when this screen opens",
+	"datum-not-supplied": (_path, reason) => {
+		switch (reason) {
+			case "not-before":
+				return "That menu's case isn't chosen before this runs. You can read a case chosen in an earlier menu";
+			case "differs":
+				return "Another menu shows this list and keeps that choice in another place. You can remove this read";
+			case "several-cases":
+				return "That menu chooses several cases, so there is no one case to read. You can read a menu that chooses one case";
+			default:
+				return "Choose information supplied when this screen opens";
+		}
+	},
 	"record-position": () => "Use position only while checking a list of records",
 	"many-values": () =>
 		"This needs one value. You can read one entry, or count or join them",
@@ -167,6 +177,19 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 		"CommCare compares times to the millisecond. You can choose a time to the millisecond, second or minute",
 	"format-date-pattern-not-fixed": () =>
 		"This date format can't change from row to row here. You can choose a fixed format",
+	"closed-on-not-on-device": () =>
+		"Date closed is known only to CommCare's server search. Case status shows whether a case is closed",
+	"case-type-ordering": () =>
+		"Case types can be compared only as equal or not equal",
+	"epoch-fraction-on-device": () =>
+		"A device counts only whole days here. You can use a whole number of days",
+	"runtime-selected-value-type": () =>
+		"Choose a text value or a choice question's answer",
+	"runtime-selected-value-on-device": () =>
+		"Choose a single-choice value here, or use it in a search field's condition",
+	"distance-not-numeric": () => "Choose a number for the distance",
+	"distance-unit-type": () =>
+		"Choose a text value or a single choice that names the distance unit",
 };
 
 /**

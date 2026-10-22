@@ -693,6 +693,24 @@ so names remain projections through renames; only live places count toward
 current totals and adoption. This is generated guidance, not an assertion
 that a manual HQ setup step has been completed.
 
+The `distance-search` section names each `(case type, property)` a
+`within-distance` in a CommCare HQ search reads
+(`lib/commcare/distanceSearches.ts::distanceSearchProperties`, over the
+clauses `composeXPathQueryClauses` sends for every module whose effective
+Search lands; a relation read names the case type it lands on). HQ answers
+the query on `case_properties.geopoint_value`, which its case search pillow
+fills only for the project's geo case property (`GeoConfig`, `gps_point` by
+default) and, under `DATA_DICTIONARY`, for the properties the Data Dictionary
+types GPS (`corehq/pillows/case_search.py::_add_smart_types`). The Data
+Dictionary is target-owned and takes edits only from a browser session
+(`data_dictionary/views.py::update_case_property`), and no API key reads the
+geo property, so every property stays listed, always. The plan requirement
+(`DATA_DICTIONARY` and `DATA_DICT_TYPES`, both first in `advanced_v0`) is
+said in the section's caveats, not asked as a plan-feature confirmation:
+`confirm_plan_features` is a served MCP enum. Its copy lives once in
+`lib/publish/distanceSearchSetup.ts`, which the HQ import file's guide reads
+too.
+
 Every section is target-aware — the project space slug is in each URL —
 and no section claims Nova installed anything. When a push driver ships
 for one of them, that section becomes a record of what Nova did: the same

@@ -138,13 +138,16 @@ family is read by the reader the surface records for it:
   and the app JSON's default property) is an expression whose value is CSQL.
   The strings it can send are read through Core's parser (the runner's
   ``xpathStrings`` op: ``concat()`` and ``if()`` over its string literals,
-  every other value a hole), and each is parsed by HQ's own CSQL parser
+  every other value a hole, ``today()`` a hole of its own that HQ reads as
+  a date), and each is parsed by HQ's own CSQL parser
   (``eulxml.xpath.parse``, which ``case_search/filter_dsl.py::build_filter_from_xpath``
   runs), both as the record holds them: each function (``csql-fn:<name>``),
-  operator (``csql-op:<op>``),
+  operator (``csql-op:<op>``; a relative path's ``/`` is a related case's
+  property, ``ancestor_functions.py::is_ancestor_comparison``, no operator),
   case metadata a step names (``csql-metadata:<name>``, as
   ``comparison.py::property_comparison_query`` reads a step) and distance
-  unit (``csql-unit:<unit>``, ``within-distance``'s fourth argument). The
+  unit (``csql-unit:<unit>``, ``within-distance``'s fourth argument, where
+  the export names one: a unit only the run time knows is no unit's use). The
   strings are every branch's, whether or not the branch's condition can hold
   with the others (Nova's quote guards choose a quote by the value, so some
   combinations are strings Core never sends), so a string HQ's parser

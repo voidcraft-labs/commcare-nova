@@ -4,7 +4,7 @@ Lowers `Expression` / `RelationPath` AST nodes into Kysely typed-builder calls P
 
 ## Dispatch + the cycle break
 
-Every operand is one `Expression`; condition arms dispatch through the predicate compiler and value arms through the expression compiler. `expressionContextFor` lifts a predicate context into an expression context by attaching a `compilePredicate` callback — that callback is the cycle break letting the expression compiler's predicate-bearing arms (`if.cond`, `count.where`) recurse back without an import cycle. The per-data-type cast/read-operator tables live in one data-only module so extending the `data_type` enum surfaces a single `Record` exhaustivity error. An arm no profile with a Postgres target admits, and a read no reading holds (`closed_on` outside `search`), throws an invariant through `lib/domain/expression/errors.ts::compilerBugMessage`, whose sentence names the profile rule that keeps it out.
+Every operand is one `Expression`; condition arms dispatch through the predicate compiler and value arms through the expression compiler. `expressionContextFor` lifts a predicate context into an expression context by attaching a `compilePredicate` callback — that callback is the cycle break letting the expression compiler's predicate-bearing arms (`if.cond`, `count.where`) recurse back without an import cycle. The per-data-type cast/read-operator tables live in one data-only module so extending the `data_type` enum surfaces a single `Record` exhaustivity error. An arm no profile with a Postgres target admits, and a read no reading holds (`closed_on` outside `search`), throws an invariant through `lib/domain/expression/errors.ts::compilerBugMessage`, whose sentence names the profile rule that keeps it out: among them a `session-datum` other than a `selected-case`, and a `project` other than of the chosen case. A case-list filter that reads the case chosen in an earlier menu compiles its id as a bound parameter from the entry's session map (`TermBindings.chosenCaseIds`, module UUID to case id), and a property of it as a correlated read of that case's row (this app, its Project, the menu's case type, not held, inside the restore scope), under the slot's reading; an id that names no such row reads the property as absent. `lib/domain/expression/chosenCase.ts::readChosenCaseProperty` is the one recognizer of that read.
 
 Every type-dependent SQL decision uses `recordQueryContextFor`: a `RecordQueryContext` derived from the current row schemas, lookup-row scope, form field types, search input declarations, and resolved operation identities. This runtime context has no authored slot or device profile. It is rebuilt after lexical rebinding rather than cached beside mutable compiler metadata.
 
@@ -24,7 +24,7 @@ The generic AST also carries contextual case-operation leaves: `field { uuid }`,
 
 The stack emits no `sql.raw`. `sql` tagged templates appear only in `compilePredicate.ts`'s dynamic fuzzy-date helpers, where every interpolation is a typed-builder expression. Three Postgres features that look like they need raw emission are routed through typed-builder primitives instead:
 
-- `today` takes the date of `timezone(viewerTimeZone, now())`: the transaction-stable instant in the viewer's local calendar, matching form/device `today()`, with the same validated UTC fallback as `format-date`. The database session timezone cannot change overdue decisions.
+- `today` takes the date of `timezone(viewerTimeZone, now())`: the transaction-stable instant in the viewer's local calendar, matching form/device `today()`, with the same validated UTC fallback as `format-date`. The database session timezone cannot change overdue decisions. A CSQL slot arrives folded: the day there is the one Core's `today()` gives in the viewer's zone, which is the same day.
 - `interval` isn't in Kysely's castable types → `date-add` builds through `make_interval(...)`, which returns interval directly. Fixed-duration units multiply a one-unit interval by a `float8` quantity so fractions remain representable. Calendar units check `q = trunc(q)` before adapting to `make_interval`'s integer slot: integral decimal spellings such as `1.0` work, while `1.5` raises instead of Postgres silently rounding it. The compiler resolves the base through the canonical temporal type rules: date bases cast the shifted result back to `date`, while datetime bases remain `timestamptz`, matching CCHQ's distinct `date-add` / `datetime-add` results.
 - `datetime-coerce` must match CCHQ CSQL rather than Postgres's session defaults: every NAIVE value — a date-only string AND a zone-less datetime-with-time — resolves as UTC even when the connection `TimeZone` is not UTC (CCHQ parses naive values on its UTC servers). Offset-bearing values still use `timestamptz` parsing so an explicit `Z` or numeric offset wins. Naive `data_type: "datetime"` literals pin the same way, statically, in `compileLiteral`. A custom `datetime` property read is strict (`compileTerm.ts::compileStoredInstant`): its text names an instant only in the shape a writer stores (`yyyy-MM-ddTHH:mm:ss`, any fraction, then `Z`, `±HH`, `±HH:MM` or no offset) and where `pg_input_is_valid` reads it, a naive value as UTC; any other text, padded text included, is `NULL`, so it neither fails the query nor follows the session `TimeZone`. `today` and `format-date` use the viewer's local calendar; `format-date` it parses naive operands and renders wall-clock tokens in the viewer's timezone (`TermBindings.viewerTimeZone`, browser-supplied, UTC fallback) because the device formats in ITS local zone and the browser stands in for the device — this keeps calculated columns and client-side date columns showing the same wall time. Every such device reading of the viewer's zone goes through `javaZone.ts`, which reads it as `java.util.TimeZone` does rather than as Postgres's `timezone()` does: an instant's wall clock (`javaLocalTimestamp`), its `%Z` offset (`javaOffsetMinutes`, whole minutes truncated) and a wall clock's instant (`javaWallInstant`, a repeated clock at its later reading, a skipped one forward by the gap) all take the zone's standard offset before 1900-01-01T00:00Z, where the tzdb would give local mean time (`lib/domain/javaZoneOffset.ts`). HQ's readings stay at UTC, where the two agree. Keep the non-UTC Postgres harnesses for the coercion, the literal, the exact/range calendar-search lowerings, and the viewer-zone rendering.
 - `geography` isn't castable either → `within-distance` builds via `ST_GeogFromText('POINT(lon lat)')` (SRID 4326 default per postgis.net docs), with the WKT composed through `concat(...)` so numerics stay typed-builder arguments.
@@ -63,7 +63,8 @@ an interval column's key) is HQ's `json_format_datetime` built at UTC
 (`compileExpression.ts::compileReadingText`), never the session-zoned
 `timestamptz` cast. Under `search`, both are
 the stored instants, and `closed_on` is readable only there
-(`compileTerm.ts::reservedColumnFor`). The reading follows self, parent and
+(`compileTerm.ts::reservedColumnFor`); under any other reading it is an
+invariant, because the checker admits it only in an advanced search predicate. The reading follows self, parent and
 nested predicate reads, and it decides how a number becomes a date ("Day
 numbers").
 
@@ -120,7 +121,7 @@ because a device compares a blank number as `NaN` and the instant lowering reads
 a blank as no instant. An ordering against a decided blank comparand is false.
 A literal `null` is a decided blank comparand, the same as `''`: the device's
 wire (`lib/commcare/xpath/wire/fromExpression.ts::wireLiteral`) and a CSQL
-search (`lib/commcare/predicate/termEmitter.ts`) both print it as `''`, so
+search (`lib/commcare/csql/emitter.ts`) both print it as `''`, so
 `p = null` is the absence check of `p`, `p != null` its two-valued negation,
 an ordering against it is false, and an `in` member that is `null` keeps the
 cases that lack the property.
@@ -141,6 +142,45 @@ zones whose offset moved by more than twelve hours after 1970, where a device's
 list and HQ's search differ by a day and Preview shows each as its runtime does.
 The compiler has no formula for a date read as a number: no slot with a
 Postgres target reaches one.
+
+## CSQL slots arrive folded
+
+Preview evaluates a Search's runtime segments, runtime choices and obligations
+in the browser, and `lib/commcare/csql/fold.ts::foldCsqlRuntime` replaces each
+with a literal, its chosen branch or `match-none` before this compiler runs, so
+no runtime leaf reaches a CSQL compile. Preview folds the rows of the case list
+filter and the advanced inputs' predicates (`lib/preview/engine/searchCsqlRuntime.ts`);
+a simple input arrives as the literal its answer is. A row neither Preview's
+evaluator nor its XPath worker could work out never reaches this compiler: the
+Results read refuses the search (`SearchCsqlRuntimeWire.unevaluated`), as it
+refuses a row left holding a device-only read no value arrived for. Any other
+node no value arrived for compiles through the ordinary bindings
+(`TermBindings.searchInputs`, `sessionContext`), which leave the CSQL path
+otherwise. A read keyed by case ids (the registered case) compiles no row of
+the search. `value-list` compiles to `<anchor's stored text> in (<item>, …)`,
+HQ's exact `terms` on the text a case holds (`compileTerm.ts::compileStoredText`:
+`properties->>'p'` uncast, a system anchor its column, a multi-select its
+choices joined by spaces), each item bound as the text the device sends and
+none dropped; a `''` item matches the property absent or empty, and `!=` is
+the two-valued negation (`compilePredicate.ts::compileValueListEquality`). A
+number property is the one respelling: Nova stores the number, not the text a
+device wrote (`submissionEnvelope.ts::storageValueFromEvaluation`), so its
+stored text is the canonical spelling (`formatNumeric`), and each item that
+reads as a number is compared as the text Nova would store for it (`'1.10'`
+as `'1.1'`, as HQ finds the case a device wrote `1.10` for). The divergence
+left: HQ matches only the exact spelling, so where the item or the device's
+text is not the canonical one (a case a device wrote `05`, an item `'5.0'`
+for a case written `5`), HQ finds nothing while Nova finds every spelling of
+the same number.
+Value lists are held for import only, so no authored search meets this. A
+`within-distance` whose radius or unit is a value (a browse list's filter can
+hold one; a CSQL slot's fold makes both literal) compiles as a `CASE` over the
+nine units' meter factors (`lib/domain/expression/distance.ts::METERS_PER_DISTANCE_UNIT`),
+the radius read as Core's `number()` reads plain decimal text; an unknown unit
+or a radius not above zero matches nothing. `if` and `switch` over clauses
+compile as `CASE WHEN` (`compileExpression.ts::compileIf`), a null condition
+taking the else branch. `datetime-coerce` of a number is epoch days as an
+instant (`coreDayNumber.ts::compileEpochDayInstant`).
 
 ## Case-list sort keys
 

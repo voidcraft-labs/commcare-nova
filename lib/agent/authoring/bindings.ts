@@ -8,8 +8,10 @@ import {
 	type BlueprintDoc,
 	type CaseType,
 	caseDataTypeForFieldKind,
+	caseSelectionCardinality,
 	effectiveCaseTypes,
 	type FieldKind,
+	type Module,
 	moduleUuidOfForm,
 	searchInputRuntimeValueType,
 	type Uuid,
@@ -29,6 +31,7 @@ import {
 	termSchema,
 } from "@/lib/domain/expression/types";
 import { formRecordScope } from "@/lib/domain/formRecordScope";
+import { isSearchOnlyCaseProperty } from "@/lib/domain/standardCaseProperties";
 import { userPropertiesOf } from "@/lib/domain/users";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import { AuthoringInputError } from "./errors";
@@ -341,7 +344,12 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			throw new AuthoringInputError(
 				`This scope reads ${this.currentCaseType}; use a relationship to read ${type.name}.`,
 			);
-		if (!type.properties.some((candidate) => candidate.name === property))
+		// A search-only property (Date closed) parses as any property; the
+		// checker decides which slots can read it.
+		if (
+			!isSearchOnlyCaseProperty(property) &&
+			!type.properties.some((candidate) => candidate.name === property)
+		)
 			throw new AuthoringInputError(
 				`Record ${type.name} has no property ${property}.`,
 			);
@@ -406,11 +414,54 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 			`Column ${name} in ${table.name}`,
 		);
 	}
+	/** The app's menus, in menu order. */
+	private modules(): Module[] {
+		const { doc } = this.options;
+		return doc.moduleOrder
+			.map((uuid) => doc.modules[uuid])
+			.filter((module): module is Module => module !== undefined);
+	}
+	/** A menu by its UUID, its name or its id, matching exactly one module. */
+	private module(name: string): Module {
+		const modules = this.modules();
+		const identity = modules.find((module) => module.uuid === name);
+		if (identity) return identity;
+		const found = modules.filter(
+			(module) => module.name === name || module.id === name,
+		);
+		if (found.length === 1) return found[0];
+		if (found.length > 1)
+			throw new AuthoringInputError(
+				`More than one menu is called ${name}. You can name the one you mean by its ID: ${found.map((module) => module.uuid).join(", ")}.`,
+			);
+		throw new AuthoringInputError(
+			modules.length === 0
+				? `This app has no menu called ${name}.`
+				: `This app has no menu called ${name}. You can use one of its menus: ${modules.map((module) => module.name).join(", ")}.`,
+		);
+	}
+	chosenCaseMenu(name: string): { module: Uuid; caseType: string } {
+		const module = this.module(name);
+		if (module.caseType === undefined) {
+			const choosing = this.modules().find(
+				(candidate) => candidate.caseType !== undefined,
+			);
+			throw new AuthoringInputError(
+				`${module.name} doesn't ask the worker to choose a case, so there's no chosen case to read.${choosing ? ` You can use a menu that does, such as ${choosing.name}.` : ""}`,
+			);
+		}
+		if (caseSelectionCardinality(module) !== "single")
+			throw new AuthoringInputError(
+				`In ${module.name} the worker chooses several cases at once, so there's no one chosen case to read. You can use a menu where one case is chosen.`,
+			);
+		return { module: module.uuid, caseType: module.caseType };
+	}
 	identity(
-		kind: "table" | "column" | "operation" | "location" | "level",
+		kind: "table" | "column" | "operation" | "location" | "level" | "module",
 		name: string,
 		owner?: string,
 	): string {
+		if (kind === "module") return this.module(name).uuid;
 		if (kind === "table") return this.table(name).id;
 		if (kind === "column") {
 			if (!owner)
@@ -456,12 +507,13 @@ export class AuthoringScope implements QueryBindings, QueryPrintContext {
 		});
 	}
 	name(
-		kind: "table" | "column" | "operation" | "location" | "level",
+		kind: "table" | "column" | "operation" | "location" | "level" | "module",
 		id: string,
 		owner?: string,
 	): string {
 		let name: string | undefined;
-		if (kind === "table")
+		if (kind === "module") name = this.options.doc.modules[id as Uuid]?.name;
+		else if (kind === "table")
 			name = this.tables.find((table) => table.id === id)?.name;
 		else if (kind === "column")
 			name = this.tables

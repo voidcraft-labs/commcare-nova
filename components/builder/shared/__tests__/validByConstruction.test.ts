@@ -11,16 +11,27 @@ import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFix
 // tested separately. No React or DOM renderer.
 
 import { describe, expect, it } from "vitest";
-import { type CaseType, casePropertyDataTypes } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
+import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
+import { type CaseType, casePropertyDataTypes, type Uuid } from "@/lib/domain";
 import {
+	chosen,
+	chosenCaseDoc,
+} from "@/lib/domain/__tests__/chosenCaseFixture";
+import {
+	ANY_CONSTRAINT,
 	type ComparisonKind,
 	checkExpression,
 	comparisonOperatorsFor,
 	compatibleTypesFor,
 	type Expression,
+	type ExpressionSlotRef,
 	eq,
 	gt,
 	gte,
+	input,
+	isBlank,
 	type Literal,
 	literal,
 	literalType,
@@ -28,18 +39,38 @@ import {
 	lte,
 	MATCH_MODES,
 	match,
+	matchAll,
 	matchModesFor,
 	neq,
 	prop,
 	type ScalarType,
+	slotContext,
 	type Term,
 	term,
 } from "@/lib/domain/expression";
+import {
+	chosenCaseId,
+	chosenCaseProperty,
+} from "@/lib/domain/expression/chosenCase";
 import { proseText } from "@/lib/domain/prose";
+import { wrapInConditionChoice } from "../cards/ConditionChoiceCard";
 import {
 	reseedLiteralForConstraint,
 	reseedValueForConstraint,
 } from "../cards/reseed";
+import { caseTypeValueGroups } from "../caseTypeValueModel";
+import { replaceComparisonSubject } from "../comparisonModel";
+import { firstConditionSeed } from "../conditionSeed";
+import {
+	predicateCardSchemas,
+	predicateUnavailableReason,
+} from "../editorSchemas";
+import {
+	caseRowTypeAdmission,
+	chosenCaseSources,
+	searchOnlyPropertyChoices,
+} from "../termEditorModel";
+import { workbenchExpressionAdmission } from "../workbenchAdmission";
 
 // A case type carrying one property of every data type, so a subject of
 // any type is constructible as `prop("ct", `p_${type}`)`.
@@ -161,6 +192,233 @@ describe("valid by construction — match admission ⟺ checker", () => {
 					`${mode} on ${t}: admitted=${admitted} checks=${checks}`,
 				).toBe(admitted);
 			}
+		}
+	});
+});
+
+// ── Pull request 10: the CSQL offers ────────────────────────────────────
+//
+// Each new offer is the exact expression its card or menu commits, judged by
+// `expressionEditVerdict` over real slot contexts, so "offered" and
+// "admitted by the gate" are one set.
+
+const CHOSEN_SLOTS: readonly ExpressionSlotRef[] = [
+	chosen.villages,
+	chosen.households,
+	chosen.members,
+].flatMap((module) => [
+	{ entity: "module", uuid: module, slot: "case_list_filter" } as const,
+	{ entity: "module", uuid: module, slot: "module_display_condition" } as const,
+]);
+
+describe("valid by construction — the case chosen in an earlier menu", () => {
+	it("offers a menu's chosen case exactly where the profile and the entry's supplies admit it", () => {
+		for (const several of [false, true]) {
+			const doc = chosenCaseDoc();
+			if (several)
+				doc.modules[chosen.villages].caseListConfig = {
+					...caseListConfig([]),
+					selection: { kind: "multiple", maximum: 3 },
+				};
+			for (const slot of CHOSEN_SLOTS) {
+				const context = slotContext(doc, slot, new Map());
+				if (context === undefined) throw new Error("Missing fixture slot.");
+				const offered = new Set(
+					chosenCaseSources(context).map((source) => source.module),
+				);
+				for (const module of Object.keys(doc.modules) as Uuid[]) {
+					const caseType = doc.modules[module]?.caseType ?? "";
+					// The subject is the list's own case; the value is the chosen one.
+					const subject = term(
+						prop(doc.modules[slot.uuid]?.caseType ?? "", "case_name"),
+					);
+					const reads = [
+						eq(subject, chosenCaseId(module)),
+						eq(subject, chosenCaseProperty(module, caseType, "case_name")),
+					];
+					for (const read of reads)
+						expect(
+							expressionEditVerdict(read, context).ok,
+							`${slot.slot} of ${doc.modules[slot.uuid]?.name} reading ${doc.modules[module]?.name} (several=${several})`,
+						).toBe(offered.has(module));
+				}
+			}
+		}
+	});
+});
+
+const CHOICE_VOCABULARY = {
+	caseTypes: [CASE_TYPE],
+	knownInputs: [],
+	currentCaseType: "ct",
+};
+const CHOICE_CARRIERS = [
+	"search-predicate",
+	"search-case-filter",
+	"case-filter",
+	"selected-case-condition",
+	"global-condition",
+] as const;
+
+describe("valid by construction — Depends on a condition", () => {
+	it("is applicable exactly where the gate admits the choice it adds or wraps", () => {
+		for (const carrier of CHOICE_CARRIERS) {
+			const editCtx = expressionEditorFixture(carrier, {
+				...CHOICE_VOCABULARY,
+				caseDataScope:
+					carrier === "global-condition"
+						? ("global" as const)
+						: carrier === "selected-case-condition"
+							? ("selected-case" as const)
+							: ("per-case" as const),
+			}).context;
+			const schema = predicateCardSchemas.if;
+			const applicable = schema.applicable(editCtx);
+			const seed = schema.defaultValue(editCtx);
+			expect(seed.kind).toBe("if");
+			expect(
+				expressionEditVerdict(seed, editCtx.expressionContext).ok,
+				`${carrier}: fresh choice`,
+			).toBe(applicable);
+			const current = firstConditionSeed(editCtx) ?? matchAll();
+			expect(
+				expressionEditVerdict(
+					wrapInConditionChoice(current, editCtx),
+					editCtx.expressionContext,
+				).ok,
+				`${carrier}: wrapped choice`,
+			).toBe(applicable);
+			if (!applicable)
+				expect(predicateUnavailableReason("if", editCtx)).toBeTruthy();
+		}
+		// The CSQL slots and the case list filter admit it.
+		expect(
+			predicateCardSchemas.if.applicable(
+				expressionEditorFixture("search-predicate", CHOICE_VOCABULARY).context,
+			),
+		).toBe(true);
+	});
+
+	it("decides by another search field where there is one, and otherwise always matches", () => {
+		const current = eq(term(prop("ct", "p_text")), term(literal("a")));
+		const answer = testUuid("choice-answer");
+		const search = expressionEditorFixture("search-predicate", {
+			...CHOICE_VOCABULARY,
+			knownInputs: [{ uuid: answer, name: "area", data_type: "text" }],
+		}).context;
+		// The fixture's own field (whose condition this is) is never the seed.
+		expect(wrapInConditionChoice(current, search).cond).toEqual(
+			isBlank(term(input(answer))),
+		);
+		const plain = expressionEditorFixture(
+			"case-filter",
+			CHOICE_VOCABULARY,
+		).context;
+		expect(wrapInConditionChoice(current, plain).cond).toEqual(matchAll());
+	});
+
+	it("keeps the wrapped condition as both branches", () => {
+		const current = eq(term(prop("ct", "p_text")), term(literal("a")));
+		const wrapped = wrapInConditionChoice(
+			current,
+			expressionEditorFixture("case-filter", CHOICE_VOCABULARY).context,
+		);
+		expect(wrapped.then).toBe(current);
+		expect(wrapped.else).toBe(current);
+	});
+});
+
+describe("valid by construction — Case type", () => {
+	it("commits only comparisons the gate admits, in every case-row slot", () => {
+		for (const carrier of [
+			"search-predicate",
+			"search-case-filter",
+			"case-filter",
+		] as const) {
+			const editCtx = expressionEditorFixture(
+				carrier,
+				CHOICE_VOCABULARY,
+			).context;
+			const context = editCtx.expressionContext;
+			for (const kind of ["eq", "neq", "gt"] as const) {
+				const current =
+					kind === "gt"
+						? gt(term(prop("ct", "p_int")), term(literal(1)))
+						: COMPARISON_BUILDERS[kind](
+								term(prop("ct", "p_text")),
+								term(literal("")),
+							);
+				const next = replaceComparisonSubject(
+					current as Parameters<typeof replaceComparisonSubject>[0],
+					term({ kind: "case-row-type" }),
+					editCtx,
+				);
+				const admission = caseRowTypeAdmission(
+					{
+						admitExpressionChange: (path, candidate) =>
+							workbenchExpressionAdmission(current, path, candidate, context),
+					},
+					ANY_CONSTRAINT,
+					["left"],
+					() => {
+						const verdict = expressionEditVerdict(next, context);
+						return verdict.ok
+							? { admitted: true }
+							: { admitted: false, reason: verdict.reason };
+					},
+				);
+				// Equality is offered and its committed rule is admitted; an
+				// ordering is refused (case types can't be ordered).
+				expect(admission.admitted, `${carrier} ${kind}`).toBe(kind !== "gt");
+				if (kind !== "gt") {
+					expect(next).toMatchObject({
+						right: {
+							kind: "term",
+							term: { kind: "case-type", caseType: "ct" },
+						},
+					});
+					expect(expressionEditVerdict(next, context).ok).toBe(true);
+				}
+			}
+			// Every case type the value picker lists is admitted.
+			for (const name of caseTypeValueGroups(
+				context.facts.caseTypes.map((type) => type.name),
+				["ct"],
+			).likely)
+				expect(
+					expressionEditVerdict(
+						eq(
+							term({ kind: "case-row-type" }),
+							term({ kind: "case-type", caseType: name }),
+						),
+						context,
+					).ok,
+				).toBe(true);
+		}
+	});
+});
+
+describe("valid by construction — Date closed", () => {
+	it("is offered exactly where the gate admits reading it", () => {
+		for (const carrier of [
+			"search-predicate",
+			"search-case-filter",
+			"case-filter",
+		] as const) {
+			const context = expressionEditorFixture(carrier, CHOICE_VOCABULARY)
+				.context.expressionContext;
+			const offered = searchOnlyPropertyChoices(context).some(
+				(choice) => choice.property.name === "closed_on",
+			);
+			const read = gt(
+				term(prop("ct", "closed_on")),
+				term({
+					kind: "literal",
+					value: "2026-01-01T00:00:00Z",
+					data_type: "datetime",
+				}),
+			);
+			expect(expressionEditVerdict(read, context).ok, carrier).toBe(offered);
 		}
 	});
 });

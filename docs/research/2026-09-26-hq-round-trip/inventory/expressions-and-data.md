@@ -155,7 +155,7 @@ Every JavaRosa call name is recognized in Nova's form-expression profile today (
 | `#registry_case/…` | **REFUSED**: retiring (DATA_REGISTRY) | — | — |
 | `#user/<prop>` | → Usercase, `#user/<prop>` | — | — |
 | `#session/…` (HQ shorthand in navigation slots) for the context and user paths Nova holds | **HELD** | RUNS / RUNS | expanded `instance('commcaresession')/session/…` path |
-| `#session/data/<datum>` (HQ shorthand in navigation slots) | **HELD-NEW**: typed session datums | RUNS / RUNS | expanded `instance('commcaresession')/session/…` path |
+| `#session/data/<datum>` (HQ shorthand in navigation slots) | **HELD**: typed session datums | RUNS / RUNS | expanded `instance('commcaresession')/session/…` path |
 | an invalid XPath in a bind attribute | **REFUSED**: not HQ-buildable: JavaRosa fatal | — | — |
 
 ## Media

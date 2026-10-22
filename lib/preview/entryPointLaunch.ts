@@ -11,6 +11,7 @@ import {
 	type NavigationDeviceCases,
 	navigationSelectedCase,
 } from "./engine/displayConditionEvaluation";
+import { caseListStepSession } from "./engine/entrySessionData";
 import type { PreviewSearchSessionValues } from "./engine/identity";
 import type { PreviewLookupStatus } from "./engine/useLookupPreviewData";
 import type { CaseDatabaseSnapshot } from "./engine/xpathInstances";
@@ -192,6 +193,11 @@ export function prepareEntryPointLaunch(args: {
 							item.target.moduleUuid,
 							item.target.formUuid,
 							selection.cases[0].caseId,
+							caseListStepSession(args.doc, item.target.moduleUuid, {
+								menuSelections,
+								caseDatabase: args.database,
+								identity: args.session,
+							}).data,
 						)
 					: undefined;
 			if (

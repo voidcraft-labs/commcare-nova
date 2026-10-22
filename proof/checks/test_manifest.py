@@ -642,7 +642,8 @@ def test_a_stack_query_is_a_request_to_the_case_fixture_view_not_a_search(hq, ma
 
 def test_the_csql_strings_are_each_branchs_over_the_expressions_literals(core_runner):
     """The runner's xpathStrings op: concat() combines its arguments' strings, if() gives either branch's, and
-    any other value is the hole; a number literal is the text Core's string() gives it."""
+    any other value is the hole; a number literal is the text Core's string() gives it, and today() is the date
+    hole where the request names one."""
     result = core_runner.request(
         "xpathStrings",
         deadline=60.0,
@@ -653,6 +654,11 @@ def test_the_csql_strings_are_each_branchs_over_the_expressions_literals(core_ru
     assert result[1] == {"strings": ["H"], "truncated": False}
     assert result[2] == {"strings": ["one"], "truncated": False}
     assert "error" in result[3]
+    expressions = ["concat('due <= ', today(), ' and seen <= ', now())"]
+    dated = core_runner.request("xpathStrings", deadline=60.0, hole="H", dateHole="D", expressions=expressions)
+    assert dated["results"] == [{"strings": ["due <= D and seen <= H"], "truncated": False}]
+    undated = core_runner.request("xpathStrings", deadline=60.0, hole="H", expressions=expressions)
+    assert undated["results"] == [{"strings": ["due <= H and seen <= H"], "truncated": False}]
 
 
 def test_one_element_two_parsers_read_is_named_by_each(manifest):

@@ -29,6 +29,7 @@ import {
 	appReadsPlaces,
 	expressionReadsCaseDatabase,
 } from "./expressionCaseReads";
+import { moduleSearchReadsCaseDatabase } from "./searchCsqlRuntime";
 import type { CaseDatabaseSnapshot } from "./xpathInstances";
 
 type CaseDatabaseState =
@@ -119,6 +120,12 @@ export function caseDatabaseRequirements(
 			item.displayCondition !== undefined &&
 			expressionReadsCaseDatabase(item.displayCondition, doc),
 	);
+	/* A search's runtime pieces are worked out on the device before it sends
+	 * them (`searchCsqlRuntime.ts::evaluateSearchCsqlRuntime`); one that reads
+	 * the device's cases waits on the same snapshot. */
+	const searchReference = Object.values(doc.modules).some(
+		moduleSearchReadsCaseDatabase,
+	);
 	/* After-submit routing can carry an existing case, select an unchanged
 	 * related case, or walk an unchanged ancestor even when none of its authored
 	 * XPath mentions `instance('casedb')`. The transaction patch contains only
@@ -142,6 +149,7 @@ export function caseDatabaseRequirements(
 		explicitReference ||
 		proseReference ||
 		navigationReference ||
+		searchReference ||
 		(hasAfterSubmitTask && hasCaseBearingModule);
 	const caseTypes = required
 		? [
@@ -219,7 +227,7 @@ export function PreviewCaseDatabaseProvider({
 		],
 	);
 
-	const { state } = useReloadableResource<CaseDatabaseState>({
+	const { state, reload } = useReloadableResource<CaseDatabaseState>({
 		prepare: () => {
 			if (
 				!requirements.required ||
@@ -276,6 +284,12 @@ export function PreviewCaseDatabaseProvider({
 	useLayoutEffect(() => {
 		controller.setCaseDatabaseState(controllerState);
 	}, [controller, controllerState]);
+	/* A screen that waits on the device's cases offers a retry of a failed
+	 * load through the controller (`useNavigationDeviceCases.ts`). */
+	useLayoutEffect(() => {
+		controller.setDeviceCaseDatabaseReload(reload);
+		return () => controller.setDeviceCaseDatabaseReload(undefined);
+	}, [controller, reload]);
 
 	return (
 		<CaseDatabaseResourceBoundary

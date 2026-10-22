@@ -321,6 +321,22 @@ function locatePredicate(
 		case "match-all":
 		case "match-none":
 			return undefined;
+		// "Depends on a condition": each of its three slots is a condition.
+		case "if":
+			return first === "if" &&
+				(second === "cond" || second === "then" || second === "else")
+				? descendPredicate(
+						value[second],
+						[first, second],
+						rest,
+						currentCaseType,
+						second === "cond"
+							? "Deciding condition"
+							: second === "then"
+								? "Condition used"
+								: "Condition used otherwise",
+					)
+				: undefined;
 	}
 }
 

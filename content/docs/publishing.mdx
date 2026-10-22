@@ -423,6 +423,13 @@ and the values already filled in.
   on CommCare HQ can validate or filter on.
 - **Automations.** Each rule or alert, created on the relevant page. Changing an
   automation in Nova does not change one you already made on CommCare HQ.
+- **Finding cases by distance.** CommCare HQ's search measures distance only on
+  a case property its Data Dictionary marks as GPS, so a search that finds cases
+  within a distance finds none there until each property it measures has that
+  data type. Nova names each property, its case type and the searches that read
+  it. The Data Dictionary comes with the Advanced and Enterprise plans, and
+  Preview finds these cases whatever the type. The import file's README holds
+  the same step.
 
 These notes are generated fresh every time you look at them, so they always
 match your app as it is now.

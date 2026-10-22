@@ -17,8 +17,14 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
+	chosen,
+	chosenCaseDoc,
+	chosenCaseProperty,
+} from "@/lib/domain/__tests__/chosenCaseFixture";
+import {
 	concat,
 	dateCoerce,
+	eq,
 	formField,
 	input,
 	isBlank,
@@ -599,6 +605,34 @@ describe("incrementalValidationScope", () => {
 
 			expect(expectCommitParity(doc, [mutation]).ok).toBe(true);
 		}
+	});
+
+	it("matches the absolute gate when a menu whose chosen case another list reads switches to several cases", () => {
+		// Members' list reads the household chosen before it; a switch of
+		// Households to several cases refuses that read in Members' rules,
+		// which the selection footprint must reach (part 05 §1.7).
+		const doc = chosenCaseDoc();
+		const members = doc.modules[chosen.members];
+		doc.modules[chosen.members] = {
+			...members,
+			caseListConfig: {
+				...(members.caseListConfig ?? caseListConfig([])),
+				filter: eq(
+					term(prop("member", "village_name")),
+					chosenCaseProperty(chosen.households, "household", "village_name"),
+				),
+			},
+		};
+		const mutation: Mutation = {
+			kind: "setCaseListMeta",
+			uuid: chosen.households,
+			patch: { selection: MULTIPLE_FIVE },
+		};
+		expect(incrementalValidationScope(doc, [mutation])?.moduleUuids).toContain(
+			chosen.members,
+		);
+		const verdict = expectCommitParity(doc, [mutation]);
+		expect(verdict.ok).toBe(false);
 	});
 
 	it("matches the absolute gate when a destination maximum becomes too small", () => {

@@ -88,6 +88,7 @@ import {
 	tableColumn,
 	term,
 } from "@/lib/domain/expression";
+import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
 import { hasCountableRelation } from "../cards/expression/CountCard";
 import { tableLookupDefault } from "../cards/expression/TableLookupCard";
 import {
@@ -96,6 +97,7 @@ import {
 } from "../cards/expression/TermCard";
 import { reseedValueForConstraint } from "../cards/reseed";
 import {
+	type ExpressionChangeAdmission,
 	editorExpressionContext,
 	useEditorErrorsAt,
 	useEditorErrorsBelow,
@@ -164,6 +166,9 @@ interface ExpressionPickerProps {
 	/** Keyboard alternative to drag supplied by list-shaped owners. */
 	readonly onMove?: (key: ReorderKeyboardKey) => void;
 	readonly reorderLabel?: string;
+	/** The owner's verdict for replacing this whole value, judged as the
+	 * owner would rebuild its expression. Passed to the value's source menu. */
+	readonly admitReplacement?: (next: Expression) => ExpressionChangeAdmission;
 }
 
 function termSourceLabel(value: ExpressionOfKind<"term">) {
@@ -181,6 +186,10 @@ function termSourceLabel(value: ExpressionOfKind<"term">) {
 			return "form answer";
 		case "literal":
 			return "value";
+		case "session-datum":
+			return "chosen case";
+		case "case-row-type":
+			return "case type";
 		default:
 			return "saved information";
 	}
@@ -193,9 +202,27 @@ function termSourceLabel(value: ExpressionOfKind<"term">) {
  * footer; passes a kind-replacing menu in the kebab.
  */
 export function ExpressionPicker(props: ExpressionPickerProps) {
-	if (!isCardValue(props.value)) {
+	// A property of the case chosen in a menu is a keyed casedb read, edited
+	// in the value's own source menu beside the case itself.
+	const chosenRead = readChosenCaseProperty(props.value);
+	if (chosenRead !== undefined) {
 		return (
-			<div role="status">This saved expression cannot be edited here yet.</div>
+			<WithExpressionContext path={props.path}>
+				<ExpressionPickerBody
+					{...props}
+					value={term(chosenRead.datum)}
+					chosenProperty={chosenRead.property}
+				/>
+			</WithExpressionContext>
+		);
+	}
+	if (!isCardValue(props.value)) {
+		// Held reads (casedb, table rows, places) that came with an imported
+		// app: kept and emitted as they are, authored by no menu.
+		return (
+			<div role="status" className="text-[13px] text-nova-text-muted">
+				This value came with the app and is kept as it is.
+			</div>
 		);
 	}
 	return (
@@ -216,8 +243,11 @@ function ExpressionPickerBody({
 	dragHandleRef,
 	onMove,
 	reorderLabel,
+	admitReplacement,
+	chosenProperty,
 }: ExpressionPickerProps & {
 	readonly value: ExpressionOfKind<CardValueKind>;
+	readonly chosenProperty?: string;
 }) {
 	const operatorErrors = useEditorErrorsAt(path);
 	const descendantErrors = useEditorErrorsBelow(path);
@@ -389,6 +419,8 @@ function ExpressionPickerBody({
 					constraint={constraint}
 					sourceContext={presentation}
 					computedItems={computedItems}
+					chosenProperty={chosenProperty}
+					admitReplacement={admitReplacement}
 				/>
 				<InlineError errors={[...operatorErrors]} />
 				<AlertDialog

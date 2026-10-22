@@ -38,11 +38,18 @@ import {
 	relationStep,
 	selfPath,
 	sessionUser,
+	switchCase,
+	switchExpr,
 	term,
 	whenInput,
 	within,
 } from "@/lib/domain/expression/builders";
+import {
+	chosenCaseId,
+	chosenCaseProperty,
+} from "@/lib/domain/expression/chosenCase";
 import { inferRecordQuery } from "@/lib/domain/expression/typeChecker";
+import type { Expression } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 import {
 	compilePredicate,
@@ -78,6 +85,7 @@ const PATIENT_SCHEMA: CaseType = {
 		{ name: "bmi", label: proseText("BMI"), data_type: "decimal" },
 		{ name: "dob", label: proseText("DOB"), data_type: "date" },
 		{ name: "last_seen", label: proseText("Last seen"), data_type: "datetime" },
+		{ name: "visit_time", label: proseText("Visit time"), data_type: "time" },
 		{ name: "tags", label: proseText("Tags"), data_type: "multi_select" },
 		{ name: "loc", label: proseText("Location"), data_type: "geopoint" },
 	],
@@ -1934,4 +1942,289 @@ test("blank metadata reads scalar text and timestamp columns", async ({
 	expect(
 		await matchedIds(db, isBlank(prop("patient", "last_modified"))),
 	).toEqual(["blank", "null"]);
+});
+
+test("a radius or unit read from a value is a number above zero and one of CommCare's nine units, or matches nothing", async ({
+	db,
+}) => {
+	// 0.01 degrees of latitude is about 1.11 km from the center.
+	await seedProperties(db, [
+		["origin", { loc: "0 0" }],
+		["about-1.1-km", { loc: "0.01 0" }],
+		["unplaced", {}],
+	]);
+	const near = (radius: string, unit: string) =>
+		makeCtx(db, {
+			reading: "casedb",
+			bindings: {
+				sessionUser: new Map([
+					["radius", radius],
+					["unit", unit],
+				]),
+			},
+		});
+	const fromValues = within(
+		prop("patient", "loc"),
+		literal("0 0"),
+		term(sessionUser("radius")),
+		term(sessionUser("unit")),
+	);
+	for (const [radius, unit, expected] of [
+		["1", "kilometers", ["origin"]],
+		[" 1.5 ", "kilometers", ["about-1.1-km", "origin"]],
+		["1", "miles", ["about-1.1-km", "origin"]],
+		["1300", "yards", ["about-1.1-km", "origin"]],
+		["1000", "meters", ["origin"]],
+		["0", "kilometers", []],
+		["-1", "kilometers", []],
+		["abc", "kilometers", []],
+		["1e3", "meters", []],
+		["1", "parsecs", []],
+		["1", "Kilometers", []],
+	] as const) {
+		expect(
+			await matchedIds(db, fromValues, near(radius, unit)),
+			`${radius} ${unit}`,
+		).toEqual(expected);
+		// No radius matches nothing, so its negation keeps every case, as a
+		// device's NaN comparison and HQ's NOT both do.
+		if (expected.length === 0)
+			expect(await matchedIds(db, not(fromValues), near(radius, unit))).toEqual(
+				["about-1.1-km", "origin", "unplaced"],
+			);
+	}
+	// A literal radius beside a value unit, and the reverse.
+	expect(
+		await matchedIds(
+			db,
+			within(
+				prop("patient", "loc"),
+				literal("0 0"),
+				1,
+				term(sessionUser("unit")),
+			),
+			near("", "miles"),
+		),
+	).toEqual(["about-1.1-km", "origin"]);
+	expect(
+		await matchedIds(
+			db,
+			within(
+				prop("patient", "loc"),
+				literal("0 0"),
+				term(sessionUser("radius")),
+				"kilometers",
+			),
+			near("2", ""),
+		),
+	).toEqual(["about-1.1-km", "origin"]);
+});
+
+test("a list of values is an exact any-of, and its negation keeps the case that lacks the property", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["red", { nickname: "red" }],
+		["quote", { nickname: "it's" }],
+		["blue", { nickname: "blue" }],
+		["empty", { nickname: "" }],
+		["absent", {}],
+	]);
+	const list: Expression = {
+		kind: "value-list",
+		items: [term(literal("red")), term(literal("it's"))],
+	};
+	expect(await matchedIds(db, eq(prop("patient", "nickname"), list))).toEqual([
+		"quote",
+		"red",
+	]);
+	expect(await matchedIds(db, neq(prop("patient", "nickname"), list))).toEqual([
+		"absent",
+		"blue",
+		"empty",
+	]);
+	expect(
+		await matchedIds(
+			db,
+			eq(prop("patient", "age"), {
+				kind: "value-list",
+				items: [term(literal(3)), term(literal(30))],
+			}),
+		),
+	).toEqual([]);
+});
+
+test("a list of values matches each item as the exact text the case holds, a number's as the text Nova stores", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["five", { age: 5, visit_time: "10:00:00", tags: ["urgent", "home"] }],
+		["thirty", { age: 30 }],
+		["empty", { nickname: "" }],
+		["absent", {}],
+	]);
+	const list = (...values: (string | number)[]): Expression => ({
+		kind: "value-list",
+		items: values.map((value) => term(literal(value))) as [
+			Expression,
+			...Expression[],
+		],
+	});
+	// HQ's terms compare the stored text. Nova stores a number as its JSONB
+	// number, so each of these is the text Nova stores for it, `'5'`.
+	expect(
+		await matchedIds(
+			db,
+			eq(prop("patient", "age"), list("5.0", "05", " 5", "5e0")),
+		),
+	).toEqual(["five"]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "age"), list("five", "50"))),
+	).toEqual([]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "age"), list("5", 30))),
+	).toEqual(["five", "thirty"]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "visit_time"), list("10:00"))),
+	).toEqual([]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "visit_time"), list("10:00:00"))),
+	).toEqual(["five"]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "tags"), list("urgent home"))),
+	).toEqual(["five"]);
+	// A blank item finds the blank value, absent or empty, on a number too.
+	expect(
+		await matchedIds(db, eq(prop("patient", "age"), list("", "30"))),
+	).toEqual(["absent", "empty", "thirty"]);
+	expect(
+		await matchedIds(db, eq(prop("patient", "nickname"), list(""))),
+	).toEqual(["absent", "empty", "five", "thirty"]);
+	expect(
+		await matchedIds(db, neq(prop("patient", "age"), list("", "30"))),
+	).toEqual(["five"]);
+	expect(
+		await matchedIds(db, neq(prop("patient", "age"), list("abc"))),
+	).toEqual(["absent", "empty", "five", "thirty"]);
+});
+
+test("a choice between clauses takes the else branch when its condition reads nothing", async ({
+	db,
+}) => {
+	await seedProperties(db, [
+		["child", { age: 10 }],
+		["adult", { age: 30 }],
+		["unknown", {}],
+	]);
+	const adult = gt(prop("patient", "age"), literal(18));
+	expect(await matchedIds(db, ifExpr(adult, matchAll(), matchNone()))).toEqual([
+		"adult",
+	]);
+	expect(await matchedIds(db, ifExpr(adult, matchNone(), matchAll()))).toEqual([
+		"child",
+		"unknown",
+	]);
+	expect(
+		await matchedIds(db, not(ifExpr(adult, matchAll(), matchNone()))),
+	).toEqual(["child", "unknown"]);
+	// A switch over the row's own value chooses a clause per row.
+	const byAge = switchExpr(
+		term(prop("patient", "age")),
+		[switchCase(literal(10), matchAll()), switchCase(literal(30), matchNone())],
+		eq(prop("patient", "nickname"), literal("x")),
+	);
+	expect(await matchedIds(db, byAge)).toEqual(["child"]);
+	expect(await matchedIds(db, not(byAge))).toEqual(["adult", "unknown"]);
+});
+
+test("a case list filter reads the case chosen in an earlier menu from that case's row in the Project", async ({
+	db,
+}) => {
+	const households = testUuid("harness-households-menu");
+	const north = "harness-household-north";
+	const south = "harness-household-south";
+	await db
+		.insertInto("cases")
+		.values([
+			makeCaseRow({
+				case_id: north,
+				app_id: APP_ID,
+				project_id: OWNER_ID,
+				case_type: "household",
+				properties: JSON.stringify({ region: "North" }),
+			}),
+			makeCaseRow({
+				case_id: south,
+				app_id: APP_ID,
+				project_id: OWNER_ID,
+				case_type: "household",
+				properties: JSON.stringify({ region: "South" }),
+			}),
+		])
+		.execute();
+	await seedProperties(db, [
+		["north-north", { nickname: "North" }],
+		["north-south", { nickname: "South" }],
+		["south-north", { nickname: "North" }],
+		["no-name", {}],
+	]);
+	await db
+		.insertInto("case_indices")
+		.values(
+			(
+				[
+					["north-north", north],
+					["north-south", north],
+					["south-north", south],
+				] as const
+			).map(([case_id, ancestor_id]) => ({
+				case_id,
+				ancestor_id,
+				target_case_type: "household",
+				identifier: "parent",
+				relationship: "child" as const,
+				depth: 1,
+			})),
+		)
+		.execute();
+	const choosing = (id: string) =>
+		makeCtx(db, {
+			reading: "casedb",
+			bindings: { chosenCaseIds: { [households]: id } },
+		});
+	// The harness reads every row of the tenant; the list is of patients.
+	const patients = async (predicate: Expression, chosen: string) =>
+		(await matchedIds(db, predicate, choosing(chosen))).filter(
+			(id) => id !== north && id !== south,
+		);
+	const ofChosen = eq(
+		prop("patient", "case_id", ancestorPath(relationStep("parent"))),
+		chosenCaseId(households),
+	);
+	expect(await patients(ofChosen, north)).toEqual([
+		"north-north",
+		"north-south",
+	]);
+	const inChosenRegion = eq(
+		prop("patient", "nickname"),
+		chosenCaseProperty(households, "household", "region"),
+	);
+	expect(await patients(inChosenRegion, north)).toEqual([
+		"north-north",
+		"south-north",
+	]);
+	expect(await patients(not(inChosenRegion), south)).toEqual([
+		"no-name",
+		"north-north",
+		"south-north",
+	]);
+	// An id that names no household of this Project reads no row, so the
+	// property is absent, which a device reads as '': it equals only a case
+	// that lacks the property too.
+	expect(await patients(inChosenRegion, "north-north")).toEqual(["no-name"]);
+	expect(await patients(not(inChosenRegion), "missing")).toEqual([
+		"north-north",
+		"north-south",
+		"south-north",
+	]);
 });

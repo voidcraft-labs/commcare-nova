@@ -59,7 +59,11 @@ import type {
 	SqlBool,
 } from "kysely";
 import { expressionBuilder, sql } from "kysely";
-import { distanceToMeters } from "@/lib/domain/expression/distance";
+import {
+	DISTANCE_UNITS,
+	distanceToMeters,
+	METERS_PER_DISTANCE_UNIT,
+} from "@/lib/domain/expression/distance";
 import {
 	compilerBugMessage,
 	typeCheckerBypassMessage,
@@ -69,6 +73,7 @@ import {
 	canonicalizeRelationPath,
 	normalizeRelationEvaluationScopes,
 } from "@/lib/domain/expression/normalizeRelationEvaluationScopes";
+import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
 import { scalarDataType, typeOf } from "@/lib/domain/expression/typeChecker";
 import type {
 	ComparisonKind,
@@ -88,10 +93,13 @@ import {
 import { compileRelationPath } from "./compileRelationPath";
 import {
 	boundComparandValue,
+	compileStoredText,
 	compileTerm,
+	type FormFieldBindingValue,
 	isBlankComparand,
 	recordQueryContextFor,
 	reservedColumnFor,
+	storedTextDataType,
 	type TermCompileContext,
 } from "./compileTerm";
 import type { Database } from "./database";
@@ -405,6 +413,10 @@ function compileEquality(
 	right: DomainExpression,
 	ctx: PredicateCompileContext,
 ): Expression<SqlBool> {
+	if (right.kind === "value-list")
+		return compileValueListEquality(left, right, ctx);
+	if (left.kind === "value-list")
+		return compileValueListEquality(right, left, ctx);
 	const leftConstant = constantComparand(left, ctx);
 	const rightConstant = constantComparand(right, ctx);
 	if (rightConstant?.blank) return compileAbsenceCheck(left, ctx);
@@ -421,6 +433,120 @@ function compileEquality(
 		typed,
 		eb.and([compileAbsenceCheck(left, ctx), compileAbsenceCheck(right, ctx)]),
 	]);
+}
+
+/**
+ * `p = unwrap-list(...)`, HQ's exact any-of: `terms` on the property's
+ * stored text (`corehq/apps/es/case_search.py::exact_case_property_text_query`
+ * with a list, `corehq/apps/es/filters.py::term`), or on a system property's
+ * field (`corehq/apps/case_search/xpath_functions/comparison.py::_create_system_query`).
+ * So each item is compared as text with the text the case holds, exactly:
+ * `'10:00'` is not a stored `'10:00:00'`, and `'2026-2-1'` is not a stored
+ * `'2026-02-01'`.
+ *
+ * A number property is the one exception, because Nova doesn't store the
+ * text a device wrote for one: it stores the number
+ * (`submissionEnvelope.ts::storageValueFromEvaluation`), whose text is its
+ * canonical spelling (`formatNumeric`). An item matches the text Nova would
+ * have stored had the device written that item, so `'1.10'` finds the case
+ * a device wrote `1.10` for, as HQ's term does. What stays apart: HQ
+ * matches only the exact spelling, so where the item or the device's text
+ * is not canonical (`05` written, `'5.0'` asked), HQ misses the case and
+ * Nova finds it (`lib/case-store/sql/CLAUDE.md`).
+ *
+ * A `''` item matches a blank value. HQ indexes every property a case holds,
+ * blank ones included, and a device's blank answer writes `''`; Nova stores
+ * that blank as the key's absence (`submissionEnvelope.ts::storageValueFromEvaluation`),
+ * so the item matches a property absent or empty. A row matching no item is
+ * false, never unknown, and `!=` is the two-valued negation of this atom
+ * (`not coalesce(... , false)`), HQ's `NOT(terms)`. Each item is decided
+ * before the query runs: a CSQL slot's fold has already made a runtime item,
+ * and a node-set item's values, literal.
+ */
+function compileValueListEquality(
+	anchor: DomainExpression,
+	list: Extract<DomainExpression, { kind: "value-list" }>,
+	ctx: PredicateCompileContext,
+): Expression<SqlBool> {
+	if (
+		anchor.kind !== "term" ||
+		(anchor.term.kind !== "prop" && anchor.term.kind !== "case-row-type")
+	)
+		throw new Error(
+			compilerBugMessage({
+				where: "compilePredicate.compileValueListEquality",
+				invariant: `a list of values was compared with a \`${anchor.kind === "term" ? anchor.term.kind : anchor.kind}\``,
+				detail:
+					"CSQL representability admits a list only opposite a case property or the case type (`representability.ts::admitsValueList`).",
+			}),
+		);
+	const texts = new Set<string>();
+	for (const item of list.items) {
+		const value = decidedListItem(item, ctx);
+		const text = value === undefined ? undefined : listItemText(value);
+		if (text === undefined)
+			throw new Error(
+				compilerBugMessage({
+					where: "compilePredicate.compileValueListEquality",
+					invariant: `a \`${item.kind}\` list item reached a server query undecided`,
+					detail:
+						"A list of values reaches Postgres only in a CSQL slot, whose fold makes every item a literal first.",
+				}),
+			);
+		texts.add(text);
+	}
+	const stored = compileStoredText(anchor.term, ctx);
+	const dataType = storedTextDataType(anchor.term, ctx);
+	const numeric = dataType === "int" || dataType === "decimal";
+	const filled = [
+		...new Set(
+			[...texts]
+				.filter((text) => text !== "")
+				.map((text) => (numeric ? storedNumberText(text) : text)),
+		),
+	];
+	const matches: Expression<SqlBool>[] = [];
+	if (filled.length > 0) matches.push(eb(stored, "in", filled));
+	if (texts.has("")) matches.push(blankText(stored));
+	return matches.length === 1
+		? (matches[0] as Expression<SqlBool>)
+		: eb.or(matches);
+}
+
+/**
+ * One list item's text as the device sends it: a number in the form the
+ * emitter prints it (`formatNumeric`), a literal `null` the blank, as every
+ * reader prints it.
+ */
+function listItemText(value: FormFieldBindingValue): string | undefined {
+	if (value === null) return "";
+	if (typeof value === "number") return formatNumeric(value);
+	if (typeof value === "string") return value;
+	if (typeof value === "boolean") return String(value);
+	return undefined;
+}
+
+/**
+ * The text a number property holds once Nova stores `text` for it: the
+ * number `storageValueFromEvaluation` reads it as (`Number`), spelled as
+ * Postgres prints that JSONB number, which is `formatNumeric`'s spelling. An
+ * item that reads as no finite number is no stored number's text, and is
+ * kept as it is.
+ */
+function storedNumberText(text: string): string {
+	if (text.trim() === "") return text;
+	const value = Number(text);
+	return Number.isFinite(value) ? formatNumeric(value) : text;
+}
+
+/** A list item's value when it is decided before the query runs. */
+function decidedListItem(
+	item: DomainExpression,
+	ctx: PredicateCompileContext,
+): FormFieldBindingValue | undefined {
+	if (item.kind !== "term") return undefined;
+	if (item.term.kind === "literal") return item.term.value;
+	return boundComparandValue(item.term, ctx)?.value;
 }
 
 /**
@@ -453,7 +579,7 @@ function compileOrderedComparison(
  * `here()`'s bound position, `''` before a fix), and whether it is blank.
  * A literal `null` is blank: every reader prints it as `''`
  * (`lib/commcare/xpath/wire/fromExpression.ts::wireLiteral` for the device,
- * `lib/commcare/predicate/termEmitter.ts` for a CSQL search), so `p = null`
+ * `lib/commcare/csql/emitter.ts` for a CSQL search), so `p = null`
  * is the absence check a device and HQ make of `p = ''`.
  */
 function constantComparand(
@@ -1152,17 +1278,7 @@ function compileWithinDistance(
 	const centerLat = splitNumericComponent(centerText, 1);
 	const centerLon = splitNumericComponent(centerText, 2);
 
-	if (typeof pred.distance !== "number" || typeof pred.unit !== "string")
-		throw new Error(
-			compilerBugMessage({
-				where: "compilePredicate.compileWithinDistance",
-				invariant:
-					"a `within-distance` with a runtime radius or unit reached a server query",
-				detail:
-					"The profiles with a Postgres target admit only a literal radius and unit; a CSQL slot's fold makes both literal first.",
-			}),
-		);
-	const distanceMeters = distanceToMeters(pred.distance, pred.unit);
+	const distanceMeters = compileDistanceMeters(pred.distance, pred.unit, ctx);
 	const validShapes = eb.and([
 		eb(propText, "~", eb.val(GEOPOINT_PROPERTY_PATTERN)),
 		eb(rawCenterText, "~", eb.val(GEOPOINT_RAW_CENTER_PATTERN)),
@@ -1178,15 +1294,22 @@ function compileWithinDistance(
 		eb(centerLon, ">=", eb.lit(-180)),
 		eb(centerLon, "<=", eb.lit(180)),
 	]);
-	const distanceMatches = eb.fn<boolean>("st_dwithin", [
+	const withinMeters = eb.fn<boolean>("st_dwithin", [
 		geographyPoint(propLon, propLat),
 		geographyPoint(centerLon, centerLat),
-		eb.val(distanceMeters),
+		distanceMeters,
 		// Core and Elasticsearch use a spherical distance model. PostGIS
 		// geography defaults to the WGS-84 spheroid, so pass `false` explicitly
 		// for cross-target threshold parity.
 		eb.lit(false),
 	]);
+	// A radius that is no number above zero, or a unit CommCare does not
+	// know, is a `NULL` bound: no case is within it, as the device's NaN
+	// factor and HQ's `'match-none()'` both answer.
+	const distanceMatches =
+		typeof pred.distance === "number" && typeof pred.unit === "string"
+			? withinMeters
+			: eb.fn.coalesce(withinMeters, eb.lit(false));
 
 	// Keep casts and PostGIS parsing behind nested CASE arms. PostgreSQL may
 	// reorder boolean AND terms, so one flat `shape AND range AND distance`
@@ -1205,6 +1328,81 @@ function compileWithinDistance(
 		.else(false)
 		.end() as Expression<SqlBool>;
 }
+
+/**
+ * The radius in meters. A literal radius and unit are one bound number, from
+ * the one meter table (`lib/domain/expression/distance.ts`). A runtime radius
+ * or unit (a worker value in a browse list's filter; a CSQL slot's fold makes
+ * both literal first) is a `CASE` over the same table: the radius reads as a
+ * number where its text is a plain decimal, as Core's `number()` reads it, and
+ * counts only above zero, and the unit is one of the nine names exactly.
+ * Anything else is `NULL`.
+ */
+function compileDistanceMeters(
+	distance: Extract<DomainExpression, { kind: "within-distance" }>["distance"],
+	unit: Extract<DomainExpression, { kind: "within-distance" }>["unit"],
+	ctx: PredicateCompileContext,
+): Expression<unknown> {
+	if (typeof distance === "number" && typeof unit === "string")
+		return eb.val(distanceToMeters(distance, unit));
+	const radius =
+		typeof distance === "number"
+			? eb.val(distance)
+			: positiveRadius(compileValueExprOperand(distance, ctx));
+	const factor =
+		typeof unit === "string"
+			? eb.val(METERS_PER_DISTANCE_UNIT[unit])
+			: unitFactor(compileValueExprOperand(unit, ctx));
+	return eb(eb.cast(radius, "numeric"), "*", eb.cast(factor, "numeric"));
+}
+
+/** Core's `number()` of a radius, kept only above zero. The cast stays behind
+ *  the shape guard, so a radius that is not a number never fails the query. */
+function positiveRadius(
+	value: AliasableExpression<unknown>,
+): AliasableExpression<unknown> {
+	// The whitespace Java's `trim()` drops at both ends.
+	const text = eb.fn<string>("btrim", [
+		eb.cast<string>(value, "text"),
+		eb.val(" \t\n\u000b\f\r"),
+	]);
+	const number = eb
+		.case()
+		.when(eb(text, "~", eb.val(PLAIN_DECIMAL_PATTERN)))
+		.then(eb.cast(text, "numeric"))
+		.else(eb.cast(eb.val(null), "numeric"))
+		.end();
+	return eb
+		.case()
+		.when(eb(number, ">", eb.lit(0)))
+		.then(number)
+		.else(eb.cast(eb.val(null), "numeric"))
+		.end();
+}
+
+/** A distance unit's meters, or `NULL` for text that names none. */
+function unitFactor(
+	value: AliasableExpression<unknown>,
+): AliasableExpression<unknown> {
+	let factor = eb.case(eb.cast<string>(value, "text")) as unknown as {
+		when: (unit: unknown) => { then: (meters: unknown) => unknown };
+	};
+	for (const unit of DISTANCE_UNITS)
+		factor = factor
+			.when(eb.val(unit))
+			.then(eb.val(METERS_PER_DISTANCE_UNIT[unit])) as typeof factor;
+	return (
+		factor as unknown as {
+			else: (e: unknown) => { end: () => AliasableExpression<unknown> };
+		}
+	)
+		.else(eb.cast(eb.val(null), "numeric"))
+		.end();
+}
+
+/** The text Core's `number()` reads as a number once trimmed: digits with an
+ *  optional sign and fraction, no exponent (`FunctionUtils.java::toNumeric`). */
+const PLAIN_DECIMAL_PATTERN = String.raw`^-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)$`;
 
 /** Canonical CCHQ geopoint text: commas to spaces, whitespace collapsed. */
 function normalizeGeopointText(

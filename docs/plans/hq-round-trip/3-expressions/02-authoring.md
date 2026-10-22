@@ -714,6 +714,15 @@ The arbitraries draw every arm the profile admits, including the new arms of par
 without a draw fails the totality assertion the suite already has for terms
 (`readTotality.fuzz.test.ts`).
 
+**Implementation correction, 2026-10-19 (pull request 10):** `chosen-case(…)` in a condition
+position is refused by the compiler's positional `predicate()` ("chosen-case() does not produce a
+condition. …"), as every other value call is, before the checker's `record-position` rule could see
+it. The menu refusals carry no code field: `AuthoringInputError` holds the sentence alone, and the
+`Code` column above names each case. `chosen-case-property`'s property is stored as written and
+checked by the checker (`unknown-property`), not by the compiler. `queryExpressionRoundTrip.fuzz.test.ts`
+does not exist yet; pull request 10's draw of the widened arms and of the chosen case (only the menu
+the Members list's entry passes through) is a fast-check property in `queryExpressions.test.ts`.
+
 ---
 
 ## 3. What the model is taught

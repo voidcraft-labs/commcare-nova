@@ -18,6 +18,15 @@
 // etc.) so Turbopack can tree-shake it out of the client bundle.
 
 export * from "./constants";
+export {
+	type CsqlRuntimeReads,
+	type CsqlRuntimeRow,
+	type CsqlRuntimeValues,
+	csqlRuntimeReads,
+	csqlRuntimeRow,
+	foldCsqlRuntime,
+} from "./csql/fold";
+export * from "./csql/positions";
 export * from "./deriveCaseConfig";
 export {
 	type EntryPointProjection,

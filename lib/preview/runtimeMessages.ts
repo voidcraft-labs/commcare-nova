@@ -240,6 +240,8 @@ const english = {
 	searchResultsLoading: "Nova is loading what the search found for this form.",
 	searchResultsLoadFailed:
 		"What the search found didn't load. You can try again.",
+	searchDeviceCasesLoadFailed:
+		"Nova couldn't load the cases on this device that the search reads. Try again to run the search.",
 	searchResultsCap:
 		"This search found {count} cases. CommCare's search sends a device the first 500, so this form reads 500 of them here too.",
 	dataRefusalFormTitle: "This form stops here on a phone",
@@ -516,6 +518,8 @@ const spanish: Record<RuntimeMessage, string> = {
 		"Nova está cargando lo que encontró la búsqueda para este formulario.",
 	searchResultsLoadFailed:
 		"Lo que encontró la búsqueda no se cargó. Puedes intentarlo de nuevo.",
+	searchDeviceCasesLoadFailed:
+		"Nova no pudo cargar los registros de este dispositivo que lee la búsqueda. Inténtalo de nuevo para hacer la búsqueda.",
 	searchResultsCap:
 		"Esta búsqueda encontró {count} registros. La búsqueda de CommCare envía al dispositivo los primeros 500, así que este formulario también lee 500 de ellos aquí.",
 	dataRefusalFormTitle: "Este formulario se detiene aquí en un teléfono",

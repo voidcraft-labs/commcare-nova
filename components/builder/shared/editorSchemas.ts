@@ -21,6 +21,7 @@
 
 import type { IconifyIcon } from "@iconify/react/offline";
 import tablerArrowsHorizontal from "@iconify-icons/tabler/arrows-horizontal";
+import tablerArrowsSplit from "@iconify-icons/tabler/arrows-split";
 import tablerAsterisk from "@iconify-icons/tabler/asterisk";
 import tablerCheckbox from "@iconify-icons/tabler/checkbox";
 import tablerCircleOff from "@iconify-icons/tabler/circle-off";
@@ -40,6 +41,7 @@ import tablerSlash from "@iconify-icons/tabler/slash";
 import tablerTextRecognition from "@iconify-icons/tabler/text-recognition";
 import tablerUnlink from "@iconify-icons/tabler/unlink";
 import type { ComponentType } from "react";
+import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseProperty, CaseType, UserProperty } from "@/lib/domain";
 import {
 	effectiveDataType,
@@ -60,6 +62,10 @@ import {
 } from "@/lib/domain/expression";
 import { BetweenCard, betweenDefault } from "./cards/BetweenCard";
 import { ComparisonCard, comparisonDefault } from "./cards/ComparisonCard";
+import {
+	ConditionChoiceCard,
+	conditionChoiceDefault,
+} from "./cards/ConditionChoiceCard";
 import { ExistsCard, existsDefault, missingDefault } from "./cards/ExistsCard";
 import { InCard, inDefault } from "./cards/InCard";
 import { IsBlankCard, isBlankDefault } from "./cards/IsBlankCard";
@@ -269,7 +275,30 @@ export function globalPlaceholderTruth(ctx: PredicateEditContext): boolean {
  * shape exported by `@iconify-icons/tabler/*`). Mirrors the
  * `FieldKindMetadata` shape in `lib/domain/kinds.ts`.
  */
-export interface PredicateCardSchema<K extends ConditionArm["kind"]> {
+/** The kinds a condition position renders as a card: every condition arm,
+ * and `if` whose branches are conditions ("Depends on a condition"). */
+export type PredicateCardKind = ConditionArm["kind"] | "if";
+
+export function isPredicateCardValue(
+	value: Expression,
+): value is ExpressionOfKind<PredicateCardKind> {
+	return Object.hasOwn(predicateCardSchemas, value.kind);
+}
+
+export const CONDITION_CHOICE_UNAVAILABLE_REASON =
+	"Choosing between conditions works in a case list's filter and a search's conditions";
+
+/** Whether this slot admits a runtime choice between conditions here: the
+ * gate's verdict on a fresh choice at the current position, so the verb is
+ * offered exactly where a commit of it is admitted. */
+function conditionChoiceInScope(ctx: PredicateEditContext): boolean {
+	return (
+		hasConditionSeed(ctx) &&
+		expressionEditVerdict(conditionChoiceDefault(ctx), ctx.expressionContext).ok
+	);
+}
+
+export interface PredicateCardSchema<K extends PredicateCardKind> {
 	readonly kind: K;
 	readonly label: string;
 	readonly icon: IconifyIcon;
@@ -372,9 +401,11 @@ function hasScalarSubjectOfType(
  * get a generic search-field instruction for an unrelated case relationship
  * or data-type requirement. */
 export function predicateUnavailableReason(
-	kind: ConditionArm["kind"],
+	kind: PredicateCardKind,
 	ctx: PredicateEditContext,
 ): string {
+	if (kind === "if" && hasConditionSeed(ctx))
+		return CONDITION_CHOICE_UNAVAILABLE_REASON;
 	if (kind === "match-none" && !neverMatchInScope(ctx)) {
 		return NEVER_MATCH_UNAVAILABLE_REASON;
 	}
@@ -455,7 +486,7 @@ export function predicateUnavailableReason(
  * editor never silently bypasses a kind.
  */
 export const predicateCardSchemas: {
-	readonly [K in ConditionArm["kind"]]: PredicateCardSchema<K>;
+	readonly [K in PredicateCardKind]: PredicateCardSchema<K>;
 } = {
 	// ── Comparison (6 kinds, one card) ──────────────────────────────
 	eq: {
@@ -667,6 +698,18 @@ export const predicateCardSchemas: {
 		applicable: (ctx) => ctx.knownInputs.length > 0 && hasConditionSeed(ctx),
 	},
 
+	// ── Runtime choice ───────────────────────────────────────────────
+	if: {
+		kind: "if",
+		label: "Depends on a condition",
+		icon: tablerArrowsSplit,
+		description:
+			"Use one condition or another, decided by something like a search answer",
+		component: ConditionChoiceCard,
+		defaultValue: conditionChoiceDefault,
+		applicable: conditionChoiceInScope,
+	},
+
 	// ── Relational quantifiers ──────────────────────────────────────
 	exists: {
 		kind: "exists",
@@ -692,8 +735,7 @@ export const predicateCardSchemas: {
  * Convenience array: every schema in declaration order, used by the
  * kind-picker UI to render the menu.
  */
-export const predicateCardSchemaList: readonly PredicateCardSchema<
-	ConditionArm["kind"]
->[] = Object.values(predicateCardSchemas) as readonly PredicateCardSchema<
-	ConditionArm["kind"]
->[];
+export const predicateCardSchemaList: readonly PredicateCardSchema<PredicateCardKind>[] =
+	Object.values(
+		predicateCardSchemas,
+	) as readonly PredicateCardSchema<PredicateCardKind>[];

@@ -57,7 +57,8 @@ describe("normalizeRelationPropertyReads", () => {
 	// via-lift rewrites every operator-direct `prop(via)` reference
 	// into an enclosing `exists` envelope before the value-expression
 	// emitter runs. These tests pin the AST shape the rewrite
-	// produces; the wire-form assertions live in `csqlEmitter.test.ts`.
+	// produces; the wire-form assertions live in
+	// `lib/commcare/csql/__tests__/emitter.test.ts`.
 
 	it("rewrites eq with ancestor via on LHS into exists envelope", () => {
 		const result = normalizeRelationPropertyReads(

@@ -182,8 +182,39 @@ describe("PredicateCardEditor — reasons and the checker's newer codes", () => 
 			"Search results come in no fixed order. You can count them instead",
 		],
 		["search-results-other-type", "This search can't find that kind of case"],
+		[
+			"closed-on-not-on-device",
+			"Date closed is known only to CommCare's server search. Case status shows whether a case is closed",
+		],
+		[
+			"case-type-ordering",
+			"Case types can be compared only as equal or not equal",
+		],
+		[
+			"runtime-selected-value-on-device",
+			"Choose a single-choice value here, or use it in a search field's condition",
+		],
+		["distance-not-numeric", "Choose a number for the distance"],
 	] as const)("presents %s", (code, copy) => {
 		expect(present(code)).toBe(copy);
+	});
+
+	it.each([
+		[
+			"not-before",
+			"That menu's case isn't chosen before this runs. You can read a case chosen in an earlier menu",
+		],
+		[
+			"differs",
+			"Another menu shows this list and keeps that choice in another place. You can remove this read",
+		],
+		[
+			"several-cases",
+			"That menu chooses several cases, so there is no one case to read. You can read a menu that chooses one case",
+		],
+		[undefined, "Choose information supplied when this screen opens"],
+	] as const)("says why a chosen case isn't read here: %s", (reason, copy) => {
+		expect(present("datum-not-supplied", reason)).toBe(copy);
 	});
 
 	it("gives wording that shows an answer its own line, beside the general one", () => {

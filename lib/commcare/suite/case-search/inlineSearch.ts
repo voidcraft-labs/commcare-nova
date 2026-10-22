@@ -1,4 +1,5 @@
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+
 // lib/commcare/suite/case-search/inlineSearch.ts
 //
 // The inline shape a search-first module lowers to: CommCare runs the
@@ -22,6 +23,7 @@ import {
 	type OrdinaryCaseSearchConfig,
 	type WireStringSource,
 } from "@/lib/domain";
+import type { DatumRef } from "@/lib/domain/expression/types";
 import type { ModuleExpressionContexts } from "../../expressionContext";
 import type { LookupWireNaming } from "../../lookup/naming";
 import type {
@@ -91,6 +93,7 @@ export function buildInlineSearch(args: {
 	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	readonly ancestorCaseType?: string;
+	readonly datumId?: (ref: DatumRef) => string | undefined;
 }): InlineSearchEmission {
 	const { module: mod, moduleIndex } = args;
 	const { caseSearchConfig, caseListConfig, wire, metadata } = inlineSearchPlan(
@@ -107,6 +110,7 @@ export function buildInlineSearch(args: {
 		lookupNaming: args.lookupNaming,
 		runtimeTarget: args.runtimeTarget,
 		ancestorCaseType: args.ancestorCaseType,
+		...(args.datumId === undefined ? {} : { datumId: args.datumId }),
 	});
 	const query: SessionQuery = {
 		...metadata,

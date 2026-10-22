@@ -17,7 +17,12 @@ import {
 	sessionContext,
 	sessionUser,
 } from "@/lib/domain/expression/builders";
+import {
+	chosenCaseId,
+	chosenCaseProperty,
+} from "@/lib/domain/expression/chosenCase";
 import { proseText } from "@/lib/domain/prose";
+import { compileExpression } from "../compileExpression";
 import { compileTerm, type TermCompileContext } from "../compileTerm";
 import type { Database } from "../database";
 
@@ -131,4 +136,66 @@ it("binds an unavailable session context value as the device's blank value", () 
 		.selectNoFrom(compileTerm(sessionContext("deviceid"), ctx).as("value"))
 		.compile();
 	expect(query.parameters).toEqual([""]);
+});
+
+const households = testUuid("chosen-case-households");
+const chosenId = "household-1'); SELECT 'unexpected'; --";
+const withChoice: TermCompileContext = {
+	...ctx,
+	reading: "casedb",
+	bindings: { chosenCaseIds: { [households]: chosenId } },
+	caseTypeSchemas: new Map([
+		...ctx.caseTypeSchemas,
+		[
+			"household",
+			{
+				name: "household",
+				properties: [{ name: "village", label: proseText("Village") }],
+			},
+		],
+	]),
+};
+
+it("binds the case chosen in a menu, and reads its property from that case's row in the Project", () => {
+	const compiled = db
+		.selectNoFrom([
+			compileExpression(chosenCaseId(households), withChoice).as("id"),
+			compileExpression(
+				chosenCaseProperty(households, "household", "village"),
+				withChoice,
+			).as("village"),
+		])
+		.compile();
+	expect(compiled.parameters).toEqual([
+		chosenId,
+		"app",
+		"project",
+		"household",
+		chosenId,
+		1,
+	]);
+	expect(compiled.sql).not.toContain("household-1");
+});
+
+it("refuses a chosen case the read does not carry", () => {
+	const other = testUuid("chosen-case-other-menu");
+	expect(() => compileExpression(chosenCaseId(other), withChoice)).toThrow(
+		/carries no chosen case for menu/,
+	);
+	expect(() =>
+		compileExpression(chosenCaseProperty(other, "household", "village"), {
+			...withChoice,
+			bindings: {},
+		}),
+	).toThrow(/carries no chosen case for menu/);
+	// An inherited key is no chosen case.
+	expect(() =>
+		compileTerm(
+			{
+				kind: "session-datum",
+				datum: { kind: "selected-case", module: "toString" as never },
+			},
+			withChoice,
+		),
+	).toThrow(/carries no chosen case/);
 });

@@ -103,6 +103,27 @@ interface PropertyPickerProps {
 		readonly icon: IconifyIcon;
 		readonly onSelect: () => void;
 	};
+	/** Values of the record that are not catalog properties, listed before
+	 * them: today "Case type", the record's own type. A selected one is shown
+	 * on the trigger in place of a property. */
+	readonly leadingChoices?: readonly PropertyPickerLeadingChoice[];
+	/** Properties outside the catalog that this slot can still read, listed
+	 * after it with a short note: today "Date closed", which only CommCare's
+	 * server search knows. */
+	readonly extraProperties?: readonly {
+		readonly property: CaseProperty;
+		readonly note: string;
+	}[];
+}
+
+export interface PropertyPickerLeadingChoice {
+	readonly key: string;
+	readonly label: string;
+	readonly description: string;
+	readonly icon: IconifyIcon;
+	readonly selected: boolean;
+	readonly admission: ExpressionChangeAdmission;
+	readonly onSelect: () => void;
 }
 
 /**
@@ -126,6 +147,8 @@ export function PropertyPicker({
 	onCreateNew,
 	createNewLabel = "Create new information",
 	footerAction,
+	leadingChoices = [],
+	extraProperties = [],
 }: PropertyPickerProps) {
 	const ctx = useEditorVocabulary();
 	const projectProse = useProseProjection();
@@ -143,10 +166,30 @@ export function PropertyPicker({
 
 	const properties = useMemo<readonly CaseProperty[]>(() => {
 		if (targetCaseType === undefined) return [];
-		return filter !== undefined
-			? targetCaseType.properties.filter(filter)
-			: targetCaseType.properties;
-	}, [targetCaseType, filter]);
+		const own =
+			filter !== undefined
+				? targetCaseType.properties.filter(filter)
+				: targetCaseType.properties;
+		const extra = extraProperties
+			.map((entry) => entry.property)
+			.filter(
+				(property) =>
+					(filter === undefined || filter(property)) &&
+					!own.some((candidate) => candidate.name === property.name),
+			);
+		return extra.length === 0 ? own : [...own, ...extra];
+	}, [targetCaseType, filter, extraProperties]);
+	const selectedLeading = leadingChoices.find((choice) => choice.selected);
+	const visibleLeading = useMemo(() => {
+		const normalizedQuery = query.trim().toLocaleLowerCase();
+		return normalizedQuery === ""
+			? leadingChoices
+			: leadingChoices.filter((choice) =>
+					`${choice.label} ${choice.description}`
+						.toLocaleLowerCase()
+						.includes(normalizedQuery),
+				);
+	}, [leadingChoices, query]);
 	const selectedName = value;
 
 	const selectedKnown = useMemo(
@@ -221,11 +264,13 @@ export function PropertyPicker({
 	].join(" ");
 
 	const displayLabel =
-		value === undefined
-			? "Choose information"
-			: selectedProperty === undefined
-				? "Unavailable information"
-				: propertyDisplayLabel(selectedProperty, projectProse);
+		selectedLeading !== undefined
+			? selectedLeading.label
+			: value === undefined
+				? "Choose information"
+				: selectedProperty === undefined
+					? "Unavailable information"
+					: propertyDisplayLabel(selectedProperty, projectProse);
 	const accessibleDisplayLabel =
 		selectedDisambiguator === undefined
 			? displayLabel
@@ -247,7 +292,7 @@ export function PropertyPicker({
 						width="14"
 						height="14"
 						className={`mt-0.5 shrink-0 ${
-							value && selectedKnown
+							(value && selectedKnown) || selectedLeading !== undefined
 								? "text-nova-violet-bright"
 								: "text-nova-text-muted"
 						}`}
@@ -255,7 +300,7 @@ export function PropertyPicker({
 					<span className="min-w-0 flex-1 text-left">
 						<span
 							className={`block break-words font-medium ${
-								value && selectedKnown
+								(value && selectedKnown) || selectedLeading !== undefined
 									? "text-nova-violet-bright"
 									: "text-nova-text-muted"
 							}`}
@@ -316,11 +361,52 @@ export function PropertyPicker({
 						</div>
 
 						<div className="min-h-0 flex-1 overflow-y-auto p-1">
-							{properties.length === 0 ? (
+							{visibleLeading.map((choice) => (
+								<DropdownMenuItem
+									key={choice.key}
+									disabled={!choice.admission.admitted || choice.selected}
+									onClick={choice.onSelect}
+									className={
+										choice.selected
+											? "bg-nova-violet/10 text-nova-violet-bright"
+											: ""
+									}
+								>
+									<Icon
+										icon={choice.icon}
+										width="14"
+										height="14"
+										className={
+											choice.selected
+												? "text-nova-violet-bright"
+												: "text-nova-text-muted"
+										}
+									/>
+									<span className="flex-1 text-left min-w-0">
+										<div className="break-words">{choice.label}</div>
+										<div className="break-words text-[12px] leading-4 text-nova-text-muted">
+											{choice.admission.admitted
+												? choice.description
+												: choice.admission.reason}
+										</div>
+									</span>
+									{choice.selected && (
+										<Icon
+											icon={tablerCheck}
+											width="14"
+											height="14"
+											className="shrink-0 text-nova-violet-bright"
+										/>
+									)}
+								</DropdownMenuItem>
+							))}
+							{properties.length === 0 &&
+							visibleLeading.length > 0 ? null : properties.length === 0 ? (
 								<div className="px-3 py-4 text-center text-[13px] leading-5 text-nova-text-muted">
 									No information is available yet
 								</div>
-							) : visibleProperties.length === 0 ? (
+							) : visibleProperties.length === 0 &&
+								visibleLeading.length === 0 ? (
 								<div
 									role="status"
 									aria-live="polite"
@@ -335,7 +421,11 @@ export function PropertyPicker({
 								</div>
 							) : (
 								visibleProperties.map((p) => {
-									const isActive = p.name === selectedName;
+									const isActive =
+										selectedLeading === undefined && p.name === selectedName;
+									const note = extraProperties.find(
+										(entry) => entry.property.name === p.name,
+									)?.note;
 									const verdict = admit?.(p) ?? { admitted: true as const };
 									const admitted = verdict.admitted;
 									const disambiguator = friendlyPropertyDisambiguator(
@@ -379,6 +469,11 @@ export function PropertyPicker({
 														.filter(Boolean)
 														.join(" · ")}
 												</div>
+												{note !== undefined ? (
+													<div className="mt-0.5 break-words text-[12px] leading-4 text-nova-text-muted">
+														{note}
+													</div>
+												) : null}
 												{!admitted && verdict.admitted === false ? (
 													<div className="mt-0.5 break-words text-[12px] leading-4 text-nova-text-muted">
 														{verdict.reason}

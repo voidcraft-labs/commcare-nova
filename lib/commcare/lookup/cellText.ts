@@ -15,8 +15,8 @@
  * distinguishable in storage.
  */
 
+import { formatNumeric } from "@/lib/domain/expression/numberLiteral";
 import type { LookupCellValue, LookupDataType } from "@/lib/lookup/types";
-import { formatNumeric } from "../predicate/stringQuoting";
 
 export function lookupFixtureCellText(
 	dataType: LookupDataType,

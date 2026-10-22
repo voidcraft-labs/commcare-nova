@@ -49,6 +49,7 @@ export interface FormLogicFinding {
 		| "INVALID_SEARCH_REF"
 		| "TYPE_ERROR"
 		| "XPATH_TIME_ORDERING"
+		| "CASE_LIST_CLOSED_ON_NOT_ON_DEVICE"
 		| "XPATH_INCOMPATIBLE_VALUES"
 		| "XPATH_MANY_VALUES"
 		| "PROSE_EDITOR_ROUND_TRIP_LOSS"
@@ -230,6 +231,9 @@ export function formLogicFinding(
 	switch (error.code) {
 		case "time-ordering":
 			code = "XPATH_TIME_ORDERING";
+			break;
+		case "closed-on-not-on-device":
+			code = "CASE_LIST_CLOSED_ON_NOT_ON_DEVICE";
 			break;
 		case "unknown-form-field":
 		case "unknown-user-property":

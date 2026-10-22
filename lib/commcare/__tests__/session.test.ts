@@ -16,6 +16,7 @@ import {
 	sessionUser,
 	term,
 } from "@/lib/domain/expression";
+import { chosenCaseId } from "@/lib/domain/expression/chosenCase";
 import type { Expression } from "@/lib/domain/expression/types";
 import type { MatchedChild, ProjectedFormLinks } from "../formLinkProjection";
 import { alwaysCondition, emptyFormActions } from "../hqShells";
@@ -24,6 +25,7 @@ import {
 	buildEntryElement,
 	buildStackElement,
 	deriveCaseListEntryDefinition,
+	deriveCaseSelectionDatum,
 	deriveEntryDefinition,
 	derivePostSubmitStack,
 	type EntryDefinitionInput,
@@ -397,4 +399,36 @@ describe("projected navigation frames", () => {
 			{ name: "create", uri: "", attributes: {}, children: [], text: "" },
 		]);
 	});
+});
+
+it("lowers a case list filter again only when an id it reads is renamed", () => {
+	// Root alignment renames a chosen case's datum and re-renders every
+	// nodeset; one whose ids stand is the nodeset already rendered.
+	const households = testUuid("session-households");
+	const chosenFilter = eq(prop("patient", "region"), chosenCaseId(households));
+	let held = "case_id";
+	const datum = deriveCaseSelectionDatum({
+		id: "case_id_patient",
+		caseType: "patient",
+		moduleIndex: 0,
+		caseListFilter: chosenFilter,
+		expressions: contexts({ caseListFilter: chosenFilter }),
+		datumId: (ref) =>
+			ref.kind === "selected-case" && ref.module === households
+				? held
+				: undefined,
+	});
+	const render = () => {
+		const nodeset = datum.renderNodeset?.();
+		if (nodeset === undefined) throw new Error("A selection renders.");
+		return nodeset;
+	};
+	expect(render()).toBe(datum.nodeset);
+	held = "parent_id";
+	const renamed = render();
+	expect(renamed).not.toBe(datum.nodeset);
+	expect(serializeWire(renamed, { target: "suite" }).text).toContain(
+		"parent_id",
+	);
+	expect(render()).toBe(renamed);
 });

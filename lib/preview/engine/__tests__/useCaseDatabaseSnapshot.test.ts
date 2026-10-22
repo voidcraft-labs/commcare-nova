@@ -1,13 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { chosenCase } from "@/lib/commcare/__tests__/csqlCompositionFixture";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import { type ProsePart, proseText } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression/builders";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import { caseRowsToFormPreloads } from "../caseDataBindingClient";
 import { EngineController } from "../engineController";
+import {
+	moduleSearchReadsCaseDatabase,
+	searchCsqlReadsCaseDatabase,
+} from "../searchCsqlRuntime";
 import { caseDatabaseRequirements } from "../useCaseDatabaseSnapshot";
 
 const MODULE_UUID = testUuid("source-module");
@@ -486,5 +492,88 @@ describe("caseDatabaseRequirements", () => {
 			caseTypes: [],
 			places: false,
 		});
+	});
+});
+
+describe("a search's device reads and the device's cases", () => {
+	/** The chosen-case scenario with only the named search module, so no
+	 * other module's forms decide whether the device's cases load. */
+	const searchOnly = (name: string) => {
+		const doc = chosenCase.doc();
+		for (const mod of Object.values(doc.modules)) {
+			if (mod.name === name) continue;
+			delete doc.modules[mod.uuid];
+		}
+		doc.moduleOrder = doc.moduleOrder.filter((uuid) => uuid in doc.modules);
+		for (const form of Object.values(doc.forms)) delete doc.forms[form.uuid];
+		for (const field of Object.values(doc.fields))
+			delete doc.fields[field.uuid];
+		for (const mod of Object.values(doc.modules)) {
+			doc.formOrder[mod.uuid] = [];
+			mod.caseSearchConfig = {};
+		}
+		return doc;
+	};
+
+	it("loads them for a search whose device piece reads a chosen case's property", () => {
+		const doc = searchOnly("Members by household and village");
+		const [mod] = Object.values(doc.modules);
+		if (mod?.caseListConfig === undefined) throw new Error("No case list.");
+		expect(moduleSearchReadsCaseDatabase(mod)).toBe(true);
+		expect(caseDatabaseRequirements(doc).required).toBe(true);
+	});
+
+	it("leaves them for a search that reads only the chosen case's id", () => {
+		const doc = searchOnly("Members by household");
+		const [mod] = Object.values(doc.modules);
+		if (mod?.caseListConfig === undefined) throw new Error("No case list.");
+		expect(moduleSearchReadsCaseDatabase(mod)).toBe(false);
+		expect(caseDatabaseRequirements(doc).required).toBe(false);
+	});
+
+	it("asks for no load where the module has no Search, and its values wait on none", () => {
+		// The filter reads the chosen case's property, but with no input and
+		// no Search settings the module is a browse list: Postgres reads that
+		// case's row itself, so neither side waits on the device's cases.
+		const doc = searchOnly("Members by village");
+		const [mod] = Object.values(doc.modules);
+		if (mod?.caseListConfig === undefined) throw new Error("No case list.");
+		mod.caseSearchConfig = undefined;
+		expect(searchCsqlReadsCaseDatabase(mod.caseListConfig)).toBe(true);
+		expect(moduleSearchReadsCaseDatabase(mod)).toBe(false);
+		expect(caseDatabaseRequirements(doc).required).toBe(false);
+	});
+
+	it("reads a config again once it changes, and the same config once", () => {
+		const doc = searchOnly("Members by household and village");
+		const [mod] = Object.values(doc.modules);
+		if (mod?.caseListConfig === undefined) throw new Error("No case list.");
+		const config = mod.caseListConfig;
+		expect(searchCsqlReadsCaseDatabase(config)).toBe(true);
+		// An edit replaces the config object: the new one is read afresh.
+		const edited = {
+			...config,
+			filter: undefined,
+			searchInputs: config.searchInputs.filter(
+				(entry) => entry.kind !== "advanced",
+			),
+		};
+		expect(searchCsqlReadsCaseDatabase(edited)).toBe(false);
+		expect(searchCsqlReadsCaseDatabase(config)).toBe(true);
+	});
+
+	it("keeps the walk total over a module whose Search provenance breaks the schema", () => {
+		// Owner-only availability beside Search inputs is refused by the
+		// blueprint schema; the requirements walk still answers rather than
+		// take Preview's case database down with it.
+		const doc = searchOnly("Members by household and village");
+		const [mod] = Object.values(doc.modules);
+		if (mod?.caseListConfig === undefined) throw new Error("No case list.");
+		mod.caseSearchConfig = {
+			searchActionEnabled: false,
+			excludedOwnerIds: term(literal("someone")),
+		} as unknown as typeof mod.caseSearchConfig;
+		expect(() => caseDatabaseRequirements(doc)).not.toThrow();
+		expect(caseDatabaseRequirements(doc).required).toBe(true);
 	});
 });

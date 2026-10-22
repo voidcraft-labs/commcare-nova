@@ -22,6 +22,7 @@ import org.javarosa.xpath.expr.XPathNumericLiteral;
 import org.javarosa.xpath.expr.XPathPathExpr;
 import org.javarosa.xpath.expr.XPathStep;
 import org.javarosa.xpath.expr.XPathStringLiteral;
+import org.javarosa.xpath.expr.XPathTodayFunc;
 import org.javarosa.xpath.expr.XPathUnaryOpExpr;
 import org.javarosa.xpath.expr.XPathVariableReference;
 import org.javarosa.xpath.parser.Lexer;
@@ -73,8 +74,12 @@ import java.util.TreeSet;
  * its string literals: a string or number literal is its own text, concat()
  * is each combination of its arguments' strings, if() is the strings of
  * either branch, and any other expression is the request's "hole" (a value
- * only the run time knows). It is how a check reads the text an expression
- * hands another language, such as the CSQL a search's _xpath_query sends.
+ * only the run time knows). today() is the request's "dateHole" where it
+ * names one: a value only the run time knows, but always a date, whose text
+ * is its ISO date (XPathTodayFunc.evalBody gives a Date, which
+ * FunctionUtils.toString writes in DateUtils.FORMAT_ISO8601). It is how a
+ * check reads the text an expression hands another language, such as the
+ * CSQL a search's _xpath_query sends.
  *
  * "formShape" parses a form as Core's XFormInstaller does (XFormUtils, which runs
  * XFormParser) and lists every node of the main instance's template: its
@@ -294,18 +299,20 @@ final class Shapes {
     }
 
     /**
-     * {"expressions": [text], "hole": text} gives {"results": [{"strings", "truncated"} or {"error"}]}, in order.
+     * {"expressions": [text], "hole": text, "dateHole"?: text} gives {"results": [{"strings", "truncated"} or
+     * {"error"}]}, in order.
      */
     static JSONObject xpathStrings(JSONObject request) {
         JSONArray expressions = expressions(request);
         String hole = Ops.requireString(request, "hole");
+        String dateHole = request.has("dateHole") ? Ops.requireString(request, "dateHole") : hole;
         JSONArray results = new JSONArray();
         for (int i = 0; i < expressions.length(); i++) {
             JSONObject result = new JSONObject();
             try {
                 XPathExpression tree = XPathParseTool.parseXPath(expressions.getString(i));
                 boolean[] truncated = {false};
-                Set<String> strings = tree == null ? Set.of("") : strings(tree, hole, truncated);
+                Set<String> strings = tree == null ? Set.of("") : strings(tree, hole, dateHole, truncated);
                 result.put("strings", new JSONArray(new TreeSet<>(strings)));
                 result.put("truncated", truncated[0]);
             } catch (Exception e) {
@@ -318,7 +325,8 @@ final class Shapes {
         return answer;
     }
 
-    private static Set<String> strings(XPathExpression expression, String hole, boolean[] truncated) {
+    private static Set<String> strings(XPathExpression expression, String hole, String dateHole,
+                                       boolean[] truncated) {
         if (expression instanceof XPathStringLiteral) {
             return Set.of(((XPathStringLiteral)expression).s);
         }
@@ -334,7 +342,7 @@ final class Shapes {
                 for (XPathExpression argument : call.args) {
                     Set<String> next = new LinkedHashSet<>();
                     for (String prefix : combined) {
-                        for (String part : strings(argument, hole, truncated)) {
+                        for (String part : strings(argument, hole, dateHole, truncated)) {
                             if (next.size() >= MAX_STRINGS) {
                                 truncated[0] = true;
                                 break;
@@ -347,12 +355,15 @@ final class Shapes {
                 return combined;
             }
             if (XPathIfFunc.NAME.equals(name) && call.getClass() == XPathIfFunc.class && call.args.length == 3) {
-                Set<String> either = new LinkedHashSet<>(strings(call.args[1], hole, truncated));
-                either.addAll(strings(call.args[2], hole, truncated));
+                Set<String> either = new LinkedHashSet<>(strings(call.args[1], hole, dateHole, truncated));
+                either.addAll(strings(call.args[2], hole, dateHole, truncated));
                 if (either.size() > MAX_STRINGS) {
                     truncated[0] = true;
                 }
                 return either;
+            }
+            if (call.getClass() == XPathTodayFunc.class) {
+                return Set.of(dateHole);
             }
         }
         return Set.of(hole);

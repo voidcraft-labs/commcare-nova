@@ -13,12 +13,19 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	chosen,
+	chosenCaseDoc,
+	chosenCaseProperty,
+} from "@/lib/domain/__tests__/chosenCaseFixture";
+import {
 	instanceReadsDoc,
 	reads,
 } from "@/lib/domain/expression/__tests__/instanceReadsFixture";
+import { eq, prop, term } from "@/lib/domain/expression/builders";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
 import {
+	caseListStepDatumId,
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../formLinkProjection";
@@ -306,6 +313,33 @@ describe("entry datum identities on the emitted session", () => {
 		]);
 	});
 
+	it("holds an aligned child's chosen parent at the root's id and at its own chain id", () => {
+		// Members, a child of the root, case-first Households menu, with
+		// parent-select Households: HQ's build writes Members' filter with
+		// the household as `parent_id`, then renames it to the root's
+		// `case_id` as it aligns (part 05 §1.3, "The case list filter's two
+		// prints").
+		const doc = produce(parentSelectionDoc(false), (draft) => {
+			draft.modules[CHILD].parentModuleUuid = ROOT;
+		});
+		const household = { kind: "selected-case", module: ROOT } as const;
+		const member = { kind: "selected-case", module: CHILD } as const;
+		expect(
+			entryDatumIds(doc, formLinkProjectionContext(doc), CHILD, CHILD_FORM)
+				.filter((row) => row.refs.length > 0)
+				.map(({ id, chainId, refs }) => ({ id, chainId, refs })),
+		).toEqual([
+			{ id: "case_id", chainId: "parent_id", refs: [household] },
+			{ id: "case_id_member", chainId: "case_id", refs: [member] },
+		]);
+		expect(caseListStepDatumId(doc, CHILD)(household)).toBe("case_id");
+		expect(caseListStepDatumId(doc, CHILD, "chainId")(household)).toBe(
+			"parent_id",
+		);
+		// The list's own case is chosen at that very step, so it has no id there.
+		expect(caseListStepDatumId(doc, CHILD)(member)).toBeUndefined();
+	});
+
 	it("identifies worker, non-repeat child, and grouped-tile supplies by their owning entries", () => {
 		const doc = sessionReadFixture();
 		expect(rows(doc, SESSION_READS.module, SESSION_READS.registration)).toEqual(
@@ -391,5 +425,60 @@ describe("entry datum identities on the emitted session", () => {
 			{ seed: 20261018, numRuns: 40 },
 		);
 		expect(entries).toBeGreaterThan(80);
+	});
+});
+
+describe("a form's display condition reading the case chosen in a parent menu", () => {
+	// The export prints the read under the id the form's entry holds the
+	// parent's selection at, after root alignment, in both carriers: the
+	// command's `relevant` in the local suite and `form_filter` in HQ's JSON,
+	// which HQ copies into the command as written.
+	it("prints the parent's datum id in the suite and in HQ's form filter", () => {
+		const doc = chosenCaseDoc();
+		doc.forms[chosen.memberForm].displayCondition = eq(
+			term(prop("member", "village_name")),
+			chosenCaseProperty(chosen.households, "household", "village_name"),
+		);
+		expect(
+			runValidation(structuredClone(doc), LOOKUP_CONTEXT_UNAVAILABLE),
+		).toEqual([]);
+		const parent = entryDatumIds(
+			doc,
+			formLinkProjectionContext(doc),
+			chosen.members,
+			chosen.memberForm,
+		).find((row) =>
+			row.refs.some(
+				(ref) =>
+					ref.kind === "selected-case" && ref.module === chosen.households,
+			),
+		);
+		if (parent === undefined)
+			throw new Error("The member form's entry holds no household selection.");
+		const read = `instance('commcaresession')/session/data/${parent.id}`;
+
+		const hq = expandDoc(doc);
+		const filters = hq.modules.flatMap((mod) =>
+			mod.forms.flatMap((form) =>
+				form.form_filter === null || form.form_filter === undefined
+					? []
+					: [form.form_filter],
+			),
+		);
+		expect(filters).toHaveLength(1);
+		expect(filters[0]).toContain(read);
+
+		const archive = new AdmZip(
+			compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
+		);
+		const relevant = allElements(
+			readXmlEvidence(archive.readAsText("suite.xml")),
+		).flatMap((node) =>
+			node.name === "command" && node.attributes.relevant !== undefined
+				? [node.attributes.relevant]
+				: [],
+		);
+		expect(relevant).toHaveLength(1);
+		expect(relevant[0]).toContain(read);
 	});
 });

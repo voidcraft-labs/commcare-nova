@@ -858,6 +858,7 @@ test("native import file download lists the guide's steps once the file arrives"
 		logo: null,
 		readsLocations: false,
 		sendsToConnect: false,
+		distanceSearches: [],
 	});
 	await page.route("**/api/compile/json", (route) =>
 		route.fulfill({

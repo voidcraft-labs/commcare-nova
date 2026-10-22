@@ -14,7 +14,9 @@ rows never come from the snapshot, and a form's casedb read never queries
 Postgres. Where one expression reaches both, agreement tests hold them together:
 `sql/__tests__/instantOrdering.postgres.test.ts` for datetimes, and the absent
 and blank rows of `sql/__tests__/compilePredicate.harness.postgres.test.ts` for
-every atom.
+every atom. CSQL runtime segments and obligations also evaluate over the
+snapshot, and `sql/__tests__/csqlComposition.postgres.test.ts` holds the
+composed search to the same rows.
 
 ## Public surface — barrel
 

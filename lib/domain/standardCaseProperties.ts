@@ -277,3 +277,37 @@ export const SYSTEM_DATETIME_CASE_PROPERTIES: ReadonlySet<string> = new Set([
 	"closed_on",
 	"last_modified",
 ]);
+
+/**
+ * Case metadata only CommCare's server search reads: HQ indexes `closed_on`
+ * as a system date and time (`corehq/apps/case_search/const.py::INDEXED_METADATA_BY_KEY`),
+ * but no device holds it. Core's casedb sets `status`, `date_opened` and
+ * `last_modified` and no closed date
+ * (`org/commcare/cases/instance/CaseChildElement.java::buildAndCacheInternalTree`),
+ * and HQ's search results carry none either
+ * (`casexml/apps/case/xml/generator.py::CaseDBXMLGenerator.add_base_properties`).
+ * So it is no entry of the effective catalog every surface reads: the type
+ * checker resolves it only in a slot whose targets exclude the suite and the
+ * form (`expression/typeChecker.ts`, `closed-on-not-on-device`).
+ */
+export const SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES = {
+	closed_on: "datetime",
+} as const satisfies Record<string, CasePropertyDataType>;
+
+export type SearchOnlyCaseProperty =
+	keyof typeof SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES;
+
+export const SEARCH_ONLY_CASE_PROPERTY_LABELS = {
+	closed_on: "Date closed",
+} as const satisfies Record<SearchOnlyCaseProperty, string>;
+
+export const SEARCH_ONLY_CASE_PROPERTY_DESCRIPTIONS = {
+	closed_on:
+		"When the case was closed. Only CommCare's server search knows it. Case status shows whether a case is closed.",
+} as const satisfies Record<SearchOnlyCaseProperty, string>;
+
+export function isSearchOnlyCaseProperty(
+	name: string,
+): name is SearchOnlyCaseProperty {
+	return Object.hasOwn(SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES, name);
+}

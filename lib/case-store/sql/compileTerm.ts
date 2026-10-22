@@ -10,7 +10,8 @@
 // for `RESERVED_SCALAR_COLUMN_BY_PROPERTY`), `literal` (delegates to
 // `compileLiteral`), `input` / `session-user` / `session-context`
 // (parameter-bound from `ctx.bindings`; missing bindings throw
-// rather than emit `NULL`).
+// rather than emit `NULL`), and the chosen case's `session-datum`
+// (its id bound from `ctx.bindings.chosenCaseIds`).
 //
 // ## Non-self via reads as scalar subqueries
 //
@@ -185,6 +186,17 @@ export interface TermBindings {
 	 * not. Validated at the compile site, never trusted raw.
 	 */
 	viewerTimeZone?: string;
+
+	/**
+	 * The case chosen in each menu the list's entry passes through, keyed by
+	 * that menu's module UUID: the id a `selected-case` datum reads in a browse
+	 * list's case list filter (`chosen-case('<menu>')`), and the row its
+	 * properties read from (`chosen-case-property('<menu>', '<property>')`).
+	 * Preview carries it as plain JSON from its menu case map. Each id is bound
+	 * as one text parameter. A CSQL slot never reads it: the fold has already
+	 * replaced the chosen case by the values Core gives.
+	 */
+	chosenCaseIds?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -329,9 +341,10 @@ export function compileTerm(
 						"The operation program builder resolves each `choice` to the text literal the XForm prints, from the committed document, before the program reaches the store; no other Postgres slot admits a static-select read.",
 				}),
 			);
+		case "session-datum":
+			return eb.cast(eb.val(chosenCaseId(term, ctx)), "text");
 		case "form-node":
 		case "case-index":
-		case "session-datum":
 		case "repeat-row":
 		case "location-level":
 		case "location-field":
@@ -542,6 +555,102 @@ export function compileTerm(
 	}
 }
 
+/**
+ * The id of the case chosen in a menu, from `TermBindings.chosenCaseIds`. The
+ * checker admits only a `selected-case` datum supplied before the module's
+ * case list step, so any other datum, or one the read does not carry, is an
+ * invariant.
+ */
+function chosenCaseId(
+	term: Extract<Term, { kind: "session-datum" }>,
+	ctx: TermCompileContext,
+): string {
+	const id = chosenCaseBinding(term, ctx);
+	if (id !== undefined) return id;
+	throw new Error(
+		compilerBugMessage({
+			where: "compileTerm.chosenCaseId",
+			invariant:
+				term.datum.kind === "selected-case"
+					? `the read carries no chosen case for menu '${term.datum.module}'`
+					: `a \`${term.datum.kind}\` datum reached a server record query`,
+			detail:
+				"A browse list's filter reads only a case chosen in a menu before its case list step, and Preview carries that choice as `TermBindings.chosenCaseIds`; a CSQL slot's fold has already replaced the chosen case.",
+		}),
+	);
+}
+
+function chosenCaseBinding(
+	term: Extract<Term, { kind: "session-datum" }>,
+	ctx: TermCompileContext,
+): string | undefined {
+	const { datum } = term;
+	const ids = ctx.bindings.chosenCaseIds;
+	if (datum.kind !== "selected-case" || ids === undefined) return undefined;
+	return Object.hasOwn(ids, datum.module) ? ids[datum.module] : undefined;
+}
+
+/**
+ * One property of the case chosen in a menu: a read of that case's row, the
+ * shape the worker-record read takes. The row is the Project's case of the
+ * menu's case type whose `case_id` is the bound chosen id, not held, inside
+ * the restore scope when the read has one, and the property reads under the
+ * slot's reading as the anchor's would. An id that names no such row reads no
+ * row, so the property is absent (`NULL`), which the two-valued comparisons
+ * read as a device reads an absent node.
+ */
+export function compileChosenCaseProperty(
+	read: {
+		readonly datum: Extract<Term, { kind: "session-datum" }>;
+		readonly caseType: string;
+		readonly property: string;
+	},
+	ctx: TermCompileContext,
+): AliasableExpression<unknown> {
+	const { caseType, property } = read;
+	const caseId = eb.cast<string>(eb.val(chosenCaseId(read.datum, ctx)), "text");
+	const reserved = reservedColumnFor(property, ctx);
+	const value =
+		reserved !== undefined
+			? scalarColumnRef(CHOSEN_CASE_ALIAS, reserved.column)
+			: jsonbColumnRead({
+					sourceAlias: CHOSEN_CASE_ALIAS,
+					property,
+					dataType: lookupDataType(caseType, property, ctx.caseTypeSchemas),
+				});
+	let query = ctx.db
+		.selectFrom(`cases as ${CHOSEN_CASE_ALIAS}`)
+		.where(`${CHOSEN_CASE_ALIAS}.app_id`, "=", ctx.appId)
+		.where(`${CHOSEN_CASE_ALIAS}.project_id`, "=", ctx.projectId)
+		.where(`${CHOSEN_CASE_ALIAS}.case_type`, "=", caseType)
+		.where((builder) =>
+			builder(builder.ref(`${CHOSEN_CASE_ALIAS}.case_id`), "=", caseId),
+		)
+		.where(({ not, exists, selectFrom }) =>
+			not(
+				exists(
+					selectFrom("parked_case_values as chosen_case_held")
+						.select("chosen_case_held.id")
+						.whereRef(
+							"chosen_case_held.case_id",
+							"=",
+							`${CHOSEN_CASE_ALIAS}.case_id`,
+						)
+						.where("chosen_case_held.dismissed_at", "is", null),
+				),
+			),
+		)
+		.select(compileReadingDate(value, property, ctx).as("value"))
+		.limit(1);
+	if (ctx.restrictToRestoreScope !== undefined)
+		query = ctx.restrictToRestoreScope(query, CHOSEN_CASE_ALIAS);
+	return query as unknown as AliasableExpression<unknown>;
+}
+
+/** The chosen case's row is uncorrelated with the anchor, so every read of it
+ *  can share one alias. */
+const CHOSEN_CASE_ALIAS = "chosen_case";
+
 /** Worker-record reads use the same tenant and held-row boundary as case reads. */
 function compileWorkerProperty(
 	field: string,
@@ -714,14 +823,20 @@ function compileSelfViaPropertyRef(args: {
 	caseType: string;
 	property: string;
 	ctx: TermCompileContext;
+	read?: PropertyRead;
 }): AliasableExpression<unknown> {
-	const { anchorAlias, caseType, property, ctx } = args;
+	const { anchorAlias, caseType, property, ctx, read = "typed" } = args;
 	const reserved = reservedColumnFor(property, ctx);
 	if (reserved !== undefined) {
-		return scalarColumnRef(anchorAlias, reserved.column);
+		return reservedColumnRead(anchorAlias, reserved, property, read);
 	}
 	const dataType = lookupDataType(caseType, property, ctx.caseTypeSchemas);
-	return jsonbColumnRead({ sourceAlias: anchorAlias, property, dataType });
+	return jsonbColumnRead({
+		sourceAlias: anchorAlias,
+		property,
+		dataType,
+		read,
+	});
 }
 
 /**
@@ -736,8 +851,9 @@ function compileNonSelfViaPropertyRef(args: {
 	caseType: string;
 	property: string;
 	ctx: TermCompileContext;
+	read?: PropertyRead;
 }): AliasableExpression<unknown> {
-	const { via, anchorAlias, caseType, property, ctx } = args;
+	const { via, anchorAlias, caseType, property, ctx, read = "typed" } = args;
 	const canonical = canonicalizeRelationPath(via, {
 		caseTypes: [...ctx.caseTypeSchemas.values()],
 		currentCaseType: ctx.currentCaseType ?? caseType,
@@ -771,7 +887,7 @@ function compileNonSelfViaPropertyRef(args: {
 	const leafReserved = reservedColumnFor(property, ctx);
 	const innerRead =
 		leafReserved !== undefined
-			? scalarColumnRef(leafAlias, leafReserved.column)
+			? reservedColumnRead(leafAlias, leafReserved, property, read)
 			: jsonbColumnRead({
 					sourceAlias: leafAlias,
 					property,
@@ -780,6 +896,7 @@ function compileNonSelfViaPropertyRef(args: {
 						property,
 						ctx.caseTypeSchemas,
 					),
+					read,
 				});
 
 	// `LIMIT 1` keeps the subquery scalar — the term compiler's
@@ -821,11 +938,14 @@ function jsonbColumnRead(args: {
 	sourceAlias: string;
 	property: string;
 	dataType: CasePropertyDataType;
+	read?: PropertyRead;
 }): AliasableExpression<unknown> {
-	const { sourceAlias, property, dataType } = args;
+	const { sourceAlias, property, dataType, read = "typed" } = args;
+	const propertiesRef = `${sourceAlias}.properties` as const;
+	if (read === "stored-text")
+		return storedJsonbText(propertiesRef, property, dataType);
 	const cast = POSTGRES_CAST_FOR_DATA_TYPE[dataType];
 	const readOperator = JSONB_READ_OPERATOR_FOR_DATA_TYPE[dataType];
-	const propertiesRef = `${sourceAlias}.properties` as const;
 	// Type-erased: the runtime alias prefix can't be enumerated
 	// against `Database` statically, but every concrete site names
 	// a `cases`-shaped row at the alias position.
@@ -870,6 +990,136 @@ function compileStoredInstant(
 		.then(instant)
 		.else(eb.cast(eb.val(null), "timestamptz"))
 		.end();
+}
+
+/**
+ * How a property read compiles: `typed`, cast to its data type for the
+ * comparisons and orderings that read it as one, or `stored-text`, the text
+ * the case holds, exactly as stored, for the reads HQ answers with exact text
+ * terms (`compileStoredText`).
+ */
+type PropertyRead = "typed" | "stored-text";
+
+/**
+ * A JSONB property's stored text: `->>`, uncast, so `'5'` stays `'5'` and
+ * `'5.0'` is not it. A multi-select's stored JSONB array reads as its
+ * choices joined by single spaces, the text a device stores for one (and a
+ * scalar string under that key, from a row written before the property was a
+ * multi-select, reads as itself).
+ */
+function storedJsonbText(
+	propertiesRef: string,
+	property: string,
+	dataType: CasePropertyDataType,
+): AliasableExpression<unknown> {
+	const text = (eb as DynamicExprBuilder)
+		.ref(propertiesRef, "->>")
+		.key(property);
+	if (dataType !== "multi_select") return text;
+	const json = (eb as DynamicExprBuilder)
+		.ref(propertiesRef, "->")
+		.key(property);
+	return eb
+		.case()
+		.when(eb(eb.fn("jsonb_typeof", [json]), "=", eb.val("array")))
+		.then(
+			sql<string>`(select string_agg(choice, ' ' order by ordinality) from jsonb_array_elements_text(${json}) with ordinality as listed(choice, ordinality))`,
+		)
+		.else(text)
+		.end();
+}
+
+/** A reserved column as the read asks for it. Only a text column has stored
+ * text; a timestamp column never reaches a `stored-text` read. */
+function reservedColumnRead(
+	alias: string,
+	reserved: ReservedScalarColumn,
+	property: string,
+	read: PropertyRead,
+): AliasableExpression<unknown> {
+	if (read === "stored-text" && !reserved.blankable)
+		throw new Error(
+			compilerBugMessage({
+				where: "compileTerm.reservedColumnRead",
+				invariant: `the system date \`${property}\` reached a stored-text read`,
+				detail:
+					"Only a list of values reads a property's stored text, and CSQL representability refuses a list opposite a system date (`representability.ts::admitsValueList`).",
+			}),
+		);
+	return scalarColumnRef(alias, reserved.column);
+}
+
+/**
+ * The text a case holds for a property, or for its case type, exactly as
+ * stored, `NULL` where it holds none: what HQ's search compares a list of
+ * values with. HQ answers `p = unwrap-list(…)` with exact `terms` on the
+ * property's text (`corehq/apps/es/case_search.py::exact_case_property_text_query`,
+ * `corehq/apps/es/filters.py::term`) and a system property's with `terms` on
+ * its field (`corehq/apps/case_search/xpath_functions/comparison.py::_create_system_query`),
+ * so no item is read as a number, date or time first. A relation read is the
+ * same correlated scalar subquery a typed read takes.
+ */
+export function compileStoredText(
+	term: Extract<Term, { kind: "prop" | "case-row-type" }>,
+	ctx: TermCompileContext,
+): AliasableExpression<unknown> {
+	if (term.kind === "case-row-type")
+		return scalarColumnRef(ctx.anchorAlias, "case_type");
+	const { property, via } = term;
+	const caseType = term.caseType ?? ctx.currentCaseType;
+	if (caseType === undefined)
+		throw new Error(
+			compilerBugMessage({
+				where: "compileTerm.compileStoredText",
+				invariant: "a server property read compiled without its record type",
+			}),
+		);
+	return via === undefined || via.kind === "self"
+		? compileSelfViaPropertyRef({
+				anchorAlias: ctx.anchorAlias,
+				caseType,
+				property,
+				ctx,
+				read: "stored-text",
+			})
+		: compileNonSelfViaPropertyRef({
+				via,
+				anchorAlias: ctx.anchorAlias,
+				caseType,
+				property,
+				ctx,
+				read: "stored-text",
+			});
+}
+
+/**
+ * The data type of the property a stored-text read reads, `undefined` for
+ * the case type and a reserved column, which hold text. A relation read's
+ * property is its destination case type's.
+ */
+export function storedTextDataType(
+	term: Extract<Term, { kind: "prop" | "case-row-type" }>,
+	ctx: TermCompileContext,
+): CasePropertyDataType | undefined {
+	if (term.kind === "case-row-type") return undefined;
+	const { property, via } = term;
+	if (reservedColumnFor(property, ctx) !== undefined) return undefined;
+	const caseType = term.caseType ?? ctx.currentCaseType;
+	if (caseType === undefined) return undefined;
+	if (via === undefined || via.kind === "self")
+		return lookupDataType(caseType, property, ctx.caseTypeSchemas);
+	const canonical = canonicalizeRelationPath(via, {
+		caseTypes: [...ctx.caseTypeSchemas.values()],
+		currentCaseType: ctx.currentCaseType ?? caseType,
+	});
+	const destination =
+		canonical.destinationCaseType ??
+		resolveDestinationCaseType(
+			canonical.via,
+			ctx.currentCaseType ?? caseType,
+			ctx.caseTypeSchemas,
+		);
+	return lookupDataType(destination, property, ctx.caseTypeSchemas);
 }
 
 /**
@@ -1199,6 +1449,10 @@ export function boundComparandValue(
 		}
 		case "session-context":
 			return bound(term.field, ctx.bindings.sessionContext, "");
+		case "session-datum": {
+			const id = chosenCaseBinding(term, ctx);
+			return id === undefined ? undefined : { value: id };
+		}
 		case "field":
 			if (
 				term.role !== undefined ||

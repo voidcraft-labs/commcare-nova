@@ -38,6 +38,7 @@ import tablerCheck from "@iconify-icons/tabler/check";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
 import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerForms from "@iconify-icons/tabler/forms";
+import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerSparkles from "@iconify-icons/tabler/sparkles";
 import tablerSwitch from "@iconify-icons/tabler/switch";
 import tablerUser from "@iconify-icons/tabler/user";
@@ -78,6 +79,8 @@ import {
 } from "@/components/shadcn/dropdown-menu";
 import { FieldError } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
+import { useDocEntityMaps } from "@/lib/doc/hooks/useDocEntityMaps";
+import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	asUuid,
 	type CasePropertyDataType,
@@ -106,8 +109,10 @@ import {
 	timeLiteral,
 	term as wrapTerm,
 } from "@/lib/domain/expression";
+import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import {
 	type AdmitExpressionChange,
+	type ExpressionChangeAdmission,
 	useEditorErrorsAt,
 	useEditorErrorsBelow,
 	useExpressionFocusTarget,
@@ -132,9 +137,17 @@ import {
 	sessionContextPresentation,
 	sessionUserPresentation,
 } from "../../sessionContextPresentation";
+import type { ChosenCaseValueChoice } from "../../termEditorModel";
 import {
 	buildLiteralForShape,
 	buildTermDefault,
+	CHOSEN_CASE_ITSELF_LABEL,
+	type ChosenCaseSource,
+	caseRowTypeAdmission,
+	chosenCaseChoicesAdmission,
+	chosenCaseSourceLabel,
+	chosenCaseSources,
+	chosenCaseValueChoices,
 	classifyLiteralShape,
 	computeModeAdmission,
 	constraintAdmitsType,
@@ -177,6 +190,8 @@ interface TermDraft {
 interface PendingTermModeChange {
 	readonly source: Term;
 	readonly targetMode: TermMode;
+	/** The menu of a chosen-case source. */
+	readonly chosenModule?: Uuid;
 	/** A source without a schema-valid automatic default is collected inside
 	 * the confirmation before it is allowed to reach the document. */
 	readonly userFieldDraft?: string;
@@ -201,6 +216,14 @@ interface TermCardProps {
 	 *  Change affordance. Built by `ExpressionPicker` (which owns the
 	 *  expression registry) to keep the module graph acyclic. */
 	readonly computedItems?: React.ReactNode;
+	/** Set when the stored value is a property of the case chosen in a menu
+	 * (a keyed casedb read): `value` then holds that case's id, and the body
+	 * shows the property. */
+	readonly chosenProperty?: string;
+	/** The owner's verdict for replacing this whole value, judged as the owner
+	 * would rebuild its expression (a comparison moves its value with "Case
+	 * type"). Absent, a choice is judged in place. */
+	readonly admitReplacement?: (next: Expression) => ExpressionChangeAdmission;
 }
 
 /**
@@ -222,10 +245,16 @@ const EDITABLE_TERM_KINDS: ReadonlySet<string> = new Set([
 	"session-user",
 	"session-user-property",
 	"table-column",
+	"case-row-type",
+	"session-datum",
 ]);
 
 export function TermCard(props: TermCardProps) {
-	if (!EDITABLE_TERM_KINDS.has(props.value.term.kind))
+	if (
+		!EDITABLE_TERM_KINDS.has(props.value.term.kind) ||
+		(props.value.term.kind === "session-datum" &&
+			props.value.term.datum.kind !== "selected-case")
+	)
 		return <p role="status">This saved value cannot be edited here yet.</p>;
 	if (props.value.term.kind === "session-context") {
 		const presentation = sessionContextPresentation(props.value.term.field);
@@ -266,8 +295,27 @@ function EditableTermCard({
 	constraint = ANY_CONSTRAINT,
 	sourceContext = "value",
 	computedItems,
+	chosenProperty,
+	admitReplacement,
 }: TermCardProps) {
 	const ctx = usePredicateEditContext();
+	const { modules } = useDocEntityMaps();
+	const projectProse = useProseProjection();
+	const menuName = useCallback(
+		(module: Uuid) => modules[module]?.name ?? "an earlier menu",
+		[modules],
+	);
+	const chosenSources = useMemo(
+		() => chosenCaseSources(ctx.expressionContext),
+		[ctx.expressionContext],
+	);
+	const chosenChoicesFor = useCallback(
+		(source: ChosenCaseSource) =>
+			chosenCaseValueChoices(source, ctx, constraint, path, (property) =>
+				propertyDisplayLabel(property, projectProse),
+			),
+		[ctx, constraint, path, projectProse],
+	);
 	// Term-side error rendering: two sources:
 	//
 	//   - `errors` (exact-at-path): the general-purpose term-arm
@@ -391,6 +439,90 @@ function EditableTermCard({
 		[applyMode, mode, term],
 	);
 
+	const chosenModule =
+		term.kind === "session-datum" && term.datum.kind === "selected-case"
+			? term.datum.module
+			: undefined;
+	const chosenItems = useMemo(() => {
+		const listed = chosenSources.map((source) => ({
+			module: source.module,
+			label: chosenCaseSourceLabel(menuName(source.module)),
+			admission: chosenCaseChoicesAdmission(chosenChoicesFor(source)),
+		}));
+		// A stored read of a menu the entry no longer passes through stays
+		// visible, so the person sees what to repair.
+		if (
+			chosenModule !== undefined &&
+			!listed.some((item) => item.module === chosenModule)
+		)
+			listed.push({
+				module: chosenModule,
+				label: chosenCaseSourceLabel(menuName(chosenModule)),
+				admission: { admitted: true },
+			});
+		return listed;
+	}, [chosenSources, chosenChoicesFor, chosenModule, menuName]);
+
+	const applyChosenCase = useCallback(
+		(module: Uuid) => {
+			const source = chosenSources.find((item) => item.module === module);
+			if (source === undefined) return;
+			const choice = chosenChoicesFor(source).find(
+				(candidate) => candidate.admission.admitted,
+			);
+			if (choice === undefined) return;
+			const currentDraft = draftsByModeRef.current.get(mode);
+			draftsByModeRef.current.set(mode, {
+				value: term,
+				authored:
+					currentDraft !== undefined && termsMatch(currentDraft.value, term)
+						? currentDraft.authored
+						: termHasMeaningfulContent(term),
+			});
+			onChange(choice.value);
+		},
+		[chosenChoicesFor, chosenSources, mode, onChange, term],
+	);
+
+	const requestChosenCase = useCallback(
+		(module: Uuid) => {
+			if (module === chosenModule) return;
+			const currentDraft = draftsByModeRef.current.get(mode);
+			const authored =
+				currentDraft !== undefined && termsMatch(currentDraft.value, term)
+					? currentDraft.authored
+					: termHasMeaningfulContent(term);
+			if (authored && termHasMeaningfulContent(term)) {
+				setPendingModeChange({
+					source: term,
+					targetMode: "chosen-case",
+					chosenModule: module,
+					replacesAuthoredSource: true,
+				});
+				return;
+			}
+			applyChosenCase(module);
+		},
+		[applyChosenCase, chosenModule, mode, term],
+	);
+
+	const caseTypeChoice = useMemo(() => {
+		const admission = caseRowTypeAdmission(
+			ctx,
+			constraint,
+			path,
+			admitReplacement,
+		);
+		// Offered where a case row is in scope and the rule admits it; a stored
+		// one always shows, so it stays repairable.
+		if (term.kind !== "case-row-type" && !admission.admitted) return undefined;
+		return {
+			selected: term.kind === "case-row-type",
+			admission,
+			onSelect: () => onChange(wrapTerm({ kind: "case-row-type" })),
+		};
+	}, [admitReplacement, constraint, ctx, onChange, path, term.kind]);
+
 	const handleTermChange = useCallback(
 		(next: Term) => {
 			draftsByModeRef.current.set(termMode(next), {
@@ -494,7 +626,9 @@ function EditableTermCard({
 					}
 				: describeTermModeReplacement(
 						pendingModeChange.source,
-						termModeLabel(pendingModeChange.targetMode, sourceContext),
+						pendingModeChange.chosenModule !== undefined
+							? chosenCaseSourceLabel(menuName(pendingModeChange.chosenModule))
+							: termModeLabel(pendingModeChange.targetMode, sourceContext),
 					);
 	const pendingUserField = pendingModeChange?.userFieldDraft;
 	const pendingUserFieldError =
@@ -519,6 +653,9 @@ function EditableTermCard({
 						mode={mode}
 						setMode={requestMode}
 						admission={modeAdmission}
+						chosenItems={chosenItems}
+						activeChosenModule={chosenModule}
+						onChosen={requestChosenCase}
 						sourceContext={sourceContext}
 						computedItems={computedItems}
 						triggerRef={sourceTriggerRef}
@@ -535,6 +672,24 @@ function EditableTermCard({
 						invalid={errors.length > 0 || descendantErrors.length > 0}
 						path={path}
 						admitExpressionChange={ctx.admitExpressionChange}
+						caseTypeChoice={caseTypeChoice}
+						chosen={
+							chosenModule === undefined
+								? undefined
+								: {
+										module: chosenModule,
+										property: chosenProperty,
+										choices: (() => {
+											const source = chosenSources.find(
+												(item) => item.module === chosenModule,
+											);
+											return source === undefined
+												? []
+												: chosenChoicesFor(source);
+										})(),
+										onChoose: (next) => onChange(next),
+									}
+						}
 					/>
 				</div>
 				{descendantErrors.length > 0 && (
@@ -621,6 +776,12 @@ function EditableTermCard({
 							}
 							onClick={() => {
 								if (pendingModeChange === null) return;
+								if (pendingModeChange.chosenModule !== undefined) {
+									if (termsMatch(pendingModeChange.source, term))
+										applyChosenCase(pendingModeChange.chosenModule);
+									setPendingModeChange(null);
+									return;
+								}
 								const explicitTarget =
 									pendingModeChange.userFieldDraft === undefined
 										? undefined
@@ -681,6 +842,14 @@ interface ModeMenuProps {
 	readonly mode: TermMode;
 	readonly setMode: (mode: TermMode) => void;
 	readonly admission: ModeAdmission;
+	/** One source per menu whose case the entry chose before this runs. */
+	readonly chosenItems: readonly {
+		readonly module: Uuid;
+		readonly label: string;
+		readonly admission: ExpressionChangeAdmission;
+	}[];
+	readonly activeChosenModule: Uuid | undefined;
+	readonly onChosen: (module: Uuid) => void;
 	readonly sourceContext: "value" | "subject";
 	readonly computedItems?: React.ReactNode;
 	readonly triggerRef: RefObject<HTMLButtonElement | null>;
@@ -694,6 +863,9 @@ function ModeMenu({
 	mode,
 	setMode,
 	admission,
+	chosenItems,
+	activeChosenModule,
+	onChosen,
 	sourceContext,
 	computedItems,
 	triggerRef,
@@ -773,7 +945,17 @@ function ModeMenu({
 		sourceContext,
 	]);
 
-	const activeItem = items.find((i) => i.mode === mode) ?? items[0];
+	const activeChosen = chosenItems.find(
+		(item) => item.module === activeChosenModule,
+	);
+	const activeItem =
+		mode === "chosen-case" && activeChosen !== undefined
+			? { mode, label: activeChosen.label, icon: tablerListDetails }
+			: (items.find((i) => i.mode === mode) ?? items[0]);
+	const radioValue =
+		mode === "chosen-case" && activeChosenModule !== undefined
+			? `${CHOSEN_RADIO_PREFIX}${activeChosenModule}`
+			: mode;
 
 	return (
 		<DropdownMenu>
@@ -812,8 +994,13 @@ function ModeMenu({
 				>
 					<DropdownMenuPopup>
 						<DropdownMenuRadioGroup
-							value={mode}
-							onValueChange={(next) => setMode(next as TermMode)}
+							value={radioValue}
+							onValueChange={(next) => {
+								const picked = String(next);
+								if (picked.startsWith(CHOSEN_RADIO_PREFIX))
+									onChosen(asUuid(picked.slice(CHOSEN_RADIO_PREFIX.length)));
+								else setMode(picked as TermMode);
+							}}
 						>
 							{items.map((item) => {
 								const isActive = item.mode === mode;
@@ -853,6 +1040,43 @@ function ModeMenu({
 									</DropdownMenuRadioItem>
 								);
 							})}
+							{chosenItems.map((item) => {
+								const isActive =
+									mode === "chosen-case" && item.module === activeChosenModule;
+								const admitted = item.admission.admitted;
+								return (
+									<DropdownMenuRadioItem
+										key={item.module}
+										value={`${CHOSEN_RADIO_PREFIX}${item.module}`}
+										disabled={!admitted}
+										closeOnClick
+										className={
+											isActive
+												? "bg-nova-violet/10 text-nova-violet-bright"
+												: ""
+										}
+									>
+										<Icon
+											icon={tablerListDetails}
+											width="14"
+											height="14"
+											className={
+												isActive
+													? "text-nova-violet-bright"
+													: "text-nova-text-muted"
+											}
+										/>
+										<span className="flex-1 text-left min-w-0">
+											<span className="block break-words">{item.label}</span>
+											{item.admission.admitted === false && (
+												<span className="block break-words text-xs text-nova-text-muted">
+													{item.admission.reason}
+												</span>
+											)}
+										</span>
+									</DropdownMenuRadioItem>
+								);
+							})}
 						</DropdownMenuRadioGroup>
 						{literalShape !== undefined && (
 							<LiteralShapeSubmenu
@@ -879,8 +1103,21 @@ function ModeMenu({
 	);
 }
 
+const CHOSEN_RADIO_PREFIX = "chosen-case:";
+
 interface TermBodyInputProps {
 	readonly term: Term;
+	readonly caseTypeChoice?: {
+		readonly selected: boolean;
+		readonly admission: ExpressionChangeAdmission;
+		readonly onSelect: () => void;
+	};
+	readonly chosen?: {
+		readonly module: Uuid;
+		readonly property: string | undefined;
+		readonly choices: readonly ChosenCaseValueChoice[];
+		readonly onChoose: (next: Expression) => void;
+	};
 	readonly onChange: (next: Term) => void;
 	readonly userProperties: readonly UserProperty[];
 	readonly constraint: SlotConstraint;
@@ -903,6 +1140,8 @@ function TermBodyInput({
 	invalid,
 	path,
 	admitExpressionChange,
+	caseTypeChoice,
+	chosen,
 }: TermBodyInputProps) {
 	const propertyFilter = useMemo(
 		() => propertyFilterFor(constraint),
@@ -956,7 +1195,27 @@ function TermBodyInput({
 					}
 					filter={propertyFilter}
 					invalid={invalid}
+					caseTypeChoice={caseTypeChoice}
 				/>
+			);
+		case "case-row-type":
+			// "Case type" is chosen in the same picker as the case's properties,
+			// so choosing a property from here replaces it.
+			return (
+				<CaseRowTypeBody
+					onChange={onChange}
+					caseTypeChoice={caseTypeChoice}
+					constraint={constraint}
+					invalid={invalid}
+					path={path}
+					admitExpressionChange={admitExpressionChange}
+				/>
+			);
+		case "session-datum":
+			return chosen === undefined ? (
+				<p role="status">This saved value cannot be edited here yet.</p>
+			) : (
+				<ChosenCaseValueMenu {...chosen} invalid={invalid} />
 			);
 		case "field":
 			return (
@@ -2196,5 +2455,139 @@ function UserFieldInput({
 				</p>
 			)}
 		</div>
+	);
+}
+
+function CaseRowTypeBody({
+	onChange,
+	caseTypeChoice,
+	constraint,
+	invalid,
+	path,
+	admitExpressionChange,
+}: {
+	readonly onChange: (next: Term) => void;
+	readonly caseTypeChoice: TermBodyInputProps["caseTypeChoice"];
+	readonly constraint: SlotConstraint;
+	readonly invalid: boolean;
+	readonly path: EditorPath;
+	readonly admitExpressionChange: AdmitExpressionChange | undefined;
+}) {
+	const ctx = usePredicateEditContext();
+	const propertyFilter = useMemo(
+		() => propertyFilterFor(constraint),
+		[constraint],
+	);
+	return (
+		<PropertyRefPicker
+			mode="property-only"
+			value={{ kind: "prop", caseType: ctx.currentCaseType, property: "" }}
+			onChange={(next) => onChange(next)}
+			admitChange={(next) =>
+				admitExpressionChange?.(path, wrapTerm(next)) ?? { admitted: true }
+			}
+			filter={propertyFilter}
+			invalid={invalid}
+			caseTypeChoice={
+				caseTypeChoice ?? {
+					selected: true,
+					admission: { admitted: true },
+					onSelect: () => {},
+				}
+			}
+		/>
+	);
+}
+
+/** The value picker of "The case chosen in <menu>": the case itself, then
+ * that menu's case-type properties, each admitted by the whole rule. */
+function ChosenCaseValueMenu({
+	property,
+	choices,
+	onChoose,
+	invalid,
+}: {
+	readonly module: Uuid;
+	readonly property: string | undefined;
+	readonly choices: readonly ChosenCaseValueChoice[];
+	readonly onChoose: (next: Expression) => void;
+	readonly invalid: boolean;
+}) {
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const current = choices.find((choice) => choice.property === property);
+	const label =
+		current?.label ??
+		(property === undefined
+			? CHOSEN_CASE_ITSELF_LABEL
+			: "Unavailable information");
+	const triggerClass = [
+		"group min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 text-sm text-nova-text dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50",
+		invalid || current === undefined
+			? "border-nova-rose/40"
+			: "border-white/[0.06] not-disabled:hover:border-nova-violet/30",
+	].join(" ");
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				ref={triggerRef}
+				aria-label={`Information from the chosen case: ${label}`}
+				aria-invalid={invalid || undefined}
+				render={
+					<Button type="button" variant="outline" className={triggerClass} />
+				}
+			>
+				<span className="break-words text-left text-nova-violet-bright">
+					{label}
+				</span>
+				<Icon
+					icon={tablerChevronDown}
+					width="14"
+					height="14"
+					className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+				/>
+			</DropdownMenuTrigger>
+			<DropdownMenuPortal>
+				<DropdownMenuPositioner
+					side="bottom"
+					align="start"
+					sideOffset={4}
+					anchor={triggerRef}
+					style={{ minWidth: "var(--anchor-width)", maxHeight: 360 }}
+				>
+					<DropdownMenuPopup className="max-h-80 min-w-0 overflow-y-auto">
+						{choices.map((choice) => {
+							const isActive = choice === current;
+							return (
+								<DropdownMenuItem
+									key={choice.key}
+									disabled={!choice.admission.admitted || isActive}
+									onClick={() => onChoose(choice.value)}
+									className={
+										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
+									}
+								>
+									<span className="min-w-0 flex-1 text-left">
+										<span className="block break-words">{choice.label}</span>
+										{choice.admission.admitted === false ? (
+											<span className="block break-words text-xs text-nova-text-muted">
+												{choice.admission.reason}
+											</span>
+										) : null}
+									</span>
+									{isActive && (
+										<Icon
+											icon={tablerCheck}
+											width="14"
+											height="14"
+											className="shrink-0 text-nova-violet-bright"
+										/>
+									)}
+								</DropdownMenuItem>
+							);
+						})}
+					</DropdownMenuPopup>
+				</DropdownMenuPositioner>
+			</DropdownMenuPortal>
+		</DropdownMenu>
 	);
 }

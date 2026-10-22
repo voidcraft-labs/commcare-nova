@@ -16,10 +16,15 @@
 //
 // Type-checker rule (per `checkExpression`'s `case "date-coerce" |
 // "datetime-coerce":`): the operand must be text-shaped (`text` /
-// `single_select` / `multi_select`) or already date-shaped (`date` /
-// `datetime`: identity / widening coercion). The `_any` sentinel
-// bypasses the check uniformly. Errors land at `[..., "value"]`; the
-// editor captures them inline next to the operand picker.
+// `single_select` / `multi_select`), already date-shaped (`date` /
+// `datetime`: identity / widening coercion), or a number of days since
+// 1 January 1970 (`int` / `decimal`, part 06 §3.5). Where the number may
+// stand depends on the slot: a CSQL date needs whole days
+// (`epoch-days-not-whole`) and a device drops a fraction of a day
+// (`epoch-fraction-on-device`). Those are whole-rule verdicts, so the
+// operand picker offers every number and the admission refuses the rest.
+// Errors land at `[..., "value"]`; the editor captures them inline next to
+// the operand picker.
 
 "use client";
 import type { ExpressionOfKind } from "@/lib/domain/expression";
@@ -36,9 +41,12 @@ import type { ExpressionEditContext } from "../../expressionEditorSchemas";
 import { appendSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 
-/** Both coercion operators read a text-shaped or date-shaped operand:
- * module-const for a stable identity across renders. */
+/** Both coercion operators read a text-shaped, date-shaped or numeric
+ * operand: module-const for a stable identity across renders. */
 const OPERAND_CONSTRAINT = coerceOperandConstraint();
+
+/** What a number means to both coercions (part 06 §3.5). */
+export const EPOCH_DAYS_HINT = "A number counts days from 1 January 1970.";
 
 /** Default `date-coerce`: `date-coerce(literal(""))`. The empty
  *  literal lets the user immediately see the operand picker; the
@@ -82,8 +90,8 @@ export function DateCoerceCard({ value, onChange, path }: DateCoerceCardProps) {
 		<div>
 			<div className="mb-1.5 text-[13px] font-medium text-nova-text-secondary">
 				{value.kind === "date-coerce"
-					? "Text to read as a date"
-					: "Text to read as a date and time"}
+					? "Value to read as a date"
+					: "Value to read as a date and time"}
 			</div>
 			<ExpressionPicker
 				value={value.value}
@@ -92,6 +100,9 @@ export function DateCoerceCard({ value, onChange, path }: DateCoerceCardProps) {
 				constraint={OPERAND_CONSTRAINT}
 				variant="nested"
 			/>
+			<p className="mt-1.5 text-[12px] leading-4 text-nova-text-muted">
+				{EPOCH_DAYS_HINT}
+			</p>
 		</div>
 	);
 }

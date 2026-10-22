@@ -6,6 +6,7 @@ import {
 	type Expression,
 	literal,
 	term,
+	timeLiteral,
 } from "@/lib/domain/expression";
 import { planPreservedExpressionReplacement } from "../expressionReplacement";
 
@@ -39,8 +40,18 @@ describe("planPreservedExpressionReplacement", () => {
 		expectPreservedChild(dateCoerce(child), "double", double(child), child);
 	});
 
-	it("does not preserve a child that the target coercion rejects", () => {
+	it("keeps a number when a numeric read becomes a date read of days since 1970", () => {
 		const child = term(literal(4));
+		expectPreservedChild(
+			double(child),
+			"date-coerce",
+			dateCoerce(child),
+			child,
+		);
+	});
+
+	it("does not preserve a child that the target coercion rejects", () => {
+		const child = term(timeLiteral("10:30"));
 		expect(
 			planPreservedExpressionReplacement(
 				double(child),

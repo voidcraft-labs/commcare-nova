@@ -15,7 +15,7 @@ import {
 	substituteUnansweredSearchInputs,
 } from "@/lib/domain/expression";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
-import type { Expression } from "@/lib/domain/expression/types";
+import type { DatumRef, Expression } from "@/lib/domain/expression/types";
 import { normalizeSpace } from "../wire";
 
 /**
@@ -27,6 +27,7 @@ export function emitNodesetFilter(
 	filter: Expression | undefined,
 	relationContext: ExpressionContext,
 	lookupNaming?: LookupWireNaming,
+	datumId?: (ref: DatumRef) => string | undefined,
 ): WireExpr | undefined {
 	// The ordinary case list evaluates before any Search runs, so every
 	// Search-input dependency substitutes to its unanswered reading first
@@ -55,10 +56,12 @@ export function emitNodesetFilter(
 	return toWire(effective, {
 		target: "suite",
 		types: relationContext,
-		bindings:
-			lookupNaming === undefined
+		bindings: {
+			...(datumId === undefined ? {} : { datumId }),
+			...(lookupNaming === undefined
 				? {}
-				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
+				: { lookup: { naming: lookupNaming, instanceScope: "suite" } }),
+		},
 	});
 }
 
