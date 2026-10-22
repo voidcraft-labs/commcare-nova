@@ -46,7 +46,7 @@ import { parsedLiteralTexts } from "./instantParse";
 // device first, so its print is the `_xpath_query` value's runtime segment.
 // The checker is stricter in one documented way: in form logic it refuses a
 // branch of another known kind (a number, text, a choice) that the emitter
-// would print as itself, reading as no moment (part 03 §3.2's correction); a
+// would print as itself, reading as no moment; a
 // record slot refuses that branch by its type rules already.
 
 const fx = instantFixture(

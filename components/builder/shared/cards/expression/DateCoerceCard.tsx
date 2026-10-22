@@ -18,7 +18,7 @@
 // "datetime-coerce":`): the operand must be text-shaped (`text` /
 // `single_select` / `multi_select`), already date-shaped (`date` /
 // `datetime`: identity / widening coercion), or a number of days since
-// 1 January 1970 (`int` / `decimal`, part 06 §3.5). Where the number may
+// 1 January 1970 (`int` / `decimal`). Where the number may
 // stand depends on the slot: a CSQL date needs whole days
 // (`epoch-days-not-whole`) and a device drops a fraction of a day
 // (`epoch-fraction-on-device`). Those are whole-rule verdicts, so the
@@ -45,7 +45,7 @@ import { ExpressionPicker } from "../../primitives/ExpressionPicker";
  * operand: module-const for a stable identity across renders. */
 const OPERAND_CONSTRAINT = coerceOperandConstraint();
 
-/** What a number means to both coercions (part 06 §3.5). */
+/** What a number means to both coercions. */
 export const EPOCH_DAYS_HINT = "A number counts days from 1 January 1970.";
 
 /** Default `date-coerce`: `date-coerce(literal(""))`. The empty

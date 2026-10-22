@@ -1,8 +1,7 @@
 /**
  * The `csql` native family's statement of meaning: one document per
  * scenario, the cases HQ's receiver saves for it, and for each search the
- * session it is sent under and the case ids it means
- * (`docs/plans/hq-round-trip/3-expressions/06-csql.md` §8).
+ * session it is sent under and the case ids it means.
  *
  * HQ's check (`proof/native/test_csql_payload.py`) saves each scenario's
  * cases through HQ's receiver, so every stored date and time is HQ's own
@@ -185,7 +184,7 @@ export function scenarioRecord(scenario: CsqlScenario) {
 	};
 }
 
-// --- datetime-equality (§3.13, finding 75) ---------------------------------
+// --- datetime-equality (finding 75) -----------------------------------------
 
 const VISIT = "visit";
 const uuid = (scenario: string, name: string) =>
@@ -363,7 +362,7 @@ function datetimeEqualityDoc(): BlueprintDoc {
 
 const atInstant = [...SEEN_AT_INSTANT];
 
-/** §3.13's scenario. `expected` is Nova's meaning, which Preview answers. */
+/** The datetime-equality scenario. `expected` is Nova's meaning, which Preview answers. */
 export const datetimeEquality: CsqlScenario = {
 	id: "datetime-equality",
 	caseTypes: [VISIT],
@@ -415,7 +414,7 @@ export const datetimeEquality: CsqlScenario = {
 	doc: datetimeEqualityDoc,
 };
 
-// --- The other constructs (§3.1–§3.12) -------------------------------------
+// --- The other constructs ---------------------------------------------------
 //
 // Each block below is one scenario in the same shape, answered by HQ's check,
 // Core's class and Preview's Postgres check alike.
@@ -509,8 +508,8 @@ const textProperty = (
 
 const MODIFIED = "2026-01-01T08:00:00.000000Z";
 
-// closed_on (§3.1): HQ's search reads open cases, so a case has no closed_on
-// there, and only a negation keeps it (part 07 §5.5).
+// closed_on: HQ's search reads open cases, so a case has no closed_on
+// there, and only a negation keeps it.
 
 const CLOSING = "visit";
 const closedOnCases: readonly CsqlCase[] = [
@@ -570,7 +569,7 @@ export const closedOn: CsqlScenario = {
 		),
 };
 
-// Case types (§3.2): the record's own type compared with a type name.
+// Case types: the record's own type compared with a type name.
 
 const HOME = "household";
 const caseTypeCases: readonly CsqlCase[] = [
@@ -662,7 +661,7 @@ export const caseTypes: CsqlScenario = {
 		),
 };
 
-// Epoch coercions (§3.5): day 19000 is 2022-01-08.
+// Epoch coercions: day 19000 is 2022-01-08.
 
 const EVENT = "event";
 const epochCases: readonly CsqlCase[] = [
@@ -781,7 +780,7 @@ export const epochDays: CsqlScenario = {
 		),
 };
 
-// A list of values (§3.6), held for import: HQ's exact any-of.
+// A list of values, held for import: HQ's exact any-of.
 
 const ITEM = "item";
 const valueListCases: readonly CsqlCase[] = [
@@ -890,7 +889,7 @@ export const valueList: CsqlScenario = {
 		),
 };
 
-// Runtime selected values (§3.7): a runtime value is a list of tokens.
+// Runtime selected values: a runtime value is a list of tokens.
 
 const TAGGED = "client";
 const TAGS_INPUT = "tags";
@@ -1004,7 +1003,7 @@ export const runtimeSelected: CsqlScenario = {
 		),
 };
 
-// Distance units and runtime distance operands (§3.8): Near is about 111 m
+// Distance units and runtime distance operands: Near is about 111 m
 // from the center and Far about 1,112 m.
 
 const SITE = "site";
@@ -1185,7 +1184,7 @@ export const distanceUnits: CsqlScenario = {
 		),
 };
 
-// Runtime choice among clauses (§3.10), and a row-reading `if`.
+// Runtime choice among clauses, and a row-reading `if`.
 
 const PERSON = "person";
 const MODE_INPUT = "mode";
@@ -1408,8 +1407,8 @@ export const runtimeChoice: CsqlScenario = {
 		),
 };
 
-// The case chosen in an earlier menu (§3.9) and the flag-free ancestor case id
-// (§3.12): "Members by household" narrows its search to the chosen
+// The case chosen in an earlier menu and the flag-free ancestor case id:
+// "Members by household" narrows its search to the chosen
 // household's children; "Members by village" lists, and searches for, the
 // members whose home village is the chosen household's. Each Members module
 // selects its household in "Households" first.
@@ -1582,7 +1581,7 @@ export const chosenCase: CsqlScenario = {
 		),
 };
 
-// A selected value read from the chosen case (§3.6, §3.9), the way a device
+// A selected value read from the chosen case, the way a device
 // reaches a blank comparand: the chosen group's "wanted" saved blank. A typed
 // blank answer is not one, since no device sends it (Web Apps leaves an empty
 // field out of its request, query.js::encodeValue; Android answers it with
@@ -1716,7 +1715,7 @@ export const chosenBlank: CsqlScenario = {
 		),
 };
 
-// The worker's day (§3.4): `today()` is the device's date, which Core writes
+// The worker's day: `today()` is the device's date, which Core writes
 // into the query, so HQ never reads its own day or the project's zone. At
 // 2026-01-02 11:00 UTC it is still the 2nd in UTC and New York and already
 // the 3rd on Kiritimati.
@@ -1804,7 +1803,7 @@ export const workerDay: CsqlScenario = {
 		),
 };
 
-// Worker values (§3.9): a search narrowed by the worker's own user data and
+// Worker values: a search narrowed by the worker's own user data and
 // by the session's user id.
 
 const CLIENT = "client";

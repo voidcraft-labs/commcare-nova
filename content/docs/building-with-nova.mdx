@@ -281,6 +281,16 @@ builder leaves the starting value reading the old name.
 Each choice you write for a select question has a label, or an image, audio or
 video, so a worker never sees an empty choice.
 
+A formula that compares a select question with one of its choices, and a
+starting value that picks one, keep the choice itself rather than its value.
+Changing the choice's value updates them, and a choice can't be removed while a
+formula or a starting value uses it: Nova names what uses it so you can change
+that first. If the question's choices move to a Project data table or to cases, those
+comparisons keep the choice's current value as text, so they still mean the
+same thing. A fixed starting value has to be one of the question's choices, or
+empty, because CommCare's Web Apps can't open a form whose question starts on a
+choice it doesn't offer.
+
 The images, audio and video you upload to an app can be PNG, JPEG, GIF, WebP or
 BMP images, MP3, WAV, M4A, FLAC or Ogg audio, and MP4 or WebM video. Nova checks
 each file as you add it and says so when it is saved in a way some CommCare apps
@@ -291,11 +301,23 @@ can't play.
 When a formula needs correction, your draft and keyboard focus stay in the
 editor so you can keep typing while its explanation is visible.
 
+After you save a formula, it shows in Nova's standard spelling: one space after
+each comma and on each side of an operator, only the brackets it needs, and
+single quotes unless the text holds one. The spelling of each question path you
+chose stays. What the formula does is unchanged, and Nova publishes it in the
+same spelling.
+
 Formula references follow the question or choice they name when you rename it.
 Relative paths begin at the setting being edited: in a question's validation,
 `.` reads that answer and `../name` reads its sibling. `#form/name` reads a
 named answer without depending on that position. Nova checks the whole formula
 before saving and points to names or expressions it cannot resolve.
+
+A formula can name a question by its `#form/` path, by its full `/data/` path,
+or relative to where the formula runs, such as `../age` for the answer in the
+same repeat entry. Nova keeps the spelling you chose and follows the question
+when you rename or move it. A move that would leave a relative path with no way
+to reach its question is refused, and Nova names the formula that reads it.
 
 Nova checks formulas against the functions CommCare's device runtime actually
 implements and the same formulas run in Preview. A function being part of
@@ -367,6 +389,14 @@ or a column's export name keeps the formula reading them, and a table or column
 a formula reads can't be removed until that formula changes. Choices and record
 filters that use a data table work the same way. Formulas can read the records
 and session values available in their current setting.
+
+A formula can also read your records, for example
+`count(instance('casedb')/casedb/case[@case_type = 'visit'][@status = 'open'])`.
+A query that reads a property of its records names their record type with
+`[@case_type = 'visit']`. When it leaves the type out, Nova uses the one record
+type that has that property, and asks you to add the type when none or several
+do. Because Nova knows each query's record type, renaming a property updates
+the queries that read it.
 
 A formula can read values the app's menus supply to a form, such as the ID of
 the case chosen in a menu or the ID this form's new case will get, through

@@ -181,7 +181,7 @@ function collectMatches(predicate: Expression): WhitespaceMatch[] {
 			// CCHQ's `selected` and `selected-any` are the SAME runtime
 			// function; both tokenize their value argument, so flag every
 			// whitespace-bearing literal. A value read at run time is a list
-			// of choices by meaning (part 06 §3.7), so its words are wanted.
+			// of choices by meaning, so its words are wanted.
 			for (const literal of node.values) {
 				const value =
 					literal.kind === "literal"

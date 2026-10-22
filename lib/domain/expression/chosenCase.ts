@@ -1,6 +1,5 @@
 /**
- * The case chosen in an earlier menu, as a record slot reads it
- * (docs/plans/hq-round-trip/3-expressions/06-csql.md §3.9; part 02 §2.3).
+ * The case chosen in an earlier menu, as a record slot reads it.
  *
  * Its id is the `selected-case` datum of that menu's module. Its property is
  * the one `project` shape a record slot admits: the casedb row of the menu's

@@ -1,6 +1,5 @@
 /**
- * The two halves of a module's case list step agree (part 05 §1.3, "One id
- * per slot"; §5): the domain half (`entryDatumSupplies`, the `case-list`
+ * The two halves of a module's case list step agree: the domain half (`entryDatumSupplies`, the `case-list`
  * point) decides without spelling an id which chosen cases every entry the
  * list runs in holds at one datum id, and the id half
  * (`formLinkProjection.ts::entryDatumIds`) prints those ids. A ref the domain

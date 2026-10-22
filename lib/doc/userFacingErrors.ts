@@ -340,7 +340,7 @@ const dayOnlyCopy = (e: ValidationError) =>
 	});
 
 /** The sentence after a record setting's subject for a checker finding of a
- * search's shape (part 06 §3), keyed by the checker code. */
+ * search's shape, keyed by the checker code. */
 const RECORD_CHECK_SENTENCES: Readonly<Record<string, string>> = {
 	"case-type-ordering":
 		"orders case types. Case types can be compared only as equal or not equal. You can check whether the case type is one you choose.",

@@ -317,8 +317,7 @@ describe("entry datum identities on the emitted session", () => {
 		// Members, a child of the root, case-first Households menu, with
 		// parent-select Households: HQ's build writes Members' filter with
 		// the household as `parent_id`, then renames it to the root's
-		// `case_id` as it aligns (part 05 §1.3, "The case list filter's two
-		// prints").
+		// `case_id` as it aligns.
 		const doc = produce(parentSelectionDoc(false), (draft) => {
 			draft.modules[CHILD].parentModuleUuid = ROOT;
 		});

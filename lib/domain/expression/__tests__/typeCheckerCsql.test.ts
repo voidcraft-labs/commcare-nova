@@ -1,5 +1,5 @@
 // The checker's rules for CommCare search queries and the record slots that
-// read a case chosen in an earlier menu (part 06 §3; part 03 §3.9, §3.10).
+// read a case chosen in an earlier menu.
 // Each case types an expression in a real slot of one document and asserts
 // the finding the slot's targets and the node's search position decide.
 
@@ -501,8 +501,7 @@ describe("reads held for import", () => {
 
 describe("what both search slots refuse wherever the value sits", () => {
 	it("refuses a computed date format and a number of a date in a value the device works out", () => {
-		// Postgres compiles both slots, and the fold would hand it neither
-		// (part 06 §2.2; part 03 §3.10).
+		// Postgres compiles both slots, and the fold would hand it neither.
 		for (const slot of [PREDICATE, FILTER(chosen.members)]) {
 			expect(
 				codes(

@@ -1361,7 +1361,7 @@ The harness pins to two non-negotiable rules:
 `harness.postgres.test.ts` checks that Kysely and raw queries share the same
 uncommitted transaction, that a subsequent test cannot see the previous
 write, and that a separate observer sees no sentinel rows after fixture
-teardown. URI shape alone cannot prove container sharing or rollback. Index-plan checks compile the actual expression AST before EXPLAIN; hand-written equivalent SQL cannot prove compiler/index compatibility. The schema-contention check uses independent connections, observes both blocked operations, and runs the same bounded transient retry as production callers before checking the final schema and indexes.
+teardown. URI shape alone cannot prove container sharing or rollback. Index-plan checks compile the actual expression AST before EXPLAIN; hand-written equivalent SQL cannot prove compiler/index compatibility. A positive comparison keeps its index under two-valued compilation, and the checks prove it (a negated comparison beside it among them). The schema-contention check uses independent connections, observes both blocked operations, and runs the same bounded transient retry as production callers before checking the final schema and indexes.
 
 ### Image and extensions
 

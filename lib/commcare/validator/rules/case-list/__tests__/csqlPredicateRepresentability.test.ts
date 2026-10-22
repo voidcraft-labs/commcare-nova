@@ -367,7 +367,7 @@ describe("csqlPredicateRepresentability", () => {
 	});
 
 	it("admits a clause that reads no case row, which the device decides", () => {
-		// 06-csql.md §3.10: a row-free clause is a runtime choice between
+		// A row-free clause is a runtime choice between
 		// `match-all()` and `match-none()`.
 		expect(csqlFindings(docWithFilter(eq(literal(1), literal(2))))).toEqual([]);
 	});

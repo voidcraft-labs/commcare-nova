@@ -24,8 +24,8 @@ import {
 import type { CsqlNode } from "../tree";
 
 // HQ's flag-free ancestor comparison (`parent/@case_id = v`) against
-// `ancestor-exists`, which always needs CASE_SEARCH_RELATED_LOOKUPS
-// (06-csql.md §3.12). The meaning of each is HQ's and the native family's;
+// `ancestor-exists`, which always needs CASE_SEARCH_RELATED_LOOKUPS.
+// The meaning of each is HQ's and the native family's;
 // this holds which spelling the emitter picks and what it reports.
 const doc = chosenCase.doc();
 const households = testUuid("csql-chosen-case-Households-module");

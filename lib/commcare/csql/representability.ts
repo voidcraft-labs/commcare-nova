@@ -687,7 +687,7 @@ function checkRuntimeNode(
 		case "table-rows":
 		case "locations":
 		case "project":
-			// Held reads of their own rows (part 06 §3.9): their filters read
+			// Held reads of their own rows: their filters read
 			// those rows, never the search's.
 			return;
 		default:

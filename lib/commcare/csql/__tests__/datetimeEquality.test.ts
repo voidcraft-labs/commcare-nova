@@ -19,7 +19,7 @@ import { csqlFixtureContext } from "../../__tests__/csqlFunctionFixture";
 import { moduleExpressionContexts } from "../../expressionContext";
 import { type CsqlEmissionContext, emitCsql, emitCsqlTree } from "../emitter";
 
-// Finding 75 (06-csql.md §3.13): an equality on a date and time is HQ's closed
+// Finding 75: an equality on a date and time is HQ's closed
 // instant range, which HQ answers by instant for every spelling (CI run
 // 39315022018); text equality finds none of them. HQ's search over the
 // `datetime-equality` scenario holds the meaning; this holds the shape.

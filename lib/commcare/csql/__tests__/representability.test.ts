@@ -569,7 +569,7 @@ describe("the system dates at the gate", () => {
 	});
 });
 
-describe("positions decide what HQ reads (06-csql.md §2, §3)", () => {
+describe("positions decide what HQ reads", () => {
 	const valueList = (...items: Expression[]): Expression => ({
 		kind: "value-list",
 		items: [items[0] ?? safe, ...items.slice(1)],

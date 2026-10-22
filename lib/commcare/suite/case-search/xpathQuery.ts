@@ -442,7 +442,7 @@ function assertCsqlRepresentable(
 function assertNoBareSearchInputRefs(expression: Expression): void {
 	// A condition the device decides (a choice between clauses, or a clause
 	// that reads no case row) reads an unanswered input as `''`, a defined
-	// value, so an input there needs no gate (06-csql.md §3.10).
+	// value, so an input there needs no gate.
 	const controls = new Set(
 		csqlRuntimeRoots(expression)
 			.filter((root) => root.within === "query")

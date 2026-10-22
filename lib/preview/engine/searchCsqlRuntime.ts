@@ -1,7 +1,7 @@
 // lib/preview/engine/searchCsqlRuntime.ts
 //
 // What Core works out on the device before a search's `_xpath_query` reaches
-// HQ, and the fold that applies it (06-csql.md §4).
+// HQ, and the fold that applies it (`lib/commcare/csql/fold.ts`).
 //
 // Browser side, `evaluateSearchCsqlRuntime` composes the module's search
 // clauses as the export does (each in its own slot's context, each case
@@ -88,7 +88,7 @@ import {
  * are its own choice of `match-none()`, keyed by the row alone (`<row>`).
  * `refusal` is the kind of a row's obligation that holds first (the device
  * evaluates no later one), when it has no prompt to blame and a message for
- * the worker (06-csql.md §5): the Results read shows
+ * the worker: the Results read shows
  * its message (`searchRuntimeGlobalValidationMessage`), as it does for one
  * the server judges itself, rather than an empty list. `unevaluated` says
  * Preview's evaluator could not work out what the device sends for some row
@@ -587,7 +587,7 @@ export function foldSearchCsql(
  * Whether a runtime piece reads what only the device holds: a query over its
  * cases, chosen cases or places, or a projection of one. The chosen case's
  * property is the one projection the store reads itself, from that case's
- * row with its id bound (part 07 §5.1).
+ * row with its id bound.
  */
 function readsDeviceData(node: Expression | Term): boolean {
 	if (node.kind === "project" && readChosenCaseProperty(node) !== undefined)

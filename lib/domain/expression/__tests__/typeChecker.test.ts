@@ -2328,7 +2328,7 @@ describe("checkExpression — date / coercion arms", () => {
 
 	it("date-coerce reads a number as days since 1970 and rejects a time", () => {
 		// HQ's `value_to_date` and Core's `date(n)` both count days from
-		// 1 January 1970 (part 06 §3.5).
+		// 1 January 1970.
 		const days = resolve(dateCoerce(term(prop("patient", "age"))));
 		expect(days.type).toBe("date");
 		expect(days.errors).toEqual([]);

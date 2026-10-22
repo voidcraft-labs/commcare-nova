@@ -3190,8 +3190,8 @@ reused is only what a key names whole, and the reuse is audited:
   (equal). The sample turns each week: the run's ISO year and week is its
   seed (`python3 -m proof.store.queue --sample-seed 2026-W42`), each week
   takes the next 24 of the corpus's documents ranked by the sha256 of their
-  ids, wrapping at the end, so every document is compared within fifteen
-  weeks (for 357), and the three runs of a week check the same sample. The
+  ids, wrapping at the end, so every document is compared within seventeen
+  weeks (for 392), and the three runs of a week check the same sample. The
   seed and the sample's documents are in each sampled lane's job summary,
   its verdict and a failed week's issue, and a dispatch that names the seed
   (`sample_seed`) runs the same sample again. A sampled run checks every
@@ -4470,10 +4470,14 @@ every document whole, 184 workers on 224 vCPUs, each bin two and three
 quarter to four and three quarter hours, gated together).
 
 **The pull request lane.** The `no-readers` costs come from one run of the
-whole lane without the readers on a 32-vCPU proof machine at 32 workers, one
-vCPU a worker as on a CI shard, every group observed afresh with no store:
-452 groups, 16,076 worker-seconds, 4,019 box-seconds, the median document 24
-seconds on one worker. Main's lane before the readers, run the same way on
+whole lane without the readers on hosted runners, run 39403685632: fifteen
+shards of four workers on four vCPUs, one vCPU a worker, every group
+observed afresh with no store: 508 groups from 64 worker sessions, 16,782
+worker-seconds, 4,195 box-seconds, the median document 23 seconds on one
+worker. When the readers came to the lane, one run of the whole lane
+without them on a 32-vCPU proof machine at 32 workers, one vCPU a worker as
+on a CI shard, every group observed afresh, took 16,076 worker-seconds over
+452 groups. Main's lane before the readers, run the same way on
 the same machine, took 12,589 worker-seconds (its own `proof/timings.json`
 held 1,941 box-seconds, measured on hosted runs that read the store): of the
 22% more, most is two servers each worker started once, HQ's own
@@ -4486,8 +4490,9 @@ four workers, as a CI shard runs, that took 45 worker-seconds off sixteen
 documents, about 11 seconds off each worker's first build. A group runs
 on one worker, so the packages whose tests took longer than a shard can
 hold whole run as several groups (`proof.checks.sharding.SPLIT`): no group
-now takes more than about 215 seconds at that density, and the longest group
-a lane runs is the least its shard can take.
+in the `no-readers` profile takes more than about 250 seconds on one worker
+(`proof/checks`, 251), and the longest group a lane runs is the least its
+shard can take.
 
 A shard's fixed cost, from the hosted run 38152876104: about 75 seconds from
 the job's start to the pulled image and Postgres (the other setup overlaps
@@ -4535,27 +4540,36 @@ What a pull request runs is what its changes leave out of main's store, which
 the nightly fills with both profiles, and the audit sample (four documents or
 so, observed afresh on every run to hold the store to its keys). The
 expected ends below are the model's: `plan fit` over the queues the queue
-builder's own code makes for each change, from this commit's corpus (357
-documents, 69 controls, 30 package groups: 456 groups, 4,091 box-seconds
+builder's own code makes for each change, from this commit's corpus (392
+documents, 86 controls, 30 package groups: 508 groups, 4,195 box-seconds
 whole) and `proof/timings.json`, with a store taken to hold everything the
-change's keys do not move. One row has been measured on hosted runners,
-once: the last. Pull request run 38425969767 observed every group afresh on
-fourteen shards, each of which ran its blocks to the end, and its gate's job,
-which judged all 5,226 items (one of them, a test of the lane's own, failed),
-ended 755 seconds after the workflow started, 12 minutes 40 seconds after
-the pull request was opened, where the model expects 771. The other rows are
-the model's alone.
+change's keys do not move, over two audit seeds and, for the rows of
+documents, ten draws of them. Only the last row has been measured on hosted
+runners. At an earlier commit, of 456 groups, pull request run 38425969767
+observed every group afresh on fourteen shards, each of which ran its blocks
+to the end, and its gate's job, which judged all 5,226 items (one of them, a
+test of the lane's own, failed), ended 755 seconds after the workflow
+started, 12 minutes 40 seconds after the pull request was opened, where the
+model then expected 771. Over this corpus, run 39403685632 (dispatched with
+`proof_fresh`) observed all 508 groups afresh on fifteen shards, and its
+gate's job, which judged all 6,343 items with none failing, ended 3,967
+seconds after the workflow started, where the model expects 764 for fifteen
+shards. The runners were held by other runs: its corpus job started 524
+seconds in and its shards from 1,672 to 3,650 seconds, past every slot the
+model counts, while each shard's job took 281 to 457 seconds, where the
+model expects the longest to take 428 (its fixed cost and its span). The
+other rows are the model's alone.
 
 | The change | Groups that run | Shards | Expected end |
 | --- | --- | --- | --- |
-| Nothing the lane reads (most of Nova) | 4, the audit sample | 1 | about 6 min (341 to 350 s) |
-| Nova's emission in 10 documents | 25: those, the audit sample and the 11 package groups whose keys name them | 2 | 8.3 min (494 to 496 s) |
-| 40 documents | 57 or 58, 14 of them package groups | 3 | 8.7 min (524 to 525 s) |
-| 100 documents | 126 to 128, 24 of them package groups | 7 | 9.8 to 9.9 min (588 to 593 s) |
-| A harness file no document's key names (`proof/README.md`, `proof/native`, `proof/views`) | 34: every package group and the audit sample | 3 | 8.7 min (523 to 524 s) |
-| A test module outside the checks and the rules (`proof/lane/test_plan.py`, any `proof/hq`, `proof/store` or reader test) | 34: every package group and the audit sample | 3 | 8.7 min (523 to 524 s) |
-| A judge's file (`proof/checks/**`, `proof/rules/**`, a register, the surface), or HQ's branch proof | all 456, the documents and controls judged from their stored records | 6 | 10.2 min (610 s) |
-| The observation's code (a module of `proof/observe`, `proof/hq`, `proof/lane`, `proof/store`, `proof/editors` or a reader's package that is not a test), the image, or most documents | all 456, observed afresh | 14 | 12.9 min (771 s) |
+| Nothing the lane reads (most of Nova) | 4, the audit sample | 1 | 5.9 to 6.6 min (353 to 398 s) |
+| Nova's emission in 10 documents | 24 to 39: those, the audit sample and the 10 to 25 package groups whose keys name them (the 10 that read every document among them) | 2 or 3 | 9.2 to 9.4 min (552 to 567 s) |
+| 40 documents | 62 to 70, 19 to 26 of them package groups | 3 | 9.3 to 10.2 min (556 to 613 s) |
+| 100 documents | 128 to 130, 25 or 26 of them package groups | 5 or 6 | 10.7 to 11.0 min (644 to 663 s) |
+| A harness file no document's key names (`proof/README.md`, `proof/native`, `proof/views`) | 34: every package group and the audit sample | 3 | 9.2 min (552 s) |
+| A test module outside the checks and the rules (`proof/lane/test_plan.py`, any `proof/hq`, `proof/store` or reader test) | 34: every package group and the audit sample | 3 | 9.2 min (552 s) |
+| A judge's file (`proof/checks/**`, `proof/rules/**`, a register, the surface), or HQ's branch proof | all 508, the documents and controls judged from their stored records | 5 | 10.7 min (644 s) |
+| The observation's code (a module of `proof/observe`, `proof/hq`, `proof/lane`, `proof/store`, `proof/editors` or a reader's package that is not a test), the image, or most documents | all 508, observed afresh | 15 | 12.7 min (764 s) |
 
 A test module is no part of the observation ("The evidence store and its
 audits"), so an edit to one runs the package groups and leaves every

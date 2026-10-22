@@ -78,7 +78,7 @@
  * a clause that reads no case row are `runtime` subtrees in `query`
  * position (`lib/domain/expression/csqlPositions.ts`): Core evaluates them
  * on the device, where an unanswered input reads `''`, a defined value, and
- * HQ never sees the input at all (part 06 §3.10). So the envelope is
+ * HQ never sees the input at all. So the envelope is
  * required only of an input whose value is interpolated into the query.
  *
  * **Walker contract.** The rule walks the AST top-down maintaining

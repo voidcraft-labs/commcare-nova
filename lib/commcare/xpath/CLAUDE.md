@@ -26,6 +26,15 @@ pending declarations during atomic authoring; it is not a partial document.
 and logical field paths through the same finite form graph. Predicate context
 moves to the addressed node while `current()` retains the source carrier.
 
+Every surface parses through `parseFormExpression`: the builder through
+`lib/doc/expressionText.ts::parseFormExpressionForSlot`, and the SA and MCP
+through `::parseAuthoredFormExpression`, whose `authoring` scope adds short
+`#form` names (`resolveFormShortName`) and binds `#case` to the selected record
+type (`selectedCaseType`). An edit of an existing slot passes that slot's stored
+tree as `current`. An absolute path names a field of the form; the root alone,
+`/data`, names none, and the parser refuses it (`form-root`), since HQ's form
+builder shows it as an unknown question.
+
 A field, choice, worker property, text unit, lookup table or column is saved by
 identity. Case reads retain their case type and property; selected-record reads
 and query-row reads stay distinct. `referenceBindings.ts` also binds prose

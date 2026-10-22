@@ -235,7 +235,7 @@ export interface CaseListStepSession {
 
 /**
  * The session a module's case list step holds: the datums the session
- * supplies before the module's own selection (part 05 §1.8), valued as Core
+ * supplies before the module's own selection, valued as Core
  * values them when the session reaches them. A selection is the case the
  * menu chose (a parent selection, a copied root datum); the worker's record
  * and a grouped tile's companion are their functions over the device's cases

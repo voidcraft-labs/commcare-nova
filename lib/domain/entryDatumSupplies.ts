@@ -409,7 +409,7 @@ function selectingEntry(
  * points): the selections every entry whose session reaches the module's
  * list makes before the module's own selection. Those entries are the
  * module's own entries that select its case and the entries of every module
- * that selects through it as a parent (part 05 §1.3, "One id per slot"). The
+ * that selects through it as a parent. The
  * filter, the detail and the remote request are each one text per module,
  * so a selection one of them supplies at another datum id, or not at all,
  * is in `differs` rather than `refs`.

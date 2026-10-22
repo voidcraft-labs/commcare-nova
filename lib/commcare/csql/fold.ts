@@ -1,5 +1,5 @@
 /**
- * Preview's fold of a CSQL clause (06-csql.md §4).
+ * Preview's fold of a CSQL clause.
  *
  * On a device, Core evaluates every runtime piece of an `_xpath_query` value
  * before HQ sees the text: each runtime segment's value, each choice between

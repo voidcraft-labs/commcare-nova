@@ -5,7 +5,7 @@
 // the property's declared `options` + Any / All quantifier toggle.
 //
 // Values edit as one list: fixed choices render as chips, and values
-// worked out when the rule runs ("Add a value from", part 06 §3.7) render
+// worked out when the rule runs ("Add a value from") render
 // through `ExpressionPicker`. The schema's tuple-with-rest requires at least
 // one. Each value keeps its index in the `values` array: type-checker
 // errors land per value via the `[..., "values", i]` path.

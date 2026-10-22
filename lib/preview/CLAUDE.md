@@ -736,7 +736,11 @@ Repeat children live at CONCRETE indexed paths (`/data/orders[1]/name`), one Fie
   changed relevance can change the value a structural read observes.
   Each report names the cascade edge it closed through (`CycleReport.cascade`)
   so the validator can explain the containment, which no authored expression
-  spells out. Reads name exact addressed nodes, never every navigation prefix.
+  spells out. Reads name exact addressed nodes, never every navigation prefix:
+  edges come from the stored tree's reads
+  (`lib/commcare/xpath/wire/formReads.ts::formReads`), resolved through the
+  form's node projection, so a relative or `current()` read has its edge like
+  any other read.
   Native cycle collection uses the complete finite graph, including query
   wrappers and generated count/Connect calculations, and keeps cascading
   self edges. Runtime scheduling keeps its existing settle-free handling of
@@ -1266,9 +1270,7 @@ reads and a form's place and table reads read blank over empty data here as
 on a device; what still refuses is a read Nova leaves bare (an itemset, and
 the few node-set arguments listed there).
 `engine/__tests__/emptyInstanceParity.test.ts` holds each instance to the
-answers of a probe of Core at the pin; the plan
-(`docs/plans/hq-round-trip/3-expressions/05-instances-session.md`, §2.4's
-correction of 2026-10-19) records the probe and the guard.
+answers of a probe of Core at the pin.
 
 **Empty data is a refusal, never a fault** (`engine/dataRefusal.ts`). A miss
 in a secondary instance (no places for the worker, a table with no rows) and

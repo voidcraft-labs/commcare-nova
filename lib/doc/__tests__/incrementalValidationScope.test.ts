@@ -610,7 +610,7 @@ describe("incrementalValidationScope", () => {
 	it("matches the absolute gate when a menu whose chosen case another list reads switches to several cases", () => {
 		// Members' list reads the household chosen before it; a switch of
 		// Households to several cases refuses that read in Members' rules,
-		// which the selection footprint must reach (part 05 §1.7).
+		// which the selection footprint must reach.
 		const doc = chosenCaseDoc();
 		const members = doc.modules[chosen.members];
 		doc.modules[chosen.members] = {

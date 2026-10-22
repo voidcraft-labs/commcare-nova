@@ -766,7 +766,14 @@ cloning `BlueprintDoc` into a second app model.
   resolver so text IDs and reference-bearing output remain identical across
   languages. Optional hints, help, validation messages, and container labels
   emit when any configured language has effective content, even when the source
-  template is empty.
+  template is empty. An expression that reads a question's wording
+  (`jr:itext`) holds the translation unit's identity and prints the id
+  `lib/commcare/xform/itextIds.ts::itextIdFor` gives the itext block, and one
+  that reads a choice's label (`jr:choice-name`) holds the question's UUID and
+  prints its current path, so each reads the worker's current language and
+  survives renames. Wording that holds a reference cannot be read this way
+  (`XPATH_FUNCTION_CONTEXT_UNAVAILABLE`, reason `itext-reference`), because
+  Core returns its `${n}` placeholder.
 - Suite app strings become a complete table per language rather than one map
   copied to every directory. Multi-select label expressions retain each option's
   original catalog index when non-token values are skipped. A

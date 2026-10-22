@@ -2,7 +2,7 @@
  * Where each node of a CommCare search query (CSQL) slot is read.
  *
  * HQ's search compiler reads a CSQL string in four ways, and the device adds
- * a fifth (docs/plans/hq-round-trip/3-expressions/06-csql.md §2.1):
+ * a fifth:
  *
  * - `query`: HQ builds a filter from it (`case_search/filter_dsl.py::build_filter_from_ast`):
  *   the slot root, `and`/`or` clauses, `not.clause`, an `exists`/`missing`
@@ -22,7 +22,7 @@
  * which is `query`. Every descendant of a `runtime` node is `runtime`. Below
  * a `server-value` or `raw` position, the largest subtree that is neither a
  * literal nor (in `server-value` only) one of HQ's value functions is
- * `runtime`. `today` is `runtime` everywhere (the worker's day, decision 6).
+ * `runtime`. `today` is `runtime` everywhere (the worker's day).
  * A choice the device makes between clauses has a `runtime` condition, and a
  * query-position clause that reads no case row is `runtime` whole. An `if`
  * whose condition reads the row, and a `switch` whose selector does, are
@@ -101,7 +101,7 @@ export function isRuntimeSubtreeRoot(
 
 /** HQ's value functions (`xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`)
  * that stay in a `server-value` position. `today` is not among them: Nova
- * sends the worker's day (decision 6). */
+ * sends the worker's day. */
 export function isCsqlServerValueFunction(expression: Expression): boolean {
 	switch (expression.kind) {
 		case "now":

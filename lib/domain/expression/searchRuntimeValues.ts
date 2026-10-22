@@ -10,7 +10,7 @@
  * clause that reads no case row are evaluated by Core on the device and their
  * answers spliced into the query (`lib/commcare/csql/emitter.ts`, its runtime
  * holes). `today` is one of them: CommCare's search reads the worker's day,
- * which only the device knows (part 06 decision 6).
+ * which only the device knows.
  *
  * The emitter, the CSQL validators and the checker all read these values here,
  * so none of them evaluates on a device what another sends to the server.
