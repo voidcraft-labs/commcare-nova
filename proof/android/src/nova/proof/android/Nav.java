@@ -13,6 +13,7 @@ import org.commcare.engine.resource.AppInstallStatus;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.robolectric.Shadows;
+import org.robolectric.android.controller.ActivityController;
 import org.robolectric.shadows.ShadowActivity;
 import org.robolectric.shadows.ShadowLooper;
 
@@ -136,7 +137,9 @@ final class Nav {
         JSONArray chain = new JSONArray();
         found.put("dispatched", chain);
         CommCareApplication.instance().getCurrentSessionWrapper().reset();
-        DispatchActivity dispatch = Opened.build(DispatchActivity.class, launch(endpoint)).setup().get();
+        ActivityController<DispatchActivity> dispatchController =
+                Opened.build(DispatchActivity.class, launch(endpoint)).setup();
+        DispatchActivity dispatch = dispatchController.get();
         ShadowLooper.idleMainLooper();
         Device.settle();
         ShadowActivity dispatcher = Shadows.shadowOf(dispatch);
@@ -157,12 +160,21 @@ final class Nav {
                 home = started;
             } else if (target.equals(CommCareVerificationActivity.class.getName())) {
                 // The media check a first open asks for, run, and its result handed back to the dispatcher.
+                dispatchController.pause().stop();
                 CommCareVerificationActivity verification =
                         Opened.build(CommCareVerificationActivity.class, started).setup().get();
                 ShadowLooper.idleMainLooper();
                 Device.settle();
                 ShadowActivity verified = Shadows.shadowOf(verification);
+                if (!verification.isFinishing()) {
+                    // The verifier still has something to show: leave the worker there, rather than handing
+                    // back a result an unfinished activity has never returned.
+                    break;
+                }
                 dispatcher.receiveResult(started, verified.getResultCode(), verified.getResultIntent());
+                // A real device resumes the dispatcher after the verifier finishes. Its onResume decides
+                // what to launch next; receiving a result alone does not run that lifecycle callback.
+                dispatchController.restart().start().resume().visible();
                 ShadowLooper.idleMainLooper();
                 Device.settle();
             } else {

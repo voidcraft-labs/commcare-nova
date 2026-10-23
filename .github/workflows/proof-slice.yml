@@ -52,12 +52,25 @@ jobs:
           from pathlib import Path
           from proof.lane.readers import parse
           args = shlex.split(os.environ['SELECTORS'])
-          paths = [Path(arg.split("::", 1)[0]) for arg in args if arg.startswith('proof/')]
-          root = Path('proof').resolve()
-          if not paths or any(not path.exists() or path.resolve() == root or not path.resolve().is_relative_to(root) for path in paths):
-              raise SystemExit('Name specific proof test files or packages; a slice cannot run the whole proof.')
-          if any(arg in ('-x', '--exitfirst', '--workers', '--bin') or arg.startswith(('--maxfail', '--workers=', '--bin=')) for arg in args):
-              raise SystemExit('A slice uses one worker and continues after failed items.')
+          paths = []
+          cursor = 0
+          while cursor < len(args):
+              arg = args[cursor]
+              if arg in ('-k', '-m'):
+                  cursor += 1
+                  if cursor == len(args):
+                      raise SystemExit(f'{arg} needs its expression.')
+              else:
+                  path = Path(arg.split('::', 1)[0])
+                  root = Path('proof').resolve()
+                  if (not arg.startswith('proof/') or not path.is_file()
+                      or not path.name.startswith('test_') or path.suffix != '.py'
+                      or not path.resolve().is_relative_to(root)):
+                      raise SystemExit('A slice takes existing proof test files/items and -k/-m expressions only.')
+                  paths.append(path)
+              cursor += 1
+          if not paths:
+              raise SystemExit('Name specific proof test files or items; a slice cannot run the whole proof.')
           readers = parse(os.environ['PROOF_READERS'])
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               print(f'android={str("android" in readers).lower()}', file=output)
@@ -69,6 +82,7 @@ jobs:
         with:
           build: 'true'
           checks: 'false'
+          label: slice
       - name: Run the selected checks
         env:
           PROOF_ANDROID_RUNTIME: ${{ steps.android.outputs.runtime }}

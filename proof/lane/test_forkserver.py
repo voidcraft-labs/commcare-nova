@@ -286,15 +286,16 @@ def test_distinct_crashing_groups_do_not_exhaust_replacements_for_unrelated_grou
     assert set(groups["survives"]["outcomes"].values()) == {"passed"}
 
 
-def test_workers_that_cannot_load_stop_after_bounded_attempts(tmp_path):
+@pytest.mark.parametrize("status", [0, 1, 5, 70])
+def test_workers_that_cannot_load_stop_after_bounded_attempts(tmp_path, status):
     files = {
         "pytest.ini": MINIATURE["pytest.ini"],
-        "conftest.py": """
+        "conftest.py": f"""
 import os
 
 def pytest_sessionstart():
     if '/workers/' in os.environ.get('PROOF_OUT', ''):
-        os._exit(70)
+        os._exit({status})
 """,
         "survives/test_survives.py": "def test_survives():\n    pass\n",
     }

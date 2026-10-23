@@ -73,6 +73,10 @@ def _table(text):
     """The lane's answer table with every text question answered ``text`` alone."""
     table = copy.deepcopy(load_answer_table())
     table["dataTypes"]["text"] = [text]
+    # Core otherwise falls back to the generic binary value, while Formplayer's image widget takes the
+    # image entry. Give both readers the same file for each native control, before comparing their blocks.
+    for control, kind in (("image", "image"), ("audio", "audio"), ("video", "video"), ("document", "file")):
+        table["controls"][control] = list(table["novaKinds"][kind])
     return table
 
 
@@ -80,8 +84,9 @@ class _Marks:
     """Each drawn id and instant of one submission written by where it first appears, so two readers' drawings of
     the same submission read alike."""
 
-    def __init__(self):
+    def __init__(self, uploads=None):
         self.ids: dict[str, str] = {}
+        self.uploads = dict(uploads or {})
 
     def __call__(self, value):
         if value is None:
@@ -90,7 +95,10 @@ class _Marks:
         def mark(found):
             return self.ids.setdefault(found.group(0), f"@id:{len(self.ids) + 1}")
 
-        return INSTANT.sub("@instant", DRAWN_ID.sub(mark, str(value)))
+        text = str(value)
+        for stored, given in self.uploads.items():
+            text = text.replace(stored, given)
+        return INSTANT.sub("@instant", DRAWN_ID.sub(mark, text))
 
 
 def _blocks(instance: str, marks: _Marks):
@@ -123,9 +131,11 @@ def _blocks(instance: str, marks: _Marks):
 def _cases(served, instance: str, marks: _Marks):
     """HQ's case processing of a submission, up to its case database: each case it touched, by its marked id."""
     from proof.hq import operations
+    from proof.observe.sessions import stand_ins
 
+    submission = instance.encode("utf-8")
     with served.run("case-processing"):
-        processed = operations.process_case_blocks(served.unit, instance.encode("utf-8"))
+        processed = operations.process_case_blocks(served.unit, submission, attachments=stand_ins(submission))
     assert processed.refusal is None, processed.refusal
     return {
         marks(case_id): (
@@ -148,7 +158,13 @@ def _formplayer_forms(trace):
         form = next((step["response"] for step in run["steps"] if screen_kind(step.get("response")) == "form"), None)
         for step in run["steps"]:
             for sent in step.get("submissions") or ():
-                found.setdefault(form["title"], []).append(sent["instance"])
+                answers = (step.get("submitted") or {}).get("answers") or {}
+                uploads = {
+                    answers[str(attempt["ix"])]: attempt["value"]
+                    for attempt in step.get("answers") or []
+                    if attempt.get("media") and str(attempt["ix"]) in answers
+                }
+                found.setdefault(form["title"], []).append({"instance": sent["instance"], "uploads": uploads})
     return found
 
 
@@ -204,11 +220,13 @@ def test_formplayer_submits_each_generated_groups_blocks_as_core_does(
                     blocks = _blocks(expected, core_marks)
                     cases = _cases(served, expected, core_marks)
                     paired = []
-                    for instance in formplayer.get(title, ()):
-                        marks = _Marks()
+                    for submitted in formplayer.get(title, ()):
+                        instance = submitted["instance"]
+                        marks = _Marks(submitted["uploads"])
                         if _blocks(instance, marks) == blocks:
                             paired.append(_cases(served, instance, marks) == cases)
                     compared[f"{name}:{title}"] = {"core": blocks, "formplayer": formplayer.get(title, [])}
+                    evidence("compared", compared)
                     assert paired, (
                         f"No submission of {title!r} Formplayer made of {document_id} with every text {text!r} holds"
                         f" the case blocks Core's does: {blocks}"

@@ -946,8 +946,9 @@ class Server:
             lost_running |= self.broker.status(assignment) == "running"
             self.broker.lost(assignment, reason)
         ordinary = code in ORDINARY_EXITS or (self.stopping and code == 2)
-        if lost_running or not ordinary:
-            if not held.started_any:
+        cannot_start = not held.started_any and not self.stopping and self.broker.demand(held.phase) > 0
+        if lost_running or not ordinary or cannot_start:
+            if cannot_start:
                 failures = self.boot_failures.get(held.phase, 0) + 1
                 self.boot_failures[held.phase] = failures
                 if failures > BOOT_FAILURES_PER_SLOT * self.k:

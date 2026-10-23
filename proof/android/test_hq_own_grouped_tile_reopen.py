@@ -144,13 +144,18 @@ def reopened(hq, editor_driver, lane_services):
     the second release, and each form reopened; for the visit with no parent and for the one with a parent."""
     from proof.android import observe as android
     from proof.formplayer import hq as formplayer_hq
+    from proof.hq.seams import build_seams
     from proof.observe.record import Blobs
+    from proof.webapps import hq as webapps_hq
 
     blobs, found = Blobs(), {}
     with hq_check(CONFIGURATION) as (state, _):
         app_id, form_id = _tiled_case_menu(state, editor_driver)
-        with formplayer_hq.serve(state, None, app_id, database=ALONE, label="first") as served:
-            first = android.release_archive(served)
+        # Keep the first release in HQ while the next release is served: the first archive's restore URL
+        # still names that release when the device signs in before updating.
+        with state.committing(), state.operation("first-release", b"grouped-tile-first"), build_seams():
+            first_build = formplayer_hq._released(state, operations.held_app(state, app_id), app_id)
+            first = webapps_hq._archive(first_build)
         # A person renames the follow-up form on HQ's form settings, and HQ releases the app again.
         _hq(state, "edit_form_attr", app_id, form_id, "name", data=[("name", "Visit again")])
         for name, database in (("alone", ALONE), ("with-parent", WITH_PARENT)):
@@ -166,6 +171,7 @@ def test_android_grouped_tile_reopen(reopened):
     it; the member's condition holds on the answer, and proof 1's Android comparison reports nothing of it."""
     update = reopened["alone"]
     assert (update["staged"], update["updated"]) == ("UpdateStaged", "Installed"), update
+    assert FOLLOWUP in update.get("reopened", {}), update
     form = update["reopened"][FOLLOWUP]
     descriptor = form.get("SessionStateDescriptor.getSessionDescriptor") or ""
     assert descriptor.endswith(f"CASE_ID {hq_own_reports.PARENT_IDS_DATUM}"), descriptor
@@ -181,6 +187,7 @@ def test_a_form_left_for_a_visit_with_a_parent_reopens(reopened):
     """The control: the visit with a parent keeps a session whose parent ids hold a value, and home reopens it."""
     update = reopened["with-parent"]
     assert (update["staged"], update["updated"]) == ("UpdateStaged", "Installed"), update
+    assert FOLLOWUP in update.get("reopened", {}), update
     form = update["reopened"][FOLLOWUP]
     assert "homeRaised" not in form, form["homeRaised"]
     assert form["form"]["loaded"], form

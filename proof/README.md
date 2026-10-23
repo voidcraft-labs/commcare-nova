@@ -654,7 +654,7 @@ gh workflow run proof-audit.yml --ref <branch> -f nightly=false \
 
 The bounded `proof-slice.yml` job runs only the selected tests, keeps its
 output as `proof-slice-<attempt>`, reads and saves no evidence store, and has
-a 90-minute limit. It accepts specific test files or packages, uses one
+a 90-minute limit. It accepts specific test files or items with `-k` or `-m`, uses one
 worker, and continues after assertion failures. `slice_readers` accepts
 `all`, `0`, or the reader comma list local `PROOF_READERS` accepts. A slice
 loads the Android runtime when selected but runs only its selected checks;

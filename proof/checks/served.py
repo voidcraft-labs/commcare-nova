@@ -382,6 +382,15 @@ def one_screen(before, after):
                 run.pop("answers", None)
                 run.pop("submit", None)
                 run.pop("searches", None)
+            # The one-question diagnostic belongs to the form's replay. If the common navigation already
+            # diverged before both sides reached that form, its presence follows from that earlier symptom,
+            # just as answers and Submit do. Keep it when both sides reached the form.
+            both_reached_form = all(
+                any(_screen_kind(screen) == "form" for screen in run.get("screens") or []) for run in (run_a, run_b)
+            )
+            if not both_reached_form:
+                for run in (run_a, run_b):
+                    run.pop("oneQuestion", None)
         for run in (run_a, run_b):
             if isinstance(run.get("stopped"), dict):
                 run["stopped"] = {

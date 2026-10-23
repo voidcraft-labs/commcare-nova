@@ -126,7 +126,7 @@ def _description(web):
     # The Case List save turns auto-launch on (defect 21). The same query is then handed to the client beside
     # its results as queryResponse, rather than behind the case list's Search action.
     menu = web.navigate(["0"])
-    screen = menu.get("queryResponse") or web.navigate(SEARCH)
+    screen = menu if screen_kind(menu) == "query" else menu.get("queryResponse") or web.navigate(SEARCH)
     assert screen_kind(screen) == "query", screen
     return screen.get("description")
 

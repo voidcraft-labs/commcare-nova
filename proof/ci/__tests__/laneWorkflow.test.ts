@@ -14,7 +14,8 @@
 // whole tree and absent on every shard.
 
 import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
@@ -143,4 +144,78 @@ it("runs the shards on a usable Android runtime while retaining failed reader ch
 	// biome-ignore lint/suspicious/noTemplateCurlyInString: This is a literal GitHub expression.
 	expect(verdict.if).toBe("${{ steps.android.outputs.checks == 'failure' }}");
 	expect(verdict.run).toContain("exit 1");
+});
+
+it("executes slice validation against a named test and refuses broader paths and pytest overrides", async () => {
+	const workflow = parse(
+		await readFile(join(WORKTREE, ".github/workflows/proof-slice.yml"), "utf8"),
+	);
+	const validation = workflow.jobs.slice.steps.find(
+		(step: { id?: string }) => step.id === "selection",
+	).run;
+	const scratch = await mkdtemp(join(tmpdir(), "proof-slice-selection-"));
+	try {
+		const env = {
+			...process.env,
+			GITHUB_OUTPUT: join(scratch, "output"),
+			RUNNER_TEMP: scratch,
+			PROOF_READERS: "android",
+		};
+		await run("bash", ["-e", "-c", validation], {
+			cwd: WORKTREE,
+			env: {
+				...env,
+				SELECTORS: "proof/android/test_navigation.py -k entry_point",
+			},
+		});
+		expect(await readFile(join(scratch, "output"), "utf8")).toContain(
+			"android=true",
+		);
+		expect(
+			JSON.parse(await readFile(join(scratch, "proof-selectors.json"), "utf8")),
+		).toEqual(["proof/android/test_navigation.py", "-k", "entry_point"]);
+		for (const selectors of [
+			"proof/lane/test_plan.py .",
+			"proof/lane/test_plan.py -o addopts=--maxfail=1",
+			"proof/lane/test_plan.py -x",
+			"proof/checks",
+			"proof/../package.json",
+			"-k only",
+		]) {
+			const code = await run("bash", ["-e", "-c", validation], {
+				cwd: WORKTREE,
+				env: { ...env, SELECTORS: selectors },
+			}).then(
+				() => 0,
+				(error: { code: number }) => error.code,
+			);
+			expect(code, selectors).toBe(1);
+		}
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
+	}
+});
+
+it("keeps Android result artifacts separate for each reusable lane and attempt", async () => {
+	const workflow = parse(
+		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),
+	);
+	const action = parse(
+		await readFile(
+			join(WORKTREE, ".github/actions/proof-android-runtime/action.yml"),
+			"utf8",
+		),
+	);
+	const runtime = workflow.jobs["android-runtime"].steps.find(
+		(step: { id?: string }) => step.id === "android",
+	);
+	expect(runtime.with.label).toContain("inputs.label");
+	const uploads = action.runs.steps.filter((step: { uses?: string }) =>
+		step.uses?.startsWith("actions/upload-artifact@"),
+	);
+	expect(uploads).toHaveLength(2);
+	for (const upload of uploads) {
+		expect(upload.with.name).toContain("inputs.label");
+		expect(upload.with.name).toContain("github.run_attempt");
+	}
 });

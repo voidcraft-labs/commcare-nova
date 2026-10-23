@@ -419,6 +419,7 @@ jobs:
         id: android
         with:
           build: 'true'
+          label: ${{ inputs.label }}
       - name: Hold the reader to its checks
         if: ${{ steps.android.outputs.checks == 'failure' }}
         run: |

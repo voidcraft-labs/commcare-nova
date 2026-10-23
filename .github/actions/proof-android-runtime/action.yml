@@ -17,6 +17,9 @@ inputs:
   build:
     description: Whether to build and save a runtime the cache does not hold
     default: 'false'
+  label:
+    description: Unique lane label for retained check and verification artifacts
+    default: android
   checks:
     description: Whether to run the reader's behavioral checks after loading a runtime (targeted slices run their selected checks)
     default: 'true'
@@ -77,7 +80,7 @@ runs:
       if: ${{ inputs.build == 'true' && steps.held.outputs.cache-hit != 'true' && hashFiles('proof/android/verification-metadata.xml') == '' }}
       uses: actions/upload-artifact@v7
       with:
-        name: proof-android-verification-${{ github.job }}
+        name: proof-android-verification-${{ inputs.label }}-${{ github.run_attempt }}
         path: ${{ runner.temp }}/proof-android-verification/
         if-no-files-found: ignore
         retention-days: 14
@@ -113,7 +116,7 @@ runs:
       if: ${{ always() && inputs.build == 'true' && inputs.checks == 'true' && steps.checks.outcome != 'skipped' }}
       uses: actions/upload-artifact@v7
       with:
-        name: proof-android-checks-${{ github.job }}
+        name: proof-android-checks-${{ inputs.label }}-${{ github.run_attempt }}
         path: ${{ runner.temp }}/proof-android-checks.log
         if-no-files-found: error
         retention-days: 30
