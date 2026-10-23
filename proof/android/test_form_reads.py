@@ -121,7 +121,7 @@ def test_a_registration_forms_read_of_its_own_id_is_its_create_blocks_id(android
 
 def test_the_form_name_is_the_default_language_name_under_an_unchanged_header(android_documents, hq):
     """The app's default language is Spanish and its source English. In the walk the app starts in, the form
-    "Registrar" opens under the header ``Aplicación de salud > Registrar``, as it did before the title moved;
+    "Registrar" opens under the header ``Aplicación de salud > Pacientes > Registrar``, as before the title moved;
     its title, the title form entry gives a completed save, and the name of the record the save leaves are all
     ``Registrar``."""
     with _served(android_documents[BILINGUAL]) as (served, archive):
@@ -131,7 +131,7 @@ def test_the_form_name_is_the_default_language_name_under_an_unchanged_header(an
     forms = [form for walk in starting.values() for form in _forms(walk)]
     assert forms, sorted(answer["walks"])
     for form in forms:
-        assert form["FormEntryActivity.getHeaderString"] == "Aplicación de salud > Registrar", form
+        assert form["FormEntryActivity.getHeaderString"] == "Aplicación de salud > Pacientes > Registrar", form
         assert form["formTitle"] == "Registrar", form
         assert form["FormEntryInstanceState.getDefaultFormTitle"] == "Registrar", form
         names = [record["FormRecord.getDisplayName"] for record in form["saved"]["records"]]

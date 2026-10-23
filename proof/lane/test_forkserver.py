@@ -269,6 +269,44 @@ def test_the_worker_dies_with_a_child_running():
 }
 
 
+def test_distinct_crashing_groups_do_not_exhaust_replacements_for_unrelated_groups(tmp_path):
+    files = {"pytest.ini": MINIATURE["pytest.ini"]}
+    for index in range(4):
+        files[f"crash{index}/test_crash{index}.py"] = "import os\n\ndef test_crash():\n    os._exit(70)\n"
+    files["survives/test_survives.py"] = "def test_survives():\n    pass\n"
+    out = tmp_path / "out"
+    finished = _serve(out, _miniature(tmp_path / "miniature", files), workers=1)
+    assert finished.returncode == 3, finished.tail()
+    [(_, manifest)] = lane_blocks.read_manifests(out)
+    groups = {Path(group["group"]).name: group for group in manifest["groups"]}
+    assert set(groups) == {"crash0", "crash1", "crash2", "crash3", "survives"}
+    for index in range(4):
+        assert "exited with status 70 while running it" in groups[f"crash{index}"]["failure"]
+    assert groups["survives"]["failure"] is None
+    assert set(groups["survives"]["outcomes"].values()) == {"passed"}
+
+
+@pytest.mark.parametrize("status", [0, 1, 5, 70])
+def test_workers_that_cannot_load_stop_after_bounded_attempts(tmp_path, status):
+    files = {
+        "pytest.ini": MINIATURE["pytest.ini"],
+        "conftest.py": f"""
+import os
+
+def pytest_sessionstart():
+    if '/workers/' in os.environ.get('PROOF_OUT', ''):
+        os._exit({status})
+""",
+        "survives/test_survives.py": "def test_survives():\n    pass\n",
+    }
+    out = tmp_path / "out"
+    finished = _serve(out, _miniature(tmp_path / "miniature", files), workers=1)
+    assert finished.returncode == 3, finished.tail()
+    record = json.loads((out / lane_blocks.SERVE).read_text())
+    assert len(record["workersRun"]) == 3, record
+    assert any("could not start a group in 3 worker attempts" in problem for problem in record["problems"]), record
+
+
 def test_a_worker_that_dies_is_joined_its_group_fails_and_the_other_groups_still_run(tmp_path):
     out = tmp_path / "out"
     finished = _serve(out, _miniature(tmp_path / "miniature", MINIATURE), MINIATURE_OUT=str(tmp_path))

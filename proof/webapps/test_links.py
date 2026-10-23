@@ -132,8 +132,9 @@ def test_web_apps_lands_each_after_submit_destination_where_the_model_says(
             titles = sorted(LANDINGS)
             session = Session(release, editor_driver)
             made, kinds = observe.replay(release.doc["name"], [runs[title] for title in titles], session.home)
+            before = len(session.hq.submissions)
             replayed = session.run(made, deadline=180.0 + 2.0 * len(made))
-            received = len(session.hq.submissions)
+            received = len(session.hq.submissions) - before
     landed = {title: replayed.value(kinds.index(("end", index))) for index, title in enumerate(titles)}
     answered = [exchange.json() for exchange in replayed.answered("submit-all")]
     evidence("landed", {"client": landed, "formplayer": answered})

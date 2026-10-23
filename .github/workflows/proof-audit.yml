@@ -101,6 +101,14 @@ on:
         description: The ISO year and week whose sample the weekly comparisons check (2026-W42); this week's when empty
         type: string
         default: ''
+      slice:
+        description: Specific pytest files and selectors to run as a bounded diagnostic slice (untick nightly)
+        type: string
+        default: ''
+      slice_readers:
+        description: Readers for a diagnostic slice (all, 0, or a comma list of formplayer,webapps,android,connect)
+        type: string
+        default: all
       mechanics:
         description: Document ids, comma-separated and one of them an edited document, to run the lane over with their controls alone, showing its mechanics (untick nightly); none when empty
         type: string
@@ -128,7 +136,7 @@ jobs:
   # A dispatch that unticks both runs nothing, which must not read as an audit that passed.
   selection:
     name: Something is selected
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly != true && inputs.weekly != true && inputs.mechanics == '' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.nightly != true && inputs.weekly != true && inputs.mechanics == '' && inputs.slice == '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
@@ -153,6 +161,16 @@ jobs:
       shards: ${{ inputs.mechanics_shards }}
       readers: ${{ inputs.mechanics_readers }}
 
+  slice:
+    name: Selected proof checks
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.slice != '' }}
+    permissions:
+      contents: read
+    uses: ./.github/workflows/proof-slice.yml
+    with:
+      selectors: ${{ inputs.slice }}
+      readers: ${{ inputs.slice_readers }}
+
   # What a failed night's issue would say of that run, written to the summary whatever its verdict: each failing
   # group with why and the line that reruns it, a piece named as one (python3 -m proof.lane.report).
   mechanics-report:
@@ -166,12 +184,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          sparse-checkout: proof
+          sparse-checkout: |
+            proof
+            .github/actions/proof-download
       - name: Download the lane's verdict
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/proof-download
         with:
-          pattern: proof-lane-verdict-mechanics-${{ github.run_attempt }}
+          prefix: proof-lane-verdict-mechanics
+          suffix: -${{ github.run_attempt }}
           path: ${{ runner.temp }}/verdicts
       - env:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -281,12 +302,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          sparse-checkout: proof
+          sparse-checkout: |
+            proof
+            .github/actions/proof-download
       - name: Download the lanes' verdicts
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/proof-download
         with:
-          pattern: proof-lane-verdict-*-${{ github.run_attempt }}
+          prefix: proof-lane-verdict-
+          suffix: -${{ github.run_attempt }}
           path: ${{ runner.temp }}/verdicts
       - env:
           GH_TOKEN: ${{ github.token }}
@@ -474,12 +498,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          sparse-checkout: proof
+          sparse-checkout: |
+            proof
+            .github/actions/proof-download
       - name: Download the lanes' verdicts
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/proof-download
         with:
-          pattern: proof-lane-verdict-*-${{ github.run_attempt }}
+          prefix: proof-lane-verdict-
+          suffix: -${{ github.run_attempt }}
           path: ${{ runner.temp }}/verdicts
       - env:
           GH_TOKEN: ${{ github.token }}

@@ -52,7 +52,9 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref || github.sha }}
-          sparse-checkout: proof
+          sparse-checkout: |
+            proof
+            .github/actions/proof-download
       - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
@@ -78,10 +80,11 @@ jobs:
           key: ${{ steps.store.outputs.main }}none
           restore-keys: ${{ steps.store.outputs.main }}
       # A run whose calls packed nothing has no such artifact; the next step then saves nothing.
-      - uses: actions/download-artifact@v8
+      - uses: ./.github/actions/proof-download
         continue-on-error: true
         with:
-          pattern: proof-store-*-${{ github.run_attempt }}
+          prefix: proof-store-
+          suffix: -${{ github.run_attempt }}
           path: ${{ runner.temp }}/packed
       - name: Merge every call's packed store
         id: merge

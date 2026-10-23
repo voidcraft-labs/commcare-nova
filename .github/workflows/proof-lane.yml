@@ -283,7 +283,7 @@ jobs:
     name: Shard ${{ matrix.shard }}/${{ matrix.total }} (${{ inputs.label }})
     needs: [emit, android-runtime]
     # Without the readers the Android runtime job is skipped, and the shards run all the same.
-    if: ${{ !cancelled() && needs.emit.result == 'success' && (needs.android-runtime.result == 'success' || (!inputs.readers && needs.android-runtime.result == 'skipped')) }}
+    if: ${{ !cancelled() && needs.emit.result == 'success' && (needs.android-runtime.outputs.ready == 'true' || (!inputs.readers && needs.android-runtime.result == 'skipped')) }}
     runs-on: ${{ matrix.runner }}
     # With the readers, each state a group serves goes to Formplayer and a
     # device, and every run is walked whole in the Web Apps client on a
@@ -403,6 +403,8 @@ jobs:
   # holds it, and held to the reader's own checks, before any shard starts.
   android-runtime:
     name: Android reader runtime (${{ inputs.label }})
+    outputs:
+      ready: ${{ steps.android.outputs.ready }}
     if: ${{ inputs.readers }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -414,8 +416,15 @@ jobs:
             proof
             .github/actions/proof-android-runtime
       - uses: ./.github/actions/proof-android-runtime
+        id: android
         with:
           build: 'true'
+          label: ${{ inputs.label }}
+      - name: Hold the reader to its checks
+        if: ${{ steps.android.outputs.checks == 'failure' }}
+        run: |
+          echo "::error::The Android reader loaded, but its checks failed. The shards can run; proof-android-checks holds the failures."
+          exit 1
 
   gate:
     name: Verdict and store (${{ inputs.label }})

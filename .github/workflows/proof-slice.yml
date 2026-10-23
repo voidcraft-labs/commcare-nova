@@ -1,0 +1,103 @@
+name: Proof slice
+
+# A bounded diagnostic run on the native amd64 readers, for failures whose
+# pytest items a nightly issue names. No store is read or saved.
+on:
+  workflow_call:
+    inputs:
+      selectors:
+        type: string
+        required: true
+      readers:
+        type: string
+        default: all
+  workflow_dispatch:
+    inputs:
+      selectors:
+        description: Pytest paths and selectors from a failed proof issue (for example proof/android/test_navigation.py -k entry_point)
+        type: string
+        required: true
+      readers:
+        description: Readers to run (all, 0, or a comma list of formplayer,webapps,android,connect)
+        type: string
+        default: all
+permissions:
+  contents: read
+jobs:
+  slice:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      PROOF_READERS: ${{ inputs.readers }}
+      PROOF_OUT_DIR: .proof/slice
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
+      - run: npm ci
+      - id: selection
+        name: Validate the slice
+        env:
+          SELECTORS: ${{ inputs.selectors }}
+        run: |
+          python3 - <<'PY'
+          import json, os, shlex
+          from pathlib import Path
+          from proof.lane.readers import parse
+          args = shlex.split(os.environ['SELECTORS'])
+          paths = []
+          cursor = 0
+          while cursor < len(args):
+              arg = args[cursor]
+              if arg in ('-k', '-m'):
+                  cursor += 1
+                  if cursor == len(args):
+                      raise SystemExit(f'{arg} needs its expression.')
+              else:
+                  path = Path(arg.split('::', 1)[0])
+                  root = Path('proof').resolve()
+                  if (not arg.startswith('proof/') or not path.is_file()
+                      or not path.name.startswith('test_') or path.suffix != '.py'
+                      or not path.resolve().is_relative_to(root)):
+                      raise SystemExit('A slice takes existing proof test files/items and -k/-m expressions only.')
+                  paths.append(path)
+              cursor += 1
+          if not paths:
+              raise SystemExit('Name specific proof test files or items; a slice cannot run the whole proof.')
+          readers = parse(os.environ['PROOF_READERS'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print(f'android={str("android" in readers).lower()}', file=output)
+          Path(os.environ['RUNNER_TEMP'], 'proof-selectors.json').write_text(json.dumps(args))
+          PY
+      - id: android
+        if: ${{ steps.selection.outputs.android == 'true' }}
+        uses: ./.github/actions/proof-android-runtime
+        with:
+          build: 'true'
+          checks: 'false'
+          label: slice
+      - name: Run the selected checks
+        env:
+          PROOF_ANDROID_RUNTIME: ${{ steps.android.outputs.runtime }}
+        run: |
+          if [ -n "$PROOF_ANDROID_RUNTIME" ]; then export PROOF_ANDROID_JDK="$JAVA_HOME"; fi
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          args = json.loads(Path(os.environ['RUNNER_TEMP'], 'proof-selectors.json').read_text())
+          raise SystemExit(subprocess.call(['node', 'proof/run.mjs', '--workers', '1', *args]))
+          PY
+      - uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: proof-slice-${{ github.run_attempt }}
+          path: .proof/slice
+          if-no-files-found: error
+          retention-days: 30

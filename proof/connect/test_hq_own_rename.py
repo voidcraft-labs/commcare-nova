@@ -44,7 +44,7 @@ from proof.observe.outcome import BuildOutcome
 # The Connect runtime fixture starts Connect; a device's walks send each state's forms.
 pytestmark = pytest.mark.reader("android")
 
-CONFIGURATION = Configuration(flags={"COMMCARE_CONNECT"})
+CONFIGURATION = Configuration(flags={"COMMCARE_CONNECT"}, privileges={"CLOUDCARE", "DATA_FORWARDING"})
 CONNECT_XMLNS = "http://commcareconnect.com/data/v1/learn"
 # A worker with no cases: both apps are surveys.
 WORKER = casedata.CaseDatabase(user_id=casedata.USER_ID, username=casedata.USERNAME, user_data=(), cases=())

@@ -140,7 +140,6 @@ def test_web_apps_lays_out_a_tiles_placed_cells_alone_and_orders_and_searches_by
                 [
                     *steps.open_app("Visit tile order"),
                     *steps.choose("Visits"),
-                    *steps.choose("Record visit"),
                     steps.SCREEN,
                     *steps.search_list("zulu"),
                     steps.SCREEN,

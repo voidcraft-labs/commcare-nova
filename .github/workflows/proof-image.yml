@@ -474,12 +474,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          sparse-checkout: proof
+          sparse-checkout: |
+            proof
+            .github/actions/proof-download
       - name: Download the lanes' verdicts
         continue-on-error: true
-        uses: actions/download-artifact@v8
+        uses: ./.github/actions/proof-download
         with:
-          pattern: proof-lane-verdict-image-*-${{ github.run_attempt }}
+          prefix: proof-lane-verdict-image-
+          suffix: -${{ github.run_attempt }}
           path: ${{ runner.temp }}/verdicts
       - env:
           GH_TOKEN: ${{ github.token }}

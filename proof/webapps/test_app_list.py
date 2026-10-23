@@ -77,28 +77,33 @@ def _upload_logo(unit, app_id):
 
     from proof.formplayer import hq as formplayer_hq
     from proof.formplayer.client import HqRequest
+    from proof.hq import redis as hq_redis
 
-    signed_in = formplayer_hq.admin_signed_in(unit, unit.operation, "logo", "webapps")
-    boundary = "proof-logo-boundary"
-    body = (
-        (
-            f'--{boundary}\r\nContent-Disposition: form-data; name="csrfmiddlewaretoken"\r\n\r\n{signed_in.csrf}\r\n'
-            f'--{boundary}\r\nContent-Disposition: form-data; name="Filedata"; filename="logo.png"\r\n'
-            "Content-Type: image/png\r\n\r\n"
-        ).encode()
-        + LOGO
-        + f"\r\n--{boundary}--\r\n".encode()
-    )
-    headers = (
-        ("Content-Type", f"multipart/form-data; boundary={boundary}"),
-        ("Cookie", signed_in.cookie),
-        ("Referer", ORIGIN),
-    )
-    path = reverse(ProcessLogoFileUploadView.urlname, args=[unit.domain, app_id, SLOT])
-    with unit.committing(), unit.request(hashlib.sha256(b"webapps|upload-logo").digest()):
-        with formplayer_hq._language_put_back():
-            response = formplayer_hq.respond(formplayer_hq.django_request(HqRequest("POST", path, "", headers, body)))
-    assert response.status_code == 200, (response.status_code, response.content[:400])
+    with hq_redis.shared(None):
+        signed_in = formplayer_hq.admin_signed_in(unit, unit.operation, "logo", "webapps")
+        boundary = "proof-logo-boundary"
+        body = (
+            (
+                f'--{boundary}\r\nContent-Disposition: form-data; name="csrfmiddlewaretoken"\r\n\r\n'
+                f"{signed_in.csrf}\r\n"
+                f'--{boundary}\r\nContent-Disposition: form-data; name="Filedata"; filename="logo.png"\r\n'
+                "Content-Type: image/png\r\n\r\n"
+            ).encode()
+            + LOGO
+            + f"\r\n--{boundary}--\r\n".encode()
+        )
+        headers = (
+            ("Content-Type", f"multipart/form-data; boundary={boundary}"),
+            ("Cookie", signed_in.cookie),
+            ("Referer", ORIGIN),
+        )
+        path = reverse(ProcessLogoFileUploadView.urlname, args=[unit.domain, app_id, SLOT])
+        with unit.committing(), unit.request(hashlib.sha256(b"webapps|upload-logo").digest()):
+            with formplayer_hq._language_put_back():
+                response = formplayer_hq.respond(
+                    formplayer_hq.django_request(HqRequest("POST", path, "", headers, body))
+                )
+        assert response.status_code == 200, (response.status_code, response.content[:400])
 
 
 def _path_only(stored):
