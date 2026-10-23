@@ -39,7 +39,7 @@ DOCUMENTS = (
     "xpath-context",
 )
 # Every retained control (``proof/controls/``) a test of this package reads, by id, and no other.
-CONTROLS = ("targeted-lookup-reserved-tags",)
+CONTROLS = ("targeted-lookup-reserved-tags", "targeted-search-hq-compile", "targeted-survey-menu")
 
 
 class _Named(dict):

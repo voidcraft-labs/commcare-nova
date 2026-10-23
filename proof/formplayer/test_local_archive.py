@@ -17,7 +17,7 @@ The paired refusal is a control's pre-fix archive
 (``proof/controls/targeted-search-hq-compile/local.ccz``), whose profile
 names no ``PostURL`` and whose search URL names ``__APP_ID__``: its submit
 answers an error and HQ receives nothing, and its search reaches HQ under
-``__APP_ID__``, which HQ answers with a 404.
+``__APP_ID__``, which HQ receives at that placeholder; its older date filter is refused with a 400.
 ``targeted-form-link-hidden-target`` has no control of its own (its
 ``-after-59`` control is retained after these bytes and submits), so its
 document's archive is the only one its test reads.
@@ -56,7 +56,12 @@ ONE_MARK = "it's"
 def _profile(archive: bytes) -> dict[str, str]:
     """The profile's properties, by key, read under the profile's namespace or none."""
     with zipfile.ZipFile(io.BytesIO(archive)) as held:
-        root = etree.fromstring(held.read("profile.ccpr"))
+        return _profile_properties(held.read("profile.ccpr"))
+
+
+def _profile_properties(source: bytes) -> dict[str, str]:
+    """The properties of a profile XML document, as kept in HQ's build or an archive."""
+    root = etree.fromstring(source)
     return {
         element.get("key"): element.get("value")
         for element in root.iter(etree.Element)
@@ -130,7 +135,7 @@ def test_formplayer_submits_a_local_archives_form_to_hqs_receiver_under_the_work
         receiver = f"/a/{domain}/receiver/{published.app_id}/"
         # The local profile names the working app's receiver, as the profile HQ writes for that app does.
         assert _profile(local)["PostURL"].endswith(receiver)
-        assert _profile(published.build.files["profile.ccpr"])["PostURL"].endswith(receiver)
+        assert _profile_properties(published.build.files["profile.ccpr"])["PostURL"].endswith(receiver)
         # Both installs show the same menu and open the same form, and both submit.
         assert built[:2] == from_local[:2] == (["To shown form", "To hidden form", "To hidden menu"], "To shown form")
         assert built[2]["status"] == from_local[2]["status"] == "success"
@@ -144,12 +149,15 @@ def test_a_local_archives_search_reaches_hq_under_the_working_app_and_a_pre_fix_
 ):
     document = formplayer_documents[SEARCH_DOCUMENT]
     control = (CONTROLS_DIR / SEARCH_DOCUMENT / "local.ccz").read_bytes()
+    survey = (CONTROLS_DIR / "targeted-survey-menu" / "local.ccz").read_bytes()
     with apps.published(document, core_runner) as published:
         local = with_runtime_app_id(document.local_ccz.read_bytes(), published.app_id)
         local_id, control_id = apps.build_id(published.app_id, local), apps.build_id(published.app_id, control)
+        survey_id = apps.build_id(published.app_id, survey)
         with apps.served(published, formplayer_runner) as served:
             served.hq.archives[local_id] = local
             served.hq.archives[control_id] = control
+            served.hq.archives[survey_id] = survey
             with served.run("local-search"):
                 _search(apps.web(formplayer_runner, served, app_id=local_id))
                 local_searches = [search.path for search in served.hq.searches]
@@ -159,7 +167,7 @@ def test_a_local_archives_search_reaches_hq_under_the_working_app_and_a_pre_fix_
                 control_asked = [(asked.path, asked.status) for asked in served.hq.exchanges[first:]]
             with served.run("control-submit"):
                 before = len(served.hq.submissions)
-                control_submit = _submit_first_form(apps.web(formplayer_runner, served, app_id=control_id))
+                control_submit = _submit_first_form(apps.web(formplayer_runner, served, app_id=survey_id))
                 control_submissions = served.hq.submissions[before:]
             domain = served.domain
         evidence(
@@ -175,9 +183,9 @@ def test_a_local_archives_search_reaches_hq_under_the_working_app_and_a_pre_fix_
         )
         # The local archive's search reaches HQ under the working app's id.
         assert local_searches and set(local_searches) == {f"/a/{domain}/phone/search/{published.app_id}/"}
-        # The control's pre-fix archive: its search names no app, which HQ answers with a 404, and its profile
-        # names no submission URL, so its submit answers an error and HQ receives nothing.
-        assert (f"/a/{domain}/phone/search/__APP_ID__/", 404) in control_asked
-        assert "PostURL" not in _profile(control)
+        # The pre-fix search asks for the placeholder app and carries a date filter HQ refuses with a 400.
+        # The survey control names no submission URL, so its submit answers an error and HQ receives nothing.
+        assert (f"/a/{domain}/phone/search/__APP_ID__/", 400) in control_asked
+        assert "PostURL" not in _profile(survey)
         assert control_submit["status"] == "error" and control_submit["notification"]["error"] is True
         assert control_submissions == []

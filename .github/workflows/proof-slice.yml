@@ -1,0 +1,86 @@
+name: Proof slice
+
+# A bounded diagnostic run on the native amd64 readers, for failures whose
+# pytest items a nightly issue names. No store is read or saved.
+on:
+  workflow_call:
+    inputs:
+      selectors:
+        type: string
+        required: true
+      readers:
+        type: string
+        default: all
+  workflow_dispatch:
+    inputs:
+      selectors:
+        description: Pytest paths and selectors from a failed proof issue (for example proof/android/test_navigation.py -k entry_point)
+        type: string
+        required: true
+      readers:
+        description: Readers to run (all, 0, or a comma list of formplayer,webapps,android,connect)
+        type: string
+        default: all
+permissions:
+  contents: read
+jobs:
+  slice:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      PROOF_READERS: ${{ inputs.readers }}
+      PROOF_OUT_DIR: ${{ runner.temp }}/proof-slice
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install pinned npm
+        run: npm install --global "$(node -p 'require("./package.json").packageManager')"
+      - run: npm ci
+      - id: selection
+        name: Validate the slice
+        env:
+          SELECTORS: ${{ inputs.selectors }}
+        run: |
+          python3 - <<'PY'
+          import json, os, shlex
+          from pathlib import Path
+          from proof.lane.readers import parse
+          args = shlex.split(os.environ['SELECTORS'])
+          paths = [Path(arg.split("::", 1)[0]) for arg in args if arg.startswith('proof/')]
+          root = Path('proof').resolve()
+          if not paths or any(not path.exists() or path.resolve() == root or not path.resolve().is_relative_to(root) for path in paths):
+              raise SystemExit('Name specific proof test files or packages; a slice cannot run the whole proof.')
+          if any(arg in ('-x', '--exitfirst', '--workers', '--bin') or arg.startswith(('--maxfail', '--workers=', '--bin=')) for arg in args):
+              raise SystemExit('A slice uses one worker and continues after failed items.')
+          readers = parse(os.environ['PROOF_READERS'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              print(f'android={str("android" in readers).lower()}', file=output)
+          Path(os.environ['RUNNER_TEMP'], 'proof-selectors.json').write_text(json.dumps(args))
+          PY
+      - id: android
+        if: ${{ steps.selection.outputs.android == 'true' }}
+        uses: ./.github/actions/proof-android-runtime
+        with:
+          build: 'true'
+          checks: 'false'
+      - name: Run the selected checks
+        env:
+          PROOF_ANDROID_RUNTIME: ${{ steps.android.outputs.runtime }}
+        run: |
+          if [ -n "$PROOF_ANDROID_RUNTIME" ]; then export PROOF_ANDROID_JDK="$JAVA_HOME"; fi
+          python3 - <<'PY'
+          import json, os, subprocess
+          from pathlib import Path
+          args = json.loads(Path(os.environ['RUNNER_TEMP'], 'proof-selectors.json').read_text())
+          raise SystemExit(subprocess.call(['node', 'proof/run.mjs', '--workers', '1', *args]))
+          PY
+      - uses: actions/upload-artifact@v7
+        if: ${{ always() }}
+        with:
+          name: proof-slice-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/proof-slice
+          if-no-files-found: error
+          retention-days: 30

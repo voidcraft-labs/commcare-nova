@@ -149,6 +149,7 @@ def test_a_form_off_the_menu_opens_from_a_link_and_from_an_entry_point(android_d
     for endpoint, command in entry_points.items():
         record = navs[f"endpoint:{endpoint}"]
         assert "raised" not in record, record
+        assert "handedHome" in record, record
         assert record["handedHome"]["endpoint"] == endpoint, record
         opened = record["landed"]["steps"][0]
         assert opened["screen"] == FORM_ENTRY and opened["session"]["command"] == command, (endpoint, opened)

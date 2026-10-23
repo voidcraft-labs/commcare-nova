@@ -148,6 +148,14 @@ def test_web_apps_lays_out_no_box_for_a_generated_group_before_or_after_its_cond
         empty = [group for group in read["groups"] if group["questions"] == 0]
         assert len(empty) >= generated, (moment, read["groups"])
         assert not any(group["laidOut"] for group in empty), (moment, read["groups"])
+        assert not any(group["caption"] for group in empty), (moment, read["groups"])
         assert all(group["laidOut"] for group in read["groups"] if group["questions"]), (moment, read["groups"])
-        leftover = Counter(read["text"]) - Counter(read["questions"]) - Counter(read["title"]) - Counter(read["submit"])
+        authored_captions = [group["caption"] for group in read["groups"] if group["questions"] and group["caption"]]
+        leftover = (
+            Counter(read["text"])
+            - Counter(authored_captions)
+            - Counter(read["questions"])
+            - Counter(read["title"])
+            - Counter(read["submit"])
+        )
         assert not leftover, (moment, read["text"])

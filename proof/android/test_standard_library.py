@@ -44,10 +44,13 @@ def is_standard(path):
     return path.startswith(standard) and "site-packages" not in path and "dist-packages" not in path
 sys.path[:] = [{worktree!r}] + [path for path in sys.path if is_standard(os.path.join(path, ""))]
 import proof.android.predicates
+import proof.android.ready
 import proof.android.selfcheck
 import proof.checks.android as judges
 import proof.checks.hq_own_reports
-judges.app_differences({{"install": "refused"}}, {{"install": "refused"}}, check="proof3", document="guard", artifact=judges.LOCAL)
+judges.app_differences(
+    {{"install": "refused"}}, {{"install": "refused"}}, check="proof3", document="guard", artifact=judges.LOCAL
+)
 outside = sorted(
     name for name, module in sys.modules.items()
     if getattr(module, "__file__", None)

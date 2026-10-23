@@ -685,22 +685,32 @@ def test_a_build_before_the_media_upload_names_no_media(builds_before_media):
 
 
 @pytest.mark.reader("android")
-def test_a_build_made_before_its_media_installs_on_android(builds_before_media, tmp_path):
-    """Android installs the archive of the build made before the media upload, and refuses the same build made
-    from an import carrying Nova's former map, whose media it cannot fetch."""
-    import zipfile
+def test_a_build_made_before_its_media_installs_on_android(hq, documents):
+    """A real device installs each pre-upload build over HQ's own network. Missing mapped media is HQ's 404,
+    rather than an offline connection failure that says nothing about the media resource's availability."""
+    from proof.android import observe as android
+    from proof.formplayer import hq as formplayer_hq
+    from proof.observe.record import Blobs
 
-    from proof.observe import services
-
-    reader = services.android()
-    installs = {}
-    for side in ("without", "with-map"):
-        archive = tmp_path / f"{side}.ccz"
-        with zipfile.ZipFile(archive, "w") as written:
-            for name, content in builds_before_media[side]["archive"]["entries"]:
-                written.writestr(name, content)
-        installs[side] = reader.request("profile", archive=str(archive))["install"]
-    assert installs == {"without": "Installed", "with-map": "MissingResourcesWithMessage"}
+    document = documents[MEDIA_DOCUMENT]
+    export = document.exports["minimum"]
+    mapped = _with_nova_map(_app_file(export.content.upload()), export.content.media.upload())
+    blobs, installs = Blobs(), {}
+    with hq_check(export.configuration.hq()) as (state, _):
+        for side in ("without", "with-map"):
+            with state.fork():
+                if side == "without":
+                    app_id, _ = _first_publish(state, export)
+                else:
+                    app_id, _ = operations.publish(state, [nova_shaped_upload(mapped, mapped["name"])])
+                with formplayer_hq.serve(state, document, app_id, label=side) as served:
+                    archive = android.release_archive(served)
+                    result = android._read(served, blobs, side, "profile", {"archive": archive}, {})
+                    installs[side] = blobs.get_json(result["answer"])
+    assert {side: answer["install"] for side, answer in installs.items()} == {
+        "without": "Installed",
+        "with-map": "MissingResourcesWithMessage",
+    }, installs
 
 
 # A .ccz made for one project space --------------------------------------------------------------------------

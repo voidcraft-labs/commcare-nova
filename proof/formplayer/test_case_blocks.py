@@ -39,7 +39,6 @@ from __future__ import annotations
 import copy
 import re
 import tempfile
-import uuid
 from dataclasses import replace
 
 import pytest
@@ -63,7 +62,6 @@ CASE = "{http://commcarehq.org/case/transaction/v2}case"
 # What Core's session and Formplayer's walk draw for themselves: an id (a UUID, or Core's mark for one it drew,
 # ``proof/core/src/nova/proof/core/Generated.java``) and an instant.
 DRAWN_ID = re.compile(r"@generated:uuid:\d+|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
-CORE_DRAWN = re.compile(r"@generated:uuid:\d+")
 INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)?")
 # Core's case parser's refusal of a block whose case id is blank (``CaseXmlParserUtil.validateMandatoryProperty``),
 # as a walk stop names it.
@@ -143,11 +141,6 @@ def _cases(served, instance: str, marks: _Marks):
     }
 
 
-def _core_instance(submission: str) -> str:
-    """Core's submission with each id its session drew written as a UUID, which HQ reads as any case id."""
-    return CORE_DRAWN.sub(lambda found: str(uuid.uuid5(uuid.NAMESPACE_URL, found.group(0))), submission)
-
-
 def _formplayer_forms(trace):
     """Each submission Formplayer's walk sent HQ, by the title of the form it submitted."""
     found = {}
@@ -166,7 +159,10 @@ def _core_forms(core):
         if run.get("end") != "submitted":
             continue
         last = run["trace"][-1]
-        found.setdefault(last["title"], []).append(last["submission"])
+        from proof.observe.sessions import unmarked_submission
+
+        instance, _ = unmarked_submission(run)
+        found.setdefault(last["title"], []).append(instance.decode("utf-8"))
     return found
 
 
@@ -204,7 +200,7 @@ def test_formplayer_submits_each_generated_groups_blocks_as_core_does(
                 assert core, f"Core's session submitted no form of {document_id} with every text {text!r}."
                 for title, submissions in core.items():
                     core_marks = _Marks()
-                    expected = _core_instance(submissions[0])
+                    expected = submissions[0]
                     blocks = _blocks(expected, core_marks)
                     cases = _cases(served, expected, core_marks)
                     paired = []

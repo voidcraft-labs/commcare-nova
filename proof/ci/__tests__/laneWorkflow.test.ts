@@ -91,3 +91,56 @@ it("gives a lone shard's output its directory after every download of the shards
 		"proof-lane.yml:gate",
 	]);
 });
+
+it("runs the shards on a usable Android runtime while retaining failed reader checks", async () => {
+	const workflow = parse(
+		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),
+	);
+	const action = parse(
+		await readFile(
+			join(WORKTREE, ".github/actions/proof-android-runtime/action.yml"),
+			"utf8",
+		),
+	);
+	const setup = workflow.jobs["android-runtime"];
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: This is a literal GitHub expression.
+	expect(setup.outputs.ready).toBe("${{ steps.android.outputs.ready }}");
+	expect(
+		setup.steps.find((step: { id?: string }) => step.id === "android").uses,
+	).toBe("./.github/actions/proof-android-runtime");
+	expect(workflow.jobs.shard.if).toContain(
+		"needs.android-runtime.outputs.ready == 'true'",
+	);
+	const steps = action.runs.steps;
+	const ready = steps.findIndex((step: { id?: string }) => step.id === "ready");
+	const checks = steps.findIndex(
+		(step: { id?: string }) => step.id === "checks",
+	);
+	expect(
+		steps
+			.slice(0, ready)
+			.some(
+				(step: { run?: string }) =>
+					step.run === "python3 -m proof.android.ready",
+			),
+	).toBe(true);
+	expect(
+		steps
+			.slice(0, ready)
+			.some((step: { uses?: string }) =>
+				step.uses?.startsWith("actions/cache/save@"),
+			),
+	).toBe(true);
+	expect(ready).toBeLessThan(checks);
+	expect(steps[checks]["continue-on-error"]).toBe(true);
+	expect(steps[checks].run).toContain("set -o pipefail");
+	expect(steps[checks].run).toContain(
+		"proof.android.selfcheck proof.android.predicates",
+	);
+	expect(steps.at(-1).uses).toMatch(/^actions\/upload-artifact@/);
+	expect(steps.at(-1).if).toContain("always()");
+	const verdict = setup.steps.at(-1);
+	// biome-ignore lint/suspicious/noTemplateCurlyInString: This is a literal GitHub expression.
+	expect(verdict.if).toBe("${{ steps.android.outputs.checks == 'failure' }}");
+	expect(verdict.run).toContain("exit 1");
+});

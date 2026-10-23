@@ -80,13 +80,15 @@ def _with_starting_answer(source, value):
     (instance,) = [node for node in root.iter(f"{xforms}instance") if node.get("id") is None]
     namespace = etree.QName(instance[0]).namespace
     return f'''<h:html xmlns="http://www.w3.org/2002/xforms" xmlns:h="http://www.w3.org/1999/xhtml"
-        xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+        xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:jr="http://openrosa.org/javarosa">
       <h:head><h:title>Starting answers</h:title><model>
         <instance><data xmlns="{namespace}"><text/><number>{value}</number></data></instance>
         <bind nodeset="/data/text" type="xsd:string"/><bind nodeset="/data/number" type="xsd:int"/>
+      <itext><translation lang="en" default=""><text id="text"><value>Text</value></text>
+        <text id="number"><value>Number</value></text></translation></itext>
       </model></h:head><h:body>
-        <input ref="/data/text"><label>Text</label></input>
-        <input ref="/data/number"><label>Number</label></input>
+        <input ref="/data/text"><label ref="jr:itext('text')"/></input>
+        <input ref="/data/number"><label ref="jr:itext('number')"/></input>
       </h:body></h:html>'''
 
 
@@ -102,7 +104,7 @@ def test_a_question_already_holding_the_tables_answer_sends_nothing(
         with apps.served(published, formplayer_runner, change=change) as served:
             walked = apps.walked(formplayer_runner, served)
     [run] = walked["runs"]
-    assert run["end"] == "submitted"
+    assert run["end"] == "submitted", run
     [opened] = [step["response"] for step in run["steps"] if screen_kind(step.get("response")) == "form"]
     nodes = {node["caption"]: node for node in questions(opened["tree"]) if node.get("type") == "question"}
     number, text = nodes["Number"]["ix"], nodes["Text"]["ix"]

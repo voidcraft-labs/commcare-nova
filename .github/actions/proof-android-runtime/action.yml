@@ -17,10 +17,19 @@ inputs:
   build:
     description: Whether to build and save a runtime the cache does not hold
     default: 'false'
+  checks:
+    description: Whether to run the reader's behavioral checks after loading a runtime (targeted slices run their selected checks)
+    default: 'true'
 outputs:
   runtime:
     description: The runtime's directory (PROOF_ANDROID_RUNTIME)
     value: ${{ steps.name.outputs.runtime }}
+  ready:
+    description: Whether the runtime loaded and was saved for the shards, independently of behavioral checks
+    value: ${{ steps.ready.outputs.ready }}
+  checks:
+    description: Outcome of the reader's behavioral checks, separate from runtime readiness
+    value: ${{ steps.checks.outcome }}
 runs:
   using: composite
   steps:
@@ -72,18 +81,39 @@ runs:
         path: ${{ runner.temp }}/proof-android-verification/
         if-no-files-found: ignore
         retention-days: 14
-    # The reader held to itself, before any shard hands it a state: on a runtime just built before it
-    # is kept, and on a kept one too, since the reader's own code changes without the runtime changing.
-    - name: The reader's own checks
+    - name: The reader can load
       if: ${{ inputs.build == 'true' }}
       shell: bash
       env:
         PROOF_ANDROID_RUNTIME: ${{ steps.name.outputs.runtime }}
         TZ: UTC
-      run: python3 -m unittest proof.android.test_standard_library proof.android.selfcheck proof.android.predicates -v
+      run: python3 -m proof.android.ready
     - name: Save the runtime
       if: ${{ inputs.build == 'true' && steps.held.outputs.cache-hit != 'true' }}
       uses: actions/cache/save@v6
       with:
         path: ${{ steps.name.outputs.runtime }}
         key: ${{ steps.name.outputs.key }}
+    - id: ready
+      shell: bash
+      run: echo "ready=true" >> "$GITHUB_OUTPUT"
+    # Behavioral failures are retained, but a usable runtime still reaches every shard.
+    - name: The reader's own checks
+      id: checks
+      if: ${{ inputs.build == 'true' && inputs.checks == 'true' }}
+      continue-on-error: true
+      shell: bash
+      env:
+        PROOF_ANDROID_RUNTIME: ${{ steps.name.outputs.runtime }}
+        TZ: UTC
+      run: |
+        set -o pipefail
+        python3 -m unittest proof.android.test_standard_library proof.android.selfcheck proof.android.predicates -v 2>&1 | tee "$RUNNER_TEMP/proof-android-checks.log"
+    - name: Keep the reader's check results
+      if: ${{ always() && inputs.build == 'true' && inputs.checks == 'true' && steps.checks.outcome != 'skipped' }}
+      uses: actions/upload-artifact@v7
+      with:
+        name: proof-android-checks-${{ github.job }}
+        path: ${{ runner.temp }}/proof-android-checks.log
+        if-no-files-found: error
+        retention-days: 30

@@ -644,6 +644,23 @@ packages (`proof/formplayer`, `proof/webapps`, `proof/android`,
 a register entry naming a reader's artifact, and a pin. A proof machine, for
 whoever has one, is another way to the same verdict.
 
+**Rerunning specific failed checks.** A failed issue's pytest paths can run
+on one native amd64 worker without running a document's whole proof group:
+
+```bash
+gh workflow run proof-audit.yml --ref <branch> -f nightly=false \
+  -f slice='proof/android/test_navigation.py -k entry_point' -f slice_readers=android
+```
+
+The bounded `proof-slice.yml` job runs only the selected tests, keeps its
+output as `proof-slice-<attempt>`, reads and saves no evidence store, and has
+a 90-minute limit. It accepts specific test files or packages, uses one
+worker, and continues after assertion failures. `slice_readers` accepts
+`all`, `0`, or the reader comma list local `PROOF_READERS` accepts. A slice
+loads the Android runtime when selected but runs only its selected checks;
+the scheduled lane still runs every reader selfcheck and predicate. This
+is a verdict on those tests alone, not the corpus gate.
+
 **What the night after a merge takes.** A night observes every group whose
 key the merge changed, and on most nights that is minutes. A merge that
 changes the emission, the observation's code or a pin changes every
@@ -4056,7 +4073,13 @@ existing jobs:
 The Android reader's runtime is built and held to the reader's own checks
 (`selfcheck.py`, `predicates.py`) where the readers run: every lane with the
 readers (`proof-lane.yml`'s "Android reader runtime" job, in the nightly's,
-the weekly's and a run started by hand) and a proof machine.
+the weekly's and a run started by hand) and a proof machine. Runtime
+readiness is separate: `proof.android.ready` installs a retained survey in
+a real JVM before the runtime is saved. A load failure blocks shards that
+need it; a failed selfcheck or predicate keeps its failed job and log
+artifact while shards run on the usable runtime. Crashes inside distinct
+proof groups fail those groups and leave unrelated groups running; only
+repeated worker failures before any group starts stop that phase.
 
 CI makes the corpus and the native products on an x64 runner, with the
 runner's own Node, and the shards read them on x64 in the image. So

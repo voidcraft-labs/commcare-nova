@@ -46,7 +46,7 @@ CONFIGURATION = Configuration(privileges={"CLOUDCARE"}, flags={"CASE_LIST_TILE"}
 CASE_TYPE = "visit"
 PARENT_TYPE = "household"
 # HQ's new case menu holds its registration form, then its follow-up form: the follow-up's command.
-FOLLOWUP = "m0-f1"
+FOLLOWUP = "m0-f0"
 # The tile template HQ's Case List page offers under CASE_LIST_TILE, each of its fields a case property
 # (``suite_xml/case_tile_templates/person_simple.json``).
 TILE_FIELDS = (("header", "name"), ("top_left", "village"), ("sex", "sex"), ("bottom_left", "age"), ("date", "seen"))
@@ -95,7 +95,11 @@ def _tiled_case_menu(state, editor_driver):
     )
     module = operations.held_app(state, app_id).modules[0]
     assert module.has_grouped_tiles(), module.case_details.short.to_json()
-    followup = module.forms[1]
+    # The new case menu also holds a blank registration form. This witness only follows existing cases,
+    # so delete that unfinished form through HQ's own view before releasing the app.
+    _hq(state, "delete_form", app_id, module.unique_id, module.forms[0].unique_id, data=[])
+    module = operations.held_app(state, app_id).modules[0]
+    followup = module.forms[0]
     assert followup.requires == "case"
     run = vellum.open_and_save(editor_driver, state, app_id, followup.unique_id)
     assert run.loaded and run.saved, (run.load_error, run.save_refusal)

@@ -489,9 +489,10 @@ harness keeps, each with its reason.
   one difference. An `android@...` entry is held like every other, by the
   check that reports it (`proof/checks/android.py`, called from proofs 1, 3
   and 4). commcare-android's own code is also held
-  where its runtime is built or restored, before any shard starts
-  (`selfcheck.py`, `predicates.py`, which the lane's pytest does not
-  collect); the proxy's transport is held in the lane (`test_peer.py`).
+  where its runtime is built or restored, alongside the shards (`selfcheck.py`, `predicates.py`, which the lane's pytest does not
+  collect). `ready.py` alone gates runtime readiness, by installing a retained survey in a real JVM:
+  a behavioral assertion fails the runtime job and retains its log without blocking usable readers;
+  a runtime that cannot load blocks its shards; the proxy's transport is held in the lane (`test_peer.py`).
 - **A check runs only against a target Nova's publish accepts** (step 1's
   decision 19). A symptom that shows only where Nova refuses to publish
   reaches no one, so a configuration lacking a flag or confirmation Nova

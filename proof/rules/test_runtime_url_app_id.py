@@ -314,7 +314,7 @@ def test_formplayer_walks_the_release_alike_under_either_app_id(rule_documents, 
             _, release = formplayer_observe.walked(served, formplayer_runner, blobs)
             script = formplayer_observe.script_of(release)
             archive = _naming(served.archive(), served.build_id, served.app_id)
-            given = apps.build_id(apps.LOCAL_APP, archive)
+            given = apps.build_id(served.app_id, archive)
             served.hq.archives[given] = archive
             try:
                 _, working = formplayer_observe.walked(
@@ -336,6 +336,5 @@ def test_formplayer_walks_the_release_alike_under_either_app_id(rule_documents, 
         )
         return sorted({(difference.path, difference.kind) for difference in found})
 
-    answer = ("/runs/*/steps/*/submit/submitResponseMessage", "changed")
-    assert compared(()) == sorted([("/runs/*/steps/*/submissions/*/path", "changed"), answer])
-    assert compared((RULE,)) == [answer]
+    assert compared(()) == [("/runs/*/steps/*/submissions/*/path", "changed")]
+    assert compared((RULE,)) == []

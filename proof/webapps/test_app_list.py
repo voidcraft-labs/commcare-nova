@@ -77,8 +77,10 @@ def _upload_logo(unit, app_id):
 
     from proof.formplayer import hq as formplayer_hq
     from proof.formplayer.client import HqRequest
+    from proof.hq import redis as hq_redis
 
-    signed_in = formplayer_hq.admin_signed_in(unit, unit.operation, "logo", "webapps")
+    with hq_redis.shared(None):
+        signed_in = formplayer_hq.admin_signed_in(unit, unit.operation, "logo", "webapps")
     boundary = "proof-logo-boundary"
     body = (
         (
