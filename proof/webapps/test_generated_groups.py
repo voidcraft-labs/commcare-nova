@@ -123,6 +123,8 @@ def test_web_apps_lays_out_no_box_for_a_generated_group_before_or_after_its_cond
             )
             answered = kinds.index(("screen", 0, observe.FORM))
             made = [*made[: opened + 1], LAYOUT, *made[opened + 1 : answered], LAYOUT, *made[answered:]]
+            evidence("walk", run)
+            evidence("steps", made)
             replayed = session.run(made, deadline=180.0 + 2.0 * len(made))
     reads = {"opened": replayed.value(opened + 1), "answered": replayed.value(answered + 1)}
     evidence("layout", reads)
