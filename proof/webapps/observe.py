@@ -239,7 +239,7 @@ def _form_step(run: Mapping[str, Any]) -> Mapping[str, Any] | None:
     return next((step for step in run["steps"] if "answers" in step), None)
 
 
-def _arrival(navigation: Mapping[str, Any] | None) -> list[dict]:
+def _arrival(navigation: Mapping[str, Any] | None, *, selected_values=()) -> list[dict]:
     """Where the client arrives once a choice is taken (``steps.arrive``), from the walk's request it leads to and
     Formplayer's answer to it: the client keeps a worker's session in its route as it sends it, and then takes
     the selections Formplayer's answer hands back (``menus/collections.js::parse``), as Formplayer's walk does;
@@ -256,7 +256,10 @@ def _arrival(navigation: Mapping[str, Any] | None) -> list[dict]:
     request = navigation["request"]
     held = response.get("selections") if isinstance(response.get("selections"), list) else request.get("selections")
     selections = [
-        None if value == USE_SELECTED_VALUES or str(value).startswith(TOKEN) else str(value) for value in held or []
+        None
+        if value == USE_SELECTED_VALUES or str(value).startswith(TOKEN) or str(value) in selected_values
+        else str(value)
+        for value in held or []
     ]
     query_data = {
         key: {"execute": bool(value.get("execute"))} for key, value in (request.get("query_data") or {}).items()
@@ -361,12 +364,32 @@ def plan(
         what.extend([kind] * len(more))
 
     navigations = _navigations(run)
+    # A raw walk (as well as a canonical one) can be replayed: Formplayer replaces use_selected_values with
+    # a freshly generated selection id. Track its provenance rather than requiring the browser to draw the
+    # earlier walk's exact id, including on the later choices whose requests already contain that id.
+    from proof.formplayer.walk import USE_SELECTED_VALUES
+
+    selected_values = {
+        str(given)
+        for navigation in navigations
+        for asked, given in zip(
+            navigation["request"].get("selections") or [],
+            (navigation.get("response") or {}).get("selections") or [],
+            strict=False,
+        )
+        if asked == USE_SELECTED_VALUES
+    }
     within = None if end is None else steps.WITHIN_MS
     one_question = preview and not whole
     for position, choice in enumerate(walks.navigation(run["script"])):
         # The screen the choice is made on is Formplayer's answer before it; where it leads, the request after it.
         screen = navigations[position].get("response") if position < len(navigations) else None
-        arrival = steps.tolerant(_arrival(navigations[position + 1] if position + 1 < len(navigations) else None), end)
+        arrival = steps.tolerant(
+            _arrival(
+                navigations[position + 1] if position + 1 < len(navigations) else None, selected_values=selected_values
+            ),
+            end,
+        )
         page = _page_of(screen, str(choice["entity"]), small) if "entity" in choice else 0
         if page:
             add(steps.turn_to(page, within=within, or_skip_to=end))
@@ -422,7 +445,11 @@ def plan(
                 searching = steps.navigate(
                     steps.SEARCH_BUTTON,
                     steps.searched(
-                        _arrival(navigations[position + 1] if position + 1 < len(navigations) else None), end
+                        _arrival(
+                            navigations[position + 1] if position + 1 < len(navigations) else None,
+                            selected_values=selected_values,
+                        ),
+                        end,
                     ),
                     visible=True,
                     within=within,

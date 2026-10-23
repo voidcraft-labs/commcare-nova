@@ -4590,7 +4590,7 @@
 		"control": "targeted-invalid-question-ids-after-9",
 		"values": {
 			"before": "not installed: InvalidResource",
-			"after": "UpToDate"
+			"after": "Installed"
 		}
 	},
 	{

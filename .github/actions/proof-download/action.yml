@@ -1,0 +1,15 @@
+name: Download proof artifacts
+description: Downloads matching artifacts into named directories, including when only one exists.
+inputs:
+  prefix:
+    description: Exact artifact name prefix
+    required: true
+  suffix:
+    description: Exact artifact name suffix
+    required: true
+  path:
+    description: Parent directory for the named artifact directories
+    required: true
+runs:
+  using: node24
+  main: index.mjs

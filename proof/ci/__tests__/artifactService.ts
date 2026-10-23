@@ -157,7 +157,12 @@ export class ArtifactService {
 	}
 
 	/** A finalized artifact another job uploaded: one file of `bytes`, listed with `digest` (its sha256 unless given). */
-	put(name: string, bytes: Buffer, digest?: string): void {
+	put(
+		name: string,
+		bytes: Buffer,
+		digest?: string,
+		contentType = "application/octet-stream",
+	): void {
 		this.store.push({
 			id: this.store.length + 1,
 			name,
@@ -166,7 +171,7 @@ export class ArtifactService {
 			visibleFrom: this.revealFrom,
 			blocks: new Map(),
 			bytes,
-			contentType: "application/octet-stream",
+			contentType,
 			digest:
 				digest ?? `sha256:${createHash("sha256").update(bytes).digest("hex")}`,
 			size: bytes.length,

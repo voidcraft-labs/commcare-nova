@@ -133,6 +133,39 @@ def test_a_choice_the_replay_has_no_click_for_is_refused_and_a_known_one_is_repl
         observe.clicks(unknown)
 
 
+@pytest.mark.parametrize("generated", [True, False])
+def test_a_raw_walk_replays_generated_selections_without_wildcarding_authored_case_ids(generated):
+    selection = "c2c9ca8d-7fc6-4cfc-a83e-7a58055f5bc9"
+    run = {
+        "script": [{"menu": 0}, {"entity": "patient-2"}, {"menu": 0}],
+        "steps": [
+            {"request": {"selections": []}, "response": {"type": "commands", "selections": []}},
+            {
+                "request": {"selections": ["0"]},
+                "response": {
+                    "type": "entities",
+                    "multiSelect": generated,
+                    "entities": [{"id": "patient-2"}],
+                    "selections": ["0"],
+                },
+            },
+            {
+                "request": {"selections": ["0", "use_selected_values" if generated else selection]},
+                "response": {"type": "commands", "selections": ["0", selection]},
+            },
+            {
+                "request": {"selections": ["0", selection, "0"]},
+                "response": {"type": "commands", "selections": ["0", selection, "0"]},
+            },
+        ],
+    }
+    made, _ = observe.plan(run)
+    arrivals = [step["arg"]["selections"] for step in made if step.get("until") == "webapps/arrived"]
+    expected = None if generated else selection
+    assert ["0", expected] in arrivals
+    assert ["0", expected, "0"] in arrivals
+
+
 def test_a_language_is_chosen_from_the_menu_and_a_later_page_is_turned_to_on_a_phone():
     """A language choice opens the menu over the app's screens and clicks that language; on a phone a case past
     the fifth of its list is reached by its page's button, and on a desktop by its row alone."""

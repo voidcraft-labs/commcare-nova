@@ -142,8 +142,8 @@ CLAIMED, TAKEN = 0, 1
 EMISSION_FAILED = 3
 # pytest's exit statuses a worker may end with when nothing went wrong but its tests: passed, failed, none ran.
 ORDINARY_EXITS = (0, 1, 5)
-# Replacements for lost workers per slot, before the server stops replacing them.
-REPLACEMENTS_PER_SLOT = 2
+# Consecutive worker failures before any group starts, per phase; crashes inside groups make forward progress.
+BOOT_FAILURES_PER_SLOT = 2
 POLL_SECONDS = 1.0
 TAIL = 4000
 
@@ -228,6 +228,7 @@ class Worker:
     refusal: str | None = None
     exited: int | None = None
     forked: float = 0.0
+    started_any: bool = False
 
 
 @dataclass
@@ -253,7 +254,7 @@ class Server:
         self.workers: dict[int, Worker] = {}
         self.commands: list[Command] = []
         self.free_slots = list(range(1, self.k + 1))
-        self.replacements = 0
+        self.boot_failures: dict[str, int] = {}
         self.sequence = 0
         self.problems: list[str] = []
         self.stopping: str | None = None
@@ -776,11 +777,7 @@ class Server:
                 else:
                     continue
             wanted = min(self.k, self.broker.demand(name))
-            while (
-                self.free_slots
-                and len(self._live(name)) < wanted
-                and self.replacements <= REPLACEMENTS_PER_SLOT * self.k
-            ):
+            while self.free_slots and len(self._live(name)) < wanted:
                 self._fork(info)
 
     def _send(self, held: Worker, message: dict):
@@ -844,6 +841,8 @@ class Server:
         elif kind == "started":
             assignment = held.assignments.get((message["block"], message["group"]))
             if assignment is not None:
+                held.started_any = True
+                self.boot_failures[held.phase] = 0
                 self.broker.started(assignment)
         elif kind == "finished":
             assignment = held.assignments.pop((message["block"], message["group"]), None)
@@ -947,8 +946,17 @@ class Server:
             lost_running |= self.broker.status(assignment) == "running"
             self.broker.lost(assignment, reason)
         ordinary = code in ORDINARY_EXITS or (self.stopping and code == 2)
-        if lost_running or not ordinary:
-            self.replacements += 1
+        cannot_start = not held.started_any and not self.stopping and self.broker.demand(held.phase) > 0
+        if lost_running or not ordinary or cannot_start:
+            if cannot_start:
+                failures = self.boot_failures.get(held.phase, 0) + 1
+                self.boot_failures[held.phase] = failures
+                if failures > BOOT_FAILURES_PER_SLOT * self.k:
+                    self.broken[held.phase] = (
+                        f"The {held.phase} phase could not start a group in {failures} worker attempts;"
+                        " its workers cannot load, so its remaining groups cannot run."
+                    )
+                    self.problems.append(self.broken[held.phase])
             if not held.refusal:
                 self.problems.append(
                     f"Worker w{held.sequence} ({held.phase} phase) exited with status {code}"

@@ -516,3 +516,11 @@ def test_a_run_that_left_the_walk_keeps_no_search_outcome_and_a_one_question_end
         ("/runs/*/oneQuestion/stopped/alerts/*", "changed")
     ]
     assert compared(one, screens(menu, whole)) == [("/runs/*/oneQuestion", "removed")]
+    # A search opens where the old app showed its case list. Its missing later form diagnostic is a
+    # consequence of that navigation divergence, while a real difference on two reached forms stays above.
+    before = screens(menu, listed, whole, oneQuestion=ended("Cannot go on", "A"))
+    after = screens(menu, search)
+    left = compared(before, after)
+    assert left and not [path for path, _ in left if "oneQuestion" in path]
+    stopped = screens(menu, whole, stopped={"after": 2, "screen": whole})
+    assert ("/runs/*/oneQuestion", "removed") in compared(one, stopped)

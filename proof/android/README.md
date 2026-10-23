@@ -359,6 +359,14 @@ reader's own Java (`src/`) is compiled against that classpath when a reader
 starts, in about a second, so a runtime is a function of the pins and the
 toolchain alone, and a change to the reader needs no new one.
 
+Runtime readiness and behavioral checks have separate verdicts. The
+`ready.py` probe installs a retained survey in a real JVM before a new
+runtime is cached. The selfchecks and predicates then run in full, with
+their output retained as `proof-android-checks-<lane>-<attempt>`. Their failed assertions
+fail the runtime job while its `ready` output lets the shards continue;
+a load or build failure leaves that output unset. A diagnostic proof slice
+runs the readiness probe and only the requested tests.
+
 Everything a build downloads is named exactly (`toolchain.json`):
 
 - the two checkouts, by commit (`proof/pins.json`);

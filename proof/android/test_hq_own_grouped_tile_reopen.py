@@ -46,7 +46,7 @@ CONFIGURATION = Configuration(privileges={"CLOUDCARE"}, flags={"CASE_LIST_TILE"}
 CASE_TYPE = "visit"
 PARENT_TYPE = "household"
 # HQ's new case menu holds its registration form, then its follow-up form: the follow-up's command.
-FOLLOWUP = "m0-f1"
+FOLLOWUP = "m0-f0"
 # The tile template HQ's Case List page offers under CASE_LIST_TILE, each of its fields a case property
 # (``suite_xml/case_tile_templates/person_simple.json``).
 TILE_FIELDS = (("header", "name"), ("top_left", "village"), ("sex", "sex"), ("bottom_left", "age"), ("date", "seen"))
@@ -95,7 +95,11 @@ def _tiled_case_menu(state, editor_driver):
     )
     module = operations.held_app(state, app_id).modules[0]
     assert module.has_grouped_tiles(), module.case_details.short.to_json()
-    followup = module.forms[1]
+    # The new case menu also holds a blank registration form. This witness only follows existing cases,
+    # so delete that unfinished form through HQ's own view before releasing the app.
+    _hq(state, "delete_form", app_id, module.unique_id, module.forms[0].unique_id, data=[])
+    module = operations.held_app(state, app_id).modules[0]
+    followup = module.forms[0]
     assert followup.requires == "case"
     run = vellum.open_and_save(editor_driver, state, app_id, followup.unique_id)
     assert run.loaded and run.saved, (run.load_error, run.save_refusal)
@@ -140,13 +144,18 @@ def reopened(hq, editor_driver, lane_services):
     the second release, and each form reopened; for the visit with no parent and for the one with a parent."""
     from proof.android import observe as android
     from proof.formplayer import hq as formplayer_hq
+    from proof.hq.seams import build_seams
     from proof.observe.record import Blobs
+    from proof.webapps import hq as webapps_hq
 
     blobs, found = Blobs(), {}
     with hq_check(CONFIGURATION) as (state, _):
         app_id, form_id = _tiled_case_menu(state, editor_driver)
-        with formplayer_hq.serve(state, None, app_id, database=ALONE, label="first") as served:
-            first = android.release_archive(served)
+        # Keep the first release in HQ while the next release is served: the first archive's restore URL
+        # still names that release when the device signs in before updating.
+        with state.committing(), state.operation("first-release", b"grouped-tile-first"), build_seams():
+            first_build = formplayer_hq._released(state, operations.held_app(state, app_id), app_id)
+            first = webapps_hq._archive(first_build)
         # A person renames the follow-up form on HQ's form settings, and HQ releases the app again.
         _hq(state, "edit_form_attr", app_id, form_id, "name", data=[("name", "Visit again")])
         for name, database in (("alone", ALONE), ("with-parent", WITH_PARENT)):
@@ -162,6 +171,7 @@ def test_android_grouped_tile_reopen(reopened):
     it; the member's condition holds on the answer, and proof 1's Android comparison reports nothing of it."""
     update = reopened["alone"]
     assert (update["staged"], update["updated"]) == ("UpdateStaged", "Installed"), update
+    assert FOLLOWUP in update.get("reopened", {}), update
     form = update["reopened"][FOLLOWUP]
     descriptor = form.get("SessionStateDescriptor.getSessionDescriptor") or ""
     assert descriptor.endswith(f"CASE_ID {hq_own_reports.PARENT_IDS_DATUM}"), descriptor
@@ -177,6 +187,7 @@ def test_a_form_left_for_a_visit_with_a_parent_reopens(reopened):
     """The control: the visit with a parent keeps a session whose parent ids hold a value, and home reopens it."""
     update = reopened["with-parent"]
     assert (update["staged"], update["updated"]) == ("UpdateStaged", "Installed"), update
+    assert FOLLOWUP in update.get("reopened", {}), update
     form = update["reopened"][FOLLOWUP]
     assert "homeRaised" not in form, form["homeRaised"]
     assert form["form"]["loaded"], form
