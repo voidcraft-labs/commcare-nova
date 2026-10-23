@@ -1000,8 +1000,9 @@ let _authInFlight: Promise<Auth> | null = null;
  * case-store's `getCaseStoreDatabase` lazy-async-singleton shape: the in-flight
  * slot is cleared on failure so a transient init error doesn't latch. Better
  * Auth's factory returns before its plugins finish initializing. Await its
- * context before caching: OAuth resource seeding reads the database, and a
- * failed context stays rejected for that auth object's entire lifetime.
+ * context before caching: a failed context stays rejected for that auth
+ * object's entire lifetime. OAuth resource-seed failures are handled by the
+ * provider, which keeps auth available and retries on first resource access.
  */
 export async function getAuth(): Promise<Auth> {
 	if (_auth) return _auth;
