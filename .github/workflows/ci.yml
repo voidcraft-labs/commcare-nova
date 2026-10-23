@@ -481,7 +481,12 @@ jobs:
           key: playwright-shell-webkit-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
           restore-keys: playwright-shell-webkit-${{ runner.os }}-
       - name: Install Playwright (headless shell, WebKit + OS deps)
-        run: npx playwright install --with-deps --only-shell chromium webkit
+        run: |
+          # The hosted runner's Azure mirror has repeatedly spent the whole
+          # smoke budget downloading WebKit dependencies. Use Ubuntu's own
+          # archive; suites, package versions and apt signature checks stay put.
+          sudo sed -i 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' /etc/apt/sources.list.d/ubuntu.sources
+          npx playwright install --with-deps --only-shell chromium webkit
       # Hermetic: local Postgres + seeded session. No real GCP, no prod
       # credentials, no LLM spend. Runs the credential-free `public` checks and
       # the seeded-session `authed` checks. This catches UI / route / render /

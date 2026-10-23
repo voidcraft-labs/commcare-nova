@@ -54,3 +54,9 @@ The final install reports eight remaining advisory entries, from the shadcn
 CLI's registry/glob chain and Testcontainers' `ip-address`. No blanket audit
 fix or downgrade to the registry's suggested shadcn 1.0.0 is part of this work.
 The Next critical advisory entry is removed by the eligible patch.
+
+The browser CI retries exposed an independent runner dependency-install issue:
+Azure's Ubuntu mirror streamed OS packages slowly enough to consume the entire
+20-minute smoke budget before tests ran. The install step now uses Ubuntu's
+canonical archive mirror, retaining the same suites and apt signature checks.
+This changes neither npm versions nor browser acceptance assertions.
