@@ -258,3 +258,10 @@ Replace CodeMirror drafts with native Select All, Backspace, and keyboard input,
 observing the empty editor between deletion and typing. For syntax-refusal cases,
 use an incomplete expression such as `1 +`: inserting `(` can legitimately wrap
 the selected expression or insert its closing partner through auto-bracketing.
+
+The isolated `componentPeer` compiles Next browser defines from the current
+production manifest, including `experimental.reactBrowserBailout`. Shared
+rendering helpers also carry private server diagnostics; the peer compiles
+`NEXT_PRIVATE_DEBUG_RUNTIME_DATA` and `NEXT_PRIVATE_DEBUG_VALIDATION` as unset.
+A Next upgrade must audit these helpers as well as `define-env`, and verify an
+actual component page in a native browser.
