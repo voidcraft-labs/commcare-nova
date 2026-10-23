@@ -2235,14 +2235,18 @@ export function FormScreen({ screen }: FormScreenProps) {
 		(caseData === undefined ||
 			caseBindingReplaced ||
 			reachableChain.length > 1);
+	// Runtime readiness freezes worker interactions, never the authoring canvas.
+	// An edit can mount a text editor while the background engine is rebuilding;
+	// making that canvas inert drops its one-shot autofocus on the floor.
 	const formFrozen =
-		submitStatus.kind === "running" ||
-		clearRunning ||
-		engineInitializing ||
-		engineRebuilding ||
-		selectedCaseLoading ||
-		caseDatabaseWait !== undefined ||
-		repeatTopologySettling;
+		mode === "preview" &&
+		(submitStatus.kind === "running" ||
+			clearRunning ||
+			engineInitializing ||
+			engineRebuilding ||
+			selectedCaseLoading ||
+			caseDatabaseWait !== undefined ||
+			repeatTopologySettling);
 	const blockFrozenInteraction = useCallback(
 		(event: SyntheticEvent): void => {
 			if (!formFrozen) return;

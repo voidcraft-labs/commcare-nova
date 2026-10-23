@@ -236,3 +236,11 @@ cleanup from an existing test.
 Task lists can legitimately be empty after work is complete. Describe the
 availability condition neutrally; do not tell a worker to change app settings
 merely because existing records no longer qualify for that task.
+
+## Documentation search
+
+`components/docs/DocsProvider.tsx` passes the complete `useStaticSearch` result
+to Fumadocs' `SearchDialog`. Its list owns failure announcements, stale-result
+labels and keyboard selection reset. Nova's wording belongs in
+`lib/docs/translations.ts`, including both search failure keys; do not add a
+second error status outside the list.

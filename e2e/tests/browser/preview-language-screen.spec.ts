@@ -952,3 +952,72 @@ test("held section unwrap and wrap retain the published controls until their new
 		}
 	}
 });
+
+test("authoring keeps focus while the Preview engine is rebuilding", async ({
+	page,
+}) => {
+	const boundary = resolve("e2e/lib/preview-form-lifecycle-boundary.ts");
+	const peer = await componentPeer(
+		"e2e/lib/preview-language-screen-client.tsx",
+		[],
+		{
+			"@/lib/preview/engine/caseDataBinding": boundary,
+			"@/lib/preview/engine/lookupDataBinding": boundary,
+			"@/lib/preview/entryPointLaunchAction": boundary,
+			"@/lib/auth/hooks/useAuth": boundary,
+			"@/lib/lookup/actions": boundary,
+			"@/lib/deployment/actions": boundary,
+			"@/lib/preview/xpath/browserWorkerClient": resolve(
+				"e2e/lib/preview-language-worker-boundary.ts",
+			),
+		},
+	);
+	try {
+		const guard = await attachErrorGuard(page, peer.origin);
+		try {
+			await page.goto(peer.origin);
+			await expect(
+				page.locator('[data-preview-engine-ready="true"]'),
+			).toBeVisible();
+			await page.evaluate(() => window.previewLanguageScreen.arm());
+			await page.getByRole("button", { name: "Español", exact: true }).click();
+			await expect
+				.poll(() => page.evaluate(() => window.previewLanguageScreen.held()))
+				.toBe(true);
+			const form = page.locator("[data-preview-engine-state]");
+			await expect(form).toHaveAttribute("inert", "");
+			await page.evaluate(() =>
+				window.previewLanguageScreen.setPreviewing(false),
+			);
+			await expect(form).toHaveAttribute("data-preview-engine-state", "edit");
+			await expect(form).not.toHaveAttribute("inert");
+			expect(
+				await page.evaluate(
+					() => window.previewLanguageScreen.observation().entry?.rebuilding,
+				),
+			).toBe(true);
+			await form.getByRole("button", { name: "Name", exact: true }).click();
+			const label = form.getByRole("textbox", { name: "Label", exact: true });
+			await expect(label).toBeFocused();
+			await label.fill("Draft name");
+			await expect(label).toHaveText("Draft name");
+			expect(
+				await page.evaluate(() => window.previewLanguageScreen.held()),
+			).toBe(true);
+			await label.press("Escape");
+			await expect(
+				form.getByRole("button", { name: "Name", exact: true }),
+			).toBeVisible();
+		} finally {
+			try {
+				if (!page.isClosed())
+					await page.evaluate(() => window.previewLanguageScreen?.dispose());
+			} finally {
+				await closePageWithUnload(page);
+				await guard.assertNoErrors();
+			}
+		}
+	} finally {
+		await peer.close();
+	}
+});

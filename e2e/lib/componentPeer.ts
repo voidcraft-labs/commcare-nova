@@ -23,6 +23,7 @@ export async function componentPeer(
 				i18n: z.unknown().transform((value) => Boolean(value)),
 				experimental: z.object({
 					manualClientBasePath: z.boolean().optional(),
+					reactBrowserBailout: z.boolean().optional(),
 					linkNoTouchStart: z.boolean().optional(),
 				}),
 				images: z.object({
@@ -91,6 +92,13 @@ export async function componentPeer(
 			"process.env.__NEXT_CACHE_COMPONENTS": "false",
 			"process.env.__NEXT_DEV_SERVER": "false",
 			"process.env.__NEXT_EXPERIMENTAL_AUTH_INTERRUPTS": "false",
+			"process.env.__NEXT_EXPERIMENTAL_REACT_BROWSER_BAILOUT": JSON.stringify(
+				config.experimental.reactBrowserBailout ?? false,
+			),
+			// Next 16.4's shared rendering helpers also reach the component
+			// graph. Their private server diagnostics are unset in this browser.
+			"process.env.NEXT_PRIVATE_DEBUG_RUNTIME_DATA": "undefined",
+			"process.env.NEXT_PRIVATE_DEBUG_VALIDATION": "undefined",
 			"process.env.NEXT_PUBLIC_NOVA_BUILD_ID": JSON.stringify(
 				process.env.NEXT_PUBLIC_NOVA_BUILD_ID?.trim() || "local",
 			),

@@ -64,7 +64,7 @@ function DocsSearchDialog(props: SharedProps) {
 	const { locale } = useI18n();
 	// Matches createFromSource(source).staticGET: the generated index is loaded
 	// once and searched locally, through the provider-specific supported hook.
-	const { error, ...search } = useStaticSearch({ locale });
+	const search = useStaticSearch({ locale });
 	return (
 		<SearchDialog {...search} {...props}>
 			<SearchDialogOverlay />
@@ -74,14 +74,6 @@ function DocsSearchDialog(props: SharedProps) {
 					<SearchDialogInput />
 					<SearchDialogClose />
 				</SearchDialogHeader>
-				{error && (
-					<p
-						role="status"
-						className="px-4 py-3 text-sm text-fd-muted-foreground"
-					>
-						Couldn't search the docs. You can refresh the page to try again.
-					</p>
-				)}
 				<SearchDialogList />
 			</SearchDialogContent>
 		</SearchDialog>

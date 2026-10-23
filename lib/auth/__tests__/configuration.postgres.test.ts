@@ -5,6 +5,7 @@ import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { signSessionCookie } from "@/lib/auth/sessionCookie";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
+import { MCP_RESOURCE_URL } from "@/lib/hostnames";
 
 const database = setupPerTestDatabase({
 	databaseNamePrefix: "auth_configuration_",
@@ -24,23 +25,17 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
-it("retries a failed OAuth resource initialization and shares the recovered auth instance", async () => {
+it("retries a failed pool acquisition and shares the recovered auth instance", async () => {
 	vi.resetModules();
 	const connection = await import("@/lib/case-store/postgres/connection");
 	const poolGetter = vi
 		.spyOn(connection, "getCaseStorePool")
 		.mockResolvedValue(database.pool);
 	const outage = new Error("Controlled database connection failure");
-	const connect = vi.spyOn(database.pool, "connect");
-	connect.mockRejectedValueOnce(outage);
+	poolGetter.mockRejectedValueOnce(outage);
 	try {
 		const { getAuth } = await import("@/lib/auth");
-		// Observe the library's real async initialization as well as Nova's
-		// loader so the pre-fix rejected context is always consumed.
-		await expect(
-			getAuth().then(async (auth) => await auth.$context),
-		).rejects.toBe(outage);
-		connect.mockRestore();
+		await expect(getAuth()).rejects.toBe(outage);
 
 		const [auth, concurrent] = await Promise.all([getAuth(), getAuth()]);
 		const context = await auth.$context;
@@ -56,8 +51,42 @@ it("retries a failed OAuth resource initialization and shares the recovered auth
 		await response.body?.cancel();
 		expect(response.status).toBe(200);
 	} finally {
-		connect.mockRestore();
 		poolGetter.mockRestore();
+	}
+});
+
+it("keeps auth available after resource seeding fails and retries on resource access", async () => {
+	// The migrated template already carries Nova's canonical resource. Remove
+	// it so only the provider's successful retry can recreate this row.
+	await database.pool.query("DELETE FROM auth_oauth_resource");
+	const outage = new Error("Controlled database connection failure");
+	const connect = vi.spyOn(database.pool, "connect");
+	connect.mockRejectedValueOnce(outage);
+	try {
+		const auth = createAuth(database.pool);
+		await auth.$context;
+		expect(connect).toHaveBeenCalled();
+		connect.mockRestore();
+		expect(
+			(await database.pool.query("SELECT identifier FROM auth_oauth_resource"))
+				.rows,
+		).toEqual([]);
+		const response = await auth.handler(new Request(`${origin}/api/auth/ok`));
+		await response.body?.cancel();
+		expect(response.status).toBe(200);
+		await auth.api.registerOAuthClient({
+			body: {
+				client_name: "Resource recovery client",
+				redirect_uris: ["https://client.example.test/callback"],
+				token_endpoint_auth_method: "none",
+			},
+		});
+		expect(
+			(await database.pool.query("SELECT identifier FROM auth_oauth_resource"))
+				.rows,
+		).toEqual([{ identifier: MCP_RESOURCE_URL }]);
+	} finally {
+		connect.mockRestore();
 	}
 });
 
