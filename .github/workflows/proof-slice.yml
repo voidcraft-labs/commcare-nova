@@ -37,7 +37,10 @@ jobs:
           node-version-file: .nvmrc
           package-manager-cache: false
       - name: Install pinned npm
-        run: npm install --global "$(node -p 'require("./package.json").packageManager')"
+        run: |
+          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
+          cd "$RUNNER_TEMP"
+          npm install --global "npm@$npm_version" --ignore-scripts
       - run: npm ci
       - id: selection
         name: Validate the slice
