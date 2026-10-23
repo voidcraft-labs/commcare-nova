@@ -477,8 +477,8 @@ async function parseMediaContainer(
 
 /**
  * A parsed container's duration in ms. BEST-EFFORT and may be absent: a
- * video-only mp4 (no audio track) parses cleanly but exposes no duration. A
- * missing duration is therefore NOT a rejection. The value, when present, is
+ * container may not expose duration in its headers. A missing duration is
+ * therefore NOT a rejection. The value, when present, is
  * stored as informational metadata that no validation gate reads.
  */
 function durationMsOf(metadata: IAudioMetadata): number | undefined {
@@ -511,7 +511,7 @@ function codecRefusal(
  * Why a parsed audio or video file is encoded in a variant some CommCare
  * platform does not play, or `undefined` when it is one every platform
  * played (`lib/commcare/surface/media-formats.json`, `executions`). The
- * container and codec spellings are music-metadata's, as version 12.0.0
+ * container and codec spellings are music-metadata's, as version 12.2.0
  * reports them: `FLAC`; `M4A/isom/iso2` or `M4B/isom/iso2` with `MPEG-4/AAC`
  * or `ALAC`; `Ogg` with `Vorbis I`, `Opus`, `Speex 1.2.1` or `FLAC`;
  * `EBML/webm` with `VP8`, `VP9`, `AV1`, `VORBIS`, `OPUS`. MP3, WAV and MP4

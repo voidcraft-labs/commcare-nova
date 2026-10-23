@@ -36,6 +36,10 @@ export const docsTranslations = defineTranslations()
 		"Open Sidebar(sidebar)(aria-label)": "Open sidebar",
 		"Page Not Found(404 page)": "Page not found",
 		"Previous Page(pagination)": "Previous page",
+		"Search failed(search dialog)":
+			"Couldn't search the docs. You can refresh the page to try again.",
+		"Search failed, showing results for {query}(search dialog)":
+			"Couldn't search the docs. Showing earlier results for {query}.",
 		"System(theme switcher)(aria-label)": "System",
 		"Table of Contents(inline table of contents)": "Table of contents",
 		"Toggle Menu(mobile menu)(aria-label)": "Toggle menu",

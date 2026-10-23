@@ -424,11 +424,9 @@ describe("validateMediaBytes — audio & video (music-metadata)", () => {
 		}
 	});
 
-	it("accepts a video-only mp4 that exposes NO duration (regression guard)", async () => {
-		// A video-only mp4 (no audio track) parses cleanly but yields no
-		// duration. The validator MUST accept it with `durationMs` absent —
-		// rejecting on a missing duration would block every video-only
-		// upload. The fixture is a 32×32 single-frame H.264 clip, no audio.
+	it("validates a video-only mp4 and reads its video duration", async () => {
+		// music-metadata 12.2 reads video track timing as well as audio.
+		// The fixture is a 32×32 single-frame H.264 clip, no audio.
 		const bytes = readFileSync(
 			join(import.meta.dirname, "fixtures", "tiny-video.mp4"),
 		);
@@ -443,7 +441,7 @@ describe("validateMediaBytes — audio & video (music-metadata)", () => {
 			expect(result.validated.kind).toBe("video");
 			expect(result.validated.mimeType).toBe("video/mp4");
 			expect(result.validated.extension).toBe(".mp4");
-			expect(result.validated.durationMs).toBeUndefined();
+			expect(result.validated.durationMs).toBe(520);
 		}
 	});
 });
