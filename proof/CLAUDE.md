@@ -347,6 +347,9 @@ harness keeps, each with its reason.
     empty store, never a missing-directory refusal. Runner exceptions fail
     the shard; only the server's check statuses 0 and 1 defer to the gate,
     and an absent shard output fails its upload.
+    Verdict and packed-store downloads retain artifact-named directories even
+    for one artifact. Failed downloads remain outside consumers' paths, and
+    independent artifacts are still downloaded before reporting the failure.
   - **Weekly** (`proof-audit.yml`): both profiles whole and fresh, the run
     that proves the store's keys and replaces the snapshot, beside the
     comparisons over a 24-document sample that turns each week (its seed

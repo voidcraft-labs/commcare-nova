@@ -4198,7 +4198,10 @@ written from where a pull request's own run read documents from the store
   share one; each save is kept under a key of its own, since a cache entry
   is never written over), so a pull request that changes no proof input
   finds every group cached, and its lane is setup, the audit sample and the
-  gate. Each week it runs both profiles whole and fresh, which replace the
+  gate. Reports and store saves download each artifact into its own named
+  directory, including a single match; only a digest-verified download becomes
+  visible to consumers, and a failed artifact does not prevent downloading
+  the other lanes' evidence. Each week it runs both profiles whole and fresh, which replace the
   snapshot, and then the sampled comparisons. A scheduled night or week that fails, or cannot save the
   store, opens an issue written from the lanes' verdicts (`python3 -m
   proof.lane.report`): each lane's failing groups, why, and the command that
