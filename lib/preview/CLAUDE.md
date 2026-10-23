@@ -148,10 +148,13 @@ the runtime publication even when no further document mutation occurs.
 The paging decision and page/step field projections read this same retained
 document, so an admitted section wrap or unwrap cannot retire controls before
 the replacement publishes its new topology.
-FormScreen keeps those controls mounted and inert until the replacement has
-reconciled document edits and can publish its complete state. Overlapping
-replacements retain the original settled presentation; they cannot restore an
-unfinished candidate checkpoint. Mutation commands refuse during that window.
+In Preview mode, FormScreen keeps those controls mounted and inert until the
+replacement has reconciled document edits and can publish its complete state.
+Overlapping replacements retain the original settled presentation; they cannot
+restore an unfinished candidate checkpoint. Runtime answer mutations refuse
+during that window. Runtime readiness never makes the authoring canvas inert:
+editing, including initial text focus, remains available while the background
+engine rebuilds.
 Deactivation, a different entry, explicit reset and runtime faults clear the
 retained presentation, and retired initialization cannot revive it.
 

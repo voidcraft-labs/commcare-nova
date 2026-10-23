@@ -60,3 +60,11 @@ Azure's Ubuntu mirror streamed OS packages slowly enough to consume the entire
 20-minute smoke budget before tests ran. The install step now uses Ubuntu's
 canonical archive mirror, retaining the same suites and apt signature checks.
 This changes neither npm versions nor browser acceptance assertions.
+
+A repeated production-browser run also exposed a real authoring focus race:
+FormScreen applied the Preview runtime's freeze to edit mode. If the engine
+rebuilt while TipTap mounted, the browser refused its one-shot autofocus because
+the canvas was inert. The freeze is now scoped to Preview, with the authoring
+access gates unchanged. A deterministic native-browser test holds an actual
+worker rebuild, proves Preview stays inert, then opens and types into an editor
+while that same rebuild remains held. It fails on the old implementation.

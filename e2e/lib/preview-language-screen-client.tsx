@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
+import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import {
 	BuilderLocalizationProvider,
 	useBuilderLanguage,
@@ -101,9 +103,13 @@ root.render(
 			<BuilderLocalizationProvider>
 				<BuilderFormEngineProvider>
 					<LanguageControls />
-					<FormScreen
-						screen={{ type: "form", moduleUuid: MODULE, formUuid: FORM }}
-					/>
+					<ScrollRegistryProvider>
+						<EditGuardProvider>
+							<FormScreen
+								screen={{ type: "form", moduleUuid: MODULE, formUuid: FORM }}
+							/>
+						</EditGuardProvider>
+					</ScrollRegistryProvider>
 				</BuilderFormEngineProvider>
 			</BuilderLocalizationProvider>
 		</BlueprintDocContext>
@@ -111,6 +117,9 @@ root.render(
 );
 
 window.previewLanguageScreen = {
+	setPreviewing(value: boolean) {
+		session.getState().setPreviewing(value);
+	},
 	arm: armLanguageWorker,
 	held: languageWorkerHeld,
 	release: releaseLanguageWorker,
@@ -233,6 +242,7 @@ window.previewLanguageScreen = {
 declare global {
 	interface Window {
 		previewLanguageScreen: {
+			setPreviewing(value: boolean): void;
 			arm(): void;
 			held(): boolean;
 			release(): void;

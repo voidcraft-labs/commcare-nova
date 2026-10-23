@@ -708,6 +708,11 @@ must bring its controls back on screen.
 
 prosemirror-view hardcodes a `<br class="ProseMirror-trailingBreak">` per block. Hide it only where it adds phantom height: `.tiptap .ProseMirror-trailingBreak:not(:only-child)` (sole-child breaks must stay for cursor positioning) and `.tiptap:has(> :not(p)) > p:last-child > .ProseMirror-trailingBreak:only-child` (the structural paragraph after block elements). Preview markdown sets `white-space: break-spaces` + `position: relative` globally to match ProseMirror, so mode switches don't reflow. TipTap 3's class is `tiptap`, not `ProseMirror`.
 
+Preview engine readiness gates running-form interactions only. The edit canvas
+stays interactive while the engine initializes or rebuilds; Project access and
+build readiness remain the authoring gates. Runtime work must never mark an
+inline editor inert during its initial focus.
+
 ## Scroll, selection, navigation
 
 - Scroll-to-selection is a rAF loop, not native smooth — panel mount/unmount layout shifts make the browser abandon native `scrollTo` mid-flight. Cross-screen navigation scrolls `"instant"`.
