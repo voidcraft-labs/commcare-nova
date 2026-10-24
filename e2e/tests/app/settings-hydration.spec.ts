@@ -1,4 +1,5 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openPage } from "../../lib/pageLoads";
 
 test.use({ timezoneId: "America/Denver" });
 
@@ -10,7 +11,7 @@ test("Settings hydrates across time zones and clock skew", {
 	await page.clock.setFixedTime(
 		new Date(new Date(seed.lastUsedAt).getTime() + 2 * 60 * 60 * 1000),
 	);
-	const response = await page.goto("/settings");
+	const response = await openPage(page, "/settings");
 	expect(response).not.toBeNull();
 	const html = await response?.text();
 	expect(html).toContain("2 Jan 2026");

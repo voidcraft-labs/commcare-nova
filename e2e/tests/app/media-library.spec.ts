@@ -1,6 +1,8 @@
 import type { Locator, Page } from "@playwright/test";
 import { Pool } from "pg";
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openBuilder, openPage, reloadBuilder } from "../../lib/pageLoads";
+import { removableRoutes } from "../../lib/routes";
 
 const imageBytes = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9ZkAAAAASUVORK5CYII=",
@@ -59,10 +61,11 @@ test.describe("touch file manager", () => {
 		let assets: (typeof asset)[] = [];
 		const calls: string[] = [];
 		const confirm = Promise.withResolvers<void>();
-		await page.route("**/api/media/library?*", (route) =>
+		const mediaRoutes = removableRoutes(page);
+		await mediaRoutes.route("**/api/media/library?*", (route) =>
 			route.fulfill({ json: { assets, nextCursor: null } }),
 		);
-		await page.route("**/api/media/upload", (route) => {
+		await mediaRoutes.route("**/api/media/upload", (route) => {
 			calls.push("initiate");
 			expect(route.request().postDataJSON()).toMatchObject({
 				filename: asset.originalFilename,
@@ -78,12 +81,12 @@ test.describe("touch file manager", () => {
 				},
 			});
 		});
-		await page.route("**/test-upload-bytes", (route) => {
+		await mediaRoutes.route("**/test-upload-bytes", (route) => {
 			calls.push("bytes");
 			expect(route.request().postDataBuffer()).toEqual(imageBytes);
 			return route.fulfill({ status: 200 });
 		});
-		await page.route(
+		await mediaRoutes.route(
 			`**/api/media/upload/${assetId}/confirm`,
 			async (route) => {
 				calls.push("confirm");
@@ -92,7 +95,7 @@ test.describe("touch file manager", () => {
 				return route.fulfill({ json: { ok: true, asset } });
 			},
 		);
-		await page.route(`**/api/media/${assetId}*`, (route) => {
+		await mediaRoutes.route(`**/api/media/${assetId}*`, (route) => {
 			if (route.request().method() === "DELETE") {
 				calls.push("delete");
 				assets = [];
@@ -104,7 +107,7 @@ test.describe("touch file manager", () => {
 			"A deliberately long account name that must remain readable";
 		const profileEmail =
 			"a-deliberately-long-address-without-breaks@example.dimagi.com";
-		await page.route("**/api/auth/get-session", async (route) => {
+		await mediaRoutes.route("**/api/auth/get-session", async (route) => {
 			const response = await route.fetch();
 			const body = await response.json();
 			return route.fulfill({
@@ -117,7 +120,7 @@ test.describe("touch file manager", () => {
 		});
 
 		try {
-			await page.goto("/");
+			await openPage(page, "/");
 
 			const accountTrigger = page.getByRole("button", { name: "Account menu" });
 			await accountTrigger.tap();
@@ -198,7 +201,7 @@ test.describe("touch file manager", () => {
 			).toBeVisible();
 			expect(calls).toEqual(["initiate", "bytes", "confirm", "delete"]);
 			assets = [asset];
-			await page.goto("/build/new");
+			await openBuilder(page, "/build/new");
 			await page
 				.getByRole("button", { name: "Attach a file", exact: true })
 				.tap();
@@ -226,7 +229,7 @@ test.describe("touch file manager", () => {
 			).toBeVisible();
 		} finally {
 			confirm.resolve();
-			await page.unrouteAll({ behavior: "wait" });
+			await mediaRoutes.removeAll();
 		}
 	});
 });
@@ -303,7 +306,7 @@ test("search and pagination use server results; full document names disclose on 
 				});
 	});
 
-	await page.goto("/");
+	await openPage(page, "/");
 	const files = await openFiles(page);
 	await expect(
 		files.getByText("Your files aren't available", { exact: true }),
@@ -459,7 +462,7 @@ test("a live editor-to-viewer change closes pending deletion and reopens the fil
 			cookies: Parameters<typeof context.addCookies>[0];
 		};
 		await context.addCookies(viewer.cookies);
-		await page.goto(`/build/${fixture.openAppId}`);
+		await openBuilder(page, `/build/${fixture.openAppId}`);
 		const files = await openFiles(page);
 		const pixels = files.getByRole("img", {
 			name: asset.originalFilename,
@@ -596,10 +599,12 @@ test("a staged app-logo upload exposes progress and cancels without attaching a 
 	const fixture = seed;
 	const initiate = Promise.withResolvers<void>();
 	let transfers = 0;
-	await page.route("**/api/media/library?*", (route) =>
+	const mediaRoutes = removableRoutes(page);
+	await mediaRoutes.route("**/api/media/library?*", (route) =>
 		route.fulfill({ json: { assets: [], nextCursor: null } }),
 	);
-	await page.route("**/api/media/upload", async (route) => {
+	const stagedUpload = removableRoutes(page);
+	await stagedUpload.route("**/api/media/upload", async (route) => {
 		await initiate.promise;
 		return route.fulfill({ json: { deduplicated: true, asset } });
 	});
@@ -609,7 +614,7 @@ test("a staged app-logo upload exposes progress and cancels without attaching a 
 			transfers += 1;
 	});
 	try {
-		await page.goto(`/build/${fixture.openAppId}`);
+		await openBuilder(page, `/build/${fixture.openAppId}`);
 		await page
 			.getByRole("button", { name: "App settings", exact: true })
 			.click();
@@ -644,17 +649,17 @@ test("a staged app-logo upload exposes progress and cancels without attaching a 
 			logo.getByRole("button", { name: "Attach", exact: true }),
 		).toBeVisible();
 		await expect(logo.getByRole("progressbar")).toHaveCount(0);
-		await page.reload();
+		await reloadBuilder(page);
 		await page
 			.getByRole("button", { name: "App settings", exact: true })
 			.click();
 		await expect(
 			logo.getByRole("button", { name: "Attach", exact: true }),
 		).toBeVisible();
-		await page.unroute("**/api/media/upload");
+		await stagedUpload.removeAll();
 		const message =
 			"This file is too large. Choose an image smaller than 5 MB, then try again.";
-		await page.route("**/api/media/upload", (route) =>
+		await mediaRoutes.route("**/api/media/upload", (route) =>
 			route.fulfill({ status: 413, json: { error: message } }),
 		);
 		await logo.getByRole("button", { name: "Attach", exact: true }).click();
@@ -714,6 +719,6 @@ test("a staged app-logo upload exposes progress and cancels without attaching a 
 		expect(transfers).toBe(0);
 	} finally {
 		initiate.resolve();
-		await page.unrouteAll({ behavior: "wait" });
+		await mediaRoutes.removeAll();
 	}
 });

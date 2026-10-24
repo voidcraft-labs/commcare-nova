@@ -1,6 +1,7 @@
 import { docsHostPeer } from "../../lib/docsHostPeer";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { expect, test } from "../../lib/fixtures";
+import { openPage, reloadPage } from "../../lib/pageLoads";
 import { urlHost } from "../../lib/url";
 
 /**
@@ -16,7 +17,7 @@ import { urlHost } from "../../lib/url";
 
 test.describe("public surface", () => {
 	test("home page renders the Google sign-in button", async ({ page }) => {
-		await page.goto("/");
+		await openPage(page, "/");
 
 		// The sign-in entry point. If the home page is broken (build failure,
 		// auth shell throwing) this is the first thing to disappear.
@@ -59,7 +60,7 @@ test.describe("public surface", () => {
 		// assertion is purely "the click sends you to Google", so the test stays
 		// hermetic and never depends on Google being reachable. (A stub rather than
 		// an abort so it logs no console error, which the error guard would catch.)
-		await page.goto("/");
+		await openPage(page, "/");
 		await page.route("**/accounts.google.com/**", (route) =>
 			route.fulfill({ status: 200, contentType: "text/html", body: "" }),
 		);
@@ -95,7 +96,7 @@ test("docs search highlights real records, follows keyboard selection and recove
 			const page = await context.newPage();
 			const guard = await attachErrorGuard(page, peer.origin);
 			try {
-				await page.goto(peer.origin);
+				await openPage(page, peer.origin);
 				const heading = page.getByRole("heading", {
 					name: "Documentation",
 					exact: true,
@@ -119,7 +120,7 @@ test("docs search highlights real records, follows keyboard selection and recove
 				await expect(search.getByRole("status")).toContainText(
 					"Couldn't search the docs. You can refresh the page to try again.",
 				);
-				await page.reload();
+				await reloadPage(page);
 				await sidebar.getByRole("button", { name: /^Search/ }).click();
 				search = page.getByRole("dialog", { name: "Search", exact: true });
 				const input = search.getByRole("combobox", {
@@ -172,7 +173,7 @@ test("docs search highlights real records, follows keyboard selection and recove
 						exact: true,
 					}),
 				).toBeVisible();
-				await page.goto(`${peer.origin}/page-that-does-not-exist`);
+				await openPage(page, `${peer.origin}/page-that-does-not-exist`);
 				await expect(
 					page.getByRole("heading", {
 						name: "I couldn't find that page",

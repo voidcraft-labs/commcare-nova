@@ -1,6 +1,7 @@
 import AdmZip from "adm-zip";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { FORM_SECTIONS_SEED } from "../../lib/formSectionsSeed";
+import { openBuilder, reloadBuilder } from "../../lib/pageLoads";
 
 const source = FORM_SECTIONS_SEED.aboutYou.nameFieldUuid;
 test.use({ actionTimeout: 15_000 });
@@ -9,7 +10,7 @@ test("inspector explicitly converts literal references, preserves drafts and sav
 	tag: "@seed:sections",
 }, async ({ page, scenario, request }) => {
 	const { formSections } = seedFor(scenario, "sections");
-	await page.goto(formSections.route);
+	await openBuilder(page, formSections.route);
 	await page
 		.getByRole("button", { name: "Your name", exact: true })
 		.first()
@@ -62,7 +63,7 @@ test("inspector explicitly converts literal references, preserves drafts and sav
 					.blueprint.fields[source].hint,
 		)
 		.toEqual({ parts: [{ kind: "field-ref", uuid: source }] });
-	await page.reload();
+	await reloadBuilder(page);
 	await expect(
 		properties.getByRole("textbox", { name: "Hint" }).locator("[data-ref-raw]"),
 	).toHaveCount(1);
@@ -174,7 +175,7 @@ test("canvas reference picker supports keyboard insertion, replacement and liter
 	tag: "@seed:sections",
 }, async ({ page, scenario, request }) => {
 	const { formSections } = seedFor(scenario, "sections");
-	await page.goto(formSections.route);
+	await openBuilder(page, formSections.route);
 	const main = page.getByRole("main");
 	await main.getByRole("button", { name: "Your name", exact: true }).click();
 	const label = main.getByRole("textbox", { name: "Label", exact: true });
@@ -238,7 +239,7 @@ test("canvas reference picker supports keyboard insertion, replacement and liter
 			{ kind: "user-ref", property: "commcare_last_name" },
 			{ kind: "text", text: "**" },
 		]);
-	await page.reload();
+	await reloadBuilder(page);
 	await expect(
 		main.locator('[data-ref-raw="#user/commcare_last_name"]'),
 	).toBeVisible();
@@ -248,7 +249,7 @@ test("hashtag suggestions select namespaces and references without ending the dr
 	tag: "@seed:sections",
 }, async ({ page, scenario }) => {
 	const { formSections } = seedFor(scenario, "sections");
-	await page.goto(formSections.route);
+	await openBuilder(page, formSections.route);
 	const main = page.getByRole("main");
 	await main.getByRole("button", { name: "Your name", exact: true }).click();
 	const label = main.getByRole("textbox", { name: "Label", exact: true });

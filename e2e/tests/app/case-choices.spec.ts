@@ -1,11 +1,12 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openBuilder } from "../../lib/pageLoads";
 
 test("case choice sources stage atomically and Preview filters choices when an earlier answer changes", {
 	tag: "@seed:case-choices",
 }, async ({ scenario, page }) => {
 	const { caseChoices } = seedFor(scenario, "case-choices");
 	const main = page.locator("main");
-	await page.goto(caseChoices.routes.clinic);
+	await openBuilder(page, caseChoices.routes.clinic);
 	const source = page.getByRole("combobox", {
 		name: "Where the choices come from",
 	});
@@ -78,7 +79,7 @@ test(
 	async ({ scenario, page }, info) => {
 		const { caseChoices } = seedFor(scenario, "case-choices");
 		const main = page.locator("main");
-		await page.goto(caseChoices.routes.attendance);
+		await openBuilder(page, caseChoices.routes.attendance);
 		await expect(
 			page.getByRole("button", { name: "Preview", exact: true }),
 		).toBeVisible({ timeout: 20_000 });

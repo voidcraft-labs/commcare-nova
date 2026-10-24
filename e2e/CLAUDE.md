@@ -125,6 +125,34 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   retiring the stream marker. Seed settled conversations first so they cannot
   replace that paused holder; opening the question thread then needs no stream
   resume.
+- **A page load goes through `e2e/lib/pageLoads.ts`.** Every load of a
+  builder page starts its read of the Project's data-table catalog again, and
+  the builder refuses every edit until that read lands
+  (`lib/doc/builderWriteAdmission.ts`). A visible, enabled, checked control
+  says nothing about it: a click before the read lands is refused with
+  "Project data is still loading" and changes nothing, so the test passes on a
+  quick machine and fails on a loaded CI runner. `openBuilder` /
+  `reloadBuilder` return once the builder accepts edits; `openPage` /
+  `reloadPage` load any other page. `e2e/lint/builderPageLoads.grit` refuses a
+  bare `goto` or `reload` in `e2e/tests/app` and `e2e/tests/multiplayer`; a
+  test about the loading state itself suppresses it with its reason. A history
+  step that crosses documents is a load too, so follow it with
+  `expectBuilderEditable` before editing. To look for this class of race, slow
+  the catalog read (route its Server Action the way `authed.spec.ts`'s
+  case-changes journey holds it) and run the suite: a test that edits too
+  early then fails every time instead of now and then.
+- **A route a test removes goes through `e2e/lib/routes.ts`.** Playwright
+  turns a page's interception off as soon as its route list is empty and
+  forwards any request a handler is still holding; the handler's own
+  `fulfill` or `continue` then throws "Route is already handled!".
+  `unrouteAll({ behavior: "wait" })` empties the list before it waits, so
+  another request finishing meanwhile triggers exactly that. `removableRoutes`
+  groups the routes, and `removeAll` waits until no handler holds a request
+  before removing them. `e2e/lint/routeRemoval.grit` refuses a bare `unroute`
+  or `unrouteAll` anywhere under `e2e/tests`. A peer that keeps a route after
+  its handler returns (to fulfill it later) finishes or aborts it before
+  `removeAll`, as `builder-data.spec.ts` and `case-workspace-surface.spec.ts`
+  do.
 - **Selectors are roles / aria-labels / text** (the app has almost no `data-testid`) —
   e.g. `getByRole("button", { name: "Sign in with Google" })`. If you add a
   `data-testid`, prefer it for the gate.

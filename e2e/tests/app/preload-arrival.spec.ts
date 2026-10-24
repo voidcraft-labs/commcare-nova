@@ -1,5 +1,7 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { caseWorkspaceCaseRows } from "../../lib/caseWorkspaceSeed";
+import { openBuilder } from "../../lib/pageLoads";
+import { removableRoutes } from "../../lib/routes";
 
 test("Preview opened from Edit waits for its raw preload before showing defaults", {
 	tag: "@seed:workspace",
@@ -29,7 +31,8 @@ test("Preview opened from Edit waits for its raw preload before showing defaults
 	let delivered = false;
 	// Hold the real raw-row Server Action result. The case tile's separate read
 	// includes its column configuration; the form requests only raw preloads.
-	await page.route("**/build/**", async (route) => {
+	const actionRoutes = removableRoutes(page);
+	await actionRoutes.route("**/build/**", async (route) => {
 		const request = route.request();
 		if (request.method() !== "POST" || !request.headers()["next-action"])
 			return route.continue();
@@ -50,7 +53,7 @@ test("Preview opened from Edit waits for its raw preload before showing defaults
 		delivered = true;
 	});
 	try {
-		await page.goto(seed.caseWorkspace.routes.tileForm);
+		await openBuilder(page, seed.caseWorkspace.routes.tileForm);
 		await page.getByRole("button", { name: "Preview", exact: true }).click();
 		const date = page.locator('button[data-slot="date-picker"]');
 		await expect.poll(() => arrived).toBe(true);
@@ -73,6 +76,6 @@ test("Preview opened from Edit waits for its raw preload before showing defaults
 		);
 	} finally {
 		release.resolve();
-		await page.unrouteAll({ behavior: "wait" });
+		await actionRoutes.removeAll();
 	}
 });

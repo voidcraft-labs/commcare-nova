@@ -1,5 +1,11 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { APP_NOTICES_SEED } from "../../lib/appNoticesSeed";
+import {
+	openBuilder,
+	openPage,
+	reloadBuilder,
+	reloadPage,
+} from "../../lib/pageLoads";
 
 test("a migration notice is reviewed and dismissed for good, and the saved-key line dismisses on its own", {
 	tag: "@seed:app-notices",
@@ -12,7 +18,7 @@ test("a migration notice is reviewed and dismissed for good, and the saved-key l
 	});
 
 	await test.step("the chip opens the dialog, which lists the notice's lines", async () => {
-		await page.goto(fixture.route);
+		await openBuilder(page, fixture.route);
 		await expect(chip).toBeVisible({ timeout: 20_000 });
 		await chip.click();
 		const dialog = page.getByRole("dialog", {
@@ -43,7 +49,7 @@ test("a migration notice is reviewed and dismissed for good, and the saved-key l
 	});
 
 	await test.step("the dismissal holds through a reload", async () => {
-		await page.reload();
+		await reloadBuilder(page);
 		await expect(
 			page.getByRole("button", { name: "Publish", exact: true }),
 		).toBeVisible({ timeout: 20_000 });
@@ -51,7 +57,7 @@ test("a migration notice is reviewed and dismissed for good, and the saved-key l
 	});
 
 	await test.step("the home page's saved-key line dismisses apart from the app's notice", async () => {
-		await page.goto("/");
+		await openPage(page, "/");
 		const line = page.getByRole("status").filter({
 			hasText: `Nova read ${APP_NOTICES_SEED.domain} on CommCare HQ with your saved key`,
 		});
@@ -61,7 +67,7 @@ test("a migration notice is reviewed and dismissed for good, and the saved-key l
 		);
 		await line.getByRole("button", { name: "Got it", exact: true }).click();
 		await expect(line).toBeHidden();
-		await page.reload();
+		await reloadPage(page);
 		// Wait for this app's visible card; a streamed, hidden copy can still
 		// carry the same href while the page commits after the reload.
 		await expect(

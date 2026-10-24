@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-form-lifecycle-client";
+import { removableRoutes } from "../../lib/routes";
 
 test("a case-data refresh retires Submit without blaming answers or replaying the press", async ({
 	page,
@@ -23,8 +24,9 @@ test("a case-data refresh retires Submit without blaming answers or replaying th
 	const refresh = Promise.withResolvers<void>();
 	const submissions: unknown[][] = [];
 	let reads = 0;
+	const peerRoutes = removableRoutes(page);
 	try {
-		await page.route(`${peer.origin}/case-database`, async (route) => {
+		await peerRoutes.route(`${peer.origin}/case-database`, async (route) => {
 			if (++reads > 1) {
 				await refresh.promise;
 			}
@@ -32,7 +34,7 @@ test("a case-data refresh retires Submit without blaming answers or replaying th
 				json: { kind: "data", snapshot: { rows: [], indices: [] } },
 			});
 		});
-		await page.route(`${peer.origin}/submission`, async (route) => {
+		await peerRoutes.route(`${peer.origin}/submission`, async (route) => {
 			submissions.push(route.request().postDataJSON());
 			await route.fulfill({
 				json: { kind: "error", message: "Transport unavailable. Try again." },
@@ -111,7 +113,7 @@ test("a case-data refresh retires Submit without blaming answers or replaying th
 				await page.evaluate(() => window.previewFormLifecycleAudit?.dispose());
 		} finally {
 			try {
-				await page.unrouteAll({ behavior: "wait" });
+				await peerRoutes.removeAll();
 			} finally {
 				try {
 					await page.close();

@@ -1,5 +1,6 @@
 import type { Locator } from "@playwright/test";
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openBuilder } from "../../lib/pageLoads";
 import { SEARCH_RESULTS_SEED } from "../../lib/previewRuntimeSeeds";
 
 /**
@@ -41,7 +42,7 @@ test("a form reading search results opens after a search and asks for one after 
 		await expect(opened).toBeVisible({ timeout: 20_000 });
 	};
 
-	await page.goto(searchResults.route);
+	await openBuilder(page, searchResults.route);
 	await expect(
 		page.getByRole("button", { name: "Preview", exact: true }),
 	).toBeVisible({ timeout: 20_000 });
@@ -77,7 +78,7 @@ test("a form reading search results opens after a search and asks for one after 
 	});
 
 	await test.step("the reloaded record link keeps no search, so the form offers Search", async () => {
-		await page.goto(recordUrl);
+		await openBuilder(page, recordUrl);
 		await continueToForm(refusal);
 		await expect(refusal).toContainText("This form opens after a search");
 		await expect(note).toHaveCount(0);
