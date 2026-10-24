@@ -41,6 +41,9 @@ planning step 2"), were executed at those same commits, which
 `proof/pins.json` still named.
 Finding 75, found while step 3 was planned ("Found while planning step 3"),
 was executed at the same commits, which `proof/pins.json` names still.
+What step 4's planning found ("Found while planning step 4") was read at the
+same commits; its one CommCare execution ran Pillow 12.3.0, the version
+commcare-hq's `uv.lock` pins.
 
 Citations use `file::symbol`; documents are the corpus ids that show the
 symptom.
@@ -1281,6 +1284,216 @@ shown. It has a targeted document with its register entries and its control.
     register and its walk stop is held on the control
     `targeted-datetime-equality`, which keeps the search from before the
     fix.
+
+### Found while planning step 4
+
+Step 4's plan read its CommCare facts at the pins, ran Pillow over an SVG, an
+ICO and an AVIF, and ran the lane's own manifest extraction over a corpus of
+392 documents emitted at Nova's `e9e6cd93`; it ran nothing in HQ, Core,
+Formplayer, Android or a lane. It found claims of the research and of the
+manifest that the pins contradict, and defects of Nova's own that no check of
+the lane observes. None of these is numbered: the numbered findings are what
+the harness showed. Each names the pull request of step 4's stack that
+corrects or fixes it.
+
+**Claims corrected.**
+
+- **`here()` in a case list is never the browser's location on HQ's Web Apps
+  client, in the case's details too.** Formplayer takes a location only from
+  a navigation request's `geo_location`
+  (`beans/SessionNavigationBean.java::getGeoLocation`, which
+  `services/MenuSessionFactory.java` passes to
+  `MenuSession.setCurrentBrowserLocation`), and
+  `util/FormplayerHereFunctionHandler.java::eval` answers `''` without one; no
+  script or template under commcare-hq's `corehq` names `geo_location` or
+  `geoLocation`, so HQ's client sends none; and Core installs
+  `ScreenUtils.HereDummyFunc(-23.56, -46.66)` while it builds a list
+  (`src/cli/java/org/commcare/util/screen/EntityScreen.java`). So Web Apps
+  reads Core's São Paulo placeholder while a list is built and `''`
+  everywhere else. The manifest's
+  `expressions-and-data/here-in-a-case-list-calculated-column-or-sort`, and
+  its inventory row, held it running in the case detail with the browser's
+  location, blank until granted. *Step 4:* pull request 1 (the manifest
+  audit) corrects the reading, and pull request 4 (the declaration) refuses
+  `here()` in every case-list column of an app that declares Web Apps (the
+  platform feature `case-list-here`).
+- **The date-and-time question is not the one held feature Web Apps cannot
+  run** (README, "Platforms": "the date-and-time question is the one held
+  feature other than media that Web Apps cannot run today"). `here()` in a
+  case-list column is another (above), and so is a CommCare Connect app:
+  Connect makes each worker's HQ account with no password (commcare-connect
+  `commcare_connect/users/helpers.py::create_hq_user_and_link`,
+  `build_hq_user_payload`), HQ's user page sets none on an account linked to
+  PersonalID (`corehq/apps/users/forms.py::SetUserPasswordForm`,
+  `user_has_active_personalid_link`), and HQ takes the worker's PersonalID
+  token only at its OAuth token endpoint
+  (`corehq/apps/domain/auth.py::ConnectIDAuthBackend.authenticate`), which the
+  Connect app on Android calls
+  (`app/src/org/commcare/connect/network/personalId/ApiPersonalId.java::retrieveHqToken`).
+  So no Connect worker signs in to Web Apps. *Step 4:* pull request 4 refuses
+  both where Web Apps is declared (`case-list-here`, `connect-app`), and adds
+  the manifest entry `application-and-settings/connect-app-opened-in-the-connect-app`.
+- **SVG cannot be held for any app.** The research held it for an app that
+  does not declare Android (README, "Platforms", and its `lib/media/CLAUDE.md`
+  contracts row; the inventory's `expressions-and-data/image-ico-svg-avif`).
+  HQ types an SVG as an image, and `hqmedia/models.py::CommCareImage.attach_data`
+  opens every image with Pillow (`get_image_object`, which raises
+  `BadMediaFileException` where `Image.open` fails), which reads no SVG
+  (executed: Pillow 12.3.0 raised `UnidentifiedImageError`). The call has no
+  handler of its own in `hqmedia/tasks.py::process_bulk_upload_zip`'s loop, so
+  the outer `except Exception` marks the upload "Error while processing zip"
+  before `app.save()`, and no file of that publish is mapped. Every Web Apps
+  worker receives media through HQ. *Step 4:* pull request 7 (media by
+  platform) makes `expressions-and-data/image-svg` REFUSED, refuses an SVG at
+  upload for every app (`svg-not-accepted`), and runs HQ's own bulk upload
+  over one in the native `media` family's `media-svg-refused`; the same pull
+  request rewrites `lib/media/CLAUDE.md`'s SVG sentence, and pull request 14
+  (contracts and public docs) adds the bullet "SVG images never ship" to
+  `docs/architecture/contracts.md`'s "Deliberate target gaps".
+- **The case list menu item on Web Apps returns to the app's first menu, not
+  to an empty list** (README, "Platforms", the table's "Case list menu item";
+  the manifest's
+  `menus-and-case-lists/module-case-list-on-a-formless-basic-module-show-true`).
+  The entry HQ builds for `case_list.show` has no form
+  (`suite_xml/sections/entries.py::EntriesContributor`), so Formplayer ends the
+  navigation with none (`services/MenuSessionRunnerService.java::advanceSessionWithSelections`,
+  `resolveFormGetNext`) and answers with the notice "Redirecting after sync"
+  and a cleared session, on which HQ's client shows the notice and opens the
+  app's root menu (`cloudcare/js/formplayer/menus/controller.js::selectMenu`,
+  `apps:currentApp`). *Step 4:* pull request 1 corrects the reading, and pull
+  request 8 (Preview, the model) plays it
+  (`lib/preview/formlessCaseListRoute.ts`).
+- **The hidden sibling of a date-and-time case write runs on Web Apps.** The
+  manifest held
+  `forms-and-case-writes/update-from-a-date-and-time-question-through-a-hidden-sibling`
+  unavailable there (defect 18). The sibling is a calculate Core runs on both
+  platforms (`lib/commcare/xform/generatedNodes.ts::planGeneratedNodes`,
+  `nova_datetime_<id>`), and what Web Apps cannot run is the question's
+  widget, which `questions/date-and-time-xsd-datetime` holds. *Step 4:* pull
+  request 1 corrects the reading to run on both.
+- **The research's split of a date-and-time question names a shape Nova does
+  not have** (README, "Platforms": the date question keeps the original's id,
+  a time question `<id>_time` follows it, and "the datetime sibling now joins
+  the two"). Nova's datetime sibling is no field of the document: the XForm
+  builder adds it beside a case write only
+  (`lib/commcare/xform/generatedNodes.ts::planGeneratedNodes`), bound
+  `xsd:string`, and no expression reads it. Moving the original onto the
+  date question would rewrite every expression, prose output, Connect slot
+  and case operation that reads it, move the case write to a new node, which
+  changes HQ's `question_path`, and change the export column `/data/<id>` from
+  an instant to a date. *Step 4:* pull request 3 (the split's groundwork)
+  plans another split: the original keeps its UUID, id, position, relevance
+  and case write and becomes a Hidden Value calculated by
+  `date(format-date(if(<date> = '' or <time> = '', '', concat(<date>, 'T', <time>)), '%Y-%m-%dT%H:%M:%S.%3%Z'))`,
+  bound `xsd:dateTime` (`lib/domain/fieldValueType.ts::fieldValueType`,
+  `lib/domain/expression/datePattern.ts::isClockKeepingDate`), which Core holds
+  as the `DateTimeData` the question held
+  (`core/model/condition/Recalculate.java::wrapData`), so no reader of the
+  original changes; the native `DatetimeSplitRuntimeTest` holds it in four
+  device zones.
+
+**Defects of Nova's own, found by reading.**
+
+- **36 surface keys Nova's exports use were allowed only by HELD-NEW
+  entries, and the lane's manifest check passed them.**
+  `proof/checks/manifest_usage.py::_standing_plan` counts every entry that is
+  not REFUSED as allowing, and `_evaluate` holds a use any entry allows, so an
+  item the manifest says Nova does not hold yet passes unseen. The lane's own
+  extraction (`app_json_uses`, `archive_uses`) over the 392 documents found 35
+  such keys, named by 34 HELD-NEW entries: the seventeen profile settings
+  (`lib/commcare/appProfileSettings.ts::appProfileProperties`), the suite's
+  `<locale language>`, the form `xmlns`
+  (`lib/commcare/wireIdentity.ts::derivedFormXmlns`), the case list's label,
+  the translatable enum, a label trigger's `minimal`, an image map's alt
+  text, `auto_gps_capture`, a subcase's `never` close condition, the link
+  column's markdown, the no-matches form's label and after-submit, and a
+  lookup prompt's sort. The 36th is one the extraction cannot judge without
+  Core's readings, found by a scan of every file inside the same corpus's
+  archives: every form's meta block reads `session/context/drift`
+  (`lib/commcare/xform/metaBlock.ts::addMetaBlock`), in the local archives of
+  385 of the 392 documents, every one with a form, and only the HELD-NEW
+  `expressions-and-data/session-context-drift` names it. The two form-list
+  settings (#755), the language codes (#752) and the lookup prompt's sort
+  (#762) were dispositions wrong when step 2 made the slot. *Step 4:* pull
+  request 1 makes such a use its own standing, `/<key>/held-new`, which the
+  register refuses to hold (`proof/checks/registers.py`), and resolves the 36
+  keys by 30 entry edits: 27 flips to HELD, one key added to each of two HELD
+  entries (the label trigger's and the HQ-generated meta block's) and one new
+  INERT entry.
+- **Preview's barcode question has no control.**
+  `components/preview/form/FieldRenderer.tsx` routes `barcode` to
+  `fields/MediaField.tsx`, which shows "(not available in preview)", so a form
+  with a required barcode question cannot be submitted in Preview, where Web
+  Apps draws a text box (`form_entry/entries.js::getEntry`) and Android a
+  scanner. *Step 4:* pull request 9 (Preview, the screens) draws a text box,
+  and on Android a scanner beside it.
+- **Preview renders a validation message as markdown.**
+  `components/preview/form/fields/ValidationError.tsx` renders it through
+  `PreviewMarkdown`; Web Apps binds it as text (`form_entry/question.html`,
+  `serverError`), and Android reads `getConstraintText()`, which has no
+  markdown form. *Step 4:* pull request 9 renders it as plain text on both.
+- **Preview's case list menu item matches neither runtime.** A module with a
+  case list and no forms shows an informational case list
+  (`components/preview/screens/CaseListScreen.tsx`), while choosing a case
+  returns to the app's first menu on Web Apps (above) and to the home screen
+  on Android (`activities/HomeScreenBaseActivity.java::handleNoFormFromSessionNav`).
+  *Step 4:* pull request 8 plays each
+  (`lib/preview/formlessCaseListRoute.ts::formlessCaseListSelection`).
+- **Preview reads a time answer with its storage tag, so a date and a time
+  joined in a form read as UTC.** `components/preview/form/fields/DateField.tsx`
+  stores a time as `HH:MM:SS.mmmZ` (`storageTimeValue`), and
+  `lib/preview/engine/dataInstance.ts::answerXPathValue` has no `time` case,
+  so the node evaluates with the `Z`, where Core reads `TimeData.uncast`'s
+  wall clock with no zone (`xpath/expr/XPathPathExpr.java::unpackValue`). A
+  join reads as UTC in Preview and differs from Core by the viewer's offset,
+  and a label output of a time question shows a `Z` a device does not.
+  *Step 4:* pull request 3 reads a time answer as its wall clock
+  (`lib/domain/temporalValues.ts::wireTimeOfDay`).
+- **`diffDocsToMutations` emits a media clear that a converted field's
+  admission refuses.** Where a field's kind changes to one that declares no
+  media slot (a date-and-time question with label media becoming a Hidden
+  Value), `lib/doc/diffDocsToMutations.ts::diffFieldMedia` emits
+  `setFieldMedia { slot: "label", media: null }`, which admission refuses
+  because the media pass runs after the conversion, so the synthetic writer
+  (`lib/db/apps.ts::appendSyntheticBatchInTransaction`) refuses any conversion
+  that drops media. The conversion already drops the slot
+  (`reconcileFieldForKind`). *Step 4:* pull request 3 skips a slot the
+  destination kind does not declare.
+- **The undo of a conversion to a Hidden Value cannot be represented.** The
+  undo inverse is `diffDocsToMutations(after, before)`
+  (`lib/doc/store.ts::deltaBetween`), which converts the Hidden Value back;
+  `hidden.convertTargets` is `[]`, and `reconcileFieldForKind` fails because a
+  text or date-and-time question requires a label a Hidden Value lacks. So
+  undoing `text` to `hidden` fails, as undoing a date-and-time question's
+  split would. *Step 4:* pull request 3 admits a conversion either kind lists
+  (`lib/domain/fields/index.ts::isRepresentableConversion`) and gives
+  `convertField` an optional `label` seed.
+- **A read of `window_width` is admitted in form logic, where no runtime holds
+  it after a form's first request.** Nova's form text binds all seven session
+  context fields (`lib/commcare/xpath/formPathBinding.ts`). HQ's Web Apps
+  client sends `windowWidth` only from `cloudcare/js/formplayer/menus/api.js`,
+  never from `form_entry/web_form_session.js`, and Formplayer rebuilds the
+  session on each later form request and runs every calculate again
+  (`application/FormController.java`, `session/FormSession.java`); Android
+  never sets it (`models/AndroidSessionWrapper.java`, and
+  `session/SessionInstanceBuilder.java::addData` adds no node for a null
+  value). A bare read of the absent node is an invalid path
+  (`XPathPathExpr.java::evalRaw`, `XPathNodeset.java::unpack`), except on a
+  form Formplayer serves from its cache
+  (`services/FormDefinitionService.java::getFormDefWithCache`), whose
+  expression checked its path while the width was present
+  (`templatePathChecked`). *Step 4:* pull request 10 (the expression reads)
+  prints every session read that can be absent under
+  `if(count(<read>) > 0, <read>, '')`, and refuses `window_width` in every slot
+  a form evaluates once the native `SessionContextRuntimeTest`, run on that
+  pull request's branch before its manifest text is written, shows a form
+  Formplayer deserializes afresh after a cache miss throwing; if it reads
+  `''`, the read is admitted with its difference stated.
+- **The public docs say Web Apps shows `here()` in a case's details once the
+  browser shares its location** (`content/docs/building-with-nova.mdx`, the
+  `here()` paragraph), which the first claim above corrects. *Step 4:* pull
+  request 14 rewrites the paragraph: `here()` belongs in a case list's
+  calculated column of an app that runs only on Android.
 
 ### Found of the lane itself
 

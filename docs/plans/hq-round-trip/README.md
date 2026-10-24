@@ -14,7 +14,7 @@ changes" table.
 | 1 | The manifest and the harness | done: [`proof/README.md`](../../../proof/README.md) |
 | 2 | Emission and publish fixes | done: [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`lib/deployment/CLAUDE.md`](../../../lib/deployment/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
 | 3 | Expressions | done: [`lib/domain/CLAUDE.md`](../../../lib/domain/CLAUDE.md), [`lib/domain/expression/CLAUDE.md`](../../../lib/domain/expression/CLAUDE.md), [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
-| 4 | [Platforms](4-platforms.md) | outline |
+| 4 | [Platforms](4-platforms.md) | planned in full |
 | 5 | [Case writes, forms and navigation](5-case-writes-forms-navigation.md) | outline |
 | 6 | [Import](6-import.md) | outline |
 | 7 | [The rest of the model](7-rest-of-model.md) | outline |
@@ -164,10 +164,11 @@ is read:
   (`docs/architecture/deployment.md`, "Historical repairs").
 
 Finding 74 belongs to step 4 and is held until then by two walk stops, on
-`targeted-datetime-ordering` and `fuzz-xform-20260930-0`
-([`4-platforms.md`](4-platforms.md), item 6). The register's other entries
-are defects 20, 21, 23 to 28 and 30, which `OPEN_DEFECTS` gives to steps 4
-and 5.
+`targeted-datetime-ordering` and `fuzz-xform-20260930-0`. Step 4 declares
+both documents Android only, so the stop on the first moves to its retained
+control and the second is removed ([`4-platforms.md`](4-platforms.md),
+"Proof"). The register's other entries are defects 20, 21, 23 to 28 and 30,
+which `OPEN_DEFECTS` gives to steps 4 and 5.
 
 ## Why each later step is planned when the one before it exits
 
@@ -192,8 +193,8 @@ before it exits, against the code as it then stands.
 - Tests earn their boundary (`docs/testing.md`).
 - Every CommCare fact a plan relies on is settled at source, in local
   checkouts of the Dimagi repositories at the commits `proof/pins.json` names
-  when the plan is written, which the plan states. Step 2's and step 3's
-  plans read commcare-hq `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`,
+  when the plan is written, which the plan states. Step 2's, step 3's and
+  step 4's plans read commcare-hq `d6c6e16d8ae1`, commcare-core `8e9ba8d908e9`,
   commcare-android `7a5584475580`, commcare-connect `046c7fd78081` and formplayer
   `24383ac71bfb`, with Vellum `01215f251c57` (the build HQ vendors at that
   pin). The research cites commcare-hq `f57e85e02913` (with `525becc2963`
@@ -259,7 +260,23 @@ Step 3's plan read `main` at `5cf6e327`. After `7b153dc3`:
   order plan, the question id grammar and `hiddenFromMenu` (`lib/commcare/CLAUDE.md`
   and `lib/domain/CLAUDE.md`).
 
+Step 4's plan reads `main` at `e9e6cd93`. After `5cf6e327`:
+
+- #769, step 3's plan, with #771 (the Android reader's own checks held to the
+  standard library), merged beneath it.
+- #773 to #791, step 3's stack, merged together ("Step 3 is done", above).
+  What step 4 builds on is the one `Expression` union with its checker and
+  slot profiles (`arm-unavailable` and its reasons), `DatumRef`, the instant
+  lowering and its held classes, and Preview on the device's own XPath
+  ([`4-platforms.md`](4-platforms.md), "The baseline this plan was written
+  against").
+- #798 and #799 (dependency upgrades and the supported APIs they bring) and
+  #800 (the nightly lanes keep running past an independent reader's failure,
+  and the native slices and reader checks it repaired).
+
 No defect the research lists changed behavior before `7b153dc3` but finding 52.
 After it, #749 to #767 are step 2, which fixed defects 1 to 10 and 12 to 16 and
 every finding of the harness it registered but finding 56; no other pull
-request in that span changed a defect's behavior.
+request in that span changed a defect's behavior. After `5cf6e327`, #773 to
+#791 are step 3, which fixed defect 17 and findings 56, 72, 73 and 75; no
+other pull request in that span changed a defect's behavior.
