@@ -113,6 +113,66 @@ Planned in full when step 5 exits. The design is the research's "The reader",
      `x * 86400000000` is a coerced day number. A comparison of a system date
      with a day-aligned operand is bare, with `date(x)` for the coerced side.
      Nothing in step 3 reads lowered text back.
+9. **What step 4 left to import.** From step 4 every app declares where it
+   runs (`appSettings.runsOnlyOn`: absent for Web Apps and Android, or
+   `"web-apps"` or `"android"`), and a feature or a media file a declared
+   platform cannot run is refused:
+   - *The proposed declaration.* The reader proposes the platforms the
+     content runs on (`lib/domain/platformUses.ts::contentRunsOn`, the rule of
+     `lib/doc/platformDeclaration.ts::planContentDeclaration` reduced to
+     platforms, which step 4 keeps for this proposal), narrowed to Android
+     only where the HQ app's `cloudcare_enabled` is `false` and Android is
+     among them. The person confirms it, or narrows it, before the app exists
+     (item 5), and the `hq-import` birth writes the declaration confirmed, not
+     the default every other birth takes (`NEW_APP_SETTINGS`, both). Where the
+     confirmed declaration and HQ's setting differ, the first publish after
+     import asks before changing the setting (`hq_web_apps_change`): an app
+     whose content runs on Android only, a date-and-time question or `here()`
+     in a case-list column among it, imports Android only though HQ holds
+     `true`, and that publish asks before turning the Web App setting off. A
+     CommCare Connect app is one such app, since no Connect worker can sign in
+     to Web Apps (step 4's platform feature `connect-app`).
+   - *Refused by declaration.* Only an app whose content runs on neither
+     platform (`contentRunsOn` gives none) is refused, with the reason
+     `unavailable-on-declared-platform`
+     (`lib/commcare/surface/schema.ts::REFUSAL_REASON_KINDS`, unused before
+     this step), naming each use with step 4's platform table
+     (`lib/domain/platforms.ts::PLATFORM_FEATURES`, `platformRefusal`) and the
+     next step: changing the app in CommCare HQ so one platform runs all of
+     it, then importing it again.
+   - *Media.* Each imported file is classified by step 4's readers
+     (`lib/media/validate.ts::validateMediaBytes`, which returns its variant
+     key of `lib/domain/multimedia.ts::MEDIA_FORMATS`: the H.264 profile of an
+     MP4, the encoding of a WAV, and ICO, ADTS AAC, AMR, MIDI and MKV among
+     them, with AVIF where step 4's run of HQ's bulk upload kept it) and stored with its `media_assets.media_format`; each
+     reference is accepted only where its file plays on every confirmed
+     platform (`lib/media/platformPlayback.ts::unplayableReferences`, which
+     the commit kernel's media admission applies to every birth), and an SVG
+     is refused (`svg-not-accepted`), since HQ cannot store one.
+   - *Defect 20's confirmations.* Import asks, for the project space it adopts
+     the app from, the confirmations publish asks for it
+     (`lib/deployment/confirmations.ts::requiredConfirmations`): step 4's
+     `form-entry-sync-off`, for an app that declares Android and holds a form
+     that works on a case in a menu with Search, and step 5's CommTrack kind.
+     It records only the answers the person gives.
+   - *The split's joined value.* A bind-only node with no control,
+     `type="xsd:dateTime"` and a calculate reads back as a Hidden Value with
+     that calculate; the reader admits `xsd:dateTime` on a bind-only node
+     exactly when the node writes a date-and-time property or its calculate is
+     the clock-keeping date (`lib/domain/expression/datePattern.ts::isClockKeepingDate`,
+     the bind rule of `lib/domain/fieldValueType.ts::fieldValueType` run
+     backwards), and refuses it otherwise. So a date-and-time question step 4
+     split reads back as an ordinary Hidden Value beside a date question and a
+     time question, with no shape of its own. Spacing and quoting from
+     js-xpath are presentation the parser discards.
+   - *Guarded and `current()` reads.* A session read step 4 prints under the
+     count guard reads back as the bare read: `if(count(P) > 0, P, '')` for
+     `window_width` and `applanguage`, and `if(count(P) > 0, P[1], '')` over
+     `P = instance('commcaresession')/session/data/stringquery` as the value
+     arm `{ kind: "case-list-search-text" }`
+     (`lib/commcare/xpath/wire/emptyRows.ts::guardAbsentNode`). A form read
+     inside a secondary-instance row predicate that step 4 prints
+     `current()/<relative path>` reads back as a field read spelled `current`.
 
 ## Cutover and migration
 
