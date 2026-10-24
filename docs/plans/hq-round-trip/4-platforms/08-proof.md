@@ -121,8 +121,8 @@ both (pull request 4). No production count enters this part.
     pull request 2 changes observation code and a stacked pull request reads only main's store; pull
     request 1 runs the 10.7-minute row. Pushes are batched once per review round (§6).
 18. **Served readers run on GitHub's runners only, never on the person's machine**, by hand at the
-    heads of pull requests 2, 3, 4, 5, 6, 7, 9 and 10 and once at the top of the stack before the
-    merge (§6.3); the `window_width` gate's native run is started by hand on pull request 10's
+    heads of pull requests 2, 3, 4, 5, 6, 9 and 10 and once at the top of the stack before the
+    merge (§6.3); pull request 7 moves no document's key, so it has none; the `window_width` gate's native run is started by hand on pull request 10's
     branch before that pull request's manifest text is written. The night after the merge is the
     whole lane with every reader (§6.4).
 
@@ -1133,25 +1133,19 @@ HQ types as another kind fails the family by name, and pull request 7 then drops
 what Nova accepts, never loosening the test. Part 04 §8.3's AVIF gate is the one planned: where
 `media-web-apps-on` shows HQ refusing the AVIF, `svgRefusedScenario()` becomes
 `refusedImageScenario(file)`, emitting `media-svg-refused` and `media-avif-refused`, the `web-apps`
-set drops to 7 files, and the canonical count becomes 8. The scenarios run in pull request 7's own
+set drops to 6 files, and the canonical count becomes 8. The scenarios run in pull request 7's own
 lane, as every native family does (a package group keyed by the harness's files).
 
-The corpus video's re-encode as H.264 Main, the 46 documents whose bytes and keys it moves, the
-three committed hash literals and the untouched controls are part 04 §8.1's. The corpus's synthetic
-asset rows (`proof/corpus/editBatches.ts::readyRow`, `mediaWireFixtures.ts::mediaRecords`) carry the
+The corpus video, `lib/media/__tests__/fixtures/tiny-video.mp4`, is H.264 High and plays on both
+platforms from step 4 (Android's decode probe decoded it during planning, part 04 §8.5), so it is
+not re-encoded: pull request 7 moves no corpus document's bytes or key, and the committed literals of
+its hash and the controls that hold it are untouched (part 04 §8.1). The corpus's synthetic asset
+rows (`proof/corpus/editBatches.ts::readyRow`, `mediaWireFixtures.ts::mediaRecords`) carry the
 stand-in key of their kind, which `lib/commcare/__tests__/mediaWireFixtures.test.ts` and
 `proof/corpus/__tests__/editBatches.test.ts` hold equal to `classifyStoredMediaBytes` of the real
-bytes (part 04 §8.1). The reader run before the merge is this part's: §6.3's pull request 7 row, a
-hand dispatch over five of those documents and two slices. Five suffice because every corpus video
-is the one re-encoded file (part 04 §8.1), so each of the 46 carries the same change, and the first
-night after the merge reads all 46 with every reader (§6.4). The native `media` scenarios are not
-part of that dispatch: they run in pull request 7's own lane.
-
-Part 04 §8.5's H.264 High question is a gate on pull request 7, not a lane run: the pull request is
-not cut until the person has answered whether to run `proof/android/decode/` for H.264 High on
-their Mac, a run made only on their yes (part 10, house rule 6). If they run it, its outcome lands
-in pull request 7; if they decline, the cutover's window does not open until they confirm the
-advisory dry run's count of `mp4-h264-high` references to remove (part 09 §14, step 1(f)).
+bytes (part 04 §8.1). With no key moving, pull request 7 has no reader run by hand (§6.3): every
+reader's records for the corpus at its head are main's, and the native `media` scenarios run in its
+own lane.
 
 ## 6. CI cost and the stack's order
 
@@ -1173,7 +1167,7 @@ the row of everything between main and its head.
 |---|---|---|
 | 1 | 10.7 min, 5 shards | the surface entries and part 02's check are judge files; no document's key moves |
 | 2 | 12.7 min, 15 shards | observation code: `proof/formplayer/walk.py`, `proof/formplayer/hq.py`, `proof/observe/served.py`, `proof/observe/sessions.py`, `proof/observe/proof4.py`, `proof/webapps/hq.py`, `proof/lane/readers.py` |
-| 3 to 15 | 12.7 min, 15 shards each | pull request 2's observation change is beneath each; pull request 5 also moves every document's key (every HQ body gains `cloudcare_enabled`), pull request 4 about 72 documents', pull request 7 46 documents' |
+| 3 to 15 | 12.7 min, 15 shards each | pull request 2's observation change is beneath each; pull request 5 also moves every document's key (every HQ body gains `cloudcare_enabled`), and pull request 4 about 72 documents' |
 
 **What a push costs.** A push to pull request k starts 16 − k lane runs: 5 shard-jobs for pull request
 1's and 15 for each above it, so 5·[k = 1] + 15·(16 − max(k, 2)) shard-jobs, beside each run's corpus,
@@ -1216,7 +1210,9 @@ holding is seen before the merge only in a run started by hand on GitHub's runne
 (one of them carrying an edit), its gate holds them and the controls of the same name, and
 `mechanics_shards=auto` sizes it from the queue. Each is started at its pull request's head once that
 pull request's lane holds, and read with `gh run list --workflow proof-audit.yml --branch <branch>
---limit 1`, `gh run watch <id> --exit-status` and `gh run view <id> --web`.
+--limit 1`, `gh run watch <id> --exit-status` and `gh run view <id> --web`. Pull request 7 has no
+row: it moves no document's key, since the corpus video plays on both platforms and is not
+re-encoded (§5.3), so a reader run at its head would read what main's records hold.
 
 | Head | Command | What it must show |
 |---|---|---|
@@ -1225,7 +1221,6 @@ pull request's lane holds, and read with `gh run list --workflow proof-audit.yml
 | 4 | `... -f mechanics=targeted-datetime-ordering,fuzz-xform-20260930-0,fuzz-xform-20260930-3,fuzz-suite-20260930-8,case-operation-sequence,targeted-platform-declaration,targeted-connect-deliver-rename,case-list-inline,targeted-form-links-hidden-and-fallback,expander-markdown-itext-for-all-field-kinds-emits-616f6b4b-0 -f mechanics_shards=auto`, and `gh workflow run proof-audit.yml --ref <branch> -f nightly=false -f slice='proof/formplayer/test_case_blocks.py' -f slice_readers=formplayer` | §2.2's two stops leave their documents and the control's holds; `fuzz-suite-20260930-8`'s stop stays; no device on a Web-Apps-only document and no client on an Android-only one; the six `webapps@` proof 4 entries of `targeted-form-links-hidden-and-fallback` hold; the case blocks slice passes on `case-operation-sequence`, whose walk now answers `visible_at` (§7.3), and where it does not, its message names the form and the blocks, and the walk is fixed in pull request 4 |
 | 5 | `... -f mechanics=targeted-platform-declaration,targeted-list-first-web-apps,targeted-list-first-places,case-operation-sequence,navigation-base -f mechanics_shards=auto`, and `gh workflow run proof-audit.yml --ref <branch> -f nightly=false -f slice='proof/webapps/test_session.py' -f slice_readers=webapps` | defect 21's proof 4 reader entries hold on the two list-first documents; the home test of §7.2 passes. Part 05's App Settings save test (`proof/editors/test_plan_features.py::test_without_cloudcare_a_settings_save_turns_web_apps_off`) is not dispatched: it starts no served reader, and HQ's editors run in the pull request lane (`proof/README.md`, "The lane's two profiles", without the readers), so pull request 5's own lane is the run that decides part 05's outcome pair |
 | 6 | `... -f mechanics=targeted-sync-on-form-entry,targeted-sync-on-form-entry-web-apps,targeted-list-first-web-apps,case-list-local,case-list-inline,search-multiple,targeted-platform-declaration -f mechanics_shards=auto` | the fixed `formplayer@local.ccz` and `android@local.ccz` entries show on `targeted-sync-on-form-entry`'s control; no reader shows a sync step on the documents |
-| 7 | `... -f mechanics=targeted-media-slots,media-rich,targeted-blank-labels,case-list-inline,targeted-platform-declaration -f mechanics_shards=auto`, and the two slices `-f slice='proof/webapps/test_media_slots.py' -f slice_readers=webapps` and `-f slice='proof/formplayer/test_media_slots.py' -f slice_readers=formplayer` | the re-encoded video plays and is shown on every reader, the three hash literals hold (part 04 §8.1); the native `media` family's three scenarios (four where HQ refuses the AVIF) run in the pull request's own lane (§5.3) |
 | 9 | `... -f mechanics=targeted-preview-android-renders,targeted-platform-declaration -f mechanics_shards=auto`, and part 06 §24's three slices, `gh workflow run proof-audit.yml --ref <branch> -f nightly=false -f slice_readers=android` with `-f slice='proof/android/test_form_reads.py::test_a_markdown_label_renders_as_markwon_renders_it'`, `-f slice='proof/android/test_case_lists.py::test_a_tile_cell_takes_only_middle_vertical_alignment'` and `-f slice='proof/android/test_navigation.py::test_an_entry_point_to_a_case_the_phone_lacks_opens_blank_and_its_completion_is_read'` | the document read by Formplayer and a device and by no client, no stop; each slice's observed outcome, which part 06 §24 turns into Preview's reading before its copy lands |
 | 10, the gate | `gh workflow run proof-audit.yml --ref <branch> -f nightly=false -f slice='proof/native/test_core_runtime.py -k SessionContextRuntimeTest' -f slice_readers=0`, at the commit that adds `SessionContextRuntimeTest` and before the commit that writes pull request 10's manifest text | the slice's verdict, read with `gh run view <id> --log-failed` where it fails (`test_core_runs_the_proof_class` prints each failing JUnit test's name and message): green is outcome A; a red `windowWidthReadOnAFreshForm` naming the value `''` is outcome B (§5.2, part 03 §6.4), which decides the manifest text part 02 §8.4 writes and part 01's `window-width` rows |
 | 10 | `... -f mechanics=targeted-session-context-reads,targeted-case-list-search-text,targeted-inline-search-reads,targeted-instance-reads,targeted-platform-declaration -f mechanics_shards=auto` | the new reads on every reader their documents declare, no stop; Formplayer's `appversion` and `deviceid` held by `formplayer_session_values` (§4.4) |
@@ -1373,8 +1368,8 @@ Android-only state (Departures).
   docstring and the `step > 4` assertion), `proof/README.md` (rows 20 and, under §2.4's outcome B,
   21). The corpus's sync-on refusal is part 05 §12's `entryWriter.ts`, and the sync gate's content
   cell in `gates.json` is part 02 §6.2's.
-- Pull request 7: none of this part's own beyond its by-hand run (§6.3); the fixture, the native
-  `media` family and the hash literals are part 04 §11's.
+- Pull request 7: none of this part's own; the native `media` family and the stand-in keys are
+  part 04 §11's, and it has no by-hand run (§6.3).
 - Pull request 9: `proof/targeted/documents/previewAndroidRenders.ts`, `proof/targeted/index.ts`,
   `proof/README.md` ("Targeted documents"); the three Android reader tests and `Views.java` are part
   06 §24's.

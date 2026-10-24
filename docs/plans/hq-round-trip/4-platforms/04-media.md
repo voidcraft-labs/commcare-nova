@@ -6,7 +6,7 @@ only where every platform the app declares plays it, and HQ types it as its kind
 it. It fixes the variant registry, the readers that tell one variant from another, the asset
 row's `media_format` column, acceptance at each reference (the commit kernel, the attach
 verdicts, the export boundary, the builder and the declaration change), Preview's playback of a
-file only Android plays, the corpus's video fixture, and the runs that record where each new
+file only Android plays, the corpus's media stand-ins, and the runs that record where each new
 variant plays. It lands in pull request 7, with the public docs in pull request 14; the migration
 that validates its presence constraint after the backfill is the cutover's (part 09 §8, pull
 request 13).
@@ -67,23 +67,26 @@ requests are the stack's fifteen, by number (the plan, "The stack").
 8. **Legacy bytes no variant admits are kept as `unplayable`.** Step 3's upload checked no MP4
    codec and no WAV encoding, so stored rows may hold, for one, a 24-bit WAV. The backfill stores
    `unplayable` for them; they stay in the library, playing nowhere, and no app references them
-   after the cutover (§9).
+   after the cutover (§9). Production holds no audio or video row (the content-free scan of
+   planning, §9), so there the rule meets nothing; it stands for every database that holds such
+   rows, a local one or one whose files arrive before the window.
 9. **Preview shows a stand-in where the browser cannot play a file.** Preview runs in the
    browser, so it plays what Web Apps plays; an audio or video variant only Android plays shows one
    line in its place (§6.6).
-10. **H.264 High stays Web Apps only.** Android 6.0 guarantees only Baseline and Main, and no
-    reader was run (§8.5). The corpus's video fixture is High, so it is re-encoded as H.264 Main,
-    which moves 46 documents' bytes and three committed hash literals (§8.1). The cost is stated
-    where it is decided (§8.5): the cutover removes every H.264 High reference from an app that
-    runs on Android, and a both-platform app refuses a phone's High video at attach. Pull request 7
-    is not cut until the person has answered whether to run Android's decode probe on H.264 High
-    on their Mac, with that cost in the question; if they decline, the window does not open until
-    they confirm the advisory dry run's count of High references to remove. Both answers are
-    written in §8.5.
+10. **H.264 High plays on both platforms, by a run.** Android 6.0 guarantees only Baseline and
+    Main, so the documentation alone would have left High to Web Apps. The person ran Android's
+    decode probe on their Mac during planning, and the three emulator images that are the
+    `android-decode` record's readers each decoded the corpus's High video,
+    `lib/media/__tests__/fixtures/tiny-video.mp4`, to the end of its stream (§8.5). So
+    `media-format:video/mp4-h264-high` reads `runs` on Android with `executed: "android-decode"`,
+    `mp4-h264-high` plays on both, the corpus video stays as it is (no document's bytes move,
+    §8.1), and the cutover removes no High reference. Reason: a phone camera commonly records High,
+    and the one run made decoded it on CommCare's floor and on two later releases; the note on
+    the item keeps the documented guarantee in view.
 11. **Executions.** The browser playback spec runs every variant Web Apps plays in CI; the
     native `media` family runs HQ's real bulk upload over three new scenarios; the Android decode
-    probe is extended and left as documentation unless the person asks for a run on their Mac
-    (§8).
+    probe is extended for the new variants, whose Android readings stay documentation unless the
+    person asks for a run on their Mac; its planning run settled H.264 High (§8).
 12. **The presence constraint is pull request 7's, validated in the window.** Pull request 7's
     migration `20261101020000_hq_round_trip_platforms_media_format` adds the column, its value
     domain (valid at once) and the check that every ready media row carries a format,
@@ -239,7 +242,7 @@ export function mediaFormatLabel(value: MediaFormatValue, mimeType: AssetMimeTyp
 | `midi` | `audio/midi` | audio | MIDI | `media-format:audio/midi` | Android | header (new) |
 | `mp4-h264-baseline` | `video/mp4` | video | MP4 (H.264 Baseline) | `media-format:video/mp4-h264-baseline` | Web Apps, Android | `mp4.ts` (new) |
 | `mp4-h264-main` | `video/mp4` | video | MP4 (H.264 Main) | `media-format:video/mp4-h264-main` | Web Apps, Android | `mp4.ts` |
-| `mp4-h264-high` | `video/mp4` | video | MP4 (H.264 High) | `media-format:video/mp4-h264-high` | Web Apps | `mp4.ts` |
+| `mp4-h264-high` | `video/mp4` | video | MP4 (H.264 High) | `media-format:video/mp4-h264-high` | Web Apps, Android | `mp4.ts` |
 | `mp4-hevc` | `video/mp4` | video | MP4 (HEVC) | `media-format:video/mp4-hevc` | Android | `mp4.ts` |
 | `mp4-mpeg4-part2` | `video/mp4` | video | MP4 (MPEG-4 Part 2) | `media-format:video/mp4-mpeg4-part2` | Android | `mp4.ts` |
 | `webm-vp8` | `video/webm` | video | WebM (VP8) | `media-format:video/webm-vp8` | Web Apps, Android | `webm.ts` |
@@ -247,9 +250,11 @@ export function mediaFormatLabel(value: MediaFormatValue, mimeType: AssetMimeTyp
 | `mkv` | `video/x-matroska` | video | MKV | `media-format:video/mkv` | Android | `webm.ts` rules |
 
 The "Plays on" column is each item's readings: `runs` on a platform puts that platform in the
-list (§7.3 holds them equal). The readings for ICO, AVIF, AAC, AMR, MIDI, H.264 High, HEVC,
-MPEG-4 Part 2 and MKV are the documentation the items name (`android-supported-formats`,
-`chromium-audio-video`, `mdn-*`, `apple-safari-html5-audio-video`) until §8 records runs.
+list (§7.3 holds them equal). The readings for ICO, AVIF, AAC, AMR, MIDI, HEVC, MPEG-4 Part 2 and
+MKV are the documentation the items name (`android-supported-formats`, `chromium-audio-video`,
+`mdn-*`, `apple-safari-html5-audio-video`) until §8 records runs. H.264 High's Android reading is
+the planning run of §8.5 (`executed: "android-decode"`), which overrides the documentation's
+`unavailable`.
 
 `wav-pcm` keeps the label "WAV" and `m4a` "M4A", the labels step 2's messages use; the two Ogg
 variants and the two WebM variants name their codec, because a person choosing between them needs
@@ -534,8 +539,9 @@ export async function classifyStoredMediaBytes(
 It runs `validateMediaBytes` with the stored MIME as the claim, the byte length as the claimed
 size and `asset<extension>` as the filename, and returns `validated.mediaFormat` on success and
 `unplayable` on any refusal, a sniff that disagrees with the stored MIME included. The cutover's
-backfill (part 09 §7, §9 here) is its one production caller; `lib/commcare/__tests__/mediaWireFixtures.ts` and
-`proof/corpus` use it to prove their stand-in rows (§8.1).
+backfill (part 09 §7, §9 here) is its one production caller, for the rows whose MIME it cannot
+settle without bytes; `lib/commcare/__tests__/mediaWireFixtures.ts` and `proof/corpus` use it to
+prove their stand-in rows (§8.1).
 
 ---
 
@@ -674,8 +680,8 @@ return the same shape.
 > Project's library (use the Project of the app that will reference it); omit it for your personal
 > Project. Images: .png, .jpg, .gif, .webp, .bmp, .ico or .avif. Audio: .mp3, .wav (8- or 16-bit
 > PCM), .m4a (AAC), .flac, .ogg (Vorbis or Opus), .aac, .amr or .mid. Video: .mp4 (H.264, HEVC Main
-> or MPEG-4 Part 2), .webm (VP8, or VP9 in 8-bit 4:2:0 color) or .mkv. ICO, AVIF and MP4 with H.264
-> High play only in Web Apps; AAC, AMR, MIDI, HEVC, MPEG-4 Part 2 and MKV play only on Android, and
+> or MPEG-4 Part 2), .webm (VP8, or VP9 in 8-bit 4:2:0 color) or .mkv. ICO and AVIF play only in
+> Web Apps; AAC, AMR, MIDI, HEVC, MPEG-4 Part 2 and MKV play only on Android, and
 > an app takes a file only where it plays on every platform the app runs on. list_media_assets
 > shows where each file plays. The file is validated (format, encoding, size, integrity) before
 > it's stored; a re-upload of an identical file returns the existing asset.
@@ -951,8 +957,9 @@ own test (§7.3).
 Part 02 §7.1: the two narrows step 2 left (WAV and MP4) become HELD with an encoding and a codec
 check, the MP4 video cell naming no AAC profile (§3.1); `image-ico-svg-avif` is replaced by
 `expressions-and-data/image-ico-avif` (HELD, Web Apps only) and `expressions-and-data/image-svg`
-(REFUSED, broken at runtime, §4); and the Android-only and High-profile variant entries become HELD.
-The variants of §2.1 are what those entries hold.
+(REFUSED, broken at runtime, §4); the Android-only variant entries become HELD; and
+`video-mp4-h-264-high` merges into the Baseline-or-Main video entry, since High now reads as
+Baseline and Main do (§8.5). The variants of §2.1 are what those entries hold.
 
 The research's held-for-Web-Apps SVG line and its `lib/media/CLAUDE.md` contract row are corrected
 by the `image-svg` entry; the plan records the correction here, `lib/media/CLAUDE.md` says SVG is
@@ -964,7 +971,8 @@ bullet that SVG images never ship (pull request 14, §11).
 Part 02 §7.2: the SVG item's `hq.note`, `hqClassification`'s `storage` note, the `format` text
 "AAC-LC" to "AAC" in `audio/m4a`, `video/mp4-h264-baseline` and `video/mp4-h264-main` (§3.1), and
 the `browser-playback-ci` execution record with the `webApps.executed` marks on the items §8.4's
-spec plays.
+spec plays, and `video/mp4-h264-high`'s Android reading `runs` with `executed: "android-decode"`
+and its note (§8.5).
 
 ### 7.3 `lib/commcare/surface/__tests__/manifest.test.ts`
 
@@ -981,7 +989,9 @@ spec plays.
    `expressions-and-data/image-svg`). An item that plays somewhere and that Nova neither accepts nor
    refuses for a reason fails.
 4. `EXECUTED_ITEMS` (step 2's, both platforms) stays; `CI_EXECUTED_ITEMS` lists §8.4's items, each
-   with `webApps.executed: "browser-playback-ci"`.
+   with `webApps.executed: "browser-playback-ci"`; and `ANDROID_RUN_ITEMS`, today
+   `["media-format:video/mp4-h264-high"]`, each with `android.executed: "android-decode"` and the
+   reading `runs`.
 5. The existing "names every execution record from an item, and no record on a reading that is not
    runs" stays.
 
@@ -1008,39 +1018,18 @@ SHA-256 `e9cefb19834b705b60adbb1f14ae4cce5313616c0390e9b9601a50b3ca9bab38`). It 
 corpus document, every media wire fixture and the compiler fuzz
 (`lib/commcare/__tests__/mediaWireFixtures.ts::mediaManifest`, `lib/commcare/__tests__/compilerEvidence.ts`,
 `proof/corpus/emitCorpus.ts::EDIT_UPLOADS` through `mediaManifest()`, and
-`proof/native/producers/emit-media-evidence.ts`). From step 4 a High file cannot be referenced by an
-app that declares Android, which 43 of the documents that hold it do, so pull request 7 re-encodes it
-in place as H.264 Main, keeping its name, frame count and timing:
+`proof/native/producers/emit-media-evidence.ts`). From step 4 it plays on both platforms: it is the
+file the three Android images decoded during planning (§8.5). So it stays as it is, and pull
+request 7 moves no corpus document's bytes or key for media: the three committed literals of its
+SHA-256 (`proof/webapps/test_media_slots.py::LABEL_VIDEO`,
+`proof/formplayer/media_slots/targeted-media-slots.form.xml` and `media-rich.form.xml`) and the
+controls that hold it are untouched. `validate.test.ts`'s `durationMs` expectation for it stays 520,
+and it gains `mediaFormat: "mp4-h264-high"`. It is the registry's H.264 High fixture, so §8.2
+commits no other.
 
-```
-ffmpeg -f lavfi -i testsrc=size=32x32:rate=25 -frames:v 13 -c:v libx264 -profile:v main -pix_fmt yuv420p \
-  -fflags +bitexact -flags:v +bitexact -map_metadata -1 -f mp4 lib/media/__tests__/fixtures/tiny-video.mp4
-```
-
-13 frames at 25 a second keep the old file's 0.52 seconds, so `validate.test.ts`'s
-`durationMs` expectation stays 520; it gains `mediaFormat: "mp4-h264-main"`.
-
-- **The three committed hash literals** take the new file's SHA-256 in place of
-  `e9cefb19…ab38`: `proof/webapps/test_media_slots.py::LABEL_VIDEO`,
-  `proof/formplayer/media_slots/targeted-media-slots.form.xml` and
-  `proof/formplayer/media_slots/media-rich.form.xml` (each holds it in a `jr://file/commcare/<hash>.mp4`
-  path).
-- **The controls are untouched.** `proof/controls/{media-only,case-list-browse,case-list-inline,case-list-match-none,targeted-label-sort,targeted-shared-property-sort}`
-  hold the old bytes and paths (`media-only/export/*/{create,republish}.body` name the old hash):
-  they are retained pre-step evidence and are never rewritten.
-- **The 46 documents whose bytes move** (every corpus video is this file; no edit attaches another),
-  with their `edit/` exports: `case-list-browse`, `case-list-local`, `case-list-match-all`,
-  `case-list-match-none`, `case-list-no-details`, `case-list-remote`, `case-list-unanswered`,
-  `case-list-inline`, `workforce-case-list-inline`, `workforce-case-list-local`, `media-only`,
-  `media-rich`, `targeted-blank-labels`, `targeted-label-sort`, `targeted-media-slots`,
-  `targeted-shared-property-sort`, `fuzz-expression-20260930-{0,1,2,3,4,5,6}`,
-  `fuzz-suite-20260930-{0,1,2,3,4,5,6,8,9,10,11}`, `fuzz-xform-20260930-{0,1,2,3,4,5,6,7,8,9,10,11}`.
-  Each one's `document.json` `media` base64, every export's `jr://file/commcare/<hash>.mp4` path
-  (itext, suite, HQ JSON, `.ccz`) and so its `proof/store/keys.py::document_key` change, so the next
-  night reads them with every reader. Their declarations, admissions and edits do not change.
 - **The stand-in rows prove themselves.** `mediaWireFixtures.ts::mediaManifest` gains each file's
   `mediaFormat` and `mediaRecords` writes it; `proof/corpus/editBatches.ts::readyRow` writes the key
-  of its kind's stand-in (`png`, `wav-pcm`, `mp4-h264-main`, beside `MEDIA_MIME`). Two tests hold
+  of its kind's stand-in (`png`, `wav-pcm`, `mp4-h264-high`, beside `MEDIA_MIME`). Two tests hold
   them equal to the production classifier over the real bytes, so a fixture that stopped playing on a
   platform fails there rather than passing the corpus while production refuses it:
   `lib/commcare/__tests__/mediaWireFixtures.test.ts` (new: each file's `mediaFormat`, in
@@ -1055,13 +1044,14 @@ asset, and is unaffected.
 
 Made once with the Homebrew ffmpeg 9.0.2 on the author's machine, with the template of
 `validate.test.ts`'s header (`T` the 440 Hz tone, `V` the 64 by 64 test pattern, the bit-exact
-flags and `-map_metadata -1`), and listed in that header with their commands:
+flags and `-map_metadata -1`), and listed in that header with their commands. H.264 High has no
+pattern file of its own: `tiny-video.mp4` is the High fixture (§8.1), and the one the planning run
+decoded (§8.5).
 
 | File | Command | Reading |
 |---|---|---|
 | `pattern-h264-baseline.mp4` | `V -c:v libx264 -profile:v baseline -pix_fmt yuv420p -f mp4` | `mp4-h264-baseline` |
 | `pattern-h264-main-aac.mp4` | `V T -c:v libx264 -profile:v main -pix_fmt yuv420p -c:a aac -f mp4` | `mp4-h264-main` |
-| `pattern-h264-high.mp4` | `V -c:v libx264 -profile:v high -pix_fmt yuv420p -f mp4` | `mp4-h264-high` |
 | `pattern-h264-high10.mp4` | `V -c:v libx264 -profile:v high10 -pix_fmt yuv420p10le -f mp4` | refused, H.264 High 10 |
 | `pattern-hevc.mp4` | `V -c:v libx265 -profile:v main -pix_fmt yuv420p -tag:v hvc1 -f mp4` | `mp4-hevc` |
 | `pattern-hevc-main10.mp4` | `V -c:v libx265 -profile:v main10 -pix_fmt yuv420p10le -tag:v hvc1 -f mp4` | refused, HEVC Main 10 |
@@ -1117,7 +1107,7 @@ holding their files, each in a slot of its kind, and declare the app; both stay 
 
 | Set | Declares | Added files | Files in the zip (image, audio, video) |
 |---|---|---|---|
-| `web-apps` | `runsOnlyOn: "web-apps"` | `pattern-png.ico`, `pattern.avif` (image), `pattern-h264-high.mp4` (video) | 8 (5, 1, 2) |
+| `web-apps` | `runsOnlyOn: "web-apps"` | `pattern-png.ico`, `pattern.avif` (image) | 7 (5, 1, 1) |
 | `android` | `runsOnlyOn: "android"` | `tone.aac`, `amrNb()`, `midi()` (audio), `pattern-hevc.mp4`, `pattern-mpeg4.mp4`, `pattern-vp8.mkv` (video) | 11 (3, 4, 4) |
 
 **The SVG scenario is the one deliberately inadmissible emission**, so it is not a `formats` set.
@@ -1161,7 +1151,7 @@ opened AVIF only on the author's Mac. If `media-web-apps-on` shows HQ's image re
 (the whole upload stopping, as for the SVG), pull request 7 removes `avif` from `MEDIA_FORMATS` and
 `image/avif` from `ACCEPTED_FORMATS`, the inventory's `image-ico-avif` becomes `image-ico` (HELD)
 beside an AVIF entry REFUSED for the same reason as SVG with the run named (part 02 §7.1), and the
-AVIF leaves the `web-apps` set (then 7 files: 4, 1, 2) for the inadmissible path: `svgRefusedScenario()`
+AVIF leaves the `web-apps` set (then 6 files: 4, 1, 1) for the inadmissible path: `svgRefusedScenario()`
 becomes `refusedImageScenario(file)`, emitting `media-svg-refused` and `media-avif-refused`, the
 second asserting what the first does, and the certificate's canonical count becomes 8. If HQ
 stores it, the plan stands.
@@ -1170,8 +1160,8 @@ stores it, the plan stands.
 
 `e2e/tests/browser/media-play.spec.ts` runs in CI's `browser` project (the Chromium headless shell
 Playwright drives, Linux amd64) and `browser-webkit` (WebKit, Linux amd64). It gains, in `PLAYED`:
-`tone.wav` and `tone-8.wav` (`audio/wav`), `tone.mp3` (`audio/mpeg`), `tiny-video.mp4`,
-`pattern-h264-baseline.mp4`, `pattern-h264-main-aac.mp4` and `pattern-h264-high.mp4` (`video/mp4`);
+`tone.wav` and `tone-8.wav` (`audio/wav`), `tone.mp3` (`audio/mpeg`), `tiny-video.mp4` (the High
+fixture), `pattern-h264-baseline.mp4` and `pattern-h264-main-aac.mp4` (`video/mp4`);
 and in a decoded-image map with each MIME: `pattern.png`, `pattern.jpg`, `pattern.gif`, `pattern.webp` and `pattern.avif`, and
 `pattern-png.ico` and `pattern-bmp.ico` (`image/vnd.microsoft.icon`). The test's name becomes "every
 format Web Apps plays plays to its end, and every image decodes".
@@ -1196,58 +1186,60 @@ keeps the file out of `PLAYED`.
 
 ### 8.5 Android: H.264 High and the decode probe
 
-**Decision: H.264 High plays on Web Apps only.** The item reads `unavailable` on Android ("Android
-6.0 guarantees only the Baseline and Main profiles", the `android-supported-formats` documentation),
-CommCare's minimum is Android 6.0 (`minSdkVersion 23`), and no reader was run. An emulator decodes
-in software and is not a phone's hardware decoder (step 2's own caveat in `lib/media/CLAUDE.md`), so
-reputation is no evidence. Phone cameras commonly record High, so from step 4 such a video goes into
-an app only where the app does not declare Android, and the refusal says to export it again as H.264
-Main.
+**Executed during planning: Android decodes H.264 High.** The documentation reads `unavailable` on
+Android for H.264 High ("Android 6.0 guarantees only the Baseline and Main profiles",
+`android-supported-formats`), and CommCare's minimum is Android 6.0 (`minSdkVersion 23`). Phone
+cameras commonly record High, so the reading decided how much video an app that runs on Android
+could hold, and the person ran `proof/android/decode/run.sh` on their Mac on 2026-10-23, at their
+request. It ran on three emulator images whose build fingerprints equal exactly the three readers
+of `lib/commcare/surface/media-formats.json`'s `executions["android-decode"]`: Android 6.0
+(`Android/sdk_google_phone_arm64/generic_arm64:6.0/MASTER/8690019:userdebug/test-keys`), Android
+10 (`google/sdk_gphone64_arm64/emulator64_arm64:10/QSR1.211112.011/13135432:userdebug/dev-keys`)
+and Android 15 (`google/sdk_gphone64_arm64/emu64a:15/AE3A.240806.036/12592187:user/release-keys`).
+Each decoded `lib/media/__tests__/fixtures/tiny-video.mp4` (H.264, `avcC`
+`AVCProfileIndication` 100, High, §8.1) to the end of its stream, 13 frames: Android 6.0 with
+`OMX.google.h264.decoder`, Android 10 with `c2.android.avc.decoder`, Android 15 with
+`c2.goldfish.h264.decoder`. Every other fixture's outcome matched step 2's records but one that
+Nova refuses anyway: `pattern-h264.m4a`, an M4A holding only H.264 High 4:4:4 video (profile 244),
+was refused on Android 10 and decoded on 6.0 and 15; step 2's M4A check refuses it at upload (it
+holds no audio track, `validate.test.ts`), and `mp4.ts` would refuse its profile (§3.2).
 
-**The cost, stated where it is decided.** Every app keeps the default declaration of both
-platforms unless its content narrows it (part 09 §5), so the cutover's `remove-unplayed-media` step
-removes every H.264 High reference from every app that runs on Android, and each app's notice names
-each one (part 09 §12, `media-not-played-removed`). From then on, a phone's High video is refused at
-attach in any app that runs on Android, with the advice to export it again as H.264 Main. How many
-references that is cannot be known before the cutover classifies the stored bytes; the advisory dry
-run's `media` line counts it (rows by format, removed references by cause, by carrier and by
-format, part 09 §6), and the runbook reads that count out before the window.
+**Decision: H.264 High plays on both platforms.** In pull request 7,
+`items["media-format:video/mp4-h264-high"].android` becomes `{"reading": "runs", "executed":
+"android-decode", "note": "Decoded by the emulator images' software decoders; Android 6.0
+guarantees only Baseline and Main."}` (part 02 §7.1 holds the text), `mp4-h264-high` plays on Web
+Apps and Android (§2.1), and the inventory's `video-mp4-h-264-high` entry merges into the
+Baseline-or-Main one (part 02 §7.1). The `android-decode` record's readers are unchanged, since the
+fingerprints are the ones it names. Reason: the one run made is the evidence, and it decoded the
+file on CommCare's floor and on two later releases. An emulator decodes in software and is not a
+phone's hardware decoder (step 2's own caveat in `lib/media/CLAUDE.md`), which the note says; the
+documentation states what every phone guarantees, and the run shows Android's own software
+decoder, which every image ships, playing it.
 
-**The question to the person, a gate.** The probe runs only on an Apple-silicon Mac with the
-emulators, which is the person's own machine, so it is never run without their yes. The removal is
-authored content taken out of apps on a documented reading alone, so it is never made without the
-person's explicit decision either: pull request 7 is not cut until the person has answered whether
-to run `proof/android/decode/` for H.264 High on their Mac, with the cost above in the question (the
-question was first put to them when this plan was written). Both answers are written:
+**What it costs: nothing removed.** The cutover's `remove-unplayed-media` step removes no H.264
+High reference (part 09 §5, step 2), a phone's High video attaches to an app that runs on both
+platforms, and the corpus video stays as it is (§8.1). There is no question to put to the person
+before pull request 7 and no confirmation in the runbook: the reading the removal would have rested
+on is gone.
 
-- **They run it**: its outcome below lands in pull request 7, before the stack merges.
-- **They decline**: the decision stands as written, the Android readings of the new variants stay
-  documentation, and the removal is theirs to confirm with its size in hand: the runbook reads the
-  advisory dry run's count of `mp4-h264-high` references to remove out to the person, and the window
-  does not open until they confirm it (part 09 §14, step 1(f)). An author who wants to keep a video
-  re-exports it as H.264 Main and attaches the new file before the window, which leaves nothing of
-  that app's to remove.
-
-`proof/android/decode/probe.py`'s `ACCEPTED` becomes every fixture of a variant whose Android
-reading is `runs`: today's sixteen, plus `tiny-video.mp4`, `pattern-h264-baseline.mp4`,
-`pattern-h264-main-aac.mp4`, `pattern-hevc.mp4`, `pattern-mpeg4.mp4`, `pattern-vp8.mkv`,
-`tone.wav`, `tone-8.wav`, `tone.mp3`, `tone.aac`, `amr-nb.amr`, `amr-wb.amr`, `midi.mid`,
-`pattern.png`, `pattern.jpg`, `pattern.gif` and `pattern.webp`; `run.sh` writes
+**The probe for later runs.** `proof/android/decode/probe.py`'s `ACCEPTED` becomes every fixture
+of a variant whose Android reading is `runs`: today's sixteen, plus `tiny-video.mp4`,
+`pattern-h264-baseline.mp4`, `pattern-h264-main-aac.mp4`, `pattern-hevc.mp4`, `pattern-mpeg4.mp4`,
+`pattern-vp8.mkv`, `tone.wav`, `tone-8.wav`, `tone.mp3`, `tone.aac`, `amr-nb.amr`, `amr-wb.amr`,
+`midi.mid`, `pattern.png`, `pattern.jpg`, `pattern.gif` and `pattern.webp`; `run.sh` writes
 `writeBuiltFixtures`' three files beside the BMPs it writes today. `DecodeProbe.java` sends a file to
 `BitmapFactory` by its extension, which today is `.bmp` alone, so every other image would reach
 `MediaExtractor` and fail: it decodes `.bmp`, `.png`, `.jpg`, `.gif` and `.webp` as images, and
 `probe.py`'s frame check, today `if not name.endswith(".bmp")`, skips the same five extensions.
+These additions serve future runs: the planning run used the probe as it stands at `main`, which
+pushes every file of `lib/media/__tests__/fixtures/` and so read `tiny-video.mp4`, and the new
+variants' Android readings (HEVC, MPEG-4 Part 2, MKV, AAC, AMR, MIDI) stay the documentation's.
 
-**If the person asks for the run** (`PROOF_ANDROID_DECODE_AVDS="23=<avd>,29=<avd>,35=<avd>" python3 -m unittest proof.android.decode.probe -v`):
+**If the person asks for another run** (`PROOF_ANDROID_DECODE_AVDS="23=<avd>,29=<avd>,35=<avd>" python3 -m unittest proof.android.decode.probe -v`):
 every file of `ACCEPTED` that decodes on all three images gains `android.executed: "android-decode"`
 on its item (the record's readers are the same three images; a changed fingerprint updates them);
-a file that does not is a finding, handled as §8.4's second outcome on the Android side. For H.264
-High, the run reads `pattern-h264-high.mp4` (in the pushed directory, outside `ACCEPTED`): if all
-three images decode it to its end, the item becomes `runs` with `executed: "android-decode"` and the
-note "Decoded by the emulator images' software decoders; Android 6.0 guarantees only Baseline and
-Main", `mp4-h264-high` plays on both, the inventory's `video-mp4-h-264-high` entry merges into the
-Baseline-or-Main one, and the cutover removes no High reference; if any image refuses it, the
-reading stays `unavailable` and the note names that image.
+a file that does not is a finding, handled as §8.4's second outcome on the Android side. It runs only
+on the person's own yes, since it needs their Mac.
 
 ---
 
@@ -1258,11 +1250,22 @@ migration ledger and the runbook. It relies on these, each landed in pull reques
 and signatures this part gives:
 
 - **The backfill** (part 09 §7): every `ready` row of a media kind with `media_format IS NULL`
-  gets `classifyStoredMediaBytes(bytes, { mimeType, extension })` (§3.9) over its object, read once
-  per distinct `gcs_object_key` (rows sharing bytes share the key and so the format); a row whose
-  bytes no variant admits gets `unplayable` (`MediaFormatValue`). Which rows part 09 marks
-  `unplayable` without classifying (a missing object, one over its kind's cap) and how it reports
-  them are part 09 §7's. Document rows and pending rows stay `NULL`.
+  gets its variant. A row whose stored MIME has exactly one variant in §2.1 and whose body check is
+  the one upload already ran on it takes that variant without its bytes being read, since
+  `classifyStoredMediaBytes` would return the same (part 09 §7 derives the list from `MEDIA_FORMATS`
+  and gives each MIME's reason). Every other row gets `classifyStoredMediaBytes(bytes, { mimeType,
+  extension })` (§3.9) over its object, read once per distinct `gcs_object_key` (rows sharing bytes
+  share the key and so the format); a row whose bytes no variant admits gets `unplayable`
+  (`MediaFormatValue`). Which rows part 09 marks `unplayable` without classifying (a missing object,
+  one over its kind's cap) and how it reports them are part 09 §7's. Document rows and pending rows
+  stay `NULL`.
+- **What production holds.** The content-free production scan made during planning found ready
+  image rows (JPEG and PNG) and document rows, and no audio or video row at all. So the backfill
+  there classifies images only, each from its MIME with no byte read, and the cutover removes no
+  media reference (no image variant stored there plays on one platform alone). The rows that would
+  need bytes (WAV, Ogg, MP4, WebM) and the removals stay planned, for local databases and for any
+  such file uploaded before the window; part 09 §7 and §14 write both branches of the bucket
+  grant.
 - **The transform's media step** (part 09 §5, step 2 `remove-unplayed-media`), after the app's
   declaration is stored (media never shapes the declaration): `unplayableReferences(doc, formats,
   declaredPlatforms(doc))` lists the references to remove, and `playsOnEvery(format,
@@ -1286,11 +1289,11 @@ and signatures this part gives:
 
 | Test | Boundary | Failure it distinguishes |
 |---|---|---|
-| `lib/media/__tests__/mp4.test.ts` (new) | pure reader over §8.2's committed bytes | a profile read from the wrong byte (Baseline, Main, High, High 10, HEVC Main and Main 10, MPEG-4 Simple and Advanced Simple each read as itself); a sound-only, two-video, subtitle or MP3-audio file accepted; the 200-byte prefix of `pattern-h264-main-aac.mp4` read as anything but `unreadable` |
+| `lib/media/__tests__/mp4.test.ts` (new) | pure reader over §8.2's committed bytes and `tiny-video.mp4` (High, §8.1) | a profile read from the wrong byte (Baseline, Main, High, High 10, HEVC Main and Main 10, MPEG-4 Simple and Advanced Simple each read as itself); a sound-only, two-video, subtitle or MP3-audio file accepted; the 200-byte prefix of `pattern-h264-main-aac.mp4` read as anything but `unreadable` |
 | `lib/media/__tests__/wav.test.ts` (new) | pure, ffmpeg files and in-code WAVs | an 8- or 16-bit PCM file refused; a 24-bit, float or mu-law file accepted; a `LIST` chunk of odd size before `fmt ` read without its pad byte; a 12-byte file read as anything but `unreadable` |
 | `lib/media/__tests__/ico.test.ts` (new) | pure, ffmpeg files and edited bytes | the two ICOs not read at 64 by 64; type 2 not read as a cursor; an entry offset past the end, or a DIB with `biCompression` 3, accepted |
 | `lib/media/__tests__/amrMidi.test.ts` (new) | pure, `builtFixtures.ts` | NB and WB not read as AMR; multichannel or empty accepted; a MIDI of format 0 with two tracks accepted |
-| `lib/media/__tests__/validate.test.ts` (extended) | the pipeline over real bytes | each accepted fixture without its `mediaFormat`, MIME and extension; each refusal of §3.8 caught by another gate or with other copy; a `.svg` filename, and a claim of `image/svg+xml` (and of `Image/SVG+XML; charset=utf-8`) under the name `x.png` over PNG bytes, not refused with `SVG_REFUSAL_MESSAGE` at stage 1; `pattern-matroska.webm` not `extension-mime-mismatch`; `tiny-video.mp4` not `mp4-h264-main` at 520 ms; AMR and MIDI given a duration; `classifyStoredMediaBytes` not `unplayable` for `tone-24.wav` stored as `audio/wav`, `pattern-h264-high10.mp4` stored as `video/mp4`, and a PNG stored as `image/gif` |
+| `lib/media/__tests__/validate.test.ts` (extended) | the pipeline over real bytes | each accepted fixture without its `mediaFormat`, MIME and extension; each refusal of §3.8 caught by another gate or with other copy; a `.svg` filename, and a claim of `image/svg+xml` (and of `Image/SVG+XML; charset=utf-8`) under the name `x.png` over PNG bytes, not refused with `SVG_REFUSAL_MESSAGE` at stage 1; `pattern-matroska.webm` not `extension-mime-mismatch`; `tiny-video.mp4` not `mp4-h264-high` at 520 ms; AMR and MIDI given a duration; `classifyStoredMediaBytes` not `unplayable` for `tone-24.wav` stored as `audio/wav`, `pattern-h264-high10.mp4` stored as `video/mp4`, and a PNG stored as `image/gif` |
 | `lib/media/__tests__/platformPlayback.test.ts` (new) | pure over `buildDoc` documents | a reference of each carrier kind missed or misnamed; a built-in icon judged; a both-declared app with an ICO option and an AMR menu label not refused with the exact copy of §6.1's both-platforms example (one sentence per platform, then the closing sentence); one plays-nowhere file not "No CommCare app can play"; a judgment admitting a ready row with no `mediaFormat`; `formatUnavailableReason` refusing MP4 in a both-declared app or allowing ICO; "runs on Web Apps" or "Plays on Web Apps" anywhere in the copy (each place reads `inPlatform` or `platformDeclarationPhrase`); `assetUnavailableReason` and `playsOnLine` copy; `browserStandIn` giving a line for an `unplayable` row, a row with no format, a variant Web Apps plays or an image, or none for an AMR or HEVC row |
 | `lib/media/__tests__/attachVerdicts.test.ts` (extended) | pure judgment | an HEVC video attached to a both-declared app, an ICO to an Android-only app or an `unplayable` file accepted, or refused with other copy |
 | `lib/commcare/validator/rules/media/__tests__/mediaFormatPlays.test.ts` (new) | pure rule over `mediaRecords` | a reference refused on a platform its app does not declare; a missing, pending, wrong-kind or document row judged by this rule; details missing `missingPlatforms` |
@@ -1383,9 +1386,7 @@ Rewritten: `lib/domain/multimedia.ts` (`MEDIA_FORMATS`, the six entries, `surfac
 `MediaPickerDialog.tsx` (the SVG sentence); `lib/commcare/surface/media-formats.json`,
 `entries/expressions-and-data.json` and its `.md` (their text is part 02 §7's);
 `lib/commcare/surface/__tests__/manifest.test.ts`;
-`lib/commcare/__tests__/mediaWireFixtures.ts`; `lib/media/__tests__/fixtures/tiny-video.mp4`;
-`proof/corpus/editBatches.ts`; `proof/webapps/test_media_slots.py`,
-`proof/formplayer/media_slots/targeted-media-slots.form.xml`, `media-rich.form.xml`;
+`lib/commcare/__tests__/mediaWireFixtures.ts`; `proof/corpus/editBatches.ts`;
 `proof/checks/manifest_value_classes.py` and its test (part 02 §7.3); `proof/native/producers/emit-media-evidence.ts`,
 `proof/native/steps/media_emission.py`, `proof/native/test_media_emission.py`,
 `proof/native/core/MediaRuntimeTest.java`; `proof/android/decode/probe.py`, `run.sh`;
@@ -1424,8 +1425,8 @@ Public docs and contracts, in pull request 14:
 - `content/docs/building-with-nova.mdx`, the media paragraph becomes: "The images, audio and video
   you upload can be PNG, JPEG, GIF, WebP, BMP, ICO or AVIF images, MP3, WAV, M4A, FLAC, Ogg, AAC,
   AMR or MIDI audio, and MP4, WebM or MKV video. Nova checks each file as you add it and shows where
-  it plays: ICO and AVIF images and MP4 with H.264 High video play only in Web Apps, and AAC, AMR
-  and MIDI audio, MP4 with HEVC or MPEG-4 Part 2 video and MKV play only on Android. A file goes in
+  it plays: ICO and AVIF images play only in Web Apps, and AAC, AMR and MIDI audio, MP4 with HEVC
+  or MPEG-4 Part 2 video and MKV play only on Android. A file goes in
   an app where it plays on every platform the app runs on. SVG images can't be used, because
   CommCare HQ can't store them."
 - `content/docs/mcp/tools.mdx`, the `upload_media_asset` row: "Upload an image, audio, or video file
@@ -1458,16 +1459,12 @@ The nova-plugin sweep finds no skill naming a media format, so no plugin change 
 **Pull request 7, media by platform**, stacked on pull request 6, after pull request 4's
 declaration. In order of its commits: the registry and the readers with their tests; the migration
 and the row; the kernel, attach and boundary rules; the builder guard, `useReferencedAssetRows` and
-the Preview stand-in; the manifest edits and the SVG reader; the fixture re-encode with its three
-literals; the native scenarios, the browser spec and the probe lists. Its CI shows the browser
-outcomes (§8.4), and the native `media` family's three scenarios run in the pull request's own lane,
-as every native family does (part 08 §5.3). Before the stack merges, the hand dispatch of part 08
-§6.3's pull request 7 row runs the readers over five named documents (`targeted-media-slots`,
-`media-rich`, `targeted-blank-labels`, `case-list-inline`, `targeted-platform-declaration`) and the
-two media-slot slices (`proof/webapps/test_media_slots.py`, `proof/formplayer/test_media_slots.py`).
-The other documents of the 46 whose keys move are read by every reader on the first scheduled
-night after the merge (§8.1). The H.264 High question of §8.5 is answered before this pull request
-is cut, and its answer lands here.
+the Preview stand-in; the manifest edits, with the planning decode run's mark on H.264 High (§8.5),
+and the SVG reader; the native scenarios, the browser spec and the probe lists. Its CI shows the
+browser outcomes (§8.4), and the native `media` family's three scenarios run in the pull request's
+own lane, as every native family does (part 08 §5.3). It moves no corpus document's key (§8.1), so
+no reader run by hand is made for it (part 08 §6.3): every reader reads the corpus as main's
+records hold it, and the first scheduled night after the merge reads it whole (part 08 §6.4).
 
 **Pull request 11** (part 07 §2.3, §2.5): the pickers' per-asset reasons, the Upload tab's format
 reasons, the file manager's line and the platform section's server-side preflight, from §6.4 and
@@ -1493,8 +1490,8 @@ Pull request 15 adds nothing of this part's.
 - Turning a platform on for an app that holds a file it cannot play is refused, with every such
   file and its place named.
 - Preview shows a line where a file plays only on Android.
-- After the cutover, an app that declares Android holds no H.264 High video; its notice names each
-  one removed. If the person's run of §8.5 shows Android decoding High, nothing is removed.
+- An H.264 video, Baseline, Main or High, goes into an app on either platform or both, so the
+  High video a phone camera records attaches as it does today and the cutover removes none (§8.5).
 
 ## Executed during planning
 
@@ -1512,10 +1509,20 @@ Pull request 15 adds nothing of this part's.
   `matroska` muxers are present; no AMR encoder, no MIDI muxer, no WebP encoder, which is why §8.2
   builds AMR and MIDI in code and makes the raster images once with sharp.
 - **The corpus census of video bytes**: every `media` entry of every document and edit of a corpus
-  emitted at `main` hashed against the fixture; 46 documents hold it, no other video appears.
+  emitted at `main` hashed against the fixture; 46 documents hold it, no other video appears, so
+  the decode run of that one file covers every video the corpus emits.
+- **Android's decode probe**, on the person's Mac on 2026-10-23 at their request
+  (`proof/android/decode/run.sh` as it stands at `main`): the three emulator images whose
+  fingerprints are `android-decode`'s readers each decoded `tiny-video.mp4` (H.264 High) to the end
+  of its stream, 13 frames, with `OMX.google.h264.decoder` (6.0), `c2.android.avc.decoder` (10) and
+  `c2.goldfish.h264.decoder` (15); every other fixture matched step 2's records but
+  `pattern-h264.m4a`, which Nova refuses at upload (§8.5).
+- **The content-free production scan**, read only, which the person approved: production holds
+  ready image rows of JPEG and PNG and document rows, and no audio or video row (§9). No count from
+  it enters this plan.
 
-Nothing was run in HQ, Core, Android or a lane for this part; §8 says what each run will record and
-what each outcome changes.
+Nothing was run in HQ, Core or a lane for this part; §8 says what each remaining run will record
+and what each outcome changes.
 
 ## Departures from the decision spine
 

@@ -21,9 +21,11 @@ through the production commit path, one `blueprint-migration` batch per changed 
 horizon, no frozen old-shape reader and no emission census. It reads Nova's own database and
 Nova's media bucket, and no CommCare HQ state.
 
-No production read was made while planning. Every count the cutover meets is taken by its own
-advisory runs before the window, and every class those runs can find has a planned transform or
-is a blocker with its remedy (section 11).
+One production read was made while planning: a content-free, read-only scan the person approved
+(Executed during planning). No count from it enters this plan; what it found is stated where it
+decides something (sections 5, 7 and 11). Every count the cutover meets is taken by its own advisory
+runs before the window, and every class those runs can find has a planned transform or is a blocker
+with its remedy (section 11).
 
 | Section | Owns | Pull request |
 |---|---|---|
@@ -57,9 +59,14 @@ of code another pull request lands are that part's, cited here: pull request 7's
 4. **Neither platform is a blocker, never a guess.** An app whose content runs on neither platform
    is split only where every use Web Apps cannot run is a date-and-time question; any other such
    app is a blocker the author resolves before the window (section 11).
-5. **Every ready image, audio and video row is classified from its stored bytes** through the
-   production classifier, inside the Job, under a time-conditioned bucket read grant that is
-   revoked and read back after each use, following step 2's KMS precedent (section 7).
+5. **Every ready image, audio and video row gets its format, from its bytes only where its MIME
+   cannot give it.** A row whose stored MIME has exactly one variant and whose body check is the
+   one its upload ran takes that variant without a byte read; every other row is classified from
+   its stored bytes through the production classifier, inside the Job, under a time-conditioned
+   bucket read grant that is revoked and read back after each use, following step 2's KMS
+   precedent. The grant is made only where a run must read bytes, which the `media` line shows
+   (section 7). Production holds image rows alone (JPEG and PNG), so there no byte is read and no
+   grant is made unless a row that needs bytes arrives before the window.
 6. **The window applies step 4's five ledgered migrations inside the fleet transaction, in two
    phases**: the column drop, the confirmation kind, the format column and the capture size check
    before the backfill; the format CHECK's validation after it (section 8).
@@ -146,9 +153,9 @@ the shape before ingress resumes.
 | Actor generation gates | `lib/db/actorGenerationGate.ts`, the first lock of every holder lifecycle transaction | not taken. The fleet transaction claims, settles and releases no holder, and with ingress closed no lifecycle path runs; a reaper that `--settle-holders` runs takes its own gate in its own transaction before the fleet transaction opens. Holding every app row `FOR UPDATE` without a gate cannot deadlock against a path that takes the gate first and the app row second |
 | App tests | `lib/db/appTests.ts::RUNTIME_VERSION` | pull request 8's, not the cutover's |
 | Entry-point links | `lib/deployment/entryPointLinks.ts::getEntryPointLink` refuses a link whose manifest's `sourceSequence` differs from the app's | a changed app's sequence moves by one, so each live deployment of a changed app with entry points gets `deep-links-need-republish` (section 12) |
-| Deployment ledger | baselines, confirmations, `app_deployments.target_web_apps_enabled` | baselines untouched; no confirmation is written, because a person's answer cannot be made up and the next publish asks for each one; the column is dropped by the window's ledger (section 8) |
+| Deployment ledger | baselines, confirmations, `app_deployments.target_web_apps_enabled` (production holds it `true` on some deployments and null on most, the planning scan) | baselines untouched; no confirmation is written, because a person's answer cannot be made up and the next publish asks for each one; the column is dropped by the window's ledger (section 8). Nothing reads the dropped values afterwards: the setup artifact reads the declaration (part 05 §6, §7), and step 4's `next-publish-asks-web-apps` reads the stored baselines, never the column (section 5) |
 | `case_type_schemas`, expression indexes | equal `main`'s derivation (runbook step 1(a)) | never written by the cutover. The transform changes no derivation by rule (the split keeps the case write on the original field, with the same property and type), and the plan proves it per app (section 5, step 3). Where the merged code derives a stored property's type differently from `main`'s, the dry run counts the drift (section 6, `schema-drift`), and the existing drift writer converges exactly that after the deploy, with ingress still closed (section 14, step 10) |
-| `media_assets` | no format column | every ready image, audio and video row gains its format; no row is deleted, the unplayable included (section 7) |
+| `media_assets` | no format column; production holds ready JPEG and PNG rows and document rows, and no audio or video row (the planning scan) | every ready image, audio and video row gains its format; no row is deleted, the unplayable included (section 7) |
 | Lookup, location and media reference edges | `lookup_table_references`, `app_location_references`, `media_asset_refs` | rewritten by the synthetic writer through the kernel's own functions for each changed app |
 | Staged captures, in-flight submissions | fenced by path and `app_mutation_seq` | nothing; the fences hold |
 
@@ -249,11 +256,11 @@ Both scripts follow the house conventions: first line `import "./lib/loadEnv";`,
 
 | Script | Argument | Meaning |
 |---|---|---|
-| scan | (none) / `--prod` | the plan over the local database or production (`scripts/lib/prodDb.ts::targetProdDb`), in one `REPEATABLE READ, READ ONLY` transaction of plain `SELECT`s. It reads no media bytes: its `media` line counts the rows the Job will classify, by kind and stored MIME, and its plan removes no media reference and drops the export-readiness code `MEDIA_FORMAT_NOT_PLAYED` (pull request 7), which only a classification can decide. It prints no digest |
+| scan | (none) / `--prod` | the plan over the local database or production (`scripts/lib/prodDb.ts::targetProdDb`), in one `REPEATABLE READ, READ ONLY` transaction of plain `SELECT`s. It reads no media bytes: its `media` line counts the rows the Job will classify, by kind and stored MIME, with `needsBytes`, the rows whose bytes the Job must read (section 7), and its plan removes no media reference and drops the export-readiness code `MEDIA_FORMAT_NOT_PLAYED` (pull request 7), which only a classification can decide. It prints no digest |
 | scan | `--app <id>` | one app |
 | scan | `--debug-details` | with `--app`, that app's blocker places by entity id and name with each finding's message, and its planned changes with names, on the operator's terminal only; never archived |
-| migrate | (none) | the dry run: the fleet read, the classification, the full plan, the report and `planDigest`; writes nothing and applies no DDL. The Job's stored arguments |
-| migrate | `--prove-media-read` | reads the metadata of one ready media object (the lowest asset id) through `lib/storage/media.ts::getStoredObjectSize`, retrying a refusal every 15 seconds for up to ten minutes, and prints `ok`, `no-media` where no ready media row exists, or `failed` |
+| migrate | (none) | the dry run: the fleet read, the classification (a byte read only for a row that needs one, section 7), the full plan, the report and `planDigest`; writes nothing and applies no DDL. The Job's stored arguments |
+| migrate | `--prove-media-read` | reads the metadata of one stored object of a ready row that needs its bytes read (the lowest such asset id, section 7) through `lib/storage/media.ts::getStoredObjectSize`, retrying a refusal every 15 seconds for up to ten minutes, and prints `ok`, `no-media` where no ready row needs its bytes read, or `failed`. The runbook runs it only where a grant was made (section 14) |
 | migrate | `--settle-holders` | settles every lapsed or paused holder through `lib/db/apps.ts::reapStaleRun` and `lib/db/designSessions.ts::reapStaleDesignSessionRun` (`holders.ts::settleHolders`), prints counts and exits |
 | migrate | `--rehearse` | the whole fleet transaction, the ledger included, ending in a sentinel rollback; local databases and tests only, refused by the Job's arm |
 | migrate | `--execute --expect-plan-digest <64 hex>` | builds the plan, refuses with nothing written when its digest is not the expected one, then runs the writer and commits |
@@ -376,6 +383,16 @@ whose uses read `unavailable` on Android (`PLATFORM_FEATURES[use.feature].webApp
 is declared Android only and its date-and-time questions are never split, and a Connect app that
 also holds something Android cannot run is `runs-on-neither`.
 
+**What production holds, by row of the table** (the planning scan; its counts stay out of this
+plan). No stored app declares yet, so the first row meets none; the rows from "W only" to the
+split each meet apps there, and the last row meets none. The Connect arm declares many apps Android
+only: Connect apps of both kinds, learn and deliver, some of which also hold date-and-time questions
+and so need no split. A few apps that are not Connect apps become Android only for a date-and-time
+question alone. A few become Web Apps only, for Search first or for a single-date Search field. A
+few run on neither, each because of a date-and-time question beside a single-date Search field, so
+the split row runs in production: `planDatetimeSplits` splits their questions and they are declared
+Web Apps only. No app meets the `runs-on-neither` blocker (section 11).
+
 `planContentDeclaration` reads every use `platformFeatureUses` returns, the expression leaves among
 them: `case-list-here` (each `{ kind: "here" }` node, owned by its case-list column),
 `case-list-search-text` (each `{ kind: "case-list-search-text" }` value arm, pull request 10) and,
@@ -430,15 +447,14 @@ document step 1 leaves (media never shapes the declaration):
   plan's cause is that, `neither` for any other `unplayable` file (cause `no-variant`), and
   otherwise `web-apps` or `android`, the one platform its `missing` names (every variant plays on
   at least one platform, part 04 §2.1).
-- **H.264 High.** Its Android reading is part 04 §8.5's, which is a gate the person answers
-  before pull request 7 is cut: whether Android's decode probe runs on H.264 High on their Mac.
-  While it reads `unavailable`, every reference to an `mp4-h264-high` file in an app that declares
-  Android is removed here, cause `android` (its notice says Android can't play it); where §8.5's
-  decode run turns it to `runs`, none is. The `media` line counts removed references by format
-  (section 6), so the advisory dry run reports how many H.264 High references the reading removes,
-  and the window does not open until the person confirms that count (section 14, step 1(f)),
-  because the removal takes authored content out of apps and part 04 §8.5 makes it theirs to
-  confirm.
+- **H.264 High is never removed.** Android's decode probe decoded it on all three images during
+  planning, so `mp4-h264-high` plays on Web Apps and Android (part 04 §8.5), and step 2 removes an
+  H.264 reference only where its file is no variant at all (`unplayable`). The `media` line counts
+  removed references by format (section 6), so a run shows any removal by its format.
+- **What production holds.** Ready JPEG and PNG rows, which play on both platforms, and no audio
+  or video row (the planning scan). So step 2 removes no reference there, and the
+  `media-not-played-removed` reason meets no app unless a file that plays on one platform alone, or
+  on none, arrives before the window; the dry run's `media` line shows it if one does.
 
 `removals.ts::removalFor(doc, ref)` returns the mutation that removes one carrier, each an
 existing kind:
@@ -551,7 +567,7 @@ interface MediaPlan {
 	readonly rowDigest: string;                          // canonicalJsonDigest of the row's status, kind, mime_type, extension, content_hash and gcs_object_key
 	readonly mimeType: AssetMimeType;                    // the row's mime_type, for unplayableReferences' labels
 	readonly format: MediaFormatValue;                   // a key of lib/domain/multimedia.ts::MEDIA_FORMATS, or "unplayable" (part 04 §2.1)
-	readonly cause: "classified" | "no-variant" | "missing" | "too-large";
+	readonly cause: "mime" | "classified" | "no-variant" | "missing" | "too-large"; // "mime": the one variant of its stored MIME, no byte read (section 7)
 }
 interface AppPlan {
 	readonly appId: string;
@@ -596,7 +612,7 @@ file names into the digest as hashed bytes only; the report never prints them.
   author's `target-gate` blocker (section 11, "Blockers by rule"); a hit the gate admits is
   accepted, and where it is the calculate of a Hidden Value writer that alone types its property,
   the property's derived type moves from `date` to `datetime`, which the `schema-drift` line
-  counts;
+  counts. Production stores no clock-keeping date (the planning scan), so there the line is zero;
 - `session-context`: the stored `session-context` reads of `drift`, `window_width` and
   `applanguage`, counted over the sources by field and by slot class (`module`,
   `form-display-condition`, `field`, `connect`, `case-operation`, `form-link`,
@@ -606,7 +622,9 @@ file names into the digest as hashed bytes only; the report never prints them.
   gate, is a `window_width` read in a slot a form evaluates; under outcome B no form-slot
   `window_width` read is a blocker, and the line only counts them. A `drift` or `window_width`
   read that still type-checks as the calculate of a Hidden Value writer that alone types its
-  property moves that property from text to a whole number, which the `schema-drift` line counts;
+  property moves that property from text to a whole number, which the `schema-drift` line counts.
+  Production stores no read of the three fields (its session context reads are of `userid` and
+  `username`, the planning scan), so there the line is zero;
 - `schema-drift`: each app's `computeSchemaDrift` over its source (section 4) against its active
   `case_type_schemas` rows: the apps with drift by id, and the case types and properties by
   class (`missing-row`, `added`, `removed`, `refined`, `retyped` by its from and to types,
@@ -618,10 +636,13 @@ file names into the digest as hashed bytes only; the report never prints them.
   never a blocker: the window converges it after the deploy (section 14, step 10), and that step expects exactly
   this line from the window's dry run. The line is outside the digest, because the cutover writes
   no schema row and ingress keeps the rows still from the dry run to step 10;
-- `media`: ready media rows by kind and stored MIME; under the dry run and later modes, rows by
-  format and by cause, the asset ids of `missing` and `too-large` rows, objects read, bytes read,
-  classification milliseconds; removed references by cause, by carrier and by format;
-  `classified: false` in the scan;
+- `media`: ready media rows by kind and stored MIME, and `needsBytes`, the number of rows whose
+  stored MIME cannot give their format and whose objects the Job reads (section 7), with those rows
+  by stored MIME in `needsBytesByMime`; under the
+  dry run and later modes, rows by format and by cause (`mime` among them), the asset ids of
+  `missing` and `too-large` rows, objects read, bytes read, classification milliseconds; removed
+  references by cause, by carrier and by format; `classified: false` in the scan. `needsBytes` is
+  what the runbook reads to decide each bucket grant (section 14);
 - `deployments`: entries per reason;
 - `holders`: step 3's census (`holders.ts::readHolderCensus`);
 - one `blocker` line per code: count, app ids, finding codes;
@@ -642,17 +663,50 @@ From pull request 7, `media_assets.media_format` holds the one variant key of th
 row's bytes are, or `unplayable` for bytes no variant admits (`MediaFormatValue`); upload writes
 it, and kernel admission, attach verdicts, the export rule
 `MEDIA_FORMAT_NOT_PLAYED` and the runtime probe's media audit read it per declared platform. The
-rows that exist before the window have no value, and nothing in a row tells their variant: MP4
-codec and profile and WAV encoding are not stored (`lib/media/validate.ts`: "step 2 checks no MP4
-codec and no WAV encoding"). So the cutover reads the bytes.
+rows that exist before the window have no value. For most MIMEs the stored MIME settles it, since
+that MIME has one variant and its upload already ran the check that would pick it; for the rest
+nothing in a row tells the variant: MP4 codec and profile and WAV encoding are not stored
+(`lib/media/validate.ts`: "step 2 checks no MP4 codec and no WAV encoding"). So the cutover takes
+the format from the MIME where that settles it, and reads the bytes where it does not.
 
 **What is classified.** Every `media_assets` row with `status = 'ready'` and `kind` in `image`,
 `audio`, `video`, in every Project, referenced or not: the CHECK the window validates (section 8)
 holds every one. Pending rows and document kinds stay null.
 
-**How.** `media.ts::classifyFleetMedia(rows, reader)` reads each distinct `gcs_object_key` once,
-four at a time (`MEDIA_READ_CONCURRENCY = 4`, at most 200 MB of video in memory), through an
-injected reader:
+**Which rows take their format from their MIME.** `media.ts::FORMAT_OF_STORED_MIME` is built from
+`lib/domain/multimedia.ts::MEDIA_FORMATS`: each MIME that has exactly one variant in part 04 §2.1,
+less `audio/wav`. From the registry as part 04 §2.1 gives it, that is `image/png` → `png`,
+`image/jpeg` → `jpeg`, `image/gif` → `gif`, `image/webp` → `webp`, `image/bmp` → `bmp`,
+`image/vnd.microsoft.icon` → `ico`, `image/avif` → `avif`, `audio/mpeg` → `mp3`, `audio/mp4` →
+`m4a`, `audio/flac` → `flac`, `audio/aac` → `aac-adts`, `audio/amr` → `amr`, `audio/midi` → `midi`
+and `video/x-matroska` → `mkv`. A ready row whose `mime_type` is a key takes that value, cause
+`mime`, and its object is neither sized nor read. Reason: a ready row's `mime_type` is the sniff
+its upload's `validateMediaBytes` made, and the body check that upload ran is the one
+`classifyStoredMediaBytes` would run, so the classifier would return the same variant: PNG, JPEG,
+GIF and WebP have been read by sharp for their dimensions since the first upload (#45); MP3 by the
+same music-metadata parse, which step 2 (#765) only widened (a missing duration stopped refusing);
+BMP, M4A and FLAC were first accepted by step 2, whose checks part 04 §3.1 keeps unchanged; and
+ICO, AVIF, AAC, AMR, MIDI and MKV are first accepted by pull request 7, whose rows are written with
+their format. `audio/wav` has one variant and is left out, because step 4's `wav.ts` check is new:
+a stored WAV may be 24-bit or float, so `unplayable` (part 04 decision 8). The rows that need their
+bytes read are therefore those of `audio/wav`, `audio/ogg` (two variants), `video/mp4` (five) and
+`video/webm` (two), the `media` line's `needsBytes` (section 6). Built from the registry, the map
+loses a MIME that later gains a second variant without an edit, and `media.test.ts` holds it to
+the classifier over every committed fixture of each MIME it holds (section 15).
+
+Such a row's object is not looked at, so a missing object or one past its cap is not found by the
+backfill. Its format is a fact of bytes that passed upload; an object lost since then is no more
+this cutover's to find than step 3's, and an export meets it at its byte read as it does today.
+
+**What production holds.** Ready JPEG and PNG rows and no audio or video row (the planning scan),
+so every production row takes its format from its MIME, `needsBytes` is zero, and the backfill reads
+no object. The byte path below stays the plan for local databases and for any WAV, Ogg, MP4 or WebM
+file uploaded before the window, and section 14 writes both branches of the grant.
+
+**How, for a row that needs its bytes.** `media.ts::classifyFleetMedia(rows, reader)` gives each
+row of `FORMAT_OF_STORED_MIME` its value, then reads each distinct `gcs_object_key` of the other
+rows once, four at a time (`MEDIA_READ_CONCURRENCY = 4`, at most 200 MB of video in memory), through
+an injected reader, which it never calls when no row needs bytes:
 
 ```ts
 interface MediaObjectReader {
@@ -690,9 +744,10 @@ any download and never from a thrown error's message:
 No JavaScript package the classifier imports holds a top-level `await` (read during planning:
 `file-type` 22.1.1, `music-metadata` 12.2.0 and their tokenizer dependencies; `file-type`'s one
 runtime `import()` serves `fromFile`, which the classifier never calls), so esbuild's CommonJS
-bundle carries them. The classifier also reads every PNG, JPEG, GIF, WebP and AVIF through
-`sharp` (`lib/media/validate.ts`, `sharp(bytes).metadata()`), a native addon esbuild cannot
-bundle: `sharp/dist/sharp.cjs` requires its platform's `@img/sharp-<platform>/sharp.node`, which
+bundle carries them. `lib/media/validate.ts` also imports `sharp` at module load, for the
+PNG, JPEG, GIF, WebP and AVIF reads (`sharp(bytes).metadata()`), so the bundle loads it even though
+no backfill run calls it (every image row takes its format from its MIME). It is a native addon
+esbuild cannot bundle: `sharp/dist/sharp.cjs` requires its platform's `@img/sharp-<platform>/sharp.node`, which
 loads libvips from `@img/sharp-libvips-<platform>` by its own path, and the maintenance image
 holds only `/app/*.cjs`. So the bundle leaves `sharp` external (`--external:sharp`), and the
 `maintenance` stage copies sharp's installed tree from the `deps` stage beside the bundles, where
@@ -700,10 +755,10 @@ the bundle's `require("sharp")` resolves from `/app` (section 13). That tree is 
 directories, read from `package-lock.json`: `node_modules/sharp` (0.35.5, with its own
 `node_modules/semver`), `node_modules/@img` (`@img/colour` and the Linux musl binding with its
 libvips) and `node_modules/detect-libc`. The runner stage copies `@img` from `deps` for the same
-reason (its comment in `Dockerfile`). Three runs prove it, each a step of its own:
-`containerArtifacts.test.ts` runs the bundle against those three directories alone (section 15);
-runbook step 1(b) loads sharp inside the built image; and the advisory dry run in the Job (section
-14, step 1(d)) classifies production's images through it.
+reason (its comment in `Dockerfile`). Two runs prove it loads, each a step of its own:
+`containerArtifacts.test.ts` runs the bundle against those three directories alone (section 15),
+and runbook step 1(b) loads sharp inside the built image; the advisory dry run in the Job (section
+14, step 1(d)) then loads the bundle, sharp with it, as every run does.
 
 **Unplayable files are kept.** A row is the Project's file; deleting it is not the cutover's to do.
 Its references are removed by step 2, the library and pickers show it as playing nowhere (pull
@@ -729,10 +784,22 @@ revoked and read back (`5cf6e327^:docs/plans/hq-round-trip/2-cutover-runbook.md`
 The bucket has uniform bucket-level access (`lib/storage/media.ts::getBucket`'s contract), which a
 conditional binding needs. `scripts/infra/manage-deployment.py check` reads no bucket binding, and
 `scripts/infra/capture-bucket-policy.mjs` keeps every binding it does not own, so the grant moves
-no deploy check. Two grants are made: an advisory one for the dry run before the window, two hours or the Job's
-contract timeout plus thirty minutes where that is longer (section 13 raises the timeout when the
-dry run's plan takes more than an hour, so the grant always outlasts the run it serves); and the
-window's, six hours or the planned window plus one hour where that is longer.
+no deploy check. A grant is made only for a run that must read bytes, which the `media` line's
+`needsBytes` shows (section 6), so there are two branches:
+
+- **A row needs bytes.** Two grants are made: an advisory one for the dry run before the window,
+  where the scan before it counts `needsBytes` above zero, two hours or the Job's contract timeout
+  plus thirty minutes where that is longer (section 13 raises the timeout when the dry run's plan
+  takes more than an hour, so the grant always outlasts the run it serves); and the window's, where
+  the advisory dry run or the window's own scan counts one, six hours or the planned window plus one
+  hour where that is longer. Each is followed by `--prove-media-read` and ended by its revocation
+  and the policy read.
+- **No row needs bytes** (production as the planning scan found it): no grant, no
+  `--prove-media-read` and no revocation; the dry run's `media` line shows `needsBytes` zero and no
+  object read, and the bucket policy read, still saved, names `nova-migrate@` nowhere.
+
+The Job keeps `NOVA_MEDIA_BUCKET` and stays its own (section 13) in both branches: the setting is
+harmless where nothing is read, and one Job keeps one path whichever branch the window takes.
 
 ## 8. The ledger in the window
 
@@ -930,6 +997,14 @@ author can make:
 Stops that are not an app's: `holder`, `app-changed`, `media-changed`, `digest`, `ledger`, and
 `error` (with `media-read` among its classes).
 
+**What production holds** (the planning scan; its counts stay out of this plan): no app of a
+blocker class. No Connect app holds something Android cannot run, no app holds a case-list `here()`
+read or a `window_width` read, and every app that runs on neither platform does so only through a
+date-and-time question, which the split resolves (section 5, step 1); so no `runs-on-neither` app is
+expected. No clock-keeping date and no `drift`, `window_width` or `applanguage` read is stored, so
+no blocker by rule is expected either. The advisory runs still count every class, for whatever
+changes before the window, and the window's dry run must count none.
+
 ## 12. The notice
 
 `lib/notices/migrationNotice.ts::MIGRATION_NOTICE_CUTOVERS` becomes
@@ -1007,7 +1082,7 @@ falls back as stated):
     it back."). For `missing` " You can upload it again and attach it."; for `too-large` " You can
     upload a smaller copy and attach it."
   - `media` other than the three reads "media"; without `file`, the space before it is left out.
-  - Example: "Visit, Photo: the video intro.mp4 on its label was removed, because Android can't
+  - Example: "Visit, Photo: the video intro.mp4 on its label was removed, because Web Apps can't
     play it. The file is still in your media library. Exporting it again as MP4 with H.264 Main
     video and attaching it again brings it back."
 - **`next-publish-asks-web-apps`**:
@@ -1055,10 +1130,13 @@ Cloud Run the storage client resolves its project from the metadata server
 - **Why its own Job.** `lib/storage/media.ts::getBucket` reads `NOVA_MEDIA_BUCKET`, which
   `commcare-nova-historical-repair` lacks, and step 3's reason for reusing that Job ("it holds no
   `GOOGLE_CLOUD_PROJECT`, which the cutover does not need") does not hold here. Its stored
-  arguments are this tool's dry run, so no execution can run another tool by omission.
-- **Why `7200s`.** The run reads every ready media object before its transaction, a count no
-  planning read measured. Two hours bounds a stuck run and leaves the classification an hour and
-  more. The advisory dry run measures it (section 14, step 1(d)): where its `fleet` line's plan
+  arguments are this tool's dry run, so no execution can run another tool by omission. It stays
+  its own where no row needs bytes (section 7): the setting is harmless there, and one Job keeps
+  one path for both branches of the grant.
+- **Why `7200s`.** The run reads the stored object of every ready row that needs its bytes read
+  (section 7) before its transaction, and plans every app; production holds no such row today, but
+  one may arrive before the window, and no planning read measured the plan's own time. Two hours
+  bounds a stuck run and leaves the classification and the plan an hour and more. The advisory dry run measures it (section 14, step 1(d)): where its `fleet` line's plan
   milliseconds exceed 3,600,000, the window is not opened; pull request 13's contract `timeout`
   becomes twice the measured seconds plus 1,800, rounded up to a whole minute, the image is built
   again, and step 1 repeats. The runbook's `--wait-seconds` for this Job is always the contract
@@ -1135,14 +1213,14 @@ at each step's end; `$MAIN_TREE` a checkout of `main`'s tip.
 
 | # | Step |
 |---|---|
-| 1 | **Before the window.** (a) From `$MAIN_TREE`: `npx tsx --conditions=react-server scripts/scan-schema-drift.ts --prod` and `npx tsx scripts/scan-case-type-schema-retirement.ts --prod` report zero, or the repair each prints runs first as step 3's runbook gives it; `gcloud storage ls gs://commcare-nova-cutover-evidence/hq-round-trip-expressions/` names step 3's execute run's report, whose `writer` line gives its WAL and growth, and `gcloud sql instances describe nova-cases --project=commcare-nova --format='value(settings.dataDiskSizeGb,settings.storageAutoResize)'` shows room for them. (b) From a clean checkout of `<14>`: the image built, pushed and its digest resolved; `docker run --rm --platform=linux/amd64 --entrypoint=node "$IMAGE" -e 'require("sharp")'` exits 0, which loads sharp's binding and libvips from the image's own tree (section 7); for each of `$JOB` and `$DRIFT_JOB`: `python3 scripts/infra/manage-deployment.py job --job <job> --image "$IMAGE"`, then with `--apply`, then `python3 scripts/rollout/deploy-cloud-run.py --verify-job --project=commcare-nova --region=us-central1 --job=<job> --image="$IMAGE" --wait-seconds=120`. (c) The scan, `npx tsx --conditions=react-server scripts/scan-hq-round-trip-platforms.ts --prod > $EVIDENCE/scan-<moment>.jsonl`, for holders and every blocker that needs no media bytes. (d) The bucket policy read (it names `nova-migrate@` nowhere); the advisory grant, two hours; the Job with `--prove-media-read` until `ok`; the Job's dry run, the full advisory plan; the revocation and the policy read; the evidence. (e) Every blocker resolved by its remedy (section 11), and (c) and (d) repeated until the dry run's outcome is `ok`; its `schema-drift` line, the drift the window converges in step 10, is recorded. (f) Where H.264 High reads `unavailable` on Android (part 04 §8.5), the dry run's `media` line's count of `mp4-h264-high` references to remove is read out to the person, and the window does not open until they confirm it. |
+| 1 | **Before the window.** (a) From `$MAIN_TREE`: `npx tsx --conditions=react-server scripts/scan-schema-drift.ts --prod` and `npx tsx scripts/scan-case-type-schema-retirement.ts --prod` report zero, or the repair each prints runs first as step 3's runbook gives it; `gcloud storage ls gs://commcare-nova-cutover-evidence/hq-round-trip-expressions/` names step 3's execute run's report, whose `writer` line gives its WAL and growth, and `gcloud sql instances describe nova-cases --project=commcare-nova --format='value(settings.dataDiskSizeGb,settings.storageAutoResize)'` shows room for them. (b) From a clean checkout of `<14>`: the image built, pushed and its digest resolved; `docker run --rm --platform=linux/amd64 --entrypoint=node "$IMAGE" -e 'require("sharp")'` exits 0, which loads sharp's binding and libvips from the image's own tree (section 7); for each of `$JOB` and `$DRIFT_JOB`: `python3 scripts/infra/manage-deployment.py job --job <job> --image "$IMAGE"`, then with `--apply`, then `python3 scripts/rollout/deploy-cloud-run.py --verify-job --project=commcare-nova --region=us-central1 --job=<job> --image="$IMAGE" --wait-seconds=120`. (c) The scan, `npx tsx --conditions=react-server scripts/scan-hq-round-trip-platforms.ts --prod > $EVIDENCE/scan-<moment>.jsonl`, for holders and every blocker that needs no media bytes; its `media` line's `needsBytes` (`jq 'select(.section == "media") \| .needsBytes'`) decides (d)'s grant. (d) The bucket policy read (it names `nova-migrate@` nowhere). Where (c)'s `needsBytes` is above zero: the advisory grant, two hours; the Job with `--prove-media-read` until `ok`; the Job's dry run, the full advisory plan; the revocation and the policy read. Where it is zero, as production held at planning: the Job's dry run alone, with no grant and no `--prove-media-read`, whose `media` line shows `needsBytes` zero and no object read. The evidence either way. (e) Every blocker resolved by its remedy (section 11), and (c) and (d) repeated until the dry run's outcome is `ok`; its `schema-drift` line, the drift the window converges in step 10, is recorded, and so is its `media` line's `needsBytes`, which plans step 5. |
 | 2 | **Open.** Detach `nova-neg` from `nova-backend`; pause the `commcare-nova-capture-cleanup` Scheduler job. |
-| 3 | **Drain.** The scan until its `holders` line counts no live holder (at most `cloudRunRequestSeconds`, 3600 s); the Job with `--settle-holders`; the scan counting no holder at all. A paused build becomes reapable once `buildStalenessSeconds` (600 s) has passed. |
+| 3 | **Drain.** The scan until its `holders` line counts no live holder (at most `cloudRunRequestSeconds`, 3600 s); the Job with `--settle-holders`; the scan counting no holder at all, whose `media` line's `needsBytes` is recorded for step 5 (ingress is closed, so no row arrives after it). A paused build becomes reapable once `buildStalenessSeconds` (600 s) has passed. |
 | 4 | **Restore point.** `gcloud sql backups create --instance=nova-cases --project=commcare-nova --description=hq-round-trip-platforms-restore-point`; its id from `gcloud sql backups list --instance=nova-cases --project=commcare-nova --filter='description=hq-round-trip-platforms-restore-point' --format='value(id)'`. |
-| 5 | **The window's grant.** The policy read; the grant; the Job with `--prove-media-read` until `ok`. |
+| 5 | **The window's grant, where a row needs bytes.** Where step 1(e)'s dry run or step 3's last scan counts `needsBytes` above zero: the policy read; the grant; the Job with `--prove-media-read` until `ok`. Where both count zero: the policy read alone, and steps 6 to 8 run with no grant; a dry run whose `media` line counts `needsBytes` above zero, which after step 3's zero scan is a defect to explain, stops at `media-read`; the grant and its proof are made before step 6 repeats. |
 | 6 | **Dry run.** The Job with no override; its report; `planDigest` recorded; the outcome is `ok`, and its `fleet` line's `ledger` is `{"validatedApplied":false,"pendingMigrations":[<the five names of section 8>]}`; its `schema-drift` line is recorded as the drift step 10 expects. |
 | 7 | **Migrate.** The Job with `--execute --expect-plan-digest <digest>`; its report (the `writer` line); the outcome is `ok`. A `stopped` outcome with `digest` means the database or the bucket moved after step 6: compare the reports, then repeat step 6, or close the window. Any other stop or error rolled back whole, the DDL with it; a dry run then tells it apart from a commit whose acknowledgement was lost (`already-applied` means the commit landed). |
-| 8 | **Post-migration.** The revocation and the policy read; the Job's dry run prints `already-applied` (that exit comes before any media read); resume the capture cleanup Scheduler job, whose database authority is `form_attachments` only and which the deploy's prerequisite check requires enabled (`manage-deployment.py`, `scheduler_findings`); `python3 scripts/infra/manage-deployment.py check` passes. |
+| 8 | **Post-migration.** Where step 5 made a grant, the revocation and the policy read; the Job's dry run prints `already-applied` (that exit comes before any media read); resume the capture cleanup Scheduler job, whose database authority is `form_attachments` only and which the deploy's prerequisite check requires enabled (`manage-deployment.py`, `scheduler_findings`); `python3 scripts/infra/manage-deployment.py check` passes. |
 | 9 | **Deploy.** `git ls-remote origin refs/heads/main` is step 1(b)'s commit; `gh stack merge <top> --squash`. List the merge commit's check runs first (`gh api repos/voidcraft-labs/commcare-nova/commits/<merge sha>/check-runs --jq '.check_runs[] \| {name, app: .app.name, status, conclusion}'`) and watch the deploy check by the name and app that list shows; an empty list is an error to look into. `gcloud builds describe <build id> --project=commcare-nova --region=us-central1 --format=json \| jq '.steps[] \| {id, status}'` shows `migrate` and `deploy` at `SUCCESS`; `verify` fails while the NEG is detached, as it did in steps 2 and 3. The migrate Job finds the ledger applied, converges privileges and runs the runtime probe (section 10). |
 | 10 | **Converge.** From `$MAIN_TREE` at the merge commit (`git -C $MAIN_TREE pull --ff-only`, `npm ci`): `npx tsx --conditions=react-server scripts/scan-schema-drift.ts --prod > $EVIDENCE/drift-before-<moment>.txt` names exactly the apps of step 6's `schema-drift` line, with its totals (retypes, case types that need only a re-sync, no unresolvable spec). Then the drift writer, `python3 scripts/rollout/deploy-cloud-run.py --execute-job --project=commcare-nova --region=us-central1 --job=$DRIFT_JOB --image="$IMAGE" --wait-seconds=3060 --execution-arg=schema-drift.cjs --execution-arg=--execute` (`$IMAGE`'s `lib` and `app` are the merged `main`'s by check 1, and pull request 15 does not touch `schema-drift.cjs`'s sources; 3060 is the Job's `3000s` timeout plus 60), its execution's log saved with the execution form below, `$DRIFT_JOB` as the job and no `report` term in the filter. Then the same scan, to `$EVIDENCE/drift-after-<moment>.txt`, reports no drift. An app the writer could not migrate (it isolates each app's failure) is run again with `--execution-arg=--app --execution-arg=<id>` until the scan reports none. A first scan that differs from step 6's line is recorded and explained after the window, and the writer still runs, since past the deploy the only way is forward (rollback, below); ingress reopens only on the zero scan. |
 | 11 | **Resume.** Reattach the NEG; `gcloud builds retry <build id> --project=commcare-nova --region=us-central1`, whose `verify` passes; the three public probes of `cloudbuild.yaml`'s `verify` step: `curl --fail --silent --show-error --max-time 30 https://commcare.app/ >/dev/null`, the same for `https://docs.commcare.app/`, and `curl --silent --show-error --max-time 30 --dump-header - --output /dev/null --header 'content-type: application/json' --data '{"jsonrpc":"2.0","id":"cutover","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"nova-cutover","version":"1"}}}' https://mcp.commcare.app/mcp`, which answers `401` with a `www-authenticate` header holding `Bearer` and `resource_metadata=`. |
@@ -1174,28 +1252,28 @@ at each step's end; `$MAIN_TREE` a checkout of `main`'s tip.
   --project=commcare-nova --location=us-central1`, and `resume` with the same flags.
 
 **The window** runs as long as its steps: about 5 minutes to open, up to 70 to drain, 10 for the
-restore point, up to 15 for the grant and its check, the dry run, the execute run, 10 for step 8,
+restore point, up to 15 for the grant and its check where step 5 makes one, the dry run, the execute run, 10 for step 8,
 about 20 for the deploy, 10 for the drift writer and its two scans, and 10 to resume. The dry run
 and the execute run each take about the advisory dry run's duration, so the operator plans 2 hours
 30 minutes plus twice that.
 A stop before the commit (a blocker, a holder, a moved app, media row or digest, a ledger, an error)
-closes the window with nothing written and no DDL applied: reattach, resume, revoke.
+closes the window with nothing written and no DDL applied: reattach, resume, and revoke any grant step 5 made.
 
 **Rollback.** Before step 7's commit nothing needs restoring: the DDL and the backfill roll back
 with the fleet, and the bucket is only read. After the commit and until the merge, the ledger holds
 migrations `main` does not have, so a window that closes in that span without merging restores step
 4's backup before `main` deploys again (`gcloud sql backups restore <backup id>
 --restore-instance=nova-cases --project=commcare-nova`, then the tool's dry run shows
-`validatedApplied` false), revokes the grant, resumes the Scheduler job and reattaches the NEG.
+`validatedApplied` false), revokes the grant where step 5 made one, resumes the Scheduler job and reattaches the NEG.
 What is lost is only what the capture cleanup removed after step 8. Once the merge's deploy has
 started, the only way is forward: a probe failure at step 9 leaves ingress closed, and the fix ships
 as a pull request whose deploy passes the probe.
 
 **What the operator records**, each in the evidence prefix: the prerequisite scans of step 1(a)
 and step 3's capacity figures read there; every scan and dry-run report with its `fleetSeqDigest`;
-each blocker cleared; where step 1(f) applies, the count of `mp4-h264-high` references read out and
-the person's confirmation of it; `<14>`, `<15>`, the image's digest, check 1's diff, `main`'s commit at
-step 1(b) and step 9; every bucket policy read, each grant's expiry and its revocation; the NEG
+each blocker cleared; the `needsBytes` of step 1(c), step 1(e) and step 3 and which branch of the
+grant each step took; `<14>`, `<15>`, the image's digest, check 1's diff, `main`'s commit at
+step 1(b) and step 9; every bucket policy read, each grant's expiry and its revocation where one was made; the NEG
 before and after; the restore point's id; the window's dry run `planDigest`; the execute report
 (durations, WAL, growth, peak RSS) and its `schema-drift` line; the post-migration
 `already-applied`; the merge commit, its build, the retry; the drift scans before and after the
@@ -1220,10 +1298,10 @@ is offered as proof of what a CommCare reader does with an app, which the lane h
 |---|---|---|
 | `transform.test.ts` | each row of the declaration table through `transformApp`; each removal carrier and each cause, the image-map entry removed whole with its sort line; a target that keeps every playable reference; each notice entry's entity and `detail`; `runs-on-neither`, `datetime-split-refused` and `media-row-missing`; a form-logic `window_width` read as `target-gate` under outcome A of pull request 10's window width gate, and under outcome B as no `target-gate` finding; a stored clock-keeping date compared with a date as `target-gate` (`XPATH_INCOMPATIBLE_VALUES`, `date-datetime`); through `judgeTarget`, planted targets no step would make: one the diff cannot replay and one whose mutations `mutationTargetsInvalid` refuses, each `not-representable`, one with a changed case write as `case-schema-changed`; a split app's case-type map unchanged; a second application writes nothing | pure, over documents built with `buildDoc` |
 | `deployments.test.ts` | `next-publish-asks-web-apps` for a `push` and a `cutover` baseline that differ, in both directions; none for `create`, `unread`, absent, a digest that does not verify, or an equal value; `next-publish-asks-more` with `web-apps` and with `form-entry-sync-off`; `deep-links-need-republish` only for a changed app with entry points | pure, over baseline rows gzipped by the test |
-| `media.test.ts` | classification through an injected `MediaObjectReader` over the media fixtures pull request 7 commits: a variant per fixture, `no-variant` for a 24-bit WAV, `missing` where `size` answers null, `too-large` where `size` answers more than the kind's cap, with `bytes` never called, one read per object key shared by two rows, an error from `size` and one from `bytes` each stopping the run as `media-read` with no format kept | pure, with a fake reader at the storage boundary |
+| `media.test.ts` | `FORMAT_OF_STORED_MIME` holds exactly the MIMEs of `MEDIA_FORMATS` with one variant less `audio/wav`, and for every committed fixture of each of its MIMEs `classifyStoredMediaBytes` returns the map's variant, so the map is what the bytes would give; a row of each such MIME takes its variant with cause `mime` and neither `size` nor `bytes` called, and a fleet of such rows alone never calls the reader; classification through an injected `MediaObjectReader` over the media fixtures pull request 7 commits for the other MIMEs: a variant per fixture, `no-variant` for a 24-bit WAV, `missing` where `size` answers null, `too-large` where `size` answers more than the kind's cap, with `bytes` never called, one read per object key shared by two rows, an error from `size` and one from `bytes` each stopping the run as `media-read` with no format kept; `--prove-media-read` prints `no-media` and reads no object over a fleet whose ready rows all take their format from their MIME, and `ok` over a fleet with one row that needs its bytes read, the fake reader answering its size | pure, with a fake reader at the storage boundary |
 | `mediaReader.test.ts` | the production arm `storageMediaReader` over controlled storage responses, the `@google-cloud/storage` client mocked as `lib/storage/__tests__/captureStorageAuthority.test.ts` mocks it: a 404 from `getMetadata` is a null size; a reported size is returned as a number; an object whose stream runs past the cap after a smaller reported size makes `bytes` throw, which `classifyFleetMedia` stops on as `media-read`, never `too-large` | the storage adapter, with controlled external responses |
-| `plan.test.ts`, `report.test.ts` | the digest is stable across runs and moves with a base sequence, a base digest, a target, a change, a blocker, a media format or a baseline's held value; the `splits`, `clock-keeping-dates` and `session-context` lines count a writer and a non-writer apart, and each field and slot class apart; the `schema-drift` line counts each drift class apart and leaves the digest unmoved; the `media` line counts removed references by format; the report holds no authored string or file name from any fixture | pure |
-| `writer.postgres.test.ts` | from `main`'s migration prefix, which is every migration before the five of section 8 (`setupAppStateTestDb` with `caseStoreMigrationsBefore` the first of them), seeded through `postgresSeed.ts`, because the head's production writers read `media_assets.media_format`, which that prefix does not hold: several apps, a soft-deleted one among them, one with a date-and-time question (Android only), one with Search first and a date-and-time question (Web Apps only, split), one referencing an H.264 High video while declaring both (reference removed), one referencing a non-PCM WAV (`unplayable`, removed), one Connect app, an unreferenced ready image, a pending row and a missing object; the ledger pending exactly the five, phase 1 applying the first four and phase 2 the fifth, and any other ledger refused; a live holder, a moved app, a moved media row and a wrong digest each stop it with nothing written and no DDL; a failure injected after each numbered step leaves the database byte-identical, `target_web_apps_enabled` present, `media_format` absent and `form_attachments_size_check` at its old bound; `--rehearse` leaves nothing; after the commit every app loads, folds from its baseline to its target, and `runCanonicalRuntimeDatabaseProbe` finds nothing; `case_type_schemas` byte-identical; a second run in every mode is `already-applied` | real Postgres |
+| `plan.test.ts`, `report.test.ts` | the digest is stable across runs and moves with a base sequence, a base digest, a target, a change, a blocker, a media format or a baseline's held value; the `splits`, `clock-keeping-dates` and `session-context` lines count a writer and a non-writer apart, and each field and slot class apart; the `schema-drift` line counts each drift class apart and leaves the digest unmoved; the `media` line counts removed references by format, and `needsBytes` counts a WAV, an Ogg, an MP4 and a WebM row and no image row; the report holds no authored string or file name from any fixture | pure |
+| `writer.postgres.test.ts` | from `main`'s migration prefix, which is every migration before the five of section 8 (`setupAppStateTestDb` with `caseStoreMigrationsBefore` the first of them), seeded through `postgresSeed.ts`, because the head's production writers read `media_assets.media_format`, which that prefix does not hold: several apps, a soft-deleted one among them, one with a date-and-time question (Android only), one with Search first and a date-and-time question (Web Apps only, split), one referencing an HEVC video while declaring both (reference removed, cause `web-apps`), one referencing an H.264 High video while declaring both (kept), one referencing a non-PCM WAV (`unplayable`, removed), one Connect app, an unreferenced ready image (cause `mime`, no object read), a pending row and a missing object behind a WAV row (cause `missing`); the ledger pending exactly the five, phase 1 applying the first four and phase 2 the fifth, and any other ledger refused; a live holder, a moved app, a moved media row and a wrong digest each stop it with nothing written and no DDL; a failure injected after each numbered step leaves the database byte-identical, `target_web_apps_enabled` present, `media_format` absent and `form_attachments_size_check` at its old bound; `--rehearse` leaves nothing; after the commit every app loads, folds from its baseline to its target, and `runCanonicalRuntimeDatabaseProbe` finds nothing; `case_type_schemas` byte-identical; a second run in every mode is `already-applied` | real Postgres |
 | `scan.postgres.test.ts` | the scan's counts over a pre-step database seeded through `postgresSeed.ts`, run as a role holding only `SELECT`, which proves it takes no lock and writes nothing; a Hidden Value writer whose calculate holds a clock-keeping date, its stored schema row typing the property `date` (`seedStoredSchemas`), gives a `schema-drift` line with one `date` to `datetime` retype, and an app whose stored rows equal the head's derivation gives none | real Postgres |
 | `holders.postgres.test.ts` | step 3's cases (`733dd193:scripts/lib/hqRoundTripExpressions/__tests__/holders.postgres.test.ts`), adapted: that file imports step 3's `fleet.ts`, `run.ts`, `writer.ts` and seed, so this one reads through `source.ts`, `run.ts` and `ledger.ts` and seeds through `postgresSeed.ts`. Holders settle through the production reapers, and a live holder stops the write | real Postgres |
 | `lib/case-store/migrations/__tests__/mediaFormat.postgres.test.ts` (part 04 §10's file from pull request 7, the one file for both media-format migrations; pull request 13 adds these cases) | the validation migration validates an empty table and a fully recorded one, and refuses one ready image without a format with its message and the constraint still `NOT VALID`. That case runs in order, because a `NOT VALID` check still holds every insert after it: migrate to the prefix before `20261101020000_hq_round_trip_platforms_media_format`, insert the ready image row, migrate through `20261101025000_hq_round_trip_platforms_android_capture_size`, then run the validation migration and assert its message and `pg_constraint.convalidated` false. Kept after the removal | real Postgres |
@@ -1238,9 +1316,10 @@ and baselines, stored `case_type_schemas` rows (`seedStoredSchemas`), cases, and
 for the byte-identical checks.
 
 The cutover adds no lane group and moves no proof timing. Five things are proven by the real system
-in the runbook and by no test: check 1; sharp loading in the built image (step 1(b)); the
-classification over production's files (the advisory dry run); the fleet transaction's duration
-over production's rows; and the drift writer converging exactly the counted drift (step 10).
+in the runbook and by no test: check 1; sharp loading in the built image (step 1(b)); the format of
+production's rows (the advisory dry run, which reads bytes only where a row needs them, section 7);
+the fleet transaction's duration over production's rows; and the drift writer converging exactly
+the counted drift (step 10).
 
 ## 16. Removal and the cutover's trace
 
@@ -1306,7 +1385,7 @@ What stays, the cutover's trace:
   (their rows), `scripts/README.md` (the entry), `docs/architecture/deployment.md` (one paragraph: "The HQ round-trip
   platforms cutover runs on its own Job, `commcare-nova-hq-round-trip-platforms`, from the
   maintenance image as `hq-round-trip-platforms.cjs`, with a time-conditioned read grant on the
-  media bucket made for each use and revoked after it. With no override the Job runs the dry run,
+  media bucket made only for a run that must read stored media bytes and revoked after it. With no override the Job runs the dry run,
   which writes nothing; `--prove-media-read`, `--settle-holders` and `--execute
   --expect-plan-digest <digest>` are its only other admitted shapes. Its runbook is
   `docs/plans/hq-round-trip/4-cutover-runbook.md`; the tool, the Job, the runbook and this
@@ -1352,9 +1431,10 @@ slot a form evaluates (10). From `main` as it stands: `scripts/lib/schemaDrift.t
   published app that declares Web Apps meets the `web-apps` confirmation at its next publish, and
   some meet `form-entry-sync-off`, which step 2's cutover told members of in the same reason; the
   renderer gains the sync setting so that line can name it.
-- **Two bucket grants**, an advisory one before the window as well as the window's: the full plan
-  needs the media classification, which runs only in the Job, and step 2's KMS precedent made the
-  same pair.
+- **Two bucket grants where a row needs bytes**, an advisory one before the window as well as the
+  window's: the full plan needs the media classification, which runs only in the Job, and step 2's
+  KMS precedent made the same pair. Where no row needs bytes, as production held at planning, no
+  grant is made (section 7).
 - **The Connect arm of `platforms-declared` drops "Its next publish turns off Web Apps for it in
   CommCare HQ."**: whether that is true depends on each project space, and the per-deployment line
   `next-publish-asks-web-apps` says it where it is.
@@ -1368,7 +1448,8 @@ slot a form evaluates (10). From `main` as it stands: `scripts/lib/schemaDrift.t
 
 ## Executed during planning
 
-Content-free, on this machine; no production read.
+Content-free, on this machine. One read touched production: the content-free, read-only scan of
+item 6, which the person approved.
 
 1. Nova history at `733dd193` (step 3's `writer.ts::applyLedger`, `holders.ts`, `fleet.ts::readDeployments`,
    the runbook, the `Dockerfile`, `.dockerignore`, `deploy-cloud-run.py` and infra test diffs), at
@@ -1390,3 +1471,15 @@ Content-free, on this machine; no production read.
    `scripts/migrate-schema-drift.ts`, `config/deployment-jobs.json`'s
    `commcare-nova-case-type-schema-retirement` contract and its allowlist arm, and step 3's
    runbook step 10 at `733dd193`, for the drift step of section 14.
+6. A content-free, read-only scan of production on 2026-10-23, reporting classes, never names or
+   values; no count from it enters this plan. It found: Connect apps of both kinds, some also
+   holding date-and-time questions; a few other apps Android only for a date-and-time question
+   alone; a few Web Apps only (for Search first or for a single-date Search field); a few on
+   neither, each a date-and-time question beside a single-date Search field; no app of a blocker
+   class; no stored `drift`, `window_width` or `applanguage` read (the session context reads are of
+   `userid` and `username`) and no clock-keeping date; ready media rows of JPEG and PNG only beside
+   document rows; and `app_deployments.target_web_apps_enabled` `true` on some deployments and null
+   on most. Sections 2, 5, 7 and 11 state where each decides something.
+7. A read of `lib/media/validate.ts`'s history (`git log`, `git show c14d45cb` and `d07c38df`) for
+   section 7's rule: the sharp read of PNG, JPEG, GIF and WebP and the music-metadata parse of MP3
+   since #45, and BMP, M4A and FLAC first accepted by #765 with the checks part 04 keeps.

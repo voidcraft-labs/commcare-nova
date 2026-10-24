@@ -57,13 +57,13 @@ references use the fifteen pull requests by number; the stack table is the plan'
    §8, pull request 4) names both entries and refuses a non-HELD one, while Nova writes
    `cloudcare_enabled` only from pull request 5, whose emission cells say so (§6).
 7. **Media entries move in pull request 7**: SVG becomes REFUSED (HQ cannot store it), ICO and AVIF
-   HELD for Web Apps only, the Android-only and High-profile variants HELD, and the two narrows step 2
-   left are dropped as the MP4 and WAV readers land; `media-formats.json` takes the media work's
-   edits too: AAC where it named AAC-LC, and the browser playback record (§7). Two of part 04's
-   gates decide text here, and §7.1 writes both answers of each: HQ's storage of an AVIF in the proof
-   image, and the person's answer, before pull request 7 is cut, on running Android's decode probe
-   on H.264 High. Reason: these are what the media work (part 04) accepts, and an SVG anywhere in a
-   publish loses every file of it.
+   HELD for Web Apps only, the Android-only variants HELD, the H.264 High entry merged into the
+   Baseline-or-Main one, and the two narrows step 2 left are dropped as the MP4 and WAV readers
+   land; `media-formats.json` takes the media work's edits too: AAC where it named AAC-LC, the
+   browser playback record, and H.264 High's Android reading `runs` from the decode run made during
+   planning (§7). One of part 04's gates decides text here, HQ's storage of an AVIF in the proof
+   image, and §7.1 writes both its answers. Reason: these are what the media work (part 04)
+   accepts, and an SVG anywhere in a publish loses every file of it.
 8. **Expression reads move in pull request 10**: the three session context fields, the case list's
    search text (`session/data/stringquery`), search inputs read in a search-first module's forms
    and in its case list and detail, and the search-value context terms split by field (§8). The
@@ -795,11 +795,12 @@ part make the entries HELD in this order, and the table follows it (part 01 §4.
   instead to part 01's fifth pull request 10 feature, `window-width-in-search`, since its pair
   (runs / different) is then not `window-width`'s (different / different).
 - **Media** (the binding test's rule 7 over `media-format:` keys, part 01 §8.2): from pull request 4
-  the rule reads the media entries HELD at `main`; the four that are neither features nor ambient
-  (part 01 §4.3) join it in pull request 7, when §7 makes them HELD. Under the second outcome of
-  §7.1's AVIF gate `image-ico` stands where `image-ico-avif` would, and where the person's decode
-  run shows Android playing H.264 High, `video-mp4-h-264-high` merges into the Baseline-or-Main
-  entry, so three join.
+  the rule reads the media entries HELD at `main`; the three that are neither features nor ambient
+  (part 01 §4.3) join it in pull request 7, when §7 makes them HELD; `video-mp4-h-264-high`,
+  HELD-NEW at `main`, is removed in the same pull request, merged into the Baseline-or-Main entry
+  (§7.1). Under the second outcome
+  of §7.1's AVIF gate `image-ico` stands where `image-ico-avif` would, so three join under either
+  outcome.
 
 ### 5.4 Skip-to-results' citation
 
@@ -889,8 +890,9 @@ Vorbis, Opus or no audio`: Disposition "**HELD** (MP4; narrow: Nova checks no co
 The video cell names no AAC profile: the media work keeps step 2's choice not to read the AAC object
 type, for ADTS as for M4A (part 04 §3.1, `lib/media/CLAUDE.md`, M4A), so from this pull request
 `media-formats.json` names AAC where it named AAC-LC (§7.2) and the cell claims no profile check
-Nova does not make. The entry's `item` and id keep the research's wording, the HQ item as the
-research named it.
+Nova does not make. The entry's id keeps the research's wording; its `item` changes only by the H.264 High merge below,
+and its `valueClass` `mp4-h264-baseline-main-webm` then covers High too (no test or lane reader
+names either id or class).
 
 **ICO, SVG and AVIF split.** `image-ico-svg-avif` is removed and replaced, at its position, by:
 
@@ -994,44 +996,39 @@ upload stopping as for the SVG, pull request 7 lands instead of `image-ico-avif`
   ("p.png", _png()))` under its id. Reason: the REFUSED class has a value class, so without a
   reader every `media-class:CommCareImage` use would be undecided, as §7.3 says for SVG.
 
-**The Android-only and High-profile variants**, each → HELD with `slotChanges` `[]`, the cell's
-parenthesis unchanged:
+**The Android-only variants**, each → HELD with `slotChanges` `[]`, the cell's parenthesis
+unchanged:
 
 | Entry | `dispositionCell` change |
 |---|---|
 | `audio-raw-aac-adts-aac-amr-midi` | "**HELD-NEW**: an audio asset for an app that does not declare Web Apps (…)" → "**HELD**: an audio asset for an app that does not declare Web Apps (…)" |
-| `video-mp4-h-264-high` | "**HELD-NEW**: a video asset for an app that does not declare Android (Android 6.0 guarantees only Baseline and Main)" → "**HELD**: a video asset for an app that does not declare Android (Android 6.0 guarantees only Baseline and Main)" |
 | `video-hevc-mp4-mpeg-4-part-2-mp4-and-mkv-holding-a-codec-android` | "**HELD-NEW**: a video asset for an app that does not declare Web Apps (…)" → "**HELD**: a video asset for an app that does not declare Web Apps (…)" |
 
 "(…)" stands for the parenthesis each cell holds today, kept byte for byte. Rows: Disposition cells,
 the same change.
 
-**H.264 High on Android, by the person's answer.** Whether Android's decode probe runs on H.264
-High is a gate the person answers before pull request 7 is cut (part 04 §8.5), so this part writes
-the manifest text of both answers:
+**H.264 High merges into the Baseline-or-Main entry, by the decode run.** Android's decode probe
+ran during planning, on the person's Mac at their request, and each of the three images
+`android-decode` names decoded `lib/media/__tests__/fixtures/tiny-video.mp4`, the corpus's H.264
+High video, to its end (part 04 §8.5). So in pull request 7:
 
-- **They decline.** Readings unchanged: `video-mp4-h-264-high` stays `unavailable` on Android, the
-  reading `media-formats.json` gives `media-format:video/mp4-h264-high` ("Android 6.0 guarantees
-  only the Baseline and Main profiles."), and the flip above lands as written. The cutover's
-  removal of High references from apps that run on Android then waits on the person's confirmation
-  of the advisory dry run's count of them (part 09 §14, runbook step 1(f)).
-- **They run it.** Its outcome lands in pull request 7. Every `ACCEPTED` file that decodes on all
-  three images gains `android.executed: "android-decode"` on its item, and the `android-decode`
-  record's `files` becomes "lib/media/__tests__/fixtures/ and the files
-  lib/media/__tests__/bmpFixtures.ts and lib/media/__tests__/builtFixtures.ts build" (its readers
-  change only where a fingerprint changed). Where all three images decode
-  `pattern-h264-high.mp4` to its end, `items["media-format:video/mp4-h264-high"].android` becomes
+- `media-formats.json`: `items["media-format:video/mp4-h264-high"].android` becomes
   `{"reading": "runs", "executed": "android-decode", "note": "Decoded by the emulator images'
-  software decoders; Android 6.0 guarantees only Baseline and Main."}`, and the High entry merges
-  into the Baseline-or-Main one: `video-mp4-h-264-high` and its row `video MP4 H.264 High` are
-  removed in place of the flip above; `video-mp4-h-264-baseline-or-main-with-aac-lc-or-no-audio-webm`
-  keeps its id, gains `"media-format:video/mp4-h264-high"` in `surfaceKeys` after
-  `"media-format:video/mp4-h264-main"`, and its `item` becomes "video MP4 H.264 Baseline, Main or
-  High, with AAC-LC or no audio; WebM VP8 or VP9, with Vorbis, Opus or no audio", its row's HQ
-  item cell the same. Reason: rule 7 of part 01 §8.2 holds a HELD media entry to one reading pair
-  for all its formats, and High then reads as Baseline and Main do. Where any image refuses it,
-  the reading stays `unavailable`, its note gains the image that refused, and the flip above lands
-  as written.
+  software decoders; Android 6.0 guarantees only Baseline and Main."}`. The `android-decode`
+  record's readers are unchanged (the run's fingerprints are the ones it names), and its `files`
+  becomes "lib/media/__tests__/fixtures/ and the files lib/media/__tests__/bmpFixtures.ts and
+  lib/media/__tests__/builtFixtures.ts build", since pull request 7's probe lists add the built
+  files for later runs.
+- The inventory: `video-mp4-h-264-high` and its row `video MP4 H.264 High` are removed;
+  `video-mp4-h-264-baseline-or-main-with-aac-lc-or-no-audio-webm` keeps its id, gains
+  `"media-format:video/mp4-h264-high"` in `surfaceKeys` after `"media-format:video/mp4-h264-main"`,
+  and its `item` becomes "video MP4 H.264 Baseline, Main or High, with AAC-LC or no audio; WebM VP8
+  or VP9, with Vorbis, Opus or no audio", its row's HQ item cell the same.
+
+Reason: rule 7 of part 01 §8.2 holds a HELD media entry to one reading pair for all its formats,
+and High now reads as Baseline and Main do. The other variants' Android readings stay the
+documentation's: the planning run used the probe as it stands at `main`, and part 04 §8.5's
+extended `ACCEPTED` serves a later run.
 
 ### 7.2 `media-formats.json`
 
@@ -1502,10 +1499,11 @@ outcome.
 - **Pillow on SVG, ICO and AVIF.** Pillow 12.3.0, the version commcare-hq's `uv.lock` pins, on the
   author's Mac, opened an ICO and an AVIF file and refused an SVG file with `UnidentifiedImageError`,
   an `IOError`, which `CommCareImage.get_image_object` turns into `BadMediaFileException`.
+- **Android's decode of H.264 High**, on the person's Mac on 2026-10-23 at their request
+  (`proof/android/decode/run.sh` on the three images `android-decode` names): each decoded
+  `tiny-video.mp4` to its end, so §7.1 merges the High entry (part 04 §8.5).
 - **Not executed, planned as gates**, each with both outcomes written:
   - the native run of §8.4, a hand-started `expression` run on pull request 10's branch (part 03
     §6.4, part 08 §5.2);
   - HQ storing an AVIF through the Linux wheel the proof image installs, the native `media`
-    family's `media-web-apps-on` scenario in pull request 7's lane (§7.1, part 04 §8.3);
-  - Android's decode of H.264 High, run only on the person's yes, which they give or withhold
-    before pull request 7 is cut (§7.1, part 04 §8.5).
+    family's `media-web-apps-on` scenario in pull request 7's lane (§7.1, part 04 §8.3).

@@ -1390,20 +1390,18 @@ those.
   | `case-search/runtime-values-read-from-the-session-context-window-width` (10) | android | `window-width-android-blank` | as the row above, for a Search field's starting value |
 
 **Refused, media** (part 04's export boundary rule `MEDIA_FORMAT_NOT_PLAYED`, part 04 §6.7, and the
-commit kernel's `platform-unplayable`, part 04 §6.2). Two of the entries depend on runs part 04 makes
-in pull request 7, which lands before these rows, so pull request 9 writes the set the manifest holds
-at its head:
+commit kernel's `platform-unplayable`, part 04 §6.2). One of the entries depends on a run part 04
+makes in pull request 7, which lands before these rows, so pull request 9 writes the set the manifest
+holds at its head:
 - `expressions-and-data/audio-raw-aac-adts-aac-amr-midi@web-apps` and
   `expressions-and-data/video-hevc-mp4-mpeg-4-part-2-mp4-and-mkv-holding-a-codec-android@web-apps`,
   under every outcome;
 - the AVIF gate (part 04 §8.3): when HQ stores the AVIF, `expressions-and-data/image-ico-avif@android`;
   when HQ refuses it, `expressions-and-data/image-ico@android` instead, and the new AVIF entry is
   REFUSED, so it is outside the required set;
-- H.264 High (part 04 §8.5, whose question the person answers before pull request 7 is cut, so
-  its reading is settled at pull request 9's head): when the person declines the decode run, or
-  their run leaves the reading `unavailable`, `expressions-and-data/video-mp4-h-264-high@android`;
-  when their run decodes it on all three images, the entry merges into the Baseline-or-Main one,
-  which reads `runs` on both, and no High row is written.
+- no H.264 High row: Android's decode probe decoded High on all three images during planning
+  (part 04 §8.5), so pull request 7 merges `video-mp4-h-264-high` into the Baseline-or-Main entry,
+  which reads `runs` on both.
 
 **Model.**
 

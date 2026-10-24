@@ -1174,8 +1174,22 @@ finding.
 
 ## 10. Production and the cutover
 
-No production read was made while planning. The cutover's scan (pull request 13) is part 09's,
-and its report carries, as content-free lines (part 09 §6), the counts this part needs, by class:
+A content-free, read-only scan of production, which the person approved, was made during planning;
+no count from it enters this plan, and what it found is stated where it decides something:
+
+- **The split runs in production.** A few stored apps run on neither platform, each because of a
+  date-and-time question beside a single-date Search field, so `planContentDeclaration` declares
+  them Web Apps only and splits their date-and-time questions (part 09 §5, step 1). A few others
+  become Android only for a date-and-time question alone, which needs no split.
+- **No clock-keeping date is stored**, so count 1 below meets nothing there: rules R2 and R3 retype
+  no stored expression, and no `target-gate` blocker of that kind and no drift from it arise.
+- **No `drift`, `window_width` or `applanguage` read is stored**: the session context reads
+  production holds are of `userid` and `username` alone, with no `deviceid` read. So §6.2's typing
+  (pull request 10) meets nothing stored, count 3 below meets nothing there, and under either
+  outcome of §6.4's gate no stored `window_width` read is refused.
+
+The cutover's scan (pull request 13) is part 09's, and its report carries, as content-free lines
+(part 09 §6), the counts this part needs, by class, which hold for every database it runs on:
 
 1. stored form-logic expressions already holding a clock-keeping date, by writer and non-writer.
    R2 and R3 retype each, and both outcomes are decided. A hit the target gate refuses (a
@@ -1346,7 +1360,8 @@ reason.
 
 ## Executed during planning
 
-Nothing here was a paid call, a production read, a build, a test run or a lane run. Planning read
+Nothing here was a paid call, a build, a test run or a lane run. The one production read was the
+content-free scan of §10, which the person approved; no count from it enters this plan. Planning read
 Nova at `e9e6cd93`, the Dimagi checkouts at the pins and `../nova-plugin`'s skills with `rg`. Two UUIDv5 computations gave
 §2.5's identities, and a read of the corpus document `fuzz-suite-20260930-8` as emitted from
 `main` gave its field (`model`, in a repeat, no `caseWrite` and no readers, `default_value`

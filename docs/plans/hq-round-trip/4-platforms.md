@@ -26,7 +26,7 @@ execution and where each outcome is written.
 | [01](4-platforms/01-declaration-and-features.md) | The declaration (its stored shape, mutation, readers and writers, why no horizon and no DDL yet a window), the platform table `lib/domain/platforms.ts` and its detectors `lib/domain/platformUses.ts`, the 47 features and 34 ambient entries, both validator channels, the refusal copy in three voices, the binding test, the parity test, CommCare Connect |
 | [02](4-platforms/02-manifest.md) | Every manifest, `media-formats.json`, `gates.json` and inventory edit by pull request, the lane's HELD-NEW check, the SVG and window width readers, the instance-read lists |
 | [03](4-platforms/03-questions-and-expressions.md) | Defect 18: the date-and-time question's refusal and the split (design E, rules R2 and R3, the planner); `here()` in a case list; step 3's deferred reads: Search fields in a search-first module, the case list's search text, the session context fields and the window width gate, the `current()` print |
-| [04](4-platforms/04-media.md) | Defect 11's second half: the variant registry `MEDIA_FORMATS`, the new readers, `media_assets.media_format`, acceptance per reference in five places, SVG refused, Preview's stand-in, the corpus video's re-encode, the media runs |
+| [04](4-platforms/04-media.md) | Defect 11's second half: the variant registry `MEDIA_FORMATS`, the new readers, `media_assets.media_format`, acceptance per reference in five places, SVG refused, Preview's stand-in, H.264 High settled by Android's decode run, the corpus stand-ins, the media runs |
 | [05](4-platforms/05-publish.md) | Publish: `cloudcare_enabled`, the `web-apps` plan feature, the Web Apps question, the first-publish stop, the dropped column, the setup artifact and import file, no `.ccz` without Android; defect 20's `form-entry-sync-off` confirmation; CommTrack to step 5 |
 | [06](4-platforms/06-preview.md) | Preview per platform: the effective platform, session state, the identity menu's "Runs on" group, the one rule table, the Android home screen and form screens, every differing behavior, session context values, App Tests and `evaluate_form`, the cell table, the three Android renderings |
 | [07](4-platforms/07-authoring.md) | The builder (the platform section, its preflight, offering by declaration, the note row, the split gesture, the Connect dialogs) and the SA and MCP (`updateApp.runs_only_on`, the guide, prompts, overview, pre-checks); the `../nova-plugin` sweep |
@@ -82,7 +82,8 @@ as a run, at the commits `proof/pins.json` names, unchanged since step 2: commca
 pin, with js-xpath at `v0.0.10`, Vellum's dependency. Citations are `file::symbol`.
 
 **Executed during planning.** Each part's "Executed during planning" gives the run and what it
-showed; all were content-free and on this machine. The runs that decided the plan:
+showed; all were content-free and ran on this machine, one of them reading production's database
+read-only. The runs that decided the plan:
 
 - **The lane's own manifest extraction** (`proof/checks/manifest_usage.py::app_json_uses`,
   `archive_uses`) over a corpus of 392 documents emitted at `main`, without HQ's or Core's
@@ -99,8 +100,14 @@ showed; all were content-free and on this machine. The runs that decided the pla
   Connect on. Joined with the registers, the reader policy moves no register entry (part 08 §3.1,
   §3.2).
 - **A box walk over the corpus video** `lib/media/__tests__/fixtures/tiny-video.mp4`: its `avcC`
-  is H.264 profile 100, High, so 46 documents hold a file Android 6.0 is not guaranteed to play
-  (part 04 §8.1).
+  is H.264 profile 100, High, and every corpus document that holds a video holds this file, a
+  profile Android 6.0 does not guarantee (part 04 §8.1).
+- **Android's decode probe**, `proof/android/decode/run.sh`, on the person's Mac at their request,
+  on the three emulator images whose fingerprints are exactly the readers of
+  `media-formats.json`'s `android-decode` record (Android 6.0, 10 and 15): each decoded
+  `tiny-video.mp4` to the end of its stream, so H.264 High plays on both platforms, the corpus video
+  is not re-encoded and the cutover removes no High reference. Every other fixture matched step 2's
+  records but one Nova refuses at upload (part 04 §8.5).
 - **`file-type` 22.1.1 sniffs** of ICO, ADTS AAC, AMR and MIDI, and reads of its MKV detector
   (part 04 §2.2).
 - **Pillow 12.3.0**, the version commcare-hq's `uv.lock` pins, opened an ICO and an AVIF file and
@@ -111,10 +118,25 @@ showed; all were content-free and on this machine. The runs that decided the pla
   platform (part 03 §2.5), and reads of the installed Google Cloud SDK and of `file-type`,
   `music-metadata` and their dependencies for the cutover's bucket grant and bundle (part 09).
 
-No production read was made. The cutover's advisory scan and dry run count every class the plan
-meets before the window, and every class they can find has a planned transform or is a blocker
-with its remedy (part 09 §11). Nothing was run in HQ, Core, Formplayer, Android, Connect, a browser
-or the lane.
+- **A content-free, read-only scan of production**, which the person approved; no count from it
+  enters this plan, and each part states what it found where that decides something. Production
+  holds Connect apps of both kinds, so the cutover's Connect arm declares many apps Android only,
+  some of them holding date-and-time questions that therefore need no split (part 01 §10.3, part
+  09 §5). A few other apps become Android only for a date-and-time question alone, a few Web Apps
+  only (for Search first or for a single-date Search field), and a few run on neither, each
+  because of a date-and-time question beside a single-date Search field, so the split runs in
+  production (part 03 §10, part 09 §5). No app is of a blocker class: no Connect app holds
+  something Android cannot run, and there is no `here()` and no `window_width` read (part 09 §11).
+  No `drift`, `window_width` or `applanguage` read is stored (the session context reads are of
+  `userid` and `username`), so pull request 10's typing meets nothing stored, and no clock-keeping
+  date is stored (part 03 §10). Media rows are JPEG and PNG images beside documents, with no audio
+  or video row, so the backfill classifies images only, from their MIME with no byte read, and the
+  cutover removes no media reference (part 04 §9, part 09 §7). Some deployments store
+  `target_web_apps_enabled` `true` and most null (part 09 §2).
+
+The cutover's advisory scan and dry run still count every class the plan meets before the window,
+and every class they can find has a planned transform or is a blocker with its remedy (part 09
+§11). Nothing was run in HQ, Core, Formplayer, Connect, a browser or the lane.
 
 **Written and not yet run.** Each part states its design as the plan's and says in place where a
 run is outstanding; this list is every such place.
@@ -146,12 +168,6 @@ run is outstanding; this list is every such place.
   §7.2).
 - **HQ's bulk upload of every new variant and of an SVG** (pull request 7's lane): a variant HQ
   types as another kind leaves what Nova accepts (part 04 §8.3, part 08 §5.3).
-- **Android's decode of H.264 High**, a gate the person answers before pull request 7 is cut. The
-  probe runs only on their Mac, and the cutover's removal of every High reference from an app that
-  runs on Android is authored content taken out on a documented reading alone, so neither happens
-  without them. If they run it, its outcome lands in pull request 7; if they decline, the reading
-  stays `unavailable`, and the window does not open until they confirm the advisory dry run's count
-  of `mp4-h264-high` references to remove (part 04 §8.5, part 09 §14 step 1(f)).
 - **Publish's three proof runs** (pull request 5; part 05, "Written and not yet run", writes both
   outcomes of each): the 402 a mobile worker meets without the privilege
   (`proof/webapps/test_session.py`, a slice started by hand, part 08 §6.3, pull request 5's row),
@@ -167,7 +183,7 @@ run is outstanding; this list is every such place.
   consequence's second clause among them.
 - **The reader runs by hand** at the heads of pull requests 2, 3 (the split on every reader; HQ's
   two editor saves keeping the typed bind run in pull request 3's own lane, part 03 §2.3), 4, 5, 6,
-  7, 9 and 10 and once at the top of the stack (part 08 §6.3, with what each must show and how an unforeseen stop is handled);
+  9 and 10 and once at the top of the stack (part 08 §6.3, with what each must show and how an unforeseen stop is handled; pull request 7 moves no document's key and has none);
   and the control `targeted-list-first-web-apps-declared`, retained from pull request 5's first
   lane run (part 08 §2.5).
 - **Defect 21's re-homed `requests` entry** on `targeted-sync-on-form-entry-web-apps`, decided by
@@ -183,9 +199,10 @@ run is outstanding; this list is every such place.
   readers (part 08 §4.4).
 - **The billed `npm run test:schema`**, asked of the person once at pull request 12's head (part
   07 §3.10).
-- **The cutover's advisory scan and dry run**, the classification over production's files, and
-  the fleet transaction's duration; a plan longer than an hour raises the Job's timeout before the
-  window (part 09 §13, §14).
+- **The cutover's advisory scan and dry run**, the formats of production's media rows (from their
+  MIME, and from their bytes only for a row that needs them, with the bucket grant made only then),
+  and the fleet transaction's duration; a plan longer than an hour raises the Job's timeout before
+  the window (part 09 §7, §13, §14).
 - **The first nightly after the merge**, the whole lane with every reader (part 08 §6.4).
 
 ## What changed from the outline, and why
@@ -230,11 +247,13 @@ is a decision; the part named gives its evidence.
    and stores; a reference is accepted only where every declared platform plays it, at the commit
    kernel, the attach verdicts, the export boundary (`MEDIA_FORMAT_NOT_PLAYED`), the builder and the
    declaration change. Bytes no variant admits are kept as `unplayable` (part 04 §2, §5, §6).
-9. **H.264 High plays on Web Apps only**, the manifest's reading, since Android 6.0 guarantees only
-   Baseline and Main. The corpus video is re-encoded as H.264 Main. The removal this costs is the
-   person's to decide: pull request 7 is not cut until they have answered whether to run Android's
-   decode probe on their Mac, and if they decline, the window does not open until they confirm the
-   advisory dry run's count of High references to remove; both answers are part 04 §8.5.
+9. **H.264 High plays on both platforms, by Android's decode run.** The documentation left it to
+   Web Apps, since Android 6.0 guarantees only Baseline and Main; the person ran Android's decode
+   probe on their Mac during planning, and all three emulator images decoded the corpus's High
+   video to its end. So its item reads `runs` on Android with `executed: "android-decode"` and a
+   note keeping the guarantee in view, its inventory entry merges into the Baseline-or-Main one, the
+   corpus video is not re-encoded, and the cutover removes no High reference (part 04 §8.5, part 02
+   §7.1).
 10. **Publish writes `cloudcare_enabled` from the declaration on every generated application
     body**, never through the target overlay (part 05 §2).
 11. **`cloudcare` is the plan feature `web-apps`**, asked for an app that declares Web Apps, with no
@@ -306,7 +325,7 @@ is a decision; the part named gives its evidence.
     decision 4 (one server-side preflight for content and media); part 08, "Departures" (no
     per-state Web Apps record for an app without Web Apps, the intent clause in pull request 5,
     no local archive without Android); part 09, "Departures" (the `next-publish-asks-more`
-    extension, two bucket grants, the Connect notice line, no orphan-key scan, the drift writer run
+    extension, two bucket grants where a row needs bytes, the Connect notice line, no orphan-key scan, the drift writer run
     in the window).
 
 The plan's own pull request writes into the later outlines what moves there: CommTrack into
@@ -379,7 +398,7 @@ cost and checks.
 | 4 | The declaration and the platform table: model, mutation, table and detectors, both channels, the binding and parity tests, Connect, `searchWireShape`, `planContentDeclaration`, corpus declarations and the fuzz mapping, finding 74's stops, `targeted-platform-declaration` | 01, 02, 03, 08, 09 |
 | 5 | Publish, Web Apps: `cloudcare_enabled`, the `web-apps` plan feature, the Web Apps question, the first-publish stop, the column drop, the setup artifact and import file, the `.ccz` refusal, the capture, the intent clause, defect 21's manifest entries | 05, 08, 02 |
 | 6 | Publish, defect 20: the `form-entry-sync-off` confirmation, its migration, its 15 register moves, defect 21's `requests` entry re-homed or fixed by the lane's outcome | 05, 08 |
-| 7 | Media by platform: registry, readers, the format column, acceptance at the kernel, attach, boundary and builder guard, Preview's stand-in, the SVG reader, the fixture re-encode, the native scenarios, the browser spec | 04, 02, 08 |
+| 7 | Media by platform: registry, readers, the format column, acceptance at the kernel, attach, boundary and builder guard, Preview's stand-in, the SVG reader, H.264 High's Android reading from the planning decode run, the native scenarios, the browser spec | 04, 02, 08 |
 | 8 | Preview, the model: rule table, session state and context, recalculation, form screens, the Android home, entry points, the case list menu item, search, tiles, `here()`, capture limits and their migration, App Tests (`RUNTIME_VERSION` 17) and `evaluate_form` platforms, `MODEL_CONTEXT_VERSION` `.8`, worker protocol 9 | 06 |
 | 9 | Preview, the screens: the platform choice, the widgets and stand-ins, help, text rendering, logo, the home screen, the cell table and its completeness test, Playwright, `targeted-preview-android-renders` and its three Android slices | 06, 08 |
 | 10 | Expression reads: the window width gate's run first; Search fields in search-first forms and lists, `case-list-search-text`, the context fields, the count guard, the `current()` print, their manifest flips, table rows and cell rows, targeted documents and native classes; `MODEL_CONTEXT_VERSION` `.10` | 03, 01, 02, 06, 08 |
@@ -411,8 +430,8 @@ and media bucket and no CommCare HQ state.
 
 - **The window** is still needed: the previous image's strict `appSettingsSchema` refuses the key
   the cutover writes, and the column drop is not additive.
-- **One Job of its own**, `commcare-nova-hq-round-trip-platforms`, because the backfill needs
-  `NOVA_MEDIA_BUCKET`; its stored arguments are the dry run, and `--execute --expect-plan-digest`
+- **One Job of its own**, `commcare-nova-hq-round-trip-platforms`, because a backfill that reads bytes needs
+  `NOVA_MEDIA_BUCKET`, and it stays its own where none does (part 09 §13); its stored arguments are the dry run, and `--execute --expect-plan-digest`
   refuses any other plan. One fleet transaction, one `blueprint-migration` batch per changed app
   through `lib/db/apps.ts::appendSyntheticBatchInTransaction` (actor
   `system:hq-round-trip-platforms`, batch id `hq-round-trip-platforms:<appId>`), every identity
@@ -422,13 +441,14 @@ and media bucket and no CommCare HQ state.
   questions only where that is the only way an app runs anywhere); `remove-unplayed-media`;
   `judge-target` (schema, absolute gate, export readiness, replayability, an unchanged case store,
   idempotence); `deployment-lines`.
-- **The media backfill** classifies every ready image, audio and video row from its stored bytes
-  with the production classifier, keeping bytes no variant admits as `unplayable`, under a
-  time-conditioned bucket read grant revoked and read back after each use: one advisory grant for
-  the dry run before the window, one for the window. Where H.264 High reads `unavailable` on
-  Android, `remove-unplayed-media` removes every `mp4-h264-high` reference from an app that
-  declares Android, and the window does not open until the person confirms the advisory dry run's
-  count of them (part 04 §8.5, part 09 §5 step 2 and §14 step 1(f)).
+- **The media backfill** gives every ready image, audio and video row its format. A row whose
+  stored MIME has one variant whose check its upload already ran takes that variant without a byte
+  read; every other row (WAV, Ogg, MP4, WebM) is classified from its stored bytes with the
+  production classifier, keeping bytes no variant admits as `unplayable`, under a time-conditioned
+  bucket read grant revoked and read back after each use: one advisory grant for the dry run before
+  the window and one for the window, each made only where the `media` line's `needsBytes` counts a
+  row. Production holds JPEG and PNG rows alone, so as it stands no byte is read and no grant is
+  made; the Job stays its own either way (part 09 §7, §14).
 - **The ledger**: five migrations of the stack apply inside the fleet transaction in two phases,
   four before the backfill (the column drop, the confirmation kind, the format column, the capture
   size) and the format check's validation after it, so the DDL commits or rolls back with the

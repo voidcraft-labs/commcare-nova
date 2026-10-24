@@ -841,14 +841,15 @@ the pollsensor's only effect on any runtime is the meta location a Connect form 
 pollsensor HQ builds for a location question writes nothing, and the question's own
 `location-question` row states that question's difference.
 
-Four HELD media entries (from pull request 7: `image-ico-avif`, `audio-raw-aac-adts-aac-amr-midi`,
-`video-mp4-h-264-high`, `video-hevc-mp4-mpeg-4-part-2-mp4-and-mkv-holding-a-codec-android`) are
-neither features nor ambient: media acceptance by declaration is pull request 7's, and the binding
-test's rule 7 holds them to their formats. Their ids are part 02 §7.1's, and two follow pull request
-7's own outcomes (part 04): where HQ's image refuses an AVIF (part 04 §8.3), `image-ico-avif`
-becomes `image-ico` beside a REFUSED AVIF entry, and where the person runs the decode probe and every
-image decodes H.264 High (part 04 §8.5, a question pull request 7 is not cut without), the High entry
-merges into the Baseline-or-Main one. Rule 7 reads whichever entries land.
+Three HELD media entries (from pull request 7: `image-ico-avif`, `audio-raw-aac-adts-aac-amr-midi`,
+`video-hevc-mp4-mpeg-4-part-2-mp4-and-mkv-holding-a-codec-android`) are neither features nor
+ambient: media acceptance by declaration is pull request 7's, and the binding test's rule 7 holds
+them to their formats. Their ids are part 02 §7.1's. `video-mp4-h-264-high`, HELD-NEW at `main`, is
+not among them: Android's decode probe, run during planning, decoded H.264 High on all three images
+(part 04 §8.5), so pull request 7 merges that entry into the Baseline-or-Main one, which reads the
+same on both platforms. One entry follows pull request 7's own outcome (part 04 §8.3): where HQ's
+image refuses an AVIF, `image-ico-avif` becomes `image-ico` beside a REFUSED AVIF entry. Rule 7
+reads whichever entries land.
 
 ### 4.4 What the table depends on from pull request 1
 
@@ -1388,7 +1389,10 @@ request 1's (part 02 §3.1).
   `connectType !== null`, so `planContentDeclaration` (§3) declares every Connect app Android only
   and splits none of its questions (`contentRunsOn` gives `["android"]` alike); its notice sentence
   is part 09 §12's. A Connect app that also holds an Android-unavailable use is `runs-on-neither`,
-  the cutover's blocker, whose remedy is part 09 §11's.
+  the cutover's blocker, whose remedy is part 09 §11's. Production holds Connect apps of both kinds,
+  learn and deliver (the content-free scan made during planning, part 09 §5, §11), so this arm declares
+  many apps Android only, some of which also hold date-and-time questions that the declaration
+  leaves whole; no Connect app there holds something Android cannot run, so none is a blocker.
 - **Fixtures** (pull request 4): §11.3.
 
 ---
@@ -1549,6 +1553,10 @@ Android in the batch that turns Connect on (part 08 §3.5).
   HQ's client, of a several-case arm in Core's navigator and in commcare-android, and of a password
   in Connect's worker payload.
 
+- **The content-free production scan**, read only, which the person approved: Connect apps of both
+  kinds are stored, none holding a use Android cannot run (§10.3, part 09 §11). No count from it
+  enters this plan.
+
 Nothing was run in HQ, Core, Formplayer, Android, Connect or the lane for this part.
 
 ---
@@ -1629,7 +1637,7 @@ under outcome B), with §11.1's search runtime value cases for `drift` and `wind
 |---|---|
 | Part 02, the manifest (1, 4, 10) | the feature and ambient tables its HELD flips must keep HELD (rule 2), §4.5's order of pull requests |
 | Part 05, publish (5, 6) | `declaresWebApps`, `declaresAndroid`; `contentRunsOn`, `unavailableUses` and `PLATFORM_FEATURES[id].label` for `narrowingTo` (part 05 §9) |
-| Part 04, media (7) | `declaredPlatforms`, `PLATFORM_LABELS`, `inPlatform` and `platformDeclarationPhrase` for every line that names a platform in a sentence; its four HELD media entries meet rule 7 |
+| Part 04, media (7) | `declaredPlatforms`, `PLATFORM_LABELS`, `inPlatform` and `platformDeclarationPhrase` for every line that names a platform in a sentence; its three HELD media entries meet rule 7 |
 | Part 06, Preview (8, 9) | `declaredPlatforms`, `PLATFORM_LABELS`, `inPlatform` for every Preview line that names a platform as a place, `PlatformFeatureId` and `PLATFORM_FEATURES` for the cell table, `lib/commcare/surface/__tests__/loadManifest.ts`, which pull request 4 creates and pull request 9 only imports |
 | Part 03, expression reads (10) | §4.5's rows and both outcomes of §4.1's gate, `expressionLeafFeature`, `ExpressionContext.platforms`, §6's form-logic arm; its notes and refusal sentences are quoted from §4 and §7, never restated |
 | Part 07, builder (11) | `declaredPlatforms`, `platformDeclarationLabel`, `platformPickerLine(platformRefusal(feature, platforms))` for a withheld choice and `platformPickerLine(error.platform)` for an expression item the checker refused (§2.3; Connect's line for the platform section is the `connect-app` row's `pickerLine`), `platformSentence(feature, declaredPlatforms(doc))` for a stated difference, `featureForFieldKind` and `PLATFORM_FEATURES[id].fieldKind`, `unavailableUses` for what a widening would strand, `platformBuilderSentence` for refusals, §7's Connect copy, `AppSettingsPatch` from `lib/domain/blueprint.ts` |
