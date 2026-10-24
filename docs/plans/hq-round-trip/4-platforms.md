@@ -289,7 +289,16 @@ is a decision; the part named gives its evidence.
     and time kind), and changes it with `updateApp.runs_only_on` (part 07 §3).
 27. **The census counts Connect**: 324 / 37 / 30 / 1 where the planning scan first left Connect to
     emission, and 398 documents at the exit (part 08 §3.1).
-28. **The departures each part records and accepted**: part 02 §3.2 (the no-matches form's label
+28. **List-first search in an app that declares Web Apps is sent knowingly, and stays step 5's.**
+    From pull request 5 every app that declares Web Apps, the default, sends `cloudcare_enabled:
+    true`, so a list-first searching module is HQ's REFUSED `list-first-with-web-apps` class,
+    which a Case List save rewrites to search first (defect 21). HQ already stores `true` for every
+    app it created under the `cloudcare` privilege, so the harm predates step 4; step 4 makes it hold
+    wherever Web Apps is declared, and closing it needs the search workflow setting step 5 builds.
+    Step 4 registers its two `manifest` entries and leaves the fix to step 5 rather than writing
+    `false` for an app that declares Web Apps, which would take the app out of Web Apps (part 08
+    §2.5, part 02 §5).
+29. **The departures each part records and accepted**: part 02 §3.2 (the no-matches form's label
     takes no widen); part 03, "Departures" (the search text's `P[1]`, `window_width` refused in
     every form slot, two context documents, a Search field read refused in a form link, split
     identities with an attempt number, App Tests reading the search text blank); part 05,
@@ -432,7 +441,8 @@ and media bucket and no CommCare HQ state.
 - **Case schema drift** is counted, not blocked: the dry run compares each app's head derivation
   with its stored `case_type_schemas` projection and reports every drift as a line. After the
   deploy and before ingress reopens, the existing drift writer (`schema-drift`) runs on the
-  maintenance image, whose `lib` and `app` are the merged `main`'s, through the Job
+  maintenance image, whose `lib` and `app` are the merged `main`'s but for
+  `lib/db/designSessions.ts` (part 09 §14, check 1), through the Job
   `commcare-nova-case-type-schema-retirement`, the route `lib/case-store/CLAUDE.md` gives it, and
   the runbook expects exactly the counted drift and rescans to zero (part 09 §14, step 10).
 - **A notice on every affected app**, cutover `hq-round-trip-platforms`, with three document

@@ -132,8 +132,16 @@ Planned in full when step 5 exits. The design is the research's "The reader",
      `true`, and that publish asks before turning the Web App setting off. A
      CommCare Connect app is one such app, since no Connect worker can sign in
      to Web Apps (step 4's platform feature `connect-app`).
-   - *Refused by declaration.* Only an app whose content runs on neither
-     platform (`contentRunsOn` gives none) is refused, with the reason
+   - *Offered the split, else refused.* An app whose content runs on neither
+     platform only because of its date-and-time questions beside something
+     Android cannot run is offered step 4's split
+     (`lib/doc/platformDeclaration.ts::planContentDeclaration`, design E),
+     declared Web Apps only, as step 4's cutover and fuzz mapping make such
+     content run; the split changes the HQ app's forms at its next publish, so
+     the person confirms it before the app exists, and this step's plan
+     decides how the reader recognizes its result on a later read. Any other
+     app whose content runs on neither platform (`contentRunsOn` gives none),
+     or one whose split the person declines, is refused, with the reason
      `unavailable-on-declared-platform`
      (`lib/commcare/surface/schema.ts::REFUSAL_REASON_KINDS`, unused before
      this step), naming each use with step 4's platform table

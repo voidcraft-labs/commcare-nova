@@ -729,8 +729,10 @@ revoked and read back (`5cf6e327^:docs/plans/hq-round-trip/2-cutover-runbook.md`
 The bucket has uniform bucket-level access (`lib/storage/media.ts::getBucket`'s contract), which a
 conditional binding needs. `scripts/infra/manage-deployment.py check` reads no bucket binding, and
 `scripts/infra/capture-bucket-policy.mjs` keeps every binding it does not own, so the grant moves
-no deploy check. Two grants are made: an advisory one, two hours, for the dry run before the
-window; and the window's, six hours or the planned window plus one hour where that is longer.
+no deploy check. Two grants are made: an advisory one for the dry run before the window, two hours or the Job's
+contract timeout plus thirty minutes where that is longer (section 13 raises the timeout when the
+dry run's plan takes more than an hour, so the grant always outlasts the run it serves); and the
+window's, six hours or the planned window plus one hour where that is longer.
 
 ## 8. The ledger in the window
 
