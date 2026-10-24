@@ -84,6 +84,15 @@ the document is gone. `error-guard.spec.ts` uses a real local HTTP receiver for
 both transports, reload and close, and proves same-origin scope and page
 isolation. An active-document routed beacon alone cannot prove this boundary.
 
+A browser test waits for the condition the product itself gates on, never for
+what happens to be drawn. A control can be visible, enabled and focused while
+the product still refuses the gesture (the builder refuses every edit until the
+Project's data-table catalog has loaded), and a test that acts on the drawn
+state passes on a quick machine and fails on a loaded runner. Name the gate,
+wait on its own signal, and prove the wait by slowing that dependency: a test
+that still acts too early then fails every run. The smoke suite's page loads
+follow this through `e2e/lib/pageLoads.ts` (see `e2e/CLAUDE.md`).
+
 Reconciler protocol tests run in Node with schema-admitted inputs and explicit
 browser effects. Their controlled EventSource owns only protocol callbacks;
 it does not claim to exercise a browser connection. Cancellation tests keep

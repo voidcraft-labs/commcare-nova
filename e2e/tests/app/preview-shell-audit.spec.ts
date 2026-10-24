@@ -1,6 +1,7 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { CASE_CHANGES_SEED } from "../../lib/caseChangesSeed";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
+import { openBuilder } from "../../lib/pageLoads";
 
 // Its own admitted application and real Project rows are allocated by native
 // Playwright discovery. The peer tab edits through the actual Builder mutation and multiplayer flow.
@@ -15,7 +16,7 @@ test(
 		const peer = await context.newPage();
 		const guard = await attachErrorGuard(peer, baseURL);
 		try {
-			await peer.goto(`/build/${appId}/setup/users`);
+			await openBuilder(peer, `/build/${appId}/setup/users`);
 			const personas = peer.getByRole("region", { name: "Personas" });
 			// The actual write control waits for admission. Streamed hidden
 			// boundaries may briefly contain a second catalog diagnostic marker.
@@ -38,7 +39,7 @@ test(
 			);
 			await name.press("Enter");
 			expect((await saved).ok()).toBe(true);
-			await page.goto(`/build/${appId}`);
+			await openBuilder(page, `/build/${appId}`);
 			await page.getByRole("button", { name: "Preview", exact: true }).click();
 			const running = page.getByRole("button", { name: /^Running as/ });
 			await running.click();
@@ -103,7 +104,7 @@ test(
 		const seed = seedFor(scenario, "case-changes");
 
 		const { appId } = seed.caseChanges;
-		await page.goto(`/build/${appId}`);
+		await openBuilder(page, `/build/${appId}`);
 		await page.getByRole("button", { name: "Preview", exact: true }).click();
 		const main = page.locator("main");
 		const patients = main.getByRole("button", {
@@ -153,7 +154,7 @@ test("Home starts a fresh parent choice when reopening a related record list", {
 	tag: "@seed:case-changes",
 }, async ({ scenario, page }) => {
 	const { appId } = seedFor(scenario, "case-changes").caseChanges;
-	await page.goto(`/build/${appId}`);
+	await openBuilder(page, `/build/${appId}`);
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	const main = page.locator("main");
 	for (let entry = 0; entry < 2; entry++) {

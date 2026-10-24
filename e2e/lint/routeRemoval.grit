@@ -1,0 +1,6 @@
+or {
+	`$target.unroute($...)`,
+	`$target.unrouteAll($...)`
+} as $call where {
+	register_diagnostic(span=$call, message="This removes a route without waiting for the requests its handlers hold. Playwright forwards a held request itself once interception turns off, and the handler's own fulfill or continue then throws \"Route is already handled!\" when the runner is slow. Add the route through removableRoutes and remove it with removeAll (e2e/lib/routes.ts).")
+}

@@ -8,6 +8,7 @@ import {
 	selectWorkerLanguage,
 } from "../../lib/phoneRuntimeEvidence";
 import type {} from "../../lib/preview-geopoint-client";
+import { removableRoutes } from "../../lib/routes";
 
 test.use({ reducedMotion: "reduce", serviceWorkers: "block" });
 
@@ -39,37 +40,41 @@ const gps = test.extend<{
 				ReturnType<typeof Promise.withResolvers<void>>
 			>();
 			const requests = new Map<string, number>();
+			const peerRoutes = removableRoutes(page);
 			try {
 				const guard = await attachErrorGuard(page, peer.origin);
 				const refused = await refuseOutsidePhonePeer(context, peer.origin);
 				try {
-					await page.route(`${peer.origin}/geopoint-peer/**`, async (route) => {
-						if (route.request().method() !== "GET") {
-							refused.push(
-								`${route.request().method()} ${route.request().url()}`,
-							);
-							await route.abort("blockedbyclient");
-							return;
-						}
-						const url = new URL(route.request().url());
-						const path = `${url.pathname.split("/").at(-1)}${url.search}`;
-						requests.set(path, (requests.get(path) ?? 0) + 1);
-						await held.get(path)?.promise;
-						if (url.pathname.endsWith("suggestions"))
-							await route.fulfill({ json: [] });
-						else if (url.pathname.endsWith("reverse"))
-							await route.fulfill({
-								json: [
-									{
-										formatted_address: `Coordinates ${url.searchParams.get("lat")}`,
-									},
-								],
-							});
-						else {
-							refused.push(`Unexpected controlled Places request: ${path}`);
-							await route.abort("blockedbyclient");
-						}
-					});
+					await peerRoutes.route(
+						`${peer.origin}/geopoint-peer/**`,
+						async (route) => {
+							if (route.request().method() !== "GET") {
+								refused.push(
+									`${route.request().method()} ${route.request().url()}`,
+								);
+								await route.abort("blockedbyclient");
+								return;
+							}
+							const url = new URL(route.request().url());
+							const path = `${url.pathname.split("/").at(-1)}${url.search}`;
+							requests.set(path, (requests.get(path) ?? 0) + 1);
+							await held.get(path)?.promise;
+							if (url.pathname.endsWith("suggestions"))
+								await route.fulfill({ json: [] });
+							else if (url.pathname.endsWith("reverse"))
+								await route.fulfill({
+									json: [
+										{
+											formatted_address: `Coordinates ${url.searchParams.get("lat")}`,
+										},
+									],
+								});
+							else {
+								refused.push(`Unexpected controlled Places request: ${path}`);
+								await route.abort("blockedbyclient");
+							}
+						},
+					);
 					await page.setViewportSize({ width: 390, height: 720 });
 					await page.goto(`${peer.origin}/?language-audit=1`);
 					await expect(page.getByRole("combobox")).toBeVisible();
@@ -108,7 +113,7 @@ const gps = test.extend<{
 							});
 					} finally {
 						try {
-							await page.unrouteAll({ behavior: "wait" });
+							await peerRoutes.removeAll();
 							await closePageWithUnload(page);
 						} finally {
 							await guard.assertNoErrors();

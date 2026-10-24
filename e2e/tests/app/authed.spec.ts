@@ -15,6 +15,14 @@ import {
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { FORM_LINKS_SEED } from "../../lib/formLinksSeed";
 import { FORM_SECTIONS_SEED } from "../../lib/formSectionsSeed";
+import {
+	expectBuilderDataLoaded,
+	openBuilder,
+	openPage,
+	reloadBuilder,
+	reloadPage,
+} from "../../lib/pageLoads";
+import { type RemovableRoutes, removableRoutes } from "../../lib/routes";
 import { SEARCH_FIRST_SEED } from "../../lib/searchFirstSeed";
 import { createSmokeContext } from "../../lib/smokeNetwork";
 import type { SmokeProfileData } from "../../lib/smokeSeedFactory";
@@ -128,7 +136,7 @@ type ScriptedChunk = { type: string; [key: string]: unknown };
  * pre-app question → materialized but still locked question → completion.
  * The route never reaches Nova's server, provider, or usage meter. */
 async function stubDesignBuildJourney(
-	page: Page,
+	routes: RemovableRoutes,
 	activation: SmokeProfileData["design"]["designBuildActivation"],
 ): Promise<{ requests: unknown[] }> {
 	let sends = 0;
@@ -169,7 +177,7 @@ async function stubDesignBuildJourney(
 		{ type: "text-end", id },
 	];
 
-	await page.route("**/api/chat", async (route) => {
+	await routes.route("**/api/chat", async (route) => {
 		if (route.request().method() !== "POST") {
 			await route.fallback();
 			return;
@@ -391,7 +399,7 @@ test.describe("authenticated builder", () => {
 	}, async ({ scenario, page }) => {
 		const seed = seedFor(scenario, "app-list");
 
-		await page.goto("/");
+		await openPage(page, "/");
 
 		// Signed-in landing for a returning user: the app list, not the marketing
 		// landing. (If the session cookie were rejected we'd see "Sign in with
@@ -451,7 +459,7 @@ test.describe("authenticated builder", () => {
 			test.setTimeout(300_000);
 			const appId = seed.organizationAppId;
 			expect(appId).toBeTruthy();
-			await page.goto(`/build/${appId}/setup/organization`);
+			await openBuilder(page, `/build/${appId}/setup/organization`);
 
 			const levels = page.getByRole("region", { name: "Levels" });
 			const places = page.getByRole("region", { name: "Places" });
@@ -568,7 +576,8 @@ test.describe("authenticated builder", () => {
 			const fulfilledReceipt = Promise.withResolvers<void>();
 			const releaseReceipt = Promise.withResolvers<void>();
 			const actionUrl = `**/build/${appId}/setup/organization`;
-			await page.route(actionUrl, async (route) => {
+			const receiptRoutes = removableRoutes(page);
+			await receiptRoutes.route(actionUrl, async (route) => {
 				const request = route.request();
 				if (
 					request.method() !== "POST" ||
@@ -610,7 +619,7 @@ test.describe("authenticated builder", () => {
 			} finally {
 				releaseReceipt.resolve();
 				if (receiptIsHeld) await fulfilledReceipt.promise;
-				await page.unroute(actionUrl);
+				await receiptRoutes.removeAll();
 			}
 			await places.getByLabel("Name", { exact: true }).fill("Coast Region");
 			await places.getByLabel("ID in another system").focus();
@@ -691,7 +700,7 @@ test.describe("authenticated builder", () => {
 				0,
 			);
 
-			await page.goto(`/build/${appId}/setup/users`);
+			await openBuilder(page, `/build/${appId}/setup/users`);
 			const personas = page.getByRole("region", { name: "Personas" });
 			const persistedPersonaPlaceCount = async () => {
 				const response = await page.request.get(`/api/apps/${appId}`);
@@ -770,7 +779,7 @@ test.describe("authenticated builder", () => {
 			// abort that response and leave the next page holding its stale local doc.
 			await expect(page.getByText(/^Saved /)).toBeVisible();
 
-			await page.goto(`/build/${appId}/setup/organization`);
+			await openBuilder(page, `/build/${appId}/setup/organization`);
 			const refreshedPlaces = page.getByRole("region", { name: "Places" });
 			const refreshedLevels = page.getByRole("region", { name: "Levels" });
 			await refreshedLevels.getByRole("button", { name: /District/ }).click();
@@ -823,8 +832,10 @@ test.describe("authenticated builder", () => {
 				await releaseCatalog.promise;
 				await route.continue();
 			};
-			await page.route("**/build/**", holdCatalog);
+			const catalogRoutes = removableRoutes(page);
+			await catalogRoutes.route("**/build/**", holdCatalog);
 			try {
+				// biome-ignore lint/plugin/builderPageLoads: this test holds the Project data read to see what the builder offers before it lands.
 				await page.goto(caseChangesRoute);
 				await expect.poll(() => catalogHeld).toBe(true);
 				await page.getByRole("button", { name: "Add a change" }).click();
@@ -840,8 +851,9 @@ test.describe("authenticated builder", () => {
 				).toBeDisabled();
 			} finally {
 				releaseCatalog.resolve();
-				await page.unrouteAll({ behavior: "wait" });
+				await catalogRoutes.removeAll();
 			}
+			await expectBuilderDataLoaded(page);
 			await page
 				.getByRole("button", { name: "Update the case this form opened" })
 				.click();
@@ -882,7 +894,7 @@ test.describe("authenticated builder", () => {
 					);
 				})
 				.toBe(true);
-			await page.reload();
+			await reloadBuilder(page);
 			await expect(page.getByLabel("Place that owns the case")).toHaveText(
 				"Kilifi District · kilifi_district",
 			);
@@ -922,12 +934,12 @@ test.describe("authenticated builder", () => {
 					);
 				})
 				.toBe(true);
-			await page.reload();
+			await reloadBuilder(page);
 			await expect(
 				page.getByLabel("Level to find beneath the current owner"),
 			).toContainText("District");
 
-			await page.goto(`/build/${appId}/setup/organization`);
+			await openBuilder(page, `/build/${appId}/setup/organization`);
 			const conflictPlaces = page.getByRole("region", { name: "Places" });
 			await expect(
 				conflictPlaces.getByRole("button", { name: /Coast Region/ }),
@@ -943,7 +955,7 @@ test.describe("authenticated builder", () => {
 			const peerPage = await page.context().newPage();
 			const peerGuard = await attachErrorGuard(peerPage, baseURL);
 			try {
-				await peerPage.goto(`/build/${appId}/setup/organization`);
+				await openBuilder(peerPage, `/build/${appId}/setup/organization`);
 				const peerPlaces = peerPage.getByRole("region", { name: "Places" });
 				await peerPlaces.getByRole("button", { name: /Coast Region/ }).click();
 				await peerPlaces
@@ -979,7 +991,7 @@ test.describe("authenticated builder", () => {
 				await closePageWithUnload(peerPage);
 			}
 
-			await page.goto(`/build/${appId}/setup/organization`);
+			await openBuilder(page, `/build/${appId}/setup/organization`);
 			const barrierLevels = page.getByRole("region", { name: "Levels" });
 			const barrierPlaces = page.getByRole("region", { name: "Places" });
 			let releaseRejectedSave: (() => void) | undefined;
@@ -1009,7 +1021,8 @@ test.describe("authenticated builder", () => {
 				}
 			};
 			page.on("request", countPlaceWrites);
-			await page.route(`**/api/apps/${appId}`, async (route) => {
+			const saveRoutes = removableRoutes(page);
+			await saveRoutes.route(`**/api/apps/${appId}`, async (route) => {
 				if (route.request().method() !== "PUT") return route.continue();
 				observeRejectedSave?.();
 				await rejectedSaveRelease;
@@ -1057,7 +1070,7 @@ test.describe("authenticated builder", () => {
 				expect(placeWritePosts).toBe(0);
 			} finally {
 				releaseRejectedSave?.();
-				await page.unrouteAll({ behavior: "wait" });
+				await saveRoutes.removeAll();
 				page.off("request", countPlaceWrites);
 			}
 			// The refusal starts an authoritative reload. Observe its rollback before
@@ -1068,7 +1081,7 @@ test.describe("authenticated builder", () => {
 					hasNot: page.getByRole("button", { name: /Barrier level/ }),
 				}),
 			).toBeVisible();
-			await page.reload();
+			await reloadBuilder(page);
 			await expect(
 				barrierPlaces.getByRole("button", { name: BLOCKED_PLACE_NAME }),
 			).toHaveCount(0);
@@ -1101,7 +1114,7 @@ test.describe("authenticated builder", () => {
 			await page.setViewportSize({ width: 1440, height: 900 });
 			await context.clearCookies();
 			await context.addCookies(viewerState.cookies);
-			await page.goto(`/build/${appId}/setup/organization`);
+			await openBuilder(page, `/build/${appId}/setup/organization`);
 			await expect(
 				page.getByRole("region", { name: "Organization" }),
 			).toBeVisible();
@@ -1129,7 +1142,7 @@ test.describe("authenticated builder", () => {
 	}, async ({ scenario, page }) => {
 		const seed = seedFor(scenario, "open");
 
-		await page.goto(`/build/${seed.openAppId}/setup/publishing`);
+		await openBuilder(page, `/build/${seed.openAppId}/setup/publishing`);
 
 		const nav = page.getByRole("navigation", { name: "App setup sections" });
 		await expect(nav.getByRole("button", { name: "Publishing" })).toBeVisible();
@@ -1184,7 +1197,7 @@ test.describe("authenticated builder", () => {
 	}, async ({ scenario, page }) => {
 		const seed = seedFor(scenario, "workspace");
 
-		await page.goto(seed.caseWorkspace.routes.results);
+		await openBuilder(page, seed.caseWorkspace.routes.results);
 		await expect(
 			page.getByRole("heading", { name: "Results", level: 1 }),
 		).toBeVisible({ timeout: 20_000 });
@@ -1253,7 +1266,7 @@ test.describe("authenticated builder", () => {
 		const seed = seedFor(scenario, "workspace");
 
 		test.setTimeout(180_000);
-		await page.goto(seed.caseWorkspace.routes.search);
+		await openBuilder(page, seed.caseWorkspace.routes.search);
 		await expect(
 			page.getByRole("heading", { name: "Search", level: 1 }),
 		).toBeVisible({ timeout: 20_000 });
@@ -1267,7 +1280,7 @@ test.describe("authenticated builder", () => {
 			page.getByRole("heading", { name: "Cases available", level: 2 }),
 		).toHaveCount(0);
 
-		await page.goto(seed.caseWorkspace.routes.results);
+		await openBuilder(page, seed.caseWorkspace.routes.results);
 		await expect(
 			page.getByRole("heading", { name: "Results", level: 1 }),
 		).toBeVisible();
@@ -1999,7 +2012,7 @@ test.describe("authenticated builder", () => {
 		// Details used to bypass the chooser when it had no information to add
 		// back, silently picking the next system property. It must now wait for
 		// an explicit choice, then expose true deletion separately from Hide.
-		await page.goto(seed.caseWorkspace.routes.details);
+		await openBuilder(page, seed.caseWorkspace.routes.details);
 		await expect(
 			page.getByRole("heading", { name: "Details", level: 1 }),
 		).toBeVisible();
@@ -2049,7 +2062,7 @@ test.describe("authenticated builder", () => {
 		const seed = seedFor(scenario, "workspace");
 
 		test.setTimeout(120_000);
-		await page.goto(seed.caseWorkspace.routes.condition);
+		await openBuilder(page, seed.caseWorkspace.routes.condition);
 
 		const heading = page.getByRole("heading", {
 			name: `When \u201c${CASE_WORKSPACE_SEED.moduleName}\u201d appears`,
@@ -2154,7 +2167,7 @@ test.describe("authenticated builder", () => {
 		// On a form, "Show on the menu" says where the form still opens on each
 		// platform, and the condition that applies once it is back stays
 		// editable beside it.
-		await page.goto(seed.caseWorkspace.routes.tileForm);
+		await openBuilder(page, seed.caseWorkspace.routes.tileForm);
 		const openFormSettings = async () => {
 			await page
 				.getByRole("button", { name: "Form settings", exact: true })
@@ -2180,7 +2193,7 @@ test.describe("authenticated builder", () => {
 
 		// "Show on the menu" takes the module off Preview's home screen, and the
 		// condition that applies once it is back stays editable meanwhile.
-		await page.goto(seed.caseWorkspace.routes.results);
+		await openBuilder(page, seed.caseWorkspace.routes.results);
 		const openModuleSettings = async () => {
 			await page
 				.getByRole("button", { name: "Module settings", exact: true })
@@ -2199,7 +2212,7 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 		await page.keyboard.press("Escape");
 
-		await page.goto(seed.caseWorkspace.routes.condition);
+		await openBuilder(page, seed.caseWorkspace.routes.condition);
 		await expect(heading).toBeVisible({ timeout: 20_000 });
 		await expect(
 			conditionSection.getByRole("button", { name: "Add condition" }),
@@ -2213,7 +2226,7 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("button", { name: "Back to edit" }).click();
 		await expect(heading).toBeVisible();
 
-		await page.goto(seed.caseWorkspace.routes.results);
+		await openBuilder(page, seed.caseWorkspace.routes.results);
 		const hiddenSwitch = await openModuleSettings();
 		await expect(hiddenSwitch).not.toBeChecked({ timeout: 20_000 });
 		await saved('"hiddenFromMenu":null', () => hiddenSwitch.click());
@@ -2238,7 +2251,7 @@ test.describe("authenticated builder", () => {
 	}, async ({ scenario, page }) => {
 		const seed = seedFor(scenario, "workspace");
 
-		await page.goto(seed.caseWorkspace.routes.tileForm);
+		await openBuilder(page, seed.caseWorkspace.routes.tileForm);
 		await expect(page.locator("[data-form-header]")).toBeVisible({
 			timeout: 20_000,
 		});
@@ -2291,7 +2304,7 @@ test.describe("authenticated builder", () => {
 		}, async ({ scenario, page }) => {
 			const seed = seedFor(scenario, "workspace");
 
-			await page.goto(seed.caseWorkspace.routes.tileForm);
+			await openBuilder(page, seed.caseWorkspace.routes.tileForm);
 			await expect(page.locator("[data-form-header]")).toBeVisible({
 				timeout: 20_000,
 			});
@@ -2444,7 +2457,7 @@ test.describe("authenticated builder", () => {
 	}, async ({ scenario, page }) => {
 		const seed = seedFor(scenario, "workspace");
 
-		await page.goto(seed.caseWorkspace.routes.tileResults);
+		await openBuilder(page, seed.caseWorkspace.routes.tileResults);
 		await expect(
 			page.getByRole("heading", { name: "Results", level: 1 }),
 		).toBeVisible({ timeout: 20_000 });
@@ -2592,7 +2605,7 @@ test.describe("authenticated builder", () => {
 	}, async ({ scenario, page }) => {
 		const seed = seedFor(scenario, "workspace");
 
-		await page.goto(seed.caseWorkspace.routes.groupedResults);
+		await openBuilder(page, seed.caseWorkspace.routes.groupedResults);
 		await expect(
 			page.getByRole("heading", { name: "Results", level: 1 }),
 		).toBeVisible({ timeout: 20_000 });
@@ -2687,7 +2700,7 @@ test.describe("authenticated builder", () => {
 	}, async ({ scenario, page }) => {
 		const seed = seedFor(scenario, "workspace");
 
-		await page.goto(seed.caseWorkspace.routes.tileResults);
+		await openBuilder(page, seed.caseWorkspace.routes.tileResults);
 		await expect(
 			page.getByRole("heading", { name: "Results", level: 1 }),
 		).toBeVisible({ timeout: 20_000 });
@@ -2712,9 +2725,7 @@ test.describe("authenticated builder", () => {
 		});
 
 		await test.step("an arrow key moves the field and renames its place", async () => {
-			await expect(
-				page.locator('[data-builder-resource="lookup-catalog"]'),
-			).toHaveAttribute("data-state", "ready");
+			await expectBuilderDataLoaded(page);
 			await phone.focus();
 			await phone.press("ArrowDown");
 			const moved = page.getByRole("button", {
@@ -2792,7 +2803,7 @@ test.describe("authenticated builder", () => {
 				const [response] = await Promise.all([responsePromise, mutate()]);
 				expect(response.ok()).toBe(true);
 			};
-			await page.goto(`${fixture.identityProjectionRoute}?lang=eng`);
+			await openBuilder(page, `${fixture.identityProjectionRoute}?lang=eng`);
 			await expect(
 				page.getByRole("button", { name: "Form settings", exact: true }),
 			).toBeVisible({ timeout: 20_000 });
@@ -2865,7 +2876,8 @@ test.describe("authenticated builder", () => {
 			});
 
 			await test.step("renaming and moving the field preserve the reference", async () => {
-				await page.goto(
+				await openBuilder(
+					page,
 					`${fixture.identityProjectionRoute}/${identity.firstNameUuid}`,
 				);
 				const idInput = page.locator('[data-field-id="id"] input').visible();
@@ -2927,7 +2939,7 @@ test.describe("authenticated builder", () => {
 			});
 
 			await test.step("reopening and Preview show names, never UUID-shaped XPath", async () => {
-				await page.goto(fixture.identityProjectionRoute);
+				await openBuilder(page, fixture.identityProjectionRoute);
 				await page
 					.getByRole("button", { name: "Form settings", exact: true })
 					.click();
@@ -3018,7 +3030,7 @@ test.describe("authenticated builder", () => {
 					await expect(idInput).toHaveValue("note");
 					await expect(page).toHaveURL(neighborUrl);
 				}
-				await page.reload();
+				await reloadBuilder(page);
 				await expect(firstNameRow).toHaveCount(1);
 				await expect(idInput).toHaveValue("note");
 			});
@@ -3054,7 +3066,7 @@ test.describe("authenticated builder", () => {
 			};
 
 			await test.step("the workspace opens with no links and the form's own destination", async () => {
-				await page.goto(fixture.route);
+				await openBuilder(page, fixture.route);
 				await expect(
 					page.getByRole("heading", { name: "After submit", level: 1 }),
 				).toBeVisible({ timeout: 20_000 });
@@ -3128,7 +3140,7 @@ test.describe("authenticated builder", () => {
 			});
 
 			await test.step("the list reads the link as a sentence above the otherwise row", async () => {
-				await page.goto(fixture.route);
+				await openBuilder(page, fixture.route);
 				const rows = page
 					.getByRole("list", { name: "Links in the order they are checked" })
 					.getByRole("listitem");
@@ -3174,7 +3186,7 @@ test.describe("authenticated builder", () => {
 			});
 
 			await test.step("a submission the condition matches opens the linked form on the same case", async () => {
-				await page.goto(fixture.route);
+				await openBuilder(page, fixture.route);
 				await expect(
 					page.getByRole("heading", { name: "After submit", level: 1 }),
 				).toBeVisible({ timeout: 20_000 });
@@ -3196,27 +3208,33 @@ test.describe("authenticated builder", () => {
 				// against stale data while the fresh entry is still being prepared.
 				const releaseCaseRead = Promise.withResolvers<void>();
 				let heldCaseRead = false;
-				await page.route(`**/build/${fixture.appId}/**`, async (route) => {
-					const request = route.request();
-					const body = request.postData();
-					const args: unknown = body?.startsWith("[") ? JSON.parse(body) : null;
-					if (
-						request.method() === "POST" &&
-						request.headers()["next-action"] &&
-						Array.isArray(args) &&
-						args[0] === fixture.appId &&
-						args[1] === FORM_LINKS_SEED.caseType &&
-						typeof args[2] === "string" &&
-						args[3] === 0
-					) {
-						const response = await route.fetch();
-						heldCaseRead = true;
-						await releaseCaseRead.promise;
-						await route.fulfill({ response });
-						return;
-					}
-					await route.continue();
-				});
+				const caseReadRoutes = removableRoutes(page);
+				await caseReadRoutes.route(
+					`**/build/${fixture.appId}/**`,
+					async (route) => {
+						const request = route.request();
+						const body = request.postData();
+						const args: unknown = body?.startsWith("[")
+							? JSON.parse(body)
+							: null;
+						if (
+							request.method() === "POST" &&
+							request.headers()["next-action"] &&
+							Array.isArray(args) &&
+							args[0] === fixture.appId &&
+							args[1] === FORM_LINKS_SEED.caseType &&
+							typeof args[2] === "string" &&
+							args[3] === 0
+						) {
+							const response = await route.fetch();
+							heldCaseRead = true;
+							await releaseCaseRead.promise;
+							await route.fulfill({ response });
+							return;
+						}
+						await route.continue();
+					},
+				);
 				try {
 					await trail
 						.getByRole("button", { name: "Go back", exact: true })
@@ -3230,7 +3248,7 @@ test.describe("authenticated builder", () => {
 					).toBeDisabled();
 				} finally {
 					releaseCaseRead.resolve();
-					await page.unrouteAll({ behavior: "wait" });
+					await caseReadRoutes.removeAll();
 				}
 				const submitAgain = main.getByRole("button", {
 					name: "Submit",
@@ -3257,27 +3275,33 @@ test.describe("authenticated builder", () => {
 				// Obtain the missing-record response from the real authorized server
 				// read, using an absent ID at the network boundary. No fixture row
 				// or live data is deleted to exercise this terminal read result.
-				await page.route(`**/build/${fixture.appId}/**`, async (route) => {
-					const request = route.request();
-					const body = request.postData();
-					const args: unknown = body?.startsWith("[") ? JSON.parse(body) : null;
-					if (
-						request.method() === "POST" &&
-						request.headers()["next-action"] &&
-						Array.isArray(args) &&
-						args[0] === fixture.appId &&
-						args[1] === FORM_LINKS_SEED.caseType &&
-						typeof args[2] === "string" &&
-						args[3] === 0
-					) {
-						args[2] = "missing-selected-record";
-						await route.fulfill({
-							response: await route.fetch({ postData: JSON.stringify(args) }),
-						});
-						return;
-					}
-					await route.continue();
-				});
+				const missingRecordRoutes = removableRoutes(page);
+				await missingRecordRoutes.route(
+					`**/build/${fixture.appId}/**`,
+					async (route) => {
+						const request = route.request();
+						const body = request.postData();
+						const args: unknown = body?.startsWith("[")
+							? JSON.parse(body)
+							: null;
+						if (
+							request.method() === "POST" &&
+							request.headers()["next-action"] &&
+							Array.isArray(args) &&
+							args[0] === fixture.appId &&
+							args[1] === FORM_LINKS_SEED.caseType &&
+							typeof args[2] === "string" &&
+							args[3] === 0
+						) {
+							args[2] = "missing-selected-record";
+							await route.fulfill({
+								response: await route.fetch({ postData: JSON.stringify(args) }),
+							});
+							return;
+						}
+						await route.continue();
+					},
+				);
 				try {
 					await page
 						.getByRole("navigation", { name: "Page navigation" })
@@ -3289,7 +3313,7 @@ test.describe("authenticated builder", () => {
 						}),
 					).toBeVisible();
 				} finally {
-					await page.unrouteAll({ behavior: "wait" });
+					await missingRecordRoutes.removeAll();
 				}
 				await main
 					.getByRole("button", { name: "Choose another record", exact: true })
@@ -3338,7 +3362,7 @@ test.describe("authenticated builder", () => {
 			};
 
 			await test.step("the authored record name survives saving and names the submitted record", async () => {
-				await page.goto(fixture.routes.registerForm);
+				await openBuilder(page, fixture.routes.registerForm);
 				await page
 					.getByRole("button", { name: "Form settings", exact: true })
 					.click();
@@ -3368,7 +3392,7 @@ test.describe("authenticated builder", () => {
 			});
 
 			await test.step("the Search canvas names the form Results offers, and the tree marks it", async () => {
-				await page.goto(fixture.routes.searchConfig);
+				await openBuilder(page, fixture.routes.searchConfig);
 				await expect(
 					page.getByRole("heading", { name: "Search", level: 1 }),
 				).toBeVisible({ timeout: 20_000 });
@@ -3446,7 +3470,7 @@ test.describe("authenticated builder", () => {
 			});
 
 			await test.step("the form refuses to open without an empty search behind it", async () => {
-				await page.goto(fixture.routes.registerForm);
+				await openBuilder(page, fixture.routes.registerForm);
 				await expect(page.getByTestId("editable-title")).toHaveValue(
 					register.formName,
 					{ timeout: 20_000 },
@@ -3476,7 +3500,7 @@ test.describe("authenticated builder", () => {
 		const main = page.locator("main");
 
 		await test.step("the edit canvas shows every page, headed and counted", async () => {
-			await page.goto(seed.formSections.route);
+			await openBuilder(page, seed.formSections.route);
 			await expect(
 				main.getByText("Section 1 of 2", { exact: true }),
 			).toBeVisible({ timeout: 20_000 });
@@ -3661,17 +3685,22 @@ test.describe("authenticated builder", () => {
 			);
 			const releaseReads = Promise.withResolvers<void>();
 			let heldActions = 0;
-			await page.route(`**/build/${caseChanges.appId}/**`, async (route) => {
-				if (
-					route.request().method() === "POST" &&
-					route.request().headers()["next-action"]
-				) {
-					heldActions++;
-					await releaseReads.promise;
-				}
-				await route.continue();
-			});
+			const actionRoutes = removableRoutes(page);
+			await actionRoutes.route(
+				`**/build/${caseChanges.appId}/**`,
+				async (route) => {
+					if (
+						route.request().method() === "POST" &&
+						route.request().headers()["next-action"]
+					) {
+						heldActions++;
+						await releaseReads.promise;
+					}
+					await route.continue();
+				},
+			);
 			try {
+				// biome-ignore lint/plugin/builderPageLoads: this test holds the Project data read to see the builder while it loads.
 				await page.goto(caseChanges.route);
 				await expect(
 					page.getByRole("heading", { name: "Case changes", level: 1 }),
@@ -3687,9 +3716,9 @@ test.describe("authenticated builder", () => {
 				).toHaveCount(0);
 			} finally {
 				releaseReads.resolve();
-				await page.unrouteAll({ behavior: "wait" });
+				await actionRoutes.removeAll();
 			}
-			await expect(lookupCatalog).toHaveAttribute("data-state", "ready");
+			await expectBuilderDataLoaded(page);
 
 			// Rows read as sentences, in the order the runtime applies them.
 			const list = page.getByRole("list", {
@@ -4140,7 +4169,7 @@ test.describe("authenticated builder", () => {
 					const viewerPage = await viewerContext.newPage();
 					const viewerGuard = await attachErrorGuard(viewerPage, baseURL);
 					try {
-						await viewerPage.goto(caseChanges.route);
+						await openBuilder(viewerPage, caseChanges.route);
 						await expect(
 							viewerPage.getByRole("heading", {
 								name: "Case changes",
@@ -4198,7 +4227,7 @@ test.describe("authenticated builder", () => {
 	}, async ({ scenario, page, browser, baseURL, request }) => {
 		const seed = seedFor(scenario, "open");
 
-		await page.goto("/build/new");
+		await openBuilder(page, "/build/new");
 		await expect(page).toHaveURL(/\/build\/new/);
 		await expect(
 			page.getByRole("button", { name: "Account menu" }),
@@ -4230,7 +4259,7 @@ test.describe("authenticated builder", () => {
 				);
 				expect(active.status()).toBe(200);
 				await active.json();
-				await viewerPage.goto("/build/new");
+				await openBuilder(viewerPage, "/build/new");
 				await expect(
 					viewerPage.getByText(
 						"You have view-only access to this Project. Ask a Project admin for edit access to create an app.",
@@ -4276,7 +4305,7 @@ test.describe("authenticated builder", () => {
 
 		for (const width of [1280, 380]) {
 			await page.setViewportSize({ width, height: 800 });
-			await page.goto("/");
+			await openPage(page, "/");
 			await expect(mark).toBeVisible({ timeout: 20_000 });
 			const site = await mark.boundingBox();
 			expect(site, `app list @${width}`).not.toBeNull();
@@ -4284,7 +4313,7 @@ test.describe("authenticated builder", () => {
 			expect(site?.height, `app list @${width}`).toBeGreaterThanOrEqual(44);
 			await expect(mark).toHaveAttribute("href", "/");
 
-			await page.goto(`/build/${seed.openAppId}`);
+			await openBuilder(page, `/build/${seed.openAppId}`);
 			await expect(mark).toBeVisible({ timeout: 20_000 });
 			const builder = await mark.boundingBox();
 			expect(builder, `builder @${width}`).not.toBeNull();
@@ -4309,7 +4338,7 @@ test.describe("authenticated builder", () => {
 		 * rows in the account menu now, and the account control is on every
 		 * signed-in surface. Drive the builder, because the site is the surface
 		 * that already worked. */
-		await page.goto(`/build/${seed.openAppId}`);
+		await openBuilder(page, `/build/${seed.openAppId}`);
 
 		const account = page.getByRole("button", { name: "Account menu" });
 		await expect(account).toBeVisible({ timeout: 20_000 });
@@ -4328,7 +4357,7 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.locator("[data-app-header]").getByRole("button", { name: "Help" }),
 		).toHaveCount(0);
-		await page.goto("/");
+		await openPage(page, "/");
 		await expect(account).toBeVisible({ timeout: 20_000 });
 		await expect(
 			page.locator("[data-app-header]").getByRole("button", { name: "Help" }),
@@ -4340,7 +4369,7 @@ test.describe("authenticated builder", () => {
 	}, async ({ scenario, page }) => {
 		const _seed = seedFor(scenario, "auth");
 
-		await page.goto("/build/new");
+		await openBuilder(page, "/build/new");
 
 		const startFromScratch = page.getByRole("button", {
 			name: "Start with a blank app",
@@ -4386,13 +4415,13 @@ test.describe("authenticated builder", () => {
 		tag: "@seed:design",
 	}, async ({ scenario, page }) => {
 		const { continuationDesignId } = seedFor(scenario, "design");
-		await page.goto(`/build/new?design=${continuationDesignId}`);
+		await openBuilder(page, `/build/new?design=${continuationDesignId}`);
 		await expect(
 			page.getByText("Keep farmer correction under Farmer search.", {
 				exact: true,
 			}),
 		).toBeVisible();
-		await page.reload();
+		await reloadBuilder(page);
 		await expect(
 			page.getByText("The design needs another turn to finish.", {
 				exact: false,
@@ -4446,8 +4475,9 @@ test.describe("authenticated builder", () => {
 		const seed = seedFor(scenario, "design");
 
 		const activation = seed.designBuildActivation;
-		const journey = await stubDesignBuildJourney(page, activation);
-		await page.goto("/build/new");
+		const designRoutes = removableRoutes(page);
+		const journey = await stubDesignBuildJourney(designRoutes, activation);
+		await openBuilder(page, "/build/new");
 
 		await page
 			.getByPlaceholder("Describe your app")
@@ -4537,7 +4567,7 @@ test.describe("authenticated builder", () => {
 		let extracted = false;
 		const extraction = Promise.withResolvers<void>();
 		const uploadBytes = Buffer.from("%PDF-1.4\nprotocol\n");
-		await page.route("**/api/media/library?*", (route) =>
+		await designRoutes.route("**/api/media/library?*", (route) =>
 			route.fulfill({
 				json: {
 					assets: uploaded
@@ -4547,7 +4577,7 @@ test.describe("authenticated builder", () => {
 				},
 			}),
 		);
-		await page.route("**/api/media/upload", (route) => {
+		await designRoutes.route("**/api/media/upload", (route) => {
 			expect(route.request().postDataJSON()).toMatchObject({
 				filename: document.originalFilename,
 				appId: activation.appId,
@@ -4561,22 +4591,28 @@ test.describe("authenticated builder", () => {
 				},
 			});
 		});
-		await page.route("**/test-referral-upload", (route) => {
+		await designRoutes.route("**/test-referral-upload", (route) => {
 			expect(route.request().postDataBuffer()).toEqual(uploadBytes);
 			return route.fulfill({ status: 200 });
 		});
-		await page.route(`**/api/media/upload/${document.id}/confirm`, (route) => {
-			uploaded = true;
-			return route.fulfill({ json: { ok: true, asset: document } });
-		});
-		await page.route(`**/api/media/${document.id}/extract`, async (route) => {
-			await extraction.promise;
-			extracted = true;
-			await route.fulfill({
-				contentType: "application/x-ndjson",
-				body: `${JSON.stringify({ type: "done", extract })}\n`,
-			});
-		});
+		await designRoutes.route(
+			`**/api/media/upload/${document.id}/confirm`,
+			(route) => {
+				uploaded = true;
+				return route.fulfill({ json: { ok: true, asset: document } });
+			},
+		);
+		await designRoutes.route(
+			`**/api/media/${document.id}/extract`,
+			async (route) => {
+				await extraction.promise;
+				extracted = true;
+				await route.fulfill({
+					contentType: "application/x-ndjson",
+					body: `${JSON.stringify({ type: "done", extract })}\n`,
+				});
+			},
+		);
 		try {
 			await page
 				.getByRole("button", { name: "Attach a file", exact: true })
@@ -4684,7 +4720,7 @@ test.describe("authenticated builder", () => {
 			);
 		} finally {
 			extraction.resolve();
-			await page.unrouteAll({ behavior: "wait" });
+			await designRoutes.removeAll();
 		}
 
 		/* Completion releases the same store latch: progress leaves the canvas
@@ -4705,7 +4741,7 @@ test.describe("authenticated builder", () => {
 		).toBeVisible();
 		// The scripted completion is deliberately not persisted. A reload reads
 		// the seed's real generating status, proving the server-seeded lock too.
-		await page.reload();
+		await reloadBuilder(page);
 		await expect(
 			page.getByRole("textbox", { name: "Find in app" }),
 		).toBeDisabled();
@@ -4729,7 +4765,7 @@ test.describe("authenticated builder", () => {
 	}, async ({ scenario, page }) => {
 		const seed = seedFor(scenario, "threads");
 
-		await page.goto(`/build/${seed.threadsAppId}`);
+		await openBuilder(page, `/build/${seed.threadsAppId}`);
 
 		// Docked chat — the app has a module, so the sidebar chrome mounts.
 		await expect(
@@ -4759,7 +4795,8 @@ test.describe("authenticated builder", () => {
 		const threadRequestGate = new Promise<void>((resolve) => {
 			releaseThreadRequest = resolve;
 		});
-		await page.route(
+		const threadRoutes = removableRoutes(page);
+		await threadRoutes.route(
 			`**/api/apps/${seed.threadsAppId}/threads/${seed.olderThreadId}`,
 			async (route) => {
 				await threadRequestGate;
@@ -4777,7 +4814,7 @@ test.describe("authenticated builder", () => {
 			releaseThreadRequest?.();
 		} finally {
 			releaseThreadRequest?.();
-			await page.unrouteAll({ behavior: "wait" });
+			await threadRoutes.removeAll();
 		}
 
 		// The requested transcript replaces the list in one commit and is already
@@ -4806,7 +4843,7 @@ test.describe("authenticated builder", () => {
 	}, async ({ scenario, page }) => {
 		const seed = seedFor(scenario, "threads");
 
-		await page.goto(`/build/${seed.threadsAppId}`);
+		await openBuilder(page, `/build/${seed.threadsAppId}`);
 
 		const assistantMessage = page.getByText(seed.threadAssistantText);
 		await expect(assistantMessage).toBeVisible({ timeout: 20_000 });
@@ -4861,7 +4898,7 @@ test.describe("authenticated builder", () => {
 		const seed = seedFor(scenario, "scroll");
 
 		const stub = await stubChatSends(page);
-		await page.goto(`/build/${seed.scrollAppId}`);
+		await openBuilder(page, `/build/${seed.scrollAppId}`);
 
 		// The settled conversation opens already at the bottom.
 		await expect(page.getByText(seed.scrollThreadAssistantText)).toBeVisible({
@@ -4910,7 +4947,7 @@ test.describe("authenticated builder", () => {
 		const seed = seedFor(scenario, "scroll");
 
 		const stub = await stubChatSends(page);
-		await page.goto(`/build/${seed.scrollAppId}`);
+		await openBuilder(page, `/build/${seed.scrollAppId}`);
 		await expect(page.getByText(seed.scrollThreadAssistantText)).toBeVisible({
 			timeout: 20_000,
 		});
@@ -5025,7 +5062,7 @@ test.describe("authenticated builder", () => {
 					body: `${chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("")}data: [DONE]\n\n`,
 				});
 			});
-			await page.goto(`/build/${seed.scrollAppId}`);
+			await openBuilder(page, `/build/${seed.scrollAppId}`);
 			await expect(
 				page.getByText(seed.scrollThreadAssistantText),
 			).toBeVisible();
@@ -5126,7 +5163,7 @@ test.describe("authenticated builder", () => {
 	}, async ({ scenario, page, browser, baseURL, request }) => {
 		const seed = seedFor(scenario, "delete");
 
-		await page.goto("/");
+		await openPage(page, "/");
 
 		// Count active throwaway cards by HEADING. AppListBody renders only the
 		// active view, so a soft-deleted card leaves the DOM — but a *confirming*
@@ -5195,7 +5232,7 @@ test.describe("authenticated builder", () => {
 				);
 				expect(active.status()).toBe(200);
 				await active.json();
-				await viewerPage.goto("/");
+				await openPage(viewerPage, "/");
 				await expect(
 					viewerPage.getByRole("heading", { name: "Your apps" }),
 				).toBeVisible();
@@ -5255,7 +5292,7 @@ test.describe("authenticated builder", () => {
 		await expect(deleteHeadings).toHaveCount(deletedCount - 1);
 		await page.getByRole("tab", { name: "Active", exact: true }).click();
 		await expect(deleteHeadings).toHaveCount(before);
-		await page.reload();
+		await reloadPage(page);
 		await expect(deleteHeadings).toHaveCount(before);
 		await expect(page.locator(`a[href="${href}"]`).visible()).toBeVisible();
 	});
@@ -5284,7 +5321,7 @@ test.describe("authenticated builder", () => {
 		// Compact width: the placement control and its popover must be reachable
 		// on a phone-sized canvas, not only on the desktop grid.
 		await page.setViewportSize({ width: 390, height: 780 });
-		await page.goto("/");
+		await openPage(page, "/");
 
 		const moveControl = page
 			.getByRole("button", {
@@ -5333,7 +5370,7 @@ test.describe("authenticated builder", () => {
 		await expect(moveHeadings).toHaveCount(before - 1, { timeout: 20_000 });
 
 		// A reload proves the app left this Project durably, not optimistically.
-		await page.reload();
+		await reloadPage(page);
 		await expect(
 			page.getByRole("heading", { name: seed.openAppName, level: 3 }),
 		).toBeVisible();
@@ -5341,11 +5378,11 @@ test.describe("authenticated builder", () => {
 
 		// …and arrived somewhere this user still belongs: the builder authorizes
 		// through the app's CURRENT Project, so a stranded app would 404 here.
-		await page.goto(movedHref ?? "");
+		await openBuilder(page, movedHref ?? "");
 		await expect(
 			page.getByRole("button", { name: "Account menu" }),
 		).toBeVisible();
-		await page.goto("/");
+		await openPage(page, "/");
 		await page
 			.getByRole("button", { name: "Switch Project", exact: true })
 			.click();
@@ -5356,7 +5393,7 @@ test.describe("authenticated builder", () => {
 		await expect(
 			page.getByRole("heading", { name: seed.openAppName, level: 3 }),
 		).toHaveCount(0);
-		await page.reload();
+		await reloadPage(page);
 		await expect(moveHeadings).toHaveCount(1);
 	});
 
@@ -5380,7 +5417,7 @@ test.describe("authenticated builder", () => {
 		test.setTimeout(300_000);
 
 		// 1. The workspace lists the Project's tables, and says they are shared.
-		await page.goto(seed.caseWorkspace.routes.projectData);
+		await openBuilder(page, seed.caseWorkspace.routes.projectData);
 		await expect(
 			page.getByRole("heading", { name: "Data tables", level: 1 }),
 		).toBeVisible({ timeout: 20_000 });
@@ -5725,7 +5762,7 @@ test.describe("authenticated builder", () => {
 		await expect(page.getByRole("row")).toHaveCount(rowsBefore);
 
 		// 4. The gesture the unit is for: bind a question's choices to a column.
-		await page.goto(seed.caseWorkspace.routes.selectField);
+		await openBuilder(page, seed.caseWorkspace.routes.selectField);
 		const source = page.getByRole("combobox", {
 			name: "Where the choices come from",
 		});
@@ -5818,12 +5855,13 @@ test.describe("authenticated builder", () => {
 			/* Install the route before this context creates its first EventSource.
 			 * That makes the optimistic conflict deterministic without taking the
 			 * whole page offline (which would also fail the table read). */
-			await recoveryContext.route(appStream, (route) =>
+			const streamRoutes = removableRoutes(recoveryContext);
+			await streamRoutes.route(appStream, (route) =>
 				route.abort("blockedbyclient"),
 			);
 			const recoveryPage = await recoveryContext.newPage();
 			recoveryGuard = await attachErrorGuard(recoveryPage, baseURL);
-			await recoveryPage.goto(seed.caseWorkspace.routes.projectData);
+			await openBuilder(recoveryPage, seed.caseWorkspace.routes.projectData);
 			const temporalTableName = `Smoke temporal recovery ${Date.now()}`;
 			await recoveryPage
 				.getByRole("button", { name: "New data table" })
@@ -5900,7 +5938,7 @@ test.describe("authenticated builder", () => {
 			try {
 				const peerPage = await peerContext.newPage();
 				peerGuard = await attachErrorGuard(peerPage, baseURL);
-				await peerPage.goto(temporalTablePath);
+				await openBuilder(peerPage, temporalTablePath);
 				await expect(
 					peerPage.getByRole("heading", {
 						name: temporalTableName,
@@ -6008,7 +6046,7 @@ test.describe("authenticated builder", () => {
 						name: new RegExp(`^${CASE_WORKSPACE_SEED.emptyLookupTableName}`),
 					})
 					.click();
-				await recoveryContext.unroute(appStream);
+				await streamRoutes.removeAll();
 				await peerPage.getByRole("button", { name: "Delete table" }).click();
 				const peerDeleteTable = peerPage.getByRole("alertdialog");
 				await expect(

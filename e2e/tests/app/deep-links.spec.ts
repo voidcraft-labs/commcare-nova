@@ -1,6 +1,12 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { DEEP_LINKS_SEED } from "../../lib/deepLinksSeed";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
+import {
+	expectBuilderDataLoaded,
+	openBuilder,
+	reloadBuilder,
+} from "../../lib/pageLoads";
+import { removableRoutes } from "../../lib/routes";
 import { createSmokeContext } from "../../lib/smokeNetwork";
 
 test(
@@ -28,7 +34,7 @@ test(
 		};
 		let detailRoute = "";
 		await test.step("create the exact form destination through App setup", async () => {
-			await page.goto(fixture.route);
+			await openBuilder(page, fixture.route);
 			await expect(
 				page.getByRole("heading", { name: "Deep links", exact: true }),
 			).toBeVisible({ timeout: 20_000 });
@@ -59,7 +65,7 @@ test(
 				await id.press("Enter");
 			});
 			expect(new URL(page.url()).pathname).toBe(detailRoute);
-			await page.reload();
+			await reloadBuilder(page);
 			await expect(page.getByLabel("Link ID", { exact: true })).toHaveValue(
 				DEEP_LINKS_SEED.renamedId,
 				{ timeout: 20_000 },
@@ -102,7 +108,7 @@ test(
 				const viewerPage = await viewerContext.newPage();
 				const guard = await attachErrorGuard(viewerPage, baseURL);
 				try {
-					await viewerPage.goto(detailRoute);
+					await openBuilder(viewerPage, detailRoute);
 					await expect(
 						viewerPage.getByLabel("Link ID", { exact: true }),
 					).toHaveValue(DEEP_LINKS_SEED.renamedId, { timeout: 20_000 });
@@ -186,7 +192,8 @@ test(
 			});
 			let heldActions = 0;
 			const actionRoute = `**/build/${fixture.appId}/**`;
-			await page.route(actionRoute, async (route) => {
+			const actionRoutes = removableRoutes(page);
+			await actionRoutes.route(actionRoute, async (route) => {
 				if (
 					route.request().method() === "POST" &&
 					route.request().headers()["next-action"]
@@ -197,6 +204,7 @@ test(
 				await route.continue();
 			});
 			try {
+				// biome-ignore lint/plugin/builderPageLoads: this step holds the Project data read to see the builder while it loads.
 				await page.goto(detailRoute);
 				await expect(page.getByLabel("Link ID", { exact: true })).toHaveValue(
 					DEEP_LINKS_SEED.renamedId,
@@ -210,8 +218,9 @@ test(
 				).toBeDisabled();
 			} finally {
 				releaseReads();
-				await page.unrouteAll({ behavior: "wait" });
+				await actionRoutes.removeAll();
 			}
+			await expectBuilderDataLoaded(page);
 			await savedMutation("removeEntryPoint", () =>
 				page
 					.getByRole("button", { name: "Remove deep link", exact: true })
@@ -221,7 +230,7 @@ test(
 			await expect(
 				page.getByText("No deep links yet.", { exact: false }),
 			).toBeVisible();
-			await page.goto(detailRoute);
+			await openBuilder(page, detailRoute);
 			await expect(page).toHaveURL(new RegExp(`${fixture.route}$`));
 			await expect(
 				page.getByRole("heading", { name: "Deep links", exact: true }),

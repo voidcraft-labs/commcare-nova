@@ -1,4 +1,6 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openPage } from "../../lib/pageLoads";
+import { removableRoutes } from "../../lib/routes";
 
 test("a failed document retries through the file manager and keeps its completed metadata on reopen", {
 	tag: "@seed:auth",
@@ -15,7 +17,8 @@ test("a failed document retries through the file manager and keeps its completed
 	};
 	let requests = 0;
 	const completed = Promise.withResolvers<void>();
-	await page.route("**/api/media/library?*", (route) =>
+	const mediaRoutes = removableRoutes(page);
+	await mediaRoutes.route("**/api/media/library?*", (route) =>
 		route.fulfill({
 			json: {
 				assets: [
@@ -36,7 +39,7 @@ test("a failed document retries through the file manager and keeps its completed
 			},
 		}),
 	);
-	await page.route(`**/api/media/${assetId}/extract`, async (route) => {
+	await mediaRoutes.route(`**/api/media/${assetId}/extract`, async (route) => {
 		expect(route.request().method()).toBe("POST");
 		requests += 1;
 		await completed.promise;
@@ -53,7 +56,7 @@ test("a failed document retries through the file manager and keeps its completed
 		});
 	});
 	try {
-		await page.goto("/");
+		await openPage(page, "/");
 		await page.getByRole("button", { name: "Account menu" }).click();
 		await page.getByRole("button", { name: "Files", exact: true }).click();
 		const files = page.getByRole("dialog", { name: "Your files" });
@@ -85,6 +88,6 @@ test("a failed document retries through the file manager and keeps its completed
 		expect(requests).toBe(1);
 	} finally {
 		completed.resolve();
-		await page.unrouteAll({ behavior: "wait" });
+		await mediaRoutes.removeAll();
 	}
 });

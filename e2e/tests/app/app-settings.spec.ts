@@ -1,5 +1,6 @@
 import type { Page } from "@playwright/test";
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openBuilder, reloadBuilder } from "../../lib/pageLoads";
 
 async function openAppSettings(page: Page) {
 	await page.getByRole("button", { name: "App settings", exact: true }).click();
@@ -34,7 +35,7 @@ test("the saved and incomplete forms switches commit and survive a reload", {
 		expect(response.ok()).toBe(true);
 	};
 
-	await page.goto(`/build/${openAppId}`);
+	await openBuilder(page, `/build/${openAppId}`);
 	await openAppSettings(page);
 	await expect(
 		page.getByText("Saved and incomplete forms", { exact: true }),
@@ -49,7 +50,7 @@ test("the saved and incomplete forms switches commit and survive a reload", {
 	await toggleAndSave(incomplete, "showIncompleteForms");
 	await expect(incomplete).toBeChecked();
 
-	await page.reload();
+	await reloadBuilder(page);
 	await openAppSettings(page);
 	await expect(saved).toBeChecked();
 	await expect(incomplete).toBeChecked();

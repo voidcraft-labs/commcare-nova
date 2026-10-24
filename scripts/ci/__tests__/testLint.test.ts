@@ -1,13 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { expect, it } from "vitest";
+import { copyShippedBiomeConfig } from "./shippedBiomeConfig";
 
 it("rejects unfinished promises with the shipped Biome configuration", () => {
 	const fixture = mkdtempSync(path.join(tmpdir(), "nova-test-lint-"));
 	try {
-		copyFileSync("biome.json", path.join(fixture, "biome.json"));
+		copyShippedBiomeConfig(fixture);
 		const lint = (source: string) => {
 			writeFileSync(path.join(fixture, "ownership.test.ts"), source);
 			return spawnSync(

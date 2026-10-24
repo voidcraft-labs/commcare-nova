@@ -1,4 +1,5 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openBuilder } from "../../lib/pageLoads";
 import { FORM_REFUSED_SEED } from "../../lib/previewRuntimeSeeds";
 
 /**
@@ -41,7 +42,7 @@ test("a form whose preload CommCare refuses names the record and routes back to 
 		await expect(submit).toHaveCount(0);
 	};
 
-	await page.goto(formRefused.route);
+	await openBuilder(page, formRefused.route);
 	await expect(
 		page.getByRole("button", { name: "Preview", exact: true }),
 	).toBeVisible({ timeout: 20_000 });

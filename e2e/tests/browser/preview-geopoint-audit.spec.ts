@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { Page } from "@playwright/test";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
+import { removableRoutes } from "../../lib/routes";
 
 async function committedFrame(page: Page) {
 	await page.evaluate(async () => {
@@ -39,7 +40,8 @@ const geopoint = test.extend<{
 			ReturnType<typeof Promise.withResolvers<void>>
 		>();
 		const requests = new Map<string, number>();
-		await page.route(`${peer.origin}/geopoint-peer/**`, async (route) => {
+		const peerRoutes = removableRoutes(page);
+		await peerRoutes.route(`${peer.origin}/geopoint-peer/**`, async (route) => {
 			const url = new URL(route.request().url());
 			const path = `${url.pathname.split("/").at(-1)}${url.search}`;
 			requests.set(path, (requests.get(path) ?? 0) + 1);
@@ -85,7 +87,7 @@ const geopoint = test.extend<{
 				});
 			} finally {
 				try {
-					await page.unrouteAll({ behavior: "wait" });
+					await peerRoutes.removeAll();
 					await page.close();
 				} finally {
 					await peer.close();

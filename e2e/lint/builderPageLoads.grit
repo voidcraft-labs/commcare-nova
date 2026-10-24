@@ -1,0 +1,6 @@
+or {
+	`$page.goto($...)`,
+	`$page.reload($...)`
+} as $call where {
+	register_diagnostic(span=$call, message="This loads a page without saying whether it is a builder page. The builder refuses edits until the Project's data has loaded, so a test that edits after a bare load fails only when CI is slow. Use openBuilder or reloadBuilder for a /build/ URL, and openPage or reloadPage for any other page (e2e/lib/pageLoads.ts). A test about the loading state itself suppresses this with its reason.")
+}

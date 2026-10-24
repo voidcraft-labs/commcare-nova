@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { Page, Route } from "@playwright/test";
 import { componentPeer } from "../../lib/componentPeer";
 import { test as base, expect } from "../../lib/fixtures";
+import { type RemovableRoutes, removableRoutes } from "../../lib/routes";
 
 let component: Awaited<ReturnType<typeof componentPeer>>;
 
@@ -13,9 +14,12 @@ class CaseDataPeer {
 	requests: { method: string; args: unknown[] }[] = [];
 	private writes: Route[] = [];
 	private owned = new Set<Route>();
-	constructor(private page: Page) {}
+	private routes: RemovableRoutes;
+	constructor(page: Page) {
+		this.routes = removableRoutes(page);
+	}
 	async install() {
-		await this.page.route("**/native/case-data/*", async (route) => {
+		await this.routes.route("**/native/case-data/*", async (route) => {
 			const method = new URL(route.request().url()).pathname.split("/").at(-1);
 			if (!method) throw new Error("Missing action method");
 			const args: unknown[] = route.request().postDataJSON();
@@ -61,7 +65,7 @@ class CaseDataPeer {
 	async close() {
 		await Promise.allSettled([...this.owned].map((route) => route.abort()));
 		this.owned.clear();
-		await this.page.unrouteAll({ behavior: "wait" });
+		await this.routes.removeAll();
 	}
 }
 const test = base.extend<{ data: CaseDataPeer }>({

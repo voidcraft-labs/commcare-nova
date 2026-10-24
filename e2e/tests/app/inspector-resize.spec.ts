@@ -1,5 +1,6 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { CASE_WORKSPACE_SEED } from "../../lib/caseWorkspaceSeed";
+import { openBuilder } from "../../lib/pageLoads";
 
 type ExitObservation = {
 	sawNativeAnimation: boolean;
@@ -14,7 +15,7 @@ test("a retained row inspector finishes its exit and returns after desktop resiz
 }, async ({ scenario, page }) => {
 	const seed = seedFor(scenario, "workspace");
 	await page.setViewportSize({ width: 500, height: 780 });
-	await page.goto(seed.caseWorkspace.routes.projectData);
+	await openBuilder(page, seed.caseWorkspace.routes.projectData);
 	await page
 		.getByRole("button", {
 			name: new RegExp(`^${CASE_WORKSPACE_SEED.lookupTableName}`),

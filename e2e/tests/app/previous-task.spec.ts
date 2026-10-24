@@ -1,4 +1,5 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openBuilder } from "../../lib/pageLoads";
 import { PREVIOUS_TASK_SEED } from "../../lib/previousTaskSeed";
 
 test("Previous resumes the source task and retains its saved record world", {
@@ -8,7 +9,7 @@ test("Previous resumes the source task and retains its saved record world", {
 	const { formsFirst, caseFirst } = PREVIOUS_TASK_SEED;
 	const main = page.locator("main");
 	test.setTimeout(90_000);
-	await page.goto(previousTask.routes.formsFirst);
+	await openBuilder(page, previousTask.routes.formsFirst);
 	await expect(
 		main.getByRole("button", { name: formsFirst.formName, exact: true }),
 	).toBeVisible({ timeout: 20_000 });
@@ -44,7 +45,7 @@ test("Previous resumes the source task and retains its saved record world", {
 		main.getByRole("button", { name: "Submit", exact: true }),
 	).toBeEnabled();
 
-	await page.goto(previousTask.routes.caseFirst);
+	await openBuilder(page, previousTask.routes.caseFirst);
 	await expect(
 		page.getByRole("button", { name: "Preview", exact: true }),
 	).toBeVisible();
