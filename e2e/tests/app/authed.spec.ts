@@ -16,12 +16,13 @@ import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { FORM_LINKS_SEED } from "../../lib/formLinksSeed";
 import { FORM_SECTIONS_SEED } from "../../lib/formSectionsSeed";
 import {
+	expectBuilderDataLoaded,
 	openBuilder,
 	openPage,
 	reloadBuilder,
 	reloadPage,
 } from "../../lib/pageLoads";
-import { removableRoutes } from "../../lib/routes";
+import { type RemovableRoutes, removableRoutes } from "../../lib/routes";
 import { SEARCH_FIRST_SEED } from "../../lib/searchFirstSeed";
 import { createSmokeContext } from "../../lib/smokeNetwork";
 import type { SmokeProfileData } from "../../lib/smokeSeedFactory";
@@ -135,7 +136,7 @@ type ScriptedChunk = { type: string; [key: string]: unknown };
  * pre-app question → materialized but still locked question → completion.
  * The route never reaches Nova's server, provider, or usage meter. */
 async function stubDesignBuildJourney(
-	page: Page,
+	routes: RemovableRoutes,
 	activation: SmokeProfileData["design"]["designBuildActivation"],
 ): Promise<{ requests: unknown[] }> {
 	let sends = 0;
@@ -176,7 +177,7 @@ async function stubDesignBuildJourney(
 		{ type: "text-end", id },
 	];
 
-	await page.route("**/api/chat", async (route) => {
+	await routes.route("**/api/chat", async (route) => {
 		if (route.request().method() !== "POST") {
 			await route.fallback();
 			return;
@@ -852,6 +853,7 @@ test.describe("authenticated builder", () => {
 				releaseCatalog.resolve();
 				await catalogRoutes.removeAll();
 			}
+			await expectBuilderDataLoaded(page);
 			await page
 				.getByRole("button", { name: "Update the case this form opened" })
 				.click();
@@ -2723,9 +2725,7 @@ test.describe("authenticated builder", () => {
 		});
 
 		await test.step("an arrow key moves the field and renames its place", async () => {
-			await expect(
-				page.locator('[data-builder-resource="lookup-catalog"]'),
-			).toHaveAttribute("data-state", "ready");
+			await expectBuilderDataLoaded(page);
 			await phone.focus();
 			await phone.press("ArrowDown");
 			const moved = page.getByRole("button", {
@@ -3718,7 +3718,7 @@ test.describe("authenticated builder", () => {
 				releaseReads.resolve();
 				await actionRoutes.removeAll();
 			}
-			await expect(lookupCatalog).toHaveAttribute("data-state", "ready");
+			await expectBuilderDataLoaded(page);
 
 			// Rows read as sentences, in the order the runtime applies them.
 			const list = page.getByRole("list", {
@@ -4475,7 +4475,8 @@ test.describe("authenticated builder", () => {
 		const seed = seedFor(scenario, "design");
 
 		const activation = seed.designBuildActivation;
-		const journey = await stubDesignBuildJourney(page, activation);
+		const designRoutes = removableRoutes(page);
+		const journey = await stubDesignBuildJourney(designRoutes, activation);
 		await openBuilder(page, "/build/new");
 
 		await page
@@ -4566,8 +4567,7 @@ test.describe("authenticated builder", () => {
 		let extracted = false;
 		const extraction = Promise.withResolvers<void>();
 		const uploadBytes = Buffer.from("%PDF-1.4\nprotocol\n");
-		const mediaRoutes = removableRoutes(page);
-		await mediaRoutes.route("**/api/media/library?*", (route) =>
+		await designRoutes.route("**/api/media/library?*", (route) =>
 			route.fulfill({
 				json: {
 					assets: uploaded
@@ -4577,7 +4577,7 @@ test.describe("authenticated builder", () => {
 				},
 			}),
 		);
-		await mediaRoutes.route("**/api/media/upload", (route) => {
+		await designRoutes.route("**/api/media/upload", (route) => {
 			expect(route.request().postDataJSON()).toMatchObject({
 				filename: document.originalFilename,
 				appId: activation.appId,
@@ -4591,18 +4591,18 @@ test.describe("authenticated builder", () => {
 				},
 			});
 		});
-		await mediaRoutes.route("**/test-referral-upload", (route) => {
+		await designRoutes.route("**/test-referral-upload", (route) => {
 			expect(route.request().postDataBuffer()).toEqual(uploadBytes);
 			return route.fulfill({ status: 200 });
 		});
-		await mediaRoutes.route(
+		await designRoutes.route(
 			`**/api/media/upload/${document.id}/confirm`,
 			(route) => {
 				uploaded = true;
 				return route.fulfill({ json: { ok: true, asset: document } });
 			},
 		);
-		await mediaRoutes.route(
+		await designRoutes.route(
 			`**/api/media/${document.id}/extract`,
 			async (route) => {
 				await extraction.promise;
@@ -4720,7 +4720,7 @@ test.describe("authenticated builder", () => {
 			);
 		} finally {
 			extraction.resolve();
-			await mediaRoutes.removeAll();
+			await designRoutes.removeAll();
 		}
 
 		/* Completion releases the same store latch: progress leaves the canvas

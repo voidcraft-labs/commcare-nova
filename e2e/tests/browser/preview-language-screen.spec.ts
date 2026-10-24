@@ -5,6 +5,7 @@ import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/preview-language-screen-client";
 import { DATE, NAME } from "../../lib/preview-language-screen-doc";
+import { replaceRichText } from "../../lib/richText";
 
 // The visit's starting value is `'2024-01-15T14:30:00.000-05:00'`. Core holds
 // a date-and-time answer as its instant, written in the device's zone
@@ -999,7 +1000,7 @@ test("authoring keeps focus while the Preview engine is rebuilding", async ({
 			await form.getByRole("button", { name: "Name", exact: true }).click();
 			const label = form.getByRole("textbox", { name: "Label", exact: true });
 			await expect(label).toBeFocused();
-			await label.fill("Draft name");
+			await replaceRichText(label, "Draft name");
 			await expect(label).toHaveText("Draft name");
 			expect(
 				await page.evaluate(() => window.previewLanguageScreen.held()),

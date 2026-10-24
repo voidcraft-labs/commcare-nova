@@ -2,6 +2,7 @@ import AdmZip from "adm-zip";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { FORM_SECTIONS_SEED } from "../../lib/formSectionsSeed";
 import { openBuilder, reloadBuilder } from "../../lib/pageLoads";
+import { replaceRichText } from "../../lib/richText";
 
 const source = FORM_SECTIONS_SEED.aboutYou.nameFieldUuid;
 test.use({ actionTimeout: 15_000 });
@@ -180,7 +181,7 @@ test("canvas reference picker supports keyboard insertion, replacement and liter
 	await main.getByRole("button", { name: "Your name", exact: true }).click();
 	const label = main.getByRole("textbox", { name: "Label", exact: true });
 	await page.setViewportSize({ width: 980, height: 850 });
-	await label.fill("Hello ");
+	await replaceRichText(label, "Hello ");
 	await page
 		.getByRole("button", { name: "Insert reference", exact: true })
 		.click();

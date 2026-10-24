@@ -1,13 +1,20 @@
 import type { BrowserContext, Page, Request, Route } from "@playwright/test";
 
 type RouteHandler = (route: Route, request: Request) => unknown;
+type RouteUrl = Parameters<Page["route"]>[0];
+type RouteOptions = Parameters<Page["route"]>[2];
 
 export interface RemovableRoutes {
-	/** Adds a route to the group, as `page.route` does. */
-	route(url: string, handler: RouteHandler): Promise<void>;
+	/** Adds a route to the group, taking what `page.route` takes. */
+	route(
+		url: RouteUrl,
+		handler: RouteHandler,
+		options?: RouteOptions,
+	): Promise<void>;
 	/**
 	 * Waits until no request is inside any of the group's handlers, then
-	 * removes them all. Release anything a handler is holding first.
+	 * removes them all. Release anything a handler is holding first: a handler
+	 * still waiting on a gate holds this call until the test times out.
 	 */
 	removeAll(): Promise<void>;
 }
@@ -24,14 +31,17 @@ export interface RemovableRoutes {
  * handler meanwhile turns interception off. `removeAll` waits until the
  * handlers hold no request and only then removes the routes, in the same
  * turn, so no request can start in between.
+ *
+ * A route kept after its handler returns, to be fulfilled later, is outside
+ * what `removeAll` can see: the test finishes or aborts it first.
  */
 export function removableRoutes(
 	target: Page | BrowserContext,
 ): RemovableRoutes {
-	const added: { url: string; handler: RouteHandler }[] = [];
+	const added: { url: RouteUrl; handler: RouteHandler }[] = [];
 	const running = new Set<Promise<unknown>>();
 	return {
-		async route(url, handler) {
+		async route(url, handler, options) {
 			const tracked = async (route: Route, request: Request) => {
 				const run = (async () => await handler(route, request))();
 				running.add(run);
@@ -42,7 +52,7 @@ export function removableRoutes(
 				}
 			};
 			added.push({ url, handler: tracked });
-			await target.route(url, tracked);
+			await target.route(url, tracked, options);
 		},
 		async removeAll() {
 			while (running.size > 0) {

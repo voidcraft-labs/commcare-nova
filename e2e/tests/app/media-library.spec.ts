@@ -2,7 +2,7 @@ import type { Locator, Page } from "@playwright/test";
 import { Pool } from "pg";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { openBuilder, openPage, reloadBuilder } from "../../lib/pageLoads";
-import { removableRoutes } from "../../lib/routes";
+import { type RemovableRoutes, removableRoutes } from "../../lib/routes";
 
 const imageBytes = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9ZkAAAAASUVORK5CYII=",
@@ -45,8 +45,8 @@ async function openFiles(page: Page) {
 	await page.getByRole("button", { name: "Files", exact: true }).click();
 	return page.getByRole("dialog", { name: "Your files" });
 }
-async function imageRoute(page: Page) {
-	await page.route(`**/api/media/${assetId}*`, (route) =>
+async function imageRoute(routes: RemovableRoutes) {
+	await routes.route(`**/api/media/${assetId}*`, (route) =>
 		route.fulfill({ contentType: "image/png", body: imageBytes }),
 	);
 }
@@ -608,7 +608,7 @@ test("a staged app-logo upload exposes progress and cancels without attaching a 
 		await initiate.promise;
 		return route.fulfill({ json: { deduplicated: true, asset } });
 	});
-	await imageRoute(page);
+	await imageRoute(mediaRoutes);
 	page.on("request", (request) => {
 		if (request.method() === "PUT" || request.url().endsWith("/confirm"))
 			transfers += 1;

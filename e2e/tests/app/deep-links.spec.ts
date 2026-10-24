@@ -1,7 +1,11 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { DEEP_LINKS_SEED } from "../../lib/deepLinksSeed";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
-import { openBuilder, reloadBuilder } from "../../lib/pageLoads";
+import {
+	expectBuilderDataLoaded,
+	openBuilder,
+	reloadBuilder,
+} from "../../lib/pageLoads";
 import { removableRoutes } from "../../lib/routes";
 import { createSmokeContext } from "../../lib/smokeNetwork";
 
@@ -216,6 +220,7 @@ test(
 				releaseReads();
 				await actionRoutes.removeAll();
 			}
+			await expectBuilderDataLoaded(page);
 			await savedMutation("removeEntryPoint", () =>
 				page
 					.getByRole("button", { name: "Remove deep link", exact: true })
