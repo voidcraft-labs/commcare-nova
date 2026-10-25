@@ -476,6 +476,82 @@ describe("step 2, remove-unplayed-media", () => {
 		]);
 	});
 
+	it("removes a menu's icon and a help bundle's file, keeping the slot beside each", () => {
+		/* On Android alone an AVIF or ICO image does not play and an AMR
+		 * label and an H.264 High video do, so each carrier loses one slot. */
+		const android = produce(doc, (draft) => {
+			draft.appSettings.runsOnlyOn = "android";
+			const patients = draft.modules[MEDIA_UUIDS.patients];
+			const visit = draft.forms[MEDIA_UUIDS.visit];
+			const photo = draft.fields[MEDIA_UUIDS.photo] as
+				| Record<string, unknown>
+				| undefined;
+			if (!patients || !visit || !photo) throw new Error("No media app.");
+			patients.icon = MEDIA.avif;
+			visit.icon = MEDIA.ico;
+			visit.audioLabel = MEDIA.amr;
+			photo.help_media = { image: MEDIA.avif, video: MEDIA.high };
+		});
+		const judged = transformApp(android, stepContext(android));
+		expect(judged.blockers).toEqual([]);
+		const carriers = new Set(["menu-icon", "menu-audio", "help"]);
+		expect(
+			judged.notice.flatMap((entry) =>
+				entry.kind === "document" && carriers.has(String(entry.detail?.carrier))
+					? [[entry.entity, entry.detail]]
+					: [],
+			),
+		).toEqual([
+			[
+				{
+					type: "module",
+					uuid: MEDIA_UUIDS.patients,
+					nameAtMigration: "Patients",
+				},
+				{
+					carrier: "menu-icon",
+					media: "image",
+					file: "photo.avif",
+					cause: "android",
+				},
+			],
+			[
+				{ type: "form", uuid: MEDIA_UUIDS.visit, nameAtMigration: "Visit" },
+				{
+					module: "Patients",
+					carrier: "menu-icon",
+					media: "image",
+					file: "north.ico",
+					cause: "android",
+				},
+			],
+			[
+				{ type: "field", uuid: MEDIA_UUIDS.photo, nameAtMigration: "photo" },
+				{
+					form: "Visit",
+					carrier: "help",
+					media: "image",
+					file: "photo.avif",
+					cause: "android",
+				},
+			],
+		]);
+		const patients = judged.target.modules[MEDIA_UUIDS.patients];
+		const visit = judged.target.forms[MEDIA_UUIDS.visit];
+		expect([patients?.icon, patients?.audioLabel]).toEqual([
+			undefined,
+			MEDIA.amr,
+		]);
+		expect([visit?.icon, visit?.audioLabel]).toEqual([undefined, MEDIA.amr]);
+		expect(
+			(judged.target.fields[MEDIA_UUIDS.photo] as Record<string, unknown>)
+				.help_media,
+		).toEqual({ video: MEDIA.high });
+		expect(judgeTarget(android, judged.target, stepContext(android))).toEqual(
+			[],
+		);
+	});
+
 	it("leaves the file's name out where it is longer than an entry keeps", () => {
 		const context = stepContext(doc);
 		const long = new Map(context.mediaRecords);
