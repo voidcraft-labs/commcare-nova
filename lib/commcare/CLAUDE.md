@@ -163,8 +163,9 @@ check holds Nova's own exports to the entries: every item an export uses must
 be held by the entry whose value class takes it, where holding is a HELD,
 TARGET-OWNED or INERT entry's, so a use whose key only HELD-NEW entries name
 is a difference (`/<key>/held-new`); and every flag HQ reads while building it
-must have a gate entry (`proof/README.md`, "Manifest checks"). Server code reads gate entries through `surface/gates.ts`, never
-`surface.json`, so a server bundle carries the gate entries alone.
+must have a gate entry (`proof/README.md`, "Manifest checks"). Server code
+reads gate entries through `surface/gates.ts`, never `surface.json`, so a
+server bundle carries the gate entries alone.
 
 ### CommCare HQ project-space compatibility
 
