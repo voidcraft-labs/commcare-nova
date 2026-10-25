@@ -23,6 +23,7 @@ import type {
 import {
 	assignedLocationUuids,
 	childModuleUuids,
+	declaredPlatforms,
 	fieldCaseWrite,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
@@ -34,6 +35,7 @@ import {
 	orderedUserProperties,
 	orderedUserTypes,
 	ownRecordValue,
+	platformDeclarationLabel,
 	tileCellFor,
 	userPropertiesOf,
 	userTypesOf,
@@ -399,6 +401,7 @@ export function summarizeBlueprint(doc: BlueprintDoc): string {
 	lines.push(
 		`Form lists: saved forms ${doc.appSettings.showSavedForms ? "on" : "off"}, incomplete forms ${doc.appSettings.showIncompleteForms ? "on" : "off"}`,
 	);
+	lines.push(`Runs on: ${platformDeclarationLabel(declaredPlatforms(doc))}`);
 
 	if (doc.caseTypes?.length) {
 		lines.push("");

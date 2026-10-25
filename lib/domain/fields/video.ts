@@ -6,8 +6,11 @@
 // its own `captureCaseWriteSchema` destination, which carries the mode
 // deciding how the answer reaches the case.
 //
-// This is an attachment, not a recording: CommCare Web Apps has no
-// camera or recorder, so the worker picks an existing video file.
+// How the worker adds the video depends on where the app runs: CommCare
+// Web Apps has no camera or recorder, so the worker picks an existing
+// video file, while Android records one. So `saDocs` names what to
+// capture, never how; the platform table's `video-question` row says how
+// each platform captures it.
 
 import tablerDeviceTv from "@iconify-icons/tabler/device-tv";
 import { z } from "zod";
@@ -39,6 +42,6 @@ export const videoFieldMetadata: FieldKindMetadata<"video"> = {
 	isContainer: false,
 	carriesValidation: false,
 	saDocs:
-		"Video attachment, the worker attaches an existing MP4, MPG, MPEG, MPG4, MPEG4, M4V, 3GP, 3GPP, 3GP2, or 3G2 file. Web Apps has no camera, so never describe this as recording video.",
+		'Video attachment. Name what to capture, such as "Video of the demonstration", rather than how.',
 	convertTargets: ["image", "audio", "signature", "file"],
 };

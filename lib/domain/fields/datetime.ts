@@ -1,6 +1,6 @@
 // lib/domain/fields/datetime.ts
 //
-// Combined date + time picker field. Maps to CommCare <input> control with
+// Combined date and time picker field. Maps to CommCare <input> control with
 // xsd:dateTime type. Supports XPath validation and a `default_value` seed (a
 // computed value belongs on a `hidden` field, not a `calculate` here).
 
@@ -31,6 +31,6 @@ export const datetimeFieldMetadata: FieldKindMetadata<"datetime"> = {
 	isStructural: false,
 	isContainer: false,
 	carriesValidation: true,
-	saDocs: "Combined date + time picker.",
+	saDocs: "Combined date and time picker.",
 	convertTargets: ["date", "time", "hidden"],
 };

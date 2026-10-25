@@ -213,6 +213,25 @@ export function resolveIconInput<Slug extends IconSlug>(
 	};
 }
 
+/** What a media check says when the app it reads has gone. */
+export const MEDIA_APP_UNAVAILABLE_MESSAGE =
+	"This app is no longer available. Reload and try again.";
+
+/**
+ * The Project a media verdict scopes to (media's tenant), so an asset must
+ * belong to THIS app's Project: resolved from the app the tool operates on,
+ * or `undefined` when that app is gone. A genesis change set has no app row
+ * yet, so its invocation scope IS the tenant: the same Project the change
+ * set's commit re-proves under the canonical media locks.
+ */
+export async function mediaProjectId(
+	ctx: ToolInvocationContext,
+): Promise<string | undefined> {
+	if (ctx.appId === null) return ctx.projectId;
+	const lookup = await loadAppProjectId(ctx.appId);
+	return lookup.kind === "not-found" ? undefined : lookup.projectId;
+}
+
 /**
  * Resolve the Project an SA media tool operates in — the app's Project (media's
  * tenant). A missing app is an internal inconsistency at this already-admitted
@@ -313,23 +332,9 @@ export async function attachGuardedMutate(
 	expectations: readonly MediaAttachExpectation[],
 ): Promise<GuardedMutateOutcome> {
 	if (expectations.length > 0) {
-		/* The attach verdict scopes to the app's Project (media's tenant), so an
-		 * asset must belong to THIS app's Project to attach — resolved from the
-		 * app the tool operates on. A genesis change set has no app row yet, so
-		 * its invocation scope IS the tenant: the same Project the change set's
-		 * commit re-proves under the canonical media locks. */
-		let projectId: string;
-		if (ctx.appId === null) {
-			projectId = ctx.projectId;
-		} else {
-			const lookup = await loadAppProjectId(ctx.appId);
-			if (lookup.kind === "not-found") {
-				return {
-					ok: false,
-					error: "This app is no longer available. Reload and try again.",
-				};
-			}
-			projectId = lookup.projectId;
+		const projectId = await mediaProjectId(ctx);
+		if (projectId === undefined) {
+			return { ok: false, error: MEDIA_APP_UNAVAILABLE_MESSAGE };
 		}
 		const verdict = await mediaAttachVerdict({
 			projectId,

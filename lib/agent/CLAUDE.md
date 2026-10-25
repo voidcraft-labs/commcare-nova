@@ -154,6 +154,11 @@ planners because they may affect existing data.
 Shared tool results report `ok`, created identities, relevant changed values,
 and actionable failures or confirmations. A success does not imply publication:
 the architect, ordinary editor and MCP all stage app changes until `saveWork`.
+`addFields` and `editField` refuse a field kind the app's platforms can't run
+before staging, and `updateApp` checks content and media before a change that
+adds a platform, each with the gate's own words
+(`tools/shared/platformPrecheck.ts`), because private work stages a batch
+whatever its findings.
 The UI-only `summary` is stripped
 from both live and resumed model context and from MCP results. Do not append
 instructions to continue after every success. Saved values set aside by a
