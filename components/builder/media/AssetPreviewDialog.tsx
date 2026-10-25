@@ -43,11 +43,14 @@ import {
 	type DocumentKind,
 	isDocumentKind,
 	type MediaAssetId,
+	mediaFormatPlaysOn,
 } from "@/lib/domain/multimedia";
 import { ChatMarkdown } from "@/lib/markdown";
+import { browserStandIn } from "@/lib/media/platformPlayback";
 import { useAccessPhase, useProjectScopeEpoch } from "@/lib/session/hooks";
 import { ASSET_KIND_META } from "./assetKindMeta";
 import { ExtractionInfoPopover } from "./ExtractionInfoPopover";
+import { MediaStandIn } from "./MediaStandIn";
 import { fetchAssetExtract, fetchAssetExtractMeta } from "./mediaClient";
 import {
 	ProjectMediaAudio,
@@ -56,6 +59,7 @@ import {
 	ProjectMediaVideo,
 	useProjectMediaUrl,
 } from "./ProjectMediaResource";
+import { useReferencedAssetRows } from "./useReferencedAssetRows";
 
 /**
  * The minimal handle the preview needs: the asset id (for the bytes proxy +
@@ -249,10 +253,28 @@ function PreviewBody({ target }: { target: AssetPreviewTarget }) {
  */
 function DocumentView({ target }: { target: AssetPreviewTarget }) {
 	const { src } = useProjectMediaUrl(target.id);
+	const row = useReferencedAssetRows(
+		target.kind === "audio" || target.kind === "video" ? [target.id] : [],
+	)[target.id];
 	const name = target.filename;
+	// A file only Android plays shows Preview's line, as the form's player does.
+	const standIn =
+		(target.kind === "audio" || target.kind === "video") &&
+		row?.mediaFormat !== undefined
+			? browserStandIn({
+					kind: target.kind,
+					playsOn: mediaFormatPlaysOn(row.mediaFormat),
+				})
+			: null;
 	// A deleted (or foreign) asset 404s on the bytes proxy; the media element's
 	// onError flips this so we show an honest fallback, not a broken tile.
 	const [unavailable, setUnavailable] = useState(false);
+	if (
+		standIn !== null &&
+		(target.kind === "audio" || target.kind === "video")
+	) {
+		return <MediaStandIn kind={target.kind} line={standIn} />;
+	}
 	if (unavailable || !src) return <AssetUnavailable kind={target.kind} />;
 	const onError = () => setUnavailable(true);
 	switch (target.kind) {

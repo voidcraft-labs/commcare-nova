@@ -44,9 +44,10 @@ import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
-import type { MediaKind } from "@/lib/domain/multimedia";
+import type { MediaFormatValue, MediaKind } from "@/lib/domain/multimedia";
 import type { Event } from "@/lib/log/types";
 import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
+
 import {
 	addClaims,
 	type PreviewClaims,
@@ -61,6 +62,15 @@ import type {
 	PreviewTaskContinuation,
 	StagedUpload,
 } from "./types";
+
+/**
+ * One asset row the session has observed: what the budget check reads, and
+ * the variant its bytes are, which the attach guard, the pickers and
+ * Preview's stand-in read.
+ */
+export type AssetMetaRow = ExportBudgetRowView & {
+	mediaFormat?: MediaFormatValue;
+};
 
 // ── Public types ──────────────────────────────────────────────────────────
 
@@ -416,14 +426,12 @@ export interface BuilderSessionState {
 	 *  Advisory data by design: the export boundary re-loads fresh rows
 	 *  server-side, so a stale entry here can only mis-tune the courtesy
 	 *  check, never the enforcement. */
-	assetMeta: Record<string, ExportBudgetRowView>;
+	assetMeta: Record<string, AssetMetaRow>;
 
 	/** Merge observed asset rows into the registry. Idempotent — a batch
 	 *  that changes nothing writes nothing (no subscriber churn from
 	 *  re-fetched pages). */
-	recordAssetMeta: (
-		assets: readonly ({ id: string } & ExportBudgetRowView)[],
-	) => void;
+	recordAssetMeta: (assets: readonly ({ id: string } & AssetMetaRow)[]) => void;
 
 	/** Clear every transient value whose authority follows the app's current
 	 *  Project. Runs synchronously at the access boundary, before the
@@ -842,7 +850,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				/* Staged media uploads */
 				stagedUploads: {} as Record<string, StagedUpload>,
 				provisioningOutcomes: {} as Record<string, HeldProvisioningOutcome>,
-				assetMeta: {} as Record<string, ExportBudgetRowView>,
+				assetMeta: {} as Record<string, AssetMetaRow>,
 				publishDialogRequest: null as { readonly domain: string } | null,
 				deploymentRecordsRevision: 0,
 
@@ -1560,9 +1568,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					get().clearStagedUpload(slotKey);
 				},
 
-				recordAssetMeta(
-					assets: readonly ({ id: string } & ExportBudgetRowView)[],
-				) {
+				recordAssetMeta(assets: readonly ({ id: string } & AssetMetaRow)[]) {
 					if (assets.length === 0) return;
 					const current = get().assetMeta;
 					/* Skip the write when every incoming row is already recorded
@@ -1574,7 +1580,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							known === undefined ||
 							known.status !== asset.status ||
 							known.kind !== asset.kind ||
-							known.sizeBytes !== asset.sizeBytes
+							known.sizeBytes !== asset.sizeBytes ||
+							known.mediaFormat !== asset.mediaFormat
 						);
 					});
 					if (!changed) return;
@@ -1584,6 +1591,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							status: asset.status,
 							kind: asset.kind,
 							sizeBytes: asset.sizeBytes,
+							...(asset.mediaFormat !== undefined && {
+								mediaFormat: asset.mediaFormat,
+							}),
 						};
 					}
 					set({ assetMeta: next });
@@ -1751,7 +1761,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						/* Staged media uploads */
 						stagedUploads: {} as Record<string, StagedUpload>,
 						provisioningOutcomes: {} as Record<string, HeldProvisioningOutcome>,
-						assetMeta: {} as Record<string, ExportBudgetRowView>,
+						assetMeta: {} as Record<string, AssetMetaRow>,
 						publishDialogRequest: null as { readonly domain: string } | null,
 						deploymentRecordsRevision: 0,
 

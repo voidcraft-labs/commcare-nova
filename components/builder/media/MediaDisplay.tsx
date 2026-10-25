@@ -1,12 +1,37 @@
 "use client";
 
-import type { Media } from "@/lib/domain/multimedia";
+import { type Media, mediaFormatPlaysOn } from "@/lib/domain/multimedia";
+import { browserStandIn } from "@/lib/media/platformPlayback";
+import type { AssetMetaRow } from "@/lib/session/provider";
 import { cn } from "@/lib/utils";
+import { MediaStandIn } from "./MediaStandIn";
 import {
 	ProjectMediaAudio,
 	ProjectMediaImage,
 	ProjectMediaVideo,
 } from "./ProjectMediaResource";
+import { useReferencedAssetRows } from "./useReferencedAssetRows";
+
+/**
+ * How an audio or video slot shows its file: its stand-in line where only
+ * Android plays it, a player without a source while its row is unknown (so
+ * no bytes are asked for before the row says whether the browser plays the
+ * file), and the player otherwise.
+ */
+function playback(
+	kind: "audio" | "video",
+	row: AssetMetaRow | null | undefined,
+):
+	| { readonly kind: "stand-in"; readonly line: string }
+	| { readonly kind: "pending" | "play" } {
+	if (row === undefined) return { kind: "pending" };
+	if (row === null || row.mediaFormat === undefined) return { kind: "play" };
+	const line = browserStandIn({
+		kind,
+		playsOn: mediaFormatPlaysOn(row.mediaFormat),
+	});
+	return line === null ? { kind: "play" } : { kind: "stand-in", line };
+}
 
 /**
  * The READ surface for a carrier's attached media: what the form/menu/app
@@ -24,6 +49,10 @@ import {
  * the player still shows the viewer what's attached. In preview mode the
  * controls are live.
  *
+ * Preview plays media in the browser, so it plays what Web Apps plays: an
+ * audio or video file only Android plays shows its stand-in line in the
+ * player's place (`MediaStandIn`).
+ *
  * Returns `null` for an empty bundle, so a caller can mount it unconditionally
  * above a label without its own presence check.
  */
@@ -40,7 +69,14 @@ export function MediaDisplay({
 	 *  a dense list) pass a smaller cap than the default label size. */
 	imageClassName?: string;
 }) {
+	const rows = useReferencedAssetRows(
+		[media?.audio, media?.video].filter(
+			(id): id is NonNullable<typeof id> => id !== undefined,
+		),
+	);
 	if (!media || (!media.image && !media.audio && !media.video)) return null;
+	const audio = media.audio && playback("audio", rows[media.audio]);
+	const video = media.video && playback("video", rows[media.video]);
 	return (
 		<div
 			className={cn(
@@ -56,23 +92,37 @@ export function MediaDisplay({
 					className={imageClassName}
 				/>
 			)}
-			{media.audio && (
-				// Definite width: a native `<audio>` has no intrinsic width and
-				// `w-full` collapses to 0 inside an `items-start` flex column (the
-				// same `w-full`-collapse MediaSlot's audio preview guards against).
-				<ProjectMediaAudio
-					assetId={media.audio}
-					controls
-					className="w-72 max-w-full"
-				/>
-			)}
-			{media.video && (
-				<ProjectMediaVideo
-					assetId={media.video}
-					controls
-					className="max-h-40 max-w-full rounded-md"
-				/>
-			)}
+			{media.audio &&
+				audio &&
+				(audio.kind === "stand-in" ? (
+					<MediaStandIn kind="audio" line={audio.line} />
+				) : audio.kind === "pending" ? (
+					// biome-ignore lint/a11y/useMediaCaption: a player with no source yet holds no speech to caption
+					<audio controls className="w-72 max-w-full" />
+				) : (
+					// Definite width: a native `<audio>` has no intrinsic width and
+					// `w-full` collapses to 0 inside an `items-start` flex column (the
+					// same `w-full`-collapse MediaSlot's audio preview guards against).
+					<ProjectMediaAudio
+						assetId={media.audio}
+						controls
+						className="w-72 max-w-full"
+					/>
+				))}
+			{media.video &&
+				video &&
+				(video.kind === "stand-in" ? (
+					<MediaStandIn kind="video" line={video.line} />
+				) : video.kind === "pending" ? (
+					// biome-ignore lint/a11y/useMediaCaption: a player with no source yet holds no speech to caption
+					<video controls className="max-h-40 max-w-full rounded-md" />
+				) : (
+					<ProjectMediaVideo
+						assetId={media.video}
+						controls
+						className="max-h-40 max-w-full rounded-md"
+					/>
+				))}
 		</div>
 	);
 }
