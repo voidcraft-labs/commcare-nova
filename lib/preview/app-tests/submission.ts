@@ -1,4 +1,5 @@
 import type { AppTestScope } from "@/lib/db/appTests";
+import { appHomeLanding } from "../afterSubmitRouting";
 import { validateCaptureSubmissionProjection } from "../engine/captureSubmissionValidation";
 import {
 	buildSubmissionOperationProgram,
@@ -208,7 +209,7 @@ export async function submitAppTest(
 						nextState = {
 							...nextState,
 							screen:
-								context.rules.postSubmitAppHome === "device-home"
+								appHomeLanding(context.rules) === "device-home"
 									? { kind: "device-home" }
 									: { kind: "home" },
 							history: [],

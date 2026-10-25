@@ -82,6 +82,22 @@ export type AfterSubmitRoute =
 	 *  cases, a lookup), as the screen's other visibility reads wait. */
 	| { readonly kind: "pending" };
 
+/**
+ * Where `app_home`, HQ's default after-submit destination, lands: the app's
+ * first screen in Web Apps, which has no home inside an app, and the
+ * phone's home screen on Android (`postSubmitAppHome`; Formplayer
+ * `FormSubmissionHelper.java::doEndOfFormNav`, Android
+ * `AndroidSessionWrapper::terminateSession`). The running form and App Tests
+ * both land by it.
+ */
+export function appHomeLanding(
+	rules: Pick<PreviewPlatformRules, "postSubmitAppHome">,
+): "module-list" | "device-home" {
+	return rules.postSubmitAppHome === "device-home"
+		? "device-home"
+		: "module-list";
+}
+
 /** Where a form link's target stands on the worker's menu after submit:
  *  shown; a form off the menu or whose display condition is false; a form
  *  inside a module (or under one) that is off the menu or whose display

@@ -61,6 +61,7 @@ import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import {
 	afterSubmitRoute,
 	afterSubmitTargetVisibility,
+	appHomeLanding,
 	automaticLinkedCaseCollection,
 	carriedChildCasesFromReceipt,
 	previewMenuSelectionsAfterTargetCases,
@@ -1127,7 +1128,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				 * `firstMenu` opens the app's first screen on both. */
 				case "app_home":
 					navigate.goHome();
-					if (platformRules.postSubmitAppHome === "device-home")
+					if (appHomeLanding(platformRules) === "device-home")
 						setPreviewAtDeviceHome(true);
 					return;
 				case "firstMenu":
@@ -1156,7 +1157,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		},
 		[
 			navigate,
-			platformRules.postSubmitAppHome,
+			platformRules,
 			session,
 			setPreviewAtDeviceHome,
 			setPreviewMenuCaseSelection,

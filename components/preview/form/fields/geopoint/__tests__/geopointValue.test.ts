@@ -2,6 +2,8 @@ import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
 import { schemaForDataType } from "@/lib/domain/expression/jsonSchema";
 import {
+	androidCoordinateText,
+	androidMetersText,
 	formatGeopoint,
 	type GeoPoint,
 	isValidLat,
@@ -118,5 +120,24 @@ describe("range guards", () => {
 		expect(isValidLon(-180)).toBe(true);
 		expect(isValidLon(180.0001)).toBe(false);
 		expect(isValidLon(Number.POSITIVE_INFINITY)).toBe(false);
+	});
+});
+
+/* Android's location question shows an answer's coordinates in degrees,
+ * minutes and whole seconds, each cut from Java's `Double.toString` at the
+ * decimal point (`GeoUtils.java::formatGps`), and its metres to at most two
+ * decimals (`GeoPointWidget.java::truncateDouble`). */
+describe("Android's answered location lines", () => {
+	it("spells each coordinate with its hemisphere, cutting rather than rounding", () => {
+		expect(androidCoordinateText(40, "lat")).toBe(`N 40°0'0"`);
+		expect(androidCoordinateText(-74, "lon")).toBe(`W 74°0'0"`);
+		expect(androidCoordinateText(-1.5, "lat")).toBe(`S 1°30'0"`);
+		expect(androidCoordinateText(36.8219, "lon")).toBe(`E 36°49'18"`);
+	});
+
+	it("shows metres with at most two decimals and no trailing zeros", () => {
+		expect(androidMetersText(4)).toBe("4");
+		expect(androidMetersText(12.5)).toBe("12.5");
+		expect(androidMetersText(12.3456)).toBe("12.35");
 	});
 });

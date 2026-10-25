@@ -250,7 +250,6 @@ function AttachmentControl({
 	const platform = usePreviewPlatform();
 	const rules = usePreviewPlatformRules();
 	const limits = CAPTURE_LIMITS[platform];
-	const { language } = useBuilderLanguage();
 	const projectProse = useProseProjection();
 	const mayWrite = mayEdit && accessPhase === "authorized";
 	const inputId = useId();
@@ -886,7 +885,7 @@ function AttachmentControl({
 						].map((input) => (
 							<DeviceCaptureInput
 								key={input.label}
-								label={runtimeMessage(language, input.label)}
+								label={input.label}
 								icon={input.icon}
 								accept={input.accept}
 								camera={input.camera}
@@ -1037,9 +1036,11 @@ function AttachmentControl({
 					>
 						<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />
 						<span id={removeActionId}>
-							{field.kind === "image"
-								? runtimeMessage(language, "removeImage")
-								: "Remove"}
+							{field.kind === "image" ? (
+								<RuntimeText message="removeImage" />
+							) : (
+								"Remove"
+							)}
 						</span>
 					</button>
 					{largeAttached ? (
@@ -1235,7 +1236,7 @@ function DeviceCaptureInput({
 	describedBy,
 	onFile,
 }: {
-	readonly label: string;
+	readonly label: RuntimeMessage;
 	readonly icon: typeof tablerCamera;
 	readonly accept: string;
 	readonly camera: boolean;
@@ -1274,7 +1275,17 @@ function DeviceCaptureInput({
 				}}
 			/>
 			<Icon icon={icon} width="16" height="16" aria-hidden="true" />
-			<span id={actionId}>{label}</span>
+			<span id={actionId}>
+				<RuntimeText message={label} />
+			</span>
 		</label>
 	);
+}
+
+/** A runtime message in the worker's language. Only Android's capture
+ *  controls read the language, so only they need the localization
+ *  provider. */
+function RuntimeText({ message }: { readonly message: RuntimeMessage }) {
+	const { language } = useBuilderLanguage();
+	return <>{runtimeMessage(language, message)}</>;
 }

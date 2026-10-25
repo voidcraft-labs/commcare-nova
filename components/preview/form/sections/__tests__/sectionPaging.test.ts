@@ -4,6 +4,7 @@ import type { FormScreenPage } from "@/lib/preview/engine/formEngine";
 import {
 	availablePages,
 	pagesToValidate,
+	repeatPromptsBetween,
 	resolveCurrentPage,
 } from "@/lib/preview/engine/sectionPaging";
 
@@ -73,5 +74,28 @@ describe("pagesToValidate", () => {
 	it("asks nothing when either end is not a visible page", () => {
 		expect(pagesToValidate(visible, b.path, d.path)).toEqual([]);
 		expect(pagesToValidate(visible, a.path, b.path)).toEqual([]);
+	});
+});
+
+describe("repeatPromptsBetween", () => {
+	const prompt = (afterScreen: number, visible = true) => ({
+		afterScreen,
+		visible,
+	});
+
+	it("opens every relevant prompt placed from the current screen up to the next", () => {
+		const points = [prompt(0), prompt(1), prompt(1, false), prompt(3)];
+		/* From screen 1 to screen 3, past a skipped screen 2. */
+		expect(repeatPromptsBetween(points, 1, 3)).toEqual([prompt(1)]);
+		expect(repeatPromptsBetween(points, 0, 4)).toEqual([
+			prompt(0),
+			prompt(1),
+			prompt(3),
+		]);
+	});
+
+	it("opens a prompt after the last screen when nothing follows", () => {
+		expect(repeatPromptsBetween([prompt(5)], 5, 6)).toEqual([prompt(5)]);
+		expect(repeatPromptsBetween([prompt(4)], 5, 6)).toEqual([]);
 	});
 });
