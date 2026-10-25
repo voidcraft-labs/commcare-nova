@@ -34,6 +34,7 @@ import {
 import { appendSlot, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
+import { AppLanguageValuePicker } from "./AppLanguageValuePicker";
 import { KIND_BUILDERS } from "./comparisonSeed";
 import { PredicateVerbMenu } from "./PredicateVerbMenu";
 
@@ -106,6 +107,29 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 				? value.right.term.value
 				: undefined;
 
+	// "App language" is compared with one of the app's languages, offered by
+	// name and stored as the wire code the session holds.
+	const appLanguageRight =
+		!caseTypeRight &&
+		value.left.kind === "term" &&
+		value.left.term.kind === "session-context" &&
+		value.left.term.field === "applanguage" &&
+		value.right.kind === "term" &&
+		value.right.term.kind === "literal" &&
+		(typeof value.right.term.value === "string" ||
+			value.right.term.value === null);
+	const storedLanguageCode =
+		value.right.kind === "term" &&
+		value.right.term.kind === "literal" &&
+		typeof value.right.term.value === "string" &&
+		value.right.term.value !== ""
+			? value.right.term.value
+			: undefined;
+	const languageLiteral = (code: string): Expression => ({
+		kind: "term",
+		term: { kind: "literal", value: code },
+	});
+
 	return (
 		<div className="space-y-3">
 			<div className="grid grid-cols-1 items-start gap-2 @sm:grid-cols-[minmax(0,1fr)_auto]">
@@ -155,7 +179,24 @@ export function ComparisonCard({ value, onChange, path }: ComparisonCardProps) {
 				{caseTypeRight && rightErrors.length > 0 ? (
 					<InlineError errors={rightErrors} />
 				) : null}
-				{caseTypeRight ? null : (
+				{appLanguageRight ? (
+					<AppLanguageValuePicker
+						value={storedLanguageCode}
+						onChange={(code) =>
+							setRight(languageLiteral(code) as Parameters<typeof eq>[1])
+						}
+						admit={(code) =>
+							ctx.admitExpressionChange?.(rightPath, languageLiteral(code)) ?? {
+								admitted: true,
+							}
+						}
+						invalid={rightErrors.length > 0}
+					/>
+				) : null}
+				{appLanguageRight && rightErrors.length > 0 ? (
+					<InlineError errors={rightErrors} />
+				) : null}
+				{caseTypeRight || appLanguageRight ? null : (
 					<ExpressionPicker
 						value={value.right}
 						onChange={setRight}

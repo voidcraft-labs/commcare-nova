@@ -8,6 +8,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Spinner } from "@/components/shadcn/spinner";
 import { useReconcilerContext } from "@/lib/collab/context";
+import type { Reconciler } from "@/lib/collab/reconciler";
 import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import {
 	type StructuredCommitFinding,
@@ -83,6 +84,54 @@ function platformsOf(choice: PlatformChoice): readonly Platform[] {
 
 function choiceOf(runsOnlyOn: Platform | undefined): PlatformChoice {
 	return runsOnlyOn ?? "both";
+}
+
+/** What the server says about a declaration change that adds a platform:
+ *  `ok` (commit it), the stranded uses, a line saying why it couldn't be
+ *  checked, or `stale` when a later choice took over. */
+export type PlatformChangeCheck =
+	| { readonly kind: "ok" }
+	| {
+			readonly kind: "refused";
+			readonly findings: readonly PlatformChangeFindingRow[];
+			readonly media: readonly PlatformChangeMediaRow[];
+	  }
+	| { readonly kind: "line"; readonly text: string }
+	| { readonly kind: "stale" };
+
+/**
+ * Check a change of where the app runs that adds a platform: wait for the
+ * reconciler's save barrier so the committed document is the one on screen,
+ * ask the platform change preflight, and admit the answer only when it read
+ * the sequence on screen. `current` says the caller still wants the answer.
+ */
+export async function checkPlatformChange(
+	reconciler: Reconciler | undefined,
+	appId: string | undefined,
+	runsOnlyOn: Platform | null,
+	current: () => boolean,
+): Promise<PlatformChangeCheck> {
+	try {
+		if (reconciler === undefined || appId === undefined)
+			return { kind: "line", text: BARRIER_LINE };
+		const saved = await reconciler.waitForHumanSaveBarrier();
+		if (!current()) return { kind: "stale" };
+		if (saved.kind !== "saved") return { kind: "line", text: BARRIER_LINE };
+		const result = await platformChangePreflightAction({ appId, runsOnlyOn });
+		if (!current()) return { kind: "stale" };
+		if (result.kind === "refused")
+			return {
+				kind: "refused",
+				findings: result.findings,
+				media: result.media,
+			};
+		if (result.kind !== "ok") return { kind: "line", text: UNREACHABLE_LINE };
+		if (reconciler.getSnapshot().baseSeq !== result.mutationSeq)
+			return { kind: "line", text: MOVED_LINE };
+		return { kind: "ok" };
+	} catch {
+		return current() ? { kind: "line", text: THROWN_LINE } : { kind: "stale" };
+	}
 }
 
 /** What stands in the way of one choice, row by row. */
@@ -206,43 +255,28 @@ export function AppPlatformsSection() {
 		}
 		setPending(next);
 		try {
-			if (reconciler === undefined || appId === undefined) {
-				setRefusal({ kind: "line", text: BARRIER_LINE });
-				return;
-			}
-			const saved = await reconciler.waitForHumanSaveBarrier();
-			if (sequence !== generation.current) return;
-			if (saved.kind !== "saved") {
-				setRefusal({ kind: "line", text: BARRIER_LINE });
-				return;
-			}
-			const result = await platformChangePreflightAction({
+			const checked = await checkPlatformChange(
+				reconciler,
 				appId,
-				runsOnlyOn: next === "both" ? null : next,
-			});
-			if (sequence !== generation.current) return;
-			if (result.kind === "refused") {
+				next === "both" ? null : next,
+				() => sequence === generation.current,
+			);
+			if (checked.kind === "stale") return;
+			if (checked.kind === "line") {
+				setRefusal({ kind: "line", text: checked.text });
+				return;
+			}
+			if (checked.kind === "refused") {
 				setRefusal({
 					kind: "rows",
 					added,
 					target: next,
-					findings: result.findings,
-					media: result.media,
+					findings: checked.findings,
+					media: checked.media,
 				});
 				return;
 			}
-			if (result.kind !== "ok") {
-				setRefusal({ kind: "line", text: UNREACHABLE_LINE });
-				return;
-			}
-			if (reconciler.getSnapshot().baseSeq !== result.mutationSeq) {
-				setRefusal({ kind: "line", text: MOVED_LINE });
-				return;
-			}
 			commit(next, mutation, added);
-		} catch {
-			if (sequence === generation.current)
-				setRefusal({ kind: "line", text: THROWN_LINE });
 		} finally {
 			if (sequence === generation.current) setPending(undefined);
 		}

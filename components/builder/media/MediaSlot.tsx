@@ -44,7 +44,7 @@ import tablerPaperclip from "@iconify-icons/tabler/paperclip";
 import tablerReplace from "@iconify-icons/tabler/replace";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import tablerX from "@iconify-icons/tabler/x";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import {
 	Popover,
@@ -53,6 +53,7 @@ import {
 } from "@/components/shadcn/popover";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import {
 	type BuiltinIconRef,
 	type FormIconRef,
@@ -68,6 +69,10 @@ import {
 	type MediaAssetId,
 	type MediaKind,
 } from "@/lib/domain/multimedia";
+import {
+	assetUnavailableReason,
+	formatUnavailableReason,
+} from "@/lib/media/platformPlayback";
 import {
 	useAppId,
 	useCanEdit,
@@ -100,6 +105,39 @@ import { useStagedSlotUpload } from "./useStagedUpload";
  * registry: the "already-loaded library rows" the attach budget check
  * resolves referenced ids against without a fetch.
  */
+/**
+ * The pickers' reasons a file or a format can't be used in this app: a file
+ * of the Library a platform the app runs on can't play (read from its own
+ * fields), and on the Upload tab a format none of whose variants plays on
+ * every platform the app runs on, which leaves it out of the file filter.
+ */
+function usePlatformMediaReasons(): {
+	readonly assetUnavailableReason: (
+		asset: MediaAssetView,
+	) => string | undefined;
+	readonly unavailableReason: (mimeType: string) => string | undefined;
+} {
+	const platforms = useDeclaredPlatforms();
+	return useMemo(
+		() => ({
+			assetUnavailableReason: (asset) =>
+				assetUnavailableReason(
+					{
+						kind: asset.kind,
+						mimeType: asset.mimeType,
+						...(asset.mediaFormat !== undefined && {
+							mediaFormat: asset.mediaFormat,
+						}),
+					},
+					platforms,
+				),
+			unavailableReason: (mimeType) =>
+				formatUnavailableReason(mimeType, platforms),
+		}),
+		[platforms],
+	);
+}
+
 function useRecordLoadedAssets(): (assets: MediaAssetView[]) => void {
 	const session = useBuilderSessionApi();
 	const scopeEpoch = useProjectScopeEpoch();
@@ -163,6 +201,7 @@ export function MediaSlot({
 	const appId = useAppId();
 	const checkAttachBudget = useAttachBudgetGuard();
 	const recordLoadedAssets = useRecordLoadedAssets();
+	const platformReasons = usePlatformMediaReasons();
 	const projectToast = useProjectToast();
 
 	// The confirm-time attach must compose against the carrier's CURRENT
@@ -237,6 +276,8 @@ export function MediaSlot({
 				kinds={picker.kinds}
 				appId={appId}
 				onAssetsLoaded={recordLoadedAssets}
+				assetUnavailableReason={platformReasons.assetUnavailableReason}
+				unavailableReason={platformReasons.unavailableReason}
 				// The picker is media-scoped for a carrier, so a picked asset is
 				// always a media kind; the `isMediaKind` narrow makes that
 				// type-safe (`setMediaSlot` keys the bundle by `MediaKind`) and
@@ -365,6 +406,7 @@ export function SingleAssetSlot(props: SingleAssetSlotProps) {
 	const appId = useAppId();
 	const checkAttachBudget = useAttachBudgetGuard();
 	const recordLoadedAssets = useRecordLoadedAssets();
+	const platformReasons = usePlatformMediaReasons();
 	const projectToast = useProjectToast();
 
 	const propsRef = useRef(props);
@@ -414,6 +456,8 @@ export function SingleAssetSlot(props: SingleAssetSlotProps) {
 				appId={appId}
 				iconLibrary={props.iconLibrary}
 				onAssetsLoaded={recordLoadedAssets}
+				assetUnavailableReason={platformReasons.assetUnavailableReason}
+				unavailableReason={platformReasons.unavailableReason}
 				// Budget BEFORE dispatch: an over-ceiling pick never reaches
 				// the doc; the shared prose lands as a toast (the picker has
 				// already closed).

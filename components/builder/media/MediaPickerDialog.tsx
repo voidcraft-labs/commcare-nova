@@ -73,6 +73,7 @@ import {
 	mimeTypeForFilename,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
+import { playsOnLine } from "@/lib/media/platformPlayback";
 import { namesSvg, SVG_REFUSAL_MESSAGE } from "@/lib/media/svg";
 import {
 	useAccessPhase,
@@ -169,6 +170,13 @@ interface MediaPickerDialogBaseProps {
 	 * Omitted everywhere else: every format of a kind is usable.
 	 */
 	unavailableReason?: (mimeType: string) => string | undefined;
+	/**
+	 * Why one file of the Library can't be used here, from its own fields, or
+	 * `undefined` where it can. A builder media slot passes it for a file a
+	 * platform the app runs on can't play: the file shows as unavailable with
+	 * this line, still previews, and can't be chosen.
+	 */
+	assetUnavailableReason?: (asset: MediaAssetView) => string | undefined;
 	/** Explicit Project write capability for standalone surfaces that do not
 	 *  mount BuilderSessionProvider. Inside the builder, omit this and the live
 	 *  session capability is authoritative. */
@@ -205,6 +213,7 @@ export function MediaPickerDialog({
 	onAssetDeleted,
 	iconLibrary,
 	unavailableReason,
+	assetUnavailableReason,
 	canManageFiles,
 	selectionAuthority,
 }: MediaPickerDialogProps) {
@@ -262,6 +271,7 @@ export function MediaPickerDialog({
 					onAssetDeleted={onAssetDeleted}
 					iconLibrary={iconLibrary}
 					unavailableReason={unavailableReason}
+					assetUnavailableReason={assetUnavailableReason}
 				/>
 			</DialogContent>
 		</Dialog>
@@ -283,6 +293,7 @@ function PickerBody({
 	onAssetDeleted,
 	iconLibrary,
 	unavailableReason,
+	assetUnavailableReason,
 }: {
 	manage: boolean;
 	standaloneCanManageFiles?: boolean;
@@ -296,6 +307,7 @@ function PickerBody({
 	onAssetDeleted?: (assetId: string) => void;
 	iconLibrary?: IconSlotKind | "all";
 	unavailableReason?: (mimeType: string) => string | undefined;
+	assetUnavailableReason?: (asset: MediaAssetView) => string | undefined;
 }) {
 	const scopeEpoch = useProjectScopeEpoch();
 	const projectToast = useProjectToast();
@@ -404,7 +416,11 @@ function PickerBody({
 	}, [assets, onAssetsLoaded]);
 
 	const commit = (asset: MediaAssetView) => {
-		if (!maySelect() || unavailableReason?.(asset.mimeType) !== undefined)
+		if (
+			!maySelect() ||
+			unavailableReason?.(asset.mimeType) !== undefined ||
+			assetUnavailableReason?.(asset) !== undefined
+		)
 			return;
 		onPick({ kind: "uploaded", asset });
 	};
@@ -631,6 +647,10 @@ function PickerBody({
 						kinds={kinds}
 						onFilterChange={setFilter}
 						unavailableReason={canSelect ? unavailableReason : undefined}
+						assetUnavailableReason={
+							canSelect ? assetUnavailableReason : undefined
+						}
+						showPlaysOn={manage}
 					/>
 				</TabsContent>
 			</Tabs>
@@ -922,6 +942,8 @@ function LibraryTab({
 	kinds,
 	onFilterChange,
 	unavailableReason,
+	assetUnavailableReason,
+	showPlaysOn = false,
 }: {
 	canManageFiles: boolean;
 	assets: MediaAssetView[];
@@ -948,6 +970,11 @@ function LibraryTab({
 	onFilterChange: (filter: LibraryFilter) => void;
 	/** Why a file can't be chosen here; such a file still previews. */
 	unavailableReason?: (mimeType: string) => string | undefined;
+	/** Why one file can't be chosen here, from its own fields. */
+	assetUnavailableReason?: (asset: MediaAssetView) => string | undefined;
+	/** The file manager belongs to no app, so it states where each media
+	 *  file plays rather than whether an app can use it. */
+	showPlaysOn?: boolean;
 }) {
 	const searchId = useId();
 	const normalizedQuery = query.trim();
@@ -1077,7 +1104,13 @@ function LibraryTab({
 							extractedTitle && extractedTitle !== fileName
 								? extractedTitle
 								: undefined;
-						const unavailable = unavailableReason?.(asset.mimeType);
+						const unavailable =
+							unavailableReason?.(asset.mimeType) ??
+							assetUnavailableReason?.(asset);
+						const playsOn =
+							showPlaysOn && asset.playsOn !== undefined
+								? playsOnLine(asset.playsOn)
+								: undefined;
 						return (
 							<li key={asset.id} className="group">
 								{/* The thumbnail + its hover affordances form their own
@@ -1192,6 +1225,11 @@ function LibraryTab({
 									{unavailable && (
 										<p className="text-xs leading-tight text-nova-text-muted">
 											{unavailable}
+										</p>
+									)}
+									{playsOn !== undefined && (
+										<p className="text-xs leading-tight text-nova-text-muted">
+											{playsOn}
 										</p>
 									)}
 								</div>

@@ -36,6 +36,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	asUuid,
 	type BlueprintDoc,
+	NEW_APP_SETTINGS,
 	organizationLevelSchema,
 } from "@/lib/domain";
 import {
@@ -122,6 +123,46 @@ import { buildSessionStorageState } from "./session";
 import { SMOKE_TEXT } from "./smokeText";
 
 /** One context per seed process, one actor/Project universe per scenario. */
+/** One form taking part in Connect Learn, in an app that runs on Android
+ *  only, as every Connect app does. */
+export const CONNECT_LEARN_SEED = {
+	appName: "Smoke — Connect Learn",
+	moduleName: "Training",
+	formName: "Lesson one",
+} as const;
+
+function buildConnectLearnBlueprint(appId: string): BlueprintDoc {
+	const seed = CONNECT_LEARN_SEED;
+	return buildDoc({
+		appId,
+		appName: seed.appName,
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
+		connectType: "learn",
+		modules: [
+			{
+				name: seed.moduleName,
+				forms: [
+					{
+						name: seed.formName,
+						type: "survey",
+						fields: [
+							f({ kind: "text", id: "reflection", label: "Reflection" }),
+						],
+						connect: {
+							learn_module: {
+								id: "lesson_one",
+								name: seed.formName,
+								description: "The first lesson",
+								time_estimate: 5,
+							},
+						},
+					},
+				],
+			},
+		],
+	});
+}
+
 export async function smokeSeedEnvironment(secret: string, baseUrl: string) {
 	if (!process.env.NOVA_DB_LOCAL_URL)
 		throw new Error("Smoke seeding requires the explicit local database URL");
@@ -1724,6 +1765,13 @@ export async function createSmokeBuilders(
 
 		"react-profile": async () => {
 			return { reactProfile: await seedReactProfile() };
+		},
+		"connect-learn": async () => {
+			const appId = await seedRuntimeApp(
+				CONNECT_LEARN_SEED.appName,
+				buildConnectLearnBlueprint,
+			);
+			return { connectLearn: { appId } };
 		},
 	};
 	return { common, builders };

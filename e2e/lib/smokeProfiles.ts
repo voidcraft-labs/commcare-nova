@@ -35,6 +35,7 @@ export const SMOKE_PROFILES = [
 	"react-profile",
 	"member-role",
 	"app-notices",
+	"connect-learn",
 ] as const satisfies readonly SmokeProfile[];
 
 export type SmokeScenario = {
