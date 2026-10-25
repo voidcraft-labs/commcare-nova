@@ -63,6 +63,8 @@ function carrierFixture(slot: ExpressionSlotRef) {
 					};
 	} else if (slot.slot === "assessment_user_score") {
 		doc.connectType = "learn";
+		// A Connect app runs on Android alone.
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
 		doc.forms[ids.form].connect = {
 			assessment: { id: "quiz", user_score: literal },
 		};
@@ -71,6 +73,8 @@ function carrierFixture(slot: ExpressionSlotRef) {
 		slot.slot === "deliver_entity_name"
 	) {
 		doc.connectType = "deliver";
+		// A Connect app runs on Android alone.
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
 		doc.forms[ids.form].connect = {
 			deliver_unit: {
 				id: "visit",

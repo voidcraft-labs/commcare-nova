@@ -244,5 +244,20 @@ it("binds Search rules to renamed answers and seeds a new no-matches form from t
 			],
 		},
 	});
-	expect(await h.save()).toMatchObject({ saved: true });
+	// The module opens on Search first, which runs in Web Apps alone, and no
+	// shared tool narrows a new app before updateApp takes runs_only_on, so
+	// the save meets the platform rule and names the module, while every
+	// staged step above stands as private work.
+	expect(await h.save()).toMatchObject({
+		saved: false,
+		findings: [
+			expect.objectContaining({
+				code: "PLATFORM_FEATURE_UNAVAILABLE",
+				details: expect.objectContaining({
+					feature: "search-first",
+					platform: "android",
+				}),
+			}),
+		],
+	});
 });
