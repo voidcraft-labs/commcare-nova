@@ -156,22 +156,27 @@ for (const [mimeType, base64, container, codec] of [
 
 // The AVIF fixture lib/media/__tests__/fixtures/pattern.avif: an image whose
 // libvips lacks libheif's AV1 decoder fails the build rather than every AVIF
-// upload.
-const avif = await (await import("sharp"))
-	.default(
-		Buffer.from(
-			"AAAAHGZ0eXBhdmlmAAAAAG1pZjFhdmlmbWlhZgAAANZtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABw" +
-				"aWN0AAAAAAAAAAAAAAAAAAAAACJpbG9jAAAAAERAAAEAAQAAAAAA+gABAAAAAAAAACYAAAAjaWlu" +
-				"ZgAAAAAAAQAAABVpbmZlAgAAAAABAABhdjAxAAAAAA5waXRtAAAAAAABAAAAVmlwcnAAAAA4aXBj" +
-				"bwAAAAxhdjFDgSACAAAAABRpc3BlAAAAAAAAAEAAAABAAAAAEHBpeGkAAAAAAwgICAAAABZpcG1h" +
-				"AAAAAAAAAAEAAQOBAgMAAAAubWRhdBIACgk4FX/9pAQ0GkAyFxlCYwTAADQAAJfK4KrdPoYOp0vw" +
-				"y8SI",
-			"base64",
-		),
-	)
-	.metadata();
+// upload. Reading the header names the codec without decoding, so the pixels
+// are decoded too: only that needs the decoder.
+const avifImage = (await import("sharp")).default(
+	Buffer.from(
+		"AAAAHGZ0eXBhdmlmAAAAAG1pZjFhdmlmbWlhZgAAANZtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABw" +
+			"aWN0AAAAAAAAAAAAAAAAAAAAACJpbG9jAAAAAERAAAEAAQAAAAAA+gABAAAAAAAAACYAAAAjaWlu" +
+			"ZgAAAAAAAQAAABVpbmZlAgAAAAABAABhdjAxAAAAAA5waXRtAAAAAAABAAAAVmlwcnAAAAA4aXBj" +
+			"bwAAAAxhdjFDgSACAAAAABRpc3BlAAAAAAAAAEAAAABAAAAAEHBpeGkAAAAAAwgICAAAABZpcG1h" +
+			"AAAAAAAAAAEAAQOBAgMAAAAubWRhdBIACgk4FX/9pAQ0GkAyFxlCYwTAADQAAJfK4KrdPoYOp0vw" +
+			"y8SI",
+		"base64",
+	),
+);
+const avif = await avifImage.metadata();
 assert.equal(avif.format, "heif");
 assert.equal(avif.compression, "av1");
+const { info: avifPixels } = await avifImage
+	.raw()
+	.toBuffer({ resolveWithObject: true });
+assert.equal(avifPixels.width, avif.width);
+assert.equal(avifPixels.height, avif.height);
 
 // Run the actual generated instrumentation against its traced native SDK. The
 // transport remains entirely local; this check sends no event to Sentry.
