@@ -203,12 +203,16 @@ describe("formSearchAnswers", () => {
 		readonly admission: Parameters<typeof formSearchAnswers>[0]["admission"];
 		readonly searchFirst: boolean;
 		readonly searchState: PreviewSearchState | undefined;
-	}) =>
-		formSearchAnswers({ searchInputs, defaults, ...args }) === undefined
-			? undefined
-			: Object.fromEntries(
-					formSearchAnswers({ searchInputs, defaults, ...args }) ?? [],
-				);
+		readonly openedByLink?: boolean;
+	}) => {
+		const found = formSearchAnswers({
+			searchInputs,
+			defaults,
+			openedByLink: false,
+			...args,
+		});
+		return found === undefined ? undefined : Object.fromEntries(found);
+	};
 
 	it("gives a search-first module's form its completed search's answers", () => {
 		expect(
@@ -229,6 +233,17 @@ describe("formSearchAnswers", () => {
 					searchState,
 				}),
 			).toEqual({ patient_name: "Ama" });
+	});
+
+	it("gives a form a link opened the starting values, even after a search in its module", () => {
+		expect(
+			answersOf({
+				admission: { kind: "not-applicable" },
+				searchFirst: true,
+				searchState: completed(3),
+				openedByLink: true,
+			}),
+		).toEqual({ patient_name: "Ama" });
 	});
 
 	it("gives a no-matches form its admitted launch's answers", () => {

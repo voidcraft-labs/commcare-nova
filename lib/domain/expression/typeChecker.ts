@@ -1008,6 +1008,32 @@ function caseListSearchTextAdmission(
 		caseLists,
 	};
 }
+
+/**
+ * Whether an editor offers the case list's search text in this slot: the
+ * checker admits it ({@link caseListSearchTextAdmission}) and no declared
+ * platform lacks it. The card picker and the XPath completions both ask this,
+ * so neither offers a read the checker refuses.
+ */
+export function caseListSearchTextOffered(ctx: ExpressionContext): boolean {
+	return (
+		caseListSearchTextAdmission(ctx) === undefined &&
+		unavailablePlatform("case-list-search-text", ctx.platforms) === undefined
+	);
+}
+
+/**
+ * Whether an editor offers the window width in this slot: the slot is one
+ * CommCare evaluates while a menu or a list loads (`SlotProfile.windowWidth`)
+ * and no declared platform lacks it.
+ */
+export function windowWidthOffered(ctx: ExpressionContext): boolean {
+	return (
+		ctx.profile.windowWidth &&
+		unavailablePlatform("window-width", ctx.platforms) === undefined
+	);
+}
+
 function termAdmission(
 	term: Term,
 	ctx: ExpressionContext,

@@ -127,8 +127,8 @@ export function searchAnswerDefaultsOf(
  * that opens on Search may hold, so Search first turns off in the same
  * batch (the module lands on its case list with a Search button again), a
  * bare host loses `caseListOnly`, and every field whose only search read is
- * its starting value loses that `default_value` (`#search/` resolves inside
- * a no-matches form alone). A read in any other slot is left for the gate
+ * its starting value loses that `default_value` (`#search/` resolves only in
+ * a search-first module's own forms). A read in any other slot is left for the gate
  * to name: it is hand-authored, and dropping it would be a decision made
  * for the person.
  */

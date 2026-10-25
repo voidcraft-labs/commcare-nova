@@ -25,7 +25,7 @@ describe("app information", () => {
 			const saved = term(reference);
 			const before = structuredClone(saved);
 			const presentation = sessionContextPresentation(reference.field);
-			expect(presentation).toEqual({ kind: "editable", field, label });
+			expect(presentation).toEqual({ field, label });
 			expect(presentation.label).not.toBe("Current user's ID");
 			expect(saved).toEqual(before);
 		},

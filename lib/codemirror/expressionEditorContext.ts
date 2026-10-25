@@ -44,14 +44,17 @@ import {
 } from "@/lib/domain/expression/context";
 import type { FormStructure } from "@/lib/domain/expression/formStructure";
 import { spanFor } from "@/lib/domain/expression/spans";
-import { checkExpression } from "@/lib/domain/expression/typeChecker";
+import {
+	caseListSearchTextOffered,
+	checkExpression,
+	windowWidthOffered,
+} from "@/lib/domain/expression/typeChecker";
 import type {
 	DatumRef,
 	ExpressionSlotRef,
 	FormNodeRef,
 } from "@/lib/domain/expression/types";
 import { orderedCaseOperations } from "@/lib/domain/forms";
-import { unavailablePlatform } from "@/lib/domain/platforms";
 import { userPropertiesOf } from "@/lib/domain/users";
 import {
 	buildFormReferenceContext,
@@ -408,22 +411,13 @@ function slotReads(
 					? [{ id: row.id, label: datumLabel(doc, ref, ownCaseType) }]
 					: [];
 			}),
-			...(context.profile.caseListSearchText &&
-			unavailablePlatform("case-list-search-text", context.platforms) ===
-				undefined &&
-			context.supplies.refs.filter(
-				(supply) => supply.ref.kind === "selected-case",
-			).length === 1
+			...(caseListSearchTextOffered(context)
 				? [CASE_LIST_SEARCH_TEXT_READ]
 				: []),
 		],
-		sessionContext:
-			context.profile.windowWidth &&
-			unavailablePlatform("window-width", context.platforms) === undefined
-				? SESSION_CONTEXT_OFFERED
-				: SESSION_CONTEXT_OFFERED.filter(
-						(read) => read.name !== "window_width",
-					),
+		sessionContext: windowWidthOffered(context)
+			? SESSION_CONTEXT_OFFERED
+			: SESSION_CONTEXT_OFFERED.filter((read) => read.name !== "window_width"),
 		workers: [
 			...custom.map((property) => ({
 				name: property.slug,

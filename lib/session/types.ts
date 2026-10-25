@@ -68,6 +68,11 @@ export interface PreviewCaseTarget {
 	 * Android keeps a case list's last search on its frame. Absent when the
 	 * filter was empty or no case list opened the form. */
 	caseListSearchText?: string;
+	/** A form link opened the form. A form of a module that opens on its
+	 * search then reads each Search field's starting value, not the module's
+	 * last search, as Web Apps rebuilds a linked form's query step
+	 * (`noMatchesForm.ts::formSearchAnswers`). */
+	openedByLink?: true;
 }
 
 /** A command retained by after-submit navigation. Its exact task may finish

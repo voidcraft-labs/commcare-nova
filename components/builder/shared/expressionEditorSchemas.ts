@@ -37,13 +37,14 @@ import tablerUserOff from "@iconify-icons/tabler/user-off";
 import tablerVariable from "@iconify-icons/tabler/variable";
 import type { ComponentType } from "react";
 import type { CaseType, UserProperty, Uuid } from "@/lib/domain";
-import type {
-	Expression,
-	ExpressionContext,
-	ExpressionOfKind,
-	SearchInputDecl,
-	SlotConstraint,
-	ValueArm,
+import {
+	caseListSearchTextOffered,
+	type Expression,
+	type ExpressionContext,
+	type ExpressionOfKind,
+	type SearchInputDecl,
+	type SlotConstraint,
+	type ValueArm,
 } from "@/lib/domain/expression";
 import { ArithCard, arithDefault } from "./cards/expression/ArithCard";
 import { CoalesceCard, coalesceDefault } from "./cards/expression/CoalesceCard";
@@ -411,9 +412,13 @@ export function isAuthorableExpressionKind(
 	// column, which the slot's profile says (`SlotProfile.here`).
 	if (kind === "here") return ctx?.expressionContext?.profile.here === true;
 	// A case list's search text reaches a form's questions and Connect
-	// settings (`SlotProfile.caseListSearchText`).
+	// settings after exactly one case list, where no declared platform lacks
+	// it (`typeChecker.ts::caseListSearchTextOffered`, as the XPath editor).
 	if (kind === "case-list-search-text")
-		return ctx?.expressionContext?.profile.caseListSearchText === true;
+		return (
+			ctx?.expressionContext !== undefined &&
+			caseListSearchTextOffered(ctx.expressionContext)
+		);
 	if (kind === "id-of") {
 		return (ctx?.operationScope?.creates.length ?? 0) > 0;
 	}

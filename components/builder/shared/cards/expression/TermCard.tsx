@@ -101,6 +101,7 @@ import {
 	literal,
 	reasonFor,
 	SESSION_USER_FIELD_PATTERN,
+	type SessionContextField,
 	type SlotConstraint,
 	sessionContext,
 	sessionUser,
@@ -108,6 +109,7 @@ import {
 	type Term,
 	tableColumn,
 	timeLiteral,
+	windowWidthOffered,
 	term as wrapTerm,
 } from "@/lib/domain/expression";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
@@ -134,7 +136,6 @@ import { FormCasePropertyPicker } from "../../primitives/FormCasePropertyPicker"
 import { PropertyRefPicker } from "../../primitives/PropertyRefPicker";
 import { searchInputDisplayLabel } from "../../searchInputPresentation";
 import {
-	type EditableSessionContextField,
 	SESSION_CONTEXT_CHOICES,
 	type SessionUserReference,
 	sessionContextPresentation,
@@ -1741,21 +1742,25 @@ function FormFieldRefMenu({
 
 /** The seven session values, each by its own name. The window width is
  * offered only where the slot's profile admits it (`SlotProfile.windowWidth`:
- * a slot CommCare evaluates while a menu or a list loads); a stored read
- * elsewhere keeps its name, and the checker says why it can't stay. */
+ * a slot CommCare evaluates while a menu or a list loads) and no declared
+ * platform lacks it (`typeChecker.ts::windowWidthOffered`, as the XPath
+ * editor); a stored read elsewhere keeps its name, and the checker says why
+ * it can't stay. */
 function SessionContextMenu({
 	value,
 	onChange,
 	invalid,
 }: {
-	readonly value: EditableSessionContextField;
-	readonly onChange: (field: EditableSessionContextField) => void;
+	readonly value: SessionContextField;
+	readonly onChange: (field: SessionContextField) => void;
 	readonly invalid: boolean;
 }) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const current = sessionContextPresentation(value);
 	const ctx = usePredicateEditContext();
-	const windowWidth = ctx.expressionContext?.profile.windowWidth === true;
+	const windowWidth =
+		ctx.expressionContext !== undefined &&
+		windowWidthOffered(ctx.expressionContext);
 	const choices = SESSION_CONTEXT_CHOICES.filter(
 		(it) => it.field !== "window_width" || windowWidth,
 	);

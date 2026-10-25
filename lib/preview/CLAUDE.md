@@ -1552,8 +1552,11 @@ to `useFormEngine → engineController → FormEngine.runtimeOptions.searchAnswe
 and the worker path alike.
 
 A form of a search-first module receives its completed search's answers, or
-each Search field's starting value when a link or an entry point opened it
-(`noMatchesForm.ts::formSearchAnswers`); the entry session writes
+each Search field's starting value when a form link (`PreviewCaseTarget.openedByLink`,
+even after a search in that module) or an entry point opened it
+(`noMatchesForm.ts::formSearchAnswers`). Starting values read the device's
+cases and lookups, and the engine captures its answers once, so such an entry
+waits for both (`useSearchCsqlRuntime.ts::searchWorld`) before it starts; the entry session writes
 `session/data/stringquery` from the case list's filter text
 (`entrySessionData.ts`).
 

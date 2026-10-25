@@ -129,16 +129,19 @@ export function noMatchesRefusalCopy(reason: NoMatchesRefusal): {
  * What a form's `#search/<name>` reads: the search-input instance its entry
  * holds. A no-matches form reads its admitted launch's answers. A form of a
  * module that opens on its search reads the completed search's answers,
- * which its inline query step keeps; one opened another way (a link or an
- * entry point, with no completed search behind it) is rebuilt on Web Apps
- * with the query screen's starting values (`RemoteQuerySessionManager.initUserAnswers`),
- * so it reads `defaults`. Any other form holds no search input.
+ * which its inline query step keeps; one opened another way (a form link,
+ * even after a search in its module, or an entry point, with no completed
+ * search behind it) is rebuilt on Web Apps with the query screen's starting
+ * values (`RemoteQuerySessionManager.initUserAnswers`), so it reads
+ * `defaults`. Any other form holds no search input.
  */
 export function formSearchAnswers(args: {
 	readonly searchInputs: readonly SearchInputDef[];
 	readonly admission: NoMatchesFormAdmission;
 	readonly searchFirst: boolean;
 	readonly searchState: PreviewSearchState | undefined;
+	/** A form link opened the form (`PreviewCaseTarget.openedByLink`). */
+	readonly openedByLink: boolean;
 	/** The Search fields' starting values, as the Search screen fills its
 	 * prompts (`searchExpressionEvaluation.ts::resolveSearchInputDefaults`). */
 	readonly defaults: SearchInputValues;
@@ -150,10 +153,19 @@ export function formSearchAnswers(args: {
 			new Map(Object.entries(admission.answers)),
 		);
 	if (admission.kind === "refused" || !searchFirst) return undefined;
-	return searchState?.kind === "completed"
+	return formReadsCompletedSearch(searchState, args.openedByLink)
 		? searchInputInstanceValues(
 				searchInputs,
 				new Map(Object.entries(searchState.answers)),
 			)
 		: searchInputInstanceValues(searchInputs, defaults);
+}
+
+/** Whether a search-first module's form reads its module's completed search
+ * (`formSearchAnswers`) rather than the Search fields' starting values. */
+export function formReadsCompletedSearch(
+	searchState: PreviewSearchState | undefined,
+	openedByLink: boolean,
+): searchState is Extract<PreviewSearchState, { kind: "completed" }> {
+	return !openedByLink && searchState?.kind === "completed";
 }
