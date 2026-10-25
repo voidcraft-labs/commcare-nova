@@ -113,6 +113,7 @@ import {
 import {
 	defaultPreviewDevice,
 	type PreviewDevice,
+	previewDeviceContext,
 	samePreviewDevice,
 } from "./previewDevice";
 import {
@@ -1649,10 +1650,11 @@ export class EngineController {
 		}
 		/* An entry begun on this controller's own install id, before the
 		 * shell installed the session's device, rebuilds in place so its
-		 * `deviceid` agrees with every request the session sends. */
+		 * `deviceid` agrees with every request the session sends. Only a
+		 * `deviceid` that differs counts: Web Apps' never names the install. */
 		if (
-			device.platform === "android" &&
-			played.androidDeviceId !== device.androidDeviceId
+			previewDeviceContext(played).deviceid !==
+			previewDeviceContext(device).deviceid
 		) {
 			if (this.xpathRuntime) {
 				this.rebuildActiveFormAsync(formUuid, this.activeCaseData).catch(
