@@ -20,6 +20,8 @@ import {
 	CutoverLockTimeoutError,
 	ledgerIsReviewed,
 	readMigrationLedger,
+	STACK_MIGRATIONS,
+	unexpectedLedger,
 } from "./ledger";
 import {
 	classifyFleetMedia,
@@ -55,15 +57,31 @@ export interface RunResult {
 	readonly outcome: ReportOutcome;
 	/** 1 when a blocker, a holder, a refusal or an error stopped the run. */
 	readonly exitCode: 0 | 1;
+	/**
+	 * With a refusal the run reached without throwing (a wrong digest, an
+	 * unreviewed ledger, a check under the writer's locks): the operator's
+	 * sentence for stderr, naming ids, digests and migration names only.
+	 */
+	readonly refusal?: string;
 }
 
-function finish(report: CutoverReport, outcome: ReportOutcome): RunResult {
+function finish(
+	report: CutoverReport,
+	outcome: ReportOutcome,
+	refusal?: string,
+): RunResult {
 	outcomeLine(report, outcome);
 	return {
 		report,
 		outcome,
 		exitCode: outcome.outcome === "stopped" ? 1 : 0,
+		...(refusal !== undefined && { refusal }),
 	};
+}
+
+/** Part 09 §9's refusal of a plan whose digest is not the one the dry run printed. */
+export function digestRefusal(digest: string, expected: string): string {
+	return `This run's plan has digest ${digest}, not the ${expected} the dry run printed, so it wrote nothing. Something in the database or the bucket moved after the dry run. Compare the two runs' reports, then run the dry run again and pass its digest.`;
 }
 
 /**
@@ -248,7 +266,11 @@ async function migrate(
 	});
 	planSections(report, fleet);
 	if (mode === "execute" && fleet.plan.digest !== options.expectPlanDigest) {
-		return finish(report, { outcome: "stopped", stoppedBy: ["digest"] });
+		return finish(
+			report,
+			{ outcome: "stopped", stoppedBy: ["digest"] },
+			digestRefusal(fleet.plan.digest, options.expectPlanDigest ?? "none"),
+		);
 	}
 	const stoppedBy = planStops(fleet);
 	if (stoppedBy.length > 0) {
@@ -256,7 +278,11 @@ async function migrate(
 	}
 	if (mode === "dry-run") return finish(report, { outcome: "ok" });
 	if (!ledgerIsReviewed(ledger)) {
-		return finish(report, { outcome: "stopped", stoppedBy: ["ledger"] });
+		return finish(
+			report,
+			{ outcome: "stopped", stoppedBy: ["ledger"] },
+			unexpectedLedger(STACK_MIGRATIONS, ledger.pendingMigrations).message,
+		);
 	}
 	let writer: WriterReport;
 	try {
@@ -268,8 +294,12 @@ async function migrate(
 	} catch (error) {
 		if (!(error instanceof CutoverStoppedError)) throw error;
 		if (error.code === "already-applied")
-			return finish(report, { outcome: "already-applied" });
-		return finish(report, { outcome: "stopped", stoppedBy: [error.code] });
+			return finish(report, { outcome: "already-applied" }, error.message);
+		return finish(
+			report,
+			{ outcome: "stopped", stoppedBy: [error.code] },
+			error.message,
+		);
 	}
 	report.line("writer", writerFields(writer));
 	return finish(report, { outcome: "ok" });

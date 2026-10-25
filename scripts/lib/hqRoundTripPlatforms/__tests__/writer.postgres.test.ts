@@ -264,6 +264,9 @@ describe("the fleet transaction from main's migration prefix", () => {
 			outcome: "stopped",
 			stoppedBy: ["digest"],
 		});
+		expect(refused.refusal).toBe(
+			`This run's plan has digest ${digest}, not the ${"0".repeat(64)} the dry run printed, so it wrote nothing. Something in the database or the bucket moved after the dry run. Compare the two runs' reports, then run the dry run again and pass its digest.`,
+		);
 		expect(await databaseImage(h.db())).toBe(image);
 
 		/* A failure after any numbered step rolls the fleet back whole, the
@@ -449,6 +452,9 @@ describe("the fleet transaction from main's migration prefix", () => {
 			outcome: "stopped",
 			stoppedBy: ["ledger"],
 		});
+		expect(refused.refusal).toBe(
+			`The migration ledger is not the one this cutover was reviewed against: it expected exactly ${STACK_MIGRATIONS.join(", ")} to be pending and found ${STACK_MIGRATIONS.slice(1).join(", ")}. The cutover stopped with nothing written and no migration applied. Compare a dry run's ledger line with main's migrations, and find out how the ledger moved before running again.`,
+		);
 		expect(await databaseImage(h.db())).toBe(image);
 	}, 120_000);
 

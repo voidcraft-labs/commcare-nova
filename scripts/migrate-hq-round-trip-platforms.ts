@@ -121,8 +121,10 @@ const mode: MigrateMode =
 
 /* Each report line is printed as it is made, so a run that throws has
  * already printed its lines and ends with a `stopped` outcome naming the
- * error's class. A database error's own text can quote stored content, so
- * only this cutover's own messages reach stderr (`errorTextOf`). */
+ * error's class. A refusal reached without throwing (a wrong digest, an
+ * unreviewed ledger) prints its own sentence on stderr. A database error's
+ * own text can quote stored content, so only this cutover's own messages
+ * reach stderr (`errorTextOf`). */
 async function main(): Promise<void> {
 	try {
 		const result = await runMigrate(await getAppDb(), {
@@ -132,6 +134,7 @@ async function main(): Promise<void> {
 			}),
 			onLine: (line) => console.log(JSON.stringify(line)),
 		});
+		if (result.refusal !== undefined) console.error(result.refusal);
 		process.exitCode = result.exitCode;
 	} catch (error) {
 		console.error(errorTextOf(error));
