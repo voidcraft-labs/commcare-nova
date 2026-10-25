@@ -37,6 +37,9 @@ a symptom class::
   (``/<key>/undecided/<value class>``, ``proof.checks.manifest_usage.standing``):
   the check could not place the use in or out of a REFUSED value class, a gap
   in the check that a value class reader closes, not a symptom of the export.
+- A ``manifest`` entry never names a held-new use (``/<key>/held-new``): an
+  item only HELD-NEW entries name is in Nova's export, so the entry's
+  disposition or the emitter is wrong, which is corrected, never held.
 - ``control`` is the directory under ``proof/controls/`` retaining the
   pre-fix inputs the check must keep showing the symptom on.
 - An entry whose artifact is a served reader's (``served_entry``: its first step one of
@@ -151,6 +154,16 @@ UNDECIDED_STEP = "undecided"
 def _undecided(path):
     steps = path.split("/")
     return len(steps) > 2 and steps[2] == UNDECIDED_STEP
+
+
+# The step of a manifest path that names a use only HELD-NEW entries name
+# (proof.checks.manifest_usage.HELD_NEW, written /<key>/held-new).
+HELD_NEW_STEP = "held-new"
+
+
+def _held_new(path):
+    steps = path.split("/")
+    return len(steps) > 2 and steps[2] == HELD_NEW_STEP
 
 
 class RegisterError(ValueError):
@@ -323,6 +336,14 @@ def _field_problems(raw, where, keys, *, controls):
             " value class, which is a gap in the check rather than a symptom a register entry holds. Write that"
             " class's reader in proof/checks/manifest_value_classes.py (VALUE_CLASSES, by the id of the"
             " inventory entry the difference names), so the check reads the use as refused or held."
+        )
+    if raw.get("check") == "manifest" and isinstance(raw.get("path"), str) and _held_new(raw["path"]):
+        problems.append(
+            f"{where}: path {raw['path']!r} is a use only HELD-NEW entries name: Nova's export uses an item"
+            " the manifest says Nova does not hold yet. That is a disposition to correct or an emission to"
+            " stop, never a symptom a register entry holds. Mark the entry HELD in"
+            " lib/commcare/surface/entries/ where Nova holds or derives the item, or stop the emitter"
+            " writing it."
         )
     if "values" in raw:
         values = raw["values"]

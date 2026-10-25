@@ -18,10 +18,11 @@ from where the use sits in the export). A use a REFUSED entry's class takes is
 refused; where the check cannot tell whether a REFUSED class takes a use, the
 use is undecided, a gap in the check that no register entry may hold
 (``standing``; ``proof.checks.registers`` refuses such an entry). An allowing
-entry's class is what its row describes and the check does not read it: it is
-taken as the rest of its key's values, every use no REFUSED class takes, so the
-extraction makes a use of a key only where a reader of the value reads it (an
-appearance read only on the elements its reader compares, ``_appearance_uses``).
+entry is HELD, TARGET-OWNED or INERT. An allowing entry's class is what its row
+describes and the check does not read it: it is taken as the rest of its key's
+values, every use no REFUSED class takes, so the extraction makes a use of a key
+only where a reader of the value reads it (an appearance read only on the
+elements its reader compares, ``_appearance_uses``).
 A REFUSED entry refused only because HQ's build refuses its state is the bar's,
 which reports every export HQ cannot build; and in Nova's own local archives,
 which runtimes read and no editor does, a REFUSED entry refuses only for what a
@@ -29,10 +30,12 @@ runtime does, a use another REFUSED class takes being the source's, judged on
 the app JSON. Each standing is its own symptom, named in the difference's path
 after the key: ``/<key>`` (no entry names it), ``/<key>/refused/<value class>``,
 ``/<key>/undecided/<value class>`` (the REFUSED class the check does not read
-there) and ``/<key>/unheld`` (every entry naming the key rules the use out). A
-REFUSED class whose uses are two symptoms (Nova's own scaffolding and what a
-person authors, ``manifest_value_classes.VARIANTS``) names the part a use is
-after its class (``/<key>/refused/<value class>/<part>``).
+there), ``/<key>/held-new`` (only HELD-NEW entries name the key: Nova emits what
+the manifest says it does not hold yet) and ``/<key>/unheld`` (every entry
+naming the key rules the use out). A REFUSED class whose uses are two symptoms
+(Nova's own scaffolding and what a person authors,
+``manifest_value_classes.VARIANTS``) names the part a use is after its class
+(``/<key>/refused/<value class>/<part>``).
 
 What an export uses is read from its parsed artifacts, never from Nova's
 emitter, and never by matching text a reader does not match itself: the app
@@ -1717,7 +1720,7 @@ def csql_keys(reading, manifest):
 # A use's standing against the entries naming its key. HELD, BAR and SOURCE are no difference of this check (an
 # allowing class holds the use; the bar reports it; the source export carries it and is judged there); each other is
 # a difference, whose path names it after the key (an unnamed key's path is the key alone).
-HELD, UNNAMED, REFUSED, UNDECIDED, UNHELD = "held", "unnamed", "refused", "undecided", "unheld"
+HELD, UNNAMED, REFUSED, UNDECIDED, UNHELD, HELD_NEW = "held", "unnamed", "refused", "undecided", "unheld", "held-new"
 BAR, SOURCE = "bar", "source"
 NOT_DIFFERENCES = frozenset({HELD, BAR, SOURCE})
 
@@ -1731,8 +1734,9 @@ def standing(manifest: Manifest, use: Use):
     (``Manifest.readers``, ``proof.checks.manifest_value_classes``): the use
     is in it, or not, or the export does not say (None, as where no reader
     exists). A REFUSED entry with no value class covers every use of its
-    keys. An allowing entry's class is what its row describes, never read:
-    the entries naming a key split its values among them, so an allowing
+    keys. An allowing entry is HELD, TARGET-OWNED or INERT; a HELD-NEW entry
+    allows nothing. An allowing entry's class is what its row describes, never
+    read: the entries naming a key split its values among them, so an allowing
     class is the rest of the key's values, every use no REFUSED class takes.
     A use no class describes therefore passes where an allowing entry names
     its key, so the extraction makes a use of an item only where its reader
@@ -1766,8 +1770,16 @@ def standing(manifest: Manifest, use: Use):
     - else, in a local archive, a use some source-refused entry's class
       takes is ``SOURCE``, and one some such class may take, its reader not
       saying, ``UNDECIDED``;
+    - else a use some HELD-NEW entry names is ``HELD_NEW``, resting on each
+      such entry: Nova's export uses an item the manifest says Nova does not
+      hold yet, so the entry's disposition or the emitter is wrong, never a
+      symptom a register entry holds;
     - else every entry naming the key rules the use out, each reader having
       placed it outside its class: ``UNHELD``, resting on them all.
+
+    A HELD-NEW class that shares its key with an allowing class is not
+    judged, since allowing classes have no readers: a use of the key is held
+    whichever class it is in.
     """
     plan = _standing_plan(manifest, use.key, is_build(use.artifact))
     if plan is None:
@@ -1796,11 +1808,13 @@ class _Plan:
     """What ``standing`` needs of one key's entries, in a build or not: every entry naming it; the REFUSED
     entries that refuse a use where it is (``refusing``) and, in a build, those whose class is the source's
     (``source``), each with the place of its value class's reader among ``readers`` (None where the check holds
-    none); whether an allowing entry names it; and the standing itself where it needs no reader."""
+    none); whether an allowing entry names it; the HELD-NEW entries naming it (``new``); and the standing itself
+    where it needs no reader."""
 
     entries: tuple
     refusing: tuple  # ((Entry, reader's place or None), ...)
     allowed: bool
+    new: tuple  # (Entry, ...)
     source: tuple  # ((Entry, reader's place or None), ...)
     readers: tuple  # (reader, ...)
     static: tuple | None
@@ -1846,6 +1860,8 @@ def _evaluate(plan, read):
         return SOURCE, tuple(taken)
     if unsure:
         return UNDECIDED, tuple(unsure)
+    if plan.new:
+        return HELD_NEW, plan.new
     return UNHELD, plan.entries
 
 
@@ -1856,10 +1872,13 @@ def _standing_plan(manifest, key, built):
     if entries is None:
         return None
     if all(entry.disposition == "REFUSED" and entry.refused_by_hq_build() for entry in entries):
-        return _Plan(entries, (), False, (), (), (BAR, entries))
-    refusing, source, readers = [], [], []
+        return _Plan(entries, (), False, (), (), (), (BAR, entries))
+    refusing, source, new, readers = [], [], [], []
     allowed = False
     for entry in entries:
+        if entry.disposition == "HELD-NEW":
+            new.append(entry)
+            continue
         if entry.disposition != "REFUSED":
             allowed = True
             continue
@@ -1870,18 +1889,19 @@ def _standing_plan(manifest, key, built):
         held.append((entry, None if reader is None else len(readers)))
         if reader is not None:
             readers.append(reader)
-    plan = _Plan(entries, tuple(refusing), allowed, tuple(source), tuple(readers), None)
+    plan = _Plan(entries, tuple(refusing), allowed, tuple(new), tuple(source), tuple(readers), None)
     try:
         static = _evaluate(plan, _no_reader)
     except _NeedsReader:
         return plan
-    return _Plan(entries, plan.refusing, allowed, plan.source, (), static)
+    return _Plan(entries, plan.refusing, allowed, plan.new, plan.source, (), static)
 
 
 @cache
 def _path(key, kind, entry=None):
-    """A standing's path: ``/<key>``, ``/<key>/refused/<value class>``, ``/<key>/undecided/<value class>`` or
-    ``/<key>/unheld`` (a REFUSED entry with no value class refuses as ``/<key>/refused``)."""
+    """A standing's path: ``/<key>``, ``/<key>/refused/<value class>``, ``/<key>/undecided/<value class>``,
+    ``/<key>/unheld`` or ``/<key>/held-new`` (a REFUSED entry with no value class refuses as
+    ``/<key>/refused``)."""
     path = f"/{pointer_token(key)}"
     if kind == UNNAMED:
         return path
@@ -1897,7 +1917,8 @@ def unclassified(document: str, found: Iterable[Use], manifest: Manifest, *, lim
     ``/<key>/refused/<value class>``, once per such class, with the part of the class it is where the class
     holds parts apart (``Manifest.variants``: ``/<key>/refused/<value class>/<part>``); one a REFUSED class
     may take, which the check cannot read there, is ``/<key>/undecided/<value class>``, once per such class;
-    and one every entry rules out is ``/<key>/unheld``. Each names the entries it rests on. A use the bar
+    one only HELD-NEW entries name is ``/<key>/held-new``; and one every entry rules out is ``/<key>/unheld``.
+    Each names the entries it rests on. A use the bar
     reports, or one the source export carries (``BAR``, ``SOURCE``), is none.
     """
     by_class = {}

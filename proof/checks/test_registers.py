@@ -164,6 +164,22 @@ def test_a_manifest_entry_holds_a_refused_class_and_never_an_undecided_one(tmp_p
         registers.load_known_defects(_write(tmp_path / "undecided.json", [undecided]), controls=controls)
 
 
+def test_a_manifest_entry_never_holds_a_held_new_use(tmp_path):
+    """A manifest difference resting only on HELD-NEW entries is Nova's export using an item the manifest says
+    Nova does not hold yet (proof.checks.manifest_usage.standing): a disposition to correct or an emission to stop,
+    so no entry of either register may hold it."""
+    controls = tmp_path / "controls"
+    (controls / GOOD["control"]).mkdir(parents=True)
+    held_new = {
+        **GOOD,
+        "check": "manifest",
+        "artifact": "app.json",
+        "path": "/schema:Application.auto_gps_capture/held-new",
+    }
+    with pytest.raises(registers.RegisterError, match="Mark the entry HELD"):
+        registers.load_known_defects(_write(tmp_path / "held-new.json", [held_new]), controls=controls)
+
+
 BIND = "/html/head[*]/model[*]/bind[@nodeset=/data/*]/@constraint"
 
 
