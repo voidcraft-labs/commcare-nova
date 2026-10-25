@@ -147,6 +147,14 @@ the local archive is the bar's to report (``import@<state>``,
 ``<step>@<state>``, ``admission@local.ccz``), and nothing more is reported
 for it; one whose form HQ's build does not hold is refused at
 ``/no-form-file``.
+
+A targeted document may also hold ``formplayer-session.json``: the session
+values Formplayer gives a form (``FormplayerInstanceInitializer``'s app
+version and device id), keyed by the data path a hidden value holds them at.
+Where a state's record holds Formplayer's walk (the lane with the readers),
+each submission holding such a path must hold the file's value there
+(``formplayer_session_values``), so a pin that changes Formplayer's value
+fails here until Preview's constant (``lib/preview/platform.ts``) moves.
 """
 
 from __future__ import annotations
@@ -1083,11 +1091,81 @@ def intent_differences(document, records, manifest_items) -> list:
             found += local_differences(document, edited, document.edit.local_ccz, "edit/local.ccz")
     if document.expected is not None:
         found += value_differences(document, records)
+    found += formplayer_session_values(document, records)
     found += observations.soft_assertion_differences(records, "intent")
     return _deduplicated(found)
 
 
 # Value-level checks, on a targeted document ----------------------------------------
+
+FORMPLAYER_SESSION = "formplayer-session.json"
+
+
+def _formplayer_traces(held):
+    """``(state name, trace ref)`` of each Formplayer walk one configuration's records hold: A's served walk
+    (``proof.observe.served``) and, where the unit served it, B's aligned to A."""
+    served = ((held.a or {}).get("hooks") or {}).get("served") or {}
+    if served.get("served"):
+        trace = ((served.get("A") or {}).get("formplayer") or {}).get("trace")
+        if trace is not None:
+            yield "A", trace
+    aligned = (held.b_aligned or {}).get("served") or {}
+    trace = ((aligned.get("B") or {}).get("formplayer") or {}).get("trace")
+    if trace is not None:
+        yield "B", trace
+
+
+def _submitted_instances(trace):
+    """The form instance of every submission HQ received in a Formplayer walk."""
+    for run in trace.get("runs") or []:
+        for step in (run.get("steps") or []) if isinstance(run, dict) else []:
+            for submission in (step.get("submissions") or []) if isinstance(step, dict) else []:
+                if isinstance(submission, dict) and isinstance(submission.get("instance"), str):
+                    yield submission["instance"]
+
+
+def _instance_value(root, path):
+    """The text at a data path (``/data/app_version``) of a submitted instance, matched by local name, or None
+    where the instance holds no such node."""
+    steps = [step for step in path.split("/") if step]
+    if not steps or etree.QName(root).localname != steps[0]:
+        return None
+    node = root
+    for step in steps[1:]:
+        node = next((child for child in node if etree.QName(child).localname == step), None)
+        if node is None:
+            return None
+    return node.text or ""
+
+
+def formplayer_session_values(document, records) -> list:
+    """Each Formplayer submission of a targeted document holds the session values its
+    ``formplayer-session.json`` states (Formplayer's ``getVersionString`` and ``getDeviceId``, which Preview
+    states for Web Apps), one difference per path a submission holds otherwise. A record without Formplayer's
+    walk (the pull request lane, which serves no state) compares nothing."""
+    path = document.root / FORMPLAYER_SESSION
+    if not path.is_file():
+        return []
+    expected = json.loads(path.read_text(encoding="utf-8"))
+    found = []
+    for name in sorted(document.exports):
+        held = records.configurations.get(name)
+        if held is None:
+            continue
+        for state_name, ref in _formplayer_traces(held):
+            for instance in _submitted_instances(records.blobs.get_json(ref)):
+                root = etree.fromstring(
+                    instance.encode("utf-8"), etree.XMLParser(resolve_entities=False, no_network=True)
+                )
+                for data_path, value in expected.items():
+                    observed = _instance_value(root, data_path)
+                    if observed is not None and observed != value:
+                        found.append(
+                            _difference(
+                                document.id, f"formplayer@{state_name}", data_path, data_path, "changed", value, observed
+                            )
+                        )
+    return found
 
 
 def _form_position(document, form_uuid):

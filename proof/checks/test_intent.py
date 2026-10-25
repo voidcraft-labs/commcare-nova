@@ -211,6 +211,59 @@ def test_the_intent_is_read_from_the_document_alone():
         intent.document_intent(broken)
 
 
+def test_formplayer_gives_the_session_values_preview_states_for_web_apps(tmp_path):
+    """Each Formplayer submission of a document holding ``formplayer-session.json`` holds the file's values at
+    its paths: one difference each way a submission differs, and nothing compared where the record holds no
+    Formplayer walk (the pull request lane) or a submission holds no such path (another form)."""
+    from types import SimpleNamespace
+
+    (tmp_path / intent.FORMPLAYER_SESSION).write_text(
+        json.dumps({"/data/app_version": "Formplayer Version: 2.64", "/data/device_id": "Formplayer"})
+    )
+    document = SimpleNamespace(id="targeted-session-context-reads", root=tmp_path, exports={"minimum": None})
+
+    def submitted(*instances):
+        return {"runs": [{"steps": [{"submissions": [{"path": "/r", "instance": i, "files": 0} for i in instances]}]}]}
+
+    def instance(version, device):
+        return (
+            f"<data xmlns='http://visit'><note>seen</note><app_version>{version}</app_version>"
+            f"<device_id>{device}</device_id></data>"
+        )
+
+    def records(a_trace, b_trace=None):
+        blobs = Blobs()
+        a = {"hooks": {"served": {"served": True, "A": {"formplayer": {"trace": blobs.put_json(a_trace)}}}}}
+        aligned = None if b_trace is None else {"served": {"B": {"formplayer": {"trace": blobs.put_json(b_trace)}}}}
+        held = SimpleNamespace(a=a, b_aligned=aligned)
+        return SimpleNamespace(configurations={"minimum": held}, blobs=blobs)
+
+    other_form = "<data xmlns='http://register'><name>Ama</name></data>"
+    held = records(
+        submitted(instance("Formplayer Version: 2.64", "Formplayer"), other_form),
+        submitted(instance("Formplayer Version: 2.64", "Formplayer")),
+    )
+    assert intent.formplayer_session_values(document, held) == []
+
+    moved = records(
+        submitted(instance("Formplayer Version: 2.65", "Formplayer")),
+        submitted(instance("Formplayer Version: 2.64", "formplayer-2")),
+    )
+    assert [
+        (d.artifact, d.path, d.kind, d.before, d.after) for d in intent.formplayer_session_values(document, moved)
+    ] == [
+        ("formplayer@A", "/data/app_version", "changed", "Formplayer Version: 2.64", "Formplayer Version: 2.65"),
+        ("formplayer@B", "/data/device_id", "changed", "Formplayer", "formplayer-2"),
+    ]
+
+    unserved = SimpleNamespace(
+        configurations={"minimum": SimpleNamespace(a={"hooks": {"served": {"served": False}}}, b_aligned=None)},
+        blobs=Blobs(),
+    )
+    assert intent.formplayer_session_values(document, unserved) == []
+    assert intent.formplayer_session_values(SimpleNamespace(**{**vars(document), "root": tmp_path / "no"}), held) == []
+
+
 def test_hq_stores_the_web_apps_setting_the_document_declares():
     """The stored app's ``cloudcare_enabled`` is the declaration: true for both and Web Apps only, false for
     Android only, and one difference each way where they disagree. Plausible failures: an update HQ does not keep,

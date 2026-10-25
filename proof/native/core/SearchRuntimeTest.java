@@ -250,8 +250,13 @@ public class SearchRuntimeTest {
         }
     }
 
+    /** The name the worker searched for, which the inline query keeps beside its results. */
+    private static final String SEARCHED_NAME = "Lake";
+
     /** What an inline search returned, as Core's session holds it under {@code results:inline}: the patients
-     * found, each with its district, and one case HQ adds to show a related detail. */
+     * found, each with its district, and one case HQ adds to show a related detail; and what the worker searched
+     * for, under {@code search-input:results:inline}, which the query step keeps beside the results
+     * (QueryScreen.updateSession, VirtualInstances.buildSearchInputInstance). */
     private static final class SearchResults extends TestInstanceInitializer {
         final List<String> found;
         SearchResults(List<String> found) {
@@ -260,9 +265,15 @@ public class SearchRuntimeTest {
         }
         @Override public InstanceRoot generateRoot(ExternalDataInstance instance) {
             String id = instance.getInstanceId();
-            if (id.startsWith("search-input:")) return new ConcreteInstanceRoot(null);
             TreeElement root;
-            if (id.equals("commcaresession")) {
+            if (id.equals("search-input:results:inline")) {
+                root = node("input", null);
+                TreeElement field = node("field", SEARCHED_NAME);
+                field.setAttribute(null, "name", "patient_name");
+                root.addChild(field);
+            } else if (id.startsWith("search-input:")) {
+                return new ConcreteInstanceRoot(null);
+            } else if (id.equals("commcaresession")) {
                 /* A device's session holds the chosen case and its context (device id, app version, user),
                  * which the form's metadata reads when it opens. */
                 SessionFrame frame = new SessionFrame();
@@ -294,9 +305,10 @@ public class SearchRuntimeTest {
 
     /**
      * A form a search opens reads what that search found ({@code targeted-inline-search-reads}): "Check in"
-     * counts the patients behind the related-case exclusion and reads the chosen patient's district from its own
-     * result, and its after-submit link fires only when the search found more than one, on the local archive
-     * and on HQ's regenerated form and hand-assembled suite.
+     * counts the patients behind the related-case exclusion, reads the chosen patient's district from its own
+     * result and starts a hidden value from what the worker searched for, and its after-submit link fires only
+     * when the search found more than one, on the local archive and on HQ's regenerated form and hand-assembled
+     * suite.
      */
     @Test public void formReadsTheResultsItsSearchReturned() throws Exception {
         Path document = SessionReadAssertions.targeted("search", "targeted-inline-search-reads");
@@ -313,6 +325,8 @@ public class SearchRuntimeTest {
             String where = found + " hq=" + hq;
             assertEquals(where, String.valueOf(found.size()), ExprEvalUtils.xpathEval(form.getEvaluationContext(), "string(/data/found)"));
             assertEquals(where, "lake", ExprEvalUtils.xpathEval(form.getEvaluationContext(), "string(/data/district)"));
+            // A form of a module that opens on its search reads what the worker searched for.
+            assertEquals(where, SEARCHED_NAME, ExprEvalUtils.xpathEval(form.getEvaluationContext(), "string(/data/searched)"));
             Entry entry = new ReadOnlyParser(new ByteArrayInputStream(targeted(document, hq, "suite.xml", "hq.suite.xml")))
                     .parse().getEntry("m0-f0");
             Hashtable<String, DataInstance> instances = entry.getInstances(null);

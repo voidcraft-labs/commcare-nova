@@ -1551,6 +1551,12 @@ to `useFormEngine → engineController → FormEngine.runtimeOptions.searchAnswe
 `count()` sees a prompt the search left blank as no node, on the synchronous
 and the worker path alike.
 
+A form of a search-first module receives its completed search's answers, or
+each Search field's starting value when a link or an entry point opened it
+(`noMatchesForm.ts::formSearchAnswers`); the entry session writes
+`session/data/stringquery` from the case list's filter text
+(`entrySessionData.ts`).
+
 After submit, `FormScreen.dispatchAfterSubmit` lands a no-matches registration
 BEFORE any link (the form has none), as the wire's return frame does. A host
 with menu forms records the new case on the module's state

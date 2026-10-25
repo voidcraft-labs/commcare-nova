@@ -8,7 +8,8 @@
 // a two-batch flip would leave the first batch failing the gate. Clearing
 // it is the mirror image: a registration form on the menu makes the module
 // forms-first, which `SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE` refuses, and
-// a `#search/` read outside a no-matches form is `INVALID_SEARCH_REF`, so
+// a `#search/` read outside a search-first module's own forms is
+// `INVALID_SEARCH_REF`, so
 // the clear turns Search first off and drops the starting values read from
 // the search in the same batch. The carried-answer fields are the scaffold
 // every editor offers: one field per Search prompt, seeded from

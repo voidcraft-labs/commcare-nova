@@ -9,20 +9,24 @@
  * own search result, both behind the related-case exclusion HQ's own results
  * filter writes (`case_search/const.py::EXCLUDE_RELATED_CASES_FILTER`); its
  * after-submit link reads the same count in its condition, which the suite
- * evaluates on the form's entry. "Register patient" opens only when the
- * search found nothing and starts its name from the search answer
- * (`#search/patient_name`).
+ * evaluates on the form's entry. "Check in" also starts a hidden value from
+ * the search answer (`#search/patient_name`), which a form of a module that
+ * opens on its search reads from `search-input:results:inline`, and "Find
+ * patient"'s list shows the same answer in a calculated column. "Register
+ * patient" opens only when the search found nothing and starts its name from
+ * the search answer too.
  *
  * Fixed values: Core's evaluate opens a form with no search behind it, so
  * the hand-fixed value is the plain "Visit" form's answer; the reads of what
  * the search found, and of the search answer, run on every walk of the
- * document.
+ * document, and the readers' records hold the searched name.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import {
 	type BlueprintDoc,
+	calculatedColumn,
 	NEW_APP_SETTINGS,
 	plainColumn,
 	proseText,
@@ -105,7 +109,14 @@ export function inlineSearchReads() {
 				caseType: "patient",
 				caseSearchConfig: { searchFirst: true },
 				caseListConfig: caseListOf(
-					[plainColumn(uuid("name-column"), "case_name", "Name")],
+					[
+						plainColumn(uuid("name-column"), "case_name", "Name"),
+						calculatedColumn(
+							uuid("searched-column"),
+							"Searched for",
+							term(input(nameInput)),
+						),
+					],
 					{
 						searchInputs: [
 							simpleSearchInputDef(
@@ -137,6 +148,12 @@ export function inlineSearchReads() {
 								uuid: district,
 								id: "district",
 								calculate: term(literal("")),
+							}),
+							f({
+								kind: "hidden",
+								uuid: uuid("searched"),
+								id: "searched",
+								default_value: term(input(nameInput)),
 							}),
 						],
 						formLinks: [

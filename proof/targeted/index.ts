@@ -12,6 +12,7 @@ import { attributeDisplayCondition } from "./documents/attributeDisplayCondition
 import { blankLabels } from "./documents/blankLabels";
 import { captureWidgets } from "./documents/captureWidgets";
 import { attributeColumns, caseIdColumn } from "./documents/caseIdColumn";
+import { caseListSearchTextDocument } from "./documents/caseListSearchText";
 import {
 	closeConditions,
 	closeConditionUnparsable,
@@ -71,6 +72,7 @@ import {
 	syncOnFormEntry,
 	syncOnFormEntryWebApps,
 } from "./documents/searchApps";
+import { sessionContextReads } from "./documents/sessionContextReads";
 import { sessionReads } from "./documents/sessionReads";
 import { sharedPropertySort } from "./documents/sortKeys";
 import {
@@ -145,6 +147,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	platformDeclaration,
 	syncOnFormEntryWebApps,
 	previewAndroidRenders,
+	sessionContextReads,
+	caseListSearchTextDocument,
 ];
 
 /** Every targeted document, in a fixed order. */

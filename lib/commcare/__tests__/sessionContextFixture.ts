@@ -11,7 +11,24 @@
  * once with a width and again without one, on the same `FormDef` (Formplayer's
  * cached form) and on a fresh one (the form Formplayer deserializes after a
  * cache miss), and the two runs decide whether a form may read the width.
+ *
+ * `sessionContextReadsDoc` and `windowWidthColumnDoc` hold the reads Nova
+ * prints under the count guard (`xpath/wire/emptyRows.ts::guardAbsentNode`),
+ * which the same class runs over sessions with and without each node.
  */
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	type BlueprintDoc,
+	calculatedColumn,
+	NEW_APP_SETTINGS,
+	proseText,
+} from "@/lib/domain";
+import {
+	caseListSearchText,
+	sessionContext,
+	term,
+} from "@/lib/domain/expression";
 
 /** The window width as every form reads it. */
 export const WINDOW_WIDTH_PATH =
@@ -64,4 +81,101 @@ export function windowWidthGateXForm(): string {
   </h:body>
 </h:html>
 `;
+}
+
+export const SESSION_READS_MODULE = testUuid("session-reads-module");
+export const SESSION_READS_FORM = testUuid("session-reads-visit");
+export const WINDOW_WIDTH_MODULE = testUuid("session-reads-window-module");
+export const WINDOW_WIDTH_COLUMN = testUuid("session-reads-window-column");
+
+/** The guarded reads Nova prints in a form: the clock drift, the app
+ * language and the case list's search text, each in a hidden value of a
+ * follow-up form that opens after one case list, in an app that runs only
+ * on Android (Web Apps keeps no case list search text). */
+export function sessionContextReadsDoc(): BlueprintDoc {
+	return buildDoc({
+		appName: "Session reads",
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+		],
+		modules: [
+			{
+				uuid: SESSION_READS_MODULE,
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: SESSION_READS_FORM,
+						name: "Visit",
+						type: "followup",
+						fields: [
+							f({
+								kind: "hidden",
+								id: "drift",
+								calculate: term(sessionContext("drift")),
+							}),
+							f({
+								kind: "hidden",
+								id: "language",
+								calculate: term(sessionContext("applanguage")),
+							}),
+							f({
+								kind: "hidden",
+								id: "searched",
+								calculate: caseListSearchText(),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+/** A case list column showing the window width, in an app that runs only
+ * in Web Apps (Android has no window width). */
+export function windowWidthColumnDoc(): BlueprintDoc {
+	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+	const column = calculatedColumn(
+		WINDOW_WIDTH_COLUMN,
+		"Window",
+		term(sessionContext("window_width")),
+	);
+	return buildDoc({
+		appName: "Window width",
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+		],
+		modules: [
+			{
+				uuid: WINDOW_WIDTH_MODULE,
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					...config,
+					columns: [...config.columns, column],
+					listColumnOrder: [...config.listColumnOrder, column.uuid],
+					detailColumnOrder: [...config.detailColumnOrder, column.uuid],
+				},
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+					},
+				],
+			},
+		],
+	});
 }

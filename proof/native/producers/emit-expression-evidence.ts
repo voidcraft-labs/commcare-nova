@@ -11,7 +11,17 @@ import {
 	instantOrderingPairs,
 } from "../../../lib/commcare/__tests__/instantOrderingTable";
 import {
+	ROW_PREDICATE_ROWS,
+	rowPredicateDoc,
+} from "../../../lib/commcare/__tests__/rowPredicateFixture";
+import {
+	countGuarded,
+	sessionContextReadsDoc,
+	WINDOW_WIDTH_COLUMN,
 	WINDOW_WIDTH_GATE_NODES,
+	WINDOW_WIDTH_MODULE,
+	WINDOW_WIDTH_PATH,
+	windowWidthColumnDoc,
 	windowWidthGateXForm,
 } from "../../../lib/commcare/__tests__/sessionContextFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
@@ -19,6 +29,8 @@ import { xel } from "../../../lib/commcare/elementBuilders";
 import { expandDoc } from "../../../lib/commcare/expander";
 import { requireExpressionContext } from "../../../lib/commcare/expressionContext";
 import { serializeXml } from "../../../lib/commcare/serializeXml";
+import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "../../../lib/commcare/sessionContext";
+import { runValidation } from "../../../lib/commcare/validator/runner";
 import { formNodeProjection } from "../../../lib/commcare/xpath/formNodeProjection";
 import { w } from "../../../lib/commcare/xpath/wire/builders";
 import { toWire } from "../../../lib/commcare/xpath/wire/fromExpression";
@@ -28,7 +40,7 @@ import { datetimeSplitOriginal } from "../../../lib/doc/__tests__/datetimeSplitF
 import { mutationCommitVerdict } from "../../../lib/doc/commitVerdicts";
 import { planDatetimeSplits } from "../../../lib/doc/datetimeSplit";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
-import type { Uuid } from "../../../lib/domain";
+import type { BlueprintDoc, Uuid } from "../../../lib/domain";
 import { fieldCaseWrite, proseText } from "../../../lib/domain";
 import type { Expression } from "../../../lib/domain/expression";
 import {
@@ -369,14 +381,66 @@ writeFileSync(
 	);
 }
 
+/** A document Nova's commit gate admits, or a refusal naming its findings:
+ * the lane holds what Nova emits for an admitted document. */
+function admitted(name: string, doc: BlueprintDoc): BlueprintDoc {
+	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+	if (findings.length > 0)
+		throw new Error(
+			`Nova's validator refuses the ${name} (${findings
+				.map((finding) => `${finding.code}: ${finding.message}`)
+				.join("; ")}), so no device would receive it.`,
+		);
+	return doc;
+}
+/** One form of an admitted document, as its local archive holds it. */
+function compiledForm(doc: BlueprintDoc, module: number, form: number) {
+	return new AdmZip(
+		compileCcz(expandDoc(doc), doc.appName, doc, {
+			runtimeTarget: NATIVE_RUNTIME_TARGET,
+		}),
+	).readAsText(`modules-${module}/forms-${form}.xml`);
+}
+
 // SessionContextRuntimeTest runs the session context reads in Core. The
 // window width gate's form is a control written by hand, since Nova never
 // emits a bare width read in a form: Core decides whether one throws when a
-// later request carries no width.
+// later request carries no width. The guarded reads are Nova's own prints:
+// the clock drift, the app language and the case list's search text in a
+// form, and the window width in a case list column, a slot CommCare
+// evaluates while the list loads.
 {
 	const directory = resolve(output, "session-context");
 	mkdirSync(directory, { recursive: true });
 	writeFileSync(resolve(directory, "window-width.xml"), windowWidthGateXForm());
+	const reads = admitted("session context reads", sessionContextReadsDoc());
+	writeFileSync(resolve(directory, "reads.xml"), compiledForm(reads, 0, 0));
+	const columns = admitted("window width column", windowWidthColumnDoc());
+	const column = columns.modules[
+		WINDOW_WIDTH_MODULE
+	]?.caseListConfig?.columns.find(
+		(entry) => entry.uuid === WINDOW_WIDTH_COLUMN,
+	);
+	if (column?.kind !== "calculated")
+		throw new Error("The window width column is missing.");
+	const windowWidthField = serializeWire(
+		toWire(column.expression, {
+			target: "suite",
+			types: requireExpressionContext(columns, {
+				entity: "module",
+				uuid: WINDOW_WIDTH_MODULE,
+				slot: "case_list_column_expression",
+				member: { columnUuid: WINDOW_WIDTH_COLUMN },
+			}),
+		}),
+		{ target: "suite" },
+	).text;
+	// The gate's guarded calculate is the guard Nova prints, so the gate runs
+	// the read Nova ships.
+	if (windowWidthField !== countGuarded(WINDOW_WIDTH_PATH))
+		throw new Error(
+			`Nova prints the window width ${windowWidthField}, which is not the gate form's guarded read ${countGuarded(WINDOW_WIDTH_PATH)}.`,
+		);
 	writeFileSync(
 		resolve(output, "session-context.json"),
 		`${JSON.stringify({
@@ -386,6 +450,48 @@ writeFileSync(
 				...WINDOW_WIDTH_GATE_NODES,
 				width: "1024",
 			},
+			reads: {
+				form: "/expression/session-context/reads.xml",
+				drift: "/data/drift",
+				applanguage: "/data/language",
+				searched: "/data/searched",
+				caseDatum: "case_id",
+				caseId: "native-patient",
+				query: "Ama",
+				searchTextNodes: `instance('commcaresession')/session/data/${CASE_LIST_SEARCH_TEXT_DATA_NAME}`,
+			},
+			windowWidthField,
+		})}\n`,
+	);
+}
+
+// RowPredicateCurrentRuntimeTest runs a repeat's form reads inside row
+// predicates in Core, under the three ways Core evaluates a predicate; the
+// class makes the bare `/data/visits/kind` print, its retained control, from
+// the same bytes.
+{
+	const directory = resolve(output, "row-predicates");
+	mkdirSync(directory, { recursive: true });
+	const doc = admitted("row predicate form", rowPredicateDoc());
+	const form = compiledForm(doc, 0, 0);
+	for (const read of ["indexed", "scanned", "placed"])
+		if (!form.includes(`nodeset="/data/visits/${read}"`))
+			throw new Error(`The row predicate form holds no ${read} count.`);
+	if (!form.includes("current()/../kind"))
+		throw new Error(
+			"The row predicate form reads the entry's kind without current(), so it is no evidence of the print.",
+		);
+	writeFileSync(resolve(directory, "rounds.xml"), form);
+	writeFileSync(
+		resolve(output, "row-predicates.json"),
+		`${JSON.stringify({
+			schemaVersion: 1,
+			form: "/expression/row-predicates/rounds.xml",
+			repeat: "/data/visits",
+			kind: "kind",
+			current: "current()/../kind",
+			bare: "/data/visits/kind",
+			...ROW_PREDICATE_ROWS,
 		})}\n`,
 	);
 }

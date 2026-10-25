@@ -4,8 +4,10 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Hashtable;
 import java.util.Iterator;
+import org.commcare.core.process.CommCareInstanceInitializer;
 import org.commcare.session.SessionFrame;
 import org.commcare.session.SessionInstanceBuilder;
+import org.commcare.suite.model.StackFrameStep;
 import org.javarosa.core.model.FormDef;
 import org.javarosa.core.model.condition.Recalculate;
 import org.javarosa.core.model.condition.Triggerable;
@@ -50,6 +52,17 @@ import static org.junit.Assert.*;
  *
  * Each bare assertion's failure names what the calculate gave instead, so a
  * run's verdict is its readout.
+ *
+ * The guarded reads Nova prints. A session read that can be absent prints
+ * if(count(P) > 0, P, ''): the app language in a form's calculate and the
+ * window width in a case list column read '' where Core wrote no node and the
+ * value where it did, and the clock drift, which Core always writes, is 0 as
+ * CommCareInstanceInitializer.getCurrentDrift gives it on Formplayer. The case
+ * list's search text prints if(count(P) > 0, P[1], '') over
+ * session/data/stringquery, which SessionInstanceBuilder.addUserQueryData
+ * writes once for each frame step carrying a last query: it reads '' with no
+ * such step, and the text with one or two, where a bare read of P with two
+ * nodes throws (the control that shows the [1] is needed).
  */
 public class SessionContextRuntimeTest {
     private static JSONObject rows() throws Exception {
@@ -74,6 +87,84 @@ public class SessionContextRuntimeTest {
                 return new ConcreteInstanceRoot(root);
             }
         };
+    }
+
+    /** Formplayer's drift, which Core's own initializer gives: always 0. */
+    private static final class Formplayer extends CommCareInstanceInitializer {
+        long drift() {
+            return getCurrentDrift();
+        }
+    }
+
+    /** Core's session instance over a frame that chose `caseId`, the case list's
+     * search text on `queriedSteps` of its two steps, and the given width and
+     * language. */
+    private static InstanceInitializationFactory frame(JSONObject reads, int queriedSteps, String windowWidth,
+                                                       String language) {
+        return new InstanceInitializationFactory() {
+            @Override public InstanceRoot generateRoot(ExternalDataInstance instance) {
+                if (!"commcaresession".equals(instance.getInstanceId())) {
+                    throw new AssertionError("The session reads' form reads no instance " + instance.getInstanceId());
+                }
+                StackFrameStep command = new StackFrameStep(SessionFrame.STATE_COMMAND_ID, "m0-f0", null);
+                StackFrameStep datum = new StackFrameStep(SessionFrame.STATE_DATUM_VAL,
+                        reads.getString("caseDatum"), reads.getString("caseId"));
+                if (queriedSteps >= 2) command.addExtra(SessionInstanceBuilder.KEY_LAST_QUERY_STRING, reads.getString("query"));
+                if (queriedSteps >= 1) datum.addExtra(SessionInstanceBuilder.KEY_LAST_QUERY_STRING, reads.getString("query"));
+                SessionFrame frame = new SessionFrame();
+                frame.pushStep(command);
+                frame.pushStep(datum);
+                TreeElement root = SessionInstanceBuilder.getSessionInstance(frame, "device", "1",
+                        new Formplayer().drift(), "worker", "worker-id", new Hashtable<>(), windowWidth, language);
+                InstanceUtils.setUpInstanceRoot(root, instance.getInstanceId(), new InstanceBase(instance.getInstanceId()));
+                return new ConcreteInstanceRoot(root);
+            }
+        };
+    }
+
+    private static FormDef openReads(JSONObject reads, int queriedSteps, String windowWidth, String language) {
+        FormDef form = parse(reads.getString("form"));
+        form.initialize(true, frame(reads, queriedSteps, windowWidth, language));
+        return form;
+    }
+
+    @Test public void absentCapableContextReadsAreBlankWithoutTheirNode() throws Exception {
+        JSONObject rows = rows();
+        JSONObject reads = rows.getJSONObject("reads");
+        String field = rows.getString("windowWidthField");
+        for (String present : new String[]{null, "present"}) {
+            String language = present == null ? null : "en";
+            String width = present == null ? null : "1024";
+            String context = present == null ? "without the nodes" : "with the nodes";
+            FormDef form = openReads(reads, 0, width, language);
+            assertEquals(context + ": the guarded app language", language == null ? "" : language,
+                held(form, reads.getString("applanguage")));
+            assertEquals(context + ": the clock drift is Core's", "0", held(form, reads.getString("drift")));
+            assertEquals(context + ": the guarded window width a case list column prints", width == null ? "" : width,
+                String.valueOf(ExprEvalUtils.xpathEval(form.getEvaluationContext(), "string(" + field + ")")));
+        }
+    }
+
+    @Test public void caseListSearchTextReadsItsFirstNodeOrBlank() throws Exception {
+        JSONObject reads = rows().getJSONObject("reads");
+        String query = reads.getString("query");
+        String[] expected = {"", query, query};
+        for (int steps = 0; steps <= 2; steps++) {
+            FormDef form = openReads(reads, steps, null, "en");
+            assertEquals(steps + " steps carrying the search text", steps,
+                ((Double)ExprEvalUtils.xpathEval(form.getEvaluationContext(),
+                    "count(" + reads.getString("searchTextNodes") + ")")).intValue());
+            assertEquals(steps + " steps: the guarded search text", expected[steps],
+                held(form, reads.getString("searched")));
+        }
+        FormDef twice = openReads(reads, 2, null, "en");
+        try {
+            Object read = ExprEvalUtils.xpathEval(twice.getEvaluationContext(), reads.getString("searchTextNodes"));
+            fail("A bare read of the search text over two steps read '" + read + "', where it was expected to throw");
+        } catch (XPathTypeMismatchException expectedThrow) {
+            assertTrue("The bare read's refusal does not name more than one node: " + expectedThrow.getMessage(),
+                String.valueOf(expectedThrow.getMessage()).contains("more than one node"));
+        }
     }
 
     private static FormDef parse(String resource) {

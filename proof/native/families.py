@@ -151,6 +151,7 @@ CORE_CLASSES = {
     "OperationRelevanceRuntimeTest": "case",
     "PredicateRuntimeTest": "predicate",
     "RelationInstanceRuntimeTest": "relation-instance",
+    "RowPredicateCurrentRuntimeTest": "expression",
     "SearchPromptRuntimeTest": "prompt",
     "SearchRuntimeTest": "search",
     "SessionContextRuntimeTest": "expression",
