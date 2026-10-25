@@ -15,10 +15,12 @@
  *      carries a container signature; a UTF-8 check for text, which has
  *      none
  *   4. Body checks, dispatched on the sniffed MIME: image (sharp, or
- *      Nova's own header reader for BMP, `bmp.ts`) and audio/video
- *      (music-metadata, plus `webm.ts` for a VP9 profile), each holding
- *      the format to the variant every CommCare platform plays
- *      (`lib/domain/multimedia.ts::ACCEPTED_FORMATS`). pdf/docx/xlsx are
+ *      Nova's own readers for BMP and ICO, `bmp.ts` and `ico.ts`) and
+ *      audio/video (music-metadata, plus Nova's own readers where it
+ *      cannot tell a variant: `mp4.ts`, `wav.ts`, `amr.ts`, `midi.ts`, and
+ *      `webm.ts` for a VP9 profile), each naming the variant the bytes are
+ *      (`lib/domain/multimedia.ts::MEDIA_FORMATS`) or refusing bytes no
+ *      CommCare platform plays. pdf/docx/xlsx are
  *      validated by the sniff ALONE — the server never parses an untrusted
  *      office/PDF body (that's a real parser-CVE surface); the preview
  *      parses them client-side, on the owner's own file, instead
@@ -29,6 +31,9 @@
  * MIME after the magic-bytes check is what becomes the asset's
  * canonical `mimeType`; the extension is derived from that, not from
  * the client's filename.
+ *
+ * SVG is refused before the allow-list, with its own sentence: CommCare HQ
+ * types it as an image and cannot store it.
  *
  * Every rejection carries an Elm-shape message: what was tried + the
  * specific mismatch + what the user can do about it.
@@ -48,10 +53,18 @@ import {
 	assetKindForExtension,
 	assetKindForMimeType,
 	EXTENSION_FOR_MIME_TYPE,
+	type MediaFormatKey,
+	type MediaFormatValue,
 	mimeTypeForExtension,
 	normalizeMimeType,
+	UNPLAYABLE_MEDIA_FORMAT,
 } from "@/lib/domain/multimedia";
+import { readAmr } from "./amr";
 import { readBmp } from "./bmp";
+import { readIco } from "./ico";
+import { readMidi } from "./midi";
+import { MP4_VIDEO_ADVICE, readMp4 } from "./mp4";
+import { readWav } from "./wav";
 import { readVp9Profile } from "./webm";
 
 /**
@@ -80,6 +93,8 @@ export interface ValidatedMediaMetadata {
 	kind: AssetKind;
 	dimensions?: { width: number; height: number };
 	durationMs?: number;
+	/** The variant the bytes are, present exactly when `kind` is a media kind. */
+	mediaFormat?: MediaFormatKey;
 }
 
 /**
@@ -100,7 +115,23 @@ export type ValidationFailureReason =
 	| "claimed-size-mismatch"
 	| "container-brand-not-accepted"
 	| "codec-not-accepted"
-	| "bmp-variant-not-accepted";
+	| "bmp-variant-not-accepted"
+	| "svg-not-accepted"
+	| "ico-variant-not-accepted";
+
+/** The refusal of an SVG, at upload and in the builder's Upload tab. */
+export const SVG_REFUSAL_MESSAGE =
+	"CommCare HQ can't store SVG images, so no CommCare app can show this one. Saving it as a PNG fixes that.";
+
+/**
+ * Whether a filename or a raw MIME claim names SVG: the name ends `.svg`
+ * (case-insensitive), or the claim, lowercased with its parameters stripped,
+ * is `image/svg+xml`.
+ */
+export function namesSvg(filename: string, claimedMimeType: string): boolean {
+	const claim = claimedMimeType.trim().toLowerCase().split(";")[0]?.trim();
+	return filename.toLowerCase().endsWith(".svg") || claim === "image/svg+xml";
+}
 
 /**
  * Validate a byte payload + metadata claims.
@@ -126,9 +157,18 @@ export async function validateMediaBytes(args: {
 }): Promise<ValidationResult> {
 	const { bytes, claimedMimeType, claimedSizeBytes, claimedContentHash } = args;
 
-	// Stage 1: extension whitelist. Reject obvious off-list filenames
-	// before spending a magic-bytes sniff. The extension match is
+	// Stage 1: SVG first, then the extension whitelist. An SVG claim under an
+	// accepted extension (bytes named `x.png`) gets the SVG sentence rather
+	// than falling through to the sniff. Then reject obvious off-list
+	// filenames before spending a magic-bytes sniff. The extension match is
 	// case-insensitive (`Foo.PNG` is fine).
+	if (namesSvg(args.originalFilename, claimedMimeType)) {
+		return {
+			ok: false,
+			reason: "svg-not-accepted",
+			message: SVG_REFUSAL_MESSAGE,
+		};
+	}
 	const lowerName = args.originalFilename.toLowerCase();
 	const declaredExt = ACCEPTED_EXTENSIONS.find((ext) =>
 		lowerName.endsWith(ext),
@@ -193,6 +233,7 @@ export async function validateMediaBytes(args: {
 	let canonicalExtension: string;
 	let dimensions: { width: number; height: number } | undefined;
 	let durationMs: number | undefined;
+	let mediaFormat: MediaFormatKey | undefined;
 
 	if (claimedKind === "text") {
 		// No sniff possible. Reject a binary file mislabeled `.txt`/`.md`:
@@ -287,62 +328,25 @@ export async function validateMediaBytes(args: {
 		// prototype-pollution surface). The preview parses them client-side,
 		// on the owner's own file, where any parser bug is confined to their
 		// own browser.
-		if (sniffedMime === "image/bmp") {
-			const reading = readBmp(bytes);
-			if (reading.kind === "variant") {
-				return {
-					ok: false,
-					reason: "bmp-variant-not-accepted",
-					message: BMP_VARIANT_MESSAGE,
-				};
-			}
-			if (reading.kind === "malformed") {
-				return {
-					ok: false,
-					reason: "image-parse-failed",
-					message: `Couldn't read \`${args.originalFilename}\` as a BMP image: ${reading.detail}. The file may be truncated or malformed. Try re-exporting from the source.`,
-				};
-			}
-			dimensions = { width: reading.width, height: reading.height };
-		} else if (claimedKind === "image") {
-			try {
-				const meta = await sharp(bytes).metadata();
-				if (!meta.width || !meta.height) {
-					return {
-						ok: false,
-						reason: "image-parse-failed",
-						message: `\`${args.originalFilename}\` parsed as a \`${sniffedMime}\` image but has no readable dimensions. The file may be truncated or malformed. Try re-exporting from the source.`,
-					};
-				}
-				dimensions = { width: meta.width, height: meta.height };
-			} catch (err) {
-				const detail = err instanceof Error ? err.message : String(err);
-				return {
-					ok: false,
-					reason: "image-parse-failed",
-					message: `Couldn't parse \`${args.originalFilename}\` as a \`${sniffedMime}\` image (${detail}). The file may be truncated or malformed.`,
-				};
-			}
-		} else if (claimedKind === "audio" || claimedKind === "video") {
-			let metadata: IAudioMetadata;
-			try {
-				metadata = await parseMediaContainer(bytes, sniffedMime);
-			} catch (err) {
-				const detail = err instanceof Error ? err.message : String(err);
-				return {
-					ok: false,
-					reason: "media-parse-failed",
-					message: `Couldn't parse \`${args.originalFilename}\` as a \`${sniffedMime}\` ${claimedKind} stream (${detail}). The file may be truncated or in an unsupported codec.`,
-				};
-			}
-			const refusal = encodingRefusal(
+		if (claimedKind === "image") {
+			const verdict = await imageVerdict(
 				bytes,
 				sniffedMime,
-				metadata,
 				args.originalFilename,
 			);
-			if (refusal !== undefined) return { ok: false, ...refusal };
-			durationMs = durationMsOf(metadata);
+			if (!verdict.ok) return verdict;
+			dimensions = verdict.dimensions;
+			mediaFormat = verdict.key;
+		} else if (claimedKind === "audio" || claimedKind === "video") {
+			const verdict = await streamVerdict(
+				bytes,
+				sniffedMime,
+				claimedKind,
+				args.originalFilename,
+			);
+			if (!verdict.ok) return verdict;
+			durationMs = verdict.durationMs;
+			mediaFormat = verdict.key;
 		}
 	}
 
@@ -369,8 +373,254 @@ export async function validateMediaBytes(args: {
 			kind: claimedKind,
 			dimensions,
 			durationMs,
+			...(mediaFormat === undefined ? {} : { mediaFormat }),
 		},
 	};
+}
+
+/** The variant stored bytes are, or `unplayable` where no variant admits them. */
+export async function classifyStoredMediaBytes(
+	bytes: Buffer,
+	stored: { readonly mimeType: AssetMimeType; readonly extension: string },
+): Promise<MediaFormatValue> {
+	const result = await validateMediaBytes({
+		bytes,
+		claimedMimeType: stored.mimeType,
+		claimedSizeBytes: bytes.length,
+		originalFilename: `asset${stored.extension}`,
+	});
+	return result.ok
+		? (result.validated.mediaFormat ?? UNPLAYABLE_MEDIA_FORMAT)
+		: UNPLAYABLE_MEDIA_FORMAT;
+}
+
+type Refusal = {
+	readonly ok: false;
+	readonly reason: ValidationFailureReason;
+	readonly message: string;
+};
+
+function refused(refusal: {
+	reason: ValidationFailureReason;
+	message: string;
+}): Refusal {
+	return { ok: false, ...refusal };
+}
+
+const SHARP_IMAGE_KEYS: Readonly<Record<string, MediaFormatKey>> = {
+	"image/png": "png",
+	"image/jpeg": "jpeg",
+	"image/gif": "gif",
+	"image/webp": "webp",
+};
+
+/** The image body checks: the variant and its dimensions, or a refusal. */
+async function imageVerdict(
+	bytes: Buffer,
+	mime: AssetMimeType,
+	filename: string,
+): Promise<
+	| {
+			readonly ok: true;
+			readonly key: MediaFormatKey;
+			readonly dimensions: { width: number; height: number };
+	  }
+	| Refusal
+> {
+	if (mime === "image/bmp") {
+		const reading = readBmp(bytes);
+		if (reading.kind === "variant") {
+			return refused({
+				reason: "bmp-variant-not-accepted",
+				message: BMP_VARIANT_MESSAGE,
+			});
+		}
+		if (reading.kind === "malformed") {
+			return refused({
+				reason: "image-parse-failed",
+				message: `Couldn't read \`${filename}\` as a BMP image: ${reading.detail}. The file may be truncated or malformed. Try re-exporting from the source.`,
+			});
+		}
+		return {
+			ok: true,
+			key: "bmp",
+			dimensions: { width: reading.width, height: reading.height },
+		};
+	}
+	if (mime === "image/vnd.microsoft.icon") {
+		const reading = await readIco(bytes);
+		switch (reading.kind) {
+			case "icon":
+				return {
+					ok: true,
+					key: "ico",
+					dimensions: { width: reading.width, height: reading.height },
+				};
+			case "cursor":
+				return refused({
+					reason: "image-parse-failed",
+					message: `\`${filename}\` is a cursor rather than an icon. Saving the image as a PNG fixes that.`,
+				});
+			case "variant":
+				return refused({
+					reason: "ico-variant-not-accepted",
+					message: ICO_VARIANT_MESSAGE,
+				});
+			case "unreadable":
+				return refused({
+					reason: "image-parse-failed",
+					message: `Couldn't read \`${filename}\` as an ICO image: ${reading.detail}. Saving the image as a PNG fixes that.`,
+				});
+		}
+	}
+	try {
+		const meta = await sharp(bytes).metadata();
+		if (!meta.width || !meta.height) {
+			return refused({
+				reason: "image-parse-failed",
+				message: `\`${filename}\` parsed as a \`${mime}\` image but has no readable dimensions. The file may be truncated or malformed. Try re-exporting from the source.`,
+			});
+		}
+		const dimensions = { width: meta.width, height: meta.height };
+		if (mime === "image/avif") {
+			if (meta.format !== "heif" || meta.compression !== "av1") {
+				return refused({
+					reason: "image-parse-failed",
+					message: `\`${filename}\` holds HEIF images that are not AV1. Saving it as a PNG fixes that.`,
+				});
+			}
+			return { ok: true, key: "avif", dimensions };
+		}
+		const key = SHARP_IMAGE_KEYS[mime];
+		if (key === undefined) {
+			throw new Error(
+				`The upload gate read a ${mime} image with no variant to name. Each image MIME in ACCEPTED_FORMATS needs its MEDIA_FORMATS key here.`,
+			);
+		}
+		return { ok: true, key, dimensions };
+	} catch (err) {
+		const detail = err instanceof Error ? err.message : String(err);
+		return refused({
+			reason: "image-parse-failed",
+			message: `Couldn't parse \`${filename}\` as a \`${mime}\` image (${detail}). The file may be truncated or malformed.`,
+		});
+	}
+}
+
+/** The audio and video body checks: the variant and its duration, or a refusal. */
+async function streamVerdict(
+	bytes: Buffer,
+	mime: AssetMimeType,
+	kind: "audio" | "video",
+	filename: string,
+): Promise<
+	| {
+			readonly ok: true;
+			readonly key: MediaFormatKey;
+			readonly durationMs: number | undefined;
+	  }
+	| Refusal
+> {
+	// AMR and MIDI have no music-metadata parser: their headers are the check,
+	// and they carry no duration.
+	if (mime === "audio/amr") {
+		const reading = readAmr(bytes);
+		if (reading.kind === "amr") {
+			return { ok: true, key: "amr", durationMs: undefined };
+		}
+		if (reading.kind === "multichannel") {
+			return refused(
+				codecRefusal("multichannel AMR", "AMR or M4A (AAC) audio"),
+			);
+		}
+		return refused({
+			reason: "media-parse-failed",
+			message: `\`${filename}\` holds no audio after its header. Exporting it again as AMR or M4A (AAC) audio fixes that.`,
+		});
+	}
+	if (mime === "audio/midi") {
+		const reading = readMidi(bytes);
+		if (reading.kind === "midi") {
+			return { ok: true, key: "midi", durationMs: undefined };
+		}
+		return refused({
+			reason: "media-parse-failed",
+			message: `Couldn't read \`${filename}\` as a MIDI file: ${reading.detail}. Exporting it again as a standard MIDI file fixes that.`,
+		});
+	}
+	// WAV and MP4 are read by Nova's own readers first, then parsed by
+	// music-metadata for their duration.
+	let readerKey: MediaFormatKey | undefined;
+	if (mime === "audio/wav") {
+		const reading = readWav(bytes);
+		if (reading.kind === "codec") {
+			return refused(codecRefusal(reading.codec, "WAV with 16-bit PCM audio"));
+		}
+		if (reading.kind === "unreadable") {
+			return refused({
+				reason: "media-parse-failed",
+				message: `Couldn't read the WAV header of \`${filename}\`: ${reading.detail}. Exporting it again as WAV with 16-bit PCM audio fixes that.`,
+			});
+		}
+		readerKey = "wav-pcm";
+	}
+	if (mime === "video/mp4") {
+		const reading = readMp4(bytes);
+		const refusal = mp4Refusal(reading, filename);
+		if (refusal !== undefined) return refused(refusal);
+		if (reading.kind === "variant") readerKey = reading.key;
+	}
+	let metadata: IAudioMetadata;
+	try {
+		metadata = await parseMediaContainer(bytes, mime);
+	} catch (err) {
+		const detail = err instanceof Error ? err.message : String(err);
+		return refused({
+			reason: "media-parse-failed",
+			message: `Couldn't parse \`${filename}\` as a \`${mime}\` ${kind} stream (${detail}). The file may be truncated or in an unsupported codec.`,
+		});
+	}
+	const verdict =
+		readerKey === undefined
+			? encodingVerdict(bytes, mime, metadata, filename)
+			: { key: readerKey };
+	if ("reason" in verdict) return refused(verdict);
+	return { ok: true, key: verdict.key, durationMs: durationMsOf(metadata) };
+}
+
+/** Why an MP4 is one no CommCare platform plays, or `undefined` for a variant. */
+function mp4Refusal(
+	reading: ReturnType<typeof readMp4>,
+	filename: string,
+): { reason: ValidationFailureReason; message: string } | undefined {
+	switch (reading.kind) {
+		case "variant":
+			return undefined;
+		case "no-video":
+			return {
+				reason: "codec-not-accepted",
+				message:
+					"This MP4 holds sound and no picture. CommCare HQ files it as video, so it could never fill an audio slot. Exporting it again as M4A (AAC) audio fixes that.",
+			};
+		case "several-videos":
+			return {
+				reason: "codec-not-accepted",
+				message:
+					"This MP4 holds more than one video track, and CommCare apps play one. Exporting it again with a single video track fixes that.",
+			};
+		case "other-track":
+			return {
+				reason: "codec-not-accepted",
+				message: `This MP4 holds a track that is neither video nor sound (${reading.handler}). Exporting it again with only its video and its AAC audio fixes that.`,
+			};
+		case "codec":
+			return codecRefusal(reading.codec, reading.accepted);
+		case "unreadable":
+			return {
+				reason: "media-parse-failed",
+				message: `Couldn't read the video of \`${filename}\`: ${reading.detail}. Exporting it again as ${MP4_VIDEO_ADVICE} fixes that.`,
+			};
+	}
 }
 
 /**
@@ -495,6 +745,8 @@ const M4A_BRAND_MESSAGE =
 	"This M4A is one CommCare HQ would file as video, so an audio slot would never receive it. Exporting it again as M4A (AAC) audio fixes that.";
 const BMP_VARIANT_MESSAGE =
 	"This BMP is saved in a way some CommCare apps can't show. Saving it again as a PNG fixes that.";
+const ICO_VARIANT_MESSAGE =
+	"This ICO holds an image saved in a way some CommCare apps can't show. Saving it again as a PNG fixes that.";
 
 /** The refusal of a file whose audio or video some CommCare apps can't play. */
 function codecRefusal(
@@ -507,25 +759,31 @@ function codecRefusal(
 	};
 }
 
+type EncodingVerdict =
+	| { readonly key: MediaFormatKey }
+	| { readonly reason: ValidationFailureReason; readonly message: string };
+
 /**
- * Why a parsed audio or video file is encoded in a variant some CommCare
- * platform does not play, or `undefined` when it is one every platform
- * played (`lib/commcare/surface/media-formats.json`, `executions`). The
- * container and codec spellings are music-metadata's, as version 12.2.0
- * reports them: `FLAC`; `M4A/isom/iso2` or `M4B/isom/iso2` with `MPEG-4/AAC`
- * or `ALAC`; `Ogg` with `Vorbis I`, `Opus`, `Speex 1.2.1` or `FLAC`;
- * `EBML/webm` with `VP8`, `VP9`, `AV1`, `VORBIS`, `OPUS`. MP3, WAV and MP4
- * have no check here: step 2 checks no MP4 codec and no WAV encoding.
+ * The variant a parsed audio or video file is, or why it is one no CommCare
+ * platform plays, for every MIME but WAV and MP4 (whose own readers name
+ * theirs), AMR and MIDI (which music-metadata does not parse). The container
+ * and codec spellings are music-metadata's, as version 12.2.0 reports them:
+ * `MPEG`; `FLAC`; `M4A/isom/iso2` or `M4B/isom/iso2` with `MPEG-4/AAC` or
+ * `ALAC`; `Ogg` with `Vorbis I`, `Opus`, `Speex 1.2.1` or `FLAC`;
+ * `ADTS/MPEG-4` or `ADTS/MPEG-2` with `AAC`; `EBML/webm` or `EBML/matroska`
+ * with `VP8`, `VP9`, `AV1`, `VORBIS`, `OPUS`.
  */
-function encodingRefusal(
+function encodingVerdict(
 	bytes: Buffer,
 	mime: AssetMimeType,
 	metadata: IAudioMetadata,
 	filename: string,
-): { reason: ValidationFailureReason; message: string } | undefined {
+): EncodingVerdict {
 	const { container = "", codec = "" } = metadata.format;
 	const tracks = metadata.format.trackInfo;
 	switch (mime) {
+		case "audio/mpeg":
+			return { key: "mp3" };
 		case "audio/mp4": {
 			// The `ftyp` major brand, read from the bytes themselves: HQ files an
 			// MP4 as audio only for `M4A ` or `M4B `.
@@ -563,19 +821,17 @@ function encodingRefusal(
 					"M4A with AAC audio",
 				);
 			}
-			return undefined;
+			return { key: "m4a" };
 		}
 		case "audio/flac":
 			return container === "FLAC"
-				? undefined
+				? { key: "flac" }
 				: codecRefusal(container || "unnamed", "a FLAC file");
 		case "audio/ogg": {
-			if (
-				container === "Ogg" &&
-				(codec.startsWith("Vorbis") || codec === "Opus")
-			) {
-				return undefined;
+			if (container === "Ogg" && codec.startsWith("Vorbis")) {
+				return { key: "ogg-vorbis" };
 			}
+			if (container === "Ogg" && codec === "Opus") return { key: "ogg-opus" };
 			if (codec === "FLAC") {
 				return codecRefusal(
 					"FLAC inside Ogg",
@@ -587,71 +843,98 @@ function encodingRefusal(
 				"Ogg with Vorbis or Opus audio",
 			);
 		}
+		case "audio/aac":
+			// The AAC object type is not read, for ADTS as for M4A.
+			return container.startsWith("ADTS/") && codec === "AAC"
+				? { key: "aac-adts" }
+				: codecRefusal(
+						codec || container || "unnamed",
+						"AAC (ADTS) or M4A (AAC) audio",
+					);
 		case "video/webm":
-			return webmRefusal(bytes, container, tracks, filename);
+			return matroskaVerdict(bytes, container, tracks, filename, "webm");
+		case "video/x-matroska":
+			return matroskaVerdict(bytes, container, tracks, filename, "mkv");
 		default:
-			return undefined;
+			throw new Error(
+				`The upload gate parsed a ${mime} file with no variant to name. Each audio and video MIME in ACCEPTED_FORMATS needs its MEDIA_FORMATS key in encodingVerdict or a reader of its own.`,
+			);
 	}
 }
 
-/** Why a WebM file is one some CommCare platform does not play, or `undefined`. */
-function webmRefusal(
+/**
+ * The variant a WebM or MKV file is, or why it is one no CommCare platform
+ * plays. Both take the same track rules: one VP8 or VP9 profile 0 video
+ * track and Vorbis or Opus audio or none, the codecs Android pairs with
+ * Matroska; the container is `EBML/webm` for a WebM and `EBML/matroska` for
+ * an MKV.
+ */
+function matroskaVerdict(
 	bytes: Buffer,
 	container: string,
 	tracks: IAudioMetadata["format"]["trackInfo"],
 	filename: string,
-): { reason: ValidationFailureReason; message: string } | undefined {
-	if (container !== "EBML/webm") {
-		return codecRefusal(container || "unnamed", "a WebM file");
+	family: "webm" | "mkv",
+): EncodingVerdict {
+	const noun = family === "webm" ? "WebM" : "MKV";
+	const expected = family === "webm" ? "EBML/webm" : "EBML/matroska";
+	if (container !== expected) {
+		return codecRefusal(
+			container || "unnamed",
+			family === "webm" ? "a WebM file" : "an MKV file",
+		);
 	}
 	const video = tracks.filter((track) => track.video !== undefined);
 	const audio = tracks.filter((track) => track.audio !== undefined);
 	// A subtitle, button or metadata track is one no reader decoded during
-	// planning, so the WebM it rides in is not one every platform played.
+	// planning, so the file it rides in is not one a platform played.
 	const other = tracks.find(
 		(track) => track.video === undefined && track.audio === undefined,
 	);
 	if (video.length === 0) {
 		return {
 			reason: "codec-not-accepted",
-			message:
-				"This WebM holds sound and no picture. CommCare HQ files every WebM as video, so it could never fill an audio slot. Exporting it again as Ogg audio (Vorbis or Opus) fixes that.",
+			message: `This ${noun} holds sound and no picture. CommCare HQ files every ${noun} as video, so it could never fill an audio slot. Exporting it again as Ogg audio (Vorbis or Opus) fixes that.`,
 		};
 	}
 	if (video.length > 1) {
 		return {
 			reason: "codec-not-accepted",
-			message:
-				"This WebM holds more than one video track, and CommCare apps play one. Exporting it again with a single video track fixes that.",
+			message: `This ${noun} holds more than one video track, and CommCare apps play one. Exporting it again with a single video track fixes that.`,
 		};
 	}
 	if (other !== undefined) {
 		return {
 			reason: "codec-not-accepted",
-			message: `This WebM holds a track that is neither video nor sound (${other.codecName || "unnamed"}). Exporting it again with only its video and its Vorbis or Opus audio fixes that.`,
+			message: `This ${noun} holds a track that is neither video nor sound (${other.codecName || "unnamed"}). Exporting it again with only its video and its Vorbis or Opus audio fixes that.`,
 		};
 	}
 	for (const track of audio) {
 		if (track.codecName !== "VORBIS" && track.codecName !== "OPUS") {
 			return codecRefusal(
 				track.codecName || "unnamed",
-				"WebM with Vorbis or Opus audio, or with none",
+				`${noun} with Vorbis or Opus audio, or with none`,
 			);
 		}
 	}
 	const videoCodec = video[0]?.codecName ?? "";
-	if (videoCodec === "VP8") return undefined;
+	const vp8 = family === "webm" ? "webm-vp8" : "mkv";
+	const vp9 = family === "webm" ? "webm-vp9" : "mkv";
+	if (videoCodec === "VP8") return { key: vp8 };
 	if (videoCodec !== "VP9") {
+		if (family === "mkv" && videoCodec === "MPEG4/ISO/AVC") {
+			return codecRefusal("H.264 in MKV", MP4_VIDEO_ADVICE);
+		}
 		return codecRefusal(
 			videoCodec || "unnamed",
-			"WebM with VP8 video, or VP9 in 8-bit 4:2:0 color",
+			`${noun} with VP8 video, or VP9 in 8-bit 4:2:0 color`,
 		);
 	}
 	const profile = readVp9Profile(bytes);
 	if (profile.kind === "unreadable") {
 		return {
 			reason: "media-parse-failed",
-			message: `Couldn't read the VP9 video of \`${filename}\`: ${profile.detail}. Exporting it again as WebM with VP8 video, or VP9 in 8-bit 4:2:0 color, fixes that.`,
+			message: `Couldn't read the VP9 video of \`${filename}\`: ${profile.detail}. Exporting it again as ${noun} with VP8 video, or VP9 in 8-bit 4:2:0 color, fixes that.`,
 		};
 	}
 	if (profile.profile !== 0) {
@@ -660,5 +943,5 @@ function webmRefusal(
 			"VP8, or VP9 in 8-bit 4:2:0 color (ffmpeg's -pix_fmt yuv420p)",
 		);
 	}
-	return undefined;
+	return { key: vp9 };
 }

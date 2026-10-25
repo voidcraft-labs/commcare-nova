@@ -4114,6 +4114,14 @@ def tiff_heif(use, manifest):
     return facts["mime"] in ("image/tiff", "image/heif", "image/heic", "image/heif-sequence", "image/heic-sequence")
 
 
+def svg_image(use, manifest):
+    """``expressions-and-data/image-svg``: an image HQ classifies as SVG, which it cannot store."""
+    facts = _media(use)
+    if facts is None:
+        return None
+    return facts["mime"] == "image/svg+xml"
+
+
 # The WAV format code of integer PCM (WAVE_FORMAT_PCM).
 WAVE_FORMAT_PCM = 1
 
@@ -6109,6 +6117,7 @@ VALUE_CLASSES = {
     ),
     "menus-and-case-lists/type-index-cache-and-index-order-2": sort_type_index,
     "expressions-and-data/image-tiff-heif": tiff_heif,
+    "expressions-and-data/image-svg": svg_image,
     "expressions-and-data/audio-wav-that-is-not-8-or-16-bit-pcm": other_wav,
     "expressions-and-data/audio-3gp": audio_3gp,
     "expressions-and-data/audio-m4a-with-another-brand-isom-mp41-mp42-dash": audio_m4a_other_brand,

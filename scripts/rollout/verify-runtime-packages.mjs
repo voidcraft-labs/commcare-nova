@@ -60,8 +60,9 @@ const audio = await (await import("music-metadata")).parseBuffer(wav, {
 assert.equal(audio.format.sampleRate, 8000);
 
 // One tiny real file per other lazily loaded parser the upload gate reads
-// (lib/media/validate.ts): Ogg (Opus), FLAC, MP4 (an M4A) and Matroska (a
-// WebM). Each loads its parser from the standalone package, so a parser left
+// (lib/media/validate.ts): Ogg (Opus), FLAC, MP4 (an M4A), Matroska (a
+// WebM) and MPEG (the first four ADTS frames of the AAC fixture
+// lib/media/__tests__/fixtures/tone.aac). Each loads its parser from the standalone package, so a parser left
 // out of the image fails the build rather than every upload of its format.
 for (const [mimeType, base64, container, codec] of [
 	[
@@ -122,6 +123,27 @@ for (const [mimeType, base64, container, codec] of [
 		"EBML/webm",
 		undefined,
 	],
+	[
+		"audio/aac",
+		"//FQQCV//AEYVa6UlhkHVLruc3x04VV5OMkEDcnb2kQAJQkEUwiUyKRkSiUWYRowSQYl2ys7ZUhu" +
+			"Bk83sLPw2DzKLj2nLluPWtPAp5EbiTSkZDSTYxGSIkSHj2ISGwiwJIpCIg2cTKoqyH9h+nes/Ffv" +
+			"fwX035LiO4tu6O4t29pHZX236d9R9K+J+pbJ0lsHMWqcW0bqrMOhsR0N1nv3C9W6Lx7ou1bzt226" +
+			"9tOtZzoWU47G4rQcVoNiuNisNysNqnbVYblcbFaZ60z1prVZpo2mjaaNpqWOqsdVY6lfn1+jas1h" +
+			"lL8+qoVVCqoVcphlMMphlK5aqhVUKqWrlq5Sukokmkmqmqmqmkokokokoqmqmqmqmkokokokmqmq" +
+			"mqmqoqokoiiiiiiii4D/8VBAIF/8ATSa2spdwGzFTCbMVKJ03U2pX+jrht8au6//Dj9fvYavU//p" +
+			"df540Jq5v/+31+/HBNXxnQkugg9Pow8ePLgPLmnbNYvH4omF1xprSC5xO5xpEPhYu1xsEONi1M5l" +
+			"qBalzprTP6sDXbvykJBgZ3CQkGBgZ3cJCVgwMDO7hIScBhzLu4ScaBmQa87vkEhOS/PzA2RmhNhL" +
+			"v8IVYcKuI6S7GVza7ZUbmVmzsqjRpWs7KqUUkRTSiSqTLTIMDAwNqkJBrwMDBISSvODGzYSElQbN" +
+			"wYGNhISVvY5osZQkrdgIIMvDhZjl4j7XX94Vlysq/KQk5NNNMlWcmmCUt3j/8VBAFf/8ARD2LPSW" +
+			"KRdWRUE+3PP5fr541OKvNbu6vciPaSSIk/FaVxsUr9Vp3SOI8a4jzC7eRfhHN3li31WVXIOy7T1X" +
+			"jOJjVqazYrFWKOVHitZ1q1MknDMm2OMzA9eGGGDg2OOOLID14YYOJ/j4bT7+8J/j4bT7+5D4+DJ9" +
+			"/cO2Ow5HMzAr0U42+3Di1GinNz9DTTx6/jqR6WY+Vbbl410neY1d1Yv4QVpqoTbw//FQQBYf/ADo" +
+			"NizQdCwbQwHQsHRMLTMHSq9Z//Z+38/+X3XrHftUuk1j+ubVKq81uJUyCepBf0gqyqZu45xZQoXi" +
+			"8597p6DjvcdbfvcdbfvFEpBS+lMvTGiOinHJa57hktMS1IgWoQ1nWBtM3Y3zkwLTQYMUw0msTeB5" +
+			"sbL634ZoSE0xAhx+ZdYQEVNyQha8jVLkiPpJkqcM5ZMtBPTCnZjSs7Ed7zUUrP395TMbXHw=",
+		"ADTS/MPEG-4",
+		"AAC",
+	],
 ]) {
 	const bytes = Buffer.from(base64, "base64");
 	const parsed = await (await import("music-metadata")).parseBuffer(bytes, {
@@ -131,6 +153,25 @@ for (const [mimeType, base64, container, codec] of [
 	assert.equal(parsed.format.container, container, mimeType);
 	assert.equal(parsed.format.codec, codec, mimeType);
 }
+
+// The AVIF fixture lib/media/__tests__/fixtures/pattern.avif: an image whose
+// libvips lacks libheif's AV1 decoder fails the build rather than every AVIF
+// upload.
+const avif = await (await import("sharp"))
+	.default(
+		Buffer.from(
+			"AAAAHGZ0eXBhdmlmAAAAAG1pZjFhdmlmbWlhZgAAANZtZXRhAAAAAAAAACFoZGxyAAAAAAAAAABw" +
+				"aWN0AAAAAAAAAAAAAAAAAAAAACJpbG9jAAAAAERAAAEAAQAAAAAA+gABAAAAAAAAACYAAAAjaWlu" +
+				"ZgAAAAAAAQAAABVpbmZlAgAAAAABAABhdjAxAAAAAA5waXRtAAAAAAABAAAAVmlwcnAAAAA4aXBj" +
+				"bwAAAAxhdjFDgSACAAAAABRpc3BlAAAAAAAAAEAAAABAAAAAEHBpeGkAAAAAAwgICAAAABZpcG1h" +
+				"AAAAAAAAAAEAAQOBAgMAAAAubWRhdBIACgk4FX/9pAQ0GkAyFxlCYwTAADQAAJfK4KrdPoYOp0vw" +
+				"y8SI",
+			"base64",
+		),
+	)
+	.metadata();
+assert.equal(avif.format, "heif");
+assert.equal(avif.compression, "av1");
 
 // Run the actual generated instrumentation against its traced native SDK. The
 // transport remains entirely local; this check sends no event to Sentry.

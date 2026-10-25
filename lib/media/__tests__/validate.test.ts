@@ -52,6 +52,40 @@
  *   pattern-32.bmp             V -frames:v 1 -pix_fmt bgra
  *
  * The BMP files ffmpeg does not write come from `bmpFixtures.ts`.
+ *
+ * The files step 4 added were made with ffmpeg 9.0.2 from the same `T` and
+ * `V` and the same flags:
+ *
+ *   pattern-h264-baseline.mp4  V -c:v libx264 -profile:v baseline -pix_fmt yuv420p -f mp4
+ *   pattern-h264-main-aac.mp4  V T -c:v libx264 -profile:v main -pix_fmt yuv420p -c:a aac -f mp4
+ *   pattern-h264-high10.mp4    V -c:v libx264 -profile:v high10 -pix_fmt yuv420p10le -f mp4
+ *   pattern-hevc.mp4           V -c:v libx265 -profile:v main -pix_fmt yuv420p -tag:v hvc1 -f mp4
+ *   pattern-hevc-main10.mp4    V -c:v libx265 -profile:v main10 -pix_fmt yuv420p10le -tag:v hvc1 -f mp4
+ *   pattern-mpeg4.mp4          V -c:v mpeg4 -f mp4
+ *   pattern-mpeg4-asp.mp4      V -c:v mpeg4 -bf 1 -f mp4
+ *   pattern-av1.mp4            V -c:v libsvtav1 -f mp4
+ *   pattern-h264-mp3.mp4       V T -c:v libx264 -profile:v main -pix_fmt yuv420p -c:a libmp3lame -f mp4
+ *   pattern-h264-subtitles.mp4 V -i subtitles.vtt -map 0 -map 1 -c:v libx264 -profile:v main -pix_fmt yuv420p -c:s mov_text -f mp4
+ *   tone-audio-only.mp4        T -c:a aac -f mp4
+ *   tone.wav                   T -c:a pcm_s16le
+ *   tone-8.wav                 T -c:a pcm_u8
+ *   tone-24.wav                T -c:a pcm_s24le
+ *   tone-float.wav             T -c:a pcm_f32le
+ *   tone-mulaw.wav             T -c:a pcm_mulaw
+ *   tone.mp3                   T -c:a libmp3lame
+ *   tone.aac                   T -c:a aac -f adts
+ *   pattern-vp8.mkv            V -c:v libvpx -f matroska
+ *   pattern-h264.mkv           V -c:v libx264 -profile:v main -pix_fmt yuv420p -f matroska
+ *   pattern-png.ico            V -frames:v 1 -c:v png -pix_fmt rgba -f ico
+ *   pattern-bmp.ico            V -frames:v 1 -c:v bmp -pix_fmt bgra -f ico
+ *   pattern.svg                (text) <svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8"/></svg>
+ *
+ * The five raster images were made once with sharp 0.35.5, since that ffmpeg
+ * has no WebP encoder: `sharp({ create: { width: 64, height: 64, channels: 3,
+ * background: "#3366cc" } })` then `.png()`, `.jpeg()`, `.gif()`, `.webp()`
+ * or `.avif()`, `.toFile()` into `pattern.png`, `pattern.jpg`, `pattern.gif`,
+ * `pattern.webp` and `pattern.avif`. `tiny-video.mp4` is the H.264 High
+ * fixture. The AMR and MIDI files come from `builtFixtures.ts`.
  */
 
 import { createHash } from "node:crypto";
@@ -61,8 +95,13 @@ import { fileTypeFromBuffer } from "file-type";
 import sharp from "sharp";
 import { beforeAll, describe, expect, it } from "vitest";
 import { ASSET_SIZE_CAPS_BYTES } from "@/lib/domain/multimedia";
-import { validateMediaBytes } from "../validate";
+import {
+	classifyStoredMediaBytes,
+	SVG_REFUSAL_MESSAGE,
+	validateMediaBytes,
+} from "../validate";
 import { BUILT_BMPS, bmpV4Srgb24 } from "./bmpFixtures";
+import { amrEmpty, amrMultichannel, amrNb, amrWb, midi } from "./builtFixtures";
 
 /** A committed fixture's bytes. */
 function fixture(name: string): Buffer {
@@ -251,17 +290,27 @@ describe("validateMediaBytes — rejection paths", () => {
 		}
 	});
 
-	it("rejects SVG explicitly (the extension whitelist excludes it)", async () => {
-		const svg = Buffer.from('<?xml version="1.0"?><svg/>');
-		const result = await validateMediaBytes({
-			bytes: svg,
-			claimedMimeType: "image/png",
-			claimedSizeBytes: svg.length,
-			originalFilename: "bad.svg",
-		});
-		expect(result.ok).toBe(false);
-		if (!result.ok) {
-			expect(result.reason).toBe("extension-not-accepted");
+	it("refuses an SVG by its name or its claim, before the allow-list", async () => {
+		const svg = fixture("pattern.svg");
+		for (const [bytes, claim, name] of [
+			[svg, "image/png", "bad.svg"],
+			[svg, "", "Bad.SVG"],
+			[tinyPng, "image/svg+xml", "x.png"],
+			[tinyPng, "Image/SVG+XML; charset=utf-8", "x.png"],
+		] as const) {
+			expect(
+				await validateMediaBytes({
+					bytes,
+					claimedMimeType: claim,
+					claimedSizeBytes: bytes.length,
+					originalFilename: name,
+				}),
+				`${name} as ${claim}`,
+			).toEqual({
+				ok: false,
+				reason: "svg-not-accepted",
+				message: SVG_REFUSAL_MESSAGE,
+			});
 		}
 	});
 
@@ -442,6 +491,7 @@ describe("validateMediaBytes — audio & video (music-metadata)", () => {
 			expect(result.validated.mimeType).toBe("video/mp4");
 			expect(result.validated.extension).toBe(".mp4");
 			expect(result.validated.durationMs).toBe(520);
+			expect(result.validated.mediaFormat).toBe("mp4-h264-high");
 		}
 	});
 });
@@ -574,6 +624,189 @@ describe("validateMediaBytes — the formats every platform plays", () => {
 	);
 });
 
+describe("validateMediaBytes — every variant, by the key it stores", () => {
+	it.each([
+		{ file: "pattern.png", mime: "image/png", extension: ".png", key: "png" },
+		{ file: "pattern.jpg", mime: "image/jpeg", extension: ".jpg", key: "jpeg" },
+		{ file: "pattern.gif", mime: "image/gif", extension: ".gif", key: "gif" },
+		{
+			file: "pattern.webp",
+			mime: "image/webp",
+			extension: ".webp",
+			key: "webp",
+		},
+		{
+			file: "pattern-24.bmp",
+			mime: "image/bmp",
+			extension: ".bmp",
+			key: "bmp",
+		},
+		{
+			file: "pattern-png.ico",
+			mime: "image/vnd.microsoft.icon",
+			extension: ".ico",
+			key: "ico",
+		},
+		{
+			file: "pattern-bmp.ico",
+			mime: "image/vnd.microsoft.icon",
+			extension: ".ico",
+			key: "ico",
+		},
+		{
+			file: "pattern.avif",
+			mime: "image/avif",
+			extension: ".avif",
+			key: "avif",
+		},
+		{ file: "tone.mp3", mime: "audio/mpeg", extension: ".mp3", key: "mp3" },
+		{ file: "tone.wav", mime: "audio/wav", extension: ".wav", key: "wav-pcm" },
+		{
+			file: "tone-8.wav",
+			mime: "audio/wav",
+			extension: ".wav",
+			key: "wav-pcm",
+		},
+		{ file: "tone.m4a", mime: "audio/mp4", extension: ".m4a", key: "m4a" },
+		{ file: "tone.flac", mime: "audio/flac", extension: ".flac", key: "flac" },
+		{
+			file: "tone-vorbis.ogg",
+			mime: "audio/ogg",
+			extension: ".ogg",
+			key: "ogg-vorbis",
+		},
+		{
+			file: "tone-opus.ogg",
+			mime: "audio/ogg",
+			extension: ".ogg",
+			key: "ogg-opus",
+		},
+		{ file: "tone.aac", mime: "audio/aac", extension: ".aac", key: "aac-adts" },
+		{
+			file: "pattern-h264-baseline.mp4",
+			mime: "video/mp4",
+			extension: ".mp4",
+			key: "mp4-h264-baseline",
+		},
+		{
+			file: "pattern-h264-main-aac.mp4",
+			mime: "video/mp4",
+			extension: ".mp4",
+			key: "mp4-h264-main",
+		},
+		{
+			file: "tiny-video.mp4",
+			mime: "video/mp4",
+			extension: ".mp4",
+			key: "mp4-h264-high",
+		},
+		{
+			file: "pattern-hevc.mp4",
+			mime: "video/mp4",
+			extension: ".mp4",
+			key: "mp4-hevc",
+		},
+		{
+			file: "pattern-mpeg4.mp4",
+			mime: "video/mp4",
+			extension: ".mp4",
+			key: "mp4-mpeg4-part2",
+		},
+		{
+			file: "pattern-vp8.webm",
+			mime: "video/webm",
+			extension: ".webm",
+			key: "webm-vp8",
+		},
+		{
+			file: "pattern-vp9.webm",
+			mime: "video/webm",
+			extension: ".webm",
+			key: "webm-vp9",
+		},
+		{
+			file: "pattern-vp8.mkv",
+			mime: "video/x-matroska",
+			extension: ".mkv",
+			key: "mkv",
+		},
+	])("accepts $file as $key", async ({ file, mime, extension, key }) => {
+		expect(await validateNamed(fixture(file), file)).toMatchObject({
+			ok: true,
+			validated: { mimeType: mime, extension, mediaFormat: key },
+		});
+	});
+
+	it("reads an ICO and an AVIF at their size", async () => {
+		for (const file of ["pattern-png.ico", "pattern-bmp.ico", "pattern.avif"]) {
+			expect(await validateNamed(fixture(file), file)).toMatchObject({
+				ok: true,
+				validated: { dimensions: { width: 64, height: 64 } },
+			});
+		}
+	});
+
+	it("accepts both AMRs and a MIDI file with no duration", async () => {
+		for (const [bytes, name, mime, key] of [
+			[amrNb(), "nb.amr", "audio/amr", "amr"],
+			[amrWb(), "wb.amr", "audio/amr", "amr"],
+			[midi(), "tune.mid", "audio/midi", "midi"],
+			[midi(), "tune.midi", "audio/midi", "midi"],
+		] as const) {
+			const result = await validateNamed(bytes, name);
+			expect(result, name).toMatchObject({
+				ok: true,
+				validated: { mimeType: mime, mediaFormat: key },
+			});
+			if (result.ok) expect(result.validated.durationMs).toBeUndefined();
+		}
+	});
+
+	it("names no variant for a document", async () => {
+		const bytes = Buffer.from("notes");
+		const result = await validateNamed(bytes, "notes.txt");
+		expect(result.ok && result.validated.mediaFormat).toBeUndefined();
+	});
+});
+
+describe("classifyStoredMediaBytes", () => {
+	it("gives stored bytes their variant", async () => {
+		expect(
+			await classifyStoredMediaBytes(fixture("pattern-hevc.mp4"), {
+				mimeType: "video/mp4",
+				extension: ".mp4",
+			}),
+		).toBe("mp4-hevc");
+		expect(
+			await classifyStoredMediaBytes(fixture("tone.wav"), {
+				mimeType: "audio/wav",
+				extension: ".wav",
+			}),
+		).toBe("wav-pcm");
+	});
+
+	it("keeps bytes no variant admits as unplayable, a disagreeing sniff included", async () => {
+		expect(
+			await classifyStoredMediaBytes(fixture("tone-24.wav"), {
+				mimeType: "audio/wav",
+				extension: ".wav",
+			}),
+		).toBe("unplayable");
+		expect(
+			await classifyStoredMediaBytes(fixture("pattern-h264-high10.mp4"), {
+				mimeType: "video/mp4",
+				extension: ".mp4",
+			}),
+		).toBe("unplayable");
+		expect(
+			await classifyStoredMediaBytes(fixture("pattern.png"), {
+				mimeType: "image/gif",
+				extension: ".gif",
+			}),
+		).toBe("unplayable");
+	});
+});
+
 describe("validateMediaBytes — near misses some CommCare platform refuses", () => {
 	it.each([
 		{
@@ -626,8 +859,55 @@ describe("validateMediaBytes — near misses some CommCare platform refuses", ()
 		},
 		{
 			file: "pattern-matroska.webm",
-			reason: "magic-bytes-sniff-failed",
-			says: "video/matroska",
+			reason: "extension-mime-mismatch",
+			says: "video/x-matroska",
+		},
+		{
+			file: "tone-audio-only.mp4",
+			reason: "codec-not-accepted",
+			says: "This MP4 holds sound and no picture.",
+		},
+		{
+			file: "pattern-h264-subtitles.mp4",
+			reason: "codec-not-accepted",
+			says: "neither video nor sound (sbtl)",
+		},
+		{
+			file: "pattern-h264-mp3.mp4",
+			reason: "codec-not-accepted",
+			says: "(MP3). Exporting it again as MP4 with AAC audio, or with none",
+		},
+		{
+			file: "pattern-h264-high10.mp4",
+			reason: "codec-not-accepted",
+			says: "(H.264 High 10). Exporting it again as MP4 with H.264 Main video",
+		},
+		{
+			file: "pattern-hevc-main10.mp4",
+			reason: "codec-not-accepted",
+			says: "(HEVC Main 10)",
+		},
+		{
+			file: "pattern-mpeg4-asp.mp4",
+			reason: "codec-not-accepted",
+			says: "(MPEG-4 Part 2 Advanced Simple)",
+		},
+		{ file: "pattern-av1.mp4", reason: "codec-not-accepted", says: "(AV1)" },
+		{
+			file: "tone-24.wav",
+			reason: "codec-not-accepted",
+			says: "(24-bit PCM). Exporting it again as WAV with 16-bit PCM audio",
+		},
+		{
+			file: "tone-float.wav",
+			reason: "codec-not-accepted",
+			says: "(32-bit float)",
+		},
+		{ file: "tone-mulaw.wav", reason: "codec-not-accepted", says: "(mu-law)" },
+		{
+			file: "pattern-h264.mkv",
+			reason: "codec-not-accepted",
+			says: "(H.264 in MKV). Exporting it again as MP4 with H.264 Main video",
 		},
 	])("refuses $file at its own check", async ({ file, reason, says }) => {
 		// Every earlier gate passes: the claim a browser makes for the
@@ -654,6 +934,53 @@ describe("validateMediaBytes — near misses some CommCare platform refuses", ()
 		const bytes = bmpV4Srgb24();
 		expect((await fileTypeFromBuffer(bytes))?.mime).toBe("image/bmp");
 		expect((await validateNamed(bytes, "v4.bmp")).ok).toBe(false);
+	});
+
+	it("refuses an MP4 or a WAV whose header is cut short as unreadable", async () => {
+		const mp4 = await validateNamed(
+			fixture("pattern-h264-main-aac.mp4").subarray(0, 200),
+			"cut.mp4",
+		);
+		expect(mp4).toMatchObject({ ok: false, reason: "media-parse-failed" });
+		if (!mp4.ok) {
+			expect(mp4.message).toBe(
+				"Couldn't read the video of `cut.mp4`: a box runs past the end of the file. Exporting it again as MP4 with H.264 Main video fixes that.",
+			);
+		}
+	});
+
+	it("refuses an ICO cursor, an ICO variant and an AVIF that is not AV1", async () => {
+		const cursor = Buffer.from(fixture("pattern-png.ico"));
+		cursor.writeUInt16LE(2, 2);
+		expect(await validateNamed(cursor, "c.ico")).toEqual({
+			ok: false,
+			reason: "image-parse-failed",
+			message:
+				"`c.ico` is a cursor rather than an icon. Saving the image as a PNG fixes that.",
+		});
+		const variant = Buffer.from(fixture("pattern-bmp.ico"));
+		variant.writeUInt32LE(3, 22 + 16);
+		expect(await validateNamed(variant, "v.ico")).toEqual({
+			ok: false,
+			reason: "ico-variant-not-accepted",
+			message:
+				"This ICO holds an image saved in a way some CommCare apps can't show. Saving it again as a PNG fixes that.",
+		});
+	});
+
+	it("refuses multichannel AMR and an AMR with no audio", async () => {
+		expect(await validateNamed(amrMultichannel(), "m.amr")).toMatchObject({
+			ok: false,
+			reason: "codec-not-accepted",
+			message:
+				"This file's audio or video is encoded in a way some CommCare apps can't play (multichannel AMR). Exporting it again as AMR or M4A (AAC) audio fixes that.",
+		});
+		expect(await validateNamed(amrEmpty(), "e.amr")).toEqual({
+			ok: false,
+			reason: "media-parse-failed",
+			message:
+				"`e.amr` holds no audio after its header. Exporting it again as AMR or M4A (AAC) audio fixes that.",
+		});
 	});
 
 	it("refuses a truncated BMP as malformed", async () => {

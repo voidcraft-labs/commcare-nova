@@ -3884,22 +3884,22 @@
 		"gates": []
 	},
 	{
-		"id": "expressions-and-data/image-ico-svg-avif",
+		"id": "expressions-and-data/image-ico-avif",
 		"area": "expressions-and-data",
 		"section": "Media",
-		"item": "image ICO, SVG, AVIF",
+		"item": "image ICO, AVIF",
 		"surfaceKeys": [
 			"media-format:image/ico",
-			"media-format:image/svg",
 			"media-format:image/avif",
 			"media-class:CommCareImage",
 			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
 			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
 			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
 		],
-		"valueClass": "ico-svg-avif",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an image asset for an app that does not declare Android (every browser in the bar plays them; Android 6.0 does not decode them, AVIF only from Android 14); an SVG is shown only as an image, where a browser runs none of its script",
+		"valueClass": "ico-avif",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an image asset for an app that does not declare Android (every browser in the bar plays them; Android 6.0 does not decode them, AVIF only from Android 14)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE",
@@ -3912,6 +3912,37 @@
 		},
 		"emission": {
 			"cell": "same",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/image-svg",
+		"area": "expressions-and-data",
+		"section": "Media",
+		"item": "image SVG",
+		"surfaceKeys": [
+			"media-format:image/svg",
+			"media-class:CommCareImage",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
+			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
+		],
+		"valueClass": "svg",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: HQ types it as an image and cannot store it: `CommCareImage.attach_data` opens every image with Pillow, which reads no SVG, and the error escapes `process_bulk_upload_zip`'s loop, so the whole upload stops and no file of that publish is mapped",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "`hqmedia/models.py::CommCareImage.attach_data` opens every image with Pillow (`get_image_object`), which reads no SVG, and the error escapes `hqmedia/tasks.py::process_bulk_upload_zip`'s loop, so the whole upload stops and no file of that publish is mapped"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -3965,13 +3996,8 @@
 		],
 		"valueClass": "mp3-m4a-flac-pcm-wav",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD** (MP3, WAV, M4A with a brand check, FLAC; narrow: PCM 8- or 16-bit only, Nova checks no WAV encoding today): audio asset",
-		"slotChanges": [
-			{
-				"direction": "narrow",
-				"text": "PCM 8- or 16-bit only, Nova checks no WAV encoding today"
-			}
-		],
+		"dispositionCell": "**HELD** (MP3, WAV with an encoding check, M4A with a brand check, FLAC): audio asset",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4015,7 +4041,7 @@
 			"cell": "—"
 		},
 		"emission": {
-			"cell": "— (Nova accepts WAV of any encoding today: defect 11)",
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -4069,8 +4095,9 @@
 			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
 		],
 		"valueClass": "aac-adts-amr-midi",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an audio asset for an app that does not declare Web Apps (Chrome plays AAC only inside MP4; Chrome, Firefox and Opera play no AMR, MDN leaving Edge and Safari unconfirmed, and MDN lists MIDI support for no browser)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: an audio asset for an app that does not declare Web Apps (Chrome plays AAC only inside MP4; Chrome, Firefox and Opera play no AMR, MDN leaving Edge and Safari unconfirmed, and MDN lists MIDI support for no browser)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE / RUNS",
@@ -4153,10 +4180,11 @@
 		"id": "expressions-and-data/video-mp4-h-264-baseline-or-main-with-aac-lc-or-no-audio-webm",
 		"area": "expressions-and-data",
 		"section": "Media",
-		"item": "video MP4 H.264 Baseline or Main, with AAC-LC or no audio; WebM VP8 or VP9, with Vorbis, Opus or no audio",
+		"item": "video MP4 H.264 Baseline, Main or High, with AAC-LC or no audio; WebM VP8 or VP9, with Vorbis, Opus or no audio",
 		"surfaceKeys": [
 			"media-format:video/mp4-h264-baseline",
 			"media-format:video/mp4-h264-main",
+			"media-format:video/mp4-h264-high",
 			"media-format:video/webm-vp8",
 			"media-format:video/webm-vp9",
 			"media-class:CommCareVideo",
@@ -4166,13 +4194,8 @@
 		],
 		"valueClass": "mp4-h264-baseline-main-webm",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD** (MP4, WebM; narrow: Nova checks no MP4 codec today): video asset",
-		"slotChanges": [
-			{
-				"direction": "narrow",
-				"text": "Nova checks no MP4 codec today"
-			}
-		],
+		"dispositionCell": "**HELD** (MP4 with a codec check, WebM): video asset",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4181,37 +4204,6 @@
 			},
 			"android": {
 				"reading": "runs"
-			}
-		},
-		"emission": {
-			"cell": "same",
-			"markers": []
-		},
-		"gates": []
-	},
-	{
-		"id": "expressions-and-data/video-mp4-h-264-high",
-		"area": "expressions-and-data",
-		"section": "Media",
-		"item": "video MP4 H.264 High",
-		"surfaceKeys": [
-			"media-format:video/mp4-h264-high",
-			"media-class:CommCareVideo",
-			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
-			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_base_mime_type",
-			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
-		],
-		"valueClass": "mp4-h264-high",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a video asset for an app that does not declare Android (Android 6.0 guarantees only Baseline and Main)",
-		"platforms": {
-			"kind": "each",
-			"cell": "RUNS / UNAVAILABLE",
-			"webApps": {
-				"reading": "runs"
-			},
-			"android": {
-				"reading": "unavailable"
 			}
 		},
 		"emission": {
@@ -4235,8 +4227,9 @@
 			"media-code:corehq/apps/hqmedia/models.py::CommCareMultimedia.get_mime_type"
 		],
 		"valueClass": "hevc-mpeg4-part2-mkv",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a video asset for an app that does not declare Web Apps (Chrome plays HEVC on Windows, Linux and ChromeOS only with hardware support, and Firefox on Windows only with hardware or a paid extension, no browser MPEG-4 Part 2 in MP4 (Firefox plays it only in 3GP), and Chrome alone MKV)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a video asset for an app that does not declare Web Apps (Chrome plays HEVC on Windows, Linux and ChromeOS only with hardware support, and Firefox on Windows only with hardware or a paid extension, no browser MPEG-4 Part 2 in MP4 (Firefox plays it only in 3GP), and Chrome alone MKV)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "UNAVAILABLE / RUNS",
