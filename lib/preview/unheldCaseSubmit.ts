@@ -23,7 +23,8 @@
 // through the worker's data, changes a case the phone resolves against its
 // own restore and is not counted; nor is a form that only reads the case.
 //
-// Pure: the browser's submit and App Tests' submission both call it.
+// Pure: the form screen's submit calls it. App Tests open no entry point,
+// so their submission never reaches a case the phone does not hold.
 
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
 import { deriveCaseWriteInventory } from "@/lib/domain/caseWriteInventory";

@@ -241,7 +241,7 @@ gps.describe("on Android", () => {
 			await context.setGeolocation({
 				latitude: 41,
 				longitude: -75,
-				accuracy: 3,
+				accuracy: 40,
 			});
 			await page.evaluate(() => {
 				const api = navigator.geolocation;
@@ -290,7 +290,36 @@ gps.describe("on Android", () => {
 				await page.evaluate(() => window.phoneGeolocation?.options()),
 			).toEqual([{ enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 }]);
 			await page.evaluate(() => window.phoneGeolocation?.release());
+			// A fix worse than 5 metres waits, showing its accuracy in Spanish.
+			await expect(
+				dialog.getByText(/^Precisión de la ubicación: 40(\.0)? m$/),
+			).toBeVisible();
+			await capturePhoneRuntime(
+				page,
+				testInfo,
+				"spanish-location-accuracy",
+				await page.evaluate(() => window.previewGeopointAudit.observation()),
+			);
+			await dialog
+				.getByRole("button", { name: "Registrar ubicación", exact: true })
+				.click();
+			await expect(dialog).toHaveCount(0);
+			await expect
+				.poll(() => page.evaluate(() => window.previewGeopointAudit.answer()))
+				.toBe("41.0 -75.0 0.0 40.0");
+			await expect(page.getByText(/Precisión: 40(\.0)?m/)).toBeVisible();
 			// A fix of 5 metres or better is taken at once.
+			await context.setGeolocation({
+				latitude: 41,
+				longitude: -75,
+				accuracy: 3,
+			});
+			await expect(recordButton(page)).toHaveText("Reemplazar ubicación");
+			await recordButton(page).click();
+			await expect
+				.poll(() => page.evaluate(() => window.phoneGeolocation?.pending()))
+				.toBeGreaterThan(0);
+			await page.evaluate(() => window.phoneGeolocation?.release());
 			await expect
 				.poll(() => page.evaluate(() => window.previewGeopointAudit.answer()))
 				.toBe("41.0 -75.0 0.0 3.0");
