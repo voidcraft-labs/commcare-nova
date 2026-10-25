@@ -129,9 +129,12 @@ if (scenario.startsWith("filter"))
 	config.filter = eq(prop("patient", "region"), literal("North"));
 const source = buildDoc({
 	appName: "Native case workspace",
-	// The selection and results scenarios turn on Several cases, which runs in
-	// Web Apps alone.
-	...(scenario === "selection" || scenario === "results"
+	// The selection and results scenarios turn on Several cases, and the
+	// search scenario's chooser adds a single-date Search field (Birth date);
+	// both run in Web Apps alone.
+	...(scenario === "selection" ||
+	scenario === "results" ||
+	scenario === "search"
 		? { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" } }
 		: {}),
 	caseTypes,
