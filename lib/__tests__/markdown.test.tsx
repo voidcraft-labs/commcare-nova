@@ -15,6 +15,17 @@ function html(element: React.ReactElement): string {
 	return renderToStaticMarkup(element);
 }
 
+/** The text a reader sees in rendered markup: every tag removed until none
+ * is left, so a tag that removing another one forms is removed too. */
+function visibleText(markup: string): string {
+	let text = markup;
+	for (;;) {
+		const next = text.replace(/<[^>]*>/g, "");
+		if (next === text) return text.replace(/\s+/g, " ").trim();
+		text = next;
+	}
+}
+
 /* ---------------------------------------------------------------------------
  * Chat security
  * ------------------------------------------------------------------------ */
@@ -337,12 +348,7 @@ describe("PreviewMarkdown's label rendering", () => {
 		expect(output).not.toContain("<br");
 		expect(output).not.toContain("<img");
 		expect(output).not.toContain("&lt;b&gt;");
-		expect(
-			output
-				.replace(/<[^>]+>/g, "")
-				.replace(/\s+/g, " ")
-				.trim(),
-		).toBe("a b x c");
+		expect(visibleText(output)).toBe("a b x c");
 	});
 
 	it("drops raw HTML and still breaks lines where the runtime breaks them", () => {
