@@ -5,6 +5,7 @@ import {
 	mutationCommitVerdict,
 	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
+import { planDatetimeSplits } from "@/lib/doc/datetimeSplit";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
@@ -15,6 +16,7 @@ import { APP_GENESIS_FALLBACK_NAME } from "@/lib/domain/blueprint";
 import { literal, term, today } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
+import { datetimeSplitOriginal } from "./datetimeSplitFixture";
 
 // ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -761,5 +763,69 @@ describe("nested suppression ownership", () => {
 		expect(store.getState().canUndo).toBe(true);
 		store.getState().undo();
 		expect(store.getState().appName).toBe("Base");
+	});
+});
+
+describe("undo of a conversion to a hidden value", () => {
+	// The store's undo applies `deltaBetween(after, before)`, the diff back to
+	// the prior document, so a conversion's undo is the inverse conversion,
+	// which must be representable and carry the label the question had.
+	it("restores a text question exactly", () => {
+		const doc = buildDoc({
+			appId: "app-undo-hidden",
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								{
+									kind: "text",
+									id: "name",
+									uuid: "undo-hidden-name",
+									label: proseText("Name"),
+									hint: proseText("As it is written"),
+									default_value: "'unnamed'",
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+		assertAdmittedDoc(doc);
+		const store = createBlueprintDocStore();
+		store.getState().load(toPersistableDoc(doc));
+		store.getState().startTracking();
+		const before = persistedSnapshot(store.getState());
+		apply(store, [
+			{
+				kind: "convertField",
+				uuid: testUuid("undo-hidden-name"),
+				toKind: "hidden",
+			},
+		]);
+		expect(store.getState().fields[testUuid("undo-hidden-name")]?.kind).toBe(
+			"hidden",
+		);
+		store.getState().undo();
+		expect(persistedSnapshot(store.getState())).toEqual(before);
+	});
+
+	it("restores a split date-and-time question exactly", () => {
+		const doc = datetimeSplitOriginal();
+		assertAdmittedDoc(doc);
+		const store = createBlueprintDocStore();
+		store.getState().load(toPersistableDoc(doc));
+		store.getState().startTracking();
+		const before = persistedSnapshot(store.getState());
+		const plan = planDatetimeSplits(store.getState());
+		if (!plan.ok) throw new Error(plan.message);
+		apply(store, plan.mutations);
+		expect(persistedSnapshot(store.getState())).not.toEqual(before);
+		store.getState().undo();
+		expect(persistedSnapshot(store.getState())).toEqual(before);
 	});
 });
