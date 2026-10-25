@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { COMMCARE_VERSION_FLOOR } from "@/lib/commcare/versionFloor";
 import {
+	PLATFORM_FEATURE_IDS,
+	PLATFORMS,
+	platformBehavior,
+} from "@/lib/domain/platforms";
+import {
 	DEPLOYMENT_NOTICE_REASONS,
 	DOCUMENT_NOTICE_REASONS,
 	type KeyReaderNotice,
@@ -21,6 +26,7 @@ import {
 	noticeChipLabel,
 	noticeDaySpan,
 	noticeLead,
+	PLATFORM_CAUSE_WORDS,
 	PUBLISHING_CARD_NOTICE_LEAD,
 	projectSpaceGroupHeading,
 	renderNoticeEntry,
@@ -560,6 +566,40 @@ const ENTRIES: Record<
 			},
 		},
 	},
+	"platforms-declared": documentEntries("platforms-declared", APP_ENTITY, {
+		runsOn: "web-apps",
+		causes: "search-first",
+		split: "2",
+	}),
+	"datetime-question-split": documentEntries(
+		"datetime-question-split",
+		FIELD_ENTITY,
+		{ form: "Visit", date: "visit_time_date", time: "visit_time_time" },
+	),
+	"media-not-played-removed": documentEntries(
+		"media-not-played-removed",
+		FIELD_ENTITY,
+		{
+			form: "Visit",
+			carrier: "label",
+			media: "video",
+			file: "intro.mp4",
+			cause: "web-apps",
+		},
+	),
+	"next-publish-asks-web-apps": {
+		withDetail: {
+			kind: "deployment",
+			reason: "next-publish-asks-web-apps",
+			deployment: DEPLOYMENT,
+			detail: { to: "off" },
+		},
+		bare: {
+			kind: "deployment",
+			reason: "next-publish-asks-web-apps",
+			deployment: DEPLOYMENT,
+		},
+	},
 };
 
 const PRESENT: NoticeRenderContext = {
@@ -964,6 +1004,30 @@ describe("the lines about what the next publish checks", () => {
 		);
 	});
 
+	it("names Sync Cases On Form Entry after the Connect forwarder, and says why Android needs it off", () => {
+		expect(
+			renderNoticeEntry(
+				deployment("next-publish-asks-more", {
+					planFeatures: "web-apps,data-forwarding",
+					settings: "form-entry-sync-off,connect-forwarder",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"The next publish to field-ops asks you to confirm what the project space has: Web-Based Apps (CloudCare), Data Forwarding, a Connect forwarder and Sync Cases On Form Entry turned off. This app's forms reach CommCare Connect only through CommCare HQ's data forwarding, so Nova asks whether field-ops has Data Forwarding and a Connect forwarder. Android phones can't open this app's forms that work on a case chosen in a menu with Search while field-ops' Sync Cases On Form Entry is on, so Nova asks whether it's off.",
+		);
+		expect(
+			renderNoticeEntry(
+				deployment("next-publish-asks-more", {
+					settings: "form-entry-sync-off",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"The next publish to field-ops asks you to confirm what the project space has: Sync Cases On Form Entry turned off. Android phones can't open this app's forms that work on a case chosen in a menu with Search while field-ops' Sync Cases On Form Entry is on, so Nova asks whether it's off.",
+		);
+	});
+
 	it("leaves out an id Nova no longer knows", () => {
 		expect(
 			renderNoticeEntry(
@@ -1345,6 +1409,14 @@ describe("the dialog, the chip and the card", () => {
 			),
 		).toBe(
 			"Nova changed how it stores and checks expressions on 21 October. Here is what that means for this app.",
+		);
+	});
+
+	it("leads the platforms cutover's notice with where apps now run", () => {
+		expect(
+			noticeLead("hq-round-trip-platforms", "2026-11-02T09:00:00.000Z", UTC_GB),
+		).toBe(
+			"On 2 November, Nova started recording where each app runs: in Web Apps, on Android, or both. Here is what that means for this app.",
 		);
 	});
 
@@ -1996,6 +2068,225 @@ describe("the expressions cutover's lines", () => {
 			render(deploymentEntries("expressions-sent-at-next-publish", []).bare),
 		).toBe(
 			"The next publish to field-ops sends these expression changes once, so CommCare HQ keeps a new version of each form and menu they touch. Data already collected stays as it is.",
+		);
+	});
+});
+
+describe("the platforms cutover's lines", () => {
+	const SAME: NoticeRenderContext = {
+		nameOf: (entity) => entity.nameAtMigration,
+	};
+	const render = (raw: unknown, ctx: NoticeRenderContext = SAME) =>
+		renderNoticeEntry(parsed(raw), ctx).text;
+	const doc = (
+		reason: string,
+		entity: unknown,
+		detail?: Record<string, string>,
+	) => ({ kind: "document", reason, entity, ...(detail && { detail }) });
+	const declared = (detail?: Record<string, string>) =>
+		render(doc("platforms-declared", APP_ENTITY, detail));
+	const field = (nameAtMigration: string) => ({
+		...FIELD_ENTITY,
+		nameAtMigration,
+	});
+	const removed = (entity: unknown, detail: Record<string, string>) =>
+		render(doc("media-not-played-removed", entity, detail));
+
+	it("hold cause words for exactly the features one platform can't run", () => {
+		const unavailable = PLATFORM_FEATURE_IDS.filter((id) =>
+			PLATFORMS.some(
+				(platform) => platformBehavior(id, platform).reading === "unavailable",
+			),
+		);
+		expect(Object.keys(PLATFORM_CAUSE_WORDS).sort()).toEqual(
+			[...unavailable].sort(),
+		);
+		for (const words of Object.values(PLATFORM_CAUSE_WORDS)) assertVoice(words);
+	});
+
+	it("say an app now runs on Android only, naming what Web Apps can't run", () => {
+		expect(
+			declared({
+				runsOn: "android",
+				causes: "datetime-question,search-field-single-date",
+			}),
+		).toBe(
+			"This app now runs on Android only, because Web Apps can't run its date-and-time questions and date search fields. If workers use it in Web Apps too, you can change those and then set it to run in Web Apps as well, in App settings.",
+		);
+	});
+
+	it("say a Connect app runs on Android only because its workers open it there", () => {
+		expect(
+			declared({ runsOn: "android", causes: "datetime-question,connect-app" }),
+		).toBe(
+			"Connect workers open this app only in the Connect app on Android, so it now runs on Android only.",
+		);
+	});
+
+	it("say an app now runs in Web Apps only, with the split sentence only where questions were split, and no CCZ", () => {
+		expect(declared({ runsOn: "web-apps", causes: "search-first" })).toBe(
+			"This app now runs in Web Apps only, because Android can't run its menus that use Search first. Nova no longer offers a CCZ of it to install on phones. If workers use it on Android too, you can change those and then set it to run on Android as well, in App settings.",
+		);
+		expect(
+			declared({
+				runsOn: "web-apps",
+				causes: "search-first,case-list-here",
+				split: "2",
+			}),
+		).toBe(
+			"This app now runs in Web Apps only, because Android can't run its menus that use Search first and case-list columns that read the worker's location. Web Apps can't show a date-and-time question, so each one in this app now asks for the date and the time separately. Nova no longer offers a CCZ of it to install on phones. If workers use it on Android too, you can change those and then set it to run on Android as well, in App settings.",
+		);
+	});
+
+	it("say part of it where no cause is one Nova knows, and stay a sentence with no detail", () => {
+		expect(declared({ runsOn: "android", causes: "retired-feature" })).toBe(
+			"This app now runs on Android only, because Web Apps can't run part of it. If workers use it in Web Apps too, you can change those and then set it to run in Web Apps as well, in App settings.",
+		);
+		expect(declared({ runsOn: "web-apps" })).toContain(
+			"because Android can't run part of it.",
+		);
+		expect(declared()).toBe(
+			"Nova now records where this app runs. You can see where, and change it, in App settings.",
+		);
+	});
+
+	it("name the form, the question and the two questions a split question now asks in", () => {
+		expect(
+			render(
+				doc("datetime-question-split", field("Visit time"), {
+					form: "Visit",
+					date: "visit_time_date",
+					time: "visit_time_time",
+				}),
+			),
+		).toBe(
+			'Visit, Visit time: it now asks for the date and the time separately, in visit_time_date and visit_time_time, because this app runs in Web Apps, which can\'t show a date-and-time question. A hidden value with the same name joins the two answers, so your rules and saved cases read the same date and time. Workers now see two questions with its label, each required wherever it was. You can give each one its own label, such as "Visit date" and "Visit time".',
+		);
+		expect(render(doc("datetime-question-split", field("Visit time")))).toBe(
+			'Visit time: it now asks for the date and the time separately, because this app runs in Web Apps, which can\'t show a date-and-time question. A hidden value with the same name joins the two answers, so your rules and saved cases read the same date and time. Workers now see two questions with its label, each required wherever it was. You can give each one its own label, such as "Visit date" and "Visit time".',
+		);
+	});
+
+	it("say which file was removed from where and why, and how to bring it back", () => {
+		expect(
+			removed(field("Photo"), {
+				form: "Visit",
+				carrier: "label",
+				media: "video",
+				file: "intro.mp4",
+				cause: "web-apps",
+			}),
+		).toBe(
+			"Visit, Photo: the video intro.mp4 on its label was removed, because Web Apps can't play it. The file is still in your media library. Exporting it again as MP4 with H.264 Main video and attaching it again brings it back.",
+		);
+		expect(
+			removed(field("Mood"), {
+				form: "Visit",
+				carrier: "option",
+				option: "happy",
+				media: "audio",
+				cause: "android",
+			}),
+		).toBe(
+			"Visit, Mood: the audio on its choice happy was removed, because Android can't play it. The file is still in your media library. Exporting it again as MP3, or M4A with AAC audio, and attaching it again brings it back.",
+		);
+		expect(
+			removed(FORM_ENTITY, {
+				module: "Patients",
+				carrier: "menu-audio",
+				media: "audio",
+				file: "welcome.wav",
+				cause: "neither",
+			}),
+		).toBe(
+			"Patients, Visit: the audio welcome.wav as its menu audio label was removed, because neither Web Apps nor Android can play it. The file is still in your media library. Exporting it again as MP3, or M4A with AAC audio, and attaching it again brings it back.",
+		);
+		expect(
+			removed(MODULE_ENTITY, {
+				carrier: "case-list-icon",
+				media: "image",
+				cause: "missing",
+			}),
+		).toBe(
+			"Patients: the image as its case list's menu icon was removed, because its content is missing from Nova's storage. You can upload it again and attach it.",
+		);
+		expect(
+			removed(APP_ENTITY, {
+				carrier: "logo",
+				media: "image",
+				file: "logo.avif",
+				cause: "too-large",
+			}),
+		).toBe(
+			"Clinic visits: the image logo.avif as its logo was removed, because it's larger than Nova accepts for its kind. You can upload a smaller copy and attach it.",
+		);
+	});
+
+	it("say an image-map row's removal changes how its column sorts", () => {
+		expect(
+			removed(COLUMN_ENTITY, {
+				module: "Patients",
+				carrier: "image-map-row",
+				row: "north",
+				media: "image",
+				file: "north.ico",
+				cause: "android",
+			}),
+		).toBe(
+			"Patients, Zone: the image north.ico for north was removed, because Android can't play it. Sorting by that column now puts those cases with the ones that match no image. The file is still in your media library. Exporting it again as a PNG or JPEG and attaching it again brings it back.",
+		);
+		expect(
+			removed(COLUMN_ENTITY, {
+				module: "Patients",
+				carrier: "image-map-row",
+				media: "image",
+				cause: "missing",
+			}),
+		).toBe(
+			"Patients, Zone: the image for one of its values was removed, because its content is missing from Nova's storage. Sorting by that column now puts those cases with the ones that match no image. You can upload it again and attach it.",
+		);
+	});
+
+	it("fall back where a carrier, a cause or a kind is one Nova no longer knows", () => {
+		expect(
+			removed(field("Photo"), {
+				carrier: "retired",
+				media: "hologram",
+				cause: "retired",
+			}),
+		).toBe(
+			"Photo: the media in it was removed, because this app can't play it where it runs.",
+		);
+		expect(
+			removed(field("Photo"), {
+				carrier: "option",
+				media: "hologram",
+				cause: "web-apps",
+			}),
+		).toBe(
+			"Photo: the media on one of its choices was removed, because Web Apps can't play it. The file is still in your media library. Exporting it again as a format both platforms play and attaching it again brings it back.",
+		);
+		expect(render(doc("media-not-played-removed", field("Photo")))).toBe(
+			"Photo: the media in it was removed, because this app can't play it where it runs.",
+		);
+	});
+
+	it("say what the next publish asks about the Web App setting, by which way it turns", () => {
+		const web = (detail?: Record<string, string>) =>
+			render({
+				kind: "deployment",
+				reason: "next-publish-asks-web-apps",
+				deployment: DEPLOYMENT,
+				...(detail && { detail }),
+			});
+		expect(web({ to: "off" })).toBe(
+			"This app runs on Android only, and its Web App setting on field-ops is on. The next publish there asks you before turning it off, and from the next version Web Apps serves after that, nobody there can open the app in Web Apps.",
+		);
+		expect(web({ to: "on" })).toBe(
+			"This app runs in Web Apps, and its Web App setting on field-ops is off. The next publish there asks you before turning it on, so workers there can open it in Web Apps from the next version Web Apps serves.",
+		);
+		expect(web()).toBe(
+			"The next publish to field-ops asks you about this app's Web App setting there.",
 		);
 	});
 });
