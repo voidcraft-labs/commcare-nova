@@ -230,7 +230,10 @@ test("turning on Connect says it sets the app to Android only", {
 	await openBuilder(page, `/build/${openAppId}`);
 	await openAppSettings(page);
 	await page.getByRole("button", { name: "Set up", exact: true }).click();
-	await expect(page.getByRole("dialog")).toContainText(
+	// App settings is itself a dialog and may stay open beneath this one.
+	await expect(
+		page.getByRole("dialog", { name: "Set up Connect" }),
+	).toContainText(
 		"Connect workers open this app in the Connect app on Android, so turning on Connect sets it to run on Android only.",
 	);
 });
