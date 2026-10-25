@@ -178,6 +178,9 @@ def test_a_manifest_entry_never_holds_a_held_new_use(tmp_path):
     }
     with pytest.raises(registers.RegisterError, match="Mark the entry HELD"):
         registers.load_known_defects(_write(tmp_path / "held-new.json", [held_new]), controls=controls)
+    fixed = {key: value for key, value in held_new.items() if key != "document"}
+    with pytest.raises(registers.RegisterError, match="Mark the entry HELD"):
+        registers.load_fixed_defects(_write(tmp_path / "held-new-fixed.json", [fixed]), controls=controls)
 
 
 BIND = "/html/head[*]/model[*]/bind[@nodeset=/data/*]/@constraint"

@@ -958,7 +958,8 @@ def test_a_use_only_held_new_entries_name_is_held_new():
     """A use whose key only HELD-NEW entries name is Nova emitting what the manifest says it does not hold yet:
     held-new, named after the key alone and resting on those entries. An allowing entry (HELD, TARGET-OWNED or
     INERT) beside it holds the use, a REFUSED class that takes the use still refuses it, and in a local archive a
-    class refused for the source still takes its uses as the source's."""
+    class refused for the source still takes its uses as the source's. Beside the bar's entries alone, a use is
+    held-new too: no entry allows any of the key's values."""
     new = ("questions/new", "HELD-NEW", "new-class")
     entries = {
         "jr-type:int": [new],
@@ -966,6 +967,9 @@ def test_a_use_only_held_new_entries_name_is_held_new():
         "jr-type:time": [new, ("questions/target", "TARGET-OWNED", "target-class")],
         "jr-type:long": [new, ("questions/inert", "INERT", "inert-class")],
         "jr-type:decimal": [new, ("questions/refusing", "REFUSED", "refused-class", EDITOR)],
+        # Beside the bar's entry alone: no allowing entry, so every use of the key is an item Nova does not hold.
+        "jr-type:boolean": [new, ("questions/bar", "REFUSED", "bar-class", BUILD)],
+        "jr-type:string": [("questions/whole-new", "HELD-NEW", None)],
     }
     built = _built(entries, {"questions/refusing": _placed(True, False)})
 
@@ -974,6 +978,8 @@ def test_a_use_only_held_new_entries_name_is_held_new():
         return kind, [entry.value_class for entry in held]
 
     assert standing("jr-type:int", 0) == (manifest_usage.HELD_NEW, ["new-class"])
+    assert standing("jr-type:boolean", 0) == (manifest_usage.HELD_NEW, ["new-class"])
+    assert standing("jr-type:string", 0) == (manifest_usage.HELD_NEW, [None])
     for key in ("jr-type:date", "jr-type:time", "jr-type:long"):
         assert standing(key, 0) == (manifest_usage.HELD, []), key
     assert standing("jr-type:decimal", 0) == (manifest_usage.REFUSED, ["refused-class"])
