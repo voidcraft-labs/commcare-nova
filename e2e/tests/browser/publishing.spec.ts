@@ -1368,7 +1368,12 @@ test("native CCZ of an app that runs in Web Apps only says why there is none", a
 	await expect(
 		page.getByRole("button", { name: "Publish to CommCare HQ", exact: true }),
 	).toHaveCount(0);
+	/* The footer offers Close in place of the actions; the header's X shares
+	 * that name, so the assertion reads the footer. */
 	await expect(
-		page.getByRole("button", { name: "Close", exact: true }),
+		page
+			.getByRole("dialog")
+			.locator('[data-slot="dialog-footer"]')
+			.getByRole("button", { name: "Close", exact: true }),
 	).toBeVisible();
 });
