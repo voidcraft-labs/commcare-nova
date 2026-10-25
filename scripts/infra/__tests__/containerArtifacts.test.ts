@@ -1,9 +1,14 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { builtinModules } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DockerfileParser, Run } from "dockerfile-ast";
 import { describe, expect, test } from "vitest";
+import jobs from "@/config/deployment-jobs.json";
+
+/** The installed tree the platforms cutover's bundle loads sharp from. */
+const SHARP_TREE = ["sharp", "@img", "detect-libc"] as const;
 
 const dockerfile = DockerfileParser.parse(readFileSync("Dockerfile", "utf8"));
 function stage(name: string) {
@@ -156,6 +161,97 @@ describe("container artifact declarations", () => {
 		);
 	});
 
+	test("the HQ round-trip platforms cutover runs a maintenance bundle of its migrate script on its own Job", () => {
+		const bundles = stage("maintenance-build")
+			.getInstructions()
+			.filter((item) => item instanceof Run)
+			.map((run) => run.getArguments().map((arg) => arg.getValue()));
+		const cutover = bundles.filter((args) =>
+			args.includes("--outfile=hq-round-trip-platforms.cjs"),
+		);
+		expect(cutover).toHaveLength(1);
+		expect(cutover[0]?.slice(0, 3)).toEqual([
+			"npx",
+			"esbuild",
+			"scripts/migrate-hq-round-trip-platforms.ts",
+		]);
+		expect(cutover[0]).toContain("--external:sharp");
+		expect(cutover[0]).toContain("--external:pg-native");
+		const copies = stage("maintenance")
+			.getCOPYs()
+			.filter(
+				(copy) =>
+					copy
+						.getFlags()
+						.find((flag) => flag.getName() === "from")
+						?.getValue() === "deps",
+			)
+			.map((copy) => copy.getArguments().map((arg) => arg.getValue()));
+		expect(copies).toEqual(
+			SHARP_TREE.map((name) => [
+				`/app/node_modules/${name}`,
+				`./node_modules/${name}`,
+			]),
+		);
+		expect(jobs["commcare-nova-hq-round-trip-platforms"]).toMatchObject({
+			serviceAccount: "nova-migrate@commcare-nova.iam.gserviceaccount.com",
+			command: ["node"],
+			args: ["hq-round-trip-platforms.cjs"],
+			maxRetries: 0,
+			env: { NOVA_MEDIA_BUCKET: "nova-multimedia-prod" },
+		});
+		const ignored = readFileSync(".dockerignore", "utf8").split("\n");
+		for (const line of [
+			"!scripts/migrate-hq-round-trip-platforms.ts",
+			"!scripts/lib/hqRoundTripPlatforms/",
+			"scripts/lib/hqRoundTripPlatforms/__tests__/",
+		]) {
+			expect(ignored).toContain(line);
+		}
+		expect(dependencies("runner").has("maintenance-build")).toBe(false);
+
+		const directory = mkdtempSync(join(tmpdir(), "nova-platforms-bundle-"));
+		try {
+			const output = join(directory, "hq-round-trip-platforms.cjs");
+			const metafile = join(directory, "meta.json");
+			const command = (cutover[0] ?? []).slice(2);
+			execFileSync(
+				resolve("node_modules/.bin/esbuild"),
+				[
+					...command.map((arg) =>
+						arg.startsWith("--outfile=") ? `--outfile=${output}` : arg,
+					),
+					`--metafile=${metafile}`,
+				],
+				{ encoding: "utf8", stdio: "pipe", timeout: 20_000 },
+			);
+			/* Every package the bundle still requires at run time, from
+			 * esbuild's own account of its external imports: only the two it
+			 * leaves external, whatever Node itself provides aside. */
+			const meta = JSON.parse(readFileSync(metafile, "utf8")) as {
+				outputs: Record<
+					string,
+					{ imports: { path: string; external?: boolean }[] }
+				>;
+			};
+			const builtins = new Set(builtinModules);
+			const required = new Set(
+				Object.values(meta.outputs)
+					.flatMap((out) => out.imports)
+					.filter((item) => item.external === true)
+					.map((item) => item.path)
+					.filter(
+						(name) =>
+							!name.startsWith("node:") &&
+							!builtins.has(name.split("/")[0] as string),
+					),
+			);
+			expect([...required].sort()).toEqual(["pg-native", "sharp"]);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	}, 30_000);
+
 	test("the authored job bundle commands produce self-contained operator executables", () => {
 		const directory = mkdtempSync(join(tmpdir(), "nova-maintenance-bundles-"));
 		try {
@@ -188,12 +284,31 @@ describe("container artifact declarations", () => {
 					{ encoding: "utf8", stdio: "pipe", timeout: 10_000 },
 				);
 				if (command[0].startsWith("scripts/migrate-")) {
+					/* A bundle that leaves sharp external runs from a directory of
+					 * its own whose node_modules holds exactly the tree the
+					 * maintenance image copies beside it; every other bundle runs
+					 * with no node_modules at all. */
+					let cwd = directory;
+					if (command.includes("--external:sharp")) {
+						cwd = mkdtempSync(join(directory, "sharp-"));
+						for (const name of SHARP_TREE) {
+							mkdirSync(join(cwd, "node_modules", name, ".."), {
+								recursive: true,
+							});
+							cpSync(
+								resolve("node_modules", name),
+								join(cwd, "node_modules", name),
+								{ recursive: true },
+							);
+						}
+						cpSync(output, join(cwd, "bundle.cjs"));
+					}
 					expect(
-						execFileSync(process.execPath, [output, "--help"], {
-							cwd: directory,
-							encoding: "utf8",
-							timeout: 10_000,
-						}),
+						execFileSync(
+							process.execPath,
+							[cwd === directory ? output : join(cwd, "bundle.cjs"), "--help"],
+							{ cwd, encoding: "utf8", timeout: 10_000 },
+						),
 					).toContain("Usage:");
 				}
 			}
