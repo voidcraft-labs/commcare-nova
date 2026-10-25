@@ -20,6 +20,9 @@ test("opens retained journey observations and switches the ordinary Preview iden
 		.getByRole("button", { name: /Reach visit collection as the saved worker/ })
 		.click();
 	await expect(dialog).toContainText("Recorded step 0 of 3");
+	// Each recorded step names the platform its session ran on: the app runs on
+	// both, so the journey ran in Web Apps.
+	await expect(dialog).toContainText("In Web Apps");
 	await expect(dialog).not.toContainText("The app has changed");
 	await expect(dialog).toContainText("Not available to this worker");
 	await test.info().attach("recorded-entry", {

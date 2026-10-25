@@ -18,10 +18,28 @@ import {
 } from "@/lib/preview/engine/identity";
 import { serverPreviewDevice } from "@/lib/preview/engine/previewDevice";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
+import {
+	previewPlatformRules,
+	searchScreenHeading,
+} from "@/lib/preview/platform";
 
 const languageJourney = new URLSearchParams(window.location.search).has(
 	"language",
 );
+/* `?platform=android` plays Android's search screen (the barcode field
+ * scans, no hints, the search action's label as the heading); `?platform=
+ * web-apps` plays Web Apps'. Either names the screen's title, description
+ * and a hint on the name field; without it the form plays an app that runs
+ * on both, with no heading. */
+const platformParam = new URLSearchParams(window.location.search).get(
+	"platform",
+);
+const platform =
+	platformParam === "android" || platformParam === "web-apps"
+		? platformParam
+		: undefined;
+const platformRules =
+	platform === undefined ? undefined : previewPlatformRules(platform);
 
 const inputs = [
 	simpleSearchInputDef(
@@ -37,6 +55,7 @@ const inputs = [
 		"Patient name",
 		"text",
 		"case_name",
+		platform === undefined ? undefined : { hint: "First or last name" },
 	),
 	simpleSearchInputDef(
 		testUuid("search-period"),
@@ -98,9 +117,26 @@ const docStore = createBlueprintDocStore();
 docStore.getState().load(admittedControllerDoc(doc));
 const environment = { doc, moduleUuid };
 const SEARCH_DEVICE = serverPreviewDevice({
-	platform: "web-apps",
+	platform: platform ?? "web-apps",
 	appLanguage: "en",
 });
+
+function SearchHeading({
+	rules,
+}: {
+	rules: Parameters<typeof searchScreenHeading>[0];
+}) {
+	const { title, subtitle } = searchScreenHeading(rules, {
+		title: "Find a patient",
+		subtitle: "Search by name or barcode",
+	});
+	return (
+		<header>
+			<h1>{title}</h1>
+			{subtitle !== undefined && <p>{subtitle}</p>}
+		</header>
+	);
+}
 
 function Surface({ revision }: { revision: number }) {
 	const { selectLanguage } = useBuilderLanguage();
@@ -138,7 +174,9 @@ function Surface({ revision }: { revision: number }) {
 					/>
 				</>
 			)}
+			{platformRules !== undefined && <SearchHeading rules={platformRules} />}
 			<SearchInputForm
+				platformRules={platformRules}
 				caseType={caseType}
 				searchInputs={inputs}
 				environment={environment}

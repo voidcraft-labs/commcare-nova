@@ -12,15 +12,19 @@ import { removableRoutes } from "../../lib/routes";
 
 test.use({ reducedMotion: "reduce", serviceWorkers: "block" });
 
+/* Web Apps' location question is the map and address search; Android's is
+ * Record location, which reads the browser's position (`?android`). */
 const gps = test.extend<{
+	runsOn: "web-apps" | "android";
 	google: {
 		hold(path: string): void;
 		release(path: string): void;
 		requested(path: string): number;
 	};
 }>({
+	runsOn: ["web-apps", { option: true }],
 	google: [
-		async ({ page, context }, use, testInfo) => {
+		async ({ page, context, runsOn }, use, testInfo) => {
 			const peer = await componentPeer(
 				"e2e/lib/preview-geopoint-client.tsx",
 				[],
@@ -76,8 +80,18 @@ const gps = test.extend<{
 						},
 					);
 					await page.setViewportSize({ width: 390, height: 720 });
-					await page.goto(`${peer.origin}/?language-audit=1`);
-					await expect(page.getByRole("combobox")).toBeVisible();
+					if (runsOn === "android") {
+						await page.goto(`${peer.origin}/?language-audit=1&android=1`);
+						await expect(
+							page.getByRole("button", {
+								name: "Record location",
+								exact: true,
+							}),
+						).toBeVisible();
+					} else {
+						await page.goto(`${peer.origin}/?language-audit=1`);
+						await expect(page.getByRole("combobox")).toBeVisible();
+					}
 					try {
 						await use({
 							hold(path) {
@@ -129,9 +143,10 @@ const gps = test.extend<{
 	],
 });
 
-function locateButton(page: Page) {
+/** Android's Record location button, in either language and either state. */
+function recordButton(page: Page) {
 	return page.getByRole("button", {
-		name: /^(My location|Your location|Locating|Tu ubicación|Buscando ubicación)$/,
+		name: /^(Record location|Replace location|Registrar ubicación|Reemplazar ubicación)$/,
 	});
 }
 
@@ -158,12 +173,11 @@ for (const width of [320, 390]) {
 			expect
 				.soft(await input.getAttribute("placeholder"))
 				.toMatch(/dirección.*lugar/i);
-			expect
-				.soft((await locateButton(page).textContent())?.trim())
-				.toBe("Tu ubicación");
+			// Web Apps offers no way to use the browser's location.
+			expect.soft(await recordButton(page).count()).toBe(0);
 			expect
 				.soft(await page.locator("body").innerText())
-				.toMatch(/buscar.*dirección.*mapa.*ubicación/i);
+				.toMatch(/buscar.*dirección.*mapa/i);
 
 			await input.click();
 			await input.fill("ab");
@@ -217,232 +231,151 @@ for (const width of [320, 390]) {
 	);
 }
 
-gps(
-	"held Chromium location localizes the wait and preserves exact coordinates",
-	async ({ page, context, google }, testInfo) => {
-		await context.grantPermissions(["geolocation"]);
-		await context.setGeolocation({ latitude: 41, longitude: -75, accuracy: 3 });
-		await page.evaluate(() => {
-			const api = navigator.geolocation;
-			const original = api.getCurrentPosition;
-			const held: Array<() => void> = [];
-			const optionsSeen: PositionOptions[] = [];
-			api.getCurrentPosition = (success, error, options) => {
-				optionsSeen.push(options ?? {});
-				original.call(
-					api,
-					(position) => held.push(() => success(position)),
-					error,
-					options,
-				);
-			};
-			window.phoneGeolocation = {
-				pending: () => held.length,
-				options: () => optionsSeen,
-				release() {
-					for (const deliver of held.splice(0)) deliver();
-				},
-				restore() {
-					api.getCurrentPosition = original;
-				},
-			};
-		});
-		await locateButton(page).click();
-		await expect
-			.poll(() => page.evaluate(() => window.phoneGeolocation?.pending()))
-			.toBe(1);
-		await selectWorkerLanguage(page, "Español");
-		await capturePhoneRuntime(page, testInfo, "spanish-locating-native-held", {
-			observation: await page.evaluate(() =>
-				window.previewGeopointAudit.observation(),
-			),
-			options: await page.evaluate(() => window.phoneGeolocation?.options()),
-		});
-		expect
-			.soft((await locateButton(page).textContent())?.trim())
-			.toBe("Buscando ubicación");
-		await expect(locateButton(page)).toBeDisabled();
-		expect(
-			await page.evaluate(() => window.phoneGeolocation?.options()),
-		).toEqual([{ enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 }]);
-		await page.evaluate(() => window.phoneGeolocation?.release());
-		await expect
-			.poll(() => page.evaluate(() => window.previewGeopointAudit.answer()))
-			.toBe("41.0 -75.0 0.0 3.0");
-		await expect.poll(() => google.requested("reverse?lat=41")).toBe(1);
-		await expect(page.getByRole("combobox")).toHaveValue("Coordinates 41");
-		await capturePhoneRuntime(
-			page,
-			testInfo,
-			"spanish-native-value",
-			await page.evaluate(() => window.previewGeopointAudit.observation()),
-		);
-		expect(
-			await page.evaluate(() => window.previewGeopointAudit.toasts()),
-		).toEqual([]);
-	},
-);
+gps.describe("on Android", () => {
+	gps.use({ runsOn: "android" });
 
-async function controlLocationFailure(
-	page: Page,
-	code: 1 | 2 | 3 | "unsupported" | "unexpected",
-) {
-	await page.evaluate((code) => {
-		window.phoneGeolocation?.restore();
-		const ownDescriptor = Object.getOwnPropertyDescriptor(
-			navigator,
-			"geolocation",
-		);
-		const api = navigator.geolocation;
-		const original = api.getCurrentPosition;
-		const held: Array<() => void> = [];
-		const optionsSeen: PositionOptions[] = [];
-		if (code === "unsupported")
-			Object.defineProperty(navigator, "geolocation", {
-				configurable: true,
-				value: undefined,
-			});
-		else if (code === "unexpected")
-			api.getCurrentPosition = () => {
-				throw new Error("Controlled browser API exception");
-			};
-		else
-			api.getCurrentPosition = (_success, error, options) => {
-				if (!error)
-					throw new Error("The production adapter must own an error callback");
-				optionsSeen.push(options ?? {});
-				held.push(() =>
-					error({
-						code,
-						message: "Controlled browser API failure",
-						PERMISSION_DENIED: 1,
-						POSITION_UNAVAILABLE: 2,
-						TIMEOUT: 3,
-					}),
-				);
-			};
-		window.phoneGeolocation = {
-			pending: () => held.length,
-			options: () => optionsSeen,
-			release() {
-				for (const deliver of held.splice(0)) deliver();
-			},
-			restore() {
-				api.getCurrentPosition = original;
-				if (ownDescriptor)
-					Object.defineProperty(navigator, "geolocation", ownDescriptor);
-				else Reflect.deleteProperty(navigator, "geolocation");
-			},
-		};
-	}, code);
-}
-
-gps(
-	"controlled browser location failures present Spanish reasons without an answer write",
-	async ({ page }, testInfo) => {
-		await selectWorkerLanguage(page, "Español");
-		const before = await page.evaluate(() =>
-			window.previewGeopointAudit.observation(),
-		);
-		for (const [code, reason] of [
-			[1, /permiso/i],
-			[2, /ubicación.*disponible/i],
-			[3, /tiempo|tardó/i],
-			["unsupported", /navegador.*ubicación/i],
-			["unexpected", /obtener.*ubicación/i],
-		] as const) {
-			// Only the browser API failure boundary is controlled. Nova's production
-			// requestGeolocation adapter still classifies and presents the reason.
-			await controlLocationFailure(page, code);
-			await locateButton(page).click();
-			if (code !== "unsupported" && code !== "unexpected") {
-				await expect
-					.poll(() => page.evaluate(() => window.phoneGeolocation?.pending()))
-					.toBe(1);
-				await page.evaluate(() => window.phoneGeolocation?.release());
-			}
-			await expect
-				.poll(() =>
-					page.evaluate(
-						() => window.previewGeopointAudit.observation().toasts.length,
-					),
-				)
-				.toBe(1);
-			const after = await page.evaluate(() =>
-				window.previewGeopointAudit.observation(),
-			);
-			await capturePhoneRuntime(
-				page,
-				testInfo,
-				`spanish-controlled-error-${code}`,
-				after,
-			);
-			expect.soft(after.toasts[0]?.title).toBe("Ubicación no disponible");
-			expect.soft(after.toasts[0]?.message).toMatch(reason);
-			expect(after.answer).toBe(before.answer);
-			expect(after.document).toBe(before.document);
-			await page.getByRole("button", { name: "Dismiss", exact: true }).click();
-			await expect
-				.poll(() =>
-					page.evaluate(() => window.previewGeopointAudit.toasts().length),
-				)
-				.toBe(0);
-			// The store retires first; the exiting toast still owns its DOM button.
-			await expect(
-				page.getByRole("button", { name: "Dismiss", exact: true }),
-			).toHaveCount(0);
-		}
-	},
-);
-
-for (const [from, to, code, title, reason] of [
-	["English", "Español", 1, "Ubicación no disponible", /permiso/i],
-	["Español", "English", 3, "Location unavailable", /timed out/i],
-] as const) {
 	gps(
-		`a held location failure uses ${to} selected after the request began in ${from}`,
-		async ({ page }, testInfo) => {
-			if (from === "Español") await selectWorkerLanguage(page, from);
-			const before = await page.evaluate(() =>
-				window.previewGeopointAudit.observation(),
-			);
-			await controlLocationFailure(page, code);
-			await locateButton(page).click();
+		"held Chromium location localizes Record location's wait and preserves exact coordinates",
+		async ({ page, context }, testInfo) => {
+			await context.grantPermissions(["geolocation"]);
+			await context.setGeolocation({
+				latitude: 41,
+				longitude: -75,
+				accuracy: 3,
+			});
+			await page.evaluate(() => {
+				const api = navigator.geolocation;
+				const original = api.watchPosition;
+				const held: Array<() => void> = [];
+				const optionsSeen: PositionOptions[] = [];
+				api.watchPosition = (success, error, options) => {
+					optionsSeen.push(options ?? {});
+					return original.call(
+						api,
+						(position) => held.push(() => success(position)),
+						error,
+						options,
+					);
+				};
+				window.phoneGeolocation = {
+					pending: () => held.length,
+					options: () => optionsSeen,
+					release() {
+						for (const deliver of held.splice(0)) deliver();
+					},
+					restore() {
+						api.watchPosition = original;
+					},
+				};
+			});
+			// The dialog is modal, so the language is chosen before it opens.
+			await selectWorkerLanguage(page, "Español");
+			await expect(recordButton(page)).toHaveText("Registrar ubicación");
+			await recordButton(page).click();
 			await expect
 				.poll(() => page.evaluate(() => window.phoneGeolocation?.pending()))
 				.toBe(1);
-			await selectWorkerLanguage(page, to);
+			const dialog = page.getByRole("dialog", { name: "Buscando ubicación" });
+			await expect(dialog).toBeVisible();
+			await expect(
+				dialog.getByRole("button", { name: "Cancelar", exact: true }),
+			).toBeVisible();
+			await capturePhoneRuntime(page, testInfo, "spanish-finding-native-held", {
+				observation: await page.evaluate(() =>
+					window.previewGeopointAudit.observation(),
+				),
+				options: await page.evaluate(() => window.phoneGeolocation?.options()),
+			});
+			expect(
+				await page.evaluate(() => window.phoneGeolocation?.options()),
+			).toEqual([{ enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 }]);
+			await page.evaluate(() => window.phoneGeolocation?.release());
+			// A fix of 5 metres or better is taken at once.
+			await expect
+				.poll(() => page.evaluate(() => window.previewGeopointAudit.answer()))
+				.toBe("41.0 -75.0 0.0 3.0");
+			await expect(dialog).toHaveCount(0);
+			await expect(recordButton(page)).toHaveText("Reemplazar ubicación");
+			await expect(page.getByText(/Latitud: N 41°0'0"/)).toBeVisible();
+			await expect(page.getByText(/Precisión: 3m/)).toBeVisible();
 			await capturePhoneRuntime(
 				page,
 				testInfo,
-				"language-changed-before-error",
+				"spanish-native-value",
 				await page.evaluate(() => window.previewGeopointAudit.observation()),
 			);
-			await page.evaluate(() => window.phoneGeolocation?.release());
+			expect(
+				await page.evaluate(() => window.previewGeopointAudit.toasts()),
+			).toEqual([]);
+		},
+	);
+
+	gps(
+		"a browser that refuses its location keeps Record location's dialog open and writes nothing",
+		async ({ page }, testInfo) => {
+			await selectWorkerLanguage(page, "Español");
+			const before = await page.evaluate(() =>
+				window.previewGeopointAudit.observation(),
+			);
+			// Only the browser API failure is controlled; Nova's production
+			// watchGeolocation adapter still classifies it.
+			await page.evaluate(() => {
+				const api = navigator.geolocation;
+				const original = api.watchPosition;
+				api.watchPosition = (_success, error) => {
+					if (!error)
+						throw new Error(
+							"The production adapter must own an error callback",
+						);
+					queueMicrotask(() =>
+						error({
+							code: 1,
+							message: "Controlled browser API failure",
+							PERMISSION_DENIED: 1,
+							POSITION_UNAVAILABLE: 2,
+							TIMEOUT: 3,
+						}),
+					);
+					return 7;
+				};
+				window.phoneGeolocation = {
+					pending: () => 0,
+					options: () => [],
+					release() {},
+					restore() {
+						api.watchPosition = original;
+					},
+				};
+			});
+			await recordButton(page).click();
+			const dialog = page.getByRole("dialog", { name: "Buscando ubicación" });
+			await expect(
+				dialog.getByText("Your browser isn't sharing its location", {
+					exact: true,
+				}),
+			).toBeVisible();
+			await capturePhoneRuntime(
+				page,
+				testInfo,
+				"spanish-refused",
+				await page.evaluate(() => window.previewGeopointAudit.observation()),
+			);
+			// Cancel closes it with Android's toast, in the worker's language.
+			await dialog
+				.getByRole("button", { name: "Cancelar", exact: true })
+				.click();
+			await expect(dialog).toHaveCount(0);
 			await expect
-				.poll(() =>
-					page.evaluate(
-						() => window.previewGeopointAudit.observation().toasts.length,
-					),
-				)
-				.toBe(1);
+				.poll(() => page.evaluate(() => window.previewGeopointAudit.toasts()))
+				.toEqual(["Captura de ubicación cancelada"]);
 			const after = await page.evaluate(() =>
 				window.previewGeopointAudit.observation(),
 			);
-			await capturePhoneRuntime(
-				page,
-				testInfo,
-				"error-delivered-in-selected-language",
-				after,
-			);
-			expect.soft(after.toasts[0]?.title).toBe(title);
-			expect.soft(after.toasts[0]?.message).toMatch(reason);
-			expect(after.entryKey).toBe(before.entryKey);
 			expect(after.answer).toBe(before.answer);
 			expect(after.document).toBe(before.document);
 		},
 	);
-}
+});
 
 declare global {
 	interface Window {

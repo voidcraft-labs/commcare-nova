@@ -256,7 +256,7 @@ test("Search barcode scanning disposes native media tracks on cancellation, late
 		};
 	});
 	try {
-		await page.goto(peer.origin);
+		await page.goto(`${peer.origin}/?platform=android`);
 		await page.getByLabel("Barcode", { exact: true }).fill("Manual code");
 		await page.getByRole("button", { name: "Scan Barcode" }).click();
 		await expect(page.getByText("Starting your camera…")).toBeVisible();

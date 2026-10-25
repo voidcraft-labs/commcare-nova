@@ -17,6 +17,9 @@
 // that refuses its location keeps the dialog open with a line saying so,
 // which is what a phone without a fix shows until its timeout.
 //
+// A Project scope reset closes the dialog and stops its watch, so a fix the
+// browser delivers afterwards writes nothing into the new scope's form.
+//
 // The answer is `lat lon alt acc` in the one spelling Preview stores
 // (`formatGeopoint`: altitude and accuracy floored to two decimals, altitude
 // 0 when the browser gives none), and an answered question shows Android's
@@ -33,6 +36,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/shadcn/dialog";
+import { useReconcilerContext } from "@/lib/collab/context";
 import {
 	androidCoordinateText,
 	androidMetersText,
@@ -69,6 +73,11 @@ export function RecordLocationField({
 }: RecordLocationFieldProps) {
 	const { language } = useBuilderLanguage();
 	const [open, setOpen] = useState(false);
+	const reconciler = useReconcilerContext();
+	useEffect(
+		() => reconciler?.subscribeProjectScopeReset(() => setOpen(false)),
+		[reconciler],
+	);
 	const point = parseGeopoint(state.value);
 	const showError = state.touched && !state.valid;
 

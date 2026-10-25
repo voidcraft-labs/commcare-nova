@@ -185,6 +185,43 @@ test("native Builder flanks preserve the actual composer across Preview, respons
 		await expect(chat).toBeHidden();
 		await expect(chatTrigger).toBeFocused();
 	}
+	// At 320px while previewing, the platform choice adds no control to the
+	// header: it is a group in the identity menu, whose trigger shows the
+	// platform's glyph, and the centre cluster still fits on the band's row
+	// between the mark and the account control.
+	await page.setViewportSize({ width: 320, height: 780 });
+	await page.getByRole("button", { name: "Preview", exact: true }).click();
+	const header = page.locator("header[data-app-header]");
+	const identity = header.getByRole("button", { name: /^Running as / });
+	await expect(identity).toBeVisible();
+	await expect(
+		identity.locator('[data-platform-glyph="web-apps"]'),
+	).toHaveCount(1);
+	const mark = header.getByRole("link").first();
+	const account = header.getByRole("button", {
+		name: "Account menu",
+		exact: true,
+	});
+	const [markBox, identityBox, accountBox] = await Promise.all([
+		mark.boundingBox(),
+		identity.boundingBox(),
+		account.boundingBox(),
+	]);
+	if (!markBox || !identityBox || !accountBox)
+		throw new Error("Missing header geometry at 320px");
+	const middle = (box: { y: number; height: number }) =>
+		Math.round(box.y + box.height / 2);
+	expect(Math.abs(middle(identityBox) - middle(markBox))).toBeLessThanOrEqual(
+		2,
+	);
+	expect(Math.round(identityBox.x)).toBeGreaterThanOrEqual(
+		Math.round(markBox.x + markBox.width),
+	);
+	expect(Math.round(identityBox.x + identityBox.width)).toBeLessThanOrEqual(
+		Math.round(accountBox.x),
+	);
+	await page.getByRole("button", { name: "Back to edit", exact: true }).click();
+
 	await page.setViewportSize({ width: 1440, height: 900 });
 	await expect(composer).toHaveValue(
 		"Keep this request while I explore the app",

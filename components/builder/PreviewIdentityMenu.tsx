@@ -132,6 +132,7 @@ function PreviewIdentityMenuBody() {
 				>
 					<Icon
 						icon={PLATFORM_CHOICES[platform].icon}
+						data-platform-glyph={platform}
 						width="17"
 						height="17"
 						aria-hidden="true"

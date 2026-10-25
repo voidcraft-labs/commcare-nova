@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useLayoutEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useStore } from "zustand";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -7,6 +7,7 @@ import {
 	useBuilderLanguage,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { FormLayoutProvider } from "@/components/preview/form/FormLayoutContext";
+import { FormScreenScopeContext } from "@/components/preview/form/FormScreenScope";
 import {
 	__resetAttachmentCoordinatorForTests,
 	setAttachmentEntryAuthority,
@@ -22,6 +23,7 @@ import {
 	BuilderFormEngineProvider,
 	useBuilderFormEngine,
 } from "@/lib/preview/engine/provider";
+import { usePreviewDevice } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
 
@@ -343,9 +345,19 @@ function LanguageChoices() {
 		</>
 	);
 }
+/** The screen the language journey shows: its document runs only on
+ *  Android, which pages a form without sections one labeled group at a time,
+ *  and the first is "Visit details". */
+const LANGUAGE_SCREEN = "/data/visit";
 function RunningForm() {
 	const controller = useBuilderFormEngine();
 	const [ready, setReady] = useState(false);
+	/* The running shell installs the device Preview plays; this peer mounts
+	 * the form renderer alone, so it installs it the same way. */
+	const device = usePreviewDevice();
+	useLayoutEffect(() => {
+		controller.setPreviewDevice(device);
+	}, [controller, device]);
 	useEffect(() => {
 		activeController = controller;
 		controller.activateForm(formUuid);
@@ -377,7 +389,11 @@ function RunningForm() {
 	return ready ? (
 		<EntryBusy controller={controller}>
 			<FormLayoutProvider>
-				<InteractiveFormRenderer parentEntityId={formUuid} />
+				<FormScreenScopeContext.Provider
+					value={languageJourney ? LANGUAGE_SCREEN : null}
+				>
+					<InteractiveFormRenderer parentEntityId={formUuid} />
+				</FormScreenScopeContext.Provider>
 			</FormLayoutProvider>
 		</EntryBusy>
 	) : null;

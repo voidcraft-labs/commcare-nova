@@ -260,7 +260,8 @@ paging(
 		await expect(
 			page.getByRole("heading", { name: "Revisión", exact: true }),
 		).toBeFocused();
-		await page.getByRole("button", { name: "Enviar", exact: true }).click();
+		// Running as Android, the last page's button reads Finish (Terminar).
+		await page.getByRole("button", { name: "Terminar", exact: true }).click();
 		await expect.poll(() => pagingPeer.submissions.length).toBe(1);
 		expect(pagingPeer.submissions[0]?.[0]).toMatchObject({
 			kind: "survey",

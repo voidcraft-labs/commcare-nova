@@ -8,8 +8,9 @@
  * `tsc`.
  *
  * `fixture` names the document the component peer
- * (`e2e/lib/preview-platforms-client.tsx`) mounts for the scenario, and
- * `describe` is the observable the spec asserts.
+ * (`e2e/lib/preview-platforms-client.tsx`, or the search peer
+ * `e2e/lib/preview-search-client.tsx` for `search`) mounts for the
+ * scenario, and `describe` is the observable the spec asserts.
  */
 
 import type { Platform } from "@/lib/domain/platforms";
@@ -123,7 +124,7 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		platform: "android",
 		fixture: "screens",
 		describe:
-			"a screen inside a repeat entry reads its groups' labels as one header line, Outer > Inner (2), and the repeat prompt offers to add an entry",
+			"a screen inside a repeat entry reads its labeled containers as one header line, Visits (2) > Details, after the repeat prompt adds the entry",
 	},
 	"label-markdown-android": {
 		platform: "android",
