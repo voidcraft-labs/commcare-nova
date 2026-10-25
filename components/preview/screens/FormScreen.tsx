@@ -1532,6 +1532,22 @@ export function FormScreen({ screen }: FormScreenProps) {
 				});
 			let route = routeOnce();
 			while (route.kind === "pending") {
+				/* With the worker known and the device's cases in hand, a still
+				 * pending target waits only on lookup data, and a failed read
+				 * brings no later change to wake on. */
+				if (
+					targetLookup().kind === "error" &&
+					previewSessionValues(
+						visibilityInputsRef.current.previewIdentity,
+						previewDevice,
+					).identityPending !== true
+				) {
+					failAfterSave(
+						"Your answers were saved, but the next screen depends on lookup data that didn't load. Reload the app and try again.",
+						"target-lookup-unavailable",
+					);
+					return;
+				}
 				await nextVisibilityInputs();
 				if (!isCurrent()) {
 					announceWrite();
