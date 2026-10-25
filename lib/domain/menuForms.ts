@@ -13,6 +13,7 @@ import {
 	isCaseFirstModule,
 	isNoMatchesForm,
 } from "./forms";
+import { moduleOpensOnSearch } from "./modules";
 import { moduleUuidOfForm } from "./postSubmit";
 import type { Uuid } from "./uuid";
 
@@ -49,10 +50,11 @@ export function noMatchesFormOf(
 /** The module whose `formOrder` lists the form, when any does. */
 /**
  * The parse-side `#search/<name>` resolver for one form. It resolves
- * only inside a no-matches registration form, against the Search prompts
- * of that form's own module, and only an exact, unambiguous name; every
- * other form gets a resolver that binds nothing, so `#search/` stays text
- * there and the gate refuses it.
+ * inside a no-matches registration form and inside any form of a module
+ * that opens on its search, against the Search prompts of that form's own
+ * module, and only an exact, unambiguous name; every other form gets a
+ * resolver that binds nothing, so `#search/` stays text there and the gate
+ * refuses it.
  */
 export function searchInputNameResolver(
 	doc: Pick<BlueprintDoc, "forms" | "formOrder" | "modules">,
@@ -60,12 +62,15 @@ export function searchInputNameResolver(
 ): (name: string) => Uuid | undefined {
 	if (formUuid === undefined) return () => undefined;
 	const form = doc.forms[formUuid];
-	if (form === undefined || !isNoMatchesForm(form)) return () => undefined;
+	if (form === undefined) return () => undefined;
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
-	const inputs =
-		moduleUuid === undefined
-			? []
-			: (doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? []);
+	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	if (
+		module === undefined ||
+		!(isNoMatchesForm(form) || moduleOpensOnSearch(module))
+	)
+		return () => undefined;
+	const inputs = module.caseListConfig?.searchInputs ?? [];
 	return (name) => {
 		const matches = inputs.filter((input) => input.name === name);
 		return matches.length === 1 ? matches[0].uuid : undefined;
