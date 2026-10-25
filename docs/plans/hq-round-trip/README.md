@@ -167,8 +167,8 @@ Finding 74 belongs to step 4 and is held until then by two walk stops, on
 `targeted-datetime-ordering` and `fuzz-xform-20260930-0`. Step 4 declares
 both documents Android only, so the stop on the first moves to its retained
 control and the second is removed ([`4-platforms.md`](4-platforms.md),
-"Proof"). The register's other entries are defects 20, 21, 23 to 28 and 30,
-which `OPEN_DEFECTS` gives to steps 4 and 5.
+"Proof"). The register's other entries are defects 21, 23 to 28 and 30,
+which `OPEN_DEFECTS` gives to step 5.
 
 ## Why each later step is planned when the one before it exits
 

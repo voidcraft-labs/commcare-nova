@@ -1400,7 +1400,12 @@ evaluates the device's own XPath: it builds the slot's wire tree with `toWire`
 for the `preview` target and evaluates its print, so every lowering is the same
 code in Preview and on the wire. A search's Results read the Project's open
 cases of the searched type, as HQ's search does, not the worker's restore, and
-choosing a case the worker does not hold plays the claim.
+choosing a case the worker does not hold plays the claim. Preview plays one
+platform the app declares at a time
+(`lib/preview/platform.ts::effectivePreviewPlatform`, Web Apps by default where
+both are declared), through one rule table every Preview surface reads, and App
+Tests and `evaluate_form` run each session or check on one platform the same
+way.
 
 - Display conditions evaluate live (`displayConditionEvaluation.ts`), hiding
   conditioned items exactly as a device would, with a "hidden items (N)"
@@ -1437,7 +1442,9 @@ is the one lowering both wire paths read). The required condition and the check
 are the search-screen predicate scope — the input and its siblings, session
 values, literals, never case data — and the only home of the `matches-pattern`
 leaf (JavaRosa `regex()`, evaluated in Preview's dedicated Search worker
-runtime). Enforcement is Web Apps only; every surface says so.
+runtime). Enforcement is Web Apps only; where an app also runs on Android, the
+Search field's platform note says Android searches without checking the
+answer.
 
 Search value expressions preserve their suite context through native CSQL
 function arguments, including lookup fixture naming and worker/input identities.
@@ -1473,7 +1480,7 @@ fresh case id that breaks the shared datum, and it refuses a Search-button
 display condition (there is no button to gate) and **Previous screen** as an
 after-submit destination (`lib/commcare/validator/rules/case-search/`). The
 wire shape is HQ's inline search, byte for byte
-(`lib/commcare/suite/case-search/compileForPlatform.ts`): `inline_search` with
+(`lib/commcare/suite/case-search/searchWireShape.ts`): `inline_search` with
 `auto_launch`, no `<remote-request>` and no `m{N}_search_*` details, a `<query
 storage-instance="results:inline">` plus the claim `<post>` inside each
 case-requiring `<entry><session>`, the `case_id` datum over
@@ -1572,9 +1579,10 @@ A formless host returns with the host command alone. The XForm declares
 emits as `instance('search-input:results:inline')/input/field[@name='<name>']`.
 Web Apps is the enforcing runtime: Android never shows a case list on an empty
 search response and passes no search-input extra
-(`commcare-android …/activities/QueryRequestActivity.java::processSuccess`), so
-the action and the carried answers are browser-app behaviour and every surface
-says so. Nova never emits a session endpoint for a no-matches form and never
+(`commcare-android …/activities/QueryRequestActivity.java::processSuccess`).
+Search first is itself unavailable on Android, so a module that opens on
+Search, and its no-matches form, exist only in an app that runs in Web Apps
+only. Nova never emits a session endpoint for a no-matches form and never
 offers `respect_relevancy=false` toward one. `CaseSearch` has removed
 `search_filter / search_label / search_again_label / additional_relevant /
 dynamic_search` and the `USH_INLINE_SEARCH` / `USH_SEARCH_FILTER` toggles are
@@ -1789,6 +1797,22 @@ The fact reaches past tiles. Any column that must ride the detail without being
 shown — so its value is available to sorting, to a calculation, or to a later
 surface — uses this shape rather than being dropped from the detail.
 
+### Where an app runs
+
+An app declares Web Apps, Android or both (`appSettings.runsOnlyOn`, absent
+for both, which a new app declares); nothing infers it from a feature.
+`lib/domain/platforms.ts::PLATFORM_FEATURES` states, per feature, whether each
+platform runs it, ignores it, cannot run it or runs it differently, held to the
+surface manifest's readings by `platformFeatures.test.ts`. A feature one
+declared platform cannot run is refused at the commit gate: a structural use as
+`PLATFORM_FEATURE_UNAVAILABLE`, an expression leaf by the checker's
+`platform-unavailable`. A date-and-time question is unavailable in Web Apps,
+whose client has no entry for it (`entries.js::getEntry`); the builder splits
+it into a date question and a time question joined by a Hidden Value
+calculated by the clock-keeping date, which Core holds as the same
+`DateTimeData` (`lib/doc/datetimeSplit.ts`). A CommCare Connect app runs on
+Android only, because no Connect worker can sign in to Web Apps.
+
 ### Media
 
 Assets are Project-scoped: bytes in GCS, a metadata row in Postgres, and
@@ -1799,6 +1823,13 @@ Project, which is also the exfiltration-via-compile defense — a foreign-Projec
 reference resolves to `MEDIA_ASSET_NOT_FOUND` rather than being emitted. This is
 authoring media (menu icons, field images); a worker's own captures are the
 attachment questions below and never enter this library.
+
+Each media asset stores the variant its bytes are (`media_assets.media_format`,
+`lib/domain/multimedia.ts::MEDIA_FORMATS`). Upload accepts a variant that plays
+on at least one platform and that HQ types and stores as its kind; a reference
+is accepted only where its file plays on every platform the app declares, held
+at the commit kernel's media admission on every editor and at the export
+boundary (`MEDIA_FORMAT_NOT_PLAYED`).
 
 ### Attachment questions
 
@@ -1853,12 +1884,14 @@ per iteration and the worker chooses the count, so no authoring-time number
 bounds it, and counting the template once would imply a guarantee the check
 cannot make.
 
-**Every author- and worker-facing string says "attach", never "take" or
-"record".** Web Apps has no camera, microphone, or recorder anywhere in
-cloudcare — `entry_file.html` binds only `accept` on its file input, and
-`getUserMedia` / `MediaRecorder` / `capture=` occur nowhere in it. Every kind but
-signature is the OS file picker. CommCare Android is the contrast, and that
-contrast is a docs fact rather than a Nova behavior.
+**Capture wording names what is captured, never how.** Web Apps has no camera,
+microphone, or recorder anywhere in cloudcare: `entry_file.html` binds only
+`accept` on its file input, and `getUserMedia`, `MediaRecorder` and `capture=`
+occur nowhere in it, so every kind but signature is the OS file picker there,
+while CommCare Android takes a picture, records sound and records video. The
+capture kinds' `saDocs` name what to capture, the platform table's notes say how
+each platform captures it, and Preview plays each platform's controls
+(`lib/preview/platform.ts`, the `capture` rule).
 
 **A capture's `caseWrite` carries a required `mode`, and the case update names
 a node the capture question is not.** A capture's answer is the submitted
@@ -2003,10 +2036,11 @@ ordinary upload path) rather than a confirm, per the contracts' preference
 for undo over confirm-then-destroy. The real protection on both is the
 ordering — answer first, bytes second — not a prompt.
 
-The preview control is device-faithful: a filename and one visible removal
-action (Nova says **Remove**, where `entry_file.html` says **Clear**), no
-thumbnail, no playback, no way to reopen the file — and Formplayer declares no
-route serving a staged capture back. The preview could render a thumbnail,
+Preview's Web Apps control is device-faithful: a filename and one visible
+removal action (Nova says **Remove**, where `entry_file.html` says **Clear**), no
+thumbnail, no playback, no way to reopen the file, and Formplayer declares no
+route serving a staged capture back. Running as Android, an image question shows
+the chosen photo with **Remove image**, as Android's `ImageWidget` does. The preview could render a thumbnail,
 which is why it must not; an author laying out a form against a preview that
 confirms attachments would ship a form whose workers cannot.
 
@@ -2227,10 +2261,11 @@ nameable.
 
 The emitted app document carries the fields Nova authors, and in three keys
 the target's own part beside them. App content Nova does not author yet
-(`cloudcare_enabled`, `case_sharing`) and target-owned settings and state
-(`secure_submissions`, the build/release metadata, and the rest of HQ's app
-Settings page) are absent, so the overlay merge retains a project's HQ-side
-configuration across republishes. Publish writes no
+(`case_sharing`) and target-owned settings and state (`secure_submissions`, the
+build/release metadata, and the rest of HQ's app Settings page) are absent, so
+the overlay merge retains a project's HQ-side configuration across
+republishes. `cloudcare_enabled` is where the app runs, written on every update
+from the declaration. Publish writes no
 `logo_refs`, because the logo is uploaded in HQ, and publish says so: an update
 takes out only an entry whose only key is `path`, which HQ's own uploader never
 stores. `cc-show-saved` and
@@ -2286,14 +2321,16 @@ schema, the location-fields schema, and organization levels are session-only
 HTML forms (`users/views/mobile/custom_data_fields.py::UserFieldsView`,
 `locations/views.py::LocationFieldsView`, `locations/views.py::LocationTypesView`),
 automations have no REST resource, and building and releasing are the pages
-above. It also states that
-`models/applications.py::_create_app_from_doc` initializes `cloudcare_enabled`
-from the domain's Web Apps privilege at create, so an app published before the
-feature was on starts with it off. The remedy is the ordinary **Web App**
-setting (`commcare-app-settings.yml` id `cloudcare_enabled`, editable through
-`views/apps.py::edit_app_attr`). Nova deliberately never emits
-`cloudcare_enabled` (`lib/commcare/hqShells.ts`), so the in-place update's
-overlay merge retains that HQ-side toggle across republishes.
+above. Its Web Apps section is there exactly for an app that declares Web
+Apps. `models/applications.py::_create_app_from_doc` sets a new app's
+`cloudcare_enabled` from the domain's Web Apps privilege, so a first publish of
+an app that declares Web Apps to a plan without it stops at `resources`
+(`hq_plan_lacks_web_apps`) and withdraws the person's `web-apps` answer. Every
+update writes `cloudcare_enabled` from the declaration
+(`lib/commcare/hqShells.ts`), and preflight asks before an update changes the
+value HQ holds (`hq_web_apps_change`), so a change made on HQ's **Web App**
+setting (`views/apps.py::edit_app_attr`) is a question, never a silent
+overwrite.
 
 Preview's `commcare_project` is supplied from that record: present when exactly
 one deployment has reached `uploaded`, absent when none has and when several
@@ -2512,12 +2549,12 @@ placement verdict (`lib/doc/formSectionVerdicts.ts::fieldPlacementVerdict`)
 answers drag, keyboard, the inspector, and the SA's `add_fields` /
 `move_field` / `set_form_sections` before the commit gate does. The edit
 canvas draws a page header row over the shared `SectionHeading`
-(`components/builder/CLAUDE.md` § Sections); Preview pages the form on
-Android's rules, one section per screen, Next validating and Back not, an
-empty or all-irrelevant page skipped, Submit routing to the earliest invalid
-page, the open page a session slot shared across the flip
-(`lib/preview/CLAUDE.md` § Sections page the preview). Default Web Apps
-shows the same form as titled groups on one screen, and the docs say so
+(`components/builder/CLAUDE.md` § Sections); Preview running as Android pages
+the form on Android's rules, one section per screen, Next validating and Back
+not, an empty or all-irrelevant page skipped, Submit routing to the earliest
+invalid page, the open page a session slot shared across the flip
+(`lib/preview/CLAUDE.md` § Form screens per platform). Running as Web Apps, it
+shows the same form as titled groups on one screen, as Web Apps does
 (`content/docs/form-sections.mdx`).
 
 ### One-tier nested menus
