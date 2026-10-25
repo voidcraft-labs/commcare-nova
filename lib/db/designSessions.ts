@@ -55,7 +55,6 @@ import {
 	type Reservation,
 	refundStaleDesignSessionRun,
 	refundToMonthInTransaction,
-	type StaleRunReapOutcome,
 	settleAndReleaseDesignSessionRun,
 } from "./credits";
 import { releaseDesignLookupProtectionsInTransaction } from "./designLookupMaterializations";
@@ -866,21 +865,19 @@ export async function failAndRefundDesignSessionRun(
  * Reap a stale design-session run: refund the stranded hold + release the
  * authority state, staleness re-validated in-transaction
  * (`refundStaleDesignSessionRun`). Idempotent; awaited at scan call
- * sites and from a claim's conflict nudge. Returns whether it reaped, for
- * a caller that counts what it settled.
+ * sites and from a claim's conflict nudge.
  */
-export async function reapStaleDesignSessionRun(
+async function reapStaleDesignSessionRun(
 	designSessionId: string,
 	expectedIdentity: ExactRunHolderIdentity,
-): Promise<StaleRunReapOutcome | "failed"> {
+): Promise<void> {
 	try {
-		if (expectedIdentity.mode !== "build") return "state_changed";
-		return await refundStaleDesignSessionRun(designSessionId, expectedIdentity);
+		if (expectedIdentity.mode !== "build") return;
+		await refundStaleDesignSessionRun(designSessionId, expectedIdentity);
 	} catch (err) {
 		log.error("[reapStaleDesignSessionRun] stale-run reap failed", err, {
 			designSessionId,
 		});
-		return "failed";
 	}
 }
 
