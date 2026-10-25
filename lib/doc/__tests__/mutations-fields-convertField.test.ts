@@ -374,6 +374,7 @@ describe("admitted field conversion", () => {
 	);
 	it.each([
 		["hidden", "datetime", "no label seed"],
+		["hidden", "text", "no label seed"],
 		["hidden", "int", "neither kind lists the other"],
 		["text", "date", "neither kind lists the other"],
 	] as const)(
