@@ -34,6 +34,13 @@ forwards what HQ receives to CommCare Connect, and what Connect then holds
 is kept with it (``connect``, ``proof.observe.connect``): ``observe`` makes
 the opportunity while A is served, and every later state is received by it.
 
+Each reader reads a state only where the state's app declares the platform
+it runs the app on (``proof.lane.readers.PLATFORM_OF``, ``Served.platforms``):
+the client an app that declares Web Apps, a device one that declares
+Android. Formplayer's walk runs for every app, the serving every other
+reader relies on, and models the client only where the app declares Web
+Apps (``proof.formplayer.walk.Walk.web_apps``).
+
 Each served state is one fork of the unit, and each run of a walk a fork
 inside it, so nothing a submission leaves in HQ is there for the next run or
 the next state. Every HQ step is an operation or a request of the unit, the
@@ -97,6 +104,12 @@ def observes(reader) -> bool:
     return reader in readers.named()
 
 
+def observes_state(reader, served) -> bool:
+    """Whether the run hands ``served`` to ``reader`` and its app declares the platform ``reader`` runs it on
+    (``proof.lane.readers.PLATFORM_OF``)."""
+    return observes(reader) and served.reads(reader)
+
+
 def client_reads(doc) -> str:
     """The digest of what HQ's Web Apps page hands the client of an app, read by HQ's own ``format_app_doc``."""
     from corehq.apps.cloudcare.utils import format_app_doc
@@ -120,12 +133,12 @@ class Serving:
     def formplayer(self, script=None):
         """Formplayer's walk of the state: replayed where ``script`` is given, else derived, with the places the
         client's map gives its location questions where the observation shows the client (it was given a driver,
-        and the run hands its states to the client; ``proof.webapps.observe.derived_places``), so the walk
-        submits what the client submits."""
+        the run hands its states to the client, and the state's app declares Web Apps;
+        ``proof.webapps.observe.derived_places``), so the walk submits what the client submits."""
         from proof.formplayer import observe
 
         places = None
-        if script is None and self.driver is not None and observes("webapps"):
+        if script is None and self.driver is not None and observes_state("webapps", self.served):
             from proof.observe import services
             from proof.webapps import observe as webapps
 
@@ -141,8 +154,9 @@ class Serving:
     def webapps(self, trace):
         """The client's screens on ``trace``'s walk, as a blob, shown in the client's own browser
         (``proof.observe.services.client_browser``); None where the observation was given no editor driver, which
-        is how a caller says it wants no browser's work (as proof 4's saves need one)."""
-        if self.driver is None or not observes("webapps"):
+        is how a caller says it wants no browser's work (as proof 4's saves need one), or where the state's app
+        declares no Web Apps (``observes_state``)."""
+        if self.driver is None or not observes_state("webapps", self.served):
             return None
         from proof.observe import services
         from proof.webapps import observe
@@ -169,8 +183,9 @@ class Serving:
 
     def devices_on(self, label: str, archive: bytes | None = None, *, delivered: bool = False) -> dict:
         """What a phone and a tablet each make of the state (``android``), under the keys a state's record keeps
-        them by: ``android`` and ``androidTablet``, with ``delivered``'s prefix."""
-        if not observes("android"):
+        them by: ``android`` and ``androidTablet``, with ``delivered``'s prefix; none where the state's app declares
+        no Android (``observes_state``)."""
+        if not observes_state("android", self.served):
             return {}
         key = "androidDelivered" if delivered else "android"
         return {
@@ -254,7 +269,7 @@ def _devices(held, document, app_id, a_record, b_record, blobs) -> dict:
     from proof.android import observe as android
 
     found = {}
-    if not observes("android"):
+    if not observes_state("android", held.served):
         return found
     if document.local_ccz is not None:
         again = document.local_ccz.parent / "local-again.ccz"
@@ -411,7 +426,9 @@ def aligned(
                         if kept is not None:
                             recorded["B"]["connect"] = kept
                 recorded["devices"] = _devices(held, document, app_id, a_record, b_record, blobs)
-                archive = document.local_ccz_for(configuration)
+                # Nova hands a local archive only to an app that declares Android, so neither Formplayer's walk of
+                # it nor a device on it runs for one that declares none.
+                archive = document.local_ccz_for(configuration) if held.served.reads("android") else None
                 if archive is not None:
                     local = local_archive(archive, app_id)
                     with connect_.reading(forwarder, "formplayer"):
@@ -421,7 +438,7 @@ def aligned(
                     # given the input the lane gives Core over that archive.
                     recorded["local"] = {
                         "formplayer": local_side,
-                        **({"android": held.android("local", local)} if observes("android") else {}),
+                        **({"android": held.android("local", local)} if observes_state("android", held.served) else {}),
                         **held.devices_on("local:delivered", local, delivered=True),
                     }
                     if forwarder is not None:

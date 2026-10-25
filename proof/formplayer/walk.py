@@ -36,6 +36,9 @@ it as the client does (``submission``: every question the client holds valid,
 with the answer Formplayer last handed it, and ``prevalidated`` only where it
 holds every one valid), and records Formplayer's answer, the submission HQ
 received and the screen Formplayer's end of form navigation names next.
+Where the app declares no Web Apps (``Walk.web_apps`` false) the walk
+answers a date and time question as Core's session does, and nothing holds
+the client's placeholder.
 
 A run's ``end`` says where it ended. Three are the app's own: ``submitted``,
 ``empty-menu`` and ``empty-list``. Every other (``notification``,
@@ -234,18 +237,19 @@ CLIENT_DATA_TYPES = frozenset(
 ADDRESS = "address"
 
 
-def answerable(question: Mapping[str, Any]) -> bool:
+def answerable(question: Mapping[str, Any], *, web_apps: bool = True) -> bool:
     """Whether the Web Apps client draws a widget a worker answers ``question`` with (``entries.js::getEntry``):
     a question of a data type it supports, but an address (which needs the project space's geocoder, which no
     Nova export asks for) and a file question of a control it draws no chooser for. The walk answers only what a
-    worker in Web Apps can, so its submission is the client's."""
+    worker in Web Apps can, so its submission is the client's. Where the app declares no Web Apps (``web_apps``
+    false) no worker meets the client, so the walk answers a date and time question as Core's session does."""
     datatype = question.get("datatype")
     if datatype == "binary":
         return media_kind(question) is not None
     style = question.get("style") if isinstance(question.get("style"), dict) else {}
     if datatype in ("str", "barcode") and ADDRESS in str(style.get("raw") or "").split():
         return False
-    return datatype in CLIENT_DATA_TYPES
+    return datatype in CLIENT_DATA_TYPES or (not web_apps and datatype == "datetime")
 
 
 def media_kind(question: Mapping[str, Any]) -> str | None:
@@ -310,10 +314,13 @@ def addable(node: Mapping[str, Any], adds: int) -> bool:
 UNSUPPORTED = "Not Supported by Web Entry"
 
 
-def drawn_with(question: Mapping[str, Any]) -> Any:
+def drawn_with(question: Mapping[str, Any], *, web_apps: bool = True) -> Any:
     """What the client holds of a question as it first draws it: Formplayer's answer, or, for a question it draws
-    no widget for (``answerable``), the text its unsupported entry puts there (``UNSUPPORTED``)."""
-    return question.get("answer") if answerable(question) else UNSUPPORTED
+    no widget for (``answerable``), the text its unsupported entry puts there (``UNSUPPORTED``). Where the app
+    declares no Web Apps (``web_apps`` false) no client draws it, and the question holds Formplayer's answer."""
+    if not web_apps or answerable(question):
+        return question.get("answer")
+    return UNSUPPORTED
 
 
 def submission(
@@ -453,6 +460,10 @@ class Walk:
     # views over a unit's state (``proof.formplayer.hq.Served.run``) it is a fork of that state with the worker
     # signed in, so no run reads what another's submission left in HQ.
     scope: Callable[[str], Any] = lambda name: nullcontext()
+    # Whether the app declares Web Apps (``proof.formplayer.hq.Served.reads``): only then does the walk model the
+    # client's placeholder for a question it draws no widget for (``UNSUPPORTED``); elsewhere it answers a date and
+    # time question as Core's session does.
+    web_apps: bool = True
 
     @classmethod
     def of(cls, served, *, runner=None, app_id: str | None = None, scope=None, places=None) -> Walk:
@@ -470,6 +481,7 @@ class Walk:
             places=dict(places.desktop) if places else {},
             small_places=dict(places.small) if places else {},
             toward=dict(places.toward) if places else {},
+            web_apps=served.reads("webapps"),
         )
 
     # -- one execution -----------------------------------------------------
@@ -509,7 +521,7 @@ class Walk:
         )
 
     def _values(self, question: Mapping[str, Any], given: Mapping[str, Any] | None = None) -> list[Any]:
-        if not answerable(question):
+        if not answerable(question, web_apps=self.web_apps):
             # Nothing a worker in Web Apps can give it.
             return []
         if given and question.get("datatype") == "geo" and str(question.get("ix")) in given:
@@ -547,7 +559,11 @@ class Walk:
         # What the client holds of each question it has drawn: the answer Formplayer last handed it, or the one it
         # last sent while that request is in flight (``form_ui.js``, ``pendingAnswer``); as it opens the form,
         # what it draws each question with (``drawn_with``).
-        held = {str(node.get("ix")): drawn_with(node) for node in questions(tree) if node.get("type") == "question"}
+        held = {
+            str(node.get("ix")): drawn_with(node, web_apps=self.web_apps)
+            for node in questions(tree)
+            if node.get("type") == "question"
+        }
         resent: list[dict] = []
         adds = int((self.answer_table.get("repeats") or {}).get("add") or 0)
         for _ in range(MAX_QUESTIONS):
@@ -647,7 +663,7 @@ class Walk:
                 if ix not in held:
                     # A question the client draws now for the first time is made with Formplayer's answer, or,
                     # with no widget for it, with its unsupported entry's text.
-                    held[ix] = drawn_with(node)
+                    held[ix] = drawn_with(node, web_apps=self.web_apps)
                     continue
                 if ix == just or ix in refused or _sent_alike(node.get("answer"), held[ix]):
                     continue
@@ -670,12 +686,11 @@ class Walk:
             " (proof/formplayer/walk.py::MAX_QUESTIONS); the walk stopped, and the form has no end to record."
         )
 
-    @staticmethod
-    def _resends(node: Mapping[str, Any]) -> bool:
+    def _resends(self, node: Mapping[str, Any]) -> bool:
         """Whether the client sends a question's answer when Formplayer changes it: a question it draws a widget
         for that holds an answer of its own (``entries.js``: every single-answer and multiple-answer entry), not a
         label, an unsupported question or a file, whose widget ignores what Formplayer hands back."""
-        return answerable(node) and node.get("datatype") != "info" and media_kind(node) is None
+        return answerable(node, web_apps=self.web_apps) and node.get("datatype") != "info" and media_kind(node) is None
 
     def _submit(self, web: WebApps, form: Mapping[str, Any], tree, refused: set[str], held) -> tuple[dict, Any]:
         """The submission as the client makes it (``submission``), and Formplayer's answer to it."""

@@ -10,8 +10,8 @@ Contracts (``proof.webapps.session``, ``proof.webapps.hq``):
   asked HQ who the worker is. The plausible failure is a page that renders
   from anything but those (a stubbed answer, a script of the harness's own).
 - **HQ offers Web Apps the app only where the project space has Web Apps.**
-  Every configuration of the lane grants the privilege, so HQ stores the
-  app with ``cloudcare_enabled`` true and offers the worker the released
+  The configuration of every document that declares Web Apps grants the
+  privilege, so HQ stores the app with ``cloudcare_enabled`` true and offers the worker the released
   build; with that one privilege taken away HQ stores it false and offers
   no app. The plausible failure is a configuration that grants the
   privilege for nothing, or an app HQ would list either way.
@@ -87,8 +87,8 @@ def test_the_page_is_hqs_own_view_and_bundle_and_its_screens_are_formplayers_ans
 def test_hq_offers_an_app_to_web_apps_only_in_a_project_space_that_has_web_apps(
     hq, formplayer_runner, webapps_documents
 ):
-    """Finding 64: without the privilege every configuration of the lane grants, HQ never offers the app to Web
-    Apps."""
+    """Finding 64: without the privilege the configuration of every document that declares Web Apps grants, HQ
+    never offers the app to Web Apps."""
     from corehq.apps.cloudcare.utils import get_web_apps_available_to_user
 
     offered = {}

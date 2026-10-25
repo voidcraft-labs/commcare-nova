@@ -945,6 +945,29 @@ def test_a_configuration_novas_publish_refuses_for_the_edit_is_left_out(tmp_path
         proof5.locality(_reread(document))
 
 
+def test_d_prime_is_unpublished_under_sync_on_where_its_verdict_requires_it_off(tmp_path):
+    """D''s verdict is read where every verdict is (``corpus.lacking``): one requiring sync cases on form entry off
+    names that setting for a configuration with it on, so D' is rightly unpublished there, and one saying nothing of
+    it requires nothing. The plausible failure: a second reading of D''s verdict that sees flags and case search
+    alone, so ``unpublished`` refuses a document whose D' Nova's publish rightly never sends there."""
+    sync_on = corpus.Configuration(
+        name="minimum",
+        flags=(),
+        named_privileges=(),
+        commcare_version="2.57.0",
+        commtrack=False,
+        sync_cases_on_form_entry=True,
+        case_search_enabled=False,
+    )
+    document = SimpleNamespace(edit=SimpleNamespace(root=tmp_path))
+    minimum = {"flags": [], "caseSearchEnabled": False}
+    path = tmp_path / "verdict.json"
+    path.write_text(json.dumps({"minimumConfiguration": {**minimum, "syncCasesOnFormEntry": False}}), encoding="utf-8")
+    assert proof5._edit_lacks(document, sync_on) == ["sync cases on form entry off"]
+    path.write_text(json.dumps({"minimumConfiguration": minimum}), encoding="utf-8")
+    assert proof5._edit_lacks(document, sync_on) == []
+
+
 LOCAL_FORM = (
     '<h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms"><h:head><h:title>F</h:title>'
     '<model><instance><data xmlns="urn:form" version="{version}"{extra}><q>{answer}</q></data></instance>'

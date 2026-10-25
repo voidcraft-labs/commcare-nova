@@ -175,6 +175,18 @@ def test_the_readers_a_run_names_bring_formplayer_and_nothing_else_is_a_set_of_t
     assert readers.canonical(readers.parse("connect,android")) == "formplayer,android,connect"
 
 
+def test_a_reader_reads_an_app_only_on_a_platform_it_declares():
+    """The client reads an app that declares Web Apps and a device one that declares Android; Formplayer and
+    Connect read every app. Catches a reader handed an app it does not run, or one withheld from an app it does."""
+    both, web_apps, android = {"web-apps", "android"}, {"web-apps"}, {"android"}
+    assert readers.reads_app("webapps", both) and readers.reads_app("webapps", web_apps)
+    assert not readers.reads_app("webapps", android)
+    assert readers.reads_app("android", both) and readers.reads_app("android", android)
+    assert not readers.reads_app("android", web_apps)
+    for reader in ("formplayer", "connect"):
+        assert all(readers.reads_app(reader, platforms) for platforms in (both, web_apps, android))
+
+
 def test_a_run_with_the_readers_runs_every_test_and_holds_each_marked_by_hand_to_asking_for_one(tmp_path):
     outcomes, deselected, output = _child(tmp_path, "all")
     assert deselected == 0, output[-3000:]

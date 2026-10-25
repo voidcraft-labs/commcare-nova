@@ -68,8 +68,9 @@ documents themselves: it holds no ``document.json``, whose ``doc`` is Nova's
 persistable shape, which a later cutover changes. What the checks derive
 from D and D' is written beside the files when the control is retained
 (``derived.json``: the wire layout and languages, the intent, the lookup
-tags, the case database and, where retained, case-property types, ``DERIVED``),
-so a control reads the same whatever shape Nova's document later takes.
+tags, the case database and, where retained, case-property types and the
+platforms D and D' declare, ``DERIVED``), so a control reads the same
+whatever shape Nova's document later takes.
 
 Nothing here runs HQ or Core; it reads files and refuses a layout it cannot
 read, naming the file and what it lacks. The one HQ reach is a
@@ -103,6 +104,12 @@ BASE_CONFIGURATIONS = ("minimum", "maximum")
 # (proof/corpus/inputs.ts::EMPTY_LIST_TEXT_FLAG, ::EMPTY_LIST_TEXT_ARCHIVE).
 EMPTY_LIST_TEXT_FLAG = "USH_EMPTY_CASE_LIST_TEXT"
 EMPTY_LIST_TEXT_ARCHIVE = "local-empty-list-text.ccz"
+# The platforms an app declares it runs on (``appSettings.runsOnlyOn``, absent for both; proof/CLAUDE.md, "A reader
+# reads an app on the platforms it declares").
+WEB_APPS = "web-apps"
+ANDROID = "android"
+PLATFORMS = (WEB_APPS, ANDROID)
+BOTH = frozenset(PLATFORMS)
 
 
 class CorpusLayoutError(ValueError):
@@ -221,8 +228,11 @@ def lacking(configuration, verdict_path):
 
     Read from the verdict at ``verdict_path`` (``verdict.json`` or
     ``edit/verdict.json``, written from ``proof/corpus/publish.ts``'s
-    verdict): ``minimumConfiguration``'s ``flags``, and ``case search`` when
-    it needs case search on.
+    verdict): ``minimumConfiguration``'s ``flags``, ``case search`` when
+    it needs case search on, and ``sync cases on form entry off`` when its
+    ``syncCasesOnFormEntry`` is ``false`` (Nova's publish requires the
+    setting off) and the configuration has it on; a verdict without that key
+    requires nothing of it.
     """
     verdict = _read_json(verdict_path)
     minimum = verdict.get("minimumConfiguration") if isinstance(verdict, dict) else None
@@ -235,9 +245,17 @@ def lacking(configuration, verdict_path):
             f"{verdict_path} holds no minimumConfiguration with its flags and caseSearchEnabled, so it does not say"
             " whether Nova's publish would send there (decision 19)."
         )
+    sync = minimum.get("syncCasesOnFormEntry", None)
+    if "syncCasesOnFormEntry" in minimum and sync is not False:
+        raise CorpusLayoutError(
+            f"{verdict_path} holds syncCasesOnFormEntry {sync!r}; a verdict requires the setting off (false) or says"
+            " nothing of it."
+        )
     missing = sorted(set(minimum["flags"]) - set(configuration.flags))
     if minimum["caseSearchEnabled"] and not configuration.case_search_enabled:
         missing.append("case search")
+    if sync is False and configuration.sync_cases_on_form_entry:
+        missing.append("sync cases on form entry off")
     return missing
 
 
@@ -403,7 +421,7 @@ def _first_publish(directory: Path):
 DERIVED = "derived.json"
 DERIVED_KEYS = frozenset({"wire", "intent", "lookupTags", "caseDatabase"})
 # Controls retained before a check read this metadata keep their original bytes and answer None for it.
-OPTIONAL_DERIVED_KEYS = frozenset({"caseTypes"})
+OPTIONAL_DERIVED_KEYS = frozenset({"caseTypes", "platforms"})
 
 
 @dataclass(frozen=True)
@@ -477,7 +495,8 @@ class Document:
         The verdict beside the export (``verdict.json``, written from
         ``proof/corpus/publish.ts``'s verdict) names what Nova's publish
         requires: ``minimumConfiguration`` with its ``flags`` and
-        ``caseSearchEnabled``.
+        ``caseSearchEnabled``, and ``syncCasesOnFormEntry: false`` where it
+        requires sync cases on form entry off (``lacking``).
         """
         missing = lacking(configuration, path)
         if missing:
@@ -578,6 +597,35 @@ class Document:
         if held is None:
             raise CorpusLayoutError(f"{self.root / DERIVED} holds nothing of {name}, which a check reads.")
         return held.get(key) if key in OPTIONAL_DERIVED_KEYS else held[key]
+
+    def platforms(self, *, edit=False) -> frozenset[str]:
+        """The platforms D (or D', ``edit``) declares: its ``appSettings.runsOnlyOn``, or both where it names
+        none; on a control, what its ``derived.json`` retains, or both for a control retained before a document
+        declared any, which was published as an app every platform runs."""
+        if self.kind == "control":
+            held = self.derived("platforms", edit=edit)
+            if held is None:
+                return BOTH
+            if not isinstance(held, list) or not held or not all(item in PLATFORMS for item in held):
+                which = "D'" if edit else "D"
+                raise CorpusLayoutError(
+                    f"{self.root / DERIVED} holds {which}'s platforms as {held!r}; a control retains a non-empty list"
+                    ' of "web-apps" and "android".'
+                )
+            return frozenset(held)
+        document = self.edit_document if edit else self.document
+        path = self.edit.document_path if edit else self.document_path
+        doc = document.get("doc") if isinstance(document, dict) else None
+        settings = doc.get("appSettings") if isinstance(doc, dict) else None
+        value = settings.get("runsOnlyOn") if isinstance(settings, dict) else None
+        if value is None:
+            return BOTH
+        if value not in PLATFORMS:
+            raise CorpusLayoutError(
+                f"{path} declares the app's platforms as {value!r}; Nova stores appSettings.runsOnlyOn as"
+                ' "web-apps", "android" or nothing, for both.'
+            )
+        return frozenset({value})
 
     def case_types(self, *, edit=False):
         """Each effective case property's type from the emitted catalog, by case type and property name, or

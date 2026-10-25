@@ -16,6 +16,10 @@ worker's device (``android``) and CommCare Connect's own server (``connect``)
   reader named brings Formplayer (``BRINGS``): the client replays Formplayer's
   walk, Connect receives the submissions it makes, and the served states a
   device is handed (B's, and proof 4's saves) are served along that walk.
+  A reader the run names still reads a state only where the state's app
+  declares the platform the reader runs it on (``PLATFORM_OF``): Formplayer
+  and Connect read every app, the client an app that declares Web Apps, a
+  device an app that declares Android.
 
 Without a reader:
 
@@ -56,6 +60,11 @@ NONE: frozenset[str] = frozenset()
 # What each reader brings: every served state is served along Formplayer's walk, which the client replays,
 # whose submissions Connect receives, and along which B and proof 4's saves are served to a device.
 BRINGS = {reader: ("formplayer",) for reader in READERS}
+# The platform each served reader runs an app on (proof/CLAUDE.md, "A reader reads an app on the platforms
+# it declares"): the Web Apps client runs it on Web Apps, in App Preview too, and a device on Android.
+# Formplayer and Connect read every app: Formplayer's walk is how every state is served (BRINGS), and Connect
+# takes what any worker submits.
+PLATFORM_OF = {"webapps": "web-apps", "android": "android"}
 # The pytest marker of a test that starts a served reader (proof/pytest.ini): its arguments name the readers it
 # starts, none for every one.
 MARK = "reader"
@@ -80,6 +89,12 @@ def with_brought(names: Iterable[str]) -> frozenset[str]:
     for name in list(found):
         found.update(BRINGS.get(name, ()))
     return frozenset(found)
+
+
+def reads_app(reader: str, platforms: Iterable[str]) -> bool:
+    """Whether ``reader`` reads an app that declares ``platforms`` (``PLATFORM_OF``)."""
+    platform = PLATFORM_OF.get(reader)
+    return platform is None or platform in frozenset(platforms)
 
 
 def parse(value: str | None) -> frozenset[str]:

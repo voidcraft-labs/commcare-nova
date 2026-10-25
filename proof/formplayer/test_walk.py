@@ -250,3 +250,27 @@ def test_a_walk_that_reaches_a_bound_fails_by_the_bounds_name(
             monkeypatch.setattr(walk_module, bound, 1)
             with pytest.raises(walk_module.WalkBound, match=bound):
                 apps.walked(formplayer_runner, served)
+
+
+def test_the_clients_placeholder_is_held_only_in_an_app_that_declares_web_apps():
+    """Where the app declares Web Apps the client draws no widget for a date and time question, holds its
+    unsupported entry's text and submits it (finding 74); where it declares none, no worker meets the client, so the
+    walk answers the question as Core's session does and never sends the text. Plausible failures: a walk that
+    submits the client's text for an app no client opens, or one that loses finding 74 where Web Apps is
+    declared."""
+    when = {"type": "question", "ix": "0", "datatype": "datetime", "answer": "2001-02-03T04:05:06.000Z"}
+    name = {"type": "question", "ix": "1", "datatype": "str", "answer": "Ada"}
+    tree = [when, name]
+
+    def held(web_apps):
+        return {node["ix"]: walk_module.drawn_with(node, web_apps=web_apps) for node in tree}
+
+    assert not walk_module.answerable(when) and walk_module.answerable(name)
+    assert held(True) == {"0": walk_module.UNSUPPORTED, "1": "Ada"}
+    assert walk_module.submission(tree, set(), held(True))["answers"] == {"0": walk_module.UNSUPPORTED, "1": "Ada"}
+
+    assert walk_module.answerable(when, web_apps=False) and walk_module.answerable(name, web_apps=False)
+    assert held(False) == {"0": "2001-02-03T04:05:06.000Z", "1": "Ada"}
+    sent = walk_module.submission(tree, set(), held(False))["answers"]
+    assert sent == {"0": "2001-02-03T04:05:06.000Z", "1": "Ada"}
+    assert walk_module.UNSUPPORTED not in sent.values()

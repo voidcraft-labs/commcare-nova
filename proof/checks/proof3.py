@@ -194,6 +194,7 @@ from proof.checks.compare.json_tree import compare_json
 from proof.checks.compare.names import CASE_FIELDS, block_path
 from proof.checks.compare.trace import compare_traces as compare_trace_documents
 from proof.checks.compare.trace import generated_labels, relabel_generated
+from proof.checks.corpus import ANDROID, BOTH, WEB_APPS
 from proof.checks.differences import CONNECT, FORMPLAYER, RELEASE, WEBAPPS, Difference, pointer_token
 from proof.observe.runs import Run as Run
 from proof.observe.runs import script_of as script_of
@@ -203,11 +204,11 @@ from proof.observe.runs import xmlns_alignment as xmlns_alignment
 from proof.rules import RULES, normalized
 
 CHECK = "proof3"
-ANDROID = "android"
-WEB_APPS = "web-apps"
 # The runtimes that run each comparison's two builds: a local archive installs
 # only on Android, an HQ build on both. A run of sessions (``Run.side``) is
-# compared under its side's runtimes.
+# compared under its side's runtimes that the document declares
+# (``Document.platforms``): a profile property only a runtime the app does
+# not declare reads is not compared.
 RUNTIMES = {"local.ccz": frozenset({ANDROID}), "B": frozenset({ANDROID, WEB_APPS})}
 # A block's empty case id is no case's: HQ refuses it (``form_processor/casedb_base.py::AbstractCaseDbCache.get``,
 # ``IllegalCaseId``), so a path keeps it (``/runs/*/blocks/``) apart from every case's id (``*``).
@@ -818,12 +819,22 @@ def lookup_refusal(document, artifact, reason, upload):
     return _refused(document, artifact, cause, reason)
 
 
-def compare_runs(document, baseline, baseline_processed, other, other_processed, *, xmlns=None, bar_admission=None):
+def compare_runs(
+    document,
+    baseline,
+    baseline_processed,
+    other,
+    other_processed,
+    *,
+    xmlns=None,
+    bar_admission=None,
+    platforms=BOTH,
+):
     """Both comparisons of one other build's sessions with the baseline's: the traces and HQ's case processing.
 
     The differences are named after the other run's side
     (``trace@<side>``, ``case_blocks@<side>``) and compared under its
-    runtimes (``RUNTIMES``); ``baseline_processed`` and ``other_processed``
+    runtimes (``RUNTIMES``) that the document declares (``platforms``); ``baseline_processed`` and ``other_processed``
     are HQ's case processing of each side's trace. Where Core did not admit
     the other build the comparison is refused with Core's problems, unless
     the bar's own admission of the same build (``bar_admission``) reports
@@ -839,7 +850,7 @@ def compare_runs(document, baseline, baseline_processed, other, other_processed,
         f"trace@{other.side}",
         baseline.trace,
         other.trace,
-        runtimes=RUNTIMES[other.side],
+        runtimes=RUNTIMES[other.side] & frozenset(platforms),
         xmlns=xmlns,
         labels=labels,
     )
@@ -871,7 +882,9 @@ class _FilesOnly:
     files: dict
 
 
-def behavioral_equivalence(document, observed, sessions, blobs, *, has_local, local_admission=None, local_files=None):
+def behavioral_equivalence(
+    document, observed, sessions, blobs, *, has_local, local_admission=None, local_files=None, platforms=BOTH
+):
     """Proof 3's differences for one document under one configuration.
 
     ``observed`` is the republish's view (``observations.Republish``) and
@@ -880,8 +893,12 @@ def behavioral_equivalence(document, observed, sessions, blobs, *, has_local, lo
     judgment of the same configuration decides whether the B build's sessions
     are compared. ``local_admission`` is Core's admission of the local
     archive the bar holds (``observations.local_reports``), and ``local_files`` the local archive's entries, whose
-    forms' declared versions a submission's are mapped by (``declared_versions``).
+    forms' declared versions a submission's are mapped by (``declared_versions``). ``platforms`` are the
+    platforms the document declares (``Document.platforms``): Nova hands a local archive only to an app that
+    declares Android, so for one that declares none no local run is compared and none is missed, and B's
+    comparison goes on from A's baseline.
     """
+    android = ANDROID in platforms
     if observed.a is None:
         if any(refusal.state == "A" for refusal in observed.refusals):
             return []
@@ -889,13 +906,14 @@ def behavioral_equivalence(document, observed, sessions, blobs, *, has_local, lo
     if unbuildable(observed.a.build) is not None:
         unbuildable_cause_held(observed.a.build)
         return []
-    if not has_local:
+    if android and not has_local:
         return _refused(document, "trace@local.ccz", "/no-local-archive", "The document carries no local archive.")
     if sessions is None:
         raise RecordIncomplete(
-            f"{document}'s b_aligned record holds no proof 3 sessions, though HQ holds a buildable A and the document"
-            " a local archive. The observation (proof.observe.unit._Unit.observe_b_aligned) runs them whenever A is"
-            " buildable, HQ's refusal of B or not; look for a path through it that returns before the sessions."
+            f"{document}'s b_aligned record holds no proof 3 sessions, though HQ holds a buildable A and, where it is"
+            " a document that declares Android, a local archive. The observation"
+            " (proof.observe.unit._Unit.observe_b_aligned) runs them whenever A is buildable, HQ's refusal of B or"
+            " not; look for a path through it that returns before the sessions."
         )
     if "refused" in sessions["lookupsA"]:
         return lookup_refusal(document, "trace@A", sessions["lookupsA"]["refused"], observed.lookup_uploads.get("A"))
@@ -905,24 +923,27 @@ def behavioral_equivalence(document, observed, sessions, blobs, *, has_local, lo
             return []
         return admission_refusals(document, "trace@A", baseline.admission)
     baseline_processed = _processed(sessions["baseline"], blobs)
-    local = _run(sessions["local"], "local.ccz", blobs)
-    from proof.checks.proof4 import trace_versions
+    found = []
+    if android:
+        local = _run(sessions["local"], "local.ccz", blobs)
+        from proof.checks.proof4 import trace_versions
 
-    local_baseline = baseline
-    if local.trace is not None and local_files is not None:
-        local_baseline = replace(
-            baseline, trace=trace_versions(baseline.trace, declared_versions(observed.a.build.files or {}))
+        local_baseline = baseline
+        if local.trace is not None and local_files is not None:
+            local_baseline = replace(
+                baseline, trace=trace_versions(baseline.trace, declared_versions(observed.a.build.files or {}))
+            )
+            local = replace(local, trace=trace_versions(local.trace, declared_versions(local_files)))
+        found += compare_runs(
+            document,
+            local_baseline,
+            baseline_processed,
+            local,
+            _processed(sessions["local"], blobs) if local.trace is not None else None,
+            xmlns=xmlns_alignment(local.admission, baseline.admission),
+            bar_admission=local_admission,
+            platforms=platforms,
         )
-        local = replace(local, trace=trace_versions(local.trace, declared_versions(local_files)))
-    found = compare_runs(
-        document,
-        local_baseline,
-        baseline_processed,
-        local,
-        _processed(sessions["local"], blobs) if local.trace is not None else None,
-        xmlns=xmlns_alignment(local.admission, baseline.admission),
-        bar_admission=local_admission,
-    )
     if observed.b_aligned is not None and observed.b_aligned.files is not None:
         if [d for d in proof2.build_equivalence(document, observed) if d.kind != "refused"]:
             if unbuildable(observed.b_aligned) is not None:
@@ -953,6 +974,7 @@ def behavioral_equivalence(document, observed, sessions, blobs, *, has_local, lo
                 baseline_processed,
                 other,
                 _processed(sessions["b"], blobs) if other.trace is not None else None,
+                platforms=platforms,
             )
     return found
 
@@ -1133,6 +1155,7 @@ def document_behavior(document, records):
     found = []
     compared = set()
     reports = observations.local_reports(records)
+    platforms = document.platforms()
     for name in sorted(document.exports):
         observed = observations.republish_view(records, name)
         sessions = observations.sessions_record(records, name)
@@ -1146,6 +1169,7 @@ def document_behavior(document, records):
             has_local=local_ccz is not None,
             local_admission=reports.get(local_ccz.name) if local_ccz is not None else None,
             local_files=local_files,
+            platforms=platforms,
         )
         if (sessions or {}).get("local", {}).get("trace") is not None:
             compared.add("trace@local.ccz")
@@ -1155,7 +1179,7 @@ def document_behavior(document, records):
             name,
             observed,
             sessions,
-            has_local=local_ccz is not None,
+            has_local=local_ccz is not None and ANDROID in platforms,
             local_ccz=local_ccz,
         )
         if _served_a(records, name) is not None and (
