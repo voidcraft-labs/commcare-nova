@@ -29,9 +29,13 @@ register class. The register holds every difference one of its entries
 names before effects are asked, so a defect whose harm is also what a gate
 changes (defect 20: sync on form entry adds a claim with no condition to a
 searching module's entry) is held to its entry while the defect lasts, and
-the entry is strict as every entry is. A flip to a configuration Nova's
+the entry is strict as every entry is. On a control, the fixed entries of
+this check naming it are held so too (``flip_entries``): each must keep
+showing there, as a known entry does on its document, and the gate's effects
+would otherwise explain it away. A flip to a configuration Nova's
 publish refuses (decision 19: it lacks a flag Nova's verdict requires, or
-case search where Nova requires it) is still built, because a gate's effects
+case search where Nova requires it, or has sync cases on form entry on where
+Nova requires it off) is still built, because a gate's effects
 are what HQ's build changes when the gate flips, wherever that is; its
 differences are held to the gate's effects alone, never to the register,
 since a symptom there cannot reach anyone.
@@ -114,14 +118,16 @@ class Sensitivity:
 def accepts(verdict, configuration):
     """Whether Nova's publish would send the document to a project space configured so (decision 19).
 
-    ``verdict`` is the document's ``verdict.json``: its
-    ``minimumConfiguration`` names the flags Nova's publish requires and
-    whether it requires case search.
+    ``verdict`` is the document's ``verdict.json``: its ``minimumConfiguration`` names the flags Nova's
+    publish requires, whether it requires case search, and, where Nova's publish requires sync cases on
+    form entry off, ``syncCasesOnFormEntry: false``; a verdict without that key requires nothing of it.
     """
     minimum = verdict["minimumConfiguration"]
     if not set(minimum["flags"]) <= set(configuration.flags):
         return False
-    return not (minimum["caseSearchEnabled"] and not configuration.case_search_enabled)
+    if minimum["caseSearchEnabled"] and not configuration.case_search_enabled:
+        return False
+    return not (minimum.get("syncCasesOnFormEntry") is False and configuration.sync_cases_on_form_entry)
 
 
 def flips(configuration, flags_read, settings_read, verdict):
@@ -267,6 +273,15 @@ class Holding:
     held: list = field(default_factory=list)  # to the register
     explained: list = field(default_factory=list)  # named by their gate's effects, and no entry's
     unexplained_refused: list = field(default_factory=list)  # under a flip Nova refuses, named by no effect
+
+
+def flip_entries(document, known, fixed):
+    """The entries a flip's difference on ``document`` is held to before the gate's effects (``hold_flips``):
+    the known register's, and on a control the fixed entries of this check naming it, which must keep
+    showing there as a known entry does on its document (``proof.checks.cases.hold``)."""
+    if document.kind != "control":
+        return tuple(known)
+    return (*known, *(entry for entry in fixed if entry.control == document.id and entry.check == CHECK))
 
 
 def hold_flips(observed: Iterable[Sensitivity], effects, entries):
