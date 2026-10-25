@@ -9,8 +9,9 @@ the content needs, hiding a refusal the plan would cause), and, where the reader
 app alone, a rule that names a reader which does not in fact read that
 content.
 
-Each case starts from one app HQ's own ``AppFactory`` builds, which needs
-only what every app does (Web Apps, ``CLOUDCARE``: a worker opens every app
+Each case starts from one app HQ's own ``AppFactory`` builds, sent as Nova
+sends an app that declares no platform (no ``cloudcare_enabled``), which
+needs only what such an app does (Web Apps, ``CLOUDCARE``: a worker opens it
 there), and adds exactly one piece of content. The rules whose cited
 reader runs on an app alone are also run through it, with and without the
 privilege, which is what makes the privilege part of the minimum:
@@ -246,10 +247,14 @@ CASES = [
 
 
 def export(factory):
-    return factory.app.export_json(dump_json=False)
+    """The app as Nova sends one that declares no platform: HQ's export writes its own ``cloudcare_enabled``
+    default, and Nova's body carries none until it writes the declaration."""
+    sent = factory.app.export_json(dump_json=False)
+    sent.pop("cloudcare_enabled", None)
+    return sent
 
 
-# Every app needs Web Apps: a worker opens it there (``_needs_cloudcare``).
+# An app that declares no platform needs Web Apps: a worker opens it there (``_needs_cloudcare``).
 EVERY_APP = ["CLOUDCARE"]
 
 
@@ -288,15 +293,19 @@ def test_the_rules_cover_every_privilege_row_a_configuration_names():
     assert rows == covered
 
 
-def test_every_app_needs_web_apps_whatever_its_source_asks(hq):
-    """HQ's create sets ``cloudcare_enabled`` from the plan and never from the source, and Web Apps lists an app
-    only with it, so an app needs the privilege whether or not its source asks for Web Apps."""
+def test_an_app_needs_web_apps_unless_its_body_declares_android_only(hq):
+    """Web Apps lists an app only with the privilege, so an app needs it unless the body Nova sends says
+    ``cloudcare_enabled: false`` (it declares Android only); a body that says nothing, as every one before Nova
+    writes the declaration, needs it as one that says true does. Catches the grant read from HQ's own default
+    rather than from what Nova sends, or an Android-only app made to need Web Apps."""
     factory, _, _ = base_app()
     sent = export(factory)
-    assert not sent.get("cloudcare_enabled")
+    assert "cloudcare_enabled" not in sent
     assert required_privileges([sent]) == ["CLOUDCARE"]
     sent["cloudcare_enabled"] = True
     assert required_privileges([sent]) == ["CLOUDCARE"]
+    sent["cloudcare_enabled"] = False
+    assert required_privileges([sent]) == []
 
 
 def _validator_errors(app, method, granted):
