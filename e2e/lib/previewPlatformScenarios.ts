@@ -153,7 +153,7 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		platform: "android",
 		fixture: "media",
 		describe:
-			"an image question offers Take picture and Choose image, a file over 15 MB is refused with its line, and a large file attaches with Android's large-file line",
+			"an image question offers Take picture (accept image/*, capture environment) and Choose image (accept image/*), a file over 15 MB is refused with its line, a file of 3,073,023 bytes attaches without Android's large-file line and one of 3,073,024 bytes attaches with it",
 	},
 	"barcode-scan-android": {
 		platform: "android",
@@ -165,7 +165,7 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		platform: "android",
 		fixture: "screens",
 		describe:
-			"a form without sections pages one question or labeled group per screen, Next validates, the last screen reads Finish, and the repeat prompt adds an entry",
+			"a form without sections pages one question or labeled group per screen, a labeled group in a repeat once per entry and an unlabeled group's questions one by one; Next validates and the last screen reads Finish; the repeat prompt goes back, adds another entry, declines, and reads Do not add, I'm finished when nothing follows; a repeat inside a labeled group offers no prompt and no add control",
 	},
 } as const satisfies Readonly<Record<string, PreviewPlatformScenario>>;
 

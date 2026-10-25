@@ -425,12 +425,25 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await acceptAttachments(page);
 		await openScenario(page, "capture-android");
 		await expect(
-			page.getByRole("button", { name: "Take picture", exact: true }),
+			page.getByRole("button", { name: /^Take picture/ }),
 		).toBeVisible();
 		await expect(
-			page.getByRole("button", { name: "Choose image", exact: true }),
+			page.getByRole("button", { name: /^Choose image/ }),
 		).toBeVisible();
-		const choose = page.locator('input[type="file"]:not([capture])').first();
+		/* Take picture asks the browser for its camera; Choose image does not,
+		 * and both accept any image. */
+		await expect(
+			page.locator(
+				'input[type="file"][capture="environment"][accept="image/*"]',
+			),
+		).toHaveCount(1);
+		const choose = page.locator(
+			'input[type="file"][accept="image/*"]:not([capture])',
+		);
+		await expect(choose).toHaveCount(1);
+		const largeLine = page.getByText(
+			"This file is large and may be slow to send",
+		);
 		await choose.setInputFiles({
 			name: "huge.png",
 			mimeType: "image/png",
@@ -442,14 +455,22 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 			),
 		).toBeVisible();
 		expect(await answer(page, PLATFORM_IDS.image)).toBe("");
+		/* Android warns from 3,001 whole KiB: one byte under attaches
+		 * quietly, and the first warned size attaches with the line. */
+		await choose.setInputFiles({
+			name: "quiet.png",
+			mimeType: "image/png",
+			buffer: Buffer.alloc(3_073_023),
+		});
+		await expect.poll(() => answer(page, PLATFORM_IDS.image)).not.toBe("");
+		await expect(largeLine).toHaveCount(0);
+		await expect(choose).toBeEnabled();
 		await choose.setInputFiles({
 			name: "large.png",
 			mimeType: "image/png",
-			buffer: Buffer.alloc(3_200_000),
+			buffer: Buffer.alloc(3_073_024),
 		});
-		await expect(
-			page.getByText("This file is large and may be slow to send"),
-		).toBeVisible();
+		await expect(largeLine).toBeVisible();
 		await expect.poll(() => answer(page, PLATFORM_IDS.image)).not.toBe("");
 	},
 	async "barcode-scan-android"(page) {
@@ -479,24 +500,100 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 	},
 	async "form-screens-android"(page) {
 		await openScenario(page, "form-screens-android");
+		const header = page.locator("[data-screen-header]");
 		const name = page.getByRole("textbox", { name: /Name/ });
+		const note = page.getByRole("textbox", { name: /Note/ });
 		const next = page.getByRole("button", { name: "Next", exact: true });
-		await expect(name).toBeVisible();
-		await expect(page.getByRole("textbox", { name: /Note/ })).toHaveCount(0);
-		/* Next validates the screen. */
-		await next.click();
-		await expect(name).toHaveAttribute("aria-invalid", "true");
-		await name.fill("Ada");
-		await next.click();
-		await expect(page.getByRole("textbox", { name: /Note/ })).toBeVisible();
-		await next.click();
+		const back = page.getByRole("button", { name: "Back", exact: true });
 		const prompt = page.getByRole("alertdialog", {
 			name: "Add another Visits?",
 		});
+		const addAnother = prompt.getByRole("button", {
+			name: "Add another Visits?",
+			exact: true,
+		});
+		/* One question per screen outside a group. */
+		await expect(name).toBeVisible();
+		await expect(note).toHaveCount(0);
+		/* Next validates the screen. */
+		await next.click();
+		await expect(name).toHaveAttribute("aria-invalid", "true");
+		/* The name Quick hides everything after the repeat, so its prompt has
+		 * nothing after it and declining finishes the form. */
+		await name.fill("Quick");
+		await next.click();
+		await expect(header).toHaveText("Visits (1) > Details");
+		await note.fill("First");
+		await next.click();
+		await expect(prompt).toBeVisible();
+		await expect(
+			prompt.getByRole("button", {
+				name: "Do not add, I'm finished",
+				exact: true,
+			}),
+		).toBeVisible();
+		await expect(
+			prompt.getByRole("button", { name: "Do not add", exact: true }),
+		).toHaveCount(0);
+		/* Go back closes the prompt on the screen before it. */
+		await prompt.getByRole("button", { name: "Go back", exact: true }).click();
+		await expect(prompt).toHaveCount(0);
+		await expect(header).toHaveText("Visits (1) > Details");
+		await expect(note).toHaveValue("First");
+		await next.click();
+		await prompt
+			.getByRole("button", { name: "Do not add, I'm finished", exact: true })
+			.click();
+		await expect(prompt).toHaveCount(0);
+		await expect(
+			page.getByRole("button", { name: "Finish", exact: true }),
+		).toBeVisible();
+		await expect(next).toHaveCount(0);
+		/* Android offers no delete for an entry. */
+		await expect(page.getByRole("button", { name: /^Remove/ })).toHaveCount(0);
+		await back.click();
+		await expect(name).toBeVisible();
+		await name.fill("Ada");
+		await next.click();
+		await expect(header).toHaveText("Visits (1) > Details");
+		await next.click();
+		await expect(prompt).toBeVisible();
+		/* A labeled group inside a repeat is one screen per entry. */
+		await addAnother.click();
+		await expect(header).toHaveText("Visits (2) > Details");
+		await expect(note).toHaveValue("");
+		await next.click();
 		await expect(prompt).toBeVisible();
 		await prompt
 			.getByRole("button", { name: "Do not add", exact: true })
 			.click();
+		/* A labeled group is one screen of all its questions. */
+		await expect(header).toHaveText("Household");
+		await expect(page.getByRole("textbox", { name: /Adults/ })).toBeVisible();
+		await expect(page.getByRole("textbox", { name: /Children/ })).toBeVisible();
+		/* An unlabeled group's questions are one screen each. */
+		await next.click();
+		await expect(
+			page.getByRole("textbox", { name: /First extra/ }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("textbox", { name: /Second extra/ }),
+		).toHaveCount(0);
+		await next.click();
+		await expect(
+			page.getByRole("textbox", { name: /Second extra/ }),
+		).toBeVisible();
+		await expect(
+			page.getByRole("textbox", { name: /First extra/ }),
+		).toHaveCount(0);
+		/* A repeat the worker adds to inside a labeled group is part of the
+		 * group's screen: no prompt and no add control. */
+		await next.click();
+		await expect(header).toHaveText("Stock");
+		await expect(page.getByRole("textbox", { name: /Item/ })).toBeVisible();
+		await expect(page.getByRole("button", { name: /^Add / })).toHaveCount(0);
+		await next.click();
+		await expect(page.getByRole("alertdialog")).toHaveCount(0);
 		await expect(page.getByRole("textbox", { name: /Wrap up/ })).toBeVisible();
 		await expect(
 			page.getByRole("button", { name: "Finish", exact: true }),

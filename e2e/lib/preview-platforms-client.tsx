@@ -39,7 +39,9 @@ import { MARKDOWN_LABEL_TEXT, PLATFORM_IDS } from "./previewPlatformsFixture";
  *
  * Every fixture but `screens` holds its questions in one section, so Android
  * shows them together on one section page; `screens` has no sections, so
- * Android pages it a screen at a time.
+ * Android pages it a screen at a time: a question, a labeled group, a
+ * labeled group in each repeat entry, an unlabeled group's questions one by
+ * one, and a labeled group holding a repeat the worker adds to.
  */
 
 const scenarioId = new URLSearchParams(location.search).get(
@@ -163,7 +165,48 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 						},
 					],
 				},
-				{ kind: "text", id: "wrap_up", label: "Wrap up" },
+				/* Everything after the repeat hides for the name Quick, so the
+				 * repeat prompt then has nothing after it. The group is
+				 * unlabeled (below), so it is transparent to Android's screens. */
+				{
+					kind: "group",
+					id: "rest",
+					relevant: "/data/name != 'Quick'",
+					children: [
+						{
+							kind: "group",
+							id: "household",
+							label: "Household",
+							children: [
+								{ kind: "text", id: "adults", label: "Adults" },
+								{ kind: "text", id: "children", label: "Children" },
+							],
+						},
+						{
+							kind: "group",
+							id: "extras",
+							children: [
+								{ kind: "text", id: "first_extra", label: "First extra" },
+								{ kind: "text", id: "second_extra", label: "Second extra" },
+							],
+						},
+						{
+							kind: "group",
+							id: "stock",
+							label: "Stock",
+							children: [
+								{
+									kind: "repeat",
+									id: "items",
+									label: "Items",
+									repeat_mode: "user_controlled",
+									children: [{ kind: "text", id: "item", label: "Item" }],
+								},
+							],
+						},
+						{ kind: "text", id: "wrap_up", label: "Wrap up" },
+					],
+				},
 			];
 		case "media":
 			return [
@@ -215,6 +258,15 @@ const built = buildDoc({
 	],
 });
 if (scenario.fixture === "home") built.logo = IDS.logo;
+/* A group's label is optional and the fixture builder gives every group one;
+ * the screens fixture's `rest` and `extras` are unlabeled. */
+if (scenario.fixture === "screens")
+	for (const field of Object.values(built.fields))
+		if (
+			field.kind === "group" &&
+			(field.id === "rest" || field.id === "extras")
+		)
+			delete field.label;
 const doc = admittedControllerDoc(built);
 const docStore = createBlueprintDocStore();
 docStore.getState().load(doc);
