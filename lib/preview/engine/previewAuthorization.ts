@@ -26,7 +26,6 @@ import { declaredPlatforms } from "@/lib/domain/platforms";
 import { log } from "@/lib/logger";
 import type { LookupScope } from "@/lib/lookup/types";
 import { PREVIEW_CLAIMS_LIMIT } from "@/lib/session/previewClaims";
-import { effectivePreviewPlatform } from "../platform";
 import { schemaHealingCaseStore } from "./caseDataBindingHelpers";
 import {
 	previewAsMe,
@@ -314,19 +313,9 @@ export function admitPreviewDevice(
 	| { readonly kind: "platform-unavailable"; readonly message: string }
 	| { readonly kind: "language-unavailable"; readonly message: string } {
 	if (supplied === undefined || blueprint === undefined) {
-		const fallback = defaultPreviewDevice(blueprint?.localization, undefined);
 		return {
 			kind: "device",
-			device:
-				blueprint === undefined
-					? fallback
-					: {
-							...fallback,
-							platform: effectivePreviewPlatform(
-								declaredPlatforms(blueprint),
-								undefined,
-							),
-						},
+			device: defaultPreviewDevice(blueprint, undefined),
 		};
 	}
 	if (!declaredPlatforms(blueprint).includes(supplied.platform)) {

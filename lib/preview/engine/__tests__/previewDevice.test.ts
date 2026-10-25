@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { NEW_APP_SETTINGS } from "@/lib/domain";
 import {
 	APP_TEST_WINDOW_WIDTH,
+	defaultPreviewDevice,
 	previewDeviceContext,
 	previewDeviceInput,
 	serverPreviewDevice,
@@ -113,5 +115,35 @@ describe("the device's session values", () => {
 			androidDeviceId: ID,
 			appLanguage: "en",
 		});
+	});
+});
+
+describe("defaultPreviewDevice", () => {
+	it.each([
+		[undefined, "web-apps"],
+		["web-apps", "web-apps"],
+		["android", "android"],
+	] as const)(
+		"plays an app running only on %s on %s",
+		(runsOnlyOn, platform) => {
+			const device = defaultPreviewDevice(
+				{
+					localization: undefined,
+					appSettings:
+						runsOnlyOn === undefined
+							? NEW_APP_SETTINGS
+							: { ...NEW_APP_SETTINGS, runsOnlyOn },
+				},
+				undefined,
+			);
+			expect(device.platform).toBe(platform);
+			expect(device.windowWidth).toBeUndefined();
+		},
+	);
+
+	it("plays both platforms' default without a document", () => {
+		expect(defaultPreviewDevice(undefined, undefined).platform).toBe(
+			"web-apps",
+		);
 	});
 });

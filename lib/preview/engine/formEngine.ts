@@ -782,8 +782,7 @@ export class FormEngine {
 		this.lookupData = lookupData ?? null;
 		this.previewIdentity = previewIdentity ?? null;
 		this.device =
-			runtimeOptions.device ??
-			defaultPreviewDevice(input.doc.localization, input.language);
+			runtimeOptions.device ?? defaultPreviewDevice(input.doc, input.language);
 		this.rules = previewPlatformRules(this.device.platform);
 		this.workerProperty = previewWorkerPropertyBinding(
 			this.previewIdentity?.session.context.userid,

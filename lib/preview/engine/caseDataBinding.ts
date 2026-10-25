@@ -68,11 +68,10 @@ import type { Expression } from "@/lib/domain/expression";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import { caseQueryReadingFor } from "@/lib/domain/expression/temporalType";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
-import { declaredPlatforms } from "@/lib/domain/platforms";
 import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
 import { MAX_LOCATIONS_PER_APP } from "@/lib/organization/schema";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import { effectivePreviewPlatform, previewPlatformRules } from "../platform";
+import { previewPlatformRules } from "../platform";
 import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
 import {
 	mapFilterPreviewError,
@@ -1519,13 +1518,7 @@ export async function loadFilterPreviewAction(args: {
 		);
 		/* The builder's sample is the author's view of stored data, read with
 		 * the session values of the platform the app previews on by default. */
-		const sampleDevice = {
-			...defaultPreviewDevice(parsedBlueprint.data.localization, undefined),
-			platform: effectivePreviewPlatform(
-				declaredPlatforms(parsedBlueprint.data),
-				undefined,
-			),
-		};
+		const sampleDevice = defaultPreviewDevice(parsedBlueprint.data, undefined);
 		const searchSession: PreviewSearchSessionValues = {
 			...previewSessionValues(boundIdentity, sampleDevice),
 			// This action intentionally previews the parsed candidate document,

@@ -19,6 +19,7 @@
 // parse, `serverPreviewDevice` and `withNavigationWidth` are per platform.
 
 import { z } from "zod";
+import type { BlueprintDoc } from "@/lib/domain";
 import type { SessionContextField } from "@/lib/domain/expression";
 import {
 	type AppLocalization,
@@ -26,7 +27,11 @@ import {
 	type LanguageTag,
 	resolveAppLanguage,
 } from "@/lib/domain/localization";
-import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
+import {
+	declaredPlatforms,
+	PLATFORMS,
+	type Platform,
+} from "@/lib/domain/platforms";
 import {
 	ANDROID_DEVICE_ID_PREFIX,
 	androidAppVersion,
@@ -168,16 +173,20 @@ export function previewAppLanguage(
 	return code;
 }
 
-/** The device an engine built without one runs on: the platform an app that
- *  runs on both plays by default, with a fresh install id and no window. */
+/** The device an engine built without one runs on: the platform the app
+ *  previews on by default over its declaration (both platforms when there
+ *  is no document), with a fresh install id and no window. */
 export function defaultPreviewDevice(
-	localization: AppLocalization | undefined,
+	doc: Pick<BlueprintDoc, "localization" | "appSettings"> | undefined,
 	language: LanguageTag | null | undefined,
 ): PreviewDevice {
 	return {
-		platform: effectivePreviewPlatform(PLATFORMS, undefined),
+		platform: effectivePreviewPlatform(
+			doc === undefined ? PLATFORMS : declaredPlatforms(doc),
+			undefined,
+		),
 		androidDeviceId: crypto.randomUUID(),
-		appLanguage: previewAppLanguage(localization, language),
+		appLanguage: previewAppLanguage(doc?.localization, language),
 	};
 }
 

@@ -1668,17 +1668,9 @@ export class EngineController {
 	private previewDeviceOrDefault(state?: BlueprintDocState): PreviewDevice {
 		if (this.previewDevice !== undefined) return this.previewDevice;
 		const doc = state ?? this.docStore?.getState();
-		const fallback = defaultPreviewDevice(
-			doc?.localization,
-			this.presentationLanguage,
-		);
 		return {
-			...fallback,
+			...defaultPreviewDevice(doc, this.presentationLanguage),
 			androidDeviceId: this.defaultAndroidDeviceId,
-			platform: effectivePreviewPlatform(
-				doc === undefined ? PLATFORMS : declaredPlatforms(doc),
-				undefined,
-			),
 		};
 	}
 
