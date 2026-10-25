@@ -603,6 +603,55 @@ describe("diffDocsToMutations — explicit cases", () => {
 		assertRoundTrip(withMedia, prev);
 	});
 
+	it.each(["datetime", "text"] as const)(
+		"replays a %s question with media becoming a hidden value, and back",
+		(kind) => {
+			const prev = buildDoc({
+				modules: [
+					{
+						name: "M",
+						forms: [
+							{
+								name: "F",
+								type: "survey",
+								fields: [
+									f({
+										kind,
+										uuid: testUuid("media-drop-subject"),
+										id: "subject",
+										label: proseText("Subject"),
+										label_media: { image: testMediaAssetId("drop-image") },
+										help: proseText("Help"),
+										help_media: { audio: testMediaAssetId("drop-audio") },
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			const next = produce(prev, (draft) => {
+				draft.fields[testUuid("media-drop-subject")] = {
+					uuid: testUuid("media-drop-subject"),
+					id: "subject",
+					kind: "hidden",
+					calculate: { kind: "today" },
+				};
+			});
+			// The convert drops the slots a hidden value lacks, so the diff sends no
+			// media clear the gate would refuse on them.
+			expect(
+				diffDocsToMutations(prev, next).filter(
+					(mutation) => mutation.kind === "setFieldMedia",
+				),
+			).toEqual([]);
+			assertRoundTrip(prev, next);
+			// Undo's direction: the hidden value back to the question, with its
+			// label seeded on the convert and its media set after it.
+			assertRoundTrip(next, prev);
+		},
+	);
+
 	it("cross-parent field move into a group", () => {
 		const prev = buildDoc({
 			modules: [

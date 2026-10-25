@@ -20,6 +20,7 @@
 
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import type { ProseTemplate } from "../prose";
 import { type AudioField, audioFieldMetadata, audioFieldSchema } from "./audio";
 import {
 	type BarcodeField,
@@ -465,6 +466,35 @@ export function getConvertibleTypes(kind: FieldKind): readonly FieldKind[] {
 }
 
 /**
+ * Whether a `convertField` from `from` to `to` is representable: either kind
+ * lists the other among its conversion targets. The reducer and target
+ * admission accept every representable pair, so the undo of every offered
+ * conversion (its inverse, `to` back to `from`) replays; the builder's
+ * convert menu still offers only `getConvertibleTypes`.
+ */
+export function isRepresentableConversion(
+	from: FieldKind,
+	to: FieldKind,
+): boolean {
+	return (
+		getConvertibleTypes(from).includes(to) ||
+		getConvertibleTypes(to).includes(from)
+	);
+}
+
+/**
+ * Whether converting `source` into `toKind` must carry a `label` seed on the
+ * `convertField` mutation: the destination declares a label and the source
+ * has none to keep (a Hidden Value converting back to a question).
+ */
+export function convertNeedsLabelSeed(
+	source: Field,
+	toKind: FieldKind,
+): boolean {
+	return fieldKindDeclaresKey(toKind, "label") && !("label" in source);
+}
+
+/**
  * Whether converting `source` into `toKind` must carry a born option
  * seed on the `convertField` mutation: the destination declares an
  * `optionsSource` slot and the source kind
@@ -529,6 +559,8 @@ export function convertNeedsOptionSeed(
  *     and the source has none, so the caller supplies it via
  *     `seed.optionsSource` (the `convertField` mutation's payload) — a
  *     seedless attempt fails the parse and the reducer no-ops.
+ *   - `hidden` → a question kind: the destination requires a label the
+ *     source lacks, so the caller supplies it via `seed.label`.
  *   - `text` → `hidden`: label / hint / required / validate drop (hidden
  *     declares none of them); id / case binding / relevant /
  *     default_value survive. A result with neither `calculate` nor
@@ -548,9 +580,15 @@ export function convertNeedsOptionSeed(
 export function reconcileFieldForKind(
 	source: Field,
 	toKind: FieldKind,
-	seed?: { optionsSource?: SelectOptionsSource },
+	seed?: { optionsSource?: SelectOptionsSource; label?: ProseTemplate },
 ): Field | undefined {
 	const candidate: Record<string, unknown> = { ...source, kind: toKind };
+	// A label seed fills only a label the source lacks: it exists for a
+	// conversion out of a kind with no label (a Hidden Value back to a
+	// question), whose destination requires one.
+	if (seed?.label !== undefined && !("label" in source)) {
+		candidate.label = seed.label;
+	}
 	// A caller-supplied source WINS over source state: it exists
 	// for conversions INTO a select kind from a kind with no optionsSource
 	// slot, where the destination schema requires what the source can't

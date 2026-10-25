@@ -12,7 +12,7 @@ import {
 	mutationSchema,
 } from "@/lib/doc/types";
 import { type FieldKind, proseText } from "@/lib/domain";
-import { literal, matchAll, term } from "@/lib/domain/expression/builders";
+import { literal, matchAll, now, term } from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const Q = testUuid("conversion-subject");
@@ -27,7 +27,12 @@ function fixture(field: Parameters<typeof f>[0]): BlueprintDoc {
 						name: "Collect",
 						type: "survey",
 						fields: [
-							f({ uuid: Q, label: proseText("Answer"), ...field }),
+							f({
+								uuid: Q,
+								// A hidden value has no label.
+								...(field.kind !== "hidden" && { label: proseText("Answer") }),
+								...field,
+							}),
 							f({ id: "spare", kind: "text", label: proseText("Spare") }),
 						],
 					},
@@ -330,6 +335,79 @@ describe("admitted field conversion", () => {
 			mutationCommitVerdict(before, [mutation], LOOKUP_CONTEXT_UNAVAILABLE).ok,
 		).toBe(true);
 	});
+	it("converts a date-and-time question to a hidden value, keeping its identity, visibility and starting value", () => {
+		const before = fixture({
+			id: "answer",
+			kind: "datetime",
+			hint: proseText("When"),
+			required: "true()",
+			relevant: "true()",
+			validate: ". <= now()",
+			default_value: "now()",
+		});
+		expect(convert(before, "hidden").fields[Q]).toEqual({
+			uuid: Q,
+			id: "answer",
+			kind: "hidden",
+			relevant: matchAll(),
+			default_value: now(),
+		});
+	});
+	it.each(["datetime", "text"] as const)(
+		"converts a hidden value back to %s with a label seed, the inverse of an offered conversion",
+		(toKind) => {
+			const before = fixture({
+				id: "answer",
+				kind: "hidden",
+				relevant: "true()",
+			});
+			expect(
+				convert(before, toKind, { label: proseText("Answer again") }).fields[Q],
+			).toEqual({
+				uuid: Q,
+				id: "answer",
+				kind: toKind,
+				label: proseText("Answer again"),
+				relevant: matchAll(),
+			});
+		},
+	);
+	it.each([
+		["hidden", "datetime", "no label seed"],
+		["hidden", "int", "neither kind lists the other"],
+		["text", "date", "neither kind lists the other"],
+	] as const)(
+		"refuses %s to %s at the real gate when %s",
+		(fromKind, toKind, _why) => {
+			const before = fixture(
+				fromKind === "hidden"
+					? { id: "answer", kind: "hidden" }
+					: { id: "answer", kind: fromKind },
+			);
+			const mutation: Mutation = {
+				kind: "convertField",
+				uuid: Q,
+				toKind,
+				...(toKind === "int" && { label: proseText("Answer") }),
+			};
+			expect(
+				mutationCommitVerdict(before, [mutation], LOOKUP_CONTEXT_UNAVAILABLE)
+					.ok,
+			).toBe(false);
+			const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+			try {
+				expect(
+					toPersistableDoc(
+						produce(before, (draft) => {
+							applyMutations(draft, [mutation]);
+						}),
+					),
+				).toEqual(toPersistableDoc(before));
+			} finally {
+				warn.mockRestore();
+			}
+		},
+	);
 	it("replays an unknown subject without manufacturing a field", () => {
 		const before = fixture({ id: "answer", kind: "text" });
 		expect(

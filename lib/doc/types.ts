@@ -72,6 +72,7 @@ import {
 	formEntryPointSchema,
 } from "@/lib/domain/entryPoints";
 import { conditionSchema } from "@/lib/domain/expression/types";
+import { proseTemplateSchema } from "@/lib/domain/prose";
 
 /**
  * The two field message slots a `Media` bundle attaches to: the ones a
@@ -972,6 +973,13 @@ function createMutationSchema({
 			// at the batch-building layer so the reducer stays deterministic for
 			// replay and peers. Ignored when the target kind has no options slot.
 			optionsSource: selectOptionsSourceSchema.optional(),
+			// A born label for a conversion INTO a kind that requires one from
+			// a kind with none (a Hidden Value back to a question), so the
+			// inverse of every offered conversion replays. Required by target
+			// admission where the destination declares a label the current
+			// kind lacks (`convertNeedsLabelSeed`); it never replaces a label
+			// the field already has.
+			label: proseTemplateSchema.optional(),
 		}),
 		// App-level
 		z.object({ kind: z.literal("setAppName"), name: z.string() }),
