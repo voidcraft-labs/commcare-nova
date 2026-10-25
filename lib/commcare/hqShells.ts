@@ -212,7 +212,7 @@ export function caseSearchConfigShell(
 		properties: [],
 		// CCHQ defaults — the HQ JSON projection at
 		// `lib/commcare/hqJson/caseList.ts::buildSearchConfigDocument`
-		// overrides every slot from `compileForPlatform`'s web-context
+		// overrides every slot from `searchWireShape`'s
 		// output. The shell carries the defaults so a module with no
 		// `caseSearchConfig` (no override path) lands as CCHQ would
 		// otherwise materialize it from an empty author state.

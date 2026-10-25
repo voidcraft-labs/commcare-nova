@@ -16,6 +16,7 @@ import {
 	dayOnlyRefusalCopy,
 	UNREADABLE_DATETIME_NEXT,
 } from "@/lib/domain/expression";
+import { inPlatform } from "@/lib/domain/platforms";
 
 type DiagnosticPresenter = (
 	path: CheckPath,
@@ -140,12 +141,14 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 	"constraint-value": () => "Choose a value that fits this setting",
 	"default-not-a-choice": () =>
 		"Choose a starting value from the available choices",
-	"arm-unavailable": (_path, reason) =>
-		reason === "itext-reference"
-			? "This wording shows an answer, so it can't be read here. You can read the answer itself"
-			: reason === "places-unavailable"
-				? "This setting can't read places. You can read them in a form's questions or its links"
-				: "Choose a calculation available in this setting",
+	"arm-unavailable": (_path, reason, error) =>
+		reason === "platform-unavailable" && error?.platform !== undefined
+			? `Not available ${inPlatform(error.platform.platform)}, where this app runs`
+			: reason === "itext-reference"
+				? "This wording shows an answer, so it can't be read here. You can read the answer itself"
+				: reason === "places-unavailable"
+					? "This setting can't read places. You can read them in a form's questions or its links"
+					: "Choose a calculation available in this setting",
 	"case-data-unavailable": () =>
 		"Choose a value available before selecting a case",
 	"form-answer-unavailable": () =>

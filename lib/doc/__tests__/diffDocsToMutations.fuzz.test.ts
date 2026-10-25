@@ -1205,4 +1205,21 @@ describe("diffDocsToMutations — explicit cases", () => {
 		]);
 		assertRoundTrip(prev, next);
 	});
+
+	it("diffs a declaration change to one setAppSettings naming only runsOnlyOn, a clear as null", () => {
+		const both = produce(richDoc(), (draft) => {
+			delete draft.appSettings.runsOnlyOn;
+		});
+		const android = produce(both, (draft) => {
+			draft.appSettings.runsOnlyOn = "android";
+		});
+		expect(diffDocsToMutations(both, android)).toEqual([
+			{ kind: "setAppSettings", settings: { runsOnlyOn: "android" } },
+		]);
+		assertRoundTrip(both, android);
+		expect(diffDocsToMutations(android, both)).toEqual([
+			{ kind: "setAppSettings", settings: { runsOnlyOn: null } },
+		]);
+		assertRoundTrip(android, both);
+	});
 });

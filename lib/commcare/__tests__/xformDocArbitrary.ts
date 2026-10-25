@@ -28,6 +28,7 @@ import {
 	resolveDocExpressions,
 } from "@/lib/__tests__/docHelpers";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import { declaredForContent } from "@/lib/doc/platformDeclaration";
 import {
 	type BlueprintDoc,
 	type CaseType,
@@ -1417,22 +1418,26 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	// it doesn't collide with field-mint id sequencing.
 	const logo = spec.hasLogo ? asMediaAssetId(minter.uuid("logo")) : undefined;
 
-	return resolveArbitraryDocument({
-		appId: "fuzz-app",
-		appName: "Fuzz App",
-		connectType: spec.connectType,
-		appSettings: { ...NEW_APP_SETTINGS },
-		caseTypes,
-		modules,
-		forms,
-		fields,
-		moduleOrder,
-		formOrder,
-		fieldOrder,
-		// Resolution builds ancestry before binding the drawn expression source.
-		fieldParent: {},
-		...(logo ? { logo } : {}),
-	});
+	// The declaration is mapped after the draw, with no further random call:
+	// the platforms the drawn content runs on (`declaredForContent`).
+	return declaredForContent(
+		resolveArbitraryDocument({
+			appId: "fuzz-app",
+			appName: "Fuzz App",
+			connectType: spec.connectType,
+			appSettings: { ...NEW_APP_SETTINGS },
+			caseTypes,
+			modules,
+			forms,
+			fields,
+			moduleOrder,
+			formOrder,
+			fieldOrder,
+			// Resolution builds ancestry before binding the drawn expression source.
+			fieldParent: {},
+			...(logo ? { logo } : {}),
+		}),
+	);
 }
 
 /**

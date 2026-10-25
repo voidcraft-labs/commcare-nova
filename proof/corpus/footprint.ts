@@ -625,7 +625,7 @@ function promptSettings(input: SearchInputDef): unknown {
  * the module:
  *
  * - its search inputs, as their prompts and query clauses write them
- *   (`promptSettings`; `compileForPlatform` also counts the visible ones
+ *   (`promptSettings`; `searchWireShape` also counts the visible ones
  *   for `default_search`, and `buildSearchQuery` reads them for its
  *   `_xpath_query` clauses, prompt defaults and instances);
  * - whether a calculated column it emits reads a related case, which adds

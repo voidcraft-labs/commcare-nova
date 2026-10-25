@@ -22,6 +22,7 @@ import {
 	type CaseProperty,
 	type CaseType,
 	type ConnectType,
+	contentRunsOn,
 	type Field,
 	type FieldKind,
 	type Form,
@@ -29,11 +30,13 @@ import {
 	isContainerKindName,
 	type Module,
 	NEW_APP_SETTINGS,
+	PLATFORMS,
 	type ProseTemplate,
 	plainColumn,
 	proseText,
 	type UserCollections,
 	type Uuid,
+	unavailableUses,
 } from "@/lib/domain";
 import {
 	type FormStructure,
@@ -253,7 +256,9 @@ export interface DocSpec {
 	appName?: string;
 	connectType?: ConnectType | null;
 	caseTypes?: FixtureCaseType[] | null;
-	/** Defaults to a new app's settings, both lists off. */
+	/** Defaults to a new app's settings, both lists off, declaring the
+	 * platforms the content runs on (`contentRunsOn`). A spec that gives
+	 * `appSettings` is used as given. */
 	appSettings?: AppSettings;
 	modules?: ModuleSpec[];
 }
@@ -282,6 +287,13 @@ type FixtureCaseType = Omit<CaseType, "properties"> & {
  * Field specs are flattened into the doc's `fields` map and their parent/
  * child relationships are captured in `fieldOrder`. Container kinds carry
  * a (possibly empty) `fieldOrder` entry; leaves do not.
+ *
+ * A spec that gives no `appSettings` declares the platforms its content runs
+ * on, read after `configure` (`contentRunsOn`): one platform where a feature
+ * the other can't run is held, both otherwise, and a content that runs on
+ * neither is refused, since the gate would refuse it on every declaration.
+ * So each fixture keeps its meaning without stating a platform; a test of
+ * the declaration gives `appSettings` itself.
  */
 export function buildDoc(
 	spec: DocSpec = {},
@@ -380,7 +392,23 @@ export function buildDoc(
 			);
 		}
 	}
+	if (spec.appSettings === undefined) declareContentPlatforms(doc);
 	return doc;
+}
+
+/** Set `runsOnlyOn` to the platform the content allows, or leave both. */
+function declareContentPlatforms(doc: BlueprintDoc): void {
+	const platforms = contentRunsOn(doc);
+	if (platforms.length === 0)
+		throw new Error(
+			`This fixture's content runs on neither platform: ${unavailableUses(
+				doc,
+				PLATFORMS,
+			)
+				.map((use) => use.feature)
+				.join(", ")}. Give it appSettings, or take one of them out.`,
+		);
+	if (platforms.length === 1) doc.appSettings.runsOnlyOn = platforms[0];
 }
 
 function normalizeFixtureCaseTypes(

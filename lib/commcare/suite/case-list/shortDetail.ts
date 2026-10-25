@@ -124,7 +124,7 @@ import type {
  * Optional search-action context passed by the orchestrator at
  * `lib/commcare/compiler.ts` when the module has a
  * `caseSearchConfig`. Carries the `WireShape.autoLaunch` flag the
- * orchestrator already computed via `compileForPlatform`, plus the
+ * orchestrator already computed via `searchWireShape`, plus the
  * optional `searchButtonDisplayCondition` predicate the case-search
  * config carries. When this arg is present, the short-detail emitter
  * renders an `<action>` child after the `<field>` block on the

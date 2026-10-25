@@ -7,7 +7,7 @@ import {
 	encodeAdmittedMutationEnvelope,
 	MutationWireCanonicalityError,
 } from "@/lib/doc/mutationAdmission";
-import type { Mutation } from "@/lib/doc/types";
+import { type Mutation, mutationSchema } from "@/lib/doc/types";
 
 function canonicalityError(run: () => unknown): MutationWireCanonicalityError {
 	try {
@@ -82,8 +82,23 @@ describe("admitMutationBatch", () => {
 	});
 
 	it.each([
+		["a narrowing to Web Apps", { runsOnlyOn: "web-apps" }],
+		["a clear to both", { runsOnlyOn: null }],
+	])("admits app settings that name %s", (_label, settings) => {
+		expect(
+			admitMutationBatch([{ kind: "setAppSettings", settings } as Mutation]),
+		).toEqual([{ kind: "setAppSettings", settings }]);
+	});
+
+	it.each([
 		["no key", {}, "schema-parse"],
 		["an unknown key", { showArchivedForms: true }, "schema-strip"],
+		["a third spelling of both", { runsOnlyOn: "both" }, "schema-parse"],
+		[
+			"only an undefined declaration",
+			{ runsOnlyOn: undefined },
+			"non-json-value",
+		],
 	])(
 		"refuses app settings that name %s at the envelope",
 		(_label, settings, reason) => {
@@ -93,6 +108,19 @@ describe("admitMutationBatch", () => {
 			expect(error.details).toMatchObject({ mutationIndex: 0, reason });
 		},
 	);
+
+	it("tells the caller an empty settings patch changes nothing", () => {
+		for (const settings of [{}, { runsOnlyOn: undefined }]) {
+			const parsed = mutationSchema.safeParse({
+				kind: "setAppSettings",
+				settings,
+			});
+			expect(parsed.success).toBe(false);
+			expect(JSON.stringify(parsed.error?.issues)).toContain(
+				"Change at least one app setting.",
+			);
+		}
+	});
 
 	it("rejects null for repeat_mode because the stored discriminator is required", () => {
 		const error = canonicalityError(() =>

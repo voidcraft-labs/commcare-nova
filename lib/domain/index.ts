@@ -49,6 +49,8 @@ export * from "./modules";
 export * from "./multimedia";
 export * from "./navigation";
 export * from "./organization";
+export * from "./platforms";
+export * from "./platformUses";
 export * from "./postSubmit";
 export * from "./prose";
 export * from "./records";

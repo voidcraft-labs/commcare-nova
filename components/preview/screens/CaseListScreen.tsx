@@ -538,7 +538,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	});
 	/* Hidden inputs are answered by the system at submit, so only visible
 	 * prompts decide whether a worker has a Search screen to fill in; the wire
-	 * makes the same distinction in `compileForPlatform`. */
+	 * makes the same distinction in `searchWireShape`. */
 	const hasSearchInputs =
 		visibleSearchInputs(config?.searchInputs ?? []).length > 0;
 	const searchButtonCondition = searchConfig?.searchButtonDisplayCondition;

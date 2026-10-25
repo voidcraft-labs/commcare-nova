@@ -31,8 +31,8 @@ import type {
 	SessionQueryMetadata,
 	SessionQueryProjection,
 } from "../../session";
-import { compileForPlatform } from "./compileForPlatform";
 import { buildSearchQuery, searchQueryHasPrompts } from "./searchSession";
+import { searchWireShape } from "./searchWireShape";
 import type { WireShape } from "./types";
 
 export interface InlineSearchEmission {
@@ -57,9 +57,7 @@ function inlineSearchPlan(mod: Module, moduleIndex: number) {
 	}
 	const caseListConfig: CaseListConfig =
 		mod.caseListConfig ?? emptyCaseListConfig();
-	const wire = compileForPlatform(caseListConfig, caseSearchConfig, {
-		platform: "web",
-	});
+	const wire = searchWireShape(caseListConfig, caseSearchConfig);
 	const metadata: SessionQueryMetadata = {
 		storageInstance: "results:inline",
 		caseType: mod.caseType,

@@ -9,6 +9,13 @@ import {
 } from "../expressionFunctions";
 import type { TranslationUnitId } from "../localization";
 import {
+	expressionLeafFeature,
+	type Platform,
+	type PlatformFeatureId,
+	platformRefusalMessage,
+	unavailablePlatform,
+} from "../platforms";
+import {
 	isSearchOnlyCaseProperty,
 	SEARCH_ONLY_CASE_PROPERTY_DATA_TYPES,
 	type SearchOnlyCaseProperty,
@@ -51,6 +58,7 @@ import {
 	unreadableInstantLiterals,
 } from "./instantOperand";
 import { numericAnswerText } from "./numberLiteral";
+import { serverOnlySearchSlot } from "./profiles";
 import { resolveRelationDestination } from "./relationDestination";
 import {
 	ANY_TYPE,
@@ -204,6 +212,12 @@ export interface CheckError {
 		readonly carrier: "case-list" | "search" | "form-display-condition";
 		readonly module: Uuid;
 		readonly otherModule?: Uuid;
+	};
+	/** On `arm-unavailable`, reason `platform-unavailable`: the feature and
+	 * the declared platform that lacks it. */
+	readonly platform?: {
+		readonly feature: PlatformFeatureId;
+		readonly platform: Platform;
 	};
 }
 export interface InstantRefusal {
@@ -772,6 +786,26 @@ function admission(
 				: "here() reads the worker's location, which CommCare offers only in a case list's calculated column. You can show it in a calculated column instead.",
 			"here",
 		);
+	// Where the slot admits it, a leaf a declared platform lacks is refused
+	// against the app's declaration (`lib/domain/platforms.ts`).
+	const leaf = expressionLeafFeature(expression);
+	if (leaf !== undefined) {
+		const platform = unavailablePlatform(leaf, ctx.platforms);
+		if (platform !== undefined)
+			return {
+				...refusal(
+					"arm-unavailable",
+					platformRefusalMessage({
+						feature: leaf,
+						platform,
+						platforms: ctx.platforms,
+						subject: "This expression",
+					}),
+					"platform-unavailable",
+				),
+				platform: { feature: leaf, platform },
+			};
+	}
 	if (expression.kind === "itext" || expression.kind === "choice-name") {
 		const refused = formTextAdmission(expression, ctx);
 		if (refused !== undefined) return refused;
@@ -1125,16 +1159,6 @@ const HELD_SEARCH_READ_KINDS: ReadonlySet<string> = new Set([
 	"locations",
 	"project",
 ]);
-
-/** A slot only CommCare's server search and Postgres read, which no device
- * evaluates: today an advanced search input's condition. */
-function serverOnlySearchSlot(profile: ExpressionContext["profile"]): boolean {
-	return (
-		profile.targets.has("CS") &&
-		!profile.targets.has("SU") &&
-		!profile.targets.has("XF")
-	);
-}
 
 /** The carrier of a record slot evaluated after an earlier menu's case is
  * chosen, or undefined for any other. */

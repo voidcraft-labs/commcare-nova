@@ -28,6 +28,7 @@ import {
 	type OrganizationLevel,
 	organizationLevelsOf,
 } from "../organization";
+import { declaredPlatforms, type Platform } from "../platforms";
 import { proseText } from "../prose";
 import {
 	expressionSlotValues,
@@ -150,6 +151,9 @@ export interface ExpressionContext {
 	 * the search runs (`searchRuntimeValues.ts`): the slot names no device
 	 * target, yet Core evaluates this expression. */
 	readonly runsOnDevice?: true;
+	/** The platforms the app declares (`declaredPlatforms`): what an
+	 * expression leaf one platform lacks is refused against. */
+	readonly platforms: readonly Platform[];
 }
 export type RecordQueryRowScope =
 	| { readonly kind: "case"; readonly caseType?: string }
@@ -1017,5 +1021,6 @@ export function slotContext(
 		lookupTables,
 		supplies,
 		...(targetSupplies === undefined ? {} : { targetSupplies }),
+		platforms: declaredPlatforms(doc),
 	};
 }

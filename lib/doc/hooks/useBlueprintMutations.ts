@@ -120,7 +120,7 @@ import {
 	updateUserTypeValueMutations,
 } from "@/lib/doc/userMutations";
 import {
-	type AppSettings,
+	type AppSettingsPatch,
 	type Automation,
 	type AutomationSchedule,
 	asUuid,
@@ -608,7 +608,7 @@ export interface BlueprintMutations {
 	 * changes, so a switch that sets one never writes over a peer's change to
 	 * the other.
 	 */
-	setAppSettings: (settings: Partial<AppSettings>) => CommitOutcome;
+	setAppSettings: (settings: AppSettingsPatch) => CommitOutcome;
 	/**
 	 * Rename one or more case properties app-wide as one simultaneous,
 	 * batch-exclusive relation. This is the only builder mutation that changes

@@ -1140,6 +1140,35 @@
 		"gates": []
 	},
 	{
+		"id": "application-and-settings/connect-app-opened-in-the-connect-app",
+		"area": "application-and-settings",
+		"section": "Application",
+		"item": "a CommCare Connect app (learn or deliver)",
+		"surfaceKeys": [],
+		"noSurfaceKey": "Who opens a Connect app is Connect's and HQ's account state, which no export carries: Connect makes each worker's HQ account with no password (commcare-connect users/helpers.py::create_hq_user_and_link), HQ's user page refuses to set one (users/forms.py::SetUserPasswordForm), and HQ takes the worker's PersonalID token only at /oauth/token/ (domain/auth.py::ConnectIDAuthBackend), which the Connect app on Android calls (ApiPersonalId.retrieveHqToken).",
+		"origin": "export-use",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `connectType` (learn or deliver) with its form blocks; declared Android only",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "UNAVAILABLE (a Connect worker has no HQ password and signs in only in the Connect app on Android; the blocks themselves submit and Connect takes them) / RUNS (the Connect app installs the app from its media profile and signs in with PersonalID, `ConnectAppLauncher.awaitOutcome`)",
+			"webApps": {
+				"reading": "unavailable",
+				"note": "a Connect worker has no HQ password and signs in only in the Connect app on Android; the blocks themselves submit and Connect takes them"
+			},
+			"android": {
+				"reading": "runs",
+				"note": "the Connect app installs the app from its media profile and signs in with PersonalID, `ConnectAppLauncher.awaitOutcome`"
+			}
+		},
+		"emission": {
+			"cell": "the form blocks and `auto_gps_capture`",
+			"markers": []
+		},
+		"gates": ["toggle/COMMCARE_CONNECT"]
+	},
+	{
 		"id": "application-and-settings/1-properties-cc-autoup-freq",
 		"area": "application-and-settings",
 		"section": "Settings and profile",
@@ -2151,8 +2180,9 @@
 			"setting:hq.cloudcare_enabled",
 			"schema:Application.cloudcare_enabled"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the platform declaration's wire form: `true` exactly when the app declares Web Apps (Web Apps lists an app by the value on the build it serves, `cloudcare/utils.py::get_web_apps_available_to_user`)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `appSettings.runsOnlyOn`, the platform declaration, whose wire form this is: `true` exactly when the app declares Web Apps (no `runsOnlyOn`, or `web-apps`), `false` for `android` (Web Apps lists an app by the value on the build it serves, `cloudcare/utils.py::get_web_apps_available_to_user`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / n/a",

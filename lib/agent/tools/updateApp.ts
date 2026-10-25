@@ -12,7 +12,7 @@
 
 import { z } from "zod";
 import type { Mutation } from "@/lib/doc/types";
-import type { AppSettings } from "@/lib/domain";
+import type { AppSettings, AppSettingsPatch } from "@/lib/domain";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
 	guardedMutate,
@@ -63,8 +63,8 @@ export type UpdateAppResult = MutationSuccess | { error: string };
 function changedSettings(
 	input: UpdateAppInput,
 	current: AppSettings,
-): Partial<AppSettings> {
-	const settings: Partial<AppSettings> = {};
+): AppSettingsPatch {
+	const settings: AppSettingsPatch = {};
 	if (
 		input.show_saved_forms !== undefined &&
 		input.show_saved_forms !== current.showSavedForms

@@ -1,13 +1,22 @@
 /**
- * Two facts every record slot reports under one code whatever slot holds the
+ * Three facts every record slot reports the same way whatever slot holds the
  * read, the way form logic reports them: a read of Date closed where a device
- * evaluates it (`CASE_LIST_CLOSED_ON_NOT_ON_DEVICE`), and a read
+ * evaluates it (`CASE_LIST_CLOSED_ON_NOT_ON_DEVICE`), a read
  * of the case chosen in a menu the slot's entries don't supply before it runs
- * (`SESSION_DATUM_NOT_SUPPLIED`). Each record rule wraps its
+ * (`SESSION_DATUM_NOT_SUPPLIED`), and a leaf a platform the app declares
+ * lacks (the checker's `platform-unavailable`, which keeps its slot's code
+ * and takes the platform refusal's message). Each record rule wraps its
  * checker findings in its own slot code with `checkErrorDetails`; the runner
- * re-codes those two here, so a new record rule needs no code of its own.
+ * re-codes the first two and re-words the third here, so a new record rule
+ * needs no code of its own.
  */
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
+import {
+	declaredPlatforms,
+	PLATFORM_FEATURE_IDS,
+	PLATFORMS,
+	platformRefusalMessage,
+} from "@/lib/domain/platforms";
 import type { Uuid } from "@/lib/domain/uuid";
 import type { ValidationError } from "./errors";
 
@@ -106,5 +115,38 @@ export function sharedRecordFinding(
 			},
 		};
 	}
+	if (details.checkReason === "platform-unavailable") {
+		const feature = PLATFORM_FEATURE_IDS.find((id) => id === details.feature);
+		const platform = PLATFORMS.find((id) => id === details.platform);
+		if (feature === undefined || platform === undefined) return error;
+		return {
+			...error,
+			message: platformRefusalMessage({
+				feature,
+				platform,
+				platforms: declaredPlatforms(doc),
+				subject: recordSlotSubject(doc, error),
+			}),
+			details: { ...details, slotCode: error.code },
+		};
+	}
 	return error;
+}
+
+/** The record slot a platform refusal names, as the agent reads it: the
+ * calculated column by its header, and any other slot as the checker names
+ * it. */
+function recordSlotSubject(doc: BlueprintDoc, error: ValidationError): string {
+	if (error.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR") {
+		const moduleUuid = error.location.moduleUuid;
+		const column = (
+			moduleUuid === undefined
+				? undefined
+				: doc.modules[moduleUuid]?.caseListConfig?.columns
+		)?.find((entry) => entry.uuid === error.details?.columnUuid);
+		const header =
+			column !== undefined && "header" in column ? column.header : "";
+		return `Calculated column "${header}" in module "${error.location.moduleName ?? ""}"`;
+	}
+	return "This expression";
 }

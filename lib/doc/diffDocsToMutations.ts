@@ -116,6 +116,7 @@ import {
 } from "@/lib/doc/userMutations";
 import type {
 	AppSettings,
+	AppSettingsPatch,
 	Automation,
 	CaseListConfig,
 	CaseType,
@@ -450,13 +451,16 @@ function menuMediaChanged(
 function appSettingsPatch(
 	prev: AppSettings,
 	next: AppSettings,
-): Partial<AppSettings> | undefined {
-	const patch: Partial<AppSettings> = {};
+): AppSettingsPatch | undefined {
+	const patch: AppSettingsPatch = {};
 	if (prev.showSavedForms !== next.showSavedForms) {
 		patch.showSavedForms = next.showSavedForms;
 	}
 	if (prev.showIncompleteForms !== next.showIncompleteForms) {
 		patch.showIncompleteForms = next.showIncompleteForms;
+	}
+	if (prev.runsOnlyOn !== next.runsOnlyOn) {
+		patch.runsOnlyOn = next.runsOnlyOn ?? null;
 	}
 	return Object.keys(patch).length > 0 ? patch : undefined;
 }

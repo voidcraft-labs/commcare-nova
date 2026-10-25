@@ -2188,8 +2188,9 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD / HELD-NEW (Question types Connect blocks)",
+		"content": "HELD / HELD-NEW (Application: a Connect app; Question types Connect blocks)",
 		"contentEntries": [
+			"application-and-settings/connect-app-opened-in-the-connect-app",
 			"questions/connect-learn-module",
 			"questions/connect-assessment",
 			"questions/connect-deliver-unit",
@@ -2923,7 +2924,7 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Settings and profile, `cloudcare_enabled`)",
+		"content": "HELD (Settings and profile, `cloudcare_enabled`)",
 		"contentEntries": ["application-and-settings/40-hq-cloudcare-enabled"],
 		"platforms": "n/a",
 		"preflight": {

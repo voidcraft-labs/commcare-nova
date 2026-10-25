@@ -74,6 +74,11 @@ export function applyAppMutation(
 				draft.appSettings.showIncompleteForms =
 					mut.settings.showIncompleteForms;
 			}
+			// `null` clears the declaration to Web Apps and Android, the
+			// absent key; a value narrows the app to one platform.
+			if (mut.settings.runsOnlyOn === null) delete draft.appSettings.runsOnlyOn;
+			else if (mut.settings.runsOnlyOn !== undefined)
+				draft.appSettings.runsOnlyOn = mut.settings.runsOnlyOn;
 			return;
 		case "relabelSourceLanguage": {
 			const current = effectiveAppLocalization(draft.localization);

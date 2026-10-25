@@ -137,7 +137,7 @@ export interface SearchQueryArgs {
 }
 
 /**
- * Build the `<session>` Element. `wire` flows from `compileForPlatform`:
+ * Build the `<session>` Element. `wire` flows from `searchWireShape`:
  * `inlineSearch` picks the storage-instance id (`results:inline` vs
  * `results`); `defaultSearch` lands on `<query default_search>`.
  * `autoLaunch` flows past — the case-list short-detail emitter
@@ -194,7 +194,7 @@ export function buildSearchSession(
 
 /**
  * Build the `<query>` Element and everything it carries. `wire` flows
- * from `compileForPlatform`: `inlineSearch` picks the storage-instance id
+ * from `searchWireShape`: `inlineSearch` picks the storage-instance id
  * (`results:inline` vs `results`) and the answer instance every
  * `input(...)` read prints through; `defaultSearch` lands on
  * `<query default_search>`.
