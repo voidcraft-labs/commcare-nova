@@ -44,6 +44,7 @@ from types import SimpleNamespace
 import pytest
 
 from proof.checks import cases, observations, sensitivity
+from proof.checks.corpus import CorpusLayoutError
 from proof.checks.differences import Difference
 from proof.checks.registers import Entry
 from proof.hq import operations
@@ -416,6 +417,9 @@ def test_a_flip_turning_sync_on_is_refused_where_the_verdict_requires_it_off():
     assert all(flip.accepted for gate, flip in off.items() if gate != SYNC)
     silent = {flip.gate: flip for flip in sensitivity.flips(plain, *reads, {"minimumConfiguration": minimum})}
     assert all(flip.accepted for flip in silent.values())
+    # The verdict is read as corpus.lacking reads it: a sync requirement other than off is refused, not accepted.
+    with pytest.raises(CorpusLayoutError, match="syncCasesOnFormEntry True"):
+        sensitivity.accepts({"minimumConfiguration": {**minimum, "syncCasesOnFormEntry": True}}, plain)
 
 
 def test_a_flip_is_refused_exactly_where_nova_publish_would_refuse_the_configuration():

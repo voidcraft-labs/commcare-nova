@@ -185,6 +185,10 @@ def test_a_reader_reads_an_app_only_on_a_platform_it_declares():
     assert not readers.reads_app("android", web_apps)
     for reader in ("formplayer", "connect"):
         assert all(readers.reads_app(reader, platforms) for platforms in (both, web_apps, android))
+    # The module stays on the standard library, so it spells the platforms itself; they are the corpus's.
+    from proof.checks.corpus import PLATFORMS
+
+    assert set(readers.PLATFORM_OF.values()) == set(PLATFORMS)
 
 
 def test_a_run_with_the_readers_runs_every_test_and_holds_each_marked_by_hand_to_asking_for_one(tmp_path):

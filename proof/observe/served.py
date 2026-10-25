@@ -399,6 +399,12 @@ def aligned(
         return None
     script = script_of(blobs.get_json(held_a["A"]["formplayer"]["trace"]))
     walks_b = b_aligned is not None and b_aligned.files is not None and differs and unbuildable(b_aligned) is None
+    from proof.lane.readers import reads_app
+
+    if not walks_b and not reads_app("android", document.platforms()):
+        # No B build to walk, and an app that declares no Android has no local archive or device to serve: the
+        # serving would record nothing, so HQ is not asked to fork, build and release it.
+        return {"devices": {}}
     from proof.webapps.hq import ReleaseRefused
 
     opportunity = connect.opportunity if connect is not None else None

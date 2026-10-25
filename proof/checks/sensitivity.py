@@ -79,6 +79,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from proof.checks.corpus import verdict_lacks
 from proof.checks.differences import Difference
 from proof.observe.sensitivity import COMMTRACK as COMMTRACK
 from proof.observe.sensitivity import FLAG_GATE_PREFIX as FLAG_GATE_PREFIX
@@ -122,12 +123,7 @@ def accepts(verdict, configuration):
     publish requires, whether it requires case search, and, where Nova's publish requires sync cases on
     form entry off, ``syncCasesOnFormEntry: false``; a verdict without that key requires nothing of it.
     """
-    minimum = verdict["minimumConfiguration"]
-    if not set(minimum["flags"]) <= set(configuration.flags):
-        return False
-    if minimum["caseSearchEnabled"] and not configuration.case_search_enabled:
-        return False
-    return not (minimum.get("syncCasesOnFormEntry") is False and configuration.sync_cases_on_form_entry)
+    return not verdict_lacks(verdict, configuration, "The document's verdict")
 
 
 def flips(configuration, flags_read, settings_read, verdict):

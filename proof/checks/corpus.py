@@ -234,7 +234,12 @@ def lacking(configuration, verdict_path):
     setting off) and the configuration has it on; a verdict without that key
     requires nothing of it.
     """
-    verdict = _read_json(verdict_path)
+    return verdict_lacks(_read_json(verdict_path), configuration, verdict_path)
+
+
+def verdict_lacks(verdict, configuration, where):
+    """``lacking`` over a verdict already read (``where`` names it in a refusal), so every reader of a verdict,
+    ``proof.checks.sensitivity.accepts`` among them, reads and refuses it alike."""
     minimum = verdict.get("minimumConfiguration") if isinstance(verdict, dict) else None
     if (
         not isinstance(minimum, dict)
@@ -242,13 +247,13 @@ def lacking(configuration, verdict_path):
         or not isinstance(minimum.get("caseSearchEnabled"), bool)
     ):
         raise CorpusLayoutError(
-            f"{verdict_path} holds no minimumConfiguration with its flags and caseSearchEnabled, so it does not say"
+            f"{where} holds no minimumConfiguration with its flags and caseSearchEnabled, so it does not say"
             " whether Nova's publish would send there (decision 19)."
         )
     sync = minimum.get("syncCasesOnFormEntry", None)
     if "syncCasesOnFormEntry" in minimum and sync is not False:
         raise CorpusLayoutError(
-            f"{verdict_path} holds syncCasesOnFormEntry {sync!r}; a verdict requires the setting off (false) or says"
+            f"{where} holds syncCasesOnFormEntry {sync!r}; a verdict requires the setting off (false) or says"
             " nothing of it."
         )
     missing = sorted(set(minimum["flags"]) - set(configuration.flags))
