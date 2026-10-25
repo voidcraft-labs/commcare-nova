@@ -45,6 +45,10 @@ vi.mock("@/lib/logger", () => ({
 const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
 const FIELD_UUID = "22222222-2222-4222-8222-222222222222";
 const ATTACHMENT_ID = "33333333-3333-4333-8333-333333333333";
+const VIDEO_UUID = "55555555-5555-4555-8555-555555555555";
+const AUDIO_UUID = "66666666-6666-4666-8666-666666666666";
+const SIGNATURE_UUID = "77777777-7777-4777-8777-777777777777";
+const DOCUMENT_UUID = "88888888-8888-4888-8888-888888888888";
 
 function request(
 	signal?: AbortSignal,
@@ -60,6 +64,8 @@ function request(
 			instancePath: "/data/photo",
 			filename: "photo.jpg",
 			sizeBytes: 17,
+			platform: "web-apps",
+			contentType: "image/jpeg",
 			...changes,
 		}),
 	});
@@ -96,7 +102,7 @@ describe("POST /api/apps/[id]/attachments initiation compensation", () => {
 		expect(response.status).toBe(400);
 		expect(await response.json()).toEqual({
 			error:
-				"An image question accepts .jpg, .jpeg, .png. Attach one of those instead.",
+				"An image question accepts .jpg, .jpeg, .png, so you can attach one of those instead.",
 		});
 		expect(mocks.createPending).not.toHaveBeenCalled();
 	});
@@ -262,7 +268,132 @@ describe("POST /api/apps/[id]/attachments initiation compensation", () => {
 	});
 });
 
-function captureBlueprint() {
+describe("POST /api/apps/[id]/attachments per platform", () => {
+	const TEN_MB = 10 * 1024 * 1024;
+	beforeEach(() => {
+		mocks.requireSession.mockResolvedValue({ user: { id: "user-1" } });
+		mocks.resolveAuthorizedAppSnapshot.mockResolvedValue({
+			projectId: "project-1",
+			baseSeq: 7,
+			app: { blueprint: captureBlueprint() },
+		});
+		mocks.createPending.mockResolvedValue({
+			attachmentId: ATTACHMENT_ID,
+			attachmentName: `${ATTACHMENT_ID}.webm`,
+			objectKey: `captures-staged/project-1/${ATTACHMENT_ID}.webm`,
+		});
+		mocks.createSignedUploadUrl.mockResolvedValue({
+			url: "https://storage.example.test/upload",
+			requiredHeaders: {},
+		});
+	});
+	const video = (platform: string) =>
+		request(undefined, {
+			fieldUuid: VIDEO_UUID,
+			instancePath: "/data/clip",
+			filename: "Clip.WEBM",
+			sizeBytes: TEN_MB,
+			platform,
+			contentType: "video/webm",
+		});
+
+	it("takes any video file up to Android's limit, keeping its type", async () => {
+		const response = await POST(video("android"), params);
+		expect(response.status).toBe(200);
+		await response.json();
+		expect(mocks.createPending).toHaveBeenCalledWith(
+			expect.objectContaining({
+				extension: ".webm",
+				contentType: "video/webm",
+				sizeBytes: TEN_MB,
+			}),
+		);
+	});
+
+	it("refuses the same upload in Web Apps with the size sentence", async () => {
+		const response = await POST(video("web-apps"), params);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({
+			error:
+				"That file is larger than the 4 MB limit CommCare accepts for one attachment in Web Apps. You can attach a smaller file.",
+		});
+		expect(mocks.createPending).not.toHaveBeenCalled();
+	});
+
+	it("refuses a platform the app does not declare before any write", async () => {
+		mocks.resolveAuthorizedAppSnapshot.mockResolvedValue({
+			projectId: "project-1",
+			baseSeq: 7,
+			app: { blueprint: captureBlueprint("web-apps") },
+		});
+		const response = await POST(video("android"), params);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({
+			error:
+				"This app doesn't run on that platform. You can reload the form and try again.",
+		});
+		expect(mocks.createPending).not.toHaveBeenCalled();
+	});
+
+	it("refuses an image for an audio question on Android with the family sentence", async () => {
+		const response = await POST(
+			request(undefined, {
+				fieldUuid: AUDIO_UUID,
+				instancePath: "/data/voice",
+				filename: "photo.png",
+				platform: "android",
+				contentType: "image/png",
+			}),
+			params,
+		);
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({
+			error:
+				"An audio question accepts audio files, so you can attach one of those instead.",
+		});
+		expect(mocks.createPending).not.toHaveBeenCalled();
+	});
+
+	it("refuses a content type that is not a type and subtype before any write", async () => {
+		const response = await POST(
+			request(undefined, { platform: "android", contentType: "image" }),
+			params,
+		);
+		expect(response.status).toBe(400);
+		await response.json();
+		expect(mocks.createPending).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["signature", SIGNATURE_UUID, "/data/sign", "sign.gif", "image/gif"],
+		[
+			"file",
+			DOCUMENT_UUID,
+			"/data/report",
+			"report.exe",
+			"application/x-msdownload",
+		],
+	])(
+		"checks an Android %s upload against the kind's extension list",
+		async (_kind, fieldUuid, instancePath, filename, contentType) => {
+			const response = await POST(
+				request(undefined, {
+					fieldUuid,
+					instancePath,
+					filename,
+					platform: "android",
+					contentType,
+				}),
+				params,
+			);
+			expect(response.status).toBe(400);
+			expect((await response.json()).error).toMatch(/ question accepts \./);
+			expect(mocks.createPending).not.toHaveBeenCalled();
+		},
+	);
+});
+
+function captureBlueprint(runsOnlyOn?: "web-apps" | "android") {
 	const doc = buildDoc({
 		modules: [
 			{
@@ -271,12 +402,20 @@ function captureBlueprint() {
 					{
 						name: "Evidence",
 						type: "survey",
-						fields: [f({ uuid: FIELD_UUID, id: "photo", kind: "image" })],
+						fields: [
+							f({ uuid: FIELD_UUID, id: "photo", kind: "image" }),
+							f({ uuid: VIDEO_UUID, id: "clip", kind: "video" }),
+							f({ uuid: AUDIO_UUID, id: "voice", kind: "audio" }),
+							f({ uuid: SIGNATURE_UUID, id: "sign", kind: "signature" }),
+							f({ uuid: DOCUMENT_UUID, id: "report", kind: "file" }),
+						],
 					},
 				],
 			},
 		],
 	});
+	if (runsOnlyOn !== undefined)
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn };
 	const wire = toPersistableDoc(doc);
 	blueprintDocSchema.parse(wire);
 	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);

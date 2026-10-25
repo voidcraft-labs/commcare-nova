@@ -7,6 +7,7 @@
 // promoted one would carry a name with nothing behind it.
 
 import { asUuid, type Uuid } from "@/lib/domain";
+import type { Platform } from "@/lib/domain/platforms";
 import {
 	type InstancePathProjection,
 	projectInstancePath,
@@ -2225,9 +2226,13 @@ export async function stageAttachment(args: {
 	fieldUuid: string;
 	instancePath: string;
 	file: File;
+	/** The platform Preview plays, whose limits and acceptance the route
+	 *  applies. */
+	platform: Platform;
 	signal?: AbortSignal;
 }): Promise<StagedAttachment> {
-	const { appId, entryKey, fieldUuid, instancePath, file, signal } = args;
+	const { appId, entryKey, fieldUuid, instancePath, file, platform, signal } =
+		args;
 	const initiate = await postJson<{
 		attachmentId: string;
 		attachmentName: string;
@@ -2242,6 +2247,11 @@ export async function stageAttachment(args: {
 			instancePath,
 			filename: file.name,
 			sizeBytes: file.size,
+			platform,
+			/* The browser's own type for the file, which Android admits by
+			 * MIME family; `""` for a file the browser cannot type. A
+			 * recorder's parameters (such as `;codecs=opus`) are not part of the type. */
+			contentType: file.type.split(";")[0]?.trim() ?? "",
 		},
 		signal,
 	);

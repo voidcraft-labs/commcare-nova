@@ -23,19 +23,51 @@
 
 import type { PersistableDoc } from "./blueprint";
 import { type CaptureFieldKind, isCaptureFieldKind } from "./fields";
+import type { Platform } from "./platforms";
+
+/** What one platform accepts as a worker's capture. */
+export interface CaptureLimits {
+	/** The largest file, in bytes. */
+	readonly maxBytes: number;
+	/** A file larger than this attaches with a note that it may be slow to
+	 *  send; absent where the platform warns of nothing. */
+	readonly warnAboveBytes?: number;
+	/** Web Apps checks the file's extension against the kind's list
+	 *  (`CAPTURE_EXTENSIONS_BY_KIND`); Android takes any file of the kind's
+	 *  MIME family. */
+	readonly acceptance: "extension-list" | "mime-family";
+}
 
 /**
- * The largest capture a worker may attach, in bytes.
+ * Each platform's limits on a worker's capture.
  *
- * Decimal 4,000,000 — the literal in
- * `entries.js::FileEntry.prototype.onAnswerChange` (`size > 4000000`),
- * which is the only cap a worker normally meets. Formplayer's own
+ * Web Apps: decimal 4,000,000 bytes, the literal in
+ * `entries.js::FileEntry.prototype.onAnswerChange` (`size > 4000000`), which
+ * is the only cap a worker meets there. Formplayer's own
  * `MediaValidator::MAX_BYTES_PER_ATTACHMENT` is `4 * 1048576 - 1024` =
  * 4,193,280, so quoting 4 MB is honest and the extra 193 KB is never
  * promised. Nova deliberately does NOT surface Formplayer's oversize
- * message, which advertises "3 MB" while enforcing ~4 MB.
+ * message, which advertises "3 MB" while enforcing about 4 MB.
+ *
+ * Android: 15 MiB less 1 KiB (`utils/FormUploadUtil.java::MAX_BYTES`), with
+ * a warning once `utils/FileUtil.java::isFileOversized` finds
+ * `mf.length() / 1024 > WARNING_SIZE` (3000) in `long` division, so from
+ * 3,001 whole KiB. Acceptance is the MIME family: HQ's receiver takes any
+ * image, audio or video attachment
+ * (`couchforms/getters.py::_valid_attachment_file`).
  */
-export const MAX_CAPTURE_BYTES = 4_000_000;
+export const CAPTURE_LIMITS: Readonly<Record<Platform, CaptureLimits>> = {
+	"web-apps": { maxBytes: 4_000_000, acceptance: "extension-list" },
+	android: {
+		maxBytes: 15 * 1_048_576 - 1024,
+		warnAboveBytes: 3001 * 1024 - 1,
+		acceptance: "mime-family",
+	},
+};
+
+/** The largest capture any platform accepts, which the stored row's size
+ *  check and the submission's byte ceiling are built from. */
+export const MAX_CAPTURE_BYTES_ON_ANY_PLATFORM = 15 * 1_048_576 - 1024;
 
 /** CommCare's submitted multipart cap. Repeated capture questions count too. */
 export const MAX_SUBMITTED_CAPTURE_COUNT = 50;
@@ -55,7 +87,7 @@ export const MAX_PROJECT_CAPTURE_ROWS = 100_000;
 
 /** Fifty maximum-sized captures: the form-wide submitted byte ceiling. */
 export const MAX_SUBMITTED_CAPTURE_BYTES =
-	MAX_SUBMITTED_CAPTURE_COUNT * MAX_CAPTURE_BYTES;
+	MAX_SUBMITTED_CAPTURE_COUNT * MAX_CAPTURE_BYTES_ON_ANY_PLATFORM;
 
 /**
  * Durable captured-data allowance per Project. Unlike authoring media, capture
@@ -183,6 +215,90 @@ export function captureExtensionFor(
 	if (dot === -1) return undefined;
 	const ext = filename.slice(dot).toLowerCase();
 	return CAPTURE_EXTENSIONS_BY_KIND[kind].includes(ext) ? ext : undefined;
+}
+
+/** The capture kinds Android admits by MIME family rather than extension:
+ *  its image, sound and video widgets. A signature is drawn on the pad and a
+ *  document picked as in Web Apps, so neither has a family. */
+export type CaptureMimeFamilyKind = Extract<
+	CaptureFieldKind,
+	"image" | "audio" | "video"
+>;
+
+export function isCaptureMimeFamilyKind(
+	kind: CaptureFieldKind,
+): kind is CaptureMimeFamilyKind {
+	return kind === "image" || kind === "audio" || kind === "video";
+}
+
+const CAPTURE_FAMILY_EXTENSIONS: Readonly<
+	Record<CaptureMimeFamilyKind, string>
+> = {
+	image: ".jpg",
+	audio: ".m4a",
+	video: ".mp4",
+};
+
+/** The extension a family capture takes when its filename gives none Nova
+ *  can keep. */
+export function captureFamilyExtension(kind: CaptureMimeFamilyKind): string {
+	return CAPTURE_FAMILY_EXTENSIONS[kind];
+}
+
+/** The MIME family a kind admits (`image`, `audio` or `video`), when
+ *  `contentType` is in it; `undefined` otherwise, an empty type included. */
+export function captureMimeFamilyFor(
+	kind: CaptureMimeFamilyKind,
+	contentType: string,
+): CaptureMimeFamilyKind | undefined {
+	return contentType.toLowerCase().startsWith(`${kind}/`) ? kind : undefined;
+}
+
+const FAMILY_FILENAME_EXTENSION = /^\.[a-z0-9]{1,10}$/u;
+
+/** The extension a family capture keeps: the filename's own, lowercased,
+ *  when it is a dot and one to ten letters or digits, else the family's
+ *  default. */
+export function captureFamilyExtensionFor(
+	kind: CaptureMimeFamilyKind,
+	filename: string,
+): string {
+	const dot = filename.lastIndexOf(".");
+	const own = dot === -1 ? "" : filename.slice(dot).toLowerCase();
+	return FAMILY_FILENAME_EXTENSION.test(own)
+		? own
+		: captureFamilyExtension(kind);
+}
+
+/**
+ * Whether a staged row's immutable metadata fits a capture kind, by either
+ * platform's rule: the kind's extension list with its extension-derived
+ * content type (Web Apps, and a signature or document on both), or, for an
+ * image, sound or video question, a content type in the kind's MIME family
+ * with the extension that family keeps (Android). The upload route chose the
+ * platform's rule when it admitted the row; this re-proves only that the row
+ * still fits the question's kind, so a question that changed kind between
+ * upload and submit refuses its bytes.
+ */
+export function captureRowFitsKind(
+	kind: CaptureFieldKind,
+	row: {
+		readonly originalFilename: string;
+		readonly extension: string;
+		readonly contentType: string;
+	},
+): boolean {
+	if (
+		captureExtensionFor(kind, row.originalFilename) === row.extension &&
+		captureContentType(row.extension) === row.contentType
+	) {
+		return true;
+	}
+	return (
+		isCaptureMimeFamilyKind(kind) &&
+		captureMimeFamilyFor(kind, row.contentType) !== undefined &&
+		captureFamilyExtensionFor(kind, row.originalFilename) === row.extension
+	);
 }
 
 /**
