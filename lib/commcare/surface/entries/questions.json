@@ -1182,13 +1182,8 @@
 		"valueClass": "hidden-value-datetime",
 		"origin": "export-use",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a Hidden Value that writes a date-and-time case property, bound `xsd:dateTime` (`lib/domain/fieldValueType.ts::fieldValueType`); widen: a Hidden Value that writes nothing, bound `xsd:dateTime` where its calculate keeps a date's clock (`datePattern.ts::isClockKeepingDate`)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "a Hidden Value that writes nothing, bound `xsd:dateTime` where its calculate keeps a date's clock (`datePattern.ts::isClockKeepingDate`)"
-			}
-		],
+		"dispositionCell": "**HELD**: a Hidden Value bound `xsd:dateTime`: one that writes a date-and-time case property, or one that writes nothing whose calculate keeps a date's clock (`datePattern.ts::isClockKeepingDate`), as the date-and-time split's joined value does (`lib/domain/fieldValueType.ts::fieldValueType`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
