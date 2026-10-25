@@ -1393,7 +1393,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				},
 
 				setPreviewPlatform(platform: Platform) {
-					const android = platform === "android";
+					/* The platform Preview will play, not the raw choice: a
+					 * choice the app does not declare derives away. */
+					const android = previewRunsOnAndroid(platform);
 					set({
 						previewPlatform: platform,
 						previewCaseTarget: undefined,

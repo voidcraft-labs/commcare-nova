@@ -99,6 +99,21 @@ describe("setPreviewPlatform", () => {
 		expect(session.getState().previewDeviceSyncedAt).toBeUndefined();
 	});
 
+	it.each([
+		["android", "web-apps", true],
+		["web-apps", "android", false],
+	] as const)(
+		"on an app running only on %s, choosing %s opens the platform it plays",
+		(declared, chosen, deviceHome) => {
+			const { session } = stores(declared);
+			session.getState().setPreviewing(true, { atHome: false });
+			session.getState().setPreviewPlatform(chosen);
+			const state = session.getState();
+			expect(state.previewAtDeviceHome).toBe(deviceHome);
+			expect(state.previewDeviceSyncedAt !== undefined).toBe(deviceHome);
+		},
+	);
+
 	it("resets on a confirmed Project change and on reset, keeping the install id", () => {
 		const { session } = stores();
 		const install = session.getState().previewAndroidDeviceId;
