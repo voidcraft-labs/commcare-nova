@@ -58,6 +58,7 @@ import {
 } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
@@ -2143,6 +2144,7 @@ describe("submitFormAction", () => {
 		const projection = validateCaptureSubmissionProjection(mutation);
 
 		const first = await buildSubmissionOperationProgram({
+			device: webAppsDevice(),
 			appId: APP_ID,
 			committedApp: firstApp,
 			blueprintDigest: FINAL_BLUEPRINT_DIGEST,
@@ -2153,6 +2155,7 @@ describe("submitFormAction", () => {
 			viewerTimeZone: "UTC",
 		});
 		const retry = await buildSubmissionOperationProgram({
+			device: webAppsDevice(),
 			appId: APP_ID,
 			committedApp: retryApp,
 			blueprintDigest: FINAL_BLUEPRINT_DIGEST,

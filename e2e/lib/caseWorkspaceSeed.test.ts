@@ -9,6 +9,7 @@ import {
 } from "@/lib/domain";
 import { splitTileGridByGroupHeader } from "@/lib/preview/caseTileGrouping";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
+import { previewPlatformRules } from "@/lib/preview/platform";
 import {
 	buildCaseWorkspaceBlueprint,
 	CASE_WORKSPACE_SEED,
@@ -138,6 +139,7 @@ describe("case workspace visual-QA seed", () => {
 		const split = splitTileGridByGroupHeader(
 			projectTileGrid(config?.columns ?? []),
 			grouped.headerRows,
+			previewPlatformRules("web-apps"),
 		);
 		expect(split.header.cells).toHaveLength(1);
 		expect(split.body.cells).toHaveLength(2);

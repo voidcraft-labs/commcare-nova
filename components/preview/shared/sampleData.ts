@@ -37,6 +37,8 @@ export function describePopulateError(
 		case "unauthenticated":
 			return `Sign in to ${verbLower} sample data.`;
 		case "persona-unavailable":
+		case "platform-unavailable":
+		case "language-unavailable":
 			return result.message;
 		case "missing-case-type":
 			return `Case type '${result.caseType}' is no longer in the blueprint. Refresh the page and try again.`;

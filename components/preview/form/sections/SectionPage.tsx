@@ -18,7 +18,7 @@ import { useCallback, useEffect, useId, useRef } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { fpath } from "@/lib/doc/fieldPath";
 import { proseTemplateIsEmpty } from "@/lib/domain/prose";
-import type { SectionPage as SectionPageModel } from "@/lib/preview/engine/formEngine";
+import type { FormScreenPage as SectionPageModel } from "@/lib/preview/engine/formEngine";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationField } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { LabelContent } from "@/lib/references/LabelContent";

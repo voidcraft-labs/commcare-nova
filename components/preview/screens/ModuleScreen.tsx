@@ -43,6 +43,7 @@ import {
 } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
+import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { previousTaskFormSelectors } from "@/lib/preview/engine/previousTask";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -60,6 +61,7 @@ import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useBuilderIsReady,
 	useEditMode,
+	usePreviewDevice,
 	usePreviewEntryPointLaunch,
 	usePreviewMenuCaseSelections,
 	usePreviewParentCaseRequest,
@@ -115,7 +117,11 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	/* Whoever Preview is running as: the member, or the persona they
 	 * picked. One identity across every preview surface. */
 	const identity = useSelectedPreviewIdentity();
-	const session = useMemo(() => previewSessionValues(identity), [identity]);
+	const device = usePreviewDevice();
+	const session = useMemo(
+		() => previewSessionValues(identity, withNavigationWidth(device)),
+		[identity, device],
+	);
 	const childUuids = useMemo(
 		() => previewMenuModuleUuids(menuSource, moduleUuid),
 		[menuSource, moduleUuid],

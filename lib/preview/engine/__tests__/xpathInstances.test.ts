@@ -12,6 +12,7 @@ import {
 } from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { LocationFixtureRow } from "@/lib/organization/footprint";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { evaluate } from "../../xpath/evaluator";
 import type { XPathInstance } from "../../xpath/runtimeValues";
 import { XPathDate } from "../../xpath/types";
@@ -373,9 +374,12 @@ describe("Preview structural XPath instances", () => {
 			name: "Ada Lovelace",
 			email: "ada@example.test",
 		});
-		const instance = commcareSessionXPathInstance(identity, {
-			case_id: "patient-1",
-		});
+		const instance = commcareSessionXPathInstance(
+			previewSessionValues(identity, webAppsDevice()),
+			{
+				case_id: "patient-1",
+			},
+		);
 		const ctx = context(new Map([["commcaresession", instance]]));
 
 		expect(
@@ -384,14 +388,23 @@ describe("Preview structural XPath instances", () => {
 		expect(
 			evaluate("instance('commcaresession')/session/data/case_id", ctx),
 		).toBe("patient-1");
-		for (const field of ["drift", "window_width", "applanguage"] as const) {
-			expect(
-				evaluate(
-					`count(instance('commcaresession')/session/context/${field})`,
-					ctx,
-				),
-			).toBe(0);
-		}
+		/* The device supplies these; a device with no measured window holds no
+		 * `window_width`, as Core skips a null. */
+		expect(
+			evaluate("instance('commcaresession')/session/context/drift", ctx),
+		).toBe("0");
+		expect(
+			evaluate("instance('commcaresession')/session/context/applanguage", ctx),
+		).toBe("en");
+		expect(
+			evaluate("instance('commcaresession')/session/context/deviceid", ctx),
+		).toBe("Formplayer");
+		expect(
+			evaluate(
+				"count(instance('commcaresession')/session/context/window_width)",
+				ctx,
+			),
+		).toBe(0);
 	});
 
 	it("projects a completed search's answers as the inline search-input instance", () => {
@@ -431,6 +444,7 @@ describe("Preview structural XPath instances", () => {
 					name: "Ada Lovelace",
 					email: "ada@example.test",
 				}),
+				webAppsDevice(),
 			),
 			answers: new Map([["patient_name", "Zzz"]]),
 			sessionData: { case_id: "household-1" },
@@ -568,7 +582,7 @@ describe("the selected-entities instance of a several-case datum", () => {
 
 	it("serves each selection of an entry under its own datum id", () => {
 		const instances = secondaryXPathInstances({
-			identity: null,
+			session: previewSessionValues(null, webAppsDevice()),
 			lookupData: null,
 			caseDatabase: null,
 			selectedCases: { selected_cases: ["p-1", "p-2"] },
@@ -772,7 +786,7 @@ describe("the flat locations fixture", () => {
 
 	it("rides the device snapshot into the engine's instances", () => {
 		const instances = secondaryXPathInstances({
-			identity: null,
+			session: previewSessionValues(null, webAppsDevice()),
 			lookupData: null,
 			caseDatabase: { rows: [], indices: [], locations: rows },
 			organization,

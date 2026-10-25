@@ -19,6 +19,7 @@ import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
 import type { XPathInstance } from "@/lib/preview/xpath/runtimeValues";
+import type { PreviewPlatformRules } from "../platform";
 import { dateRangeInputErrors } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
@@ -31,7 +32,6 @@ import {
 	searchInputConstraintErrors,
 	searchInputConstraintErrorsOnDevice,
 } from "./searchInputConstraints";
-
 import {
 	caseDatabaseXPathInstance,
 	commcareSessionXPathInstance,
@@ -368,6 +368,7 @@ const NEGATIVE_ZERO = /^-0(?:\.0*)?$/;
  * act on it directly.
  */
 export function searchInputSubmissionErrors(
+	rules: Pick<PreviewPlatformRules, "searchFieldChecks">,
 	caseListConfig: CaseListConfig,
 	caseType: string | undefined,
 	values: SearchInputValues,
@@ -395,6 +396,7 @@ export function searchInputSubmissionErrors(
 		errors.set(name, message);
 	}
 	for (const [name, message] of searchInputConstraintErrors(
+		rules,
 		caseListConfig.searchInputs,
 		values,
 		session,
@@ -414,6 +416,7 @@ export function searchInputSubmissionErrors(
  * a Pattern engine adds.
  */
 export async function searchInputSubmissionErrorsOnDevice(
+	rules: Pick<PreviewPlatformRules, "searchFieldChecks">,
 	caseListConfig: CaseListConfig,
 	caseType: string | undefined,
 	values: SearchInputValues,
@@ -439,6 +442,7 @@ export async function searchInputSubmissionErrorsOnDevice(
 		errors.set(name, message);
 	}
 	for (const [name, message] of await searchInputConstraintErrorsOnDevice(
+		rules,
 		caseListConfig.searchInputs,
 		values,
 		session,

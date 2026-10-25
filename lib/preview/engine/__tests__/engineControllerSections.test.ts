@@ -104,17 +104,17 @@ function splitLive(store: ReturnType<typeof createBlueprintDocStore>) {
 describe("EngineController with a form split into pages while it runs", () => {
 	it("lists the new pages and keeps the moved question's required flag", () => {
 		const { store, ctrl } = liveController();
-		expect(ctrl.sectionPages()).toEqual([]);
+		expect(ctrl.sectionScreens()).toEqual([]);
 
 		splitLive(store);
 
-		expect(ctrl.sectionPages().map((page) => page.uuid)).toEqual([
+		expect(ctrl.sectionScreens().map((page) => page.uuid)).toEqual([
 			SECTION_A,
 			SECTION_B,
 		]);
-		expect(ctrl.sectionPages().map((page) => page.hasVisibleQuestions)).toEqual(
-			[true, true],
-		);
+		expect(
+			ctrl.sectionScreens().map((page) => page.hasVisibleQuestions),
+		).toEqual([true, true]);
 		const runtime = ctrl.store.getState();
 		expect(runtime[Q1_UUID].required).toBe(true);
 	});

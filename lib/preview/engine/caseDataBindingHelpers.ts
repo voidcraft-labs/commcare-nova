@@ -145,7 +145,9 @@ import {
 	getLookupFixtureData,
 } from "@/lib/lookup/service";
 import type { LookupScope } from "@/lib/lookup/types";
+import { previewPlatformRules } from "../platform";
 import { compareEqual } from "../xpath/coerce";
+import type { DayNumberEpoch } from "../xpath/coreDays";
 import { javaTrim } from "../xpath/javaString";
 import { coreAnswerType } from "./answerCast";
 import type { CaptureSubmissionProjection } from "./captureSubmissionValidation";
@@ -164,8 +166,9 @@ import type { CaseListOrderLocale } from "./caseListOrder";
 import { answerXPathValue } from "./dataInstance";
 import { operationOwnerMovesToPlace } from "./dataRefusal";
 import { entryCreatedCaseKeys } from "./entrySessionData";
-import type { ResolvedPreviewIdentity } from "./identity";
+import { previewSessionValues, type ResolvedPreviewIdentity } from "./identity";
 import { type PreviewLookupData, previewLookupData } from "./lookupEvaluation";
+import type { PreviewDevice } from "./previewDevice";
 import {
 	bindSearchInputValuesInPredicate,
 	composeRuntimeFilter,
@@ -346,6 +349,11 @@ export async function readCases(
 		 *  a search's population reads `SEARCH_READING`, the worker's device
 		 *  `CASEDB_READING`, whatever else the module offers. */
 		reading: CaseQueryReading;
+		/** Whether the platform Preview plays clusters a grouped tile list
+		 *  (`lib/preview/platform.ts`, `tileGrouping`): Web Apps reads and
+		 *  pages it by groups, Android draws an ordinary list in sort order,
+		 *  paged and counted by cases. */
+		tileGrouping: "grouped" | "flat";
 		caseIds?: readonly string[];
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		caseListConfig?: CaseListConfig;
@@ -404,7 +412,9 @@ export async function readCases(
 	// candidate set and has no list to draw, so it stays on the flat path
 	// even when the module's tile is grouped.
 	const grouping =
-		page === undefined ? undefined : args.caseListConfig?.tile?.grouping;
+		page === undefined || args.tileGrouping === "flat"
+			? undefined
+			: args.caseListConfig?.tile?.grouping;
 	// ⚠️ This is an EARLY EXIT, not a stage. Everything below it — the count,
 	// the stale-page reclamp, the empty-state cause — belongs to the flat path
 	// only, and `readGroupedCases` repeats whatever it needs. Two things have
@@ -1553,6 +1563,9 @@ export async function buildSubmissionOperationProgram(args: {
 	readonly committedApp: Pick<AppDoc, "blueprint" | "mutation_seq">;
 	readonly blueprintDigest: string;
 	readonly identity: ResolvedPreviewIdentity;
+	/** The device the form ran on, whose session context values a case
+	 *  operation writing one writes. */
+	readonly device: PreviewDevice;
 	readonly lookupScope: LookupScope;
 	/** An authorized pinned snapshot, used by disposable workflow tests. */
 	readonly lookupTableSchemas?: LookupTableSchemas;
@@ -1594,6 +1607,7 @@ export async function buildSubmissionOperationProgram(args: {
 		mutation: args.mutation,
 		projection: args.projection,
 		identity: args.identity,
+		device: args.device,
 		...(movesOwnerToPlace && {
 			workerPlaceIds:
 				args.workerPlaceIds ??
@@ -1798,6 +1812,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 	readonly mutation: SubmissionMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly identity: ResolvedPreviewIdentity;
+	/** The device the form ran on (`previewDevice.ts`). */
+	readonly device: PreviewDevice;
 	/** The ids of the places the worker's `locations` fixture holds, read by
 	 * the I/O half when an operation moves its owner to a place. */
 	readonly workerPlaceIds?: readonly string[];
@@ -1822,6 +1838,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 		form,
 		blueprint,
 		args.projection,
+		previewPlatformRules(args.device.platform).dayNumberEpoch,
 	);
 	const caseTypeSchemas = buildCaseTypeMap(blueprint);
 	const ordinaryChildRelationships = new Map(
@@ -1984,8 +2001,9 @@ export function buildCaseOperationProgramFromDoc(args: {
 		);
 	}
 
+	const session = previewSessionValues(args.identity, args.device);
 	const sessionContext = new Map<string, string>();
-	for (const [field, value] of Object.entries(args.identity.session.context)) {
+	for (const [field, value] of Object.entries(session.context)) {
 		if (value !== undefined) sessionContext.set(field, value);
 	}
 	return {
@@ -2007,10 +2025,8 @@ export function buildCaseOperationProgramFromDoc(args: {
 					([uuid, field]) => [uuid, field.type],
 				),
 			),
-			sessionUser: new Map(Object.entries(args.identity.session.user)),
-			userPropertySlugs: new Map(
-				Object.entries(args.identity.session.userPropertySlugs),
-			),
+			sessionUser: new Map(Object.entries(session.user)),
+			userPropertySlugs: new Map(Object.entries(session.userPropertySlugs)),
 			sessionContext,
 			...(args.viewerTimeZone === undefined
 				? {}
@@ -2257,6 +2273,7 @@ function committedCloseConditionResult(
 	form: Form,
 	blueprint: PersistableDoc,
 	projection: CaptureSubmissionProjection,
+	epoch: DayNumberEpoch,
 ): boolean | undefined {
 	const submitted = projection.closeConditionAnswers;
 	if (form.type !== "close") {
@@ -2308,6 +2325,7 @@ function committedCloseConditionResult(
 			raw,
 		),
 		condition.answer,
+		epoch,
 	);
 }
 

@@ -74,11 +74,12 @@ import {
 	useCanEdit,
 } from "@/lib/session/hooks";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
+import type { SetPreviewing } from "./usePreviewModeTransition";
 
 interface BuilderHeaderProps {
 	/** Preview toggle handler: BuilderLayout's scroll-anchor-capturing
 	 *  wrapper around the store's `setPreviewing`. */
-	onSetPreviewing: (on: boolean) => void;
+	onSetPreviewing: SetPreviewing;
 }
 
 export function BuilderHeader({ onSetPreviewing }: BuilderHeaderProps) {

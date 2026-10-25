@@ -7,6 +7,7 @@ import { evaluateFormSnapshot } from "../evaluateFormSnapshot";
 import { FormEvaluationInputError } from "../formEvaluationTypes";
 import { previewAsMe } from "../identity";
 import { createEvaluationApp } from "./evaluationFixture";
+import { webAppsDevice } from "./fixtures/previewDevices";
 
 /** The worker's record is a case-database read, so only the device's data
  * decides how many records answer it: the app is admitted, and several
@@ -92,6 +93,7 @@ async function createConstraintApp(
 		context: {
 			captureEntry: true,
 			identity,
+			device: webAppsDevice(),
 			cases: { rows: workerRecords(usernames), indices: [] },
 			lookup: {
 				projectRevision: "0",

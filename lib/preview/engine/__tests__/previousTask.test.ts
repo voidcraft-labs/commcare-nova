@@ -8,6 +8,7 @@ import {
 	registrationNestedDoc,
 } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
 import { afterSubmitRoute } from "@/lib/preview/afterSubmitRouting";
+import { ANDROID_RULES } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import type { CaseRow } from "../caseDataBindingTypes";
 import { formNavigation } from "../navigationProjection";
 import {
@@ -364,6 +365,8 @@ describe("the native preceding task", () => {
 		};
 		expect(
 			afterSubmitRoute({
+				rules: ANDROID_RULES,
+				targetVisibility: () => "shown",
 				...common,
 				choice: { kind: "fallback", destination: "previous" },
 				previousTask: () => task,
@@ -371,6 +374,8 @@ describe("the native preceding task", () => {
 		).toEqual({ kind: "previous-task", task });
 		expect(
 			afterSubmitRoute({
+				rules: ANDROID_RULES,
+				targetVisibility: () => "shown",
 				...common,
 				choice: {
 					kind: "link",

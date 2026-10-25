@@ -56,19 +56,36 @@ describe("parseGeopoint", () => {
 describe("formatGeopoint", () => {
 	it("emits four tokens accepted by the actual case-property storage schema", () => {
 		const out = formatGeopoint({ lat: 12.34, lon: 56.78, alt: 0, accuracy: 0 });
-		expect(out).toBe("12.34 56.78 0 0");
+		expect(out).toBe("12.34 56.78 0.0 0.0");
 		expect(acceptsStoredGeopoint(out)).toBe(true);
 	});
 
-	it("drops float noise and trailing zeros from lat/lon", () => {
+	it("spells each number as Java's Double.toString does", () => {
+		for (const [point, spelled] of [
+			[{ lat: 40, lon: -1.5, alt: 0, accuracy: 0 }, "40.0 -1.5 0.0 0.0"],
+			[{ lat: 0.0001, lon: 0, alt: 0, accuracy: 0 }, "1.0E-4 0.0 0.0 0.0"],
+			[
+				{ lat: 12.340000000001, lon: -0.1278, alt: 0, accuracy: 0 },
+				"12.340000000001 -0.1278 0.0 0.0",
+			],
+		] as const) {
+			expect(formatGeopoint(point)).toBe(spelled);
+			expect(acceptsStoredGeopoint(spelled)).toBe(true);
+		}
+	});
+
+	it("floors altitude and accuracy to two decimals, as Core's GeoPointData does", () => {
 		const out = formatGeopoint({
-			lat: 12.340000000001,
-			lon: -0.1278,
-			alt: 0,
-			accuracy: 0,
+			lat: 1,
+			lon: 2,
+			alt: 12.349,
+			accuracy: 7.999,
 		});
-		expect(out).toBe("12.34 -0.1278 0 0");
+		expect(out).toBe("1.0 2.0 12.34 7.99");
 		expect(acceptsStoredGeopoint(out)).toBe(true);
+		expect(formatGeopoint({ lat: 1, lon: 2, alt: -3.001, accuracy: 0 })).toBe(
+			"1.0 2.0 -3.01 0.0",
+		);
 	});
 
 	it("round-trips through parse for a map-picked point", () => {

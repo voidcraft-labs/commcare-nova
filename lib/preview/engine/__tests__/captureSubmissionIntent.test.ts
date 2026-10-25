@@ -4,6 +4,7 @@ import { adjudicateSubmissionReceipt } from "@/lib/case-store";
 import type { CaseOperation } from "@/lib/domain";
 import { formField, literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
@@ -145,6 +146,7 @@ describe("capture submission intent", () => {
 
 		const mutation = emptyCaptureMutation();
 		const built = await buildSubmissionOperationProgram({
+			device: webAppsDevice(),
 			appId: APP_ID,
 			committedApp,
 			blueprintDigest: BLUEPRINT_DIGEST,
@@ -186,6 +188,7 @@ describe("capture submission intent", () => {
 
 		const mutation = emptyCaptureMutation();
 		const built = await buildSubmissionOperationProgram({
+			device: webAppsDevice(),
 			appId: APP_ID,
 			committedApp,
 			blueprintDigest: BLUEPRINT_DIGEST,
@@ -272,6 +275,7 @@ describe("capture submission intent", () => {
 
 		await expect(
 			buildSubmissionOperationProgram({
+				device: webAppsDevice(),
 				appId: APP_ID,
 				committedApp,
 				blueprintDigest: BLUEPRINT_DIGEST,
@@ -302,6 +306,7 @@ describe("capture submission intent", () => {
 		};
 
 		const built = await buildSubmissionOperationProgram({
+			device: webAppsDevice(),
 			appId: APP_ID,
 			committedApp,
 			blueprintDigest: BLUEPRINT_DIGEST,
@@ -341,6 +346,7 @@ describe("capture submission intent", () => {
 
 		await expect(
 			buildSubmissionOperationProgram({
+				device: webAppsDevice(),
 				appId: APP_ID,
 				committedApp,
 				blueprintDigest: BLUEPRINT_DIGEST,
@@ -371,6 +377,7 @@ describe("capture submission intent", () => {
 		};
 
 		const built = await buildSubmissionOperationProgram({
+			device: webAppsDevice(),
 			appId: APP_ID,
 			committedApp,
 			blueprintDigest: BLUEPRINT_DIGEST,

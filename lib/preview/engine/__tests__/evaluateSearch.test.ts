@@ -5,6 +5,7 @@ import { hiddenSearchInputDef, simpleSearchInputDef } from "@/lib/domain";
 import { input, literal, matchesPattern, term } from "@/lib/domain/expression";
 import { evaluateSearch } from "../evaluateForm";
 import { previewAsMe } from "../identity";
+import { webAppsDevice } from "./fixtures/previewDevices";
 
 it("keeps the search draft and validation between bounded calls, and submits hidden values only after correction", async () => {
 	const name = testUuid("11111111-1111-4111-8111-111111111111");
@@ -51,6 +52,7 @@ it("keeps the search draft and validation between bounded calls, and submits hid
 	if (!identity) throw new Error("Missing identity");
 	const context = {
 		identity,
+		device: webAppsDevice(),
 		cases: { rows: [], indices: [] },
 		lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
 	};

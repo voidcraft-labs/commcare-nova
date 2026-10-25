@@ -59,6 +59,8 @@ export function requestGeolocation(): Promise<GeoPoint> {
 export interface GeolocationFix {
 	readonly latitude: number;
 	readonly longitude: number;
+	/** Metres above the ellipsoid, or `null` when the browser gives none. */
+	readonly altitude: number | null;
 	readonly accuracy: number;
 }
 
@@ -92,9 +94,14 @@ export function watchGeolocation(handlers: {
 		(pos) => {
 			if (stopped) return;
 			const accuracy = pos.coords.accuracy;
+			const altitude = pos.coords.altitude;
 			handlers.onFix({
 				latitude: pos.coords.latitude,
 				longitude: pos.coords.longitude,
+				altitude:
+					typeof altitude === "number" && Number.isFinite(altitude)
+						? altitude
+						: null,
 				accuracy:
 					typeof accuracy === "number" && Number.isFinite(accuracy)
 						? accuracy

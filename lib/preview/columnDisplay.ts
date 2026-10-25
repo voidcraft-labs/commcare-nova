@@ -24,6 +24,7 @@ import type {
 	CalculatedValue,
 	CaseRowWithCalculated,
 } from "@/lib/preview/engine/caseDataBindingTypes";
+import type { PreviewPlatformRules } from "@/lib/preview/platform";
 import { toDate } from "@/lib/preview/xpath/coerce";
 import { formatConcreteCommCareDate } from "@/lib/preview/xpath/dateFormatting";
 import { XPathDate } from "@/lib/preview/xpath/types";
@@ -52,6 +53,11 @@ export type ColumnDisplayContext = {
 	 *  the display context rather than being read per cell, so the Results
 	 *  list and the Quick Filter that matches it can never disagree. */
 	readonly projectProse: ProseProjector;
+	/** How a `link` column reads in a Results row or a tile: the link (Web
+	 *  Apps, and every case detail), or on Android the literal `[text](value)`
+	 *  the column holds, since its markdown arm is on the case detail alone
+	 *  (`views/EntityDetailView.java`). Absent reads as the link. */
+	readonly linkColumnInList?: PreviewPlatformRules["linkColumnInList"];
 };
 
 /** Resolve the authored expression type once per calculated column. */
@@ -93,11 +99,15 @@ export function projectColumnDisplay(
 		case "link": {
 			// Quick Filter follows the actual cell: authored wording for a web
 			// link, the visible raw fallback otherwise, and nothing for blank data.
-			const address = caseListDisplayValue(
-				row,
-				column.field,
-				context.reading,
-			).trim();
+			const value = caseListDisplayValue(row, column.field, context.reading);
+			/* The column's display expression: blank in, blank out, else
+			 * `[text](value)` (`linkColumnDisplayXpath`). */
+			if (context.linkColumnInList === "raw-text")
+				return {
+					kind: "value",
+					text: value === "" ? "" : `[${column.linkText}](${value})`,
+				};
+			const address = value.trim();
 			return {
 				kind: "value",
 				text: isOpenableAddress(address) ? column.linkText : address,

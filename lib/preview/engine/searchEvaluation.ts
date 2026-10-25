@@ -8,6 +8,7 @@ import { effectiveFilterForEmission } from "@/lib/domain/expression";
 import type { LanguageTag } from "@/lib/domain/localization";
 import { resolveAppLanguage } from "@/lib/domain/localization";
 import { automaticallyLaunchesSearch } from "../caseListPhase";
+import { previewPlatformRules } from "../platform";
 import { projectWorkerModule } from "../workerModule";
 import { toBoolean } from "../xpath/coerce";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
@@ -59,7 +60,8 @@ export async function evaluateSearchSnapshot(
 	const config = mod.caseListConfig;
 	const inputs = config?.searchInputs ?? [];
 	const search = effectiveCaseSearchConfig(mod);
-	const session = previewSessionValues(context.identity);
+	const session = previewSessionValues(context.identity, context.device);
+	const rules = previewPlatformRules(context.device.platform);
 	const lookup = previewLookupData(context.lookup);
 	const environment = {
 		doc,
@@ -121,6 +123,7 @@ export async function evaluateSearchSnapshot(
 		});
 		try {
 			const found = await searchInputSubmissionErrorsOnDevice(
+				rules,
 				config,
 				mod.caseType,
 				values,
@@ -136,6 +139,7 @@ export async function evaluateSearchSnapshot(
 								profile: "search",
 								source: xpath.source,
 								instances: searchScreenWorkerInstances(xpath),
+								dayNumberEpoch: rules.dayNumberEpoch,
 							},
 							{ signal: AbortSignal.timeout(30_000) },
 						);
@@ -161,6 +165,7 @@ export async function evaluateSearchSnapshot(
 			hasVisibleInputs: run.allowedKeys.size > 0,
 			hasEffectiveFilter:
 				effectiveFilterForEmission(mod.caseListConfig?.filter) !== undefined,
+			rules,
 		}) &&
 		!run.hasSubmitted
 	)

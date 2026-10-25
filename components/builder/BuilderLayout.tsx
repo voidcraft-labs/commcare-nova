@@ -54,6 +54,7 @@ import { BuilderPhase } from "@/lib/session/builderTypes";
 import { useBuilderPhase } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
+import type { SetPreviewing } from "./usePreviewModeTransition";
 
 /** Extra space above the scroll target so the field isn't flush with the
  *  cursor mode overlay. Two values: a compact margin for plain selection,
@@ -67,7 +68,7 @@ const SCROLL_MARGIN_WITH_TOOLBAR = 60;
 const BuilderShortcutRegistration = memo(function BuilderShortcutRegistration({
 	onSetPreviewing,
 }: {
-	onSetPreviewing: (on: boolean) => void;
+	onSetPreviewing: SetPreviewing;
 }) {
 	const shortcuts = useBuilderShortcuts(onSetPreviewing);
 	useKeyboardShortcuts("builder-layout", shortcuts);
@@ -140,8 +141,8 @@ export const BuilderLayout = memo(function BuilderLayout({
 	 *  restored this way: it remembers its own scroll position per form and
 	 *  re-applies it via the virtualizer's `initialOffset` on mount (see
 	 *  `VirtualFormList`). */
-	const handleSetPreviewing = useCallback(
-		(on: boolean) => {
+	const handleSetPreviewing = useCallback<SetPreviewing>(
+		(on, at) => {
 			/* Early exit on same-value: avoids DOM measurement + scroll anchor
 			 * thrash on a redundant toggle. The session store also guards
 			 * against same-value no-ops internally, but by that point we've
@@ -173,7 +174,7 @@ export const BuilderLayout = memo(function BuilderLayout({
 				}
 			}
 
-			sessionStore.getState().setPreviewing(on);
+			sessionStore.getState().setPreviewing(on, at);
 		},
 		[sessionStore],
 	);

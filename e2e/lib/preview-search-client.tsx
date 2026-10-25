@@ -16,6 +16,7 @@ import {
 	previewAsMe,
 	previewSessionValues,
 } from "@/lib/preview/engine/identity";
+import { serverPreviewDevice } from "@/lib/preview/engine/previewDevice";
 import { useSearchInputRunState } from "@/lib/preview/hooks/useSearchInputRunState";
 
 const languageJourney = new URLSearchParams(window.location.search).has(
@@ -96,6 +97,10 @@ doc.localization = {
 const docStore = createBlueprintDocStore();
 docStore.getState().load(admittedControllerDoc(doc));
 const environment = { doc, moduleUuid };
+const SEARCH_DEVICE = serverPreviewDevice({
+	platform: "web-apps",
+	appLanguage: "en",
+});
 
 function Surface({ revision }: { revision: number }) {
 	const { selectLanguage } = useBuilderLanguage();
@@ -110,6 +115,7 @@ function Surface({ revision }: { revision: number }) {
 				name: "Worker",
 				email: "worker@example.org",
 			}),
+			SEARCH_DEVICE,
 		),
 	});
 	return (

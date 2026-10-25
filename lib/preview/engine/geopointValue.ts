@@ -13,6 +13,8 @@
 // is strict (always emits four tokens) so every value we commit back
 // satisfies the wire pattern.
 
+import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
+
 /** A decoded geopoint. `alt`/`accuracy` are metres; both are 0 for a
  *  map-picked point (no sensor reading) and real for device geolocation. */
 export interface GeoPoint {
@@ -70,26 +72,31 @@ export function parseGeopoint(raw: string | undefined | null): GeoPoint | null {
 	};
 }
 
-/** Round to `dp` decimals and drop float noise + trailing zeros, so
- *  `12.3400000001` prints as `12.34` rather than `12.340000`. */
-function tidy(value: number, dp: number): string {
-	if (!Number.isFinite(value)) return "0";
-	return String(Number(value.toFixed(dp)));
-}
-
 /**
- * Encode a `GeoPoint` into the wire string. Always emits four tokens so
- * the result matches `GEOPOINT_PATTERN`. Latitude/longitude keep six
- * decimals (~0.1 m); altitude/accuracy keep two. The caller is
- * responsible for passing an in-range coordinate: `format` does not
- * re-validate, mirroring the engine's "value in, string out" contract.
+ * Encode a `GeoPoint` into the wire string as CommCare stores it. Always
+ * emits four tokens so the result matches `GEOPOINT_PATTERN`. Latitude and
+ * longitude are kept as given, altitude and accuracy floored to two decimals
+ * (`GeoPointData.java::fillArray`, whose `roundDecimalUp` is
+ * `Math.floor(x * 100) / 100`), and each of the four printed with Java's
+ * `Double.toString` (Formplayer
+ * `JsonActionUtils.java::convertTouchFormsGeoPointString`, Core
+ * `GeoPointData.java::getDisplayText`), so a map-picked point reads
+ * `40.0 -74.0 0.0 0.0` and a tiny coordinate `1.0E-4`. One spelling serves
+ * both platforms. The caller is responsible for passing an in-range
+ * coordinate: `format` does not re-validate, mirroring the engine's "value
+ * in, string out" contract.
  */
 export function formatGeopoint(point: GeoPoint): string {
-	const lat = tidy(point.lat, 6);
-	const lon = tidy(point.lon, 6);
-	const alt = tidy(point.alt, 2);
-	const accuracy = tidy(point.accuracy, 2);
-	return `${lat} ${lon} ${alt} ${accuracy}`;
+	const finite = (value: number) => (Number.isFinite(value) ? value : 0);
+	const hundredths = (value: number) => Math.floor(finite(value) * 100) / 100;
+	return [
+		finite(point.lat),
+		finite(point.lon),
+		hundredths(point.alt),
+		hundredths(point.accuracy),
+	]
+		.map(openJdk17DoubleToString)
+		.join(" ");
 }
 
 /** Human-readable "lat, lon" for the summary card, rounded for display

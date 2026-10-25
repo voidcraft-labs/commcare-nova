@@ -10,11 +10,13 @@ import {
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import {
 	afterSubmitRoute,
+	afterSubmitTargetVisibility,
 	automaticLinkedCaseCollection,
 	carriedChildCasesFromReceipt,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "../afterSubmitRouting";
+import { previewPlatformRules } from "../platform";
 import { createInProcessXPathWorkerFactory } from "../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
@@ -102,12 +104,13 @@ export async function evaluatePostSubmissionSnapshot(
 			? {}
 			: { searchResults: context.searchResults }),
 		caseDatabase: context.cases,
-		identity: context.identity,
+		session: previewSessionValues(context.identity, context.device),
 	});
+	const rules = previewPlatformRules(context.device.platform);
 	const input = {
 		doc,
 		formUuid: args.formUuid,
-		session: previewSessionValues(context.identity),
+		session: previewSessionValues(context.identity, context.device),
 		usercase: context.identity.usercase,
 		sessionDatums: afterSubmitSessionDatums(
 			entry,
@@ -132,6 +135,7 @@ export async function evaluatePostSubmissionSnapshot(
 					profile: "form-link",
 					source,
 					instances,
+					dayNumberEpoch: rules.dayNumberEpoch,
 				},
 				{ signal: AbortSignal.timeout(30_000) },
 			);
@@ -196,6 +200,19 @@ export async function evaluatePostSubmissionSnapshot(
 			),
 			caseSelections: () => projected,
 			carriedCase: (link) => carriedCaseFromSelections(input, link, projected),
+			rules,
+			targetVisibility: (link) =>
+				afterSubmitTargetVisibility({
+					doc,
+					link,
+					session: input.session,
+					lookup: { kind: "data", data: input.lookupData },
+					deviceCases: {
+						snapshot: context.cases,
+						caseTypes: doc.caseTypes ?? [],
+					},
+					caseSelections: projected,
+				}),
 			hasSelectedCase: (targetModuleUuid, selections) =>
 				previewTargetHasSelectedCase({
 					menuSource,
@@ -209,6 +226,12 @@ export async function evaluatePostSubmissionSnapshot(
 					collections,
 				}),
 		});
+		/* The server holds every case and table the target's visibility reads,
+		 * so it never waits. */
+		if (route.kind === "pending")
+			throw new FormEvaluationInputError(
+				"The next task's menu could not be read from the saved device state.",
+			);
 		for (const selected of projected) {
 			if (selected.caseId === "") continue;
 			const loaded = caseDatabaseToFormPreloads(

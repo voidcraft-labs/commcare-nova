@@ -20,6 +20,7 @@ import {
 } from "@/lib/domain/expression";
 import { slotContext } from "@/lib/domain/expression/context";
 import type { Expression } from "@/lib/domain/expression/types";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import type { PreviewSearchSessionValues } from "../identity";
 import { previewAsMe, previewSessionValues } from "../identity";
 import type { SearchInputValues } from "../runtimeBindings";
@@ -133,6 +134,7 @@ const SESSION = previewSessionValues(
 		name: "Amina Diallo",
 		email: "amina@example.org",
 	}),
+	webAppsDevice(),
 );
 
 describe("preview case-search expression evaluation", () => {

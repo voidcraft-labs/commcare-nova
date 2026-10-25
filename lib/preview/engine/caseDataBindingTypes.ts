@@ -159,18 +159,35 @@ export type LoadCasesResult =
 			 * Search/session expression itself needs an editor. */
 			repair: "inputs" | "settings";
 	  }
-	| PreviewPersonaUnavailableResult
+	| PreviewUnavailableResult
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 
-/** A selected persona was removed (or the selection is otherwise stale).
- * Never silently falls back to the signed-in member: that would render one
- * worker while the chrome still names another, and writes could land under
- * the wrong owner. */
-export type PreviewPersonaUnavailableResult = {
-	kind: "persona-unavailable";
+/** What Preview runs as or on is no longer the app's: the selected persona
+ * was removed, the app no longer declares the platform Preview plays, or no
+ * longer holds the language it shows. Never silently falls back to another
+ * worker or device: that would render one while the chrome still names
+ * another, and writes could land under the wrong owner. Each surface shows
+ * the message. */
+export type PreviewUnavailableResult = {
+	kind: PreviewUnavailableKind;
 	message: string;
 };
+
+export const PREVIEW_UNAVAILABLE_KINDS = [
+	"persona-unavailable",
+	"platform-unavailable",
+	"language-unavailable",
+] as const;
+export type PreviewUnavailableKind = (typeof PREVIEW_UNAVAILABLE_KINDS)[number];
+
+/** Whether a result is one of the three refusals that name what Preview runs
+ *  as or on. */
+export function isPreviewUnavailable<T extends { readonly kind: string }>(
+	result: T,
+): result is Extract<T, { kind: PreviewUnavailableKind }> {
+	return (PREVIEW_UNAVAILABLE_KINDS as readonly string[]).includes(result.kind);
+}
 
 /**
  * Unfiltered case count for the builder-owned case-data manager. This is
@@ -185,7 +202,7 @@ export type LoadCaseCountResult =
 
 export type LoadPersonaOwnedCaseCountResult =
 	| LoadCaseCountResult
-	| PreviewPersonaUnavailableResult;
+	| PreviewUnavailableResult;
 
 /**
  * Result of `conversionImpactAction` — the consent preview for a
@@ -333,7 +350,7 @@ export type LoadCaseDataResult =
 			ancestors: ReadonlyArray<CaseRow>;
 	  }
 	| { kind: "missing" }
-	| PreviewPersonaUnavailableResult
+	| PreviewUnavailableResult
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 
@@ -362,7 +379,7 @@ export type PopulateSampleCasesResult =
 			caseType: string;
 			failures: ReadonlyArray<CasePropertyFailure>;
 	  }
-	| PreviewPersonaUnavailableResult
+	| PreviewUnavailableResult
 	| { kind: "unauthenticated" }
 	| { kind: "error"; message: string };
 
@@ -652,7 +669,7 @@ export type SubmissionResult =
 				>;
 			};
 	  }
-	| PreviewPersonaUnavailableResult
+	| PreviewUnavailableResult
 	| { kind: "unauthenticated" }
 	| {
 			kind: "blueprint-changed";

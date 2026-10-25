@@ -205,7 +205,7 @@ window.previewLanguageScreen = {
 				sectioned: rootField?.kind === "section",
 				rootUuid,
 				pages: controller
-					?.sectionPages()
+					?.sectionScreens()
 					.map((page) => ({ uuid: page.uuid, path: page.path })),
 			},
 			capture: {

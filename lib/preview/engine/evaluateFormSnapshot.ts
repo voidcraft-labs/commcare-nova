@@ -48,6 +48,7 @@ import {
 	FormRefusedError,
 } from "./formEvaluationTypes";
 import { projectFormPresentation } from "./formPresentation";
+import { previewSessionValues } from "./identity";
 import { previewLookupData } from "./lookupEvaluation";
 import { searchInputInstanceValues } from "./runtimeBindings";
 import { availablePages, pagesToValidate } from "./sectionPaging";
@@ -209,7 +210,7 @@ export async function evaluateFormSnapshot(
 			? {}
 			: { searchResults: context.searchResults }),
 		caseDatabase: context.cases,
-		identity: context.identity,
+		session: previewSessionValues(context.identity, context.device),
 	});
 	const engine = new FormEngine(
 		engineInput,
@@ -220,6 +221,7 @@ export async function evaluateFormSnapshot(
 		context.cases,
 		{
 			stagedAsync: true,
+			device: context.device,
 			sessionData: session.data,
 			selectedCases: session.selectedCases,
 			...(session.searchResults === undefined
@@ -260,6 +262,7 @@ export async function evaluateFormSnapshot(
 				source,
 				resultMode,
 				instances: engine.workerInstances(path, world, stateOverrides),
+				dayNumberEpoch: engine.dayNumberEpoch,
 			},
 			{ signal },
 		);
@@ -289,28 +292,73 @@ export async function evaluateFormSnapshot(
 		if (context.entry && context.entry.language === engineInput.language)
 			engine.restoreEntryCheckpoint(context.entry.checkpoint);
 		else await engine.initializeAsync(evaluate);
-		if (input.sectionUuid) {
-			const pages = availablePages(engine.sectionPages());
-			if (!pages.some((page) => page.uuid === input.sectionUuid))
-				throw new FormEvaluationInputError("That section is unavailable.");
-			let allowed = true;
-			for (const page of pagesToValidate(
-				pages,
-				engine.currentSectionUuid() ?? "",
-				input.sectionUuid,
+		/* The form's pages are the platform's screens (`formScreens`): the
+		 * whole form on Web Apps, a section or a group or question on
+		 * Android. A forward move validates every earlier screen in order and
+		 * stops on the first that fails, as Next does. */
+		const oneScreen = engine
+			.formScreens()
+			.every((screen) => screen.kind === "form");
+		const moveForwardTo = async (target: string): Promise<boolean> => {
+			for (const screen of pagesToValidate(
+				availablePages(engine.formScreens()),
+				engine.currentScreenPath() ?? "",
+				target,
 			)) {
-				await engine.enterSectionAsync(page.uuid, evaluate);
-				if (!(await engine.validateSectionAsync(page.uuid, evaluate))) {
-					allowed = false;
-					break;
-				}
+				await engine.enterScreenAsync(screen.path, evaluate);
+				if (!(await engine.validateScreenAsync(screen.path, evaluate)))
+					return false;
 			}
-			if (allowed) await engine.enterSectionAsync(input.sectionUuid, evaluate);
+			await engine.enterScreenAsync(target, evaluate);
+			return true;
+		};
+		if (input.sectionUuid) {
+			const sectionUuid = input.sectionUuid;
+			if (oneScreen) {
+				/* Web Apps draws every section on its one screen, so naming one
+				 * changes nothing; a uuid that is no section of the form refuses
+				 * as it does on Android. */
+				const named = engine
+					.getFieldTree()
+					.some(
+						(node) =>
+							node.field.kind === "section" && node.field.uuid === sectionUuid,
+					);
+				if (!named)
+					throw new FormEvaluationInputError("That section is unavailable.");
+			} else {
+				const target = availablePages(engine.formScreens()).find(
+					(screen) => screen.kind === "section" && screen.uuid === sectionUuid,
+				);
+				if (target === undefined)
+					throw new FormEvaluationInputError("That section is unavailable.");
+				await moveForwardTo(target.path);
+			}
 		}
-		const sectionForPath = (path: string) =>
-			engine
-				.sectionPages()
-				.find((page) => path === page.path || path.startsWith(`${page.path}/`));
+		if (input.screenPath) {
+			const screenPath = input.screenPath;
+			if (
+				!availablePages(engine.formScreens()).some(
+					(screen) => screen.path === screenPath,
+				)
+			)
+				throw new FormEvaluationInputError("That page is unavailable.");
+			await moveForwardTo(screenPath);
+		}
+		/* The screen a question is on: its section on a sectioned form,
+		 * its labeled group or itself on Android, nothing on Web Apps' one
+		 * screen. */
+		const screenForPath = (path: string) =>
+			oneScreen
+				? undefined
+				: engine
+						.formScreens()
+						.find(
+							(screen) =>
+								path === screen.path ||
+								path.startsWith(`${screen.path}/`) ||
+								path.startsWith(`${screen.path}[`),
+						);
 		for (const repeat of input.repeats ?? []) {
 			const path = normalizePath(repeat.path);
 			const field = fieldAt(path);
@@ -342,17 +390,21 @@ export async function evaluateFormSnapshot(
 		}
 		for (const answer of input.answers) {
 			const path = normalizePath(answer.path);
-			const section = sectionForPath(path);
-			if (section) {
-				if (
-					context.captureEntry &&
-					section.uuid !== engine.currentSectionUuid()
-				)
+			const screen = screenForPath(path);
+			if (screen && screen.path !== engine.currentScreenPath()) {
+				if (context.captureEntry && screen.kind === "section")
 					throw new FormEvaluationInputError(
 						"Open that section before answering its questions.",
 					);
-				if (!context.captureEntry)
-					await engine.enterSectionAsync(section.uuid, evaluate);
+				if (context.captureEntry) {
+					/* An Android screen of one group or question: answering it
+					 * enters it, validating earlier screens as a forward turn
+					 * does. */
+					if (!(await moveForwardTo(screen.path)))
+						throw new FormEvaluationInputError(
+							"A question before this one needs an answer first. You can answer it, then try again.",
+						);
+				} else await engine.enterScreenAsync(screen.path, evaluate);
 			}
 			const field = fieldAt(path);
 			if (
@@ -377,27 +429,36 @@ export async function evaluateFormSnapshot(
 		// Standalone checks follow supplied answer order and then remaining pages.
 		// Retained journeys advance only through explicit page turns.
 		if (!context.captureEntry)
-			for (const page of availablePages(engine.sectionPages())) {
-				await engine.enterSectionAsync(page.uuid, evaluate);
+			for (const screen of availablePages(engine.formScreens())) {
+				await engine.enterScreenAsync(screen.path, evaluate);
 			}
-		const sections = engine.sectionPages().map((page) => {
+		const currentScreenPath = engine.currentScreenPath();
+		const screens = engine.formScreens().map((screen) => ({
+			...screen,
+			current: oneScreen || screen.path === currentScreenPath,
+		}));
+		/* The form's sections: on Web Apps each is on the one screen, so each
+		 * is current; on Android each section is its own screen. */
+		const sections = engine.sectionScreens().map((page) => {
 			const field = engineInput.fields[page.uuid];
 			return {
 				...page,
-				current: page.uuid === engine.currentSectionUuid(),
+				current: oneScreen || page.path === currentScreenPath,
 				label:
 					field?.kind === "section" && field.label
 						? projectProseTemplate(field.label, doc).text
 						: "",
 			};
 		});
-		const visibleSections = sections.filter(
-			(section) => section.hasVisibleQuestions || section.needsEntry,
+		const visibleScreens = screens.filter(
+			(screen) => screen.hasVisibleQuestions || screen.needsEntry,
 		);
 		const canSubmit =
 			!context.captureEntry ||
-			visibleSections.length === 0 ||
-			visibleSections.at(-1)?.current === true;
+			visibleScreens.length === 0 ||
+			visibleScreens.at(-1)?.current === true;
+		/* Formplayer rebuilds the session before it validates a submission. */
+		await engine.prepareSubmitAsync(evaluate);
 		const valid = await engine.validateAllAsync(evaluate);
 		const relevantPaths = engine.effectivelyVisiblePaths();
 		const presentation = projectFormPresentation(
@@ -405,9 +466,20 @@ export async function evaluateFormSnapshot(
 			{ stateAt: (_field, path) => engine.getState(path) },
 			{
 				language: engineInput.language,
-				currentSectionUuid: engine.currentSectionUuid(),
+				/* A sectioned form on Android pages by section; every other
+				 * form's page is its current screen (the whole form on Web
+				 * Apps). */
+				...(!oneScreen &&
+				screens.length > 0 &&
+				screens.every((screen) => screen.kind === "section")
+					? { currentSectionUuid: engine.currentSectionUuid() }
+					: { currentScreenPath: currentScreenPath ?? "/data" }),
 				availableSectionUuids: new Set(
-					visibleSections.map((section) => section.uuid),
+					sections
+						.filter(
+							(section) => section.hasVisibleQuestions || section.needsEntry,
+						)
+						.map((section) => section.uuid),
 				),
 				text: (prose) => projectProseTemplate(prose, doc).text,
 			},
@@ -506,9 +578,12 @@ export async function evaluateFormSnapshot(
 				...(presentation.currentSectionUuid === undefined
 					? {}
 					: { currentSectionUuid: presentation.currentSectionUuid }),
+				...(currentScreenPath === undefined ? {} : { currentScreenPath }),
 				nodes: presentation.nodes,
 			},
+			platform: context.device.platform,
 			sections,
+			screens,
 			canSubmit,
 			...(valid && canSubmit
 				? {

@@ -22,6 +22,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { type ModuleLanding, moduleLanding } from "@/lib/domain";
+import { moduleParent } from "@/lib/domain/moduleHierarchy";
 import type { CreatedChildCaseReceipt } from "@/lib/preview/engine/caseDataBindingTypes";
 import type {
 	AfterSubmitChoice,
@@ -37,7 +38,17 @@ import {
 	previewMenuModuleUuids,
 } from "@/lib/preview/menuProjection";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import {
+	formDisplayVisibility,
+	moduleDisplayVisibility,
+	type NavigationDeviceCases,
+	navigationSelectedCase,
+} from "./engine/displayConditionEvaluation";
+import { previewExpressionContext } from "./engine/expressionContext";
+import type { PreviewSearchSessionValues } from "./engine/identity";
 import type { PreviousTask } from "./engine/previousTask";
+import type { PreviewLookupStatus } from "./engine/useLookupPreviewData";
+import type { PreviewPlatformRules } from "./platform";
 
 export type AfterSubmitRoute =
 	| { readonly kind: "previous-task"; readonly task: PreviousTask }
@@ -66,7 +77,100 @@ export type AfterSubmitRoute =
 	 * links and their targets consistent, so this is a bypass or a race the
 	 * screen must report rather than route around.
 	 */
-	| { readonly kind: "unresolvable"; readonly reason: string };
+	| { readonly kind: "unresolvable"; readonly reason: string }
+	/** The target's visibility waits on data still loading (the device's
+	 *  cases, a lookup), as the screen's other visibility reads wait. */
+	| { readonly kind: "pending" };
+
+/** Where a form link's target stands on the worker's menu after submit:
+ *  shown; a form off the menu or whose display condition is false; a form
+ *  inside a module (or under one) that is off the menu or whose display
+ *  condition is false; a module whose display condition is false or that is
+ *  off the menu; or waiting on data. */
+export type AfterSubmitTargetVisibility =
+	| "shown"
+	| "form-hidden"
+	| "form-in-hidden-module"
+	| "module-hidden"
+	| "pending";
+
+/**
+ * Read a link target's place on the worker's menu over the submitted entry's
+ * session: every module up the target's chain through
+ * `moduleDisplayVisibility` (off the menu counts as hidden), then a form
+ * target's own condition through `formDisplayVisibility`, reading the case
+ * the frame selects in the target's module.
+ */
+export function afterSubmitTargetVisibility(args: {
+	readonly doc: BlueprintDoc;
+	readonly link: FormLink;
+	readonly session: PreviewSearchSessionValues;
+	readonly lookup: PreviewLookupStatus;
+	readonly deviceCases: NavigationDeviceCases;
+	readonly caseSelections: readonly TargetCaseSelection[];
+}): AfterSubmitTargetVisibility {
+	const { doc, link } = args;
+	const target = link.target;
+	const lookupData = args.lookup.kind === "data" ? args.lookup.data : undefined;
+	let moduleUuid: Uuid | null | undefined = target.moduleUuid;
+	let pending = false;
+	while (moduleUuid) {
+		const mod = doc.modules[moduleUuid];
+		if (mod === undefined) break;
+		const visibility = moduleDisplayVisibility({
+			condition: mod.displayCondition,
+			hiddenFromMenu: mod.hiddenFromMenu === true,
+			session: args.session,
+			types: previewExpressionContext(
+				doc,
+				{
+					entity: "module",
+					uuid: moduleUuid,
+					slot: "module_display_condition",
+				},
+				lookupData,
+			),
+			lookup: args.lookup,
+			deviceCases: args.deviceCases,
+		});
+		if (visibility === "hidden")
+			return target.type === "form" ? "form-in-hidden-module" : "module-hidden";
+		if (visibility === "pending") pending = true;
+		moduleUuid = moduleParent(doc, moduleUuid);
+	}
+	if (pending) return "pending";
+	if (target.type !== "form") return "shown";
+	const form = doc.forms[target.formUuid];
+	if (form === undefined) return "shown";
+	const chosen = args.caseSelections.filter(
+		(selection) =>
+			selection.moduleUuid === target.moduleUuid && selection.caseId !== "",
+	);
+	const selectedCase =
+		chosen.length === 1
+			? navigationSelectedCase(
+					doc,
+					target.moduleUuid,
+					target.formUuid,
+					chosen[0].caseId,
+				)
+			: undefined;
+	const visibility = formDisplayVisibility({
+		condition: form.displayCondition,
+		hiddenFromMenu: form.hiddenFromMenu === true,
+		session: args.session,
+		types: previewExpressionContext(
+			doc,
+			{ entity: "form", uuid: target.formUuid, slot: "form_display_condition" },
+			lookupData,
+		),
+		selectedCase,
+		lookup: args.lookup,
+		deviceCases: args.deviceCases,
+	});
+	if (visibility === "pending") return "pending";
+	return visibility === "hidden" ? "form-hidden" : "shown";
+}
 
 /** One exact ordered multi-case selection carried by an automatic compatible
  * form link. Scalar target datums still travel through `TargetCaseSelection`;
@@ -98,6 +202,12 @@ export function afterSubmitRoute(args: {
 	/** Resolves the case a FORM target opens with; called only for a target
 	 *  the document holds. */
 	readonly carriedCase: (link: FormLink) => CarriedCase;
+	/** The platform Preview plays: whether a target the worker's menu hides
+	 *  opens (Android) or lands where Web Apps' menu walk lands it. */
+	readonly rules: Pick<PreviewPlatformRules, "afterSubmitHiddenTarget">;
+	/** Whether the link's target is on the worker's menu
+	 *  (`afterSubmitTargetVisibility`), read only on Web Apps. */
+	readonly targetVisibility: (link: FormLink) => AfterSubmitTargetVisibility;
 }): AfterSubmitRoute {
 	const { choice, doc } = args;
 	if (choice.kind === "fallback") {
@@ -119,6 +229,38 @@ export function afterSubmitRoute(args: {
 			kind: "unresolvable",
 			reason: `form link ${link.uuid} targets module ${target.moduleUuid}, which is not in the document`,
 		};
+	}
+	/* Web Apps rebuilds the session by walking the frame through the menus
+	 * it would show (Formplayer `MenuSessionFactory.rebuildSessionFromFrame`,
+	 * which matches steps only against `MenuScreen.getMenuDisplayables()`):
+	 * a form the menu hides lands on its module, and a module the menu
+	 * hides stops the walk on the app's first screen. Android reads the
+	 * frame's commands as they stand and opens the target. */
+	if (args.rules.afterSubmitHiddenTarget === "landing") {
+		const visibility = args.targetVisibility(link);
+		if (visibility === "pending") return { kind: "pending" };
+		if (
+			visibility === "form-in-hidden-module" ||
+			visibility === "module-hidden"
+		)
+			return { kind: "post-submit", destination: "firstMenu" };
+		if (visibility === "form-hidden" && target.type === "form") {
+			const caseSelections = args.caseSelections(link);
+			return {
+				kind: "module",
+				moduleUuid: target.moduleUuid,
+				caseSelections,
+				landing: moduleLanding({
+					isCaseFirst: args.caseFirstModules.has(target.moduleUuid),
+					isBareCaseList: mod.caseListOnly === true,
+					hasSelectedCase:
+						args.hasSelectedCase?.(target.moduleUuid, caseSelections) ?? false,
+					hasChildren: Object.values(doc.modules).some(
+						(candidate) => candidate.parentModuleUuid === target.moduleUuid,
+					),
+				}),
+			};
+		}
 	}
 	if (target.type === "module") {
 		const caseSelections = args.caseSelections(link);

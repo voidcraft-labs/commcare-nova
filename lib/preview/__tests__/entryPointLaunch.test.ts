@@ -4,6 +4,10 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import type { CaseIndexRow, CaseRow } from "@/lib/case-store";
 import { eq, literal, prop, sessionContext } from "@/lib/domain/expression";
 import {
+	ANDROID_RULES,
+	WEB_APPS_RULES,
+} from "../engine/__tests__/fixtures/previewDevices";
+import {
 	FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL,
 	prepareEntryPointLaunch,
 } from "../entryPointLaunch";
@@ -71,6 +75,8 @@ function args(doc = fixture()) {
 		database: { rows: [row("a"), row("b")], indices: [] as CaseIndexRow[] },
 		session: { context: { userid: "worker" }, user: {}, userPropertySlugs: {} },
 		lookup: { kind: "idle" as const },
+		notHeld: { rows: [] as CaseRow[], indices: [] as CaseIndexRow[] },
+		rules: WEB_APPS_RULES,
 	};
 }
 describe("entry point Preview admission", () => {
@@ -326,5 +332,51 @@ describe("entry point parent selection", () => {
 		input.database.indices[0].relationship = "child";
 		input.database.indices[0].ancestor_id = "other-house";
 		expect(launch(input).kind).toBe("refused");
+	});
+});
+
+describe("entry point Preview per platform", () => {
+	const androidArgs = () => ({ ...args(), rules: ANDROID_RULES });
+
+	it("keeps display conditions on Web Apps and ignores them on Android", () => {
+		const web = args();
+		web.doc.forms[F].hiddenFromMenu = true;
+		expect(launch(web)).toEqual({
+			kind: "refused",
+			message: FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL,
+		});
+		const android = androidArgs();
+		android.doc.forms[F].hiddenFromMenu = true;
+		const result = launch(android);
+		expect(result.kind).toBe("ready");
+		expect(
+			result.kind === "ready" && result.launch.ignoreDisplayConditions,
+		).toBe(true);
+	});
+
+	it("claims the chosen cases on Web Apps and nothing on Android", () => {
+		const web = launch(args());
+		expect(web.kind === "ready" && web.claimCaseIds).toEqual(["b"]);
+		const android = launch(androidArgs());
+		expect(android.kind === "ready" && android.claimCaseIds).toEqual([]);
+	});
+
+	it("opens a case the phone lacks with its saved values on Web Apps and blank on Android", () => {
+		const outside = { ...row("c"), properties: { village: "north" } };
+		for (const [rules, blank] of [
+			[WEB_APPS_RULES, false],
+			[ANDROID_RULES, true],
+		] as const) {
+			const input = { ...args(), rules };
+			input.selections[0].caseIds = ["c"];
+			input.notHeld = { rows: [outside], indices: [] };
+			const result = launch(input);
+			if (result.kind !== "ready") throw new Error(result.message);
+			expect(result.blankCaseIds).toEqual(blank ? ["c"] : []);
+			const chosen = result.launch.menuSelections[M].cases[0];
+			expect(chosen.caseId).toBe("c");
+			if (blank) expect(chosen.caseProperties).toEqual({});
+			else expect(chosen.caseProperties).toMatchObject({ village: "north" });
+		}
 	});
 });

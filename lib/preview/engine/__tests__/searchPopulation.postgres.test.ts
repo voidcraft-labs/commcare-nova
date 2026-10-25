@@ -132,6 +132,7 @@ function heldById(
 describe("a search's population", () => {
 	it("reads the Project's open cases past the restore and says which the device holds", async () => {
 		const result = await readCases(storeAs(WORKER), {
+			tileGrouping: "grouped",
 			appId: APP_ID,
 			caseType: "patient",
 			reading: SEARCH_READING,
@@ -149,6 +150,7 @@ describe("a search's population", () => {
 
 	it("reads a claimed case as one the device holds", async () => {
 		const result = await readCases(storeAs(WORKER), {
+			tileGrouping: "grouped",
 			appId: APP_ID,
 			caseType: "patient",
 			reading: SEARCH_READING,
@@ -162,6 +164,7 @@ describe("a search's population", () => {
 
 	it("checks a several-case selection against the same population", async () => {
 		const result = await readCases(storeAs(WORKER), {
+			tileGrouping: "grouped",
 			appId: APP_ID,
 			caseType: "patient",
 			reading: CASEDB_READING,
@@ -201,6 +204,7 @@ describe("a search's population", () => {
 describe("a browse list and the device", () => {
 	it("reads the restore and counts what it leaves out", async () => {
 		const result = await readCases(storeAs(WORKER), {
+			tileGrouping: "grouped",
 			appId: APP_ID,
 			caseType: "patient",
 			reading: CASEDB_READING,
@@ -216,6 +220,7 @@ describe("a browse list and the device", () => {
 
 	it("holds a claimed case in the list, the preload and the device snapshot", async () => {
 		const list = await readCases(storeAs(WORKER), {
+			tileGrouping: "grouped",
 			appId: APP_ID,
 			caseType: "patient",
 			reading: CASEDB_READING,

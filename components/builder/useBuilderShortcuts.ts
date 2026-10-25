@@ -1,6 +1,9 @@
 import { useMemo } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
-import { usePreviewModeTransition } from "@/components/builder/usePreviewModeTransition";
+import {
+	type SetPreviewing,
+	usePreviewModeTransition,
+} from "@/components/builder/usePreviewModeTransition";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCanRedo, useCanUndo } from "@/lib/doc/hooks/useUndoRedo";
@@ -44,9 +47,7 @@ import type { Shortcut } from "@/lib/ui/keyboardManager";
  * booleans, which let those shortcuts decline when their history action
  * cannot run.
  */
-export function useBuilderShortcuts(
-	setPreviewing: (on: boolean) => void,
-): Shortcut[] {
+export function useBuilderShortcuts(setPreviewing: SetPreviewing): Shortcut[] {
 	const isReady = useBuilderIsReady();
 	const accessPhase = useAccessPhase();
 	const canEdit = useCanEdit();

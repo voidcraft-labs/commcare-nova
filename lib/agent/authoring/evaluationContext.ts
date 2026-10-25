@@ -21,6 +21,7 @@ import {
 	type LanguageTag,
 	resolveAppLanguage,
 } from "@/lib/domain/localization";
+import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
 import { getLookupFixtureData, getLookupManifest } from "@/lib/lookup/service";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import { FormEvaluationInputError } from "@/lib/preview/engine/evaluateForm";
@@ -31,6 +32,10 @@ import {
 import { appReadsPlaces } from "@/lib/preview/engine/expressionCaseReads";
 import type { FormEvaluationContext } from "@/lib/preview/engine/formEvaluationTypes";
 import { previewAsMe, previewAsPersona } from "@/lib/preview/engine/identity";
+import {
+	previewAppLanguage,
+	serverPreviewDevice,
+} from "@/lib/preview/engine/previewDevice";
 import { resolveRestoreScope } from "@/lib/preview/engine/restoreScope";
 import {
 	serverRecordsRead,
@@ -42,6 +47,10 @@ import {
 	formReadsSearchResults,
 	type SearchResultsSnapshot,
 } from "@/lib/preview/engine/xpathInstances";
+import {
+	effectivePreviewPlatform,
+	platformUnavailableSentence,
+} from "@/lib/preview/platform";
 import type { ToolInvocationContext } from "../workspace/types";
 
 /** The form a check runs, which decides whether it needs a search's results. */
@@ -62,6 +71,9 @@ export async function loadFormEvaluationContext(
 	personaUuid?: string,
 	scenario?: EvaluationScenario,
 	form?: EvaluatedForm,
+	/** Where the check runs; absent, the platform the app previews on by
+	 *  default (Web Apps when it runs on both, else its only platform). */
+	platform?: Platform,
 ): Promise<FormEvaluationContext> {
 	async function authorize() {
 		if (ctx.appId) {
@@ -89,6 +101,18 @@ export async function loadFormEvaluationContext(
 	if (!user)
 		throw new FormEvaluationInputError("The authoring account is unavailable.");
 	const doc = ctx.snapshot.doc;
+	/* The check runs on one platform the app declares. A check has no
+	 * browser window: Android's id is fresh per call and Web Apps' window is
+	 * 1280 wide. */
+	const declared = declaredPlatforms(doc);
+	if (platform !== undefined && !declared.includes(platform))
+		throw new FormEvaluationInputError(
+			platformUnavailableSentence(platform, "the form"),
+		);
+	const device = serverPreviewDevice({
+		platform: effectivePreviewPlatform(declared, platform),
+		appLanguage: previewAppLanguage(doc.localization, form?.language),
+	});
 	const projectSpace = ctx.appId
 		? await previewProjectSpaceFor({
 				appId: ctx.appId,
@@ -155,6 +179,7 @@ export async function loadFormEvaluationContext(
 			: await formSearchResults(doc, form, {
 					appId: ctx.appId ?? undefined,
 					identity,
+					device,
 					cases,
 					lookup,
 					store,
@@ -164,6 +189,7 @@ export async function loadFormEvaluationContext(
 	await authorize();
 	return {
 		identity,
+		device,
 		cases,
 		lookup,
 		// The entry's `uuid()` datums are minted in this app; the check runs
@@ -188,6 +214,7 @@ export async function formSearchResults(
 	world: {
 		readonly appId: string | undefined;
 		readonly identity: FormEvaluationContext["identity"];
+		readonly device: FormEvaluationContext["device"];
 		readonly cases: CaseDatabaseSnapshot;
 		readonly lookup: FormEvaluationContext["lookup"];
 		readonly store: CaseStore | undefined;
@@ -213,6 +240,7 @@ export async function formSearchResults(
 		language: resolveAppLanguage(doc.localization, form.language),
 		appId: world.appId ?? doc.appId,
 		identity: world.identity,
+		device: world.device,
 		deviceCases: world.cases,
 		lookup: world.lookup,
 		caseTypeSchemas: buildCaseTypeMap(doc),

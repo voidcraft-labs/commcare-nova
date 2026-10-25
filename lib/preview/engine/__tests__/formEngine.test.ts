@@ -48,6 +48,7 @@ import {
 import { formExpressionRuntime } from "../formExpressionRuntime";
 import { previewAsMe } from "../identity";
 import { engineFixtureInput } from "./fixtures/engineInput";
+import { androidDevice } from "./fixtures/previewDevices";
 
 const runtimes = new Set<XPathRuntime>();
 function ownedRuntime(options: ConstructorParameters<typeof XPathRuntime>[0]) {
@@ -157,6 +158,7 @@ function fixedWorldEvaluator(engine: FormEngine, worldKey: string) {
 		stateOverrides?: Parameters<FormEngineAsyncEvaluator>[3],
 	) => {
 		const result = await runtime.request({
+			dayNumberEpoch: engine.dayNumberEpoch,
 			entryKey: ENTRY_KEY,
 			revision: 0,
 			profile: "form",
@@ -520,6 +522,7 @@ describe("FormEngine", () => {
 			resultMode: "scalar" | "nodeset-values-or-scalar" = "scalar",
 		) => {
 			const result = await runtime.request({
+				dayNumberEpoch: "device-zone",
 				entryKey: ENTRY_KEY,
 				revision,
 				profile: "form",
@@ -713,6 +716,7 @@ describe("FormEngine", () => {
 				stateOverrides?: Parameters<FormEngineAsyncEvaluator>[3],
 			) => {
 				const result = await runtime.request({
+					dayNumberEpoch: "device-zone",
 					entryKey: ENTRY_KEY,
 					revision,
 					profile: "form",
@@ -1221,7 +1225,8 @@ describe("FormEngine", () => {
 					undefined,
 					undefined,
 					undefined,
-					{ stagedAsync },
+					/* Android recalculates only what a change touches. */
+					{ stagedAsync, device: androidDevice() },
 				);
 				const { evaluateAsync, runtime } = fixedWorldEvaluator(
 					engine,
@@ -4885,6 +4890,7 @@ describe("FormEngine", () => {
 				stateOverrides?: Parameters<FormEngineAsyncEvaluator>[3],
 			) => {
 				const result = await runtime.request({
+					dayNumberEpoch: "device-zone",
 					entryKey: ENTRY_KEY,
 					revision: 0,
 					profile: "form",
@@ -4942,6 +4948,7 @@ describe("FormEngine", () => {
 				stateOverrides?: Parameters<FormEngineAsyncEvaluator>[3],
 			) => {
 				const result = await runtime.request({
+					dayNumberEpoch: "device-zone",
 					entryKey: ENTRY_KEY,
 					revision: 0,
 					profile: "form",
@@ -5094,6 +5101,7 @@ describe("FormEngine", () => {
 				stateOverrides?: Parameters<FormEngineAsyncEvaluator>[3],
 			) => {
 				const result = await runtime.request({
+					dayNumberEpoch: "device-zone",
 					entryKey: ENTRY_KEY,
 					revision: 0,
 					profile: "form",
@@ -5915,7 +5923,7 @@ describe("section entry initializes later rows", () => {
 			const worker = fixedWorldEvaluator(engine, `hidden-count-${stagedAsync}`);
 			try {
 				if (stagedAsync) await engine.initializeAsync(worker.evaluateAsync);
-				const second = engine.sectionPages()[1];
+				const second = engine.sectionScreens()[1];
 				if (!second) throw new Error("Missing second page");
 				if (stagedAsync) {
 					await engine.setValueAsync(
@@ -5991,13 +5999,14 @@ describe("section entry initializes later rows", () => {
 				undefined,
 				undefined,
 				undefined,
-				{ stagedAsync },
+				/* Android recalculates only what a change touches. */
+				{ stagedAsync, device: androidDevice() },
 			);
 			let worker = fixedWorldEvaluator(engine, `page-entry-${stagedAsync}`);
 			try {
 				if (stagedAsync) await engine.initializeAsync(worker.evaluateAsync);
-				const first = engine.sectionPages()[0];
-				const second = engine.sectionPages()[1];
+				const first = engine.sectionScreens()[0];
+				const second = engine.sectionScreens()[1];
 				if (!first || !second) throw new Error("Missing pages");
 				expect(engine.currentSectionUuid()).toBe(first.uuid);
 				expect(engine.getRepeatCount("/data/second/rounds")).toBe(0);
@@ -6018,7 +6027,7 @@ describe("section entry initializes later rows", () => {
 						undefined,
 						undefined,
 						undefined,
-						{ stagedAsync: true },
+						{ stagedAsync: true, device: androidDevice() },
 					);
 					engine.restoreEntryCheckpoint(checkpoint);
 					worker = fixedWorldEvaluator(engine, "page-entry-restored");
@@ -6114,11 +6123,11 @@ it("inserts newly relevant rows on the current page and resolves a later page wi
 	expect(engine.getState("/data/first/rows[0]/saved_gate").value).toBe(
 		"retained",
 	);
-	const pages = engine.sectionPages();
+	const pages = engine.sectionScreens();
 	engine.enterSection(pages[1].uuid);
 	expect(engine.currentSectionUuid()).toBe(pages[2].uuid);
 	expect(engine.getRepeatCount("/data/empty/rows")).toBe(1);
-	expect(engine.sectionPages()[1]).toMatchObject({
+	expect(engine.sectionScreens()[1]).toMatchObject({
 		hasVisibleQuestions: false,
 		needsEntry: false,
 	});
@@ -6201,7 +6210,7 @@ describe("the form's data node name", () => {
 			sourceLanguage: "en",
 			defaultLanguage: "es",
 			languageOrder: ["es", "en"],
-			wireCodes: {},
+			wireCodes: { es: "es", en: "en" },
 			translations: {
 				es: {
 					[unitId]: {

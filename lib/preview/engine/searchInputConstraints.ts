@@ -39,6 +39,7 @@ import {
 	expressionUsesPattern,
 	walkExpressionTerms,
 } from "@/lib/domain/expression";
+import type { PreviewPlatformRules } from "../platform";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
 	type PreviewLookupData,
@@ -54,6 +55,12 @@ import {
 	type PreviewSearchEnvironment,
 	type SearchScreenXPath,
 } from "./searchExpressionEvaluation";
+
+/** The platform's rule for a Search field's required condition and checks:
+ *  Web Apps enforces them (manifest `case-search/required-test-text`,
+ *  `validations-0-test-text`); Android searches whatever the answers, so
+ *  every function here returns no errors and no marks there. */
+type SearchFieldCheckRules = Pick<PreviewPlatformRules, "searchFieldChecks">;
 
 export interface SearchInputConstraintOptions {
 	/**
@@ -83,12 +90,14 @@ export interface SearchInputConstraintDeviceOptions
  * constraints are left unjudged here.
  */
 export function searchInputConstraintErrors(
+	rules: SearchFieldCheckRules,
 	searchInputs: readonly SearchInputDef[],
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues,
 	environment: PreviewSearchEnvironment,
 	options?: SearchInputConstraintOptions,
 ): ReadonlyMap<string, string> {
+	if (!rules.searchFieldChecks) return new Map();
 	const judge = constraintJudge(
 		searchInputs,
 		values,
@@ -114,12 +123,14 @@ export function searchInputConstraintErrors(
  * running Search screen enforces a pattern check exactly as the device does.
  */
 export async function searchInputConstraintErrorsOnDevice(
+	rules: SearchFieldCheckRules,
 	searchInputs: readonly SearchInputDef[],
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues,
 	environment: PreviewSearchEnvironment,
 	options: SearchInputConstraintDeviceOptions,
 ): Promise<ReadonlyMap<string, string>> {
+	if (!rules.searchFieldChecks) return new Map();
 	const judge = constraintJudge(
 		searchInputs,
 		values,
@@ -173,11 +184,13 @@ export async function searchInputConstraintErrorsOnDevice(
  * Search screen's required mark follows it.
  */
 export function searchInputRequiredMarks(
+	rules: SearchFieldCheckRules,
 	searchInputs: readonly SearchInputDef[],
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues,
 	environment: PreviewSearchEnvironment,
 ): ReadonlyMap<string, boolean | undefined> {
+	if (!rules.searchFieldChecks) return new Map();
 	const judge = constraintJudge(
 		searchInputs,
 		values,
@@ -205,6 +218,7 @@ export function searchInputRequiredMarks(
  * rows) stay absent.
  */
 export async function searchInputRequiredMarksOnDevice(
+	rules: SearchFieldCheckRules,
 	searchInputs: readonly SearchInputDef[],
 	values: SearchInputValues,
 	session: PreviewSearchSessionValues,
@@ -212,6 +226,7 @@ export async function searchInputRequiredMarksOnDevice(
 	options: SearchInputConstraintDeviceOptions,
 ): Promise<ReadonlyMap<string, boolean>> {
 	const marks = new Map<string, boolean>();
+	if (!rules.searchFieldChecks) return marks;
 	for (const input of searchInputs) {
 		if (input.kind === "hidden") continue;
 		const when = input.required?.when;

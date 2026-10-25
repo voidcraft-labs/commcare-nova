@@ -17,6 +17,7 @@ import {
 import { previewAsMe } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
 import { createEvaluationApp } from "./evaluationFixture";
+import { webAppsDevice } from "./fixtures/previewDevices";
 
 it("observes repeat headings and unnamed questions in the resolved worker language", async () => {
 	const doc = await createEvaluationApp(
@@ -86,6 +87,7 @@ it("observes repeat headings and unnamed questions in the resolved worker langua
 			},
 			{
 				identity,
+				device: webAppsDevice(),
 				cases: { rows: [], indices: [] },
 				lookup: {
 					projectRevision: "0",
@@ -177,6 +179,7 @@ it("reports a bounded runtime cause when an expression expects one record but re
 			{ formUuid, caseIds: ["first"], answers: [] },
 			{
 				identity,
+				device: webAppsDevice(),
 				cases: evaluationScenarioCases(doc, identity.ownerId, { records }),
 				lookup: {
 					projectRevision: "0",
@@ -261,6 +264,7 @@ it("evaluates worker-only validation, branch state and a proposed named record w
 		throw new Error("Evaluation fixture is incomplete.");
 	const context = {
 		identity,
+		device: webAppsDevice(),
 		cases: { rows: [], indices: [] },
 		lookup: previewLookupData({
 			projectRevision: "0",
@@ -384,6 +388,7 @@ it("evaluates separate repeat answers and refuses writes to a calculated value",
 		throw new Error("Evaluation fixture is incomplete.");
 	const context = {
 		identity,
+		device: webAppsDevice(),
 		cases: { rows: [], indices: [] },
 		lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
 	};
@@ -524,6 +529,7 @@ it("honors the authored selection maximum for a form that closes several records
 		throw new Error("Evaluation fixture is incomplete.");
 	const context = {
 		identity,
+		device: webAppsDevice(),
 		cases: {
 			rows: ["drill", "saw"].map((case_id) => ({
 				case_id,
@@ -628,6 +634,7 @@ it("uses the running Search's date-range values in a no-matches registration", a
 		},
 		{
 			identity,
+			device: webAppsDevice(),
 			cases: { rows: [], indices: [] },
 			lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
 		},
@@ -711,6 +718,7 @@ it("continues an entry without rerunning defaults or rematerializing its query r
 		throw new Error("Evaluation fixture is incomplete.");
 	const context = {
 		identity,
+		device: webAppsDevice(),
 		cases: evaluationScenarioCases(doc, identity.ownerId, {
 			records: [
 				{
@@ -814,6 +822,7 @@ it("uses location-picker coordinates and separates malformed test answers from a
 		throw new Error("Missing evaluation identity or form");
 	const context = {
 		identity,
+		device: webAppsDevice(),
 		cases: { rows: [], indices: [] },
 		lookup: {
 			projectRevision: "0",
@@ -840,12 +849,12 @@ it("uses location-picker coordinates and separates malformed test answers from a
 		picked.fields.find((field) => field.path === "location"),
 	).toMatchObject({
 		interaction: "location-picker",
-		value: "12.345679 -45.123457 0 0",
+		value: "12.3456789 -45.1234567 0.0 0.0",
 	});
 	expect(picked.submission).toMatchObject({
 		primary: {
 			properties: {
-				location: "12.345679 -45.123457 0 0",
+				location: "12.3456789 -45.1234567 0.0 0.0",
 			},
 		},
 	});
@@ -933,6 +942,7 @@ it("reports a starting value CommCare refuses as a form refusal across the worke
 		{ formUuid, answers: [] },
 		{
 			identity,
+			device: webAppsDevice(),
 			cases: { rows: [], indices: [] },
 			lookup: { projectRevision: "0", definitions: [], rowsByTable: new Map() },
 		},

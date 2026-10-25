@@ -1016,6 +1016,10 @@ export class PostgresCaseStore implements CaseStore {
 		}
 		if (heldBy !== undefined) {
 			qb = qb.select(heldBy.holds("c").as(HELD_ON_DEVICE_ALIAS));
+			if (args.searchPopulation?.onlyOutsideRestore === true) {
+				const holds = heldBy.holds("c");
+				qb = qb.where(sql<boolean>`not ${holds}`);
+			}
 		}
 		if (args.caseIds !== undefined) {
 			qb =
@@ -1562,6 +1566,13 @@ export class PostgresCaseStore implements CaseStore {
 		if (restore !== undefined && args.searchPopulation !== undefined) {
 			throw new Error(searchPopulationWithRestoreMessage("count"));
 		}
+		/* A search count reads no closure unless it leaves out what the
+		 * searching worker's restore holds; then it reads the same closure
+		 * the paired query does, so the two describe one set. */
+		const outsideRestore =
+			args.searchPopulation?.onlyOutsideRestore === true
+				? this.buildRestoreScopeFor(args.appId, args.searchPopulation.heldBy)
+				: undefined;
 		const ctx = this.buildPredicateContext({
 			// The PLAIN handle, deliberately. `restore.creator` carries the
 			// `WITH` clause into every query built from it, and the compile
@@ -1624,7 +1635,7 @@ export class PostgresCaseStore implements CaseStore {
 					) > 1
 			)`
 			: sql<string>`'0'`;
-		let qb = (restore?.creator ?? this.db)
+		let qb = (restore?.creator ?? outsideRestore?.creator ?? this.db)
 			.selectFrom("cases as c")
 			.select((eb) => [
 				eb.fn.countAll<string>().as("total"),
@@ -1643,6 +1654,10 @@ export class PostgresCaseStore implements CaseStore {
 		// Same open-cases population `query` reads for a search.
 		if (args.searchPopulation !== undefined) {
 			qb = qb.where("c.status", "is distinct from", "closed");
+		}
+		if (outsideRestore !== undefined) {
+			const holds = outsideRestore.holds("c");
+			qb = qb.where(sql<boolean>`not ${holds}`);
 		}
 		// Same HOLD exclusion `query` applies — a count must agree with
 		// the row list its caller pairs it with.

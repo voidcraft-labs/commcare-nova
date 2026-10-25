@@ -138,9 +138,10 @@ import {
 	caseRowToFormPreload,
 	viewerTimeZone,
 } from "@/lib/preview/engine/caseDataBindingClient";
-import type {
-	CaseQueryConstraintContext,
-	CaseRowWithCalculated,
+import {
+	type CaseQueryConstraintContext,
+	type CaseRowWithCalculated,
+	isPreviewUnavailable,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
 	formDisplayVisibility,
@@ -149,6 +150,7 @@ import {
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { predicateLookupsCovered } from "@/lib/preview/engine/lookupEvaluation";
+import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import {
 	evaluatePreviewSearchPredicate,
@@ -160,7 +162,11 @@ import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDeviceCases";
 import { columnsReadHere } from "@/lib/preview/engine/viewerLocation";
-import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
+import { formlessCaseListSelection } from "@/lib/preview/formlessCaseListRoute";
+import {
+	invalidateCaseData,
+	useCaseDataReplacementRevision,
+} from "@/lib/preview/hooks/caseDataInvalidation";
 import {
 	useCaseCount,
 	useCaseData,
@@ -212,13 +218,16 @@ import {
 	useCanEdit,
 	usePreviewCaseTarget,
 	usePreviewClaimedCaseIds,
+	usePreviewDevice,
 	usePreviewing,
 	usePreviewMenuCaseSelections,
 	usePreviewParentCaseRequest,
 	usePreviewPersonaUuid,
+	usePreviewPlatformRules,
 	usePreviewSearchState,
 	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
+	useSetPreviewAtDeviceHome,
 	useSetPreviewCaseTarget,
 	useSetPreviewMenuCaseSelection,
 	useSetPreviewParentCaseRequest,
@@ -232,6 +241,7 @@ import {
 } from "@/lib/session/previewSearchState";
 import type { PreviewCaseChoice } from "@/lib/session/types";
 import type { ViewerPositionStatus } from "@/lib/session/viewerPosition";
+import { showToast } from "@/lib/ui/toastStore";
 import { useWorkerMessage, WorkerText } from "../shared/WorkerText";
 
 /** Canvas width where search sits beside the results instead of above
@@ -271,6 +281,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * generator emits keys the row validation accepts. */
 	const caseTypes = useMaterializableCaseTypes();
 	const appId = useAppId() ?? "";
+	/* The platform Preview plays decides the search and list rules below
+	 * (`lib/preview/platform.ts`). */
+	const platformRules = usePreviewPlatformRules();
+	const setPreviewAtDeviceHome = useSetPreviewAtDeviceHome();
 	const canEdit = useCanEdit();
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
@@ -348,9 +362,18 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		previewParentCaseRequest?.selectingModuleUuid === moduleUuid;
 	const selectsForMenu =
 		selectsForParentRequest || (seededFormUuid === undefined && hasChildren);
+	/** A case list with no forms (the case list menu item): choosing a case
+	 *  ends the session, so it continues to the app's first screen in Web
+	 *  Apps or the phone's home screen on Android. */
+	const formlessCaseList =
+		moduleUuid !== undefined &&
+		menuSource.modules[moduleUuid]?.caseListOnly === true &&
+		orderedForms.length === 0 &&
+		!hasChildren;
 	/** Whether selecting a case can continue at all. */
 	const canContinue =
 		selectsForMenu ||
+		formlessCaseList ||
 		seededFormUuid !== undefined ||
 		caseLoadingForms.length > 0;
 
@@ -389,9 +412,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * picked. The hook owns the hydration rule, so search defaults and the
 	 * assigned-case exclusion resolve against one identity. */
 	const identity = useSelectedPreviewIdentity();
+	const device = usePreviewDevice();
 	const searchSession = useMemo(
-		() => previewSessionValues(identity),
-		[identity],
+		() => previewSessionValues(identity, withNavigationWidth(device)),
+		[identity, device],
 	);
 	/* A pattern-bearing required condition or check on the Search screen is
 	 * judged in the Search screen's XPath worker, where the device's Java
@@ -535,7 +559,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		searchInputs: config?.searchInputs ?? [],
 		session: searchSession,
 		environment: searchEnvironment,
+		rules: platformRules,
 	});
+	/* The submission whose search found nothing on a phone, which keeps the
+	 * search screen with the answers as typed (`caseListStep`). */
+	const [emptySubmission, setEmptySubmission] = useState<object>();
 	/* Hidden inputs are answered by the system at submit, so only visible
 	 * prompts decide whether a worker has a Search screen to fill in; the wire
 	 * makes the same distinction in `searchWireShape`. */
@@ -587,6 +615,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		searchFirst,
 		hasVisibleInputs: hasSearchInputs,
 		hasSubmitted: searchRun.hasSubmitted,
+		submittedFoundNothing:
+			emptySubmission !== undefined && emptySubmission === searchRun.submitted,
+		rules: platformRules,
 	});
 	/* Whether a Search has been pressed whose query has not yet been seen to
 	 * start and end; read by the settlement effect below. */
@@ -997,7 +1028,24 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			reading: readsSearchResults ? "results" : "casedb",
 		},
 	);
-	const addPreviewClaims = useAddPreviewClaims();
+	/* Results rows and tiles, and the Quick Filter that matches what they
+	 * say, read a link column as the platform's list draws it; the case
+	 * detail keeps the link on both. */
+	const resultsDisplayContext = useMemo<ColumnDisplayContext>(
+		() => ({
+			...columnDisplayContext,
+			linkColumnInList: platformRules.linkColumnInList,
+		}),
+		[columnDisplayContext, platformRules.linkColumnInList],
+	);
+	const addWorkerClaims = useAddPreviewClaims();
+	/* Android follows every claim with a sync, which re-reads the worker's
+	 * device as Sync with server does. */
+	const addPreviewClaims = (caseIds: readonly string[]) => {
+		addWorkerClaims(caseIds);
+		if (platformRules.claimThenSync && caseIds.length > 0 && appId !== "")
+			for (const entry of caseTypes) invalidateCaseData(appId, entry.name);
+	};
 	const claimChoices = (choices: readonly PreviewCaseChoice[]) =>
 		addPreviewClaims(claimableCaseIds(choices));
 	/* The cases choosing this row claims at the result: none in a module
@@ -1089,6 +1137,26 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		...(csqlRuntime !== undefined && { csqlRuntime }),
 		chosenCaseIds: stepSession.chosenCaseIds,
 	});
+	/* A phone stays on the search screen after a search that found nothing,
+	 * with a toast (`QueryRequestActivity.java::processSuccess`). */
+	useEffect(() => {
+		if (
+			platformRules.zeroSearchResults !== "stay-on-search" ||
+			!searchRun.hasSubmitted ||
+			state.kind !== "empty" ||
+			emptySubmission === searchRun.submitted
+		)
+			return;
+		setEmptySubmission(searchRun.submitted);
+		showToast("info", message("noSearchMatches"));
+	}, [
+		emptySubmission,
+		message,
+		platformRules.zeroSearchResults,
+		searchRun.hasSubmitted,
+		searchRun.submitted,
+		state.kind,
+	]);
 	/* Results that show a column reading `here()` watch the viewer's
 	 * position while they are on screen (`useViewerPositionWatch`). */
 	const resultsReadHere =
@@ -1268,6 +1336,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					grouped: splitTileGridByGroupHeader(
 						tileProjection,
 						tileGrouping.headerRows,
+						platformRules,
 					),
 				}),
 			};
@@ -1391,11 +1460,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							visibleColumns,
 							row,
 							filterText,
-							columnDisplayContext,
+							resultsDisplayContext,
 							orderPlan,
 						),
 					),
-		[loadedRows, visibleColumns, filterText, columnDisplayContext, orderPlan],
+		[loadedRows, visibleColumns, filterText, resultsDisplayContext, orderPlan],
 	);
 	/* The same narrowing, applied inside each group. A group whose members all
 	 * fail the filter disappears; the ones that survive keep drawing their
@@ -1416,7 +1485,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 								visibleColumns,
 								row,
 								filterText,
-								columnDisplayContext,
+								resultsDisplayContext,
 								orderPlan,
 							),
 						);
@@ -1426,7 +1495,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		groupedResult,
 		visibleColumns,
 		filterText,
-		columnDisplayContext,
+		resultsDisplayContext,
 		orderPlan,
 	]);
 	const caseCount = (count: number) =>
@@ -1511,6 +1580,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		hasVisibleInputs: hasSearchInputs,
 		hasEffectiveFilter: hasEffectiveSearchFilter,
 		searchFirst,
+		rules: platformRules,
 	});
 	/* A hidden input is part of the search the automatic launch performs
 	 * (the device seeds it on every query-screen build), so editing one
@@ -1803,6 +1873,13 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const proceedWithCase = (row: CaseRowWithCalculated) => {
 		const claimed = claimedAtResult(row);
 		addPreviewClaims(claimed);
+		if (formlessCaseList && !selectsForMenu) {
+			const route = formlessCaseListSelection(platformRules);
+			navigate.goHome();
+			if (route.kind === "device-home") setPreviewAtDeviceHome(true);
+			else showToast("info", message(route.notice));
+			return;
+		}
 		if (selectsForMenu && moduleUuid && mod.caseType) {
 			continueAfterMenuSelection([
 				{
@@ -2089,6 +2166,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						onSubmit={submitSearch}
 						submitLabel={CASE_SEARCH_BUTTON_LABEL}
 						localizeValidationMessage={localizeSearchValidationMessage}
+						platformRules={platformRules}
 					/>
 				)}
 				{state.kind === "invalid-search" && (
@@ -2550,7 +2628,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				visibleColumns={visibleColumns}
 				tile={resultsTileLayout}
 				caseProperties={caseType.properties}
-				columnDisplayContext={columnDisplayContext}
+				columnDisplayContext={resultsDisplayContext}
 				emptyResultContext={resultsContext}
 				parentScoped={menuCaseContext?.parentCase !== undefined}
 				canEdit={canEdit}
@@ -2865,10 +2943,14 @@ function ResultsBody({
 		);
 	}
 
-	if (state.kind === "persona-unavailable") {
+	if (isPreviewUnavailable(state)) {
 		return (
 			<CaseListEmptyNotice
-				title="Choose who Preview runs as"
+				title={
+					state.kind === "persona-unavailable"
+						? "Choose who Preview runs as"
+						: "Choose how Preview runs"
+				}
 				description={state.message}
 				tone="warning"
 			/>

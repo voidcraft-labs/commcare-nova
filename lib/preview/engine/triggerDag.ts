@@ -382,6 +382,28 @@ export class TriggerDag {
 		return { values, required: metadata };
 	}
 
+	/** Every node's work, as Formplayer does it on each request: it rebuilds
+	 *  the form session and Core's `FormDef.initialize(false, …)` runs
+	 *  `initAllTriggerables`, so every calculate, relevance, output and
+	 *  choices expression re-evaluates in dependency order, and every
+	 *  required condition refreshes. Defaults and start-of-form setvalues are
+	 *  initialization, not triggerables, so they never run here. */
+	getAllWork(repeatCount: RepeatCountResolver): ExpressionEvaluationPaths {
+		const values: string[] = [];
+		const required: string[] = [];
+		for (const generic of this.sortedPaths) {
+			const concretes = this.materialize(generic, repeatCount);
+			values.push(...concretes);
+			if (
+				this.nodes
+					.get(generic)
+					?.expressions.some(({ type }) => type === "required")
+			)
+				required.push(...concretes);
+		}
+		return { values, required };
+	}
+
 	/** Expand a path (concrete or generic) to every live concrete instance
 	 *  path — the public face of `materialize` for the engine's
 	 *  instance-aware incremental operations. */

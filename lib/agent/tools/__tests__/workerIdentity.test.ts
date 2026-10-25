@@ -6,6 +6,7 @@ import {
 } from "@/lib/agent/__tests__/fixtures";
 import { moduleUuidOfForm } from "@/lib/domain";
 import { createEvaluationApp } from "@/lib/preview/engine/__tests__/evaluationFixture";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { evaluateForm } from "@/lib/preview/engine/evaluateForm";
 import {
 	previewAsMe,
@@ -131,6 +132,7 @@ it("the worker readings returned to authors execute in their stated scopes and f
 			doc,
 			{ formUuid, answers: [] },
 			{
+				device: webAppsDevice(),
 				identity,
 				cases: { rows: [], indices: [] },
 				lookup: {
@@ -156,7 +158,7 @@ it("the worker readings returned to authors execute in their stated scopes and f
 		});
 		const searchValues = resolveSearchHiddenValues(
 			searchInputs,
-			previewSessionValues(identity),
+			previewSessionValues(identity, webAppsDevice()),
 			{ doc, moduleUuid },
 		);
 		for (const key of searchKeys)

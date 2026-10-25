@@ -9,6 +9,7 @@
 // runs its search on its own, so it is on Results from the start.
 
 import type { CaseQueryConstraintSource } from "@/lib/preview/engine/caseDataBindingTypes";
+import type { PreviewPlatformRules } from "./platform";
 
 export type CaseListStep =
 	/** The ordinary composition: Results now, Search beside it when relevant. */
@@ -28,7 +29,20 @@ export function caseListStep(args: {
 	 * the module (a no-matches registration returns here after the screen
 	 * may have been rebuilt). */
 	readonly hasSubmitted: boolean;
+	/** The submitted search's read returned no rows. */
+	readonly submittedFoundNothing?: boolean;
+	/** The platform Preview plays: Android keeps the search screen, with the
+	 *  answers as typed, after a search that found nothing
+	 *  (`QueryRequestActivity.java::processSuccess` shows a toast and the
+	 *  activity does not finish). */
+	readonly rules: Pick<PreviewPlatformRules, "zeroSearchResults">;
 }): CaseListStep {
+	if (
+		args.rules.zeroSearchResults === "stay-on-search" &&
+		args.hasSubmitted &&
+		args.submittedFoundNothing === true
+	)
+		return "search";
 	if (!args.searchFirst) return "browse";
 	if (!args.hasVisibleInputs) return "results";
 	return args.hasSubmitted ? "results" : "search";
@@ -49,14 +63,19 @@ export function resultsConstraintContext(
 	return source;
 }
 
-/** Input-free Search launches for a Results filter or search-first entry. */
+/** Input-free Search launches for a Results filter or search-first entry.
+ * Android never reads `auto_launch` (manifest
+ * `case-search/workflow-skip-to-default-results-auto-launch-true-default-search`):
+ * it shows the worker's list first, with the search action. */
 export function automaticallyLaunchesSearch(args: {
 	readonly relevant: boolean;
 	readonly hasVisibleInputs: boolean;
 	readonly searchFirst: boolean;
 	readonly hasEffectiveFilter: boolean;
+	readonly rules: Pick<PreviewPlatformRules, "skipToResults">;
 }): boolean {
 	return (
+		args.rules.skipToResults &&
 		args.relevant &&
 		!args.hasVisibleInputs &&
 		(args.searchFirst || args.hasEffectiveFilter)

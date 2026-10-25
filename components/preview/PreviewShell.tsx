@@ -51,6 +51,7 @@ import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-c
 import { Spinner } from "@/components/shadcn/spinner";
 import type { Uuid } from "@/lib/doc/types";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
 import { useEntryPointLaunchLifecycle } from "@/lib/preview/hooks/useEntryPointLaunch";
 import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
@@ -63,6 +64,7 @@ import {
 	useClearPreviewNavigation,
 	useEditMode,
 	usePreviewCaseTarget,
+	usePreviewDevice,
 	usePreviewParentCaseRequest,
 	usePreviewTaskContinuation,
 	useProjectScopeEpoch,
@@ -278,6 +280,17 @@ export function PreviewShell() {
 	 * in the background. Return visits are near-instant. */
 	const view = useDeferredValue(zustandView);
 	const screen = view.screen;
+
+	/* The device the running app plays reaches the form engine before the
+	 * worker language does: this layout effect runs before the engine
+	 * provider's (a child's before its parent's), so a language change
+	 * rebuilds the entry once, with the new device's values, and a platform
+	 * change restarts it (`EngineController.setPreviewDevice`). */
+	const previewDevice = usePreviewDevice();
+	const engineController = useBuilderFormEngine();
+	useLayoutEffect(() => {
+		engineController.setPreviewDevice(previewDevice);
+	}, [engineController, previewDevice]);
 
 	const setPreviewPersonaUuid = useSetPreviewPersonaUuid();
 	/* `/cases/{caseId}` is the running record deep link, not the Results

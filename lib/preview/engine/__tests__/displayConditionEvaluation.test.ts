@@ -32,6 +32,7 @@ import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import {
 	formDisplayVisibility as evaluateFormDisplayVisibility,
 	moduleDisplayVisibility as evaluateModuleDisplayVisibility,
@@ -208,7 +209,7 @@ describe("moduleDisplayVisibility", () => {
 			expect(
 				evaluate({
 					condition,
-					session: previewSessionValues(null),
+					session: previewSessionValues(null, webAppsDevice()),
 					lookup: NO_LOOKUP,
 				}),
 			).toBe("pending");

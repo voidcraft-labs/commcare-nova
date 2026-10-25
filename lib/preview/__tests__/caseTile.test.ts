@@ -24,6 +24,10 @@ import {
 	tileGridStyle,
 	tileResultsColumns,
 } from "../caseTileRendering";
+import {
+	ANDROID_RULES,
+	WEB_APPS_RULES,
+} from "../engine/__tests__/fixtures/previewDevices";
 
 const NAME = testUuid("11111111-1111-4111-8111-111111111111");
 const VILLAGE = testUuid("22222222-2222-4222-8222-222222222222");
@@ -131,12 +135,12 @@ describe("alignment and size resolution", () => {
 				tile: tileCell(2, 0, 2, 1, { fontSize: "small" }),
 			}),
 		]);
-		const plan = planTileCell(cellFor(projection, NAME));
+		const plan = planTileCell(cellFor(projection, NAME), WEB_APPS_RULES);
 		expect(plan.style.fontSize).toBe("medium");
 		expect(plan.style.textAlign).toBe("start");
-		expect(planTileCell(cellFor(projection, VILLAGE)).style.fontSize).toBe(
-			"small",
-		);
+		expect(
+			planTileCell(cellFor(projection, VILLAGE), WEB_APPS_RULES).style.fontSize,
+		).toBe("small");
 	});
 });
 
@@ -151,7 +155,7 @@ describe("the tile-wide border / shading switch", () => {
 			}),
 		]);
 		expect(projection.cells.map((cell) => cell.mode)).toEqual(["flow", "flow"]);
-		const plan = planTileCell(cellFor(projection, NAME));
+		const plan = planTileCell(cellFor(projection, NAME), WEB_APPS_RULES);
 		expect(plan.style.justifySelf).toBe("center");
 		expect(plan.style.alignSelf).toBe("start");
 		expect(plan.style.textAlign).toBe("center");
@@ -180,7 +184,7 @@ describe("the tile-wide border / shading switch", () => {
 
 		// A boxed cell stretches across its square and stops positioning
 		// itself, but still reads at the alignment its author wrote.
-		const boxed = planTileCell(cellFor(projection, NAME));
+		const boxed = planTileCell(cellFor(projection, NAME), WEB_APPS_RULES);
 		expect(boxed.style.justifySelf).toBe("stretch");
 		expect(boxed.style.alignSelf).toBeUndefined();
 		expect(boxed.style.textAlign).toBe("center");
@@ -193,13 +197,15 @@ describe("the tile-wide border / shading switch", () => {
 
 		// A plain neighbour keeps its own alignment and takes the flat
 		// margin that lines it up with the boxes.
-		const inset = planTileCell(cellFor(projection, VILLAGE));
+		const inset = planTileCell(cellFor(projection, VILLAGE), WEB_APPS_RULES);
 		expect(inset.style.justifySelf).toBe("end");
 		expect(inset.style.alignSelf).toBe("start");
 		expect(inset.style.margin).toBe("7px");
 		expect(inset.boxed).toBe(false);
 
-		expect(planTileCell(cellFor(projection, PRIORITY)).bordered).toBe(true);
+		expect(
+			planTileCell(cellFor(projection, PRIORITY), WEB_APPS_RULES).bordered,
+		).toBe(true);
 	});
 
 	it("switches on a border asked for anywhere, not per cell", () => {
@@ -294,7 +300,7 @@ describe("the grouped tile's header/body split", () => {
 	]);
 
 	it("splits on the cell's START row and nothing else", () => {
-		const split = splitTileGridByGroupHeader(projection, 2);
+		const split = splitTileGridByGroupHeader(projection, 2, WEB_APPS_RULES);
 		expect(split.header.cells.map((cell) => cell.columnUuid)).toEqual([
 			NAME,
 			VILLAGE,
@@ -314,7 +320,7 @@ describe("the grouped tile's header/body split", () => {
 				tile: tileCell(0, 2, 6, 1),
 			}),
 		]);
-		const split = splitTileGridByGroupHeader(straddling, 1);
+		const split = splitTileGridByGroupHeader(straddling, 1, WEB_APPS_RULES);
 		expect(split.header.cells.map((cell) => cell.columnUuid)).toEqual([NAME]);
 		expect(split.body.cells.map((cell) => cell.columnUuid)).toEqual([VISIT]);
 	});
@@ -324,7 +330,7 @@ describe("the grouped tile's header/body split", () => {
 		// sharing one `-cell-grid-style` block, and each cell keeps its
 		// absolute `grid-area`. Re-deriving a narrower extent per half would
 		// slide every cell out of the square its author placed it in.
-		const split = splitTileGridByGroupHeader(projection, 2);
+		const split = splitTileGridByGroupHeader(projection, 2, WEB_APPS_RULES);
 		for (const half of [split.header, split.body]) {
 			expect(half.columns).toBe(projection.columns);
 			expect(half.rows).toBe(projection.rows);
@@ -335,7 +341,61 @@ describe("the grouped tile's header/body split", () => {
 	});
 
 	it("stays total at both edges rather than repairing an unloadable layout", () => {
-		expect(splitTileGridByGroupHeader(projection, 3).body.cells).toEqual([]);
-		expect(splitTileGridByGroupHeader(projection, 0).header.cells).toEqual([]);
+		expect(
+			splitTileGridByGroupHeader(projection, 3, WEB_APPS_RULES).body.cells,
+		).toEqual([]);
+		expect(
+			splitTileGridByGroupHeader(projection, 0, WEB_APPS_RULES).header.cells,
+		).toEqual([]);
+	});
+});
+
+describe("an Android tile", () => {
+	const projection = projectTileGrid([
+		plainColumn(NAME, "case_name", "Patient", {
+			tile: tileCell(0, 0, 2, 1, {
+				showBorder: true,
+				showShading: true,
+				horizontalAlign: "center",
+				verticalAlign: "middle",
+			}),
+		}),
+		plainColumn(VILLAGE, "village", "Village", {
+			tile: tileCell(2, 0, 2, 1, { verticalAlign: "bottom" }),
+		}),
+		dateColumn(VISIT, "last_visit", "Last visit", "%d %b %Y", {
+			tile: tileCell(0, 1, 4, 1, { verticalAlign: "top", fontSize: "small" }),
+		}),
+	]);
+
+	it("draws no border or shading whatever a cell says", () => {
+		expect(cellFor(projection, NAME).mode).toBe("boxed");
+		const plan = planTileCell(cellFor(projection, NAME), ANDROID_RULES);
+		expect(plan).toMatchObject({
+			boxed: false,
+			bordered: false,
+			shaded: false,
+		});
+		expect(plan.style.padding).toBeUndefined();
+		expect(plan.style.margin).toBeUndefined();
+	});
+
+	it("keeps middle and draws top and bottom at the top, honoring horizontal alignment and size", () => {
+		const name = planTileCell(cellFor(projection, NAME), ANDROID_RULES);
+		expect(name.style.alignSelf).toBe("center");
+		expect(name.style.justifySelf).toBe("center");
+		expect(name.style.textAlign).toBe("center");
+		expect(
+			planTileCell(cellFor(projection, VILLAGE), ANDROID_RULES).style.alignSelf,
+		).toBe("start");
+		const visit = planTileCell(cellFor(projection, VISIT), ANDROID_RULES);
+		expect(visit.style.alignSelf).toBe("start");
+		expect(visit.style.fontSize).toBe("small");
+	});
+
+	it("is not grouped: every case draws the whole tile as a group of one", () => {
+		const split = splitTileGridByGroupHeader(projection, 1, ANDROID_RULES);
+		expect(split.header.cells).toEqual([]);
+		expect(split.body).toBe(projection);
 	});
 });

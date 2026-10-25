@@ -63,6 +63,12 @@ export function renderColumnCell(
 	context: ColumnDisplayContext,
 ): React.ReactNode {
 	const displayed = projectColumnDisplay(column, row, context);
+	if (column.kind === "link" && context.linkColumnInList === "raw-text") {
+		/* Android's list draws the column's markdown as written. */
+		return displayed.text === ""
+			? renderEmptyCell(context.language)
+			: displayed.text;
+	}
 	if (column.kind === "link") {
 		// The address is the raw property value, not the projected text —
 		// which is the label. An empty property renders an empty cell rather

@@ -1,4 +1,5 @@
 import { expect, it } from "vitest";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { evaluateForm } from "@/lib/preview/engine/evaluateForm";
 import { evaluationScenarioCases } from "@/lib/preview/engine/evaluationScenario";
 import { previewAsMe, previewAsPersona } from "@/lib/preview/engine/identity";
@@ -116,6 +117,7 @@ it("reads implicit lifecycle metadata and explains the starting values the produ
 			doc,
 			{ formUuid: form.uuid, answers: [], caseIds: ["drill"] },
 			{
+				device: webAppsDevice(),
 				identity,
 				cases: evaluationScenarioCases(doc, identity.ownerId, {
 					records: [{ id: "drill", caseType: "equipment", properties }],

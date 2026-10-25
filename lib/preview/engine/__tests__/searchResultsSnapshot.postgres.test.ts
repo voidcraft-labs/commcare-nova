@@ -103,6 +103,7 @@ const SEARCH = {
 	appId: APP_ID,
 	caseType: "patient",
 	reading: SEARCH_READING,
+	tileGrouping: "grouped",
 	searchPopulation: { heldBy: { ownerIds: [WORKER] } },
 } as const;
 

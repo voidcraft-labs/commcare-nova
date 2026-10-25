@@ -44,10 +44,7 @@ import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
 import type { EvalContext } from "../xpath/types";
 import type { SessionDatumValue } from "./formLinkEvaluation";
-import type {
-	PreviewSearchSessionValues,
-	ResolvedPreviewIdentity,
-} from "./identity";
+import type { PreviewSearchSessionValues } from "./identity";
 import {
 	type CaseDatabaseSnapshot,
 	caseDatabaseXPathInstance,
@@ -98,10 +95,7 @@ export function entrySessionData(
 	args: EntrySessionInput & {
 		readonly entryKey: string;
 		readonly caseDatabase: CaseDatabaseSnapshot | null;
-		readonly identity:
-			| ResolvedPreviewIdentity
-			| PreviewSearchSessionValues
-			| null;
+		readonly session: PreviewSearchSessionValues;
 	},
 ): EntrySessionData {
 	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
@@ -186,7 +180,7 @@ export function entrySessionData(
 						)
 					: evaluateDatumFunction(
 							serializeWire(datum.function, { target: "preview" }).text,
-							{ identity: args.identity, data, casedb },
+							{ session: args.session, data, casedb },
 						);
 			const caseName =
 				ref.kind === "worker-record" ? caseNameOf(value) : undefined;
@@ -249,10 +243,7 @@ export function caseListStepSession(
 	args: {
 		readonly menuSelections: Readonly<Record<string, PreviewMenuCaseSelection>>;
 		readonly caseDatabase: CaseDatabaseSnapshot | null;
-		readonly identity:
-			| ResolvedPreviewIdentity
-			| PreviewSearchSessionValues
-			| null;
+		readonly session: PreviewSearchSessionValues;
 	},
 ): CaseListStepSession {
 	if (doc.modules[moduleUuid] === undefined)
@@ -314,7 +305,7 @@ export function caseListStepSession(
 						)
 					: evaluateDatumFunction(
 							serializeWire(datum.function, { target: "preview" }).text,
-							{ identity: args.identity, data, casedb },
+							{ session: args.session, data, casedb },
 						);
 	}
 	return { data, chosenCaseIds };
@@ -392,10 +383,7 @@ export function entryCreatedCaseKeys(
 function evaluateDatumFunction(
 	source: string,
 	world: {
-		readonly identity:
-			| ResolvedPreviewIdentity
-			| PreviewSearchSessionValues
-			| null;
+		readonly session: PreviewSearchSessionValues;
 		readonly data: Readonly<Record<string, string>>;
 		readonly casedb: ReturnType<typeof caseDatabaseXPathInstance>;
 	},
@@ -403,7 +391,7 @@ function evaluateDatumFunction(
 	const instances = new Map([
 		[
 			"commcaresession",
-			commcareSessionXPathInstance(world.identity, { ...world.data }),
+			commcareSessionXPathInstance(world.session, { ...world.data }),
 		],
 		["casedb", world.casedb],
 	] as const);

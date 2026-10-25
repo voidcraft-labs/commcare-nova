@@ -15,13 +15,20 @@ import {
 } from "@/lib/__tests__/docHelpers";
 import type { FormLink } from "@/lib/domain";
 import { moduleLanding } from "@/lib/domain";
+import { eq, literal } from "@/lib/domain/expression";
 import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
 import {
+	type AfterSubmitTargetVisibility,
 	afterSubmitRoute,
+	afterSubmitTargetVisibility,
 	carriedChildCasesFromReceipt,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "@/lib/preview/afterSubmitRouting";
+import {
+	ANDROID_RULES,
+	WEB_APPS_RULES,
+} from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import type {
 	AfterSubmitChoice,
 	TargetCaseSelection,
@@ -100,6 +107,8 @@ describe("afterSubmitRoute", () => {
 	it("requires the entry projection for a previous fallback", () => {
 		expect(
 			afterSubmitRoute({
+				rules: ANDROID_RULES,
+				targetVisibility: () => "shown",
 				choice: { kind: "fallback", destination: "previous" },
 				doc,
 				caseFirstModules,
@@ -115,6 +124,8 @@ describe("afterSubmitRoute", () => {
 	it("enters a case-first module on its case list", () => {
 		expect(
 			afterSubmitRoute({
+				rules: ANDROID_RULES,
+				targetVisibility: () => "shown",
 				choice: fired({ type: "module", moduleUuid: CARE }),
 				doc,
 				caseFirstModules,
@@ -132,6 +143,8 @@ describe("afterSubmitRoute", () => {
 	it("enters a case-first module with a retained case on its form menu", () => {
 		expect(
 			afterSubmitRoute({
+				rules: ANDROID_RULES,
+				targetVisibility: () => "shown",
 				choice: fired({ type: "module", moduleUuid: CARE }),
 				doc,
 				caseFirstModules,
@@ -159,6 +172,8 @@ describe("afterSubmitRoute", () => {
 				selections.some((selection) => selection.caseId !== ""),
 		);
 		const route = afterSubmitRoute({
+			rules: ANDROID_RULES,
+			targetVisibility: () => "shown",
 			choice: fired({ type: "module", moduleUuid: CARE }),
 			doc,
 			caseFirstModules,
@@ -179,6 +194,8 @@ describe("afterSubmitRoute", () => {
 			caseId: "",
 		} as const;
 		const route = afterSubmitRoute({
+			rules: ANDROID_RULES,
+			targetVisibility: () => "shown",
 			choice: fired({ type: "module", moduleUuid: CARE }),
 			doc,
 			caseFirstModules,
@@ -194,6 +211,8 @@ describe("afterSubmitRoute", () => {
 	it("enters a bare case list on its case list", () => {
 		expect(
 			afterSubmitRoute({
+				rules: ANDROID_RULES,
+				targetVisibility: () => "shown",
 				choice: fired({ type: "module", moduleUuid: BROWSE }),
 				doc,
 				caseFirstModules,
@@ -211,6 +230,8 @@ describe("afterSubmitRoute", () => {
 	it("enters any other module on its form menu", () => {
 		expect(
 			afterSubmitRoute({
+				rules: ANDROID_RULES,
+				targetVisibility: () => "shown",
 				choice: fired({ type: "module", moduleUuid: MENU }),
 				doc,
 				caseFirstModules,
@@ -232,6 +253,8 @@ describe("afterSubmitRoute", () => {
 			caseName: "Pat",
 		}));
 		const route = afterSubmitRoute({
+			rules: ANDROID_RULES,
+			targetVisibility: () => "shown",
 			choice: fired({ type: "form", moduleUuid: CARE, formUuid: VISIT }),
 			doc,
 			caseFirstModules,
@@ -266,6 +289,8 @@ describe("afterSubmitRoute", () => {
 			},
 		] as const;
 		const route = afterSubmitRoute({
+			rules: ANDROID_RULES,
+			targetVisibility: () => "shown",
 			choice: fired({ type: "form", moduleUuid: CARE, formUuid: VISIT }),
 			doc,
 			caseFirstModules,
@@ -288,6 +313,8 @@ describe("afterSubmitRoute", () => {
 	it("opens a form target that selects no case with nothing carried", () => {
 		expect(
 			afterSubmitRoute({
+				rules: ANDROID_RULES,
+				targetVisibility: () => "shown",
 				choice: fired({ type: "form", moduleUuid: MENU, formUuid: NOTE }),
 				doc,
 				caseFirstModules,
@@ -308,6 +335,8 @@ describe("afterSubmitRoute", () => {
 		(destination) => {
 			expect(
 				afterSubmitRoute({
+					rules: ANDROID_RULES,
+					targetVisibility: () => "shown",
 					choice: { kind: "fallback", destination },
 					doc,
 					caseFirstModules,
@@ -324,6 +353,8 @@ describe("afterSubmitRoute", () => {
 		hidden.modules[MENU].hiddenFromMenu = true;
 		expect(
 			afterSubmitRoute({
+				rules: ANDROID_RULES,
+				targetVisibility: () => "shown",
 				choice: fired({ type: "form", moduleUuid: MENU, formUuid: NOTE }),
 				doc: hidden,
 				caseFirstModules,
@@ -335,6 +366,8 @@ describe("afterSubmitRoute", () => {
 
 	it("reports a target module that is not in the document", () => {
 		const route = afterSubmitRoute({
+			rules: ANDROID_RULES,
+			targetVisibility: () => "shown",
 			choice: fired({ type: "module", moduleUuid: MISSING_MODULE }),
 			doc,
 			caseFirstModules,
@@ -349,6 +382,8 @@ describe("afterSubmitRoute", () => {
 
 	it("reports a target form that is not in its module", () => {
 		const gone = afterSubmitRoute({
+			rules: ANDROID_RULES,
+			targetVisibility: () => "shown",
 			choice: fired({ type: "form", moduleUuid: CARE, formUuid: MISSING_FORM }),
 			doc,
 			caseFirstModules,
@@ -358,6 +393,8 @@ describe("afterSubmitRoute", () => {
 		expect(gone.kind).toBe("unresolvable");
 		// A form that exists, but in another module, is not the named target.
 		const elsewhere = afterSubmitRoute({
+			rules: ANDROID_RULES,
+			targetVisibility: () => "shown",
 			choice: fired({ type: "form", moduleUuid: CARE, formUuid: NOTE }),
 			doc,
 			caseFirstModules,
@@ -725,4 +762,117 @@ it("rejects incomplete and duplicate created-child receipts before routing", () 
 			],
 		}),
 	).toThrow(/invalid/);
+});
+
+describe("afterSubmitRoute per platform", () => {
+	const linkTo = (target: FormLink["target"]) => fired(target);
+	const routeOn = (
+		rules: typeof WEB_APPS_RULES,
+		target: FormLink["target"],
+		visibility: AfterSubmitTargetVisibility,
+	) =>
+		afterSubmitRoute({
+			rules,
+			targetVisibility: () => visibility,
+			choice: linkTo(target),
+			doc,
+			caseFirstModules,
+			caseSelections: noCaseSelections,
+			carriedCase: () => ({ kind: "none" }),
+		});
+
+	it("sends app_home to the app's first screen on Web Apps and the phone's home on Android", () => {
+		for (const rules of [WEB_APPS_RULES, ANDROID_RULES]) {
+			expect(
+				afterSubmitRoute({
+					rules,
+					targetVisibility: () => "shown",
+					choice: { kind: "fallback", destination: "app_home" },
+					doc,
+					caseFirstModules,
+					caseSelections: noCaseSelections,
+					carriedCase: neverCarries,
+				}),
+			).toEqual({ kind: "post-submit", destination: "app_home" });
+		}
+		expect(WEB_APPS_RULES.postSubmitAppHome).toBe("root-menu");
+		expect(ANDROID_RULES.postSubmitAppHome).toBe("device-home");
+	});
+
+	it("lands a link to a form the menu hides on its module on Web Apps", () => {
+		expect(
+			routeOn(
+				WEB_APPS_RULES,
+				{ type: "form", moduleUuid: MENU, formUuid: NOTE },
+				"form-hidden",
+			),
+		).toEqual({
+			kind: "module",
+			moduleUuid: MENU,
+			caseSelections: [],
+			landing: "form-menu",
+		});
+	});
+
+	it.each([
+		["a form in a hidden module", "form-in-hidden-module", "form"],
+		["a hidden module", "module-hidden", "module"],
+	] as const)(
+		"stops a link to %s on the app's first screen on Web Apps",
+		(_name, visibility, kind) => {
+			const target: FormLink["target"] =
+				kind === "form"
+					? { type: "form", moduleUuid: MENU, formUuid: NOTE }
+					: { type: "module", moduleUuid: MENU };
+			expect(routeOn(WEB_APPS_RULES, target, visibility)).toEqual({
+				kind: "post-submit",
+				destination: "firstMenu",
+			});
+		},
+	);
+
+	it("waits on a target whose visibility is still loading on Web Apps", () => {
+		expect(
+			routeOn(
+				WEB_APPS_RULES,
+				{ type: "form", moduleUuid: MENU, formUuid: NOTE },
+				"pending",
+			),
+		).toEqual({ kind: "pending" });
+	});
+
+	it("reads a module whose display condition is false as hiding its form", () => {
+		const hidden = structuredClone(doc);
+		hidden.modules[MENU].displayCondition = eq(literal("a"), literal("b"));
+		const link: FormLink = {
+			uuid: testUuid("lnk"),
+			target: { type: "form", moduleUuid: MENU, formUuid: NOTE },
+		};
+		const visibility = afterSubmitTargetVisibility({
+			doc: hidden,
+			link,
+			session: { context: {}, user: {}, userPropertySlugs: {} },
+			lookup: { kind: "idle" },
+			deviceCases: { snapshot: null, caseTypes: hidden.caseTypes ?? [] },
+			caseSelections: [],
+		});
+		expect(visibility).toBe("form-in-hidden-module");
+		expect(routeOn(WEB_APPS_RULES, link.target, visibility)).toEqual({
+			kind: "post-submit",
+			destination: "firstMenu",
+		});
+	});
+
+	it("opens the hidden target on Android, which reads the frame as it stands", () => {
+		const route = routeOn(
+			ANDROID_RULES,
+			{ type: "form", moduleUuid: MENU, formUuid: NOTE },
+			"form-hidden",
+		);
+		expect(route).toMatchObject({
+			kind: "form",
+			moduleUuid: MENU,
+			formUuid: NOTE,
+		});
+	});
 });

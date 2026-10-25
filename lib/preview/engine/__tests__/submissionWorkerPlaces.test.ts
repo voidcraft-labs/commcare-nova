@@ -10,6 +10,7 @@ import {
 } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import type { Uuid } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import { buildSubmissionOperationProgram } from "../caseDataBindingHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
@@ -67,6 +68,7 @@ function submit(workerPlaceIds?: readonly string[]) {
 		usercase: {},
 	};
 	return buildSubmissionOperationProgram({
+		device: webAppsDevice(),
 		appId: "worker-places-app",
 		committedApp: { blueprint: doc, mutation_seq: 1 },
 		blueprintDigest: "0".repeat(64),

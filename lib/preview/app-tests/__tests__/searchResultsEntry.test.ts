@@ -16,6 +16,11 @@ import {
 	setCalculate,
 } from "@/lib/domain/expression/__tests__/instanceReadsFixture";
 import { resolveAppLanguage } from "@/lib/domain/localization";
+import {
+	TEST_ANDROID_DEVICE_ID,
+	WEB_APPS_RULES,
+} from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import { serverPreviewDevice } from "@/lib/preview/engine/previewDevice";
 import { previewAsMe } from "../../engine/identity";
 import { previewLookupData } from "../../engine/lookupEvaluation";
 import type { AppTestContext } from "../context";
@@ -71,6 +76,12 @@ function journey() {
 		identity,
 		caseTypeSchemas: buildCaseTypeMap(doc),
 		restoreScope: { ownerIds: ["worker"] },
+		device: serverPreviewDevice({
+			platform: "web-apps",
+			appLanguage: "en",
+			androidDeviceId: TEST_ANDROID_DEVICE_ID,
+		}),
+		rules: WEB_APPS_RULES,
 		lookup: previewLookupData({
 			projectRevision: "0",
 			definitions: [],
@@ -80,6 +91,8 @@ function journey() {
 	const entryCases = { rows: [patient("p1")], indices: [] };
 	const state = {
 		language,
+		platform: "web-apps",
+		androidDeviceId: TEST_ANDROID_DEVICE_ID,
 		personaUuid: null,
 		screen: {
 			kind: "form",

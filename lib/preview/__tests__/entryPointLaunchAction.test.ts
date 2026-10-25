@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { webAppsDevice } from "../engine/__tests__/fixtures/previewDevices";
 import { assertAdmittedPreviewDoc } from "./fixtures/admittedDoc";
 
 const { authorize, readDevice, recheck, telemetry } = vi.hoisted(() => ({
@@ -70,6 +71,7 @@ beforeEach(() => {
 		blueprint: toPersistableDoc(doc),
 		baseSeq: 4,
 		restoreScope: { kind: "test-scope" },
+		device: webAppsDevice(),
 	});
 	readDevice.mockResolvedValue({ rows: [], indices: [] });
 	recheck.mockResolvedValue({ baseSeq: 4, projectId: "project" });

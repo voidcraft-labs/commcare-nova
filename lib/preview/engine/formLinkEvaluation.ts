@@ -274,7 +274,7 @@ function formLinkSecondaryInstances(
 	input: FormLinkEvaluationInput,
 ): ReadonlyMap<string, XPathInstance> {
 	return secondaryXPathInstances({
-		identity: input.session,
+		session: input.session,
 		lookupData: input.lookupData ?? null,
 		caseDatabase: input.caseDatabase ?? null,
 		caseTypes: materializableCaseTypes(input.doc),

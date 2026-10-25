@@ -35,7 +35,7 @@ import {
 	type ControllerDocSource,
 	type ControllerFieldSource,
 } from "./fixtures/controllerDoc";
-
+import { androidDevice } from "./fixtures/previewDevices";
 import { sectionEntryDoc } from "./fixtures/sectionEntry";
 
 const controllers = new Set<EngineController>();
@@ -1414,6 +1414,7 @@ it("keeps pending page snapshots reachable after an authored section rename", as
 		new XPathRuntime({ workerFactory: createInProcessXPathWorkerFactory() }),
 	);
 	ctrl.setDocStore(store);
+	ctrl.setPreviewDevice(androidDevice());
 	await ctrl.activateFormAsync(formUuid);
 	await ctrl.setValueAtAsync("/data/first/zone", "south");
 	applyControllerEdit(store, [
@@ -1470,6 +1471,7 @@ it.each([false, true])(
 				: undefined,
 		);
 		ctrl.setDocStore(store);
+		ctrl.setPreviewDevice(androidDevice());
 		await ctrl.activateFormAsync(form);
 		await ctrl.setValueAtAsync("/data/first/zone", "south");
 		await ctrl.enterSectionAsync(second.uuid);
@@ -1601,6 +1603,7 @@ it.each([false, true])(
 			data_source: { ids_query: "if(#user/username = '', '', 'round')" },
 		};
 		const ctrl = controllerForDoc(doc);
+		ctrl.setPreviewDevice(androidDevice());
 		await ctrl.activateFormAsync(form);
 		if (visited) await ctrl.enterSectionAsync(second.uuid);
 		ctrl.setPreviewIdentity(
@@ -1748,7 +1751,7 @@ it.each([false, true])(
 		await ctrl.awaitSettled();
 		expect(ctrl.entryKey).toBe(entry);
 		expect(ctrl.formUuid).toBe(form);
-		expect(ctrl.sectionPages()).toHaveLength(1);
+		expect(ctrl.sectionScreens()).toHaveLength(1);
 		expect(ctrl.entryStore.getState().fault).toBeUndefined();
 		expect(await ctrl.validateAllAsync()).toEqual({ kind: "valid" });
 	},

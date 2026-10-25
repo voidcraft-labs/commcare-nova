@@ -522,3 +522,81 @@ describe("relation walks", () => {
 		).resolves.toHaveLength(1);
 	});
 });
+
+describe("the cases outside the restore", () => {
+	it("pages the search population less the worker's restore, each once, and counts it", async () => {
+		/* 120 open cases, 30 the worker's restore holds; three closed ones
+		 * a search never reads. */
+		await h.pool.query(
+			`INSERT INTO cases
+			 (case_id, app_id, project_id, owner_id, case_type, case_name, status, properties)
+			 SELECT 'case-' || lpad(n::text, 3, '0'), $1, $2,
+			        CASE WHEN n % 4 = 0 THEN $3 ELSE $4 END,
+			        'patient', 'case-' || lpad(n::text, 3, '0'),
+			        CASE WHEN n > 120 THEN 'closed' ELSE 'open' END, '{}'::jsonb
+			 FROM generate_series(1, 123) AS n`,
+			[APP_ID, PROJECT_ID, WORKER, OTHER],
+		);
+		const population = {
+			heldBy: RESTORE,
+			onlyOutsideRestore: true,
+		} as const;
+		const page = async (offset: number) =>
+			(
+				await store().query({
+					reading: SEARCH_READING,
+					appId: APP_ID,
+					caseType: "patient",
+					searchPopulation: population,
+					limit: 50,
+					offset,
+				})
+			).map((row) => row.case_id);
+		const pages = [await page(0), await page(50), await page(100)];
+		expect(pages.map((ids) => ids.length)).toEqual([50, 40, 0]);
+		const seen = pages.flat();
+		expect(new Set(seen).size).toBe(90);
+		const unpaged = (
+			await store().query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+				searchPopulation: population,
+			})
+		).map((row) => row.case_id);
+		expect(seen).toEqual(unpaged);
+		const expected = Array.from({ length: 120 }, (_, i) => i + 1)
+			.filter((n) => n % 4 !== 0)
+			.map((n) => `case-${String(n).padStart(3, "0")}`);
+		expect([...seen].sort()).toEqual(expected);
+		await expect(
+			store().count({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+				searchPopulation: population,
+			}),
+		).resolves.toBe(90);
+	});
+
+	it("refuses beside a restore scope", async () => {
+		await expect(
+			store().query({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+				restoreScope: RESTORE,
+				searchPopulation: { heldBy: RESTORE, onlyOutsideRestore: true },
+			}),
+		).rejects.toThrow("a restore scope and a search population");
+		await expect(
+			store().count({
+				reading: SEARCH_READING,
+				appId: APP_ID,
+				caseType: "patient",
+				restoreScope: RESTORE,
+				searchPopulation: { heldBy: RESTORE, onlyOutsideRestore: true },
+			}),
+		).rejects.toThrow("a restore scope and a search population");
+	});
+});

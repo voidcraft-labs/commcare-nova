@@ -19,12 +19,19 @@ import {
 /* Moves due north along the prime meridian from the equator, where Core's
  * haversine (radius 6,371,009 m) measures a latitude step of `d / R` radians
  * as `d` metres. */
-const ORIGIN: ViewerLocation = { latitude: 0, longitude: 0 };
+const ORIGIN: ViewerLocation = {
+	latitude: 0,
+	longitude: 0,
+	altitude: null,
+	accuracy: 0,
+};
 const EARTH_RADIUS_METERS = 6_371_009;
 function north(metres: number): ViewerLocation {
 	return {
 		latitude: ((metres / EARTH_RADIUS_METERS) * 180) / Math.PI,
 		longitude: 0,
+		altitude: null,
+		accuracy: 0,
 	};
 }
 
@@ -43,7 +50,7 @@ describe("shouldReReadForPosition", () => {
 		/* No pair of doubles on this meridian measures 30 exactly; this is
 		 * the nearest one that does not exceed it. Android re-reads only
 		 * past 30 (`distanceFromLastLocation > REFRESH_METER_DELTA`). */
-		const next = { latitude: 0.00026979610064786747, longitude: 0 };
+		const next = { ...ORIGIN, latitude: 0.00026979610064786747 };
 		const measured = javaRosaPointDistance(ORIGIN, next);
 		expect(measured).toBeLessThanOrEqual(30);
 		expect(measured).toBeCloseTo(30, 9);

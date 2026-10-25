@@ -16,6 +16,8 @@ import type {
 	LoadCasesResult,
 	ParentCaseSelection,
 } from "@/lib/preview/engine/caseDataBindingTypes";
+import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
+import { loadEntryPointOtherCasesAction } from "@/lib/preview/entryPointLaunchAction";
 import {
 	useEntryPointLaunch,
 	useEntryPointPreviewSetup,
@@ -24,7 +26,9 @@ import { useReloadableResource } from "@/lib/preview/hooks/useReloadableResource
 import {
 	useAppId,
 	usePreviewClaimedCaseIds,
+	usePreviewDevice,
 	usePreviewPersonaUuid,
+	usePreviewPlatformRules,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 
@@ -208,7 +212,46 @@ function EntryPointCasePicker(props: {
 		reloadToken,
 	});
 	const rows = state.kind === "rows" ? state.rows : [];
-	const names = new Map(rows.map((row) => [row.case_id, row.case_name]));
+	/* The Project's open cases of this type that the worker's restore does
+	 * not hold: Web Apps claims one chosen here, and Android opens the form
+	 * without its saved values, as each platform does with a case the
+	 * worker's device lacks. */
+	const device = usePreviewDevice();
+	const platformRules = usePreviewPlatformRules();
+	const [otherPage, setOtherPage] = useState(0);
+	const otherReloadToken = useMemo(
+		() => [...reloadToken, otherPage, device.platform],
+		[reloadToken, otherPage, device.platform],
+	);
+	const { state: otherState } = useReloadableResource<State>({
+		prepare: () =>
+			appId
+				? {
+						fetch: () =>
+							loadEntryPointOtherCasesAction({
+								appId,
+								caseType: props.caseType,
+								personaUuid: props.personaUuid,
+								claimedCaseIds: [...claimedCaseIds],
+								parentCase: props.parentCase,
+								page: { offset: otherPage * 50, limit: 50 },
+								device: withNavigationWidth(device),
+							}),
+					}
+				: { notReady: { kind: "loading" } },
+		loading: { kind: "loading" },
+		toError: () => ({
+			kind: "error",
+			message: "We could not load these cases. Try again.",
+		}),
+		keepStale: () => false,
+		reloadToken: otherReloadToken,
+	});
+	const otherRows = otherState.kind === "rows" ? otherState.rows : [];
+	const otherId = useId();
+	const names = new Map(
+		[...rows, ...otherRows].map((row) => [row.case_id, row.case_name]),
+	);
 	return (
 		<Field>
 			<FieldLabel htmlFor={id}>{props.name} cases</FieldLabel>
@@ -300,6 +343,59 @@ function EntryPointCasePicker(props: {
 					More cases
 				</Button>
 			</div>
+			{otherRows.length > 0 || otherPage > 0 ? (
+				<div className="space-y-2">
+					<FieldLabel htmlFor={otherId}>
+						Cases this worker doesn't have
+					</FieldLabel>
+					<Select
+						value={null}
+						disabled={
+							props.disabled ||
+							otherState.kind !== "rows" ||
+							props.selected.length >= props.maximum
+						}
+						onValueChange={(value) => {
+							if (typeof value === "string" && !props.selected.includes(value))
+								props.onChange([...props.selected, value]);
+						}}
+					>
+						<SelectTrigger id={otherId}>
+							<SelectValue placeholder="Choose a case" />
+						</SelectTrigger>
+						<SelectContent>
+							{otherRows
+								.filter((row) => !props.selected.includes(row.case_id))
+								.map((row) => (
+									<SelectItem key={row.case_id} value={row.case_id}>
+										{row.case_name || row.case_id}
+									</SelectItem>
+								))}
+						</SelectContent>
+					</Select>
+					<FieldDescription>
+						{platformRules.entryPointCaseNotHeld === "claimed"
+							? "Choosing one claims it for this worker, as Web Apps does"
+							: "The phone doesn't have these, so the form opens without their saved values"}
+					</FieldDescription>
+					<div className="flex gap-2">
+						<Button
+							variant="ghost"
+							disabled={props.disabled || otherPage === 0}
+							onClick={() => setOtherPage(otherPage - 1)}
+						>
+							Previous cases
+						</Button>
+						<Button
+							variant="ghost"
+							disabled={props.disabled || otherRows.length < 50}
+							onClick={() => setOtherPage(otherPage + 1)}
+						>
+							More cases
+						</Button>
+					</div>
+				</div>
+			) : null}
 		</Field>
 	);
 }

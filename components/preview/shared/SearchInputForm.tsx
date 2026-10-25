@@ -84,6 +84,7 @@ import {
 	type VisibleSearchInputDef,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
+import { PLATFORMS } from "@/lib/domain/platforms";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
 import type { LookupChoice } from "@/lib/preview/engine/lookupEvaluation";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
@@ -96,6 +97,11 @@ import {
 	searchInputRequiredMarks,
 	searchInputRequiredMarksOnDevice,
 } from "@/lib/preview/engine/searchInputConstraints";
+import {
+	effectivePreviewPlatform,
+	type PreviewPlatformRules,
+	previewPlatformRules,
+} from "@/lib/preview/platform";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import {
 	LookupChoicesEmpty,
@@ -166,7 +172,15 @@ interface SearchInputFormProps {
 	readonly submitLabel?: string;
 	/** Project compiler-owned runtime validation copy through the selected locale. */
 	readonly localizeValidationMessage?: (source: string) => string;
+	/** The platform Preview plays: Android searches whatever the answers, so
+	 *  its Search fields are checked for nothing and marked required for
+	 *  nothing. Defaults to the platform an app that runs on both plays. */
+	readonly platformRules?: Pick<PreviewPlatformRules, "searchFieldChecks">;
 }
+
+const DEFAULT_SEARCH_RULES = previewPlatformRules(
+	effectivePreviewPlatform(PLATFORMS, undefined),
+);
 
 const DEBOUNCE_MS = 300;
 
@@ -190,6 +204,7 @@ export function SearchInputForm({
 	onSubmit,
 	submitLabel = "Search",
 	localizeValidationMessage = (source) => source,
+	platformRules = DEFAULT_SEARCH_RULES,
 }: SearchInputFormProps) {
 	const [validationState, setValidationState] = useState({
 		scopeKey,
@@ -241,6 +256,7 @@ export function SearchInputForm({
 				errors =
 					evaluateOnDevice === undefined
 						? validation.searchInputSubmissionErrors(
+								platformRules,
 								caseListConfig,
 								caseType?.name,
 								candidate,
@@ -248,6 +264,7 @@ export function SearchInputForm({
 								environment,
 							)
 						: await validation.searchInputSubmissionErrorsOnDevice(
+								platformRules,
 								caseListConfig,
 								caseType?.name,
 								candidate,
@@ -278,6 +295,7 @@ export function SearchInputForm({
 			evaluateOnDevice,
 			filter,
 			environment,
+			platformRules,
 			scopeKey,
 			searchInputs,
 			session,
@@ -329,8 +347,14 @@ export function SearchInputForm({
 		() =>
 			session === undefined
 				? undefined
-				: searchInputRequiredMarks(searchInputs, draft, session, environment),
-		[draft, environment, searchInputs, session],
+				: searchInputRequiredMarks(
+						platformRules,
+						searchInputs,
+						draft,
+						session,
+						environment,
+					),
+		[draft, environment, platformRules, searchInputs, session],
 	);
 	const [deviceMarks, setDeviceMarks] = useState<
 		| {
@@ -352,6 +376,7 @@ export function SearchInputForm({
 		}
 		let cancelled = false;
 		void searchInputRequiredMarksOnDevice(
+			platformRules,
 			searchInputs,
 			draft,
 			session,
@@ -373,6 +398,7 @@ export function SearchInputForm({
 		evaluateOnDevice,
 		environment,
 		needsDeviceMarks,
+		platformRules,
 		searchInputs,
 		session,
 	]);

@@ -33,6 +33,7 @@ import {
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { applyLookupAuthoringBatchInTransaction } from "@/lib/lookup/authoringBatch";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
 	buildCaseOperationProgramFromDoc,
@@ -147,6 +148,7 @@ async function submit(
 	});
 	const projection = validateCaptureSubmissionProjection(mutation);
 	const built = buildCaseOperationProgramFromDoc({
+		device: webAppsDevice(),
 		blueprint: doc,
 		mutation,
 		projection,
@@ -267,6 +269,7 @@ describe("engine → builder → executor acceptance", () => {
 		]);
 		const projection = validateCaptureSubmissionProjection(mutation);
 		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
 			blueprint: doc,
 			mutation,
 			projection,
@@ -382,6 +385,7 @@ describe("engine → builder → executor acceptance", () => {
 			values: ["done"],
 		});
 		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
 			blueprint: doc,
 			mutation,
 			projection,
@@ -441,6 +445,7 @@ describe("engine → builder → executor acceptance", () => {
 		});
 		const projection = validateCaptureSubmissionProjection(mutation);
 		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
 			blueprint: doc,
 			mutation,
 			projection,

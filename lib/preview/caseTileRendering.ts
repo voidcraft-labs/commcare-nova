@@ -42,6 +42,7 @@ import {
 	tileGridTemplateColumns,
 	tileGridTemplateRows,
 } from "./caseTileLayout";
+import type { PreviewPlatformRules } from "./platform";
 
 /** One column a tile draws, with what the tile does about its value. */
 export interface TileResultsColumn {
@@ -124,13 +125,41 @@ export interface TileCellPlan {
  *
  * Every cell states its size (`tileCellSchema`), and a tile's text never
  * follows the list's own size.
+ *
+ * On Android (`rules.tileBorderShading` false) no cell is boxed, bordered or
+ * shaded whatever it says: commcare-android holds no reader of
+ * `Style.getShowBorder` or `getShowShading`, so every cell sits in its square
+ * at its own alignments. Its vertical alignment is `middle` or the top
+ * (`rules.tileVerticalAlign` `"middle-only"`): `EntityViewTile.computeGravity`
+ * matches `center`, `top` and `bottom` against Nova's `start`, `center` and
+ * `end`, so only `center` meets, and the rest take the framework's default
+ * gravity. Horizontal alignment and size hold on both.
  */
-export function planTileCell(cell: TileCellProjection): TileCellPlan {
+export function planTileCell(
+	cell: TileCellProjection,
+	rules: Pick<PreviewPlatformRules, "tileBorderShading" | "tileVerticalAlign">,
+): TileCellPlan {
 	const base: CSSProperties = {
 		gridArea: cell.gridArea,
 		textAlign: cell.horizontalAlign,
 		fontSize: cell.fontSize,
 	};
+	if (!rules.tileBorderShading) {
+		return {
+			style: {
+				...base,
+				justifySelf: cell.horizontalAlign,
+				alignSelf:
+					rules.tileVerticalAlign === "middle-only" &&
+					cell.verticalAlign !== "center"
+						? "start"
+						: cell.verticalAlign,
+			},
+			boxed: false,
+			bordered: false,
+			shaded: false,
+		};
+	}
 	if (cell.mode === "boxed") {
 		return {
 			style: {

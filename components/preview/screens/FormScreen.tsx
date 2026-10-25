@@ -60,6 +60,7 @@ import {
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import {
 	afterSubmitRoute,
+	afterSubmitTargetVisibility,
 	automaticLinkedCaseCollection,
 	carriedChildCasesFromReceipt,
 	previewMenuSelectionsAfterTargetCases,
@@ -139,11 +140,15 @@ import {
 	useCanEdit,
 	useEditMode,
 	usePreviewCaseTarget,
+	usePreviewDevice,
+	usePreviewEntryPointLaunch,
 	usePreviewMenuCaseSelections,
 	usePreviewPersonaUuid,
+	usePreviewPlatformRules,
 	usePreviewSearchState,
 	useProjectId,
 	useProjectScopeEpoch,
+	useSetPreviewAtDeviceHome,
 	useSetPreviewCaseTarget,
 	useSetPreviewing,
 	useSetPreviewMenuCaseSelection,
@@ -205,6 +210,8 @@ function describeSubmitError(result: SubmissionFailure): string {
 		case "unauthenticated":
 			return "Sign in to submit this form.";
 		case "persona-unavailable":
+		case "platform-unavailable":
+		case "language-unavailable":
 			return result.message;
 		case "blueprint-changed":
 			return result.message;
@@ -417,6 +424,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 	// neither of which is an argument to these reads. See `useRestoreScopeKey`.
 	const restoreScopeKey = useRestoreScopeKey(personaUuid);
 	const previewIdentity = useSelectedPreviewIdentity();
+	/* The device the running form plays: its after-submit landing, its
+	 * session values and the submission's (`lib/preview/platform.ts`). */
+	const previewDevice = usePreviewDevice();
+	const entryPointLaunch = usePreviewEntryPointLaunch();
+	const platformRules = usePreviewPlatformRules();
+	const setPreviewAtDeviceHome = useSetPreviewAtDeviceHome();
 	const session = useBuilderSessionApi();
 	const collab = useReconcilerContext();
 	/* A viewer may preview the running app but not WRITE case data (submit a
@@ -1071,9 +1084,14 @@ export function FormScreen({ screen }: FormScreenProps) {
 					else navigate.goHome();
 					return;
 				}
-				/* Preview has one home screen for both until it plays each
-				 * platform; Web Apps shows the app's first screen for both. */
+				/* `app_home` opens the app's first screen in Web Apps and the
+				 * phone's home screen on Android (`postSubmitAppHome`);
+				 * `firstMenu` opens the app's first screen on both. */
 				case "app_home":
+					navigate.goHome();
+					if (platformRules.postSubmitAppHome === "device-home")
+						setPreviewAtDeviceHome(true);
+					return;
 				case "firstMenu":
 					navigate.goHome();
 					return;
@@ -1098,7 +1116,13 @@ export function FormScreen({ screen }: FormScreenProps) {
 				}
 			}
 		},
-		[navigate, session, setPreviewMenuCaseSelection],
+		[
+			navigate,
+			platformRules.postSubmitAppHome,
+			session,
+			setPreviewAtDeviceHome,
+			setPreviewMenuCaseSelection,
+		],
 	);
 
 	/**
@@ -1360,7 +1384,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			const input = {
 				doc,
 				formUuid: sourceFormUuid,
-				session: previewSessionValues(previewIdentity),
+				session: previewSessionValues(previewIdentity, previewDevice),
 				usercase: postSubmissionUsercase,
 				/* The entry's own session map: the device's session does not
 				 * change when the form closes, so a link reads the ids its form
@@ -1448,7 +1472,30 @@ export function FormScreen({ screen }: FormScreenProps) {
 				carriedCase: (link) =>
 					carriedCaseFromSelections(input, link, projectedSelections),
 				caseSelections: () => projectedSelections,
+				rules: platformRules,
+				targetVisibility: (link) =>
+					afterSubmitTargetVisibility({
+						doc,
+						link,
+						session: input.session,
+						lookup:
+							input.lookupData === null || input.lookupData === undefined
+								? { kind: "idle" }
+								: { kind: "data", data: input.lookupData },
+						deviceCases: {
+							snapshot: refreshedCaseDatabase,
+							caseTypes: submitted.caseTypes,
+						},
+						caseSelections: projectedSelections,
+					}),
 			});
+			if (route.kind === "pending") {
+				failAfterSave(
+					"Your answers were saved, but the next screen depends on data that's still loading. You can open it from the menu.",
+					"target-visibility-pending",
+				);
+				return;
+			}
 			let targetCaseData = caseData;
 			let targetFormCaseData: ReturnType<typeof caseDatabaseToFormPreloads>;
 			if (route.kind === "module" || route.kind === "form") {
@@ -2033,6 +2080,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 					/* The places the entry opened with: an owner moved to a place
 					 * is resolved among the ones the form read. */
 					submitted.caseDatabase.locations?.map((place) => place.id),
+					previewDevice,
 				);
 			};
 			const result = await runFormAttachmentBarrier(
@@ -2983,7 +3031,10 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const persistentTile =
 		mode === "preview" &&
 		mod?.caseListConfig?.tile?.persistOnForms === true &&
-		effectiveCaseId !== undefined ? (
+		effectiveCaseId !== undefined &&
+		/* A case the phone lacks has no tile there: Android's breadcrumb
+		 * builds no context tile for a case it does not hold. */
+		!(entryPointLaunch?.blankCaseIds ?? []).includes(effectiveCaseId) ? (
 			<PersistentCaseTile
 				blueprint={menuSource.doc}
 				moduleUuid={moduleUuid}

@@ -28,6 +28,7 @@ import {
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { makeTranslationUnitId, moduleLanding } from "@/lib/domain";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
+import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDeviceCases";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
@@ -44,6 +45,7 @@ import { useNavigate } from "@/lib/routing/hooks";
 import {
 	useBuilderIsReady,
 	useEditMode,
+	usePreviewDevice,
 	usePreviewMenuCaseSelections,
 	useSetPreviewParentCaseRequest,
 } from "@/lib/session/hooks";
@@ -84,7 +86,11 @@ export function HomeScreen() {
 	 * cached session synchronously on the browser's first paint while SSR
 	 * has none) so every preview surface reads one identity. */
 	const identity = useSelectedPreviewIdentity();
-	const session = useMemo(() => previewSessionValues(identity), [identity]);
+	const device = usePreviewDevice();
+	const session = useMemo(
+		() => previewSessionValues(identity, withNavigationWidth(device)),
+		[identity, device],
+	);
 
 	/* The running preview gates the module list exactly as a device would
 	 * (`<menu relevant>`); edit mode ("authoring surfaces never hide")

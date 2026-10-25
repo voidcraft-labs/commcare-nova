@@ -29,6 +29,7 @@ import {
 	caseListStepSession,
 } from "@/lib/preview/engine/entrySessionData";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
+import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
 import {
 	evaluateSearchCsqlRuntime,
@@ -43,7 +44,10 @@ import {
 } from "@/lib/preview/engine/useNavigationDeviceCases";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
-import { usePreviewMenuCaseSelections } from "@/lib/session/hooks";
+import {
+	usePreviewDevice,
+	usePreviewMenuCaseSelections,
+} from "@/lib/session/hooks";
 import type { PreviewSearchDeviceValues } from "@/lib/session/types";
 import { useBuilderFormEngine } from "../engine/provider";
 
@@ -63,6 +67,7 @@ export function useCaseListStepSession(
 	const menuSelections = usePreviewMenuCaseSelections();
 	const deviceCases = useNavigationDeviceCases(doc.caseTypes ?? undefined);
 	const identity = useSelectedPreviewIdentity();
+	const device = usePreviewDevice();
 	const step = useMemo(
 		() =>
 			moduleUuid === undefined
@@ -70,9 +75,12 @@ export function useCaseListStepSession(
 				: caseListStepSession(doc, moduleUuid, {
 						menuSelections,
 						caseDatabase: deviceCases.snapshot,
-						identity,
+						session: previewSessionValues(
+							identity,
+							withNavigationWidth(device),
+						),
 					}),
-		[doc, moduleUuid, menuSelections, deviceCases.snapshot, identity],
+		[doc, moduleUuid, menuSelections, deviceCases.snapshot, identity, device],
 	);
 	return useStableContent(step);
 }
@@ -178,6 +186,7 @@ export function useSubmittedSearchDeviceValues(args: {
 	const deviceCases = useNavigationDeviceCases(args.doc.caseTypes ?? undefined);
 	const deviceCasesLoad = useDeviceCaseDatabaseLoad();
 	const identity = useSelectedPreviewIdentity();
+	const device = usePreviewDevice();
 	const lookupStatus = usePreviewLookupStatus();
 	const [own, setOwn] = useState<{
 		readonly key: string;
@@ -206,8 +215,22 @@ export function useSubmittedSearchDeviceValues(args: {
 			: found;
 	/* The latest world, read when an evaluation starts; the submission's key
 	 * and the world's readiness alone decide whether one starts. */
-	const latest = useRef({ args, deviceCases, identity, lookupStatus, engine });
-	latest.current = { args, deviceCases, identity, lookupStatus, engine };
+	const latest = useRef({
+		args,
+		deviceCases,
+		identity,
+		device,
+		lookupStatus,
+		engine,
+	});
+	latest.current = {
+		args,
+		deviceCases,
+		identity,
+		device,
+		lookupStatus,
+		engine,
+	};
 	const pendingKey =
 		args.waitsForRecord !== true &&
 		status.kind === "pending" &&
@@ -242,7 +265,10 @@ export function useSubmittedSearchDeviceValues(args: {
 				moduleUuid,
 				caseListConfig,
 				answers: submission.answers,
-				session: previewSessionValues(input.identity),
+				session: previewSessionValues(
+					input.identity,
+					withNavigationWidth(input.device),
+				),
 				sessionData: input.args.sessionData,
 				caseDatabase: input.deviceCases.snapshot,
 				...(lookup === undefined ? {} : { lookup }),

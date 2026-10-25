@@ -45,9 +45,10 @@ import type { BlueprintDocStore } from "@/lib/doc/provider";
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaFormatValue, MediaKind } from "@/lib/domain/multimedia";
+import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
 import type { Event } from "@/lib/log/types";
 import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
-
+import { effectivePreviewPlatform } from "@/lib/preview/platform";
 import {
 	addClaims,
 	type PreviewClaims,
@@ -296,6 +297,22 @@ export interface BuilderSessionState {
 	 *  change of worker, leaving Preview, a confirmed Project change and
 	 *  `reset()` drop them. */
 	previewClaims: PreviewClaims | undefined;
+
+	/** The platform the author chose under Runs on; `undefined` is "the
+	 *  default". Never stored and never in the URL: the platform Preview plays
+	 *  is derived (`effectivePreviewPlatform` over the app's declaration), so a
+	 *  choice the app no longer declares derives away with no write here. */
+	previewPlatform: Platform | undefined;
+	/** Preview on Android is showing the device's home screen. A running
+	 *  fact, not a route: the URL's `home` is shared with edit mode and gains
+	 *  no Preview-only kind. */
+	previewAtDeviceHome: boolean;
+	/** Epoch milliseconds of this Preview run's last sync on Android: set when
+	 *  Preview starts on Android and by Sync with server. */
+	previewDeviceSyncedAt: number | undefined;
+	/** The UUID part of Android's `deviceid` (`commcare_<uuid>`), minted when
+	 *  the store is created: one page load is one install. */
+	previewAndroidDeviceId: string;
 
 	// ── Chrome ───────────────────────────────────────────────────────────
 
@@ -634,8 +651,24 @@ export interface BuilderSessionState {
 	 *  - Leaving (no stash): update the flag only, no sidebar change.
 	 *  - Same value: no-op (guards against double-entry that would overwrite
 	 *    the stash with `{ stashed: false }` values). */
-	setPreviewing: (on: boolean) => void;
-	installEntryPointLaunch: (launch: EntryPointPreviewLaunch) => void;
+	setPreviewing: (on: boolean, at?: { readonly atHome: boolean }) => void;
+	/** Install an entry point's launch and, under the launch's worker in the
+	 *  same `set`, the cases its claim frame claims (Web Apps), so a launch
+	 *  as another worker keeps its claim. */
+	installEntryPointLaunch: (
+		launch: EntryPointPreviewLaunch,
+		claimCaseIds?: readonly string[],
+	) => void;
+	/** Choose the platform Preview plays. Clears the running navigation
+	 *  (an open entry is not carried across: one platform's entry under the
+	 *  other's paging and session values would show a state no worker can
+	 *  reach), keeps the worker's claims, and opens Android on its home
+	 *  screen. The caller navigates home. */
+	setPreviewPlatform: (platform: Platform) => void;
+	/** Show or leave Android's home screen. */
+	setPreviewAtDeviceHome: (atHome: boolean) => void;
+	/** Record Sync with server's time. */
+	markPreviewDeviceSynced: (at: number) => void;
 	clearEntryPointLaunch: () => void;
 	/** Choose which persona Preview runs as. `undefined` = the signed-in
 	 *  member. Changing identity mid-session drops the case target: the
@@ -784,6 +817,17 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 	 * imperatively by `switchConnectMode`, `beginRun`, and `endRun`. */
 	let docStoreRef: BlueprintDocStore | null = null;
 
+	/* The platform Preview plays, derived over the document this store
+	 * reaches and the author's choice; never stored. Without a document an
+	 * app reads as running on both. */
+	const previewRunsOnAndroid = (choice: Platform | undefined): boolean => {
+		const doc = docStoreRef?.getState();
+		if (doc === undefined) return choice === "android";
+		return (
+			effectivePreviewPlatform(declaredPlatforms(doc), choice) === "android"
+		);
+	};
+
 	/* Abort handles for staged uploads — functions, so they live beside the
 	 * store (the `docStoreRef` pattern) rather than inside serializable
 	 * state. Keyed identically to `stagedUploads`; every record mutation
@@ -833,6 +877,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewSearchStates: {} as Readonly<Record<string, PreviewSearchState>>,
 				previewPersonaUuid: undefined as string | undefined,
 				previewClaims: undefined as PreviewClaims | undefined,
+				previewPlatform: undefined as Platform | undefined,
+				previewAtDeviceHome: false,
+				previewDeviceSyncedAt: undefined as number | undefined,
+				previewAndroidDeviceId: crypto.randomUUID(),
 
 				/* Chrome */
 				sidebars: {
@@ -1029,6 +1077,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 										previewSearchStates: {},
 										previewPersonaUuid: undefined,
 										previewClaims: undefined,
+										previewPlatform: undefined,
+										previewAtDeviceHome: false,
+										previewDeviceSyncedAt: undefined,
 									}
 								: {}),
 						};
@@ -1192,15 +1243,34 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					return get().connectStash[mode]?.[formUuid];
 				},
 
-				installEntryPointLaunch(launch: EntryPointPreviewLaunch) {
+				installEntryPointLaunch(
+					launch: EntryPointPreviewLaunch,
+					claimCaseIds: readonly string[] = [],
+				) {
 					const s = get();
+					/* A launch as another worker is a change of worker: its claims
+					 * start from none, and the launch's own claims land under it. */
+					const base =
+						launch.personaUuid === s.previewPersonaUuid
+							? s.previewClaims
+							: undefined;
+					const claims =
+						s.appId === undefined || claimCaseIds.length === 0
+							? base
+							: addClaims(
+									base,
+									s.appId,
+									previewClaimsWorker(launch.personaUuid),
+									claimCaseIds,
+								);
 					set({
 						previewing: true,
 						previewPersonaUuid: launch.personaUuid,
-						/* A launch as another worker is a change of worker. */
-						...(launch.personaUuid === s.previewPersonaUuid
-							? {}
-							: { previewClaims: undefined }),
+						previewClaims: claims,
+						previewAtDeviceHome: false,
+						previewDeviceSyncedAt: previewRunsOnAndroid(s.previewPlatform)
+							? Date.now()
+							: s.previewDeviceSyncedAt,
 						previewEntryPointLaunch: launch,
 						previewTaskContinuation: undefined,
 						previewCaseTarget: launch.formTarget,
@@ -1225,7 +1295,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					if (get().previewEntryPointLaunch)
 						set({ previewEntryPointLaunch: undefined });
 				},
-				setPreviewing(on: boolean) {
+				setPreviewing(on: boolean, at?: { readonly atHome: boolean }) {
 					const s = get();
 
 					/* Guard: setting the same value is a no-op. Without this,
@@ -1238,6 +1308,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						/* Stash current open values, then close both for the
 						 * immersive full-bleed preview. Clear any case target so
 						 * the preview session starts caseless. */
+						const android = previewRunsOnAndroid(s.previewPlatform);
 						set({
 							previewing: true,
 							previewCaseTarget: undefined,
@@ -1247,6 +1318,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							previewMenuCaseSelections: {},
 							previewParentCaseRequest: undefined,
 							previewSearchStates: {},
+							previewAtDeviceHome: android && at?.atHome === true,
+							previewDeviceSyncedAt: android ? Date.now() : undefined,
 							sidebars: {
 								chat: {
 									open: false,
@@ -1270,6 +1343,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewing: false,
 						previewPersonaUuid: undefined,
 						previewClaims: undefined,
+						/* `previewPlatform` stays: a flip back in keeps the runtime
+						 * the author is checking. */
+						previewAtDeviceHome: false,
+						previewDeviceSyncedAt: undefined,
 						previewCaseTarget: undefined,
 						previewTaskContinuation: undefined,
 						previewEntryPointLaunch: undefined,
@@ -1295,6 +1372,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					/* One `set` so the identity and the case it was looking at
 					 * can never be observed apart: a case the previous worker
 					 * selected has no standing in the next worker's session. */
+					const android = previewRunsOnAndroid(get().previewPlatform);
 					set({
 						previewPersonaUuid: personaUuid,
 						previewClaims: undefined,
@@ -1305,7 +1383,38 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewMenuCaseSelections: {},
 						previewParentCaseRequest: undefined,
 						previewSearchStates: {},
+						/* The identity menu also navigates home; a new worker on a
+						 * phone starts from its home screen, freshly synced. */
+						previewAtDeviceHome: android,
+						previewDeviceSyncedAt: android
+							? Date.now()
+							: get().previewDeviceSyncedAt,
 					});
+				},
+
+				setPreviewPlatform(platform: Platform) {
+					const android = platform === "android";
+					set({
+						previewPlatform: platform,
+						previewCaseTarget: undefined,
+						previewTaskContinuation: undefined,
+						previewEntryPointLaunch: undefined,
+						previewSelectedCase: undefined,
+						previewMenuCaseSelections: {},
+						previewParentCaseRequest: undefined,
+						previewSearchStates: {},
+						previewAtDeviceHome: android,
+						previewDeviceSyncedAt: android ? Date.now() : undefined,
+					});
+				},
+
+				setPreviewAtDeviceHome(atHome: boolean) {
+					if (get().previewAtDeviceHome === atHome) return;
+					set({ previewAtDeviceHome: atHome });
+				},
+
+				markPreviewDeviceSynced(at: number) {
+					set({ previewDeviceSyncedAt: at });
 				},
 
 				addPreviewClaims(caseIds: readonly string[]) {
@@ -1744,6 +1853,11 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewSearchStates: {},
 						previewPersonaUuid: undefined,
 						previewClaims: undefined,
+						previewPlatform: undefined,
+						previewAtDeviceHome: false,
+						previewDeviceSyncedAt: undefined,
+						/* `previewAndroidDeviceId` stays: one page load is one
+						 * install, a fact of the page rather than of the session. */
 
 						/* Chrome */
 						sidebars: {

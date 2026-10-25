@@ -33,6 +33,8 @@ export function searchOutcomeFromLoad(
 		case "error":
 		case "unauthenticated":
 		case "persona-unavailable":
+		case "platform-unavailable":
+		case "language-unavailable":
 			return { kind: "failed", reason: state.kind };
 		case "idle":
 		case "loading":

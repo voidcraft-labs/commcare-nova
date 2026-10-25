@@ -11,6 +11,7 @@ import {
 } from "@/lib/__tests__/caseChoiceFixture";
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { validateCaptureSubmissionProjection } from "@/lib/preview/engine/captureSubmissionValidation";
 import {
 	buildCaseOperationProgramFromDoc,
@@ -18,7 +19,10 @@ import {
 } from "@/lib/preview/engine/caseDataBindingHelpers";
 import { entrySessionData } from "@/lib/preview/engine/entrySessionData";
 import { FormEngine } from "@/lib/preview/engine/formEngine";
-import { previewAsMe } from "@/lib/preview/engine/identity";
+import {
+	previewAsMe,
+	previewSessionValues,
+} from "@/lib/preview/engine/identity";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
@@ -112,7 +116,7 @@ it("offers only restored cases, includes relationship closure, and updates only 
 		boundCases: [{ caseId: CLINIC_A }],
 		menuSelections: {},
 		caseDatabase: cases,
-		identity,
+		session: previewSessionValues(identity, webAppsDevice()),
 	});
 	expect(session.data).toEqual({ case_id: CLINIC_A });
 	const engine = new FormEngine(
@@ -135,6 +139,7 @@ it("offers only restored cases, includes relationship closure, and updates only 
 		entryKey: choiceUuid("submit"),
 	});
 	const built = buildCaseOperationProgramFromDoc({
+		device: webAppsDevice(),
 		blueprint: doc,
 		mutation,
 		projection: validateCaptureSubmissionProjection(mutation),

@@ -17,11 +17,22 @@ import {
 	userTypeSchema,
 } from "@/lib/domain";
 import {
+	ANDROID_DEVICE_ID_PREFIX,
+	androidAppVersion,
+	WEB_APPS_APPVERSION,
+	WEB_APPS_DEVICE_ID,
+} from "@/lib/preview/platform";
+import {
 	previewAsMe,
 	previewAsPersona,
 	previewSessionValues,
 	samePreviewIdentity,
 } from "../identity";
+import {
+	androidDevice,
+	TEST_ANDROID_DEVICE_ID,
+	webAppsDevice,
+} from "./fixtures/previewDevices";
 
 const FULL_USER = {
 	id: "worker-42",
@@ -114,9 +125,10 @@ describe("previewAsMe", () => {
 		expect(identity?.session.context).toEqual({
 			userid: "worker-42",
 			username: "amina@example.org",
-			deviceid: "nova-preview",
-			appversion: "preview",
 		});
+		/* The device is no part of the worker: it supplies its own values. */
+		expect(identity?.session.context).not.toHaveProperty("deviceid");
+		expect(identity?.session.context).not.toHaveProperty("appversion");
 	});
 
 	it("prefers email over name over id for the username", () => {
@@ -356,16 +368,54 @@ describe("the session block and the usercase are two projections", () => {
 });
 
 describe("previewSessionValues", () => {
-	it("projects an identity to its session values", () => {
+	it("joins the worker's values with Web Apps' device values", () => {
 		const identity = previewAsMe(FULL_USER);
-		expect(previewSessionValues(identity)).toBe(identity?.session);
+		const values = previewSessionValues(identity, {
+			...webAppsDevice("es"),
+			windowWidth: 1280,
+		});
+		expect(values.context).toEqual({
+			userid: "worker-42",
+			username: "amina@example.org",
+			deviceid: WEB_APPS_DEVICE_ID,
+			appversion: WEB_APPS_APPVERSION,
+			drift: "0",
+			window_width: "1280",
+			applanguage: "es",
+		});
+		expect(values.user).toBe(identity?.session.user);
+		/* The identity itself is untouched. */
+		expect(identity?.session.context).not.toHaveProperty("deviceid");
 	});
 
-	it("yields the anonymous projection without an identity", () => {
-		const anonymous = previewSessionValues(null);
+	it("gives Android's install id and version and no window width", () => {
+		const values = previewSessionValues(previewAsMe(FULL_USER), {
+			...androidDevice(),
+			windowWidth: 1280,
+		});
+		expect(values.context).toEqual({
+			userid: "worker-42",
+			username: "amina@example.org",
+			deviceid: `${ANDROID_DEVICE_ID_PREFIX}${TEST_ANDROID_DEVICE_ID}`,
+			appversion: androidAppVersion(),
+			drift: "0",
+			applanguage: "en",
+		});
+	});
+
+	it("omits window_width on Web Apps when no window was measured", () => {
+		expect(
+			previewSessionValues(null, webAppsDevice()).context,
+		).not.toHaveProperty("window_width");
+	});
+
+	it("yields the device's values alone without an identity", () => {
+		const anonymous = previewSessionValues(null, webAppsDevice());
 		expect(anonymous.context).toEqual({
-			deviceid: "nova-preview",
-			appversion: "preview",
+			deviceid: WEB_APPS_DEVICE_ID,
+			appversion: WEB_APPS_APPVERSION,
+			drift: "0",
+			applanguage: "en",
 		});
 		expect(anonymous.user).toEqual({});
 	});

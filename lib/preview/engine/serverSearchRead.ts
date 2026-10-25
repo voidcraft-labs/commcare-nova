@@ -18,6 +18,7 @@ import {
 } from "@/lib/domain/expression/temporalType";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import { previewMenuCaseContext } from "../menuProjection";
+import { previewPlatformRules } from "../platform";
 import { projectWorkerModule } from "../workerModule";
 import type { readCases } from "./caseDataBindingHelpers";
 import { previewCaseStoreOrder } from "./caseListOrder";
@@ -45,6 +46,9 @@ export interface ServerSearchWorld {
 	readonly language: LanguageTag;
 	readonly appId: string;
 	readonly identity: FormEvaluationContext["identity"];
+	/** The device the session runs on: its platform's search rules and
+	 *  session values (`previewDevice.ts`). */
+	readonly device: FormEvaluationContext["device"];
 	/** The worker's device casedb, which the search screen reads. */
 	readonly deviceCases: CaseDatabaseSnapshot;
 	readonly lookup: FormEvaluationContext["lookup"];
@@ -125,10 +129,13 @@ export async function serverRecordsRead(
 		},
 		{
 			identity: world.identity,
+			device: world.device,
 			cases: world.deviceCases,
 			lookup: world.lookup,
 		},
 	);
+	const rules = previewPlatformRules(world.device.platform);
+	const session = previewSessionValues(world.identity, world.device);
 	const resultVisible = !(
 		search.searchFirst &&
 		search.hasVisibleInputs &&
@@ -154,7 +161,7 @@ export async function serverRecordsRead(
 	const step = caseListStepSession(world.doc, request.moduleUuid, {
 		menuSelections: world.selections,
 		caseDatabase: world.deviceCases,
-		identity: world.identity,
+		session,
 	});
 	const searchConfig = world.doc.modules[request.moduleUuid]?.caseListConfig;
 	const lookup = previewLookupData(world.lookup);
@@ -168,7 +175,7 @@ export async function serverRecordsRead(
 					moduleUuid: request.moduleUuid,
 					caseListConfig: searchConfig,
 					answers: search.inputValues,
-					session: previewSessionValues(world.identity),
+					session,
 					sessionData: step.data,
 					caseDatabase: world.deviceCases,
 					lookup,
@@ -201,6 +208,7 @@ export async function serverRecordsRead(
 					appId: world.appId,
 					caseType,
 					reading: searchedReading(searched),
+					tileGrouping: rules.tileGrouping,
 					caseIds: registeredCaseId ? [registeredCaseId] : undefined,
 					caseTypeSchemas: world.caseTypeSchemas,
 					caseListConfig: mod.caseListConfig,
@@ -222,7 +230,8 @@ export async function serverRecordsRead(
 					...(searchCsql !== undefined && { searchCsql }),
 					bindings: {
 						...previewCaseStoreBindings(
-							previewSessionValues(world.identity),
+							session,
+							rules,
 							mod.caseListConfig?.searchInputs,
 							search.expressionValues,
 							world.timeZone,

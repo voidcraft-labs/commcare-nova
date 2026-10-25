@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
@@ -24,6 +24,7 @@ import {
 import { PreviewCaseDatabaseProvider } from "@/lib/preview/engine/useCaseDatabaseSnapshot";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
+import { usePreviewDevice } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
 import {
@@ -40,9 +41,14 @@ const numbers = new URLSearchParams(location.search).has("numbers");
 const drafts = new URLSearchParams(location.search).has("drafts");
 const sections = new URLSearchParams(location.search).has("sections");
 const caseDatabase = new URLSearchParams(location.search).has("case-database");
+const liveCounts = new URLSearchParams(location.search).has("live-counts");
+/* The paging documents play Android, whose form pages a section at a time
+ * and initializes a section's rows when it is entered; every other document
+ * plays the Web Apps default. */
+const android = sections || liveCounts;
 const registration = drafts || caseDatabase;
 const doc = admittedControllerDoc(
-	new URLSearchParams(location.search).has("live-counts")
+	liveCounts
 		? liveCountEntryDoc()
 		: sections
 			? sectionEntryDoc()
@@ -139,10 +145,17 @@ const session = createBuilderSessionStore({
 	role: "editor",
 	canEdit: true,
 });
+if (android) session.getState().setPreviewPlatform("android");
 session.getState().setPreviewing(true);
 let controller: EngineController | undefined;
 function Capture() {
 	const current = useBuilderFormEngine();
+	/* The running shell installs the device it plays; this peer mounts the
+	 * form screen alone, so it installs it the same way. */
+	const device = usePreviewDevice();
+	useLayoutEffect(() => {
+		current.setPreviewDevice(device);
+	}, [current, device]);
 	useEffect(() => {
 		controller = current;
 		return () => {

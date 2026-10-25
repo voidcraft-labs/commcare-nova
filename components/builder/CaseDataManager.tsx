@@ -48,7 +48,10 @@ import {
 import { useProjectToast } from "@/lib/collab/useProjectToast";
 import type { Uuid } from "@/lib/doc/types";
 import { type CaseType, humanizeId } from "@/lib/domain";
-import type { PopulateSampleCasesResult } from "@/lib/preview/engine/caseDataBindingTypes";
+import {
+	isPreviewUnavailable,
+	type PopulateSampleCasesResult,
+} from "@/lib/preview/engine/caseDataBindingTypes";
 import {
 	useCaseCount,
 	useParkedValues,
@@ -75,7 +78,7 @@ function sampleCaseError(
 	if (result.kind === "unauthenticated") {
 		return "You're signed out. Reload the page to sign in again, then try again.";
 	}
-	if (result.kind === "persona-unavailable") return result.message;
+	if (isPreviewUnavailable(result)) return result.message;
 	if (result.kind === "missing-case-type") {
 		return "These cases are no longer part of the app. Refresh the page, then try again.";
 	}

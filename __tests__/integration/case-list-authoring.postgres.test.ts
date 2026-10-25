@@ -111,6 +111,7 @@ describe("preview rendering (PostgresCaseStore.query against v2 caseListConfig)"
 		const caseListConfig = mod.caseListConfig;
 		if (!caseListConfig) throw new Error("missing patients case list");
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			appId: APP_ID,
 			caseType: "patient",
 			reading: caseQueryReadingFor(mod),

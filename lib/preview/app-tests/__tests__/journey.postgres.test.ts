@@ -1594,7 +1594,7 @@ it.each([
 	},
 );
 
-it("reads informational Details without inventing a form or Continue action", async () => {
+it("ends a formless case list's selection on the app's first screen in Web Apps", async () => {
 	const doc = await createEvaluationApp(
 		[{ name: "Directory", caseType: "entry", forms: [] }],
 		[],
@@ -1632,11 +1632,12 @@ it("reads informational Details without inventing a form or Continue action", as
 	await step({ kind: "menu", moduleUuid: module.uuid });
 	expect(await step({ kind: "select", caseIds: ["entry-a"] })).toMatchObject({
 		screen: "details",
-		canContinue: false,
+		canContinue: true,
 		record: { case_name: "Clinic" },
 	});
-	expect(await step({ kind: "continue" })).toMatchObject({ completed: false });
-	expect(await step({ kind: "back" })).toMatchObject({ screen: "browse" });
+	/* Formplayer finds no form to open, clears the session and returns to
+	 * the app's first screen (`advanceSessionWithSelections`). */
+	expect(await step({ kind: "continue" })).toMatchObject({ screen: "home" });
 	await step({ kind: "finish" });
 });
 
@@ -1886,6 +1887,8 @@ it("visits form pages using retained entry state before allowing submission", {
 		input: {
 			purpose:
 				"Choose an area, inspect its assets, and retain answers on return",
+			/* Sections page one at a time on Android. */
+			platform: "android",
 		},
 	});
 	let request = 0;
@@ -1898,6 +1901,7 @@ it("visits form pages using retained entry state before allowing submission", {
 		});
 		return current.observation;
 	};
+	await step({ kind: "continue" });
 	await step({ kind: "menu", moduleUuid });
 	expect(await step({ kind: "form", formUuid })).toMatchObject({
 		canSubmit: false,
@@ -2008,12 +2012,17 @@ it("binds ordered public section aliases after navigation, stops at failed forwa
 	});
 	const call = sharedJourneyCalls(doc);
 	const started = stepSchema.parse(
-		await call("startAppTest", { purpose: "Inspect the chosen area's assets" }),
+		await call("startAppTest", {
+			purpose: "Inspect the chosen area's assets",
+			/* Sections page one at a time on Android. */
+			platform: "android",
+		}),
 	);
 	const input = {
 		testId: started.testId,
 		expectedStep: 0,
 		actions: [
+			{ action: { kind: "continue" } },
 			{ action: { kind: "menu", moduleUuid: "Visits" } },
 			{
 				action: { kind: "form", formUuid: "Inspect" },
@@ -2031,14 +2040,15 @@ it("binds ordered public section aliases after navigation, stops at failed forwa
 	};
 	const failed = await call("continueAppTest", input, "ordered-failure");
 	expect(failed).toMatchObject({
-		step: 4,
-		stopped: { index: 3 },
+		step: 5,
+		stopped: { index: 4 },
 		results: [
 			{ step: 1 },
 			{ step: 2 },
 			{ step: 3 },
+			{ step: 4 },
 			{
-				step: 4,
+				step: 5,
 				observation: {
 					completed: false,
 					questions: expect.arrayContaining([
@@ -2055,7 +2065,7 @@ it("binds ordered public section aliases after navigation, stops at failed forwa
 		"continueAppTest",
 		{
 			testId: started.testId,
-			expectedStep: 4,
+			expectedStep: 5,
 			actions: [
 				{
 					action: {
@@ -2074,7 +2084,7 @@ it("binds ordered public section aliases after navigation, stops at failed forwa
 		"ordered-submit",
 	);
 	expect(recovered).toMatchObject({
-		step: 7,
+		step: 8,
 		stopped: { index: 2 },
 		observation: {
 			savedInTest: true,
@@ -2092,10 +2102,12 @@ it("binds ordered public section aliases after navigation, stops at failed forwa
 		failed,
 	);
 	const page = await readAppTestSteps({ ...scope, testId: started.testId });
-	expect(page.steps.map((step) => step.step)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+	expect(page.steps.map((step) => step.step)).toEqual([
+		0, 1, 2, 3, 4, 5, 6, 7, 8,
+	]);
 	await call("continueAppTest", {
 		testId: started.testId,
-		expectedStep: 7,
+		expectedStep: 8,
 		actions: [{ action: { kind: "finish" } }],
 	});
 });
@@ -3210,9 +3222,16 @@ it("keeps saved identities, language, pages and answers local to four retained s
 	let current = stepSchema.parse(
 		await call("startAppTest", {
 			purpose: "Retain separate worker forms and settings",
+			/* The first two page by section on Android; the others run in Web
+			 * Apps, where the form is one screen. */
 			sessions: [
-				{ id: "first", personaUuid: "Alice" },
-				{ id: "second", personaUuid: "Bob", language: { language: "spa" } },
+				{ id: "first", personaUuid: "Alice", platform: "android" },
+				{
+					id: "second",
+					personaUuid: "Bob",
+					language: { language: "spa" },
+					platform: "android",
+				},
 				{ id: "third" },
 				{ id: "fourth", personaUuid: alice.uuid },
 			],
@@ -3239,6 +3258,7 @@ it("keeps saved identities, language, pages and answers local to four retained s
 		return current.observation;
 	};
 	await advance([
+		{ action: { kind: "continue" } },
 		{ action: { kind: "menu", moduleUuid: "Visits" } },
 		{ action: { kind: "form", formUuid: "Inspect" } },
 		{
@@ -3247,6 +3267,9 @@ it("keeps saved identities, language, pages and answers local to four retained s
 				answers: [{ path: "first/zone", value: "north" }],
 			},
 		},
+	]);
+	await advance([
+		{ sessionId: "second", action: { kind: "continue" } },
 		{ sessionId: "second", action: { kind: "menu", moduleUuid: "Visits" } },
 		{ sessionId: "second", action: { kind: "form", formUuid: "Inspect" } },
 		{
@@ -3294,7 +3317,7 @@ it("keeps saved identities, language, pages and answers local to four retained s
 		screen: "form",
 		sessions: [
 			{ id: "first", personaUuid: alice.uuid, screen: "form" },
-			{ id: "second", personaUuid: null, screen: "home" },
+			{ id: "second", personaUuid: null, screen: "device-home" },
 			{ id: "third", screen: "menu" },
 			{ id: "fourth", personaUuid: alice.uuid, screen: "home" },
 		],

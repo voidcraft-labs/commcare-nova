@@ -23,6 +23,7 @@ import {
 } from "@/lib/domain/expression/chosenCase";
 import { DISTANCE_UNITS } from "@/lib/domain/expression/distance";
 import type { Expression } from "@/lib/domain/expression/types";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import {
 	previewAsMe,
@@ -181,6 +182,7 @@ const previewConditionContext = previewExpressionContext(previewDoc, {
 it("executes shared blank operations and empty collections without special authoring forms", () => {
 	const session = previewSessionValues(
 		previewAsMe({ id: "worker", name: "Ada", email: "ada@example.org" }),
+		webAppsDevice(),
 	);
 	for (const [source, expected] of [
 		["is-blank('')", true],
@@ -220,6 +222,7 @@ it("executes shared blank operations and empty collections without special autho
 it("uses real division while preserving explicit integer division in existing expressions", () => {
 	const session = previewSessionValues(
 		previewAsMe({ id: "worker", name: "Ada", email: "ada@example.org" }),
+		webAppsDevice(),
 	);
 	for (const source of [
 		"5 div 2",
@@ -282,6 +285,7 @@ it("preserves operator precedence and switches the record scope for a related-re
 it("runs authored Search calculations and conditions through the production Preview evaluator", () => {
 	const session = previewSessionValues(
 		previewAsMe({ id: "worker", name: "Ada", email: "ada@example.org" }),
+		webAppsDevice(),
 	);
 	const calculation = parseQueryValue(
 		"if(number(#search/age) >= 18, concat('Adult: ', session('username')), 'Child')",
@@ -444,6 +448,7 @@ it("identifies unsupported record functions without mistaking their arguments fo
 	// Supported replacements still execute through the production runtime.
 	const session = previewSessionValues(
 		previewAsMe({ id: "worker", name: "Ada", email: "ada@example.org" }),
+		webAppsDevice(),
 	);
 	expect(
 		evaluatePreviewSearchExpression(

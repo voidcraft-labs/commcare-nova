@@ -2,7 +2,7 @@
  * useSectionPaging: the running form's pager, on Android's rules.
  *
  * A sectioned form previews one page at a time. The page list comes from
- * the engine (`useSectionPages`: root sections plus whether each has
+ * the engine (`useSectionScreens`: root sections plus whether each has
  * anything to show right now), the open page lives in the session
  * (`activeSectionByForm`, the slot the edit canvas also reads and writes so
  * a flip keeps the page), and this hook is the arbiter between them:
@@ -36,8 +36,8 @@ import {
 } from "react";
 import type { Uuid } from "@/lib/domain";
 import type {
+	FormScreenPage,
 	InvalidFieldTarget,
-	SectionPage,
 } from "@/lib/preview/engine/formEngine";
 import {
 	availablePages,
@@ -46,12 +46,15 @@ import {
 } from "@/lib/preview/engine/sectionPaging";
 import { useEngineController } from "@/lib/preview/hooks/useEngineController";
 import { useEngineEntry } from "@/lib/preview/hooks/useEngineEntry";
-import { useSectionPages } from "@/lib/preview/hooks/useSectionPages";
+import { useSectionScreens } from "@/lib/preview/hooks/useFormScreens";
 import {
 	useActiveSection,
 	useGetActiveSection,
 	useSetActiveSection,
 } from "@/lib/session/hooks";
+
+/** The pager remembers a section by uuid (`activeSectionByForm`). */
+const sectionUuidOf = (page: FormScreenPage): string => page.uuid;
 
 export interface SectionPagingArgs {
 	readonly formUuid: Uuid | undefined;
@@ -68,8 +71,8 @@ export interface SectionPaging {
 	/** Whether the form is being paged at all (a sectioned form in preview). */
 	readonly enabled: boolean;
 	/** The pages a worker can see, in order. */
-	readonly pages: ReadonlyArray<SectionPage>;
-	readonly current: SectionPage | undefined;
+	readonly pages: ReadonlyArray<FormScreenPage>;
+	readonly current: FormScreenPage | undefined;
 	/** 0-based position of `current` among `pages`; -1 when none. */
 	readonly index: number;
 	readonly count: number;
@@ -97,7 +100,7 @@ export function useSectionPaging({
 	refuse,
 }: SectionPagingArgs): SectionPaging {
 	const controller = useEngineController();
-	const allPages = useSectionPages();
+	const allPages = useSectionScreens();
 	/* The engine is one per builder session and activates a form after its
 	 * screen mounts, so `enabled` alone would page this form with another
 	 * form's pages (opening form B while A's engine still runs) or show
@@ -115,7 +118,8 @@ export function useSectionPaging({
 		[live, allPages],
 	);
 	const current = useMemo(
-		() => (live ? resolveCurrentPage(allPages, active) : undefined),
+		() =>
+			live ? resolveCurrentPage(allPages, active, sectionUuidOf) : undefined,
 		[live, allPages, active],
 	);
 	const index = current === undefined ? -1 : pages.indexOf(current);
@@ -130,7 +134,7 @@ export function useSectionPaging({
 	useEffect(() => {
 		if (!live || formUuid === undefined) return;
 		const remembered = readActive(formUuid);
-		const resolved = resolveCurrentPage(allPages, remembered);
+		const resolved = resolveCurrentPage(allPages, remembered, sectionUuidOf);
 		if (resolved !== undefined && resolved.uuid !== remembered) {
 			setActive(formUuid, resolved.uuid);
 		}
@@ -200,14 +204,17 @@ export function useSectionPaging({
 			controller.entryKey === pending.entryKey &&
 			controller.formUuid === formUuid &&
 			formUuid !== undefined &&
-			resolveCurrentPage(controller.sectionPages(), readActive(formUuid))
-				?.uuid === pending.uuid
+			resolveCurrentPage(
+				controller.sectionScreens(),
+				readActive(formUuid),
+				sectionUuidOf,
+			)?.uuid === pending.uuid
 		);
 	}, [controller, formUuid, readActive]);
 
 	const turnTo = useCallback(
 		async (
-			page: SectionPage,
+			page: FormScreenPage,
 			entryKey: string | undefined,
 			version: number,
 		) => {
@@ -248,7 +255,7 @@ export function useSectionPaging({
 	/** Validate one page; on failure refuse, turn to it if needed, reveal. */
 	const pagePasses = useCallback(
 		async (
-			page: SectionPage,
+			page: FormScreenPage,
 			entryKey: string | undefined,
 			version: number,
 		): Promise<boolean> => {
@@ -301,7 +308,12 @@ export function useSectionPaging({
 			if (target === undefined) return;
 			const entryKey = controller.entryKey;
 			const version = ++navigationVersionRef.current;
-			for (const page of pagesToValidate(pages, current.uuid, uuid)) {
+			for (const page of pagesToValidate(
+				pages,
+				current.uuid,
+				uuid,
+				sectionUuidOf,
+			)) {
 				if (!(await pagePasses(page, entryKey, version))) return;
 			}
 			await turnTo(target, entryKey, version);

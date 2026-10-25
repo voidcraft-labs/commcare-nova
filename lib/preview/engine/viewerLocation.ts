@@ -28,10 +28,16 @@ import type { Expression } from "@/lib/domain/expression";
 import { walkExpressionNodes } from "@/lib/domain/expression/walk";
 import { javaRosaPointDistance } from "@/lib/preview/xpath/javaRosaGeo";
 
-/** The viewer's position as the browser reported it, in decimal degrees. */
+/** The viewer's position as the browser reported it: latitude and longitude
+ *  in decimal degrees, altitude in metres (`null` when the browser gives
+ *  none) and the accuracy radius in metres (`0` when it gives none, as
+ *  Android's `Location.getAccuracy` does). Android's `here()` reads all four;
+ *  the move rule reads latitude and longitude. */
 export interface ViewerLocation {
 	readonly latitude: number;
 	readonly longitude: number;
+	readonly altitude: number | null;
+	readonly accuracy: number;
 }
 
 /** A move strictly greater than this re-reads the list. */
