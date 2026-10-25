@@ -1,4 +1,5 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openBuilder } from "../../lib/pageLoads";
 import { SEARCH_CLAIM_SEED } from "../../lib/previewRuntimeSeeds";
 
 /**
@@ -22,7 +23,7 @@ test("a searched record another persona owns opens its form with its case data",
 		.getByRole("list", { name: "Cases", exact: true })
 		.getByRole("listitem");
 
-	await page.goto(searchClaim.route);
+	await openBuilder(page, searchClaim.route);
 	await expect(
 		page.getByRole("button", { name: "Preview", exact: true }),
 	).toBeVisible({ timeout: 20_000 });

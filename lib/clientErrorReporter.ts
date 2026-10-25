@@ -149,6 +149,25 @@ function send(payload: NormalizedClientErrorPayload): void {
 // ── Public API ─────────────────────────────────────────────────────────
 
 /**
+ * Whether a window `error` event is a warning the browser raised rather than
+ * an error code threw. A thrown error always carries its Error object. A
+ * browser warning has none, and usually no filename either. "ResizeObserver
+ * loop completed with undelivered notifications." can arrive with the page's
+ * filename, so it is also recognised by its message: it means layout took
+ * more than one frame to settle, never that code failed.
+ *
+ * A script from another origin loaded without `crossorigin="anonymous"` has
+ * its errors stripped to the same no-Error, no-filename shape, so those would
+ * be dropped too. Nova loads none; if it ever does, the fix is the script tag.
+ */
+export function isBrowserSynthesizedWarning(
+	event: Pick<ErrorEvent, "error" | "filename" | "message">,
+): boolean {
+	if (event.error) return false;
+	return !event.filename || event.message.includes("ResizeObserver loop");
+}
+
+/**
  * Report a client-side error to Cloud Logging (via the server endpoint)
  * and Sentry (for sources the SDK doesn't capture natively).
  *

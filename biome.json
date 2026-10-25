@@ -33,6 +33,16 @@
 		],
 		"ignoreUnknown": true
 	},
+	"plugins": [
+		{
+			"path": "./e2e/lint/builderPageLoads.grit",
+			"includes": ["**/e2e/tests/app/**", "**/e2e/tests/multiplayer/**"]
+		},
+		{
+			"path": "./e2e/lint/routeRemoval.grit",
+			"includes": ["**/e2e/tests/**", "**/e2e/react-profile/**"]
+		}
+	],
 	"overrides": [
 		{
 			"includes": [

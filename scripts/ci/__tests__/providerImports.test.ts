@@ -1,19 +1,14 @@
 import { spawnSync } from "node:child_process";
-import {
-	copyFileSync,
-	mkdirSync,
-	mkdtempSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { expect, it } from "vitest";
+import { copyShippedBiomeConfig } from "./shippedBiomeConfig";
 
 it("enforces the provider boundary through the shipped linter, without replacing other import boundaries", () => {
 	const directory = mkdtempSync(join(tmpdir(), "nova-provider-lint-"));
 	try {
-		copyFileSync("biome.json", join(directory, "biome.json"));
+		copyShippedBiomeConfig(directory);
 		const lint = (file: string, source: string) => {
 			mkdirSync(dirname(join(directory, file)), { recursive: true });
 			writeFileSync(join(directory, file), source);

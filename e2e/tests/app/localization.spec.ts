@@ -9,6 +9,7 @@ import {
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { LOCALIZATION_SEED } from "../../lib/localizationSeed";
+import { openBuilder, reloadBuilder } from "../../lib/pageLoads";
 import { replaceRichText } from "../../lib/richText";
 
 const snapshotSchema = z.object({
@@ -47,7 +48,7 @@ test(
 		const appId = seed.localizationAppId;
 		if (!appId) throw new Error("Missing language app for this attempt");
 		const setupPath = `/build/${appId}/setup/languages`;
-		await page.goto(setupPath);
+		await openBuilder(page, setupPath);
 		await page
 			.getByRole("button", { name: "Add language", exact: true })
 			.click();
@@ -105,7 +106,7 @@ test(
 			field.getByRole("button", { name: "Nombre del cliente", exact: true }),
 		).toBeVisible();
 
-		await page.reload();
+		await reloadBuilder(page);
 		await expect(
 			page.getByRole("button", { name: "Worker language: Spanish" }),
 		).toBeVisible();
@@ -163,7 +164,7 @@ test(
 		const peer = await page.context().newPage();
 		const peerGuard = await attachErrorGuard(peer, baseURL);
 		try {
-			await peer.goto(`${setupPath}?lang=spa`);
+			await openBuilder(peer, `${setupPath}?lang=spa`);
 			await draft.fill("Borrador [[NOVA_REF_1]]");
 			const peerHint = peer
 				.getByRole("article")
@@ -205,7 +206,7 @@ test(
 		} finally {
 			await closePageWithUnload(peer);
 		}
-		await page.reload();
+		await reloadBuilder(page);
 		await expect(
 			page.getByRole("heading", { name: "English phrases" }),
 		).toBeVisible();
@@ -221,7 +222,7 @@ test(
 		const appId = seed.localizationAppId;
 		if (!appId) throw new Error("Missing language app for this attempt");
 		const setupPath = `/build/${appId}/setup/languages`;
-		await page.goto(setupPath);
+		await openBuilder(page, setupPath);
 		await page
 			.getByRole("button", { name: "Add language", exact: true })
 			.click();
@@ -268,7 +269,10 @@ test(
 			},
 		});
 
-		await page.goto(`/build/${appId}/${LOCALIZATION_SEED.fieldUuid}?lang=spa`);
+		await openBuilder(
+			page,
+			`/build/${appId}/${LOCALIZATION_SEED.fieldUuid}?lang=spa`,
+		);
 		await page.getByRole("button", { name: "Preview", exact: true }).click();
 		await expect(
 			page.getByRole("textbox", { name: /Client name$/ }),

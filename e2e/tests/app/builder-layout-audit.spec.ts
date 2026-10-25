@@ -1,5 +1,6 @@
 import type { Locator } from "@playwright/test";
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openBuilder } from "../../lib/pageLoads";
 
 async function width(element: Locator) {
 	return element.evaluate((node) => node.getBoundingClientRect().width);
@@ -30,7 +31,7 @@ test("native Builder flanks preserve the actual composer across Preview, respons
 
 	test.setTimeout(120_000);
 	await page.setViewportSize({ width: 1440, height: 900 });
-	await page.goto(`/build/${seed.openAppId}`);
+	await openBuilder(page, `/build/${seed.openAppId}`);
 	const structureCollapse = page.getByRole("button", {
 		name: "Collapse structure sidebar",
 		exact: true,
@@ -201,7 +202,7 @@ test("native field dragging scrolls the edit canvas near its lower edge", {
 }, async ({ scenario, page }) => {
 	const seed = seedFor(scenario, "workspace");
 	await page.setViewportSize({ width: 1440, height: 600 });
-	await page.goto(seed.caseWorkspace.routes.tileForm);
+	await openBuilder(page, seed.caseWorkspace.routes.tileForm);
 	const canvas = page.locator(
 		"[data-preview-scroll-container] [data-preview-scroll-container]",
 	);
@@ -247,7 +248,7 @@ test("native AppTree field selection primes the real canvas scroll before URL se
 	const seed = seedFor(scenario, "workspace");
 
 	await page.setViewportSize({ width: 1440, height: 600 });
-	await page.goto(seed.caseWorkspace.routes.tileForm);
+	await openBuilder(page, seed.caseWorkspace.routes.tileForm);
 	const tree = page.getByRole("list", { name: "App structure", exact: true });
 	const last = tree.getByRole("button", { name: "Next dose", exact: true });
 	await expect(last).toBeVisible({ timeout: 20_000 });

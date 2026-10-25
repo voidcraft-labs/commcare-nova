@@ -125,6 +125,41 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   retiring the stream marker. Seed settled conversations first so they cannot
   replace that paused holder; opening the question thread then needs no stream
   resume.
+- **A page load goes through `e2e/lib/pageLoads.ts`.** The builder refuses
+  every edit while it reads the Project's data-table catalog
+  (`lib/doc/builderWriteAdmission.ts`), and every load of a builder page
+  starts that read again. A visible, enabled, checked control says nothing
+  about it: a click during the read is refused with "Project data is still
+  loading" and changes nothing, so the test passes on a quick machine and
+  fails on a loaded CI runner. `openBuilder` / `reloadBuilder` return once
+  the read has landed; `openPage` / `reloadPage` load any other page.
+  `e2e/lint/builderPageLoads.grit` refuses a bare `goto` or `reload` in
+  `e2e/tests/app` and `e2e/tests/multiplayer`; a test about the loading state
+  itself suppresses it with its reason. The read also starts again on events
+  the lint cannot see: a change to the Project's data tables, an access
+  refresh or reconnect, a link that opens a builder page, and a history step
+  that crosses documents. After a link or a history step, the new page reads
+  from scratch, so `expectBuilderDataLoaded` once it renders is enough. After
+  a data-table change or an access refresh the marker can still read ready
+  from the earlier read until the new one begins, so the helper proves
+  nothing there: wait for something only the new read produces, such as the
+  changed table in a picker, then edit. Edit access is a separate gate: a viewer or
+  an unfinished build still refuses edits after the read. To look for this
+  class of race, slow the catalog read (route its Server Action the way
+  `authed.spec.ts`'s case-changes journey holds it) and run the suite: a test
+  that edits too early then fails every time instead of now and then.
+- **A route a test removes goes through `e2e/lib/routes.ts`.** Playwright
+  turns a page's interception off as soon as its route list is empty and
+  forwards any request a handler is still holding; the handler's own
+  `fulfill` or `continue` then throws "Route is already handled!".
+  `unrouteAll({ behavior: "wait" })` empties the list before it waits, so
+  another request finishing meanwhile triggers exactly that. `removableRoutes`
+  groups the routes, and `removeAll` waits until no handler holds a request
+  before removing them. `e2e/lint/routeRemoval.grit` refuses a bare `unroute`
+  or `unrouteAll` anywhere under `e2e/tests`. A peer that keeps a route after
+  its handler returns (to fulfill it later) finishes or aborts it before
+  `removeAll`, as `builder-data.spec.ts` and `case-workspace-surface.spec.ts`
+  do.
 - **Selectors are roles / aria-labels / text** (the app has almost no `data-testid`) —
   e.g. `getByRole("button", { name: "Sign in with Google" })`. If you add a
   `data-testid`, prefer it for the gate.

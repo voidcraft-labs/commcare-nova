@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import type { Page, Route } from "@playwright/test";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
+import { removableRoutes } from "../../lib/routes";
 
 test.use({ actionTimeout: 10_000 });
 
@@ -613,7 +614,8 @@ async function capturedFilterPeer(page: Page) {
 	const pending: Route[] = [];
 	const owned = new Set<Route>();
 	const requests: unknown[] = [];
-	await page.route("**/native/filter-preview", (route) => {
+	const filterRoutes = removableRoutes(page);
+	await filterRoutes.route("**/native/filter-preview", (route) => {
 		requests.push(route.request().postDataJSON());
 		pending.push(route);
 		owned.add(route);
@@ -639,7 +641,7 @@ async function capturedFilterPeer(page: Page) {
 			await Promise.all([...owned].map((route) => route.abort()));
 			owned.clear();
 			pending.length = 0;
-			await page.unrouteAll({ behavior: "wait" });
+			await filterRoutes.removeAll();
 		},
 	};
 }

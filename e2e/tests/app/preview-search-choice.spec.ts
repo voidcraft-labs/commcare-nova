@@ -1,4 +1,5 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openBuilder } from "../../lib/pageLoads";
 import { SEARCH_CHOICE_SEED } from "../../lib/previewRuntimeSeeds";
 
 /**
@@ -22,7 +23,7 @@ test("a search condition that depends on an answer and reads its distance from o
 	const main = page.locator("main");
 
 	await test.step("author the choice and the distance in the Radius condition", async () => {
-		await page.goto(searchChoice.route);
+		await openBuilder(page, searchChoice.route);
 		await expect(
 			page.getByRole("heading", { name: "Search", level: 1 }),
 		).toBeVisible({ timeout: 20_000 });

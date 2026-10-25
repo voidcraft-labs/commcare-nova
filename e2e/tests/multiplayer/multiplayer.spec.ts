@@ -9,6 +9,7 @@ import {
 } from "@playwright/test";
 import { Pool } from "pg";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
+import { openBuilder } from "../../lib/pageLoads";
 import { requireScenarioSeed } from "../../lib/scenarioSeeds";
 import { createSmokeContext } from "../../lib/smokeNetwork";
 import {
@@ -124,7 +125,7 @@ const TILE_WIDTH = 1280;
  *  In watch mode the window tiles to `slot` — the two-user tests default to
  *  half-screens (Ada left, everyone else right); the four-user tests pass
  *  explicit quadrants. */
-async function openBuilder(
+async function openMember(
 	browser: Browser,
 	storageState: string,
 	subPath: string,
@@ -167,7 +168,7 @@ async function openBuilder(
 		}
 	};
 	ownedContexts.set(context, close);
-	await page.goto(`/build/${mp.appId}${subPath}`);
+	await openBuilder(page, `/build/${mp.appId}${subPath}`);
 	return { page, context, close };
 }
 
@@ -195,9 +196,7 @@ async function openCrew(
 		"bottom-right",
 	];
 	const results = await Promise.allSettled(
-		states.map((state, i) =>
-			openBuilder(browser, state, subPaths[i], slots[i]),
-		),
+		states.map((state, i) => openMember(browser, state, subPaths[i], slots[i])),
 	);
 	const failures = results.flatMap((result) =>
 		result.status === "rejected" ? [result.reason] : [],
@@ -271,12 +270,8 @@ test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
 	test("presence is bidirectional and a live co-edit propagates", async ({
 		browser,
 	}) => {
-		const ada = await openBuilder(browser, mp.stateFileA, `/${mp.moduleUuid}`);
-		const grace = await openBuilder(
-			browser,
-			mp.stateFileB,
-			`/${mp.moduleUuid}`,
-		);
+		const ada = await openMember(browser, mp.stateFileA, `/${mp.moduleUuid}`);
+		const grace = await openMember(browser, mp.stateFileB, `/${mp.moduleUuid}`);
 		try {
 			// Both land on the module screen (the title mounting proves the render).
 			await expect(titleInput(ada.page)).toHaveValue(mp.moduleName, {
@@ -321,8 +316,8 @@ test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
 	}) => {
 		// Both open the FORM screen: Ada will rename the form title, Grace will edit
 		// a different field's id in the inspector — disjoint slots that must MERGE.
-		const ada = await openBuilder(browser, mp.stateFileA, `/${mp.formUuid}`);
-		const grace = await openBuilder(browser, mp.stateFileB, `/${mp.formUuid}`);
+		const ada = await openMember(browser, mp.stateFileA, `/${mp.formUuid}`);
+		const grace = await openMember(browser, mp.stateFileB, `/${mp.formUuid}`);
 		try {
 			await expect(titleInput(ada.page)).toHaveValue(mp.formName, {
 				timeout: 20_000,
@@ -330,7 +325,8 @@ test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
 
 			// Grace selects field two and edits its id in the inspector rail. The
 			// Field-ID section mounts a plain <input> inside `[data-field-id="id"]`.
-			await grace.page.goto(
+			await openBuilder(
+				grace.page,
 				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldTwoUuid}`,
 			);
 			const graceIdInput = fieldIdInput(grace.page);
@@ -355,7 +351,8 @@ test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
 			});
 			await expect(graceIdInput).toHaveValue(newId);
 			// Ada navigates to field two to confirm Grace's id edit landed for her too.
-			await ada.page.goto(
+			await openBuilder(
+				ada.page,
 				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldTwoUuid}`,
 			);
 			const adaIdInput = fieldIdInput(ada.page);
@@ -371,8 +368,8 @@ test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
 	test("presence marker + live-highlight tracks a peer's field selection", async ({
 		browser,
 	}) => {
-		const ada = await openBuilder(browser, mp.stateFileA, `/${mp.formUuid}`);
-		const grace = await openBuilder(browser, mp.stateFileB, `/${mp.formUuid}`);
+		const ada = await openMember(browser, mp.stateFileA, `/${mp.formUuid}`);
+		const grace = await openMember(browser, mp.stateFileB, `/${mp.formUuid}`);
 		try {
 			await expect(titleInput(grace.page)).toBeVisible({ timeout: 20_000 });
 			// Establish both live participants before testing a later location
@@ -385,7 +382,8 @@ test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
 			});
 			// Ada selects field three (deep-link is the stable way to set her
 			// selection — presence broadcasts the resulting location).
-			await ada.page.goto(
+			await openBuilder(
+				ada.page,
 				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldThreeUuid}`,
 			);
 			await expect(fieldIdInput(ada.page)).toBeVisible({ timeout: 20_000 });
@@ -415,19 +413,15 @@ test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
 	});
 
 	test("following a peer navigates to their screen", async ({ browser }) => {
-		const ada = await openBuilder(browser, mp.stateFileA, `/${mp.moduleUuid}`);
-		const grace = await openBuilder(
-			browser,
-			mp.stateFileB,
-			`/${mp.moduleUuid}`,
-		);
+		const ada = await openMember(browser, mp.stateFileA, `/${mp.moduleUuid}`);
+		const grace = await openMember(browser, mp.stateFileB, `/${mp.moduleUuid}`);
 		try {
 			await expect(titleInput(grace.page)).toBeVisible({ timeout: 20_000 });
 			await expect(followButton(grace.page, mp.userA.name)).toBeVisible({
 				timeout: 20_000,
 			});
 			// Ada moves to module 2. Grace, still on module 1, will FOLLOW her.
-			await ada.page.goto(`/build/${mp.appId}/${mp.moduleTwoUuid}`);
+			await openBuilder(ada.page, `/build/${mp.appId}/${mp.moduleTwoUuid}`);
 			await expect(titleInput(ada.page)).toHaveValue(mp.moduleTwoName, {
 				timeout: 20_000,
 			});
@@ -464,12 +458,8 @@ test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
 	test("an offline peer reconnects and catches up on the edits it missed", async ({
 		browser,
 	}) => {
-		const ada = await openBuilder(browser, mp.stateFileA, `/${mp.moduleUuid}`);
-		const grace = await openBuilder(
-			browser,
-			mp.stateFileB,
-			`/${mp.moduleUuid}`,
-		);
+		const ada = await openMember(browser, mp.stateFileA, `/${mp.moduleUuid}`);
+		const grace = await openMember(browser, mp.stateFileB, `/${mp.moduleUuid}`);
 		try {
 			// The module name may already carry an earlier test's edit (the suite
 			// shares one seeded app), so don't assume the seed value — just wait for
@@ -508,12 +498,12 @@ test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
 	test("a field reorder propagates and a peer's concurrent edit survives", async ({
 		browser,
 	}) => {
-		const ada = await openBuilder(
+		const ada = await openMember(
 			browser,
 			mp.stateFileA,
 			`/${mp.formUuid}/${mp.fieldOneUuid}`,
 		);
-		const grace = await openBuilder(browser, mp.stateFileB, `/${mp.formUuid}`);
+		const grace = await openMember(browser, mp.stateFileB, `/${mp.formUuid}`);
 		try {
 			// Ada has field one selected; its inspector "Field actions" menu offers a
 			// non-drag "Move down" (drag on a virtualized list is fragile). Field
@@ -543,7 +533,8 @@ test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
 			// first, so its "Move up" action is now enabled (it was disabled — first —
 			// before the move). Selecting field one on Grace's side and opening the
 			// Field-actions menu reflects the order the reconciler folded in.
-			await grace.page.goto(
+			await openBuilder(
+				grace.page,
 				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldOneUuid}`,
 			);
 			await expect(fieldIdInput(grace.page)).toHaveValue("full_name", {
@@ -570,12 +561,12 @@ test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
 		// UNDOES — reverting only HER edit. Grace's edit rode in as a remote frame the
 		// reconciler folded through the undo stack (`rebaseHistory`), so it is NOT on
 		// Ada's history and must survive the undo.
-		const ada = await openBuilder(
+		const ada = await openMember(
 			browser,
 			mp.stateFileA,
 			`/${mp.formUuid}/${mp.fieldOneUuid}`,
 		);
-		const grace = await openBuilder(
+		const grace = await openMember(
 			browser,
 			mp.stateFileB,
 			`/${mp.formUuid}/${mp.fieldTwoUuid}`,
@@ -646,12 +637,8 @@ test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
 	}) => {
 		// This test removes only its own Project membership and restores it
 		// explicitly. A restoration failure must fail the test.
-		const ada = await openBuilder(browser, mp.stateFileA, `/${mp.moduleUuid}`);
-		const grace = await openBuilder(
-			browser,
-			mp.stateFileB,
-			`/${mp.moduleUuid}`,
-		);
+		const ada = await openMember(browser, mp.stateFileA, `/${mp.moduleUuid}`);
+		const grace = await openMember(browser, mp.stateFileB, `/${mp.moduleUuid}`);
 		const pool = new Pool({ connectionString: process.env.NOVA_DB_LOCAL_URL });
 		try {
 			// Ada sees Grace present.
@@ -788,13 +775,15 @@ test.describe("four-user co-editing storm", { tag: "@multiplayer" }, () => {
 			}
 			await expect(fieldIdInput(kat.page)).toHaveValue(villageId);
 			await expect(fieldIdInput(alan.page)).toHaveValue(fullNameId);
-			await ada.page.goto(
+			await openBuilder(
+				ada.page,
 				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldTwoUuid}`,
 			);
 			await expect(fieldIdInput(ada.page)).toHaveValue(villageId, {
 				timeout: 20_000,
 			});
-			await grace.page.goto(
+			await openBuilder(
+				grace.page,
 				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldOneUuid}`,
 			);
 			await expect(fieldIdInput(grace.page)).toHaveValue(fullNameId, {
@@ -858,7 +847,8 @@ test.describe("four-user co-editing storm", { tag: "@multiplayer" }, () => {
 
 			// The bystander's disjoint edit survived the race on every side.
 			await expect(fieldIdInput(kat.page)).toHaveValue(bystanderId);
-			await alan.page.goto(
+			await openBuilder(
+				alan.page,
 				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldTwoUuid}`,
 			);
 			await expect(fieldIdInput(alan.page)).toHaveValue(bystanderId, {
@@ -922,7 +912,8 @@ test.describe("four-user co-editing storm", { tag: "@multiplayer" }, () => {
 			await expect(undoButton).toBeEnabled({ timeout: 20_000 });
 			await undoButton.click();
 			await expect(alanId).toHaveValue(alanStart, { timeout: 20_000 });
-			await grace.page.goto(
+			await openBuilder(
+				grace.page,
 				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldOneUuid}`,
 			);
 			await expect(fieldIdInput(grace.page)).toHaveValue(alanStart, {
@@ -981,7 +972,8 @@ test.describe("four-user co-editing storm", { tag: "@multiplayer" }, () => {
 			await expect(kat.page.getByText(formName).first()).toBeVisible({
 				timeout: 20_000,
 			});
-			await kat.page.goto(
+			await openBuilder(
+				kat.page,
 				`/build/${mp.appId}/${mp.formUuid}/${mp.fieldTwoUuid}`,
 			);
 			await expect(fieldIdInput(kat.page)).toHaveValue(villageId, {

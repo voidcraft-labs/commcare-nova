@@ -1,10 +1,11 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openBuilder } from "../../lib/pageLoads";
 
 test("opens retained journey observations and switches the ordinary Preview identity", {
 	tag: "@seed:app-tests",
 }, async ({ scenario, page }) => {
 	const { appId } = seedFor(scenario, "app-tests");
-	await page.goto(`/build/${appId}`);
+	await openBuilder(page, `/build/${appId}`);
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	const identity = page.getByRole("button", { name: /Running as/ });
 	const setup = page.getByRole("region", { name: "Preview identity setup" });
@@ -133,7 +134,7 @@ test("leaves Preview to add its first persona without claiming missing setup in 
 	tag: "@seed:organization",
 }, async ({ scenario, page }) => {
 	const { organizationAppId: appId } = seedFor(scenario, "organization");
-	await page.goto(`/build/${appId}`);
+	await openBuilder(page, `/build/${appId}`);
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	await expect(
 		page.getByRole("region", { name: "Preview identity setup" }),
@@ -156,7 +157,7 @@ test("Preview header controls stay individually clickable as content and width c
 }, async ({ scenario, page }) => {
 	const { appId } = seedFor(scenario, "app-tests");
 	await page.setViewportSize({ width: 680, height: 820 });
-	await page.goto(`/build/${appId}`);
+	await openBuilder(page, `/build/${appId}`);
 	const header = page.locator("[data-app-header]");
 	await page.getByRole("button", { name: "Preview", exact: true }).click();
 	const identity = header.getByRole("button", { name: /Running as/ });

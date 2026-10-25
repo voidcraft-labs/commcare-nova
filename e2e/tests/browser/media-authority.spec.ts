@@ -2,6 +2,7 @@ import type { Page } from "@playwright/test";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 import type {} from "../../lib/media-authority-client";
+import { removableRoutes } from "../../lib/routes";
 
 const imageBytes = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9ZkAAAAASUVORK5CYII=",
@@ -199,7 +200,8 @@ for (const startsLocked of [false, true]) {
 		const close = await mediaPeer(page);
 		const confirm = Promise.withResolvers<void>();
 		let initiated = false;
-		await page.route("**/api/media/upload", async (route) => {
+		const uploadRoutes = removableRoutes(page);
+		await uploadRoutes.route("**/api/media/upload", async (route) => {
 			initiated = true;
 			await confirm.promise;
 			await route.fulfill({
@@ -254,7 +256,7 @@ for (const startsLocked of [false, true]) {
 			).toEqual([]);
 		} finally {
 			confirm.resolve();
-			await page.unrouteAll({ behavior: "wait" });
+			await uploadRoutes.removeAll();
 			await close();
 		}
 	});
@@ -266,7 +268,8 @@ test("Project access changes retire an upload and reject its late completion", a
 	const close = await mediaPeer(page);
 	const confirm = Promise.withResolvers<void>();
 	let initiated = false;
-	await page.route("**/api/media/upload", async (route) => {
+	const uploadRoutes = removableRoutes(page);
+	await uploadRoutes.route("**/api/media/upload", async (route) => {
 		initiated = true;
 		await confirm.promise;
 		await route.fulfill({
@@ -308,7 +311,7 @@ test("Project access changes retire an upload and reject its late completion", a
 		await expect(files).toHaveCount(0);
 	} finally {
 		confirm.resolve();
-		await page.unrouteAll({ behavior: "wait" });
+		await uploadRoutes.removeAll();
 		await close();
 	}
 });

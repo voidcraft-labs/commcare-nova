@@ -1,5 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import { expect, seedFor, test } from "../../lib/appFixtures";
+import { openBuilder } from "../../lib/pageLoads";
 import { HERE_COLUMN_SEED } from "../../lib/previewRuntimeSeeds";
 
 /**
@@ -105,7 +106,7 @@ async function holdBrowserPositions(page: Page) {
 
 async function openList(page: Page, route: string): Promise<Locator> {
 	const main = page.locator("main");
-	await page.goto(route);
+	await openBuilder(page, route);
 	await expect(
 		page.getByRole("button", { name: "Preview", exact: true }),
 	).toBeVisible({ timeout: 20_000 });
