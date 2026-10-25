@@ -31,6 +31,7 @@ const paging = test.extend<{
 					"@/lib/auth/hooks/useAuth": boundary,
 					"@/lib/lookup/actions": boundary,
 					"@/lib/deployment/actions": boundary,
+					"@/lib/doc/platformChangePreflight": boundary,
 					"@/lib/preview/app-tests/actions": boundary,
 					"@/components/builder/app-setup/AppSetupWorkspace": boundary,
 					"@/components/builder/case-operations/CaseOperationDetailCanvas":

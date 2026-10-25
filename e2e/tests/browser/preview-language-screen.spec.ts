@@ -57,6 +57,7 @@ test("a rejected submission keeps required errors and review announcements in th
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
 			"@/lib/deployment/actions": boundary,
+			"@/lib/doc/platformChangePreflight": boundary,
 			"@/lib/preview/xpath/browserWorkerClient": resolve(
 				"e2e/lib/preview-language-worker-boundary.ts",
 			),
@@ -171,6 +172,7 @@ test("a production form keeps partial drafts and capture identity mounted throug
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
 			"@/lib/deployment/actions": boundary,
+			"@/lib/doc/platformChangePreflight": boundary,
 			"@/lib/preview/xpath/browserWorkerClient": resolve(
 				"e2e/lib/preview-language-worker-boundary.ts",
 			),
@@ -427,6 +429,7 @@ for (const outcome of ["accept", "new-entry"] as const) {
 				"@/lib/auth/hooks/useAuth": boundary,
 				"@/lib/lookup/actions": boundary,
 				"@/lib/deployment/actions": boundary,
+				"@/lib/doc/platformChangePreflight": boundary,
 				"@/lib/preview/xpath/browserWorkerClient": resolve(
 					"e2e/lib/preview-language-worker-boundary.ts",
 				),
@@ -624,6 +627,7 @@ test("held section unwrap and wrap retain the published controls until their new
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
 			"@/lib/deployment/actions": boundary,
+			"@/lib/doc/platformChangePreflight": boundary,
 			"@/lib/preview/xpath/browserWorkerClient": resolve(
 				"e2e/lib/preview-language-worker-boundary.ts",
 			),
@@ -924,6 +928,7 @@ test("authoring keeps focus while the Preview engine is rebuilding", async ({
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
 			"@/lib/deployment/actions": boundary,
+			"@/lib/doc/platformChangePreflight": boundary,
 			"@/lib/preview/xpath/browserWorkerClient": resolve(
 				"e2e/lib/preview-language-worker-boundary.ts",
 			),

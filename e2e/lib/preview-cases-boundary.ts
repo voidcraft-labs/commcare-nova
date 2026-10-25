@@ -106,6 +106,11 @@ export async function readDeploymentsAction(): Promise<{
 }> {
 	return { success: true, data: [] };
 }
+// The form settings' Connect section can check a change of where the app runs;
+// no evidence here turns Connect on.
+export async function platformChangePreflightAction(): Promise<never> {
+	throw new Error("Unexpected platform change check in case layout evidence");
+}
 async function unexpectedCaseWrite(): Promise<never> {
 	throw new Error("Unexpected case mutation in case layout evidence");
 }

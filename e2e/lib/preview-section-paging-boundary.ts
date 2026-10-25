@@ -10,6 +10,7 @@ export {
 	loadMissingConnectionCountAction,
 	loadParkedValuesAction,
 	loadSearchResultsSnapshotAction,
+	platformChangePreflightAction,
 	populateSampleCasesAction,
 	readDeploymentsAction,
 	replaceParkedValueAction,
