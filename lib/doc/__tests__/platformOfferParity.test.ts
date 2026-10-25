@@ -1,9 +1,9 @@
 /**
  * The builder offers a choice exactly where the gate admits it.
  *
- * Contract: at every offering site of part 07 §2.5, the builder disables a
- * choice when `platformRefusal(feature, declaredPlatforms(doc))` is defined
- * and offers it otherwise; the commit gate refuses the batch that site
+ * Contract: at every site where the builder offers a platform feature, it
+ * disables a choice when `platformRefusal(feature, declaredPlatforms(doc))`
+ * is defined and offers it otherwise; the commit gate refuses the batch that site
  * dispatches when the declaration can't run it. This holds the two together
  * at the batches the builder actually sends (the table-to-gate parity per
  * feature is `lib/commcare/validator/__tests__/platformAvailability.test.ts`'s),
@@ -222,7 +222,7 @@ const SITES: readonly OfferingSite[] = [
 	},
 ];
 
-/** The line part 01 §2.3 writes for each feature an offering site withholds. */
+/** The platform table's picker line for each feature an offering site withholds. */
 const PICKER_LINES: Partial<Record<PlatformFeatureId, string>> = {
 	"datetime-question":
 		"Not available in Web Apps. You can ask for a date and a time as two questions, or change where this app runs in App settings.",
