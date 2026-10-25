@@ -241,8 +241,16 @@ finding 74. What endures lives where it is read:
   the fuzz mapping and step 6's import proposal read; each changed app's
   `blueprint-migration` row by `system:hq-round-trip-platforms`
   (`lib/db/CLAUDE.md`); each affected app's notice, cutover
-  `hq-round-trip-platforms`, whose copy stays so stored rows render
-  (`lib/notices/`); and its content-free evidence archive
+  `hq-round-trip-platforms`, whose lead, four reasons
+  (`platforms-declared`, `datetime-question-split`,
+  `media-not-played-removed` and `next-publish-asks-web-apps`),
+  `PLATFORM_CAUSE_WORDS` and the `form-entry-sync-off` sentence of
+  `next-publish-asks-more` stay so stored rows render (`lib/notices/`); the
+  two public-docs sentences that name where an app runs as something Nova
+  changed (`content/docs/publishing.mdx`, "Updates to review", and the
+  `get_app` row of `content/docs/mcp/tools.mdx`); and its content-free
+  evidence archive under the prefix `hq-round-trip-platforms/`, reports and
+  IAM policy reads only, never deleted from
   (`docs/architecture/deployment.md`, "Historical repairs").
 
 ## Why each later step is planned when the one before it exits
