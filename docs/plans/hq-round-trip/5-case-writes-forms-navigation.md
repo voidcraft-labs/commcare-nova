@@ -70,16 +70,11 @@ links", "Case lists and search", and defects 21 to 30.
    ambient entry of step 4's platform table because it is "derived from the
    declaration", becomes an author's choice and moves to a feature. Defect 21's
    `requests` entry (`d21-list-first-turned-search-fir-trace-case-list-trace-requests`)
-   leaves step 4 in one of two places, which step 4's lane decided (the
-   register that holds the entry says which). Outcome A, the lane shows the class on
+   stays in `proof/known-defects.json`: step 4's lane shows the class on
    `targeted-sync-on-form-entry-web-apps` (declared Web Apps only, published
-   with sync cases on form entry on): the entry names that document, its
+   with sync cases on form entry on), so the entry names that document, its
    control is still `targeted-sync-on-form-entry` (which step 4 publishes with
-   the setting off), and it stays live for this step to remove. Outcome B, the
-   lane does not show it: the class needed sync on with Android, which Nova's
-   publish refuses from step 4, so the entry is in `proof/fixed-defects.json`
-   on its control `targeted-sync-on-form-entry` and this step has nothing of
-   it to remove.
+   the setting off), and it stays live for this step to remove.
 
    Inline search stays refused where Android is declared (step 4's
    `search-first` feature, `PLATFORM_FEATURE_UNAVAILABLE`), and the HELD-NEW

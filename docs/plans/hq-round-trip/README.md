@@ -235,7 +235,10 @@ finding 74. What endures lives where it is read:
   #798, #799 and #800, at the CommCare pins named under "Rules every plan
   follows".
 - **The cutover's trace.** The cutover ran once, before the merge, and its
-  scripts, its Job and its runbook are removed. What it left is the five
+  scripts, its Job and its runbook are removed; they stay in `main`'s history
+  on the commit before the one that removed them, which is where the
+  validation migration's refusal sends a database that predates the cutover
+  and never ran it. What it left is the five
   ledgered migrations of step 4 with `mediaFormat.postgres.test.ts`
   (`lib/case-store/migrations/`); `lib/doc/platformDeclaration.ts`, which
   the fuzz mapping and step 6's import proposal read; each changed app's

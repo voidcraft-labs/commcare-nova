@@ -418,8 +418,8 @@ export interface MediaAssetDoc {
 	/** Audio/video-only — container duration in ms; best-effort. */
 	durationMs?: number;
 	/** Media-only, on a ready row: the variant the bytes are, or `unplayable`
-	 *  for stored bytes no variant admits. Absent on a document, a pending row,
-	 *  and a ready row the platforms cutover's backfill has not reached. */
+	 *  for stored bytes no variant admits. Absent on a document and a pending
+	 *  row; `media_assets_ready_media_format` requires it on a ready row. */
 	mediaFormat?: MediaFormatValue;
 	kind: (typeof ASSET_KINDS)[number];
 	/** GCS object key (without the `gs://<bucket>/` prefix) the bytes live at. */

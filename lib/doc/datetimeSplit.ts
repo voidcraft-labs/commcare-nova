@@ -48,8 +48,8 @@ import { findContainingForm, findFieldParent } from "./mutations/helpers";
 import { predecessorOf } from "./mutations/sequence";
 import type { Mutation } from "./types";
 
-/** What one split did, for the builder's toast, the cutover's notice and
- *  the fuzz mapping's record. */
+/** What one split did, for the builder's toast and the fuzz mapping's
+ *  record. */
 export interface DatetimeSplit {
 	readonly fieldUuid: Uuid;
 	readonly formUuid: Uuid;
@@ -91,8 +91,7 @@ export type DatetimeSplitsPlan =
 			readonly message: string;
 	  };
 
-/** The refusal sentences, for the builder's toast and the cutover's blocker
- *  report. */
+/** The refusal sentences, for the builder's toast. */
 export const DATETIME_SPLIT_REFUSAL_MESSAGES: Readonly<
 	Record<DatetimeSplitRefusal, string>
 > = {

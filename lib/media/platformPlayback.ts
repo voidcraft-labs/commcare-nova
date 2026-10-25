@@ -10,8 +10,8 @@
  * change's preflight. It imports only `lib/domain`, so the builder reads it
  * in the browser.
  *
- * A ready media row with no format (one the platforms cutover's backfill has
- * not reached) reads as `unplayable` in every judgment of one row, as the
+ * A ready media row with no format, which `media_assets_ready_media_format`
+ * forbids, reads as `unplayable` in every judgment of one row, as the
  * kernel reads NULL, so no earlier check admits what the kernel refuses.
  * `unplayableReferences` alone skips such a row: it only words the rows the
  * kernel's refusal already read.
@@ -62,8 +62,8 @@ export interface PlaybackRow {
 
 /**
  * The one source of re-export advice: a variant of each kind that plays on
- * both platforms. The refusals, the boundary rule and the cutover's notice
- * read it.
+ * both platforms. The refusals, the boundary rule and the notice copy of
+ * `media-not-played-removed` read it.
  */
 export const REEXPORT_AS: Readonly<Record<MediaKind, string>> = {
 	image: "a PNG or JPEG",

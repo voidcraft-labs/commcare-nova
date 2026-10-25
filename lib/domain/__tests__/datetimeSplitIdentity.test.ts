@@ -1,7 +1,7 @@
 /**
  * The split's derived identities: the same split names the same questions
- * wherever it is planned (the cutover's dry run and its execution, the fuzz
- * mapping), and a later attempt names others.
+ * wherever it is planned (the builder, the fuzz mapping), and a later attempt
+ * names others.
  */
 import { describe, expect, it } from "vitest";
 import {
