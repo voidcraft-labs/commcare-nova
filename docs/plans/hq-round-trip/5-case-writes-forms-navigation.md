@@ -70,8 +70,8 @@ links", "Case lists and search", and defects 21 to 30.
    ambient entry of step 4's platform table because it is "derived from the
    declaration", becomes an author's choice and moves to a feature. Defect 21's
    `requests` entry (`d21-list-first-turned-search-fir-trace-case-list-trace-requests`)
-   leaves step 4 in one of two places, which step 4's pull request 6 lane
-   decides (step 4's part 08 §2.4). Outcome A, the lane shows the class on
+   leaves step 4 in one of two places, which step 4's lane decided (the
+   register that holds the entry says which). Outcome A, the lane shows the class on
    `targeted-sync-on-form-entry-web-apps` (declared Web Apps only, published
    with sync cases on form entry on): the entry names that document, its
    control is still `targeted-sync-on-form-entry` (which step 4 publishes with
