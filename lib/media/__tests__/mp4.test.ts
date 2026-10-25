@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readMp4 } from "../mp4";
+import { twoVideoMp4 } from "./editedFixtures";
 
 function fixture(name: string): Buffer {
 	return readFileSync(join(import.meta.dirname, "fixtures", name));
@@ -37,10 +38,11 @@ describe("readMp4", () => {
 		expect(readMp4(fixture(file))).toEqual({ kind: "codec", codec, accepted });
 	});
 
-	it("reads a sound-only file and a subtitle track as their own refusals", () => {
+	it("reads a sound-only file, two video tracks and a subtitle track as their own refusals", () => {
 		expect(readMp4(fixture("tone-audio-only.mp4"))).toEqual({
 			kind: "no-video",
 		});
+		expect(readMp4(twoVideoMp4())).toEqual({ kind: "several-videos" });
 		expect(readMp4(fixture("pattern-h264-subtitles.mp4"))).toEqual({
 			kind: "other-track",
 			handler: "sbtl",

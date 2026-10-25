@@ -571,7 +571,7 @@ async function streamVerdict(
 	}
 	const verdict =
 		readerKey === undefined
-			? encodingVerdict(bytes, mime, metadata, filename)
+			? encodingRefusal(bytes, mime, metadata, filename)
 			: { key: readerKey };
 	if ("reason" in verdict) return refused(verdict);
 	return { ok: true, key: verdict.key, durationMs: durationMsOf(metadata) };
@@ -762,7 +762,7 @@ type EncodingVerdict =
  * `ADTS/MPEG-4` or `ADTS/MPEG-2` with `AAC`; `EBML/webm` or `EBML/matroska`
  * with `VP8`, `VP9`, `AV1`, `VORBIS`, `OPUS`.
  */
-function encodingVerdict(
+function encodingRefusal(
 	bytes: Buffer,
 	mime: AssetMimeType,
 	metadata: IAudioMetadata,
@@ -841,12 +841,12 @@ function encodingVerdict(
 						"AAC (ADTS) or M4A (AAC) audio",
 					);
 		case "video/webm":
-			return matroskaVerdict(bytes, container, tracks, filename, "webm");
+			return matroskaRefusal(bytes, container, tracks, filename, "webm");
 		case "video/x-matroska":
-			return matroskaVerdict(bytes, container, tracks, filename, "mkv");
+			return matroskaRefusal(bytes, container, tracks, filename, "mkv");
 		default:
 			throw new Error(
-				`The upload gate parsed a ${mime} file with no variant to name. Each audio and video MIME in ACCEPTED_FORMATS needs its MEDIA_FORMATS key in encodingVerdict or a reader of its own.`,
+				`The upload gate parsed a ${mime} file with no variant to name. Each audio and video MIME in ACCEPTED_FORMATS needs its MEDIA_FORMATS key in encodingRefusal or a reader of its own.`,
 			);
 	}
 }
@@ -858,7 +858,7 @@ function encodingVerdict(
  * Matroska; the container is `EBML/webm` for a WebM and `EBML/matroska` for
  * an MKV.
  */
-function matroskaVerdict(
+function matroskaRefusal(
 	bytes: Buffer,
 	container: string,
 	tracks: IAudioMetadata["format"]["trackInfo"],

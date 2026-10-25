@@ -85,7 +85,8 @@
  * background: "#3366cc" } })` then `.png()`, `.jpeg()`, `.gif()`, `.webp()`
  * or `.avif()`, `.toFile()` into `pattern.png`, `pattern.jpg`, `pattern.gif`,
  * `pattern.webp` and `pattern.avif`. `tiny-video.mp4` is the H.264 High
- * fixture. The AMR and MIDI files come from `builtFixtures.ts`.
+ * fixture. The AMR and MIDI files come from `builtFixtures.ts`, and the
+ * two-video MP4 and the MKVs made from WebMs from `editedFixtures.ts`.
  */
 
 import { createHash } from "node:crypto";
@@ -102,6 +103,7 @@ import {
 } from "../validate";
 import { BUILT_BMPS, bmpV4Srgb24 } from "./bmpFixtures";
 import { amrEmpty, amrMultichannel, amrNb, amrWb, midi } from "./builtFixtures";
+import { asMatroska, twoVideoMp4 } from "./editedFixtures";
 
 /** A committed fixture's bytes. */
 function fixture(name: string): Buffer {
@@ -947,9 +949,79 @@ describe("validateMediaBytes — near misses some CommCare platform refuses", ()
 				"Couldn't read the video of `cut.mp4`: a box runs past the end of the file. Exporting it again as MP4 with H.264 Main video fixes that.",
 			);
 		}
+		// The RIFF header alone still sniffs as WAV, so the WAV reader refuses it.
+		expect(
+			await validateNamed(fixture("tone.wav").subarray(0, 12), "cut.wav"),
+		).toEqual({
+			ok: false,
+			reason: "media-parse-failed",
+			message:
+				"Couldn't read the WAV header of `cut.wav`: no format chunk. Exporting it again as WAV with 16-bit PCM audio fixes that.",
+		});
 	});
 
-	it("refuses an ICO cursor, an ICO variant and an AVIF that is not AV1", async () => {
+	it("refuses an MP4 with two video tracks", async () => {
+		expect(await validateNamed(twoVideoMp4(), "two.mp4")).toEqual({
+			ok: false,
+			reason: "codec-not-accepted",
+			message:
+				"This MP4 holds more than one video track, and CommCare apps play one. Exporting it again with a single video track fixes that.",
+		});
+	});
+
+	it("refuses ADTS bytes whose audio is not AAC", async () => {
+		// An ADTS header sniffs as AAC, and the MP3 frames after it are what
+		// music-metadata parses.
+		const bytes = Buffer.concat([
+			fixture("tone.aac").subarray(0, 7),
+			fixture("tone.mp3"),
+		]);
+		expect((await fileTypeFromBuffer(bytes))?.mime).toBe("audio/aac");
+		expect(await validateNamed(bytes, "mp3.aac")).toEqual({
+			ok: false,
+			reason: "codec-not-accepted",
+			message:
+				"This file's audio or video is encoded in a way some CommCare apps can't play (MPEG 1 Layer 3). Exporting it again as AAC (ADTS) or M4A (AAC) audio fixes that.",
+		});
+	});
+
+	it("accepts a WebM made an MKV, under the MKV variant", async () => {
+		expect(
+			await validateNamed(asMatroska("pattern-vp9.webm"), "vp9.mkv"),
+		).toMatchObject({ ok: true, validated: { mediaFormat: "mkv" } });
+	});
+
+	it.each([
+		{
+			webm: "tone.webm",
+			message:
+				"This MKV holds sound and no picture. CommCare HQ files every MKV as video, so it could never fill an audio slot. Exporting it again as Ogg audio (Vorbis or Opus) fixes that.",
+		},
+		{
+			webm: "pattern-vp8-subtitles.webm",
+			message:
+				"This MKV holds a track that is neither video nor sound (D_WEBVTT/SUBTITLES). Exporting it again with only its video and its Vorbis or Opus audio fixes that.",
+		},
+		{
+			webm: "pattern-av1.webm",
+			message:
+				"This file's audio or video is encoded in a way some CommCare apps can't play (AV1). Exporting it again as MKV with VP8 video, or VP9 in 8-bit 4:2:0 color fixes that.",
+		},
+		{
+			webm: "pattern-vp9-profile1.webm",
+			message:
+				"This file's audio or video is encoded in a way some CommCare apps can't play (VP9 in 4:4:4 or 10-bit color). Exporting it again as VP8, or VP9 in 8-bit 4:2:0 color (ffmpeg's -pix_fmt yuv420p) fixes that.",
+		},
+	])(
+		"refuses $webm made an MKV with the MKV sentence",
+		async ({ webm, message }) => {
+			expect(
+				await validateNamed(asMatroska(webm), webm.replace(".webm", ".mkv")),
+			).toEqual({ ok: false, reason: "codec-not-accepted", message });
+		},
+	);
+
+	it("refuses an ICO cursor, an ICO variant and an ICO it can't read", async () => {
 		const cursor = Buffer.from(fixture("pattern-png.ico"));
 		cursor.writeUInt16LE(2, 2);
 		expect(await validateNamed(cursor, "c.ico")).toEqual({
@@ -966,6 +1038,14 @@ describe("validateMediaBytes — near misses some CommCare platform refuses", ()
 			message:
 				"This ICO holds an image saved in a way some CommCare apps can't show. Saving it again as a PNG fixes that.",
 		});
+		const cut = Buffer.from(fixture("pattern-png.ico"));
+		cut.writeUInt32LE(cut.length, 6 + 12);
+		expect(await validateNamed(cut, "u.ico")).toEqual({
+			ok: false,
+			reason: "image-parse-failed",
+			message:
+				"Couldn't read `u.ico` as an ICO image: an image runs past the end of the file. Saving the image as a PNG fixes that.",
+		});
 	});
 
 	it("refuses multichannel AMR and an AMR with no audio", async () => {
@@ -980,6 +1060,17 @@ describe("validateMediaBytes — near misses some CommCare platform refuses", ()
 			reason: "media-parse-failed",
 			message:
 				"`e.amr` holds no audio after its header. Exporting it again as AMR or M4A (AAC) audio fixes that.",
+		});
+	});
+
+	it("refuses a MIDI file its reader can't read", async () => {
+		const bytes = midi();
+		bytes.writeUInt16BE(2, 10);
+		expect(await validateNamed(bytes, "m.mid")).toEqual({
+			ok: false,
+			reason: "media-parse-failed",
+			message:
+				"Couldn't read `m.mid` as a MIDI file: format 0 can't hold 2 tracks. Exporting it again as a standard MIDI file fixes that.",
 		});
 	});
 
