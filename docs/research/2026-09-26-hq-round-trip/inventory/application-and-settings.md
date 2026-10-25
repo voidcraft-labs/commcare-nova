@@ -27,7 +27,7 @@ Part of the surface inventory of the HQ round-trip research. Section names in qu
 | `_attachments` entry for a form no longer in the app | **INERT**: no build reads it | n/a | omit |
 | `name` | **HELD**: `BlueprintDoc.appName` | RUNS / RUNS | `app_name` on create and update (excluded from the source merge; `_handle_import_app` passes it as an extra property, which `_merge_source_into_app` applies after the merge) |
 | `langs` (order; `langs[0]` default) | **HELD**: `localization.languageOrder`, `defaultLanguage` | RUNS / RUNS | `planLanguageWire` codes |
-| `langs` code spelling matching HQ's grammar `^[a-z]{2,3}(-[a-z]*)?$` (e.g. `en`, `hin`, `pt-br`, codes outside HQ's registry, which it only warns about), each once | **HELD-NEW**: `localization.wireCodes`: the exact HQ code per language (codes are external identity: device locale, build profiles, UI strings) | RUNS / RUNS | the imported code verbatim; Nova-born languages keep `planLanguageWire`; a language's code is stored when the language is added (the migration stores each existing language's current code), since `planLanguageWire` recomputes every code from the whole set and would otherwise rename an existing language when a colliding one is added; only the new language takes a suffixed code |
+| `langs` code spelling matching HQ's grammar `^[a-z]{2,3}(-[a-z]*)?$` (e.g. `en`, `hin`, `pt-br`, codes outside HQ's registry, which it only warns about), each once | **HELD**: `localization.wireCodes`: the exact HQ code per language (codes are external identity: device locale, build profiles, UI strings) | RUNS / RUNS | the imported code verbatim; Nova-born languages keep `planLanguageWire`; a language's code is stored when the language is added (the migration stores each existing language's current code), since `planLanguageWire` recomputes every code from the whole set and would otherwise rename an existing language when a colliding one is added; only the new language takes a suffixed code |
 | a non-empty `langs` code outside that grammar, or repeated | **REFUSED**: not HQ-editable: the Languages page marks it an error and blocks the save (`supported_languages.js::validateLanguage`; `validate_lang` enforces the grammar on rename) | — | — |
 | `langs` containing an empty code | **REFUSED**: not HQ-buildable: `empty lang` (`ApplicationValidator.validate_app`) | — | — |
 | `modules` | **HELD**: `moduleOrder` + `modules` | RUNS / RUNS | ordered `modules` (positional ids `m{i}`) |
@@ -62,12 +62,12 @@ Part of the surface inventory of the HQ round-trip research. Section names in qu
 
 | HQ item | Disposition | Web Apps / Android | Emission |
 |---|---|---|---|
-| 1 `properties.cc-autoup-freq` | **HELD-NEW**: `appSettings.autoUpdateFrequency` | IGNORED / RUNS | `profile.properties['cc-autoup-freq']` |
+| 1 `properties.cc-autoup-freq` | **HELD**: Nova's seed `freq-never`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.autoUpdateFrequency`, any of the setting's choices | IGNORED / RUNS | `profile.properties['cc-autoup-freq']` |
 | 2 `properties.lazy-load-video-files` = `true` | **REFUSED**: retiring (LAZY_LOAD_MULTIMEDIA) | — | — |
 | 2′ `properties.lazy-load-video-files` = `false` | **INERT**: the default | n/a | omit |
 | 3 `properties.purge-freq` | **INERT**: disabled; no runtime reader | n/a | omit |
-| 4 `properties.cc-days-form-retain` | **HELD-NEW**: `appSettings.daysFormRetain` | IGNORED / RUNS | profile property |
-| 5 `properties.logenabled` | **HELD-NEW**: `appSettings.loggingEnabled` | IGNORED / RUNS | profile property |
+| 4 `properties.cc-days-form-retain` | **HELD**: Nova's seed `-1`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.daysFormRetain`, any of the setting's choices | IGNORED / RUNS | profile property |
+| 5 `properties.logenabled` | **HELD**: Nova's seed `Enabled`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.loggingEnabled`, any of the setting's choices | IGNORED / RUNS | profile property |
 | 6 `properties.log_prop_weekly` within its choices | **INERT**: no runtime reader; HQ emits the stored value, or `log_short` when unset | n/a | omit |
 | 7 `properties.log_prop_daily` within its choices | **INERT**: no runtime reader | n/a | omit |
 | 8 `properties.logo_android_home` | → Application `logo_refs.hq_logo_android_home` | — | — |
@@ -75,24 +75,24 @@ Part of the surface inventory of the HQ round-trip research. Section names in qu
 | 10 `properties.logo_android_demo` | → Application `logo_refs.hq_logo_android_demo` | — | — |
 | 11 `properties.logo_web_apps` | → Application `logo_refs.hq_logo_web_apps` | — | — |
 | 12 `properties.user_reg_server` | **INERT**: disabled; no reader | n/a | omit |
-| 13 `properties.cc-autosync-freq` | **HELD-NEW**: `appSettings.autoSyncFrequency` | RUNS / RUNS | profile property |
+| 13 `properties.cc-autosync-freq` | **HELD**: Nova's seed `freq-never`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.autoSyncFrequency`, any of the setting's choices | RUNS / RUNS | profile property |
 | 14 `properties.restore-tolerance` | **INERT**: disabled; no reader | n/a | omit |
 | 15 `features.users` | **INERT**: disabled; `ProfileParser` stores it, nothing queries it | n/a | omit (.ccz keeps `<users active="true"/>`) |
 | 16 `properties.loose_media` | **INERT**: disabled; no reader | n/a | omit |
-| 17 `properties.cc-content-valid` | **HELD-NEW**: `appSettings.multimediaValidation` | IGNORED / RUNS | profile property |
-| 18 `properties.unsent-number-limit` | **HELD-NEW**: `appSettings.unsentFormLimit` | IGNORED / RUNS | profile property |
-| 19 `properties.unsent-time-limit` | **HELD-NEW**: `appSettings.unsyncedTimeLimit` | IGNORED / RUNS | profile property |
-| 20 `properties.cc-show-saved` | **HELD-NEW**: `appSettings.showSavedForms` | IGNORED / RUNS | profile property; HQ always emits `no` when unset, so Nova's `.ccz` must emit it too (today absent ⇒ Android `yes`) |
-| 21 `properties.cc-show-incomplete` | **HELD-NEW**: `appSettings.showIncompleteForms` | DIFFERENT (tile visibility only; sessions always persist) / RUNS | profile property; same `.ccz` parity fix |
-| 22 `properties.cc-resize-images` | **HELD-NEW**: `appSettings.resizeImages` | IGNORED / RUNS | profile property |
-| 23 `properties.cc-fuzzy-search-enabled` | **HELD-NEW**: `appSettings.fuzzyListSearch` | RUNS / RUNS | always explicit (Formplayer's and Android's absent default `no` differs from the yaml default `yes`) |
+| 17 `properties.cc-content-valid` | **HELD**: Nova's seed `no`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.multimediaValidation`, any of the setting's choices | IGNORED / RUNS | profile property |
+| 18 `properties.unsent-number-limit` | **HELD**: Nova's seed `5`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.unsentFormLimit`, any of the setting's choices | IGNORED / RUNS | profile property |
+| 19 `properties.unsent-time-limit` | **HELD**: Nova's seed `5`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.unsyncedTimeLimit`, any of the setting's choices | IGNORED / RUNS | profile property |
+| 20 `properties.cc-show-saved` | **HELD**: `appSettings.showSavedForms` | IGNORED / RUNS | profile property; HQ always emits `no` when unset, so Nova's `.ccz` must emit it too (today absent ⇒ Android `yes`) |
+| 21 `properties.cc-show-incomplete` | **HELD**: `appSettings.showIncompleteForms` | DIFFERENT (tile visibility only; sessions always persist) / RUNS | profile property; same `.ccz` parity fix |
+| 22 `properties.cc-resize-images` | **HELD**: Nova's seed `none`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.resizeImages`, any of the setting's choices | IGNORED / RUNS | profile property |
+| 23 `properties.cc-fuzzy-search-enabled` | **HELD**: Nova's seed `no`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.fuzzyListSearch`, any of the setting's choices | RUNS / RUNS | always explicit (Formplayer's and Android's absent default `no` differs from the yaml default `yes`) |
 | 24 `properties.cc-log-entity-detail-enabled` | **HELD-NEW**: `appSettings.logCaseDetailViews` | IGNORED / RUNS | profile property |
-| 25 `properties.cc-login-duration-seconds` | **HELD-NEW**: `appSettings.loginDuration` | IGNORED / RUNS | profile property |
-| 26 `properties.cc-inflation-target-density` | **HELD-NEW**: `appSettings.imageTargetDensity` | IGNORED / RUNS | profile property |
-| 27 `properties.cc-gps-auto-capture-accuracy` | **HELD-NEW**: `appSettings.autoCaptureAccuracy` (the number `10` that HQ's own settings save stores when none was chosen, from the yaml's numeric default against string choices, is the same state as `'10'`) | IGNORED / RUNS | profile property |
-| 28 `properties.cc-maps-default-layer` | **HELD-NEW**: `appSettings.defaultMapLayer` | IGNORED / RUNS | profile property |
-| 29 `properties.cc-enable-tts` | **HELD-NEW**: `appSettings.textToSpeech` | IGNORED / RUNS | profile property |
-| 30 `properties.cc-label-required-questions-with-asterisk` | **HELD-NEW**: `appSettings.requiredAsterisk` | IGNORED / RUNS | profile property |
+| 25 `properties.cc-login-duration-seconds` | **HELD**: Nova's seed `86400`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.loginDuration`, any of the setting's choices | IGNORED / RUNS | profile property |
+| 26 `properties.cc-inflation-target-density` | **HELD**: Nova's seed `none`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.imageTargetDensity`, any of the setting's choices | IGNORED / RUNS | profile property |
+| 27 `properties.cc-gps-auto-capture-accuracy` | **HELD**: Nova's seed `10`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.autoCaptureAccuracy`, any of the setting's choices (the number `10` that HQ's own settings save stores when none was chosen, from the yaml's numeric default against string choices, is the same state as `'10'`) | IGNORED / RUNS | profile property |
+| 28 `properties.cc-maps-default-layer` | **HELD**: Nova's seed `normal`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.defaultMapLayer`, any of the setting's choices | IGNORED / RUNS | profile property |
+| 29 `properties.cc-enable-tts` | **HELD**: Nova's seed `no`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.textToSpeech`, any of the setting's choices | IGNORED / RUNS | profile property |
+| 30 `properties.cc-label-required-questions-with-asterisk` | **HELD**: Nova's seed `no`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.requiredAsterisk`, any of the setting's choices | IGNORED / RUNS | profile property |
 | 31 `features.dependencies` | **HELD-NEW**: `appSettings.androidAppDependencies` | IGNORED / RUNS | `profile.features.dependencies`; privilege `app_dependencies` precondition (HQ strips it without) |
 | 32 `features.credentials` | **TARGET-OWNED**: written by the project page from the domain's `CredentialApplication` row | n/a | omit |
 | 33 `hq.application_version` = `2.0` | **INERT**: fixed | n/a | `2.0` |
@@ -111,7 +111,7 @@ Part of the surface inventory of the HQ round-trip research. Section names in qu
 | 43 `hq.secure_submissions` | **TARGET-OWNED**: seeded by HQ's new-app views and rewritten on every app when the project's security setting changes (`domain/forms.py`); an import-API create takes the source's value (`false` when absent); selects the receiver URL (`ApplicationBase.post_url`) | n/a | omit |
 | 44 `hq.translation_strategy` = `select-known` | **INERT**: default | n/a | omit |
 | 44′ `hq.translation_strategy` ≠ `select-known` | **REFUSED**: not HQ-editable (disabled: "discontinued") | — | — |
-| 45 `hq.auto_gps_capture` | **HELD-NEW**: read as `Form.autoCaptureLocation` on every form, since HQ captures location for a form when the form or the app says so (`FormBase.get_auto_gps_capture`; today Nova derives the app value only from `connectType`) | IGNORED (`meta/location` submitted empty) / RUNS | `false`, with each form's own value |
+| 45 `hq.auto_gps_capture` | **HELD**: derived: `true` on a Connect app, absent otherwise, which keeps the Auto Capture Location a person turned on in HQ (`expander.ts::expandDoc` from `connectType`, `hqShells.ts::applicationShell`); widen: `Form.autoCaptureLocation`, read on every form, since HQ captures location for a form when the form or the app says so (`FormBase.get_auto_gps_capture`) | IGNORED (`meta/location` submitted empty; HQ's own setting names it Android's, `commcare-app-settings.yml`, `auto_gps_capture`) / RUNS | `true` on a Connect app; absent otherwise, which keeps a value set in HQ |
 | 46 `hq.use_grid_menus` | **HELD-NEW**: `menuStyle.rootGrid` | RUNS (grid audio IGNORED: no audio control) / RUNS | `use_grid_menus` |
 | 47 `hq.grid_form_menus` (`none`/`all`/`some`) | **HELD-NEW**: `menuStyle.formMenus` | RUNS (grid audio IGNORED) / RUNS | `grid_form_menus` (+ per-module `display_style`, Module fields) |
 | 48 `hq.target_commcare_flavor` = `none` | **INERT**: default | n/a | omit |

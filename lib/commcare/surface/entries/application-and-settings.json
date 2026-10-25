@@ -469,8 +469,9 @@
 			"xform:model/itext/translation@lang"
 		],
 		"valueClass": "valid-code-spelling",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `localization.wireCodes`: the exact HQ code per language (codes are external identity: device locale, build profiles, UI strings)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `localization.wireCodes`: the exact HQ code per language (codes are external identity: device locale, build profiles, UI strings)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1145,8 +1146,14 @@
 		"item": "1 `properties.cc-autoup-freq`",
 		"surfaceKeys": ["setting:properties.cc-autoup-freq"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.autoUpdateFrequency`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `freq-never`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.autoUpdateFrequency`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.autoUpdateFrequency`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1233,8 +1240,14 @@
 		"item": "4 `properties.cc-days-form-retain`",
 		"surfaceKeys": ["setting:properties.cc-days-form-retain"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.daysFormRetain`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `-1`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.daysFormRetain`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.daysFormRetain`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1258,8 +1271,14 @@
 		"item": "5 `properties.logenabled`",
 		"surfaceKeys": ["setting:properties.logenabled"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.loggingEnabled`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `Enabled`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.loggingEnabled`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.loggingEnabled`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1339,8 +1358,14 @@
 		"item": "13 `properties.cc-autosync-freq`",
 		"surfaceKeys": ["setting:properties.cc-autosync-freq"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.autoSyncFrequency`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `freq-never`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.autoSyncFrequency`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.autoSyncFrequency`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1423,8 +1448,14 @@
 		"item": "17 `properties.cc-content-valid`",
 		"surfaceKeys": ["setting:properties.cc-content-valid"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.multimediaValidation`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `no`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.multimediaValidation`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.multimediaValidation`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1448,8 +1479,14 @@
 		"item": "18 `properties.unsent-number-limit`",
 		"surfaceKeys": ["setting:properties.unsent-number-limit"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.unsentFormLimit`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `5`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.unsentFormLimit`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.unsentFormLimit`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1473,8 +1510,14 @@
 		"item": "19 `properties.unsent-time-limit`",
 		"surfaceKeys": ["setting:properties.unsent-time-limit"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.unsyncedTimeLimit`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `5`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.unsyncedTimeLimit`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.unsyncedTimeLimit`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1498,8 +1541,9 @@
 		"item": "20 `properties.cc-show-saved`",
 		"surfaceKeys": ["setting:properties.cc-show-saved"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.showSavedForms`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `appSettings.showSavedForms`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1523,8 +1567,9 @@
 		"item": "21 `properties.cc-show-incomplete`",
 		"surfaceKeys": ["setting:properties.cc-show-incomplete"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.showIncompleteForms`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `appSettings.showIncompleteForms`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "DIFFERENT (tile visibility only; sessions always persist) / RUNS",
@@ -1549,8 +1594,14 @@
 		"item": "22 `properties.cc-resize-images`",
 		"surfaceKeys": ["setting:properties.cc-resize-images"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.resizeImages`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `none`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.resizeImages`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.resizeImages`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1574,8 +1625,14 @@
 		"item": "23 `properties.cc-fuzzy-search-enabled`",
 		"surfaceKeys": ["setting:properties.cc-fuzzy-search-enabled"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.fuzzyListSearch`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `no`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.fuzzyListSearch`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.fuzzyListSearch`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1623,8 +1680,14 @@
 		"item": "25 `properties.cc-login-duration-seconds`",
 		"surfaceKeys": ["setting:properties.cc-login-duration-seconds"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.loginDuration`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `86400`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.loginDuration`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.loginDuration`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1648,8 +1711,14 @@
 		"item": "26 `properties.cc-inflation-target-density`",
 		"surfaceKeys": ["setting:properties.cc-inflation-target-density"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.imageTargetDensity`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `none`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.imageTargetDensity`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.imageTargetDensity`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1673,8 +1742,14 @@
 		"item": "27 `properties.cc-gps-auto-capture-accuracy`",
 		"surfaceKeys": ["setting:properties.cc-gps-auto-capture-accuracy"],
 		"valueClass": "within-choices-or-numeric-10",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.autoCaptureAccuracy` (the number `10` that HQ's own settings save stores when none was chosen, from the yaml's numeric default against string choices, is the same state as `'10'`)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `10`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.autoCaptureAccuracy`, any of the setting's choices (the number `10` that HQ's own settings save stores when none was chosen, from the yaml's numeric default against string choices, is the same state as `'10'`)",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.autoCaptureAccuracy`, any of the setting's choices (the number `10` that HQ's own settings save stores when none was chosen, from the yaml's numeric default against string choices, is the same state as `'10'`)"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1698,8 +1773,14 @@
 		"item": "28 `properties.cc-maps-default-layer`",
 		"surfaceKeys": ["setting:properties.cc-maps-default-layer"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.defaultMapLayer`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `normal`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.defaultMapLayer`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.defaultMapLayer`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1723,8 +1804,14 @@
 		"item": "29 `properties.cc-enable-tts`",
 		"surfaceKeys": ["setting:properties.cc-enable-tts"],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.textToSpeech`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `no`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.textToSpeech`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.textToSpeech`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -1750,8 +1837,14 @@
 			"setting:properties.cc-label-required-questions-with-asterisk"
 		],
 		"valueClass": "within-choices",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `appSettings.requiredAsterisk`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: Nova's seed `no`, the value a device reads when the key is absent (`appProfileSettings.ts::SEEDED_PROFILE_PROPERTIES`); widen: `appSettings.requiredAsterisk`, any of the setting's choices",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`appSettings.requiredAsterisk`, any of the setting's choices"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED / RUNS",
@@ -2228,21 +2321,27 @@
 			"setting:hq.auto_gps_capture",
 			"schema:Application.auto_gps_capture"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: read as `Form.autoCaptureLocation` on every form, since HQ captures location for a form when the form or the app says so (`FormBase.get_auto_gps_capture`; today Nova derives the app value only from `connectType`)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived: `true` on a Connect app, absent otherwise, which keeps the Auto Capture Location a person turned on in HQ (`expander.ts::expandDoc` from `connectType`, `hqShells.ts::applicationShell`); widen: `Form.autoCaptureLocation`, read on every form, since HQ captures location for a form when the form or the app says so (`FormBase.get_auto_gps_capture`)",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`Form.autoCaptureLocation`, read on every form, since HQ captures location for a form when the form or the app says so (`FormBase.get_auto_gps_capture`)"
+			}
+		],
 		"platforms": {
 			"kind": "each",
-			"cell": "IGNORED (`meta/location` submitted empty) / RUNS",
+			"cell": "IGNORED (`meta/location` submitted empty; HQ's own setting names it Android's, `commcare-app-settings.yml`, `auto_gps_capture`) / RUNS",
 			"webApps": {
 				"reading": "ignored",
-				"note": "`meta/location` submitted empty"
+				"note": "`meta/location` submitted empty; HQ's own setting names it Android's (`commcare-app-settings.yml`, `auto_gps_capture`)"
 			},
 			"android": {
 				"reading": "runs"
 			}
 		},
 		"emission": {
-			"cell": "`false`, with each form's own value",
+			"cell": "`true` on a Connect app; absent otherwise, which keeps a value set in HQ",
 			"markers": []
 		},
 		"gates": []

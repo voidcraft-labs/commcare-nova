@@ -1641,10 +1641,10 @@
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "DIFFERENT (selecting a case leaves an empty list) / RUNS (with no case detail, selecting a case returns to the home screen)",
+			"cell": "DIFFERENT (selecting a case shows \"Redirecting after sync\" and returns to the app's first screen) / RUNS (with no case detail, selecting a case returns to the home screen)",
 			"webApps": {
 				"reading": "different",
-				"note": "selecting a case leaves an empty list"
+				"note": "selecting a case shows \"Redirecting after sync\" and returns to the app's first screen"
 			},
 			"android": {
 				"reading": "runs",
@@ -1745,8 +1745,14 @@
 		"section": "Module fields",
 		"item": "`Module.case_list.label{lang}`",
 		"surfaceKeys": ["schema:CaseList.label"],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.caseListLabel` (Nova reuses the module name today)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived: the module's name, on a menu that holds only a case list (`expander.ts::expandDoc`, `caseListOnly`); widen: `Module.caseListLabel`, a label of its own",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`Module.caseListLabel`, a label of its own"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3359,7 +3365,7 @@
 		"area": "menus-and-case-lists",
 		"section": "Case list and case detail",
 		"subsection": "Detail screens",
-		"item": "`Detail.no_items_text` equal to HQ's default",
+		"item": "`Detail.no_items_text` equal to HQ's default text (`List is empty.`), in any of the app's languages",
 		"surfaceKeys": [
 			"parser:DetailParser/no_items_text",
 			"schema:Detail.no_items_text"
@@ -3710,8 +3716,14 @@
 			"parser:DetailFieldParser/alt_text",
 			"schema:MappingItem.alt_text"
 		],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `imageMap[].altText` and the `clickableIcon` mapping's alt text (`app_strings.py` writes both)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived: a blank alt text for each key of an image map, in every language, as HQ's build gives a mapping with none (`suite/case-list/columns.ts::imageMapAltText`); widen: `imageMap[].altText` and the `clickableIcon` mapping's alt text (`app_strings.py` writes both)",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`imageMap[].altText` and the `clickableIcon` mapping's alt text (`app_strings.py` writes both)"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / IGNORED",
@@ -4802,8 +4814,14 @@
 			"schema:DetailColumn.format"
 		],
 		"valueClass": "markdown",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `markdown` column kind (Nova's `link` is the fixed `[text](value)` case)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the `link` column kind, the fixed `[text](value)` case (`hqJson/caseList.ts::projectColumnToDetail`, `suite/case-list/columns.ts`); widen: a `markdown` column kind over any property or expression",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "a `markdown` column kind over any property or expression"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / DIFFERENT (markdown only on the detail; raw in rows, HTML in tiles)",
@@ -5457,8 +5475,14 @@
 			"schema:MappingItem.value"
 		],
 		"valueClass": "translatable-enum-on-a-calculated-column",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `translatedExpression` column kind: a calculated expression whose key substrings are replaced by localized variables (one that is exactly Nova's label projection of a select property, `plainSelectDisplayXpath` over the property's options, reads back as a plain column over that property)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived: Nova's label projection of a select property (`plainSelectDisplayXpath` over the property's options) and an interval column's text, each a calculated `translatable-enum` (`hqJson/caseList.ts::projectColumnToDetail`), which reads back as the column it came from; widen: the `translatedExpression` column kind, a calculated expression whose key substrings are replaced by localized variables",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "the `translatedExpression` column kind, a calculated expression whose key substrings are replaced by localized variables"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7745,8 +7769,9 @@
 		"section": "Case selection extras",
 		"item": "`case_list_form.label{lang}`",
 		"surfaceKeys": ["schema:CaseListForm.label"],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListRegistrationForm.label`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the no-matches form's label in the case list: its entry label, else its name (`emissionPlan.ts::caseListFormLabelUnit`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -7777,8 +7802,14 @@
 			"schema:CaseListForm.post_form_workflow"
 		],
 		"valueClass": "default-or-case-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseListRegistrationForm.afterSubmit`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived: `case_list` for the no-matches form (`expander.ts::expandDoc`); widen: the no-matches form's after-submit destination, `default` or `case_list`",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "the no-matches form's after-submit destination, `default` or `case_list`"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
