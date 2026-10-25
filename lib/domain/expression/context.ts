@@ -19,6 +19,7 @@ import type { LookupColumnId, LookupTableId } from "../lookupIds";
 import { moduleIsCaseFirst } from "../menuForms";
 import {
 	effectiveCaseSearchConfig,
+	moduleOpensOnSearch,
 	SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES,
 	searchInputRuntimeValueType,
 } from "../modules";
@@ -128,6 +129,10 @@ export interface FormExpressionFacts extends FormStructure {
 	readonly readableCaseTypes: ReadonlyMap<string, ReadonlySet<string>>;
 	readonly searchInputs: readonly SearchInputDecl[];
 	readonly noMatchesForm: boolean;
+	/** Whether the form's module opens on its search, so its forms open
+	 * after the inline query that keeps the Search answers
+	 * (`search-input:results:inline`). */
+	readonly searchFirstModule: boolean;
 	/** Whether a translation unit this form's questions or choices own shows
 	 * an answer in some language (`translationUnits.ts::formTranslationUnits`).
 	 * Asked only by a `jr:itext` or `jr:choice-name` read, so a form with none
@@ -484,6 +489,7 @@ function buildFormFacts(
 		fields,
 		searchInputs,
 		noMatchesForm: structure.entry?.kind === "search-no-matches",
+		searchFirstModule: module !== undefined && moduleOpensOnSearch(module),
 		unitShowsAnswer: (unitId) =>
 			formTranslationUnits(doc, structure.formUuid).get(unitId)?.showsAnswer ===
 			true,
@@ -1008,6 +1014,18 @@ export function slotContext(
 				};
 		}
 	}
+	profile = {
+		...profile,
+		// The case list's search text is session data a form's questions and
+		// Connect settings read; a record slot has no spelling of it.
+		caseListSearchText: profile.ruleSet === "form" && profile.scope === "form",
+		// The window width reaches only a request that loads a menu or a list:
+		// every module slot and a form's display condition, never a slot a form
+		// evaluates (questions, Connect, case operations, links, choice filters).
+		windowWidth:
+			slot.entity === "module" ||
+			(slot.entity === "form" && slot.slot === "form_display_condition"),
+	};
 	return {
 		slot,
 		ruleSet: profile.ruleSet,

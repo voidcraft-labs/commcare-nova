@@ -3439,6 +3439,15 @@ def _data_binds_and_itext():
     here_suite = b"""<suite version="1"><detail id="d"><title><text><locale id="t"/></text></title><field><header><text>
       <locale id="h"/></text></header><template><text><xpath function="here()"/></text></template></field></detail>
       </suite>"""
+    window_width = form(
+        data="<w/>",
+        model="""<bind nodeset="/data/w" calculate="instance('commcaresession')/session/context/window_width"/>""",
+    )
+    window_width_suite = b"""<suite version="1"><detail id="d"><title><text><locale id="t"/></text></title><field>
+      <header><text><locale id="h"/></text></header><template><text>
+      <xpath function="instance('commcaresession')/session/context/window_width"/></text></template></field></detail>
+      <entry><form>http://example.org/f</form><command id="m0-f0"><text><locale id="c"/></text></command>
+      <instance id="commcaresession" src="jr://instance/session"/></entry></suite>"""
     bound = form(
         data="<q/><g><r/></g><s/>",
         model="""<bind id="q" nodeset="/data/q"/><bind id="r" nodeset="/data/g/r"/>
@@ -3693,6 +3702,12 @@ def _data_binds_and_itext():
         "expressions-and-data/here-in-a-form": (
             refused("form", functions, "jr-handler:here", "bind[1]/@calculate", readings=True),
             accepted("suite", here_suite, "jr-handler:here", "xpath[1]/@function", readings=True),
+        ),
+        "expressions-and-data/session-context-window-width-in-form-logic": (
+            refused("form", window_width, "session-path:session/context/window_width", "bind[1]/@calculate", readings=True),
+            accepted(
+                "suite", window_width_suite, "session-path:session/context/window_width", "xpath[1]/@function", readings=True
+            ),
         ),
         "expressions-and-data/jr-choice-name-on-a-lookup-itemset-select": (
             refused("form", functions, "jr-handler:jr:choice-name", "bind[2]/@calculate", readings=True),

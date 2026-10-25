@@ -329,11 +329,15 @@ describe("session values", () => {
 		expect(labels(RELEVANT, SESSION)).toEqual(
 			expect.arrayContaining(["context/", "user/"]),
 		);
+		// A question's slot is one a form evaluates, so the window width,
+		// which CommCare sends only while a menu or a list loads, isn't offered.
 		expect(labels(RELEVANT, `${SESSION}context/`)).toEqual([
 			"userid",
 			"username",
 			"deviceid",
 			"appversion",
+			"drift",
+			"applanguage",
 		]);
 		expect(labels(RELEVANT, `${SESSION}user/`)).toEqual(["data/"]);
 		const workers = labels(RELEVANT, `${SESSION}user/data/`);

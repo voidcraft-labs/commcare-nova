@@ -161,6 +161,8 @@ export const PLATFORM_FEATURE_IDS = [
 	"search-field-single-date",
 	"search-field-multiple-choice",
 	"connect-app",
+	"case-list-search-text",
+	"window-width",
 	"location-question",
 	"barcode-question",
 	"image-question",
@@ -179,6 +181,8 @@ export const PLATFORM_FEATURE_IDS = [
 	"text-pattern",
 	"device-id",
 	"app-version",
+	"clock-drift",
+	"app-language",
 	"entry-points",
 	"case-list-menu-item",
 	"tile-grouping",
@@ -209,6 +213,8 @@ export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"search-field-single-date",
 	"search-field-multiple-choice",
 	"connect-app",
+	"case-list-search-text",
+	"window-width",
 ] as const satisfies readonly PlatformFeatureId[];
 export type RefusablePlatformFeatureId =
 	(typeof REFUSABLE_PLATFORM_FEATURE_IDS)[number];
@@ -252,7 +258,10 @@ export const PLATFORM_FEATURES: Readonly<
 	"search-first": {
 		label: "Search first",
 		channel: "structure",
-		webApps: { reading: "runs" },
+		webApps: {
+			reading: "runs",
+			note: "a form opened from a link or an entry point reads each Search field's starting value, not what the worker searched for",
+		},
 		android: {
 			reading: "unavailable",
 			note: "a worker can open only a case the phone already holds",
@@ -330,6 +339,40 @@ export const PLATFORM_FEATURES: Readonly<
 				'You can set the app to run only on Android (updateApp/update_app, runs_only_on "android"), or turn Connect off (configureConnect/configure_connect, mode null).',
 			pickerLine:
 				"Not available for a Connect app. You can turn off Connect, then choose this.",
+		},
+	},
+	"case-list-search-text": {
+		label: "Case list search text",
+		channel: "expression",
+		webApps: {
+			reading: "unavailable",
+			note: "the case list keeps no search text, so the read is always blank",
+		},
+		android: {
+			reading: "runs",
+			note: "the text the worker typed in the case list's search box, blank when there's none",
+		},
+		refusal: {
+			what: "reads the case list's search text",
+			why: "Web Apps keeps no case list search text, so the read is always blank there.",
+			alternative: "take the read out",
+		},
+	},
+	"window-width": {
+		label: "Window width",
+		channel: "expression",
+		webApps: {
+			reading: "runs",
+			note: "the width of the worker's browser window, sent each time a menu or a list loads",
+		},
+		android: {
+			reading: "unavailable",
+			note: "there's no window width, so a screen that reads it can't open",
+		},
+		refusal: {
+			what: "reads the window width",
+			why: "Android has no window width, so a screen that reads it can't open there.",
+			alternative: "take the read out",
 		},
 	},
 	"location-question": {
@@ -516,6 +559,24 @@ export const PLATFORM_FEATURES: Readonly<
 			reading: "runs",
 			note: "it reads the app's version on the phone",
 		},
+	},
+	"clock-drift": {
+		label: "Clock drift",
+		channel: "expression",
+		webApps: { reading: "different", note: "it's always 0" },
+		android: {
+			reading: "runs",
+			note: "the whole hours the phone's clock was ahead of the server's when it last reached the server",
+		},
+	},
+	"app-language": {
+		label: "App language",
+		channel: "expression",
+		webApps: {
+			reading: "different",
+			note: "it's the worker's language in menus and case lists and when a form opens, and may differ on later answers in a form",
+		},
+		android: { reading: "runs" },
 	},
 	"entry-points": {
 		label: "Deep links",
@@ -735,7 +796,16 @@ export function featureForFieldKind(
 export function expressionLeafFeature(
 	expression: Expression,
 ): PlatformFeatureId | undefined {
-	return expression.kind === "here" ? "case-list-here" : undefined;
+	if (expression.kind === "here") return "case-list-here";
+	if (expression.kind === "case-list-search-text")
+		return "case-list-search-text";
+	if (
+		expression.kind === "term" &&
+		expression.term.kind === "session-context" &&
+		expression.term.field === "window_width"
+	)
+		return "window-width";
+	return undefined;
 }
 
 /**

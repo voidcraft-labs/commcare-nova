@@ -69,6 +69,7 @@ import {
 	declaresWebApps,
 	effectivePostSubmit,
 	makeTranslationUnitId,
+	moduleOpensOnSearch,
 	moduleParent,
 	projectedModulePreorder,
 	type Uuid,
@@ -327,9 +328,19 @@ export function expandDoc(
 				// reachable-case-type depth map matches the deep validator's accept
 				// map, which builds from `mod.caseType` directly.
 				...(mod.caseType && { moduleCaseType: mod.caseType }),
-				...(synthetic !== undefined && {
-					searchAnswers: searchAnswersOf(authoredDoc, synthetic.hostModuleUuid),
-				}),
+				// The no-matches form and every form of a module that opens on
+				// its search read the menu's Search answers from the inline
+				// query's input instance.
+				...(synthetic !== undefined
+					? {
+							searchAnswers: searchAnswersOf(
+								authoredDoc,
+								synthetic.hostModuleUuid,
+							),
+						}
+					: moduleOpensOnSearch(mod)
+						? { searchAnswers: searchAnswersOf(authoredDoc, moduleUuid) }
+						: {}),
 				...(ownCaseDatumId !== undefined &&
 					multipleCaseDatum === undefined && {
 						selectedCaseIdRef: sessionDataRef(ownCaseDatumId),

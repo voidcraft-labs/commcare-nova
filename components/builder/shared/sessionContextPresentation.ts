@@ -15,14 +15,14 @@ const PRESENTATIONS = {
 	},
 	deviceid: { kind: "editable", field: "deviceid", label: "This device's ID" },
 	appversion: { kind: "editable", field: "appversion", label: "App version" },
-	drift: { kind: "preserved", field: "drift", label: "Device clock offset" },
+	drift: { kind: "editable", field: "drift", label: "Device clock offset" },
 	window_width: {
-		kind: "preserved",
+		kind: "editable",
 		field: "window_width",
 		label: "Window width",
 	},
 	applanguage: {
-		kind: "preserved",
+		kind: "editable",
 		field: "applanguage",
 		label: "App language",
 	},

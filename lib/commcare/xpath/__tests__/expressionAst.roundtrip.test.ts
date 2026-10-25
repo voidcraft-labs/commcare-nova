@@ -93,6 +93,23 @@ describe("structured form expression canonicality", () => {
 		])
 			roundTrip(source);
 	});
+	it("round-trips the case list's search text and the session context fields", () => {
+		for (const source of [
+			"instance('commcaresession')/session/data/stringquery",
+			"instance('commcaresession')/session/data/stringquery = ''",
+			"instance('commcaresession')/session/context/drift",
+			"instance('commcaresession')/session/context/applanguage",
+			"instance('commcaresession')/session/context/window_width",
+		])
+			roundTrip(source);
+		const text = parseFormExpression(
+			"instance('commcaresession')/session/data/stringquery",
+			{ doc, slot, lookup: new Map() },
+		);
+		expect(text.ok && text.expression).toEqual({
+			kind: "case-list-search-text",
+		});
+	});
 	it("preserves literal bytes and arithmetic topology across generated source", async () => {
 		const atom = fc.constantFrom(
 			"#form/age",

@@ -31,12 +31,18 @@ import {
 } from "@/lib/preview/engine/evaluationScenario";
 import { appReadsPlaces } from "@/lib/preview/engine/expressionCaseReads";
 import type { FormEvaluationContext } from "@/lib/preview/engine/formEvaluationTypes";
-import { previewAsMe, previewAsPersona } from "@/lib/preview/engine/identity";
+import {
+	previewAsMe,
+	previewAsPersona,
+	previewSessionValues,
+} from "@/lib/preview/engine/identity";
+import { previewLookupData } from "@/lib/preview/engine/lookupEvaluation";
 import {
 	previewAppLanguage,
 	serverPreviewDevice,
 } from "@/lib/preview/engine/previewDevice";
 import { resolveRestoreScope } from "@/lib/preview/engine/restoreScope";
+import { resolveSearchInputDefaults } from "@/lib/preview/engine/searchExpressionEvaluation";
 import {
 	serverRecordsRead,
 	serverSearchResults,
@@ -186,12 +192,17 @@ export async function loadFormEvaluationContext(
 					restoreScope,
 					scenario: scenario !== undefined,
 				});
+	const searchAnswers =
+		form === undefined
+			? undefined
+			: searchFirstFormAnswers(doc, form, { identity, device, cases, lookup });
 	await authorize();
 	return {
 		identity,
 		device,
 		cases,
 		lookup,
+		...(searchAnswers === undefined ? {} : { searchAnswers }),
 		// The entry's `uuid()` datums are minted in this app; the check runs
 		// outside any menu, so no case was chosen before the form.
 		...(!ctx.appId
@@ -199,6 +210,45 @@ export async function loadFormEvaluationContext(
 			: { session: { appId: ctx.appId, menuSelections: {} } }),
 		...(searchResults === undefined ? {} : { searchResults }),
 	};
+}
+
+/**
+ * The Search answers a form of a module that opens on its search reads when
+ * the check supplies none: each Search field's starting value, as the Search
+ * screen fills its prompts and as Web Apps rebuilds a form opened with no
+ * search behind it (`RemoteQuerySessionManager.initUserAnswers`). Supplied
+ * answers are the evaluated form's own (`FormEvaluationInput.searchAnswers`),
+ * and a form of any other module reads none.
+ */
+function searchFirstFormAnswers(
+	doc: BlueprintDoc,
+	form: EvaluatedForm,
+	world: Pick<
+		FormEvaluationContext,
+		"identity" | "device" | "cases" | "lookup"
+	>,
+): readonly { name: string; value: string }[] | undefined {
+	if (form.searchAnswers !== undefined) return undefined;
+	const moduleUuid = moduleUuidOfForm(doc, form.formUuid);
+	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	if (
+		moduleUuid === undefined ||
+		module === undefined ||
+		!moduleOpensOnSearch(module)
+	)
+		return undefined;
+	const defaults = resolveSearchInputDefaults(
+		module.caseListConfig?.searchInputs ?? [],
+		previewSessionValues(world.identity, world.device),
+		{
+			doc,
+			moduleUuid,
+			lookup: previewLookupData(world.lookup),
+			sessionData: {},
+			caseDatabase: world.cases,
+		},
+	);
+	return [...defaults].map(([name, value]) => ({ name, value }));
 }
 
 /**

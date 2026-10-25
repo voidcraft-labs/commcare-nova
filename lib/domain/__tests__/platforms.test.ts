@@ -114,6 +114,23 @@ describe("refusals", () => {
 		expect(featureForFieldKind("text")).toBeUndefined();
 		expect(expressionLeafFeature({ kind: "here" })).toBe("case-list-here");
 		expect(expressionLeafFeature({ kind: "now" })).toBeUndefined();
+		expect(expressionLeafFeature({ kind: "case-list-search-text" })).toBe(
+			"case-list-search-text",
+		);
+		expect(
+			expressionLeafFeature({
+				kind: "term",
+				term: { kind: "session-context", field: "window_width" },
+			}),
+		).toBe("window-width");
+		// The clock drift differs by platform and refuses nothing, so the
+		// checker never refuses it on its own.
+		expect(
+			expressionLeafFeature({
+				kind: "term",
+				term: { kind: "session-context", field: "drift" },
+			}),
+		).toBeUndefined();
 	});
 });
 

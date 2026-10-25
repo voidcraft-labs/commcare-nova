@@ -16,6 +16,7 @@ import {
 	type FormLinkProjectionContext,
 	formLinkProjectionContext,
 } from "@/lib/commcare/formLinkProjection";
+import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "@/lib/commcare/sessionContext";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { formNodeProjection } from "@/lib/commcare/xpath/formNodeProjection";
 import type { FormParseScope } from "@/lib/commcare/xpath/formParseScope";
@@ -50,6 +51,7 @@ import type {
 	FormNodeRef,
 } from "@/lib/domain/expression/types";
 import { orderedCaseOperations } from "@/lib/domain/forms";
+import { unavailablePlatform } from "@/lib/domain/platforms";
 import { userPropertiesOf } from "@/lib/domain/users";
 import {
 	buildFormReferenceContext,
@@ -146,13 +148,25 @@ export interface ExpressionEditorContext {
 }
 
 /** The session context fields a new read names, with their labels as the
- * card editor shows them. The other three parse and stay read-only. */
+ * card editor shows them. The window width is offered only where the slot's
+ * profile admits it (`SlotProfile.windowWidth`), as the checker reads it. */
 const SESSION_CONTEXT_OFFERED: readonly NamedRead[] = [
 	{ name: "userid", label: "Current user's ID" },
 	{ name: "username", label: "Current user's name" },
 	{ name: "deviceid", label: "This device's ID" },
 	{ name: "appversion", label: "App version" },
+	{ name: "drift", label: "Device clock offset" },
+	{ name: "window_width", label: "Window width" },
+	{ name: "applanguage", label: "App language" },
 ];
+
+/** The case list's search text, `session/data/stringquery`, by the card's
+ * label, offered where the checker admits it: a form's questions and
+ * Connect settings, in a form that opens after exactly one case list. */
+const CASE_LIST_SEARCH_TEXT_READ = {
+	id: CASE_LIST_SEARCH_TEXT_DATA_NAME,
+	label: "Case list search text",
+} as const;
 
 const CONTAINER_KINDS = new Set(["group", "section", "repeat"]);
 
@@ -383,16 +397,33 @@ function slotReads(
 						})),
 					},
 				}),
-		...(form?.noMatchesForm
+		...(form?.noMatchesForm ||
+		(form?.searchFirstModule === true && context.profile.scope === "form")
 			? { searchInputs: form.searchInputs.map((input) => input.name) }
 			: {}),
-		sessionData: rows.flatMap((row) => {
-			const ref = row.refs[0];
-			return row.scalar && ref !== undefined
-				? [{ id: row.id, label: datumLabel(doc, ref, ownCaseType) }]
-				: [];
-		}),
-		sessionContext: SESSION_CONTEXT_OFFERED,
+		sessionData: [
+			...rows.flatMap((row) => {
+				const ref = row.refs[0];
+				return row.scalar && ref !== undefined
+					? [{ id: row.id, label: datumLabel(doc, ref, ownCaseType) }]
+					: [];
+			}),
+			...(context.profile.caseListSearchText &&
+			unavailablePlatform("case-list-search-text", context.platforms) ===
+				undefined &&
+			context.supplies.refs.filter(
+				(supply) => supply.ref.kind === "selected-case",
+			).length === 1
+				? [CASE_LIST_SEARCH_TEXT_READ]
+				: []),
+		],
+		sessionContext:
+			context.profile.windowWidth &&
+			unavailablePlatform("window-width", context.platforms) === undefined
+				? SESSION_CONTEXT_OFFERED
+				: SESSION_CONTEXT_OFFERED.filter(
+						(read) => read.name !== "window_width",
+					),
 		workers: [
 			...custom.map((property) => ({
 				name: property.slug,

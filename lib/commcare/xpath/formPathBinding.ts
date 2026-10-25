@@ -30,6 +30,7 @@ import {
 	entryDatumIds,
 	formLinkProjectionContext,
 } from "../formLinkProjection";
+import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "../sessionContext";
 import type { FormNodeProjection } from "./formNodeProjection";
 import { refuse } from "./formParseIssues";
 import type { FormParseScope } from "./formParseScope";
@@ -398,6 +399,15 @@ function instancePath(
 				},
 				whole,
 			);
+		// Core adds `stringquery` beside the datums, from each frame step's
+		// last case list search (`SessionInstanceBuilder.addUserQueryData`);
+		// no Nova datum takes that id, so it shadows none.
+		if (
+			branch?.name === "data" &&
+			steps.length === 3 &&
+			leaf.name === CASE_LIST_SEARCH_TEXT_DATA_NAME
+		)
+			return binder.remember({ kind: "case-list-search-text" }, whole);
 		if (branch?.name === "data" && steps.length === 3) {
 			const datums = entryDatums();
 			const datum = datums.find((datum) => datum.id === leaf.name);

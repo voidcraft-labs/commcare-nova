@@ -3594,25 +3594,81 @@
 		"gates": []
 	},
 	{
-		"id": "case-search/runtime-values-read-from-the-session-context-drift-window-width",
+		"id": "case-search/runtime-values-read-from-the-session-context-drift",
 		"area": "case-search",
 		"section": "Case search",
 		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
-		"item": "runtime values read from the session context `drift`, `window_width` or `applanguage`",
+		"item": "runtime values read from the session context `drift`",
 		"surfaceKeys": ["schema:DefaultCaseSearchProperty.defaultValue"],
-		"valueClass": "session-context-terms",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: context terms in CSQL values",
+		"valueClass": "session-context-drift-term",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the `session-context` term `drift` in a search value",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "DIFFERENT (as under Secondary instances) / RUNS (`window_width` UNAVAILABLE)",
+			"cell": "DIFFERENT (always `0`) / RUNS",
 			"webApps": {
 				"reading": "different",
-				"note": "as under Secondary instances"
+				"note": "always `0`"
 			},
 			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/runtime-values-read-from-the-session-context-window-width",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "runtime values read from the session context `window_width`",
+		"surfaceKeys": ["schema:DefaultCaseSearchProperty.defaultValue"],
+		"valueClass": "session-context-window-width-term",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the `session-context` term `window_width` in a search value",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS (sent with the menu request that builds the search) / UNAVAILABLE (never set, so a read fails)",
+			"webApps": {
 				"reading": "runs",
-				"note": "`window_width` UNAVAILABLE"
+				"note": "sent with the menu request that builds the search"
+			},
+			"android": {
+				"reading": "unavailable",
+				"note": "never set, so a read fails"
+			}
+		},
+		"emission": {
+			"cell": "printed",
+			"markers": ["printed"]
+		},
+		"gates": []
+	},
+	{
+		"id": "case-search/runtime-values-read-from-the-session-context-applanguage",
+		"area": "case-search",
+		"section": "Case search",
+		"subsection": "CSQL in `_xpath_query` values and ancestor-path criteria",
+		"item": "runtime values read from the session context `applanguage`",
+		"surfaceKeys": ["schema:DefaultCaseSearchProperty.defaultValue"],
+		"valueClass": "session-context-applanguage-term",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the `session-context` term `applanguage` in a search value",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
 			}
 		},
 		"emission": {

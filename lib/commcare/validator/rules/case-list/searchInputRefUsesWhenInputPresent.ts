@@ -100,6 +100,7 @@ import {
 	effectiveCaseSearchConfig,
 	isOwnerOnlyCaseSearchConfig,
 	type Module,
+	moduleOpensOnSearch,
 	searchInputDefault,
 	type Uuid,
 } from "@/lib/domain";
@@ -217,8 +218,17 @@ export function searchInputRefUsesWhenInputPresent(
 	}
 
 	// Slot: calculated columns' expression — fires per case-list row,
-	// no search-input context.
-	for (let i = 0; i < (listConfig?.columns.length ?? 0); i++) {
+	// no search-input context. A module that opens on its search reaches its
+	// list only through the inline query, which keeps the answers
+	// (`search-input:results:inline`), so its list and detail may read them;
+	// an ordinary search's list is also the module's own case list, where
+	// the instance doesn't exist.
+	const columnsReadAnswers = moduleOpensOnSearch(mod);
+	for (
+		let i = 0;
+		i < (columnsReadAnswers ? 0 : (listConfig?.columns.length ?? 0));
+		i++
+	) {
 		const column = listConfig?.columns[i];
 		if (column === undefined || column.kind !== "calculated") {
 			continue;

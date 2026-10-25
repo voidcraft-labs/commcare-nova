@@ -412,6 +412,16 @@ const PLATFORM_BUILDER_COPY = {
 		sentence:
 			"Connect workers open this app only in the Connect app on Android. You can set the app to run only on Android in App settings, or turn off Connect.",
 	},
+	"case-list-search-text": {
+		lead: (subject) =>
+			`${subject} reads the case list's search text, which Web Apps doesn't keep.`,
+		alternative: "take it out",
+	},
+	"window-width": {
+		lead: (subject) =>
+			`${subject} reads the window width, which Android doesn't have.`,
+		alternative: "take it out",
+	},
 } as const satisfies Readonly<
 	Record<RefusablePlatformFeatureId, PlatformBuilderCopy>
 >;
@@ -562,6 +572,12 @@ const USER_MESSAGE_BY_CODE: Record<
 	XPATH_FUNCTION_CONTEXT_UNAVAILABLE: (e) => {
 		const question = q(det(e, "choiceFieldId", "that question"));
 		switch (e.details?.reason) {
+			case "platform-unavailable":
+				return platformBuilderSentence(e, formulaSubject(e));
+			case "window-width":
+				return `${formulaSubject(e)} reads the window width, which CommCare sends only while a menu or a list loads, so a form can't rely on it. You can use it in a display condition or a case list instead.`;
+			case "case-list-search-text-slot":
+				return `${formulaSubject(e)} reads what the worker typed into a case list's search box, which only a form's questions and Connect settings can read. You can read it in one of the form's questions instead.`;
 			case "here":
 				return e.details?.hereSurface === "record"
 					? `${formulaSubject(e)} uses here(), which is where the worker is. Only a case list's calculated column can read that. You can show it in a calculated column instead.`
@@ -1172,6 +1188,12 @@ const USER_MESSAGE_BY_CODE: Record<
 			det(e, "carrier", "") === "form-link"
 				? "a case property or the worker's own record"
 				: "a question or a case property";
+		if (det(e, "reason", "") === "case-list-search-text") {
+			const caseLists = Number(det(e, "caseLists", "0"));
+			return caseLists > 1
+				? `${subject} reads what the worker typed into a case list's search box, but ${form} opens after ${caseLists} case lists, so CommCare can't tell which search it means. You can read it in a form that opens after one case list.`
+				: `${subject} reads what the worker typed into a case list's search box, but ${form} doesn't open after a case list. You can read a question or a case property instead.`;
+		}
 		if (det(e, "reason", "") === "target-not-requested")
 			return `${subject} carries a selected record the destination no longer asks for. You can remove that carried value or choose another destination.`;
 		const menu = q(det(e, "datumModuleName", "that menu"));
@@ -1404,8 +1426,16 @@ const USER_MESSAGE_BY_CODE: Record<
 	},
 	INVALID_CASE_REF: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} reads a case value this form can't get to. Check the spelling, or make sure a field actually saves it.`,
-	INVALID_SEARCH_REF: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} reads a search answer this form can't get to. Only a form that opens after a search finds no matches can read its module's Search prompts.`,
+	INVALID_SEARCH_REF: (e) => {
+		switch (e.details?.reason) {
+			case "not-search-first":
+				return `${q(fieldName(e))} in ${q(formName(e))} reads a search answer this form can't get to. Only a form in a menu that opens on its search can read that menu's Search fields. You can turn Search first back on, or read a question or a case property instead.`;
+			case "form-link":
+				return `A link from ${q(formName(e))} reads a search answer after the form has closed, where CommCare no longer holds it. You can save the answer to a question in the form and read that instead.`;
+			default:
+				return `${q(fieldName(e))} in ${q(formName(e))} reads a search answer this form can't get to. Only a form that opens after its menu's search can read that menu's Search fields.`;
+		}
+	},
 	PROSE_EDITOR_ROUND_TRIP_LOSS: (e) =>
 		`The text on ${q(fieldName(e))} in ${q(formName(e))} contains something the editor can't safely preserve. Re-enter its text and references.`,
 	CYCLE: (e) => {

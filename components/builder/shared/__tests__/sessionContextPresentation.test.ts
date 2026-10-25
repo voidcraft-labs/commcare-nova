@@ -13,25 +13,25 @@ import {
 	sessionUserPresentation,
 } from "../sessionContextPresentation";
 
-describe("saved app information", () => {
+describe("app information", () => {
 	it.each([
 		["drift", "Device clock offset"],
 		["window_width", "Window width"],
 		["applanguage", "App language"],
 	] as const)(
-		"keeps %s visible without offering an editor or substituting user ID",
+		"offers %s by its own name, never substituting user ID",
 		(field, label) => {
 			const reference = sessionContext(field);
 			const saved = term(reference);
 			const before = structuredClone(saved);
 			const presentation = sessionContextPresentation(reference.field);
-			expect(presentation).toEqual({ kind: "preserved", field, label });
+			expect(presentation).toEqual({ kind: "editable", field, label });
 			expect(presentation.label).not.toBe("Current user's ID");
 			expect(saved).toEqual(before);
 		},
 	);
 
-	it("retains every stored session field while offering the four supported choices", () => {
+	it("offers every session field, each as itself", () => {
 		expect(
 			SESSION_CONTEXT_FIELDS.map(
 				(field) => sessionContextPresentation(field).field,
@@ -42,6 +42,9 @@ describe("saved app information", () => {
 			"username",
 			"deviceid",
 			"appversion",
+			"drift",
+			"window_width",
+			"applanguage",
 		]);
 	});
 });

@@ -52,6 +52,18 @@ describe("static form and suite reference joins", () => {
 			"BINDING_RESOLUTION_SESSION_DATUM_UNDECLARED",
 		]);
 	});
+	it("admits the case list's search text, which Core adds beside the datums", () => {
+		const stringquery = "instance('commcaresession')/session/data/stringquery";
+		const guarded = `if(count(${stringquery}) &gt; 0, ${stringquery}[1], '')`;
+		expect(
+			codes(
+				wireForm(
+					`${data + session}<bind nodeset="/data/q" calculate="${guarded}"/>`,
+				),
+				["case_id"],
+			),
+		).toEqual([]);
+	});
 	it("requires the session instance declaration even when the suite declares its datum", () => {
 		expect(
 			codes(

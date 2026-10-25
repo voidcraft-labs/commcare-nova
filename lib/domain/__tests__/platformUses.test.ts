@@ -34,6 +34,7 @@ import {
 	literal,
 	now,
 	prop,
+	sessionContext,
 	term,
 	today,
 	walkExpressionNodes,
@@ -113,6 +114,29 @@ describe("a server search condition", () => {
 			moduleUuid: FIXTURE_MODULE,
 			inputUuid: FIXTURE_INPUT,
 		});
+	});
+
+	it("finds the clock drift and the window width a device works out for the search", () => {
+		const predicate = gt(
+			prop("patient", "dob"),
+			ifExpr(
+				eq(term(input(FIXTURE_INPUT)), literal("recent")),
+				term(sessionContext("drift")),
+				term(sessionContext("window_width")),
+			),
+		);
+		const doc = conditionDoc(predicate);
+		for (const [feature, field] of [
+			["clock-drift", "drift"],
+			["window-width", "window_width"],
+		] as const) {
+			const uses = platformFeatureUses(doc, only(feature));
+			expect(uses).toHaveLength(1);
+			const site = uses[0]?.site;
+			if (site?.kind !== "expression")
+				throw new Error("Expected an expression use.");
+			expect(nodeAt(predicate, site.path)).toEqual(term(sessionContext(field)));
+		}
 	});
 
 	it("leaves a value HQ's server evaluates", () => {

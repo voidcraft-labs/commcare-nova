@@ -37,7 +37,13 @@ import {
 	simpleSearchInputDef,
 	tileCell,
 } from "@/lib/domain";
-import { eq, literal, prop, term } from "@/lib/domain/expression";
+import {
+	eq,
+	literal,
+	prop,
+	sessionContext,
+	term,
+} from "@/lib/domain/expression";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
@@ -180,6 +186,8 @@ function caseApp(
 			Pick<Module, "caseSearchConfig" | "caseListOnly">
 		>;
 		readonly searchInputs?: SearchInputDef[];
+		/** The follow-up form's fields, in place of its one text question. */
+		readonly fields?: FieldSpec[];
 	} = {},
 ): BlueprintDoc {
 	const config: CaseListConfigSpec = caseListConfig([
@@ -213,7 +221,7 @@ function caseApp(
 								uuid: FIXTURE_FORM,
 								name: "Visit",
 								type: "followup",
-								fields: [
+								fields: options.fields ?? [
 									f({ kind: "text", id: "note", label: proseText("Note") }),
 								],
 							},
@@ -307,6 +315,33 @@ function calculatePair(
 		use: calculateUse(feature),
 	};
 }
+
+/** A follow-up form, opened after the module's one case list, whose hidden
+ * value is calculated by `calculate`. */
+function followupCalculated(calculate: string): BlueprintDoc {
+	return caseApp({
+		fields: [
+			f({ kind: "text", id: "note", label: proseText("Note") }),
+			f({ kind: "hidden", id: "value", uuid: FIXTURE_FIELD, calculate }),
+		],
+	});
+}
+
+/** The use of a calculated column's expression, at its root. */
+const COLUMN_USE = (feature: PlatformFeatureId): PlatformFeatureUse => ({
+	feature,
+	owner: COLUMN_OWNER,
+	site: {
+		kind: "expression",
+		ref: {
+			entity: "module",
+			uuid: FIXTURE_MODULE,
+			slot: "case_list_column_expression",
+			member: { columnUuid: FIXTURE_COLUMN },
+		},
+		path: [],
+	},
+});
 
 const CONNECT: PlatformFeatureFixture = {
 	with: () =>
@@ -429,6 +464,38 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		),
 	},
 	"connect-app": CONNECT,
+	"case-list-search-text": {
+		with: () =>
+			followupCalculated(
+				"instance('commcaresession')/session/data/stringquery",
+			),
+		without: () =>
+			followupCalculated("instance('commcaresession')/session/context/userid"),
+		use: calculateUse("case-list-search-text"),
+	},
+	"window-width": {
+		with: () =>
+			caseApp({
+				columns: [
+					calculatedColumn(
+						FIXTURE_COLUMN,
+						"Width",
+						term(sessionContext("window_width")),
+					),
+				],
+			}),
+		without: () =>
+			caseApp({
+				columns: [
+					calculatedColumn(
+						FIXTURE_COLUMN,
+						"Width",
+						term(sessionContext("userid")),
+					),
+				],
+			}),
+		use: COLUMN_USE("window-width"),
+	},
 	"location-question": fieldKindPair("location-question", "geopoint"),
 	"barcode-question": fieldKindPair("barcode-question", "barcode"),
 	"image-question": fieldKindPair("image-question", "image"),
@@ -547,6 +614,16 @@ export const PLATFORM_FEATURE_FIXTURES = {
 	"app-version": calculatePair(
 		"app-version",
 		"instance('commcaresession')/session/context/appversion",
+		"instance('commcaresession')/session/context/userid",
+	),
+	"clock-drift": calculatePair(
+		"clock-drift",
+		"instance('commcaresession')/session/context/drift",
+		"instance('commcaresession')/session/context/userid",
+	),
+	"app-language": calculatePair(
+		"app-language",
+		"instance('commcaresession')/session/context/applanguage",
 		"instance('commcaresession')/session/context/userid",
 	),
 	"entry-points": {

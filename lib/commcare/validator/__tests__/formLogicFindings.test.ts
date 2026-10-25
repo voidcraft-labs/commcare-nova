@@ -16,13 +16,27 @@ import {
 	setLinkCondition,
 } from "@/lib/domain/expression/__tests__/instanceReadsFixture";
 import {
+	CHILD_HIDDEN,
+	calculateOf,
+	linkSlot,
+	OTHER_HIDDEN,
+	OTHER_INPUT,
+	READS_HIDDEN,
+	READS_INPUT,
+	readsDoc,
+	SURVEY_HIDDEN,
+} from "@/lib/domain/expression/__tests__/sessionReadsFixture";
+import {
+	caseListSearchText,
 	count,
 	dateCoerce,
 	eq,
 	gt,
 	gte,
+	input,
 	literal,
 	prop,
+	sessionContext,
 	term,
 	today,
 } from "@/lib/domain/expression/builders";
@@ -32,7 +46,7 @@ import type {
 	FieldExpressionSlotRef,
 } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
-import { formLogicFindings } from "../formLogicFindings";
+import { checkFormLogicSlot, formLogicFindings } from "../formLogicFindings";
 import { runValidation } from "../runner";
 
 const field = (uuid: typeof ids.time): Expression => ({
@@ -1004,5 +1018,118 @@ describe("a choice's label and a question's wording", () => {
 				details: { reason: "itext-reference", wordingKind: "choice" },
 			},
 		]);
+	});
+});
+
+describe("the session and search reads a form makes", () => {
+	const findings = (
+		slot: Parameters<typeof checkFormLogicSlot>[1],
+		expression: Expression,
+		runsOnlyOn: "web-apps" | "android" = "web-apps",
+	) => checkFormLogicSlot(readsDoc(runsOnlyOn), slot, expression);
+	const shape = (errors: ReturnType<typeof findings>) =>
+		errors.map((error) => ({
+			code: error.code,
+			reason: error.details?.reason,
+			message: error.message,
+		}));
+
+	it("names a link's read of the case list's search text, which only a form's questions and Connect settings can make", () => {
+		expect(
+			shape(findings(linkSlot, eq(caseListSearchText(), literal("a")))),
+		).toEqual([
+			{
+				code: "XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+				reason: "case-list-search-text-slot",
+				message:
+					"This after-submit link condition reads what the worker typed into a case list's search box, which only a form's questions and Connect settings can read. You can read it in one of the form's questions instead.",
+			},
+		]);
+	});
+
+	it("names a form that opens after no case list, and one that opens after two", () => {
+		const none = findings(
+			calculateOf(SURVEY_HIDDEN),
+			caseListSearchText(),
+			"android",
+		);
+		expect(shape(none)).toEqual([
+			{
+				code: "SESSION_DATUM_NOT_SUPPLIED",
+				reason: "case-list-search-text",
+				message: `"value"'s calculated value reads what the worker typed into a case list's search box, but this form doesn't open after a case list. You can read a question or a case property instead.`,
+			},
+		]);
+		expect(none[0]?.details?.caseLists).toBe("0");
+		const two = findings(
+			calculateOf(CHILD_HIDDEN),
+			caseListSearchText(),
+			"android",
+		);
+		expect(shape(two)).toEqual([
+			{
+				code: "SESSION_DATUM_NOT_SUPPLIED",
+				reason: "case-list-search-text",
+				message: `"value"'s calculated value reads what the worker typed into a case list's search box, but this form opens after 2 case lists, so CommCare can't tell which search it means. You can read it in a form that opens after one case list.`,
+			},
+		]);
+		expect(two[0]?.details?.caseLists).toBe("2");
+	});
+
+	it("names the search text a declared platform lacks, in the agent's voice", () => {
+		const refused = findings(calculateOf(OTHER_HIDDEN), caseListSearchText());
+		expect(shape(refused)).toEqual([
+			{
+				code: "XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+				reason: "platform-unavailable",
+				message: `"value"'s calculated value reads the case list's search text, and the app runs only in Web Apps. Web Apps keeps no case list search text, so the read is always blank there. You can take the read out, or, if workers use only the CommCare app on Android, set the app to run only on Android (updateApp/update_app, runs_only_on "android").`,
+			},
+		]);
+		expect(refused[0]?.details).toMatchObject({
+			feature: "case-list-search-text",
+			platform: "web-apps",
+		});
+		expect(
+			findings(calculateOf(OTHER_HIDDEN), caseListSearchText(), "android"),
+		).toEqual([]);
+	});
+
+	it("names a form's read of the window width, which a form can't rely on", () => {
+		expect(
+			shape(
+				findings(
+					calculateOf(READS_HIDDEN),
+					term(sessionContext("window_width")),
+				),
+			),
+		).toEqual([
+			{
+				code: "XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+				reason: "window-width",
+				message: `"value"'s calculated value reads the window width, which CommCare sends only while a menu or a list loads, so a form can't rely on it. You can use it in a display condition or a case list instead.`,
+			},
+		]);
+	});
+
+	it("names why a form can't reach its menu's Search answers", () => {
+		expect(
+			shape(findings(linkSlot, eq(term(input(READS_INPUT)), literal("a")))),
+		).toEqual([
+			expect.objectContaining({
+				code: "INVALID_SEARCH_REF",
+				reason: "form-link",
+			}),
+		]);
+		expect(
+			shape(findings(calculateOf(OTHER_HIDDEN), term(input(OTHER_INPUT)))),
+		).toEqual([
+			expect.objectContaining({
+				code: "INVALID_SEARCH_REF",
+				reason: "not-search-first",
+			}),
+		]);
+		expect(
+			findings(calculateOf(READS_HIDDEN), term(input(READS_INPUT))),
+		).toEqual([]);
 	});
 });

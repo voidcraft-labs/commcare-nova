@@ -6,7 +6,9 @@ import { appendKindSlot, type EditorPath } from "../../path";
 import { ExpressionPicker } from "../../primitives/ExpressionPicker";
 import { expressionFocusTitle } from "../../RuleFocusContext";
 
-interface GeneralValueCardProps<K extends "negate" | "here" | "value-list"> {
+interface GeneralValueCardProps<
+	K extends "negate" | "here" | "case-list-search-text" | "value-list",
+> {
 	readonly value: ExpressionOfKind<K>;
 	readonly onChange: (next: Expression) => void;
 	readonly path: EditorPath;
@@ -32,6 +34,17 @@ export function HereCard(_props: GeneralValueCardProps<"here">) {
 	return (
 		<p className="text-[13px] text-nova-text-muted">
 			Where the worker is when the case list shows.
+		</p>
+	);
+}
+
+export function CaseListSearchTextCard(
+	_props: GeneralValueCardProps<"case-list-search-text">,
+) {
+	return (
+		<p className="text-[13px] text-nova-text-muted">
+			What the worker typed into the case list's search box, blank when they
+			typed nothing.
 		</p>
 	);
 }

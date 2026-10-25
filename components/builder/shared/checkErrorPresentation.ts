@@ -148,7 +148,11 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 				? "This wording shows an answer, so it can't be read here. You can read the answer itself"
 				: reason === "places-unavailable"
 					? "This setting can't read places. You can read them in a form's questions or its links"
-					: "Choose a calculation available in this setting",
+					: reason === "window-width-in-form"
+						? "A form can't rely on the window width. You can read it in a display condition or a case list"
+						: reason === "case-list-search-text-slot"
+							? "What the worker typed into a case list's search box is available only in a form's questions and Connect settings"
+							: "Choose a calculation available in this setting",
 	"case-data-unavailable": () =>
 		"Choose a value available before selecting a case",
 	"form-answer-unavailable": () =>
@@ -169,6 +173,8 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 				return "Another menu shows this list and keeps that choice in another place. You can remove this read";
 			case "several-cases":
 				return "That menu chooses several cases, so there is no one case to read. You can read a menu that chooses one case";
+			case "case-list-search-text":
+				return "This form doesn't open after exactly one case list, so there's no search text to read";
 			default:
 				return "Choose information supplied when this screen opens";
 		}

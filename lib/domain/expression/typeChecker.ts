@@ -213,6 +213,9 @@ export interface CheckError {
 		readonly module: Uuid;
 		readonly otherModule?: Uuid;
 	};
+	/** On `datum-not-supplied`, reason `case-list-search-text`: how many case
+	 * lists the entry opens after (none, or several). */
+	readonly caseLists?: number;
 	/** On `arm-unavailable`, reason `platform-unavailable`: the feature and
 	 * the declared platform that lacks it. */
 	readonly platform?: {
@@ -786,6 +789,21 @@ function admission(
 				: "here() reads the worker's location, which CommCare offers only in a case list's calculated column. You can show it in a calculated column instead.",
 			"here",
 		);
+	if (expression.kind === "case-list-search-text") {
+		const refused = caseListSearchTextAdmission(ctx);
+		if (refused !== undefined) return refused;
+	}
+	if (
+		expression.kind === "term" &&
+		expression.term.kind === "session-context" &&
+		expression.term.field === "window_width" &&
+		!profile.windowWidth
+	)
+		return refusal(
+			"arm-unavailable",
+			"This expression reads the window width, which CommCare sends only while a menu or a list loads, so a form can't rely on it. You can use it in a display condition or a case list instead.",
+			"window-width-in-form",
+		);
 	// Where the slot admits it, a leaf a declared platform lacks is refused
 	// against the app's declaration (`lib/domain/platforms.ts`).
 	const leaf = expressionLeafFeature(expression);
@@ -963,6 +981,33 @@ function admission(
 	if (expression.kind === "term") return termAdmission(expression.term, ctx);
 	return undefined;
 }
+/** The case list's search text: a form's questions and Connect settings read
+ * it, and only where the entry opens after exactly one case list, whose
+ * search box Android keeps on the frame (`SessionInstanceBuilder.addUserQueryData`). */
+function caseListSearchTextAdmission(
+	ctx: ExpressionContext,
+): CheckError | undefined {
+	if (!ctx.profile.caseListSearchText)
+		return refusal(
+			"arm-unavailable",
+			"What the worker typed into a case list's search box is available only in a form's questions and Connect settings.",
+			"case-list-search-text-slot",
+		);
+	const caseLists = ctx.supplies.refs.filter(
+		(supply) => supply.ref.kind === "selected-case",
+	).length;
+	if (caseLists === 1) return undefined;
+	return {
+		...refusal(
+			"datum-not-supplied",
+			caseLists === 0
+				? "This form doesn't open after a case list, so there's no search box text to read."
+				: `This form opens after ${caseLists} case lists, so CommCare can't tell which search box text it means.`,
+			"case-list-search-text",
+		),
+		caseLists,
+	};
+}
 function termAdmission(
 	term: Term,
 	ctx: ExpressionContext,
@@ -1107,15 +1152,27 @@ function termAdmission(
 			"case-data-unavailable",
 			"A form menu can read only the case selected by its own menu.",
 		);
+	// A form reads its menu's Search answers where Core keeps them: the
+	// no-matches form, and the forms of a module that opens on its search,
+	// whose inline query holds `search-input:results:inline`. A form link runs
+	// after the form closes, where they are gone.
 	if (
 		term.kind === "input" &&
 		ctx.ruleSet === "form" &&
-		!ctx.form?.noMatchesForm
+		!ctx.form?.noMatchesForm &&
+		!(ctx.form?.searchFirstModule === true && profile.scope === "form")
 	)
-		return refusal(
-			"search-answer-unavailable",
-			"Search answers are available only in the form opened when a search found no matches.",
-		);
+		return ctx.form?.searchFirstModule === true
+			? refusal(
+					"search-answer-unavailable",
+					"A form link runs after the form closes, where its menu's Search answers are no longer available.",
+					"form-link",
+				)
+			: refusal(
+					"search-answer-unavailable",
+					"Search answers are available only in the forms of a menu that opens on its search.",
+					"not-search-first",
+				);
 
 	if (term.kind === "session-datum") {
 		const datum = term.datum;
@@ -2312,6 +2369,8 @@ function inferNode(
 		case "here":
 			// Formplayer's handler returns GeoPointData.getDisplayText().
 			return scalar("geopoint", "string");
+		case "case-list-search-text":
+			return scalar("text");
 		case "value-list":
 			for (const [index, item] of expression.items.entries())
 				read(item, ["items", index]);
@@ -2694,8 +2753,13 @@ function inferTerm(
 				: nodes(input.data_type ?? "text", "string");
 		}
 		case "session-user":
-		case "session-context":
 			return nodes("text", "string");
+		case "session-context":
+			// Core writes every context value as text; `drift` and
+			// `window_width` name whole numbers (`SessionInstanceBuilder.addMetadata`).
+			return term.field === "drift" || term.field === "window_width"
+				? nodes("int", "string")
+				: nodes("text", "string");
 		case "session-user-property":
 			return ctx.facts.userPropertySlugs.has(term.userPropertyUuid)
 				? nodes("text", "string")

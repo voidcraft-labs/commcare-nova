@@ -263,11 +263,6 @@ export function TermCard(props: TermCardProps) {
 			props.value.term.datum.kind !== "selected-case")
 	)
 		return <p role="status">This saved value cannot be edited here yet.</p>;
-	if (props.value.term.kind === "session-context") {
-		const presentation = sessionContextPresentation(props.value.term.field);
-		if (presentation.kind === "preserved")
-			return <PreservedSessionContext label={presentation.label} />;
-	}
 	if (
 		props.value.term.kind === "session-user" ||
 		props.value.term.kind === "session-user-property"
@@ -1277,18 +1272,14 @@ function TermBodyInput({
 					invalid={invalid}
 				/>
 			);
-		case "session-context": {
-			const presentation = sessionContextPresentation(term.field);
-			if (presentation.kind === "preserved")
-				return <PreservedSessionContext label={presentation.label} />;
+		case "session-context":
 			return (
 				<SessionContextMenu
-					value={presentation.field}
+					value={term.field}
 					onChange={(field) => onChange(sessionContext(field))}
 					invalid={invalid}
 				/>
 			);
-		}
 		case "session-user":
 			return (
 				<UserFieldInput
@@ -1748,8 +1739,10 @@ function FormFieldRefMenu({
 	);
 }
 
-/** Only the supported authoring choices enter this menu. Other stored session
- * values retain their own names in the read-only presentation above. */
+/** The seven session values, each by its own name. The window width is
+ * offered only where the slot's profile admits it (`SlotProfile.windowWidth`:
+ * a slot CommCare evaluates while a menu or a list loads); a stored read
+ * elsewhere keeps its name, and the checker says why it can't stay. */
 function SessionContextMenu({
 	value,
 	onChange,
@@ -1761,6 +1754,11 @@ function SessionContextMenu({
 }) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const current = sessionContextPresentation(value);
+	const ctx = usePredicateEditContext();
+	const windowWidth = ctx.expressionContext?.profile.windowWidth === true;
+	const choices = SESSION_CONTEXT_CHOICES.filter(
+		(it) => it.field !== "window_width" || windowWidth,
+	);
 	const triggerClass = [
 		"group min-h-11 w-full justify-between rounded-lg border bg-nova-deep/50 px-3 text-sm text-nova-text dark:bg-nova-deep/50 dark:not-disabled:hover:bg-nova-deep/50",
 		invalid
@@ -1795,7 +1793,7 @@ function SessionContextMenu({
 					style={{ minWidth: "var(--anchor-width)" }}
 				>
 					<DropdownMenuPopup className="min-w-0">
-						{SESSION_CONTEXT_CHOICES.map((it) => {
+						{choices.map((it) => {
 							const isActive = it.field === value;
 							return (
 								<DropdownMenuItem

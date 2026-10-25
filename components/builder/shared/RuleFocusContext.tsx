@@ -136,6 +136,8 @@ export function expressionFocusTitle(value: Expression): string {
 			return "Negative value";
 		case "here":
 			return "Worker's location";
+		case "case-list-search-text":
+			return "Case list search text";
 		case "value-list":
 			return "Values";
 		default:
@@ -187,6 +189,8 @@ export function expressionFocusDescription(value: Expression): string {
 			return "Reverses the sign of a number";
 		case "here":
 			return "Uses the value being evaluated";
+		case "case-list-search-text":
+			return "What the worker typed into the case list's search box";
 		case "value-list":
 			return `${value.items.length} saved values`;
 		default:

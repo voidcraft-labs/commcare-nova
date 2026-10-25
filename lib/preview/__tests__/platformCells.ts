@@ -89,6 +89,11 @@ export const PLATFORM_CELLS: Readonly<
 		structural("search-first"),
 	"menus-and-case-lists/case-list-form-on-a-search-first-host-pointing-at-a-registration@android":
 		structural("search-first"),
+	/* The read is admitted only in a search-first module, which Android refuses. */
+	"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module@android":
+		structural("search-first"),
+	"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search@android":
+		structural("search-first"),
 	"menus-and-case-lists/detail-multi-select@android":
 		structural("several-cases"),
 	"menus-and-case-lists/detail-max-select-value-on-a-multi-select-basic-list@android":
@@ -108,6 +113,13 @@ export const PLATFORM_CELLS: Readonly<
 	// ── Refused, expression ────────────────────────────────────────────
 	"expressions-and-data/here-in-a-case-list-calculated-column-or-sort@web-apps":
 		expression("case-list-here"),
+	"expressions-and-data/session-data-stringquery@web-apps": expression(
+		"case-list-search-text",
+	),
+	"expressions-and-data/session-context-window-width@android":
+		expression("window-width"),
+	"case-search/runtime-values-read-from-the-session-context-window-width@android":
+		expression("window-width"),
 
 	// ── Refused, media ─────────────────────────────────────────────────
 	"expressions-and-data/audio-raw-aac-adts-aac-amr-midi@web-apps": media,
@@ -132,6 +144,14 @@ export const PLATFORM_CELLS: Readonly<
 	"expressions-and-data/session-context-appversion@web-apps": model(
 		"session-context-web-apps",
 	),
+	"expressions-and-data/session-context-drift@web-apps": model(
+		"session-context-web-apps",
+	),
+	"expressions-and-data/session-context-applanguage@web-apps": model(
+		"session-context-web-apps",
+	),
+	"case-search/runtime-values-read-from-the-session-context-drift@web-apps":
+		model("session-context-web-apps"),
 	"expressions-and-data/commcaresession-jr-instance-session@web-apps": model(
 		"session-context-web-apps",
 	),

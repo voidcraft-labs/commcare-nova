@@ -143,6 +143,8 @@ const SESSION_CONTEXT_FEATURES: ReadonlyMap<string, PlatformFeatureId> =
 	new Map([
 		["deviceid", "device-id"],
 		["appversion", "app-version"],
+		["drift", "clock-drift"],
+		["applanguage", "app-language"],
 	]);
 
 /** The features one expression node is on its own, without typing. */

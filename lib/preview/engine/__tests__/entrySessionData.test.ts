@@ -197,6 +197,21 @@ describe("entrySessionData", () => {
 		});
 	});
 
+	it("holds the case list's filter text as stringquery when the worker typed one, and none otherwise", () => {
+		const doc = households();
+		const bound = { boundCases: [{ caseId: "h1", caseName: "Smiths" }] };
+		expect(
+			session(doc, UPDATE, { ...bound, caseListSearchText: "Smi" }).data,
+		).toMatchObject({ case_id: "h1", stringquery: "Smi" });
+		for (const caseListSearchText of [undefined, ""])
+			expect(
+				session(doc, UPDATE, {
+					...bound,
+					...(caseListSearchText === undefined ? {} : { caseListSearchText }),
+				}).data,
+			).not.toHaveProperty("stringquery");
+	});
+
 	it("values the parent selection by the module that chose it, and the child by the bound case", () => {
 		const doc = households();
 		const map = session(doc, VISIT, {

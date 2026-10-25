@@ -254,6 +254,7 @@ export function expressionChildren(
 		case "unowned":
 		case "itext":
 		case "here":
+		case "case-list-search-text":
 		case "selected-cases":
 		case "form-case":
 		case "input":

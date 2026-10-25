@@ -11,8 +11,12 @@
  * with matches) is refused, and the screen says where to go instead.
  */
 
-import type { Form, Uuid } from "@/lib/domain";
+import type { Form, SearchInputDef, Uuid } from "@/lib/domain";
 import { isNoMatchesForm } from "@/lib/domain";
+import {
+	type SearchInputValues,
+	searchInputInstanceValues,
+} from "@/lib/preview/engine/runtimeBindings";
 import type {
 	PreviewSearchAnswers,
 	PreviewSearchLaunch,
@@ -119,4 +123,37 @@ export function noMatchesRefusalCopy(reason: NoMatchesRefusal): {
 					"Start from Search. When nothing matches, Results offers this form.",
 			};
 	}
+}
+
+/**
+ * What a form's `#search/<name>` reads: the search-input instance its entry
+ * holds. A no-matches form reads its admitted launch's answers. A form of a
+ * module that opens on its search reads the completed search's answers,
+ * which its inline query step keeps; one opened another way (a link or an
+ * entry point, with no completed search behind it) is rebuilt on Web Apps
+ * with the query screen's starting values (`RemoteQuerySessionManager.initUserAnswers`),
+ * so it reads `defaults`. Any other form holds no search input.
+ */
+export function formSearchAnswers(args: {
+	readonly searchInputs: readonly SearchInputDef[];
+	readonly admission: NoMatchesFormAdmission;
+	readonly searchFirst: boolean;
+	readonly searchState: PreviewSearchState | undefined;
+	/** The Search fields' starting values, as the Search screen fills its
+	 * prompts (`searchExpressionEvaluation.ts::resolveSearchInputDefaults`). */
+	readonly defaults: SearchInputValues;
+}): SearchInputValues | undefined {
+	const { searchInputs, admission, searchFirst, searchState, defaults } = args;
+	if (admission.kind === "admitted")
+		return searchInputInstanceValues(
+			searchInputs,
+			new Map(Object.entries(admission.answers)),
+		);
+	if (admission.kind === "refused" || !searchFirst) return undefined;
+	return searchState?.kind === "completed"
+		? searchInputInstanceValues(
+				searchInputs,
+				new Map(Object.entries(searchState.answers)),
+			)
+		: searchInputInstanceValues(searchInputs, defaults);
 }

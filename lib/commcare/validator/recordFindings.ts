@@ -134,9 +134,41 @@ export function sharedRecordFinding(
 }
 
 /** The record slot a platform refusal names, as the agent reads it: the
- * calculated column by its header, and any other slot as the checker names
- * it. */
+ * calculated column by its header, each other slot a window width read
+ * reaches (every module slot and a form's display condition) by its setting,
+ * and any other slot as the checker names it. */
 function recordSlotSubject(doc: BlueprintDoc, error: ValidationError): string {
+	const module = `module "${error.location.moduleName ?? ""}"`;
+	const input =
+		error.details?.inputName === undefined
+			? `a Search field in ${module}`
+			: `Search field "${error.details.inputName}" in ${module}`;
+	switch (error.code) {
+		case "MODULE_DISPLAY_CONDITION_TYPE_ERROR":
+			return `The display condition of ${module}`;
+		case "FORM_DISPLAY_CONDITION_TYPE_ERROR":
+			return `The display condition of form "${error.location.formName ?? ""}"`;
+		case "CASE_LIST_FILTER_TYPE_ERROR":
+			return `The case list filter of ${module}`;
+		case "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR":
+			return `The Search button's display condition in ${module}`;
+		case "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR":
+			return `The owners a search leaves out in ${module}`;
+		case "CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR":
+			return `The starting value of ${input}`;
+		case "CASE_LIST_SEARCH_INPUT_HIDDEN_VALUE_TYPE_ERROR":
+			return `The value of ${input}`;
+		case "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR":
+			return `The condition of ${input}`;
+		case "CASE_LIST_SEARCH_INPUT_REQUIRED_CONDITION_TYPE_ERROR":
+			return `The required condition of ${input}`;
+		case "CASE_LIST_SEARCH_INPUT_VALIDATION_RULE_TYPE_ERROR":
+			return `The check of ${input}`;
+		case "CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_TYPE_ERROR":
+			return `The choice filter of ${input}`;
+		default:
+			break;
+	}
 	if (error.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR") {
 		const moduleUuid = error.location.moduleUuid;
 		const column = (

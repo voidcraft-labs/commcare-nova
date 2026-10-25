@@ -1254,6 +1254,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		scopeKey: restoreScopeKey,
 		search: readsSearchResults,
 		positionScreen: "detail",
+		// A search-first module's detail reads the completed search's answers,
+		// which its inline query keeps beside the results.
+		...(searchFirst &&
+			searchState?.kind === "completed" && {
+				searchAnswers: searchState.answers,
+			}),
 	});
 	const retryCasesWithFocus = useCallback(async () => {
 		const pending = reloadCases();
@@ -1761,6 +1767,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		setPreviewCaseTarget({
 			formUuid,
 			cases,
+			// What the worker typed into this list's filter, which the form's
+			// session holds as `stringquery`, as Android keeps a list's last
+			// search on its frame.
+			...(filterText !== "" && { caseListSearchText: filterText }),
 			...(caseDatabase !== undefined && {
 				caseDatabase,
 				caseData:

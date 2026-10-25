@@ -53,6 +53,21 @@ export function guardRead(
 	return w.call("if", [w.gt(w.call("count", [rows]), w.num(0)), read, empty]);
 }
 
+/** `if(count(<counted>) > 0, <read>, '')`: a session read that can be
+ * absent (`window_width`, `applanguage`, the case list's search text) reads
+ * blank where its node is missing. `count` of an invalid path reads 0 and
+ * `if` evaluates one branch, while every unpacking read of an absent node
+ * throws in a calculate and a condition, and fails a case list or shows
+ * `<invalid xpath: …>` in it, depending on its entity factory. `counted`
+ * defaults to the read; the search text counts its nodes and reads the
+ * first, since one case list can leave its text on two steps. */
+export function guardAbsentNode(
+	read: WirePath,
+	counted: WirePath = read,
+): WireExpr {
+	return guardRead(read, counted, w.str(""));
+}
+
 /** The read guarded with `''`, or unchanged when it reads no data-built
  * instance. */
 export function guardValue(read: WireExpr): WireExpr {
