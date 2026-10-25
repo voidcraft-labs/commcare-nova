@@ -18,6 +18,13 @@ import java.util.Arrays;
  */
 public final class DecodeProbe {
     private static final long TIMEOUT_US = 10_000;
+    /** The files BitmapFactory decodes; every other file is read by MediaExtractor. */
+    private static final String[] IMAGES = {".bmp", ".png", ".jpg", ".gif", ".webp"};
+
+    private static boolean isImage(String name) {
+        for (String extension : IMAGES) if (name.endsWith(extension)) return true;
+        return false;
+    }
 
     public static void main(String[] args) throws Exception {
         File[] files = new File(args[0]).listFiles();
@@ -26,7 +33,7 @@ public final class DecodeProbe {
         for (File file : files) {
             String result;
             try {
-                result = file.getName().endsWith(".bmp") ? image(file) : stream(file);
+                result = isImage(file.getName()) ? image(file) : stream(file);
             } catch (Exception refused) {
                 result = "\"outcome\":\"refused\",\"reason\":" + quoted(String.valueOf(refused));
             }

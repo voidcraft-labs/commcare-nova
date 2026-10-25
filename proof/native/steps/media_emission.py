@@ -7,7 +7,7 @@ bytes (``MediaRuntimeTest.sourceFormsParseWithRealCoreBeforeHqMatching``,
 run by ``NativeSession.media_certificate``) and writes their digests to
 ``core-validated-sources.properties``.
 
-``media`` is HQ's main pass, one project space per scenario. HQ imports the
+``media`` is HQ's main pass, one project space per scenario, ``SCENARIOS`` then ``FORMAT_SCENARIOS``. HQ imports the
 scenario, which carries no multimedia map (``multimediaMapBeforeUpload``
 counts what the import mapped), regenerates its form, suite (no remote
 requests), English app strings, profile and media suite
@@ -40,6 +40,9 @@ from proof.native.hq_support import (
 
 DOMAIN = "nova-media-proof"
 SCENARIOS = ["media-rich-on", "media-rich-off", "media-only-on", "media-only-off"]
+# The scenarios of the variants one platform plays, each in an app that declares it, and the one emission
+# Nova would refuse, an SVG, uploaded so HQ's refusal of it is executed. Each carries media.
+FORMAT_SCENARIOS = ["media-web-apps-on", "media-android-on", "media-svg-refused"]
 HQ_SOURCES = [
     "corehq/apps/hqmedia/tasks.py",
     "corehq/apps/hqmedia/models.py",
@@ -107,11 +110,11 @@ def validation_sources(session):
 
     exports = session.family("media")
     with native_check(DOMAIN):
-        for name in SCENARIOS:
+        for name in SCENARIOS + FORMAT_SCENARIOS:
             form = XForm((exports / f"{name}.source.xml").read_bytes())
             form.strip_vellum_ns_attributes()
             (exports / f"{name}.validation.xml").write_bytes(etree.tostring(form.xml))
-    return SCENARIOS
+    return SCENARIOS + FORMAT_SCENARIOS
 
 
 def _bulk_upload(name, exports, app):
@@ -159,8 +162,8 @@ def media(session):
     exports = session.family("media")
     certificate = read_certificate(exports, session.media_certificate())
     records = []
-    for name in SCENARIOS:
-        enabled = name.endswith("-on")
+    for name in SCENARIOS + FORMAT_SCENARIOS:
+        enabled = name.endswith("-on") or name in FORMAT_SCENARIOS
         check = native_check(
             DOMAIN,
             validate=certificate.validator(session.validate_form),

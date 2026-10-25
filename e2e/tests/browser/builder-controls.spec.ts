@@ -2568,6 +2568,9 @@ test("native module appearance keeps the menu tile and case-list link media inde
 					originalFilename:
 						index === 0 ? "menu.png" : index === 1 ? "cases.png" : "spoken.mp3",
 					status: "ready",
+					mediaFormat: index === 2 ? "mp3" : "png",
+					formatLabel: index === 2 ? "MP3" : "PNG",
+					playsOn: ["web-apps", "android"],
 					createdAt: "2026-07-17T00:00:00.000Z",
 				})),
 				nextCursor: null,

@@ -3,10 +3,14 @@
  * (`browser`: Chromium's headless shell; `browser-webkit`: WebKit), as Web
  * Apps would play an app's media: each file served over HTTP with range
  * requests and its MIME type, each audio and video file played muted to its
- * `ended` event, and each accepted BMP decoded into an `<img>` with a width
- * above 0. The files are the validator's own fixtures and the BMPs
- * `lib/media/__tests__/bmpFixtures.ts` builds, so this spec, the validator's
- * test and the Android decode probe read the same bytes.
+ * `ended` event, and each image decoded into an `<img>` with a width above 0.
+ * The files are every format Web Apps is held to play: the validator's own
+ * fixtures and the BMPs `lib/media/__tests__/bmpFixtures.ts` builds, so this
+ * spec, the validator's test and the Android decode probe read the same
+ * bytes. Its run in CI is `lib/commcare/surface/media-formats.json`'s
+ * `browser-playback-ci` record. No case asserts a format only Android plays
+ * fails here: a reading of `unavailable` means some browser in the bar does
+ * not play it, which one engine playing it would not contradict.
  *
  * On macOS, WebKit also refuses a 24-bit `BITMAPV4HEADER` BMP in sRGB, the
  * reason Nova refuses that header. Linux WebKit decodes it, so that case runs
@@ -35,18 +39,40 @@ const PLAYED: readonly (readonly [string, string, "audio" | "video"])[] = [
 	["pattern-vp8-vorbis.webm", "video/webm", "video"],
 	["pattern-vp9.webm", "video/webm", "video"],
 	["pattern-vp9-opus.webm", "video/webm", "video"],
+	["tone.wav", "audio/wav", "audio"],
+	["tone-8.wav", "audio/wav", "audio"],
+	["tone.mp3", "audio/mpeg", "audio"],
+	["tiny-video.mp4", "video/mp4", "video"],
+	["pattern-h264-baseline.mp4", "video/mp4", "video"],
+	["pattern-h264-main-aac.mp4", "video/mp4", "video"],
 ];
 
-/** Every accepted BMP, by the name it is served under. */
-const DECODED: ReadonlyMap<string, Buffer> = new Map([
-	...[
-		"pattern-8.bmp",
-		"pattern-16.bmp",
-		"pattern-24.bmp",
-		"pattern-32.bmp",
-	].map((name) => [name, readFileSync(join(FIXTURES, name))] as const),
+/** Every image Web Apps is held to show, by the name it is served under, with its MIME type. */
+const DECODED: ReadonlyMap<string, { bytes: Buffer; mime: string }> = new Map<
+	string,
+	{ bytes: Buffer; mime: string }
+>([
+	...(
+		[
+			["pattern-8.bmp", "image/bmp"],
+			["pattern-16.bmp", "image/bmp"],
+			["pattern-24.bmp", "image/bmp"],
+			["pattern-32.bmp", "image/bmp"],
+			["pattern.png", "image/png"],
+			["pattern.jpg", "image/jpeg"],
+			["pattern.gif", "image/gif"],
+			["pattern.webp", "image/webp"],
+			["pattern.avif", "image/avif"],
+			["pattern-png.ico", "image/vnd.microsoft.icon"],
+			["pattern-bmp.ico", "image/vnd.microsoft.icon"],
+		] as const
+	).map(
+		([name, mime]) =>
+			[name, { bytes: readFileSync(join(FIXTURES, name)), mime }] as const,
+	),
 	...BUILT_BMPS.filter((built) => built.accepted).map(
-		(built) => [built.name, built.build()] as const,
+		(built) =>
+			[built.name, { bytes: built.build(), mime: "image/bmp" }] as const,
 	),
 ]);
 
@@ -105,7 +131,7 @@ async function serve(
 	};
 }
 
-test("every accepted audio and video file plays to its end, and every accepted BMP decodes", async ({
+test("every format Web Apps plays plays to its end, and every image decodes", async ({
 	page,
 }) => {
 	const files = new Map<string, { bytes: Buffer; mime: string }>([
@@ -113,9 +139,7 @@ test("every accepted audio and video file plays to its end, and every accepted B
 			([name, mime]) =>
 				[name, { bytes: readFileSync(join(FIXTURES, name)), mime }] as const,
 		),
-		...[...DECODED].map(
-			([name, bytes]) => [name, { bytes, mime: "image/bmp" }] as const,
-		),
+		...DECODED,
 	]);
 	const server = await serve(files);
 	try {

@@ -13,6 +13,9 @@ const asset = {
 	originalFilename: "visit-photo.png",
 	status: "ready",
 	createdAt: "2026-09-06T00:00:00Z",
+	mediaFormat: "png",
+	formatLabel: "PNG",
+	playsOn: ["web-apps", "android"],
 };
 const imageBytes = Buffer.from(
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a9ZkAAAAASUVORK5CYII=",

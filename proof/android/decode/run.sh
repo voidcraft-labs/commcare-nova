@@ -4,7 +4,7 @@
 #   proof/android/decode/run.sh <avd>
 #
 # Boots <avd> without a window, prints the image's build fingerprint first (`FINGERPRINT <value>`), pushes
-# lib/media/__tests__/fixtures/ and the BMP files lib/media/__tests__/bmpFixtures.ts builds, and prints one JSON
+# lib/media/__tests__/fixtures/ and the files lib/media/__tests__/bmpFixtures.ts and builtFixtures.ts build, and prints one JSON
 # line per file: the decoder that read it and the frames it decoded, or why it was refused
 # (proof/android/decode/DecodeProbe.java). It needs an Apple-silicon Mac with the Android SDK's emulator, a
 # platform's android.jar, build-tools' d8 and the arm64 system image the AVD is made from; run it from the
@@ -35,6 +35,7 @@ javac --release 11 -cp "$platform/android.jar" -d "$work/classes" "$here/DecodeP
 
 cp "$root"/lib/media/__tests__/fixtures/* "$work/files/"
 (cd "$root" && npx tsx --eval "import('./lib/media/__tests__/bmpFixtures.ts').then((m) => m.writeBuiltBmps(process.argv[1]))" "$work/files")
+(cd "$root" && npx tsx --eval "import('./lib/media/__tests__/builtFixtures.ts').then((m) => m.writeBuiltFixtures(process.argv[1]))" "$work/files")
 
 "$sdk/emulator/emulator" -avd "$avd" -port "$port" -no-window -no-audio -no-snapshot -no-boot-anim \
   >"$work/emulator.log" 2>&1 &
