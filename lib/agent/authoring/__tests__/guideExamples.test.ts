@@ -387,3 +387,47 @@ it("holds a multi-select's several starting choices the same way", async () => {
 		]),
 	).toMatchObject({ error: expect.stringContaining("in its starting value") });
 });
+
+it("joins a date question and a time question into a date and time a case saves, in an app that runs on both", async () => {
+	const join =
+		"date(format-date(if(#form/visit_date = '' or #form/visit_time = '', '', concat(#form/visit_date, 'T', #form/visit_time)), '%Y-%m-%dT%H:%M:%S.%3%Z'))";
+	expect(guide).toContain(`join them in a hidden value calculated as ${join}`);
+	const { h } = await fixture();
+	expect(h.currentDoc().appSettings.runsOnlyOn).toBeUndefined();
+	expect(
+		await h.call("generateSchema", {
+			caseTypes: [
+				{
+					name: "visit",
+					parent_type: "household",
+					properties: [
+						{ name: "region", label: "Region", data_type: "text" },
+						{ name: "visited_at", label: "Visited at", data_type: "datetime" },
+					],
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await h.call("addFields", {
+			formUuid: "Check",
+			fields: [
+				{ kind: "date", id: "visit_date", label: "Visit date" },
+				{ kind: "time", id: "visit_time", label: "Visit time" },
+				{
+					kind: "hidden",
+					id: "visited_at",
+					calculate: join,
+					caseWrite: { caseType: "visit", property: "visited_at" },
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	const field = Object.values(h.currentDoc().fields).find(
+		(candidate) => candidate.id === "visited_at",
+	);
+	expect(field).toMatchObject({
+		kind: "hidden",
+		caseWrite: { caseType: "visit", property: "visited_at" },
+	});
+});
