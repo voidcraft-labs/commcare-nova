@@ -86,12 +86,17 @@ export type AfterSubmitRoute =
  *  shown; a form off the menu or whose display condition is false; a form
  *  inside a module (or under one) that is off the menu or whose display
  *  condition is false; a module whose display condition is false or that is
- *  off the menu; or waiting on data. */
+ *  off the menu, or under one that is; or waiting on data. A target inside or
+ *  under a hidden module names `shownModuleUuid`, the deepest module above the
+ *  topmost hidden one (`null` when that is a top-level module): the menu
+ *  Formplayer's frame walk stops on. */
 export type AfterSubmitTargetVisibility =
 	| "shown"
 	| "form-hidden"
-	| "form-in-hidden-module"
-	| "module-hidden"
+	| {
+			readonly kind: "form-in-hidden-module" | "module-hidden";
+			readonly shownModuleUuid: Uuid | null;
+	  }
 	| "pending";
 
 /**
@@ -112,9 +117,19 @@ export function afterSubmitTargetVisibility(args: {
 	const { doc, link } = args;
 	const target = link.target;
 	const lookupData = args.lookup.kind === "data" ? args.lookup.data : undefined;
-	let moduleUuid: Uuid | null | undefined = target.moduleUuid;
-	let pending = false;
-	while (moduleUuid) {
+	/* Walk the menus from the top, as Formplayer's frame walk does: the
+	 * first module the menu hides stops it on the module above, so a module
+	 * still loading above it leaves where it stops unknown. */
+	const chain: Uuid[] = [];
+	for (
+		let moduleUuid: Uuid | null | undefined = target.moduleUuid;
+		moduleUuid && !chain.includes(moduleUuid);
+		moduleUuid = moduleParent(doc, moduleUuid)
+	) {
+		chain.unshift(moduleUuid);
+	}
+	let shownModuleUuid: Uuid | null = null;
+	for (const moduleUuid of chain) {
 		const mod = doc.modules[moduleUuid];
 		if (mod === undefined) break;
 		const visibility = moduleDisplayVisibility({
@@ -133,12 +148,15 @@ export function afterSubmitTargetVisibility(args: {
 			lookup: args.lookup,
 			deviceCases: args.deviceCases,
 		});
+		if (visibility === "pending") return "pending";
 		if (visibility === "hidden")
-			return target.type === "form" ? "form-in-hidden-module" : "module-hidden";
-		if (visibility === "pending") pending = true;
-		moduleUuid = moduleParent(doc, moduleUuid);
+			return {
+				kind:
+					target.type === "form" ? "form-in-hidden-module" : "module-hidden",
+				shownModuleUuid,
+			};
+		shownModuleUuid = moduleUuid;
 	}
-	if (pending) return "pending";
 	if (target.type !== "form") return "shown";
 	const form = doc.forms[target.formUuid];
 	if (form === undefined) return "shown";
@@ -230,55 +248,43 @@ export function afterSubmitRoute(args: {
 			reason: `form link ${link.uuid} targets module ${target.moduleUuid}, which is not in the document`,
 		};
 	}
+	/** Enter a module where the home screen would, carrying the frame's
+	 *  selections. */
+	const moduleRoute = (moduleUuid: Uuid): AfterSubmitRoute => {
+		const caseSelections = args.caseSelections(link);
+		return {
+			kind: "module",
+			moduleUuid,
+			caseSelections,
+			landing: moduleLanding({
+				isCaseFirst: args.caseFirstModules.has(moduleUuid),
+				isBareCaseList: doc.modules[moduleUuid]?.caseListOnly === true,
+				hasSelectedCase:
+					args.hasSelectedCase?.(moduleUuid, caseSelections) ?? false,
+				hasChildren: Object.values(doc.modules).some(
+					(candidate) => candidate.parentModuleUuid === moduleUuid,
+				),
+			}),
+		};
+	};
 	/* Web Apps rebuilds the session by walking the frame through the menus
 	 * it would show (Formplayer `MenuSessionFactory.rebuildSessionFromFrame`,
 	 * which matches steps only against `MenuScreen.getMenuDisplayables()`):
 	 * a form the menu hides lands on its module, and a module the menu
-	 * hides stops the walk on the app's first screen. Android reads the
-	 * frame's commands as they stand and opens the target. */
+	 * hides stops the walk on the menu above it, the app's first screen for
+	 * a top-level module. Android reads the frame's commands as they stand
+	 * and opens the target. */
 	if (args.rules.afterSubmitHiddenTarget === "landing") {
 		const visibility = args.targetVisibility(link);
 		if (visibility === "pending") return { kind: "pending" };
-		if (
-			visibility === "form-in-hidden-module" ||
-			visibility === "module-hidden"
-		)
-			return { kind: "post-submit", destination: "firstMenu" };
-		if (visibility === "form-hidden" && target.type === "form") {
-			const caseSelections = args.caseSelections(link);
-			return {
-				kind: "module",
-				moduleUuid: target.moduleUuid,
-				caseSelections,
-				landing: moduleLanding({
-					isCaseFirst: args.caseFirstModules.has(target.moduleUuid),
-					isBareCaseList: mod.caseListOnly === true,
-					hasSelectedCase:
-						args.hasSelectedCase?.(target.moduleUuid, caseSelections) ?? false,
-					hasChildren: Object.values(doc.modules).some(
-						(candidate) => candidate.parentModuleUuid === target.moduleUuid,
-					),
-				}),
-			};
-		}
+		if (typeof visibility === "object")
+			return visibility.shownModuleUuid === null
+				? { kind: "post-submit", destination: "firstMenu" }
+				: moduleRoute(visibility.shownModuleUuid);
+		if (visibility === "form-hidden" && target.type === "form")
+			return moduleRoute(target.moduleUuid);
 	}
-	if (target.type === "module") {
-		const caseSelections = args.caseSelections(link);
-		return {
-			kind: "module",
-			moduleUuid: target.moduleUuid,
-			caseSelections,
-			landing: moduleLanding({
-				isCaseFirst: args.caseFirstModules.has(target.moduleUuid),
-				isBareCaseList: mod.caseListOnly === true,
-				hasSelectedCase:
-					args.hasSelectedCase?.(target.moduleUuid, caseSelections) ?? false,
-				hasChildren: Object.values(doc.modules).some(
-					(candidate) => candidate.parentModuleUuid === target.moduleUuid,
-				),
-			}),
-		};
-	}
+	if (target.type === "module") return moduleRoute(target.moduleUuid);
 	if (
 		doc.forms[target.formUuid] === undefined ||
 		!(doc.formOrder[target.moduleUuid] ?? []).includes(target.formUuid)

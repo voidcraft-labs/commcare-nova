@@ -819,17 +819,92 @@ describe("afterSubmitRoute per platform", () => {
 		["a hidden module", "module-hidden", "module"],
 	] as const)(
 		"stops a link to %s on the app's first screen on Web Apps",
-		(_name, visibility, kind) => {
+		(_name, kind, targetKind) => {
 			const target: FormLink["target"] =
-				kind === "form"
+				targetKind === "form"
 					? { type: "form", moduleUuid: MENU, formUuid: NOTE }
 					: { type: "module", moduleUuid: MENU };
-			expect(routeOn(WEB_APPS_RULES, target, visibility)).toEqual({
+			expect(
+				routeOn(WEB_APPS_RULES, target, { kind, shownModuleUuid: null }),
+			).toEqual({
 				kind: "post-submit",
 				destination: "firstMenu",
 			});
 		},
 	);
+
+	it.each([
+		["a form in a hidden child module", "form"],
+		["a hidden child module", "module"],
+	] as const)(
+		"stops a link to %s on its shown parent's menu on Web Apps",
+		(_name, targetKind) => {
+			const nested = structuredClone(doc);
+			nested.modules[MENU].parentModuleUuid = CARE;
+			nested.modules[MENU].displayCondition = eq(literal("a"), literal("b"));
+			const link: FormLink = {
+				uuid: testUuid("lnk"),
+				target:
+					targetKind === "form"
+						? { type: "form", moduleUuid: MENU, formUuid: NOTE }
+						: { type: "module", moduleUuid: MENU },
+			};
+			const visibility = afterSubmitTargetVisibility({
+				doc: nested,
+				link,
+				session: { context: {}, user: {}, userPropertySlugs: {} },
+				lookup: { kind: "idle" },
+				deviceCases: { snapshot: null, caseTypes: nested.caseTypes ?? [] },
+				caseSelections: [],
+			});
+			expect(visibility).toEqual({
+				kind: targetKind === "form" ? "form-in-hidden-module" : "module-hidden",
+				shownModuleUuid: CARE,
+			});
+			expect(
+				afterSubmitRoute({
+					rules: WEB_APPS_RULES,
+					targetVisibility: () => visibility,
+					choice: { kind: "link", index: 0, link },
+					doc: nested,
+					caseFirstModules,
+					caseSelections: noCaseSelections,
+					carriedCase: () => ({ kind: "none" }),
+				}),
+			).toEqual({
+				kind: "module",
+				moduleUuid: CARE,
+				caseSelections: [],
+				landing: moduleLanding({
+					isCaseFirst: true,
+					isBareCaseList: false,
+					hasSelectedCase: false,
+					hasChildren: true,
+				}),
+			});
+		},
+	);
+
+	it("stops a link under a hidden parent on the app's first screen on Web Apps", () => {
+		const nested = structuredClone(doc);
+		nested.modules[MENU].parentModuleUuid = CARE;
+		nested.modules[CARE].displayCondition = eq(literal("a"), literal("b"));
+		const visibility = afterSubmitTargetVisibility({
+			doc: nested,
+			link: {
+				uuid: testUuid("lnk"),
+				target: { type: "form", moduleUuid: MENU, formUuid: NOTE },
+			},
+			session: { context: {}, user: {}, userPropertySlugs: {} },
+			lookup: { kind: "idle" },
+			deviceCases: { snapshot: null, caseTypes: nested.caseTypes ?? [] },
+			caseSelections: [],
+		});
+		expect(visibility).toEqual({
+			kind: "form-in-hidden-module",
+			shownModuleUuid: null,
+		});
+	});
 
 	it("waits on a target whose visibility is still loading on Web Apps", () => {
 		expect(
@@ -856,7 +931,10 @@ describe("afterSubmitRoute per platform", () => {
 			deviceCases: { snapshot: null, caseTypes: hidden.caseTypes ?? [] },
 			caseSelections: [],
 		});
-		expect(visibility).toBe("form-in-hidden-module");
+		expect(visibility).toEqual({
+			kind: "form-in-hidden-module",
+			shownModuleUuid: null,
+		});
 		expect(routeOn(WEB_APPS_RULES, link.target, visibility)).toEqual({
 			kind: "post-submit",
 			destination: "firstMenu",

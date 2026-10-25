@@ -950,9 +950,10 @@ conditions on Web Apps unless it ignores them and ignores them on Android
 both; `app_home` opens it on Web Apps and the device home screen on Android
 (`postSubmitAppHome`); and `parentMenu` opens the parent module's screen with
 its selection kept. On Web Apps a form target off the menu or whose condition
-is false lands on its module, and a target inside a module the menu hides, or a
-module target whose condition is false, lands on the app's first screen
-(`afterSubmitRouting.ts::afterSubmitTargetVisibility`), as Formplayer's
+is false lands on its module, and a target inside or under a module the menu
+hides, or a module target whose condition is false, lands on the menu above the
+topmost hidden module: its shown parent's, or the app's first screen for a
+top-level module (`afterSubmitRouting.ts::afterSubmitTargetVisibility`), as Formplayer's
 `MenuSessionFactory.rebuildSessionFromFrame` walks the frame only through the
 menus it would show. A module with a case list and no forms plays the runtime:
 choosing a case returns to the app's first screen in Web Apps, with its sync
