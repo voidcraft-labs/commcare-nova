@@ -1756,3 +1756,36 @@ it.each([false, true])(
 		expect(await ctrl.validateAllAsync()).toEqual({ kind: "valid" });
 	},
 );
+
+it.each([false, true])(
+	"rebuilds an entry begun on the controller's own install id when the session's Android device arrives (worker=%s)",
+	async (worker) => {
+		const doc = docWith({
+			uuid: FIELD_UUID,
+			id: "device",
+			kind: "hidden",
+			calculate: "instance('commcaresession')/session/context/deviceid",
+		});
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
+		const store = createBlueprintDocStore();
+		store.getState().load(admittedControllerDoc(doc));
+		store.getState().startTracking();
+		const ctrl = ownedController(
+			worker
+				? new XPathRuntime({
+						workerFactory: createInProcessXPathWorkerFactory(),
+					})
+				: undefined,
+		);
+		ctrl.setDocStore(store);
+		if (worker) await ctrl.activateFormAsync(FORM_UUID);
+		else ctrl.activateForm(FORM_UUID);
+		const before = ctrl.store.getState()[FIELD_UUID]?.value;
+		expect(before).toMatch(/^commcare_/);
+		ctrl.setPreviewDevice(androidDevice());
+		await ctrl.awaitSettled();
+		expect(ctrl.store.getState()[FIELD_UUID]?.value).toBe(
+			`commcare_${androidDevice().androidDeviceId}`,
+		);
+	},
+);

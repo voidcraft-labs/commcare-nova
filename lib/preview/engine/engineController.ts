@@ -1635,17 +1635,31 @@ export class EngineController {
 	setPreviewDevice(device: PreviewDevice): void {
 		const previous = this.previewDevice;
 		if (previous !== undefined && samePreviewDevice(previous, device)) return;
-		const previousPlatform = (previous ?? this.previewDeviceOrDefault())
-			.platform;
+		const played = previous ?? this.previewDeviceOrDefault();
 		this.previewDevice = device;
 		const formUuid = this.activeFormUuid;
-		const platformChanged = previousPlatform !== device.platform;
-		if (formUuid === undefined || !platformChanged) return;
-		if (this.xpathRuntime) {
-			this.activateFormAsync(formUuid, this.activeCaseData).catch(
-				() => undefined,
-			);
-		} else this.activateForm(formUuid, this.activeCaseData);
+		if (formUuid === undefined) return;
+		if (played.platform !== device.platform) {
+			if (this.xpathRuntime) {
+				this.activateFormAsync(formUuid, this.activeCaseData).catch(
+					() => undefined,
+				);
+			} else this.activateForm(formUuid, this.activeCaseData);
+			return;
+		}
+		/* An entry begun on this controller's own install id, before the
+		 * shell installed the session's device, rebuilds in place so its
+		 * `deviceid` agrees with every request the session sends. */
+		if (
+			device.platform === "android" &&
+			played.androidDeviceId !== device.androidDeviceId
+		) {
+			if (this.xpathRuntime) {
+				this.rebuildActiveFormAsync(formUuid, this.activeCaseData).catch(
+					() => undefined,
+				);
+			} else this.rebuildActiveForm(formUuid, this.activeCaseData);
+		}
 	}
 
 	/** The device an entry runs on: the installed one, else the platform
