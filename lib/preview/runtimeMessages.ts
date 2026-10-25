@@ -208,21 +208,8 @@ const english = {
 	addressSearchMinimum:
 		"You can type at least {count} characters to see places",
 	addressNoResults: "No matching places",
-	yourLocation: "Your location",
-	locating: "Locating",
 	locationGuidance:
-		"You can search for an address, click the map to drop a pin, or use your location",
-	locationUnavailable: "Location unavailable",
-	locationPermissionDenied:
-		"Your browser hasn't allowed location access. You can allow it in its settings or enter coordinates manually.",
-	locationPositionUnavailable:
-		"Your location is currently unavailable. You can try again or enter coordinates manually.",
-	locationTimeout:
-		"Getting your location timed out. You can try again or enter coordinates manually.",
-	locationUnsupported:
-		"This browser can't share your location. You can enter coordinates manually.",
-	locationUnexpected:
-		"Couldn't get your location. You can try again or enter coordinates manually.",
+		"You can search for an address or click the map to drop a pin",
 	hereColumnsWaiting:
 		"Columns that use your location stay blank until your browser shares it.",
 	hereColumnsRefused:
@@ -316,6 +303,12 @@ const english = {
 	stopRecording: "Stop recording",
 	recordVideo: "Record video",
 	chooseVideo: "Choose video",
+	// Android's completion of a form opened for a case the phone lacks: Core
+	// refuses to process it (`CaseXmlParser.java::loadCase`) and posts
+	// "Problem with your App" (`notification.processing.badstructure.*`).
+	formNotProcessedTitle: "CommCare couldn't save this form",
+	formNotProcessedDetail:
+		"The phone doesn't have the case this form changes, so the phone couldn't save the form. A worker sees “Problem with your App”.",
 } as const;
 
 export type RuntimeMessage = keyof typeof english;
@@ -529,21 +522,8 @@ const spanish: Record<RuntimeMessage, string> = {
 	addressSearching: "Buscando",
 	addressSearchMinimum: "Puedes buscar con al menos {count} caracteres",
 	addressNoResults: "No hay lugares que coincidan",
-	yourLocation: "Tu ubicación",
-	locating: "Buscando ubicación",
 	locationGuidance:
-		"Puedes buscar una dirección, tocar el mapa para marcar un punto o usar tu ubicación",
-	locationUnavailable: "Ubicación no disponible",
-	locationPermissionDenied:
-		"El navegador no dio permiso para compartir tu ubicación. Puedes permitirlo en su configuración o introducir las coordenadas manualmente.",
-	locationPositionUnavailable:
-		"Tu ubicación no está disponible ahora. Puedes intentarlo de nuevo o introducir las coordenadas manualmente.",
-	locationTimeout:
-		"Se agotó el tiempo para obtener tu ubicación. Puedes intentarlo de nuevo o introducir las coordenadas manualmente.",
-	locationUnsupported:
-		"Este navegador no puede compartir tu ubicación. Puedes introducir las coordenadas manualmente.",
-	locationUnexpected:
-		"No pude obtener tu ubicación. Puedes intentarlo de nuevo o introducir las coordenadas manualmente.",
+		"Puedes buscar una dirección o tocar el mapa para marcar un punto",
 	hereColumnsWaiting:
 		"Las columnas que usan tu ubicación quedan en blanco hasta que el navegador la comparta.",
 	hereColumnsRefused:
@@ -631,6 +611,9 @@ const spanish: Record<RuntimeMessage, string> = {
 	stopRecording: "Detener la grabación",
 	recordVideo: "Grabar video",
 	chooseVideo: "Elegir video",
+	formNotProcessedTitle: "CommCare no pudo guardar este formulario",
+	formNotProcessedDetail:
+		"El teléfono no tiene el caso que cambia este formulario, así que no pudo guardarlo. Quien trabaja ve “Problem with your App”.",
 };
 
 export function runtimeLanguage(language: LanguageTag | null | undefined) {

@@ -1,9 +1,14 @@
 // components/preview/form/fields/geopoint/GeopointPicker.tsx
 //
-// The interactive GPS picker shown in preview/running mode. Composes the
-// Google map (draggable pin), Places address autocomplete, "use my
-// location", and a manual lat/lon fallback into one control whose committed
-// value is the wire geopoint string.
+// The location question as Web Apps draws it, shown in the running preview
+// when it runs as Web Apps (`lib/preview/platform.ts`, `locationQuestion`).
+// Composes the Google map (draggable pin), Places address autocomplete and a
+// manual lat/lon fallback into one control whose committed value is the wire
+// geopoint string. Web Apps' location entry offers no "use my location"
+// (the only `getCurrentPosition` in HQ's client is the address question's
+// geocoder), so neither does this: the answer is the map's center, with
+// altitude and accuracy 0, as Formplayer stores it. Running as Android the
+// question is `RecordLocationField` instead.
 //
 // The engine value (`value`) is the single source of truth: the readout and
 // map center derive from `parseGeopoint(value)`, and every interaction
@@ -14,19 +19,11 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
-import tablerCurrentLocation from "@iconify-icons/tabler/current-location";
 import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import tablerX from "@iconify-icons/tabler/x";
-import {
-	useCallback,
-	useEffect,
-	useLayoutEffect,
-	useRef,
-	useState,
-} from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useReconcilerContext } from "@/lib/collab/context";
-import { useProjectToast } from "@/lib/collab/useProjectToast";
 import {
 	formatGeopoint,
 	formatLatLonLabel,
@@ -35,30 +32,15 @@ import {
 	isValidLon,
 	parseGeopoint,
 } from "@/lib/preview/engine/geopointValue";
-import {
-	type RuntimeMessage,
-	runtimeMessage,
-} from "@/lib/preview/runtimeMessages";
+import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { useAccessPhase } from "@/lib/session/hooks";
 import { ValidationError } from "../ValidationError";
 import { AddressSearch, type PlacePick } from "./AddressSearch";
-import {
-	GeolocationError,
-	type GeolocationFailureReason,
-	requestGeolocation,
-} from "./geolocation";
 import { googleMapsConfigured, loadGeocoding } from "./googleMaps";
 import { type MapHandle, MapView } from "./MapView";
 import { useInView } from "./useInView";
 
 const REVERSE_DEBOUNCE_MS = 400;
-
-const locationFailureMessages = {
-	"permission-denied": "locationPermissionDenied",
-	unavailable: "locationPositionUnavailable",
-	timeout: "locationTimeout",
-	unsupported: "locationUnsupported",
-} satisfies Record<GeolocationFailureReason, RuntimeMessage>;
 
 interface GeopointPickerProps {
 	/** Committed wire value ("lat lon alt acc" or ""). */
@@ -82,14 +64,9 @@ export function GeopointPicker({
 	errorMessage,
 }: GeopointPickerProps) {
 	const { language } = useBuilderLanguage();
-	const languageRef = useRef(language);
-	useLayoutEffect(() => {
-		languageRef.current = language;
-	}, [language]);
 	const point = parseGeopoint(value);
 	const configured = googleMapsConfigured();
 	const reconciler = useReconcilerContext();
-	const projectToast = useProjectToast();
 	const accessPhase = useAccessPhase();
 
 	const mapRef = useRef<MapHandle | null>(null);
@@ -102,35 +79,28 @@ export function GeopointPicker({
 	// Resolved address shown in the search box + readout. Local UI state:
 	// the engine only stores coordinates, never the address text.
 	const [address, setAddress] = useState("");
-	const [locating, setLocating] = useState(false);
 	const [manualOpen, setManualOpen] = useState(false);
 
-	// Debounced reverse geocode for map moves / geolocation. A monotonic id
-	// drops a stale response (the Geocoder has no abort).
+	// Debounced reverse geocode for map moves. A monotonic id drops a stale
+	// response (the Geocoder has no abort).
 	const reverseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const reverseReqRef = useRef(0);
-	const locateReqRef = useRef(0);
 	const ownsContinuationRef = useRef(true);
 	useEffect(() => {
 		ownsContinuationRef.current = true;
 		const fenceContinuations = () => {
-			/* Geolocation and Maps promises are not abortable. Invalidate them in
-			 * the synchronous Project-reset stack. A same-Project access snapshot
+			/* Maps promises are not abortable. Invalidate them in the
+			 * synchronous Project-reset stack. A same-Project access snapshot
 			 * re-arms this mounted owner; a terminal entry boundary remounts it. */
 			ownsContinuationRef.current = false;
-			locateReqRef.current += 1;
 			reverseReqRef.current += 1;
 			if (reverseTimerRef.current) {
 				clearTimeout(reverseTimerRef.current);
 				reverseTimerRef.current = null;
 			}
 		};
-		const disownContinuations = () => {
-			fenceContinuations();
-			setLocating(false);
-		};
 		const unsubscribeReset =
-			reconciler?.subscribeProjectScopeReset(disownContinuations);
+			reconciler?.subscribeProjectScopeReset(fenceContinuations);
 		return () => {
 			unsubscribeReset?.();
 			fenceContinuations();
@@ -165,7 +135,7 @@ export function GeopointPicker({
 	}, []);
 
 	/** Commit a coordinate to the engine. `recenter` pans the map (for
-	 *  off-map picks: address / geolocate / manual); map-origin picks leave
+	 *  off-map picks: address / manual); map-origin picks leave
 	 *  the camera where the user already positioned it. */
 	const commit = useCallback(
 		(p: GeoPoint, opts: { recenter?: boolean; label?: string } = {}) => {
@@ -201,36 +171,6 @@ export function GeopointPicker({
 		},
 		[commit],
 	);
-
-	const handleUseMyLocation = useCallback(async () => {
-		if (!ownsContinuationRef.current) return;
-		const reqId = ++locateReqRef.current;
-		setLocating(true);
-		try {
-			const p = await requestGeolocation();
-			if (!ownsContinuationRef.current || reqId !== locateReqRef.current)
-				return;
-			commit(p, { recenter: true });
-		} catch (err) {
-			if (!ownsContinuationRef.current || reqId !== locateReqRef.current)
-				return;
-			const messageKey =
-				err instanceof GeolocationError
-					? locationFailureMessages[err.reason]
-					: "locationUnexpected";
-			/* A browser callback may arrive after a language change. Resolve copy
-			 * from the committed presentation at delivery, after the owner fence. */
-			projectToast(
-				"error",
-				runtimeMessage(languageRef.current, "locationUnavailable"),
-				runtimeMessage(languageRef.current, messageKey),
-			);
-		} finally {
-			if (ownsContinuationRef.current && reqId === locateReqRef.current) {
-				setLocating(false);
-			}
-		}
-	}, [commit, projectToast]);
 
 	const handleClear = useCallback(() => {
 		if (!ownsContinuationRef.current) return;
@@ -270,22 +210,6 @@ export function GeopointPicker({
 								/>
 							</div>
 						)}
-
-						<button
-							type="button"
-							onClick={handleUseMyLocation}
-							disabled={locating}
-							className="absolute right-2 top-2 z-raised flex items-center gap-1.5 rounded-md border border-pv-input-border bg-pv-surface/90 px-2.5 py-1.5 text-xs font-medium text-nova-text shadow-sm backdrop-blur-sm transition-colors not-disabled:hover:border-pv-input-focus disabled:opacity-(--disabled-opacity)"
-						>
-							<Icon
-								icon={tablerCurrentLocation}
-								width="14"
-								height="14"
-								aria-hidden="true"
-								className={locating ? "animate-pulse" : ""}
-							/>
-							{runtimeMessage(language, locating ? "locating" : "yourLocation")}
-						</button>
 
 						{!point && (
 							<div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-pv-bg/90 to-transparent px-3 py-2 text-center text-xs text-nova-text-muted">
@@ -362,7 +286,7 @@ function ManualEntry({ point, open, onToggle, onCommit }: ManualEntryProps) {
 	const [lon, setLon] = useState(point ? String(point.lon) : "");
 
 	// Re-seed the inputs whenever the committed point changes from outside
-	// (map move, address select, geolocate, clear).
+	// (map move, address select, clear).
 	const seedRef = useRef(pointKey(point));
 	useEffect(() => {
 		const seed = pointKey(point);

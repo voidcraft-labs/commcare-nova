@@ -11,7 +11,11 @@
 import Markdown, { type MarkdownToJSX, RuleType } from "markdown-to-jsx";
 import { Fragment, type ReactNode, useMemo } from "react";
 import type { ProseReferencePart, ProseTemplate } from "@/lib/domain";
-import { PREVIEW_OPTIONS, withChipInjection } from "@/lib/markdown";
+import {
+	type LabelMarkdownRendering,
+	previewOptionsFor,
+	withChipInjection,
+} from "@/lib/markdown";
 import {
 	type ReferenceProvider,
 	unresolvedReferenceProjection,
@@ -24,6 +28,10 @@ interface LabelContentProps {
 	resolvedLabel?: string;
 	isEditMode: boolean;
 	className: string;
+	/** How the runtime the running preview plays renders a label's markdown
+	 *  (`lib/preview/platform.ts`, `labelMarkdown`). Edit mode always shows
+	 *  the default rendering. */
+	rendering?: LabelMarkdownRendering;
 }
 
 export function textWithChips(
@@ -147,24 +155,26 @@ export function LabelContent({
 	resolvedLabel,
 	isEditMode,
 	className,
+	rendering,
 }: LabelContentProps) {
 	const provider = useReferenceProvider();
 	const formUuid = useCurrentFormUuid();
 	const rendered = useMemo(() => makeRenderTemplate(label), [label]);
+	const baseOptions = previewOptionsFor(isEditMode ? undefined : rendering);
 	const options = useMemo(
 		() =>
 			withChipInjection(
-				PREVIEW_OPTIONS,
+				baseOptions,
 				chipRule(rendered.refs, provider, formUuid),
 			),
-		[rendered, provider, formUuid],
+		[baseOptions, rendered, provider, formUuid],
 	);
 	const wrapperCls = `preview-markdown ${className}`;
 
 	if (!isEditMode && resolvedLabel !== undefined) {
 		return (
 			<div className={wrapperCls}>
-				<Markdown options={PREVIEW_OPTIONS}>{resolvedLabel}</Markdown>
+				<Markdown options={baseOptions}>{resolvedLabel}</Markdown>
 			</div>
 		);
 	}

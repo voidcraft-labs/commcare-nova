@@ -136,6 +136,10 @@ import {
 	noMatchesRefusalCopy,
 } from "@/lib/preview/noMatchesForm";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
+import {
+	closeConditionHolds,
+	formChangesSessionCase,
+} from "@/lib/preview/unheldCaseSubmit";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
@@ -162,6 +166,7 @@ import {
 import { recordRegisteredCase } from "@/lib/session/previewSearchState";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import type { PreviewCaseChoice } from "@/lib/session/types";
+import { showToast } from "@/lib/ui/toastStore";
 import {
 	type FormLayoutHandle,
 	FormLayoutProvider,
@@ -177,9 +182,11 @@ import {
 	runFormAttachmentBarrier,
 	setAttachmentEntryAuthority,
 } from "../form/fields/attachment/attachmentClient";
+import { RepeatAddPrompt } from "../form/RepeatAddPrompt";
+import { ScreenPage } from "../form/sections/ScreenPage";
 import { SectionPage } from "../form/sections/SectionPage";
 import { SectionStepper } from "../form/sections/SectionPagerControls";
-import { useSectionPaging } from "../form/sections/useSectionPaging";
+import { useFormPaging } from "../form/sections/useFormPaging";
 import {
 	FORM_PRIMARY_ACTION_CLS,
 	FORM_QUIET_ACTION_CLS,
@@ -1841,23 +1848,26 @@ export function FormScreen({ screen }: FormScreenProps) {
 			revealAndFocusTarget(target, INVALID_CONTROL_SELECTOR, true),
 		[revealAndFocusTarget],
 	);
-	/* A sectioned form previews one page at a time (`useSectionPaging`). The
-	 * hook is inert for a single-page form and in edit mode, where the
-	 * canvas shows every page at once. */
+	/* The running form pages on the platform Preview plays
+	 * (`useFormPaging`): Web Apps draws the whole form on one screen, sections
+	 * as titled groups; Android pages a sectioned form one section at a time
+	 * and any other form one labeled group or question at a time. The hook
+	 * is inert in edit mode, where the canvas shows every page at once. */
 	const formIsSectioned = usePresentationFormIsSectioned(formUuid);
-	const paging = useSectionPaging({
+	const paging = useFormPaging({
 		formUuid,
-		enabled: mode === "preview" && formIsSectioned,
+		mode:
+			mode !== "preview" || platformRules.formScreens === "one-screen"
+				? "none"
+				: formIsSectioned
+					? "sections"
+					: "screens",
 		revealInvalid: revealInvalidOnPage,
 		refuse: announceReview,
 	});
-	/** Turn to the page holding a question before revealing it: an invalid
-	 *  question's first ancestor is its section, so the reveal's DOM query
-	 *  finds it mounted. A no-op on a single-page form. */
-	const showPageOf = (target: InvalidFieldTarget): void => {
-		const first = target.ancestorUuids[0];
-		if (first !== undefined) paging.showPage(first);
-	};
+	/** Turn to the page holding a question before revealing it, so the
+	 *  reveal's DOM query finds it mounted. A no-op on one screen. */
+	const showPageOf = paging.showPageOf;
 	const showFirstPage = paging.showFirst;
 
 	const focusAttachmentInvariantRecovery = useCallback(
@@ -2058,13 +2068,34 @@ export function FormScreen({ screen }: FormScreenProps) {
 		let validation: EngineValidationCompletion | undefined;
 		try {
 			const submitStableAnswers = async (): Promise<
-				SubmissionResult | "invalid" | "save-failed" | "stale"
+				SubmissionResult | "invalid" | "save-failed" | "stale" | "not-processed"
 			> => {
 				if (!isCurrent()) return "stale";
 				validation = await controller.validateAllAsync();
 				if (!controller.isValidationCurrent(validation)) return "stale";
 				if (validation.kind === "invalid") return "invalid";
 				if (validation.kind !== "valid") return "stale";
+				/* Android opened this form for a case the phone does not hold, and
+				 * the form updates or closes it: Core's `loadCase` throws, and the
+				 * phone keeps the form from HQ (`entryPointUnheldCaseSubmit`).
+				 * Nothing is written. */
+				const submittedFormUuid = submitted.formUuid;
+				const blankCaseIds = entryPointLaunch?.blankCaseIds ?? [];
+				if (
+					platformRules.entryPointUnheldCaseSubmit === "not-processed" &&
+					submittedFormUuid !== undefined &&
+					(submitted.caseIds ?? []).some((caseId) =>
+						blankCaseIds.includes(caseId),
+					) &&
+					formChangesSessionCase(
+						submitted.doc,
+						submittedFormUuid,
+						closeConditionHolds(submitted.doc, submittedFormUuid, (uuid) =>
+							String(controller.store.getState()[uuid]?.value ?? ""),
+						),
+					)
+				)
+					return "not-processed";
 				const submission = await controller.computeSubmissionMutationAsync(
 					{
 						caseIds: submitted.caseIds,
@@ -2143,6 +2174,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 					result !== "stale" &&
 					result !== "invalid" &&
 					result !== "save-failed" &&
+					result !== "not-processed" &&
 					(result.kind === "registration" ||
 						result.kind === "followup" ||
 						result.kind === "close" ||
@@ -2171,6 +2203,25 @@ export function FormScreen({ screen }: FormScreenProps) {
 					message:
 						"This app couldn't finish saving. Reload it before submitting the form.",
 				});
+				return;
+			}
+			if (result === "not-processed") {
+				settleAttempt({ kind: "idle" });
+				showToast(
+					"error",
+					runtimeMessage(language.language, "formNotProcessedTitle"),
+					runtimeMessage(language.language, "formNotProcessedDetail"),
+				);
+				/* The phone leaves the form and lands where its after-submit
+				 * destination lands; with no write there is no earlier task to
+				 * return to, so `previous` lands on the form's module. */
+				dispatchPostSubmit(
+					submitted.destination === "previous"
+						? "module"
+						: submitted.destination,
+					submitted.moduleUuid,
+					submitted.doc,
+				);
 				return;
 			}
 			if (result === "invalid") {
@@ -2889,17 +2940,28 @@ export function FormScreen({ screen }: FormScreenProps) {
 						 * key and retires browser-local continuations with it. */
 						paging.enabled ? (
 							paging.current !== undefined ? (
-								<SectionPage
-									key={paging.current.uuid}
-									page={paging.current}
-									index={paging.index}
-									count={paging.count}
-									takeFocusOnMount={paging.takeFocusOnMount}
-								/>
+								paging.mode === "sections" || formUuid === undefined ? (
+									<SectionPage
+										key={paging.current.uuid}
+										page={paging.current}
+										index={paging.index}
+										count={paging.count}
+										takeFocusOnMount={paging.takeFocusOnMount}
+									/>
+								) : (
+									<ScreenPage
+										key={paging.current.path}
+										formUuid={formUuid}
+										page={paging.current}
+										index={paging.index}
+										takeFocusOnMount={paging.takeFocusOnMount}
+									/>
+								)
 							) : (
 								<div className="text-center text-nova-text-muted py-8">
-									Nothing to answer right now. Every section is empty or hidden
-									by a display condition.
+									{paging.mode === "sections"
+										? "Nothing to answer right now. Every section is empty or hidden by a display condition."
+										: "Nothing to answer right now. Every question is hidden by a display condition."}
 								</div>
 							)
 						) : (
@@ -2926,9 +2988,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 			 *  always renders; this row adapts to whether a case is bound. */}
 			{mode === "preview" && (
 				<div className="border-t border-pv-input-border bg-pv-surface">
-					{paging.count > 0 ? (
+					{paging.mode === "sections" && paging.count > 0 ? (
 						<SectionStepper paging={paging} disabled={formFrozen} />
 					) : null}
+					<RepeatAddPrompt
+						prompt={paging.prompt}
+						onAdd={() => void paging.addRepeatEntry()}
+						onDecline={() => void paging.declineRepeatEntry()}
+						onGoBack={paging.closeRepeatPrompt}
+					/>
 					{noSampleCases ? (
 						<div className="px-6 py-4 text-xs leading-relaxed text-nova-text-muted">
 							This form opens an existing case. Start from Results and choose a
@@ -2994,7 +3062,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 										)}
 										{runtimeMessage(
 											language.language,
-											submitStatus.kind === "running" ? "submitting" : "submit",
+											submitStatus.kind === "running"
+												? "submitting"
+												: platformRules.submitLabel,
 										)}
 									</button>
 								) : (

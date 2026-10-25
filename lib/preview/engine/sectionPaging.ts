@@ -68,3 +68,22 @@ export function pagesToValidate(
 	if (start === -1 || end === -1 || end <= start) return [];
 	return visible.slice(start, end);
 }
+
+/**
+ * Android's repeat prompts that open between two screens of a form without
+ * sections, in order: every relevant prompt whose place is after the screen
+ * at `fromIndex` and before the screen at `toIndex` (indexes into the whole
+ * screen list, `toIndex` the list's length when nothing follows). A prompt
+ * whose place is a skipped screen between the two still opens, since the
+ * worker passes it.
+ */
+export function repeatPromptsBetween<
+	T extends { readonly afterScreen: number; readonly visible: boolean },
+>(points: ReadonlyArray<T>, fromIndex: number, toIndex: number): readonly T[] {
+	return points.filter(
+		(point) =>
+			point.visible &&
+			point.afterScreen >= fromIndex &&
+			point.afterScreen < toIndex,
+	);
+}

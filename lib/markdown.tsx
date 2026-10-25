@@ -207,6 +207,99 @@ const PREVIEW_OPTIONS_INLINE: MarkdownToJSX.Options = {
 };
 
 /* ---------------------------------------------------------------------------
+ * Label rendering per runtime
+ *
+ * Each CommCare runtime renders a label's markdown form with its own
+ * renderer: Web Apps with markdown-it (`breaks: true`, raw HTML shown as
+ * written), Android with Markwon. The running preview draws the platform it
+ * plays (`lib/preview/platform.ts`, `labelMarkdown`), so these three choices
+ * reshape the preview options:
+ *
+ * - `singleNewline: "space"` drops the breaks rule, so a single newline
+ *   inside a paragraph reads as a space;
+ * - `html: "dropped"` removes raw HTML tags and keeps their text;
+ * - `images: "alt-text"` draws an image as its alt text, with no image.
+ *
+ * `PREVIEW_LABEL_RENDERING` is today's preview rendering, the Web Apps one.
+ * ------------------------------------------------------------------------ */
+
+export interface LabelMarkdownRendering {
+	readonly singleNewline: "break" | "space";
+	readonly html: "literal" | "dropped";
+	readonly images: "shown" | "alt-text";
+}
+
+export const PREVIEW_LABEL_RENDERING: LabelMarkdownRendering = Object.freeze({
+	singleNewline: "break",
+	html: "literal",
+	images: "shown",
+});
+
+/** A raw HTML tag as it stands in a text node once raw HTML parsing is off:
+ *  `<b>`, `</b>`, `<br/>`, `<span class="x">`. */
+const RAW_HTML_TAG = /<\/?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?\/?>/;
+const RAW_HTML_TAGS = new RegExp(RAW_HTML_TAG.source, "g");
+
+/** One text-node rule for a label rendering: raw HTML tags dropped (their
+ *  text kept) where the runtime drops them, then single newlines broken
+ *  where it breaks them. */
+function labelTextRule(rendering: LabelMarkdownRendering): RenderRule {
+	return (next, node, _renderChildren, state) => {
+		if (node.type !== RuleType.text || typeof node.text !== "string")
+			return next();
+		const dropTags =
+			rendering.html === "dropped" && RAW_HTML_TAG.test(node.text);
+		const text = dropTags ? node.text.replace(RAW_HTML_TAGS, "") : node.text;
+		if (rendering.singleNewline === "break" && text.includes("\n")) {
+			const parts = text.split("\n");
+			return (
+				<Fragment key={state.key}>
+					{parts.map((part, i) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: static text splits from \n — never reorder
+						<Fragment key={i}>
+							{part}
+							{i < parts.length - 1 && <br />}
+						</Fragment>
+					))}
+				</Fragment>
+			);
+		}
+		return dropTags ? <Fragment key={state.key}>{text}</Fragment> : next();
+	};
+}
+
+function AltTextImage({ alt }: { alt?: string }) {
+	return <>{alt ?? ""}</>;
+}
+
+const renderingOptionsCache = new Map<string, MarkdownToJSX.Options>();
+
+/** The preview options for one label rendering, built once per combination
+ *  so markdown-to-jsx keeps seeing the same object. */
+export function previewOptionsFor(
+	rendering: LabelMarkdownRendering = PREVIEW_LABEL_RENDERING,
+	inline = false,
+): MarkdownToJSX.Options {
+	const key = `${rendering.singleNewline}:${rendering.html}:${rendering.images}:${inline}`;
+	const cached = renderingOptionsCache.get(key);
+	if (cached !== undefined) return cached;
+	const options: MarkdownToJSX.Options = {
+		...PREVIEW_OPTIONS,
+		overrides: {
+			...TABLE_KEY_OVERRIDES,
+			...PREVIEW_LINK_OVERRIDES,
+			...(rendering.images === "alt-text"
+				? { img: { component: AltTextImage } }
+				: {}),
+		},
+		renderRule: labelTextRule(rendering),
+		...(inline ? { forceInline: true } : {}),
+	};
+	renderingOptionsCache.set(key, options);
+	return options;
+}
+
+/* ---------------------------------------------------------------------------
  * Chip injection composition
  *
  * Layers a reference chip renderRule on top of a base options object. The
@@ -243,13 +336,22 @@ interface PreviewMarkdownProps {
 	 * Use when the markdown content lives inside a <span> or other inline context.
 	 */
 	inline?: boolean;
+	/** How the runtime Preview plays renders a label; absent is today's
+	 *  preview rendering. */
+	rendering?: LabelMarkdownRendering;
 }
 
 /** Render markdown for preview surfaces (links/images allowed). */
-export function PreviewMarkdown({ children, inline }: PreviewMarkdownProps) {
-	return (
-		<Markdown options={inline ? PREVIEW_OPTIONS_INLINE : PREVIEW_OPTIONS}>
-			{children}
-		</Markdown>
-	);
+export function PreviewMarkdown({
+	children,
+	inline,
+	rendering,
+}: PreviewMarkdownProps) {
+	const options =
+		rendering === undefined
+			? inline
+				? PREVIEW_OPTIONS_INLINE
+				: PREVIEW_OPTIONS
+			: previewOptionsFor(rendering, inline);
+	return <Markdown options={options}>{children}</Markdown>;
 }

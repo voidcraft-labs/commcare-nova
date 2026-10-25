@@ -19,7 +19,7 @@ import { usePresentationField } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { selectableSegmentCls } from "@/lib/styles";
 import { sectionKicker } from "./SectionHeading";
-import type { SectionPaging } from "./useSectionPaging";
+import type { FormPaging } from "./useFormPaging";
 
 /** The page's title as the worker sees it, or `undefined` when untitled. */
 function useSectionTitle(uuid: Uuid): string | undefined {
@@ -87,7 +87,7 @@ export function SectionStepper({
 	paging,
 	disabled = false,
 }: {
-	readonly paging: SectionPaging;
+	readonly paging: FormPaging;
 	/** True while a submission or a clear is running: the pages stay where
 	 *  they are until the answer surface is live again. */
 	readonly disabled?: boolean;
@@ -96,7 +96,11 @@ export function SectionStepper({
 	const announcedIndex =
 		paging.announced === null
 			? -1
-			: paging.pages.findIndex((page) => page.uuid === paging.announced?.uuid);
+			: paging.pages.findIndex(
+					(page) => paging.identityOf(page) === paging.announced?.id,
+				);
+	const announcedPage =
+		announcedIndex === -1 ? undefined : paging.pages[announcedIndex];
 	return (
 		<nav
 			aria-label={runtimeMessage(language, "sections")}
@@ -117,10 +121,10 @@ export function SectionStepper({
 				))}
 			</ol>
 			<p role="status" className="sr-only">
-				{paging.announced !== null && announcedIndex !== -1 ? (
+				{paging.announced !== null && announcedPage !== undefined ? (
 					<TurnAnnouncement
 						key={paging.announced.nonce}
-						uuid={paging.announced.uuid}
+						uuid={announcedPage.uuid}
 						index={announcedIndex}
 						count={paging.count}
 					/>

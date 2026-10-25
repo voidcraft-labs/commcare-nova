@@ -104,3 +104,34 @@ export function formatGeopoint(point: GeoPoint): string {
 export function formatLatLonLabel(point: GeoPoint): string {
 	return `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
 }
+
+/**
+ * One coordinate as Android's location question shows an answer: degrees,
+ * minutes and whole seconds behind the hemisphere letter, `N 1°16'59"`
+ * (`GeoUtils.java::formatGps`). Android cuts each part from Java's
+ * `Double.toString` at the decimal point rather than rounding, so this does
+ * the same over the same spelling.
+ */
+export function androidCoordinateText(
+	coordinate: number,
+	axis: "lat" | "lon",
+): string {
+	const wholePart = (spelled: string) => spelled.slice(0, spelled.indexOf("."));
+	const fractionPart = (spelled: string) =>
+		Number(`0.${spelled.slice(spelled.indexOf(".") + 1)}`);
+	const location = openJdk17DoubleToString(coordinate);
+	const degrees = wholePart(location);
+	const minutesSpelled = openJdk17DoubleToString(fractionPart(location) * 60);
+	const secondsSpelled = openJdk17DoubleToString(
+		fractionPart(minutesSpelled) * 60,
+	);
+	const south = degrees.startsWith("-");
+	const hemisphere = axis === "lon" ? (south ? "W" : "E") : south ? "S" : "N";
+	return `${hemisphere} ${degrees.replace("-", "")}°${wholePart(minutesSpelled)}'${wholePart(secondsSpelled)}"`;
+}
+
+/** Metres as Android's location question shows them: at most two decimals,
+ *  no trailing zeros (`GeoPointWidget.java::truncateDouble`, `#.##`). */
+export function androidMetersText(meters: number): string {
+	return String(Math.round(meters * 100) / 100);
+}

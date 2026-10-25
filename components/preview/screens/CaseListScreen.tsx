@@ -1538,20 +1538,28 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			: message(pageLocalFilter ? "showingResults" : "resultsFound", {
 					count: visibleResultCount,
 				});
-	const title =
-		(localizedValues.get(
-			makeTranslationUnitId("module", moduleUuid ?? "missing", "search-title"),
-		) as string | undefined) ??
-		searchConfig?.searchScreenTitle ??
-		DEFAULT_CASE_SEARCH_TITLE;
-	const subtitle =
-		(localizedValues.get(
-			makeTranslationUnitId(
-				"module",
-				moduleUuid ?? "missing",
-				"search-subtitle",
-			),
-		) as string | undefined) ?? searchConfig?.searchScreenSubtitle;
+	/* Android shows no search title or description: the screen's heading is
+	 * the search action's label (`searchScreenText`). */
+	const title = platformRules.searchScreenText
+		? ((localizedValues.get(
+				makeTranslationUnitId(
+					"module",
+					moduleUuid ?? "missing",
+					"search-title",
+				),
+			) as string | undefined) ??
+			searchConfig?.searchScreenTitle ??
+			DEFAULT_CASE_SEARCH_TITLE)
+		: CASE_SEARCH_BUTTON_LABEL;
+	const subtitle = platformRules.searchScreenText
+		? ((localizedValues.get(
+				makeTranslationUnitId(
+					"module",
+					moduleUuid ?? "missing",
+					"search-subtitle",
+				),
+			) as string | undefined) ?? searchConfig?.searchScreenSubtitle)
+		: undefined;
 	const localizedSearchValidationMessages = useMemo(
 		() =>
 			new Map(

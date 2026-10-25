@@ -13,7 +13,8 @@
  *
  * `useFormScreens` is the platform's page model (`FormEngine.formScreens`);
  * `useSectionScreens` is the form's root sections alone, which the section
- * pager reads.
+ * pager reads; `useRepeatPromptPoints` is where Android's repeat prompt
+ * opens between the screens of a form without sections.
  */
 "use client";
 import { useMemo } from "react";
@@ -22,7 +23,10 @@ import type {
 	EngineController,
 	RuntimeStoreState,
 } from "@/lib/preview/engine/engineController";
-import type { FormScreenPage } from "@/lib/preview/engine/formEngine";
+import type {
+	FormScreenPage,
+	RepeatPromptPoint,
+} from "@/lib/preview/engine/formEngine";
 import { useEngineController } from "./useEngineController";
 
 function screensKey(pages: ReadonlyArray<FormScreenPage>): string {
@@ -58,4 +62,23 @@ export function useFormScreens(): ReadonlyArray<FormScreenPage> {
 /** The running form's root sections as screens. */
 export function useSectionScreens(): ReadonlyArray<FormScreenPage> {
 	return useScreens(sectionScreensOf);
+}
+
+function promptsKey(points: ReadonlyArray<RepeatPromptPoint>): string {
+	return points
+		.map(
+			(point) =>
+				`${point.repeatUuid}:${point.repeatPath}:${point.entryCount}:${point.afterScreen}:${point.visible ? 1 : 0}`,
+		)
+		.join("|");
+}
+
+/** Android's repeat prompts in the running form without sections. */
+export function useRepeatPromptPoints(): ReadonlyArray<RepeatPromptPoint> {
+	const controller = useEngineController();
+	const key = useStore(controller.store, (_state: RuntimeStoreState) =>
+		promptsKey(controller.repeatPromptPoints()),
+	);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `key` is the derivation's identity; the controller is the source it reads.
+	return useMemo(() => controller.repeatPromptPoints(), [controller, key]);
 }

@@ -45,13 +45,28 @@ import { useNavigate } from "@/lib/routing/hooks";
 import {
 	useBuilderIsReady,
 	useEditMode,
+	usePreviewAtDeviceHome,
 	usePreviewDevice,
 	usePreviewMenuCaseSelections,
+	usePreviewPlatformRules,
 	useSetPreviewParentCaseRequest,
 } from "@/lib/session/hooks";
+import { DeviceHomeScreen } from "./DeviceHomeScreen";
 import { openModuleLanding } from "./moduleLanding";
 
+/** The app's home: Android's device home screen while Preview running as
+ *  Android is there, else the module list. Edit mode always shows the
+ *  module list. */
 export function HomeScreen() {
+	const mode = useEditMode();
+	const rules = usePreviewPlatformRules();
+	const atDeviceHome = usePreviewAtDeviceHome();
+	if (mode !== "edit" && rules.appHome === "device-home" && atDeviceHome)
+		return <DeviceHomeScreen />;
+	return <ModuleListHome />;
+}
+
+function ModuleListHome() {
 	const canonicalAppName = useAppName();
 	const language = useBuilderLanguage();
 	const localizedValues = useLocalizedValues();
@@ -79,6 +94,7 @@ export function HomeScreen() {
 	const caseFirstModules = useCaseFirstModuleUuids();
 	const menuFormCounts = useMenuFormCounts();
 	const logo = useAppLogo();
+	const platformRules = usePreviewPlatformRules();
 	const lookup = usePreviewLookupStatus();
 	const deviceCases = useNavigationDeviceCases(menuSource.caseTypes);
 	/* Whoever Preview is running as: the member, or the persona they
@@ -144,9 +160,11 @@ export function HomeScreen() {
 
 	return (
 		<ContentFrame width="5xl" className="p-6 space-y-4">
-			{/* The web-apps logo banner: CommCare shows the app logo at the top
-			    of the home screen. */}
-			{logo && (
+			{/* The logo banner stands in for the places Web Apps shows the app's
+			    logo (its app list tile and its menu header), since Preview opens
+			    inside the app. Running as Android draws none, as Android ignores
+			    the logo; edit mode always draws it. */}
+			{logo && (mode === "edit" || platformRules.logo) && (
 				<ProjectMediaImage
 					assetId={logo}
 					alt=""

@@ -21,6 +21,11 @@
  * Collapse state is stored in `FormLayoutContext` so it survives
  * mode/cursor switches within a form: toggling a group in edit mode
  * keeps it toggled when the user flips to live, and vice-versa.
+ *
+ * The card is Web Apps' group. Running as Android, Preview never mounts
+ * it: Android draws no group card, and a screen's enclosing groups read as
+ * one header line above it (`lib/preview/platform.ts`, `groupLabel`), so
+ * `InteractiveFormRenderer` renders every group's children in place there.
  */
 
 "use client";

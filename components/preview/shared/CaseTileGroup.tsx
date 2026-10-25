@@ -17,6 +17,11 @@
 // handler of their own. A worker who taps anywhere in a group opens its
 // first case, and Nova shows exactly that rather than inventing a
 // per-row selection the device does not have.
+//
+// Running as Android the list is flat (`lib/preview/platform.ts`,
+// `tileGrouping`): commcare-android reads no group, so every case is a
+// group of its own with no header rows (`splitTileGridByGroupHeader`), and
+// this card draws that one case's whole tile with no header above it.
 
 "use client";
 
@@ -61,22 +66,27 @@ export function CaseTileGroup({
 			data-case-tile-group=""
 			className={`pointer-events-none ${className ?? ""}`}
 		>
-			<div data-case-tile-group-header="">
-				<CaseTile
-					projection={projection.header}
-					columns={columns}
-					row={headerRow}
-					caseProperties={caseProperties}
-					displayContext={displayContext}
-					surface="results"
-				/>
-			</div>
+			{projection.header.cells.length > 0 ? (
+				<div data-case-tile-group-header="">
+					<CaseTile
+						projection={projection.header}
+						columns={columns}
+						row={headerRow}
+						caseProperties={caseProperties}
+						displayContext={displayContext}
+						surface="results"
+					/>
+				</div>
+			) : null}
 			{/* Every case in the group repeats the body rows, the first one
 			 *  included: the surviving child view draws its own body row
 			 *  alongside the header it also drew
 			 *  (`views.js::CaseTileGroupedView.getIndexedRowDataList` walks the
 			 *  whole `groupModelsList`). */}
-			<div data-case-tile-group-rows="" className="mt-1 flex flex-col gap-1">
+			<div
+				data-case-tile-group-rows=""
+				className={`flex flex-col gap-1 ${projection.header.cells.length > 0 ? "mt-1" : ""}`}
+			>
 				{rows.map((row) => (
 					<CaseTile
 						key={row.case_id}

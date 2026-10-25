@@ -6,9 +6,10 @@
 // a live map per field would be wasteful. In preview/running mode it
 // renders the full interactive picker (map + address search + geolocate).
 //
-// This mirrors MediaField's edit/preview split; the difference is that
-// preview mode is now a real, working control rather than a "not
-// available in preview" note.
+// The running form draws the location question of the platform Preview
+// plays (`lib/preview/platform.ts`, `locationQuestion`): Web Apps' map and
+// address search (`GeopointPicker`), or Android's Record location button
+// and dialog (`RecordLocationField`).
 
 "use client";
 import { Icon } from "@iconify/react/offline";
@@ -19,8 +20,9 @@ import {
 	parseGeopoint,
 } from "@/lib/preview/engine/geopointValue";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { useEditMode } from "@/lib/session/hooks";
+import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
 import { GeopointPicker } from "./GeopointPicker";
+import { RecordLocationField } from "./RecordLocationField";
 
 interface GeopointFieldProps {
 	readonly field: GeopointFieldEntity;
@@ -38,6 +40,7 @@ export function GeopointField({
 	onBlur,
 }: GeopointFieldProps) {
 	const isEdit = useEditMode() === "edit";
+	const rules = usePreviewPlatformRules();
 
 	if (isEdit) {
 		// Authoring view: a cheap static card (no map, the author is editing
@@ -60,6 +63,16 @@ export function GeopointField({
 			</div>
 		);
 	}
+
+	if (rules.locationQuestion === "record-location")
+		return (
+			<RecordLocationField
+				state={state}
+				labelledBy={labelledBy}
+				onChange={onChange}
+				onBlur={onBlur}
+			/>
+		);
 
 	return (
 		<GeopointPicker

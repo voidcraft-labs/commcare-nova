@@ -1,9 +1,13 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerAlertTriangle from "@iconify-icons/tabler/alert-triangle";
+import tablerCamera from "@iconify-icons/tabler/camera";
 import tablerPaperclip from "@iconify-icons/tabler/paperclip";
+import tablerPhoto from "@iconify-icons/tabler/photo";
+import tablerVideo from "@iconify-icons/tabler/video";
 import tablerX from "@iconify-icons/tabler/x";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useBuilderLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { type CaptureField, fieldRegistry } from "@/lib/domain";
 import {
@@ -13,12 +17,18 @@ import {
 import type { CaptureAnswerCommit } from "@/lib/preview/engine/engineController";
 import type { FieldState } from "@/lib/preview/engine/types";
 import {
+	type RuntimeMessage,
+	runtimeMessage,
+} from "@/lib/preview/runtimeMessages";
+import {
 	useAccessPhase,
 	useCanEdit,
 	useEditMode,
 	usePreviewPlatform,
+	usePreviewPlatformRules,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
+import { AudioRecorder } from "./AudioRecorder";
 import {
 	type AttachmentCommitResult,
 	AttachmentRejected,
@@ -55,9 +65,10 @@ import { SignaturePad } from "./SignaturePad";
  *
  * ## What this deliberately does NOT show
  *
- * In Web Apps: no thumbnail, no playback, no way to reopen the file. That is
- * not a gap: it is what CommCare Web Apps shows; the limits and the upload's
- * acceptance follow the platform Preview plays (`CAPTURE_LIMITS`). `entry_file.html` is a Browse
+ * Running as Web Apps: no thumbnail, no playback, no way to reopen the file.
+ * That is not a gap: it is what CommCare Web Apps shows; the limits and the
+ * upload's acceptance follow the platform Preview plays (`CAPTURE_LIMITS`).
+ * `entry_file.html` is a Browse
  * button, a filename text node, and a Clear button; there is no `<img>`,
  * no `<audio>`, no `<video>`, and Formplayer declares no route that serves
  * a staged capture back (`FormController` has one GET mapping,
@@ -73,13 +84,25 @@ import { SignaturePad } from "./SignaturePad";
  * above this component matters because relevance and Preview/Edit can remount
  * the control without ending the form entry.
  *
- * ## Wording
+ * ## Per platform
  *
- * Every string says "attach". Web Apps has no camera, microphone, or
- * recorder anywhere in cloudcare: the file input binds `accept` and
- * nothing else, with no `capture` attribute, so every kind but signature
- * opens the OS file picker. A phone's picker may offer its camera; that is
- * the phone's menu, not something this app can request.
+ * Running as Web Apps, every string says "attach". Web Apps has no camera,
+ * microphone, or recorder anywhere in cloudcare: the file input binds
+ * `accept` and nothing else, with no `capture` attribute, so every kind but
+ * signature opens the OS file picker. A phone's picker may offer its
+ * camera; that is the phone's menu, not something this app can request.
+ *
+ * Running as Android (`lib/preview/platform.ts`, `capture`), an image,
+ * audio or video question plays the device's capture widgets in the
+ * worker's language: Take picture and Choose image, with the chosen photo
+ * shown and Remove image (`ImageWidget.java`); Record sound, an in-page
+ * recorder (`AudioRecorder`, `CommCareAudioWidget.java`); Record video and
+ * Choose video (`VideoWidget.java`). The take and record inputs ask the
+ * browser for its camera (`capture="environment"`), and every one accepts
+ * the kind's whole MIME family. Android's limits apply before the upload: a
+ * file over `CAPTURE_LIMITS.android.maxBytes` is refused, and one above
+ * `warnAboveBytes` attaches with Android's large-file line. Signature and
+ * file questions are the same on both platforms.
  */
 interface AttachmentFieldProps {
 	readonly field: CaptureField;
@@ -225,6 +248,9 @@ function AttachmentControl({
 	/* The platform Preview plays: its limit is the one this line states and
 	 * the upload route applies. */
 	const platform = usePreviewPlatform();
+	const rules = usePreviewPlatformRules();
+	const limits = CAPTURE_LIMITS[platform];
+	const { language } = useBuilderLanguage();
 	const projectProse = useProseProjection();
 	const mayWrite = mayEdit && accessPhase === "authorized";
 	const inputId = useId();
@@ -281,6 +307,15 @@ function AttachmentControl({
 		AttachmentSlotIssue | undefined
 	>(initialIssue);
 	const [signatureRetryRevision, setSignatureRetryRevision] = useState(0);
+	/* Android's device capture: the photo a worker chose, shown inline while
+	 * it is the answer, and whether the attached file draws Android's
+	 * large-file line. Both are this page's knowledge of a file it chose. */
+	const [chosenPhotoUrl, setChosenPhotoUrl] = useState<string | undefined>();
+	const [largeAttached, setLargeAttached] = useState(false);
+	useEffect(() => {
+		if (chosenPhotoUrl === undefined) return;
+		return () => URL.revokeObjectURL(chosenPhotoUrl);
+	}, [chosenPhotoUrl]);
 	const ownershipScopeRef = useRef({ appId, entryKey, slotKey });
 
 	useEffect(() => {
@@ -692,6 +727,8 @@ function AttachmentControl({
 		stagedRef.current = undefined;
 		setStaged(undefined);
 		setError(undefined);
+		setChosenPhotoUrl(undefined);
+		setLargeAttached(false);
 		if (inputRef.current) inputRef.current.value = "";
 		setIntent("idle");
 		cancelAttachmentTask(entryKey, slotKey);
@@ -746,8 +783,32 @@ function AttachmentControl({
 		hasWriteAuthority,
 	]);
 
+	/** Android's device capture: refuse a file over the platform's limit
+	 *  before it uploads, note a large one, then stage it as any file. */
+	const pickOnDevice = (file: File) => {
+		if (file.size > limits.maxBytes) {
+			setError(
+				`This file is bigger than ${Math.floor(limits.maxBytes / 1_000_000)} MB. You can choose a smaller one.`,
+			);
+			return;
+		}
+		setError(undefined);
+		setLargeAttached(
+			limits.warnAboveBytes !== undefined && file.size > limits.warnAboveBytes,
+		);
+		setChosenPhotoUrl(
+			field.kind === "image" ? URL.createObjectURL(file) : undefined,
+		);
+		void stage(file);
+	};
+
 	const hasAnswer = state.value !== "";
 	const busy = intent !== "idle";
+	const deviceCapture =
+		rules.capture === "device" &&
+		(field.kind === "image" ||
+			field.kind === "audio" ||
+			field.kind === "video");
 	const interactionBlocked = busy || !mayWrite;
 	const uploadActive = intent === "queued-upload" || intent === "uploading";
 	const chooseFileRecovery =
@@ -811,6 +872,44 @@ function AttachmentControl({
 						setIntent("idle");
 					}}
 				/>
+			) : deviceCapture ? (
+				<div className="flex min-w-0 flex-wrap items-center gap-2">
+					{field.kind === "audio" ? (
+						<AudioRecorder
+							disabled={interactionBlocked}
+							labelledBy={labelledBy}
+							onRecorded={pickOnDevice}
+						/>
+					) : (
+						DEVICE_CAPTURE_INPUTS[
+							field.kind === "video" ? "video" : "image"
+						].map((input) => (
+							<DeviceCaptureInput
+								key={input.label}
+								label={runtimeMessage(language, input.label)}
+								icon={input.icon}
+								accept={input.accept}
+								camera={input.camera}
+								disabled={interactionBlocked}
+								labelledBy={labelledBy}
+								describedBy={describedBy}
+								onFile={pickOnDevice}
+							/>
+						))
+					)}
+					{uploadActive ? (
+						<button
+							type="button"
+							onClick={cancelUpload}
+							aria-describedby={describedBy}
+							aria-label={`Cancel attachment for ${accessibleQuestionLabel}`}
+							className="inline-flex min-h-11 touch-manipulation items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm text-nova-text-muted transition-colors hover:bg-white/[0.06] hover:text-nova-text"
+						>
+							<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />
+							Cancel
+						</button>
+					) : null}
+				</div>
 			) : (
 				<div className="flex min-w-0 flex-wrap items-center gap-2">
 					{/* A label styled as the control, so the 48px target and the
@@ -911,6 +1010,45 @@ function AttachmentControl({
 					) : null}
 				</div>
 			)}
+
+			{deviceCapture && hasAnswer && !slotIssue && !uploadActive ? (
+				<div className="space-y-2">
+					{field.kind === "image" && chosenPhotoUrl !== undefined ? (
+						// biome-ignore lint/performance/noImgElement: a worker's own photo from this page, shown as Android shows it
+						<img
+							src={chosenPhotoUrl}
+							alt=""
+							className="max-h-48 max-w-full rounded-lg object-contain"
+						/>
+					) : null}
+					<button
+						type="button"
+						onClick={() => {
+							setChosenPhotoUrl(undefined);
+							setLargeAttached(false);
+							void clear();
+						}}
+						disabled={interactionBlocked}
+						aria-describedby={describedBy}
+						aria-labelledby={
+							labelledBy ? `${removeActionId} ${labelledBy}` : undefined
+						}
+						className="inline-flex min-h-11 touch-manipulation items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm text-nova-text-muted transition-colors not-disabled:hover:bg-white/[0.06] not-disabled:hover:text-nova-text disabled:cursor-not-allowed disabled:opacity-(--disabled-opacity)"
+					>
+						<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />
+						<span id={removeActionId}>
+							{field.kind === "image"
+								? runtimeMessage(language, "removeImage")
+								: "Remove"}
+						</span>
+					</button>
+					{largeAttached ? (
+						<p className="text-xs text-nova-text-muted">
+							This file is large and may be slow to send
+						</p>
+					) : null}
+				</div>
+			) : null}
 
 			{/* The whole confirmation a worker gets: a name, or nothing. Matches
 			    `entry_file.html`'s `fileNameDisplay`. */}
@@ -1038,5 +1176,105 @@ function AttachmentControl({
 				Up to {Math.floor(CAPTURE_LIMITS[platform].maxBytes / 1_000_000)} MB.
 			</p>
 		</div>
+	);
+}
+
+/** Android's capture buttons for an image or video question, in the
+ *  widget's order, each a runtime message (`ImageWidget.java`,
+ *  `VideoWidget.java`). The first of each asks the browser for its camera. */
+const DEVICE_CAPTURE_INPUTS: Readonly<
+	Record<
+		"image" | "video",
+		readonly {
+			readonly label: RuntimeMessage;
+			readonly icon: typeof tablerCamera;
+			readonly accept: string;
+			readonly camera: boolean;
+		}[]
+	>
+> = {
+	image: [
+		{
+			label: "takePicture",
+			icon: tablerCamera,
+			accept: "image/*",
+			camera: true,
+		},
+		{
+			label: "chooseImage",
+			icon: tablerPhoto,
+			accept: "image/*",
+			camera: false,
+		},
+	],
+	video: [
+		{
+			label: "recordVideo",
+			icon: tablerVideo,
+			accept: "video/*",
+			camera: true,
+		},
+		{
+			label: "chooseVideo",
+			icon: tablerVideo,
+			accept: "video/*",
+			camera: false,
+		},
+	],
+};
+
+/** One of Android's capture buttons: a label styled as the control over a
+ *  real file input, so the target and the focus ring belong to the input. */
+function DeviceCaptureInput({
+	label,
+	icon,
+	accept,
+	camera,
+	disabled,
+	labelledBy,
+	describedBy,
+	onFile,
+}: {
+	readonly label: string;
+	readonly icon: typeof tablerCamera;
+	readonly accept: string;
+	readonly camera: boolean;
+	readonly disabled: boolean;
+	readonly labelledBy: string | undefined;
+	readonly describedBy: string;
+	readonly onFile: (file: File) => void;
+}) {
+	const inputId = useId();
+	const actionId = useId();
+	return (
+		<label
+			htmlFor={inputId}
+			aria-disabled={disabled}
+			className={`nova-focusable-within relative inline-flex min-h-11 min-w-0 max-w-full touch-manipulation items-center gap-2 overflow-hidden rounded-md border border-pv-input-border bg-pv-surface px-4 text-sm font-medium text-nova-text transition-colors ${
+				disabled
+					? "cursor-default opacity-(--disabled-opacity)"
+					: "cursor-pointer hover:border-pv-input-focus"
+			}`}
+		>
+			<input
+				id={inputId}
+				type="file"
+				className="absolute inset-0 z-10 h-full w-full cursor-pointer opacity-0 disabled:cursor-default"
+				accept={accept}
+				{...(camera ? { capture: "environment" as const } : {})}
+				disabled={disabled}
+				aria-labelledby={labelledBy ? `${actionId} ${labelledBy}` : actionId}
+				aria-describedby={describedBy}
+				autoComplete="off"
+				data-1p-ignore
+				onChange={(event) => {
+					const file = event.target.files?.[0];
+					event.currentTarget.value = "";
+					if (file) onFile(file);
+				}}
+			/>
+			<Icon icon={icon} width="16" height="16" aria-hidden="true" />
+			<span id={actionId}>{label}</span>
+		</label>
 	);
 }

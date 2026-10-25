@@ -4,10 +4,10 @@ import type { CaptureAnswerCommit } from "@/lib/preview/engine/engineController"
 import type { FieldState } from "@/lib/preview/engine/types";
 import { assertNever } from "@/lib/utils/assertNever";
 import { AttachmentField } from "./fields/attachment/AttachmentField";
+import { BarcodeField } from "./fields/BarcodeField";
 import { DateField } from "./fields/DateField";
 import { GeopointField } from "./fields/geopoint/GeopointField";
 import { LabelField } from "./fields/LabelField";
-import { MediaField } from "./fields/MediaField";
 import { NumberField } from "./fields/NumberField";
 import { SelectMultiField } from "./fields/SelectMultiField";
 import { SelectOneField } from "./fields/SelectOneField";
@@ -157,8 +157,8 @@ export function FieldRenderer({
 			);
 		case "label":
 			return <LabelField field={field} state={state} />;
-		// Geopoint has a real, interactive picker in preview (map + address
-		// search + geolocate); it no longer shares the media placeholder.
+		// Geopoint draws the location question of the platform Preview plays:
+		// Web Apps' map and address search, or Android's Record location.
 		case "geopoint":
 			return (
 				<GeopointField
@@ -169,13 +169,23 @@ export function FieldRenderer({
 					onBlur={onBlur}
 				/>
 			);
-		// Barcode is NOT a capture, its answer is the scanned text, not an
-		// attachment, and it has no preview affordance yet, so it keeps the
-		// placeholder card. The capture kinds are absent from this switch
-		// because the narrowing above already took them; TypeScript proves
-		// that, so a new capture kind needs no change here at all.
+		// Barcode is NOT a capture: its answer is the barcode's text, typed
+		// on both platforms and scanned on Android, so a form with a required
+		// barcode question can be submitted in Preview. The capture kinds are
+		// absent from this switch because the narrowing above already took
+		// them; TypeScript proves that, so a new capture kind needs no change
+		// here at all.
 		case "barcode":
-			return <MediaField field={field} />;
+			return (
+				<BarcodeField
+					field={field}
+					state={state}
+					labelledBy={labelledBy}
+					questionLabel={questionLabel}
+					onChange={onChange}
+					onBlur={onBlur}
+				/>
+			);
 		// Structural + authoring-only kinds: caller renders them directly
 		// (group/repeat via GroupField/RepeatField, hidden via HiddenField
 		// in edit mode or dropped entirely in interactive mode). Listed
