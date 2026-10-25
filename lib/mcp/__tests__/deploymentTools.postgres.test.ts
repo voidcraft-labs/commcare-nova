@@ -760,6 +760,7 @@ it("lists the confirmations in force by name, and withdraws one so the next uplo
 			confirmations: [
 				{ kind: "plan-feature", subject: "lookup-tables" },
 				{ kind: "connect-forwarder" },
+				{ kind: "form-entry-sync-off" },
 			],
 		},
 	);
@@ -783,6 +784,13 @@ it("lists the confirmations in force by name, and withdraws one so the next uplo
 					confirmed_by: ACTOR,
 					confirmed_at: expect.any(String),
 				},
+				{
+					kind: "form-entry-sync-off",
+					subject: "form-entry-sync-off",
+					label: "Sync Cases On Form Entry turned off",
+					confirmed_by: ACTOR,
+					confirmed_at: expect.any(String),
+				},
 			]);
 
 			const withdrawn = JSON.parse(
@@ -797,6 +805,18 @@ it("lists the confirmations in force by name, and withdraws one so the next uplo
 			);
 			expect(
 				withdrawn.confirmations.map((item: { kind: string }) => item.kind),
+			).toEqual(["connect-forwarder", "form-entry-sync-off"]);
+			const withdrawnSync = JSON.parse(
+				resultText(
+					await call(client, WITHDRAW, {
+						app_id: APP,
+						domain: "clinic",
+						kind: "form-entry-sync-off",
+					}),
+				),
+			);
+			expect(
+				withdrawnSync.confirmations.map((item: { kind: string }) => item.kind),
 			).toEqual(["connect-forwarder"]);
 			expect(
 				errorBody(

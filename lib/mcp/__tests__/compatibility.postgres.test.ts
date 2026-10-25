@@ -175,6 +175,7 @@ function webAppsToConfirm() {
 		],
 		flat_location_fixture: null,
 		connect_forwarder: null,
+		form_entry_sync_off: null,
 	};
 }
 function report(state: "available" | "missing" | "unverified" | "not_checked") {

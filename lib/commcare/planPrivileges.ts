@@ -16,7 +16,14 @@
 
 import { descendantFieldUuids, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, declaresWebApps, type Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	CASE_LOADING_FORM_TYPES,
+	declaresAndroid,
+	declaresWebApps,
+	effectiveCaseSearchConfig,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	type WorkerRecordRequirement,
 	workerRecordRequirements,
@@ -346,4 +353,32 @@ export function flatLocationFixtureReasons(doc: BlueprintDoc): string[] {
 			? `${formName(doc, formUuid)} sets a case's owner from a place in your organization.`
 			: `${formName(doc, formUuid)} reads places in your organization.`,
 	);
+}
+
+/**
+ * The reasons sync on form entry is asked about: one sentence per form that
+ * works on a case in a module whose case list offers Search, in form order,
+ * for an app that declares Android. HQ's build gives each such form's entry a
+ * claim that always posts while the project space syncs cases on form entry
+ * (`suite_xml/sections/entries.py::EntriesHelper.include_post_in_entry`,
+ * called only for a form that requires a case), and Android can't open a form
+ * whose entry asks for a sync (`HomeScreenBaseActivity.launchRemoteSync`).
+ * Empty for an app that does not declare Android.
+ */
+export function formEntrySyncReasons(doc: BlueprintDoc): string[] {
+	if (!declaresAndroid(doc)) return [];
+	return formsInOrder(doc).flatMap(({ moduleUuid, formUuid }) => {
+		const module = doc.modules[moduleUuid];
+		const form = doc.forms[formUuid];
+		if (
+			effectiveCaseSearchConfig(module) === undefined ||
+			!CASE_LOADING_FORM_TYPES.has(form.type)
+		) {
+			return [];
+		}
+		const moduleName = module.name.trim() || module.id;
+		return [
+			`${formName(doc, formUuid)} works on a case chosen in ${moduleName}, a menu with Search.`,
+		];
+	});
 }

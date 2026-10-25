@@ -3,7 +3,8 @@
  * confirmation on record answers it.
  *
  * No API key reads a project space's plan, whether it still sends its flat
- * location list, or whether it holds a forwarder to CommCare Connect, so the
+ * location list, whether it holds a forwarder to CommCare Connect, or whether
+ * it syncs cases on form entry, so the
  * person confirms each one the app needs, as they confirm taking over a
  * lookup table: the refusal names what is needed, the caller comes back
  * naming what the person confirmed, and the deployment keeps it until
@@ -19,6 +20,7 @@ import { buildConnectSlugMap } from "@/lib/commcare/connectSlugs";
 import {
 	connectForwarderReasons,
 	flatLocationFixtureReasons,
+	formEntrySyncReasons,
 	type PlanPrivilegePushes,
 	requiredPlanFeatures,
 } from "@/lib/commcare/planPrivileges";
@@ -27,10 +29,14 @@ import type { BlueprintDoc } from "@/lib/domain";
 import {
 	CONNECT_FORWARDER,
 	FLAT_LOCATION_FIXTURE,
+	FORM_ENTRY_SYNC_OFF,
+	formEntrySyncWhereMissing,
 	isPlanFeatureId,
 	PLAN_FEATURES,
 	type PlanFeatureCheck,
+	PROJECT_SPACE_SETTINGS,
 	type ProjectSpaceSettingCheck,
+	type ProjectSpaceSettingKind,
 	webAppsWhereMissing,
 } from "@/lib/publish/planFeatures";
 import { narrowingTo } from "./platformNarrowing";
@@ -46,7 +52,8 @@ export type { PlanPrivilegePushes } from "@/lib/commcare/planPrivileges";
 /**
  * Everything this app needs a person to confirm about a project space, in
  * the order every surface lists it: the plan features, then the flat
- * location list, then the Connect forwarder. `attachmentTarget` is the one a
+ * location list, then the Connect forwarder, then sync on form entry turned
+ * off. `attachmentTarget` is the one a
  * publish there hands the emitter (`attachmentTarget.ts::attachmentUrlTarget`
  * of its server and project space).
  */
@@ -97,6 +104,18 @@ export function requiredConfirmations(
 			whereMissing: CONNECT_FORWARDER.whereMissing,
 		});
 	}
+	const syncReasons = formEntrySyncReasons(doc);
+	if (syncReasons.length > 0) {
+		needed.push({
+			kind: "form-entry-sync-off",
+			subject: "form-entry-sync-off",
+			label: FORM_ENTRY_SYNC_OFF.label,
+			plans: "",
+			consequence: FORM_ENTRY_SYNC_OFF.consequence,
+			reasons: syncReasons,
+			whereMissing: formEntrySyncWhereMissing(narrowingTo(doc, "web-apps")),
+		});
+	}
 	return needed;
 }
 
@@ -116,6 +135,8 @@ export function confirmationKeyOf(
 			return { kind: "flat-location-fixture" };
 		case "connect-forwarder":
 			return { kind: "connect-forwarder" };
+		case "form-entry-sync-off":
+			return { kind: "form-entry-sync-off" };
 	}
 }
 
@@ -159,6 +180,7 @@ export interface ProjectSpaceConfirmationChecks {
 	readonly plan_features: readonly PlanFeatureCheck[];
 	readonly flat_location_fixture: ProjectSpaceSettingCheck | null;
 	readonly connect_forwarder: ProjectSpaceSettingCheck | null;
+	readonly form_entry_sync_off: ProjectSpaceSettingCheck | null;
 }
 
 /**
@@ -181,7 +203,7 @@ export function confirmationChecks(
 				};
 	};
 	const setting = (
-		kind: "flat-location-fixture" | "connect-forwarder",
+		kind: ProjectSpaceSettingKind,
 	): ProjectSpaceSettingCheck | null => {
 		const need = needed.find((item) => item.kind === kind);
 		return need === undefined
@@ -213,6 +235,7 @@ export function confirmationChecks(
 		}),
 		flat_location_fixture: setting("flat-location-fixture"),
 		connect_forwarder: setting("connect-forwarder"),
+		form_entry_sync_off: setting("form-entry-sync-off"),
 	};
 }
 
@@ -228,10 +251,8 @@ export function confirmationLabel(
 			return isPlanFeatureId(confirmation.subject)
 				? PLAN_FEATURES[confirmation.subject].label
 				: confirmation.subject;
-		case "flat-location-fixture":
-			return FLAT_LOCATION_FIXTURE.label;
-		case "connect-forwarder":
-			return CONNECT_FORWARDER.label;
+		default:
+			return PROJECT_SPACE_SETTINGS[confirmation.kind].label;
 	}
 }
 

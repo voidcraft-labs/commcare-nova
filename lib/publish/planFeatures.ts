@@ -173,6 +173,42 @@ export const CONNECT_FORWARDER: ProjectSpaceSettingConfirmation = {
 		"A project space admin can add it on CommCare HQ's Data Forwarding page, choosing Forward Form Metadata to Commcare Connect with the connection CommCare Connect gives them.",
 };
 
+/**
+ * Whether the project space has Sync Cases On Form Entry turned off. HQ's
+ * build gives a form that works on a case chosen in a menu with Search a
+ * claim that always posts while the setting is on, and Android can't open a
+ * form whose entry asks for a sync. Only a signed-in admin reads the setting,
+ * on the project space's Case Search page.
+ */
+export const FORM_ENTRY_SYNC_OFF: ProjectSpaceSettingConfirmation = {
+	label: "Sync Cases On Form Entry turned off",
+	consequence:
+		"With it on, Android phones can't open this app's forms that work on a case chosen in a menu with Search: each one ends in a session error before it opens. Web Apps opens them either way.",
+	question: (space) =>
+		`Does “${space}” have Sync Cases On Form Entry turned off? It's on the project space's Case Search page in CommCare HQ, and it's off unless someone turned it on.`,
+	confirmLabel: "It's off",
+	whereMissing:
+		"A project space admin can turn it off on the project space's Case Search page in CommCare HQ. It changes every app there: Web Apps then opens their forms without updating the case first.",
+};
+
+/** The project-space settings a publish asks about, in every surface's order. */
+export const PROJECT_SPACE_SETTING_KINDS = [
+	"flat-location-fixture",
+	"connect-forwarder",
+	"form-entry-sync-off",
+] as const;
+export type ProjectSpaceSettingKind =
+	(typeof PROJECT_SPACE_SETTING_KINDS)[number];
+
+/** Each project-space setting's copy, by kind: every surface reads it here. */
+export const PROJECT_SPACE_SETTINGS: Readonly<
+	Record<ProjectSpaceSettingKind, ProjectSpaceSettingConfirmation>
+> = {
+	"flat-location-fixture": FLAT_LOCATION_FIXTURE,
+	"connect-forwarder": CONNECT_FORWARDER,
+	"form-entry-sync-off": FORM_ENTRY_SYNC_OFF,
+};
+
 /** Whether a confirmation is on record for the target, as a check reports it. */
 export type PlanFeatureCheckState = "confirmed" | "needs_confirmation";
 
@@ -224,6 +260,19 @@ export function webAppsWhereMissing(narrowing: PlatformNarrowing): string {
 	if (narrowing.features.length > 0)
 		return `Where the plan doesn't include it, this app can run on Android only once it no longer uses ${namesInWords(narrowing.features)}, which Android can't run.`;
 	return "Where the plan doesn't include it, this app can run on Android only once it no longer uses what Android can't run. App settings names each one when you choose Android only.";
+}
+
+/**
+ * What a person can do where the project space syncs cases on form entry:
+ * turn it off, or, where the app's content allows it, run the app in Web
+ * Apps only, where the claim does no harm.
+ */
+export function formEntrySyncWhereMissing(
+	narrowing: PlatformNarrowing,
+): string {
+	return narrowing.open
+		? `${FORM_ENTRY_SYNC_OFF.whereMissing} If this app's workers use Web Apps alone, you can set it to run in Web Apps only, in App settings, and the setting no longer matters to it.`
+		: FORM_ENTRY_SYNC_OFF.whereMissing;
 }
 
 /**

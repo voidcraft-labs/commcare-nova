@@ -35,11 +35,10 @@ import {
 	orderNoticeEntries,
 } from "@/lib/notices/migrationNotice";
 import {
-	CONNECT_FORWARDER,
-	FLAT_LOCATION_FIXTURE,
 	isPlanFeatureId,
 	PLAN_FEATURE_IDS,
 	PLAN_FEATURES,
+	PROJECT_SPACE_SETTINGS,
 } from "@/lib/publish/planFeatures";
 
 /**
@@ -342,6 +341,7 @@ function requestKey(
 			return isPlanFeatureId(subject) ? { kind, subject } : null;
 		case "flat-location-fixture":
 		case "connect-forwarder":
+		case "form-entry-sync-off":
 			return { kind };
 	}
 }
@@ -358,7 +358,7 @@ export function sameConfirmationKey(
 	);
 }
 
-/** Every surface's order: the plan features as `PLAN_FEATURES` lists them, then the flat location list, then the Connect forwarder. */
+/** Every surface's order: the plan features as `PLAN_FEATURES` lists them, then the flat location list, the Connect forwarder and sync on form entry. */
 function requestOrder(key: DeploymentConfirmationKey): number {
 	switch (key.kind) {
 		case "plan-feature":
@@ -367,6 +367,8 @@ function requestOrder(key: DeploymentConfirmationKey): number {
 			return PLAN_FEATURE_IDS.length;
 		case "connect-forwarder":
 			return PLAN_FEATURE_IDS.length + 1;
+		case "form-entry-sync-off":
+			return PLAN_FEATURE_IDS.length + 2;
 	}
 }
 
@@ -434,6 +436,13 @@ export function confirmationRequests(
 				fromCheck(checks.connect_forwarder, ""),
 			);
 		}
+		if (checks.form_entry_sync_off?.state === "needs_confirmation") {
+			add(
+				"form-entry-sync-off",
+				"form-entry-sync-off",
+				fromCheck(checks.form_entry_sync_off, ""),
+			);
+		}
 	}
 	return requests.sort((a, b) => requestOrder(a.key) - requestOrder(b.key));
 }
@@ -487,6 +496,14 @@ export function withLandedConfirmations(
 						"connect-forwarder",
 						"connect-forwarder",
 					),
+		form_entry_sync_off:
+			checks.form_entry_sync_off === null
+				? null
+				: answer(
+						checks.form_entry_sync_off,
+						"form-entry-sync-off",
+						"form-entry-sync-off",
+					),
 	};
 }
 
@@ -528,9 +545,7 @@ export function liveConfirmationRows(
 					label:
 						key.kind === "plan-feature"
 							? PLAN_FEATURES[key.subject].label
-							: key.kind === "flat-location-fixture"
-								? FLAT_LOCATION_FIXTURE.label
-								: CONNECT_FORWARDER.label,
+							: PROJECT_SPACE_SETTINGS[key.kind].label,
 					confirmedBy: confirmation.confirmedByName,
 					confirmedAt: confirmation.confirmedAt,
 				},

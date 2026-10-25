@@ -34,6 +34,7 @@ const BARE: ManualImportGuideInput = {
 	runsInWebApps: true,
 	readsLocations: false,
 	sendsToConnect: false,
+	formEntrySync: false,
 	distanceSearches: [],
 };
 
@@ -125,7 +126,7 @@ describe("manualImportGuide", () => {
 		}
 	});
 
-	it("holds the plan features, the logo, the location list and Connect forwarding exactly when their inputs do, last", () => {
+	it("holds the plan features, the logo, the location list, Connect forwarding and sync on form entry exactly when their inputs do, last", () => {
 		const all: ManualImportGuideInput = {
 			...BARE,
 			capabilities: [{ label: "Case search", reasons: ["It searches."] }],
@@ -139,6 +140,7 @@ describe("manualImportGuide", () => {
 			logo: { fileName: "logo.png" },
 			readsLocations: true,
 			sendsToConnect: true,
+			formEntrySync: true,
 		};
 		expect(kinds(all)).toEqual([
 			"import-app",
@@ -148,12 +150,14 @@ describe("manualImportGuide", () => {
 			"logo",
 			"flat-location-fixture",
 			"connect-forwarding",
+			"form-entry-sync-off",
 		]);
 		for (const [key, kind] of [
 			["planFeatures", "plan-features"],
 			["logo", "logo"],
 			["readsLocations", "flat-location-fixture"],
 			["sendsToConnect", "connect-forwarding"],
+			["formEntrySync", "form-entry-sync-off"],
 		] as const) {
 			const without = { ...all, [key]: BARE[key] };
 			expect(kinds(without)).not.toContain(kind);
@@ -189,6 +193,14 @@ describe("manualImportGuide", () => {
 			lines: [
 				"This app's forms reach CommCare Connect only through CommCare HQ's data forwarding.",
 				"It helps to check that the project space's plan includes Data Forwarding and that it has a forwarder set up as Forward Form Metadata to Commcare Connect.",
+			],
+		});
+		expect(step("form-entry-sync-off")).toEqual({
+			kind: "form-entry-sync-off",
+			title: "Sync Cases On Form Entry",
+			lines: [
+				"This app's forms that work on a case chosen in a menu with Search open on Android phones only while the project space has Sync Cases On Form Entry turned off.",
+				"It helps to check that it's off on the project space's Case Search page in CommCare HQ. It's off unless someone turned it on.",
 			],
 		});
 	});
@@ -247,11 +259,12 @@ describe("manualImportGuide", () => {
 			kinds({
 				...BARE,
 				sendsToConnect: true,
+				formEntrySync: true,
 				distanceSearches: [
 					{ caseType: "patient", property: "home", moduleNames: ["Find"] },
 				],
-			}).slice(-2),
-		).toEqual(["connect-forwarding", "distance-search"]);
+			}).slice(-3),
+		).toEqual(["connect-forwarding", "form-entry-sync-off", "distance-search"]);
 		expect(
 			hqImportFileGuide({
 				appName: "Tracker",

@@ -12,7 +12,9 @@ import type { AppDeploymentNoticeEntry } from "@/lib/notices/migrationNotice";
 import {
 	CONNECT_FORWARDER,
 	FLAT_LOCATION_FIXTURE,
+	FORM_ENTRY_SYNC_OFF,
 	PLAN_FEATURES,
+	PROJECT_SPACE_SETTINGS,
 } from "@/lib/publish/planFeatures";
 import {
 	applyRecordUpsert,
@@ -523,6 +525,15 @@ describe("what a publish asks a person to confirm", () => {
 		where_missing: FLAT_LOCATION_FIXTURE.whereMissing,
 		whereMissing: FLAT_LOCATION_FIXTURE.whereMissing,
 	};
+	const SYNC = {
+		label: PROJECT_SPACE_SETTINGS["form-entry-sync-off"].label,
+		consequence: PROJECT_SPACE_SETTINGS["form-entry-sync-off"].consequence,
+		reasons: [
+			"Visit works on a case chosen in Find patients, a menu with Search.",
+		],
+		where_missing: FORM_ENTRY_SYNC_OFF.whereMissing,
+		whereMissing: FORM_ENTRY_SYNC_OFF.whereMissing,
+	};
 
 	it("asks for each need the check reports with nothing on record, and not for one confirmed there", () => {
 		const requests = confirmationRequests(
@@ -538,6 +549,7 @@ describe("what a publish asks a person to confirm", () => {
 				],
 				flat_location_fixture: { ...FIXTURE, state: "needs_confirmation" },
 				connect_forwarder: null,
+				form_entry_sync_off: null,
 			},
 			[],
 		);
@@ -559,6 +571,7 @@ describe("what a publish asks a person to confirm", () => {
 				plan_features: [{ ...WORKER, state: "needs_confirmation" }],
 				flat_location_fixture: null,
 				connect_forwarder: null,
+				form_entry_sync_off: null,
 			},
 			[
 				{
@@ -579,6 +592,61 @@ describe("what a publish asks a person to confirm", () => {
 			LOOKUP.label,
 			CONNECT_FORWARDER.label,
 		]);
+	});
+
+	it("asks for sync on form entry last, after the Connect forwarder, with its label from the setting's record", () => {
+		const requests = confirmationRequests(
+			{
+				plan_features: [{ ...WORKER, state: "needs_confirmation" }],
+				flat_location_fixture: null,
+				connect_forwarder: null,
+				form_entry_sync_off: { ...SYNC, state: "needs_confirmation" },
+			},
+			[
+				{
+					kind: "connect-forwarder",
+					subject: "connect-forwarder",
+					label: CONNECT_FORWARDER.label,
+					plans: "",
+					consequence: CONNECT_FORWARDER.consequence,
+					reasons: ["Lesson sends a learn module to CommCare Connect."],
+					whereMissing: CONNECT_FORWARDER.whereMissing,
+				},
+			],
+		);
+		expect(requests.map((request) => request.key)).toStrictEqual([
+			{ kind: "plan-feature", subject: "worker-records" },
+			{ kind: "connect-forwarder" },
+			{ kind: "form-entry-sync-off" },
+		]);
+		expect(requests[2]).toMatchObject({
+			kind: "form-entry-sync-off",
+			label: FORM_ENTRY_SYNC_OFF.label,
+			plans: "",
+			reasons: SYNC.reasons,
+			whereMissing: FORM_ENTRY_SYNC_OFF.whereMissing,
+		});
+		const landed = withLandedConfirmations(
+			{
+				plan_features: [],
+				flat_location_fixture: null,
+				connect_forwarder: null,
+				form_entry_sync_off: { ...SYNC, state: "needs_confirmation" },
+			},
+			[
+				{
+					kind: "form-entry-sync-off",
+					subject: "form-entry-sync-off",
+					confirmedByName: "Ada",
+					confirmedAt: "2026-10-16T00:00:00Z",
+				},
+			],
+		);
+		expect(landed.form_entry_sync_off).toMatchObject({
+			state: "confirmed",
+			confirmed_by: "Ada",
+		});
+		expect(confirmationRequests(landed, [])).toStrictEqual([]);
 	});
 
 	it("holds the publish until every request is ticked", () => {
@@ -616,6 +684,7 @@ describe("what a publish asks a person to confirm", () => {
 				state: "needs_confirmation" as const,
 			},
 			connect_forwarder: null,
+			form_entry_sync_off: null,
 		};
 		const live: DeploymentConfirmation[] = [
 			{
@@ -674,14 +743,16 @@ describe("the confirmations a card lists", () => {
 	it("names each by the row that asked for it, in every surface's order", () => {
 		expect(
 			liveConfirmationRows([
+				confirmed("form-entry-sync-off", "form-entry-sync-off"),
 				confirmed("connect-forwarder", "connect-forwarder"),
 				confirmed("plan-feature", "data-forwarding"),
 				confirmed("flat-location-fixture", "flat-location-fixture"),
 			]).map((row) => row.label),
 		).toStrictEqual([
 			PLAN_FEATURES["data-forwarding"].label,
-			FLAT_LOCATION_FIXTURE.label,
-			CONNECT_FORWARDER.label,
+			PROJECT_SPACE_SETTINGS["flat-location-fixture"].label,
+			PROJECT_SPACE_SETTINGS["connect-forwarder"].label,
+			PROJECT_SPACE_SETTINGS["form-entry-sync-off"].label,
 		]);
 	});
 

@@ -111,10 +111,9 @@ import { useAppName } from "@/lib/doc/hooks/useAppName";
 import type { ExportAdvisory } from "@/lib/publish/exportAdvisories";
 import type { ManualImportStep } from "@/lib/publish/manualImportGuide";
 import {
-	CONNECT_FORWARDER,
-	FLAT_LOCATION_FIXTURE,
 	LOGO_UPLOAD_STEP_TEXT,
 	PLAN_FEATURE_CONFIRM_LABEL,
+	PROJECT_SPACE_SETTINGS,
 } from "@/lib/publish/planFeatures";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import {
@@ -2208,11 +2207,9 @@ function ConfirmationChoice({
 				{requests.map((request) => {
 					const id = `confirm-${request.kind}-${request.key.kind === "plan-feature" ? request.key.subject : request.kind}`;
 					const setting =
-						request.kind === "flat-location-fixture"
-							? FLAT_LOCATION_FIXTURE
-							: request.kind === "connect-forwarder"
-								? CONNECT_FORWARDER
-								: null;
+						request.kind === "plan-feature"
+							? null
+							: PROJECT_SPACE_SETTINGS[request.kind];
 					return (
 						<li
 							key={id}

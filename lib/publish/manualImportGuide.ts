@@ -34,6 +34,7 @@ export type ManualImportStepKind =
 	| "web-apps"
 	| "flat-location-fixture"
 	| "connect-forwarding"
+	| "form-entry-sync-off"
 	| "distance-search";
 
 const STEP_KINDS: ReadonlySet<string> = new Set<ManualImportStepKind>([
@@ -47,6 +48,7 @@ const STEP_KINDS: ReadonlySet<string> = new Set<ManualImportStepKind>([
 	"web-apps",
 	"flat-location-fixture",
 	"connect-forwarding",
+	"form-entry-sync-off",
 	"distance-search",
 ]);
 
@@ -84,6 +86,8 @@ export interface ManualImportGuideInput {
 	readonly readsLocations: boolean;
 	/** Whether the app's forms hold a CommCare Connect block. */
 	readonly sendsToConnect: boolean;
+	/** Whether publish would ask that sync on form entry is off (`formEntrySyncReasons` names a form). */
+	readonly formEntrySync: boolean;
 	/** Each case property a search measures distance on; empty for none. */
 	readonly distanceSearches: readonly DistanceSearchSetupProperty[];
 }
@@ -288,6 +292,22 @@ function connectForwardingStep(): ManualImportStep {
 	};
 }
 
+/**
+ * HQ's build gives a form that works on a case chosen in a menu with Search a
+ * claim that always posts while the project space syncs cases on form entry,
+ * and Android can't open a form whose entry asks for a sync.
+ */
+function formEntrySyncStep(): ManualImportStep {
+	return {
+		kind: "form-entry-sync-off",
+		title: "Sync Cases On Form Entry",
+		lines: [
+			"This app's forms that work on a case chosen in a menu with Search open on Android phones only while the project space has Sync Cases On Form Entry turned off.",
+			"It helps to check that it's off on the project space's Case Search page in CommCare HQ. It's off unless someone turned it on.",
+		],
+	};
+}
+
 /** Each property a search measures distance on needs the GPS type in HQ's Data Dictionary. */
 function distanceSearchStep(
 	properties: readonly DistanceSearchSetupProperty[],
@@ -332,6 +352,7 @@ export function manualImportGuide(
 		...(input.runsInWebApps ? [] : [webAppsStep()]),
 		...(input.readsLocations ? [flatLocationFixtureStep()] : []),
 		...(input.sendsToConnect ? [connectForwardingStep()] : []),
+		...(input.formEntrySync ? [formEntrySyncStep()] : []),
 		...(input.distanceSearches.length > 0
 			? [distanceSearchStep(input.distanceSearches)]
 			: []),

@@ -75,6 +75,7 @@ beforeEach(() => {
 		plan_features: [],
 		flat_location_fixture: null,
 		connect_forwarder: null,
+		form_entry_sync_off: null,
 	});
 	vi.mocked(requireSession).mockResolvedValue({ user: { id: "u1" } } as never);
 	vi.mocked(resolveAppAccess).mockResolvedValue({
@@ -113,6 +114,7 @@ describe("POST /api/commcare/project-space-compatibility", () => {
 			plan_features: [],
 			flat_location_fixture: null,
 			connect_forwarder: null,
+			form_entry_sync_off: null,
 		});
 		expect(vi.mocked(projectSpaceConfirmations).mock.calls[0]?.[2]).toBeNull();
 	});

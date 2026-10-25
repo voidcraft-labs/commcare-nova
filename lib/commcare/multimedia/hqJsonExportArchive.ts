@@ -44,7 +44,7 @@ import { appEmitsConnectBlocks } from "../connectSlugs";
 import { distanceSearchProperties } from "../distanceSearches";
 import { readsLocationsFixture } from "../locations/readsLocationsFixture";
 import type { LookupWorkbook } from "../lookup/workbook";
-import { requiredPlanFeatures } from "../planPrivileges";
+import { formEntrySyncReasons, requiredPlanFeatures } from "../planPrivileges";
 import { requiredProjectSpaceCapabilities } from "../projectSpaceCompatibility";
 import type { HqApplication } from "../types";
 import { COMMCARE_VERSION_FLOOR } from "../versionFloor";
@@ -102,7 +102,7 @@ function logoMember(
  * publish's own checks read: the capabilities and plan features the document
  * needs, the workbook's tables, the media the bulk upload carries, the logo,
  * whether the app runs in Web Apps, whether the app reads places, whether it sends forms to CommCare Connect,
- * and the properties its searches measure distance on. An import file has no target and sends no places.
+ * whether a publish would ask that sync on form entry is off, and the properties its searches measure distance on. An import file has no target and sends no places.
  */
 export function hqImportFileGuide(input: {
 	readonly appName: string;
@@ -130,6 +130,7 @@ export function hqImportFileGuide(input: {
 		runsInWebApps: declaresWebApps(input.doc),
 		readsLocations: readsLocationsFixture(input.doc),
 		sendsToConnect: appEmitsConnectBlocks(input.doc),
+		formEntrySync: formEntrySyncReasons(input.doc).length > 0,
 		distanceSearches: distanceSearchProperties(input.doc),
 	});
 }

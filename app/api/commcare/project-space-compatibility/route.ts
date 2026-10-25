@@ -8,8 +8,9 @@
  * Beside the capabilities it lists what a publish there will ask the person
  * to confirm, because no API key reads it: the plan features the app needs
  * (`plan_features`), whether the project space still sends its flat location
- * list (`flat_location_fixture`) and whether it holds a Connect forwarder
- * (`connect_forwarder`), each with its state from the confirmations the
+ * list (`flat_location_fixture`), whether it holds a Connect forwarder
+ * (`connect_forwarder`) and whether it has sync on form entry turned off
+ * (`form_entry_sync_off`), each with its state from the confirmations the
  * deployment there holds, so the dialog shows the rows before the first
  * press instead of after a refusal.
  */
