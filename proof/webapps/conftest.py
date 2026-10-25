@@ -22,7 +22,6 @@ DOCUMENTS = (
     "case-operation-conditional",
     "case-operation-key",
     "case-operation-query",
-    "case-operation-sequence",
     "localization-bilingual",
     "media-only",
     "navigation-base",

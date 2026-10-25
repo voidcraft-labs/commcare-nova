@@ -27,7 +27,7 @@ import {
 	searchAnswerFields,
 	searchFirstOnMutations,
 } from "@/lib/doc/searchNoMatchesForm";
-import { simpleSearchInputDef } from "@/lib/domain";
+import { NEW_APP_SETTINGS, simpleSearchInputDef } from "@/lib/domain";
 import { input, now, term } from "@/lib/domain/expression/builders";
 import {
 	lookupColumnIdSchema,
@@ -74,6 +74,9 @@ function fixture(
 	const hasEntry = options.entry !== false && options.searchFirst !== false;
 	const doc = buildDoc({
 		appName: "Registry",
+		// The no-matches form and Search first run in Web Apps alone, and these
+		// tests turn Search first on.
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 		modules: [
 			{
 				uuid: MODULE,

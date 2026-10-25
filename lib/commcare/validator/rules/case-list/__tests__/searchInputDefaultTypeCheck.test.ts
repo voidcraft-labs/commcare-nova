@@ -70,7 +70,16 @@ describe("search starting-value admission", () => {
 			type === "date" ? "date_opened" : "case_name",
 			{ default: value },
 		);
-		const result = findings(withSearchInputs(admittedCaseListDoc(), [input]));
+		const doc = withSearchInputs(admittedCaseListDoc(), [input]);
+		// A single-date Search field runs in Web Apps alone.
+		const result = findings(
+			type === "date"
+				? {
+						...doc,
+						appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" },
+					}
+				: doc,
+		);
 		expect(result.map((error) => error.code)).toEqual(
 			valid ? [] : ["CASE_LIST_SEARCH_INPUT_DEFAULT_TYPE_ERROR"],
 		);

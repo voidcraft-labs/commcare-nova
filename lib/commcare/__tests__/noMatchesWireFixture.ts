@@ -5,6 +5,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	blueprintDocSchema,
+	NEW_APP_SETTINGS,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { input, term } from "@/lib/domain/expression/builders";
@@ -63,6 +64,9 @@ export function noMatchesDoc(
 	};
 	const doc = buildDoc({
 		appName: "Registry",
+		// The no-matches form lives in a search-first module, and Search first
+		// runs in Web Apps alone.
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 		modules: [
 			{
 				uuid: HOST_MODULE,

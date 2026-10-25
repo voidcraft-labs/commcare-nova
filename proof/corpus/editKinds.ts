@@ -681,7 +681,16 @@ const setConnectType: KindGenerator = (ctx) => {
 						],
 					},
 		);
-		return plan.ok ? batch(plan.mutations) : refusal("connect-target");
+		if (!plan.ok) return refusal("connect-target");
+		// A Connect app runs on Android alone, so turning Connect on narrows
+		// the app in the same batch, as the builder's Connect dialogs commit
+		// it; a document whose content Android can't run is refused at the gate.
+		return ctx.doc.appSettings.runsOnlyOn === "android"
+			? batch(plan.mutations)
+			: batch([
+					{ kind: "setAppSettings", settings: { runsOnlyOn: "android" } },
+					...plan.mutations,
+				]);
 	});
 };
 

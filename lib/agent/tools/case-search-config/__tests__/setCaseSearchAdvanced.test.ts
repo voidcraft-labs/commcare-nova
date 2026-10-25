@@ -269,7 +269,12 @@ describe("setCaseSearchAdvanced", () => {
 	});
 
 	it("turns Search first on and off, keeping the owner rule", async () => {
-		const h = makeCaseSearchFixture();
+		const base = makeCaseSearchDoc();
+		// Search first runs in Web Apps alone.
+		const h = makeCaseSearchFixture({
+			...base,
+			appSettings: { ...base.appSettings, runsOnlyOn: "web-apps" },
+		});
 		const on = await h.runTool(setCaseSearchAdvancedTool, {
 			moduleUuid: MOD_A,
 			excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),

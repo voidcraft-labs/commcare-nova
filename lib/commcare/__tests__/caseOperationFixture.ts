@@ -1,6 +1,6 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { type CaseOperation, proseText } from "@/lib/domain";
+import { type CaseOperation, NEW_APP_SETTINGS, proseText } from "@/lib/domain";
 import {
 	actingUser,
 	ancestorPath,
@@ -260,6 +260,10 @@ export function caseOperationFixture(scenario: OperationScenario) {
 		);
 	const doc = buildDoc({
 		appName: "Case operation evidence",
+		// The sequence's date-and-time question runs on Android alone.
+		...(scenario === "sequence"
+			? { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" } }
+			: {}),
 		caseTypes: [
 			...["patient", "visit"].map((name) => ({
 				name,

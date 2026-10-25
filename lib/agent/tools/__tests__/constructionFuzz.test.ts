@@ -1243,13 +1243,19 @@ async function growStandardPrelude(ctx: FuzzHost): Promise<BlueprintDoc> {
 }
 
 async function growConnectPrelude(ctx: FuzzHost): Promise<BlueprintDoc> {
-	let doc = refinementFixture(
+	const base = refinementFixture(
 		"trainee",
 		"Lessons",
 		"Enroll trainee",
 		"Close enrollment",
 		true,
 	);
+	// A Connect app runs on Android alone, so the app declares it before the
+	// tool turns Connect on.
+	let doc: BlueprintDoc = {
+		...base,
+		appSettings: { ...base.appSettings, runsOnlyOn: "android" },
+	};
 	const lessonsModuleUuid = doc.moduleOrder[0];
 
 	const feedbackModuleUuid = doc.moduleOrder.find(

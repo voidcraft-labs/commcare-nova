@@ -23,17 +23,21 @@ import { projectAuthoringReadInContext, type ReadToolName } from "../output";
 async function populatedApp() {
 	const h = makeAuthoringHarness(
 		{},
-		namedFormFixture([
-			{
-				name: "Clients",
-				caseType: "client",
-				forms: [
-					{ name: "Register", type: "registration" },
-					{ name: "Visit", type: "followup" },
-				],
-			},
-			{ name: "Learning", forms: [{ name: "Assessment", type: "survey" }] },
-		]),
+		namedFormFixture(
+			[
+				{
+					name: "Clients",
+					caseType: "client",
+					forms: [
+						{ name: "Register", type: "registration" },
+						{ name: "Visit", type: "followup" },
+					],
+				},
+				{ name: "Learning", forms: [{ name: "Assessment", type: "survey" }] },
+			],
+			// The app becomes a Connect app, which runs on Android alone.
+			{ runsOnlyOn: "android" },
+		),
 	);
 	const ok = async (name: string, input: unknown) => {
 		const result = await h.call(name, input);

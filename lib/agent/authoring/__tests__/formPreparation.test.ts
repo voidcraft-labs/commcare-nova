@@ -221,13 +221,17 @@ it("declares generated count names from the complete batch before binding anothe
 it("binds Connect scoring and record naming from their real pending evaluation nodes", async () => {
 	const h = makeAuthoringHarness(
 		{},
-		namedFormFixture([
-			{
-				name: "People",
-				caseType: "person",
-				forms: [{ name: "Visit", type: "followup" }],
-			},
-		]),
+		namedFormFixture(
+			[
+				{
+					name: "People",
+					caseType: "person",
+					forms: [{ name: "Visit", type: "followup" }],
+				},
+			],
+			// The app becomes a Connect app, which runs on Android alone.
+			{ runsOnlyOn: "android" },
+		),
 	);
 	expect(
 		await h.call("addFields", {

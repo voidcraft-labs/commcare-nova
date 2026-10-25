@@ -37,6 +37,9 @@ function followupDoc() {
 	const { caseWrite: _registrationWrite, ...field } = registrationField;
 	return {
 		...doc,
+		// These cases turn on several-case selection, which runs in Web Apps
+		// alone.
+		appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" as const },
 		forms: {
 			...doc.forms,
 			[FORM_A]: {

@@ -51,7 +51,14 @@ function candidate(
 				matchAll(),
 			)
 		: simpleSearchInputDef(testUuid("prompt"), "value", "Value", type, "value");
-	return withSearchInputs(base, [input]);
+	const doc = withSearchInputs(base, [input]);
+	// A single-date or multiple-choice Search field runs in Web Apps alone.
+	return type === "date" || type === "multi-select"
+		? {
+				...doc,
+				appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" as const },
+			}
+		: doc;
 }
 describe("search widget admission", () => {
 	it.each(scalarTypes)("accepts text exact search over %s", (dataType) =>

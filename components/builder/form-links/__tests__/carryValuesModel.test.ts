@@ -37,6 +37,8 @@ function selectionDoc() {
 				if (!config) throw new Error("Missing selection");
 				config.selection = { kind: "multiple", maximum: 10 };
 			}
+			// Choosing several cases runs in Web Apps alone.
+			draft.appSettings.runsOnlyOn = "web-apps";
 			draft.forms[SOURCE].type = "followup";
 		},
 	);

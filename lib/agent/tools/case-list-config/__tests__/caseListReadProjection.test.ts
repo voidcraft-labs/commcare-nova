@@ -57,6 +57,8 @@ describe("case-list read projections", () => {
 		if (config === undefined) throw new Error("fixture config missing");
 		const doc = {
 			...base,
+			// Choosing several cases runs in Web Apps alone.
+			appSettings: { ...base.appSettings, runsOnlyOn: "web-apps" as const },
 			modules: {
 				...base.modules,
 				[MOD_A]: {

@@ -56,7 +56,12 @@ function populatedBlueprint(): BlueprintDoc {
 		appId: APP_ID,
 		appName: "Blueprint clear test app",
 		connectType: "learn" as const,
-		appSettings: { showSavedForms: false, showIncompleteForms: false },
+		// A Connect app runs on Android alone.
+		appSettings: {
+			showSavedForms: false,
+			showIncompleteForms: false,
+			runsOnlyOn: "android" as const,
+		},
 		caseTypes: [{ name: "patient", properties: [] }],
 		modules: {
 			[MODULE_UUID]: {

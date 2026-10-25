@@ -2,7 +2,11 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { blueprintDocSchema, simpleSearchInputDef } from "@/lib/domain";
+import {
+	blueprintDocSchema,
+	NEW_APP_SETTINGS,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import { runValidation } from "../validator/runner";
 export const endpointScenarios = [
 	"single",
@@ -22,6 +26,10 @@ export function endpointWireFixture(
 		type = child ? "baby" : "patient";
 	const doc = buildDoc({
 		appName: "Entry points",
+		// Several cases and Search first run in Web Apps alone.
+		...(scenario === "multiple" || scenario === "inline"
+			? { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" } }
+			: {}),
 		caseTypes: child
 			? [
 					{ name: "mother", properties: [] },

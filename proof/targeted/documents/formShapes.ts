@@ -43,7 +43,7 @@
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { plainColumn, proseText } from "@/lib/domain";
+import { NEW_APP_SETTINGS, plainColumn, proseText } from "@/lib/domain";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
@@ -201,6 +201,8 @@ export function invalidConnectIds() {
 		appId: id,
 		appName: "Connect ids",
 		connectType: "learn",
+		// A Connect app runs on Android alone.
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 		modules: [
 			{
 				uuid: uuid("module"),

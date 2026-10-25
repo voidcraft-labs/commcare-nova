@@ -92,6 +92,8 @@ describe("configureCaseList", () => {
 		doc.modules[MOD_A].caseSearchConfig = {
 			searchScreenTitle: "Find a patient",
 		};
+		// Search first runs in Web Apps alone.
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
 		const h = makeCaseListFixture(doc);
 		const enabled = await h.runTool(configureCaseListTool, {
 			moduleUuid: MOD_A,

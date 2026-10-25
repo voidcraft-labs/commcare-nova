@@ -18,7 +18,11 @@ import {
 import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
-import { proseText, simpleSearchInputDef } from "@/lib/domain";
+import {
+	NEW_APP_SETTINGS,
+	proseText,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import {
 	count,
 	eq,
@@ -94,6 +98,11 @@ export function instanceReadFixture() {
 	const doc = buildDoc({
 		appName: "Instance reads",
 		connectType: "deliver",
+		// The several-case and search-first menus run in Web Apps alone and the
+		// Connect app on Android alone, so no declaration admits the whole
+		// document: it declares Web Apps, and a test that commits or exports it
+		// keeps one platform's content.
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 		caseTypes: [
 			{
 				name: "patient",

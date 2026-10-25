@@ -58,6 +58,7 @@ import {
 	tileSessionReads,
 } from "./documents/nativeSessionReads";
 import { noMatchesReturnIdentity } from "./documents/noMatchesReturnIdentity";
+import { platformDeclaration } from "./documents/platformDeclaration";
 import { queryRepeatPlaces, repeatCountCopy } from "./documents/repeats";
 import { saveToCaseRead } from "./documents/saveToCaseRead";
 import {
@@ -139,6 +140,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	textReads,
 	csqlComposition,
 	datetimeSplit,
+	platformDeclaration,
 ];
 
 /** Every targeted document, in a fixed order. */

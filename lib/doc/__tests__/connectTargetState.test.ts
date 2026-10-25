@@ -3,6 +3,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import { NEW_APP_SETTINGS } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { planConnectTargetState } from "../connectTargetState";
 import { assertAdmittedDoc } from "./admittedDoc";
@@ -10,6 +11,9 @@ import { assertAdmittedDoc } from "./admittedDoc";
 function fixture() {
 	const doc = buildDoc({
 		appName: "Connect planner",
+		// A Connect app runs on Android alone, and the planner turns Connect
+		// on without narrowing the app.
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 		modules: [
 			{
 				name: "Main",

@@ -6,6 +6,7 @@ import {
 	type CaseListConfig,
 	calculatedColumn,
 	hiddenSearchInputDef,
+	NEW_APP_SETTINGS,
 	proseText,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -23,6 +24,7 @@ import {
 } from "@/lib/domain/expression";
 
 const NAME_INPUT = testUuid("00000000-0000-4000-8000-0000000a0001");
+const WEB_APPS_ONLY = { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" } as const;
 const PARENT_COLUMN = testUuid("00000000-0000-4000-8000-0000000a0002");
 
 export function inlineDoc(
@@ -52,6 +54,8 @@ export function inlineDoc(
 	}
 	return buildDoc({
 		appName: "Inline",
+		// Search first runs in Web Apps alone.
+		appSettings: WEB_APPS_ONLY,
 		modules: [
 			{
 				name: "Followup",
@@ -117,6 +121,8 @@ export function registrationLinkDoc(
 	config.searchInputs = options.searchInputs ?? [nameInput()];
 	return buildDoc({
 		appName: "Inline",
+		// Search first runs in Web Apps alone.
+		appSettings: WEB_APPS_ONLY,
 		modules: [
 			{
 				uuid: FOLLOWUP_MODULE,
@@ -182,6 +188,8 @@ export function parentSelectDoc(): BlueprintDoc {
 	config.searchInputs = [nameInput()];
 	const doc = buildDoc({
 		appName: "Inline",
+		// Search first runs in Web Apps alone.
+		appSettings: WEB_APPS_ONLY,
 		modules: [
 			{
 				name: "Followup",
@@ -267,7 +275,15 @@ export function searchEmissionFixture(
 	const module = doc.modules[doc.moduleOrder[0]];
 	const config = module.caseListConfig;
 	if (!config) throw new Error("Fixture has a case list");
-	if (scenario.startsWith("remote")) module.caseSearchConfig = {};
+	if (scenario.startsWith("remote")) {
+		module.caseSearchConfig = {};
+		// A search that shows the list first runs on both platforms; choosing
+		// several cases runs in Web Apps alone.
+		doc.appSettings =
+			scenario === "remote-multiple"
+				? { ...WEB_APPS_ONLY }
+				: { ...NEW_APP_SETTINGS };
+	}
 	if (scenario === "automatic") config.searchInputs = [];
 	if (scenario === "hidden")
 		config.searchInputs = [

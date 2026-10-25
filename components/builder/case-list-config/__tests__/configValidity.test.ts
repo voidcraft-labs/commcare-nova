@@ -13,6 +13,7 @@ import {
 	type CaseListConfig,
 	type CaseType,
 	calculatedColumn,
+	contentRunsOn,
 	dateColumn,
 	plainColumn,
 	simpleSearchInputDef,
@@ -60,6 +61,11 @@ function verdicts(partial: Partial<CaseListConfig>) {
 	const { doc, moduleUuid } = admittedWorkspace(CASE_TYPES);
 	const candidate = config(partial);
 	doc.modules[moduleUuid].caseListConfig = candidate;
+	// The candidate declares the platform its content runs on, as `buildDoc`
+	// declares a fixture's.
+	const [only, ...others] = contentRunsOn(doc);
+	if (only !== undefined && others.length === 0)
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: only };
 	const result = caseListConfigVerdicts(
 		candidate,
 		CASE_TYPES,

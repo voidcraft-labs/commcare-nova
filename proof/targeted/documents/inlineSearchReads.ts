@@ -23,6 +23,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import {
 	type BlueprintDoc,
+	NEW_APP_SETTINGS,
 	plainColumn,
 	proseText,
 	simpleSearchInputDef,
@@ -86,6 +87,8 @@ export function inlineSearchReads() {
 	const doc = buildDoc({
 		appId: ID,
 		appName: "Patient search",
+		// Search first runs in Web Apps alone.
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 		caseTypes: [
 			{
 				name: "patient",

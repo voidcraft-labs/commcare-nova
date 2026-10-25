@@ -9,6 +9,7 @@ import {
 	type CaseSelection,
 	type Form,
 	type Module,
+	NEW_APP_SETTINGS,
 	tileCell,
 	type Uuid,
 } from "@/lib/domain";
@@ -18,6 +19,8 @@ import {
 	planCaseSelectionChange,
 } from "../caseSelectionMutations";
 import { assertAdmittedDoc } from "./admittedDoc";
+
+const WEB_APPS_ONLY = { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" } as const;
 
 function planCaseSelectionTransition(
 	...args: Parameters<typeof actualTransition>
@@ -183,6 +186,9 @@ function linkedDoc(args?: {
 		target.caseListConfig.columns[0].tile = tileCell(0, 0, 1, 1);
 	const doc = buildDoc({
 		appName: "Planner",
+		// The transitions turn on several-case selection, which runs in Web
+		// Apps alone.
+		appSettings: WEB_APPS_ONLY,
 		caseTypes: [
 			{ name: "visit", properties: [] },
 			{ name: "assessment", properties: [] },
@@ -251,6 +257,7 @@ function structuralDoc(args?: {
 	};
 	const doc = buildDoc({
 		appName: "Structural planner",
+		appSettings: WEB_APPS_ONLY,
 		caseTypes: [{ name: "household", properties: [] }],
 		modules: [
 			{ ...parent, forms: [] },

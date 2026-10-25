@@ -23,7 +23,7 @@
  * `declaredForContent`, which applies a `declared` plan and throws on any
  * other.
  */
-import { produce } from "immer";
+import { Immer } from "immer";
 import {
 	type BlueprintDoc,
 	PLATFORM_FEATURE_IDS,
@@ -146,6 +146,11 @@ export function planContentDeclaration(
 	};
 }
 
+/** The applier leaves its result as mutable as the document it was given:
+ * a fuzz draw goes on to `fuzzSample.ts::afterDraw`, which edits it in
+ * place. */
+const UNFROZEN = new Immer({ autoFreeze: false });
+
 /** A document whose content no declaration admits as it stands. */
 export class PlatformDeclarationBlocked extends Error {
 	constructor(
@@ -165,10 +170,13 @@ export class PlatformDeclarationBlocked extends Error {
  *  naming the plan's kind and its blocking feature ids or field, on any kind
  *  but `declared`. Deterministic and idempotent. */
 export function declaredForContent(doc: BlueprintDoc): BlueprintDoc {
-	const plan = planContentDeclaration(doc);
+	// The split planner applies each split to a working copy with Immer, which
+	// freezes what the copy shares with its source; planning over a clone
+	// keeps the given document as mutable as it came.
+	const plan = planContentDeclaration(structuredClone(doc));
 	if (plan.kind !== "declared") throw new PlatformDeclarationBlocked(plan);
 	if (plan.mutations.length === 0) return doc;
-	return produce(doc, (draft) => {
+	return UNFROZEN.produce(doc, (draft) => {
 		applyMutations(draft, plan.mutations);
 	});
 }

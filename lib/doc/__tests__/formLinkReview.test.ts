@@ -276,6 +276,8 @@ describe("formLinkTargetVerdict", () => {
 			if (source === undefined || target === undefined)
 				throw new Error("fixture");
 			source.selection = { kind: "multiple", maximum: 10 };
+			// Choosing several cases runs in Web Apps alone.
+			draft.appSettings.runsOnlyOn = "web-apps";
 			target.selection = { kind: "multiple", maximum: 5 };
 			draft.forms[REGISTER].type = "followup";
 		});
@@ -315,6 +317,8 @@ describe("formLinkTargetVerdict", () => {
 			if (source === undefined || target === undefined)
 				throw new Error("fixture");
 			source.selection = { kind: "multiple", maximum: 10 };
+			// Choosing several cases runs in Web Apps alone.
+			draft.appSettings.runsOnlyOn = "web-apps";
 			target.selection = { kind: "multiple", maximum: 10 };
 			draft.forms[REGISTER].type = "followup";
 		});
@@ -367,6 +371,8 @@ describe("formLinkTargetVerdict", () => {
 				throw new Error("fixture");
 			}
 			source.selection = { kind: "multiple", maximum: 10 };
+			// Choosing several cases runs in Web Apps alone.
+			draft.appSettings.runsOnlyOn = "web-apps";
 			target.selection = { kind: "multiple", maximum: 10 };
 			draft.forms[REGISTER].type = "followup";
 			const visit = draft.forms[VISIT];

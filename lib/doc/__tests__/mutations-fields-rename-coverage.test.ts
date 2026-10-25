@@ -408,7 +408,11 @@ describe("field reference projection after rename and move", () => {
 	it.each(["learn", "deliver"] as const)(
 		"projects %s Connect expressions established by the real whole-app planner",
 		(mode) => {
-			const base = fixture();
+			// A Connect app runs on Android alone, so the app declares it before
+			// Connect is turned on.
+			const base = commit(fixture(), [
+				{ kind: "setAppSettings", settings: { runsOnlyOn: "android" } },
+			]);
 			const connect =
 				mode === "learn"
 					? {

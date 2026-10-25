@@ -54,6 +54,8 @@ function withBatch(doc: BlueprintDoc): BlueprintDoc {
 	});
 	const merged: BlueprintDoc = {
 		...doc,
+		// Choosing several cases runs in Web Apps alone.
+		appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" },
 		modules: { ...doc.modules, ...batch.modules },
 		moduleOrder: [...doc.moduleOrder, ...batch.moduleOrder],
 		forms: { ...doc.forms, ...batch.forms },

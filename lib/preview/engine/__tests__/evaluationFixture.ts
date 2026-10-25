@@ -7,8 +7,9 @@ import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
 export async function createEvaluationApp(
 	modules: Parameters<typeof namedFormFixture>[0],
 	setup: Array<{ toolName: string; input: unknown }>,
+	options: Parameters<typeof namedFormFixture>[1] = {},
 ) {
-	const harness = makeAuthoringHarness({}, namedFormFixture(modules));
+	const harness = makeAuthoringHarness({}, namedFormFixture(modules, options));
 	for (const { toolName, input } of setup) {
 		expect(await harness.call(toolName, input)).not.toHaveProperty("error");
 	}

@@ -18,17 +18,18 @@
  * two hidden values seeded from the case's `seen` and `due`, the text row.
  * "Book" writes both properties, so HQ knows them, its writers in name order.
  *
- * The Web Apps client draws no widget for a date and time question, so
- * Formplayer's walk of "Visit instants" ends at the submit, which it refuses
- * on every state of HQ's builds (finding 74's stop, held in
- * `proof/walk-stops.json`).
+ * The document declares Android only, where a device has a widget for a date
+ * and time question and Formplayer's walk answers it as Core's session does;
+ * its control keeps the form an app declaring Web Apps held, where the
+ * client's placeholder stops the walk at the submit (finding 74's stop, held
+ * on the control in `proof/walk-stops.json`).
  *
  * Fixed values: the visit starts at 10:00 and ends at 11:00 on one day, so
  * the start is before the end; the case was seen a day before it is due.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { plainColumn, proseText } from "@/lib/domain";
+import { NEW_APP_SETTINGS, plainColumn, proseText } from "@/lib/domain";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { restoreXml } from "../restore";
 
@@ -41,6 +42,8 @@ export function datetimeOrdering() {
 	const doc = buildDoc({
 		appId: ID,
 		appName: "Visit instants",
+		// A date-and-time question runs on Android alone.
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 		caseTypes: [
 			{
 				name: "visit",
