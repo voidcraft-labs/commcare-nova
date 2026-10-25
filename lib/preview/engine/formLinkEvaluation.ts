@@ -65,7 +65,11 @@ import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
 import type { XPathInstance } from "../xpath/runtimeValues";
-import type { EvalContext, XPathValue } from "../xpath/types";
+import {
+	dayNumberEpochOf,
+	type EvalContext,
+	type XPathValue,
+} from "../xpath/types";
 import { snapshotXPathWorkerInstance } from "../xpath/workerProjection";
 import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import { expressionReadsCaseDatabase } from "./expressionCaseReads";
@@ -243,6 +247,7 @@ export function formLinkEvalContext(
 		getValue: (path) => closedFormRead(`"${path}"`),
 		resolveXPathInstance: (instanceId) => secondaryInstances.get(instanceId),
 		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
+		dayNumberEpoch: dayNumberEpochOf(input.session),
 	};
 }
 

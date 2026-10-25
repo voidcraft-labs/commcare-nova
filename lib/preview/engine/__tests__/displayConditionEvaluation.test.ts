@@ -2,7 +2,7 @@
 // evaluated over the session, the device's cases and the lookup fixtures.
 // Native Core compatibility is established separately by the wire corpus.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, withUserSequences } from "@/lib/__tests__/docHelpers";
 import { lookupTypeIndexFromNaming } from "@/lib/commcare/lookup/naming";
@@ -24,6 +24,7 @@ import {
 	tableColumn,
 	tableLookup,
 	term,
+	today,
 } from "@/lib/domain/expression";
 import { slotContext } from "@/lib/domain/expression/context";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -32,7 +33,11 @@ import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
-import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import {
+	androidDevice,
+	webAppsDevice,
+} from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import { coreDaysSinceEpoch } from "@/lib/preview/xpath/coreDays";
 import {
 	formDisplayVisibility as evaluateFormDisplayVisibility,
 	moduleDisplayVisibility as evaluateModuleDisplayVisibility,
@@ -41,6 +46,7 @@ import {
 } from "../displayConditionEvaluation";
 import {
 	type PreviewSearchSessionValues,
+	previewAsMe,
 	previewSessionValues,
 } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
@@ -548,5 +554,41 @@ describe("formDisplayVisibility", () => {
 		expect(serializeWire(wire, { target: "preview" }).text).toBe(
 			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/region = 'north'",
 		);
+	});
+});
+
+describe("day numbers in a menu", () => {
+	/* Formplayer's JVM counts day numbers from UTC midnight and Android from
+	 * the device zone's, which differ by a day where local midnight is more
+	 * than twelve hours ahead of UTC. The menu's condition counts from the
+	 * epoch of the platform its session was built for. */
+	it("counts from the platform's epoch", () => {
+		const originalTimeZone = process.env.TZ;
+		vi.useFakeTimers();
+		try {
+			/* A fixed fourteen hours ahead, with no historical offset to blur it. */
+			process.env.TZ = "Etc/GMT-14";
+			vi.setSystemTime(new Date("2026-05-06T12:00:00Z"));
+			const may7 = Date.UTC(2026, 4, 7) / 86_400_000;
+			const utc = coreDaysSinceEpoch(may7, "utc");
+			expect(coreDaysSinceEpoch(may7, "device-zone")).not.toBe(utc);
+			const identity = previewAsMe({ id: "u1", email: "ada@example.org" });
+			const visibility = (session: PreviewSearchSessionValues) =>
+				moduleDisplayVisibility({
+					condition: eq(today(), literal(utc)),
+					session,
+					lookup: NO_LOOKUP,
+				});
+			expect(visibility(previewSessionValues(identity, webAppsDevice()))).toBe(
+				"shown",
+			);
+			expect(visibility(previewSessionValues(identity, androidDevice()))).toBe(
+				"hidden",
+			);
+		} finally {
+			vi.useRealTimers();
+			if (originalTimeZone === undefined) delete process.env.TZ;
+			else process.env.TZ = originalTimeZone;
+		}
 	});
 });

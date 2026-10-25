@@ -105,7 +105,11 @@ import {
 } from "@/lib/preview/engine/previousTask";
 import { searchInputInstanceValues } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
-import { usePreviewLookupReload } from "@/lib/preview/engine/useLookupPreviewData";
+import {
+	type PreviewLookupStatus,
+	usePreviewLookupReload,
+	usePreviewLookupStatus,
+} from "@/lib/preview/engine/useLookupPreviewData";
 import {
 	type CaseDatabaseSnapshot,
 	formReadsSearchResults,
@@ -842,6 +846,32 @@ export function FormScreen({ screen }: FormScreenProps) {
 			mountedRef.current = false;
 		};
 	}, []);
+	/* The live lookup status and worker, for the after-submit route: a link
+	 * target whose menu visibility is still pending (lookup data loading, the
+	 * worker hydrating) waits for the next of either, as the menus' own
+	 * visibility reads do. Unmounting releases a waiting route, which then
+	 * finds its attempt stale. */
+	const lookupStatus = usePreviewLookupStatus();
+	const visibilityInputsRef = useRef({ lookupStatus, previewIdentity });
+	const visibilityWaitersRef = useRef(new Set<() => void>());
+	useEffect(() => {
+		visibilityInputsRef.current = { lookupStatus, previewIdentity };
+		const waiters = [...visibilityWaitersRef.current];
+		visibilityWaitersRef.current.clear();
+		for (const wake of waiters) wake();
+	}, [lookupStatus, previewIdentity]);
+	useEffect(() => {
+		const waiters = visibilityWaitersRef.current;
+		return () => {
+			const pending = [...waiters];
+			waiters.clear();
+			for (const wake of pending) wake();
+		};
+	}, []);
+	const nextVisibilityInputs = (): Promise<void> =>
+		new Promise((resolve) => {
+			visibilityWaitersRef.current.add(resolve);
+		});
 	const submissionContextRef = useRef<SubmissionContextSnapshot>({
 		scopeEpoch,
 		appId,
@@ -1444,57 +1474,71 @@ export function FormScreen({ screen }: FormScreenProps) {
 			});
 			const linkedCaseCollections =
 				linkedCaseCollection === undefined ? [] : [linkedCaseCollection];
-			const route = afterSubmitRoute({
-				previousTask: () =>
-					resolvePreviousTask({
-						doc,
-						formUuid: sourceFormUuid,
-						submittedCaseIds: resultCaseIds,
-						selections: menuCaseSelections,
-						caseDatabase: refreshedCaseDatabase,
-					}),
-				choice,
-				doc,
-				caseFirstModules,
-				hasSelectedCase: (targetModuleUuid, projectedSelections) => {
-					return previewTargetHasSelectedCase({
-						menuSource: routeMenuSource,
-						current: selectionsForModuleTask(
+			/* The menu reads the live lookup snapshot; the form's own capture
+			 * stands in until one arrives. */
+			const targetLookup = (): PreviewLookupStatus => {
+				const live = visibilityInputsRef.current.lookupStatus;
+				if (live.kind === "data") return live;
+				const captured = input.lookupData;
+				return captured === null || captured === undefined
+					? live
+					: { kind: "data", data: captured };
+			};
+			const routeOnce = () =>
+				afterSubmitRoute({
+					previousTask: () =>
+						resolvePreviousTask({
 							doc,
+							formUuid: sourceFormUuid,
+							submittedCaseIds: resultCaseIds,
+							selections: menuCaseSelections,
+							caseDatabase: refreshedCaseDatabase,
+						}),
+					choice,
+					doc,
+					caseFirstModules,
+					hasSelectedCase: (targetModuleUuid, projectedSelections) => {
+						return previewTargetHasSelectedCase({
+							menuSource: routeMenuSource,
+							current: selectionsForModuleTask(
+								doc,
+								targetModuleUuid,
+								menuCaseSelections,
+							),
 							targetModuleUuid,
-							menuCaseSelections,
-						),
-						targetModuleUuid,
-						projected: projectedSelections,
-						collections: linkedCaseCollections,
-					});
-				},
-				carriedCase: (link) =>
-					carriedCaseFromSelections(input, link, projectedSelections),
-				caseSelections: () => projectedSelections,
-				rules: platformRules,
-				targetVisibility: (link) =>
-					afterSubmitTargetVisibility({
-						doc,
-						link,
-						session: input.session,
-						lookup:
-							input.lookupData === null || input.lookupData === undefined
-								? { kind: "idle" }
-								: { kind: "data", data: input.lookupData },
-						deviceCases: {
-							snapshot: refreshedCaseDatabase,
-							caseTypes: submitted.caseTypes,
-						},
-						caseSelections: projectedSelections,
-					}),
-			});
-			if (route.kind === "pending") {
-				failAfterSave(
-					"Your answers were saved, but the next screen depends on data that's still loading. You can open it from the menu.",
-					"target-visibility-pending",
-				);
-				return;
+							projected: projectedSelections,
+							collections: linkedCaseCollections,
+						});
+					},
+					carriedCase: (link) =>
+						carriedCaseFromSelections(input, link, projectedSelections),
+					caseSelections: () => projectedSelections,
+					rules: platformRules,
+					targetVisibility: (link) =>
+						afterSubmitTargetVisibility({
+							doc,
+							link,
+							session: previewSessionValues(
+								visibilityInputsRef.current.previewIdentity,
+								previewDevice,
+							),
+							lookup: targetLookup(),
+							deviceCases: {
+								snapshot: refreshedCaseDatabase,
+								caseTypes: submitted.caseTypes,
+							},
+							caseSelections: projectedSelections,
+						}),
+				});
+			let route = routeOnce();
+			while (route.kind === "pending") {
+				await nextVisibilityInputs();
+				if (!isCurrent()) {
+					announceWrite();
+					settleAttempt({ kind: "idle" });
+					return;
+				}
+				route = routeOnce();
 			}
 			let targetCaseData = caseData;
 			let targetFormCaseData: ReturnType<typeof caseDatabaseToFormPreloads>;

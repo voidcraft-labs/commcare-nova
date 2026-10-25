@@ -19,6 +19,7 @@ import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
 import type { XPathInstance } from "@/lib/preview/xpath/runtimeValues";
+import { dayNumberEpochOf } from "@/lib/preview/xpath/types";
 import type { PreviewPlatformRules } from "../platform";
 import { dateRangeInputErrors } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
@@ -308,6 +309,7 @@ function runtimeRejectionApplies(
 			getValue: () => undefined,
 			resolveXPathInstance: (id) => instances.get(id),
 			invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
+			dayNumberEpoch: dayNumberEpochOf(session),
 		}),
 	);
 }

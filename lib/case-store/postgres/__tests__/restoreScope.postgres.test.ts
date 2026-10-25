@@ -526,7 +526,8 @@ describe("relation walks", () => {
 describe("the cases outside the restore", () => {
 	it("pages the search population less the worker's restore, each once, and counts it", async () => {
 		/* 120 open cases, 30 the worker's restore holds; three closed ones
-		 * a search never reads. */
+		 * a search never reads, and one open case outside the restore that
+		 * is held, which every read leaves out. */
 		await h.pool.query(
 			`INSERT INTO cases
 			 (case_id, app_id, project_id, owner_id, case_type, case_name, status, properties)
@@ -536,6 +537,13 @@ describe("the cases outside the restore", () => {
 			        CASE WHEN n > 120 THEN 'closed' ELSE 'open' END, '{}'::jsonb
 			 FROM generate_series(1, 123) AS n`,
 			[APP_ID, PROJECT_ID, WORKER, OTHER],
+		);
+		await addCase({ id: "held-outside", caseType: "patient", owner: OTHER });
+		await h.pool.query(
+			`INSERT INTO parked_case_values
+			 (app_id, case_id, case_type, property, original_value, reason, from_type, to_type)
+			 VALUES ($1, 'held-outside', 'patient', 'age', '"old"', 'retype', 'text', 'integer')`,
+			[APP_ID],
 		);
 		const population = {
 			heldBy: RESTORE,

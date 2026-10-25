@@ -65,7 +65,11 @@ import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import type { XPathInstance } from "../xpath/runtimeValues";
-import type { EvalContext, XPathValue } from "../xpath/types";
+import {
+	dayNumberEpochOf,
+	type EvalContext,
+	type XPathValue,
+} from "../xpath/types";
 import { expressionReadsCaseDatabase } from "./expressionCaseReads";
 import type { PreviewSearchSessionValues } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
@@ -293,7 +297,7 @@ export async function evaluateSearchCsqlRuntime(
 				}),
 	};
 	const instances = searchCsqlInstances(world);
-	const context = evalContext(instances);
+	const context = evalContext(instances, world.session);
 	const piece = async (wire: WireExpr): Promise<XPathValue | undefined> => {
 		const source = serializeWire(wire, { target: "suite" }).text;
 		try {
@@ -491,6 +495,7 @@ function searchCsqlInstances(
 
 function evalContext(
 	instances: ReadonlyMap<string, XPathInstance>,
+	session: PreviewSearchSessionValues,
 ): EvalContext {
 	return {
 		contextPath: "",
@@ -498,6 +503,7 @@ function evalContext(
 		getValue: () => undefined,
 		resolveXPathInstance: (id) => instances.get(id),
 		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
+		dayNumberEpoch: dayNumberEpochOf(session),
 	};
 }
 

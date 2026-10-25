@@ -86,7 +86,7 @@ function sectionedForm(device?: PreviewDevice): FormEngine {
 	);
 }
 
-describe("FormEngine.sectionPages", () => {
+describe("FormEngine.sectionScreens", () => {
 	it("lists the root sections in order, with their data paths", () => {
 		const pages = sectionedForm().sectionScreens();
 		expect(pages.map((page) => page.uuid)).toEqual([

@@ -41,7 +41,7 @@ import { toBoolean, xpathToString } from "@/lib/preview/xpath/coerce";
 import { evaluate, evaluateRuntime } from "@/lib/preview/xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
 import type { XPathInstance } from "@/lib/preview/xpath/runtimeValues";
-import type { EvalContext } from "@/lib/preview/xpath/types";
+import { dayNumberEpochOf, type EvalContext } from "@/lib/preview/xpath/types";
 import { snapshotXPathWorkerInstance } from "@/lib/preview/xpath/workerProjection";
 import type { XPathWorkerInstances } from "@/lib/preview/xpath/workerProtocol";
 import {
@@ -157,9 +157,11 @@ function searchScreenTree(
 }
 
 /** The structural world of the Search screen: no case row and no form
- *  instance, only the named instances the device's query screen holds. */
+ *  instance, only the named instances the device's query screen holds,
+ *  counting day numbers from its platform's epoch. */
 function searchScreenEvalContext(
 	instances: ReadonlyMap<string, XPathInstance>,
+	session: PreviewSearchSessionValues,
 ): EvalContext {
 	return {
 		contextPath: "",
@@ -167,6 +169,7 @@ function searchScreenEvalContext(
 		getValue: () => undefined,
 		resolveXPathInstance: (instanceId) => instances.get(instanceId),
 		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
+		dayNumberEpoch: dayNumberEpochOf(session),
 	};
 }
 
@@ -195,7 +198,7 @@ export function evaluatePreviewSearchExpression(
 			printSearchScreenTree(
 				searchScreenTree(expression, types, session, lookupData),
 			),
-			searchScreenEvalContext(instances),
+			searchScreenEvalContext(instances, session),
 		),
 	);
 }
@@ -223,7 +226,7 @@ export function evaluatePreviewSearchPredicate(
 		inputValues,
 	);
 	return toBoolean(
-		evaluate(xpath.source, searchScreenEvalContext(xpath.instances)),
+		evaluate(xpath.source, searchScreenEvalContext(xpath.instances, session)),
 	);
 }
 
@@ -445,7 +448,7 @@ export function resolveSearchInputChoices(
 	return lookupChoicesFromNodeset(
 		input.options,
 		lookupData,
-		evaluateRuntime(nodeset, searchScreenEvalContext(instances)),
+		evaluateRuntime(nodeset, searchScreenEvalContext(instances, session)),
 		sortColumnId,
 	);
 }

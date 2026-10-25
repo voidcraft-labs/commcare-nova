@@ -384,8 +384,10 @@ describe("previewSessionValues", () => {
 			applanguage: "es",
 		});
 		expect(values.user).toBe(identity?.session.user);
+		expect(values.dayNumberEpoch).toBe("utc");
 		/* The identity itself is untouched. */
 		expect(identity?.session.context).not.toHaveProperty("deviceid");
+		expect(identity?.session).not.toHaveProperty("dayNumberEpoch");
 	});
 
 	it("gives Android's install id and version and no window width", () => {
@@ -401,6 +403,7 @@ describe("previewSessionValues", () => {
 			drift: "0",
 			applanguage: "en",
 		});
+		expect(values.dayNumberEpoch).toBe("device-zone");
 	});
 
 	it("omits window_width on Web Apps when no window was measured", () => {

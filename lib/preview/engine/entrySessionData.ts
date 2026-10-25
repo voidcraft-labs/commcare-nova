@@ -42,7 +42,7 @@ import { previewMenuCaseContext } from "../menuProjection";
 import { xpathToString } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
-import type { EvalContext } from "../xpath/types";
+import { dayNumberEpochOf, type EvalContext } from "../xpath/types";
 import type { SessionDatumValue } from "./formLinkEvaluation";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
@@ -406,6 +406,7 @@ function evaluateDatumFunction(
 		resolveXPathInstance: (instanceId) =>
 			instances.get(instanceId as "commcaresession" | "casedb"),
 		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
+		dayNumberEpoch: dayNumberEpochOf(world.session),
 	};
 	return xpathToString(evaluate(source, context));
 }
