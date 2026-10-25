@@ -8,9 +8,10 @@ import {
 import {
 	captureContentType,
 	captureExtensionFor,
+	captureFamilyExtensionFor,
 	captureInstancePathMatchesTemplate,
+	captureMimeFamilyFor,
 	captureObjectKeyFor,
-	captureRowFitsKind,
 	isCaptureMimeFamilyKind,
 	MAX_SUBMITTED_CAPTURE_BYTES,
 	MAX_SUBMITTED_CAPTURE_COUNT,
@@ -110,15 +111,22 @@ export function captureRowMatchesCommittedDescriptor(
 			format.extension === row.extension &&
 			format.contentType === row.contentType,
 	);
-	if (listed) {
-		return (
-			captureExtensionFor(descriptor.captureKind, row.originalFilename) ===
-				row.extension && captureContentType(row.extension) === row.contentType
-		);
+	if (
+		listed &&
+		captureExtensionFor(descriptor.captureKind, row.originalFilename) ===
+			row.extension &&
+		captureContentType(row.extension) === row.contentType
+	) {
+		return true;
 	}
+	/* A family row can carry a listed (extension, type) pair while its
+	 * filename gave no listed extension (`photo` kept `.jpg`), so a failed
+	 * list check still falls through to the family's own rule. */
+	const kind = descriptor.captureKind;
 	return (
-		isCaptureMimeFamilyKind(descriptor.captureKind) &&
-		captureRowFitsKind(descriptor.captureKind, row)
+		isCaptureMimeFamilyKind(kind) &&
+		captureMimeFamilyFor(kind, row.contentType) !== undefined &&
+		captureFamilyExtensionFor(kind, row.originalFilename) === row.extension
 	);
 }
 
