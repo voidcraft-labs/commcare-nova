@@ -24,88 +24,96 @@ const geopoint = test.extend<{
 	};
 }>({
 	runsOn: ["web-apps", { option: true }],
-	google: async ({ page, runsOn }, use) => {
-		const peer = await componentPeer(
-			"e2e/lib/preview-geopoint-client.tsx",
-			[],
-			{
-				"@googlemaps/js-api-loader": resolve(
-					"e2e/lib/preview-geopoint-google-peer.ts",
-				),
-			},
-			{
-				"process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY":
-					'"synthetic-public-browser-key"',
-				"process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID": '"synthetic-map"',
-			},
-		);
-		const held = new Map<
-			string,
-			ReturnType<typeof Promise.withResolvers<void>>
-		>();
-		const requests = new Map<string, number>();
-		const peerRoutes = removableRoutes(page);
-		await peerRoutes.route(`${peer.origin}/geopoint-peer/**`, async (route) => {
-			const url = new URL(route.request().url());
-			const path = `${url.pathname.split("/").at(-1)}${url.search}`;
-			requests.set(path, (requests.get(path) ?? 0) + 1);
-			await held.get(path)?.promise;
-			const query = url.searchParams.get("query") ?? "";
-			const place = url.searchParams.get("place");
-			const json = url.pathname.endsWith("suggestions")
-				? [{ id: query, label: `${query} address` }]
-				: url.pathname.endsWith("details")
-					? {
-							lat: place === "Fresh" ? 41 : 40,
-							lng: place === "Fresh" ? -75 : -74,
-							label: `${place} address`,
-						}
-					: [
-							{
-								formatted_address: `Coordinates ${url.searchParams.get("lat")}`,
-							},
-						];
-			await route.fulfill({ json });
-		});
-		try {
-			if (runsOn === "android") {
-				await page.goto(`${peer.origin}/?android`);
-				await expect(
-					page.getByRole("button", { name: "Record location", exact: true }),
-				).toBeVisible();
-			} else {
-				await page.goto(peer.origin);
-				await expect(page.getByRole("combobox")).toBeVisible();
-			}
-			await use({
-				hold(path) {
-					held.set(path, Promise.withResolvers<void>());
+	/* Automatic: it opens the peer page, which a test that never asks for
+	 * the Places peer (Android's Record location) still needs. */
+	google: [
+		async ({ page, runsOn }, use) => {
+			const peer = await componentPeer(
+				"e2e/lib/preview-geopoint-client.tsx",
+				[],
+				{
+					"@googlemaps/js-api-loader": resolve(
+						"e2e/lib/preview-geopoint-google-peer.ts",
+					),
 				},
-				release(path) {
-					held.get(path)?.resolve();
-					held.delete(path);
+				{
+					"process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY":
+						'"synthetic-public-browser-key"',
+					"process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID": '"synthetic-map"',
 				},
-				requested(path) {
-					return requests.get(path) ?? 0;
+			);
+			const held = new Map<
+				string,
+				ReturnType<typeof Promise.withResolvers<void>>
+			>();
+			const requests = new Map<string, number>();
+			const peerRoutes = removableRoutes(page);
+			await peerRoutes.route(
+				`${peer.origin}/geopoint-peer/**`,
+				async (route) => {
+					const url = new URL(route.request().url());
+					const path = `${url.pathname.split("/").at(-1)}${url.search}`;
+					requests.set(path, (requests.get(path) ?? 0) + 1);
+					await held.get(path)?.promise;
+					const query = url.searchParams.get("query") ?? "";
+					const place = url.searchParams.get("place");
+					const json = url.pathname.endsWith("suggestions")
+						? [{ id: query, label: `${query} address` }]
+						: url.pathname.endsWith("details")
+							? {
+									lat: place === "Fresh" ? 41 : 40,
+									lng: place === "Fresh" ? -75 : -74,
+									label: `${place} address`,
+								}
+							: [
+									{
+										formatted_address: `Coordinates ${url.searchParams.get("lat")}`,
+									},
+								];
+					await route.fulfill({ json });
 				},
-			});
-		} finally {
-			for (const gate of held.values()) gate.resolve();
+			);
 			try {
-				await page.evaluate(async () => {
-					window.nativeGeolocationDelivery?.release();
-					await window.previewGeopointAudit?.dispose();
+				if (runsOn === "android") {
+					await page.goto(`${peer.origin}/?android`);
+					await expect(
+						page.getByRole("button", { name: "Record location", exact: true }),
+					).toBeVisible();
+				} else {
+					await page.goto(peer.origin);
+					await expect(page.getByRole("combobox")).toBeVisible();
+				}
+				await use({
+					hold(path) {
+						held.set(path, Promise.withResolvers<void>());
+					},
+					release(path) {
+						held.get(path)?.resolve();
+						held.delete(path);
+					},
+					requested(path) {
+						return requests.get(path) ?? 0;
+					},
 				});
 			} finally {
+				for (const gate of held.values()) gate.resolve();
 				try {
-					await peerRoutes.removeAll();
-					await page.close();
+					await page.evaluate(async () => {
+						window.nativeGeolocationDelivery?.release();
+						await window.previewGeopointAudit?.dispose();
+					});
 				} finally {
-					await peer.close();
+					try {
+						await peerRoutes.removeAll();
+						await page.close();
+					} finally {
+						await peer.close();
+					}
 				}
 			}
-		}
-	},
+		},
+		{ auto: true },
+	],
 });
 
 geopoint.describe("on Android", () => {

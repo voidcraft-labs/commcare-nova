@@ -3164,10 +3164,17 @@ test.describe("authenticated builder", () => {
 				const trail = page.getByRole("navigation", { name: "Page navigation" });
 				await expect(trail).toContainText(FORM_LINKS_SEED.caseName);
 				await expect(trail).toContainText(followUp.formName);
-				await main.getByRole("button", { name: "Next", exact: true }).click();
+				// Preview runs as Web Apps, which shows a sectioned form on one
+				// screen: both sections are there, with no pager.
+				await expect(
+					main.getByRole("heading", { name: "Follow-up details", exact: true }),
+				).toBeVisible();
 				await expect(
 					main.getByRole("heading", { name: "Follow-up review", exact: true }),
 				).toBeVisible();
+				await expect(
+					main.getByRole("button", { name: "Next", exact: true }),
+				).toHaveCount(0);
 				// Hold only the source's selected-record read, retaining its real
 				// response. The previously visited form must not accept answers
 				// against stale data while the fresh entry is still being prepared.

@@ -74,7 +74,7 @@ test("case choice sources stage atomically and Preview filters choices when an e
 });
 
 test(
-	"a 30-member attendance checklist retains final selections across Back and submits",
+	"a 30-member attendance checklist shows its final selections on one screen and submits",
 	{ tag: "@seed:case-choices" },
 	async ({ scenario, page }, info) => {
 		const { caseChoices } = seedFor(scenario, "case-choices");
@@ -89,6 +89,15 @@ test(
 			.click();
 		await main.getByRole("button", { name: "Continue", exact: true }).click();
 		await expect(main.getByRole("checkbox")).toHaveCount(30);
+		/* Preview runs as Web Apps, which shows the sectioned form on one
+		 * screen: the second section's line is there beside the checklist, and
+		 * no pager. */
+		await expect(
+			main.getByText("Your attendance is ready to save", { exact: true }),
+		).toBeVisible();
+		await expect(
+			main.getByRole("button", { name: "Next", exact: true }),
+		).toHaveCount(0);
 		const alex = main.getByRole("checkbox", { name: "Alex", exact: true });
 		await main
 			.locator("label")
@@ -100,12 +109,8 @@ test(
 			.filter({ hasText: /^Alex$/ })
 			.nth(1)
 			.click();
-		await main.getByRole("button", { name: "Next", exact: true }).click();
-		await expect(
-			main.getByText("Your attendance is ready to save", { exact: true }),
-		).toBeVisible();
-		await main.getByRole("button", { name: "Back", exact: true }).click();
 		await expect(alex.nth(0)).toBeChecked();
+		await expect(alex.nth(1)).toBeChecked();
 		await main
 			.locator("label")
 			.filter({ hasText: /^Alex$/ })
@@ -115,6 +120,11 @@ test(
 			.locator("label")
 			.filter({ hasText: /^Member 30$/ })
 			.click();
+		await expect(alex.nth(0)).not.toBeChecked();
+		await expect(alex.nth(1)).toBeChecked();
+		await expect(
+			main.getByRole("checkbox", { name: "Member 30", exact: true }),
+		).toBeChecked();
 		await expect(main.getByRole("checkbox")).toHaveCount(30);
 		await expect(main.getByRole("button", { name: /Add.*row/ })).toHaveCount(0);
 		await expect(main.getByText("roster", { exact: true })).toHaveCount(0);
@@ -125,7 +135,6 @@ test(
 			path: info.outputPath("attendance-checklist.png"),
 			fullPage: true,
 		});
-		await main.getByRole("button", { name: "Next", exact: true }).click();
 		await main.getByRole("button", { name: "Submit", exact: true }).click();
 		await expect(
 			main.getByRole("button", { name: "Attendance", exact: true }),

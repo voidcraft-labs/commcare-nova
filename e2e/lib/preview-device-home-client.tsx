@@ -44,6 +44,9 @@ const session = createBuilderSessionStore({
 	role: "editor",
 	canEdit: true,
 });
+/* The session reads the platform Preview plays off the document, which the
+ * builder installs as it mounts; this peer installs it the same way. */
+session.getState()._setDocStore(docStore);
 /* Preview opens on Android at the app's home: the phone's home screen. */
 session.getState().setPreviewing(true, { atHome: true });
 

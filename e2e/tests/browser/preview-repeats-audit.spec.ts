@@ -14,7 +14,10 @@ import type {} from "../../lib/preview-repeats-client";
 // browser stands in for the device, so the held text and the shown clock
 // follow the browser's zone: New York keeps both as authored on every runner,
 // and Kolkata, whose offset is neither the stored one nor a runner's UTC,
-// shows the converted instant.
+// shows the clock converted into its zone on the authored calendar day:
+// Core's cast converts only the clock and keeps the day it was written on
+// (`DateUtils.parseTimeAndStore`), as Preview's cast does
+// (`XPathDate.parse`).
 
 test.use({ timezoneId: "America/New_York" });
 
@@ -210,11 +213,11 @@ test.describe("on Android, in a zone the stored offset is not", () => {
 			const dateHalf = page.getByRole("button", { name: "Date", exact: true });
 			const clock = page.getByRole("textbox", { name: "Time", exact: true });
 
-			await test.step("a preloaded answer is converted to the device's zone", async () => {
-				// 14:30 at -05:00 is 01:00 the next day in Kolkata (+05:30): both
-				// halves read the converted instant, and Core holds it written in
-				// this zone.
-				await expect(dateHalf).toHaveText("January 16, 2024");
+			await test.step("a preloaded answer's clock is converted to the device's zone", async () => {
+				// 14:30 at -05:00 is 01:00 in Kolkata (+05:30). Core moves the
+				// clock and keeps the authored day, so a device there holds
+				// 01:00 on January 15, and both halves read what it holds.
+				await expect(dateHalf).toHaveText("January 15, 2024");
 				await expect(clock).toHaveValue("1:00 AM");
 				await expect(clock).not.toHaveAttribute("aria-invalid", "true");
 				await expect
@@ -226,7 +229,7 @@ test.describe("on Android, in a zone the stored offset is not", () => {
 								],
 						),
 					)
-					.toMatch(/^2024-01-16T01:00:00(\.000)?\+05:30$/);
+					.toMatch(/^2024-01-15T01:00:00(\.000)?\+05:30$/);
 			});
 
 			await test.step("emptying the clock half answers nothing on the person's behalf", async () => {

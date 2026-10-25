@@ -50,6 +50,7 @@ export function BarcodeField({
 				<input
 					type="text"
 					aria-labelledby={labelledBy}
+					aria-invalid={showError || undefined}
 					value={state.value}
 					onChange={(e) => onChange(e.target.value)}
 					onBlur={onBlur}

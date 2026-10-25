@@ -193,8 +193,9 @@ async function choiceLabelOf(page: Page) {
 
 async function attachOnly(run: Run, label: string) {
 	const { page } = run;
+	/* The file input is named by its question's label and its action. */
 	await expect(
-		page.locator(`input[type="file"][aria-label^="${label}"]`),
+		page.getByLabel(new RegExp(`${label}.*Attach file`)),
 	).toHaveCount(1);
 	await expect(page.locator('input[type="file"][capture]')).toHaveCount(0);
 	for (const name of [
@@ -397,7 +398,8 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect
 			.poll(() => answer(page, PLATFORM_IDS.place))
 			.toBe("41.0 -75.0 0.0 40.0");
-		await expect(page.getByText(/^Accuracy: 40(\.0)?m$/)).toBeVisible();
+		/* Android's reading is one block of four lines, accuracy last. */
+		await expect(page.getByText(/Accuracy: 40(\.0)?m$/)).toBeVisible();
 		/* A fix of 5 metres or better is taken at once. */
 		await page.context().setGeolocation({
 			latitude: 40,
@@ -493,7 +495,12 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 				},
 			});
 		});
-		await page.reload();
+		/* Open the scenario again rather than reload: the peer moved the URL
+		 * to the form's builder path, which it does not serve. */
+		await page.goto(`${platformsPeer.origin}/?scenario=barcode-scan-android`);
+		await expect(
+			page.locator('[data-preview-engine-ready="true"]'),
+		).toBeVisible({ timeout: 20_000 });
 		await expect(page.getByRole("button", { name: /^Scan/ })).toBeVisible();
 		await page.getByRole("textbox", { name: /Code/ }).fill("BC-8");
 		await expect.poll(() => answer(page, PLATFORM_IDS.code)).toBe("BC-8");

@@ -47,11 +47,12 @@ const source = buildDoc({
 const doc = toPersistableDoc(source);
 const moduleUuid = source.moduleOrder[0];
 const formUuid = source.formOrder[moduleUuid][0];
-/* Preview opens inside a form, so returning to app entry is observable. */
+/* Preview opens inside a form, so returning to app entry is observable. A
+ * form's builder path names the form alone. */
 window.history.replaceState(
 	null,
 	"",
-	`/build/native-identity-menu/${moduleUuid}/${formUuid}`,
+	`/build/native-identity-menu/${formUuid}`,
 );
 
 function AccessBridge({ children }: { children: ReactNode }) {
