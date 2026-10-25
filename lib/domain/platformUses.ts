@@ -485,8 +485,23 @@ function moduleUses(
 		{ entity: "module", uuid: moduleUuid },
 		slotOwner,
 	);
+	// Every owner here is the module, one of its columns or one of its search
+	// inputs, so the member's uuid (or none) names it.
+	const memberUuid = (target: PlatformFeatureOwner): Uuid | undefined =>
+		target.kind === "column"
+			? target.columnUuid
+			: target.kind === "search-input"
+				? target.inputUuid
+				: undefined;
+	const usesByMember = new Map<Uuid | undefined, PlatformFeatureUse[]>();
+	for (const use of expression) {
+		const key = memberUuid(use.owner);
+		const bucket = usesByMember.get(key);
+		if (bucket === undefined) usesByMember.set(key, [use]);
+		else bucket.push(use);
+	}
 	const byOwner = (target: PlatformFeatureOwner) =>
-		expression.filter((use) => sameOwner(use.owner, target));
+		usesByMember.get(memberUuid(target)) ?? [];
 	own.push(...byOwner(owner));
 	const out = inFeatureOrder(own);
 
@@ -630,10 +645,6 @@ function fieldUses(
 		}
 	}
 	return sorted;
-}
-
-function sameOwner(a: PlatformFeatureOwner, b: PlatformFeatureOwner): boolean {
-	return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** The uses of features unavailable on any of `platforms`. */

@@ -722,9 +722,9 @@ function projectDefaultProperties(
  * persisted doc (see `commcare-hq/.../suite_xml/sections/details.py::_get_auto_launch_expression`,
  * `commcare-hq/.../suite_xml/post_process/remote_requests.py`, and
  * `commcare-hq/.../app_manager/util.py::module_uses_inline_search`).
- * Nova exposes one canonical authoring surface — no platform toggle
- * — so the projection threads `searchWireShape`'s output onto
- * these slots. Nova's own suite-XML emitter drives
+ * The search's wire shape is one for every platform the app
+ * declares, so the projection threads `searchWireShape`'s output
+ * onto these slots. Nova's own suite-XML emitter drives
  * local rendering on every platform; the persisted CCHQ flags
  * apply when CCHQ regenerates the suite for the web entry point.
  */
@@ -832,8 +832,8 @@ function buildSearchConfigDocument(
 	}
 
 	// `searchWireShape`'s three-flag `WireShape` projects onto the
-	// persisted CCHQ slots. Nova exposes one canonical authoring
-	// surface, one shape for every platform: the HQ JSON ships one form
+	// persisted CCHQ slots. The shape is one for every platform the
+	// app declares: the HQ JSON ships one form
 	// and the web entry point is where CCHQ regenerates the suite from it.
 	// Without this projection, `auto_launch` and `default_search`
 	// would stay at the shell defaults and CCHQ's runtime would never

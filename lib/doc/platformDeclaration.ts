@@ -61,24 +61,20 @@ export type ContentDeclarationPlan =
 			readonly reason: "self-read-through-a-filter";
 	  };
 
-/** The feature ids of `doc`'s uses that read `unavailable` on `platform`,
- * once each, in `PLATFORM_FEATURE_IDS` order. */
+/** The feature ids among `used` that read `unavailable` on `platform`, in
+ * `PLATFORM_FEATURE_IDS` order. */
 function unavailableOn(
-	doc: BlueprintDoc,
+	used: ReadonlySet<PlatformFeatureId>,
 	platform: Platform,
 ): PlatformFeatureId[] {
-	const used = new Set(
-		unavailableUses(doc, PLATFORMS)
-			.map((use) => use.feature)
-			.filter(
-				(feature) =>
-					(platform === "web-apps"
-						? PLATFORM_FEATURES[feature].webApps
-						: PLATFORM_FEATURES[feature].android
-					).reading === "unavailable",
-			),
+	return PLATFORM_FEATURE_IDS.filter(
+		(id) =>
+			used.has(id) &&
+			(platform === "web-apps"
+				? PLATFORM_FEATURES[id].webApps
+				: PLATFORM_FEATURES[id].android
+			).reading === "unavailable",
 	);
-	return PLATFORM_FEATURE_IDS.filter((id) => used.has(id));
 }
 
 function declaring(runsOnlyOn: Platform): Mutation {
@@ -98,8 +94,11 @@ export function planContentDeclaration(
 			mutations: [],
 			splits: [],
 		};
-	const webApps = unavailableOn(doc, "web-apps");
-	const android = unavailableOn(doc, "android");
+	const used = new Set(
+		unavailableUses(doc, PLATFORMS).map((use) => use.feature),
+	);
+	const webApps = unavailableOn(used, "web-apps");
+	const android = unavailableOn(used, "android");
 	if (webApps.length === 0 && android.length === 0)
 		return {
 			kind: "declared",
