@@ -167,6 +167,7 @@ function EntryPointCasePicker(props: {
 	const parentKey = JSON.stringify(props.parentCase);
 	/* A claimed case is held, so the picker offers it like any other. */
 	const claimedCaseIds = usePreviewClaimedCaseIds(props.personaUuid);
+	const device = usePreviewDevice();
 	const reloadToken = useMemo(
 		() => [
 			appId,
@@ -176,6 +177,7 @@ function EntryPointCasePicker(props: {
 			parentKey,
 			page,
 			claimedCaseIds,
+			device.platform,
 		],
 		[
 			appId,
@@ -185,6 +187,7 @@ function EntryPointCasePicker(props: {
 			parentKey,
 			page,
 			claimedCaseIds,
+			device.platform,
 		],
 	);
 	type State = LoadCasesResult | { kind: "loading" };
@@ -200,6 +203,7 @@ function EntryPointCasePicker(props: {
 								claimedCaseIds: [...claimedCaseIds],
 								parentCase: props.parentCase,
 								page: { offset: page * 50, limit: 50 },
+								device: withNavigationWidth(device),
 							}),
 					}
 				: { notReady: { kind: "loading" } },
@@ -216,12 +220,11 @@ function EntryPointCasePicker(props: {
 	 * not hold: Web Apps claims one chosen here, and Android opens the form
 	 * without its saved values, as each platform does with a case the
 	 * worker's device lacks. */
-	const device = usePreviewDevice();
 	const platformRules = usePreviewPlatformRules();
 	const [otherPage, setOtherPage] = useState(0);
 	const otherReloadToken = useMemo(
-		() => [...reloadToken, otherPage, device.platform],
-		[reloadToken, otherPage, device.platform],
+		() => [...reloadToken, otherPage],
+		[reloadToken, otherPage],
 	);
 	const { state: otherState } = useReloadableResource<State>({
 		prepare: () =>

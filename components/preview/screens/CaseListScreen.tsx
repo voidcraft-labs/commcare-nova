@@ -2025,6 +2025,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				...(readsSearchResults && moduleUuid !== undefined
 					? { search: true, moduleUuid }
 					: {}),
+				device: withNavigationWidth(device),
 			});
 			const validationIsCurrent =
 				selectionValidationTokenRef.current === validationToken &&
