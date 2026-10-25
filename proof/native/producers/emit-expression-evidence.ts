@@ -10,6 +10,10 @@ import {
 	instantFixedClock,
 	instantOrderingPairs,
 } from "../../../lib/commcare/__tests__/instantOrderingTable";
+import {
+	WINDOW_WIDTH_GATE_NODES,
+	windowWidthGateXForm,
+} from "../../../lib/commcare/__tests__/sessionContextFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { xel } from "../../../lib/commcare/elementBuilders";
 import { expandDoc } from "../../../lib/commcare/expander";
@@ -360,6 +364,27 @@ writeFileSync(
 				property: "seen_at",
 				value: "2026-03-04T10:30:00.000000Z",
 				instant: "2026-03-04T10:30:00Z",
+			},
+		})}\n`,
+	);
+}
+
+// SessionContextRuntimeTest runs the session context reads in Core. The
+// window width gate's form is a control written by hand, since Nova never
+// emits a bare width read in a form: Core decides whether one throws when a
+// later request carries no width.
+{
+	const directory = resolve(output, "session-context");
+	mkdirSync(directory, { recursive: true });
+	writeFileSync(resolve(directory, "window-width.xml"), windowWidthGateXForm());
+	writeFileSync(
+		resolve(output, "session-context.json"),
+		`${JSON.stringify({
+			schemaVersion: 1,
+			windowWidthGate: {
+				form: "/expression/session-context/window-width.xml",
+				...WINDOW_WIDTH_GATE_NODES,
+				width: "1024",
 			},
 		})}\n`,
 	);

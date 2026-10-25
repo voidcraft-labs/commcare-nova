@@ -153,6 +153,7 @@ CORE_CLASSES = {
     "RelationInstanceRuntimeTest": "relation-instance",
     "SearchPromptRuntimeTest": "prompt",
     "SearchRuntimeTest": "search",
+    "SessionContextRuntimeTest": "expression",
     "StandardCaseReadsRuntimeTest": "standard-case-reads",
     "StaticQuoteRuntimeTest": "static-quote",
     "SuiteOracleRuntimeTest": "oracle",
