@@ -134,7 +134,7 @@ function planStops(fleet: PlannedFleet): ("blocker" | "holder")[] {
 }
 
 /** The plan over a read-only snapshot, then the media classified outside it. */
-async function buildPlan(
+export async function readPlannedFleet(
 	db: Kysely<AppDatabase>,
 	options: {
 		readonly appId?: string;
@@ -241,7 +241,7 @@ async function migrate(
 		return finish(report, { outcome: "ok" });
 	}
 	const planStarted = performance.now();
-	const fleet = await buildPlan(db, { reader });
+	const fleet = await readPlannedFleet(db, { reader });
 	fleetLine(report, fleet, {
 		planMilliseconds: Math.round(performance.now() - planStarted),
 		ledger,
@@ -297,7 +297,7 @@ export async function runScan(
 			return finish(report, { outcome: "already-applied" });
 		}
 		const planStarted = performance.now();
-		const fleet = await buildPlan(db, {
+		const fleet = await readPlannedFleet(db, {
 			reader: null,
 			...(options.appId !== undefined && { appId: options.appId }),
 		});
@@ -325,7 +325,7 @@ export async function runDebugDetails(
 	db: Kysely<AppDatabase>,
 	appId: string,
 ): Promise<readonly string[]> {
-	const fleet = await buildPlan(db, { appId, reader: null });
+	const fleet = await readPlannedFleet(db, { appId, reader: null });
 	const source = fleet.sources.find((app) => app.appId === appId);
 	const lookup = source && fleet.lookupContexts.get(source.projectId);
 	const findings: { code: string; message: string; where: string }[] = [];

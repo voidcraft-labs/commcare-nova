@@ -245,7 +245,7 @@ async function backfill(
 	if (plan.media.length === 0) return 0;
 	const result = await sql`
 		UPDATE media_assets AS row SET media_format = planned.format
-		FROM unnest(${plan.media.map((media) => media.assetId)}::text[],
+		FROM unnest(${plan.media.map((media) => media.assetId)}::uuid[],
 			${plan.media.map((media) => media.format)}::text[]) AS planned(id, format)
 		WHERE row.id = planned.id AND row.status = 'ready'
 	`.execute(tx);
