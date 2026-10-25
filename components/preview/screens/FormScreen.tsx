@@ -188,6 +188,7 @@ import { ScreenPage } from "../form/sections/ScreenPage";
 import { SectionPage } from "../form/sections/SectionPage";
 import { SectionStepper } from "../form/sections/SectionPagerControls";
 import { useFormPaging } from "../form/sections/useFormPaging";
+import { useScrolledSection } from "../form/sections/useScrolledSection";
 import {
 	FORM_PRIMARY_ACTION_CLS,
 	FORM_QUIET_ACTION_CLS,
@@ -1865,6 +1866,16 @@ export function FormScreen({ screen }: FormScreenProps) {
 					: "screens",
 		revealInvalid: revealInvalidOnPage,
 		refuse: announceReview,
+	});
+	/* On one screen no pager writes the remembered page, so the section in
+	 * view does, and a flip to edit mode opens on it. */
+	useScrolledSection({
+		formUuid,
+		enabled:
+			mode === "preview" &&
+			platformRules.formScreens === "one-screen" &&
+			formIsSectioned,
+		bodyRef: formBodyElRef,
 	});
 	/** Turn to the page holding a question before revealing it, so the
 	 *  reveal's DOM query finds it mounted. A no-op on one screen. */

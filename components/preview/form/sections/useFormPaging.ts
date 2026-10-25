@@ -4,7 +4,8 @@
  *
  * - **Web Apps** draws every question of the form on one screen, sections
  *   as titled groups, so the pager is off: no pages, no Back or Next, and
- *   Submit validates the whole form.
+ *   Submit validates the whole form. The section in view is remembered by
+ *   `useScrolledSection` instead.
  * - **Android, a sectioned form** pages one section at a time. The page list
  *   is the form's root sections (`useSectionScreens`), and the open page
  *   lives in the session (`activeSectionByForm`, the slot the edit canvas

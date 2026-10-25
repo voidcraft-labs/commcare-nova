@@ -278,12 +278,15 @@ const InteractiveField = memo(function InteractiveField({
 	// A section reached here (Web Apps' one screen, which draws every section
 	// of the form as a titled group) renders the same heading box as the
 	// edit canvas and the Android pager, not focusable as a page, over its
-	// children inline at the same depth.
+	// children inline at the same depth. The heading block names its section
+	// (`useScrolledSection`) so scrolling the screen records the section in
+	// view for the edit canvas.
 	if (field.kind === "section") {
 		return (
 			<>
 				<div
 					className="mb-6"
+					data-section-uuid={field.uuid}
 					style={{
 						paddingLeft: depthPadding(depth),
 						paddingRight: depthPadding(depth),
