@@ -374,7 +374,7 @@ export const editFieldTool = {
 				const platformRefusal = fieldKindPlatformRefusal(
 					doc,
 					resolved.formUuid,
-					[{ kind: newKind, id: currentId }],
+					[{ kind: newKind, id: newId ?? currentId }],
 				);
 				if (platformRefusal !== undefined) {
 					return {

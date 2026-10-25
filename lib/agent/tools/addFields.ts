@@ -16,7 +16,7 @@
  * tool — one field is just a length-1 `fields` array.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolInvocationContext` interface. Six legal exit branches
+ * shared `ToolInvocationContext` interface. Seven legal exit branches
  * all land on the `MutatingToolResult` shape:
  *
  *   1. UUID address miss or parent-membership mismatch → `{ error }`, no
@@ -30,11 +30,13 @@
  *      such item in the gate's own words (`fieldKindPlatformRefusal`),
  *      before staging, since private work stages a batch whatever its
  *      findings. Nothing persisted.
- *   4. Commit-gate rejection (`guardedMutate` — the batch would
+ *   4. A landing a sectioned form refuses (`sectionPlacementRefusal`) →
+ *      `{ error }` in one sentence, nothing persisted.
+ *   5. Commit-gate rejection (`guardedMutate` — the batch would
  *      introduce a validator finding) → `{ error }` listing each
  *      finding, nothing persisted.
- *   5. Runtime error in the pipeline → `{ error }`, no mutations.
- *   6. Success → a human-readable `message` (+ a UI `summary`); the stage
+ *   6. Runtime error in the pipeline → `{ error }`, no mutations.
+ *   7. Success → a human-readable `message` (+ a UI `summary`); the stage
  *      tag drives lifecycle derivation on the chat client.
  */
 

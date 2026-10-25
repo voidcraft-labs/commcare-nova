@@ -95,6 +95,32 @@ describe("the date-and-time pre-check", () => {
 		},
 	);
 
+	it("names a question renamed in the same call by its new id, as the gate does", async () => {
+		const h = makeAuthoringHarness({}, fixtureDoc());
+		expect(
+			await h.call("addFields", {
+				formUuid: FORM,
+				fields: [{ kind: "date", id: "visit_time", label: "Visit time" }],
+			}),
+		).toMatchObject({ ok: true });
+		const before = h.currentDoc();
+		const field = Object.values(before.fields).find(
+			(each) => each.id === "visit_time",
+		);
+		if (!field) throw new Error("The date question is missing.");
+		expect(
+			await h.call("editField", {
+				fieldUuid: field.uuid,
+				updates: { id: "visit_moment", kind: "datetime" },
+			}),
+		).toEqual({
+			error: fieldKindPlatformRefusal(before, formUuidOf(before), [
+				{ kind: "datetime", id: "visit_moment" },
+			]),
+		});
+		expect(h.currentDoc()).toBe(before);
+	});
+
 	it.each([undefined, "web-apps", "android"] as const)(
 		"with runsOnlyOn %s, refuses exactly what the gate refuses, in its words",
 		async (runsOnlyOn) => {

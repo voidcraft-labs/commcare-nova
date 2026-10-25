@@ -129,8 +129,9 @@ async function platformAdditionRefusal(
 	mutations: readonly Mutation[],
 ): Promise<string | undefined> {
 	const candidate = applyToDoc(doc, mutations);
+	const current = declaredPlatforms(doc);
 	const adds = declaredPlatforms(candidate).some(
-		(platform) => !declaredPlatforms(doc).includes(platform),
+		(platform) => !current.includes(platform),
 	);
 	if (!adds) return undefined;
 	const content = declarationPlatformRefusal(
