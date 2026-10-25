@@ -25,6 +25,7 @@ import { customTile, tileHiddenOrder } from "./documents/customTile";
 import { datetimeEquality } from "./documents/datetimeEquality";
 import { datetimeOperands } from "./documents/datetimeOperands";
 import { datetimeOrdering } from "./documents/datetimeOrdering";
+import { datetimeSplit } from "./documents/datetimeSplit";
 import { emptyListNoEnglish } from "./documents/emptyListNoEnglish";
 import {
 	expressionPropertyRenames,
@@ -137,6 +138,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	inlineSearchReads,
 	textReads,
 	csqlComposition,
+	datetimeSplit,
 ];
 
 /** Every targeted document, in a fixed order. */
