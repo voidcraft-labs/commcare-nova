@@ -18,7 +18,8 @@
  * the corpus layout. The observations are the documents themselves, built
  * twice, and the refusals `targetedDocument` gives a document the gate
  * refuses, one the planner would not reproduce, and a file name the corpus
- * would not write. A document that writes D′ carries its edit as the batch
+ * would not write, and an expectation on the local archive of a document
+ * that declares no Android, which Nova offers no `.ccz` of. A document that writes D′ carries its edit as the batch
  * Nova's planner makes from D and the gate admits over D, so its edit is one
  * an editor could make too, and the edit is refused as the document is.
  */
@@ -198,6 +199,34 @@ describe("a targeted document", () => {
 				`The corpus document ${id} names its own file ${JSON.stringify(name)}; a document's own file is a plain lower-case .xml or .json name in its directory`,
 			);
 		}
+	});
+
+	it("refuses an expectation on a local archive of a document that declares no Android, and runs the same one on HQ's build", () => {
+		const doc = survey();
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
+		const expectation = (exportName: "local" | "A"): Expected => ({
+			intent: [
+				{
+					id: "answer-held",
+					export: exportName,
+					form: uuid("form"),
+					request: {
+						answers: [{ path: "/data/answer", value: "seen" }],
+						expressions: ["/data/answer"],
+					},
+					expect: [{ pointer: "/values/0/value", value: "seen" }],
+				},
+			],
+		});
+		expect(() =>
+			targetedDocument({ id, rows: [], doc, expected: expectation("local") }),
+		).toThrow(
+			`The targeted document ${id} declares no Android, so Nova offers no local archive of it; run its expectation answer-held on HQ's build ("A").`,
+		);
+		expect(
+			targetedDocument({ id, rows: [], doc, expected: expectation("A") })
+				.expected,
+		).toEqual(expectation("A"));
 	});
 
 	it("admits exact edit commands only when their replay makes the written document", () => {

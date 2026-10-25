@@ -73,7 +73,7 @@ export function sessionReads() {
 	const doc = withBatch(sessionIdentityFixture());
 	const edit = withBatch(sessionIdentityFixture(true));
 	const intent: Expectation[] = [];
-	for (const exportName of ["local", "A", "B"] as const) {
+	for (const exportName of ["A", "B"] as const) {
 		intent.push({
 			id: `selected-and-parent-${exportName}`,
 			export: exportName,

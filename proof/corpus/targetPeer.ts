@@ -129,6 +129,12 @@ export interface TargetState {
 	/** The CommCare version HQ gives an app it creates there (`get_default_build_spec`). */
 	readonly commcareVersion: string;
 	/**
+	 * Whether the configuration grants `CLOUDCARE`: HQ's create sets a new
+	 * app's `cloudcare_enabled` from it
+	 * (`models/applications.py::_create_app_from_doc`).
+	 */
+	readonly cloudcareGranted: boolean;
+	/**
 	 * Fields of the app's source, by path, that hold other values in this
 	 * project space than an update sent (`PublishInput.source`): HQ serves
 	 * them after every update.
@@ -189,11 +195,15 @@ const HQ_DEFAULTS_FOR_A_SHELL: Readonly<Record<string, unknown>> = {
  * configuration's CommCare version, as the lane's HQ seeds it in
  * `proof/hq/state.py`), serialized as HQ's `BuildSpec`. Nova's publish reads
  * the version from it (`HqAppSource.buildSpecVersion`) and holds it to its
- * floor.
+ * floor. Its `cloudcare_enabled` is the configuration's `CLOUDCARE` grant,
+ * set after the shell's keys whatever the body says, as
+ * `models/applications.py::_create_app_from_doc` sets it from the domain's
+ * privilege.
  */
 export function shellSource(
 	shell: Readonly<Record<string, unknown>>,
 	commcareVersion: string,
+	cloudcareGranted: boolean,
 ): Record<string, unknown> {
 	const source: Record<string, unknown> = structuredClone(
 		HQ_DEFAULTS_FOR_A_SHELL,
@@ -201,6 +211,7 @@ export function shellSource(
 	for (const key of APP_SHELL_KEYS) {
 		if (Object.hasOwn(shell, key)) source[key] = structuredClone(shell[key]);
 	}
+	source.cloudcare_enabled = cloudcareGranted;
 	source.build_spec = {
 		doc_type: "BuildSpec",
 		version: commcareVersion,
@@ -716,6 +727,7 @@ export class TargetPeer {
 					source: shellSource(
 						JSON.parse(await app.text()),
 						this.state.commcareVersion,
+						this.state.cloudcareGranted,
 					),
 					version: 1,
 				};

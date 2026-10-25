@@ -428,3 +428,37 @@ it.each<[string, string, (entry: SearchEntry) => void]>([
 		);
 	},
 );
+
+it("writes no local archive of a document that runs in Web Apps only, and records none in its outcome", {
+	timeout: 30_000,
+}, async () => {
+	const root = await mkdtemp(join(tmpdir(), "nova-publish-captures-web-"));
+	try {
+		const clinic = toPersistableDoc(clinicVisitsDocument());
+		const webAppsOnly = {
+			...clinic,
+			appSettings: { ...clinic.appSettings, runsOnlyOn: "web-apps" },
+		};
+		const entries = readDocuments(
+			JSON.parse(
+				JSON.stringify([
+					{ id: "clinic-web", doc: webAppsOnly, compiledAtSeq: 1 },
+				]),
+			),
+		);
+		const configurations = readConfigurations([{ id: "none", flags: [] }]);
+		await writePublishCaptures(entries, configurations, root);
+		const written = await files(root);
+		const directory = [...written.keys()].filter((path) =>
+			path.startsWith("clinic-web/none/"),
+		);
+		expect(directory.length).toBeGreaterThan(0);
+		expect(directory.filter((path) => path.endsWith(".ccz"))).toEqual([]);
+		const outcome = JSON.parse(
+			written.get("clinic-web/none/outcome.json")?.toString() ?? "{}",
+		);
+		expect(outcome.localCcz).toBeNull();
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});

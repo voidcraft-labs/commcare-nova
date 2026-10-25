@@ -575,18 +575,25 @@ async function writeConfiguration(
 	for (const [name, step] of Object.entries(capture.updates)) {
 		await writeStep(directory, name, step);
 	}
+	/* No archive of a document that does not declare Android: Nova's
+	 * download refuses one (`not-declared-for-android`), and both copies
+	 * read the same declaration. */
+	let localFiles: string[] | null = [];
 	for (const [copy, ordinal] of [
 		[1, OPERATION_ORDINALS.local],
 		[2, OPERATION_ORDINALS.localAgain],
 	] as const) {
-		await writeFile(
-			join(directory, `local-${copy}.ccz`),
-			await localCcz(entry.document, configuration.domain, {
-				seed,
-				ordinal,
-				configuration: LOCAL_CONFIGURATION,
-			}),
-		);
+		const archive = await localCcz(entry.document, configuration.domain, {
+			seed,
+			ordinal,
+			configuration: LOCAL_CONFIGURATION,
+		});
+		if (archive === null) {
+			localFiles = null;
+			break;
+		}
+		await writeFile(join(directory, `local-${copy}.ccz`), archive);
+		localFiles.push(`local-${copy}.ccz`);
 	}
 	await writeFile(
 		join(directory, "outcome.json"),
@@ -609,11 +616,14 @@ async function writeConfiguration(
 					stepSummary(step),
 				]),
 			),
-			localCcz: {
-				files: ["local-1.ccz", "local-2.ccz"],
-				compiledAtSeq: entry.document.compiledAtSeq,
-				clock: new Date(CCZ_CLOCK).toISOString(),
-			},
+			localCcz:
+				localFiles === null
+					? null
+					: {
+							files: localFiles,
+							compiledAtSeq: entry.document.compiledAtSeq,
+							clock: new Date(CCZ_CLOCK).toISOString(),
+						},
 		}),
 	);
 	return "sent";
