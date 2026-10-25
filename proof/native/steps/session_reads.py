@@ -49,9 +49,7 @@ def session_reads(session, family, document_id, domain, *, endpoints=False, modu
         raise ValueError(f"The native session witness {document_id} must be a targeted corpus document.")
     archive = document.local_ccz if ANDROID in document.platforms() else None
     if ANDROID in document.platforms() and archive is None:
-        raise ValueError(
-            f"The targeted session witness {document_id} declares Android and has no local.ccz archive."
-        )
+        raise ValueError(f"The targeted session witness {document_id} declares Android and has no local.ccz archive.")
     export = document.exports["minimum"]
     if export.content is None:
         raise ValueError(f"The targeted session witness {document_id} has no captured minimum app content.")

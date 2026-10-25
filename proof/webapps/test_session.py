@@ -157,9 +157,7 @@ def test_web_apps_lists_an_app_while_it_declares_web_apps_and_not_once_it_narrow
                 [app["_id"] == release.build_id for app in listed],
             )
         with project.unit.fork():
-            refusal, _ = publish.update(
-                project.unit, project.app_id, document.edit.exports["minimum"].update, "B-edit"
-            )
+            refusal, _ = publish.update(project.unit, project.app_id, document.edit.exports["minimum"].update, "B-edit")
             assert refusal is None, refusal
             with project.released(formplayer_runner) as release:
                 run = Session(release, editor_driver).run([steps.SCREEN])
