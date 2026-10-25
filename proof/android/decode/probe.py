@@ -3,13 +3,13 @@
     PROOF_ANDROID_DECODE_AVDS="23=<avd>,29=<avd>,35=<avd>" python3 -m unittest proof.android.decode.probe -v
 
 Each image is booted by ``run.sh``, which runs ``DecodeProbe.java`` with ``app_process`` over
-``lib/media/__tests__/fixtures/`` and the files ``lib/media/__tests__/bmpFixtures.ts`` and ``builtFixtures.ts`` build: each audio and
-video file decoded to the end of its stream by the platform's own ``MediaCodec`` decoder, each image by
-``BitmapFactory`` (CommCare Android plays an app's media with the platform's own MediaPlayer, VideoView and image
-views). Contract: every file of a variant whose Android reading is ``runs`` decodes fully on Android 6.0 (API 23, CommCare's minimum),
-10 (API 29) and 15 (API 35), and each VP9 profile Nova refuses is refused by Android 6.0's decoder, the reason
-Nova holds VP9 to profile 0. Failure it catches: a format or a variant Nova accepts that a supported device cannot
-play, and a near miss Nova refuses for no reason a device shows.
+``lib/media/__tests__/fixtures/`` and the files ``lib/media/__tests__/bmpFixtures.ts`` and ``builtFixtures.ts``
+build: each audio and video file decoded to the end of its stream by the platform's own ``MediaCodec`` decoder, each
+image by ``BitmapFactory`` (CommCare Android plays an app's media with the platform's own MediaPlayer, VideoView and
+image views). Contract: every file of a variant whose Android reading is ``runs`` decodes fully on Android 6.0 (API
+23, CommCare's minimum), 10 (API 29) and 15 (API 35), and each VP9 profile Nova refuses is refused by Android 6.0's
+decoder, the reason Nova holds VP9 to profile 0. Failure it catches: a format or a variant Nova accepts that a
+supported device cannot play, and a near miss Nova refuses for no reason a device shows.
 
 It needs an Apple-silicon Mac with the Android SDK's emulator and the arm64 system images of API 23, 29 and 35;
 no proof machine and no CI runner boots them, so the lane never collects this (it is no ``test_*.py``). Each run

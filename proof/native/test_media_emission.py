@@ -110,9 +110,8 @@ def test_hq_media_resources_and_bulk_upload_match_novas_archive(native):
             # HQ cannot store the SVG, and the error escapes the upload's loop, so the whole upload stops and
             # nothing of it is mapped, the files the zip holds beside the SVG included.
             assert record["multimediaMapBeforeUpload"] == 0, name
-            assert any("Error while processing zip" in str(error) for error in record["bulkStatus"]["errors"]), (
-                record["bulkStatus"]
-            )
+            status = record["bulkStatus"]
+            assert any("Error while processing zip" in str(error) for error in status["errors"]), status
             assert record["mapped"] == {}, sorted(record["mapped"])
             results.append({"scenario": name, "bulkStatus": record["bulkStatus"]})
             continue
