@@ -221,6 +221,35 @@ describe("search input envelope scope", () => {
 			});
 		},
 	);
+	it.each([
+		{ searchFirst: true, codes: [] },
+		{ searchFirst: false, codes: [bare] },
+	])(
+		"a calculated column reading a Search field when the module opens on its search: $searchFirst",
+		({ searchFirst, codes }) => {
+			// A module that opens on its search reaches its list only through the
+			// inline query, which keeps the answers; an ordinary search's list is
+			// also the module's own case list, where they don't exist.
+			const errors = findings(
+				configured((config, module) => {
+					const column = calculatedColumn(
+						testUuid("calc"),
+						"Echo",
+						term(input(first.uuid)),
+					);
+					config.columns.push(column);
+					config.listColumnOrder.push(column.uuid);
+					config.detailColumnOrder.push(column.uuid);
+					module.caseSearchConfig = searchFirst ? { searchFirst } : {};
+				}),
+			);
+			// Search first brings its own declaration and module findings; only
+			// this rule's verdict is the subject here.
+			expect(
+				errors.map((error) => error.code).filter((code) => code === bare),
+			).toEqual(codes);
+		},
+	);
 	it("allows a search answer as the assigned-case exclusion identity", () => {
 		expect(
 			findings(

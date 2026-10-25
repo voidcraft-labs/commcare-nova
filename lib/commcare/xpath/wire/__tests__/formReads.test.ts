@@ -6,6 +6,7 @@ import { formStructure } from "@/lib/domain/expression/formStructure";
 import type {
 	Expression,
 	FieldExpressionSlotRef,
+	SlotContextRef,
 } from "@/lib/domain/expression/types";
 import { formNodeProjection } from "../../formNodeProjection";
 import { w } from "../builders";
@@ -371,6 +372,9 @@ describe("a form read inside a secondary instance's row predicate", () => {
 	const OTHER = testUuid("row-predicate-other");
 	const X = testUuid("row-predicate-x");
 	const LIMIT = testUuid("row-predicate-limit");
+	const D = testUuid("row-predicate-d");
+	const MODULE = testUuid("row-predicate-module");
+	const LINK = testUuid("row-predicate-link");
 	const read = (uuid: string): Expression => ({
 		kind: "term",
 		term: { kind: "field", uuid: uuid as never },
@@ -411,12 +415,20 @@ describe("a form read inside a secondary instance's row predicate", () => {
 			],
 			modules: [
 				{
+					uuid: MODULE,
 					name: "Visits",
 					forms: [
 						{
 							uuid: ROW_FORM,
 							name: "Rounds",
 							type: "survey",
+							formLinks: [
+								{
+									uuid: LINK,
+									condition: truth,
+									target: { type: "module", moduleUuid: MODULE },
+								},
+							],
 							fields: [
 								{ kind: "int", id: "limit", uuid: LIMIT },
 								{
@@ -425,6 +437,7 @@ describe("a form read inside a secondary instance's row predicate", () => {
 									uuid: REP,
 									children: [
 										{ kind: "text", id: "q", uuid: Q },
+										{ kind: "text", id: "d", uuid: D },
 										{
 											kind: "hidden",
 											id: "n",
@@ -450,7 +463,7 @@ describe("a form read inside a secondary instance's row predicate", () => {
 		const projection = formNodeProjection(doc, form);
 		const lower = (
 			expression: Expression,
-			slot: FieldExpressionSlotRef = {
+			slot: SlotContextRef = {
 				entity: "field",
 				uuid: N,
 				slot: "calculate",
@@ -463,12 +476,12 @@ describe("a form read inside a secondary instance's row predicate", () => {
 		};
 		return {
 			lower,
-			text: (expression: Expression, slot?: FieldExpressionSlotRef) =>
+			text: (expression: Expression, slot?: SlotContextRef) =>
 				serializeWire(lower(expression, slot), {
 					target: "xform",
 					constraint: false,
 				}).text,
-			shadow: (expression: Expression, slot?: FieldExpressionSlotRef) =>
+			shadow: (expression: Expression, slot?: SlotContextRef) =>
 				serializeWire(lower(expression, slot), {
 					target: "vellum",
 					constraint: false,
@@ -523,5 +536,62 @@ describe("a form read inside a secondary instance's row predicate", () => {
 			"count(instance('casedb')/casedb/case[@case_type = 'visit'][dose = /data/other/x])",
 		);
 		expect(text(doseIs(read(Q)))).not.toContain("current()");
+	});
+
+	it("keeps the bytes of a read inside a form repeat's filter", () => {
+		// A form step's filter changes only the context node; no secondary
+		// instance's row is active, so the read names its one node already.
+		const { text } = rowFixture();
+		const expression: Expression = {
+			kind: "count",
+			via: {
+				kind: "term",
+				term: {
+					kind: "field",
+					uuid: OTHER,
+					filters: [
+						{
+							step: { kind: "field", uuid: OTHER },
+							where: [
+								{
+									kind: "eq",
+									left: {
+										kind: "term",
+										term: { kind: "field", uuid: X, spelling: "relative" },
+									},
+									right: read(Q),
+								},
+							],
+						},
+					],
+				},
+			},
+		};
+		expect(text(expression)).toBe("count(/data/other[x = /data/rep/q])");
+	});
+
+	it("keeps the bytes of a read in a form link's condition, which has no source node", () => {
+		const { text } = rowFixture();
+		expect(
+			text(counted(doseIs(read(Q))), {
+				entity: "form",
+				uuid: ROW_FORM,
+				slot: "form_link_condition",
+				member: { linkUuid: LINK },
+			}),
+		).toBe(
+			"count(instance('casedb')/casedb/case[@case_type = 'visit'][dose = /data/rep/q])",
+		);
+	});
+
+	it("leaves a default value's reads anchored at current() as before", () => {
+		const { text } = rowFixture();
+		const slot = { entity: "field", uuid: D, slot: "default_value" } as const;
+		expect(text(counted(doseIs(read(Q))), slot)).toBe(
+			"count(instance('casedb')/casedb/case[@case_type = 'visit'][dose = current()/../q])",
+		);
+		expect(text(counted(doseIs(read(LIMIT))), slot)).toBe(
+			"count(instance('casedb')/casedb/case[@case_type = 'visit'][dose = current()/../../limit])",
+		);
 	});
 });
