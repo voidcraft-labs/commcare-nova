@@ -102,6 +102,10 @@ export function datetimeSplit() {
 						expressions: [
 							"format-date(coalesce(/data/seen_at, ''), '%Y-%m-%d %H:%M')",
 						],
+						// After the answer, so the time question's validation, which
+						// reads the join against now(), passes; the lane's default
+						// clock is 2026-01-15.
+						clock: "2026-03-05T12:00:00.000Z",
 					},
 					expect: [
 						{ pointer: "/answers/0/result", value: "ok" },

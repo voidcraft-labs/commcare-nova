@@ -3,6 +3,8 @@ package nova.compatibility;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.Date;
 import java.util.TimeZone;
 import org.javarosa.core.model.FormDef;
@@ -43,7 +45,9 @@ import static org.junit.Assert.*;
  * reads it (Recalculate.wrapData keeps a Date's clock only under xsd:dateTime),
  * and the writer's nova_datetime_ text must name the same instant. A blank part
  * leaves the join blank, and the time question's validation passes while the
- * date is blank. A case value fills both questions and rejoins to its instant.
+ * date is blank. A case value fills both questions and rejoins to what the
+ * question held from it, which is its instant wherever its local day is its
+ * UTC day (DateUtils.parseTimeAndStore keeps the written day).
  * Each zone runs in a test JVM started in it, because DateUtils fixes its 1970
  * epoch when it loads; a device has no browser provider.
  *
@@ -232,9 +236,24 @@ public class DatetimeSplitRuntimeTest {
             held(form, writer.getString("date")) instanceof DateData);
         assertTrue(zone + ": the case value did not fill the time question",
             held(form, writer.getString("time")) instanceof TimeData);
-        assertEquals(zone + ": the case value " + preload.getString("value") + " does not rejoin to its instant",
-            Instant.parse(preload.getString("instant")).toEpochMilli(),
-            joined(form, writer, zone + " preload").getTime());
+        // What the date-and-time question held when the form preloaded the
+        // value: DateTimeData.cast of its text. DateUtils.parseTimeAndStore
+        // moves the clock into the device's zone and keeps the written day, so
+        // where the instant's local day is another (Kiritimati, 10:30Z is the
+        // next day's 00:30) the question already held the day before.
+        String value = preload.getString("value");
+        long instant = Instant.parse(preload.getString("instant")).toEpochMilli();
+        long question = ((Date)new DateTimeData().cast(new UncastData(value)).getValue()).getTime();
+        boolean sameDay = Instant.ofEpochMilli(instant).atZone(ZoneId.systemDefault()).toLocalDate()
+            .equals(Instant.ofEpochMilli(instant).atZone(ZoneOffset.UTC).toLocalDate());
+        if (sameDay) {
+            assertEquals(zone + ": the question does not hold the case value " + value + " as its instant",
+                instant, question);
+        }
+        assertEquals(zone + ": the case value " + value + " does not rejoin to what the question held",
+            question, joined(form, writer, zone + " preload").getTime());
+        // Recorded in the report: the instant the question and the join hold.
+        System.out.println("datetime-split " + zone + " preload " + value + " joins to " + Instant.ofEpochMilli(question));
     }
 
     @Test public void aBlankPartLeavesTheJoinBlank() throws Exception {
