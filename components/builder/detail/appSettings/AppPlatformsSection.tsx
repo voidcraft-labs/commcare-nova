@@ -138,6 +138,10 @@ export async function checkPlatformChange(
  *  so a split refusal stays beside its own row when an earlier row leaves. */
 type KeyedFindingRow = PlatformChangeFindingRow & { readonly key: string };
 
+/** A media file a platform can't play, keyed by its place as it arrives:
+ *  two files on one carrier share a location. */
+type KeyedMediaRow = PlatformChangeMediaRow & { readonly key: string };
+
 /** What stands in the way of one choice, row by row. */
 type Refusal =
 	| { readonly kind: "line"; readonly text: string }
@@ -147,12 +151,16 @@ type Refusal =
 			readonly added: Platform | undefined;
 			readonly target: PlatformChoice;
 			readonly findings: readonly KeyedFindingRow[];
-			readonly media: readonly PlatformChangeMediaRow[];
+			readonly media: readonly KeyedMediaRow[];
 	  };
 
 /** Key each row by its place in the refusal as it arrives. */
 function keyed(rows: readonly PlatformChangeFindingRow[]): KeyedFindingRow[] {
 	return rows.map((row, index) => ({ ...row, key: `finding:${index}` }));
+}
+
+function keyedMedia(rows: readonly PlatformChangeMediaRow[]): KeyedMediaRow[] {
+	return rows.map((row, index) => ({ ...row, key: `media:${index}` }));
 }
 
 /** The rows a client gate refusal gives: each line beside its finding. */
@@ -284,7 +292,7 @@ export function AppPlatformsSection() {
 					added,
 					target: next,
 					findings: keyed(checked.findings),
-					media: checked.media,
+					media: keyedMedia(checked.media),
 				});
 				return;
 			}
@@ -309,7 +317,12 @@ export function AppPlatformsSection() {
 			}));
 			return;
 		}
-		select(outcome.dateUuid);
+		// The question may sit in another form than the one on screen, so
+		// open its own form with the date question selected.
+		const { moduleUuid, formUuid } = finding.location;
+		if (moduleUuid !== undefined && formUuid !== undefined)
+			navigate.openForm(moduleUuid, formUuid, outcome.dateUuid);
+		else select(outcome.dateUuid);
 		announceDatetimeSplit();
 		setRefusal((held) => {
 			if (held?.kind !== "rows") return held;
@@ -497,10 +510,7 @@ function RefusalBlock({
 				{refusal.media.map((row) => {
 					const open = onOpenMedia(row);
 					return (
-						<li
-							key={`media:${JSON.stringify(row.location)}`}
-							className="space-y-1"
-						>
+						<li key={row.key} className="space-y-1">
 							<p>{row.line}</p>
 							{open !== undefined && (
 								<Button type="button" variant="ghost-action" onClick={open}>

@@ -101,11 +101,6 @@ import { useAttachBudgetGuard } from "./useAttachBudget";
 import { useStagedSlotUpload } from "./useStagedUpload";
 
 /**
- * Record a picker's loaded library pages into the session's asset
- * registry: the "already-loaded library rows" the attach budget check
- * resolves referenced ids against without a fetch.
- */
-/**
  * The pickers' reasons a file or a format can't be used in this app: a file
  * of the Library a platform the app runs on can't play (read from its own
  * fields), and on the Upload tab a format none of whose variants plays on
@@ -138,6 +133,11 @@ function usePlatformMediaReasons(): {
 	);
 }
 
+/**
+ * Record a picker's loaded library pages into the session's asset
+ * registry: the "already-loaded library rows" the attach budget check
+ * resolves referenced ids against without a fetch.
+ */
 function useRecordLoadedAssets(): (assets: MediaAssetView[]) => void {
 	const session = useBuilderSessionApi();
 	const scopeEpoch = useProjectScopeEpoch();

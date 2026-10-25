@@ -25,6 +25,7 @@ import {
 import { useAppLocalization } from "@/lib/doc/hooks/useLocalization";
 import { effectiveAppLocalization } from "@/lib/domain";
 import { languageDisplayLabel } from "@/lib/domain/languageRegistry";
+import { platformPickerLine } from "@/lib/domain/platforms";
 import type { ExpressionChangeAdmission } from "../editorContext";
 
 interface AppLanguageValuePickerProps {
@@ -122,7 +123,9 @@ export function AppLanguageValuePicker({
 										<span className="block break-words">{language.name}</span>
 										<span className="block break-words text-xs text-nova-text-muted">
 											{verdict.admitted === false
-												? verdict.reason
+												? verdict.platform !== undefined
+													? platformPickerLine(verdict.platform)
+													: verdict.reason
 												: `Code ${language.code}`}
 										</span>
 									</span>

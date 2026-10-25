@@ -117,8 +117,10 @@ export type PredicateEditVerdict =
 	| {
 			readonly ok: false;
 			readonly reason: string;
-			/** Present when a declared platform refuses the candidate's first
-			 * error (`arm-unavailable`, reason `platform-unavailable`). */
+			/** Present when a declared platform refuses the candidate
+			 * (`arm-unavailable`, reason `platform-unavailable`), whichever of
+			 * its errors says so: the gate keeps no stored use a declared
+			 * platform lacks, so any such error is the candidate's own. */
 			readonly platform?: EditPlatformRefusal;
 	  };
 
@@ -161,13 +163,16 @@ export function expressionEditVerdict(
 	const checked = checkExpression(candidate, context);
 	if (checked.errors.length > 0) {
 		const first = checked.errors[0];
+		const platform = checked.errors.find(
+			(error) => error.platform !== undefined,
+		)?.platform;
 		return {
 			ok: false,
 			reason: formLogicFinding(first, context, candidate).message,
-			...(first.platform !== undefined && {
+			...(platform !== undefined && {
 				platform: {
-					feature: first.platform.feature,
-					platform: first.platform.platform,
+					feature: platform.feature,
+					platform: platform.platform,
 				},
 			}),
 		};

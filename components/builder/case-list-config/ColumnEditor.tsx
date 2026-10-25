@@ -109,9 +109,6 @@ interface ColumnEditorProps {
 	readonly onValidityChange?: (valid: boolean) => void;
 }
 
-/**
- * Column inspector body: display kind and the selected kind's own properties.
- */
 /** What a column's platform note can state: a link's text, a column left off
  *  Results, and the expression-leaf features of its value. */
 const COLUMN_NOTE_FEATURES: readonly PlatformFeatureId[] = [
@@ -120,6 +117,9 @@ const COLUMN_NOTE_FEATURES: readonly PlatformFeatureId[] = [
 	...EXPRESSION_PLATFORM_FEATURES,
 ];
 
+/**
+ * Column inspector body: display kind and the selected kind's own properties.
+ */
 export function ColumnEditor({
 	moduleUuid,
 	value,

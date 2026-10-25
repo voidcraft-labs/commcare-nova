@@ -97,6 +97,7 @@ export function TileGroupingSection({
 		return cell === undefined ? [] : [cell];
 	});
 	const choices = tileGroupHeaderRowChoices(cells);
+	const reopenNotice = groupingReopenNotice(grouping, platforms);
 
 	if (choices.length === 0 && grouping === undefined) {
 		return (
@@ -157,9 +158,9 @@ export function TileGroupingSection({
 						/>
 					</div>
 					<PlatformNoteRow features={noteFeatures} />
-					{groupingReopenNotice(grouping, platforms) !== null && (
+					{reopenNotice !== null && (
 						<p className="text-[13px] leading-relaxed text-nova-text-muted">
-							{groupingReopenNotice(grouping, platforms)}
+							{reopenNotice}
 						</p>
 					)}
 				</div>

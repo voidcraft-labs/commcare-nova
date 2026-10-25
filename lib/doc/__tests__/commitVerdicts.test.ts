@@ -28,6 +28,7 @@ import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression/builders";
 import { slotContext } from "@/lib/domain/expression/context";
+import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import type { Expression } from "@/lib/domain/expression/types";
 
 /** Minimal valid doc: one registration module/form writing two properties. */
@@ -669,6 +670,22 @@ describe("expressionEditVerdict names the platform that refuses a read", () => {
 	it("refuses where you are now in a calculated column of an app that runs in Web Apps, naming Web Apps", () => {
 		const verdict = expressionEditVerdict(HERE, columnContext());
 		expect(verdict.ok).toBe(false);
+		expect(verdict.ok ? undefined : verdict.platform).toEqual({
+			feature: "case-list-here",
+			platform: "web-apps",
+		});
+	});
+
+	it("names Web Apps even when another of the candidate's errors comes first", () => {
+		const candidate: Expression = {
+			kind: "concat",
+			parts: [{ kind: "id-of", opUuid: testUuid("missing-operation") }, HERE],
+		};
+		const context = columnContext();
+		const checked = checkExpression(candidate, context);
+		expect(checked.errors.length).toBeGreaterThan(1);
+		expect(checked.errors[0]?.platform).toBeUndefined();
+		const verdict = expressionEditVerdict(candidate, context);
 		expect(verdict.ok ? undefined : verdict.platform).toEqual({
 			feature: "case-list-here",
 			platform: "web-apps",
