@@ -26,6 +26,7 @@
 // Client-safe: the browser, the App Test runtime and the authoring evaluator
 // all import it.
 
+import { CASE_SEARCH_BUTTON_LABEL } from "@/lib/domain/modules";
 import {
 	inPlatform,
 	PLATFORM_LABELS,
@@ -283,6 +284,18 @@ export const PREVIEW_PLATFORM_RULES = {
 /** The rules of one platform. */
 export function previewPlatformRules(platform: Platform): PreviewPlatformRules {
 	return PREVIEW_PLATFORM_RULES[platform];
+}
+
+/** The search screen's heading and description. Web Apps shows the
+ *  authored title and description; Android shows neither, and its heading is
+ *  the search action's label (`searchScreenText`). */
+export function searchScreenHeading(
+	rules: Pick<PreviewPlatformRules, "searchScreenText">,
+	authored: { readonly title: string; readonly subtitle: string | undefined },
+): { readonly title: string; readonly subtitle: string | undefined } {
+	return rules.searchScreenText
+		? authored
+		: { title: CASE_SEARCH_BUTTON_LABEL, subtitle: undefined };
 }
 
 function otherPlatform(platform: Platform): Platform {

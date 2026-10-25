@@ -199,6 +199,7 @@ import {
 	reconcilePreviewCaseChoices,
 	togglePreviewCaseChoice,
 } from "@/lib/preview/orderedCaseSelection";
+import { searchScreenHeading } from "@/lib/preview/platform";
 import {
 	type RuntimeMessage,
 	runtimeMessage,
@@ -1538,10 +1539,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			: message(pageLocalFilter ? "showingResults" : "resultsFound", {
 					count: visibleResultCount,
 				});
-	/* Android shows no search title or description: the screen's heading is
-	 * the search action's label (`searchScreenText`). */
-	const title = platformRules.searchScreenText
-		? ((localizedValues.get(
+	const { title, subtitle } = searchScreenHeading(platformRules, {
+		title:
+			(localizedValues.get(
 				makeTranslationUnitId(
 					"module",
 					moduleUuid ?? "missing",
@@ -1549,17 +1549,16 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				),
 			) as string | undefined) ??
 			searchConfig?.searchScreenTitle ??
-			DEFAULT_CASE_SEARCH_TITLE)
-		: CASE_SEARCH_BUTTON_LABEL;
-	const subtitle = platformRules.searchScreenText
-		? ((localizedValues.get(
+			DEFAULT_CASE_SEARCH_TITLE,
+		subtitle:
+			(localizedValues.get(
 				makeTranslationUnitId(
 					"module",
 					moduleUuid ?? "missing",
 					"search-subtitle",
 				),
-			) as string | undefined) ?? searchConfig?.searchScreenSubtitle)
-		: undefined;
+			) as string | undefined) ?? searchConfig?.searchScreenSubtitle,
+	});
 	const localizedSearchValidationMessages = useMemo(
 		() =>
 			new Map(

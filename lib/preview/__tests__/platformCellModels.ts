@@ -347,7 +347,7 @@ export const PLATFORM_MODEL_CHECKS = {
 			"refused",
 		);
 		const args = entryPointArgs("web-apps");
-		args.doc.forms[ENTRY_FORM].hiddenFromMenu = false;
+		args.doc.forms[ENTRY_FORM].hiddenFromMenu = undefined;
 		const result = prepareEntryPointLaunch(args);
 		if (result.kind !== "ready") throw new Error(result.message);
 		expect(result.claimCaseIds).toEqual(["outside"]);

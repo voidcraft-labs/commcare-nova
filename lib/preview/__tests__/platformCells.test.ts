@@ -140,7 +140,9 @@ describe("the cell table", () => {
 			});
 		} else if (cell.kind === "model") {
 			it(`is played by the model: ${cell.check}`, async () => {
-				await PLATFORM_MODEL_CHECKS[cell.check](platform);
+				const check: (on: Platform) => unknown =
+					PLATFORM_MODEL_CHECKS[cell.check];
+				await check(platform);
 			});
 		} else {
 			it("says why it is outside Preview", () => {
