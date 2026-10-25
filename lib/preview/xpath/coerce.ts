@@ -1,5 +1,9 @@
 import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
-import { coreDateAdd, coreFractionalDays } from "./coreDays";
+import {
+	coreDateAdd,
+	coreFractionalDays,
+	type DayNumberEpoch,
+} from "./coreDays";
 import { javaTrim } from "./javaString";
 import {
 	isXPathNodeSet,
@@ -12,8 +16,9 @@ import { isXPathDate, XPathDate } from "./types";
  * XPath 1.0 type coercion: value → number.
  *
  * CommCare extension: XPathDate coerces to Core's day number,
- * `DateUtils.daysSinceEpoch()` in commcare-core (`XPathDate.coreDays`). This
- * is what makes `today() + 1` return tomorrow's day-number.
+ * `DateUtils.daysSinceEpoch()` in commcare-core (`XPathDate.coreDaysUnder`),
+ * counted from the platform's epoch (`coreDays.ts::DayNumberEpoch`). This is
+ * what makes `today() + 1` return tomorrow's day-number.
  *
  * String coercion mirrors JavaRosa's `FunctionUtils.toNumeric`
  * (`commcare-core .../xpath/expr/FunctionUtils.java`): a character gate
@@ -30,18 +35,21 @@ import { isXPathDate, XPathDate } from "./types";
  * behave differently in Preview and on-device.
  */
 
-export function toNumber(input: XPathRuntimeValue): number {
+export function toNumber(
+	input: XPathRuntimeValue,
+	epoch: DayNumberEpoch,
+): number {
 	const v = unpackXPathRuntimeValue(input);
 	if (typeof v === "number") return v;
 	if (typeof v === "boolean") return v ? 1 : 0;
-	if (isXPathDate(v)) return v.coreDays;
+	if (isXPathDate(v)) return v.coreDaysUnder(epoch);
 	const trimmed = javaTrim(v as string);
 	if (trimmed === "") return NaN;
 	if (/[^0-9.-]/.test(trimmed)) return NaN;
 	const parsed = Number(trimmed);
 	if (!Number.isNaN(parsed)) return parsed;
 	const date = XPathDate.parse(trimmed);
-	return date !== null ? date.coreDays : NaN;
+	return date !== null ? date.coreDaysUnder(epoch) : NaN;
 }
 
 /**
@@ -76,9 +84,13 @@ export function xpathToString(input: XPathRuntimeValue): string {
  * boundary; Core sends that wrapper through `toNumeric()`, which unpacks the
  * singleton and applies the whole-day Date coercion. */
 
-export function toDouble(input: XPathRuntimeValue): number {
-	if (isXPathNodeSet(input) || !isXPathDate(input)) return toNumber(input);
-	return coreFractionalDays(input.instant());
+export function toDouble(
+	input: XPathRuntimeValue,
+	epoch: DayNumberEpoch,
+): number {
+	if (isXPathNodeSet(input) || !isXPathDate(input))
+		return toNumber(input, epoch);
+	return coreFractionalDays(input.instant(), epoch);
 }
 
 /**
@@ -205,13 +217,14 @@ function javaToInt(value: number): number {
 export function compareEqual(
 	aInput: XPathRuntimeValue,
 	bInput: XPathRuntimeValue,
+	epoch: DayNumberEpoch,
 ): boolean {
 	const a = unpackXPathRuntimeValue(aInput);
 	const b = unpackXPathRuntimeValue(bInput);
 	if (typeof a === "boolean" || typeof b === "boolean")
 		return toBoolean(a) === toBoolean(b);
 	if (typeof a === "number" || typeof b === "number")
-		return Math.abs(toNumber(a) - toNumber(b)) < 1.0e-12;
+		return Math.abs(toNumber(a, epoch) - toNumber(b, epoch)) < 1.0e-12;
 	return xpathToString(a) === xpathToString(b);
 }
 
@@ -223,9 +236,10 @@ export function compareRelational(
 	a: XPathRuntimeValue,
 	b: XPathRuntimeValue,
 	op: "<" | "<=" | ">" | ">=",
+	epoch: DayNumberEpoch,
 ): boolean {
-	const na = toNumber(a);
-	const nb = toNumber(b);
+	const na = toNumber(a, epoch);
+	const nb = toNumber(b, epoch);
 	switch (op) {
 		case "<":
 			return na < nb;

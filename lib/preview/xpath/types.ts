@@ -1,6 +1,7 @@
 import {
 	coreDaysSinceEpoch,
 	coreRoundDay,
+	type DayNumberEpoch,
 	isCoreCalendarDate,
 	type JavaLocalFields,
 	javaCalendarDate,
@@ -144,9 +145,10 @@ export class XPathDate {
 	 * `FunctionUtils.toNumeric` gives a Date. It counts the rounded day
 	 * (`coreDays.ts::coreRoundDay`), so a day before AD 1 counts as its AD
 	 * fold. A day `roundDate` refuses has no number: Core's `daysSinceEpoch`
-	 * throws there, and so does this. */
-	get coreDays(): number {
-		const days = coreDaysSinceEpoch(this.calendarDays);
+	 * throws there, and so does this. The epoch is the platform's
+	 * (`coreDays.ts::DayNumberEpoch`). */
+	coreDaysUnder(epoch: DayNumberEpoch): number {
+		const days = coreDaysSinceEpoch(this.calendarDays, epoch);
 		if (days === null)
 			throw new CoreUnroundableDateError(`the date ${this.toISOString()}`);
 		return days;
@@ -284,6 +286,18 @@ export interface EvalContext {
 		name: string,
 		args: readonly XPathValue[],
 	): XPathFunctionInvocation;
+	/** The midnight a day number counts from: the platform Preview plays
+	 * (`lib/preview/platform.ts`, `dayNumberEpoch`). Read through
+	 * {@link dayNumberEpochOf}; absent reads the device's zone. */
+	dayNumberEpoch?: DayNumberEpoch;
+}
+
+/** The day-number epoch an evaluation runs under: the context's, else the
+ * device's zone. */
+export function dayNumberEpochOf(
+	context: Pick<EvalContext, "dayNumberEpoch">,
+): DayNumberEpoch {
+	return context.dayNumberEpoch ?? "device-zone";
 }
 
 // ── Internal helpers ────────────────────────────────────────────────

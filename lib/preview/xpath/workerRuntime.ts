@@ -478,6 +478,7 @@ export async function evaluateXPathWorkerRequest(
 		}
 		const formText = request.instances.formText ?? world?.formText;
 		const context: EvalContext = {
+			dayNumberEpoch: request.dayNumberEpoch,
 			...(request.instances.locale === undefined
 				? {}
 				: { locale: request.instances.locale }),

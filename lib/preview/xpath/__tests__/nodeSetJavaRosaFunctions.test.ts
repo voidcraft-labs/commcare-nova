@@ -36,7 +36,7 @@ function invalidNodes(): XPathNodeSet {
 function call(name: string, ...args: XPathRuntimeValue[]): XPathRuntimeValue {
 	const fn = nodeSetJavaRosaFunctions.get(name);
 	if (!fn) throw new Error(`Missing nodeset JavaRosa function ${name}()`);
-	return fn(args);
+	return fn(args, "device-zone");
 }
 
 describe("nodeset and sequence JavaRosa function ports", () => {

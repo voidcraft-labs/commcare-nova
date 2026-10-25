@@ -121,6 +121,7 @@ describe("the form's text in the XPath worker", () => {
 		source: string,
 		instances: Partial<XPathRuntimeRequest["instances"]>,
 	): XPathRuntimeRequest => ({
+		dayNumberEpoch: "device-zone",
 		entryKey: "entry-text",
 		revision: 1,
 		profile: "form",

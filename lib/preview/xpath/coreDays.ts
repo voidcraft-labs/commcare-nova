@@ -400,10 +400,22 @@ export function coreRoundDay(calendarDays: number): number | null {
 		: null;
 }
 
-/** `DateUtils.EPOCH_TIME` (and `EPOCH_DATE`): the local midnight of
- * 1970-01-01. */
-function coreEpochTime(): number {
-	return localMidnight(0);
+/**
+ * Which midnight of 1970-01-01 a day number counts from. Core's
+ * `DateUtils.EPOCH_TIME` (and `EPOCH_DATE`) is a static computed when the
+ * class loads, in the JVM's default zone: the device's zone on Android
+ * (`"device-zone"`), and `Etc/UTC` in Formplayer, whose JVM runs in UTC
+ * (manifest `expressions-and-data/int`) before it sets the browser's zone per
+ * request (`"utc"`). The epoch travels with each evaluation
+ * (`EvalContext.dayNumberEpoch`), never in module state, so an evaluation
+ * that awaits cannot read an epoch another one left behind.
+ */
+export type DayNumberEpoch = "utc" | "device-zone";
+
+/** `DateUtils.EPOCH_TIME` under an epoch: UTC midnight, or the local midnight
+ * of 1970-01-01. */
+function coreEpochTime(epoch: DayNumberEpoch): number {
+	return epoch === "utc" ? 0 : localMidnight(0);
 }
 
 /** `DateUtils.daysSinceEpoch` of a calendar day: `(roundDate(d) - EPOCH_TIME
@@ -411,12 +423,17 @@ function coreEpochTime(): number {
  * computed on the rounded day and the two small shifts so no instant leaves
  * the range doubles hold exactly. Null where `roundDate` gives null, which
  * makes Core's `roundDate(date).getTime()` throw a `NullPointerException`. */
-export function coreDaysSinceEpoch(calendarDays: number): number | null {
+export function coreDaysSinceEpoch(
+	calendarDays: number,
+	epoch: DayNumberEpoch,
+): number | null {
 	const rounded = coreRoundDay(calendarDays);
 	if (rounded === null) return null;
 	return (
 		rounded +
-		Math.floor((localMidnightShift(rounded) - coreEpochTime() + DAY / 2) / DAY)
+		Math.floor(
+			(localMidnightShift(rounded) - coreEpochTime(epoch) + DAY / 2) / DAY,
+		)
 	);
 }
 
@@ -427,7 +444,10 @@ export function coreDaysSinceEpoch(calendarDays: number): number | null {
  * then folds or refuses it (`coreRoundDay`). Null where Core's `dateAdd`
  * returns null. */
 export function coreDateAdd(days: number): number | null {
-	const epoch = coreEpochTime();
+	/* Formplayer's `date(n)` calls `getDate(1970, 1, 1)` per call
+	 * (`FunctionUtils.java`), after the browser's zone is set, so this stays
+	 * on the local midnight on both platforms and takes no epoch. */
+	const epoch = coreEpochTime("device-zone");
 	const offset = offsetMsAt(epoch + days * DAY + DAY / 2);
 	return coreRoundDay(days + Math.floor((epoch + DAY / 2 + offset) / DAY));
 }
@@ -441,11 +461,16 @@ function javaTimezoneOffsetMinutes(instantMs: number): number {
 
 /** `DateUtils.fractionalDaysSinceEpoch`: the instant's distance from
  * `EPOCH_DATE` corrected by the change in `Date.getTimezoneOffset` between
- * the two, so it follows the wall clock. */
-export function coreFractionalDays(instantMs: number): number {
-	const epoch = coreEpochTime();
+ * the two, so it follows the wall clock. Under `"utc"` both offsets are the
+ * JVM's UTC offset, `0` at every instant, so it is the instant in days. */
+export function coreFractionalDays(
+	instantMs: number,
+	epoch: DayNumberEpoch,
+): number {
+	if (epoch === "utc") return instantMs / DAY;
+	const start = coreEpochTime(epoch);
 	const drift =
-		(javaTimezoneOffsetMinutes(instantMs) - javaTimezoneOffsetMinutes(epoch)) *
+		(javaTimezoneOffsetMinutes(instantMs) - javaTimezoneOffsetMinutes(start)) *
 		60_000;
-	return (instantMs - epoch - drift) / DAY;
+	return (instantMs - start - drift) / DAY;
 }

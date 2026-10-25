@@ -1,4 +1,5 @@
 import { compareEqual, compareRelational, toNumber } from "./coerce";
+import type { DayNumberEpoch } from "./coreDays";
 import type { XPathRuntimeValue } from "./runtimeValues";
 
 const XPATH_BINARY_OPERATIONS = new Set([
@@ -45,30 +46,31 @@ export function applyXPathBinaryOperation(
 	type: XPathBinaryOperation,
 	left: XPathRuntimeValue,
 	right: XPathRuntimeValue,
+	epoch: DayNumberEpoch,
 ): XPathRuntimeValue {
 	switch (type) {
 		case "AddExpr":
-			return toNumber(left) + toNumber(right);
+			return toNumber(left, epoch) + toNumber(right, epoch);
 		case "SubtractExpr":
-			return toNumber(left) - toNumber(right);
+			return toNumber(left, epoch) - toNumber(right, epoch);
 		case "MultiplyExpr":
-			return toNumber(left) * toNumber(right);
+			return toNumber(left, epoch) * toNumber(right, epoch);
 		case "DivideExpr":
-			return toNumber(left) / toNumber(right);
+			return toNumber(left, epoch) / toNumber(right, epoch);
 		case "ModulusExpr":
-			return toNumber(left) % toNumber(right);
+			return toNumber(left, epoch) % toNumber(right, epoch);
 		case "EqualsExpr":
-			return compareEqual(left, right);
+			return compareEqual(left, right, epoch);
 		case "NotEqualsExpr":
-			return !compareEqual(left, right);
+			return !compareEqual(left, right, epoch);
 		case "LessThanExpr":
-			return compareRelational(left, right, "<");
+			return compareRelational(left, right, "<", epoch);
 		case "LessEqualExpr":
-			return compareRelational(left, right, "<=");
+			return compareRelational(left, right, "<=", epoch);
 		case "GreaterThanExpr":
-			return compareRelational(left, right, ">");
+			return compareRelational(left, right, ">", epoch);
 		case "GreaterEqualExpr":
-			return compareRelational(left, right, ">=");
+			return compareRelational(left, right, ">=", epoch);
 	}
 }
 

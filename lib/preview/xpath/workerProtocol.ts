@@ -1,3 +1,4 @@
+import type { DayNumberEpoch } from "./coreDays";
 import type { XPathInitializationContext } from "./initializationContext";
 import type { XPathFormText } from "./types";
 
@@ -9,7 +10,7 @@ import type { XPathFormText } from "./types";
  * not add request payloads to diagnostics.
  */
 
-export const XPATH_WORKER_PROTOCOL_VERSION = 8 as const;
+export const XPATH_WORKER_PROTOCOL_VERSION = 9 as const;
 
 /** Build identity shared by the host chunk and the independently bundled
  * public Worker. Production receives Cloud Build's immutable UUID; local and
@@ -109,6 +110,10 @@ export interface XPathRuntimeRequest {
 	readonly profile: XPathWorkerProfile;
 	readonly source: string;
 	readonly instances: XPathWorkerInstances;
+	/** The midnight a day number counts from on the platform Preview plays
+	 * (`lib/preview/platform.ts`, `dayNumberEpoch`). Per request, because one
+	 * worker serves evaluations of either platform. */
+	readonly dayNumberEpoch: DayNumberEpoch;
 	/** Scalar is the ordinary XPath contract. Query-bound repeats need each
 	 * selected node's lexical value so Preview can seed the same per-iteration
 	 * `@id` values as JavaRosa without cloning nodes or paths back. */

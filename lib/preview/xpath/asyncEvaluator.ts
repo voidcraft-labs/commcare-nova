@@ -1,5 +1,6 @@
 import type { SyntaxNode } from "@lezer/common";
 import { toBoolean, toNumber, xpathToString } from "./coerce";
+import type { DayNumberEpoch } from "./coreDays";
 import {
 	applyStructuralStep,
 	contextualizeAbsolutePathSelection,
@@ -27,7 +28,7 @@ import {
 	XPathNodeSet,
 	type XPathRuntimeValue,
 } from "./runtimeValues";
-import type { EvalContext, XPathValue } from "./types";
+import { dayNumberEpochOf, type EvalContext, type XPathValue } from "./types";
 
 export const ASYNC_XPATH_FUNCTIONS: ReadonlySet<string> = new Set([
 	"decrypt-string",
@@ -134,7 +135,10 @@ async function evaluateAsyncNode(
 	if (type === "UnaryNegativeExpr") {
 		const [operand] = getBinaryOperands(node);
 		return operand
-			? -toNumber(await evaluateAsyncNode(operand, source, context, tools))
+			? -toNumber(
+					await evaluateAsyncNode(operand, source, context, tools),
+					dayNumberEpochOf(context),
+				)
 			: 0;
 	}
 	if (type === "AndExpr" || type === "OrExpr") {
@@ -155,7 +159,12 @@ async function evaluateAsyncNode(
 		if (!left || !right) return missingXPathBinaryOperand(type);
 		const leftValue = await evaluateAsyncNode(left, source, context, tools);
 		const rightValue = await evaluateAsyncNode(right, source, context, tools);
-		return applyXPathBinaryOperation(type, leftValue, rightValue);
+		return applyXPathBinaryOperation(
+			type,
+			leftValue,
+			rightValue,
+			dayNumberEpochOf(context),
+		);
 	}
 
 	const first = firstExpressionChild(node);
@@ -232,7 +241,10 @@ async function evaluateAsyncInvoke(
 
 	if (name === "sleep") {
 		if (values.length !== 2) throw new Error("sleep() requires two arguments.");
-		const milliseconds = javaInt32(values[0] ?? Number.NaN);
+		const milliseconds = javaInt32(
+			values[0] ?? Number.NaN,
+			dayNumberEpochOf(context),
+		);
 		if (milliseconds < 0) {
 			throw new Error("Sleep duration must be a nonnegative integer.");
 		}
@@ -322,7 +334,10 @@ async function evaluateAsyncInvoke(
 		context.formText,
 	);
 	if (formTextInvocation.kind === "handled") return formTextInvocation.value;
-	const invocation = invokeFunction(name, values, { locale: context.locale });
+	const invocation = invokeFunction(name, values, {
+		locale: context.locale,
+		dayNumberEpoch: dayNumberEpochOf(context),
+	});
 	if (invocation.kind === "handled") return invocation.value;
 	const generated = context.invokeGeneratedFunction?.(
 		name,
@@ -407,8 +422,8 @@ function requireArity(
 }
 
 /** FunctionUtils.toInt(...).intValue(), used by Core's sleep(). */
-function javaInt32(value: XPathRuntimeValue): number {
-	const number = toNumber(value);
+function javaInt32(value: XPathRuntimeValue, epoch: DayNumberEpoch): number {
+	const number = toNumber(value, epoch);
 	if (Number.isNaN(number)) return 0;
 	if (number >= 2_147_483_647) return 2_147_483_647;
 	if (number <= -2_147_483_648) return -2_147_483_648;

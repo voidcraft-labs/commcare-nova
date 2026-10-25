@@ -9,7 +9,7 @@ import type { XPathValue } from "../types";
 function call(name: string, ...args: XPathValue[]): XPathValue {
 	const fn = scalarJavaRosaFunctions.get(name);
 	if (!fn) throw new Error(`Missing scalar JavaRosa function ${name}()`);
-	return fn(args) as XPathValue;
+	return fn(args, "device-zone") as XPathValue;
 }
 
 describe("scalar JavaRosa function ports", () => {

@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { webAppsDevice } from "../../engine/__tests__/fixtures/previewDevices";
+import { previewSessionValues } from "../../engine/identity";
 import {
 	caseDatabaseXPathInstance,
 	commcareSessionXPathInstance,
@@ -70,6 +72,7 @@ function request(
 	overrides: Partial<XPathRuntimeRequest> = {},
 ): XPathRuntimeRequest {
 	return {
+		dayNumberEpoch: "device-zone",
 		entryKey: "entry-a",
 		revision: 1,
 		profile: "form",
@@ -87,12 +90,12 @@ describe("XPath worker runtime", () => {
 		});
 		dispatcher.handleMessage({
 			...request(),
-			protocolVersion: 7,
+			protocolVersion: 8,
 			buildId: XPATH_WORKER_BUILD_ID,
 			operation: "evaluate",
 			requestId: 1,
 		} as unknown as XPathWorkerRequest);
-		expect(XPATH_WORKER_PROTOCOL_VERSION).toBe(8);
+		expect(XPATH_WORKER_PROTOCOL_VERSION).toBe(9);
 		expect(responses).toMatchObject([
 			{ ok: false, requestId: 1, error: { code: "protocol-mismatch" } },
 		]);
@@ -156,7 +159,7 @@ describe("XPath worker runtime", () => {
 		});
 		const value = reply.ok ? deserializeXPathWorkerValue(reply.value) : null;
 		expect(value).toBeInstanceOf(XPathDate);
-		expect((value as XPathDate).coreDays).toBe(200_000_000);
+		expect((value as XPathDate).coreDaysUnder("device-zone")).toBe(200_000_000);
 	});
 
 	it("detects async functions from the parsed AST without substring guesses", () => {
@@ -296,7 +299,12 @@ describe("XPath worker runtime", () => {
 			secondary: [
 				snapshotXPathWorkerInstance(casedb),
 				snapshotXPathWorkerInstance(
-					commcareSessionXPathInstance(null, { case_id: "case-1" }),
+					commcareSessionXPathInstance(
+						previewSessionValues(null, webAppsDevice()),
+						{
+							case_id: "case-1",
+						},
+					),
 				),
 			],
 			contextPath: "/data/age",
