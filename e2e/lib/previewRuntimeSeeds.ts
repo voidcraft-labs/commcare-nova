@@ -1,5 +1,5 @@
 /**
- * Five running-app fixtures that only a real browser over real case rows can
+ * Six running-app fixtures that only a real browser over real case rows can
  * exercise, one per smoke:
  *
  * - **form-refused**: a follow-up form whose date question preloads a case
