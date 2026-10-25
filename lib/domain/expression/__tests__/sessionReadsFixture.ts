@@ -10,7 +10,7 @@
  */
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { type BlueprintDoc, NEW_APP_SETTINGS } from "@/lib/domain";
+import { type BlueprintDoc, NEW_APP_SETTINGS, type Uuid } from "@/lib/domain";
 import { advancedSearchInputDef } from "@/lib/domain/modules";
 import { proseText } from "@/lib/domain/prose";
 import { matchAll } from "../builders";
@@ -34,7 +34,7 @@ export const SURVEY_MODULE = testUuid("reads-survey-module");
 export const SURVEY_FORM = testUuid("reads-survey-form");
 export const SURVEY_HIDDEN = testUuid("reads-survey-hidden");
 
-const searchInput = (uuid: string, name: string) =>
+const searchInput = (uuid: Uuid, name: string) =>
 	advancedSearchInputDef(uuid, name, name, "text", matchAll());
 
 /** A search-first module whose follow-up form holds a hidden value, a
@@ -57,7 +57,7 @@ export const readsDoc = (
 				},
 				{
 					name: "visit",
-					parent: "patient",
+					parent_type: "patient",
 					properties: [{ name: "case_name", label: proseText("Name") }],
 				},
 			],
@@ -191,9 +191,9 @@ export const readsDoc = (
 		},
 	);
 
-export const calculateOf = (uuid: string): ExpressionSlotRef => ({
+export const calculateOf = (uuid: Uuid): ExpressionSlotRef => ({
 	entity: "field",
-	uuid: uuid as never,
+	uuid,
 	slot: "calculate",
 });
 export const connectSlot: ExpressionSlotRef = {
