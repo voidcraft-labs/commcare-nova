@@ -109,6 +109,7 @@ it("publishes validated ready metadata and deduplicates across Project co-member
 		gcs_object_key: KEY,
 		original_filename: "household.png",
 		display_name: "household.png",
+		media_format: "png",
 	});
 	expect(objects).toEqual(new Map([[KEY, PNG]]));
 	expect(vi.mocked(uploadAssetBytes).mock.calls).toEqual([
@@ -198,6 +199,35 @@ it("reconciles an object-store error after bytes were written and then allows re
 		expect(payload(await call(client))).toMatchObject({ deduplicated: false });
 	});
 	expect(objects).toEqual(new Map([[KEY, PNG]]));
+});
+
+it("stores an HEVC video as the variant it is, and refuses an SVG with its own sentence", async () => {
+	await h.seedProjectMember(ACTOR, PROJECT, "editor");
+	const hevc = readFileSync("lib/media/__tests__/fixtures/pattern-hevc.mp4");
+	await asUser(async (client) => {
+		const created = payload(
+			await call(client, {
+				filename: "clip.mp4",
+				mime_type: "video/mp4",
+				data_base64: hevc.toString("base64"),
+			}),
+		);
+		expect(created).toMatchObject({ kind: "video", deduplicated: false });
+		const svg = readFileSync("lib/media/__tests__/fixtures/pattern.svg");
+		const refused = payload(
+			await call(client, {
+				filename: "logo.png",
+				mime_type: "image/svg+xml",
+				data_base64: svg.toString("base64"),
+			}),
+			true,
+		);
+		expect(refused).toMatchObject({ error_type: "invalid_input" });
+		expect(JSON.stringify(refused)).toContain(
+			"CommCare HQ can't store SVG images, so no CommCare app can show this one. Saving it as a PNG fixes that.",
+		);
+	});
+	expect((await rows()).map((row) => row.media_format)).toEqual(["mp4-hevc"]);
 });
 
 it("refuses invalid real bytes and schema inputs before any metadata or storage allocation", async () => {

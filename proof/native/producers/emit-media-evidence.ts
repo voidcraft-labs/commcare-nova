@@ -27,7 +27,7 @@ for (const mediaOnly of [false, true])
 	for (const enabled of [false, true]) {
 		// The family's scenario holds one file of each format defect 11's first
 		// half accepts, each in a slot of its kind, beside the corpus's media.
-		const { doc, assets } = mediaWireFixture(mediaOnly, true);
+		const { doc, assets } = mediaWireFixture(mediaOnly, "every-platform");
 		const name = `media-${mediaOnly ? "only" : "rich"}-${enabled ? "on" : "off"}`;
 		const options = enabled ? { assets } : {};
 		const hq = expandDoc(doc, options);
@@ -57,7 +57,7 @@ for (const mediaOnly of [false, true])
 			}
 		}
 	}
-const { assets } = mediaWireFixture(false, true);
+const { assets } = mediaWireFixture(false, "every-platform");
 write(
 	"media-paths.properties",
 	Object.entries(mediaIds)

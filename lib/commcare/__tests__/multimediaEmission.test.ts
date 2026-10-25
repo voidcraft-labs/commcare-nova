@@ -22,7 +22,7 @@ describe("admitted XForm media references", () => {
 	for (const mediaOnly of [false, true])
 		for (const enabled of [false, true])
 			it(`${mediaOnly ? "media-only" : "text and media"} optional content, emission ${enabled ? "on" : "off"}`, () => {
-				const { doc, assets } = mediaWireFixture(mediaOnly, true);
+				const { doc, assets } = mediaWireFixture(mediaOnly, "every-platform");
 				const options = enabled ? { assets } : {};
 				const hq = expandDoc(doc, options);
 				const zip = new AdmZip(

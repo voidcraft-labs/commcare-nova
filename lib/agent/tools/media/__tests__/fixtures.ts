@@ -15,6 +15,7 @@ import type {
 	AssetKind,
 	MediaAssetId,
 	MediaAssetStatus,
+	MediaFormatValue,
 } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../../__tests__/admittedFixture";
@@ -41,8 +42,21 @@ export interface TestAssetRow {
 	project_id: string;
 	status: MediaAssetStatus;
 	kind: AssetKind;
+	mimeType: string;
+	mediaFormat?: MediaFormatValue;
 	sizeBytes: number;
 }
+
+/** Each media kind's stand-in file: a MIME and the variant it is, played on both platforms. */
+const STAND_IN: Readonly<
+	Partial<
+		Record<AssetKind, { mimeType: string; mediaFormat: MediaFormatValue }>
+	>
+> = {
+	image: { mimeType: "image/png", mediaFormat: "png" },
+	audio: { mimeType: "audio/wav", mediaFormat: "wav-pcm" },
+	video: { mimeType: "video/mp4", mediaFormat: "mp4-h264-main" },
+};
 
 const testAssetRows = new Map<MediaAssetId, TestAssetRow>();
 
@@ -68,9 +82,14 @@ export function seedTestAsset(
 	kind: AssetKind,
 	overrides: Partial<Omit<TestAssetRow, "id" | "kind">> = {},
 ): void {
+	const stand = STAND_IN[kind];
 	testAssetRows.set(id, {
 		id,
 		kind,
+		mimeType: overrides.mimeType ?? stand?.mimeType ?? "application/pdf",
+		...((overrides.mediaFormat ?? stand?.mediaFormat) !== undefined && {
+			mediaFormat: overrides.mediaFormat ?? stand?.mediaFormat,
+		}),
 		project_id: overrides.project_id ?? "project-1",
 		status: overrides.status ?? "ready",
 		sizeBytes: overrides.sizeBytes ?? 1024,

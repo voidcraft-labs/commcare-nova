@@ -64,6 +64,7 @@ async function seedReadyAsset(
 			original_filename: "logo.png",
 			display_name: "Logo",
 			status: "ready",
+			media_format: "png",
 			extract: null,
 		})
 		.execute();
@@ -236,6 +237,7 @@ describe("transactional media deletion", () => {
 						mimeType: "image/png",
 						extension: ".png",
 						dimensions: { width: 16, height: 16 },
+						mediaFormat: "png",
 					},
 					publisherDb.appDb,
 				),

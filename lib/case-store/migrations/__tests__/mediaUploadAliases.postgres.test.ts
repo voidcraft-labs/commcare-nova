@@ -30,11 +30,11 @@ describe("media upload alias migration", () => {
 		await pgClient.query(
 			`INSERT INTO media_assets (
 				id, project_id, owner, content_hash, mime_type, extension,
-				size_bytes, kind, gcs_object_key, original_filename, status
+				size_bytes, kind, gcs_object_key, original_filename, status, media_format
 			) VALUES (
 				'10000000-0000-4000-8000-000000000001', 'project-a', 'owner-a', $1, 'image/png',
 				'.png', 10, 'image', 'projects/project-a/hash.png',
-				'logo.png', 'ready'
+				'logo.png', 'ready', 'png'
 			)`,
 			["a".repeat(64)],
 		);

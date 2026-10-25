@@ -11,7 +11,7 @@ import { runValidation } from "../../../runner";
 describe("media reference admission across carriers", () => {
 	for (const state of ["missing", "pending", "wrong kind"] as const)
 		it(`reports every ${state} reference at its actual authoring location`, () => {
-			const { doc, assets } = mediaWireFixture(false, true);
+			const { doc, assets } = mediaWireFixture(false, "every-platform");
 			const records = mediaRecords(assets);
 			const moduleUuid = doc.moduleOrder[0],
 				formUuid = doc.formOrder[moduleUuid][0];
@@ -106,7 +106,7 @@ describe("media reference admission across carriers", () => {
 			);
 		});
 	it("skips external media admission only when no manifest was supplied", () => {
-		const { doc } = mediaWireFixture(false, true);
+		const { doc } = mediaWireFixture(false, "every-platform");
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		expect(
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {

@@ -3,8 +3,8 @@
  *
  * Two groups:
  *
- *   - `MEDIA_ASSET_RULES` — the three asset-context rules (existence /
- *     ready / kind match). Each takes the doc + the resolved
+ *   - `MEDIA_ASSET_RULES` — the four asset-context rules (existence /
+ *     ready / kind match / the format plays where the app runs). Each takes the doc + the resolved
  *     manifest. The runner runs the group when the caller supplies a
  *     manifest; callers that don't (no resolved manifest at hand) skip
  *     the group — the doc is still structurally valid, the media refs
@@ -29,13 +29,14 @@ import type { BlueprintDoc } from "@/lib/domain";
 import type { ValidationError } from "../../errors";
 import { mediaAssetExists } from "./mediaAssetExists";
 import { mediaAssetReady } from "./mediaAssetReady";
+import { mediaFormatPlays } from "./mediaFormatPlays";
 import { mediaKindMatches } from "./mediaKindMatches";
 
 export { imageMapValueUnique } from "./imageMapValueUnique";
 
 /**
  * Signature for the asset-context rules — uniform `(doc, manifest)`
- * across the three. The runner drives every rule through a single
+ * across the four. The runner drives every rule through a single
  * loop without per-rule dispatch.
  */
 export type MediaAssetRule = (
@@ -47,4 +48,5 @@ export const MEDIA_ASSET_RULES: ReadonlyArray<MediaAssetRule> = [
 	mediaAssetExists,
 	mediaAssetReady,
 	mediaKindMatches,
+	mediaFormatPlays,
 ];

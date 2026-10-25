@@ -155,6 +155,7 @@ const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
 	"MEDIA_ASSET_NOT_FOUND",
 	"MEDIA_ASSET_NOT_READY",
 	"MEDIA_KIND_MISMATCH",
+	"MEDIA_FORMAT_NOT_PLAYED",
 	"MEDIA_EXPORT_TOO_LARGE",
 	// Lookup validation always extracts the full doc. Context findings can span
 	// carriers and are therefore scope-exempt just like app-wide rules.

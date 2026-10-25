@@ -35,6 +35,7 @@ import type {
 	ALL_MIME_TYPES,
 	ASSET_KINDS,
 	MEDIA_ASSET_STATUSES,
+	MediaFormatValue,
 } from "../domain/multimedia";
 import { MEDIA_EXTRACT_STATUSES } from "../domain/multimedia";
 
@@ -416,6 +417,10 @@ export interface MediaAssetDoc {
 	dimensions?: { width: number; height: number };
 	/** Audio/video-only — container duration in ms; best-effort. */
 	durationMs?: number;
+	/** Media-only, on a ready row: the variant the bytes are, or `unplayable`
+	 *  for stored bytes no variant admits. Absent on a document, a pending row,
+	 *  and a ready row the platforms cutover's backfill has not reached. */
+	mediaFormat?: MediaFormatValue;
 	kind: (typeof ASSET_KINDS)[number];
 	/** GCS object key (without the `gs://<bucket>/` prefix) the bytes live at. */
 	gcsObjectKey: string;

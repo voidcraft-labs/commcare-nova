@@ -123,8 +123,8 @@ export async function resolveBuiltinManifestEntries(
 /**
  * Synthetic `ready`/`image` asset rows for the export boundary. The boundary's
  * only consumers — the media validator rules (`mediaAssetExists`/`mediaAssetReady`/
- * `mediaKindMatches`) and the export budget — read `status`/`kind`/`mimeType`/
- * `sizeBytes`; the remaining fields are filled for shape. `created_at` (a `Date`
+ * `mediaKindMatches`, `mediaFormatPlays`) and the export budget — read
+ * `status`/`kind`/`mimeType`/`mediaFormat`/`sizeBytes`; the remaining fields are filled for shape. `created_at` (a `Date`
  * the boundary never reads) is omitted, so the cast mirrors the test factories'
  * `as unknown as MediaAssetRecord` convention.
  */
@@ -141,6 +141,7 @@ export function builtinAssetRows(
 			extension: BUILTIN_IMAGE_EXTENSION,
 			sizeBytes: entry.sizeBytes,
 			kind: "image",
+			mediaFormat: "png",
 			gcsObjectKey: "",
 			originalFilename: `${slug}.png`,
 			status: "ready",

@@ -42,7 +42,14 @@ interface RowOverrides {
 	duration_ms?: number | null;
 	display_name?: string | null;
 	extract?: Record<string, unknown> | null;
+	media_format?: string | null;
 }
+
+/** The stand-in variant of a seeded ready media row's MIME, as the upload gate writes one. */
+const STAND_IN_FORMAT: Readonly<Record<string, string>> = {
+	"image/png": "png",
+	"audio/mpeg": "mp3",
+};
 
 /** Insert a `media_assets` row, defaulting a `ready` image, and return its id. */
 async function seedRow(over: RowOverrides = {}): Promise<MediaAssetId> {
@@ -71,6 +78,13 @@ async function seedRow(over: RowOverrides = {}): Promise<MediaAssetId> {
 			display_name:
 				over.display_name === undefined ? "logo.png" : over.display_name,
 			status: over.status ?? "ready",
+			media_format:
+				over.media_format !== undefined
+					? over.media_format
+					: (over.status ?? "ready") === "ready" &&
+							["image", "audio", "video"].includes(over.kind ?? "image")
+						? (STAND_IN_FORMAT[over.mime_type ?? "image/png"] ?? null)
+						: null,
 			extract:
 				over.extract === undefined || over.extract === null
 					? null
@@ -145,6 +159,35 @@ describe("toRecord mapping (via loadAssetById)", () => {
 		expect(record).not.toHaveProperty("durationMs");
 		expect(record).not.toHaveProperty("displayName");
 		expect(record).not.toHaveProperty("extract");
+	});
+
+	it("round-trips the media format, and reads NULL as absent", async () => {
+		const video = await seedRow({
+			mime_type: "video/mp4",
+			extension: ".mp4",
+			kind: "video",
+			dimensions: null,
+			media_format: "mp4-hevc",
+		});
+		expect((await loadAssetById(video))?.mediaFormat).toBe("mp4-hevc");
+		const document = await seedRow({
+			mime_type: "application/pdf",
+			extension: ".pdf",
+			kind: "pdf",
+			dimensions: null,
+		});
+		expect(await loadAssetById(document)).not.toHaveProperty("mediaFormat");
+		const pending = await seedRow({ status: "pending" });
+		expect(await loadAssetById(pending)).not.toHaveProperty("mediaFormat");
+	});
+
+	it("refuses a variant of another kind, and an unknown key", async () => {
+		await expect(seedRow({ media_format: "mp3" })).rejects.toThrow(
+			/media_assets_media_format_known/,
+		);
+		await expect(seedRow({ media_format: "svg" })).rejects.toThrow(
+			/media_assets_media_format_known/,
+		);
 	});
 
 	it("returns null for a missing id", async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
@@ -6,6 +7,7 @@ import type { LookupRevision } from "@/lib/lookup/types";
 import {
 	auditRuntimeProbeParsedBlueprint,
 	chooseRuntimeProbeCandidate,
+	runtimeMediaRequirementsHold,
 	summarizeRuntimeProbeAppAudits,
 } from "../runtimeDatabaseProbe";
 
@@ -160,5 +162,56 @@ describe("auditRuntimeProbeParsedBlueprint", () => {
 				mediaReferenceProjectionFindingCount: 0,
 			}).projectReferenceIndexFindingCount,
 		).toBe(1);
+	});
+});
+
+describe("runtimeMediaRequirementsHold", () => {
+	const id = testMediaAssetId("amr");
+	const row = {
+		id,
+		project_id: "project-probe",
+		status: "ready",
+		kind: "audio",
+		media_format: "amr",
+	};
+
+	it("counts an Android-only file a both-declared app references, and no thread attachment of it", () => {
+		expect(
+			runtimeMediaRequirementsHold(
+				[
+					{
+						assetId: id,
+						expectedKind: "audio",
+						platforms: ["web-apps", "android"],
+					},
+				],
+				[row],
+				"project-probe",
+			),
+		).toBe(false);
+		expect(
+			runtimeMediaRequirementsHold(
+				[{ assetId: id, expectedKind: "audio", platforms: ["android"] }],
+				[row],
+				"project-probe",
+			),
+		).toBe(true);
+		expect(
+			runtimeMediaRequirementsHold(
+				[{ assetId: id, expectedKind: "audio" }],
+				[row],
+				"project-probe",
+			),
+		).toBe(true);
+	});
+
+	it("reads a ready row with no format as playing nowhere", () => {
+		expect(
+			runtimeMediaRequirementsHold(
+				[{ assetId: id, expectedKind: "audio", platforms: ["android"] }],
+				[{ ...row, media_format: null }],
+				"project-probe",
+			),
+		).toBe(false);
 	});
 });

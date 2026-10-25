@@ -210,6 +210,7 @@ import {
 	partitionAssetRefs,
 	resolveBuiltinManifestEntries,
 } from "@/lib/media/builtinIconAssets";
+import { classifyStoredMediaBytes } from "@/lib/media/validate";
 import { renderManualImportGuide } from "@/lib/publish/manualImportGuide";
 import { CORPUS_COMMCARE_VERSION } from "./configurations";
 import type { HqSideSaves } from "./documents";
@@ -567,12 +568,16 @@ export function uploadedMediaProblem(asset: UploadedMedia): string | undefined {
 	return undefined;
 }
 
-/** The ready row Nova's media store holds for one uploaded asset. */
-function mediaRow(
+/**
+ * The ready row Nova's media store holds for one uploaded asset, with the
+ * variant the production classifier gives its bytes, as the upload gate
+ * records it.
+ */
+async function mediaRow(
 	source: PublishDocument,
 	assetId: string,
 	asset: UploadedMedia,
-): MediaAssetRecord {
+): Promise<MediaAssetRecord> {
 	const problem = uploadedMediaProblem(asset);
 	const mimeType = normalizeMimeType(asset.mimeType);
 	if (problem !== undefined || mimeType === undefined) {
@@ -594,6 +599,10 @@ function mediaRow(
 		gcsObjectKey: gcsObjectKeyFor(projectId, contentHash, asset.extension),
 		originalFilename: `${assetId}${asset.extension}`,
 		status: "ready",
+		mediaFormat: await classifyStoredMediaBytes(asset.bytes, {
+			mimeType,
+			extension: asset.extension,
+		}),
 		created_at: new Date(0),
 	};
 }
@@ -606,16 +615,18 @@ function mediaRow(
 function mediaRows(
 	source: PublishDocument,
 	ids: readonly string[],
-): MediaAssetRecord[] {
-	return ids.map((id) => {
-		const asset = source.media?.get(id);
-		if (asset === undefined) {
-			throw new Error(
-				`Corpus document ${source.id} references the uploaded media asset ${id}, and its media holds no bytes for it. Give the document every uploaded asset it references.`,
-			);
-		}
-		return mediaRow(source, id, asset);
-	});
+): Promise<MediaAssetRecord[]> {
+	return Promise.all(
+		ids.map((id) => {
+			const asset = source.media?.get(id);
+			if (asset === undefined) {
+				throw new Error(
+					`Corpus document ${source.id} references the uploaded media asset ${id}, and its media holds no bytes for it. Give the document every uploaded asset it references.`,
+				);
+			}
+			return mediaRow(source, id, asset);
+		}),
+	);
 }
 
 /**
@@ -631,7 +642,7 @@ async function mediaManifest(
 		...collectAssetRefs(doc),
 	]);
 	const manifest = new Map<ResolvedMediaAsset["assetId"], ResolvedMediaAsset>();
-	for (const row of mediaRows(source, realIds)) {
+	for (const row of await mediaRows(source, realIds)) {
 		const asset = source.media?.get(row.id);
 		if (asset === undefined) continue;
 		manifest.set(row.id, {

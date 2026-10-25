@@ -990,6 +990,7 @@ it.each([
 				original_filename: "household.png",
 				display_name: "Household",
 				status: "ready",
+				media_format: "png",
 			})
 			.execute();
 		vi.mocked(downloadAssetBytes).mockImplementation(async (requested) => {
@@ -1084,6 +1085,7 @@ it("offers a logo only the logo uses for upload in CommCare HQ, and sends it in 
 			original_filename: "household.png",
 			display_name: "Household",
 			status: "ready",
+			media_format: "png",
 		})
 		.execute();
 	vi.mocked(downloadAssetBytes).mockResolvedValue(png);

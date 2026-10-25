@@ -52,6 +52,7 @@ import {
 	localizationWireFixture,
 } from "@/lib/commcare/__tests__/localizationWireFixture";
 import { lookupAppFixture } from "@/lib/commcare/__tests__/lookupAppFixtures";
+import { mediaManifest } from "@/lib/commcare/__tests__/mediaWireFixtures";
 import {
 	nestedMenuScenarios,
 	nestedMenuWireFixture,
@@ -98,6 +99,8 @@ import {
 	proseText,
 } from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
+import type { AssetMimeType } from "@/lib/domain/multimedia";
+import { classifyStoredMediaBytes } from "@/lib/media/validate";
 import { lookupContextOf } from "../documents";
 import {
 	admitEditBatch,
@@ -110,6 +113,7 @@ import {
 	editBatchFor,
 	formatCensus,
 	hydrateAdmittedDocument,
+	MEDIA_MIME,
 	publishFindings,
 } from "../editBatches";
 import { Minter, Rng, uuidTokensOf } from "../editContext";
@@ -611,5 +615,26 @@ describe("the publish-side checks the commit gate does not cover", () => {
 			withAudio("0b7d4f7e-5a1c-5b2e-9c3d-4e5f60718293"),
 		);
 		expect(fresh.ok).toBe(true);
+	});
+});
+
+describe("the corpus's stand-in media rows", () => {
+	it("give each slot kind the variant the classifier gives the corpus's own file of that kind", async () => {
+		const files = [...mediaManifest().values()];
+		for (const [kind, standIn] of Object.entries(MEDIA_MIME)) {
+			const file = files.find(
+				(asset) => asset.kind === kind && asset.mimeType === standIn.mimeType,
+			);
+			if (file?.bytes === undefined) {
+				throw new Error(`The corpus manifest holds no ${kind} file.`);
+			}
+			expect(
+				await classifyStoredMediaBytes(file.bytes, {
+					mimeType: standIn.mimeType as AssetMimeType,
+					extension: standIn.extension,
+				}),
+				kind,
+			).toBe(standIn.mediaFormat);
+		}
 	});
 });

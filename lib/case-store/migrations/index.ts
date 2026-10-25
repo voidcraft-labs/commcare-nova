@@ -31,6 +31,7 @@ import * as appSettings from "./20261015030000_app_settings";
 import * as hqRoundTripExpressionsFoldHorizon from "./20261020000000_hq_round_trip_expressions_fold_horizon";
 import * as hqRoundTripPlatformsWebAppsRead from "./20261101000000_hq_round_trip_platforms_web_apps_read";
 import * as hqRoundTripPlatformsFormEntrySync from "./20261101010000_hq_round_trip_platforms_form_entry_sync";
+import * as hqRoundTripPlatformsMediaFormat from "./20261101020000_hq_round_trip_platforms_media_format";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -217,6 +218,8 @@ export const caseStoreMigrations: Record<string, Migration> = {
 		hqRoundTripPlatformsWebAppsRead,
 	"20261101010000_hq_round_trip_platforms_form_entry_sync":
 		hqRoundTripPlatformsFormEntrySync,
+	"20261101020000_hq_round_trip_platforms_media_format":
+		hqRoundTripPlatformsMediaFormat,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

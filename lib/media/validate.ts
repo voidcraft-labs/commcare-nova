@@ -64,6 +64,7 @@ import { readBmp } from "./bmp";
 import { readIco } from "./ico";
 import { readMidi } from "./midi";
 import { MP4_VIDEO_ADVICE, readMp4 } from "./mp4";
+import { namesSvg, SVG_REFUSAL_MESSAGE } from "./svg";
 import { readWav } from "./wav";
 import { readVp9Profile } from "./webm";
 
@@ -119,19 +120,7 @@ export type ValidationFailureReason =
 	| "svg-not-accepted"
 	| "ico-variant-not-accepted";
 
-/** The refusal of an SVG, at upload and in the builder's Upload tab. */
-export const SVG_REFUSAL_MESSAGE =
-	"CommCare HQ can't store SVG images, so no CommCare app can show this one. Saving it as a PNG fixes that.";
-
-/**
- * Whether a filename or a raw MIME claim names SVG: the name ends `.svg`
- * (case-insensitive), or the claim, lowercased with its parameters stripped,
- * is `image/svg+xml`.
- */
-export function namesSvg(filename: string, claimedMimeType: string): boolean {
-	const claim = claimedMimeType.trim().toLowerCase().split(";")[0]?.trim();
-	return filename.toLowerCase().endsWith(".svg") || claim === "image/svg+xml";
-}
+export { namesSvg, SVG_REFUSAL_MESSAGE } from "./svg";
 
 /**
  * Validate a byte payload + metadata claims.

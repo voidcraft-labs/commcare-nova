@@ -38,7 +38,7 @@ import {
 } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema, proseText } from "@/lib/domain";
 import { fixedLocation, term } from "@/lib/domain/expression";
-import { asMediaAssetId } from "@/lib/domain/multimedia";
+import { asMediaAssetId, type MediaFormatKey } from "@/lib/domain/multimedia";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import { getLookupFixtureData } from "@/lib/lookup/service";
@@ -179,9 +179,17 @@ function storedRow(id: string, asset: UploadedMedia): MediaAssetRecord {
 		gcsObjectKey: `projects/${PROJECT}/${contentHash}${asset.extension}`,
 		originalFilename: `upload${asset.extension}`,
 		status: "ready",
+		mediaFormat: STAND_IN_FORMAT[asset.mimeType],
 		created_at: new Date(0),
 	};
 }
+
+/** The variant of each uploaded MIME the corpus holds, which the classifier gives its bytes. */
+const STAND_IN_FORMAT: Readonly<Record<string, MediaFormatKey>> = {
+	"image/png": "png",
+	"audio/wav": "wav-pcm",
+	"video/mp4": "mp4-h264-high",
+};
 
 /** The export boundary's finding codes for the document over the same Project state. */
 async function boundaryCodes(

@@ -1287,6 +1287,7 @@ async function seedImage(id: MediaAssetId, file: string, project = PROJECT) {
 			original_filename: "logo.png",
 			display_name: "Logo",
 			status: "ready",
+			media_format: "png",
 		})
 		.execute();
 	return bytes;

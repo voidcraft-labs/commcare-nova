@@ -18,11 +18,29 @@
 
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import type {
-	AssetMimeType,
-	MediaAssetId,
-	MediaAssetStatus,
+import {
+	type AssetMimeType,
+	MEDIA_FORMATS,
+	type MediaAssetId,
+	type MediaAssetStatus,
+	type MediaFormatValue,
 } from "@/lib/domain/multimedia";
+
+/**
+ * The format a row of `mimeType` stands in with when its test names none:
+ * the MIME's one variant, or for a MIME of several the one every platform
+ * plays (`mp4-h264-main`, `ogg-vorbis`, `webm-vp8`). A document has none.
+ */
+export function standInFormat(mimeType: string): MediaFormatValue | undefined {
+	const variants = MEDIA_FORMATS.filter((format) => format.mime === mimeType);
+	const stand =
+		variants.length > 1
+			? variants.find((variant) =>
+					["mp4-h264-main", "ogg-vorbis", "webm-vp8"].includes(variant.key),
+				)
+			: variants[0];
+	return stand?.key;
+}
 
 /** The owner string the rule-tests treat as "this app's owner". */
 export const APP_OWNER = "owner-fixture";
@@ -53,6 +71,8 @@ export function makeAssetRecord(
 		originalFilename: `${id}.png`,
 		displayName: id,
 		status,
+		...(standInFormat(mimeType) !== undefined &&
+			status === "ready" && { mediaFormat: standInFormat(mimeType) }),
 		// A deterministic `Date`; tests don't care about the value, only that the
 		// field is present (the `media_assets.created_at` column is `timestamptz`,
 		// read back as a `Date`).
