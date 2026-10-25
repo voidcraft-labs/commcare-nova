@@ -13,6 +13,8 @@
  * A ready media row with no format (one the platforms cutover's backfill has
  * not reached) reads as `unplayable` in every judgment of one row, as the
  * kernel reads NULL, so no earlier check admits what the kernel refuses.
+ * `unplayableReferences` alone skips such a row: it only words the rows the
+ * kernel's refusal already read.
  */
 
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
@@ -90,7 +92,7 @@ function storedValue(row: PlaybackRow): MediaFormatValue {
 }
 
 /** The declared platforms a value does not play on. */
-function missingFrom(
+export function missingFrom(
 	value: MediaFormatValue,
 	platforms: readonly Platform[],
 ): Platform[] {

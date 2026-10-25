@@ -462,6 +462,12 @@ async function imageVerdict(
 				});
 		}
 	}
+	const key = mime === "image/avif" ? "avif" : SHARP_IMAGE_KEYS[mime];
+	if (key === undefined) {
+		throw new Error(
+			`The upload gate read a ${mime} image with no variant to name. Each image MIME in ACCEPTED_FORMATS needs its MEDIA_FORMATS key here.`,
+		);
+	}
 	try {
 		const meta = await sharp(bytes).metadata();
 		if (!meta.width || !meta.height) {
@@ -471,20 +477,14 @@ async function imageVerdict(
 			});
 		}
 		const dimensions = { width: meta.width, height: meta.height };
-		if (mime === "image/avif") {
-			if (meta.format !== "heif" || meta.compression !== "av1") {
-				return refused({
-					reason: "image-parse-failed",
-					message: `\`${filename}\` holds HEIF images that are not AV1. Saving it as a PNG fixes that.`,
-				});
-			}
-			return { ok: true, key: "avif", dimensions };
-		}
-		const key = SHARP_IMAGE_KEYS[mime];
-		if (key === undefined) {
-			throw new Error(
-				`The upload gate read a ${mime} image with no variant to name. Each image MIME in ACCEPTED_FORMATS needs its MEDIA_FORMATS key here.`,
-			);
+		if (
+			mime === "image/avif" &&
+			(meta.format !== "heif" || meta.compression !== "av1")
+		) {
+			return refused({
+				reason: "image-parse-failed",
+				message: `\`${filename}\` holds HEIF images that are not AV1. Saving it as a PNG fixes that.`,
+			});
 		}
 		return { ok: true, key, dimensions };
 	} catch (err) {
@@ -757,7 +757,7 @@ type EncodingVerdict =
  * platform plays, for every MIME but WAV and MP4 (whose own readers name
  * theirs), AMR and MIDI (which music-metadata does not parse). The container
  * and codec spellings are music-metadata's, as version 12.2.0 reports them:
- * `MPEG`; `FLAC`; `M4A/isom/iso2` or `M4B/isom/iso2` with `MPEG-4/AAC` or
+ * `MPEG` with `MPEG 1 Layer 3`, `MPEG 2 Layer 2` and the like; `FLAC`; `M4A/isom/iso2` or `M4B/isom/iso2` with `MPEG-4/AAC` or
  * `ALAC`; `Ogg` with `Vorbis I`, `Opus`, `Speex 1.2.1` or `FLAC`;
  * `ADTS/MPEG-4` or `ADTS/MPEG-2` with `AAC`; `EBML/webm` or `EBML/matroska`
  * with `VP8`, `VP9`, `AV1`, `VORBIS`, `OPUS`.
@@ -772,7 +772,12 @@ function encodingRefusal(
 	const tracks = metadata.format.trackInfo;
 	switch (mime) {
 		case "audio/mpeg":
-			return { key: "mp3" };
+			// file-type sniffs MPEG Layer 1 and Layer 2 frames as `audio/mpeg`
+			// too; music-metadata names the layer (`MPEG 1 Layer 3`, `MPEG 2
+			// Layer 2`, ...), and only Layer 3 is the MP3 both platforms play.
+			return codec.endsWith(" Layer 3")
+				? { key: "mp3" }
+				: codecRefusal(codec || container || "unnamed", "MP3 audio");
 		case "audio/mp4": {
 			// The `ftyp` major brand, read from the bytes themselves: HQ files an
 			// MP4 as audio only for `M4A ` or `M4B `.

@@ -73,6 +73,7 @@
  *   tone-float.wav             T -c:a pcm_f32le
  *   tone-mulaw.wav             T -c:a pcm_mulaw
  *   tone.mp3                   T -c:a libmp3lame
+ *   tone-mp2.mp3               T -c:a mp2 -b:a 64k -f mp2
  *   tone.aac                   T -c:a aac -f adts
  *   pattern-vp8.mkv            V -c:v libvpx -f matroska
  *   pattern-h264.mkv           V -c:v libx264 -profile:v main -pix_fmt yuv420p -f matroska
@@ -822,6 +823,11 @@ describe("validateMediaBytes — near misses some CommCare platform refuses", ()
 			says: "(Apple Lossless)",
 		},
 		{ file: "tone-speex.ogg", reason: "codec-not-accepted", says: "(Speex)" },
+		{
+			file: "tone-mp2.mp3",
+			reason: "codec-not-accepted",
+			says: "(MPEG 1 Layer 2)",
+		},
 		{
 			file: "tone-flac.ogg",
 			reason: "codec-not-accepted",

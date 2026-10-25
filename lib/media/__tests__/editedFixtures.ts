@@ -31,6 +31,31 @@ export function twoVideoMp4(): Buffer {
 }
 
 /**
+ * A committed MP4 whose track of `handler` claims two sample descriptions:
+ * the `entry_count` of the first `stsd` after that track's `hdlr` (the count
+ * follows the box's version and flags) becomes 2.
+ */
+export function severalEncodingsMp4(
+	file: string,
+	handler: "vide" | "soun",
+): Buffer {
+	const bytes = fixture(file);
+	let at = bytes.indexOf("hdlr", 0, "latin1");
+	while (at !== -1) {
+		if (bytes.toString("latin1", at + 12, at + 16) === handler) {
+			const stsd = bytes.indexOf("stsd", at, "latin1");
+			if (stsd === -1) break;
+			bytes.writeUInt32BE(2, stsd + 8);
+			return bytes;
+		}
+		at = bytes.indexOf("hdlr", at + 4, "latin1");
+	}
+	throw new Error(
+		`${file} holds no ${handler} track with a sample description to edit. The fixture may have been made again without that track.`,
+	);
+}
+
+/**
  * A committed WebM made an MKV: its EBML header's `DocType` (element
  * `0x4282`, 4 bytes, `webm`) becomes `matroska`, and the header's one-byte
  * size grows by the 4 bytes that adds. Matroska positions count from the

@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { readMp4 } from "../mp4";
-import { twoVideoMp4 } from "./editedFixtures";
+import { severalEncodingsMp4, twoVideoMp4 } from "./editedFixtures";
 
 function fixture(name: string): Buffer {
 	return readFileSync(join(import.meta.dirname, "fixtures", name));
@@ -47,6 +47,26 @@ describe("readMp4", () => {
 			kind: "other-track",
 			handler: "sbtl",
 		});
+	});
+
+	it("names a track of several encodings against its own kind's advice", () => {
+		expect(
+			readMp4(severalEncodingsMp4("pattern-h264-main-aac.mp4", "soun")),
+		).toEqual({
+			kind: "codec",
+			codec: "several encodings in one track",
+			accepted: "MP4 with AAC audio, or with none",
+		});
+		expect(
+			readMp4(severalEncodingsMp4("pattern-h264-main-aac.mp4", "vide")),
+		).toEqual({
+			kind: "codec",
+			codec: "several encodings in one track",
+			accepted: "MP4 with H.264 Main video",
+		});
+		expect(readMp4(severalEncodingsMp4("tone-audio-only.mp4", "soun"))).toEqual(
+			{ kind: "no-video" },
+		);
 	});
 
 	it("reads a cut header and a file with no movie as unreadable", () => {

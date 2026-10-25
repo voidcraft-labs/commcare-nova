@@ -36,6 +36,7 @@ import {
 	UNPLAYABLE_MEDIA_FORMAT,
 } from "@/lib/domain/multimedia";
 import type { Platform } from "@/lib/domain/platforms";
+import { playsOnEvery } from "@/lib/media/platformPlayback";
 import {
 	type AppDatabase,
 	getAppDb,
@@ -1491,10 +1492,7 @@ export async function lockAndValidateMediaReferences(
 		const asset = assets.get(requirement.assetId);
 		if (asset === undefined) continue;
 		const mediaFormat = asset.mediaFormat ?? UNPLAYABLE_MEDIA_FORMAT;
-		const playsOn = mediaFormatPlaysOn(mediaFormat);
-		if (requirement.platforms.every((platform) => playsOn.includes(platform))) {
-			continue;
-		}
+		if (playsOnEvery(mediaFormat, requirement.platforms)) continue;
 		unplayable.set(requirement.assetId, {
 			mediaFormat,
 			mimeType: asset.mimeType,

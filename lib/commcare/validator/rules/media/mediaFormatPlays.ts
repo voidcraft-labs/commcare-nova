@@ -23,7 +23,6 @@ import { walkAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	isMediaKind,
 	mediaFormatLabel,
-	mediaFormatPlaysOn,
 	UNPLAYABLE_MEDIA_FORMAT,
 } from "@/lib/domain/multimedia";
 import {
@@ -31,7 +30,7 @@ import {
 	inPlatform,
 	PLATFORM_LABELS,
 } from "@/lib/domain/platforms";
-import { REEXPORT_AS } from "@/lib/media/platformPlayback";
+import { missingFrom, REEXPORT_AS } from "@/lib/media/platformPlayback";
 import { type ValidationError, validationError } from "../../errors";
 import {
 	describeLocation,
@@ -56,8 +55,7 @@ export function mediaFormatPlays(
 			continue;
 		}
 		const mediaFormat = record.mediaFormat ?? UNPLAYABLE_MEDIA_FORMAT;
-		const playsOn = mediaFormatPlaysOn(mediaFormat);
-		const missing = platforms.filter((platform) => !playsOn.includes(platform));
+		const missing = missingFrom(mediaFormat, platforms);
 		if (missing.length === 0) continue;
 		const label = mediaFormatLabel(mediaFormat, record.mimeType);
 		const where = describeLocation(ref.location);

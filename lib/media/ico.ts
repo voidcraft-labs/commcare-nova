@@ -6,7 +6,8 @@
  * open stops the whole bulk upload. So Nova holds an ICO to what Pillow's
  * ICO loader reads and decodes: the `ICONDIR` (reserved 0, type 1, one to
  * 255 images), one 16-byte entry per image with its bytes inside the file,
- * and the largest image either a PNG sharp reads at the entry's size or a
+ * and the image Pillow opens (the largest, the lowest color depth among
+ * images of that size) either a PNG sharp reads at the entry's size or a
  * 40-byte `BITMAPINFOHEADER` without compression at 1, 4, 8, 24 or 32 bits,
  * the header `bmp.ts` reads for a BMP without its file header. A cursor
  * (type 2) is not an icon, and any other image encoding is a variant Nova
@@ -29,6 +30,8 @@ const DIB_DEPTHS: ReadonlySet<number> = new Set([1, 4, 8, 24, 32]);
 interface Entry {
 	readonly width: number;
 	readonly height: number;
+	/** Pillow's `color_depth`: the bit count, else log2 of the palette size, else 256. */
+	readonly depth: number;
 	readonly size: number;
 	readonly offset: number;
 }
@@ -60,6 +63,10 @@ export async function readIco(bytes: Uint8Array): Promise<IcoReading> {
 		const entry: Entry = {
 			width: bytes[at] || 256,
 			height: bytes[at + 1] || 256,
+			depth:
+				view.getUint16(at + 6, true) ||
+				(bytes[at + 2] ? Math.ceil(Math.log2(bytes[at + 2] ?? 0)) : 0) ||
+				256,
 			size: view.getUint32(at + 8, true),
 			offset: view.getUint32(at + 12, true),
 		};
@@ -71,9 +78,16 @@ export async function readIco(bytes: Uint8Array): Promise<IcoReading> {
 		}
 		entries.push(entry);
 	}
-	const largest = entries.reduce((best, entry) =>
-		entry.width * entry.height > best.width * best.height ? entry : best,
-	);
+	// The image Pillow opens: the largest by width times height and, among
+	// images of that area, the lowest color depth, the first listed of those
+	// (`IcoFile.__init__` sorts by depth, then by area descending, both stable).
+	const largest = entries.reduce((best, entry) => {
+		const area = entry.width * entry.height;
+		const bestArea = best.width * best.height;
+		return area > bestArea || (area === bestArea && entry.depth < best.depth)
+			? entry
+			: best;
+	});
 	const image = bytes.subarray(largest.offset, largest.offset + largest.size);
 	const dimensions = { width: largest.width, height: largest.height };
 	if (PNG_SIGNATURE.every((byte, index) => image[index] === byte)) {

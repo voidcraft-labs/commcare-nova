@@ -78,7 +78,12 @@ class AssetRowBatch {
 				this.session.getState().appId,
 				controller.signal,
 			);
-			if (this.session.getState().scopeEpoch !== scopeEpoch) return;
+			if (this.session.getState().scopeEpoch !== scopeEpoch) {
+				// The Project changed while this batch was out: these rows answer
+				// the old scope, so forget the ids and let the next request ask again.
+				for (const id of ids) this.asked.delete(id);
+				return;
+			}
 			this.session.getState().recordAssetMeta(rows);
 			const resolved = new Set<string>(rows.map((row) => row.id));
 			for (const id of ids) if (!resolved.has(id)) this.failed.add(id);
@@ -126,7 +131,7 @@ export function useReferencedAssetRows(
 	const session = useOptionalBuilderSessionApi();
 	const reconciler = useReconcilerContext();
 	const batch = session === null ? null : batchFor(session);
-	useSyncExternalStore(
+	const batchVersion = useSyncExternalStore(
 		batch?.subscribe ?? subscribeNothing,
 		batch?.snapshot ?? noVersion,
 		batch?.snapshot ?? noVersion,
@@ -145,10 +150,13 @@ export function useReferencedAssetRows(
 		return reconciler?.subscribeProjectScopeReset(() => batch.reset());
 	}, [reconciler, batch]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for the ids it joins
+	// Asked again on every batch version, so a Project scope reset (which
+	// forgets what was asked and clears the registry) resolves the ids anew.
+	// `request` skips every id already known or asked, so the other bumps ask nothing.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: `key` stands for the ids it joins; `batchVersion` re-asks after a reset
 	useEffect(() => {
 		batch?.request(ids);
-	}, [batch, key]);
+	}, [batch, key, batchVersion]);
 
 	const rows: Record<string, AssetMetaRow | null | undefined> = {};
 	for (const id of ids) {

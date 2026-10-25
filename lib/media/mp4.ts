@@ -326,14 +326,13 @@ function audioCodec(
 
 interface Track {
 	readonly handler: string;
-	readonly entry: Box;
+	/** The one sample entry, or `several` when the track holds more than one. */
+	readonly entry: Box | "several";
 }
 
-function track(
-	view: DataView,
-	bytes: Uint8Array,
-	trak: Box,
-): Track | { readonly codec: string } {
+const SEVERAL_ENCODINGS = "several encodings in one track";
+
+function track(view: DataView, bytes: Uint8Array, trak: Box): Track {
 	const mdia = child(view, bytes, trak, "mdia");
 	const hdlr = mdia && child(view, bytes, mdia, "hdlr");
 	if (mdia === undefined || hdlr === undefined || hdlr.start + 12 > hdlr.end) {
@@ -347,7 +346,7 @@ function track(
 		throw new Unreadable("a track has no sample description");
 	}
 	const count = view.getUint32(stsd.start + 4);
-	if (count !== 1) return { codec: "several encodings in one track" };
+	if (count !== 1) return { handler, entry: "several" };
 	const [entry] = boxes(view, bytes, stsd.start + 8, stsd.end);
 	if (entry === undefined)
 		throw new Unreadable("a track has no sample description");
@@ -366,34 +365,31 @@ export function readMp4(bytes: Uint8Array): Mp4Reading {
 		const tracks = boxes(view, bytes, moov.start, moov.end)
 			.filter((box) => box.type === "trak")
 			.map((trak) => track(view, bytes, trak));
-		const several = tracks.find(
-			(t): t is { readonly codec: string } => "codec" in t,
-		);
-		const read = tracks.filter((t): t is Track => "handler" in t);
-		const videos = read.filter((t) => t.handler === "vide");
-		const audios = read.filter((t) => t.handler === "soun");
-		const other = read.find(
+		const videos = tracks.filter((t) => t.handler === "vide");
+		const audios = tracks.filter((t) => t.handler === "soun");
+		const other = tracks.find(
 			(t) => t.handler !== "vide" && t.handler !== "soun",
 		);
-		if (videos.length === 0 && several === undefined)
-			return { kind: "no-video" };
+		const [video] = videos;
+		if (video === undefined) return { kind: "no-video" };
 		if (videos.length > 1) return { kind: "several-videos" };
 		if (other !== undefined)
 			return { kind: "other-track", handler: other.handler };
-		if (several !== undefined) {
-			return {
-				kind: "codec",
-				codec: several.codec,
-				accepted: MP4_VIDEO_ADVICE,
-			};
-		}
 		for (const audio of audios) {
-			const codec = audioCodec(view, bytes, audio.entry);
+			const codec =
+				audio.entry === "several"
+					? SEVERAL_ENCODINGS
+					: audioCodec(view, bytes, audio.entry);
 			if (codec !== undefined)
 				return { kind: "codec", codec, accepted: MP4_AUDIO_ADVICE };
 		}
-		const [video] = videos;
-		if (video === undefined) return { kind: "no-video" };
+		if (video.entry === "several") {
+			return {
+				kind: "codec",
+				codec: SEVERAL_ENCODINGS,
+				accepted: MP4_VIDEO_ADVICE,
+			};
+		}
 		const verdict = videoEntry(view, bytes, video.entry);
 		return verdict.kind === "variant"
 			? verdict
