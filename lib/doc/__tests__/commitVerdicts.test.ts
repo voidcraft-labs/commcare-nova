@@ -1,3 +1,4 @@
+import { expressionEditorFixture } from "@/__tests__/helpers/expressionEditorFixture";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { proseText } from "@/lib/domain/prose";
@@ -19,12 +20,15 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { validationError } from "@/lib/commcare/validator/errors";
 import {
 	describeCommitFindings,
+	expressionEditVerdict,
 	mutationCommitVerdict,
 } from "@/lib/doc/commitVerdicts";
 import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression/builders";
+import { slotContext } from "@/lib/domain/expression/context";
+import type { Expression } from "@/lib/domain/expression/types";
 
 /** Minimal valid doc: one registration module/form writing two properties. */
 function minDoc(): BlueprintDoc {
@@ -636,5 +640,58 @@ describe("stored-reference bounce prose", () => {
 		);
 		// The identity leaf re-prints under the new name — nothing dangles.
 		expect(verdict.ok).toBe(true);
+	});
+});
+
+// ── A declared platform's refusal, carried for the value menu ────────
+
+describe("expressionEditVerdict names the platform that refuses a read", () => {
+	const HERE: Expression = { kind: "here" };
+
+	function columnContext(runsOnlyOn?: "android") {
+		const fixture = expressionEditorFixture("calculated-column", {
+			caseTypes: [],
+			currentCaseType: "patient",
+			knownInputs: [],
+		});
+		const doc: BlueprintDoc =
+			runsOnlyOn === undefined
+				? fixture.doc
+				: {
+						...fixture.doc,
+						appSettings: { ...fixture.doc.appSettings, runsOnlyOn },
+					};
+		const context = slotContext(doc, fixture.slot, fixture.lookupTables);
+		if (context === undefined) throw new Error("The column has no slot.");
+		return context;
+	}
+
+	it("refuses where you are now in a calculated column of an app that runs in Web Apps, naming Web Apps", () => {
+		const verdict = expressionEditVerdict(HERE, columnContext());
+		expect(verdict.ok).toBe(false);
+		expect(verdict.ok ? undefined : verdict.platform).toEqual({
+			feature: "case-list-here",
+			platform: "web-apps",
+		});
+	});
+
+	it("admits where you are now in a calculated column of an Android-only app", () => {
+		expect(expressionEditVerdict(HERE, columnContext("android"))).toEqual({
+			ok: true,
+		});
+	});
+
+	it("refuses where you are now in a form slot by its profile, naming no platform", () => {
+		const fixture = expressionEditorFixture("operation-write", {
+			caseTypes: [],
+			currentCaseType: "patient",
+			knownInputs: [],
+		});
+		const verdict = expressionEditVerdict(
+			HERE,
+			fixture.context.expressionContext,
+		);
+		expect(verdict.ok).toBe(false);
+		expect(verdict.ok ? undefined : verdict.platform).toBeUndefined();
 	});
 });

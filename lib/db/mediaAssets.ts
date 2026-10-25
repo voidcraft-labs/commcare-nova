@@ -1207,14 +1207,18 @@ export async function loadAssetById(
  * reference reads as a manifest miss and surfaces as `mediaAssetExists`'s
  * `MEDIA_ASSET_NOT_FOUND` — the same message a deleted asset produces, keeping
  * the cross-tenant distinction below the surface.
+ *
+ * `lockedDb`, when given, is the executor the read runs on (a transaction is
+ * one), so a caller holding a snapshot reads these rows from it.
  */
 export async function loadAssetsByIds(
 	ids: readonly MediaAssetId[],
 	projectId: string,
+	lockedDb?: Kysely<AppDatabase>,
 ): Promise<MediaAssetRecord[]> {
 	const unique = [...new Set(ids)];
 	if (unique.length === 0) return [];
-	const db = await getAppDb();
+	const db = lockedDb ?? (await getAppDb());
 	const rows = await db
 		.selectFrom("media_assets")
 		.selectAll()

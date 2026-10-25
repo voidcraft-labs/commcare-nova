@@ -46,9 +46,14 @@
 // boundary's own budget check remains defense in depth for pathological
 // concurrent attaches.
 
+import type { Kysely } from "kysely";
 import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
+import type { AppDatabase } from "@/lib/db/pg";
 import type { BlueprintDoc } from "@/lib/domain";
-import { collectAssetRefs } from "@/lib/domain/mediaRefs";
+import {
+	collectAssetRefs,
+	walkAuthoredAssetRefs,
+} from "@/lib/domain/mediaRefs";
 import type {
 	AssetKind,
 	MediaAssetId,
@@ -57,7 +62,11 @@ import type {
 import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
 import { partitionAssetRefs } from "./builtinIconAssets";
 import { attachOverBudgetMessage, exportBudgetExcess } from "./exportBudget";
-import { attachPlatformLine } from "./platformPlayback";
+import {
+	attachPlatformLine,
+	type UnplayableReference,
+	unplayableReferences,
+} from "./platformPlayback";
 
 /**
  * One asset reference an attach is about to commit: the id the caller
@@ -208,4 +217,49 @@ export async function mediaAttachVerdict(args: {
 	}
 
 	return { ok: true };
+}
+
+/** Outcome of {@link mediaDeclarationVerdict}: every authored reference whose
+ *  file a platform the document declares cannot play. */
+export type MediaDeclarationVerdict =
+	| { readonly ok: true }
+	| {
+			readonly ok: false;
+			readonly references: readonly UnplayableReference[];
+	  };
+
+/**
+ * Whether every file `doc` references plays on every platform it declares:
+ * the courtesy check a change of `appSettings.runsOnlyOn` runs before it
+ * commits (the builder's platform change preflight, `updateApp`'s
+ * `runs_only_on`). `doc` is the CANDIDATE document, holding the new
+ * declaration. It loads the Project's rows for the authored references and
+ * asks `unplayableReferences`, so its references word the refusal exactly as
+ * the commit kernel does (`describeUnplayableReferences`). A reference whose
+ * row is absent is skipped, as `unplayableReferences` skips it: the existence
+ * rules own it, and the kernel stays the authority.
+ *
+ * `db`, when given, is the executor the rows are read on, so a caller holding
+ * a snapshot (the preflight's `repeatable read` transaction) reads content
+ * and media from one.
+ */
+export async function mediaDeclarationVerdict(args: {
+	projectId: string;
+	doc: BlueprintDoc;
+	db?: Kysely<AppDatabase>;
+}): Promise<MediaDeclarationVerdict> {
+	const { projectId, doc, db } = args;
+	const { realIds } = partitionAssetRefs(
+		[...walkAuthoredAssetRefs(doc)].map((ref) => ref.assetId),
+	);
+	if (realIds.length === 0) return { ok: true };
+	const rows = await loadAssetsByIds(realIds, projectId, db);
+	const formats = new Map(
+		rows.map((row) => [
+			row.id as string,
+			{ mediaFormat: row.mediaFormat, mimeType: row.mimeType },
+		]),
+	);
+	const references = unplayableReferences(doc, formats, declaredPlatforms(doc));
+	return references.length === 0 ? { ok: true } : { ok: false, references };
 }

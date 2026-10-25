@@ -42,10 +42,15 @@ import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
+import type { Mutation } from "@/lib/doc/types";
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaFormatValue, MediaKind } from "@/lib/domain/multimedia";
-import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
+import {
+	declaredPlatforms,
+	declaresWebApps,
+	type Platform,
+} from "@/lib/domain/platforms";
 import type { Event } from "@/lib/log/types";
 import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
 import { effectivePreviewPlatform } from "@/lib/preview/platform";
@@ -1203,6 +1208,25 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * success without committing so an unchanged apply is inert. */
 					if (plan.mutations.length === 0) return { ok: true };
 
+					/* A Connect app runs on Android only: Connect workers open it in
+					 * the Connect app on Android. Turning Connect on in an app that
+					 * runs in Web Apps sets it to Android only in the same batch, so
+					 * Connect and the declaration are one undo step. A switch
+					 * between Learn and Deliver adds nothing (the app already runs
+					 * on Android only), and turning Connect off never widens. */
+					const mutations: Mutation[] =
+						type !== null &&
+						currentType === undefined &&
+						declaresWebApps(docState)
+							? [
+									{
+										kind: "setAppSettings",
+										settings: { runsOnlyOn: "android" },
+									},
+									...plan.mutations,
+								]
+							: [...plan.mutations];
+
 					/* The shared commit verdict — the same gate every other write
 					 * surface runs. The pure planner has already rejected malformed
 					 * target-state input; this gate adjudicates the complete app
@@ -1210,7 +1234,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * stash stay exactly as they were. */
 					const verdict = mutationCommitVerdict(
 						docState,
-						plan.mutations,
+						mutations,
 						request.lookupContext,
 					);
 					if (!verdict.ok) {

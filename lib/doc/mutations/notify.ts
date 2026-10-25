@@ -26,3 +26,10 @@ export function notifyPreservedChoices(count: number): void {
 		`Kept ${count} choice ${count === 1 ? "value" : "values"} in your rules.`,
 	);
 }
+
+/** Announce a date-and-time split the planner or the gate refused, in the
+ *  split's own words: what failed, then the first reason, which already
+ *  names its next step. */
+export function notifyRefusedSplit(message: string | undefined): void {
+	showActiveProjectToast("error", "Nova couldn't split this question", message);
+}

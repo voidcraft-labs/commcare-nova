@@ -17,7 +17,12 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { parseFormExpression } from "@/lib/commcare/xpath/expressionAst";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { ReachableCaseTypeIndex } from "@/lib/domain";
+import {
+	type AppSettings,
+	type BlueprintDoc,
+	NEW_APP_SETTINGS,
+	type ReachableCaseTypeIndex,
+} from "@/lib/domain";
 import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
 import {
 	buildExpressionEditorContext,
@@ -184,63 +189,67 @@ const BEE = testUuid("ac-bee");
 const CALC = testUuid("ac-calc");
 const REGION = testUuid("ac-region");
 
-const readsDoc = buildDoc(
-	{
-		caseTypes: [
-			{
-				name: "household",
-				properties: [{ name: "village", label: "Village" }],
-			},
-			{
-				name: "patient",
-				parent_type: "household",
-				properties: [{ name: "status_note", label: "Status note" }],
-			},
-		],
-		modules: [
-			{
-				uuid: MODULE,
-				name: "Patients",
-				caseType: "patient",
-				forms: [
-					{
-						uuid: FORM,
-						name: "Visit",
-						type: "followup",
-						fields: [
-							f({
-								uuid: ATTENDING,
-								id: "a",
-								kind: "single_select",
-								label: "Attending",
-								options: [
-									{ uuid: YES, value: "yes", label: "Yes" },
-									{ uuid: NO, value: "no", label: "No" },
-								],
-							}),
-							f({
-								uuid: GROUP,
-								id: "grp",
-								kind: "group",
-								label: "Household",
-								children: [
-									f({ uuid: BEE, id: "b", kind: "text", label: "Bee" }),
-								],
-							}),
-							f({ uuid: CALC, id: "calc", kind: "hidden" }),
-						],
-					},
-				],
-			},
-		],
-	},
-	(doc) => {
+const readsSpec = (
+	appSettings?: AppSettings,
+): Parameters<typeof buildDoc>[0] => ({
+	...(appSettings !== undefined && { appSettings }),
+	caseTypes: [
+		{
+			name: "household",
+			properties: [{ name: "village", label: "Village" }],
+		},
+		{
+			name: "patient",
+			parent_type: "household",
+			properties: [{ name: "status_note", label: "Status note" }],
+		},
+	],
+	modules: [
+		{
+			uuid: MODULE,
+			name: "Patients",
+			caseType: "patient",
+			forms: [
+				{
+					uuid: FORM,
+					name: "Visit",
+					type: "followup",
+					fields: [
+						f({
+							uuid: ATTENDING,
+							id: "a",
+							kind: "single_select",
+							label: "Attending",
+							options: [
+								{ uuid: YES, value: "yes", label: "Yes" },
+								{ uuid: NO, value: "no", label: "No" },
+							],
+						}),
+						f({
+							uuid: GROUP,
+							id: "grp",
+							kind: "group",
+							label: "Household",
+							children: [f({ uuid: BEE, id: "b", kind: "text", label: "Bee" })],
+						}),
+						f({ uuid: CALC, id: "calc", kind: "hidden" }),
+					],
+				},
+			],
+		},
+	],
+});
+
+function buildReadsDoc(appSettings?: AppSettings) {
+	return buildDoc(readsSpec(appSettings), (doc) => {
 		doc.userProperties = {
 			[REGION]: { uuid: REGION, slug: "region", label: "Region" },
 		};
 		doc.userPropertyOrder = [REGION];
-	},
-);
+	});
+}
+
+const readsDoc = buildReadsDoc();
 
 const RELEVANT: ExpressionSlotRef = {
 	entity: "field",
@@ -253,9 +262,12 @@ const DEFAULT: ExpressionSlotRef = {
 	slot: "default_value",
 };
 
-function editorContext(slot: ExpressionSlotRef): ExpressionEditorContext {
+function editorContext(
+	slot: ExpressionSlotRef,
+	doc: BlueprintDoc = readsDoc,
+): ExpressionEditorContext {
 	const built = buildExpressionEditorContext(
-		readsDoc,
+		doc,
 		slot,
 		LOOKUP_CONTEXT_UNAVAILABLE,
 	);
@@ -264,8 +276,12 @@ function editorContext(slot: ExpressionSlotRef): ExpressionEditorContext {
 }
 
 /** Every option the reads sources offer at the end of `written`. */
-function offered(slot: ExpressionSlotRef, written: string) {
-	const ctx = editorContext(slot);
+function offered(
+	slot: ExpressionSlotRef,
+	written: string,
+	doc: BlueprintDoc = readsDoc,
+) {
+	const ctx = editorContext(slot, doc);
 	const state = EditorState.create({ doc: written, extensions: [xpath()] });
 	const at = new CompletionContext(state, written.length, false);
 	return [instanceSource, relativeSource].flatMap(
@@ -273,8 +289,12 @@ function offered(slot: ExpressionSlotRef, written: string) {
 	);
 }
 
-function labels(slot: ExpressionSlotRef, written: string): string[] {
-	return offered(slot, written).map((option) => option.label);
+function labels(
+	slot: ExpressionSlotRef,
+	written: string,
+	doc: BlueprintDoc = readsDoc,
+): string[] {
+	return offered(slot, written, doc).map((option) => option.label);
 }
 
 function parses(slot: ExpressionSlotRef, text: string) {
@@ -347,6 +367,44 @@ describe("session values", () => {
 		for (const worker of workers)
 			parses(RELEVANT, `${SESSION}user/data/${worker} != ''`);
 		lintsClean(RELEVANT, `${SESSION}user/data/region = 'north'`);
+	});
+
+	// The reads one platform lacks are offered only where every platform the
+	// app runs on admits them, so a completion is never a read the checker
+	// then refuses for the declaration.
+	it("offers the case list search text only where the app doesn't run in Web Apps", () => {
+		const android = buildReadsDoc({
+			...NEW_APP_SETTINGS,
+			runsOnlyOn: "android",
+		});
+		expect(labels(RELEVANT, `${SESSION}data/`, android)).toContain(
+			"stringquery",
+		);
+		expect(
+			xpathDiagnostics(
+				`${SESSION}data/stringquery != ''`,
+				editorContext(RELEVANT, android),
+			),
+		).toEqual([]);
+		expect(labels(RELEVANT, `${SESSION}data/`)).not.toContain("stringquery");
+	});
+
+	it("offers the window width in a form's display condition only where the app doesn't run on Android", () => {
+		const displayCondition: ExpressionSlotRef = {
+			entity: "form",
+			uuid: FORM,
+			slot: "form_display_condition",
+		};
+		const webApps = buildReadsDoc({
+			...NEW_APP_SETTINGS,
+			runsOnlyOn: "web-apps",
+		});
+		expect(labels(displayCondition, `${SESSION}context/`, webApps)).toContain(
+			"window_width",
+		);
+		expect(labels(displayCondition, `${SESSION}context/`)).not.toContain(
+			"window_width",
+		);
 	});
 });
 
