@@ -3,11 +3,14 @@
 The session reads of the form-link, nested-menu and tile families, and the
 instance reads of the lookup, location and search families, each read one
 targeted document's exact local archive and HQ's regeneration of its forms.
+A document that declares no Android has no local archive (a ``.ccz`` installs
+an app on Android), so its witness is HQ's regeneration alone, which is what
+Web Apps runs.
 """
 
 import shutil
 
-from proof.checks.corpus import corpus_root, load
+from proof.checks.corpus import ANDROID, corpus_root, load
 from proof.hq.operations import PLACEHOLDER_APP_ID, upload_field
 from proof.native.hq_support import (
     NOVA_SERVER_ORIGIN,
@@ -31,7 +34,8 @@ DOCUMENTS = (
 
 
 def session_reads(session, family, document_id, domain, *, endpoints=False, module=1, forms=(0, 1)):
-    """Copy the target's exact local archive and regenerate its captured content through HQ.
+    """Copy the target's exact local archive, where it declares Android, and regenerate its captured content
+    through HQ.
 
     Core opens the copied CCZ itself. Neither the family's producer nor this
     adapter builds a separate local form or suite for the targeted scenario.
@@ -43,16 +47,19 @@ def session_reads(session, family, document_id, domain, *, endpoints=False, modu
     document = load(corpus_root()).document(document_id)
     if not document.targeted:
         raise ValueError(f"The native session witness {document_id} must be a targeted corpus document.")
-    archive = document.local_ccz
-    if archive is None:
-        raise ValueError(f"The targeted session witness {document_id} has no local.ccz archive.")
+    archive = document.local_ccz if ANDROID in document.platforms() else None
+    if ANDROID in document.platforms() and archive is None:
+        raise ValueError(
+            f"The targeted session witness {document_id} declares Android and has no local.ccz archive."
+        )
     export = document.exports["minimum"]
     if export.content is None:
         raise ValueError(f"The targeted session witness {document_id} has no captured minimum app content.")
     source = upload_field(export.content.upload(), "app_file")
     output = session.family(family) / "targeted" / document_id
     output.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(archive, output / "local.ccz")
+    if archive is not None:
+        shutil.copyfile(archive, output / "local.ccz")
     configuration = export.configuration
     with native_check(
         domain,
@@ -76,7 +83,7 @@ def session_reads(session, family, document_id, domain, *, endpoints=False, modu
         {
             "document": document_id,
             "configuration": configuration.name,
-            "localArchiveSha256": sha256(archive.read_bytes()),
+            "localArchiveSha256": None if archive is None else sha256(archive.read_bytes()),
             "capturedSourceSha256": sha256(source),
             "hqSuiteSha256": sha256(suite),
         },

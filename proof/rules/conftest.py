@@ -58,11 +58,15 @@ from proof.rules import normalized
 # The check the comparisons name (a known one; the differences are compared here, never reported).
 CHECK = "proof4"
 # Every corpus document a rule's test reads, by id, and no other: ``rule_documents`` hands a test these alone.
+# ``case-list-local`` is the case list fixture's list-first scenario, the same "Visit" form as ``case-list-inline``
+# on both platforms, so ``test_xpath_reading.py`` reads its local archive; ``case-list-inline`` runs in Web Apps
+# only and has none, and stays for ``test_stored_position_keys.py``, which publishes it.
 DOCUMENTS = (
     "arithmetic",
     "case-capture-repeat",
     "case-extension-registration",
     "case-list-inline",
+    "case-list-local",
     "case-operation-sequence",
     "expander-conditional-required-generates-required-xpath-ae4797f7-0",
     "nested-menu-parent",

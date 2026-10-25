@@ -211,6 +211,38 @@ def test_the_intent_is_read_from_the_document_alone():
         intent.document_intent(broken)
 
 
+def test_hq_stores_the_web_apps_setting_the_document_declares():
+    """The stored app's ``cloudcare_enabled`` is the declaration: true for both and Web Apps only, false for
+    Android only, and one difference each way where they disagree. Plausible failures: an update HQ does not keep,
+    and a body that carries another value than the declaration."""
+    from proof.observe.outcome import BuildOutcome
+
+    def held(name, value):
+        doc = {"modules": []} if value is None else {"modules": [], "cloudcare_enabled": value}
+        return intent.HeldState(name, doc, {}, BuildOutcome(name, 1, [], {}, {}))
+
+    both = frozenset({"web-apps", "android"})
+    web_apps = frozenset({"web-apps"})
+    android = frozenset({"android"})
+    assert intent.web_apps_setting("doc", both, held("A", True)) == []
+    assert intent.web_apps_setting("doc", web_apps, held("B", True)) == []
+    assert intent.web_apps_setting("doc", android, held("B-edit", False)) == []
+    [on] = intent.web_apps_setting("doc", android, held("B-edit", True))
+    assert (on.artifact, on.path, on.at, on.kind, on.before, on.after) == (
+        "app.json@B-edit",
+        "/cloudcare_enabled",
+        "/cloudcare_enabled",
+        "changed",
+        False,
+        True,
+    )
+    [off] = intent.web_apps_setting("doc", both, held("A", False))
+    assert (off.artifact, off.before, off.after) == ("app.json@A", True, False)
+    # An app whose stored source holds no value reads as HQ's default, which is not the declaration's true.
+    [absent] = intent.web_apps_setting("doc", web_apps, held("B", None))
+    assert (absent.before, absent.after) == (True, None)
+
+
 def _form(position, module_type, form_type="followup", *, multiple=False, fields=None, operations=None):
     form = intent.FormIntent(uuid=position, module_type=module_type, form_type=form_type, multiple=multiple)
     for case_type, props in (fields or {}).items():

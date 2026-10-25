@@ -28,7 +28,9 @@ import pytest
 from proof.conftest import timed  # noqa: F401  (HQ's tests time their operations with it)
 
 # Every corpus document a test of this package reads, by id, and no other: the seven whose branches
-# ``test_branches.py`` holds, the four the publish, import file and retained read tests publish, the two more
+# ``test_branches.py`` holds, the four the publish, import file and retained read tests publish, the one whose
+# local archive ``test_publish.py``'s archive tests read (``case-list-local``, which runs on both platforms, where
+# ``case-list-inline`` runs in Web Apps only and has no local archive), the two more
 # the drift groups of ``test_retained_reads.py`` publish, the two whose lists ``test_fuzzy_sort_keys.py``
 # searches (``test_date_pattern_characters.py`` publishes ``case-list-inline``, named above), and the six more
 # the publish gates' tests publish (``test_version_floor.py``, ``test_plan_features.py``, ``test_flag_probe.py``
@@ -44,6 +46,7 @@ DOCUMENTS = (
     "navigation-base",
     "targeted-form-links-hidden-and-fallback",
     "case-list-inline",
+    "case-list-local",
     "targeted-hq-side-lookup",
     "search-registration-link",
     "targeted-hq-side-state",

@@ -37,7 +37,9 @@ a corpus document's own capture (``proof/hq/conftest.py::DOCUMENTS``):
   app, an update naming no ``doc_type``) answer as Nova reads them; HQ's API
   limiter refuses a second import within a second before it runs; and an
   update writes none of the fields HQ excludes, and writes ``case_sharing``
-  and ``cloudcare_enabled``, which it does not exclude. The plausible
+  and ``cloudcare_enabled``, which it does not exclude; a create takes
+  ``cloudcare_enabled`` from the plan whatever the body says, and the update
+  that fills it writes the declaration. The plausible
   failures: a shell HQ could build (a build would hold HQ-minted ids), an
   update that leaves another app than it describes, and a reading of "gone"
   HQ does not give.
@@ -521,7 +523,7 @@ def test_an_update_carrying_case_sharing_and_web_apps_writes_both(hq, core_runne
     """``case_sharing`` and ``cloudcare_enabled`` are app content: neither is among the fields HQ's update excludes
     (``Application._update_excluded_fields``), so an update that carries the opposite of each stored value writes
     both, as ``lib/commcare/hqShells.ts::applicationShell`` and ``lib/commcare/types.ts::HqApplication`` state.
-    Nova sends neither yet."""
+    Nova sends ``cloudcare_enabled`` from the app's declaration and no ``case_sharing`` yet."""
     export = documents["navigation-base"].exports["minimum"]
     with hq_check(export.configuration.hq()) as (state, _):
         from proof.observe import publish
@@ -530,7 +532,8 @@ def test_an_update_carrying_case_sharing_and_web_apps_writes_both(hq, core_runne
         assert refusal is None, refusal
         before = operations.held_app(state, app_id)
         body = _app_file(export.content.upload())
-        assert "case_sharing" not in body and "cloudcare_enabled" not in body
+        # navigation-base declares nothing, so it runs on both: Web Apps among them.
+        assert "case_sharing" not in body and body["cloudcare_enabled"] is True
         flipped = {
             **body,
             "case_sharing": not before.case_sharing,
@@ -541,6 +544,31 @@ def test_an_update_carrying_case_sharing_and_web_apps_writes_both(hq, core_runne
         after = operations.held_app(state, app_id)
     assert after.case_sharing is (not before.case_sharing)
     assert after.cloudcare_enabled is (not before.cloudcare_enabled)
+
+
+def test_a_create_takes_web_apps_from_the_plan_and_the_update_writes_the_declaration(hq, core_runner, documents):
+    """HQ's create sets ``cloudcare_enabled`` from the domain's ``CLOUDCARE`` privilege whatever the body says
+    (``models/applications.py::_create_app_from_doc``), and an update writes the body's value with no privilege
+    check (``_merge_source_into_app``): the HQ half of Nova's ``hq_plan_lacks_web_apps`` stop. The content is
+    applied through ``_first_publish``, without holding the assumed source, because the state without the
+    privilege is one Nova's publish stops at, and the test proves what HQ's update does there."""
+    export = documents["navigation-base"].exports["minimum"]
+    assert _app_file(export.content.upload())["cloudcare_enabled"] is True
+    granted = export.configuration.hq()
+    assert "CLOUDCARE" in granted.privileges, sorted(granted.privileges)
+    found = {}
+    for privileged in (True, False):
+        configuration = (
+            granted
+            if privileged
+            else dataclasses.replace(granted, privileges=frozenset(granted.privileges - {"CLOUDCARE"}))
+        )
+        with hq_check(configuration) as (state, _):
+            shell_id, _ = operations.publish(state, [export.create.upload()])
+            created = operations.held_app(state, shell_id).cloudcare_enabled
+            app_id, _ = _first_publish(state, export)
+            found[privileged] = (created, operations.held_app(state, app_id).cloudcare_enabled)
+    assert found == {True: (True, True), False: (False, True)}, found
 
 
 # No multimedia_map: the media upload alone maps an app's media ----------------------------------------------
@@ -715,7 +743,9 @@ def test_a_build_made_before_its_media_installs_on_android(hq, documents):
 
 # A .ccz made for one project space --------------------------------------------------------------------------
 
-ARCHIVE_DOCUMENT = "case-list-inline"
+# The list-first scenario of the case list fixture: it runs on both platforms, so Nova makes a local archive of
+# it, and its searching menu gives the suite the query URLs the archive tests resolve.
+ARCHIVE_DOCUMENT = "case-list-local"
 WORKER_PASSWORD = "proof-worker-password"
 # The four profile properties a local archive names its server, project space and app by.
 SERVER_PROPERTIES = ("ota-restore-url", "PostURL", "key_server", "cc_user_domain")

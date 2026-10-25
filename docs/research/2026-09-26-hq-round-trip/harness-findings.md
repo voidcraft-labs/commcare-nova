@@ -1520,7 +1520,12 @@ corrects or fixes it.
     selector wherever a project space searches, so defect 21 (a list-first
     menu turned search-first by the Case List save) shows on every document
     with such a menu, where it showed on `targeted-list-first-web-apps`
-    alone.
+    alone. *Step 4:* Nova writes `cloudcare_enabled` from the app's
+    declaration on every publish, so the derivation grants `CLOUDCARE`
+    exactly where an app Nova sends declares Web Apps or says nothing, as
+    every publish before step 4 and every control retained then; an app
+    declaring Android only is stored with it false and listed nowhere.
+    Defect 21's selector then shows only on documents that declare Web Apps.
     *Documents:* every document.
 
 ## Equivalences, each proven by running its readers

@@ -9,12 +9,22 @@ Contracts (``proof.webapps.session``, ``proof.webapps.hq``):
   Formplayer's own answers to the client's own requests, each of which
   asked HQ who the worker is. The plausible failure is a page that renders
   from anything but those (a stubbed answer, a script of the harness's own).
-- **HQ offers Web Apps the app only where the project space has Web Apps.**
-  The configuration of every document that declares Web Apps grants the
-  privilege, so HQ stores the app with ``cloudcare_enabled`` true and offers the worker the released
-  build; with that one privilege taken away HQ stores it false and offers
-  no app. The plausible failure is a configuration that grants the
-  privilege for nothing, or an app HQ would list either way.
+- **HQ lists an app by its build's setting, and serves Web Apps to a mobile
+  worker only with the privilege.** Nova's update writes the declaration as
+  ``cloudcare_enabled`` with no privilege check, so a released build of an
+  app that declares Web Apps carries it true and HQ lists that build
+  (``cloudcare/utils.py::get_web_apps_available_to_user``) whatever the plan;
+  without the privilege HQ's ``FormplayerMain`` answers the release's mobile
+  worker with its 402 page (``requires_privilege_for_commcare_user``), and
+  with it the page answers. The plausible failure is a configuration that
+  grants the privilege for nothing, or a page HQ would serve the worker
+  either way.
+- **Web Apps lists an app only while it declares Web Apps.** D of
+  ``targeted-platform-declaration`` runs on both and its release is on the
+  worker's home and in HQ's listing; D′, narrowed to Android only, is
+  stored with ``cloudcare_enabled`` false once Nova's update lands, and its
+  release is on neither. The plausible failures are an update HQ does not
+  keep, and a home that lists an app declared Android only.
 - **The page is laid out under HQ's stylesheets, found by HQ's finders.**
   HQ's own precompiler compiles the page's SCSS and HQ's static finders
   serve what they hold; a path none holds, or one that climbs out of the
@@ -46,6 +56,7 @@ from proof.webapps import steps
 from proof.webapps.session import Session, WebAppsRunFailed
 
 TILES = "targeted-custom-tile"
+DECLARATION = "targeted-platform-declaration"
 BUNDLE = "/static/webpack/cloudcare/js/formplayer/main.js"
 
 
@@ -84,11 +95,27 @@ def test_the_page_is_hqs_own_view_and_bundle_and_its_screens_are_formplayers_ans
     assert run.screens[1]["route"]["appId"] == app_id != build_id
 
 
-def test_hq_offers_an_app_to_web_apps_only_in_a_project_space_that_has_web_apps(
+def _web_apps_page_status(release):
+    """The status HQ's own ``FormplayerMain`` view answers the release's mobile worker with, the request built as
+    HQ's middleware attaches a signed-in user (``proof.hq.requests``)."""
+    from django.urls import resolve
+
+    from proof.hq import requests as hq_requests
+
+    path = f"/a/{release.domain}/cloudcare/apps/v2/"
+    match = resolve(path)
+    request = hq_requests.get(webapps_hq.Worker(release.domain, release.worker), path)
+    return match.func(request, *match.args, **match.kwargs).status_code
+
+
+def test_hq_lists_an_app_by_its_builds_setting_and_serves_web_apps_to_a_worker_only_with_the_privilege(
     hq, formplayer_runner, webapps_documents
 ):
-    """Finding 64: without the privilege the configuration of every document that declares Web Apps grants, HQ
-    never offers the app to Web Apps."""
+    """Finding 64: Nova's update writes ``cloudcare_enabled`` from the declaration, so the released build carries
+    it and HQ lists it with or without the privilege; Web Apps itself answers a mobile worker without the privilege
+    with HQ's 402 page (``cloudcare/views.py::FormplayerMain.dispatch``). Without the privilege HQ's create stored
+    the app with Web Apps off, a state Nova's publish stops at (``hq_plan_lacks_web_apps``), which the test reaches
+    on purpose (``webapps_hq.project`` passes ``plan_without_web_apps``)."""
     from corehq.apps.cloudcare.utils import get_web_apps_available_to_user
 
     offered = {}
@@ -96,8 +123,53 @@ def test_hq_offers_an_app_to_web_apps_only_in_a_project_space_that_has_web_apps(
         with webapps_hq.project(webapps_documents[TILES], web_apps=web_apps) as project:
             with project.released(formplayer_runner) as release:
                 listed = get_web_apps_available_to_user(project.domain, release.worker)
-                offered[name] = (release.doc["cloudcare_enabled"], [app["_id"] == release.build_id for app in listed])
-    assert offered == {"without Web Apps": (False, []), "the lane's configuration": (True, [True])}
+                offered[name] = (
+                    release.doc["cloudcare_enabled"],
+                    [app["_id"] == release.build_id for app in listed],
+                    _web_apps_page_status(release),
+                )
+    assert offered == {
+        "without Web Apps": (True, [True], 402),
+        "the lane's configuration": (True, [True], 200),
+    }, offered
+
+
+def test_web_apps_lists_an_app_while_it_declares_web_apps_and_not_once_it_narrows_to_android(
+    hq, core_runner, formplayer_runner, editor_driver, webapps_documents
+):
+    """D declares nothing, so it runs on both: its release stores ``cloudcare_enabled`` true, the worker's home
+    shows its tile (kind ``default``, beside the home's own tiles) and HQ lists its build. D′ declares Android
+    only: Nova's captured update writes false, which HQ's update keeps, and its release is on neither the home
+    nor the listing (``cloudcare/utils.py::get_web_apps_available_to_user``)."""
+    from corehq.apps.cloudcare.utils import get_web_apps_available_to_user
+
+    from proof.observe import publish
+
+    document = webapps_documents[DECLARATION]
+    seen = {}
+    with webapps_hq.project(document) as project:
+        with project.released(formplayer_runner) as release:
+            run = Session(release, editor_driver).run([steps.SCREEN])
+            listed = get_web_apps_available_to_user(project.domain, release.worker)
+            seen["D"] = (
+                release.doc["cloudcare_enabled"],
+                [tile["kind"] for tile in run.screens[0]["apps"] if tile["kind"] == "default"],
+                [app["_id"] == release.build_id for app in listed],
+            )
+        with project.unit.fork():
+            refusal, _ = publish.update(
+                project.unit, project.app_id, document.edit.exports["minimum"].update, "B-edit"
+            )
+            assert refusal is None, refusal
+            with project.released(formplayer_runner) as release:
+                run = Session(release, editor_driver).run([steps.SCREEN])
+                listed = get_web_apps_available_to_user(project.domain, release.worker)
+                seen["D-edit"] = (
+                    release.doc["cloudcare_enabled"],
+                    [tile["kind"] for tile in run.screens[0]["apps"] if tile["kind"] == "default"],
+                    [app["_id"] == release.build_id for app in listed],
+                )
+    assert seen == {"D": (True, ["default"], [True]), "D-edit": (False, [], [])}, seen
 
 
 def test_hqs_finders_serve_the_static_files_they_hold_and_nothing_else(hq):

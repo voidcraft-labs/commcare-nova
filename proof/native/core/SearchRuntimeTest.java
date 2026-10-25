@@ -300,7 +300,11 @@ public class SearchRuntimeTest {
      */
     @Test public void formReadsTheResultsItsSearchReturned() throws Exception {
         Path document = SessionReadAssertions.targeted("search", "targeted-inline-search-reads");
-        for (boolean hq : new boolean[]{false, true}) for (List<String> found : Arrays.asList(
+        // The witness runs search first, so it declares Web Apps only and Nova makes no local archive of it: the
+        // step copies local.ccz only for a document that declares Android. HQ's regenerated forms and suite are
+        // read always, since Core is the engine Web Apps runs them on.
+        boolean[] sides = Files.exists(document.resolve("local.ccz")) ? new boolean[]{false, true} : new boolean[]{true};
+        for (boolean hq : sides) for (List<String> found : Arrays.asList(
                 Arrays.asList("patient-north", "patient-lake"), Collections.singletonList("patient-lake"))) {
             SearchResults results = new SearchResults(found);
             FormDef form = XFormUtils.getFormFromInputStream(

@@ -1985,6 +1985,26 @@
 		"control": "targeted-list-first-web-apps"
 	},
 	{
+		"id": "d21-list-first-with-web-apps-manifest-auto-launch",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "manifest",
+		"artifact": "*app.json",
+		"path": "/schema:CaseSearch.auto_launch/refused/list-first-with-web-apps",
+		"document": "targeted-list-first-web-apps",
+		"control": "targeted-list-first-web-apps-declared"
+	},
+	{
+		"id": "d21-list-first-with-web-apps-manifest-default-search",
+		"defect": 21,
+		"part": "list-first turned search-first",
+		"check": "manifest",
+		"artifact": "*app.json",
+		"path": "/schema:CaseSearch.default_search/refused/list-first-with-web-apps",
+		"document": "targeted-list-first-web-apps",
+		"control": "targeted-list-first-web-apps-declared"
+	},
+	{
 		"id": "d25-query-repeat-rewritten-into--webapps-vellum-alerts",
 		"defect": 25,
 		"part": "query repeat rewritten into model iteration",

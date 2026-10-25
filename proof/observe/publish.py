@@ -77,9 +77,21 @@ def _refusal(result):
     return {"status": result.status, "response": _json(result.response)}
 
 
-def create(unit, export):
+# The one field of the content's assumed source a configuration without Web Apps answers otherwise: HQ's create
+# sets ``cloudcare_enabled`` from the domain's ``CLOUDCARE`` privilege (``_create_app_from_doc``), and the capture
+# peer grants it for every document that declares Web Apps, as the lane's configuration does.
+WEB_APPS_SETTING = "cloudcare_enabled"
+
+
+def create(unit, export, *, plan_without_web_apps: bool = False):
     """Nova's first publish of D under the export's configuration: both imports of the two-import layout, or the
     one create of the legacy layout, each after the workbook the content names.
+
+    ``plan_without_web_apps`` is for a test that publishes a document declaring Web Apps into a configuration
+    without ``CLOUDCARE`` on purpose, a state Nova's own publish stops at (``hq_plan_lacks_web_apps``), to prove what
+    HQ's update, its settings page and Web Apps do there: HQ's create stores ``cloudcare_enabled`` false where the
+    capture peer, granting the privilege as the lane does for such a document, answered true. The content's hold
+    then leaves out that one path and holds every other field and resource as ever (``update``).
 
     Returns ``(A's id or None, HQ's refusal of either import or None, the lookup upload's result or None)``.
     """
@@ -95,22 +107,29 @@ def create(unit, export):
     if refusal:
         return None, refusal, None
     app_id = shell.response["app_id"]
-    refusal, lookups = update(unit, app_id, export.content, "content")
+    refusal, lookups = update(unit, app_id, export.content, "content", plan_without_web_apps=plan_without_web_apps)
     return (None if refusal else app_id), refusal, lookups
 
 
-def update(unit, app_id, captured, name):
+def update(unit, app_id, captured, name, *, plan_without_web_apps: bool = False):
     """A captured update over the app HQ holds: ``(HQ's refusal or None, the lookup upload's result or None)``.
 
     Every field of HQ's source the capture names is held to HQ's own read first
     (``operations.hold_assumed_source``), whichever fields they are, and so is
     every lookup table the publish read before it decided what to send, its
     stop and its confirmation among them (``assumedResources``,
-    ``operations.hold_assumed_resources``).
+    ``operations.hold_assumed_resources``). With ``plan_without_web_apps`` the
+    hold leaves out ``cloudcare_enabled`` alone: the update lands over an app
+    HQ's create made without Web Apps, which Nova's own publish would have
+    stopped at (``hq_plan_lacks_web_apps``), so a test can prove what HQ does
+    there (``create``).
     """
     from proof.hq import operations
 
-    operations.hold_assumed_source(unit, app_id, captured.assumed_source, f"captured {name}")
+    assumed = captured.assumed_source
+    if plan_without_web_apps:
+        assumed = {path: value for path, value in assumed.items() if path != WEB_APPS_SETTING}
+    operations.hold_assumed_source(unit, app_id, assumed, f"captured {name}")
     operations.hold_assumed_resources(unit, captured.meta.get("assumedResources"), f"captured {name}")
     lookups = upload_lookups(unit, captured.lookups)
     result = operations.apply_upload(unit, operations.with_app_id(captured.upload(), app_id))
