@@ -28,9 +28,19 @@ finds.
   cells and no other; the Sort menu lists Name and Village alone; and a
   search for ``zulu``, which no placed cell holds, finds Amina's row alone.
 
+- ``targeted-preview-android-renders``: a custom tile of three cells whose
+  vertical alignments are top, middle and bottom, which Nova writes as
+  ``start``, ``center`` and ``end``. Android matches only ``top``, ``center``
+  and ``bottom`` (``views/EntityViewTile.java::computeGravity``), so only the
+  middle cell takes its alignment, and a text view given no vertical gravity
+  draws at the top: the top and bottom cells both read ``top``. Preview
+  running as Android draws them the same way (``lib/preview/platform.ts``,
+  ``tileVerticalAlign``).
+
 Plausible failures: a search that finds every row whatever it is asked (each
 finds one), a hidden field a device draws, a tile ordered by its names (the
-default), and two exports that differ (each assertion holds on both).
+default), two exports that differ (each assertion holds on both), and a tile
+cell drawn at an alignment Preview does not draw.
 """
 
 from __future__ import annotations
@@ -136,3 +146,29 @@ def test_a_tiles_hidden_order_rules_order_the_rows_and_are_searched(android_docu
         assert held[f"{LIST}.getSortOptionsList"] == ["Name", "Village"], name
         # Only the first hidden column holds zulu, and the search finds Amina's row alone.
         assert _searched(held, "zulu") == {setting: ["Amina"] for setting in FUZZY}, name
+
+
+def _gravities(view, texts):
+    """Each of ``texts`` a laid-out view shows, by its text view's gravity (``Views.java::gravity``)."""
+    found = {view["text"]: view["gravity"]} if view.get("text") in texts else {}
+    for child in view.get("children", ()):
+        found.update(_gravities(child, texts))
+    return found
+
+
+def test_a_tile_cell_takes_only_middle_vertical_alignment(android_documents, hq):
+    """The visit list's tile draws Amina's name at the top, her village in the middle and her status ``open``,
+    whose cell asked for the bottom, at the top too, on both exports."""
+    document = android_documents["targeted-preview-android-renders"]
+    cells = {"Amina", "Riverside", "open"}
+    with _archives(document, _restored(document)) as (served, archives):
+        listed = {name: _list(served, archive, name, "m1-f0", []) for name, archive in archives.items()}
+    for name, held in listed.items():
+        (row,) = held["rows"]
+        gravities = _gravities(row, cells)
+        assert set(gravities) == cells, (name, row)
+        assert {text: gravity.split("|")[1] for text, gravity in gravities.items()} == {
+            "Amina": "top",
+            "Riverside": "center_vertical",
+            "open": "top",
+        }, (name, gravities)
