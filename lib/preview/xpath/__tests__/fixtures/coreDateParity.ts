@@ -29,6 +29,8 @@
  * - `datetime-uncast`: `StringData` of the text Core's `DateTimeData.uncast`
  *   writes for the instant `value` names, the text a setvalue of a date and
  *   time hands its cast and a submission carries.
+ * - `time`: a time answer, `TimeData` cast from `value` (`TimeData.cast`),
+ *   which reads back as its wall clock with no zone (`TimeData.uncast`).
  */
 
 export type CoreDateParityZone = "utc" | "new-york" | "kolkata" | "kiritimati";
@@ -50,7 +52,8 @@ export interface CoreDateParityNode {
 		| "date"
 		| "text"
 		| "setvalue-datetime"
-		| "datetime-uncast";
+		| "datetime-uncast"
+		| "time";
 	readonly value: string;
 }
 
@@ -140,6 +143,12 @@ const cutoffAfter = {
 	held: "datetime",
 	value: "1900-01-01T00:00:01.000Z",
 } as const;
+/** A time answer, and a date answer beside it, joined as the date-and-time
+ * split joins them: 10:30 on 4 March 2026, before New York's change. */
+const clock = { name: "t", held: "time", value: "10:30:00" } as const;
+const splitDay = { name: "d", held: "date", value: "2026-03-04" } as const;
+const CLOCK_KEEPING_JOIN =
+	"format-date(date(format-date(if(/data/d = '' or /data/t = '', '', concat(/data/d, 'T', /data/t)), '%Y-%m-%dT%H:%M:%S.%3%Z')), '%Y-%m-%dT%H:%M:%S.%3%Z')";
 const castOf = (value: string) =>
 	[{ name: "cast", held: "setvalue-datetime", value }] as const;
 const CAST_TEXT = "format-date(coalesce(/data/cast, ''), '%Y-%m-%dT%H:%M%Z')";
@@ -655,6 +664,36 @@ export const CORE_DATE_PARITY: CoreDateParityTable = {
 				kolkata: "1900-01-01T00:00+05:30",
 				kiritimati: "1900-01-01T00:00-10:29",
 			},
+		},
+		// A time answer reads as its wall clock with no zone
+		// (`XPathPathExpr.unpackValue` falls through to `TimeData.uncast`).
+		{
+			id: "time-as-text",
+			xpath: "concat('at ', /data/t)",
+			nodes: [clock],
+			expect: same("at 10:30:00.000"),
+		},
+		// The date-and-time split's join: the text of a date and a time read as
+		// the device's local wall time (`DateUtils.parseDateTime`), `date()` of
+		// it a Date that keeps its clock (`FunctionUtils.toDate`), which a
+		// `format-date` of the Date itself (not a node) does not round
+		// (`expandDateSafe`).
+		{
+			id: "clock-keeping-join",
+			xpath: CLOCK_KEEPING_JOIN,
+			nodes: [splitDay, clock],
+			expect: {
+				utc: "2026-03-04T10:30:00.000Z",
+				"new-york": "2026-03-04T10:30:00.000-05",
+				kolkata: "2026-03-04T10:30:00.000+05:30",
+				kiritimati: "2026-03-04T10:30:00.000+14",
+			},
+		},
+		{
+			id: "clock-keeping-join-blank-time",
+			xpath: CLOCK_KEEPING_JOIN,
+			nodes: [splitDay, { name: "t", held: "text", value: "" }],
+			expect: same(""),
 		},
 		// A blank node is `""` after unpacking: `toDate` returns it, and
 		// `expandDateSafe` then gives no date, which formats as `""`.
