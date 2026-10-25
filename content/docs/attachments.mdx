@@ -93,9 +93,10 @@ on the older behavior.
 How a worker adds a file depends on where your app runs. In Web Apps, the
 browser app on CommCare HQ, every one of these questions except Signature opens
 the device's ordinary file picker. In the CommCare app on Android, the photo
-question opens the camera and the audio question records. So name what to
-capture, such as "Photo of the meter", and let each place ask for it its own
-way. In an app that runs only on Android, "Take a photo of the meter" is right.
+question opens the camera, the audio question records sound, and the video
+question records video with the camera. So name what to capture, such as "Photo
+of the meter", and let each place ask for it its own way. In an app that runs
+only on Android, "Take a photo of the meter" is right.
 
 ## Signature is its own question, not a photo
 
@@ -142,11 +143,11 @@ Document** button.
 
 ## Limits
 
-**4 MB per file in Web Apps, 15 MB on Android.** A worker who picks something
-larger is told the file is too big and nothing is attached. There is no automatic shrinking, the
-file the worker picks is the file that gets sent, so if people will be
-attaching photos straight off a modern phone, say so in the question's
-hint and ask them to pick a smaller one.
+**Just under 4 MB per file in Web Apps, just under 15 MB on Android.** A worker
+who picks something larger is told the file is too big and nothing is attached.
+There is no automatic shrinking, the file the worker picks is the file that gets
+sent, so if people will be attaching photos straight off a modern phone, say so
+in the question's hint and ask them to pick a smaller one.
 
 **50 attachments per submitted form.** This is a hard limit in CommCare,
 and it is checked when the worker presses Submit rather than while they
@@ -254,7 +255,7 @@ a real file, replace it, or use the visible **Remove** action, and it rides
 the submission with the rest of the form. When Preview runs as Android, the
 Image question offers Take picture and Choose image, the Audio question offers
 Record sound, and the Video question offers Record video and Choose video,
-using your browser's camera and microphone, and a file can be up to 15 MB.
+using your browser's camera and microphone, and a file can be just under 15 MB.
 
 Project viewers can inspect attachment and signature answers in Preview, but
 only Project editors can attach, draw, retry, remove, clear, or submit them.

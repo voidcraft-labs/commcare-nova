@@ -2039,10 +2039,11 @@ ordering — answer first, bytes second — not a prompt.
 Preview's Web Apps control is device-faithful: a filename and one visible
 removal action (Nova says **Remove**, where `entry_file.html` says **Clear**), no
 thumbnail, no playback, no way to reopen the file, and Formplayer declares no
-route serving a staged capture back. Running as Android, an image question shows
-the chosen photo with **Remove image**, as Android's `ImageWidget` does. The preview could render a thumbnail,
-which is why it must not; an author laying out a form against a preview that
-confirms attachments would ship a form whose workers cannot.
+route serving a staged capture back. The Web Apps control could render a
+thumbnail, which is why it must not; an author laying out a form against a
+preview that confirms attachments would ship a form whose workers cannot.
+Running as Android, an image question shows the chosen photo with **Remove
+image**, as Android's `ImageWidget` does.
 
 **The preview does not resume a partially-filled form** — nothing persists
 runtime answers and `deactivate` wipes the store — so the entry key is minted

@@ -44,17 +44,17 @@ above the form, with a link across to Publishing for the full picture.
 
 ### Checked
 
-Before anything leaves Nova, it checks what would stop the publish working:
-that your API key can reach the project space you picked, that the app itself
-has nothing outstanding, that you have confirmed what the project space's plan
-and settings give the app, that the project space supports the app features
-that need destination support, that the app already there is set to CommCare
-2.57 or later, that nothing Nova publishes there has changed in CommCare HQ
-since its last publish, and that the app's Web App setting there matches where
-the app runs ([A note on Web Apps](#a-note-on-web-apps)). If any required support is missing, or Nova cannot
-confirm it, nothing is sent. The result names the capability and the next step.
-A change made in CommCare HQ is yours to decide on; see
-[Changes made in CommCare HQ](#changes-made-in-commcare-hq).
+Before anything leaves Nova, it checks what would stop the publish working: that
+your API key can reach the project space you picked, that the app itself has
+nothing outstanding, that you have confirmed what the project space's plan and
+settings give the app, that the project space supports the app features that
+need destination support, that the app already there is set to CommCare 2.57 or
+later, that nothing Nova publishes there has changed in CommCare HQ since its
+last publish, and that the app's Web App setting there matches where the app
+runs ([A note on Web Apps](#a-note-on-web-apps)). If any required support is
+missing, or Nova cannot confirm it, nothing is sent. The result names the
+capability and the next step. A change made in CommCare HQ is yours to decide
+on; see [Changes made in CommCare HQ](#changes-made-in-commcare-hq).
 
 If Nova cannot confirm the complete list of project spaces your key can reach,
 it reports the connection problem instead of showing an incomplete list. A
@@ -328,12 +328,13 @@ Some changes read a little differently:
   Nova recorded it.** The next publish lists the app as changed, though the
   change is Nova's own. Publishing over it sends this app again.
 
-**A publish keeps what was set in CommCare HQ for things Nova doesn't hold**:
-UI translations, add-ons and Auto Capture Location, along with the app settings
+**A publish keeps what was set in CommCare HQ for things Nova doesn't hold**: UI
+translations, add-ons and Auto Capture Location, along with the app settings
 above that Nova only writes where none is set. It replaces what Nova holds: the
 app's name, each language's name, and the saved and incomplete forms settings.
 It also sets the Web App setting from where the app runs, asking first where it
-differs ([A note on Web Apps](#a-note-on-web-apps)). What it keeps is what CommCare HQ held when the publish last read your app.
+differs ([A note on Web Apps](#a-note-on-web-apps)). What it keeps is what
+CommCare HQ held when the publish last read your app.
 
 A publish reads your app in CommCare HQ and then writes to it, and CommCare HQ
 gives Nova no way to write only if nothing changed in between. So a change
