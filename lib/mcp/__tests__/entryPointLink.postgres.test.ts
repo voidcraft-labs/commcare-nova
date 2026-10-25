@@ -245,7 +245,6 @@ async function seed(publish = true) {
 		pushedRevision: loaded.app.mutation_seq,
 		remoteRevision: 3,
 		uploadedAt: "2026-09-01T00:00:00.000Z",
-		targetWebAppsEnabled: true,
 		baseline: {
 			origin: "unread",
 			remoteAppId: "working-app",

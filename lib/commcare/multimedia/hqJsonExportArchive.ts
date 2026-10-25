@@ -31,7 +31,7 @@
 // over already-resolved inputs: no Postgres and no expand.
 
 import AdmZip from "adm-zip";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, declaresWebApps } from "@/lib/domain";
 import { carriesViaBulkUpload, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	MANUAL_IMPORT_LOOKUP_WORKBOOK,
@@ -101,7 +101,7 @@ function logoMember(
  * The manual-import steps for this file, from the same derivations a
  * publish's own checks read: the capabilities and plan features the document
  * needs, the workbook's tables, the media the bulk upload carries, the logo,
- * whether the app reads places, whether it sends forms to CommCare Connect,
+ * whether the app runs in Web Apps, whether the app reads places, whether it sends forms to CommCare Connect,
  * and the properties its searches measure distance on. An import file has no target and sends no places.
  */
 export function hqImportFileGuide(input: {
@@ -127,6 +127,7 @@ export function hqImportFileGuide(input: {
 			input.attachmentTarget,
 		).map(({ label, plans, consequence }) => ({ label, plans, consequence })),
 		logo: logo === undefined ? null : { fileName: logo.name },
+		runsInWebApps: declaresWebApps(input.doc),
 		readsLocations: readsLocationsFixture(input.doc),
 		sendsToConnect: appEmitsConnectBlocks(input.doc),
 		distanceSearches: distanceSearchProperties(input.doc),

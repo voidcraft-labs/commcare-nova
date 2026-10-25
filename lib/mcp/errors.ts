@@ -174,7 +174,9 @@ export type UploadErrorType =
 	| "hq_app_state_unknown"
 	| "hq_changed"
 	| "hq_confirmation_needed"
-	| "hq_app_version_below_floor";
+	| "hq_web_apps_change"
+	| "hq_app_version_below_floor"
+	| "hq_plan_lacks_web_apps";
 
 /**
  * Closed union of every `error_type` string an MCP tool response can

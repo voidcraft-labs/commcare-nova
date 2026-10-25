@@ -1163,7 +1163,7 @@
 			}
 		},
 		"emission": {
-			"cell": "the form blocks and `auto_gps_capture`",
+			"cell": "the form blocks and `auto_gps_capture`; `cloudcare_enabled: false` from the declaration",
 			"markers": []
 		},
 		"gates": ["toggle/COMMCARE_CONNECT"]
@@ -2194,7 +2194,7 @@
 			}
 		},
 		"emission": {
-			"cell": "explicit on every publish (create sets it from the plan, `_create_app_from_doc`); privilege `cloudcare` precondition when `true`",
+			"cell": "`true` or `false` by the declaration on every application body Nova generates, the update and the HQ import file alike, never through the target overlay; HQ's create sets it from the plan (`_create_app_from_doc`), and a publish asks before changing it on an app that holds Nova content; the `cloudcare` privilege is confirmed at publish for an app that declares Web Apps",
 			"markers": []
 		},
 		"gates": ["privilege/cloudcare"]

@@ -9,12 +9,14 @@ import { connectWireFixtures } from "@/lib/commcare/__tests__/connectWireFixture
 import { decrypt } from "@/lib/commcare/encryption";
 import { locationOwnerFixture } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { narrowingTo } from "@/lib/deployment/platformNarrowing";
 import { foldDeploymentAttempt } from "@/lib/deployment/store";
 import { plainColumn } from "@/lib/domain";
 import {
 	CONNECT_FORWARDER,
 	FLAT_LOCATION_FIXTURE,
 	PLAN_FEATURES,
+	webAppsWhereMissing,
 } from "@/lib/publish/planFeatures";
 import { loadAppBlueprint } from "../loadApp";
 import { registerCheckProjectSpaceCompatibility } from "../tools/checkProjectSpaceCompatibility";
@@ -50,7 +52,7 @@ function asUser<T>(
 		registerCheckProjectSpaceCompatibility(server, ctx);
 	}, run);
 }
-async function seed(mode: "entry" | "search" | "plain" = "entry") {
+function seededDoc(mode: "entry" | "search" | "plain" = "entry") {
 	const doc = buildDoc({
 		appName: "Clinic intake",
 		...(mode === "search" && {
@@ -82,6 +84,10 @@ async function seed(mode: "entry" | "search" | "plain" = "entry") {
 			uuid: testUuid("entry"),
 			id: "visit",
 		};
+	return doc;
+}
+async function seed(mode: "entry" | "search" | "plain" = "entry") {
+	const doc = seededDoc(mode);
 	await h.seedAppWithBlueprint(doc, {
 		id: APP,
 		owner: "creator",
@@ -149,12 +155,28 @@ const deepLinkCapability = {
 		"Lets an authenticated link open a named destination in the app.",
 	reasons: ["The app has named entry points for authenticated links."],
 };
-/** What an app with no plan feature and no project-space setting asks to confirm. */
-const NOTHING_TO_CONFIRM = {
-	plan_features: [],
-	flat_location_fixture: null,
-	connect_forwarder: null,
-};
+/**
+ * What the seeded app asks to confirm: it runs in Web Apps and on Android,
+ * so the Web-Based Apps plan feature, with what a person can do where the
+ * plan lacks it, and no project-space setting.
+ */
+function webAppsToConfirm() {
+	return {
+		plan_features: [
+			{
+				id: "web-apps",
+				label: PLAN_FEATURES["web-apps"].label,
+				plans: PLAN_FEATURES["web-apps"].plans,
+				consequence: PLAN_FEATURES["web-apps"].consequence,
+				reasons: ["This app runs in Web Apps."],
+				where_missing: webAppsWhereMissing(narrowingTo(seededDoc(), "android")),
+				state: "needs_confirmation",
+			},
+		],
+		flat_location_fixture: null,
+		connect_forwarder: null,
+	};
+}
 function report(state: "available" | "missing" | "unverified" | "not_checked") {
 	const requirement = { ...deepLinkCapability, state };
 	const checked = state !== "not_checked";
@@ -205,7 +227,7 @@ it("checks the selected deployment over HTTP and returns semantic compatibility"
 				app_id: APP,
 				app_name: "Clinic intake",
 				project_space_compatibility: report("available"),
-				...NOTHING_TO_CONFIRM,
+				...webAppsToConfirm(),
 			});
 		});
 		expect(calls(peer)).toEqual(
@@ -268,7 +290,7 @@ it.each([
 					app_id: APP,
 					app_name: "Clinic intake",
 					project_space_compatibility: report(state),
-					...NOTHING_TO_CONFIRM,
+					...webAppsToConfirm(),
 				}),
 			);
 			expect(calls(peer)).toHaveLength(2);
@@ -519,6 +541,7 @@ it("returns what an upload there asks to confirm, each with its state from the d
 					plans: PLAN_FEATURES["worker-records"].plans,
 					consequence: PLAN_FEATURES["worker-records"].consequence,
 					reasons: ["Activity reads worker information."],
+					where_missing: null,
 					state: "needs_confirmation",
 				},
 				{
@@ -530,6 +553,7 @@ it("returns what an upload there asks to confirm, each with its state from the d
 						"Activity sends a deliver unit to CommCare Connect.",
 						"Record & review sends a task to CommCare Connect.",
 					],
+					where_missing: null,
 					state: "confirmed",
 					confirmed_by: "confirmer",
 					confirmed_at: expect.any(String),
@@ -542,6 +566,7 @@ it("returns what an upload there asks to confirm, each with its state from the d
 					"Activity sends a deliver unit to CommCare Connect.",
 					"Record & review sends a task to CommCare Connect.",
 				],
+				where_missing: CONNECT_FORWARDER.whereMissing,
 				state: "needs_confirmation",
 			});
 			expect(checked.flat_location_fixture).toBeNull();
@@ -565,6 +590,7 @@ it("asks about the flat location list for an app whose form sets an owner from a
 				reasons: [
 					"Transfer sets a case's owner from a place in your organization.",
 				],
+				where_missing: FLAT_LOCATION_FIXTURE.whereMissing,
 				state: "needs_confirmation",
 			});
 		});

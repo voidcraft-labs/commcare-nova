@@ -355,9 +355,11 @@ for (const [mode, post, verb] of [
 				const guide = decodeManualImportGuide(
 					response.headers.get(MANUAL_IMPORT_GUIDE_HEADER),
 				);
+				/* The app runs in Web Apps, so the plan step names Web-Based Apps. */
 				expect(guide.map((step) => step.kind)).toEqual([
 					"import-app",
 					"commcare-version",
+					"plan-features",
 				]);
 				expect(member(entries, "README.txt").toString()).toBe(
 					renderManualImportGuide(guide),
@@ -495,7 +497,12 @@ for (const [mode, post, verb] of [
 					decodeManualImportGuide(
 						response.headers.get(MANUAL_IMPORT_GUIDE_HEADER),
 					).map((step) => step.kind),
-				).toEqual(["import-app", "commcare-version", "capabilities"]);
+				).toEqual([
+					"import-app",
+					"commcare-version",
+					"capabilities",
+					"plan-features",
+				]);
 			}
 		});
 		it.each(mode === "ccz" ? [true] : [false, true])(
@@ -584,26 +591,36 @@ const SEVERAL: readonly ReachedDeploymentTarget[] = [
 it.each([
 	[
 		"needs-published-project-space",
-		chooseDownloadTarget([], { format: "ccz" }),
+		chooseDownloadTarget([], { format: "ccz", declaresAndroid: true }),
 		[],
 	],
 	[
 		"pick-project-space",
-		chooseDownloadTarget(SEVERAL, { format: "ccz" }),
+		chooseDownloadTarget(SEVERAL, { format: "ccz", declaresAndroid: true }),
 		["acme on India", "acme on US"],
 	],
 	[
 		"unknown-project-space",
-		chooseDownloadTarget(SEVERAL, { format: "ccz", domain: "field-ops" }),
+		chooseDownloadTarget(SEVERAL, {
+			format: "ccz",
+			declaresAndroid: true,
+			domain: "field-ops",
+		}),
 		["acme on India", "acme on US"],
 	],
 	[
 		"selection-held-from-hq",
 		chooseDownloadTarget([], {
 			format: "ccz",
+			declaresAndroid: true,
 			heldFromHq: ["The first line.", "The second line."],
 		}),
 		["The first line.", "The second line."],
+	],
+	[
+		"not-declared-for-android",
+		chooseDownloadTarget(SEVERAL, { format: "ccz", declaresAndroid: false }),
+		[],
 	],
 ] as const)(
 	"refuses a CCZ with %s, listing what the person can act on and reading no Project data",
@@ -634,6 +651,7 @@ it.each([
 it("refuses a project space for the import file", async () => {
 	const refusal = chooseDownloadTarget([ACME], {
 		format: "json",
+		declaresAndroid: true,
 		domain: "acme",
 	});
 	if (refusal.kind !== "refused") throw new Error("Expected a refusal");

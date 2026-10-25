@@ -93,6 +93,35 @@ describe("hqImportApplication", () => {
 		});
 	});
 
+	it("writes where the app runs as cloudcare_enabled on the update, after location_fixture_restore, and never on the shell", () => {
+		/* The plausible failures: the shell carrying the key (a key the create
+		 * baseline's ownership does not state) or the update omitting it, which
+		 * HQ's update would then keep at whatever the plan's create left. */
+		const both = buildDoc({ appName: "Visits" });
+		const android = buildDoc({
+			appName: "Visits",
+			appSettings: {
+				showSavedForms: false,
+				showIncompleteForms: false,
+				runsOnlyOn: "android",
+			},
+		});
+		for (const [doc, expected] of [
+			[both, true],
+			[android, false],
+		] as const) {
+			const { application } = hqImportApplication(update(doc, shellSource()));
+			expect(application.cloudcare_enabled).toBe(expected);
+			const keys = Object.keys(application);
+			expect(keys.indexOf("cloudcare_enabled")).toBe(
+				keys.indexOf("location_fixture_restore") + 1,
+			);
+			expect(keys.at(-1)).toBe("_attachments");
+			const created = hqImportApplication(shell(doc)).application;
+			expect(Object.hasOwn(created, "cloudcare_enabled")).toBe(false);
+		}
+	});
+
 	it("keeps a Connect app's Auto Capture Location in the update and in its ownership", () => {
 		if (connect === undefined) throw new Error("Missing the Connect fixture.");
 		const { application, ownership } = hqImportApplication(

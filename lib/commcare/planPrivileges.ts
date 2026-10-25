@@ -16,7 +16,7 @@
 
 import { descendantFieldUuids, orderedFormUuids } from "@/lib/doc/fieldWalk";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { type BlueprintDoc, declaresWebApps, type Uuid } from "@/lib/domain";
 import {
 	type WorkerRecordRequirement,
 	workerRecordRequirements,
@@ -40,6 +40,7 @@ import { formEmitsSaveToCase } from "./xform/caseOps";
 
 /** The privileges a rule below derives, by HQ's slug. */
 export const HQ_PLAN_PRIVILEGE_IDS = [
+	"cloudcare",
 	"user_case",
 	"lookup_tables",
 	"child_cases",
@@ -88,6 +89,7 @@ export const CURRENT_PLANS = [
 
 /** Each privilege's plan feature in Nova's vocabulary. */
 export const PLAN_FEATURE_FOR_PRIVILEGE = {
+	cloudcare: "web-apps",
 	user_case: "worker-records",
 	lookup_tables: "lookup-tables",
 	child_cases: "child-cases",
@@ -199,6 +201,12 @@ export function requiredPlanPrivileges(
 		entryMetadataOnly: true,
 		attachmentTarget,
 	});
+
+	/* `cloudcare`: HQ's settings page turns the app's Web App setting off on
+	 * any save in a project space without it (`views/apps.py::edit_app_attr`),
+	 * and Web Apps refuses a mobile worker there
+	 * (`cloudcare/views.py::FormplayerMain.dispatch`). */
+	add("cloudcare", declaresWebApps(doc) ? ["This app runs in Web Apps."] : []);
 
 	/* `user_case`: HQ's build fails for a form that saves to the worker's
 	 * record (`helpers/validators.py::ApplicationValidator._check_subscription`),

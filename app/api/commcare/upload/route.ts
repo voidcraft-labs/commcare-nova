@@ -36,6 +36,11 @@
  * pre-publish check listed it. Unlike the other two it is remembered, but
  * only once a publish passes preflight: the deployment keeps it until
  * someone withdraws it.
+ *
+ * `confirmWebApps` answers an `hq_web_apps_change` refusal: the Web App
+ * setting a person agreed to write, which is the value the app's
+ * declaration writes. It answers that publish alone and is never
+ * remembered.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -155,6 +160,20 @@ function readConfirmations(
 	return keys.data;
 }
 
+/**
+ * Whether to change the app's Web App setting, as the person answered the
+ * `hq_web_apps_change` question. Absent or null is no answer; anything but a
+ * boolean is a client bug.
+ */
+function readConfirmWebApps(value: unknown): boolean | undefined {
+	if (value === undefined || value === null) return undefined;
+	if (typeof value === "boolean") return value;
+	throw new ApiError(
+		"Whether to change the app's Web App setting has to be true or false.",
+		400,
+	);
+}
+
 export async function POST(req: NextRequest) {
 	try {
 		const session = await requireSession(req);
@@ -167,6 +186,7 @@ export async function POST(req: NextRequest) {
 			adopt_resources?: unknown;
 			discard_remote_changes?: unknown;
 			confirm?: unknown;
+			confirmWebApps?: unknown;
 		} | null;
 
 		if (!body) throw new ApiError("App data is required", 400);
@@ -197,6 +217,8 @@ export async function POST(req: NextRequest) {
 		/* What the person ticked in the dialog. Preflight keeps only those
 		 * the app needs, and stores them once a publish passes it. */
 		const confirm = readConfirmations(body.confirm);
+		/* The person's answer to the Web Apps question, for this publish alone. */
+		const confirmWebApps = readConfirmWebApps(body.confirmWebApps);
 
 		/* Publishing to CommCare HQ requires edit, not view: a viewer can't
 		 * push a shared app out of the Project. An `AppAccessError` maps to
@@ -235,6 +257,7 @@ export async function POST(req: NextRequest) {
 			adoptResourceIds,
 			discardRemoteChanges,
 			confirm,
+			...(confirmWebApps !== undefined && { confirmWebApps }),
 		});
 
 		/* Whether THIS publish got the app there, which is not the same as
@@ -266,9 +289,6 @@ export async function POST(req: NextRequest) {
 				/* The App Preview statement, on a publish that wrote over the
 				 * app without knowing it unchanged. Null otherwise. */
 				app_preview_note: outcome.landed ? outcome.appPreviewNote : null,
-				/* Whether Web Apps offers the app there, as this publish read
-				 * it. Null on a refusal, where nothing was read back. */
-				web_apps_enabled: outcome.landed ? outcome.webAppsEnabled : null,
 				/* The logo a publish never sends, offered to add in CommCare
 				 * HQ. Null on a refusal and for an app with no logo. */
 				logo_step: outcome.landed ? outcome.logoStep : null,

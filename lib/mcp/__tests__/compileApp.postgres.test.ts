@@ -16,6 +16,7 @@ import { derivedFormXmlns } from "@/lib/commcare/wireIdentity";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { commitGuardedBatch } from "@/lib/db/apps";
 import { activeRemoteApp } from "@/lib/deployment/resources";
+import { WEB_APPS_ONLY_HAS_NO_CCZ } from "@/lib/deployment/runtimeTarget";
 import {
 	applyDeploymentObservation,
 	type DeploymentScope,
@@ -98,7 +99,6 @@ async function publish(server: "india" | "production", domain: string) {
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: AT,
-		targetWebAppsEnabled: true,
 		baseline: {
 			origin: "unread",
 			remoteAppId: hqAppId(server, domain),
@@ -325,9 +325,11 @@ it("exports a shared viewer's actual committed version as HQ JSON and an install
 				.map((entry) => entry.entryName)
 				.sort(),
 		).toEqual(["Clinic follow-up.json", "README.txt"]);
+		/* The app runs in Web Apps, so the plan step names Web-Based Apps. */
 		expect(guide.map((step) => step.kind)).toEqual([
 			"import-app",
 			"commcare-version",
+			"plan-features",
 		]);
 		const hq = importedApp(json);
 		expect(hq.name).toBe("Clinic follow-up");
@@ -770,41 +772,26 @@ it("asks for a pick among several published project spaces and refuses one the a
 	});
 });
 
+/* Each selection CommCare HQ cannot take chooses several cases, which
+ * Android can't run, so an app that holds one runs in Web Apps only: it has
+ * no CCZ anywhere, and its import file is refused for the selection. */
 it.each(["parent-multiple", "same-smaller"] as const)(
-	"holds a %s selection back from CommCare HQ and keeps it in a CCZ for a published app",
+	"refuses a CCZ of a Web-Apps-only app (%s) with the download rule's sentence",
 	async (scenario) => {
 		await seed(nestedMenuWireFixture(scenario));
 		await h.seedProjectMember("creator", PROJECT, "owner");
-		await asUser(async (client) => {
-			const held = errorBody(await call(client, "ccz"));
-			expect(held.error_type).toBe("invalid_input");
-			expect(held.message).toMatch(
-				/^A CCZ signs workers in to one project space and sends their forms there, so it is made for a project space this app is published to\. This app can't be published to CommCare HQ as it is, so it has no CCZ yet\.\n- /,
-			);
-			expect(held.message).toContain('"Parents"');
-			expect(held.message).toContain('"Child care"');
-			const json = errorBody(await call(client, "json"));
-			expect(json.message).toMatch(
-				/^This app isn't ready to compile\. Fix these first: /,
-			);
-		});
-		await publish("india", "clinic");
-		await asUser(async (client) => {
-			const result = await call(client, "ccz");
-			expect(result._meta?.["nova/target"]).toMatchObject({
-				server: "india",
-				domain: "clinic",
+		for (const reach of [false, true]) {
+			if (reach) await publish("india", "clinic");
+			await asUser(async (client) => {
+				const refused = errorBody(await call(client, "ccz"));
+				expect(refused.error_type).toBe("invalid_input");
+				expect(refused.message).toBe(WEB_APPS_ONLY_HAS_NO_CCZ);
+				const json = errorBody(await call(client, "json"));
+				expect(json.message).toMatch(
+					/^This app isn't ready to compile\. Fix these first: /,
+				);
 			});
-			const suite = archive(result, "ccz").readAsText("suite.xml");
-			if (scenario === "parent-multiple")
-				expect(suite).toContain("selected(join(");
-			else
-				expect(
-					elements(suite, "instance-datum").map(
-						(datum) => datum.attribs["max-select-value"],
-					),
-				).toEqual(expect.arrayContaining(["5", "4"]));
-		});
+		}
 	},
 );
 

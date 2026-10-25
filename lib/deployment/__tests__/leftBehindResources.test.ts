@@ -57,7 +57,6 @@ function view(
 			lastObservedAt: null,
 			offeredLogoContentHash: null,
 			targetEmptyCaseListText: null,
-			targetWebAppsEnabled: null,
 		},
 		active: [],
 		superseded,

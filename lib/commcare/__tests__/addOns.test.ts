@@ -55,7 +55,12 @@ function app(
 	);
 	edit(module);
 	return serializeHqApplication(
-		applicationShell("Clinic", [module], { "f0.xml": attachment }),
+		applicationShell(
+			"Clinic",
+			[module],
+			{ "f0.xml": attachment },
+			{ cloudcareEnabled: true },
+		),
 	);
 }
 

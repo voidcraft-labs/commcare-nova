@@ -17,6 +17,7 @@
  */
 
 export type PlanFeatureId =
+	| "web-apps"
 	| "worker-records"
 	| "lookup-tables"
 	| "child-cases"
@@ -39,6 +40,13 @@ export interface PlanFeatureDefinition {
 export const PLAN_FEATURES: Readonly<
 	Record<PlanFeatureId, PlanFeatureDefinition>
 > = {
+	"web-apps": {
+		id: "web-apps",
+		label: "Web-Based Apps (CloudCare)",
+		plans: "Advanced and Enterprise",
+		consequence:
+			"Without it, mobile workers can't open this app in Web Apps, and saving the app's settings in CommCare HQ turns its Web App setting off.",
+	},
 	"worker-records": {
 		id: "worker-records",
 		label: "Worker records (user cases)",
@@ -174,6 +182,8 @@ export type PlanFeatureCheckState = "confirmed" | "needs_confirmation";
  * there. `confirmed_by` is the member's display name, never a user id.
  */
 export interface PlanFeatureCheck extends PlanFeatureUse {
+	/** What a person can do where the project space lacks it, or null where Nova has nothing to offer. */
+	readonly where_missing: string | null;
 	readonly state: PlanFeatureCheckState;
 	readonly confirmed_by?: string;
 	readonly confirmed_at?: string;
@@ -184,18 +194,36 @@ export interface ProjectSpaceSettingCheck {
 	readonly label: string;
 	readonly consequence: string;
 	readonly reasons: readonly string[];
+	/** What a person can do where the project space lacks it, or null where Nova has nothing to offer. */
+	readonly where_missing: string | null;
 	readonly state: PlanFeatureCheckState;
 	readonly confirmed_by?: string;
 	readonly confirmed_at?: string;
 }
 
 /**
- * What the app on a project space says where Web Apps does not offer it.
- * HQ sets that from the plan when an upload creates the app, and Nova never
- * writes it, so this is said, never asked.
+ * Whether an app could be narrowed to one platform alone, and the labels of
+ * the features it holds that the platform can't run, in first-use order.
+ * `lib/deployment/platformNarrowing.ts::narrowingTo` reads it from a document.
  */
-export function webAppsOffText(space: string): string {
-	return `This app isn't in Web Apps on “${space}”. CommCare HQ turns Web Apps on for a new app only where the project space's plan includes it. Once the plan does, you can turn it on in this app's settings in CommCare HQ.`;
+export interface PlatformNarrowing {
+	readonly open: boolean;
+	readonly features: readonly string[];
+}
+
+/** Names joined as a sentence lists them: "a", "a and b", "a, b and c". */
+export function namesInWords(names: readonly string[]): string {
+	if (names.length <= 1) return names[0] ?? "";
+	return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/** What a person can do where the project space's plan has no Web Apps. */
+export function webAppsWhereMissing(narrowing: PlatformNarrowing): string {
+	if (narrowing.open)
+		return "Where the plan doesn't include it, you can set this app to run on Android only, in App settings, and publish again.";
+	if (narrowing.features.length > 0)
+		return `Where the plan doesn't include it, this app can run on Android only once it no longer uses ${namesInWords(narrowing.features)}, which Android can't run.`;
+	return "Where the plan doesn't include it, this app can run on Android only once it no longer uses what Android can't run. App settings names each one when you choose Android only.";
 }
 
 /**

@@ -2,6 +2,7 @@
 
 import { getSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
+import { declaresAndroid } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
@@ -347,6 +348,11 @@ export interface DownloadTargetsView {
 	 * take, which is why it can be published nowhere yet. Empty otherwise.
 	 */
 	readonly heldFromHq: readonly string[];
+	/**
+	 * The app does not declare Android, so it has no CCZ for any project
+	 * space. `targets` and `heldFromHq` are then empty.
+	 */
+	readonly webAppsOnly: boolean;
 }
 
 /**
@@ -354,9 +360,9 @@ export interface DownloadTargetsView {
  *
  * The same ledger read and the same lines the two compile surfaces answer
  * from (`downloadTarget.ts`), so the dialog never offers a space the
- * download would refuse. The document is read only when no project space
- * holds the app, because only then does what it holds decide what the
- * dialog says. A read authorizes as a view.
+ * download would refuse. The committed document is read first, because an
+ * app that does not declare Android has no CCZ for any space. A read
+ * authorizes as a view.
  */
 export async function readDownloadTargetsAction(
 	input: unknown,
@@ -372,6 +378,13 @@ export async function readDownloadTargetsAction(
 	const resolved = await resolveScope(parsed.data, "view");
 	if (!resolved.ok) return resolved.result;
 	try {
+		const { doc } = await committedDocWithLocations(resolved.scope);
+		if (!declaresAndroid(doc)) {
+			return {
+				success: true,
+				data: { targets: [], heldFromHq: [], webAppsOnly: true },
+			};
+		}
 		const reached = await readReachedDeploymentTargets(resolved.scope);
 		if (reached.length > 0) {
 			return {
@@ -379,13 +392,17 @@ export async function readDownloadTargetsAction(
 				data: {
 					targets: reached.map(({ server, domain }) => ({ server, domain })),
 					heldFromHq: [],
+					webAppsOnly: false,
 				},
 			};
 		}
-		const { doc } = await committedDocWithLocations(resolved.scope);
 		return {
 			success: true,
-			data: { targets: [], heldFromHq: selectionsHeldFromHq(doc) },
+			data: {
+				targets: [],
+				heldFromHq: selectionsHeldFromHq(doc),
+				webAppsOnly: false,
+			},
 		};
 	} catch (error) {
 		return failure(error, "read", resolved.scope);

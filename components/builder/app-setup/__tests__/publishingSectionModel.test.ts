@@ -66,7 +66,6 @@ function view(overrides: {
 		lastObservedAt: null,
 		offeredLogoContentHash: null,
 		targetEmptyCaseListText: null,
-		targetWebAppsEnabled: null,
 	};
 	return {
 		deployment: {
@@ -503,18 +502,26 @@ describe("mayBePublished", () => {
 });
 
 describe("what a publish asks a person to confirm", () => {
+	/* Each carries what a person can do where the project space lacks it,
+	 * under the check's key and the refusal's alike. */
 	const LOOKUP = {
 		...PLAN_FEATURES["lookup-tables"],
 		reasons: ["The app reads data from a lookup table."],
+		where_missing: null,
+		whereMissing: null,
 	};
 	const WORKER = {
 		...PLAN_FEATURES["worker-records"],
 		reasons: ["Intake reads worker information."],
+		where_missing: null,
+		whereMissing: null,
 	};
 	const FIXTURE = {
 		label: FLAT_LOCATION_FIXTURE.label,
 		consequence: FLAT_LOCATION_FIXTURE.consequence,
 		reasons: ["Intake sets a case's owner from a place in your organization."],
+		where_missing: FLAT_LOCATION_FIXTURE.whereMissing,
+		whereMissing: FLAT_LOCATION_FIXTURE.whereMissing,
 	};
 
 	it("asks for each need the check reports with nothing on record, and not for one confirmed there", () => {
@@ -538,7 +545,12 @@ describe("what a publish asks a person to confirm", () => {
 			{ kind: "plan-feature", subject: "worker-records" },
 			{ kind: "flat-location-fixture" },
 		]);
-		expect(requests[1]).toMatchObject({ plans: "", reasons: FIXTURE.reasons });
+		expect(requests[1]).toMatchObject({
+			plans: "",
+			reasons: FIXTURE.reasons,
+			whereMissing: FLAT_LOCATION_FIXTURE.whereMissing,
+		});
+		expect(requests[0]?.whereMissing).toBeNull();
 	});
 
 	it("adds what a refusal named, once, in every surface's order", () => {
@@ -556,6 +568,7 @@ describe("what a publish asks a person to confirm", () => {
 					plans: "",
 					consequence: CONNECT_FORWARDER.consequence,
 					reasons: ["Lesson sends a learn module to CommCare Connect."],
+					whereMissing: CONNECT_FORWARDER.whereMissing,
 				},
 				{ kind: "plan-feature", subject: "lookup-tables", ...LOOKUP },
 				{ kind: "plan-feature", subject: "worker-records", ...WORKER },

@@ -613,7 +613,7 @@ export interface HqApplicationProfile {
 /**
  * The HQ app document Nova emits, listing ONLY fields Nova authors.
  *
- * App content Nova does not author yet (`cloudcare_enabled`, `case_sharing`)
+ * App content Nova does not author yet (`case_sharing`)
  * and target-owned settings and state (`secure_submissions`, `build_spec` and
  * the rest of the build/release metadata, `logo_refs`, and the rest of HQ's
  * App Settings fields) are deliberately absent. Three keys hold Nova's values
@@ -658,6 +658,14 @@ export interface HqApplication<XPath = string, LinkXPath = XPath> {
 	 * exclude the key, so each publish writes it.
 	 */
 	location_fixture_restore: "project_default";
+	/**
+	 * Where the app runs, on the wire: `true` exactly when the app declares
+	 * Web Apps (`declaresWebApps`). Every update writes it, since HQ's update
+	 * keeps a key the body leaves out; a create takes the plan's own answer
+	 * whatever the body says (`_create_app_from_doc`), which a first publish
+	 * then reads.
+	 */
+	cloudcare_enabled: boolean;
 	/**
 	 * The add-ons the app needs (`addOns.ts::addOnsNeededBy`), each `true`,
 	 * and absent where it needs none. Nova never writes `false`; an update

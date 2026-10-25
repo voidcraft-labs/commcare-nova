@@ -153,7 +153,6 @@ async function publish(
 		uploadedAt: AT,
 		remoteRevision,
 		baseline: unreadBaseline(remoteId),
-		targetWebAppsEnabled: true,
 	});
 }
 
@@ -307,7 +306,6 @@ describe("ownership mappings", () => {
 							uploadedAt: AT,
 							remoteRevision: null,
 							baseline: unreadBaseline(remoteId),
-							targetWebAppsEnabled: true,
 						}),
 					),
 				),
@@ -1315,7 +1313,6 @@ describe("the empty app and HQ reporting it gone", () => {
 			uploadedAt: AT,
 			remoteRevision: null,
 			baseline: unreadBaseline("hq-gone"),
-			targetWebAppsEnabled: true,
 		});
 		const goneMapping = activeRemoteApp(gonePublished);
 		if (goneMapping === null) throw new Error("Expected an app mapping");
@@ -1340,7 +1337,6 @@ describe("the empty app and HQ reporting it gone", () => {
 			uploadedAt: AT,
 			remoteRevision: null,
 			baseline: unreadBaseline("hq-before"),
-			targetWebAppsEnabled: true,
 		});
 		const shellAfter = await recordCreatedRemoteApp(scope, refilled, {
 			remoteId: "hq-shell-after",
@@ -1411,7 +1407,6 @@ describe("the empty app and HQ reporting it gone", () => {
 				uploadedAt: AT,
 				remoteRevision: null,
 				baseline: unreadBaseline("hq-1"),
-				targetWebAppsEnabled: true,
 				...(targetEmptyCaseListText !== undefined && {
 					targetEmptyCaseListText,
 				}),
@@ -1487,14 +1482,11 @@ describe("reads", () => {
 		expect((await create(scope)).deployment).toMatchObject({
 			offeredLogoContentHash: null,
 			targetEmptyCaseListText: null,
-			targetWebAppsEnabled: null,
 		});
-		/* A landed publish always writes what it read of Web Apps. */
 		const fresh = await publish(scope, "hq-1", 7);
 		expect(fresh.deployment).toMatchObject({
 			offeredLogoContentHash: null,
 			targetEmptyCaseListText: null,
-			targetWebAppsEnabled: true,
 		});
 		expect(activeRemoteApp(fresh)?.remoteMissingAt).toBeNull();
 		expect(fresh.confirmations).toEqual([]);
@@ -1506,7 +1498,6 @@ describe("reads", () => {
 			.set({
 				offered_logo_content_hash: "logo-sha",
 				target_empty_case_list_text: true,
-				target_web_apps_enabled: false,
 			})
 			.where("id", "=", fresh.deployment.id)
 			.execute();
@@ -1521,7 +1512,6 @@ describe("reads", () => {
 		expect(stored?.deployment).toMatchObject({
 			offeredLogoContentHash: "logo-sha",
 			targetEmptyCaseListText: true,
-			targetWebAppsEnabled: false,
 		});
 		expect(stored && activeRemoteApp(stored)?.remoteMissingAt).toBe(
 			missingAt.toISOString(),
@@ -1845,7 +1835,6 @@ describe("baselines", () => {
 				uploadedAt: AT,
 				remoteRevision: null,
 				baseline: { ...readBaseline("hq-app", "App"), sourceDigest: "not-hex" },
-				targetWebAppsEnabled: true,
 			}),
 		).rejects.toThrow();
 		const view = await readDeployment(scope, TARGET);
@@ -1867,7 +1856,6 @@ describe("baselines", () => {
 				uploadedAt: AT,
 				remoteRevision: null,
 				baseline,
-				targetWebAppsEnabled: true,
 			});
 		await record(
 			readBaseline("hq-app", "Newer", {
@@ -2069,29 +2057,6 @@ describe("baselines", () => {
 });
 
 describe("what a landed publish read of the target", () => {
-	it("writes Web Apps with the upload's fold, true over false and false over true", async () => {
-		const scope = await seed();
-		const land = (targetWebAppsEnabled: boolean) =>
-			recordRemoteResource(scope, TARGET, {
-				kind: "app",
-				novaResourceId: scope.appId,
-				remoteId: "hq-1",
-				ownership: "nova-created",
-				pushedRevision: 1,
-				uploadedAt: AT,
-				remoteRevision: null,
-				baseline: unreadBaseline("hq-1"),
-				targetWebAppsEnabled,
-			});
-		await create(scope);
-		expect(
-			(await readDeployment(scope, TARGET))?.deployment.targetWebAppsEnabled,
-		).toBeNull();
-		expect((await land(false)).deployment.targetWebAppsEnabled).toBe(false);
-		expect((await land(true)).deployment.targetWebAppsEnabled).toBe(true);
-		expect((await land(false)).deployment.targetWebAppsEnabled).toBe(false);
-	});
-
 	it("writes the offered logo's hash only when given, and clears it with null", async () => {
 		const scope = await seed();
 		await create(scope);
@@ -2105,7 +2070,6 @@ describe("what a landed publish read of the target", () => {
 				uploadedAt: AT,
 				remoteRevision: null,
 				baseline: unreadBaseline("hq-1"),
-				targetWebAppsEnabled: true,
 				...(offeredLogoContentHash !== undefined && { offeredLogoContentHash }),
 			});
 		expect((await land("abc123")).deployment.offeredLogoContentHash).toBe(

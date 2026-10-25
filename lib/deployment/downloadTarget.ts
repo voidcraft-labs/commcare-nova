@@ -8,7 +8,7 @@ import {
 	type WireIdentity,
 } from "@/lib/commcare/wireIdentity";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, declaresAndroid } from "@/lib/domain";
 import type { AttachmentTargetState } from "@/lib/publish/exportAdvisories";
 import {
 	type AttachmentUrlTarget,
@@ -97,6 +97,7 @@ export async function resolveDownloadTarget(
 		...(server !== undefined && { server }),
 		...(domain !== undefined && { domain }),
 		heldFromHq,
+		declaresAndroid: declaresAndroid(doc),
 	});
 	if (choice.kind === "refused") return choice;
 	if (format === "json") {

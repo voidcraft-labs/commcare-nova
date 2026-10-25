@@ -14,7 +14,6 @@ import {
 	recordCreatedRemoteApp,
 	recordRemoteResource,
 } from "@/lib/deployment/store";
-import { webAppsOffText } from "@/lib/publish/planFeatures";
 import {
 	registerGetDeployment,
 	registerRefreshDeployment,
@@ -126,11 +125,7 @@ async function snapshot() {
 			.execute(),
 	};
 }
-async function record(
-	remoteId = "working-app",
-	target = TARGET,
-	targetWebAppsEnabled = false,
-) {
+async function record(remoteId = "working-app", target = TARGET) {
 	await foldDeploymentAttempt(
 		SCOPE,
 		target,
@@ -146,7 +141,6 @@ async function record(
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: "2026-09-01T00:00:00.000Z",
-		targetWebAppsEnabled,
 		baseline: {
 			origin: "unread",
 			remoteAppId: remoteId,
@@ -159,7 +153,7 @@ async function record(
 		},
 	});
 }
-async function seed(published = true) {
+async function seed(published = true, runsOnlyOn?: "android") {
 	const doc = buildDoc({
 		appName: "Visits",
 		modules: [
@@ -175,6 +169,8 @@ async function seed(published = true) {
 			},
 		],
 	});
+	if (runsOnlyOn !== undefined)
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn };
 	await h.seedAppWithBlueprint(doc, {
 		id: APP,
 		owner: "creator",
@@ -717,25 +713,40 @@ it("keeps connection failures local to the caller and preserves the shared deplo
 	});
 });
 
-it("returns the Web Apps note a row holding off gives, without asking CommCare HQ", async () => {
+it("names the Web Apps section from the declaration, without asking CommCare HQ", async () => {
 	await seed();
-	await withHttpPeer(async (peer) => {
-		await asUser(
-			async (client) => {
-				const body = JSON.parse(
-					resultText(await call(client, GET, { app_id: APP })),
-				);
-				const web = body.deployments[0].setup_artifact.sections.find(
-					(section: { id: string }) => section.id === "web-apps",
-				);
-				expect(web.summary).toBe(webAppsOffText("clinic"));
-				expect(web.steps).toHaveLength(1);
-			},
+	const sections = await withHttpPeer(async (peer) => {
+		const listed = await asUser(
+			async (client) =>
+				JSON.parse(resultText(await call(client, GET, { app_id: APP }))),
 			"viewer",
 			["nova.read", "nova.hq.read"],
 		);
 		expect(urls(peer)).toEqual([]);
+		return listed.deployments[0].setup_artifact.sections as {
+			id: string;
+		}[];
 	});
+	expect(sections.find((section) => section.id === "web-apps")).toMatchObject({
+		title: "Web Apps",
+		summary:
+			"Workers on “clinic” open this app in Web Apps once Web Apps serves a version of it, usually the latest one you released.",
+	});
+});
+
+it("names no Web Apps section for an Android-only app", async () => {
+	await seed(true, "android");
+	const sections = await withHttpPeer(async (peer) => {
+		const listed = await asUser(
+			async (client) =>
+				JSON.parse(resultText(await call(client, GET, { app_id: APP }))),
+			"viewer",
+			["nova.read", "nova.hq.read"],
+		);
+		expect(urls(peer)).toEqual([]);
+		return listed.deployments[0].setup_artifact.sections as { id: string }[];
+	});
+	expect(sections.map((section) => section.id)).not.toContain("web-apps");
 });
 
 it("lists the confirmations in force by name, and withdraws one so the next upload asks again", async () => {

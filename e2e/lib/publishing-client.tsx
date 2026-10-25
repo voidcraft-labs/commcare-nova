@@ -55,7 +55,6 @@ const view: DeploymentView = {
 			lastObservedAt: null,
 			offeredLogoContentHash: null,
 			targetEmptyCaseListText: null,
-			targetWebAppsEnabled: null,
 		},
 		active: [],
 		superseded: [],
@@ -67,7 +66,6 @@ const view: DeploymentView = {
 		domain: "alpha",
 		hqAppId: null,
 		locations: [],
-		targetWebAppsEnabled: null,
 	}),
 	leftBehind: [],
 };

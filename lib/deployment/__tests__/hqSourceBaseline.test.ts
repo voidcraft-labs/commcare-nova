@@ -263,7 +263,6 @@ describe("comparing two reads", () => {
 		const changed = edited((app) => {
 			(app.add_ons as Record<string, boolean>).not_nova_s = true;
 			properties(app)["cc-foreign"] = "yes";
-			app.cloudcare_enabled = !app.cloudcare_enabled;
 			app.last_modified = "2030-01-01T00:00:00.000000Z";
 		});
 		expect(diff(base, changed, ownership)).toEqual([]);
@@ -284,6 +283,15 @@ describe("comparing two reads", () => {
 		expect(
 			diff(base, addOn, { ...ownership, addOns: ["advanced_itemsets"] }),
 		).toEqual([{ kind: "settings" }]);
+	});
+
+	it("leaves the Web App setting to the Web Apps question", () => {
+		/* One question covers who moved it (`webApps.ts::webAppsChange`), so
+		 * the drift check never asks about the same value a second time. */
+		const flipped = edited((app) => {
+			app.cloudcare_enabled = !app.cloudcare_enabled;
+		});
+		expect(diff(base, flipped, ownership)).toEqual([]);
 	});
 });
 

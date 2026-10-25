@@ -328,6 +328,8 @@ export interface ConfirmationRequest {
 	readonly plans: string;
 	readonly consequence: string;
 	readonly reasons: readonly string[];
+	/** What a person can do where the project space lacks it, or null where Nova has nothing to offer. */
+	readonly whereMissing: string | null;
 }
 
 /** The key a caller names back for one need, or null for one Nova no longer knows. */
@@ -375,6 +377,25 @@ function requestOrder(key: DeploymentConfirmationKey): number {
  * once. A refusal is the newer word, so its wording wins where both name a
  * need. Nothing confirmed on record is asked again.
  */
+/** A check row as a request: the check's own words, its `where_missing` among them. */
+function fromCheck(
+	row: {
+		readonly label: string;
+		readonly consequence: string;
+		readonly reasons: readonly string[];
+		readonly where_missing: string | null;
+	},
+	plans: string,
+): Omit<ConfirmationRequest, "key" | "kind"> {
+	return {
+		label: row.label,
+		plans,
+		consequence: row.consequence,
+		reasons: row.reasons,
+		whereMissing: row.where_missing,
+	};
+}
+
 export function confirmationRequests(
 	checks: ProjectSpaceConfirmationChecks | null,
 	refused: readonly DeploymentConfirmationNeeded[],
@@ -396,20 +417,22 @@ export function confirmationRequests(
 	if (checks !== null) {
 		for (const feature of checks.plan_features) {
 			if (feature.state === "needs_confirmation") {
-				add("plan-feature", feature.id, feature);
+				add("plan-feature", feature.id, fromCheck(feature, feature.plans));
 			}
 		}
 		if (checks.flat_location_fixture?.state === "needs_confirmation") {
-			add("flat-location-fixture", "flat-location-fixture", {
-				...checks.flat_location_fixture,
-				plans: "",
-			});
+			add(
+				"flat-location-fixture",
+				"flat-location-fixture",
+				fromCheck(checks.flat_location_fixture, ""),
+			);
 		}
 		if (checks.connect_forwarder?.state === "needs_confirmation") {
-			add("connect-forwarder", "connect-forwarder", {
-				...checks.connect_forwarder,
-				plans: "",
-			});
+			add(
+				"connect-forwarder",
+				"connect-forwarder",
+				fromCheck(checks.connect_forwarder, ""),
+			);
 		}
 	}
 	return requests.sort((a, b) => requestOrder(a.key) - requestOrder(b.key));

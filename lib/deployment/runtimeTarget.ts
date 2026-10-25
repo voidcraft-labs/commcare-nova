@@ -36,6 +36,12 @@ export interface DownloadTargetInput {
 	 * document that CommCare HQ cannot take. Absent or empty where there is none.
 	 */
 	readonly heldFromHq?: readonly string[];
+	/**
+	 * For a `.ccz`: whether the app declares Android. A `.ccz` installs an
+	 * app on Android and nothing else, so an app that does not declare it
+	 * has none. The import file ignores it.
+	 */
+	readonly declaresAndroid: boolean;
 }
 
 export type DownloadTargetRefusalReason =
@@ -43,7 +49,8 @@ export type DownloadTargetRefusalReason =
 	| "pick-project-space"
 	| "needs-published-project-space"
 	| "selection-held-from-hq"
-	| "domain-not-for-import-file";
+	| "domain-not-for-import-file"
+	| "not-declared-for-android";
 
 export type DownloadTargetChoice =
 	| {
@@ -79,6 +86,10 @@ const DOMAIN_NOT_FOR_IMPORT_FILE =
 
 /** Why an app CommCare HQ cannot take as it stands has no CCZ yet. */
 export const SELECTION_HELD_FROM_HQ = `${CCZ_SIGNS_IN}, so it is made for a project space this app is published to. This app can't be published to CommCare HQ as it is, so it has no CCZ yet.`;
+
+/** Why an app that runs in Web Apps only has no CCZ. */
+export const WEB_APPS_ONLY_HAS_NO_CCZ =
+	"A CCZ installs this app on Android phones, and this app runs in Web Apps only, so it has no CCZ. If its workers use phones too, you can set it to run on Android as well, in App settings.";
 
 function unknownProjectSpace(domain?: string, server?: CommCareServer): string {
 	const label =
@@ -130,6 +141,14 @@ export function chooseDownloadTarget(
 			? { kind: "none" }
 			: { kind: "project-space", target: only };
 	}
+	/* First, because no project space choice would change the answer. */
+	if (!input.declaresAndroid) {
+		return refused(
+			"not-declared-for-android",
+			WEB_APPS_ONLY_HAS_NO_CCZ,
+			reached,
+		);
+	}
 	if (reached.length === 0) {
 		const held = input.heldFromHq ?? [];
 		return held.length > 0
@@ -178,6 +197,7 @@ export function downloadRefusalLines(refusal: DownloadTargetRefusal): string[] {
 			return refusal.reached.map(projectSpaceLabel);
 		case "needs-published-project-space":
 		case "domain-not-for-import-file":
+		case "not-declared-for-android":
 			return [];
 	}
 }

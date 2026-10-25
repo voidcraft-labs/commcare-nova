@@ -89,8 +89,10 @@ direct publishing supplies its selected server and domain. Every `.ccz` is
 made for one published project space, and its profile names that space's
 four server properties (`ota-restore-url`, `PostURL`, `key_server` and
 `cc_user_domain`, from `runtimeTarget.ts::profileServerProperties`); an app
-that is published nowhere is offered no `.ccz`. The HQ import file carries
-derived ids and no target.
+that is published nowhere is offered no `.ccz`. An app that does not declare
+Android has no `.ccz` at all (`runtimeTarget.ts::chooseDownloadTarget`,
+`not-declared-for-android`): a `.ccz` installs an app on Android. The HQ import
+file carries derived ids and no target.
 
 A local `.ccz` names something stable. Its profile's `uniqueid` is Nova's own
 id for the app on one project space (`runtimeTarget.ts::profileUniqueId`, from
@@ -272,8 +274,9 @@ unverified required capabilities block before writes.
 `planPrivileges.ts::requiredPlanPrivileges` derives, from the document, what
 the publish pushes, and the attachment target the emitter is handed (a capture
 saved as a link is a case write only where there is a link to write), the plan
-features the content needs (`user_case`, `lookup_tables`, `child_cases`,
-`form_link_workflow`, `save_to_case`, `locations`, `data_forwarding`), each
+features the content needs (`cloudcare` for an app that declares Web Apps,
+`user_case`, `lookup_tables`, `child_cases`, `form_link_workflow`,
+`save_to_case`, `locations`, `data_forwarding`), each
 with the sentences that say why this app needs it. The `locations` feature
 and the flat location list's confirmation name each form whose source or
 links read places (`locations/readsLocationsFixture.ts::formsReadingLocationsFixture`):
@@ -1697,9 +1700,12 @@ no response body in logging so the provisioning caller preserves its credential.
 the target's own part beside them.** HQ's update is an overlay merge
 (`_merge_source_into_app`): a field present in the source overwrites the HQ
 app's value, and an absent one is retained. So app content Nova does not
-author yet (`cloudcare_enabled`, `case_sharing`) and target-owned settings and
-state (`secure_submissions`, the build/release metadata, and the rest of HQ's
-app Settings page) are never emitted by `hqShells.ts::applicationShell`. Publish writes no `logo_refs`,
+author yet (`case_sharing`) and target-owned settings and state
+(`secure_submissions`, the build/release metadata, and the rest of HQ's app
+Settings page) are never emitted by `hqShells.ts::applicationShell`.
+`cloudcare_enabled` is where the app runs, written on every update from
+`declaresWebApps`; a create takes the plan's answer (`_create_app_from_doc`),
+which a first publish reads. Publish writes no `logo_refs`,
 and an update takes out only an entry whose only key is `path`
 (`targetLogoRefs.ts::withoutPathOnlyLogoRefs`), which HQ's own uploader never
 stores. `cc-show-saved` and

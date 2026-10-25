@@ -579,13 +579,6 @@ export interface AppDeploymentsTable {
 		boolean | null | undefined,
 		boolean | null
 	>;
-	/** Whether the HQ app had Web Apps on as the last landed publish read it;
-	 * null until a publish has landed and read it. */
-	target_web_apps_enabled: ColumnType<
-		boolean | null,
-		boolean | null | undefined,
-		boolean | null
-	>;
 }
 
 /**

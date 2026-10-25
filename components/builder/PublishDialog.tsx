@@ -47,7 +47,6 @@ import {
 import { DeploymentStatus } from "@/components/builder/DeploymentStatus";
 import { useSetDeploymentProjectSpace } from "@/components/builder/DeploymentTargetProvider";
 import {
-	landedWebAppsLine,
 	type PublishLogoStepBody,
 	publishOutcome,
 } from "@/components/builder/publishOutcome";
@@ -98,6 +97,7 @@ import {
 	NEEDS_PUBLISHED_PROJECT_SPACE,
 	projectSpaceLabel,
 	SELECTION_HELD_FROM_HQ,
+	WEB_APPS_ONLY_HAS_NO_CCZ,
 } from "@/lib/deployment/runtimeTarget";
 import type {
 	DeploymentConfirmationKey,
@@ -117,6 +117,11 @@ import {
 	PLAN_FEATURE_CONFIRM_LABEL,
 } from "@/lib/publish/planFeatures";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
+import {
+	WEB_APPS_CHANGE_HEADING,
+	type WebAppsChange,
+	webAppsChangeConfirmLabel,
+} from "@/lib/publish/webApps";
 import {
 	useAccessPhase,
 	useCanEdit,
@@ -218,9 +223,6 @@ type PublishStatus =
 			/** The App Preview line, after a publish that wrote over the app
 			 *  without knowing it unchanged; null otherwise. */
 			appPreviewNote: string | null;
-			/** What the dialog says where Web Apps does not offer the app
-			 *  on the space published to; null otherwise. */
-			webAppsLine: string | null;
 			/** The logo the publish offers to add in CommCare HQ; null without one. */
 			logoStep: PublishLogoStepBody | null;
 			projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
@@ -246,6 +248,8 @@ type PublishStatus =
 			resourceConflicts: readonly DeploymentResourceConflict[];
 			/** What changed in CommCare HQ since Nova last published there. */
 			remoteChanges: readonly DeploymentRemoteChange[];
+			/** The Web Apps question, for `hq_web_apps_change`; null otherwise. */
+			webAppsChange: WebAppsChange | null;
 			warnings: string[];
 			projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
 	  }
@@ -389,6 +393,12 @@ export function PublishDialog({
 	const [confirmations, setConfirmations] = useState<
 		readonly DeploymentConfirmationKey[]
 	>([]);
+	/**
+	 * The person's answer to the Web Apps question: the value they agreed to
+	 * write, or null until they tick it. Cleared wherever `confirmations` is,
+	 * so an answer never outlives the question it answered.
+	 */
+	const [confirmWebApps, setConfirmWebApps] = useState<boolean | null>(null);
 	const [compatibilityState, setCompatibilityState] =
 		useState<ProjectSpaceCompatibilityState>({
 			type: "loading",
@@ -400,6 +410,7 @@ export function PublishDialog({
 		setAdoptResourceIds([]);
 		setDiscardRemoteChanges([]);
 		setConfirmations([]);
+		setConfirmWebApps(null);
 	}, [connectionServer]);
 	const handleClose = useCallback(() => {
 		operationGenerationRef.current += 1;
@@ -466,6 +477,7 @@ export function PublishDialog({
 		setAdoptResourceIds([]);
 		setDiscardRemoteChanges([]);
 		setConfirmations([]);
+		setConfirmWebApps(null);
 		operationGenerationRef.current += 1;
 		setStatus({ type: "idle" });
 		setDownloadTargets({ type: "loading" });
@@ -684,6 +696,7 @@ export function PublishDialog({
 			setAdoptResourceIds([]);
 			setDiscardRemoteChanges([]);
 			setConfirmations([]);
+			setConfirmWebApps(null);
 			setTarget(next);
 			setStatus({ type: "idle" });
 		},
@@ -704,6 +717,7 @@ export function PublishDialog({
 			setAdoptResourceIds([]);
 			setDiscardRemoteChanges([]);
 			setConfirmations([]);
+			setConfirmWebApps(null);
 		},
 		[compatibilityDomain, invalidateCompatibilityReport],
 	);
@@ -799,6 +813,7 @@ export function PublishDialog({
 					adopt_resources: adoptResourceIds,
 					discard_remote_changes: discardRemoteChanges,
 					confirm: confirmations,
+					...(confirmWebApps !== null && { confirmWebApps }),
 				}),
 				signal: controller.signal,
 			});
@@ -887,6 +902,7 @@ export function PublishDialog({
 				setDiscardRemoteChanges([]);
 				/* The deployment holds what was confirmed from now on. */
 				setConfirmations([]);
+				setConfirmWebApps(null);
 				setLandedPublishes((count) => count + 1);
 				const record = outcome.deployment?.deployment.deployment;
 				setStatus({
@@ -895,10 +911,6 @@ export function PublishDialog({
 					appUrl: outcome.appUrl,
 					warnings: outcome.warnings,
 					appPreviewNote: outcome.appPreviewNote,
-					webAppsLine: landedWebAppsLine(
-						outcome.webAppsEnabled,
-						publishedDomain,
-					),
 					logoStep: outcome.logoStep,
 					projectSpaceCompatibility: serverCompatibility,
 					target:
@@ -919,6 +931,29 @@ export function PublishDialog({
 					),
 				),
 			);
+			/* An answer to the Web Apps question answers that question alone:
+			 * kept only where the refusal asks the same thing again. */
+			setConfirmWebApps((current) =>
+				outcome.webAppsChange !== null && current === outcome.webAppsChange.to
+					? current
+					: null,
+			);
+			/* HQ's create answered the plan question from the plan, so the
+			 * person's `web-apps` answer is withdrawn: untick it, and read the
+			 * pre-publish check again so its row comes back unticked beside
+			 * the refusal. */
+			if (outcome.refusal.code === "hq_plan_lacks_web_apps") {
+				setConfirmations((current) =>
+					current.filter(
+						(entry) =>
+							!sameConfirmationKey(entry, {
+								kind: "plan-feature",
+								subject: "web-apps",
+							}),
+					),
+				);
+				loadProjectSpaceCompatibility();
+			}
 			setStatus({
 				type: "refused",
 				refusal: {
@@ -930,6 +965,7 @@ export function PublishDialog({
 				confirmationsNeeded: outcome.confirmationsNeeded,
 				resourceConflicts: outcome.resourceConflicts,
 				remoteChanges: outcome.remoteChanges,
+				webAppsChange: outcome.webAppsChange,
 				warnings: outcome.warnings,
 				projectSpaceCompatibility: serverCompatibility,
 			});
@@ -956,7 +992,9 @@ export function PublishDialog({
 		adoptResourceIds,
 		discardRemoteChanges,
 		confirmations,
+		confirmWebApps,
 		compatibilityState,
+		loadProjectSpaceCompatibility,
 		selectedDomain,
 		appName,
 		getAppId,
@@ -1021,6 +1059,12 @@ export function PublishDialog({
 		requestedConfirmations,
 		confirmations,
 	);
+	/* A Web Apps question holds Upload until it is ticked, as an unticked
+	 * confirmation row does. */
+	const webAppsAnswered =
+		status.type !== "refused" ||
+		status.webAppsChange === null ||
+		confirmWebApps === status.webAppsChange.to;
 	const canUpload =
 		canEdit &&
 		canUploadToHq &&
@@ -1030,6 +1074,7 @@ export function PublishDialog({
 		compatibilityAllowsUpload &&
 		allRemoteChangesConfirmed &&
 		allConfirmationsGiven &&
+		webAppsAnswered &&
 		appName.trim().length > 0;
 	const downloadTarget = target === "mobile" ? "mobile" : "web";
 	const downloadComplete =
@@ -1213,14 +1258,6 @@ export function PublishDialog({
 												{status.appPreviewNote}
 											</p>
 										) : null}
-										{/* Said, never asked: CommCare HQ decided it from the
-										    plan when it made the app, and Nova writes nothing
-										    to it. */}
-										{status.webAppsLine !== null ? (
-											<p className="mt-3 rounded-lg border border-nova-border bg-nova-elevated px-3 py-2.5 text-left text-xs leading-relaxed text-nova-text-secondary">
-												{status.webAppsLine}
-											</p>
-										) : null}
 										{status.logoStep?.changed ? (
 											<LogoStep
 												step={status.logoStep}
@@ -1296,6 +1333,25 @@ export function PublishDialog({
 														changes={status.remoteChanges}
 														discarded={discardRemoteChanges}
 														onDiscardChange={handleDiscardChange}
+													/>
+												) : null}
+												{/* The Web Apps question: the app's Web App setting
+												    on CommCare HQ differs from where it runs, and
+												    the next publish changes it once ticked. */}
+												{status.webAppsChange !== null && canEdit ? (
+													<WebAppsChangeChoice
+														change={status.webAppsChange}
+														message={status.refusal.detail}
+														confirmed={
+															confirmWebApps === status.webAppsChange.to
+														}
+														onConfirmedChange={(confirmed) =>
+															setConfirmWebApps(
+																confirmed && status.webAppsChange !== null
+																	? status.webAppsChange.to
+																	: null,
+															)
+														}
 													/>
 												) : null}
 												{status.refusal.code === "hq_app_version_below_floor" &&
@@ -1622,7 +1678,17 @@ function CczTargetField({
 			</p>
 		);
 	}
-	const { targets, heldFromHq } = state.view;
+	const { targets, heldFromHq, webAppsOnly } = state.view;
+	/* The option stays offered: choosing it says why there is no CCZ. */
+	if (webAppsOnly) {
+		return (
+			<div className="mt-4 rounded-lg border border-nova-border bg-nova-well px-3 py-3">
+				<p className="text-[13px] leading-relaxed text-nova-text">
+					{WEB_APPS_ONLY_HAS_NO_CCZ}
+				</p>
+			</div>
+		);
+	}
 	if (targets.length === 0) {
 		return (
 			<div className="mt-4 rounded-lg border border-nova-border bg-nova-well px-3 py-3">
@@ -2192,8 +2258,8 @@ function ConfirmationChoice({
 									<span className="sr-only"> {request.label}</span>
 								</span>
 							</label>
-							{setting !== null ? (
-								<p className="text-nova-text-muted">{setting.whereMissing}</p>
+							{request.whereMissing !== null ? (
+								<p className="text-nova-text-muted">{request.whereMissing}</p>
 							) : null}
 						</li>
 					);
@@ -2241,6 +2307,52 @@ function LogoStep({
 				) : null}
 			</div>
 		</div>
+	);
+}
+
+/**
+ * The Web Apps question: the app's Web App setting on CommCare HQ differs
+ * from where the app runs, whoever moved it. One tick agrees to write the
+ * declaration's value for this publish alone; it starts unticked, because
+ * changing it decides whether workers there can open the app in Web Apps.
+ */
+function WebAppsChangeChoice({
+	change,
+	message,
+	confirmed,
+	onConfirmedChange,
+}: {
+	change: WebAppsChange;
+	message: string;
+	confirmed: boolean;
+	onConfirmedChange: (confirmed: boolean) => void;
+}) {
+	return (
+		<section
+			aria-labelledby="publish-web-apps-heading"
+			className="mt-3 rounded-lg border border-nova-border bg-nova-elevated px-3 py-3 text-left"
+		>
+			<h4
+				id="publish-web-apps-heading"
+				className="text-[13px] font-semibold text-nova-text"
+			>
+				{WEB_APPS_CHANGE_HEADING}
+			</h4>
+			<p className="mt-1 text-xs leading-relaxed text-nova-text-secondary">
+				{message}
+			</p>
+			<label
+				htmlFor="publish-web-apps-change"
+				className="mt-1 flex min-h-11 cursor-pointer items-center gap-2.5 text-[13px] text-nova-text"
+			>
+				<Checkbox
+					id="publish-web-apps-change"
+					checked={confirmed}
+					onCheckedChange={(next) => onConfirmedChange(next === true)}
+				/>
+				<span>{webAppsChangeConfirmLabel(change)}</span>
+			</label>
+		</section>
 	);
 }
 

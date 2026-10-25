@@ -31,7 +31,9 @@ import {
 	PLAN_FEATURES,
 	type PlanFeatureCheck,
 	type ProjectSpaceSettingCheck,
+	webAppsWhereMissing,
 } from "@/lib/publish/planFeatures";
+import { narrowingTo } from "./platformNarrowing";
 import {
 	confirmationSubject,
 	type DeploymentConfirmation,
@@ -66,6 +68,10 @@ export function requiredConfirmations(
 		plans: feature.plans,
 		consequence: feature.consequence,
 		reasons: feature.reasons,
+		whereMissing:
+			feature.id === "web-apps"
+				? webAppsWhereMissing(narrowingTo(doc, "android"))
+				: null,
 	}));
 	const fixtureReasons = flatLocationFixtureReasons(doc);
 	if (fixtureReasons.length > 0) {
@@ -76,6 +82,7 @@ export function requiredConfirmations(
 			plans: "",
 			consequence: FLAT_LOCATION_FIXTURE.consequence,
 			reasons: fixtureReasons,
+			whereMissing: FLAT_LOCATION_FIXTURE.whereMissing,
 		});
 	}
 	const forwarderReasons = connectForwarderReasons(doc, connect);
@@ -87,6 +94,7 @@ export function requiredConfirmations(
 			plans: "",
 			consequence: CONNECT_FORWARDER.consequence,
 			reasons: forwarderReasons,
+			whereMissing: CONNECT_FORWARDER.whereMissing,
 		});
 	}
 	return needed;
@@ -182,6 +190,7 @@ export function confirmationChecks(
 					label: need.label,
 					consequence: need.consequence,
 					reasons: need.reasons,
+					where_missing: need.whereMissing,
 					...stateOf(need),
 				};
 	};
@@ -197,6 +206,7 @@ export function confirmationChecks(
 					plans: need.plans,
 					consequence: need.consequence,
 					reasons: need.reasons,
+					where_missing: need.whereMissing,
 					...stateOf(need),
 				},
 			];

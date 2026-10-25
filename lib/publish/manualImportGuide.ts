@@ -31,6 +31,7 @@ export type ManualImportStepKind =
 	| "capabilities"
 	| "plan-features"
 	| "logo"
+	| "web-apps"
 	| "flat-location-fixture"
 	| "connect-forwarding"
 	| "distance-search";
@@ -43,6 +44,7 @@ const STEP_KINDS: ReadonlySet<string> = new Set<ManualImportStepKind>([
 	"capabilities",
 	"plan-features",
 	"logo",
+	"web-apps",
 	"flat-location-fixture",
 	"connect-forwarding",
 	"distance-search",
@@ -76,6 +78,8 @@ export interface ManualImportGuideInput {
 	}[];
 	/** The app's logo file, or null for an app with none. */
 	readonly logo: { readonly fileName: string } | null;
+	/** Whether the app runs in Web Apps (`declaresWebApps`). */
+	readonly runsInWebApps: boolean;
 	/** Whether the app reads the project space's locations. */
 	readonly readsLocations: boolean;
 	/** Whether the app's forms hold a CommCare Connect block. */
@@ -240,6 +244,23 @@ function logoStep(logo: { readonly fileName: string }): ManualImportStep {
 }
 
 /**
+ * A manual import is a create, so CommCare HQ sets the app's Web App setting
+ * from the plan whatever the file says (`_create_app_from_doc`), and no
+ * update follows. An app that runs on Android only is then offered in Web
+ * Apps wherever the plan includes it, though it isn't made for it.
+ */
+function webAppsStep(): ManualImportStep {
+	return {
+		kind: "web-apps",
+		title: "Web Apps",
+		lines: [
+			"This app runs on Android only.",
+			"CommCare HQ turns Web Apps on for an imported app wherever the project space's plan includes it. It helps to open the imported app's settings in CommCare HQ and turn “Web App” off, so workers don't meet it in Web Apps.",
+		],
+	};
+}
+
+/**
  * Every app carries `project_default`, so phones and Web Apps take the flat
  * location list by the project space's own setting, which nothing here can
  * read.
@@ -308,6 +329,7 @@ export function manualImportGuide(
 			? [planFeaturesStep(input.planFeatures)]
 			: []),
 		...(input.logo === null ? [] : [logoStep(input.logo)]),
+		...(input.runsInWebApps ? [] : [webAppsStep()]),
 		...(input.readsLocations ? [flatLocationFixtureStep()] : []),
 		...(input.sendsToConnect ? [connectForwardingStep()] : []),
 		...(input.distanceSearches.length > 0
