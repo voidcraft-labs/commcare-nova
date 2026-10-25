@@ -482,7 +482,19 @@ export async function runFleetTransaction(
 				};
 			});
 			// 2. The blocking scan under the locks.
-			await timed("blocking-scan", () => blockingScan(tx, input.plan));
+			await timed("blocking-scan", async () => {
+				try {
+					await blockingScan(tx, input.plan);
+				} catch (error) {
+					if ((error as { code?: unknown })?.code === LOCK_NOT_AVAILABLE) {
+						throw new CutoverLockTimeoutError(
+							"Another session held a lock on an app, design session or media row for 15 seconds, so this run stopped with nothing written. Let that session finish, or end it, then run the dry run again.",
+							{ cause: error },
+						);
+					}
+					throw error;
+				}
+			});
 			// 3. Already applied, again.
 			await timed("already-applied", async () => {
 				if ((await readMigrationLedger(tx)).validatedApplied) {

@@ -10,8 +10,9 @@
  *
  * The digest covers everything the writer would write. Nothing in it comes
  * from outside the database and the bucket, both quiescent in the window: a
- * moved digest means a document, a holder, a media row or a deployment
- * baseline moved. Notice entries carry authored names into it as hashed
+ * moved digest means a document, a media row or a deployment baseline
+ * moved. Holders are outside it: `planStops` and the writer's blocking scan
+ * read them again. Notice entries carry authored names into it as hashed
  * bytes only.
  */
 

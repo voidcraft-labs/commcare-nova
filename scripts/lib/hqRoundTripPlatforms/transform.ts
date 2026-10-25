@@ -414,7 +414,16 @@ function removeUnplayedMedia(
 		const cause = removalCause(plan, reference.missing);
 		const { entity, detail } = carrierNotice(doc, reference.ref);
 		const record = ctx.mediaRecords.get(reference.ref.assetId);
-		const file = record?.displayName ?? record?.originalFilename;
+		const name =
+			record?.displayName !== undefined && record.displayName !== ""
+				? record.displayName
+				: record?.originalFilename;
+		/* Stored only whole, never cut; `noticeText` keeps a lone surrogate
+		 * from reaching the jsonb row. */
+		const file =
+			name !== undefined && name.length <= NOTICE_TEXT_MAX
+				? noticeText(name)
+				: undefined;
 		changes.push({
 			step: "remove-unplayed-media",
 			entityUuid: ownerUuid(reference.ref),
@@ -432,9 +441,7 @@ function removeUnplayedMedia(
 			detail: {
 				...detail,
 				media: reference.ref.slotKind,
-				...(file !== undefined &&
-					file.length > 0 &&
-					file.length <= NOTICE_TEXT_MAX && { file }),
+				...(file !== undefined && file.length > 0 && { file }),
 				cause,
 			},
 		});

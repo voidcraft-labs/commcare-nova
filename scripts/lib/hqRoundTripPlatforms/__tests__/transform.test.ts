@@ -572,6 +572,24 @@ describe("step 2, remove-unplayed-media", () => {
 		).toBeUndefined();
 	});
 
+	it("names the original file where the display name is empty, and keeps the entry's JSON valid", () => {
+		const context = stepContext(doc);
+		const records = new Map(context.mediaRecords);
+		const logo = records.get(MEDIA.tooLarge);
+		if (logo === undefined) throw new Error("No logo record.");
+		records.set(MEDIA.tooLarge, {
+			...logo,
+			displayName: "",
+			originalFilename: "logo\ud800.bmp",
+		});
+		const judged = transformApp(doc, { ...context, mediaRecords: records });
+		expect(
+			judged.notice[0]?.kind === "document"
+				? judged.notice[0].detail?.file
+				: "",
+		).toBe("logo\ufffd.bmp");
+	});
+
 	it("blocks a reference whose file is no ready media row of the Project", () => {
 		const blocked = transformApp(
 			doc,
