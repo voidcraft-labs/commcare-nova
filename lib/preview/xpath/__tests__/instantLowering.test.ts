@@ -184,10 +184,12 @@ function printed(
 	return text;
 }
 
-function contextFor(
-	values: ReadonlyArray<readonly [string, Side]>,
-	zone: string,
-): EvalContext {
+/** A document whose fields hold each named side's kind, before any value is
+ * set, with the context that reads it. */
+function documentFor(values: ReadonlyArray<readonly [string, Side]>): {
+	readonly data: DataInstance;
+	readonly context: EvalContext;
+} {
 	const root = testUuid("instant-lowering-root");
 	const fields: Record<string, Field> = {};
 	const order: Record<string, Uuid[]> = { [root]: [] };
@@ -204,18 +206,38 @@ function contextFor(
 	}
 	const data = new DataInstance();
 	data.initFromFields(buildFieldTree(root, fields, order));
-	for (const [name, held] of values)
-		if (held.kind !== "now") data.set(`/data/${name}`, held.held(zone));
 	const mainInstance = data.asXPathInstance();
 	const rootNode = mainInstance.root();
 	return {
-		mainInstance,
-		contextNode: rootNode,
-		originalContextNode: rootNode,
-		contextPath: "/",
-		position: undefined,
-		getValue: (path) => data.get(path),
+		data,
+		context: {
+			mainInstance,
+			contextNode: rootNode,
+			originalContextNode: rootNode,
+			contextPath: "/",
+			position: undefined,
+			getValue: (path) => data.get(path),
+		},
 	};
+}
+
+/** Set each named side's held text in `zone` on the document. */
+function hold(
+	data: DataInstance,
+	values: ReadonlyArray<readonly [string, Side]>,
+	zone: string,
+): void {
+	for (const [name, held] of values)
+		if (held.kind !== "now") data.set(`/data/${name}`, held.held(zone));
+}
+
+function contextFor(
+	values: ReadonlyArray<readonly [string, Side]>,
+	zone: string,
+): EvalContext {
+	const { data, context } = documentFor(values);
+	hold(data, values, zone);
+	return context;
 }
 
 /** The order of two moments; a side that names none (blank, malformed)
@@ -262,21 +284,24 @@ function sampledPairs(): readonly InstantPair[] {
 	});
 }
 
-function inEachZone(run: (zone: string) => void): void {
+/** Run in `zone` as the device's zone, with now() at the table's clock. */
+function inZone(zone: string, run: () => void): void {
 	const originalTimeZone = process.env.TZ;
 	vi.useFakeTimers();
 	try {
-		for (const zone of ZONES) {
-			// Node re-reads the zone on assignment; every value is built after.
-			process.env.TZ = zone;
-			vi.setSystemTime(new Date(instantFixedClock));
-			run(zone);
-		}
+		// Node re-reads the zone on assignment; every value is built after.
+		process.env.TZ = zone;
+		vi.setSystemTime(new Date(instantFixedClock));
+		run();
 	} finally {
 		vi.useRealTimers();
 		if (originalTimeZone === undefined) delete process.env.TZ;
 		else process.env.TZ = originalTimeZone;
 	}
+}
+
+function inEachZone(run: (zone: string) => void): void {
+	for (const zone of ZONES) inZone(zone, () => run(zone));
 }
 
 const BLANK_TEXT: Side = {
@@ -300,34 +325,49 @@ const text = (value: string, micros: number): Side => ({
 const base = Date.parse(instantFixedClock) * 1000;
 
 describe("Preview orders the lowered comparisons as moments in every zone", () => {
-	// Six zones over the sampled table: seconds of evaluation, so it carries
-	// its own budget rather than the default five.
-	it("evaluates each table pair to the order of its two moments", () => {
-		const pairs = sampledPairs();
-		inEachZone((zone) => {
-			for (const pair of pairs) {
-				const left = side(pair.left),
-					right = side(pair.right);
-				const xpath = printed(left, right, pair.operator);
-				const label = `${zone}: ${pair.id}`;
-				const result = evaluate(
-					xpath,
-					contextFor(
-						[
-							["left", left],
-							["right", right],
-						],
-						zone,
-					),
-				);
-				expect(typeof result, label).toBe("boolean");
-				const answer = expected(left, right, pair.operator);
-				if (pair.group.startsWith("malformed")) continue;
-				expect(answer, label).toBeDefined();
-				expect(result, label).toBe(answer);
-			}
-		});
-	}, 20_000);
+	// The sampled table is thousands of full evaluations of prints several
+	// kilobytes long, so each zone is its own test with its own budget. Each
+	// pair of field kinds' document is built once per zone, and a pair only
+	// sets its two held values before its print is evaluated.
+	const pairs = sampledPairs();
+	it.each(ZONES)(
+		"evaluates each table pair in %s to the order of its two moments",
+		(zone) => {
+			const documents = new Map<string, ReturnType<typeof documentFor>>();
+			const misordered: string[] = [];
+			inZone(zone, () => {
+				for (const pair of pairs) {
+					const left = side(pair.left),
+						right = side(pair.right);
+					const values = [
+						["left", left],
+						["right", right],
+					] as const;
+					const kinds = `${left.kind}|${right.kind}`;
+					let document = documents.get(kinds);
+					if (document === undefined) {
+						document = documentFor(values);
+						documents.set(kinds, document);
+					}
+					hold(document.data, values, zone);
+					const result = evaluate(
+						printed(left, right, pair.operator),
+						document.context,
+					);
+					const answer = expected(left, right, pair.operator);
+					if (typeof result !== "boolean")
+						misordered.push(`${pair.id}: ${String(result)} is not a boolean`);
+					else if (pair.group.startsWith("malformed")) continue;
+					else if (answer === undefined)
+						misordered.push(`${pair.id}: the table names no moment`);
+					else if (result !== answer)
+						misordered.push(`${pair.id}: ${result}, expected ${answer}`);
+				}
+			});
+			expect(misordered, zone).toEqual([]);
+		},
+		10_000,
+	);
 
 	it("treats a blank side as no moment, including a coalesce's blank date", () => {
 		inEachZone((zone) => {
