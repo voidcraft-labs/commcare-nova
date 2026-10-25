@@ -298,6 +298,9 @@ answer and the wire cannot disagree. HQ's slugs stay inside `lib/commcare`; `lib
 holds what a person reads. No API key reads a plan, so these are confirmed by
 the person, never probed, and a lane test holds `planPrivilegePlans.json` to
 HQ's own plan lists.
+The large-search performance check is advisory: it controls only whether Nova
+can add its derived Search optimization and never blocks publishing or removes
+Search.
 
 `planPrivileges.ts::formEntrySyncReasons` names each form that works on a case
 in a module whose case list offers Search, for an app that declares Android:
@@ -305,9 +308,6 @@ HQ's build gives such a form's entry a claim that always posts while the
 project space syncs cases on form entry, and Android can't open a form whose
 entry asks for a sync, so publish asks a person to confirm the setting is off
 (`form-entry-sync-off`).
-The large-search performance check is advisory: it controls only whether Nova
-can add its derived Search optimization and never blocks publishing or removes
-Search.
 
 A download checks no project space, so its compatibility is `not_checked`: the HQ import file has no target, and a `.ccz` is made for a project space the app is already published to, whose publish made the check.
 Upstream drift reaches the probe through the weekly pin pull request
