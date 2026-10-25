@@ -353,10 +353,10 @@ export function FieldTypePickerPopup({
 															onSelect={handleSelect}
 															disabledReason={kindRefusal(type)}
 														/>
-														{/* Where Web Apps runs the app, a date and a time
-														 *  are asked as two questions instead. */}
+														{/* Where a declared platform can't ask a date and
+														 *  time as one question, it is offered as two. */}
 														{type === "datetime" &&
-															platforms.includes("web-apps") && (
+															kindRefusal(type) !== undefined && (
 																<TwoQuestionsMenuItem
 																	onSelect={handleTwoQuestions}
 																/>
