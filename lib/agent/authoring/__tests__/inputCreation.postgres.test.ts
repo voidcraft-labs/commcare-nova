@@ -137,7 +137,8 @@ it("creates and edits record names without making the author construct name writ
 });
 
 it("binds Search rules to renamed answers and seeds a new no-matches form from them", async () => {
-	const h = await makeDurableAuthoringHarness(db);
+	// Search first runs in Web Apps alone, so the app declares Web Apps.
+	const h = await makeDurableAuthoringHarness(db, { runsOnlyOn: "web-apps" });
 	await h.call("generateSchema", {
 		caseTypes: [
 			{
@@ -244,20 +245,5 @@ it("binds Search rules to renamed answers and seeds a new no-matches form from t
 			],
 		},
 	});
-	// The module opens on Search first, which runs in Web Apps alone, and no
-	// shared tool narrows a new app before updateApp takes runs_only_on, so
-	// the save meets the platform rule and names the module, while every
-	// staged step above stands as private work.
-	expect(await h.save()).toMatchObject({
-		saved: false,
-		findings: [
-			expect.objectContaining({
-				code: "PLATFORM_FEATURE_UNAVAILABLE",
-				details: expect.objectContaining({
-					feature: "search-first",
-					platform: "android",
-				}),
-			}),
-		],
-	});
+	expect(await h.save()).toMatchObject({ saved: true });
 });
