@@ -370,13 +370,6 @@ function requestOrder(key: DeploymentConfirmationKey): number {
 	}
 }
 
-/**
- * What the Publish dialog asks a person to confirm before a publish to the
- * selected project space: every need the pre-publish check reports with no
- * confirmation on record there, and every need a refusal just named, each
- * once. A refusal is the newer word, so its wording wins where both name a
- * need. Nothing confirmed on record is asked again.
- */
 /** A check row as a request: the check's own words, its `where_missing` among them. */
 function fromCheck(
 	row: {
@@ -396,6 +389,13 @@ function fromCheck(
 	};
 }
 
+/**
+ * What the Publish dialog asks a person to confirm before a publish to the
+ * selected project space: every need the pre-publish check reports with no
+ * confirmation on record there, and every need a refusal just named, each
+ * once. A refusal is the newer word, so its wording wins where both name a
+ * need. Nothing confirmed on record is asked again.
+ */
 export function confirmationRequests(
 	checks: ProjectSpaceConfirmationChecks | null,
 	refused: readonly DeploymentConfirmationNeeded[],
