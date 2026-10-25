@@ -7,8 +7,8 @@ import {
 	type Field,
 	fieldCaseWrite,
 	fieldKindDeclaresKey,
+	fieldKinds,
 	fieldSchema,
-	getConvertibleTypes,
 	isContainer,
 	isRepresentableConversion,
 	pickFieldKeysForKind,
@@ -299,8 +299,11 @@ export function applyFieldMutation(
 			// single source of truth for which swaps are semantically valid.
 			// A pair is representable when either kind lists the other, so the
 			// inverse of every offered conversion (an undo) replays.
-			const allowed = getConvertibleTypes(field.kind);
 			if (!isRepresentableConversion(field.kind, mut.toKind)) {
+				const allowed = fieldKinds.filter(
+					(kind) =>
+						kind !== field.kind && isRepresentableConversion(field.kind, kind),
+				);
 				// `console.warn`, not the structured logger — reducers bundle
 				// client-side, where the logger's production path throws (see
 				// the moveField guard note).

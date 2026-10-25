@@ -25,7 +25,7 @@ import { mutationCommitVerdict } from "../../../lib/doc/commitVerdicts";
 import { planDatetimeSplits } from "../../../lib/doc/datetimeSplit";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import type { Uuid } from "../../../lib/domain";
-import { proseText } from "../../../lib/domain";
+import { fieldCaseWrite, proseText } from "../../../lib/domain";
 import type { Expression } from "../../../lib/domain/expression";
 import {
 	concat,
@@ -303,10 +303,30 @@ writeFileSync(
 			joined: `/data/${field.id}`,
 		};
 	};
-	const [writer, ...readers] = plan.splits.map((split) =>
-		paths(split.fieldUuid),
-	);
-	if (writer === undefined) throw new Error("The split has no writer.");
+	// The writer is the one split question that writes a case property; the
+	// others only read. Its untyped case value must be in the compiled form,
+	// so a renamed node fails here rather than in the Core run.
+	const writers = plan.splits.filter((split) => {
+		const field = doc.fields[split.fieldUuid];
+		return field !== undefined && fieldCaseWrite(field) !== undefined;
+	});
+	if (writers.length !== 1 || writers[0] === undefined)
+		throw new Error(
+			`The shared original's split should hold one question that writes a case property, and it holds ${writers.length}.`,
+		);
+	const writer = paths(writers[0].fieldUuid);
+	const readers = plan.splits
+		.filter((split) => split !== writers[0])
+		.map((split) => paths(split.fieldUuid));
+	const caseValue = `/data/nova_datetime_${writer.joined.slice("/data/".length)}`;
+	if (
+		!archive
+			.readAsText(`modules-${forms.check[0]}/forms-${forms.check[1]}.xml`)
+			.includes(`nodeset="${caseValue}"`)
+	)
+		throw new Error(
+			`The check form holds no bind for the split question's case value ${caseValue}, so the Core run would read a missing node.`,
+		);
 	writeFileSync(
 		resolve(output, "datetime-split.json"),
 		`${JSON.stringify({
@@ -314,7 +334,7 @@ writeFileSync(
 			writer: {
 				form: "/expression/datetime-split/check.xml",
 				...writer,
-				caseValue: `/data/nova_datetime_${writer.joined.slice("/data/".length)}`,
+				caseValue,
 			},
 			readers: readers.map((reader) => ({
 				form: "/expression/datetime-split/plan.xml",

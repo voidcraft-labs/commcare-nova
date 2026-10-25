@@ -290,7 +290,10 @@ export function planDatetimeSplit(
 	if (original === undefined || original.kind !== "datetime")
 		return refusal("not-a-date-and-time-question");
 	const where = locate(doc, fieldUuid);
-	if (where === undefined) return refusal("not-a-date-and-time-question");
+	if (where === undefined)
+		throw new Error(
+			`The date-and-time question "${original.id}" stands in no form of a module, so Nova can't place its date and time questions.`,
+		);
 	if (
 		original.validate !== undefined &&
 		readsThroughFilter(original.validate, fieldUuid)
@@ -417,15 +420,31 @@ export function planDatetimeSplit(
 		ownRecordValue(doc.fieldOrder, parentUuid),
 		fieldUuid,
 	);
+	// A conversion to a Hidden Value flips no case type, so its cascade never
+	// refuses, and its first mutation is always the addressed convert, which
+	// the split states itself below.
 	const conversion = planKindConversion({
 		doc,
 		field: original,
 		toKind: "hidden",
 	});
+	const [addressedConvert, ...cascade] = conversion.ok
+		? conversion.mutations
+		: [];
+	if (
+		addressedConvert?.kind !== "convertField" ||
+		addressedConvert.uuid !== fieldUuid
+	)
+		throw new Error(
+			`Splitting the date-and-time question "${original.id}" expected its conversion to a Hidden Value to lead with that question's own convert, and it did not.`,
+		);
+	// Only a document with translations has entries to copy.
 	const fingerprints = new Map(
-		collectTranslationUnits(doc).map(
-			(unit) => [unit.id, unit.sourceFingerprint] as const,
-		),
+		doc.localization?.translations === undefined
+			? []
+			: collectTranslationUnits(doc).map(
+					(unit) => [unit.id, unit.sourceFingerprint] as const,
+				),
 	);
 	const mutations: Mutation[] = [
 		{
@@ -466,7 +485,7 @@ export function planDatetimeSplit(
 			[timeUuid],
 			fingerprints,
 		),
-		...(conversion.ok ? conversion.mutations.slice(1) : []),
+		...cascade,
 	];
 	return {
 		ok: true,
