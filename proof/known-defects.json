@@ -22,36 +22,6 @@
 		"control": "expander-form-links-emission-forwards-literal-condition-47c96355-0"
 	},
 	{
-		"id": "d20-sync-on-form-entry-suite-entry-post",
-		"defect": 20,
-		"part": "sync on form entry",
-		"check": "sensitivity",
-		"artifact": "suite.xml@project-space-setting/CaseSearchConfig.sync_cases_on_form_entry",
-		"path": "/suite/entry[*]/post[*]",
-		"document": "case-list-local",
-		"control": "targeted-list-first-web-apps"
-	},
-	{
-		"id": "d20-sync-on-form-entry-suite-post-relevant",
-		"defect": 20,
-		"part": "sync on form entry",
-		"check": "sensitivity",
-		"artifact": "suite.xml@project-space-setting/CaseSearchConfig.sync_cases_on_form_entry",
-		"path": "/suite/entry[*]/post[*]/@relevant",
-		"document": "case-list-inline",
-		"control": "case-list-inline"
-	},
-	{
-		"id": "d20-sync-on-form-entry-suite-post-exclude",
-		"defect": 20,
-		"part": "sync on form entry",
-		"check": "sensitivity",
-		"artifact": "suite.xml@project-space-setting/CaseSearchConfig.sync_cases_on_form_entry",
-		"path": "/suite/entry[*]/post[*]/data[*]/@exclude",
-		"document": "search-multiple",
-		"control": "search-multiple"
-	},
-	{
 		"id": "d21-search-first-app-search-config-auto-launch",
 		"defect": 21,
 		"part": "list-first turned search-first",
@@ -1528,115 +1498,6 @@
 		"control": "targeted-load-time-values"
 	},
 	{
-		"id": "d20-session-trace-step",
-		"defect": 20,
-		"part": "sync on form entry (the session)",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry",
-		"kind": "removed"
-	},
-	{
-		"id": "d20-session-trace-screen",
-		"defect": 20,
-		"part": "sync on form entry (the session)",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/screen",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry",
-		"kind": "changed"
-	},
-	{
-		"id": "d20-session-trace-requests",
-		"defect": 20,
-		"part": "sync on form entry (the session)",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/requests",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry",
-		"kind": "removed"
-	},
-	{
-		"id": "d20-session-trace-title",
-		"defect": 20,
-		"part": "sync on form entry (the session)",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/title",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry",
-		"kind": "added"
-	},
-	{
-		"id": "d20-session-trace-xmlns",
-		"defect": 20,
-		"part": "sync on form entry (the session)",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/xmlns",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry",
-		"kind": "added"
-	},
-	{
-		"id": "d20-session-trace-events",
-		"defect": 20,
-		"part": "sync on form entry (the session)",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/events",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry",
-		"kind": "added"
-	},
-	{
-		"id": "d20-session-trace-submission",
-		"defect": 20,
-		"part": "sync on form entry (the session)",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/submission",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry",
-		"kind": "added"
-	},
-	{
-		"id": "d20-session-trace-case-db",
-		"defect": 20,
-		"part": "sync on form entry (the session)",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/caseDb",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry",
-		"kind": "added"
-	},
-	{
-		"id": "d20-session-trace-stack",
-		"defect": 20,
-		"part": "sync on form entry (the session)",
-		"check": "proof3",
-		"artifact": "trace@local.ccz",
-		"path": "/runs/*/trace/*/stackAfterSubmit",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry",
-		"kind": "added"
-	},
-	{
-		"id": "d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-asked",
-		"defect": 20,
-		"part": "sync on form entry (the session)",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/asked/*",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry"
-	},
-	{
 		"id": "d24-inert-subcase-formplayer-local-ccz-item-id-case",
 		"defect": 24,
 		"part": "inert subcase",
@@ -1720,16 +1581,6 @@
 		"kind": "removed",
 		"document": "case-extension-query",
 		"control": "case-extension-query-after-59"
-	},
-	{
-		"id": "d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-response-metadata-attemptrestore",
-		"defect": 20,
-		"part": "sync on form entry (the session)",
-		"check": "proof3",
-		"artifact": "formplayer@local.ccz",
-		"path": "/runs/*/steps/*/response/metaData/attemptRestore",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry"
 	},
 	{
 		"id": "d21-list-first-turned-search-fir-formplayer-case-list-response-type",
@@ -1928,7 +1779,7 @@
 		"check": "proof4",
 		"artifact": "trace@case list@*",
 		"path": "/runs/*/trace/*/requests",
-		"document": "targeted-sync-on-form-entry",
+		"document": "targeted-sync-on-form-entry-web-apps",
 		"control": "targeted-sync-on-form-entry"
 	},
 	{
@@ -2036,17 +1887,6 @@
 		"kind": "removed",
 		"document": "container-nested-query",
 		"control": "container-nested-query"
-	},
-	{
-		"id": "d20-android-proof3-local-ccz-ter-menuactivity-home-session-refresh-required-formentryactivity-changed",
-		"defect": 20,
-		"part": "sync on form entry (the session)",
-		"check": "proof3",
-		"artifact": "android@local.ccz",
-		"path": "/walks/*/screens/after-MenuActivity:home!Session Refresh Required:FormEntryActivity",
-		"kind": "changed",
-		"document": "targeted-sync-on-form-entry",
-		"control": "targeted-sync-on-form-entry"
 	},
 	{
 		"id": "d25-android-proof4-vellum-menuactivity-formentryactivity-formentryactivity-error-occurred-changed",

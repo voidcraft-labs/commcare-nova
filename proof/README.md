@@ -1238,7 +1238,12 @@ the highest minimum version HQ's feature support names:
 
 Sync cases on form entry and CommTrack are each off, but where a reproduction
 turns one on for the document (`CorpusDocument.projectSettings`:
-`targeted-sync-on-form-entry`, and the control `targeted-supply-point-read`).
+`targeted-sync-on-form-entry-web-apps`, and the control `targeted-supply-point-read`).
+A document whose verdict requires sync on form entry off
+(`minimumConfiguration.syncCasesOnFormEntry: false`, where Nova's publish asks
+the `form-entry-sync-off` confirmation) may not turn it on: the corpus
+refuses one that does (`proof/corpus/entryWriter.ts`), since a check runs only
+against a target Nova's publish accepts.
 
 The plan privileges a document's content needs are HQ's to say: the lane
 derives them where HQ runs, from the apps Nova sends, one rule per privilege
@@ -1477,6 +1482,15 @@ The native package's cache key includes the five target directories the native
 adapter names (`proof/native/steps/session_reads.py::DOCUMENTS`, read by
 `proof/store/queue.py::PACKAGE_DATA`), including when a sampled corpus index
 does not list them; their files remain available to the native reader.
+`targeted-sync-on-form-entry-web-apps` is `targeted-sync-on-form-entry`'s app
+declared Web Apps only and published with sync cases on form entry on, which
+Nova's publish accepts for an app no phone runs (it asks the
+`form-entry-sync-off` confirmation only of an app that declares Android). It
+carries defect 21's `requests` class, which the Case List save shows under that
+setting, and has no control of its own: the entry keeps
+`targeted-sync-on-form-entry`'s. `targeted-sync-on-form-entry` itself is
+published with the setting off from step 4, so its two paths agree, and its
+control keeps the session from before the fix.
 `targeted-list-first-places` adds a location question behind the list-first
 Web Apps search workflow. HQ's Case List save turns it into search-first
 (defect 21), which changes the runs that reach a location and the viewport
@@ -2869,7 +2883,7 @@ commit gate, which refuses a datum the form's entry does not supply
 | 14, data node name | Vellum's save rewrites the data node's `name`, which HQ reads as the submission's name. Fixed in step 2: the `name` is the form's name in the default language, which the save writes | proof 4, then 3 | fixed; still shown by the controls `case-operation-query`, `targeted-form-links-hidden-and-fallback`, `case-extension-registration` and `targeted-custom-tile-after-59` |
 | 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`). What Connect does with a Connect id renamed under an opportunity that holds it is Connect's own, the same for an id renamed in HQ's form builder ("Connect in the unit"). Fixed in step 2: a question id and a Connect id start with a letter, hold letters, digits and underscores, never start with `XML`, and are none of the names CommCare keeps (`lib/domain/questionId.ts`), and a deep link ID is a `slugify` fixed point (`lib/domain/entryPoints.ts::ENTRY_POINT_ID_PATTERN`, held to HQ's own function by `proof/hq/test_endpoint_ids.py`) | proof 4; the bar | fixed; still shown by the controls `targeted-invalid-question-ids` and `targeted-invalid-question-ids-after-9`; `targeted-invalid-question-ids` and `targeted-invalid-connect-ids` hold the replacements |
 | 16, hidden columns | a case list search did not match a hidden column's values, because Nova dropped the column (`EntitySortUtil.sortEntities`). Fixed in step 2: in a list with no case tile a column hidden from Results is HQ's `invisible` column on both paths | intent (Core) | fixed; still shown by the control `targeted-hidden-column`; `targeted-hidden-calculated-column` holds a hidden calculated column |
-| 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`) | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | a module that offers search; `targeted-sync-on-form-entry` |
+| 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`). Fixed in step 4: Nova's publish asks a person to confirm the setting is off for an app that declares Android and holds such a form (`form-entry-sync-off`), and an app for Web Apps only publishes with it on | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | fixed; still shown by the controls `targeted-sync-on-form-entry`, `targeted-list-first-web-apps`, `case-list-inline` and `search-multiple` |
 | 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | any list-first menu in a project space that searches; `targeted-list-first-web-apps`, `targeted-list-first-places` (the location question's runs and viewports) |
 | 23 | a Vellum save drops the Save to Case attachment | proof 4, then 3 | an attachment-mode capture |
 | 24 | a Case Management save turns the inert subcase's relationship from extension to child; and the local archive placed a repeat's single subcase block after the item's other children, where HQ's build places it first, so Formplayer listed the item's ids in another order. Step 2 fixed the repeat item's position (finding 37): the block is the item's first child on both paths | proof 4; proof 3 across the two paths | an extension child case; the item's position is fixed and still shown by the control `case-capture-query` |

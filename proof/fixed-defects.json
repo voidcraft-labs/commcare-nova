@@ -5012,6 +5012,151 @@
 		"control": "targeted-supply-point-read"
 	},
 	{
+		"id": "d20-sync-on-form-entry-suite-entry-post",
+		"defect": 20,
+		"part": "sync on form entry",
+		"check": "sensitivity",
+		"artifact": "suite.xml@project-space-setting/CaseSearchConfig.sync_cases_on_form_entry",
+		"path": "/suite/entry[*]/post[*]",
+		"control": "targeted-list-first-web-apps"
+	},
+	{
+		"id": "d20-sync-on-form-entry-suite-post-relevant",
+		"defect": 20,
+		"part": "sync on form entry",
+		"check": "sensitivity",
+		"artifact": "suite.xml@project-space-setting/CaseSearchConfig.sync_cases_on_form_entry",
+		"path": "/suite/entry[*]/post[*]/@relevant",
+		"control": "case-list-inline"
+	},
+	{
+		"id": "d20-sync-on-form-entry-suite-post-exclude",
+		"defect": 20,
+		"part": "sync on form entry",
+		"check": "sensitivity",
+		"artifact": "suite.xml@project-space-setting/CaseSearchConfig.sync_cases_on_form_entry",
+		"path": "/suite/entry[*]/post[*]/data[*]/@exclude",
+		"control": "search-multiple"
+	},
+	{
+		"id": "d20-session-trace-step",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*",
+		"kind": "removed",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d20-session-trace-screen",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/screen",
+		"kind": "changed",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d20-session-trace-requests",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/requests",
+		"kind": "removed",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d20-session-trace-title",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/title",
+		"kind": "added",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d20-session-trace-xmlns",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/xmlns",
+		"kind": "added",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d20-session-trace-events",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/events",
+		"kind": "added",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d20-session-trace-submission",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/submission",
+		"kind": "added",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d20-session-trace-case-db",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/caseDb",
+		"kind": "added",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d20-session-trace-stack",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/stackAfterSubmit",
+		"kind": "added",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-asked",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/asked/*",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d20-sync-on-form-entry-the-sessi-formplayer-local-ccz-response-metadata-attemptrestore",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/metaData/attemptRestore",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
+		"id": "d20-android-proof3-local-ccz-ter-menuactivity-home-session-refresh-required-formentryactivity-changed",
+		"defect": 20,
+		"part": "sync on form entry (the session)",
+		"check": "proof3",
+		"artifact": "android@local.ccz",
+		"path": "/walks/*/screens/after-MenuActivity:home!Session Refresh Required:FormEntryActivity",
+		"kind": "changed",
+		"control": "targeted-sync-on-form-entry"
+	},
+	{
 		"id": "d70-reserved-question-names-create-all-files-xformexception",
 		"defect": 70,
 		"part": "question names HQ's editors warn about",

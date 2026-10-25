@@ -19,6 +19,15 @@
  *   `case_search_sync_cases_on_form_entry_enabled_for_domain`), so Core's
  *   session asks for a sync before it opens the form
  *   (`CommCareSession.getNeededData`), which Nova's local archive never asks.
+ *   From step 4 Nova's publish asks a person to confirm the setting is off
+ *   for an app that declares Android and opens a searched case in a form, so
+ *   the document is published with it off and its two paths agree; its
+ *   control keeps the session from before the fix.
+ * - `targeted-sync-on-form-entry-web-apps` (defect 21, and defect 20's
+ *   setting where it is no harm): the same app declared Web Apps only and
+ *   published with sync cases on form entry on, which Nova's publish accepts
+ *   for an app no phone runs; it carries defect 21's `requests` class, which
+ *   the Case List save shows under that setting.
  * - `targeted-list-first-web-apps` (defect 21): a list-first menu that
  *   offers search, in an app with Web Apps on, so HQ's Case List page shows
  *   its search workflow selector (`views/modules.py::get_module_view_context`,
@@ -195,9 +204,9 @@ export function searchDefaultFilterName() {
 	});
 }
 
-export function syncOnFormEntry() {
-	const id = "targeted-sync-on-form-entry";
-	const { doc, form } = searchApp(id, "Claimed visits", (uuid) => ({
+/** The claimed visits app: a list-first menu with Search over a follow-up form. */
+function claimedVisits(id: string) {
+	return searchApp(id, "Claimed visits", (uuid) => ({
 		properties: [],
 		list: caseListOf([plainColumn(uuid("name"), "case_name", "Name")], {
 			searchInputs: [
@@ -211,11 +220,40 @@ export function syncOnFormEntry() {
 			],
 		}),
 	}));
+}
+
+export function syncOnFormEntry() {
+	const id = "targeted-sync-on-form-entry";
+	const { doc, form } = claimedVisits(id);
 	return targetedDocument({
 		id,
 		rows: ["20, sync on form entry (the session)"],
 		doc,
 		expected: noteHeld(form),
+	});
+}
+
+export function syncOnFormEntryWebApps() {
+	const id = "targeted-sync-on-form-entry-web-apps";
+	const { doc, form } = claimedVisits(id);
+	return targetedDocument({
+		id,
+		rows: [
+			"21",
+			"20, sync on form entry (an app for Web Apps only, where Nova asks nothing)",
+		],
+		doc: {
+			...doc,
+			appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" },
+		},
+		expected: {
+			intent: [
+				answerHeld("note-held", form, "/data/note", "seen", "A", {
+					command: "m0-f0",
+					caseId: "targeted-patient",
+				}),
+			],
+		},
 		projectSettings: { syncCasesOnFormEntry: true },
 	});
 }
