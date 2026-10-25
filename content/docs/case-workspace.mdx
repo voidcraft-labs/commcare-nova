@@ -77,12 +77,14 @@ list it opens agree on what today is.
 A calculated value can use `here()`, the worker's current location
 (**Where you are now** in its value menu), for example to show where the
 worker is, or to mark the cases within a set distance of them with
-`within-distance`. In Preview your browser asks to share
-your location the first time a list on screen needs it. Until it does, those
-values stay blank, as they do on a device that has no location yet. As on an
-Android phone, the list updates after you move more than 30 metres. Nova uses
-your location only to run the list and the case's details, and doesn't save or
-log it.
+`within-distance`. It works in an app that runs only on Android, because Web
+Apps never shares where the worker is with a case list. In Preview playing
+Android, your browser asks to share your location the first time a list on
+screen needs it. Until it does, those values stay blank, as they do on a device
+that has no location yet. As on an Android phone, the value holds four numbers,
+the latitude, the longitude, the altitude and the accuracy, and the list updates
+after you move more than 30 metres. Nova uses your location only to run the list
+and the case's details, and doesn't save or log it.
 
 Select a Results or Details row, then use **Hide from Results** or **Hide from
 Details** at the bottom of its properties when you only want it off that
@@ -217,7 +219,9 @@ it.
 Open **Case selection** in Results and choose **Several cases** when one form
 should apply the same work to more than one case. Set **Most cases a worker can
 choose** to the largest safe batch for that workflow, from 1 to 100. Keeping
-**One case** gives the usual Results → Details → form journey.
+**One case** gives the usual Results → Details → form journey. Several cases
+runs only in Web Apps, so Nova offers it in an app that runs only in Web Apps
+([Where workers use your app](./where-workers-use-your-app.mdx)).
 
 Nova shows the complete effect before changing the setting. If a form opens a
 linked workflow directly, that workflow's Case selection may need to change in
@@ -284,8 +288,9 @@ fixed values and current-user information. Case information belongs in the
 field's own match behavior or in **Cases available**, which run against each
 case.
 
-In Preview, barcode search fields accept typed codes and camera scans when your
-browser supports scanning. A scan replaces the current answer; cancelling keeps it.
+In Preview, barcode search fields accept camera scans when Preview runs as
+Android and your browser supports scanning, and typed codes on both. A scan
+replaces the current answer; cancelling keeps it.
 
 On Android, an answer that holds both `'` and `"` finds nothing.
 
@@ -304,9 +309,9 @@ the answer against a regular expression, anchored with `^` and `$` when the
 whole answer must fit, which is the natural shape for an ID number or a phone
 number.
 
-Required fields and checks are enforced in the browser app. On a phone the
-search runs either way, so treat them as guidance for web workers rather than
-a guarantee.
+Required fields and checks are enforced in the browser app. Preview checks them
+when it runs as Web Apps. On a phone the search runs either way, so treat them
+as guidance for web workers rather than a guarantee.
 
 ### Choice fields
 
@@ -348,9 +353,11 @@ search again.
 Some workflows should never show a list before anyone has searched: a
 registry too large to scroll, or a program where finding the right person
 comes first. Turn on **Search first** in the Search panel and the module
-opens on its Search screen instead of Results. Nothing is listed until a
-search completes, and Results then shows only what that search found, with
-**Search again** at the top to start over. A search-first module with no
+opens on its Search screen instead of Results. Search first runs only in Web
+Apps, so Nova offers it in an app that runs only in Web Apps
+([Where workers use your app](./where-workers-use-your-app.mdx)). Nothing is
+listed until a search completes, and Results then shows only what that
+search found, with **Search again** at the top to start over. A search-first module with no
 visible search fields runs its search on its own, so it lands on Results
 immediately. Removing the final search field keeps **Search first** on; the
 search runs automatically with the remaining rules.
@@ -425,9 +432,8 @@ one of its fields reads, to turn **Search first** off, or to remove Search
 while the entry is set; clear the entry or the field first. Removing such a
 search field lists the form field that reads it and opens it from the review. In Preview,
 opening the form by its address without a completed empty search shows why it
-is not available and offers **Go to Search**. The action and the carried
-answers work in the browser app; a phone never shows Results for an empty
-search. Publishing to CommCare HQ needs the project space to allow
+is not available and offers **Go to Search**. Search first runs only in Web
+Apps, so this form belongs to an app that runs only in Web Apps. Publishing to CommCare HQ needs the project space to allow
 registration after an empty search (listed in the setup artifact).
 
 An empty task list can be an expected result, such as when every loan has been
@@ -506,8 +512,8 @@ destination project space needs **Case search** support. Nova checks for that
 support before a direct publish and sends nothing if it is missing or cannot be
 confirmed. That check never holds back a download: the CommCare HQ app file
 stays available for any app CommCare HQ can take, so you can choose and check
-the destination later, and a CommCare mobile app file is there for each project
-space the app is already published to. See [Project-space compatibility](/docs/project-space-compatibility).
+the destination later, and for an app that runs on Android, a CommCare mobile
+app file is there for each project space the app is already published to. See [Project-space compatibility](/docs/project-space-compatibility).
 
 Nova also includes faster handling for large Search results automatically when
 the project space supports it. That performance check never blocks publishing.

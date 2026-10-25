@@ -1,0 +1,90 @@
+---
+title: Where workers use your app
+description: Choose whether your app runs in Web Apps, on Android or both, and see what each choice offers.
+---
+
+A CommCare app can run in two places: in Web Apps, the browser app on CommCare
+HQ, and in the CommCare app on Android phones and tablets. Most of what you
+build works the same in both. A few features run in only one of them, so each
+app says where its workers use it, and Nova offers what runs there.
+
+## The three choices
+
+Open **App settings** and choose under **Where workers use this app**:
+
+- **Web Apps and Android**: in a browser on CommCare HQ, and in the CommCare
+  app on phones and tablets. A new app starts here.
+- **Web Apps only**: in a browser on CommCare HQ.
+- **Android only**: in the CommCare app on phones and tablets.
+
+Each choice decides which features Nova offers. Choosing one platform offers
+the features only that platform runs. Adding a platform back checks the app
+first: if something in it can't run on the platform you're adding, Nova lists
+each question, setting and file that stands in the way, with a way to open
+each one, and keeps the app where it is until they change.
+
+A CommCare Connect app runs on Android only, because Connect workers sign in
+only in the Connect app on Android. Nova sets that when you turn on Connect;
+see [CommCare Connect](./commcare-connect.mdx).
+
+Where the app runs also reaches CommCare HQ. Each publish sets the app's **Web
+App** setting from it, and an app that runs in Web Apps only has no CommCare
+mobile app file (CCZ). See [Publishing to CommCare HQ](./publishing.mdx#a-note-on-web-apps).
+
+## What each choice offers
+
+In an app that runs on both, the builder shows each feature that only one
+platform runs as a choice you can't pick yet, with the reason beside it.
+Choosing that platform in **App settings** offers it.
+
+These run in Web Apps and not on Android:
+
+- **Search first**, a menu that opens on its Search screen, and the
+  registration form it offers when a search finds nothing. On Android a worker
+  can open only a case the phone already holds.
+- **Several cases**, choosing more than one case for one form. On Android the
+  menu stops at the home screen, so a worker can't reach the form.
+- **Single-date and multiple-choice Search fields.** Android doesn't show them,
+  so a search runs without them. A date range field and a single-choice field
+  run on both.
+- **The window width**, the width of the worker's browser window. Android has
+  no window width, so a screen that reads it can't open there.
+
+These run on Android and not in Web Apps:
+
+- **Date and time questions.** Web Apps has no way to answer one. You can ask
+  for the date and the time as two questions instead (below).
+- **Where you are now**, `here()`, in a Results or Details value. Web Apps never
+  shares where the worker is with a case list.
+- **The case list search text**, what the worker typed in a case list's search
+  box. Web Apps keeps no search text, so it always reads blank there.
+- **CommCare Connect.**
+
+Some media files play in only one place too: ICO and AVIF images play only in
+Web Apps, and AAC, AMR and MIDI audio, MP4 with HEVC or MPEG-4 Part 2 video and
+MKV play only on Android. An app takes a file only where it plays on every
+platform the app runs on, and the media pickers say which files this app can't
+use. See [Building with Nova](./building-with-nova.mdx#text-in-your-app).
+
+Other features run on both and behave a little differently on each, such as a
+location question, which places a point on a map in Web Apps and records the
+device's location on Android. The builder notes each difference where you set
+it up, for the platforms your app runs on, and
+[Preview](./building-with-nova.mdx#preview-on-web-apps-and-android) can run your
+app the way each platform does.
+
+## Asking for a date and a time in Web Apps
+
+In an app that runs in Web Apps, the question picker offers **Date and time
+(as two questions)**. It adds a date question and a time question, and a hidden
+value joins the two answers into one date and time. Both questions use the
+same label, and you can give each its own.
+
+A date-and-time question you already have can become the same shape: choose
+**Ask for the date and the time separately** in its actions menu. Nova adds the
+two questions just before it, and a hidden value joins the two answers, so
+everything that read the question reads the same date and time. When a
+date-and-time question keeps an app from running in Web Apps, the list Nova
+shows in **App settings** offers the same choice beside it.
+[Asking for a date and a time separately](./building-with-nova.mdx#asking-for-a-date-and-a-time-separately)
+says what changes for your workers and your data.

@@ -2,6 +2,7 @@
 	"title": "Docs",
 	"pages": [
 		"building-with-nova",
+		"where-workers-use-your-app",
 		"nested-menus",
 		"languages",
 		"case-workspace",

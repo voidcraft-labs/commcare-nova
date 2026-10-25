@@ -14,7 +14,8 @@ reference material is available through `get_authoring_guide` after opening
 private work or selecting an existing app.
 
 `get_app` gives an overview of the workflows, record model, languages and
-configured capabilities. Read individual modules, forms or fields when their
+configured capabilities, with where the app runs (`platforms`) and the features
+it can't hold there (`notOffered`). Read individual modules, forms or fields when their
 content matters to the task. This keeps a large app's question text out of
 every startup prompt.
 
@@ -194,8 +195,8 @@ written. `within-distance(property, center, distance, 'unit')` takes any of
 the nine units CommCare HQ's search reads, from millimeters to nautical miles,
 and its distance and unit can be values; `selected-any` and `selected-all`
 take values as well as fixed choices. In a calculated case-list column,
-`here()` reads where the worker is now; in Preview that is the browser's
-location, blank until the browser shares it. `get_authoring_guide` provides focused
+`here()` reads where the worker is now in an app that runs only on Android; in
+Preview that is the browser's location, blank until the browser shares it. `get_authoring_guide` provides focused
 references for workflows, field types, forms, expressions, languages,
 people and places, shared data, and automations. Lookup
 choice sources retain explicit `tableId`, `valueColumnId`, and `labelColumnId`.
@@ -225,6 +226,8 @@ records give a search nothing to run over, so such a form is evaluated without a
 limited to 30 seconds and 128 MiB. Conditional closing and additional case
 operations remain unevaluated. Media capture and the submission transaction
 need the running app; evaluation does not prove deployment or successful storage.
+The check runs on one platform the app runs on, chosen with `platform` (Web Apps
+by default when the app runs on both).
 
 For a complete observed journey, `start_app_test` opens the saved app at its
 entry screen with disposable records. `start_app_test` and `continue_app_test`
@@ -255,6 +258,8 @@ For overlapping worker journeys, `start_app_test` accepts up to four
 `sessions: [{id, personaUuid?, language?}, ...]`. Each ID is a unique test-local
 label; a Preview identity must already be saved in the app. The first session
 is primary. Without `sessions`, the journey has one `default` session.
+Each session runs on one platform the app runs on, chosen with its own
+`platform` or the journey's (Web Apps by default when the app runs on both).
 An action's optional `sessionId` selects its worker while other sessions retain
 their identity, language, route, answers and open forms. This makes it possible
 to hold a form open in one session while another submits to their shared test
@@ -319,7 +324,7 @@ the token from the current read when setting or reviewing a translation.
 | `get_app` | Get an overview of an app and its Nova Project: workflows, record model, languages, worker roles, organization and automations. Use scoped reads for content and settings. `notices` lists each update about the app you have not dismissed, such as what Nova changed when it changed how it stores, checks or writes apps, or where they run: its `id`, a `summary` counting its lines by reason, and up to 50 `lines` (`truncated` is true when there are more), each with its `text` and, where it has one, the field or other part it names (`entity_uuid`) and the project space it is about (`deployment`). |
 
 | `dismiss_app_notice` | Dismiss one notice of an app (`app_id`, `notice_id`) for you alone. Any member of the app's Project can dismiss, a viewer included; other members keep seeing the notice until they dismiss it themselves. A `notice_id` that is not one of this app's notices returns `invalid_input`. |
-| `check_project_space_compatibility` | Check whether one explicitly selected CommCare HQ project space can run the app. Returns required app capabilities, blockers, non-blocking performance guidance, and next steps without changing the app or project space, and what an upload there will ask the user to confirm: `plan_features`, `flat_location_fixture` and `connect_forwarder`. |
+| `check_project_space_compatibility` | Check whether one explicitly selected CommCare HQ project space can run the app. Returns required app capabilities, blockers, non-blocking performance guidance, and next steps without changing the app or project space, and what an upload there will ask the user to confirm: `plan_features`, `flat_location_fixture`, `connect_forwarder` and `form_entry_sync_off`, each with `where_missing`, what the user can do where the project space lacks it. |
 
 Database failures return a safe operational error. Correctable tool-input refusals keep their specific explanation so the agent can revise the request.
 
@@ -491,7 +496,7 @@ use the saved revision.
 
 | Tool | What it does |
 |---|---|
-| `update_app` | Set the app's name, and whether workers see their saved forms and their incomplete forms. |
+| `update_app` | Set the app's name, whether workers see their saved forms and their incomplete forms, and whether it runs only in Web Apps or only on Android. |
 | `configure_connect` | Set the exact app-wide CommCare Connect target atomically, or turn Connect off and clear every form block. |
 | `generate_schema` | Record the data model on the app: every case type with its properties and parent links. A private app edit; modules reference types by name, and a form field that writes a recorded property may inherit its intrinsic type, canonical label, and choice catalog. Field hint, requiredness, and validation remain specific to each form. Also how a new case type enters an existing app. A declaration can have no custom properties; an already satisfied declaration reports unchanged records. |
 
@@ -1282,8 +1287,8 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 
 | Tool | What it does |
 |---|---|
-| `upload_media_asset` | Upload an image, audio, or video file (sent as base64) and get back its asset id. Media libraries are per-Project: pass `project_id` to upload into a shared Project's library (use the Project of the app that will reference it); omit it for your personal Project. Images are `.png`, `.jpg`, `.gif`, `.webp` or `.bmp`; audio is `.mp3`, `.wav`, `.m4a`, `.flac` or `.ogg`; video is `.mp4` or `.webm`. |
-| `list_media_assets` | Search or list the current Project's files, including documents absent from the conversation. Optional `kind` covers image, audio, video, PDF, text, Word and Excel; `query` searches filenames, display names and extracted titles before pagination. Follow `nextCursor` for further results. |
+| `upload_media_asset` | Upload an image, audio, or video file (sent as base64) and get back its asset id. Media libraries are per-Project: pass `project_id` to upload into a shared Project's library (use the Project of the app that will reference it); omit it for your personal Project. Images are `.png`, `.jpg`, `.gif`, `.webp`, `.bmp`, `.ico` or `.avif`; audio is `.mp3`, `.wav`, `.m4a`, `.flac`, `.ogg`, `.aac`, `.amr` or `.mid`; video is `.mp4`, `.webm` or `.mkv`. Some formats play only in Web Apps or only on Android: `list_media_assets` shows where each file plays, and an app takes a file only where it plays on every platform the app runs on. |
+| `list_media_assets` | Search or list the current Project's files, including documents absent from the conversation. Optional `kind` covers image, audio, video, PDF, text, Word and Excel; `query` searches filenames, display names and extracted titles before pagination. Each image, audio and video file names its format and where it plays (`playsOn`). Follow `nextCursor` for further results. |
 | `read_source` | Read a document's prepared requirements extract by `document` (asset id or unambiguous exact filename). Returns bounded text, revision, preparation status and the next offset. |
 | `remove_media_asset` | Delete a file from your library. Refuses if an app, chat attachment or selected conversation source still uses it, including an app in its restore window. |
 | `attach_field_media` | Set or clear the image/audio/video on a field's label or help, one call batches attachments across fields and forms. |
@@ -1345,13 +1350,13 @@ Recipients still authenticate and need the relevant app and case access.
 
 | Tool | What it does |
 |---|---|
-| `compile_app` | Compile to CommCare HQ format: the CommCare HQ import file (always a zip holding the app JSON, a README with the import steps, and the media files and the `lookup-tables.xlsx` workbook when the app has either), or a `.ccz` archive made for one project space the app is published to. When the app needs destination support, a separate [project-space compatibility](../project-space-compatibility.mdx) block lists it as not checked without blocking the download. |
+| `compile_app` | Compile to CommCare HQ format: the CommCare HQ import file (always a zip holding the app JSON, a README with the import steps, and the media files and the `lookup-tables.xlsx` workbook when the app has either), or a `.ccz` archive made for one project space the app is published to. An app that runs in Web Apps only has no `.ccz`. When the app needs destination support, a separate [project-space compatibility](../project-space-compatibility.mdx) block lists it as not checked without blocking the download. |
 | `get_entry_point_link` | Freshly verify a published entry point against the exact released HQ build and return its public URL plus `checked_at`, `released_build_id`, and `released_version`. Reads HQ and records the observation in Nova; requires `nova.hq.write` and edit access. |
 | `get_hq_connection` | Check whether you've added an HQ API key in Commcare Nova settings, and if so, which CommCare server it belongs to (US, India, or EU, separate servers with separate accounts) and which project spaces (domains) it can reach. |
-| `upload_app_to_hq` | Push the app to CommCare HQ. The first upload to a project space creates the app there, empty, then sends its lookup tables and its organization's places, then fills the app in. Uploading again sends the tables and places and then updates that same HQ app in place (`hq_app_action` in the result says which happened, and reads `created` until an upload has filled the app). Pass `domain` to choose the target space when your key reaches several. The tool rechecks [project-space compatibility](../project-space-compatibility.mdx) immediately before remote writes and returns `project_space_compatibility`, the HQ app URL, the deployment state, and the setup steps the project space still needs by hand. After an upload that wrote over the app without knowing it unchanged, `app_preview_note` carries a sentence about App Preview in CommCare HQ to relay to the user; otherwise it is `null`. A success also returns `web_apps_enabled`, whether CommCare HQ offers the app in Web Apps there, and `logo_step`: the app's logo, which an upload never sends, as `{ asset_id, file_name, changed, instructions }`, or `null` for an app with no logo; relay `instructions` when `changed` is true. An app on CommCare HQ set below CommCare 2.57 returns `hq_app_version_below_floor` with the app's `url`, before anything of the app's content is sent. |
+| `upload_app_to_hq` | Push the app to CommCare HQ. The first upload to a project space creates the app there, empty, then sends its lookup tables and its organization's places, then fills the app in. Uploading again sends the tables and places and then updates that same HQ app in place (`hq_app_action` in the result says which happened, and reads `created` until an upload has filled the app). Pass `domain` to choose the target space when your key reaches several. The tool rechecks [project-space compatibility](../project-space-compatibility.mdx) immediately before remote writes and returns `project_space_compatibility`, the HQ app URL, the deployment state, and the setup steps the project space still needs by hand. After an upload that wrote over the app without knowing it unchanged, `app_preview_note` carries a sentence about App Preview in CommCare HQ to relay to the user; otherwise it is `null`. Every upload sets the app's Web App setting there from where the app runs. If that setting differs on CommCare HQ, the upload returns `hq_web_apps_change` before sending anything, and goes ahead once you pass `confirm_web_apps` with the value it named. A first upload of an app that runs in Web Apps to a project space whose plan lacks Web Apps stops after making the empty app and returns `hq_plan_lacks_web_apps`. When the app needs Sync Cases On Form Entry turned off, `confirm_form_entry_sync_off` confirms it, as the other confirmations do. A success also returns `logo_step`: the app's logo, which an upload never sends, as `{ asset_id, file_name, changed, instructions }`, or `null` for an app with no logo; relay `instructions` when `changed` is true. An app on CommCare HQ set below CommCare 2.57 returns `hq_app_version_below_floor` with the app's `url`, before anything of the app's content is sent. |
 | `get_deployment` | Report every project space the app has been published to and how far along each one is: `preflight`, `resources`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`. `hq_app_gone` says CommCare HQ reported the app deleted, so the next upload makes a new one there; `hq_app_empty` says the app there is the empty one a first upload makes before it sends the content, which the next upload fills. `confirmations` lists what the user confirmed about each project space and has not withdrawn, each with its `kind`, `subject`, `label`, `confirmed_by` (a display name) and `confirmed_at`. Reads Commcare Nova's own record, without contacting CommCare HQ. |
 | `refresh_deployment` | Ask CommCare HQ again what has happened to a published app, and update the stored state. Read-only against CommCare HQ. It can move a deployment forward, and can move it back when a build stops being released there. Its answer carries the same `confirmations` as `get_deployment`. |
-| `withdraw_deployment_confirmation` | Withdraw something the user confirmed about a project space: `kind` is `plan-feature` (with its `subject`), `flat-location-fixture` or `connect-forwarder`. The next upload there asks about it again. Commcare Nova keeps who confirmed it and who withdrew it. Requires `nova.hq.write` and edit access; returns the deployment. |
+| `withdraw_deployment_confirmation` | Withdraw something the user confirmed about a project space: `kind` is `plan-feature` (with its `subject`), `flat-location-fixture`, `connect-forwarder` or `form-entry-sync-off`. The next upload there asks about it again. Commcare Nova keeps who confirmed it and who withdrew it. Requires `nova.hq.write` and edit access; returns the deployment. |
 | `provision_workers` | Create CommCare mobile-worker accounts on a project space for the app's personas, or bring existing ones into step with what the app says. The app must already be published there. Each new account carries that persona's worker information and places, and comes back with a password that exists only in that answer. |
 
 <Callout type="info">
