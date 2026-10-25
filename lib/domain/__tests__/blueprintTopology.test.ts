@@ -2,7 +2,11 @@
 // have separate gates; these candidates exercise topology before those gates.
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { blueprintDocSchema, type PersistableDoc } from "../blueprint";
+import {
+	blueprintDocSchema,
+	NEW_APP_SETTINGS,
+	type PersistableDoc,
+} from "../blueprint";
 import type { Form } from "../forms";
 import { type Module, plainColumn, simpleSearchInputDef } from "../modules";
 import { proseText } from "../prose";
@@ -344,6 +348,7 @@ describe("closed blueprint topology", () => {
 		const doc = {
 			...oneFormDoc(),
 			connectType: "learn" as const,
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" as const },
 			forms: {
 				[FORM]: {
 					...form(),
@@ -387,6 +392,7 @@ describe("closed blueprint topology", () => {
 	])("rejects a Connect $label instead of repairing it", ({ connect }) => {
 		const doc = oneFormDoc();
 		doc.connectType = "learn";
+		doc.appSettings = { ...NEW_APP_SETTINGS, runsOnlyOn: "android" };
 		const targetForm = doc.forms[FORM];
 		if (targetForm === undefined) throw new Error("test form missing");
 		Object.assign(targetForm, { connect });
