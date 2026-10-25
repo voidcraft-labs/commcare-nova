@@ -155,7 +155,7 @@ it("turns an unsectioned form one screen per page on Android and refuses a secti
 					moduleUuid: "Surveys",
 					formUuid: "Survey",
 					fields: [
-						{ id: "first", kind: "text", label: "First" },
+						{ id: "first", kind: "text", label: "First", required: true },
 						{ id: "second", kind: "text", label: "Second" },
 					],
 				},
@@ -179,8 +179,19 @@ it("turns an unsectioned form one screen per page on Android and refuses a secti
 	expect(firstScreen).toMatchObject({
 		pageNavigation: { canNext: true, canPrevious: false },
 	});
+	/* A required question left empty holds the turn on its screen, and the
+	 * turn reports that it did not complete. */
+	expect(await run.step({ kind: "pageNext" })).toMatchObject({
+		completed: false,
+		pageNavigation: { canNext: true, canPrevious: false },
+	});
+	await run.step({
+		kind: "answer",
+		answers: [{ path: "first", value: "Answered" }],
+	});
 	const secondScreen = await run.step({ kind: "pageNext" });
 	expect(secondScreen).toMatchObject({
+		completed: true,
 		pageNavigation: { canNext: false, canPrevious: true },
 	});
 	expect(

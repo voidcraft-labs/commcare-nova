@@ -950,6 +950,14 @@ export async function advanceAppTest(
 				{ ...held.formContext, entry: evaluated.entry },
 			);
 			next = { ...state, screen: { ...held.screen, entry: turned.entry } };
+			/* A forward turn stops on the first earlier screen that fails its
+			 * checks, as Next does; the turn completed only when it landed on
+			 * the page it was turning to. */
+			extra = {
+				completed:
+					availablePages(turned.screens).find((page) => page.current)?.path ===
+					target.path,
+			};
 			break;
 		}
 		case "section":
