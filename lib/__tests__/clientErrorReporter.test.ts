@@ -5,7 +5,10 @@ import {
 	clientErrorUtf8Bytes,
 	normalizeClientErrorPayload,
 } from "@/lib/clientErrorContract";
-import { createClientErrorReporter } from "@/lib/clientErrorReporter";
+import {
+	createClientErrorReporter,
+	isBrowserSynthesizedWarning,
+} from "@/lib/clientErrorReporter";
 
 let reportClientError: ReturnType<typeof createClientErrorReporter>;
 beforeEach(() => {
@@ -261,3 +264,49 @@ it.each(["window.onerror", "unhandledrejection"] as const)(
 		expect(JSON.parse(await blob.text())).toMatchObject(payload);
 	},
 );
+
+describe("browser-synthesized warnings", () => {
+	const resizeLoop =
+		"ResizeObserver loop completed with undelivered notifications.";
+
+	it("drops the ResizeObserver loop warning with or without a filename", () => {
+		expect(
+			isBrowserSynthesizedWarning({
+				error: null,
+				filename: "",
+				message: resizeLoop,
+			}),
+		).toBe(true);
+		expect(
+			isBrowserSynthesizedWarning({
+				error: null,
+				filename: "https://app.example/build/app-1",
+				message: resizeLoop,
+			}),
+		).toBe(true);
+		expect(
+			isBrowserSynthesizedWarning({
+				error: null,
+				filename: "https://app.example/build/app-1",
+				message: `Uncaught ${resizeLoop}`,
+			}),
+		).toBe(true);
+	});
+
+	it("keeps every error that carries its Error object or a source file", () => {
+		expect(
+			isBrowserSynthesizedWarning({
+				error: new Error(resizeLoop),
+				filename: "https://app.example/build/app-1",
+				message: resizeLoop,
+			}),
+		).toBe(false);
+		expect(
+			isBrowserSynthesizedWarning({
+				error: null,
+				filename: "https://app.example/_next/static/chunks/app.js",
+				message: "Uncaught TypeError: x is not a function",
+			}),
+		).toBe(false);
+	});
+});

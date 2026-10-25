@@ -13,12 +13,19 @@ import { expect, type Page, type Response } from "@playwright/test";
  * read has landed. Edit access is a separate gate they do not check: a viewer
  * or a build still in progress refuses edits after the read too.
  *
- * Other events start the read again without a load: a change to the Project's
- * data tables (the author's own or a peer's), and an access refresh such as a
- * reconnect. So does any load the lint cannot see: a link that opens a builder
- * page, or a history step that crosses documents. A test that edits after one
- * of these first calls `expectBuilderDataLoaded`. A history step inside the
- * builder moves through the History API and keeps the loaded catalog.
+ * Any load the lint cannot see starts the read again too: a link that opens a
+ * builder page, or a history step that crosses documents. The new page reads
+ * from scratch, so `expectBuilderDataLoaded` once it renders is enough. A
+ * history step inside the builder moves through the History API and keeps the
+ * loaded catalog.
+ *
+ * Two events restart the read on the page already open: a change to the
+ * Project's data tables (the author's own or a peer's) and an access refresh
+ * such as a reconnect. Until the new read begins the marker still reads ready
+ * from the earlier one, so `expectBuilderDataLoaded` cannot tell a finished
+ * read from one not yet started. A test that edits after one of these waits
+ * for something only the new read produces, such as the changed table in a
+ * picker.
  */
 
 const LOOKUP_CATALOG = '[data-builder-resource="lookup-catalog"]';

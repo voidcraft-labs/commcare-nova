@@ -13,7 +13,7 @@
 "use client";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Icon } from "@iconify/react/offline";
-import { useCallback, useId, useMemo } from "react";
+import { useCallback, useId, useMemo, useState } from "react";
 import { type FieldKind, fieldRegistry, type Uuid } from "@/lib/domain";
 import {
 	collectFieldEntries,
@@ -125,6 +125,22 @@ export function FieldPicker({
 	);
 	const current = fields.find((field) => field.uuid === value);
 
+	/* The input shows the selected field's ID until someone types. Any change
+	 * of selection (a pick, an undo, a peer's edit, a rename) discards the
+	 * typed text and shows the new ID. A pick never writes its own text: the
+	 * ID appears once the selection changes, and a refused pick leaves the
+	 * current ID in place. The autocomplete is never remounted to reset it: a
+	 * remount removes the focused input, focus falls to the page, and the
+	 * surrounding popover pulls it back a moment later, which can take focus
+	 * from wherever the person went next. */
+	const selectedText = current?.id ?? "";
+	const selection = `${value ?? "unselected"}:${selectedText}`;
+	const [typed, setTyped] = useState({ selection, text: selectedText });
+	if (typed.selection !== selection) {
+		setTyped({ selection, text: selectedText });
+	}
+	const inputText = typed.selection === selection ? typed.text : selectedText;
+
 	/** Match against both ID and label so typing either narrows results. */
 	const filterField = useCallback((item: FieldEntry, query: string) => {
 		const q = query.toLowerCase();
@@ -143,10 +159,15 @@ export function FieldPicker({
 				{required && <span className="text-nova-rose ml-0.5">*</span>}
 			</label>
 			<Autocomplete.Root
-				key={`${value ?? "unselected"}:${current?.id ?? ""}`}
 				items={fields}
 				filter={filterField}
-				defaultValue={current?.id ?? ""}
+				value={inputText}
+				onValueChange={(text, details) =>
+					setTyped({
+						selection,
+						text: details.reason === "item-press" ? selectedText : text,
+					})
+				}
 				itemToStringValue={(item) => item.id}
 				openOnInputClick
 			>

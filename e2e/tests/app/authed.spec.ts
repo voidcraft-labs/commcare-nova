@@ -2866,6 +2866,10 @@ test.describe("authenticated builder", () => {
 					.getByRole("option", { name: /First name.*first_name/ })
 					.click();
 				await expect(field).toHaveValue("first_name");
+				// Picking keeps focus in the picker. Focus dropped to the page here
+				// is reclaimed by the popover a moment later, which takes it from
+				// whatever control the person reached next.
+				await expect(field).toBeFocused();
 
 				const answer = page.getByPlaceholder("Plain text value");
 				await waitForSavedMutation('"answer":"Ada"', async () => {

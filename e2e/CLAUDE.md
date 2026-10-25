@@ -138,8 +138,12 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   itself suppresses it with its reason. The read also starts again on events
   the lint cannot see: a change to the Project's data tables, an access
   refresh or reconnect, a link that opens a builder page, and a history step
-  that crosses documents. A test that edits after one of those calls
-  `expectBuilderDataLoaded` first. Edit access is a separate gate: a viewer or
+  that crosses documents. After a link or a history step, the new page reads
+  from scratch, so `expectBuilderDataLoaded` once it renders is enough. After
+  a data-table change or an access refresh the marker can still read ready
+  from the earlier read until the new one begins, so the helper proves
+  nothing there: wait for something only the new read produces, such as the
+  changed table in a picker, then edit. Edit access is a separate gate: a viewer or
   an unfinished build still refuses edits after the read. To look for this
   class of race, slow the catalog read (route its Server Action the way
   `authed.spec.ts`'s case-changes journey holds it) and run the suite: a test
