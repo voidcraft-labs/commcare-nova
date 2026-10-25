@@ -1,20 +1,40 @@
 "use client";
 import { useEffect, useId, useRef, useState } from "react";
+import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import { EntryPointPreviewLaunch } from "@/components/preview/EntryPointPreviewLaunch";
 import { Button } from "@/components/shadcn/button";
 import { Label } from "@/components/shadcn/label";
 import { Switch } from "@/components/shadcn/switch";
 import { useEntryPoints } from "@/lib/doc/hooks/useEntryPoints";
+import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
 import {
+	type EntryPointTarget,
 	editorSafeEntryPointId,
 	entryPointIdProblem,
 	entryPointIdProblemSentence,
 	suffixUntilFree,
 } from "@/lib/domain";
+import type { PlatformFeatureId } from "@/lib/domain/platforms";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { DraftCommitInput } from "./DraftCommitField";
 import { EntryPointWriteNotice } from "./EntryPointWriteNotice";
+
+/** What an entry point's platform note can state. */
+const ENTRY_POINT_NOTE: readonly PlatformFeatureId[] = ["entry-points"];
+
+/** How each platform the app runs on opens one entry point. */
+function EntryPointPlatformNotes({
+	target,
+}: {
+	readonly target: EntryPointTarget;
+}) {
+	const features = useOwnerPlatformFeatures(
+		{ kind: "entry-point", target },
+		ENTRY_POINT_NOTE,
+	);
+	return <PlatformNoteRow features={features} />;
+}
 
 export function DeepLinksSection() {
 	const model = useEntryPoints();
@@ -72,6 +92,7 @@ export function DeepLinksSection() {
 						All deep links
 					</Button>
 					<h3 className="font-medium text-nova-text">{selected.label}</h3>
+					<EntryPointPlatformNotes target={selected.target} />
 					<div className="space-y-2">
 						<Label htmlFor={`${prefix}-id`}>Link ID</Label>
 						<p

@@ -16,6 +16,7 @@ import {
 	sessionUser,
 	term,
 } from "@/lib/domain/expression/builders";
+import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import {
 	afterSubmitSummary,
 	carriedAutomaticallyDetail,
@@ -147,7 +148,7 @@ describe("after-submit copy", () => {
 		);
 		expect(destinationLabel("previous")).toBe("Previous screen");
 		expect(destinationDetail("firstMenu")).toBe(
-			"Opens the app's first menu, which lists its modules. On Android, App home opens the app's home screen, and First menu opens that list.",
+			"Opens the app's first menu, which lists its modules",
 		);
 		expect(destinationDetail("parentMenu")).toBe(
 			"Back to the parent module, with its selection kept",
@@ -236,10 +237,18 @@ describe("the line under a link whose target some worker may not see", () => {
 	it("says nothing for a target nothing hides", () => {
 		const doc = fixture();
 		expect(
-			hiddenTargetLine(formLinkTargetVisibility(doc, linkTo(toVisit))),
+			hiddenTargetLine(
+				formLinkTargetVisibility(doc, linkTo(toVisit)),
+				false,
+				PLATFORMS,
+			),
 		).toBeUndefined();
 		expect(
-			hiddenTargetLine(formLinkTargetVisibility(doc, linkTo(toCare))),
+			hiddenTargetLine(
+				formLinkTargetVisibility(doc, linkTo(toCare)),
+				false,
+				PLATFORMS,
+			),
 		).toBeUndefined();
 	});
 
@@ -248,12 +257,20 @@ describe("the line under a link whose target some worker may not see", () => {
 		doc.forms[VISIT].displayCondition = supervisor;
 		doc.modules[CARE].displayCondition = supervisor;
 		expect(
-			hiddenTargetLine(formLinkTargetVisibility(doc, linkTo(toVisit))),
+			hiddenTargetLine(
+				formLinkTargetVisibility(doc, linkTo(toVisit)),
+				false,
+				PLATFORMS,
+			),
 		).toBe(
 			"When this form's display condition is false for a worker, Android still opens it after submit, and Web Apps opens the module that holds it instead.",
 		);
 		expect(
-			hiddenTargetLine(formLinkTargetVisibility(doc, linkTo(toCare))),
+			hiddenTargetLine(
+				formLinkTargetVisibility(doc, linkTo(toCare)),
+				false,
+				PLATFORMS,
+			),
 		).toBe(
 			"When this module's display condition is false for a worker, Android opens it with nothing in it, and Web Apps opens the app's first screen instead.",
 		);
@@ -263,14 +280,73 @@ describe("the line under a link whose target some worker may not see", () => {
 		const doc = fixture();
 		doc.forms[VISIT].hiddenFromMenu = true;
 		expect(
-			hiddenTargetLine(formLinkTargetVisibility(doc, linkTo(toVisit))),
+			hiddenTargetLine(
+				formLinkTargetVisibility(doc, linkTo(toVisit)),
+				false,
+				PLATFORMS,
+			),
 		).toBe(
 			"This form is off the menu. Android still opens it after submit, and Web Apps opens the module that holds it instead.",
 		);
 		expect(
-			hiddenTargetLine(formLinkTargetVisibility(doc, linkTo(toVisit)), true),
+			hiddenTargetLine(
+				formLinkTargetVisibility(doc, linkTo(toVisit)),
+				true,
+				PLATFORMS,
+			),
 		).toBe(
 			"This form's module is off the menu. Android still opens the form after submit, and Web Apps opens the app's first screen instead.",
+		);
+	});
+
+	it("says only what the platforms the app runs on do", () => {
+		const hidden = fixture();
+		hidden.forms[VISIT].displayCondition = supervisor;
+		hidden.modules[CARE].displayCondition = supervisor;
+		const formLine = (platforms: readonly Platform[]) =>
+			hiddenTargetLine(
+				formLinkTargetVisibility(hidden, linkTo(toVisit)),
+				false,
+				platforms,
+			);
+		const moduleLine = (platforms: readonly Platform[]) =>
+			hiddenTargetLine(
+				formLinkTargetVisibility(hidden, linkTo(toCare)),
+				false,
+				platforms,
+			);
+		expect(formLine(["android"])).toBe(
+			"When this form's display condition is false for a worker, Android still opens it after submit.",
+		);
+		expect(formLine(["web-apps"])).toBe(
+			"When this form's display condition is false for a worker, Web Apps opens the module that holds it instead.",
+		);
+		expect(moduleLine(["android"])).toBe(
+			"When this module's display condition is false for a worker, Android opens it with nothing in it.",
+		);
+		expect(moduleLine(["web-apps"])).toBe(
+			"When this module's display condition is false for a worker, Web Apps opens the app's first screen instead.",
+		);
+
+		const offMenu = fixture();
+		offMenu.forms[VISIT].hiddenFromMenu = true;
+		const offLine = (inside: boolean, platforms: readonly Platform[]) =>
+			hiddenTargetLine(
+				formLinkTargetVisibility(offMenu, linkTo(toVisit)),
+				inside,
+				platforms,
+			);
+		expect(offLine(true, ["android"])).toBe(
+			"This form's module is off the menu. Android still opens the form after submit.",
+		);
+		expect(offLine(true, ["web-apps"])).toBe(
+			"This form's module is off the menu. Web Apps opens the app's first screen instead.",
+		);
+		expect(offLine(false, ["android"])).toBe(
+			"This form is off the menu. Android still opens it after submit.",
+		);
+		expect(offLine(false, ["web-apps"])).toBe(
+			"This form is off the menu. Web Apps opens the module that holds it instead.",
 		);
 	});
 });

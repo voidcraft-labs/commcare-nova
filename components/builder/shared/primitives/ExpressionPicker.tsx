@@ -89,6 +89,7 @@ import {
 	term,
 } from "@/lib/domain/expression";
 import { readChosenCaseProperty } from "@/lib/domain/expression/chosenCase";
+import { platformPickerLine } from "@/lib/domain/platforms";
 import { hasCountableRelation } from "../cards/expression/CountCard";
 import { tableLookupDefault } from "../cards/expression/TableLookupCard";
 import {
@@ -372,7 +373,9 @@ function ExpressionPickerBody({
 						const reason = !contextAdmission.admitted
 							? contextAdmission.reason
 							: ruleAdmission?.admitted === false
-								? ruleAdmission.reason
+								? ruleAdmission.platform !== undefined
+									? platformPickerLine(ruleAdmission.platform)
+									: ruleAdmission.reason
 								: typeAdmission.reason;
 						return (
 							<DropdownMenuItem
@@ -847,7 +850,9 @@ function KindReplaceMenu({
 									const reason = !contextAdmission.admitted
 										? contextAdmission.reason
 										: ruleAdmission?.admitted === false
-											? ruleAdmission.reason
+											? ruleAdmission.platform !== undefined
+												? platformPickerLine(ruleAdmission.platform)
+												: ruleAdmission.reason
 											: typeAdmission.reason;
 									return (
 										<DropdownMenuItem

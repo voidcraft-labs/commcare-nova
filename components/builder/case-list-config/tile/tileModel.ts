@@ -34,6 +34,7 @@ import {
 	tileCellsOverlap,
 	type Uuid,
 } from "@/lib/domain";
+import type { Platform } from "@/lib/domain/platforms";
 import { columnLabel } from "../canvas/ColumnInventory";
 
 /** One column the tile lays out, with the place it currently holds. */
@@ -105,7 +106,7 @@ export function hiddenFromResultsLine(
 /**
  * The line under a tile's grouping that says what a worker meets on
  * Android, naming the connection it groups by, or `null` where the list
- * groups nothing. HQ's build gives every form that loads a case in a
+ * groups nothing or the app doesn't run on Android. HQ's build gives every form that loads a case in a
  * grouped list a datum of the case's connected case ids; for a case with
  * no such connection its value is empty, and CommCare's reader of a form
  * left incomplete splits the saved session on spaces and reads one token
@@ -117,8 +118,9 @@ export function hiddenFromResultsLine(
  */
 export function groupingReopenNotice(
 	grouping: CaseTileGrouping | undefined,
+	platforms: readonly Platform[],
 ): string | null {
-	if (grouping === undefined) return null;
+	if (grouping === undefined || !platforms.includes("android")) return null;
 	return `On Android, a form left unfinished for a case with no ${grouping.identifier} connection can't be opened again: CommCare stops when the worker picks it from incomplete forms. Apps built in CommCare HQ with grouped tiles do the same.`;
 }
 

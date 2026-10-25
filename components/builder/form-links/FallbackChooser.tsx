@@ -26,6 +26,7 @@ import tablerLayoutList from "@iconify-icons/tabler/layout-list";
 import tablerTable from "@iconify-icons/tabler/table";
 import { useState } from "react";
 import { newUuid } from "@/components/builder/case-list-config/uuid";
+import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import { Button } from "@/components/shadcn/button";
 import {
 	Popover,
@@ -36,6 +37,7 @@ import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useFormLinks } from "@/lib/doc/hooks/useFormLinks";
 import type { Uuid } from "@/lib/doc/types";
 import type { FormLinkTarget, PostSubmitDestination } from "@/lib/domain";
+import type { PlatformFeatureId } from "@/lib/domain/platforms";
 import { POPOVER_ROW_CLS } from "@/lib/styles";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import {
@@ -82,6 +84,11 @@ export interface FallbackChooserProps {
 	 *  is not adjacent. */
 	readonly ariaLabel?: string;
 }
+
+/** The chooser's platform note: where App home and First menu lead. */
+const AFTER_SUBMIT_HOME_NOTE: readonly PlatformFeatureId[] = [
+	"after-submit-home",
+];
 
 export function FallbackChooser({
 	moduleUuid,
@@ -303,6 +310,18 @@ export function FallbackChooser({
 								setStage("pick-target");
 							}}
 						/>
+						{/* App home and First menu open one screen in Web Apps and two
+						 *  on Android: the platform note says so where both are
+						 *  offered, for the platforms the app runs on. */}
+						{view.destinationChoices.some(
+							(destination) =>
+								destination === "app_home" || destination === "firstMenu",
+						) && (
+							<PlatformNoteRow
+								features={AFTER_SUBMIT_HOME_NOTE}
+								className="px-2 pt-1"
+							/>
+						)}
 					</div>
 				)}
 			</PopoverContent>

@@ -5,6 +5,7 @@ import { Button } from "@/components/shadcn/button";
 import { AppAppearanceSection } from "./AppAppearanceSection";
 import { AppConnectSection } from "./AppConnectSection";
 import { AppDataSourcesSection } from "./AppDataSourcesSection";
+import { AppPlatformsSection } from "./AppPlatformsSection";
 import { AppSavedFormsSection } from "./AppSavedFormsSection";
 
 /** Shell prop shape: just a dismiss callback wired from the popover
@@ -17,9 +18,10 @@ interface AppSettingsPanelProps {
 /**
  * App-settings drawer body rendered inside the Popover popup. Pure
  * chrome: a labeled header with a dismiss button and a content region
- * composing the app-level sections (logo appearance + the saved and
- * incomplete forms lists + CommCare Connect mode + the conditional
- * data-sources row). Mirrors
+ * composing the app-level sections (where workers use the app, first,
+ * because it decides what every other section offers + logo appearance +
+ * the saved and incomplete forms lists + CommCare Connect mode + the
+ * conditional data-sources row). Mirrors
  * `FormSettingsPanel`'s `w-80` drawer layout and section stacking.
  */
 export function AppSettingsPanel({ onClose }: AppSettingsPanelProps) {
@@ -44,6 +46,7 @@ export function AppSettingsPanel({ onClose }: AppSettingsPanelProps) {
 
 			{/* Content */}
 			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
+				<AppPlatformsSection />
 				<AppAppearanceSection />
 				<AppSavedFormsSection />
 				<AppConnectSection />

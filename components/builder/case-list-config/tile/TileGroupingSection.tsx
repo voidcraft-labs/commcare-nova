@@ -23,7 +23,9 @@
 //   3. **On Android, a form left unfinished for a case with no such
 //      connection can't be opened again.** It is CommCare's own reader of
 //      the saved session, the same for an app made in CommCare HQ
-//      (`tileModel.ts::groupingReopenNotice` holds the sentence and why).
+//      (`tileModel.ts::groupingReopenNotice` holds the sentence and why),
+//      said only where the app runs on Android. That Android shows every
+//      case as its own tile is the `tile-grouping` platform note.
 //
 // The heading depth offers only depths that cut the tile cleanly —
 // `tileGroupHeaderRowChoices`, the same arithmetic the validator refuses
@@ -43,6 +45,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
+import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
 import {
 	type CaseListConfig,
 	type CaseTileGrouping,
@@ -52,9 +56,11 @@ import {
 	type TileCell,
 	tileCellFor,
 	tileGroupHeaderRowChoices,
+	type Uuid,
 } from "@/lib/domain";
 import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { useMissingConnectionCount } from "@/lib/preview/hooks/useCaseDataBinding";
+import { PlatformNoteRow } from "../../shared/PlatformNoteRow";
 import { groupingReopenNotice } from "./tileModel";
 
 /** What a new grouping starts as: the connection nearly every case list
@@ -62,12 +68,14 @@ import { groupingReopenNotice } from "./tileModel";
 const DEFAULT_CONNECTION = "parent";
 
 export function TileGroupingSection({
+	moduleUuid,
 	config,
 	tile,
 	caseType,
 	appId,
 	onGroupingChange,
 }: {
+	readonly moduleUuid: Uuid;
 	readonly config: CaseListConfig;
 	readonly tile: CaseTileLayout;
 	readonly caseType: CaseType | undefined;
@@ -75,6 +83,11 @@ export function TileGroupingSection({
 	readonly onGroupingChange: (next: CaseTileGrouping | undefined) => void;
 }) {
 	const grouping = tile.grouping;
+	const platforms = useDeclaredPlatforms();
+	const noteFeatures = useOwnerPlatformFeatures(
+		{ kind: "module", moduleUuid },
+		["tile-grouping"],
+	);
 	// The cells the tile SHOWS. `tileCellFor` is the one decision about
 	// that, shared with both emitters: a hidden, order-driving column
 	// keeps a stored cell but is not on the tile, so it must not widen
@@ -143,9 +156,12 @@ export function TileGroupingSection({
 							identifier={grouping.identifier}
 						/>
 					</div>
-					<p className="text-[13px] leading-relaxed text-nova-text-muted">
-						{groupingReopenNotice(grouping)}
-					</p>
+					<PlatformNoteRow features={noteFeatures} />
+					{groupingReopenNotice(grouping, platforms) !== null && (
+						<p className="text-[13px] leading-relaxed text-nova-text-muted">
+							{groupingReopenNotice(grouping, platforms)}
+						</p>
+					)}
 				</div>
 			)}
 		</div>

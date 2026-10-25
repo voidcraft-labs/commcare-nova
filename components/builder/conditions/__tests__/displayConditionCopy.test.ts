@@ -1,9 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { displayConditionCopy } from "../displayConditionCopy";
+import { PLATFORMS } from "@/lib/domain/platforms";
+import {
+	type DisplayConditionCarrier,
+	displayConditionCopy,
+	formOffTheMenuNote,
+	moduleOffTheMenuNote,
+} from "../displayConditionCopy";
+
+/** The copy for an app that runs on both platforms. */
+function copyOf(carrier: DisplayConditionCarrier) {
+	return displayConditionCopy(carrier, PLATFORMS);
+}
 
 describe("displayConditionCopy", () => {
 	it("gives a module condition the no-case scope", () => {
-		const copy = displayConditionCopy({
+		const copy = copyOf({
 			kind: "module",
 			moduleName: "Mothers",
 			moduleIsBareCaseList: false,
@@ -14,12 +25,12 @@ describe("displayConditionCopy", () => {
 	});
 
 	it("names a bare case list's own screen in the module locus", () => {
-		const withList = displayConditionCopy({
+		const withList = copyOf({
 			kind: "module",
 			moduleName: "Clinics",
 			moduleIsBareCaseList: true,
 		});
-		const withForms = displayConditionCopy({
+		const withForms = copyOf({
 			kind: "module",
 			moduleName: "Clinics",
 			moduleIsBareCaseList: false,
@@ -29,7 +40,7 @@ describe("displayConditionCopy", () => {
 	});
 
 	it("places a child module condition on its parent menu", () => {
-		const copy = displayConditionCopy({
+		const copy = copyOf({
 			kind: "module",
 			moduleName: "Visits",
 			parentModuleName: "Mothers",
@@ -43,7 +54,7 @@ describe("displayConditionCopy", () => {
 	});
 
 	it("gives a case-first form the selected-case scope and names the case type", () => {
-		const copy = displayConditionCopy({
+		const copy = copyOf({
 			kind: "form",
 			formName: "Postnatal visit",
 			moduleName: "Mothers",
@@ -58,7 +69,7 @@ describe("displayConditionCopy", () => {
 	});
 
 	it("warns a single case-first form that a non-matching case stops at the list", () => {
-		const single = displayConditionCopy({
+		const single = copyOf({
 			kind: "form",
 			formName: "Visit",
 			moduleName: "Mothers",
@@ -66,7 +77,7 @@ describe("displayConditionCopy", () => {
 			caseType: "mother",
 			formCount: 1,
 		});
-		const several = displayConditionCopy({
+		const several = copyOf({
 			kind: "form",
 			formName: "Visit",
 			moduleName: "Mothers",
@@ -79,7 +90,7 @@ describe("displayConditionCopy", () => {
 	});
 
 	it("gives a forms-first form the no-case scope", () => {
-		const copy = displayConditionCopy({
+		const copy = copyOf({
 			kind: "form",
 			formName: "Register",
 			moduleName: "Mothers",
@@ -92,7 +103,7 @@ describe("displayConditionCopy", () => {
 	});
 
 	it("falls back to the plain word when the module declares no case type", () => {
-		const copy = displayConditionCopy({
+		const copy = copyOf({
 			kind: "form",
 			formName: "Visit",
 			moduleName: "Records",
@@ -105,12 +116,12 @@ describe("displayConditionCopy", () => {
 	});
 
 	it("says what still opens an item off the menu, per platform, and heads the condition with where it applies", () => {
-		const module = displayConditionCopy({
+		const module = copyOf({
 			kind: "module",
 			moduleName: "Archive",
 			moduleIsBareCaseList: false,
 		});
-		const form = displayConditionCopy({
+		const form = copyOf({
 			kind: "form",
 			formName: "Review",
 			moduleName: "Archive",
@@ -129,5 +140,36 @@ describe("displayConditionCopy", () => {
 			"Off the menu, with every form in it. On Android its forms open from an after-submit link or an entry point. In Web Apps they open only from an entry point that ignores display conditions.",
 		);
 		expect(form.onTheMenuNote).toBe("Workers find this form in “Archive”.");
+	});
+
+	it("says only what still opens an item on the platforms the app runs on", () => {
+		expect(formOffTheMenuNote(["android"])).toBe(
+			"Off the menu. On Android this form opens from an after-submit link or an entry point.",
+		);
+		expect(formOffTheMenuNote(["web-apps"])).toBe(
+			"Off the menu. In Web Apps this form opens only from an entry point that ignores display conditions.",
+		);
+		expect(moduleOffTheMenuNote(["android"])).toBe(
+			"Off the menu, with every form in it. On Android its forms open from an after-submit link or an entry point.",
+		);
+		expect(moduleOffTheMenuNote(["web-apps"])).toBe(
+			"Off the menu, with every form in it. In Web Apps its forms open only from an entry point that ignores display conditions.",
+		);
+		expect(formOffTheMenuNote(PLATFORMS)).toBe(
+			copyOf({
+				kind: "form",
+				formName: "Review",
+				moduleName: "Archive",
+				caseFirst: false,
+				caseType: undefined,
+				formCount: 2,
+			}).offTheMenuNote,
+		);
+		expect(
+			displayConditionCopy(
+				{ kind: "module", moduleName: "Archive", moduleIsBareCaseList: false },
+				["web-apps"],
+			).offTheMenuNote,
+		).toBe(moduleOffTheMenuNote(["web-apps"]));
 	});
 });

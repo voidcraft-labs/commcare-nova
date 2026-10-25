@@ -5,6 +5,8 @@
  * it stacks the field's editing surface:
  *
  *   - `FieldIdentitySection`: the "Field ID" section (id editor + actions).
+ *   - `FieldPlatformNotes`     how a platform the app runs on treats what
+ *                              this field uses (`PlatformNoteRow`).
  *   - `FieldEditorPanel`       Data / Logic / Appearance, registry-driven.
  *   - shared `RemoveRow`       deletion, always the body's last row.
  *
@@ -22,11 +24,57 @@ import { Icon } from "@iconify/react/offline";
 import tablerLock from "@iconify-icons/tabler/lock";
 import { useCallback } from "react";
 import { RemoveRow } from "@/components/builder/inspector/inspectorChrome";
-import type { Field } from "@/lib/domain";
+import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
+import {
+	useOwnerPlatformFeatures,
+	useReadsSearchFieldInSearchFirstForm,
+} from "@/lib/doc/hooks/usePlatformNotes";
+import type { Field, Uuid } from "@/lib/domain";
+import type { PlatformFeatureId } from "@/lib/domain/platforms";
 import { useDeleteSelectedField } from "@/lib/routing/builderActions";
+import { useLocation } from "@/lib/routing/hooks";
 import { useCanEdit, useSetActiveFieldId } from "@/lib/session/hooks";
 import { FieldEditorPanel } from "./FieldEditorPanel";
 import { FieldIdentitySection } from "./FieldIdentitySection";
+
+/**
+ * The platform note row of one field: every feature its uses reach (its
+ * kind, its options' and help media, the expression-leaf features of its
+ * rules), or only `keep`. With `readsSearch`, a question that reads a Search
+ * field in a form of a module that opens on its search also states
+ * `search-first`'s note, the one place where what a link or an entry point
+ * opens changes what the read gives.
+ */
+export function FieldPlatformNotes({
+	fieldUuid,
+	keep,
+	readsSearch = false,
+}: {
+	readonly fieldUuid: Uuid;
+	readonly keep?: readonly PlatformFeatureId[];
+	readonly readsSearch?: boolean;
+}) {
+	const loc = useLocation();
+	const owner =
+		loc.kind === "form"
+			? {
+					kind: "field" as const,
+					moduleUuid: loc.moduleUuid,
+					formUuid: loc.formUuid,
+					fieldUuid,
+				}
+			: undefined;
+	const features = useOwnerPlatformFeatures(owner, keep);
+	const readsSearchField = useReadsSearchFieldInSearchFirstForm(
+		readsSearch ? fieldUuid : undefined,
+	);
+	return (
+		<PlatformNoteRow
+			features={features}
+			stated={readsSearchField ? ["search-first"] : []}
+		/>
+	);
+}
 
 interface FieldInspectorBodyProps {
 	field: Field;
@@ -58,6 +106,7 @@ export function FieldInspectorBody({ field }: FieldInspectorBodyProps) {
 			{canEdit ? (
 				<>
 					<FieldIdentitySection field={field} />
+					<FieldPlatformNotes fieldUuid={field.uuid} readsSearch />
 					<FieldEditorPanel field={field} />
 					<RemoveRow label="Delete field" onClick={deleteSelected} />
 				</>
@@ -68,6 +117,7 @@ export function FieldInspectorBody({ field }: FieldInspectorBodyProps) {
 					 *  identity-actions menu are gone (see `FieldIdentitySection`). */}
 					<div aria-disabled className="space-y-4 pointer-events-none">
 						<FieldIdentitySection field={field} />
+						<FieldPlatformNotes fieldUuid={field.uuid} readsSearch />
 						<FieldEditorPanel field={field} />
 					</div>
 					<p className="flex items-center gap-1.5 border-t border-nova-border pt-3 text-[11px] text-nova-text-muted">

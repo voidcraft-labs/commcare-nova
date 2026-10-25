@@ -39,6 +39,10 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { useExpressionSlotContextBuilder } from "@/lib/doc/hooks/useExpressionSlotContext";
+import {
+	EXPRESSION_PLATFORM_FEATURES,
+	useOwnerPlatformFeatures,
+} from "@/lib/doc/hooks/usePlatformNotes";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type {
 	CaseType,
@@ -48,7 +52,9 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import { columnKindPropertyRequirement } from "@/lib/domain";
+import type { PlatformFeatureId } from "@/lib/domain/platforms";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
+import { PlatformNoteRow } from "../shared/PlatformNoteRow";
 import {
 	columnKindChangeConsequence,
 	nextColumnDisplay,
@@ -106,6 +112,14 @@ interface ColumnEditorProps {
 /**
  * Column inspector body: display kind and the selected kind's own properties.
  */
+/** What a column's platform note can state: a link's text, a column left off
+ *  Results, and the expression-leaf features of its value. */
+const COLUMN_NOTE_FEATURES: readonly PlatformFeatureId[] = [
+	"link-column",
+	"column-hidden-from-results",
+	...EXPRESSION_PLATFORM_FEATURES,
+];
+
 export function ColumnEditor({
 	moduleUuid,
 	value,
@@ -119,6 +133,12 @@ export function ColumnEditor({
 }: ColumnEditorProps) {
 	const projectProse = useProseProjection();
 	const buildContext = useExpressionSlotContextBuilder();
+	const noteFeatures = useOwnerPlatformFeatures(
+		moduleUuid === undefined
+			? undefined
+			: { kind: "column", moduleUuid, columnUuid: value.uuid },
+		COLUMN_NOTE_FEATURES,
+	);
 	const expressionContextForColumn = useCallback(
 		(column: Column) =>
 			moduleUuid === undefined
@@ -230,6 +250,7 @@ export function ColumnEditor({
 					ctx={ctx}
 					errors={applicabilityErrors}
 				/>
+				<PlatformNoteRow features={noteFeatures} />
 			</InspectorSection>
 		</EditorVocabularyProvider>
 	);

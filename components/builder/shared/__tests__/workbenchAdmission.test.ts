@@ -14,6 +14,7 @@ import {
 	term,
 	today,
 } from "@/lib/domain/expression";
+import type { Expression } from "@/lib/domain/expression/types";
 import { proseText } from "@/lib/domain/prose";
 import { editorExpressionContext } from "../editorTypeContext";
 import { replaceRuleNodeAtPath } from "../ruleNavigation";
@@ -244,5 +245,41 @@ describe("whole-rule expression admission used by the workbench", () => {
 				value: calculated,
 			}),
 		).toEqual(match(calculated, "A", "starts-with"));
+	});
+});
+
+describe("a declared platform's refusal reaches the menu", () => {
+	const HERE: Expression = { kind: "here" };
+	const vocabulary = {
+		caseTypes: [],
+		currentCaseType: "patient",
+		knownInputs: [],
+	};
+
+	it("carries the platform for where you are now in a calculated column of an app that runs in Web Apps", () => {
+		const fixture = expressionEditorFixture("calculated-column", vocabulary);
+		const admission = workbenchExpressionAdmission(
+			term(literal("")),
+			[],
+			HERE,
+			fixture.context.expressionContext,
+		);
+		expect(admission.admitted).toBe(false);
+		expect(admission.admitted ? undefined : admission.platform).toEqual({
+			feature: "case-list-here",
+			platform: "web-apps",
+		});
+	});
+
+	it("carries no platform for where you are now in a form slot, which its profile refuses", () => {
+		const fixture = expressionEditorFixture("operation-write", vocabulary);
+		const admission = workbenchExpressionAdmission(
+			term(literal("")),
+			[],
+			HERE,
+			fixture.context.expressionContext,
+		);
+		expect(admission.admitted).toBe(false);
+		expect(admission.admitted ? undefined : admission.platform).toBeUndefined();
 	});
 });

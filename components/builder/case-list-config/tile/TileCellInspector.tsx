@@ -43,6 +43,7 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { Input } from "@/components/shadcn/input";
+import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
 import {
 	type CaseListConfig,
 	type Column,
@@ -52,8 +53,10 @@ import {
 	type TileFontSize,
 	type TileHorizontalAlign,
 	type TileVerticalAlign,
+	type Uuid,
 } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
+import { PlatformNoteRow } from "../../shared/PlatformNoteRow";
 import {
 	describeTilePlace,
 	planColumnTilePlacement,
@@ -63,6 +66,8 @@ import {
 } from "./tileModel";
 
 export interface TileCellInspectorProps {
+	/** The module whose list holds the column, for its platform note. */
+	readonly moduleUuid: Uuid | undefined;
 	readonly column: Column;
 	/** Every case-list column: the tile's members are what a placement
 	 *  is adjudicated against. */
@@ -78,6 +83,7 @@ export interface TileCellInspectorProps {
 }
 
 export function TileCellInspector({
+	moduleUuid,
 	column,
 	config,
 	tileOn,
@@ -93,6 +99,12 @@ export function TileCellInspector({
 	 * the button that did it unmounts. The first exact-place input is the
 	 * successor; without this, focus lands on the page. */
 	const [focusPlaceOnMount, setFocusPlaceOnMount] = useState(false);
+	const noteFeatures = useOwnerPlatformFeatures(
+		moduleUuid === undefined
+			? undefined
+			: { kind: "column", moduleUuid, columnUuid: column.uuid },
+		["tile-alignment", "tile-border-and-shading"],
+	);
 
 	if (tileOn && onTile && cell === undefined) {
 		return (
@@ -253,6 +265,7 @@ export function TileCellInspector({
 						</InspectorHint>
 					</>
 				)}
+				<PlatformNoteRow features={noteFeatures} />
 			</InspectorSection>
 		</>
 	);

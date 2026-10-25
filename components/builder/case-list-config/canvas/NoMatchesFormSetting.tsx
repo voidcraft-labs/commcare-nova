@@ -6,6 +6,7 @@ import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import { useId, useState } from "react";
 import { Button } from "@/components/shadcn/button";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useModule } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import {
@@ -15,9 +16,11 @@ import {
 	moduleOpensOnSearch,
 	type Uuid,
 } from "@/lib/domain";
+import { platformPickerLine, platformRefusal } from "@/lib/domain/platforms";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { selectableSegmentCls } from "@/lib/styles";
+import { cn } from "@/lib/utils";
 import {
 	NoMatchesFormReviewDialog,
 	useNoMatchesFormEntry,
@@ -50,6 +53,12 @@ export function NoMatchesFormSetting({
 		(form) => form.type === "registration" && formEntersFromMenu(form),
 	);
 	const offering = current !== undefined || choosing;
+	/* Offering a form turns Search first on, which a platform the app runs
+	 * on may not run: the choice is withheld with that platform's line. A
+	 * stored offer shows as it is. */
+	const platforms = useDeclaredPlatforms();
+	const searchFirstRefusal = platformRefusal("search-first", platforms);
+	const offerWithheld = !offering && searchFirstRefusal !== undefined;
 	const actionLabel = current?.entry?.label ?? current?.name;
 	const help =
 		current === undefined
@@ -138,17 +147,28 @@ export function NoMatchesFormSetting({
 							Only the notice
 						</label>
 						<label
-							className={`${selectableSegmentCls(offering)} has-[input:focus-visible]:border-nova-ring has-[input:focus-visible]:shadow-(--focus-ring)`}
+							className={cn(
+								selectableSegmentCls(offering),
+								"has-[input:focus-visible]:border-nova-ring has-[input:focus-visible]:shadow-(--focus-ring)",
+								offerWithheld &&
+									"h-auto flex-col gap-0.5 py-2 whitespace-normal cursor-not-allowed opacity-(--disabled-opacity)",
+							)}
 						>
 							<input
 								type="radio"
 								name={choiceName}
 								value="register"
 								checked={offering}
+								disabled={offerWithheld}
 								onChange={(event) => offer(event.currentTarget)}
 								className="sr-only"
 							/>
 							Offer a registration form
+							{offerWithheld && searchFirstRefusal !== undefined && (
+								<span className="text-center text-xs leading-snug text-nova-text-muted">
+									{platformPickerLine(searchFirstRefusal)}
+								</span>
+							)}
 						</label>
 					</fieldset>
 
@@ -229,11 +249,12 @@ export function NoMatchesFormSetting({
 						</div>
 					)}
 
-					<p className="mt-4 text-[13px] leading-relaxed text-nova-text-muted">
-						{mod !== undefined && moduleOpensOnSearch(mod)
-							? "The action and the carried answers work in the browser app. A phone never shows Results for an empty search."
-							: "Offering a form turns Search first on: people search before they see any cases."}
-					</p>
+					{(mod === undefined || !moduleOpensOnSearch(mod)) && (
+						<p className="mt-4 text-[13px] leading-relaxed text-nova-text-muted">
+							Offering a form turns Search first on: people search before they
+							see any cases.
+						</p>
+					)}
 				</div>
 			) : (
 				current !== undefined && (

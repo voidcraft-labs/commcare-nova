@@ -80,17 +80,27 @@ export function ToggleRow({
 	description,
 	checked,
 	onChange,
+	disabledReason,
 }: {
 	readonly label: string;
 	readonly description?: string;
 	readonly checked: boolean;
 	readonly onChange: (next: boolean) => void;
+	/** When present, the switch is unavailable and this line, under the
+	 * description, says why and what to do instead. */
+	readonly disabledReason?: string;
 }) {
 	const id = useId();
+	const reasonId = useId();
+	const disabled = disabledReason !== undefined;
 	return (
 		<label
 			htmlFor={id}
-			className="flex min-h-11 w-full cursor-pointer items-center gap-3 rounded-lg border border-white/[0.04] bg-nova-deep/30 px-3 py-2.5 transition-colors hover:border-white/[0.08]"
+			className={`flex min-h-11 w-full items-center gap-3 rounded-lg border border-white/[0.04] bg-nova-deep/30 px-3 py-2.5 transition-colors ${
+				disabled
+					? "cursor-not-allowed"
+					: "cursor-pointer hover:border-white/[0.08]"
+			}`}
 		>
 			<span className="flex-1 min-w-0">
 				<span className="block text-[14px] leading-5 text-nova-text">
@@ -101,8 +111,22 @@ export function ToggleRow({
 						{description}
 					</span>
 				)}
+				{disabled && (
+					<span
+						id={reasonId}
+						className="mt-0.5 block text-[13px] leading-5 text-nova-text-muted"
+					>
+						{disabledReason}
+					</span>
+				)}
 			</span>
-			<Switch id={id} checked={checked} onCheckedChange={onChange} />
+			<Switch
+				id={id}
+				checked={checked}
+				onCheckedChange={onChange}
+				disabled={disabled}
+				aria-describedby={disabled ? reasonId : undefined}
+			/>
 		</label>
 	);
 }

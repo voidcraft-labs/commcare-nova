@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/shadcn/button";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import { carrySearchAnswersMutations } from "@/lib/doc/searchNoMatchesForm";
@@ -29,6 +30,7 @@ import {
 	isNoMatchesForm,
 	menuFormUuidsOf,
 } from "@/lib/domain";
+import { platformPickerLine, platformRefusal } from "@/lib/domain/platforms";
 import { useCanEdit } from "@/lib/session/hooks";
 import { InlineField } from "./InlineField";
 import { noMatchesAfterSubmitModel } from "./noMatchesAfterSubmit";
@@ -45,6 +47,13 @@ export function FormEntrySection({
 	const docApi = useBlueprintDocApi();
 	const { inline } = useBlueprintMutations();
 	const entry = useNoMatchesFormEntry(moduleUuid);
+	/* Opening a form from an empty search turns Search first on, which a
+	 * platform the app runs on may not run: the offer is withheld with that
+	 * platform's line. */
+	const searchFirstRefusal = platformRefusal(
+		"search-first",
+		useDeclaredPlatforms(),
+	);
 	const [carried, setCarried] = useState("");
 	const [carryRefusal, setCarryRefusal] = useState<string | undefined>(
 		undefined,
@@ -187,16 +196,27 @@ export function FormEntrySection({
 			) : (
 				canEdit &&
 				other === undefined && (
-					<Button
-						type="button"
-						variant="outline"
-						onClick={(event) =>
-							entry.request({ kind: "existing", formUuid }, event.currentTarget)
-						}
-						className="w-full justify-start border-white/[0.08] bg-transparent text-[14px] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
-					>
-						Open after a search finds no matches
-					</Button>
+					<div className="space-y-1.5">
+						<Button
+							type="button"
+							variant="outline"
+							disabled={searchFirstRefusal !== undefined}
+							onClick={(event) =>
+								entry.request(
+									{ kind: "existing", formUuid },
+									event.currentTarget,
+								)
+							}
+							className="w-full justify-start border-white/[0.08] bg-transparent text-[14px] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
+						>
+							Open after a search finds no matches
+						</Button>
+						{searchFirstRefusal !== undefined && (
+							<p className="text-[13px] leading-relaxed text-nova-text-muted">
+								{platformPickerLine(searchFirstRefusal)}
+							</p>
+						)}
+					</div>
 				)
 			)}
 

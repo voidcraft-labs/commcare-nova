@@ -86,10 +86,15 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/shadcn/dropdown-menu";
 import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import {
 	useExpressionSlotContext,
 	useExpressionSlotContextBuilder,
 } from "@/lib/doc/hooks/useExpressionSlotContext";
+import {
+	EXPRESSION_PLATFORM_FEATURES,
+	useOwnerPlatformFeatures,
+} from "@/lib/doc/hooks/usePlatformNotes";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
 	advancedSearchInputDef,
@@ -129,6 +134,12 @@ import {
 	relationStep,
 } from "@/lib/domain/expression";
 import {
+	type Platform,
+	type PlatformFeatureId,
+	platformPickerLine,
+	platformRefusal,
+} from "@/lib/domain/platforms";
+import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
 	propertyDisplayLabelForName,
@@ -136,6 +147,7 @@ import {
 	propertyTypeLabel,
 } from "@/lib/domain/propertyDisplay";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
+import { PlatformNoteRow } from "../../shared/PlatformNoteRow";
 import {
 	type PredicateSummaryContext,
 	summarizeFilter,
@@ -202,9 +214,42 @@ export const SEARCH_INPUT_CHECK_SEED_MESSAGE =
 
 /** What a free-text answer holding both quote marks does on Android: the
  *  search it sends finds nothing (`lib/commcare/csql/emitter.ts`,
- *  the quote cascade's closed arm). */
-const FREE_TEXT_QUOTE_MARKS_HINT =
-	"On Android, an answer that holds both ' and \" finds nothing.";
+ *  the quote cascade's closed arm). Said only where the app runs on
+ *  Android. */
+function freeTextQuoteMarksHint(
+	platforms: readonly Platform[],
+): string | undefined {
+	return platforms.includes("android")
+		? "On Android, an answer that holds both ' and \" finds nothing."
+		: undefined;
+}
+
+/** What a Search field's platform note can state: its hint, its checks, a
+ *  barcode or hidden field, and the expression-leaf features of its values. */
+const SEARCH_INPUT_NOTE_FEATURES: readonly PlatformFeatureId[] = [
+	"search-screen-text",
+	"search-field-checks",
+	"barcode-search-field",
+	"hidden-search-field",
+	...EXPRESSION_PLATFORM_FEATURES,
+];
+
+/** The platform note row of one Search field. */
+function SearchInputPlatformNotes({
+	moduleUuid,
+	inputUuid,
+}: {
+	readonly moduleUuid: Uuid | undefined;
+	readonly inputUuid: Uuid;
+}) {
+	const features = useOwnerPlatformFeatures(
+		moduleUuid === undefined
+			? undefined
+			: { kind: "search-input", moduleUuid, inputUuid },
+		SEARCH_INPUT_NOTE_FEATURES,
+	);
+	return <PlatformNoteRow features={features} />;
+}
 
 /** Where a simple row's property lives: this case, the parent case,
  *  or a non-canonical relation walk authored elsewhere (chat, MCP). */
@@ -251,16 +296,22 @@ function classifyVia(via: RelationPath | undefined): BindingScope {
 export function SearchInputEditor(props: SearchInputEditorProps) {
 	if (props.value.kind === "hidden") {
 		return (
-			<HiddenSearchValueEditor
-				moduleUuid={props.moduleUuid}
-				value={props.value}
-				index={props.index}
-				siblings={props.siblings}
-				caseTypes={props.caseTypes}
-				currentCaseType={props.currentCaseType}
-				userProperties={props.userProperties}
-				onChange={props.onChange}
-			/>
+			<div className="space-y-5">
+				<HiddenSearchValueEditor
+					moduleUuid={props.moduleUuid}
+					value={props.value}
+					index={props.index}
+					siblings={props.siblings}
+					caseTypes={props.caseTypes}
+					currentCaseType={props.currentCaseType}
+					userProperties={props.userProperties}
+					onChange={props.onChange}
+				/>
+				<SearchInputPlatformNotes
+					moduleUuid={props.moduleUuid}
+					inputUuid={props.value.uuid}
+				/>
+			</div>
 		);
 	}
 	return <VisibleSearchInputEditor {...props} value={props.value} />;
@@ -382,6 +433,21 @@ function VisibleSearchInputEditor({
 		value.kind === "simple" && value.type !== "multi-select"
 			? multiSelectSearchInputRefusal(value)
 			: undefined;
+	/* The field types a platform the app runs on can't show, each with that
+	 * platform's picker line; a stored choice shows as it is. */
+	const platforms = useDeclaredPlatforms();
+	const platformRefusals = useMemo(() => {
+		const refusals: Partial<Record<SearchInputType, string>> = {};
+		for (const [type, feature] of [
+			["date", "search-field-single-date"],
+			["multi-select", "search-field-multiple-choice"],
+		] as const) {
+			const refusal = platformRefusal(feature, platforms);
+			if (refusal !== undefined && value.type !== type)
+				refusals[type] = platformPickerLine(refusal);
+		}
+		return refusals;
+	}, [platforms, value.type]);
 	const setLabel = (label: string) => onChange(rebuildRow(value, { label }));
 	const requestInputTransition = (
 		next: VisibleSearchInputDef,
@@ -837,7 +903,7 @@ function VisibleSearchInputEditor({
 						pendingChoiceType !== null
 							? "Choose the table the choices come from to finish this change"
 							: value.type === "text"
-								? FREE_TEXT_QUOTE_MARKS_HINT
+								? freeTextQuoteMarksHint(platforms)
 								: undefined
 					}
 				>
@@ -846,6 +912,7 @@ function VisibleSearchInputEditor({
 						onChange={setType}
 						propertyDataType={propertyDataType}
 						multiSelectRefusal={multiSelectRefusal}
+						platformRefusals={platformRefusals}
 						rowIndex={index}
 						triggerRef={typeTriggerRef}
 					/>
@@ -980,6 +1047,11 @@ function VisibleSearchInputEditor({
 					}}
 					onChange={setValidation}
 					onEditRule={() => onEditCondition("validation")}
+				/>
+
+				<SearchInputPlatformNotes
+					moduleUuid={moduleUuid}
+					inputUuid={value.uuid}
 				/>
 
 				<AdvancedInputSettings active={resolved.nameState.kind !== "ok"}>
@@ -1245,14 +1317,7 @@ function RequiredSlot({
 		}
 	};
 	return (
-		<FieldRow
-			label="Required"
-			hint={
-				choice === "optional"
-					? undefined
-					: "Checked in the browser app. On a phone the search runs either way"
-			}
-		>
+		<FieldRow label="Required">
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					render={<Button type="button" variant="outline" />}
@@ -1376,7 +1441,7 @@ function CheckSlot({
 			hint={
 				value === undefined
 					? "One rule an answer must pass before the search runs"
-					: "Checked in the browser app once an answer is given. On a phone the search runs either way"
+					: "Checked once an answer is given"
 			}
 		>
 			{value === undefined ? (
@@ -1874,6 +1939,9 @@ interface TypePickerProps {
 	/** Why a multiple-choice widget is withheld from this row, when it is:
 	 *  the commit gate's own reason, shown on the disabled item. */
 	readonly multiSelectRefusal?: string;
+	/** The field types a platform the app runs on can't show, each with that
+	 *  platform's picker line; it comes before any other reason. */
+	readonly platformRefusals: Partial<Record<SearchInputType, string>>;
 	readonly rowIndex: number;
 	readonly triggerRef: RefObject<HTMLButtonElement | null>;
 }
@@ -1883,6 +1951,7 @@ function TypePicker({
 	onChange,
 	propertyDataType,
 	multiSelectRefusal,
+	platformRefusals,
 	rowIndex,
 	triggerRef,
 }: TypePickerProps) {
@@ -1927,7 +1996,8 @@ function TypePicker({
 						// property, say) is disabled with the reason rather
 						// than selectable into a validation error.
 						const refusal =
-							t === "multi-select" ? multiSelectRefusal : undefined;
+							platformRefusals[t] ??
+							(t === "multi-select" ? multiSelectRefusal : undefined);
 						const admitted =
 							refusal === undefined &&
 							(propertyDataType === undefined ||
