@@ -4452,8 +4452,9 @@ def window_width_in_form_logic(use, manifest):
     (``form_entry/web_form_session.js``), and Formplayer runs every calculate again on each form
     request, which throws on a ``FormDef`` it deserializes afresh from the session's stored
     definition after a miss of ``FormDefinitionService.getFormDefWithCache``, since ``XPathPathExpr``
-    does not serialize ``templatePathChecked``; Android never sets it. A suite's and an app JSON's expressions (case lists, details,
-    display conditions, search values) are evaluated on a menu request, outside the class."""
+    does not serialize ``templatePathChecked``; Android never sets it. A suite's and an app JSON's
+    expressions (case lists, details, display conditions, search values) are evaluated on a menu
+    request, outside the class."""
     document, _ = _expression_at(use)
     if document is None:
         return None

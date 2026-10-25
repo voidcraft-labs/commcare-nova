@@ -3704,9 +3704,15 @@ def _data_binds_and_itext():
             accepted("suite", here_suite, "jr-handler:here", "xpath[1]/@function", readings=True),
         ),
         "expressions-and-data/session-context-window-width-in-form-logic": (
-            refused("form", window_width, "session-path:session/context/window_width", "bind[1]/@calculate", readings=True),
+            refused(
+                "form", window_width, "session-path:session/context/window_width", "bind[1]/@calculate", readings=True
+            ),
             accepted(
-                "suite", window_width_suite, "session-path:session/context/window_width", "xpath[1]/@function", readings=True
+                "suite",
+                window_width_suite,
+                "session-path:session/context/window_width",
+                "xpath[1]/@function",
+                readings=True,
             ),
         ),
         "expressions-and-data/jr-choice-name-on-a-lookup-itemset-select": (

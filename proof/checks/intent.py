@@ -1162,7 +1162,13 @@ def formplayer_session_values(document, records) -> list:
                     if observed is not None and observed != value:
                         found.append(
                             _difference(
-                                document.id, f"formplayer@{state_name}", data_path, data_path, "changed", value, observed
+                                document.id,
+                                f"formplayer@{state_name}",
+                                data_path,
+                                data_path,
+                                "changed",
+                                value,
+                                observed,
                             )
                         )
     return found
