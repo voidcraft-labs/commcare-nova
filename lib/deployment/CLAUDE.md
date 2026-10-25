@@ -274,8 +274,9 @@ project space is chosen) read the needs through one helper,
 the ones the publish asks for. It mirrors adoption: the refusal,
 `hq_confirmation_needed`, names each need with its label, plans, consequence
 and reasons, and the caller comes back naming what the person confirmed in
-`confirm`. Confirmations live in `app_deployment_confirmations`, three kinds
-(`plan-feature`, `flat-location-fixture`, `connect-forwarder`), written only by
+`confirm`. Confirmations live in `app_deployment_confirmations`, four kinds
+(`plan-feature`, `flat-location-fixture`, `connect-forwarder`,
+`form-entry-sync-off`), written only by
 the fold of a passed preflight (`foldDeploymentAttempt`'s `confirmations`), so
 a refused publish stores none and the caller resends them; the one exception is
 the resources fold of `hq_plan_lacks_web_apps`, which withdraws the `web-apps`

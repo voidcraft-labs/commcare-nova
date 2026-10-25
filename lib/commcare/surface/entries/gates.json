@@ -2357,7 +2357,7 @@
 		"class": {
 			"kind": "publish-check"
 		},
-		"content": "for an app that declares Android and has a module that offers search (defect 20)",
+		"content": "for an app that declares Android with a form that works on a case in a module that offers search (defect 20)",
 		"contentEntries": [
 			"case-search/default-properties-entry-keyed-by-a-plain-property-property-p",
 			"case-search/default-properties-entry-keyed-by-an-ancestor-path-parent-p",
