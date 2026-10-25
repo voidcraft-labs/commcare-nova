@@ -98,4 +98,17 @@ describe("repeatPromptsBetween", () => {
 		expect(repeatPromptsBetween([prompt(5)], 5, 6)).toEqual([prompt(5)]);
 		expect(repeatPromptsBetween([prompt(4)], 5, 6)).toEqual([]);
 	});
+
+	it("finds the prompts before the first screen, which the form opens with", () => {
+		/* A repeat no screen precedes sits at -1; with skipped screens 0 and 1
+		 * before the first visible screen 2, a prompt placed after either is
+		 * passed on opening too. */
+		const points = [prompt(-1), prompt(1), prompt(2)];
+		expect(repeatPromptsBetween(points, -1, 2)).toEqual([
+			prompt(-1),
+			prompt(1),
+		]);
+		/* A form with no screen at all opens with every prompt. */
+		expect(repeatPromptsBetween([prompt(-1)], -1, 0)).toEqual([prompt(-1)]);
+	});
 });

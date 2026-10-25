@@ -21,6 +21,7 @@ import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 
 type RecorderState =
 	| { readonly kind: "idle" }
+	| { readonly kind: "requesting" }
 	| { readonly kind: "recording" }
 	| { readonly kind: "unavailable" };
 
@@ -55,6 +56,9 @@ export function AudioRecorder({
 	const [playbackUrl, setPlaybackUrl] = useState<string | undefined>();
 	const recorderRef = useRef<MediaRecorder | undefined>(undefined);
 	const streamRef = useRef<MediaStream | undefined>(undefined);
+	/** Counts microphone requests; a grant that resolves after a newer
+	 *  request, or after unmount, is stale and its tracks stop at once. */
+	const requestRef = useRef(0);
 	const onRecordedRef = useRef(onRecorded);
 	useEffect(() => {
 		onRecordedRef.current = onRecorded;
@@ -62,6 +66,7 @@ export function AudioRecorder({
 
 	useEffect(
 		() => () => {
+			requestRef.current += 1;
 			recorderRef.current = undefined;
 			stopTracks(streamRef.current);
 			streamRef.current = undefined;
@@ -83,8 +88,21 @@ export function AudioRecorder({
 			setState({ kind: "unavailable" });
 			return;
 		}
+		if (recorderRef.current !== undefined) return;
+		const request = ++requestRef.current;
+		setState({ kind: "requesting" });
+		let stream: MediaStream;
 		try {
-			const stream = await mediaDevices.getUserMedia({ audio: true });
+			stream = await mediaDevices.getUserMedia({ audio: true });
+		} catch {
+			if (request === requestRef.current) setState({ kind: "unavailable" });
+			return;
+		}
+		if (request !== requestRef.current) {
+			stopTracks(stream);
+			return;
+		}
+		try {
 			streamRef.current = stream;
 			const recorder = new MediaRecorder(stream);
 			const chunks: Blob[] = [];
@@ -162,7 +180,7 @@ export function AudioRecorder({
 			) : (
 				<button
 					type="button"
-					disabled={disabled}
+					disabled={disabled || state.kind === "requesting"}
 					onClick={() => void start()}
 					aria-describedby={labelledBy}
 					className={buttonCls}

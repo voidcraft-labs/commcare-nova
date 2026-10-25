@@ -15,15 +15,18 @@
  *   concrete path. The open screen belongs to the form entry. Stepping Next
  *   past the last entry of a repeat the worker adds to, or past the repeat
  *   when it has none, opens Android's repeat prompt (`prompt`): add an
- *   entry and open its first screen, move on, or go back.
+ *   entry and open its first screen, move on, or go back. A prompt no
+ *   screen precedes (a repeat the form opens with) opens once when the
+ *   entry starts, as Android raises it on opening the form; going back
+ *   from it stays on the first screen, since nothing comes before.
  *
  * In every paged mode this hook is the arbiter between the page list and
  * the remembered page:
  *
  *   - **Which page is current.** The remembered page while it is visible;
- *     a page that just emptied re-anchors (`resolveCurrentPage`) and, for a
- *     section, the re-anchored page is written back, so the slot never names
- *     a page nobody can see.
+ *     a page that just emptied re-anchors (`resolveCurrentPage`) and the
+ *     re-anchored page is written back, so the slot never names a page
+ *     nobody can see.
  *   - **Next validates, Back never does.** `goNext` validates the current
  *     page; a failure refuses (the form's `role="alert"` channel) and
  *     reveals the first invalid question on that page; success turns the
@@ -197,9 +200,13 @@ export function useFormPaging({
 	const [prompt, setPrompt] = useState<{
 		readonly entryKey: string | undefined;
 		readonly queue: readonly RepeatPromptPoint[];
-		readonly from: FormScreenPage;
+		/** The screen the prompt opened from; undefined for the prompts
+		 *  before the first screen, raised when the entry starts. */
+		readonly from: FormScreenPage | undefined;
 		readonly next: FormScreenPage | undefined;
 	} | null>(null);
+	/* The entry whose opening prompts have been raised, so they open once. */
+	const openingPromptsRaisedRef = useRef<string | undefined>(undefined);
 
 	const remember = useCallback(
 		(page: FormScreenPage) => {
@@ -236,6 +243,21 @@ export function useFormPaging({
 			setActiveSection(formUuid, resolved.uuid);
 		}
 	}, [live, mode, formUuid, allPages, readActiveSection, setActiveSection]);
+
+	/* The same for a screen: when the remembered screen is still in the form
+	 * but an answer hid it, its re-anchored screen becomes the memory, so the
+	 * screen does not snap back the moment it is relevant again. A path that
+	 * is not in the list at all (a removed entry, or a screen the list has not
+	 * caught up with yet) is left alone. */
+	useEffect(() => {
+		if (!live || mode !== "screens" || screenSlot === null) return;
+		if (screenSlot.entryKey !== entry.entryKey) return;
+		const slotPage = allPages.find((page) => page.path === screenSlot.path);
+		if (slotPage === undefined || availablePages([slotPage]).length > 0) return;
+		const resolved = resolveCurrentPage(allPages, screenSlot.path);
+		if (resolved !== undefined && resolved.path !== screenSlot.path)
+			setScreenSlot({ entryKey: screenSlot.entryKey, path: resolved.path });
+	}, [live, mode, screenSlot, entry.entryKey, allPages]);
 
 	const enterPage = useCallback(
 		(page: FormScreenPage): Promise<boolean> =>
@@ -435,6 +457,42 @@ export function useFormPaging({
 		[allPages, mode, promptPoints],
 	);
 
+	/* The relevant prompts before the first visible screen (every screen
+	 * when none is visible): Android raises them on opening the form. */
+	const firstPage = pages[0];
+	const openingPrompts = useMemo(
+		() =>
+			mode === "screens" && live
+				? repeatPromptsBetween(
+						promptPoints,
+						-1,
+						firstPage === undefined
+							? allPages.length
+							: allPages.indexOf(firstPage),
+					)
+				: [],
+		[allPages, firstPage, live, mode, promptPoints],
+	);
+	useEffect(() => {
+		const entryKey = entry.entryKey;
+		if (
+			!live ||
+			!entry.ready ||
+			entryKey === undefined ||
+			openingPromptsRaisedRef.current === entryKey ||
+			index > 0
+		)
+			return;
+		openingPromptsRaisedRef.current = entryKey;
+		if (openingPrompts.length > 0)
+			setPrompt({
+				entryKey,
+				queue: openingPrompts,
+				from: undefined,
+				next: firstPage,
+			});
+	}, [entry.entryKey, entry.ready, firstPage, index, live, openingPrompts]);
+
 	const goNext = useCallback(async () => {
 		if (current === undefined) return;
 		const next = pages[index + 1];
@@ -493,8 +551,9 @@ export function useFormPaging({
 		prompt !== null &&
 		prompt.entryKey === entry.entryKey &&
 		live &&
-		current !== undefined &&
-		prompt.from.path === current.path
+		(prompt.from === undefined
+			? index <= 0
+			: current !== undefined && prompt.from.path === current.path)
 			? prompt
 			: null;
 	const promptPoint = openPrompt?.queue[0];
@@ -513,7 +572,8 @@ export function useFormPaging({
 		const version = ++navigationVersionRef.current;
 		if (openPrompt.next !== undefined)
 			await turnTo(openPrompt.next, entryKey, version);
-		else setFinishedAt({ entryKey, path: openPrompt.from.path });
+		else if (openPrompt.from !== undefined)
+			setFinishedAt({ entryKey, path: openPrompt.from.path });
 	}, [controller, openPrompt, turnTo]);
 
 	const addRepeatEntry = useCallback(async () => {
@@ -537,7 +597,8 @@ export function useFormPaging({
 		/* The new entry has nothing to show: move on, as declining does. */
 		if (openPrompt.next !== undefined)
 			await turnTo(openPrompt.next, entryKey, version);
-		else setFinishedAt({ entryKey, path: openPrompt.from.path });
+		else if (openPrompt.from !== undefined)
+			setFinishedAt({ entryKey, path: openPrompt.from.path });
 	}, [controller, openPrompt, ownsNavigation, promptPoint, turnTo]);
 
 	const announced =

@@ -559,7 +559,7 @@ function AttachmentControl({
 	);
 
 	const stage = useCallback(
-		async (file: File) => {
+		async (file: File): Promise<AttachmentCommitResult | undefined> => {
 			if (intentRef.current !== "idle" || !hasWriteAuthority()) return;
 			rememberAttachmentSlotDraft({
 				appId,
@@ -569,15 +569,16 @@ function AttachmentControl({
 				status: "queued-upload",
 			});
 			setIntent("queued-upload");
-			await runAttachmentTask({
+			return runAttachmentTask({
 				entryKey,
 				slotKey,
 				task: (context) => stageWithinTask(file, context),
-			}).catch((err: unknown) => {
+			}).catch((err: unknown): undefined => {
 				if (!isAttachmentTaskAbort(err)) {
 					setIntent("idle");
 					blurCurrent();
 				}
+				return undefined;
 			});
 		},
 		[
@@ -783,8 +784,10 @@ function AttachmentControl({
 	]);
 
 	/** Android's device capture: refuse a file over the platform's limit
-	 *  before it uploads, note a large one, then stage it as any file. */
-	const pickOnDevice = (file: File) => {
+	 *  before it uploads, then stage it as any file. The photo and the
+	 *  large-file line follow the file only once it becomes the answer, so a
+	 *  refused, failed or canceled pick leaves the current answer's alone. */
+	const pickOnDevice = async (file: File) => {
 		if (file.size > limits.maxBytes) {
 			setError(
 				`This file is bigger than ${Math.floor(limits.maxBytes / 1_000_000)} MB. You can choose a smaller one.`,
@@ -792,13 +795,13 @@ function AttachmentControl({
 			return;
 		}
 		setError(undefined);
+		if ((await stage(file)) !== "committed") return;
 		setLargeAttached(
 			limits.warnAboveBytes !== undefined && file.size > limits.warnAboveBytes,
 		);
 		setChosenPhotoUrl(
 			field.kind === "image" ? URL.createObjectURL(file) : undefined,
 		);
-		void stage(file);
 	};
 
 	const hasAnswer = state.value !== "";
@@ -877,7 +880,7 @@ function AttachmentControl({
 						<AudioRecorder
 							disabled={interactionBlocked}
 							labelledBy={labelledBy}
-							onRecorded={pickOnDevice}
+							onRecorded={(file) => void pickOnDevice(file)}
 						/>
 					) : (
 						DEVICE_CAPTURE_INPUTS[
@@ -892,7 +895,7 @@ function AttachmentControl({
 								disabled={interactionBlocked}
 								labelledBy={labelledBy}
 								describedBy={describedBy}
-								onFile={pickOnDevice}
+								onFile={(file) => void pickOnDevice(file)}
 							/>
 						))
 					)}
@@ -1036,11 +1039,9 @@ function AttachmentControl({
 					>
 						<Icon icon={tablerX} width="16" height="16" aria-hidden="true" />
 						<span id={removeActionId}>
-							{field.kind === "image" ? (
-								<RuntimeText message="removeImage" />
-							) : (
-								"Remove"
-							)}
+							<RuntimeText
+								message={field.kind === "image" ? "removeImage" : "remove"}
+							/>
 						</span>
 					</button>
 					{largeAttached ? (
