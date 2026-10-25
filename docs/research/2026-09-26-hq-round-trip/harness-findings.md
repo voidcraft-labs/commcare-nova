@@ -1072,7 +1072,13 @@ planned ("Found while planning step 2").
     `fuzz-xform-20260930-10` held it too, in a repetition added last, until
     step 2 drew the repeat that follows it over the open cases (finding 71),
     so the walk answers its rows after the repetition and Formplayer's next
-    answer replaces the held text.
+    answer replaces the held text. *Closed in step 4:* Nova offers a
+    date-and-time question only in an app that does not declare Web Apps, so
+    no worker meets the client's placeholder: `targeted-datetime-ordering`
+    declares Android only, where Formplayer's walk answers the question as
+    Core's session does, and its control keeps the stop;
+    `fuzz-xform-20260930-0` is declared Android only by the fuzz mapping, and
+    its stop left with no control.
 
 The same check found that Formplayer's walk had never pressed the Add of a
 repeat a worker adds to, so no repetition, nor the case it creates, was ever

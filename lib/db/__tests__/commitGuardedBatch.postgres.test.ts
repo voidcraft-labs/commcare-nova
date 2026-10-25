@@ -23,6 +23,8 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import type { LookupRevision } from "@/lib/lookup/types";
+import { replayCanonicalAppChangeSuffix } from "../canonicalMutationFold";
 import { __setAppDbForTests, type AppDatabase } from "../pg";
 import { commitGuardedBatchProposal as commitGuardedBatch } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
@@ -227,5 +229,83 @@ describe("commitGuardedBatch — app settings", () => {
 			appId,
 			appSettings: expected,
 		});
+	});
+
+	it("stores where the app runs, clears it to the absent key, and folds to the same head from a baseline written before it", async () => {
+		const doc = minDoc();
+		const appId = await h.seedAppWithBlueprint(doc, {
+			projectId: PROJECT,
+			owner: OWNER,
+		});
+		const baselineSeq = await readSeq(appId);
+		const narrow: Mutation[] = [
+			{ kind: "setAppSettings", settings: { runsOnlyOn: "android" } },
+		];
+		const clear: Mutation[] = [
+			{ kind: "setAppSettings", settings: { runsOnlyOn: null } },
+		];
+		const { loadApp } = await import("../apps");
+
+		await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			batchId: crypto.randomUUID(),
+			mutations: narrow,
+			actorUserId: OWNER,
+			kind: "autosave",
+		});
+		const narrowed = {
+			showSavedForms: false,
+			showIncompleteForms: false,
+			runsOnlyOn: "android",
+		};
+		expect((await h.readAppRow(appId))?.app_settings).toEqual(narrowed);
+		expect((await loadApp(appId))?.blueprint.appSettings).toEqual(narrowed);
+
+		await commitGuardedBatch({
+			appId,
+			expectedProjectId: PROJECT,
+			batchId: crypto.randomUUID(),
+			mutations: clear,
+			actorUserId: OWNER,
+			kind: "autosave",
+		});
+		const cleared = (await h.readAppRow(appId))?.app_settings;
+		expect(cleared).toEqual({
+			showSavedForms: false,
+			showIncompleteForms: false,
+		});
+		expect(Object.hasOwn(cleared ?? {}, "runsOnlyOn")).toBe(false);
+		const head = await loadApp(appId);
+
+		// The seeded document holds no declaration, as every baseline stored
+		// before the key existed holds none.
+		const baseline = { ...toPersistableDoc(doc), appId };
+		expect(Object.hasOwn(baseline.appSettings, "runsOnlyOn")).toBe(false);
+		const row = (seq: number, mutations: readonly Mutation[]) => ({
+			seq: String(seq),
+			batch_id: `fold:${seq}`,
+			run_id: null,
+			actor_id: OWNER,
+			kind: "autosave",
+			mutationsText: JSON.stringify(mutations),
+			from_project_id: null,
+			to_project_id: null,
+		});
+		const folded = replayCanonicalAppChangeSuffix({
+			baselineSnapshotText: JSON.stringify(baseline),
+			baselineSeq,
+			baselineProjectId: PROJECT,
+			expectedHeadSeq: baselineSeq + 2,
+			expectedFinalProjectId: PROJECT,
+			suffix: [row(baselineSeq + 1, narrow), row(baselineSeq + 2, clear)],
+			finalLookupContext: {
+				kind: "available",
+				projectId: PROJECT,
+				projectRevision: "0" as LookupRevision,
+				definitions: [],
+			},
+		});
+		expect(folded.snapshot).toEqual(head?.blueprint);
 	});
 });

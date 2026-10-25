@@ -512,3 +512,16 @@ def test_web_apps_is_granted_where_the_app_nova_sends_declares_it_or_says_nothin
 
     assert needs({"cloudcare_enabled": True}) and needs({})
     assert not needs({"cloudcare_enabled": False})
+
+
+def test_the_corpus_holds_each_declaration_and_a_narrowing_edit():
+    """Some document declares each of both, Web Apps only and Android only; some document's D′ declares fewer platforms
+    than its D; and no D or D′ declares an empty set. The plausible failure: a fixture change that leaves a reader's
+    policy branch with no document to read."""
+    documents = cases.load_corpus().emitted
+    declared = {document.platforms() for document in documents}
+    assert {corpus.BOTH, frozenset({corpus.WEB_APPS}), frozenset({corpus.ANDROID})} <= declared
+    edited = [document for document in documents if document.edit is not None]
+    assert any(document.platforms(edit=True) < document.platforms() for document in edited)
+    assert all(document.platforms() for document in documents)
+    assert all(document.platforms(edit=True) for document in edited)

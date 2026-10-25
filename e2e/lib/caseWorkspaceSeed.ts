@@ -419,13 +419,15 @@ export function buildCaseWorkspaceBlueprint(appId: string): BlueprintDoc {
 									],
 								},
 							}),
-							// The two answers whose stored shape a native browser
-							// input cannot render: a datetime carries a zone
-							// designator and a time carries the `Z` storage tag.
-							// Both are case properties so opening this form on a
-							// seeded row exercises preload, not just entry.
+							// The two temporal answers a native browser input
+							// cannot render as stored: a date, and a time that
+							// carries the `Z` storage tag. Both are case
+							// properties so opening this form on a seeded row
+							// exercises preload, not just entry. The visit's start
+							// is a date question, which both platforms run; a
+							// date-and-time question runs on Android alone.
 							f({
-								kind: "datetime",
+								kind: "date",
 								id: "visit_started",
 								label: proseText("Visit started"),
 								caseWrite: {
@@ -674,26 +676,23 @@ export function caseWorkspaceCaseRows(): readonly CaseInsert[] {
 			date_of_birth: row.dateOfBirth,
 			last_visit: row.lastVisit,
 			care_priority: row.carePriority,
-			visit_started: `${row.lastVisit}T${SEEDED_VISIT_START}`,
+			visit_started: row.lastVisit,
 			next_dose: SEEDED_NEXT_DOSE,
 		},
 	}));
 }
 
 /**
- * The stored spellings a temporal case property actually carries
- * (`lib/domain/temporalValues.ts`): a datetime with the offset of the zone
- * it was entered in, a time with the `Z` storage tag on a naive wall clock.
+ * The stored spelling a time case property actually carries
+ * (`lib/domain/temporalValues.ts`): the `Z` storage tag on a naive wall
+ * clock.
  *
  * Two details are load-bearing rather than arbitrary.
  *
- * The datetime's offset is deliberately not the viewing device's. Core holds
- * a preloaded datetime as its instant in the device's zone
- * (`DateTimeData.uncast`) and keeps a time's written clock, so the test that
- * reads these pins its browser to `Asia/Kolkata` (+05:30, no daylight
- * saving): `09:15-04:00` reads `6:45 PM` there and `08:45Z` still reads
- * `8:45 AM`. A field that kept the datetime's written clock, or converted
- * the time, would show another clock.
+ * Core keeps a time's written clock whatever the device's zone, so the test
+ * that reads it pins its browser to `Asia/Kolkata` (+05:30, no daylight
+ * saving): `08:45Z` still reads `8:45 AM` there. A field that converted the
+ * time would show another clock.
  *
  * The time deliberately carries NO milliseconds. That is the shape the
  * writer produced before the padding rule landed, so real rows hold it: it
@@ -702,12 +701,10 @@ export function caseWorkspaceCaseRows(): readonly CaseInsert[] {
  * nobody typed. Keeping it here means that confusion cannot come back
  * unnoticed.
  */
-const SEEDED_VISIT_START = "09:15:00.000-04:00";
 const SEEDED_NEXT_DOSE = "08:45:00Z";
 
-/** What those two stored values read as once a person can see them. */
+/** What that stored value reads as once a person can see it. */
 export const SEEDED_TEMPORAL_DISPLAY = {
-	visitStartedTime: "6:45 PM",
 	nextDose: "8:45 AM",
 } as const;
 

@@ -1,7 +1,11 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { collectTranslationUnits, makeTranslationUnitId } from "@/lib/domain";
+import {
+	collectTranslationUnits,
+	makeTranslationUnitId,
+	NEW_APP_SETTINGS,
+} from "@/lib/domain";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 
 export const MODULE = testUuid("language-screen-module");
@@ -23,6 +27,9 @@ export function languageScreenDoc() {
 	const doc = buildDoc({
 		appId: "native-language-screen",
 		appName: "Visit language",
+		// The date-and-time question this document is about runs on Android
+		// alone.
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 		modules: [
 			{
 				uuid: MODULE,

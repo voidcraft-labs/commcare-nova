@@ -163,7 +163,10 @@ to their consumer. A date-and-time literal finer than a millisecond is
 not one fixed CommCare pattern is `format-date-pattern-not-fixed` where the
 profile targets the case store. `here()` is admitted only where the profile's
 `here` fact holds, a case-list calculated column; elsewhere it is
-`arm-unavailable` reason `here`. `choice-name` is unavailable everywhere, reason
+`arm-unavailable` reason `here`. Where the slot admits it, a leaf a declared
+platform lacks is `arm-unavailable` reason `platform-unavailable`, read from
+`ExpressionContext.platforms` (`declaredPlatforms`, filled by `slotContext`),
+beside the reasons `here` and `places-unavailable`. `choice-name` is unavailable everywhere, reason
 `choice-name-dynamic` when the named question's choices are not inline. A
 Hidden Value leaf reads inference's data type, held class and lost clock
 (`inference.ts`); an untyped one is `_any` with its held class, so it holds no
