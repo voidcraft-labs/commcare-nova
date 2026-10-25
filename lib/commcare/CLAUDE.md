@@ -1571,8 +1571,9 @@ partial emission.
   `projectSpaceCompatibility.ts::moduleRequiresNoMatchesRegistration`.
 - **Web Apps only at runtime.** Android never shows the case list on an
   empty search response and passes no search-input extra
-  (`QueryRequestActivity::processSuccess`), so author-facing copy says the
-  action and the carried answers work in the browser app.
+  (`QueryRequestActivity::processSuccess`); the form exists only in a
+  search-first module, which only an app that runs in Web Apps only holds, so
+  its copy names no phone.
 
 Module/form navigation display conditions use `suite/displayConditions.ts`.
 Module conditions emit to `<menu relevant>` and HQ `module_filter`; their
