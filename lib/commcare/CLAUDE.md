@@ -1776,7 +1776,8 @@ Parent-record selection is explicit on `Module.parentCaseModuleUuid`. Both the H
 Hidden datetime writers derive their `xsd:dateTime` bind from the effective
 case-property catalog. The bind follows the property the Hidden Value writes,
 not the type inferred from its calculation, because an `xsd:dateTime` bind
-makes Core cast the case's text at form open, and malformed text stops the form. Ordinary datetime writes use a sibling text node,
+makes Core cast the case's text at form open, and malformed text stops the form.
+A Hidden Value that writes nothing binds `xsd:dateTime` only where its calculation is the clock-keeping date (`lib/domain/expression/datePattern.ts::isClockKeepingDate`), as the date-and-time split's joined value is, so Core keeps its clock. Ordinary datetime writes use a sibling text node,
 `nova_datetime_<question>` (`xform/datetimeCaseValue.ts`, named by the
 allocator), as their HQ action question path. HQ creates
 untyped case-update binds, where Core would otherwise wrap a Date as DateData

@@ -277,6 +277,22 @@ never stored raw-XPath validation codes. There is no printed-source checker.
 - `count(self)` is the cardinality of the current row: `1` without a filter, or
   `1`/`0` according to its `where`.
 
+## The clock-keeping date
+
+In form logic the checker types `date(format-date(X, '%Y-%m-%dT%H:%M:%S.%3%Z'))`
+as a date and time held as a Core `Date` (`datePattern.ts::isClockKeepingDate`,
+read from the tree, never from text), and every other `date()` as a date. Core
+parses text with its clock and does not round it (`FunctionUtils.java::toDate`),
+so that one shape keeps its time of day, and `fieldValueType` binds a Hidden
+Value that writes nothing and is calculated by it `xsd:dateTime`, under which
+Core holds the `Date` as `DateTimeData` (`Recalculate.java::wrapData`). The
+date-and-time split's joined value is this shape (`clockKeepingJoin`), so its
+readers read what the question held: `instantOperand.ts::byType` classes it
+`typed` and its comparisons lower by instant. Form logic has no spelling of
+`datetime-coerce`, whose only Core spelling is `date()`, already `date-coerce`'s;
+the record rule set keeps its own `datetime-coerce` and types every `date()` a
+date.
+
 ## Blank semantics: a locked invariant
 
 `is-blank` is the one stored absence operator. It matches an absent or empty

@@ -32,7 +32,11 @@ import {
 	withFormContextNode,
 } from "./context";
 import { csqlPositionAt, csqlPositions } from "./csqlPositions";
-import { fixedDatePattern, isIsoDateText } from "./datePattern";
+import {
+	fixedDatePattern,
+	isClockKeepingDate,
+	isIsoDateText,
+} from "./datePattern";
 import { formNodeGraph } from "./formNodes";
 import {
 	comparisonOperands,
@@ -1898,6 +1902,11 @@ function inferNode(
 							? `double requires a text-shaped or numeric operand; got '${describe(inner)}'.`
 							: `${expression.kind} requires a text-shaped, date-shaped or numeric operand (text / single_select / multi_select / date / datetime / int / decimal); got '${describe(inner)}'.`,
 				});
+			// Typing rule R2: in form logic, `date()` of instant text is a date
+			// and time held as a Core `Date`, because Core parses the text with
+			// its clock and does not round it (`FunctionUtils.java::toDate`).
+			if (ctx.ruleSet === "form" && isClockKeepingDate(expression))
+				return scalar("datetime");
 			return scalar(
 				expression.kind === "double"
 					? "decimal"

@@ -725,3 +725,40 @@ describe("sharing inference across a move within a form", () => {
 		);
 	});
 });
+
+describe("the clock-keeping date", () => {
+	const JOIN =
+		"date(format-date(if(#form/day = '' or #form/clock = '', '', concat(#form/day, 'T', #form/clock)), '%Y-%m-%dT%H:%M:%S.%3%Z'))";
+	const parts: FieldSpec[] = [
+		f({ kind: "date", id: "day", label: "Day" }),
+		f({ kind: "time", id: "clock", label: "Clock" }),
+	];
+	it("holds its clock as a date and time, whether its Hidden Value writes a property or none", () => {
+		const built = doc({
+			register: [
+				...parts,
+				hidden("joined", { calculate: JOIN }),
+				hidden("saved", { calculate: JOIN }, "seen_at"),
+			],
+			properties: [{ name: "seen_at", label: "Seen", data_type: "datetime" }],
+		});
+		const inference = inferExpressionTypes(built);
+		for (const name of ["joined", "saved"]) {
+			expect(inference.hiddenTypes.get(uuid(name))).toBe("datetime");
+			// R3 binds both xsd:dateTime, so Recalculate.wrapData keeps the
+			// Date as DateTimeData with its clock.
+			expect(inference.hiddenHeld.get(uuid(name))).toBe("date");
+			expect(inference.clockLost.has(uuid(name))).toBe(false);
+		}
+		expect(hiddenWriterVerdicts(built)).toEqual([]);
+	});
+	it("loses its clock under a text property's bind, which R3 follows", () => {
+		const built = doc({
+			register: [...parts, hidden("as_text", { calculate: JOIN }, "noted")],
+			properties: [{ name: "noted", label: "Noted", data_type: "text" }],
+		});
+		expect(inferExpressionTypes(built).clockLost.has(uuid("as_text"))).toBe(
+			true,
+		);
+	});
+});

@@ -71,9 +71,11 @@ export type FieldBindType = NonNullable<(typeof BIND_TYPE_BY_KIND)[FieldKind]>;
 /**
  * The `type` attribute of a field's `<bind>`, or `null` for a field with
  * none. A field binds by its kind, except that a field whose value type is
- * date and time (`fieldValueType`: a datetime question, or a Hidden Value
- * writing a date-and-time property) binds `xsd:dateTime`. A Hidden Value
- * writing a property of any other type keeps `xsd:string`.
+ * date and time (`fieldValueType`: a datetime question, a Hidden Value
+ * writing a date-and-time property, or a Hidden Value that writes nothing
+ * calculated by the clock-keeping date) binds `xsd:dateTime`. A Hidden Value
+ * writing a property of any other type keeps `xsd:string`, even one
+ * calculated by the clock-keeping date: the bind follows the property.
  *
  * The XForm emitter and Preview's setvalue casts both read this one rule,
  * so they agree on which questions are typed.

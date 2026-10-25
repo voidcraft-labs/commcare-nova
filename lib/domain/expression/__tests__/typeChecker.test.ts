@@ -52,6 +52,7 @@ import {
 	exists,
 	fixedLocation,
 	formatDate,
+	formField,
 	gt,
 	gte,
 	ifExpr,
@@ -4194,5 +4195,47 @@ describe("instance reads", () => {
 				).errors,
 			),
 		).toEqual(["unknown-form-field:itext-unit"]);
+	});
+});
+
+describe("typing rule R2: the clock-keeping date", () => {
+	const typeOfIn = (source: string) => {
+		const doc = rulesDoc();
+		const slot = fieldSlot(RULES.probe);
+		const outcome = slotOutcome(
+			doc,
+			slot,
+			parseFixtureExpression(doc, slot, source),
+		);
+		return { type: outcome.type, errors: outcome.errors };
+	};
+	it("types date() of instant text in form logic as a date and time Core holds as a Date", () => {
+		// Core's `toDate` parses text with its clock and does not round it
+		// (`FunctionUtils.java::toDate`), so the result keeps its time of day.
+		expect(
+			typeOfIn("date(format-date(#form/dt, '%Y-%m-%dT%H:%M:%S.%3%Z'))"),
+		).toEqual({ type: { data: "datetime", held: "date" }, errors: [] });
+		expect(
+			typeOfIn(
+				"date(format-date(if(#form/d = '' or #form/t = '', '', concat(#form/d, 'T', #form/t)), '%Y-%m-%dT%H:%M:%S.%3%Z'))",
+			),
+		).toEqual({ type: { data: "datetime", held: "date" }, errors: [] });
+	});
+	it("keeps date() of any other format, a preset among them, a date", () => {
+		expect(typeOfIn("date(format-date(#form/dt, '%Y-%m-%d'))").type).toEqual({
+			data: "date",
+			held: "date",
+		});
+		const doc = rulesDoc();
+		const preset = dateCoerce(formatDate(term(formField(RULES.dt)), "iso"));
+		expect(slotOutcome(doc, fieldSlot(RULES.probe), preset).type).toEqual({
+			data: "date",
+			held: "date",
+		});
+	});
+	it("leaves the record rule set's date() a date, since a record slot has datetime-coerce", () => {
+		expect(
+			resolve(dateCoerce(formatDate(now(), "%Y-%m-%dT%H:%M:%S.%3%Z"))).type,
+		).toBe("date");
 	});
 });
