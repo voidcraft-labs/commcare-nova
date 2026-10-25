@@ -211,8 +211,8 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	"hq_changed",
 	/**
 	 * The app needs something of the project space that no API key reads (a
-	 * plan feature, the flat location list, a Connect forwarder), and a person
-	 * has not confirmed it there. Nothing was sent.
+	 * plan feature, the flat location list, a Connect forwarder, sync on form
+	 * entry turned off), and a person has not confirmed it there. Nothing was sent.
 	 */
 	"hq_confirmation_needed",
 	/**

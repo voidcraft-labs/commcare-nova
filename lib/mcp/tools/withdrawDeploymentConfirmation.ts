@@ -3,7 +3,8 @@
  * about a CommCare HQ project space, so the next upload there asks again.
  *
  * A confirmation records that a project space has something no API key
- * reads: a plan feature, its flat location list, a Connect forwarder. Nova
+ * reads: a plan feature, its flat location list, a Connect forwarder, sync
+ * on form entry turned off. Nova
  * cannot see a plan change in CommCare HQ, so a confirmation stands until
  * someone withdraws it, here or from the deployment's card in the builder.
  * The row is kept with who withdrew it and when.

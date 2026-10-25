@@ -22,6 +22,7 @@ import {
 } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
+import { derivedUniqueId } from "@/lib/commcare/wireIdentity";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import { parser } from "@/lib/commcare/xpath/parser";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
@@ -317,20 +318,38 @@ function holdsWire(doc: BlueprintDoc): void {
 		 * requires a case in a module that offers search
 		 * (`entries.py::EntriesHelper.include_post_in_entry`, called only
 		 * `if form.requires_case()`; `util.py::module_offers_search`). */
-		const claimed = declaresAndroid(doc)
-			? hq.modules.flatMap((module) =>
-					module.search_config.properties.length > 0 ||
-					module.search_config.default_properties.length > 0
-						? module.forms.filter((form) => form.requires === "case")
-						: [],
-				).length
-			: 0;
+		const claimed = new Set(
+			declaresAndroid(doc)
+				? hq.modules.flatMap((module) =>
+						module.search_config.properties.length > 0 ||
+						module.search_config.default_properties.length > 0
+							? module.forms
+									.filter((form) => form.requires === "case")
+									.map((form) => form.unique_id)
+							: [],
+					)
+				: [],
+		);
+		/* Each claimed form, named by the document form its HQ id derives
+		 * from, in the document's form order: the reasons name exactly these
+		 * forms, so a predicate that names the wrong form fails here even when
+		 * the count agrees. */
+		const named = doc.moduleOrder.flatMap((moduleUuid) => {
+			const module = doc.modules[moduleUuid];
+			return (doc.formOrder[moduleUuid] ?? []).flatMap((formUuid) => {
+				const form = doc.forms[formUuid];
+				if (!claimed.has(derivedUniqueId(formUuid))) return [];
+				return [
+					`${form.name.trim() || form.id} works on a case chosen in ${module.name.trim() || module.id}, a menu with Search.`,
+				];
+			});
+		});
 		expect({
 			attachmentTarget,
-			syncReasons: formEntrySyncReasons(doc).length,
+			syncReasons: formEntrySyncReasons(doc),
 		}).toEqual({
 			attachmentTarget,
-			syncReasons: claimed,
+			syncReasons: named,
 		});
 	}
 }
