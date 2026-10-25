@@ -134,6 +134,10 @@ export async function checkPlatformChange(
 	}
 }
 
+/** A refused use, with the key it keeps for as long as its block stands,
+ *  so a split refusal stays beside its own row when an earlier row leaves. */
+type KeyedFindingRow = PlatformChangeFindingRow & { readonly key: string };
+
 /** What stands in the way of one choice, row by row. */
 type Refusal =
 	| { readonly kind: "line"; readonly text: string }
@@ -142,9 +146,14 @@ type Refusal =
 			/** The platform the change adds, when it adds one. */
 			readonly added: Platform | undefined;
 			readonly target: PlatformChoice;
-			readonly findings: readonly PlatformChangeFindingRow[];
+			readonly findings: readonly KeyedFindingRow[];
 			readonly media: readonly PlatformChangeMediaRow[];
 	  };
+
+/** Key each row by its place in the refusal as it arrives. */
+function keyed(rows: readonly PlatformChangeFindingRow[]): KeyedFindingRow[] {
+	return rows.map((row, index) => ({ ...row, key: `finding:${index}` }));
+}
 
 /** The rows a client gate refusal gives: each line beside its finding. */
 function findingRows(outcome: {
@@ -212,11 +221,12 @@ export function AppPlatformsSection() {
 	) => {
 		const committed = mutations.inline.commitMany([mutation]);
 		if (!committed.ok) {
+			setAnnouncement("");
 			setRefusal({
 				kind: "rows",
 				added,
 				target: next,
-				findings: findingRows(committed),
+				findings: keyed(findingRows(committed)),
 				media: [],
 			});
 			return;
@@ -245,7 +255,7 @@ export function AppPlatformsSection() {
 					kind: "rows",
 					added: undefined,
 					target: next,
-					findings: findingRows(reviewed),
+					findings: keyed(findingRows(reviewed)),
 					media: [],
 				});
 				return;
@@ -254,6 +264,7 @@ export function AppPlatformsSection() {
 			return;
 		}
 		setPending(next);
+		setAnnouncement(CHECKING_LINE);
 		try {
 			const checked = await checkPlatformChange(
 				reconciler,
@@ -262,6 +273,7 @@ export function AppPlatformsSection() {
 				() => sequence === generation.current,
 			);
 			if (checked.kind === "stale") return;
+			if (checked.kind !== "ok") setAnnouncement("");
 			if (checked.kind === "line") {
 				setRefusal({ kind: "line", text: checked.text });
 				return;
@@ -271,7 +283,7 @@ export function AppPlatformsSection() {
 					kind: "rows",
 					added,
 					target: next,
-					findings: checked.findings,
+					findings: keyed(checked.findings),
 					media: checked.media,
 				});
 				return;
@@ -284,7 +296,8 @@ export function AppPlatformsSection() {
 
 	/** Split a refused date-and-time question in place; the row leaves on
 	 *  success, and a block left with no row closes. */
-	const split = (finding: StructuredCommitFinding, key: string) => {
+	const split = (row: KeyedFindingRow) => {
+		const { finding, key } = row;
 		const fieldUuid = finding.location.fieldUuid as Uuid | undefined;
 		if (fieldUuid === undefined) return;
 		const outcome = mutations.inline.splitDatetimeQuestion(fieldUuid);
@@ -300,7 +313,7 @@ export function AppPlatformsSection() {
 		announceDatetimeSplit();
 		setRefusal((held) => {
 			if (held?.kind !== "rows") return held;
-			const findings = held.findings.filter((row) => row.finding !== finding);
+			const findings = held.findings.filter((kept) => kept.key !== key);
 			return findings.length === 0 && held.media.length === 0
 				? undefined
 				: { ...held, findings };
@@ -397,7 +410,7 @@ function RefusalBlock({
 	readonly onOpenMedia: (
 		row: PlatformChangeMediaRow,
 	) => (() => void) | undefined;
-	readonly onSplit: (finding: StructuredCommitFinding, key: string) => void;
+	readonly onSplit: (row: KeyedFindingRow) => void;
 }) {
 	if (refusal.kind === "line") {
 		return (
@@ -447,8 +460,8 @@ function RefusalBlock({
 				</div>
 			</div>
 			<ul className="mt-2 space-y-2">
-				{refusal.findings.map((row, index) => {
-					const key = `finding:${row.finding.code}:${index}`;
+				{refusal.findings.map((row) => {
+					const key = row.key;
 					const open = onOpenFinding(row.finding);
 					const splittable =
 						row.finding.code === "PLATFORM_FEATURE_UNAVAILABLE" &&
@@ -468,7 +481,7 @@ function RefusalBlock({
 									<Button
 										type="button"
 										variant="ghost-action"
-										onClick={() => onSplit(row.finding, key)}
+										onClick={() => onSplit(row)}
 									>
 										<Icon icon={tablerArrowsSplit} width="14" height="14" />
 										{SPLIT_DATETIME_LABEL}

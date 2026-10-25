@@ -33,7 +33,9 @@ import { useLastConnectType, useSwitchConnectMode } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import {
 	CONNECT_NARROWS_LINE,
+	ConnectNarrowingRetry,
 	connectNarrowingHint,
+	connectNarrowingLines,
 	FormSubConfigs,
 	RejectionNoticeBlock,
 	useConnectNarrowing,
@@ -541,12 +543,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 					</p>
 				)}
 				<RejectionNoticeBlock
-					messages={[
-						...(narrowing.check.kind === "refused"
-							? narrowing.check.lines
-							: []),
-						...rejectionMessages,
-					]}
+					messages={[...connectNarrowingLines(narrowing), ...rejectionMessages]}
 				/>
 				<div className="flex items-center justify-between gap-3">
 					{enabled ? (
@@ -562,6 +559,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 					)}
 					<div className="flex items-center gap-3">
 						<span className="text-[11px] text-nova-text-muted">{hint}</span>
+						<ConnectNarrowingRetry narrowing={narrowing} />
 						<Button type="button" onClick={apply} disabled={!canApply}>
 							{primaryLabel}
 						</Button>

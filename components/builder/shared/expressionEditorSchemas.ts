@@ -38,7 +38,7 @@ import tablerVariable from "@iconify-icons/tabler/variable";
 import type { ComponentType } from "react";
 import type { CaseType, UserProperty, Uuid } from "@/lib/domain";
 import {
-	caseListSearchTextOffered,
+	caseListSearchTextReachable,
 	type Expression,
 	type ExpressionContext,
 	type ExpressionOfKind,
@@ -412,12 +412,14 @@ export function isAuthorableExpressionKind(
 	// column, which the slot's profile says (`SlotProfile.here`).
 	if (kind === "here") return ctx?.expressionContext?.profile.here === true;
 	// A case list's search text reaches a form's questions and Connect
-	// settings after exactly one case list, where no declared platform lacks
-	// it (`typeChecker.ts::caseListSearchTextOffered`, as the XPath editor).
+	// settings after exactly one case list
+	// (`typeChecker.ts::caseListSearchTextReachable`). A declared platform
+	// that lacks it leaves the choice offered, disabled by the rule
+	// admission with that platform's picker line.
 	if (kind === "case-list-search-text")
 		return (
 			ctx?.expressionContext !== undefined &&
-			caseListSearchTextOffered(ctx.expressionContext)
+			caseListSearchTextReachable(ctx.expressionContext)
 		);
 	if (kind === "id-of") {
 		return (ctx?.operationScope?.creates.length ?? 0) > 0;

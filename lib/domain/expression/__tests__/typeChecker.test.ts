@@ -92,6 +92,8 @@ import {
 import { recordQueryContext, slotContext } from "../context";
 import {
 	type CheckOutcome,
+	caseListSearchTextOffered,
+	caseListSearchTextReachable,
 	checkExpression,
 	dayOnlyRefusalCopy,
 	inferRecordQuery,
@@ -4298,6 +4300,21 @@ describe("the reads a form and a menu make of the session and the search", () =>
 			const outcome = checkExpression(text, ctx);
 			expect(outcome.errors).toEqual([]);
 			expect(scalarDataType(typeOf(text, ctx)?.data)).toBe("text");
+		});
+		it("is reached where Web Apps is declared, so the card editor offers it disabled with the platform", () => {
+			const ctx = slotContext(
+				readsDoc("web-apps"),
+				calculateOf(OTHER_HIDDEN),
+				new Map(),
+			);
+			if (ctx === undefined) throw new Error("The slot has no context.");
+			expect(caseListSearchTextReachable(ctx)).toBe(true);
+			expect(caseListSearchTextOffered(ctx)).toBe(false);
+			const [error] = checkExpression(text, ctx).errors;
+			expect(error?.platform).toEqual({
+				feature: "case-list-search-text",
+				platform: "web-apps",
+			});
 		});
 		it("is refused in a form that opens after no case list, or after two", () => {
 			const none = errorsIn(calculateOf(SURVEY_HIDDEN), text);

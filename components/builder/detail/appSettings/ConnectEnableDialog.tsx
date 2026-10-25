@@ -632,15 +632,21 @@ export interface ConnectNarrowing {
 	readonly check:
 		| { readonly kind: "idle" }
 		| { readonly kind: "checking" }
-		| { readonly kind: "refused"; readonly lines: readonly string[] };
+		| { readonly kind: "refused"; readonly lines: readonly string[] }
+		/** The check couldn't run: the save barrier didn't settle, the app
+		 *  couldn't be reached, or the request failed. */
+		| { readonly kind: "unchecked"; readonly line: string };
+	/** Run the check again, after it couldn't run. */
+	readonly retry: () => void;
 }
 
 /**
  * Turning on Connect sets an app that runs in Web Apps to Android only. An
  * app that runs in Web Apps only gains Android by that, so on opening while
  * Connect is off the dialog runs the platform change check with
- * `runsOnlyOn: "android"`, and a refusal lists what Android can't run. An app
- * that runs on both needs no check: the change only removes Web Apps.
+ * `runsOnlyOn: "android"`, and a refusal lists what Android can't run. A
+ * check that couldn't run says why on its own and offers to run again. An
+ * app that runs on both needs no check: the change only removes Web Apps.
  */
 export function useConnectNarrowing(connectOn: boolean): ConnectNarrowing {
 	const platforms = useDeclaredPlatforms();
@@ -650,7 +656,11 @@ export function useConnectNarrowing(connectOn: boolean): ConnectNarrowing {
 	const [check, setCheck] = useState<ConnectNarrowing["check"]>(
 		gainsAndroid ? { kind: "checking" } : { kind: "idle" },
 	);
+	const [attempt, setAttempt] = useState(0);
+	const retry = useCallback(() => setAttempt((n) => n + 1), []);
 	useEffect(() => {
+		// Each attempt runs the check afresh.
+		void attempt;
 		if (!gainsAndroid) {
 			setCheck({ kind: "idle" });
 			return;
@@ -662,7 +672,7 @@ export function useConnectNarrowing(connectOn: boolean): ConnectNarrowing {
 				if (!live || result.kind === "stale") return;
 				if (result.kind === "ok") setCheck({ kind: "idle" });
 				else if (result.kind === "line")
-					setCheck({ kind: "refused", lines: [result.text] });
+					setCheck({ kind: "unchecked", line: result.text });
 				else
 					setCheck({
 						kind: "refused",
@@ -676,17 +686,46 @@ export function useConnectNarrowing(connectOn: boolean): ConnectNarrowing {
 		return () => {
 			live = false;
 		};
-	}, [gainsAndroid, reconciler, appId]);
-	return { narrows: !connectOn && platforms.includes("web-apps"), check };
+	}, [gainsAndroid, reconciler, appId, attempt]);
+	return {
+		narrows: !connectOn && platforms.includes("web-apps"),
+		check,
+		retry,
+	};
 }
 
-/** The footer hint the check replaces, while it runs or refuses. */
+/** The footer hint the check replaces, while it runs, refuses, or couldn't
+ *  run (where the line says why alone and a retry stands beside it). */
 export function connectNarrowingHint(
 	narrowing: ConnectNarrowing,
 ): string | undefined {
 	if (narrowing.check.kind === "checking") return CHECKING_LINE;
 	if (narrowing.check.kind === "refused") return CONNECT_BLOCKED_HINT;
+	if (narrowing.check.kind === "unchecked") return "";
 	return undefined;
+}
+
+/** The lines the footer's rejection block shows for the check. */
+export function connectNarrowingLines(
+	narrowing: ConnectNarrowing,
+): readonly string[] {
+	if (narrowing.check.kind === "refused") return narrowing.check.lines;
+	if (narrowing.check.kind === "unchecked") return [narrowing.check.line];
+	return [];
+}
+
+/** Offered beside the footer hint when the check couldn't run. */
+export function ConnectNarrowingRetry({
+	narrowing,
+}: {
+	readonly narrowing: ConnectNarrowing;
+}) {
+	if (narrowing.check.kind !== "unchecked") return null;
+	return (
+		<Button type="button" variant="outline" onClick={narrowing.retry}>
+			Check again
+		</Button>
+	);
 }
 
 // ── The per-form enable dialog (form settings) ─────────────────────────────
@@ -924,9 +963,7 @@ function ConnectEnableBody({
 			<div className="space-y-2 border-t border-nova-border px-5 py-3">
 				<RejectionNoticeBlock
 					messages={[
-						...(narrowing.check.kind === "refused"
-							? narrowing.check.lines
-							: []),
+						...connectNarrowingLines(narrowing),
 						...rejectionMessages,
 						...parseRejections,
 					]}
@@ -934,6 +971,7 @@ function ConnectEnableBody({
 				<div className="flex items-center justify-between gap-3">
 					<span className="text-[11px] text-nova-text-muted">{hint}</span>
 					<div className="flex gap-2">
+						<ConnectNarrowingRetry narrowing={narrowing} />
 						<Button type="button" variant="outline" onClick={onCancel}>
 							Cancel
 						</Button>
