@@ -1,4 +1,8 @@
-/** A fixed sibling-menu move changes positional return commands, not their target. */
+/**
+ * A fixed sibling-menu move beside a search-first module whose no-matches
+ * form returns to its case list. The module runs in Web Apps alone, so proof
+ * 5 compares the app JSON of the move, and HQ builds the return guard.
+ */
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	NEW_APP_SETTINGS,
@@ -96,9 +100,7 @@ export function noMatchesReturnIdentity() {
 	edit.moduleOrder = [uuid("households"), uuid("patients")];
 	return targetedDocument({
 		id,
-		rows: [
-			"proof 5, no-matches return guards retain menu identity after a sibling move",
-		],
+		rows: ["proof 5, a sibling menu move beside a no-matches form"],
 		doc,
 		edit,
 		expected: {
