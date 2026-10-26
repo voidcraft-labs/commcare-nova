@@ -761,6 +761,11 @@ capture questions use the same custom-control-aware focus selector.
 `AttachmentNotReadyError` carries stable slot, concrete path, and field UUID;
 the same reveal path opens a collapsed blocker and focuses its exact Retry
 action. Both paths use immediate scrolling when reduced motion is requested.
+A reveal waits for the form to be live: the refusal arrives while Submit's
+running state still freezes the body (`inert`, disabled fieldset), where
+`focus()` does nothing, so the latest reveal runs two frames after the commit
+that unfreezes the form, and a form frozen again in those frames keeps it for
+the next.
 
 ## Sections page the preview on Android's rules
 

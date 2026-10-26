@@ -946,7 +946,17 @@ export function FormScreen({ screen }: FormScreenProps) {
 
 	const formBodyElRef = useRef<HTMLDivElement>(null);
 	const formLayoutRef = useRef<FormLayoutHandle>(null);
-	const invalidFocusRafRef = useRef<number | undefined>(undefined);
+	/* A reveal waits here until the form is live. Submit's refusal arrives
+	 * while the form is still frozen (its running state commits back to idle
+	 * in the same render as the refusal), and a control inside the inert,
+	 * disabled body ignores `focus()`, so focusing on a timer alone lands
+	 * nowhere whenever that commit is slower than the timer. */
+	const pendingFocusRef = useRef<(() => void) | undefined>(undefined);
+	const [focusRequest, setFocusRequest] = useState(0);
+	const requestFocus = useCallback((focus: () => void): void => {
+		pendingFocusRef.current = focus;
+		setFocusRequest((request) => request + 1);
+	}, []);
 
 	const formBodyRef = useCallback(
 		(el: HTMLDivElement | null) => {
@@ -963,15 +973,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 			return () => cancelAnimationFrame(raf);
 		},
 		[mode, selectedUuid],
-	);
-
-	useEffect(
-		() => () => {
-			if (invalidFocusRafRef.current !== undefined) {
-				cancelAnimationFrame(invalidFocusRafRef.current);
-			}
-		},
-		[],
 	);
 
 	/* Submit lifecycle + post-submit dispatch live above the early-
@@ -1809,38 +1810,30 @@ export function FormScreen({ screen }: FormScreenProps) {
 			requireInvalid: boolean,
 		): void => {
 			formLayoutRef.current?.expandContainers(target.ancestorUuids);
-			if (invalidFocusRafRef.current !== undefined) {
-				cancelAnimationFrame(invalidFocusRafRef.current);
-			}
-			// Expansion is a React state commit. Two frames let nested collapsed
-			// ancestors mount before resolving the concrete repeated question.
-			invalidFocusRafRef.current = requestAnimationFrame(() => {
-				invalidFocusRafRef.current = requestAnimationFrame(() => {
-					invalidFocusRafRef.current = undefined;
-					const body = formBodyElRef.current;
-					if (body === null) return;
-					const field = [
-						...body.querySelectorAll<HTMLElement>("[data-instance-path]"),
-					].find(
-						(element) =>
-							element.dataset.instancePath === target.instancePath &&
-							element.dataset.fieldUuid === target.fieldUuid &&
-							(!requireInvalid || element.dataset.invalid === "true"),
-					);
-					if (field === undefined) return;
-					const reducedMotion =
-						typeof window.matchMedia === "function" &&
-						window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-					field.scrollIntoView?.({
-						behavior: reducedMotion ? "auto" : "smooth",
-						block: "center",
-					});
-					const control = field.querySelector<HTMLElement>(controlSelector);
-					(control ?? field).focus();
+			requestFocus(() => {
+				const body = formBodyElRef.current;
+				if (body === null) return;
+				const field = [
+					...body.querySelectorAll<HTMLElement>("[data-instance-path]"),
+				].find(
+					(element) =>
+						element.dataset.instancePath === target.instancePath &&
+						element.dataset.fieldUuid === target.fieldUuid &&
+						(!requireInvalid || element.dataset.invalid === "true"),
+				);
+				if (field === undefined) return;
+				const reducedMotion =
+					typeof window.matchMedia === "function" &&
+					window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+				field.scrollIntoView?.({
+					behavior: reducedMotion ? "auto" : "smooth",
+					block: "center",
 				});
+				const control = field.querySelector<HTMLElement>(controlSelector);
+				(control ?? field).focus();
 			});
 		},
-		[],
+		[requestFocus],
 	);
 
 	const revealInvalidOnPage = useCallback(
@@ -1869,29 +1862,23 @@ export function FormScreen({ screen }: FormScreenProps) {
 
 	const focusAttachmentInvariantRecovery = useCallback(
 		(fieldUuid: string | undefined): void => {
-			if (invalidFocusRafRef.current !== undefined) {
-				cancelAnimationFrame(invalidFocusRafRef.current);
-			}
-			invalidFocusRafRef.current = requestAnimationFrame(() => {
-				invalidFocusRafRef.current = requestAnimationFrame(() => {
-					invalidFocusRafRef.current = undefined;
-					const candidates = [
-						...(formBodyElRef.current?.querySelectorAll<HTMLElement>(
-							"[data-attachment-recovery-field-uuid]",
-						) ?? []),
-					];
-					const recovery =
-						candidates.find(
-							(candidate) =>
-								fieldUuid === undefined ||
-								candidate.dataset.attachmentRecoveryFieldUuid === fieldUuid,
-						) ?? candidates[0];
-					recovery?.scrollIntoView?.({ block: "center" });
-					recovery?.focus();
-				});
+			requestFocus(() => {
+				const candidates = [
+					...(formBodyElRef.current?.querySelectorAll<HTMLElement>(
+						"[data-attachment-recovery-field-uuid]",
+					) ?? []),
+				];
+				const recovery =
+					candidates.find(
+						(candidate) =>
+							fieldUuid === undefined ||
+							candidate.dataset.attachmentRecoveryFieldUuid === fieldUuid,
+					) ?? candidates[0];
+				recovery?.scrollIntoView?.({ block: "center" });
+				recovery?.focus();
 			});
 		},
-		[],
+		[requestFocus],
 	);
 
 	const handleSubmit = async (): Promise<void> => {
@@ -2363,6 +2350,24 @@ export function FormScreen({ screen }: FormScreenProps) {
 		},
 		[formFrozen],
 	);
+	/* The latest reveal runs once the form is live, two frames after the
+	 * commit that unfroze it: an expansion is a React state commit, and the
+	 * frames let nested collapsed ancestors mount before the concrete
+	 * repeated question is resolved. A form frozen again in those frames
+	 * keeps the reveal for the next time it is live. */
+	useEffect(() => {
+		const focus = pendingFocusRef.current;
+		if (focusRequest === 0 || formFrozen || focus === undefined) return;
+		let frame = requestAnimationFrame(() => {
+			frame = requestAnimationFrame(() => {
+				if (pendingFocusRef.current !== focus) return;
+				if (formBodyElRef.current?.closest("[inert]")) return;
+				pendingFocusRef.current = undefined;
+				focus();
+			});
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [focusRequest, formFrozen]);
 
 	if (!form || !formUuid || !moduleUuid) return null;
 
