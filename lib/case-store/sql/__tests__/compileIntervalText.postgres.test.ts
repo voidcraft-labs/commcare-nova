@@ -111,6 +111,12 @@ const VALUES: readonly (string | undefined)[] = [
 	`${localDay(5)}T10:15:00`,
 	localInstantWithOffset(1, 23, 30),
 	localInstantWithOffset(0, 0, 30),
+	// Offsets whose instant falls on another day than the one written, in
+	// every zone but the offset's own: the device keeps the written day.
+	`${localDay(3)}T00:30:00+14:00`,
+	`${localDay(3)}T23:30:00-12:00`,
+	`${localDay(3)}T23:59:59.250Z`,
+	`${localDay(3)}T00:00:00Z`,
 	"not a date",
 	"2026-02-31",
 	// Words Postgres reads as an instant and a device reads as text; an
@@ -208,10 +214,25 @@ describe("compileIntervalText", () => {
 		await sql`SET LOCAL TimeZone = 'America/New_York'`.execute(db);
 		const DAY = 24 * 60 * 60 * 1000;
 		const started = Date.now();
-		// Milliseconds only, the precision Preview's row holds.
-		const modified = [4, 0.25, 40, 1.5, 0].map(
-			(daysAgo, index) => new Date(started - daysAgo * DAY - index * 7),
-		);
+		// The first and last moment of a local day: whatever the hour and in
+		// every zone but UTC, one of them is on another day in HQ's UTC text,
+		// whose written day the device keeps.
+		const edgeOfDay = (hours: number, minutes: number, seconds: number) => {
+			const date = new Date(started);
+			date.setDate(date.getDate() - 5);
+			date.setHours(hours, minutes, seconds, 3);
+			return date;
+		};
+		// Milliseconds only, the precision Preview's row holds. Each count is
+		// at least a day clear of the flag's threshold either way, so the
+		// written day and an hour of daylight saving leave its verdict.
+		const modified = [
+			...[6, 0.25, 40, 0.75, 0].map(
+				(daysAgo, index) => new Date(started - daysAgo * DAY - index * 7),
+			),
+			edgeOfDay(0, 0, 0),
+			edgeOfDay(23, 59, 59),
+		];
 		const caseIds = modified.map((_, index) =>
 			testUuid(`results-modified-${index}`),
 		);
@@ -327,6 +348,6 @@ describe("compileIntervalText", () => {
 		}
 		expect(
 			rows.map((row) => (row as unknown as Record<string, unknown>).text_1),
-		).toEqual(["Quiet", "Quiet", "", "", ""]);
+		).toEqual(["Quiet", "Quiet", "Quiet", "Quiet", "", "", ""]);
 	});
 });

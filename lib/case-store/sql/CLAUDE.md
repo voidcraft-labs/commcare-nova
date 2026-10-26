@@ -216,7 +216,12 @@ has the shape Core's `date()` reads (`year-month-day`, alone or before `T`)
 and `pg_input_is_valid` (Postgres 16 and later) reads it as an instant, so
 malformed text and the words Postgres reads as instants and a device does not
 (`infinity`, `epoch`, `today`, ...) yield their raw text and never fail the
-query; its calendar day is the viewer's (`compilePinnedInstant`).
+query. Its calendar day is the one Core's `date()` gives: the authored
+`year-month-day` is kept, a time without an offset is a wall clock in the
+viewer's zone, and a time with an offset moves only its clock into the viewer's
+zone (`DateUtils.parseDateTime`), so `2026-10-22T02:30:00Z` counts as 22
+October in Los Angeles, as Preview's `XPathDate.parse` counts it. An instant's
+own local day (`compilePinnedInstant`) would count that one day earlier.
 
 ## Numeric expressions
 
