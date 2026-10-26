@@ -176,13 +176,16 @@ CORE = {"suites": [{"menus": [{"id": "home", "root": None, "commands": ["open"]}
 def test_core_reads_each_stack_step_value_as_an_expression_but_a_query_steps_url():
     """The local record reads each stack step's value as Core does (``unit.stack_values``): a step's ``value`` is
     an expression (``StackFrameStepParser.parseValue``), but a ``query`` step's is a URL (``parseQuery``), so
-    only the others are read as XPath. Shown on the corpus documents whose endpoints push a query."""
+    only the others are read as XPath. Shown on the documents and retained controls whose local archive's endpoints
+    push a query: an endpoint pushes one into a search-first or inline-search module, which runs in Web Apps alone,
+    and Nova makes no local archive of an app that does not declare Android, so a control retained before step 4,
+    whose local archive the lane still reads, is where one shows."""
     import zipfile
 
     from proof.observe.unit import stack_values
 
     shown = 0
-    for document in cases.load_corpus().emitted:
+    for document in (*cases.load_corpus().emitted, *corpus.load_controls()):
         if document.local_ccz is None:
             continue
         with zipfile.ZipFile(document.local_ccz) as archive:

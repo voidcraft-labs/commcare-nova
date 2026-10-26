@@ -63,7 +63,16 @@ from proof.hq.configuration import DEFAULT_COMMCARE_VERSION
 
 # The fields of HQ's source a captured update is built over (``proof/corpus/publish.ts::AssumedSource``).
 ASSUMED_SOURCE_FIELDS = frozenset(
-    {"doc_type", "build_spec.version", "profile", "translations", "add_ons", "langs", "auto_gps_capture"}
+    {
+        "doc_type",
+        "build_spec.version",
+        "profile",
+        "translations",
+        "add_ons",
+        "langs",
+        "auto_gps_capture",
+        "cloudcare_enabled",
+    }
 )
 
 

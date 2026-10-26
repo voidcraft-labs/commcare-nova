@@ -35,9 +35,7 @@ import zipfile
 
 from lxml import etree
 
-from proof.checks.corpus import ANDROID
 from proof.rules._xpath import calls, node_free, plain_path, tokens
-from proof.rules.conftest import DOCUMENTS
 
 XF = "{http://www.w3.org/2002/xforms}"
 # The node-free calls Core builds into classes of their own (XPathNowFunc, XPathTodayFunc, XPathUuidFunc); a negated
@@ -186,15 +184,9 @@ def _core_formatted_clocks(texts, parsed, core_runner):
     return {text for text, result in zip(owners, results, strict=True) if result["same"]}
 
 
-def test_the_port_reads_each_shape_as_cores_parser_builds_it(rule_documents, core_runner):
+def test_the_port_reads_each_shape_as_cores_parser_builds_it(android_rule_documents, core_runner):
     # A local archive exists only for a document that declares Android: a `.ccz` installs an app on Android.
-    corpus = set().union(
-        *(
-            _texts(rule_documents[document_id])
-            for document_id in DOCUMENTS
-            if ANDROID in rule_documents[document_id].platforms()
-        )
-    )
+    corpus = set().union(*(_texts(document) for document in android_rule_documents.values()))
     texts = sorted(corpus | set(CROSSING) | set(CALLING))
     results = core_runner.request("xpathParse", deadline=120.0, expressions=texts)["results"]
     parsed = dict(zip(texts, results, strict=True))

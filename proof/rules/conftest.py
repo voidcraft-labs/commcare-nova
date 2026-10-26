@@ -102,6 +102,18 @@ def rule_documents():
     return _Named({document_id: found[document_id] for document_id in DOCUMENTS})
 
 
+@pytest.fixture(scope="session")
+def android_rule_documents(rule_documents):
+    """The documents of ``DOCUMENTS`` that declare Android, by id: Nova makes a local archive of these alone (a
+    ``.ccz`` installs an app on Android), and a test of their archives reads the declaration here, where the
+    package reads the corpus."""
+    from proof.checks.corpus import ANDROID
+
+    return {
+        document_id: document for document_id, document in rule_documents.items() if ANDROID in document.platforms()
+    }
+
+
 def rewritten(change=None):
     """A form source's text to its text with ``change`` made to its parsed root (none: the same document,
     serialized again), so every spelling of a form reaches HQ through one serializer."""
