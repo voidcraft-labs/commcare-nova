@@ -232,7 +232,7 @@ test("turning on Connect says it sets the app to Android only", {
 	await page.getByRole("button", { name: "Set up", exact: true }).click();
 	// App settings is itself a dialog and may stay open beneath this one.
 	await expect(
-		page.getByRole("dialog", { name: "Set up Connect" }),
+		page.getByRole("dialog", { name: "CommCare Connect", exact: true }),
 	).toContainText(
 		"Connect workers open this app in the Connect app on Android, so turning on Connect sets it to run on Android only.",
 	);
