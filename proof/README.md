@@ -4660,7 +4660,7 @@ quarter to four and three quarter hours, gated together).
 **The pull request lane.** The `no-readers` costs come from one run of the
 whole lane without the readers on hosted runners, run [PENDING no-readers dispatch] (dispatched with
 `proof_fresh`): fifteen shards of four workers on four vCPUs, one vCPU a
-worker, every group observed afresh with no store: 515 groups from [PENDING no-readers dispatch]
+worker, every group observed afresh with no store: 514 groups from [PENDING no-readers dispatch]
 worker sessions, [PENDING no-readers dispatch] worker-seconds, [PENDING no-readers dispatch] box-seconds, the median document
 [PENDING no-readers dispatch] seconds on one worker. When the readers came to the lane, one run of the whole lane
 without them on a 32-vCPU proof machine at 32 workers, one vCPU a worker as
@@ -4729,7 +4729,7 @@ the nightly fills with both profiles, and the audit sample (four documents or
 so, observed afresh on every run to hold the store to its keys). The
 expected ends below are the model's: `plan fit` over the queues the queue
 builder's own code makes for each change, from this commit's corpus (398
-documents, 87 controls, 30 package groups: 515 groups,
+documents, 86 controls, 30 package groups: 514 groups,
 [PENDING no-readers dispatch] box-seconds whole) and `proof/timings.json`, with a store taken to hold everything the
 change's keys do not move, over two audit seeds and, for the rows of
 documents, ten draws of them. Only the last row has been measured on hosted
@@ -4761,8 +4761,8 @@ row over the refreshed profile and replace them.]
 | 100 documents | 128 to 130, 25 or 26 of them package groups | 5 or 6 | 10.7 to 11.0 min (644 to 663 s) |
 | A harness file no document's key names (`proof/README.md`, `proof/native`, `proof/views`) | 34: every package group and the audit sample | 3 | 9.2 min (552 s) |
 | A test module outside the checks and the rules (`proof/lane/test_plan.py`, any `proof/hq`, `proof/store` or reader test) | 34: every package group and the audit sample | 3 | 9.2 min (552 s) |
-| A judge's file (`proof/checks/**`, `proof/rules/**`, a register, the surface), or HQ's branch proof | all 515, the documents and controls judged from their stored records | 5 | 10.7 min (644 s) |
-| The observation's code (a module of `proof/observe`, `proof/hq`, `proof/lane`, `proof/store`, `proof/editors` or a reader's package that is not a test), the image, or most documents | all 515, observed afresh | 15 | 12.7 min (764 s) |
+| A judge's file (`proof/checks/**`, `proof/rules/**`, a register, the surface), or HQ's branch proof | all 514, the documents and controls judged from their stored records | 5 | 10.7 min (644 s) |
+| The observation's code (a module of `proof/observe`, `proof/hq`, `proof/lane`, `proof/store`, `proof/editors` or a reader's package that is not a test), the image, or most documents | all 514, observed afresh | 15 | 12.7 min (764 s) |
 
 A test module is no part of the observation ("The evidence store and its
 audits"), so an edit to one runs the package groups and leaves every
