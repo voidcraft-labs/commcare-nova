@@ -478,8 +478,15 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect.poll(() => answer(page, PLATFORM_IDS.image)).not.toBe("");
 	},
 	async "barcode-scan-android"(page) {
+		/* Whether a browser ships BarcodeDetector varies by host (Chromium has
+		 * one on macOS and none on Linux), so the test decides: first a browser
+		 * without one, where the line stands in for Scan, then one whose
+		 * detector reads a format, where Scan shows. */
+		await page.addInitScript(() => {
+			Reflect.deleteProperty(window, "BarcodeDetector");
+		});
 		await openScenario(page, "barcode-scan-android");
-		/* Chromium here has no BarcodeDetector: the line stands in for Scan. */
+		expect(await page.evaluate(() => "BarcodeDetector" in window)).toBe(false);
 		await expect(
 			page.getByText(
 				"Your browser doesn't support camera scanning. You can type the barcode",
