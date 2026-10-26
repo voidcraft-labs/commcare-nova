@@ -32,7 +32,8 @@ each beside the same app with the privilege granted, the accepted case:
 
 ``cloudcare`` on a document that declares Web Apps: HQ's create stores the
 plan's own answer whatever the body says, and Web Apps answers a mobile
-worker without the privilege with HQ's 402 page. The first is
+worker without the privilege with HQ's "Upgrade Required" page (status
+200, ``domain/views/accounting.py::SubscriptionUpgradeRequiredView``). The first is
 ``proof/hq/test_publish.py::test_a_create_takes_web_apps_from_the_plan_and_the_update_writes_the_declaration``'s,
 the second ``proof/webapps/test_session.py``'s, since it needs the Web Apps
 reader.

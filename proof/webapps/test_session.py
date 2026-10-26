@@ -15,8 +15,11 @@ Contracts (``proof.webapps.session``, ``proof.webapps.hq``):
   app that declares Web Apps carries it true and HQ lists that build
   (``cloudcare/utils.py::get_web_apps_available_to_user``) whatever the plan;
   without the privilege HQ's ``FormplayerMain`` answers the release's mobile
-  worker with its 402 page (``requires_privilege_for_commcare_user``), and
-  with it the page answers. The plausible failure is a configuration that
+  worker with its "Upgrade Required" page naming Web Apps
+  (``requires_privilege_for_commcare_user``, whose fallback
+  ``domain/views/accounting.py::SubscriptionUpgradeRequiredView`` renders
+  with status 200, not the 402 the decorator's comment says), and with it
+  the Web Apps page answers. The plausible failure is a configuration that
   grants the privilege for nothing, or a page HQ would serve the worker
   either way.
 - **Web Apps lists an app only while it declares Web Apps.** D of
@@ -95,9 +98,14 @@ def test_the_page_is_hqs_own_view_and_bundle_and_its_screens_are_formplayers_ans
     assert run.screens[1]["route"]["appId"] == app_id != build_id
 
 
-def _web_apps_page_status(release):
-    """The status HQ's own ``FormplayerMain`` view answers the release's mobile worker with, the request built as
-    HQ's middleware attaches a signed-in user (``proof.hq.requests``)."""
+def _web_apps_page(release):
+    """What HQ's own ``FormplayerMain`` view answers the release's mobile worker, the request built as HQ's
+    middleware attaches a signed-in user (``proof.hq.requests``): the status, and whether the page is HQ's
+    "Upgrade Required" page naming Web Apps. That page is HQ's refusal without the privilege
+    (``accounting/decorators.py::requires_privilege_with_fallback``), and
+    ``domain/views/accounting.py::SubscriptionUpgradeRequiredView`` renders it with status 200, so the status
+    alone does not tell it from the Web Apps page (``proof/views/test_lookup_upload.py`` meets the same page)."""
+    from corehq import privileges
     from django.urls import resolve
 
     from proof.hq import requests as hq_requests
@@ -105,7 +113,10 @@ def _web_apps_page_status(release):
     path = f"/a/{release.domain}/cloudcare/apps/v2/"
     match = resolve(path)
     request = hq_requests.get(webapps_hq.Worker(release.domain, release.worker), path)
-    return match.func(request, *match.args, **match.kwargs).status_code
+    response = match.func(request, *match.args, **match.kwargs)
+    feature = privileges.Titles.get_name_from_privilege(privileges.CLOUDCARE)
+    body = response.content.decode("utf-8")
+    return response.status_code, "Upgrade Required" in body and str(feature) in body
 
 
 def test_hq_lists_an_app_by_its_builds_setting_and_serves_web_apps_to_a_worker_only_with_the_privilege(
@@ -113,9 +124,10 @@ def test_hq_lists_an_app_by_its_builds_setting_and_serves_web_apps_to_a_worker_o
 ):
     """Finding 64: Nova's update writes ``cloudcare_enabled`` from the declaration, so the released build carries
     it and HQ lists it with or without the privilege; Web Apps itself answers a mobile worker without the privilege
-    with HQ's 402 page (``cloudcare/views.py::FormplayerMain.dispatch``). Without the privilege HQ's create stored
-    the app with Web Apps off, a state Nova's publish stops at (``hq_plan_lacks_web_apps``), which the test reaches
-    on purpose (``webapps_hq.project`` passes ``plan_without_web_apps``)."""
+    with HQ's "Upgrade Required" page, status 200 (``cloudcare/views.py::FormplayerMain.dispatch``). Without the
+    privilege HQ's create stored the app with Web Apps off, a state Nova's publish stops at
+    (``hq_plan_lacks_web_apps``), which the test reaches on purpose (``webapps_hq.project`` passes
+    ``plan_without_web_apps``)."""
     from corehq.apps.cloudcare.utils import get_web_apps_available_to_user
 
     offered = {}
@@ -126,11 +138,11 @@ def test_hq_lists_an_app_by_its_builds_setting_and_serves_web_apps_to_a_worker_o
                 offered[name] = (
                     release.doc["cloudcare_enabled"],
                     [app["_id"] == release.build_id for app in listed],
-                    _web_apps_page_status(release),
+                    _web_apps_page(release),
                 )
     assert offered == {
-        "without Web Apps": (True, [True], 402),
-        "the lane's configuration": (True, [True], 200),
+        "without Web Apps": (True, [True], (200, True)),
+        "the lane's configuration": (True, [True], (200, False)),
     }, offered
 
 
