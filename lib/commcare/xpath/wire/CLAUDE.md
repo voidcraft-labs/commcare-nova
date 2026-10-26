@@ -150,7 +150,8 @@ context where it is a leading predicate on an indexed path
 (`StorageBackedTreeRoot.tryBatchChildFetch`, `TreeUtilities.tryBatchChildFetch`)
 and row by row otherwise (`EvaluationContext.expandReferenceAccumulator`),
 where an absolute path contextualized against a row is cloned unbound and names
-every entry of the repeat, which a comparison refuses; `current()` is the
+every entry of the repeat, which Core refuses or reads as the entry its reference
+cache resolved first (`DataInstance.resolveReference`); `current()` is the
 bind's node under both, so the relative read answers per entry wherever Core
 evaluates it (`proof/native/core/RowPredicateCurrentRuntimeTest.java`). Every
 other read keeps its bytes. The Vellum shadow follows from the printed tree: a

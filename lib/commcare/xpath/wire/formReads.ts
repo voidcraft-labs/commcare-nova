@@ -99,8 +99,10 @@ export function formReadNode(term: FormReadTerm): FormNodeRef {
  * the bind's context (a leading predicate on an indexed path, through
  * `tryBatchChildFetch`) or row by row, where an absolute path contextualized
  * against a row is cloned unbound (`TreeReference.contextualize`) and names
- * every entry of the repeat, which a comparison refuses. `current()` is the
- * bind's node under both (`EvaluationContext.rescope`), so the relative read
+ * every entry of the repeat, which Core refuses or reads as the entry its
+ * reference cache resolved first (`DataInstance.resolveReference`).
+ * `current()` is the bind's node under both (`EvaluationContext.rescope`),
+ * so the relative read
  * answers per entry wherever Core evaluates it. A read crossing no such
  * repeat names one node either way and keeps its bytes. A case operation's
  * own case row is its slot's, not a predicate's. */
