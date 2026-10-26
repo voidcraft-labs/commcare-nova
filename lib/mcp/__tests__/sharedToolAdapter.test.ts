@@ -1,7 +1,15 @@
-/** Pure result projection; actual dispatch and persistence live in the Postgres suite. */
+/** Pure result projection, plus the SDK's input grammar; actual dispatch and
+ * persistence live in the Postgres suite. The adapter and registry load at
+ * import (about a second locally, several on a loaded CI shard), so the module
+ * graph is paid once by the file rather than inside one test's timeout; the
+ * SDK calls themselves take milliseconds. */
 import { expect, it } from "vitest";
+import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { savedDataReview } from "@/lib/agent/toolResults";
+import { registerSharedTool } from "../adapters/sharedToolAdapter";
 import { projectResult } from "../resultProjection";
+import { withMcpClient } from "./client";
+import { resultContentText } from "./resultText";
 
 it("preserves read data, including keys also used by the chat UI", () => {
 	for (const data of [
@@ -55,12 +63,6 @@ it("retains a saved-data consequence even when later tool reporting fails", () =
 // The transport grammar must reject ambiguous targets before authorizing either
 // resource, and old nested creation input must never disappear by stripping.
 it("rejects ambiguous read targets and obsolete creation grammar through the real SDK", async () => {
-	const { withMcpClient } = await import("./client");
-	const { resultContentText } = await import("./resultText");
-	const { registerSharedTool } = await import("../adapters/sharedToolAdapter");
-	const { SHARED_TOOL_REGISTRY } = await import(
-		"@/lib/agent/sharedToolRegistry"
-	);
 	await withMcpClient(
 		(server) => {
 			const ctx = {
