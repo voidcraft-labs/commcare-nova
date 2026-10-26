@@ -60,12 +60,11 @@ links", "Case lists and search", and defects 21 to 30.
    module of such an app is HQ's REFUSED class `list-first-with-web-apps`
    (`case-search/workflow-legacy-classic-auto-launch-false-in-an-app-with`,
    `proof/checks/manifest_value_classes.py::list_first_with_web_apps`). Step 4
-   registers that difference as defect 21's two `manifest` entries,
-   `d21-list-first-with-web-apps-manifest-auto-launch` and
-   `d21-list-first-with-web-apps-manifest-default-search`, on
-   `targeted-list-first-web-apps` with the control
-   `targeted-list-first-web-apps-declared`, and this step's exit removes them
-   from the known register. Where list first becomes an author's value (an app
+   registers no `manifest` entry for it: the manifest judge reads a slot that
+   holds its default as no use, and `auto_launch` and `default_search` both
+   default to false, so the class never shows on a document. Defect 21's
+   proof 4 reader entries on `targeted-list-first-web-apps` and
+   `targeted-list-first-places` hold the difference instead. Where list first becomes an author's value (an app
    that declares Android alone),
    `case-search/auto-launch-false-in-an-app-with-cloudcare-enabled-false`, an
    ambient entry of step 4's platform table because it is "derived from the
