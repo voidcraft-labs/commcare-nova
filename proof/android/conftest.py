@@ -28,6 +28,7 @@ DOCUMENTS = (
     "targeted-hidden-column",
     "targeted-hidden-from-menu",
     "targeted-multi-select-destinations",
+    "targeted-preview-android-renders",
     "targeted-tile-hidden-order",
 )
 
