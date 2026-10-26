@@ -304,11 +304,12 @@ const english = {
 	recordVideo: "Record video",
 	chooseVideo: "Choose video",
 	// Android's completion of a form opened for a case the phone lacks: Core
-	// refuses to process it (`CaseXmlParser.java::loadCase`) and posts
-	// "Problem with your App" (`notification.processing.badstructure.*`).
+	// refuses to process it (`CaseXmlParser.java::loadCase`), so the phone
+	// quarantines it and posts "Form Record Quarantined"
+	// (`notification.quarantine.local.*`).
 	formNotProcessedTitle: "CommCare couldn't save this form",
 	formNotProcessedDetail:
-		"The phone doesn't have the case this form changes, so the phone couldn't save the form. A worker sees “Problem with your App”.",
+		"The phone doesn't have the case this form changes, so the phone couldn't save the form. A worker sees “Form Record Quarantined”.",
 } as const;
 
 export type RuntimeMessage = keyof typeof english;
@@ -613,7 +614,7 @@ const spanish: Record<RuntimeMessage, string> = {
 	chooseVideo: "Elegir video",
 	formNotProcessedTitle: "CommCare no pudo guardar este formulario",
 	formNotProcessedDetail:
-		"El teléfono no tiene el caso que cambia este formulario, así que no pudo guardarlo. Quien trabaja ve “Problem with your App”.",
+		"El teléfono no tiene el caso que cambia este formulario, así que no pudo guardarlo. Quien trabaja ve “Form Record Quarantined”.",
 };
 
 export function runtimeLanguage(language: LanguageTag | null | undefined) {

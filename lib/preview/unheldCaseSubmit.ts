@@ -7,9 +7,13 @@
 // Android opens such a form with blank preloads. Submitting it, Core's
 // `xml/CaseXmlParser.java::loadCase` throws for an update or a close of a
 // case the phone lacks (`errorIfMissing` is true for both, false for an
-// index or an attachment), and `sync/FormSubmissionHelper.java::handleExceptionFromFormProcessing`
-// quarantines the form and posts "Problem with your App"; the lane observes
-// that the form never reaches HQ (`entryPointUnheldCaseSubmit:
+// index or an attachment). Android processes a completed form as it saves
+// it (`android/database/user/models/FormRecord.java::updateAndProcessRecord`),
+// so the throw fails the save (`tasks/SaveToDiskTask.java`,
+// `SAVE_UNRECOVERABLE_ERROR`) and `activities/FormEntryActivity.java::savingComplete`
+// quarantines the form, which posts "Form Record Quarantined"
+// (`notification.quarantine.local.*`). The lane observes that notification
+// and that the form never reaches HQ (`entryPointUnheldCaseSubmit:
 // "not-processed"`). So Preview refuses to write exactly the submissions
 // that would make Core's `loadCase` throw:
 //

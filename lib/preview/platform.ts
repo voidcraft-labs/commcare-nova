@@ -76,8 +76,10 @@ export interface PreviewPlatformRules {
 	readonly entryPointCaseNotHeld: "claimed" | "opens-blank";
 	/** Submitting a form opened for a case the phone lacks. Core
 	 *  `xml/CaseXmlParser.java::loadCase` throws for an update or close of a
-	 *  missing case, and Android quarantines the form, sends nothing and posts
-	 *  "Problem with your App" (`FormSubmissionHelper.java::handleExceptionFromFormProcessing`;
+	 *  missing case; Android processes the form as it saves it, so the save
+	 *  fails and the phone quarantines the form, sends nothing and posts
+	 *  "Form Record Quarantined" (`FormEntryActivity.java::savingComplete`,
+	 *  `FormRecordProcessor.java::quarantineRecord`;
 	 *  `proof/android/test_navigation.py` reads it off a device). Preview saves
 	 *  nothing for a form that changes such a case (`unheldCaseSubmit.ts`). */
 	readonly entryPointUnheldCaseSubmit: "submits" | "not-processed";

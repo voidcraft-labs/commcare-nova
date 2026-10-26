@@ -21,9 +21,9 @@ Android's own home activity reads the session each navigation leaves (``proof.an
 - ``targeted-preview-android-renders``: the entry point ``update_visit`` launched on a case id no project space
   holds opens "Update visit" anyway (Core checks only that the session holds the datum's key,
   ``CommCareSession.getFirstMissingDatum``), its status starting blank; completing it, the form updates a case the
-  phone lacks, which Core's ``CaseXmlParser.loadCase`` refuses, so the device quarantines the form, sends nothing
-  and tells the worker "Problem with your App". Preview running as Android saves nothing for such a form and says
-  so (``lib/preview/platform.ts``, ``entryPointUnheldCaseSubmit``).
+  phone lacks, which Core's ``CaseXmlParser.loadCase`` refuses as the form saves, so the device quarantines the
+  form, sends nothing and tells the worker "Form Record Quarantined". Preview running as Android saves nothing for
+  such a form and says so (``lib/preview/platform.ts``, ``entryPointUnheldCaseSubmit``).
 
 The plausible failures: a destination HQ builds as another (``root`` as the app's home, ``parent_module`` as
 the form's own menu); a device that opens a menu selecting several cases, so a destination there would be one a
@@ -46,8 +46,8 @@ HIDDEN_TARGET = "targeted-form-link-hidden-target"
 RENDERS = "targeted-preview-android-renders"
 # A case id no project space holds, which the entry point names all the same.
 UNHELD_CASE = "targeted-unheld-visit"
-# Android's notification for a form it could not process (notification.processing.badstructure.title).
-PROBLEM_WITH_YOUR_APP = "Problem with your App"
+# Android's notification for a form its failed save quarantined (notification.quarantine.local.title).
+FORM_RECORD_QUARANTINED = "Form Record Quarantined"
 FORM_ENTRY = "FormEntryActivity"
 MENU = "MenuActivity"
 LIST = "EntitySelectActivity"
@@ -188,9 +188,10 @@ def test_a_link_to_a_target_its_menu_hides_opens_the_form_and_an_empty_menu(andr
 
 def test_an_entry_point_to_a_case_the_phone_lacks_opens_blank_and_its_completion_is_read(android_documents, hq):
     """``update_visit`` names a case no project space holds and completes the form it opens. The form opens, its
-    status question holding no answer; the device sends HQ nothing, and the worker is told "Problem with your
-    App": the form is quarantined, never processed, the reading Preview's ``entryPointUnheldCaseSubmit`` holds for
-    Android (its outcome A)."""
+    status question holding no answer; the device sends HQ nothing, and the worker is told "Form Record
+    Quarantined": Android processes the form as it saves it, Core refuses the update, and the failed save
+    quarantines the form, never processed, the reading Preview's ``entryPointUnheldCaseSubmit`` holds for Android
+    (its outcome A)."""
     sent = []
     navs = _navs(
         android_documents[RENDERS],
@@ -211,4 +212,4 @@ def test_an_entry_point_to_a_case_the_phone_lacks_opens_blank_and_its_completion
     ]
     assert status["answer"] is None, status
     assert sent == [], sent
-    assert PROBLEM_WITH_YOUR_APP in record["landed"]["notifications"], record["landed"]
+    assert FORM_RECORD_QUARANTINED in record["landed"]["notifications"], record["landed"]
