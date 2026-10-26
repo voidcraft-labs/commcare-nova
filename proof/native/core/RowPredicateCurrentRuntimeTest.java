@@ -53,7 +53,7 @@ import static org.junit.Assert.*;
  * gives each entry its own count under all three predicates. The bare
  * /data/visits/kind print, the retained control made from the same bytes,
  * answers per entry where the predicate is answered in the bind's context and
- * refuses to read every entry where it is evaluated row by row.
+ * answers every entry with the first entry's read where it is evaluated row by row.
  *
  * Plausible failure: a print that names every entry of the repeat in one of
  * the evaluations, so a form stops or counts another entry's rows.
@@ -174,15 +174,21 @@ public class RowPredicateCurrentRuntimeTest {
             assertEquals("The bare read through the index answers entry " + (index + 1) + " as its own",
                 entry.getString("indexed"), held(indexedOnly, repeat + "[" + (index + 1) + "]/indexed"));
         }
-        // Scanned row by row, the bare read names both entries' answers.
+        // Scanned row by row, the bare read is contextualized against a casedb row, so it is cloned unbound
+        // (TreeReference.contextualize) and names every entry. contains() unpacks it (FunctionUtils.toString),
+        // and the lazy nodeset reads an unbound path without expanding it (XPathLazyNodeset.unpack):
+        // DataInstance.resolveReference answers it from its reference cache, which holds the entry it resolved
+        // while the repeat held that entry alone. So no entry is refused, and every entry counts the first
+        // entry's rows: a form that goes on with another entry's answer.
         String scannedOnly = bare.replaceAll(
             "<bind type=\"xsd:string\" nodeset=\"/data/visits/(indexed|placed)\" calculate=\"[^\"]*\"/>", "");
-        try {
-            withEntries(scannedOnly, rows);
-            fail("The bare read scanned row by row answered every entry, where Core was expected to refuse two answers");
-        } catch (RuntimeException expected) {
-            assertTrue("The bare read's refusal names something other than several nodes: " + expected,
-                String.valueOf(expected.getMessage()).contains("more than one node"));
+        FormDef scanned = withEntries(scannedOnly, rows);
+        String first = entries.getJSONObject(0).getString("scanned");
+        assertNotEquals("The rows give the entries different scanned counts", first,
+            entries.getJSONObject(1).getString("scanned"));
+        for (int index = 0; index < entries.length(); index++) {
+            assertEquals("The bare read scanned row by row answers entry " + (index + 1) + " with the first entry's"
+                + " count", first, held(scanned, repeat + "[" + (index + 1) + "]/scanned"));
         }
     }
 
