@@ -364,10 +364,15 @@ export function InlineTextEditor({
 			 * our toolbar portal or its dropdown (both outside the ProseMirror DOM
 			 * tree), the blur is transient: don't save. Only save when focus has
 			 * genuinely left the editing context. The toolbar wrapper and the Radix
-			 * dropdown content are both tagged with [data-inline-toolbar]. */
+			 * dropdown content are both tagged with [data-inline-toolbar]. Focus
+			 * can also come back to the editor itself before the frame runs: a
+			 * reference chosen in the picker closes it and returns focus here, and
+			 * on a busy frame that happens before the check for the blur that
+			 * opened the picker. */
 			requestAnimationFrame(() => {
 				if (
 					!e.isDestroyed &&
+					!e.view.hasFocus() &&
 					!prosePickerIsOpen(e) &&
 					!document.activeElement?.closest("[data-inline-toolbar]")
 				) {
