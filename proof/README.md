@@ -1887,7 +1887,12 @@ the caches left, the second omits the fetch).
   (`searchPrompts.retyped`). Where the client would keep the search back (a prompt in error, a required one
   left blank: `unsendable`), the walk sends none, records what held it (`unsent`) and ends the run
   `search-refused`; the client's own refusal of the same search is its outcome in the replay, and every search
-  the client does send is held to the walk's (`proof/webapps/observe.py::searched_alike`). The trace is
+  the client does send is held to the walk's (`proof/webapps/observe.py::searched_alike`). The walk sends a
+  desktop's window width (`webapps.py::WINDOW_WIDTH`) and the client its own window's (`menus/api.js`,
+  `window.innerWidth`), so a prompt starting from the window width is each window's own: where a phone's or App
+  Preview's search differs from the walk's and the client sent another width, the run is walked again with that
+  width (`walked_in_window`, a run of the state of its own that leaves nothing in its records) and the client's
+  search is held to that walk's. The trace is
   Formplayer's own JSON for every request, with what it asked HQ during each, the submission HQ received and
   the screen Formplayer's end of form navigation names next. A run's `end` names where it ended; every end but
   the app's own is a stop the walk-stops list holds ("Walk stops"), and the walk's bounds raise by name.

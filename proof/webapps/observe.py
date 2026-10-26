@@ -158,23 +158,67 @@ def _searches(entries) -> dict[str, list]:
     return found
 
 
-def searched_alike(walk_run: Mapping[str, Any], run) -> None:
-    """Holds each search the client ran in a run (the ``query_data`` of its requests to Formplayer's
-    ``navigate_menu``) to the one Formplayer's walk of the same run ran: the same searches, each with the same
-    prompts' values, and none where the walk holds that the client keeps the search back (its ``unsent`` step);
-    ``SearchedOtherwise`` where they differ. Nothing is held for a run the client stopped following."""
-    walked = _searches(
+def _walked_searches(walk_run: Mapping[str, Any]) -> dict[str, list]:
+    """Each search a run of Formplayer's walk ran (``_searches``), from the requests it sent but a case's details."""
+    return _searches(
         step["request"].get("query_data")
         for step in walk_run["steps"]
         if "request" in step and step["request"].get("route") != "get_details"
     )
-    sent = _searches((exchange.request_json() or {}).get("query_data") for exchange in run.answered("navigate_menu"))
-    if not _same_sent(walked, sent):
-        raise SearchedOtherwise(
-            f"The Web Apps client ran the searches {sent!r} in the run {list(walk_run['script'])!r}, where Formplayer's"
-            f" walk of it ran {walked!r}. The walk sends the searches the client sends"
-            " (proof/formplayer/walk.py::shown_inputs, unsendable): find what the client's screen holds otherwise."
-        )
+
+
+def walked_in_window(served, script: Sequence[Mapping[str, Any]], width: str) -> dict[str, Any]:
+    """Formplayer's walk of one run again (``script``, as a state's record holds it), with the window width a
+    client sent in place of the desktop's the walk sends (``proof.formplayer.webapps.WINDOW_WIDTH``), as a state's
+    record would hold that run (``proof.formplayer.observe.marked``). A value Formplayer works out from the width
+    (a Search field starting from ``session/context/window_width``) is that window's own, as a location
+    question's place is (``derived_places``). Like ``derived_places``' walk, it is a run of the state of its own
+    (named ``window:``) and leaves nothing in what the state's records keep."""
+    import json
+    from contextlib import nullcontext
+
+    from proof.formplayer import observe as formplayer_observe
+
+    forwarding = getattr(served, "forwarding", None)
+    kept_as_nobodys = forwarding.reading(None) if forwarding is not None else nullcontext()
+    with served.hq.forgetting(), kept_as_nobodys:
+        walk = Walk.of(served, scope=lambda name: served.run(f"window:{width}:{name}"), window_width=width)
+        walk = walk.run([list(script)])
+        [run] = json.loads(json.dumps(formplayer_observe.marked(walk, served=served, runner=served.runner)))["runs"]
+    return run
+
+
+def searched_alike(walk_run: Mapping[str, Any], run, served=None) -> None:
+    """Holds each search the client ran in a run (the ``query_data`` of its requests to Formplayer's
+    ``navigate_menu``) to the one Formplayer's walk of the same run ran: the same searches, each with the same
+    prompts' values, and none where the walk holds that the client keeps the search back (its ``unsent`` step);
+    ``SearchedOtherwise`` where they differ. Nothing is held for a run the client stopped following.
+
+    The walk sends a desktop's window width, and the client sends its own window's (``menus/api.js``,
+    ``String(window.innerWidth)``): on a phone and in App Preview's frame, a prompt's value Formplayer works out
+    from the width is that window's. So where the client's searches differ from the walk's and the client sent
+    another width, the run is walked again with the width the client sent (``walked_in_window``, given
+    ``served``), and the client's searches are held to that walk's."""
+    from proof.formplayer.webapps import WINDOW_WIDTH
+
+    walked = _walked_searches(walk_run)
+    navigations = run.answered("navigate_menu")
+    sent = _searches((exchange.request_json() or {}).get("query_data") for exchange in navigations)
+    if _same_sent(walked, sent):
+        return
+    widths = {(exchange.request_json() or {}).get("windowWidth") for exchange in navigations}
+    width = next(iter(widths)) if len(widths) == 1 else None
+    again = ""
+    if served is not None and isinstance(width, str) and width != WINDOW_WIDTH:
+        walked = _walked_searches(walked_in_window(served, walk_run["script"], width))
+        if _same_sent(walked, sent):
+            return
+        again = f" again with the window width {width!r} the client sent"
+    raise SearchedOtherwise(
+        f"The Web Apps client ran the searches {sent!r} in the run {list(walk_run['script'])!r}, where Formplayer's"
+        f" walk of it{again} ran {walked!r}. The walk sends the searches the client sends"
+        " (proof/formplayer/walk.py::shown_inputs, unsendable): find what the client's screen holds otherwise."
+    )
 
 
 # A multi-select list's Continue below its cases (``partials/case_list/list.html``); the list's header holds a
@@ -918,7 +962,7 @@ def shown(served, driver, walk: Mapping[str, Any]) -> dict[str, Any]:
             submitted_alike(served, each, run)
         one = _record(served.runner, driver, served.version, {"runs": [each]}, run, kinds)
         if not any("stopped" in held for held in one["runs"]):
-            searched_alike(each, run)
+            searched_alike(each, run, served)
         return one
 
     for window, session, viewport in windows:

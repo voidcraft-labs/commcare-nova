@@ -141,9 +141,12 @@ harness keeps, each with its reason.
   the answers the client's own reconciliation sends, chooses an option as the
   client binds it (by its label), and gives a location the place the
   client's map gave, each window's own (`derived_places`), which every
-  replay gives again by the same drags; a difference between the two is the
-  harness's to find, never a check to loosen. The client reads some
-  things from the app HQ stores and never from the build (the logo,
+  replay gives again by the same drags. It sends a desktop's window width,
+  so where a phone's or App Preview's search differs from it and the client
+  sent its own window's width, the run is walked again with that width and
+  the search is held to that walk (`walked_in_window`); a difference between
+  the two is the harness's to find, never a check to loosen. The client
+  reads some things from the app HQ stores and never from the build (the logo,
   `cc-show-incomplete`), so a claim that two builds are alike says nothing
   of them: release the state and read the page. A step waits on what the
   client itself waits on (its route, its own request-in-flight flag, a

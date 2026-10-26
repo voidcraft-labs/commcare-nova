@@ -14,8 +14,9 @@ fields HQ's client writes, read from HQ's client at the pin:
   action's route (``answer``, ``submit-all``, ``current``, ...).
 
 The values a browser reads from its window (the zone, the width, the page
-size) are fixed here to one browser's: UTC, a desktop width, ten cases a
-page. Each request is one HTTP request to Formplayer's own server
+size) are fixed here to one browser's: UTC, a desktop width (another
+window's where a walk stands for it, ``window_width``), ten cases a page.
+Each request is one HTTP request to Formplayer's own server
 (``FormplayerRunner.http``), with Formplayer's requests of HQ answered by
 ``hq``; every exchange is kept in ``exchanges`` in order.
 """
@@ -66,11 +67,15 @@ class WebApps:
         session_key: str,
         locale: str | None = None,
         one_question_per_screen: bool = False,
+        window_width: str = WINDOW_WIDTH,
     ):
         self.runner, self.hq = runner, hq
         self.domain, self.username, self.app_id, self.locale = domain, username, app_id, locale
         self.session_key = session_key
         self.one_question_per_screen = one_question_per_screen
+        # The width the browser's window reads, sent with every menu request (``menus/api.js``,
+        # ``String(window.innerWidth)``): a desktop's unless a walk stands for another window.
+        self.window_width = window_width
         self.csrf: str | None = None
         self.exchanges: list[tuple[str, Any, Exchange]] = []
 
@@ -148,7 +153,7 @@ class WebApps:
             "selected_values": list(selected_values) if selected_values is not None else None,
             "isShortDetail": False,
             "isRefreshCaseSearch": False,
-            "windowWidth": WINDOW_WIDTH,
+            "windowWidth": self.window_width,
             "keepAPMTraces": False,
             **more,
         }
