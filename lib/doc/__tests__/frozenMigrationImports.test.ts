@@ -103,17 +103,48 @@ function importFindings(file: string, source: SourceFile): Finding[] {
 	return result;
 }
 
-/** A static specifier reaching the package must spell its directory segment or
- * use an escape. This conservative prefilter skips unrelated ASTs; escaped
- * spellings still reach the parser, and text matches never establish a finding. */
+/**
+ * Every escape a string or template literal can spell, cooked to the
+ * character it stands for: a code point (`\u{...}`), a code unit (`\uXXXX`,
+ * `\xXX`, a legacy octal), nothing for a line continuation, and the character
+ * itself for any other. `\n` and its kin cook to their letter here, never to
+ * the character they name, which can only add a match.
+ */
+const ESCAPE =
+	/\\(?:u\{([0-9a-fA-F]+)\}|u([0-9a-fA-F]{4})|x([0-9a-fA-F]{2})|([0-3][0-7]{0,2}|[4-7][0-7]?)|(\r\n|[\n\r\u2028\u2029])|([\s\S]))/g;
+
+function cookEscapes(text: string): string {
+	return text.replace(
+		ESCAPE,
+		(whole, point, unit, hex, octal, _continuation, other) => {
+			if (point !== undefined) {
+				const value = Number.parseInt(point, 16);
+				return value <= 0x10ffff ? String.fromCodePoint(value) : whole;
+			}
+			if (unit !== undefined || hex !== undefined)
+				return String.fromCharCode(Number.parseInt(unit ?? hex, 16));
+			if (octal !== undefined)
+				return String.fromCharCode(Number.parseInt(octal, 8));
+			return other ?? "";
+		},
+	);
+}
+
+/** A static specifier reaching the package spells its directory segment,
+ * plainly or through escapes. This prefilter keeps every file whose text
+ * spells it once each escape is cooked, read as one literal from the start:
+ * an escape never spans a literal's opening quote, so each literal's own
+ * escapes cook as the parser cooks them. It keeps a superset; only the parse
+ * establishes a finding. */
 function checkImportPolicy(
 	sources: Readonly<Record<string, string>>,
 ): Finding[] {
+	const segment = path.posix.basename(FROZEN_DIRECTORY);
 	const candidates = Object.fromEntries(
 		Object.entries(sources).filter(
 			([, text]) =>
-				text.includes(path.posix.basename(FROZEN_DIRECTORY)) ||
-				text.includes("\\"),
+				text.includes(segment) ||
+				(text.includes("\\") && cookEscapes(text).includes(segment)),
 		),
 	);
 	if (Object.keys(candidates).length === 0) return [];
@@ -151,13 +182,48 @@ describe("frozen migration import policy", () => {
 			'import pkg from "some-package/frozenScanner";',
 			`import { escaped } from "${escaped}";`,
 		].join("\n");
+		// Spelled only through escapes, so it reaches the parse only through
+		// the prefilter's cooking.
+		const escapedOnly = "lib/db/escapedReader.ts";
+		const escapedText = [
+			`import a from "@/lib/case-store/migrations/\\u{32}0260728000000_canonical_identity_foundation/x";`,
+			`import b from "@/lib/case-store/migrations/2026072800\\\n0000_canonical_identity_foundation/x";`,
+			`import c from "@/lib/case-store/migrations/20260728000000_\\canonical_identity_foundation/x";`,
+			`import d from "@/lib/case-store/migrations/20260728000000_canonical_identity_foundatio\\u006e/x";`,
+			'const help = "no specifier \\\\ here";',
+		].join("\n");
 		const samples = {
+			[escapedOnly]: escapedText,
 			[file]: text,
 			[`${FROZEN_DIRECTORY}inside.ts`]: text,
 			"scripts/scan-canonical-identity-foundation.ts": text,
 			"lib/case-store/migrations/__tests__/oracle.test.ts": text,
 		};
 		expect(checkImportPolicy(samples)).toEqual([
+			{
+				file: escapedOnly,
+				line: 1,
+				value:
+					"@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/x",
+			},
+			{
+				file: escapedOnly,
+				line: 2,
+				value:
+					"@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/x",
+			},
+			{
+				file: escapedOnly,
+				line: 4,
+				value:
+					"@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/x",
+			},
+			{
+				file: escapedOnly,
+				line: 5,
+				value:
+					"@/lib/case-store/migrations/20260728000000_canonical_identity_foundation/x",
+			},
 			{ file, line: 1, value: alias },
 			{ file, line: 2, value: relative },
 			{ file, line: 3, value: alias },
