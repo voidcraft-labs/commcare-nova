@@ -193,9 +193,11 @@ async function choiceLabelOf(page: Page) {
 
 async function attachOnly(run: Run, label: string) {
 	const { page } = run;
-	/* The file input is named by its question's label and its action. */
+	/* The file input is named by its question's label and its action, which
+	 * it joins by aria-labelledby; getByLabel matches each labelling element
+	 * alone, so the input is found by its whole accessible name. */
 	await expect(
-		page.getByLabel(new RegExp(`${label}.*Attach file`)),
+		page.getByRole("button", { name: `${label} Attach file` }),
 	).toHaveCount(1);
 	await expect(page.locator('input[type="file"][capture]')).toHaveCount(0);
 	for (const name of [
