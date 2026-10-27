@@ -188,6 +188,8 @@ for (const moduleUuid of [INTAKE, CARE]) {
 	if (!config) throw new Error("Missing collection selection");
 	config.selection = { kind: "multiple", maximum: 10 };
 }
+// Choosing several cases runs in Web Apps alone.
+collection.appSettings = { ...collection.appSettings, runsOnlyOn: "web-apps" };
 collection.forms[SOURCE].type = "followup";
 const CARRY_COLLECTION_DOC = admitted(collection);
 function CarryContent() {

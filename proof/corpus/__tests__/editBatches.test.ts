@@ -112,7 +112,8 @@ import {
 	hydrateAdmittedDocument,
 	publishFindings,
 } from "../editBatches";
-import { uuidTokensOf } from "../editContext";
+import { Minter, Rng, uuidTokensOf } from "../editContext";
+import { type Candidate, EDIT_KIND_GENERATORS } from "../editKinds";
 import {
 	WORKFORCE_BASES,
 	workforceDocument,
@@ -438,6 +439,62 @@ describe("proof corpus edit batches", () => {
 		);
 		const reseeded = editBatchCorpus(corpus, SEED + 1);
 		expect(batchesByDocument(reseeded.outcomes)).not.toEqual(batches);
+	});
+});
+
+describe("turning Connect on", () => {
+	const proposals = (input: EditCorpusDocument) => {
+		const doc = hydrateAdmittedDocument(input);
+		return EDIT_KIND_GENERATORS.setConnectType({
+			doc,
+			known: uuidTokensOf(input.doc),
+			rng: new Rng(`connect\u0000${input.id}`),
+			mint: new Minter(`connect\u0000${input.id}`, SEED),
+		});
+	};
+	const mutationsOf = (candidate: Candidate | undefined) => {
+		if (candidate === undefined || !("mutations" in candidate))
+			throw new Error("Expected the generator to propose a batch.");
+		return candidate.mutations;
+	};
+
+	it("turns Connect on as the builder commits it, narrowing the app to Android in the same batch, and is refused where the content cannot run on Android", () => {
+		const both = stored("arithmetic", arithmeticFixture().doc);
+		const [first] = proposals(both);
+		const mutations = mutationsOf(first);
+		expect(mutations[0]).toEqual({
+			kind: "setAppSettings",
+			settings: { runsOnlyOn: "android" },
+		});
+		expect(
+			mutations.some((mutation) => mutation.kind === "setConnectType"),
+		).toBe(true);
+		const admitted = admitEditBatch(both, mutations);
+		expect(admitted.ok).toBe(true);
+		if (admitted.ok)
+			expect(admitted.nextDoc.appSettings.runsOnlyOn).toBe("android");
+
+		const android = stored(
+			"case-operation-sequence",
+			caseOperationFixture("sequence"),
+		);
+		expect(
+			mutationsOf(proposals(android)[0]).some(
+				(mutation) => mutation.kind === "setAppSettings",
+			),
+		).toBe(false);
+
+		const searchFirst = stored(
+			"search-inline",
+			searchEmissionFixture("inline"),
+		);
+		const refused = admitEditBatch(
+			searchFirst,
+			mutationsOf(proposals(searchFirst)[0]),
+		);
+		expect(refused.ok).toBe(false);
+		if (!refused.ok)
+			expect(refused.codes).toContain("PLATFORM_FEATURE_UNAVAILABLE");
 	});
 });
 

@@ -79,6 +79,12 @@ export function checkErrorDetails(
 		checkCode: error.code,
 		path: error.path.join("."),
 		...(error.reason === undefined ? {} : { checkReason: error.reason }),
+		...(error.platform === undefined
+			? {}
+			: {
+					feature: error.platform.feature,
+					platform: error.platform.platform,
+				}),
 		...(chosen === undefined
 			? {}
 			: {

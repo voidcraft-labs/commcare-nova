@@ -8,18 +8,21 @@ import {
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
-import type { FormType, Uuid } from "@/lib/domain";
+import type { FormType, Platform, Uuid } from "@/lib/domain";
 import { makeCanonicalGenesisDoc } from "./fixtures";
 
 /** Named canonical forms for tests of field authoring and reads. Construction
  * itself is tested through the durable workspace. These use the same valid
- * starter shapes as Builder and contain no old composite tool grammar. */
+ * starter shapes as Builder and contain no old composite tool grammar. A test
+ * that goes on to give the app something one platform can't run names the
+ * platform it runs on (`runsOnlyOn`), declared in the same batch. */
 export function namedFormFixture(
 	modules: Array<{
 		name: string;
 		caseType?: string;
 		forms: Array<{ name: string; type: FormType }>;
 	}>,
+	options: { readonly runsOnlyOn?: Platform } = {},
 ) {
 	const base = makeCanonicalGenesisDoc();
 	let doc = base;
@@ -30,6 +33,13 @@ export function namedFormFixture(
 			applyMutations(draft, batch);
 		});
 	};
+	if (options.runsOnlyOn !== undefined)
+		apply([
+			{
+				kind: "setAppSettings",
+				settings: { runsOnlyOn: options.runsOnlyOn },
+			},
+		]);
 	for (const module of modules) {
 		const scaffold: {
 			mutations: Mutation[];

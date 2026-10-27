@@ -21,7 +21,9 @@
  * the note's relevance makes, by instant.
  *
  * The split's fields run on both platforms, so the document declares
- * nothing and every reader reads it.
+ * nothing and every reader reads it: the original, whose date-and-time
+ * questions only Android runs, declares Android only, and the split's batch
+ * clears that declaration once no question holds it.
  */
 
 import { produce } from "immer";
@@ -46,7 +48,10 @@ export function datetimeSplit() {
 			`Nova's planner refused to split ${ID}'s questions: ${plan.message}`,
 		);
 	const doc = produce(original, (draft) => {
-		applyMutations(draft, plan.mutations);
+		applyMutations(draft, [
+			...plan.mutations,
+			{ kind: "setAppSettings", settings: { runsOnlyOn: null } },
+		]);
 	});
 	const names = datetimeSplitNames(uuid);
 	const restore = restoreXml({

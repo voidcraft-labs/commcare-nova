@@ -26,6 +26,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
+	type AppSettings,
 	advancedSearchInputDef,
 	type BlueprintDoc,
 	blueprintDocSchema,
@@ -36,6 +37,7 @@ import {
 	intervalColumn,
 	linkColumn,
 	type Module,
+	NEW_APP_SETTINGS,
 	type ProseTemplate,
 	phoneColumn,
 	plainColumn,
@@ -4068,6 +4070,11 @@ describe("form_links emission", () => {
 //      suppress Core's implicit property matcher while their predicates
 //      + filter AND-compose into `_xpath_query` on `default_properties`.
 
+const WEB_APPS_ONLY: AppSettings = {
+	...NEW_APP_SETTINGS,
+	runsOnlyOn: "web-apps",
+};
+
 const HQ_PROJECTION_MODULE_UUID = testUuid(
 	"77777777-7777-4777-8777-777777777771",
 );
@@ -4112,9 +4119,11 @@ function buildHqProjectionDoc(
 	caseTypes: NonNullable<DocSpec["caseTypes"]> = [
 		HQ_PROJECTION_PATIENT_CASE_TYPE,
 	],
+	appSettings?: AppSettings,
 ) {
 	return buildDoc({
 		appName: "HQ Projection",
+		...(appSettings === undefined ? {} : { appSettings }),
 		modules: [
 			{
 				uuid: HQ_PROJECTION_MODULE_UUID,
@@ -5074,38 +5083,44 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		// matches `PROMPT_ATTRIBUTE_MAPPINGS`. `text` leaves both
 		// slots absent; `date` carries `input_: "date"`; barcode rides
 		// `appearance: "barcode_scan"`.
-		const doc = buildHqProjectionDoc({
-			columns: [
-				plainColumn(
-					testUuid("00000000-0000-4000-8000-000000040003"),
-					"case_name",
-					"Name",
-				),
-			],
-			searchInputs: [
-				simpleSearchInputDef(
-					testUuid("00000000-0000-4000-8000-000000040011"),
-					"name_search",
-					"Name",
-					"text",
-					"case_name",
-				),
-				simpleSearchInputDef(
-					testUuid("00000000-0000-4000-8000-000000040012"),
-					"dob_search",
-					"DOB",
-					"date",
-					"dob",
-				),
-				simpleSearchInputDef(
-					testUuid("00000000-0000-4000-8000-000000040013"),
-					"scan_search",
-					"Scan",
-					"barcode",
-					"case_name",
-				),
-			],
-		});
+		const doc = buildHqProjectionDoc(
+			{
+				columns: [
+					plainColumn(
+						testUuid("00000000-0000-4000-8000-000000040003"),
+						"case_name",
+						"Name",
+					),
+				],
+				searchInputs: [
+					simpleSearchInputDef(
+						testUuid("00000000-0000-4000-8000-000000040011"),
+						"name_search",
+						"Name",
+						"text",
+						"case_name",
+					),
+					simpleSearchInputDef(
+						testUuid("00000000-0000-4000-8000-000000040012"),
+						"dob_search",
+						"DOB",
+						"date",
+						"dob",
+					),
+					simpleSearchInputDef(
+						testUuid("00000000-0000-4000-8000-000000040013"),
+						"scan_search",
+						"Scan",
+						"barcode",
+						"case_name",
+					),
+				],
+			},
+			undefined,
+			undefined,
+			// A single-date Search field runs in Web Apps alone.
+			WEB_APPS_ONLY,
+		);
 		const properties = expandDoc(doc).modules[0].search_config.properties;
 		expect(properties).toHaveLength(3);
 		// Plain text: no `input_` / `appearance`.
@@ -5134,39 +5149,45 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 	});
 
 	it("keeps mixed simple and advanced prompt bindings with shared widget/default metadata", () => {
-		const doc = buildHqProjectionDoc({
-			columns: [
-				plainColumn(
-					testUuid("00000000-0000-4000-8000-0000000400a1"),
-					"case_name",
-					"Name",
-				),
-			],
-			searchInputs: [
-				simpleSearchInputDef(
-					testUuid("00000000-0000-4000-8000-0000000400a2"),
-					"case_name",
-					"Name",
-					"text",
-					"case_name",
-				),
-				advancedSearchInputDef(
-					testUuid("00000000-0000-4000-8000-0000000400a3"),
-					"status",
-					"Status rule",
-					"text",
-					eq(prop("patient", "status"), literal("open")),
-				),
-				advancedSearchInputDef(
-					testUuid("00000000-0000-4000-8000-0000000400a4"),
-					"visited_after",
-					"",
-					"date",
-					eq(prop("patient", "last_visit"), dateLiteral("2026-07-17")),
-					{ default: today() },
-				),
-			],
-		});
+		const doc = buildHqProjectionDoc(
+			{
+				columns: [
+					plainColumn(
+						testUuid("00000000-0000-4000-8000-0000000400a1"),
+						"case_name",
+						"Name",
+					),
+				],
+				searchInputs: [
+					simpleSearchInputDef(
+						testUuid("00000000-0000-4000-8000-0000000400a2"),
+						"case_name",
+						"Name",
+						"text",
+						"case_name",
+					),
+					advancedSearchInputDef(
+						testUuid("00000000-0000-4000-8000-0000000400a3"),
+						"status",
+						"Status rule",
+						"text",
+						eq(prop("patient", "status"), literal("open")),
+					),
+					advancedSearchInputDef(
+						testUuid("00000000-0000-4000-8000-0000000400a4"),
+						"visited_after",
+						"",
+						"date",
+						eq(prop("patient", "last_visit"), dateLiteral("2026-07-17")),
+						{ default: today() },
+					),
+				],
+			},
+			undefined,
+			undefined,
+			// A single-date Search field runs in Web Apps alone.
+			WEB_APPS_ONLY,
+		);
 
 		const properties = expandDoc(doc).modules[0].search_config.properties;
 		expect(properties).toHaveLength(3);

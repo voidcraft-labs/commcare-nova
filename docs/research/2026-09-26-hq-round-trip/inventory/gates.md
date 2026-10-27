@@ -79,7 +79,7 @@ A summary of the gates behind every row in the other inventory files; these rows
 | IS_CONTRACTOR [internal, user] | INERT · no content | n/a | none |
 | MOBILE_RECOVERY_MEASURES [internal] | TARGET-OWNED · computed profile URL | n/a | none |
 | FACE_CAPTURE [release] | TARGET-OWNED · HELD-NEW (Question types face capture) | n/a | none: it gates only creating the question in Vellum (`core.js`), and HQ reads it nowhere else |
-| COMMCARE_CONNECT [connect division] | TARGET-OWNED · HELD / HELD-NEW (Question types Connect blocks) | n/a | precondition |
+| COMMCARE_CONNECT [connect division] | TARGET-OWNED · HELD / HELD-NEW (Application: a Connect app; Question types Connect blocks) | n/a | precondition |
 
 Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTACHMENT` [GA path], for an app that shows a link write in a case list or detail; whether case search is on (`CaseSearchConfig.enabled`), which Nova's runtime probe reads for an app with case search (`lib/commcare/client.ts::probeCaseSearchRuntime`); and, by asking the person to confirm, since no API reads those settings: that sync on form entry is off for an app that declares Android and has a module that offers search (defect 20) and that the flat location fixture still syncs for an app that reads locations (Settings and profile); and, at import and publish of an app with an advanced module whose case list menu item is on, or with a form whose source contains the text `instance('commcaresession')/session/data/supply_point_id` (HQ's substring test, `entries.py::entry_for_module`), by asking the person to confirm, that CommTrack is off in the project space (defect 20).
 
@@ -106,7 +106,7 @@ Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTAC
 | `child_cases` | TARGET-OWNED · HELD (Basic form actions child cases) | n/a | editor gate, confirmed at publish |
 | `case_sharing_groups` | TARGET-OWNED · HELD-NEW (Settings and profile, `case_sharing`) | n/a | confirmed at publish |
 | `locations` | TARGET-OWNED · HELD (Reference targets, locations; organization levels and location reads) | n/a | confirmed at publish |
-| `cloudcare` | TARGET-OWNED · HELD-NEW (Settings and profile, `cloudcare_enabled`) | n/a | confirmed at publish for an app that declares Web Apps |
+| `cloudcare` | TARGET-OWNED · HELD (Settings and profile, `cloudcare_enabled`) | n/a | confirmed at publish for an app that declares Web Apps |
 | `practice_mobile_workers` | TARGET-OWNED · target value | n/a | none |
 | `commcare_logo_uploader` | TARGET-OWNED · HELD / HELD-NEW (Application logos) | n/a | not a publish precondition: publish writes no logo (defect 14) and says HQ's builds carry the app's logos only where the plan has this privilege and the person uploaded them in HQ (HQ's build drops the profile logo properties without it, and a plan downgrade archives the logos, `archived_media`) |
 | `build_profiles` | TARGET-OWNED · `build_profiles` target value | n/a | none |

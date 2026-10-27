@@ -15,6 +15,7 @@ import {
 	advancedSearchInputDef,
 	blueprintDocSchema,
 	calculatedColumn,
+	contentRunsOn,
 	proseText,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -78,6 +79,11 @@ function fixture() {
 		config,
 		args,
 		admitted() {
+			// The document declares the platform its Search fields run on, as
+			// `buildDoc` declares a fixture's.
+			const [only, ...others] = contentRunsOn(doc);
+			if (only !== undefined && others.length === 0)
+				doc.appSettings = { ...doc.appSettings, runsOnlyOn: only };
 			blueprintDocSchema.parse(toPersistableDoc(doc));
 			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 			return args;

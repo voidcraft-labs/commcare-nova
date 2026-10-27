@@ -14,7 +14,12 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import { expressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
-import { type CaseType, casePropertyDataTypes, type Uuid } from "@/lib/domain";
+import {
+	type CaseType,
+	casePropertyDataTypes,
+	type Uuid,
+	unavailablePlatform,
+} from "@/lib/domain";
 import {
 	chosen,
 	chosenCaseDoc,
@@ -471,10 +476,13 @@ describe("valid by construction — Negative of, Where you are now, a held list"
 						: seed;
 				const verdict = expressionEditVerdict(candidate, context);
 				// The menu offers it and the verdict decides whether it is
-				// enabled; where the slot runs on CommCare's server search, a
-				// location is refused there with its reason.
+				// enabled: a calculated column admits it, where the app's
+				// platforms run it (Web Apps doesn't know where the worker is).
 				if (kind === "here")
-					expect(verdict.ok, `${carrier}: ${kind}`).toBe(true);
+					expect(verdict.ok, `${carrier}: ${kind}`).toBe(
+						unavailablePlatform("case-list-here", context.platforms) ===
+							undefined,
+					);
 			}
 		}
 	});

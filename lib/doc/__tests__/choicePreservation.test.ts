@@ -142,6 +142,8 @@ describe("choice preservation during field edits", () => {
 			},
 		];
 		doc.connectType = "deliver";
+		// A Connect app runs on Android alone.
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
 		doc.forms[FORM].connect = {
 			deliver_unit: {
 				id: "visit",

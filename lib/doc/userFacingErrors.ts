@@ -64,6 +64,12 @@ import {
 	UNREADABLE_DATETIME_NEXT,
 } from "@/lib/domain/expression/typeChecker";
 import {
+	PLATFORMS,
+	platformDeclarationPhrase,
+	REFUSABLE_PLATFORM_FEATURE_IDS,
+	type RefusablePlatformFeatureId,
+} from "@/lib/domain/platforms";
+import {
 	type CaseOperationNameProblem,
 	caseOperationNameSentence,
 	type QuestionIdProblem,
@@ -356,6 +362,97 @@ const RECORD_CHECK_SENTENCES: Readonly<Record<string, string>> = {
 		"uses a distance unit that isn't text naming a unit, like miles or meters. You can choose a text value or a single choice.",
 };
 
+// ── Platform refusals ──────────────────────────────────────────────
+
+/** A platform refusal in the builder's words: the first sentence names the
+ * owner and what the declared platform can't do, then the way forward. */
+type PlatformBuilderCopy =
+	| {
+			/** The first sentence, naming the owner: `"visit_time" asks for a date and time, which Web Apps can't show.` */
+			readonly lead: (subject: string) => string;
+			/** After "You can": `ask for the date and the time separately`. */
+			readonly alternative: string;
+	  }
+	/** The whole sentence, where the way forward is not the other platform (Connect). */
+	| { readonly sentence: string };
+
+const PLATFORM_BUILDER_COPY = {
+	"datetime-question": {
+		lead: (subject) =>
+			`${subject} asks for a date and time, which Web Apps can't show.`,
+		alternative: "ask for the date and the time separately",
+	},
+	"case-list-here": {
+		lead: (subject) =>
+			`${subject} uses the worker's location, which Web Apps doesn't know.`,
+		alternative: "take it out of the value",
+	},
+	"search-first": {
+		lead: (subject) =>
+			`${subject} opens on Search first, which on Android can't open a case the phone doesn't hold.`,
+		alternative: "turn Search first off",
+	},
+	"several-cases": {
+		lead: (subject) =>
+			`${subject} lets workers choose several cases, which Android can't do.`,
+		alternative: "let them choose one case",
+	},
+	"search-field-single-date": {
+		lead: (subject) =>
+			`${subject} asks for one date, which Android doesn't show.`,
+		alternative: "ask for a date range instead",
+	},
+	"search-field-multiple-choice": {
+		lead: (subject) =>
+			`${subject} takes several choices, which Android doesn't show.`,
+		alternative: "let workers pick one choice",
+	},
+	"connect-app": {
+		sentence:
+			"Connect workers open this app only in the Connect app on Android. You can set the app to run only on Android in App settings, or turn off Connect.",
+	},
+} as const satisfies Readonly<
+	Record<RefusablePlatformFeatureId, PlatformBuilderCopy>
+>;
+
+const PLATFORM_REFUSAL_FALLBACK =
+	"This isn't available where this app runs. You can change where it runs in App settings.";
+
+/** The owner of a platform finding as the builder names it: a Search field,
+ * a question, or a module. */
+const platformFindingSubject = (e: ValidationError): string | undefined =>
+	e.details?.inputName !== undefined
+		? `Search field ${q(e.details.inputName)}`
+		: e.location.fieldId !== undefined
+			? q(e.location.fieldId)
+			: e.location.moduleName !== undefined
+				? q(e.location.moduleName)
+				: undefined;
+
+/**
+ * A platform refusal (`PLATFORM_FEATURE_UNAVAILABLE`, or the checker's
+ * `platform-unavailable` on a record or form slot) in the builder's voice,
+ * read from `details.feature` and `details.platform`. `subject` is the
+ * caller's own name for a record or form-logic slot; a structural finding
+ * names its owner. An unknown feature gives the generic line.
+ */
+export function platformBuilderSentence(
+	e: ValidationError,
+	subject?: string,
+): string {
+	const feature = REFUSABLE_PLATFORM_FEATURE_IDS.find(
+		(id) => id === e.details?.feature,
+	);
+	const platform = PLATFORMS.find((id) => id === e.details?.platform);
+	if (feature === undefined || platform === undefined)
+		return PLATFORM_REFUSAL_FALLBACK;
+	const copy: PlatformBuilderCopy = PLATFORM_BUILDER_COPY[feature];
+	if ("sentence" in copy) return copy.sentence;
+	const other = platform === "web-apps" ? "android" : "web-apps";
+	const owner = subject ?? platformFindingSubject(e) ?? "This";
+	return `${copy.lead(owner)} You can ${copy.alternative}, or set the app to run ${platformDeclarationPhrase([other])} in App settings.`;
+}
+
 /** A record slot's sentence for a comparison a device can't run between two
  * moments (`typeChecker.ts::checkInstantComparison`) or for a read of places,
  * which no record slot declares, or undefined for any other finding. The
@@ -365,6 +462,11 @@ const recordFindingCopy = (
 	e: ValidationError,
 	subject: string,
 ): string | undefined => {
+	if (
+		e.details?.checkCode === "arm-unavailable" &&
+		e.details.checkReason === "platform-unavailable"
+	)
+		return platformBuilderSentence(e, subject);
 	if (
 		e.details?.checkCode === "arm-unavailable" &&
 		e.details.checkReason === "places-unavailable"
@@ -487,6 +589,7 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The Connect ID ${q(det(e, "connectId", ""))} is already used by another form. Give this one a different ID, or change the other form's first.`,
 	CONNECT_NO_PARTICIPATING_FORMS: () =>
 		"You've turned Connect on for the app, but no form is using it yet. Set up Connect on at least one form, or turn it off for the app.",
+	PLATFORM_FEATURE_UNAVAILABLE: (e) => platformBuilderSentence(e),
 	CONNECT_MODE_MISMATCH: (e) =>
 		`${q(formName(e))}'s Connect setup doesn't match the app's Connect mode. Configure the app's complete Connect setup together.`,
 	BLUEPRINT_ENTITY_UUID_DUPLICATE: () =>

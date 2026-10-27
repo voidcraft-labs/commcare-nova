@@ -163,6 +163,8 @@ describe("Preview menu projection", () => {
 		};
 		const compatible = {
 			...base,
+			// Choosing several cases runs in Web Apps alone.
+			appSettings: { ...base.appSettings, runsOnlyOn: "web-apps" as const },
 			modules: {
 				...base.modules,
 				[ROOT]: { ...root, caseListConfig: multiConfig },

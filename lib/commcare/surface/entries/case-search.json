@@ -570,7 +570,7 @@
 		],
 		"valueClass": "skip-to-default-results",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived for a module whose search has an effective filter and no visible Search field (`suite/case-search/compileForPlatform.ts::compileForPlatform`); widen: `caseSearchConfig.workflow: skipToResults`, authored",
+		"dispositionCell": "**HELD**: derived for a module whose search has an effective filter and no visible Search field (`suite/case-search/searchWireShape.ts::searchWireShape`); widen: `caseSearchConfig.workflow: skipToResults`, authored",
 		"slotChanges": [
 			{
 				"direction": "widen",

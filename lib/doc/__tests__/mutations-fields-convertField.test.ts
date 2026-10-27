@@ -11,14 +11,25 @@ import {
 	type Mutation,
 	mutationSchema,
 } from "@/lib/doc/types";
-import { type FieldKind, proseText } from "@/lib/domain";
+import {
+	type FieldKind,
+	NEW_APP_SETTINGS,
+	type Platform,
+	proseText,
+} from "@/lib/domain";
 import { literal, matchAll, now, term } from "@/lib/domain/expression/builders";
 import { assertAdmittedDoc } from "./admittedDoc";
 
 const Q = testUuid("conversion-subject");
 const CHILD = testUuid("conversion-child");
-function fixture(field: Parameters<typeof f>[0]): BlueprintDoc {
+function fixture(
+	field: Parameters<typeof f>[0],
+	runsOnlyOn?: Platform,
+): BlueprintDoc {
 	const doc = buildDoc({
+		...(runsOnlyOn === undefined
+			? {}
+			: { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn } }),
 		modules: [
 			{
 				name: "Survey",
@@ -356,11 +367,15 @@ describe("admitted field conversion", () => {
 	it.each(["datetime", "text"] as const)(
 		"converts a hidden value back to %s with a label seed, the inverse of an offered conversion",
 		(toKind) => {
-			const before = fixture({
-				id: "answer",
-				kind: "hidden",
-				relevant: "true()",
-			});
+			const before = fixture(
+				{
+					id: "answer",
+					kind: "hidden",
+					relevant: "true()",
+				},
+				// A date-and-time question runs on Android alone.
+				toKind === "datetime" ? "android" : undefined,
+			);
 			expect(
 				convert(before, toKind, { label: proseText("Answer again") }).fields[Q],
 			).toEqual({

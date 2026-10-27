@@ -13,6 +13,7 @@
  * gone, and the export boundary's embedded fixture and HQ workbook.
  */
 
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import {
 	INSTANCE_READS,
@@ -24,6 +25,7 @@ import {
 	extractLookupReferenceTargets,
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
+import { applyMutations } from "@/lib/doc/mutations";
 import type { Uuid } from "@/lib/domain";
 import { prepareExportBoundaryWithReads } from "@/lib/export/boundaryValidation";
 import { parseLookupRevision } from "@/lib/lookup/schema";
@@ -136,7 +138,19 @@ describe("a data table read in form logic, Connect or a link", () => {
 	it.each(["ccz", "hq-json", "hq-upload"] as const)(
 		"carries the table's rows with a %s export",
 		async (mode) => {
-			const { doc, table, rows } = instanceReadFixture();
+			const fixture = instanceReadFixture();
+			const { table, rows } = fixture;
+			// The fixture's several-case and search-first menus run in Web Apps
+			// alone and its Connect app on Android alone, so no export holds all
+			// three; the export of its Connect app keeps the menu that reads the
+			// table and runs on Android.
+			const doc = produce(fixture.doc, (draft) => {
+				applyMutations(draft, [
+					{ kind: "removeModule", uuid: INSTANCE_READS.batchModule },
+					{ kind: "removeModule", uuid: INSTANCE_READS.searchModule },
+					{ kind: "setAppSettings", settings: { runsOnlyOn: "android" } },
+				]);
+			});
 			const snapshot: LookupFixtureDataSnapshot = {
 				projectId: PROJECT,
 				projectRevision: parseLookupRevision("1"),

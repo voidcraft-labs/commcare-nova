@@ -188,6 +188,8 @@ describe("EngineController", () => {
 					selection: { kind: "multiple", maximum: 1 },
 				},
 			};
+			// Choosing several cases runs in Web Apps alone.
+			doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
 			doc.forms[FORM_UUID] = {
 				...doc.forms[FORM_UUID],
 				type: "followup",

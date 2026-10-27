@@ -142,6 +142,35 @@ describe("app settings commits", () => {
 			showIncompleteForms: true,
 		});
 	});
+
+	it("narrows where the app runs, keeps both switches, and clears the declaration to the absent key", () => {
+		const before = commit(fixture(), [
+			{ kind: "setAppSettings", settings: { showSavedForms: true } },
+		]);
+		const narrowed = commit(before, [
+			{ kind: "setAppSettings", settings: { runsOnlyOn: "android" } },
+		]);
+		expect(narrowed.appSettings).toEqual({
+			showSavedForms: true,
+			showIncompleteForms: false,
+			runsOnlyOn: "android",
+		});
+		const switched = commit(narrowed, [
+			{ kind: "setAppSettings", settings: { showIncompleteForms: true } },
+		]);
+		expect(switched.appSettings.runsOnlyOn).toBe("android");
+		const cleared = commit(switched, [
+			{ kind: "setAppSettings", settings: { runsOnlyOn: null } },
+		]);
+		expect(Object.hasOwn(cleared.appSettings, "runsOnlyOn")).toBe(false);
+		expect(toPersistableDoc(cleared)).toEqual(
+			toPersistableDoc(
+				commit(before, [
+					{ kind: "setAppSettings", settings: { showIncompleteForms: true } },
+				]),
+			),
+		);
+	});
 });
 // Complete Connect-mode transitions are owned by connectTargetState.test.ts;
 // setting a root flag alone on an otherwise invalid Learn app proves no workflow.

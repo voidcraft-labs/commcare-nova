@@ -104,12 +104,12 @@ import {
 } from "../suite/case-list/orderPlanOptions";
 import { SORT_DIRECTION_WIRE_MAP } from "../suite/case-list/sortKeys";
 import { TILE_VERTICAL_ALIGN_WIRE } from "../suite/case-list/tileStyle";
-import { compileForPlatform } from "../suite/case-search/compileForPlatform";
 import { searchNeedsSupportingCases } from "../suite/case-search/relatedCaseProjection";
 import {
 	type RuntimeCsqlPromptValidation,
 	searchPromptWire,
 } from "../suite/case-search/searchPrompts";
+import { searchWireShape } from "../suite/case-search/searchWireShape";
 import { searchInputInstanceId } from "../suite/case-search/types";
 import {
 	buildRuntimeCsqlPromptValidations,
@@ -722,9 +722,9 @@ function projectDefaultProperties(
  * persisted doc (see `commcare-hq/.../suite_xml/sections/details.py::_get_auto_launch_expression`,
  * `commcare-hq/.../suite_xml/post_process/remote_requests.py`, and
  * `commcare-hq/.../app_manager/util.py::module_uses_inline_search`).
- * Nova exposes one canonical authoring surface — no platform toggle
- * — so the projection threads `compileForPlatform`'s web-context
- * output onto these slots. Nova's own suite-XML emitter drives
+ * The search's wire shape is one for every platform the app
+ * declares, so the projection threads `searchWireShape`'s output
+ * onto these slots. Nova's own suite-XML emitter drives
  * local rendering on every platform; the persisted CCHQ flags
  * apply when CCHQ regenerates the suite for the web entry point.
  */
@@ -746,9 +746,7 @@ function buildSearchConfigDocument(
 	const wire =
 		caseSearchConfig === undefined || caseListConfig === undefined
 			? undefined
-			: compileForPlatform(caseListConfig, caseSearchConfig, {
-					platform: "web",
-				});
+			: searchWireShape(caseListConfig, caseSearchConfig);
 	// Core's answer instance is named after the query's storage instance.
 	// Keep the HQ prompt rules, query operands and owner exclusion on the
 	// same instance that the local suite's Search session supplies.
@@ -833,14 +831,13 @@ function buildSearchConfigDocument(
 		);
 	}
 
-	// `compileForPlatform`'s three-flag `WireShape` projects onto the
-	// persisted CCHQ slots. Nova exposes one canonical authoring
-	// surface — no platform toggle — so the persisted values always
-	// take the web-context shape: the HQ JSON ships one form and the
-	// web entry point is where CCHQ regenerates the suite from it.
+	// `searchWireShape`'s three-flag `WireShape` projects onto the
+	// persisted CCHQ slots. The shape is one for every platform the
+	// app declares: the HQ JSON ships one form
+	// and the web entry point is where CCHQ regenerates the suite from it.
 	// Without this projection, `auto_launch` and `default_search`
 	// would stay at the shell defaults and CCHQ's runtime would never
-	// reach skip-to-results — the entire `compileForPlatform`
+	// reach skip-to-results — the entire `searchWireShape`
 	// decision tree would be dead code on the production upload path.
 	// Nova's own suite-XML emitter drives local rendering on every
 	// platform.

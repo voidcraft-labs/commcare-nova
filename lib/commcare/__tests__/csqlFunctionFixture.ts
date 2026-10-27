@@ -222,6 +222,9 @@ export function csqlArgumentFixture() {
 			),
 		),
 	];
+	// A single-date Search field runs in Web Apps alone, and the remote
+	// fixture it is added to runs on both.
+	doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	const findings = runValidation(doc, functionLookupContext);
 	if (findings.length) throw new Error(JSON.stringify(findings));

@@ -25,6 +25,7 @@ import {
 	locationPropertySchema,
 	organizationLevelSchema,
 } from "./organization";
+import { PLATFORMS } from "./platforms";
 import { proseTemplateSchema } from "./prose";
 import { ownRecordSchema } from "./records";
 import type { ReferenceIndex } from "./referenceIndex";
@@ -85,19 +86,41 @@ export const CONNECT_TYPE_LABELS: Readonly<Record<ConnectType, string>> = {
 export const APP_GENESIS_FALLBACK_NAME = "Untitled";
 
 /**
- * The app's settings for what a worker's home screen offers: whether workers
- * can look back at the forms they have sent (`showSavedForms`, the Android
- * home screen) and pick up a form they started and left unfinished
- * (`showIncompleteForms`, on Android and in Web Apps).
- *
- * Both keys are written on every export, so the object is a required root
- * with one representation of each state. `setAppSettings` patches it.
+ * The app's settings: what a worker's home screen offers (`showSavedForms`,
+ * the Android home screen; `showIncompleteForms`, on Android and in Web
+ * Apps; both written on every export) and where workers use the app
+ * (`runsOnlyOn`). Absent `runsOnlyOn` is Web Apps and Android, which a new
+ * app declares; `"web-apps"` or `"android"` narrows it to one platform. The
+ * author chooses it and nothing infers it from a feature;
+ * `platforms.ts::declaredPlatforms` is the one reader of its meaning.
+ * `setAppSettings` patches the object.
  */
 export const appSettingsSchema = z.strictObject({
 	showSavedForms: z.boolean(),
 	showIncompleteForms: z.boolean(),
+	runsOnlyOn: z.enum(PLATFORMS).optional(),
 });
 export type AppSettings = z.infer<typeof appSettingsSchema>;
+
+/**
+ * A `setAppSettings` patch: each named key replaces its value, a key left out
+ * keeps the document's, and `runsOnlyOn: null` clears the declaration to Web
+ * Apps and Android (`JSON.stringify` drops `undefined`, so a clear travels as
+ * `null`, as `setAppLogo`'s does).
+ */
+export const appSettingsPatchSchema = z
+	.strictObject({
+		showSavedForms: z.boolean().optional(),
+		showIncompleteForms: z.boolean().optional(),
+		runsOnlyOn: z.enum(PLATFORMS).nullable().optional(),
+	})
+	.refine(
+		(patch) => Object.values(patch).some((value) => value !== undefined),
+		{
+			error: "Change at least one app setting.",
+		},
+	);
+export type AppSettingsPatch = z.infer<typeof appSettingsPatchSchema>;
 
 /** What a new app holds: neither list, since a list is a screen on the
  *  worker's home and an app holds only what its author chose. */
@@ -117,7 +140,7 @@ const blueprintDocObjectSchema = z.strictObject({
 	 * owning entities rather than being duplicated here.
 	 */
 	localization: appLocalizationSchema.optional(),
-	/** What the worker's home screen offers (`appSettingsSchema`). */
+	/** What the worker's home screen offers and where the app runs (`appSettingsSchema`). */
 	appSettings: appSettingsSchema,
 
 	modules: ownRecordSchema(uuidSchema, moduleSchema),

@@ -3,13 +3,18 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
 import {
 	mutationCommitVerdict,
 	type PreparedMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { BlueprintDoc } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	NEW_APP_SETTINGS,
+	type Platform,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import {
@@ -22,10 +27,17 @@ const FIRST = testUuid("20000000-0000-4000-8000-000000000000");
 const SECOND = testUuid("30000000-0000-4000-8000-000000000000");
 const FOREIGN = testUuid("40000000-0000-4000-8000-000000000000");
 
-function fixture(): BlueprintDoc {
+/** The app Connect is configured on: Android only unless `runsOnlyOn` says
+ * otherwise, since a Connect app runs on Android alone and the tool turns
+ * Connect on without narrowing. */
+function fixture(runsOnlyOn: Platform | "both" = "android"): BlueprintDoc {
 	return buildDoc({
 		appId: "connect-app",
 		appName: "Connect app",
+		appSettings: {
+			...NEW_APP_SETTINGS,
+			...(runsOnlyOn === "both" ? {} : { runsOnlyOn }),
+		},
 		modules: [
 			{
 				uuid: MODULE,
@@ -234,6 +246,37 @@ describe("configureConnect exact target-state tool", () => {
 			"learn_module.id",
 		);
 		expect(new Set(connectIds(harness.currentDoc())).size).toBe(2);
+	});
+
+	it("refuses turning Connect on in an app that runs in Web Apps, commits it in an Android-only app, and keeps Android only when it is turned off", async () => {
+		const both = makeAuthoringHarness({}, expectAdmittedDoc(fixture("both")));
+		const refused = await both.call("configureConnect", {
+			mode: "learn",
+			participants: [{ formUuid: FIRST, connect: learnModule() }],
+		});
+		expect(refused).toHaveProperty("error");
+		const error = (refused as { error: string }).error;
+		expect(error).toContain(
+			"This change wasn't applied because the resulting app has",
+		);
+		expect(error).toContain(
+			'This app is a CommCare Connect app, and the app runs in Web Apps and on Android. Connect workers open it only in the Connect app on Android: CommCare HQ gives them no password, so they can\'t sign in to Web Apps. You can set the app to run only on Android (updateApp/update_app, runs_only_on "android"), or turn Connect off (configureConnect/configure_connect, mode null).',
+		);
+		expect(both.currentDoc().connectType).toBeNull();
+
+		const android = makeAuthoringHarness({}, expectAdmittedDoc(fixture()));
+		expect(
+			await android.call("configureConnect", {
+				mode: "learn",
+				participants: [{ formUuid: FIRST, connect: learnModule() }],
+			}),
+		).not.toHaveProperty("error");
+		expect(android.currentDoc().connectType).toBe("learn");
+		expect(
+			await android.call("configureConnect", { mode: null }),
+		).not.toHaveProperty("error");
+		expect(android.currentDoc().connectType).toBeNull();
+		expect(android.currentDoc().appSettings.runsOnlyOn).toBe("android");
 	});
 
 	it("reports an already-disabled target without committing or treating it as a failure", async () => {

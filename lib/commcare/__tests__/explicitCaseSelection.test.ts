@@ -120,6 +120,8 @@ describe("explicit parent record selection", () => {
 		const config = distinct.modules[FIRST].caseListConfig;
 		if (!config) throw new Error("Missing Results");
 		config.selection = { kind: "multiple", maximum: 5 };
+		// Choosing several cases runs in Web Apps alone.
+		distinct.appSettings = { ...distinct.appSettings, runsOnlyOn: "web-apps" };
 		expect(runValidation(distinct, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const edit = [
 			{ kind: "setCaseListMeta", uuid: FIRST, patch: { selection: null } },

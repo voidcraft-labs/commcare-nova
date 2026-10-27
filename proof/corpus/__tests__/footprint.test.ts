@@ -654,6 +654,12 @@ describe("the footprint's derivations", () => {
 		},
 		right: { kind: "term", term: { kind: "literal", value: "y" } },
 	} as const;
+	// Several-case selection and Search first run in Web Apps alone, so a D
+	// that gains one declares it first.
+	const toWebApps: Mutation = {
+		kind: "setAppSettings",
+		settings: { runsOnlyOn: "web-apps" },
+	};
 	const addFlag: Mutation = {
 		kind: "addUserProperty",
 		property: { uuid: flag, slug: "has_flag", label: "Has flag" },
@@ -980,6 +986,7 @@ describe("the footprint's derivations", () => {
 		{
 			name: "a module's case selection reaches its forms",
 			document: "case-operation-relation",
+			setup: () => [toWebApps],
 			batch: (doc) => [
 				{
 					kind: "setCaseListMeta",
@@ -994,6 +1001,7 @@ describe("the footprint's derivations", () => {
 		{
 			name: "a module's case selection reaches none of its forms that load no case",
 			document: "tile",
+			setup: () => [toWebApps],
 			batch: (doc) => [
 				{
 					kind: "setCaseListMeta",
@@ -1108,6 +1116,7 @@ describe("the footprint's derivations", () => {
 		{
 			name: "a module's opening on Search reaches its forms",
 			document: "search-remote",
+			setup: () => [toWebApps],
 			batch: patchSearch("Followup", { searchFirst: true }),
 			reaches: (doc) => formsOf(doc, "Followup"),
 			leaves: () => [],
@@ -1406,6 +1415,7 @@ describe("the footprint's derivations", () => {
 			name: "a worker property's slug reaches the forms of a module that opens on Search whose search input default reads it",
 			document: "search-remote",
 			setup: (doc) => [
+				toWebApps,
 				addFlag,
 				...patchSearch("Followup", { searchFirst: true })(doc),
 				...flagDefault("Followup")(doc),
@@ -1619,6 +1629,7 @@ describe("the footprint's derivations", () => {
 			name: "a menu's case selection reaches the nested module's case-loading form through the datum it aligns with alone",
 			document: "nested-menu-different",
 			setup: (doc) => [
+				toWebApps,
 				...addSurvey("Parents")(doc),
 				...showFormsAlways(doc, "Child care"),
 				...addForm(doc, "Child care", "registration").mutations,
@@ -1642,6 +1653,7 @@ describe("the footprint's derivations", () => {
 		{
 			name: "a menu's case selection reaches the forms of the module nested under it",
 			document: "nested-menu-same",
+			setup: () => [toWebApps],
 			batch: (doc) => [
 				{
 					kind: "setCaseListMeta",

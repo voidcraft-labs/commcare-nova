@@ -40,8 +40,11 @@ function fixture(multiple = false) {
 			},
 		],
 	});
-	if (multiple && doc.modules[M].caseListConfig)
+	if (multiple && doc.modules[M].caseListConfig) {
 		doc.modules[M].caseListConfig.selection = { kind: "multiple", maximum: 3 };
+		// Choosing several cases runs in Web Apps alone.
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
+	}
 	doc.forms[F].entryPoint = { uuid: E, id: "visit" };
 	return doc;
 }

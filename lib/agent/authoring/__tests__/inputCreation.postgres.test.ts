@@ -137,7 +137,8 @@ it("creates and edits record names without making the author construct name writ
 });
 
 it("binds Search rules to renamed answers and seeds a new no-matches form from them", async () => {
-	const h = await makeDurableAuthoringHarness(db);
+	// Search first runs in Web Apps alone, so the app declares Web Apps.
+	const h = await makeDurableAuthoringHarness(db, { runsOnlyOn: "web-apps" });
 	await h.call("generateSchema", {
 		caseTypes: [
 			{

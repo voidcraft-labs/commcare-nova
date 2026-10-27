@@ -571,8 +571,8 @@ export function compileCcz(
 					: undefined;
 
 			// `<remote-request>` orchestrator. Computes the
-			// `WireShape` for this module via `compileForPlatform`
-			// (default platform context: web) and emits the full
+			// `WireShape` for this module via `searchWireShape`
+			// and emits the full
 			// `<remote-request>` element. The orchestrator returns
 			// the `WireShape` so the surrounding short-detail
 			// emission can render the `<action auto_launch>` element

@@ -15,7 +15,7 @@ import { InteractiveFormRenderer } from "@/components/preview/form/InteractiveFo
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { proseText } from "@/lib/domain";
+import { NEW_APP_SETTINGS, proseText } from "@/lib/domain";
 import { admittedControllerDoc } from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import type { EngineController } from "@/lib/preview/engine/engineController";
 import {
@@ -34,6 +34,9 @@ const languageJourney = new URLSearchParams(window.location.search).has(
 function languageDoc() {
 	const doc = buildDoc({
 		appId: "native-worker-language",
+		// The date-and-time question this document is about runs on Android
+		// alone.
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 		modules: [
 			{
 				name: "Visits",

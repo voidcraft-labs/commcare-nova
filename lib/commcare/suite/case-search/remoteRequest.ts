@@ -7,7 +7,7 @@ import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 // pieces: `<post>` claim guard (`claim.ts`), `<command>` label,
 // `<instance>` declarations (one per accumulated id), `<session>`
 // body (`searchSession.ts`), `<stack>` rewind frame. The
-// `WireShape` flag set comes from `compileForPlatform.ts` and
+// `WireShape` flag set comes from `searchWireShape.ts` and
 // drives the downstream sub-emitters' attribute choices.
 
 import type { Element } from "domhandler";
@@ -37,16 +37,10 @@ import {
 	SEARCH_CASE_ID_REF,
 	SEARCH_SELECTED_CASES_REF,
 } from "./claim";
-import { compileForPlatform } from "./compileForPlatform";
 import { searchScreenTranslationUnits } from "./inlineSearch";
 import { buildSearchSession } from "./searchSession";
-import type { PlatformContext, WireShape } from "./types";
-
-/**
- * Default platform context — web. Callers compiling a per-Android
- * variant pass an override.
- */
-export const DEFAULT_PLATFORM_CONTEXT: PlatformContext = { platform: "web" };
+import { searchWireShape } from "./searchWireShape";
+import type { WireShape } from "./types";
 
 /**
  * The Element-returning shape `buildRemoteRequest` produces for the
@@ -74,7 +68,6 @@ export function buildRemoteRequest(args: {
 	readonly module: Module;
 	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleIndex: number;
-	readonly platformContext?: PlatformContext;
 	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	/** Printed reads from the short and long details this request references. */
@@ -84,7 +77,6 @@ export function buildRemoteRequest(args: {
 	readonly datumId?: (ref: DatumRef) => string | undefined;
 }): RemoteRequestBuild {
 	const { module: mod, moduleIndex } = args;
-	const platformContext = args.platformContext ?? DEFAULT_PLATFORM_CONTEXT;
 
 	// Defensive narrowing — the upstream compiler gates on both slots,
 	// but the type narrows locally here.
@@ -108,11 +100,7 @@ export function buildRemoteRequest(args: {
 	const caseListConfig: CaseListConfig =
 		mod.caseListConfig ?? emptyCaseListConfig();
 
-	const wire = compileForPlatform(
-		caseListConfig,
-		caseSearchConfig,
-		platformContext,
-	);
+	const wire = searchWireShape(caseListConfig, caseSearchConfig);
 	const multiple = caseListConfig.selection?.kind === "multiple";
 
 	const moduleId = `m${moduleIndex}`;

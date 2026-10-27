@@ -26,7 +26,11 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import { blueprintDocSchema, type ConnectConfig } from "@/lib/domain";
+import {
+	blueprintDocSchema,
+	type ConnectConfig,
+	NEW_APP_SETTINGS,
+} from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import type { Event } from "@/lib/log/types";
@@ -584,6 +588,9 @@ function createConnectTestStores(
 		buildDoc({
 			appId: "test-app",
 			appName: "ConnectTest",
+			// A Connect app runs on Android alone, so the app these Connect
+			// switches turn into one declares it first.
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 			modules: [
 				{
 					uuid: "module-1-uuid",

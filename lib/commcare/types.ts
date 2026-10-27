@@ -414,7 +414,7 @@ export interface DefaultCaseSearchProperty<XPath = string> {
  * `commcare-hq/.../app_manager/suite_xml/sections/details.py::_get_auto_launch_expression`,
  * `commcare-hq/.../app_manager/suite_xml/post_process/remote_requests.py`,
  * and `commcare-hq/.../app_manager/util.py::module_uses_inline_search`).
- * Nova projects `compileForPlatform`'s web-context output onto
+ * Nova projects `searchWireShape`'s output onto
  * these slots at HQ JSON emission so the CCHQ-regenerated suite
  * carries the same shape Nova's local suite emitter renders.
  *
@@ -425,8 +425,7 @@ export interface DefaultCaseSearchProperty<XPath = string> {
  * (the web runtime) does, at `formplayer/.../MenuSession.java::next`.
  * Android's case list therefore stays list-first regardless of the
  * persisted flag. The web runtime honors the flag, which is the
- * shape Nova's `compileForPlatform` decision tree produces for
- * web. Persisting one shape gives both runtimes the right UX.
+ * shape Nova's `searchWireShape` decision tree produces. Persisting one shape gives both runtimes the right UX.
  * `include_all_related_cases` is derived wire state: Nova sets it only
  * when effective Search emits information that reads a supporting parent.
  * It is never an author-facing option.

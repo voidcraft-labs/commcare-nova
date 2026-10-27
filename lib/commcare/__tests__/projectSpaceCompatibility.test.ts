@@ -6,6 +6,7 @@ import {
 	automationMessageText,
 	type Column,
 	type Module,
+	NEW_APP_SETTINGS,
 	plainColumn,
 } from "@/lib/domain";
 import { literal, prop, term } from "@/lib/domain/expression";
@@ -24,6 +25,9 @@ import {
 type CompatibilityInput = Parameters<
 	typeof projectSpaceCompatibilityProbePlan
 >[0];
+/* A Connect app runs only on Android, so every Connect document declares it. */
+const ANDROID_ONLY = { ...NEW_APP_SETTINGS, runsOnlyOn: "android" } as const;
+
 function doc(overrides: Partial<CompatibilityInput> = {}): CompatibilityInput {
 	return {
 		...buildDoc(),
@@ -231,9 +235,9 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 
 	it("derives CommCare Connect from the app mode", () => {
 		expect(
-			requiredProjectSpaceCapabilities(doc({ connectType: "learn" })).map(
-				(capability) => capability.id,
-			),
+			requiredProjectSpaceCapabilities(
+				doc({ connectType: "learn", appSettings: ANDROID_ONLY }),
+			).map((capability) => capability.id),
 		).toEqual(["commcare-connect"]);
 	});
 
@@ -391,7 +395,7 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 describe("project-space compatibility reports", () => {
 	it("keeps an unknown destination semantic and not checked", () => {
 		const report = projectSpaceCompatibilityForDownload(
-			doc({ connectType: "deliver" }),
+			doc({ connectType: "deliver", appSettings: ANDROID_ONLY }),
 		);
 		expect(report.status).toBe("not_checked");
 		expect(report.required_capabilities).toMatchObject([
@@ -403,7 +407,7 @@ describe("project-space compatibility reports", () => {
 
 	it("blocks missing and unverified required capabilities", () => {
 		const uses = requiredProjectSpaceCapabilities(
-			doc({ connectType: "learn" }),
+			doc({ connectType: "learn", appSettings: ANDROID_ONLY }),
 		);
 		const report = projectSpaceCompatibilityForTarget(
 			"clinic-space",
@@ -474,7 +478,7 @@ describe("project-space compatibility reports", () => {
 
 	it("never serializes private flags, namespaces, or raw probe arrays", () => {
 		const report = projectSpaceCompatibilityForDownload(
-			doc({ connectType: "learn" }),
+			doc({ connectType: "learn", appSettings: ANDROID_ONLY }),
 		);
 		const serialized = JSON.stringify(report);
 		expect(serialized).not.toContain("commcare_connect");
@@ -488,7 +492,7 @@ describe("project-space compatibility reports", () => {
 			decodeProjectSpaceCompatibilityReport(encodeURIComponent("{}")),
 		).toBeUndefined();
 		const report = projectSpaceCompatibilityForDownload(
-			doc({ connectType: "learn" }),
+			doc({ connectType: "learn", appSettings: ANDROID_ONLY }),
 		);
 		expect(
 			decodeProjectSpaceCompatibilityReport(

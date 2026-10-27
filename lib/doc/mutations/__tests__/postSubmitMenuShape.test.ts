@@ -24,6 +24,7 @@ import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	effectivePostSubmit,
+	NEW_APP_SETTINGS,
 	type PostSubmitDestination,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -88,6 +89,8 @@ function docWith(
 	];
 	const doc = buildDoc({
 		appName: "T",
+		// These cases turn Search first on, which runs in Web Apps alone.
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 		modules: [
 			{
 				uuid: MODULE,

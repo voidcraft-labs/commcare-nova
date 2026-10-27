@@ -311,6 +311,13 @@ export function nestedMenuWireFixture(
 					childPostSubmitPrevious: scenario === "previous",
 					childFilter: scenario !== "previous",
 				});
+	// Choosing several cases runs in Web Apps alone.
+	if (
+		scenario === "same-multiple" ||
+		scenario === "parent-multiple" ||
+		scenario === "same-smaller"
+	)
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
 	if (scenario === "same-multiple" || scenario === "parent-multiple") {
 		for (const uuid of doc.moduleOrder) {
 			const config = doc.modules[uuid].caseListConfig;

@@ -27,51 +27,15 @@
  * them today) of all inventory entries.
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ACCEPTED_FORMATS } from "@/lib/domain/multimedia";
 import {
 	type GateEntry,
-	gateEntriesFileSchema,
 	INVENTORY_AREAS,
 	type InventoryEntry,
 	inventoryEntriesFileSchema,
 } from "../schema";
-
-const SURFACE_DIR = join(process.cwd(), "lib/commcare/surface");
-
-function readJson(path: string): unknown {
-	return JSON.parse(readFileSync(join(SURFACE_DIR, path), "utf8"));
-}
-
-type Item = Readonly<Record<string, unknown>>;
-
-interface Manifest {
-	readonly inventory: readonly InventoryEntry[];
-	readonly gates: readonly GateEntry[];
-	/** Every surface item by key: the generated surface and the authored media formats. */
-	readonly items: ReadonlyMap<string, Item>;
-}
-
-function loadManifest(): Manifest {
-	const surface = readJson("surface.json") as {
-		items: Readonly<Record<string, Item>>;
-	};
-	const media = readJson("media-formats.json") as {
-		items: Readonly<Record<string, Item>>;
-	};
-	return {
-		inventory: INVENTORY_AREAS.flatMap((area) =>
-			inventoryEntriesFileSchema.parse(readJson(`entries/${area}.json`)),
-		),
-		gates: gateEntriesFileSchema.parse(readJson("entries/gates.json")),
-		items: new Map([
-			...Object.entries(surface.items),
-			...Object.entries(media.items),
-		]),
-	};
-}
+import { loadManifest, type Manifest, readJson } from "./loadManifest";
 
 /** The gates an inventory entry links: its own and its retiring reasons'. */
 function linkedGates(entry: InventoryEntry): string[] {

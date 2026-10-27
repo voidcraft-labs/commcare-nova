@@ -186,6 +186,8 @@ function multipleSelectionFixture(links: Spec[] = []): BlueprintDoc {
 			throw new Error("fixture");
 		source.selection = { kind: "multiple", maximum: 10 };
 		target.selection = { kind: "multiple", maximum: 10 };
+		// Choosing several cases runs in Web Apps alone.
+		draft.appSettings.runsOnlyOn = "web-apps";
 		draft.forms[SOURCE].type = "followup";
 		for (const formUuid of [SOURCE, VISIT]) {
 			for (const fieldUuid of draft.fieldOrder[formUuid] ?? []) {

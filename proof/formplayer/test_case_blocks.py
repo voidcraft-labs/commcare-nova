@@ -23,6 +23,8 @@ it first appears; and HQ's case processing of the two submissions
 answered three spaces, the create's text guard of ``case-operation-sequence``
 fails, its block's ``case_id`` is blank, and Formplayer refuses the
 submission for that reason (``stops.formplayer_cause``), sending HQ nothing.
+``case-operation-sequence`` declares Android only, so Formplayer's walk
+answers its date and time question as Core's session does.
 
 The lane's answer table answers no text ``yes``, so its walks reach every
 condition false; a failing guard needs a whitespace-only name, which no walk

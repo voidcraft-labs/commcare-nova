@@ -159,6 +159,8 @@ function makeDocWithFullConnect(): BlueprintDoc {
 	return {
 		...doc,
 		connectType: "learn",
+		// A Connect app runs on Android alone.
+		appSettings: { ...doc.appSettings, runsOnlyOn: "android" },
 		forms: {
 			[FORM_A]: { ...doc.forms[FORM_A], connect },
 		},
@@ -662,6 +664,8 @@ function makeDeliverParticipantDoc(): BlueprintDoc {
 	return {
 		...doc,
 		connectType: "deliver",
+		// A Connect app runs on Android alone.
+		appSettings: { ...doc.appSettings, runsOnlyOn: "android" },
 		forms: {
 			...doc.forms,
 			[FORM_A]: {

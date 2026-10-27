@@ -148,6 +148,8 @@ describe("HQ nested-selection target compatibility", () => {
 		const childConfig = doc.modules[child].caseListConfig;
 		if (!rootConfig || !childConfig) throw new Error("Missing case lists");
 		rootConfig.selection = { kind: "multiple", maximum: 5 };
+		// Choosing several cases runs in Web Apps alone.
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
 		if (scenario !== "case-list-only" && scenario !== "registration") {
 			childConfig.selection = {
 				kind: "multiple",

@@ -30,6 +30,7 @@
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
+	NEW_APP_SETTINGS,
 	type PostSubmitDestination,
 	plainColumn,
 	proseText,
@@ -70,6 +71,8 @@ export function multiSelectDestinations() {
 	const doc = buildDoc({
 		appId: ID,
 		appName: "Batch reviews",
+		// Choosing several cases runs in Web Apps alone.
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 		caseTypes: [
 			{
 				name: "sample",

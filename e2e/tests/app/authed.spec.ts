@@ -2273,26 +2273,26 @@ test.describe("authenticated builder", () => {
 		await expect(canvas.getByText("Visit note")).toBeVisible();
 	});
 
-	// Core holds a preloaded date-and-time answer as its instant, written in
-	// the device's zone (`DateTimeData.uncast`), and keeps a time's written
-	// clock. The browser stands in for the device, so this pins a zone whose
-	// offset is neither the seeded `-04:00` nor a CI runner's UTC: the
-	// datetime's clock reads converted and the time's reads as stored.
+	// Core keeps a time's written clock whatever the device's zone. The browser
+	// stands in for the device, so this pins a zone that is not a CI runner's
+	// UTC: the time reads as stored, unconverted. A date-and-time answer, which
+	// Core holds as its instant in the device's zone, is read by the Android
+	// app's own spec (`preview-repeats-audit.spec.ts`), since only an app that
+	// runs on Android holds one.
 	test.describe("in a zone the stored offset is not", () => {
 		test.use({ timezoneId: "Asia/Kolkata" });
 
 		/**
-		 * The date / time / datetime questions, which are the only ones whose
-		 * STORED value a person cannot be shown directly and the only ones a
-		 * person can half-finish into something that is not a value of its type.
+		 * The date and time questions, which are the only ones whose STORED value
+		 * a person cannot be shown directly and the only ones a person can
+		 * half-finish into something that is not a value of its type.
 		 *
 		 * Three things here are invisible to any unit test:
 		 *
-		 *   - A native `<input type="datetime-local">` silently blanks any value
-		 *     carrying a zone designator — which every stored datetime does — so
-		 *     the widget swap is what makes a preloaded answer visible at all.
-		 *     Nothing throws; the answer is just gone, and re-submitting the form
-		 *     erases the case property.
+		 *   - A native temporal input cannot show a stored time carrying its `Z`
+		 *     storage tag, so the widget swap is what makes a preloaded answer
+		 *     visible at all. Nothing throws; the answer is just gone, and
+		 *     re-submitting the form erases the case property.
 		 *   - The flipbook's contract is that edit and live land every row at
 		 *     identical X/Y. A picker trigger and a text input are different
 		 *     controls with different intrinsic heights, so this pair is exactly
@@ -2359,17 +2359,14 @@ test.describe("authenticated builder", () => {
 			const clocks = page.locator('input[data-slot="time-field"]');
 
 			await test.step("a preloaded answer is readable, not blank", async () => {
-				// A followup opened on a seeded row. The datetime's calendar half
-				// reads its date, its clock half reads its instant in this zone,
-				// and the standalone time reads its written clock through its `Z`
-				// tag, unconverted.
+				// A followup opened on a seeded row. The date reads its day, and
+				// the time reads its written clock through its `Z` tag,
+				// unconverted.
 				await expect(dateTrigger).not.toHaveText(/Pick a date/, {
 					timeout: 20_000,
 				});
+				await expect(clocks).toHaveCount(1);
 				await expect(clocks.nth(0)).toHaveValue(
-					SEEDED_TEMPORAL_DISPLAY.visitStartedTime,
-				);
-				await expect(clocks.nth(1)).toHaveValue(
 					SEEDED_TEMPORAL_DISPLAY.nextDose,
 				);
 			});
@@ -2380,58 +2377,21 @@ test.describe("authenticated builder", () => {
 				// let it through — refusing it would strand a person on a form
 				// over an answer they never entered and cannot correct.
 				await expect(clocks.nth(0)).not.toHaveAttribute("aria-invalid", "true");
-				await expect(clocks.nth(1)).not.toHaveAttribute("aria-invalid", "true");
-			});
-
-			await test.step("emptying the clock half answers nothing on the person's behalf", async () => {
-				// The date's own midnight is a value nobody chose, and committing
-				// it back here would make a cleared clock refill itself.
-				await clocks.nth(0).fill("");
-				await clocks.nth(0).blur();
-				await expect(clocks.nth(0)).toHaveValue("");
-				await expect(dateTrigger).not.toHaveText(/Pick a date/);
-				await expect(clocks.nth(0)).not.toHaveAttribute("aria-invalid", "true");
-			});
-
-			await test.step("a clock entered before its date reads back as typed", async () => {
-				// Clear the date too, so the clock really is the only half there.
-				// The join has to survive that: showing back "14:30:00" would be
-				// the field rewriting the person's own "2:30 PM" into a spelling
-				// they never used, and quoting the join at them in the error would
-				// put punctuation they never typed on screen.
-				await dateTrigger.click();
-				await page.getByRole("button", { name: "Clear", exact: true }).click();
-				await expect(dateTrigger).toHaveText(/Pick a date/);
-
-				await clocks.nth(0).fill("2:30 PM");
-				await clocks.nth(0).blur();
-				await expect(clocks.nth(0)).toHaveValue("2:30 PM");
-				await expect(
-					page.getByText("Pick a date: this question needs both."),
-				).toBeVisible();
-
-				// And clearing the remaining half empties the answer outright.
-				await clocks.nth(0).fill("");
-				await clocks.nth(0).blur();
-				await expect(clocks.nth(0)).toHaveValue("");
-				await expect(
-					page.getByText("Pick a date: this question needs both."),
-				).toBeHidden();
 			});
 
 			await test.step("a typed clock commits in the locale's own spelling", async () => {
-				await clocks.nth(1).fill("7:05 am");
-				await clocks.nth(1).blur();
-				await expect(clocks.nth(1)).toHaveValue("7:05 AM");
-				await expect(clocks.nth(1)).not.toHaveAttribute("aria-invalid", "true");
+				await clocks.nth(0).fill("7:05 am");
+				await clocks.nth(0).blur();
+				await expect(clocks.nth(0)).toHaveValue("7:05 AM");
+				await expect(clocks.nth(0)).not.toHaveAttribute("aria-invalid", "true");
 			});
 
 			await test.step("a half-typed clock is named, kept, and refused at Submit", async () => {
-				await clocks.nth(1).fill("2:3");
-				await clocks.nth(1).blur();
+				await clocks.nth(0).fill("2:3");
+				await clocks.nth(0).blur();
 				// Kept verbatim: the person's own text is what they have to fix.
-				await expect(clocks.nth(1)).toHaveValue("2:3");
-				await expect(clocks.nth(1)).toHaveAttribute("aria-invalid", "true");
+				await expect(clocks.nth(0)).toHaveValue("2:3");
+				await expect(clocks.nth(0)).toHaveAttribute("aria-invalid", "true");
 				await expect(
 					page.getByText(
 						"“2:3” isn't a time yet. Enter a clock time like 2:30 PM.",
@@ -2443,7 +2403,7 @@ test.describe("authenticated builder", () => {
 					.getByRole("button", { name: "Submit", exact: true })
 					.click();
 				// Still on the form, with the answer still there to correct.
-				await expect(clocks.nth(1)).toHaveValue("2:3");
+				await expect(clocks.nth(0)).toHaveValue("2:3");
 			});
 		});
 	});

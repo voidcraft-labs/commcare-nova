@@ -1,5 +1,6 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { NEW_APP_SETTINGS } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
 export const extensionScenarios = [
@@ -47,6 +48,10 @@ export function extensionCaseFixture(scenario: ExtensionScenario) {
 	);
 	const doc = buildDoc({
 		appName: "Extension case evidence",
+		// Choosing several cases runs in Web Apps alone.
+		...(scenario === "multiple" || scenario === "multiple-repeat"
+			? { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" } }
+			: {}),
 		caseTypes: [
 			{ name: "patient", properties: [] },
 			...["episode", "visit", "consent"].map((name) => ({

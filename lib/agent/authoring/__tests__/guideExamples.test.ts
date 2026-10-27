@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
+import type { Platform } from "@/lib/domain";
 import { evaluateForm } from "@/lib/preview/engine/evaluateForm";
 import { evaluationScenarioCases } from "@/lib/preview/engine/evaluationScenario";
 import { previewAsMe } from "@/lib/preview/engine/identity";
@@ -28,16 +29,19 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const saved: CalculateOutcome = { saved: true };
 
-async function fixture() {
+async function fixture(options: { readonly runsOnlyOn?: Platform } = {}) {
 	const h = makeAuthoringHarness(
 		{},
-		namedFormFixture([
-			{
-				name: "Visits",
-				caseType: "visit",
-				forms: [{ name: "Check", type: "followup" }],
-			},
-		]),
+		namedFormFixture(
+			[
+				{
+					name: "Visits",
+					caseType: "visit",
+					forms: [{ name: "Check", type: "followup" }],
+				},
+			],
+			options,
+		),
 	);
 	await h.call("generateSchema", {
 		caseTypes: [
@@ -249,7 +253,8 @@ it("reads a typed query's rows by bare name and the form through #form/ or curre
 });
 
 it("offers here() in a calculated column and nowhere in a form", async () => {
-	const { h, calculate } = await fixture();
+	// here() in a case list runs on Android alone.
+	const { h, calculate } = await fixture({ runsOnlyOn: "android" });
 	expect(guide).toContain("here() is the worker's current GPS position");
 	expect(
 		await h.call("addCaseListColumns", {

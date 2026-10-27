@@ -9,22 +9,26 @@ import { previewAsMe } from "@/lib/preview/engine/identity";
 it("uses the form's published ancestor reference to validate against the selected record's actual parent", async () => {
 	const h = makeAuthoringHarness(
 		{},
-		namedFormFixture([
-			{
-				name: "Visits",
-				caseType: "visit",
-				forms: [
-					{ name: "Record visit", type: "followup" },
-					{ name: "Register", type: "registration" },
-					{ name: "Visit survey", type: "survey" },
-				],
-			},
-			{
-				name: "Bulk visits",
-				caseType: "visit",
-				forms: [{ name: "Bulk note", type: "followup" }],
-			},
-		]),
+		namedFormFixture(
+			[
+				{
+					name: "Visits",
+					caseType: "visit",
+					forms: [
+						{ name: "Record visit", type: "followup" },
+						{ name: "Register", type: "registration" },
+						{ name: "Visit survey", type: "survey" },
+					],
+				},
+				{
+					name: "Bulk visits",
+					caseType: "visit",
+					forms: [{ name: "Bulk note", type: "followup" }],
+				},
+			],
+			// "Bulk visits" chooses several cases, which runs in Web Apps alone.
+			{ runsOnlyOn: "web-apps" },
+		),
 	);
 	const call = async (name: string, input: unknown) => {
 		const result = await h.call(name, input);

@@ -321,6 +321,8 @@ describe("ordinary nested-menu wire projection", () => {
 			throw new Error("missing case list config");
 		}
 		rootConfig.selection = { kind: "multiple", maximum: 5 };
+		// Choosing several cases runs in Web Apps alone.
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
 		childConfig.selection = { kind: "multiple", maximum: 8 };
 		setSharedFormAnswers(doc, child);
 
@@ -358,6 +360,8 @@ describe("ordinary nested-menu wire projection", () => {
 			throw new Error("missing case list config");
 		}
 		rootConfig.selection = { kind: "multiple", maximum: 5 };
+		// Choosing several cases runs in Web Apps alone.
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
 		childConfig.selection = { kind: "multiple", maximum: 4 };
 		setSharedFormAnswers(doc, child);
 
@@ -421,6 +425,8 @@ describe("ordinary nested-menu wire projection", () => {
 		const rootConfig = doc.modules[root].caseListConfig;
 		if (rootConfig === undefined) throw new Error("missing root case list");
 		rootConfig.selection = { kind: "multiple", maximum: 5 };
+		// Choosing several cases runs in Web Apps alone.
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
 
 		admitNestedDoc(doc);
 		const datums = entrySessionDatums(
@@ -468,6 +474,8 @@ describe("ordinary nested-menu wire projection", () => {
 			throw new Error("missing case list config");
 		}
 		rootConfig.selection = { kind: "multiple", maximum: 5 };
+		// Choosing several cases runs in Web Apps alone.
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
 		childConfig.selection = { kind: "multiple", maximum: 5 };
 		setSharedFormAnswers(doc, child);
 		const sharedAnswer = doc.fields[doc.fieldOrder[childForm][0]];

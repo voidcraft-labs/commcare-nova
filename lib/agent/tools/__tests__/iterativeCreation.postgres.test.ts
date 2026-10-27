@@ -68,7 +68,8 @@ it("keeps incomplete modules and forms readable, preserves rejected work, and sa
 });
 
 it("carries Search answers through explicit questions and record naming", async () => {
-	const h = await makeDurableAuthoringHarness(db);
+	// Search first runs in Web Apps alone, so the app declares Web Apps.
+	const h = await makeDurableAuthoringHarness(db, { runsOnlyOn: "web-apps" });
 	for (const [name, input] of [
 		["createModule", { name: "Patients", case_type: "patient" }],
 		[

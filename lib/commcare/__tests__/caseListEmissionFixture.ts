@@ -9,6 +9,7 @@ import {
 	imageMapEntry,
 	intervalColumn,
 	linkColumn,
+	NEW_APP_SETTINGS,
 	phoneColumn,
 	plainColumn,
 	proseText,
@@ -116,6 +117,10 @@ export function caseListEmissionFixture(scenario: CaseListEmissionScenario) {
 	const search = scenario === "remote" || scenario === "inline";
 	const doc = buildDoc({
 		appName: "Case list proof",
+		// Search first runs in Web Apps alone.
+		...(scenario === "inline"
+			? { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" } }
+			: {}),
 		modules: [
 			{
 				name: "Patients & visits",

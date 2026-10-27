@@ -158,6 +158,8 @@ describe("time ordering findings through the complete validator", () => {
 					doc.forms[ids.form].postSubmit = "app_home";
 				} else {
 					doc.connectType = "deliver";
+					// A Connect app runs on Android alone.
+					doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
 					doc.forms[ids.form].connect = {
 						deliver_unit: { id: "visit", name: "Visit", entity_id: comparison },
 					};
@@ -208,6 +210,8 @@ function atCarrier(
 		doc.forms[ids.form].postSubmit = "app_home";
 	} else {
 		doc.connectType = "deliver";
+		// A Connect app runs on Android alone.
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
 		doc.forms[ids.form].connect = {
 			deliver_unit: { id: "visit", name: "Visit", entity_id: expression },
 		};

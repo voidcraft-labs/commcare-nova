@@ -43,6 +43,7 @@ import { AUTOMATION_RULES } from "./automations";
 import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
 import { hiddenValueWriterAgreement } from "./hiddenValueWriterAgreement";
 import { ORGANIZATION_RULES } from "./organization";
+import { platformFeatureAvailability } from "./platforms";
 import { selectPreloadWriterOptions } from "./selectPreloadWriterOptions";
 import { USER_RULES } from "./users";
 import { authoredXmlText } from "./xmlText";
@@ -664,6 +665,8 @@ export const APP_RULES = [
 	circularFormLinks,
 	duplicateConnectIds,
 	connectNoParticipatingForms,
+	// A feature the app holds that a platform it declares cannot run.
+	platformFeatureAvailability,
 	// Cross-form rule — multi-writer disagreement detection requires the
 	// full app's writer set, so the rule is app-scoped rather than
 	// module-scoped.

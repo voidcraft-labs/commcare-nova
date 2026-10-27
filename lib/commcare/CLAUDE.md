@@ -167,6 +167,13 @@ must have a gate entry (`proof/README.md`, "Manifest checks"). Server code
 reads gate entries through `surface/gates.ts`, never `surface.json`, so a
 server bundle carries the gate entries alone.
 
+The platform table in `lib/domain/platforms.ts` stands for the manifest's
+per-platform readings, held to them by `surface/__tests__/platformFeatures.test.ts`
+over `surface/platformFeatureEntries.ts`, which only tests import; a HELD entry
+that differs by platform is a feature's or ambient, so an entry that gains such
+a reading lands with its row. The validator refuses a structural use a declared
+platform cannot run (`validator/rules/platforms.ts`, `PLATFORM_FEATURE_UNAVAILABLE`).
+
 ### CommCare HQ project-space compatibility
 
 Deployment readiness uses the bounded `readBuildXml` path for an exact released
@@ -1358,16 +1365,18 @@ the types sheet carries the definition, CommCare HQ's JSON `lookup_table`
 resource is not on the write path at all. `lib/commcare/hq/lookupTables.ts`
 drives both endpoints; `lib/deployment` owns what may be written over.
 
-`compileForPlatform.ts` is the pure decision tree from authored content + `PlatformContext` to a three-flag `WireShape`. Author intent is unambiguous on every input — Android always emits list-first / inline-results; web with an effective Search action, an effective filter, and zero search inputs emits skip-to-results; an explicit zero-input action without that filter remains manual; web fallback is list-first. The flags drive the orchestrator's `<query>` attributes + storage-instance choice + the case-list short-detail emitter's `<action auto_launch>` attribute. Both export paths send a match-all filter for the explicit zero-input/manual shape (`suite/case-search/xpathQuery.ts::ZERO_INPUT_SEARCH_SENTINEL`), because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter.
+`searchWireShape.ts` is the pure decision tree from authored content to a three-flag `WireShape`, one shape for every platform an app declares: an effective Search action with an effective filter and zero search inputs emits skip-to-results; an explicit zero-input action without that filter remains manual; otherwise list-first. Android reads no `auto_launch` and opens the list first, which the platform table states (`skip-to-results`). The flags drive the orchestrator's `<query>` attributes + storage-instance choice + the case-list short-detail emitter's `<action auto_launch>` attribute. Both export paths send a match-all filter for the explicit zero-input/manual shape (`suite/case-search/xpathQuery.ts::ZERO_INPUT_SEARCH_SENTINEL`), because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter.
 
 Every search button reads `lib/domain/modules.ts::CASE_SEARCH_BUTTON_LABEL` ("Search All Cases") in every language, on both export paths and in Preview: HQ's Case List save keeps no other label, and the document holds none. A lookup-backed search input's `<sort ref>` is its `sortColumnId`, or its label column where none is set. `suite/case-search/reservedInputNames.ts::RESERVED_SEARCH_INPUT_NAMES` holds the sixteen names HQ's search request keeps for itself, and `RESERVED_SEARCH_INPUT_NAME_PREFIXES` the `indices.` prefix; `isReservedSearchInputName` tests a name against both, and a search input and a default filter may use none of them. A menu uploads its own case type, a survey-only menu's included, and `formLinkProjection.ts::moduleCaseTypeForActions` gates only what is built from the type. Four spellings are HQ's own and Nova writes them: no `no_vellum`, no `custom_variables`, a calculated column as `format: "plain"`, and one `name` column on a short list that holds none.
 
 ### Search-first inline shape
 
 `caseSearchConfig.searchFirst: true` (`lib/domain/modules.ts::moduleOpensOnSearch`)
-lowers to HQ's inline search — `inline_search && auto_launch`
+lowers to HQ's inline search, `inline_search && auto_launch`
 (`app_manager/util.py::module_uses_inline_search`), with `default_search` when
-the module has no visible prompt — on both wire paths, whatever the platform.
+the module has no visible prompt, on both wire paths. Search first is
+unavailable on Android (`search-first`), so only an app that runs in Web Apps
+only holds it.
 The shape is a different suite, not a flag on the remote-request one, and
 `compiler.ts` branches on `moduleIsSearchFirst` at every site:
 

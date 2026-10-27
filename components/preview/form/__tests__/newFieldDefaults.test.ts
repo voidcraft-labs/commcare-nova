@@ -3,7 +3,12 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { fieldKinds, fieldSchema } from "@/lib/domain";
+import {
+	fieldKinds,
+	fieldSchema,
+	NEW_APP_SETTINGS,
+	type Platform,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { NEW_FIELD_BUILDERS, newPageRepeat } from "../newFieldDefaults";
 
@@ -54,9 +59,12 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 	// item (the insert is rejected on every attempt, in both phases).
 	// This sweep is the dissolution-style proof for the whole picker: a
 	// starter the gate would refuse fails the suite the day it's authored.
-	function pickerDoc() {
+	function pickerDoc(runsOnlyOn?: Platform) {
 		return buildDoc({
 			appName: "Test",
+			...(runsOnlyOn === undefined
+				? {}
+				: { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn } }),
 			modules: [
 				{
 					name: "Mod",
@@ -101,7 +109,8 @@ describe("NEW_FIELD_BUILDERS — every starter passes the commit gate", () => {
 	it.each(fieldKinds.filter((kind) => kind !== "section"))(
 		"%s starter commits through the gate",
 		(kind) => {
-			const doc = pickerDoc();
+			// A date-and-time question runs on Android alone.
+			const doc = pickerDoc(kind === "datetime" ? "android" : undefined);
 			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 			const built = NEW_FIELD_BUILDERS[kind](`new_${kind}`, "New Field");
 			const field = fieldSchema.parse({ ...built, uuid: UUID });

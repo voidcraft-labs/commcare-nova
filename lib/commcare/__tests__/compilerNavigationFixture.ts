@@ -2,6 +2,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
+	NEW_APP_SETTINGS,
 	proseText,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -198,6 +199,10 @@ export function temporalSearchFixture(scenario: TemporalSearchScenario) {
 		];
 	return buildDoc({
 		appName: `Search ${scenario}`,
+		// A single-date Search field runs in Web Apps alone.
+		...(scenario !== "legacy"
+			? { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" } }
+			: {}),
 		modules: [
 			{
 				name: "Patients",

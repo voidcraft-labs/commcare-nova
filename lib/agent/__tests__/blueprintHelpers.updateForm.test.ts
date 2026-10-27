@@ -25,7 +25,12 @@ function docWithEveryHelperClearableSlot(): BlueprintDoc {
 		appId: "update-form-wire",
 		appName: "Update form wire",
 		connectType: "learn",
-		appSettings: { showSavedForms: false, showIncompleteForms: false },
+		// A Connect app runs on Android alone.
+		appSettings: {
+			showSavedForms: false,
+			showIncompleteForms: false,
+			runsOnlyOn: "android",
+		},
 		caseTypes: [{ name: "patient", properties: [] }],
 		modules: {
 			[MODULE_UUID]: {

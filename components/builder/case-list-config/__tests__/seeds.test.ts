@@ -50,6 +50,15 @@ describe("explicit case-list creation", () => {
 				proseTemplateText,
 			);
 			const next = commitWorkspace(doc, [
+				// A single-date Search field runs in Web Apps alone.
+				...(type === "date"
+					? [
+							{
+								kind: "setAppSettings" as const,
+								settings: { runsOnlyOn: "web-apps" as const },
+							},
+						]
+					: []),
 				{ kind: "addSearchInput", moduleUuid, searchInput: seed },
 			]);
 			expect(next.modules[moduleUuid].caseListConfig?.searchInputs).toEqual([

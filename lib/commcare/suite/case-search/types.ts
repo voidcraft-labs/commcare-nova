@@ -1,26 +1,10 @@
 // lib/commcare/suite/case-search/types.ts
 //
 // Shared types for the case-search wire-emission package.
-// `compileForPlatform` produces a `WireShape`; the `<remote-request>`
+// `searchWireShape` produces a `WireShape`; the `<remote-request>`
 // orchestrator and the case-list short-detail emitter consume it.
-// `WireShape` is Nova-internal — the author configures content, the
-// platform comes from the export boundary, and the flags fall out
-// of pure inference.
-
-/**
- * Closed-set platform discriminator. CommCare ships two runtime
- * players: Android (device-installed) and Web Apps (browser-hosted).
- * A future runtime lands as a new arm with its own compilation branch.
- */
-export type Platform = "android" | "web";
-
-/**
- * Per-export platform context. Supplied at the export boundary by
- * whatever knows which runtime the wire output is being shaped for.
- */
-export interface PlatformContext {
-	readonly platform: Platform;
-}
+// `WireShape` is Nova-internal: the author configures content, and the
+// flags fall out of pure inference, one shape for every platform.
 
 /**
  * The three wire flags the orchestrator and case-list short-detail

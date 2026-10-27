@@ -305,11 +305,16 @@ function mutationFootprint(
 				scope.formUuids.add(mutation.formUuid);
 				break;
 
-			/* App-owned scalar presentation has no module/form dependency, and
-			 * no rule reads the app settings. */
+			/* The app's name and logo have no module or form dependency. */
 			case "setAppName":
 			case "setAppLogo":
+				break;
+			/* The platform declaration is read by the platform rule and by the
+			 * checker in every slot, so a patch that names it takes the
+			 * whole-document gate; the two home-screen switches are read by no
+			 * rule. */
 			case "setAppSettings":
+				if (mutation.settings.runsOnlyOn !== undefined) return undefined;
 				break;
 
 			default:

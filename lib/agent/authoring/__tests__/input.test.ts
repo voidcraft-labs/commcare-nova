@@ -574,12 +574,16 @@ it("binds named Connect participants and their score expressions to each form", 
 	const formNames = ["First assessment", "Second assessment"];
 	const h = authoring(
 		{},
-		namedFormFixture([
-			{
-				name: "Learning",
-				forms: formNames.map((name) => ({ name, type: "survey" })),
-			},
-		]),
+		namedFormFixture(
+			[
+				{
+					name: "Learning",
+					forms: formNames.map((name) => ({ name, type: "survey" })),
+				},
+			],
+			// The app becomes a Connect app, which runs on Android alone.
+			{ runsOnlyOn: "android" },
+		),
 	);
 	for (const formUuid of formNames) {
 		await h.call("addFields", {

@@ -29,11 +29,14 @@
  * and the receiver fails on a wrapper so named (finding 60), which Nova's
  * validator refuses.
  *
+ * Both declare Android only, D and D′ alike: no Connect worker signs in to
+ * Web Apps, so a Connect app runs on Android alone.
+ *
  * Fixed values: each form holds what the worker answers (`./echo.ts`).
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { proseText } from "@/lib/domain";
+import { NEW_APP_SETTINGS, proseText } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
 import { targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
@@ -48,6 +51,8 @@ export function connectDeliverRename() {
 			appId: id,
 			appName: "Home visits",
 			connectType: "deliver",
+			// A Connect app runs on Android alone.
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 			modules: [
 				{
 					uuid: uuid("module"),
@@ -107,6 +112,8 @@ export function connectLearnRename() {
 			appId: id,
 			appName: "Hand washing course",
 			connectType: "learn",
+			// A Connect app runs on Android alone.
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 			modules: [
 				{
 					uuid: uuid("module"),

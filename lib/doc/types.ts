@@ -14,7 +14,7 @@ export { asUuid } from "@/lib/domain";
 import { z } from "zod";
 import {
 	appLanguageIdentitySchema,
-	appSettingsSchema,
+	appSettingsPatchSchema,
 	authoredCasePropertyNameSchema,
 	automationAlertCriterionSchema,
 	automationCaseUpdateCriterionSchema,
@@ -1004,12 +1004,7 @@ function createMutationSchema({
 		// that sets one never writes over a peer's change to the other.
 		z.object({
 			kind: z.literal("setAppSettings"),
-			settings: appSettingsSchema
-				.partial()
-				.strict()
-				.refine((patch) => Object.keys(patch).length > 0, {
-					error: "Change at least one app setting.",
-				}),
+			settings: appSettingsPatchSchema,
 		}),
 		// App language identity and translation overlays. The canonical source
 		// strings remain on their owning Blueprint entities; these commands edit

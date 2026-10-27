@@ -159,6 +159,8 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 			}
 			source.selection = { kind: "multiple", maximum: 10 };
 			target.selection = { kind: "multiple", maximum: 10 };
+			// Choosing several cases runs in Web Apps alone.
+			draft.appSettings.runsOnlyOn = "web-apps";
 			draft.forms[SOURCE].type = "followup";
 			draft.modules[CARE].parentModuleUuid = HOUSEHOLDS;
 			draft.moduleOrder = [HOUSEHOLDS, CARE, INTAKE];
@@ -257,6 +259,8 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 			const config = draft.modules[CARE]?.caseListConfig;
 			if (config === undefined) throw new Error("fixture");
 			config.selection = { kind: "multiple", maximum: 10 };
+			// Choosing several cases runs in Web Apps alone.
+			draft.appSettings.runsOnlyOn = "web-apps";
 		});
 		const verdict = formLinkTargetVerdict(
 			multiple,

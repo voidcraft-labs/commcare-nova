@@ -17,7 +17,7 @@
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { plainColumn, proseText } from "@/lib/domain";
+import { NEW_APP_SETTINGS, plainColumn, proseText } from "@/lib/domain";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
 import { answerHeld } from "./echo";
 
@@ -106,6 +106,8 @@ export function formLinksHiddenFallback() {
 	const doc = buildDoc({
 		appId: ID,
 		appName: "Pond care",
+		// Choosing several cases runs in Web Apps alone.
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 		caseTypes: ["site", "pond", "frog"].map((name) => ({
 			name,
 			properties: [{ name: "case_name", label: proseText("Name") }],

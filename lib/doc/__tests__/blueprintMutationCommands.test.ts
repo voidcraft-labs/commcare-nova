@@ -89,6 +89,8 @@ const bp = buildDoc({
 const connectBp: BlueprintDoc = {
 	...bp,
 	connectType: "learn",
+	// A Connect app runs on Android alone.
+	appSettings: { ...bp.appSettings, runsOnlyOn: "android" },
 	forms: {
 		...bp.forms,
 		[FORM1]: {

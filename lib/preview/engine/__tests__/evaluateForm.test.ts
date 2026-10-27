@@ -513,6 +513,8 @@ it("honors the authored selection maximum for a form that closes several records
 				},
 			},
 		],
+		// Choosing several cases runs in Web Apps alone.
+		{ runsOnlyOn: "web-apps" },
 	);
 	const formUuid = Object.values(doc.forms).find(
 		(form) => form.name === "Return",

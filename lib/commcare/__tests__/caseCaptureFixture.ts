@@ -1,5 +1,5 @@
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { proseText } from "@/lib/domain";
+import { NEW_APP_SETTINGS, proseText } from "@/lib/domain";
 
 export const caseCaptureScenarios = [
 	"registration",
@@ -30,6 +30,10 @@ export function caseCaptureFixture(
 	];
 	return buildDoc({
 		appName: "Case capture evidence",
+		// Choosing several cases runs in Web Apps alone.
+		...(scenario === "multiple"
+			? { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" } }
+			: {}),
 		caseTypes: [
 			{
 				name: "patient",

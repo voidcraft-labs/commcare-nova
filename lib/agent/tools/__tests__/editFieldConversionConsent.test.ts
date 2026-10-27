@@ -190,7 +190,13 @@ describe("editField — conversion consent", () => {
 	});
 
 	it("a total flip never consults the impact lookup", async () => {
-		const doc = makeCaseBoundDoc();
+		const base = makeCaseBoundDoc();
+		// The flip reaches a date-and-time question, which runs on Android
+		// alone.
+		const doc = {
+			...base,
+			appSettings: { ...base.appSettings, runsOnlyOn: "android" as const },
+		};
 		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc), {
 			conversionImpact: async () => {
 				throw new Error("a total flip must not count impact");

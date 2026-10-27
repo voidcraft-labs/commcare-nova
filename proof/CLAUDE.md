@@ -557,7 +557,10 @@ harness keeps, each with its reason.
   API newer than 3.12. `proof/lane/test_gate.py` holds the gate's imports to
   the standard library, but on the image's 3.13, so a 3.13-only API passes the
   lane's tests and breaks CI's gate.
-- **Connect runs as Connect, and is given only what HQ sent.** A claim
+- **Connect runs as Connect, and is given only what HQ sent.** A Connect app
+  declares Android only, so Formplayer's runs of it are Core's sessions on a
+  server, kept because Connect reads them as it reads a device's, all but the
+  location; a `connect` run brings Formplayer and no device. A claim
   about what Connect makes of a Nova app is observed on Connect's own
   server at its pin, in its own process, on its own interpreter, database
   and Redis (`proof/connect/runtime.py`): never import Connect or its

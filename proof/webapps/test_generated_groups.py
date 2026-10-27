@@ -12,8 +12,8 @@ client draws a group with no question in it with ``d-none``
 browser lays out no box for it.
 
 On HQ's release of Nova's export of ``case-operation-conditional``,
-``case-operation-key``, ``case-operation-query``, ``case-operation-sequence``
-and ``case-capture-multiple`` (two cases ticked, then Continue), Formplayer's
+``case-operation-key``, ``case-operation-query`` and
+``case-capture-multiple`` (two cases ticked, then Continue), Formplayer's
 own walk of the build, every text answered ``yes``, is replayed in the
 browser (``proof.webapps.observe.replay``), and the page is read as the form
 opens (every condition false, since nothing is answered yet) and once every
@@ -47,7 +47,6 @@ DOCUMENTS = (
     "case-operation-conditional",
     "case-operation-key",
     "case-operation-query",
-    "case-operation-sequence",
     "case-capture-multiple",
 )
 # The page read for what a form lays out: each group the client drew (how many questions it holds, whether the

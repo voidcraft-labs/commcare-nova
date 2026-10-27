@@ -16,7 +16,14 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Field,
+	type Form,
+	type Module,
+	NEW_APP_SETTINGS,
+	type Uuid,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
 	caseOperationIdVerdict,
@@ -334,6 +341,7 @@ describe("a form's Connect blocks share its root's names", () => {
 		return {
 			...doc,
 			connectType: "deliver",
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 			forms: {
 				...doc.forms,
 				[F1]: {

@@ -71,3 +71,13 @@ export function slotProfile(
 		...facts,
 	};
 }
+
+/** A slot only CommCare's server search and Postgres read, which no device
+ * evaluates: today an advanced search input's condition. */
+export function serverOnlySearchSlot(profile: SlotProfile): boolean {
+	return (
+		profile.targets.has("CS") &&
+		!profile.targets.has("SU") &&
+		!profile.targets.has("XF")
+	);
+}

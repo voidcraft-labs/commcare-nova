@@ -19,6 +19,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, FieldKind, Form } from "@/lib/domain";
+import { NEW_APP_SETTINGS } from "@/lib/domain";
 import { eq, formField, literal, term, today } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
@@ -31,6 +32,9 @@ import { assertAdmittedDoc } from "./admittedDoc";
  *  temporal flip must carry the peer and re-declare. */
 function temporalDoc(): BlueprintDoc {
 	const doc = buildDoc({
+		// The temporal flips reach a date-and-time question, which runs on
+		// Android alone.
+		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
 		caseTypes: [
 			{
 				name: "patient",

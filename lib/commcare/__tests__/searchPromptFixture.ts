@@ -334,6 +334,10 @@ export function searchPromptFixture(scenario: PromptScenario) {
 			eq(prop("patient", "first_name"), input(id.first_name)),
 		);
 	}
+	// The widgets' single-date and multiple-choice Search fields run in Web
+	// Apps alone, and the remote fixture they are added to runs on both.
+	if (scenario === "prompt-widgets")
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "web-apps" };
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	const findings = runValidation(doc, promptLookupContext);
 	if (findings.length) throw new Error(JSON.stringify({ scenario, findings }));

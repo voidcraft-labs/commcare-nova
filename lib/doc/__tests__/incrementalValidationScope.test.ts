@@ -14,6 +14,7 @@ import {
 	type CaseOperation,
 	type Column,
 	dateColumn,
+	NEW_APP_SETTINGS,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
@@ -426,6 +427,21 @@ describe("incrementalValidationScope", () => {
 		).toEqual({});
 	});
 
+	it("keeps a home-screen switch app-only and takes the whole document for a declaration change", () => {
+		const { doc } = fixture();
+		expect(
+			incrementalValidationScope(doc, [
+				{ kind: "setAppSettings", settings: { showSavedForms: true } },
+			]),
+		).toEqual({});
+		for (const runsOnlyOn of ["android", "web-apps", null] as const)
+			expect(
+				incrementalValidationScope(doc, [
+					{ kind: "setAppSettings", settings: { runsOnlyOn } },
+				]),
+			).toBeUndefined();
+	});
+
 	it("scopes ordinary form and module settings to the owning module", () => {
 		const { doc, moduleUuid, formUuid } = fixture();
 		expect(
@@ -565,7 +581,10 @@ describe("incrementalValidationScope", () => {
 		for (const startsMultiple of [false, true]) {
 			const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 			if (startsMultiple) config.selection = MULTIPLE_FIVE;
+			// Several-case selection runs in Web Apps alone, so the app declares
+			// it before either commit.
 			const doc = buildDoc({
+				appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 				caseTypes: [
 					{
 						name: "patient",

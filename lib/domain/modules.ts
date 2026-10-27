@@ -2630,8 +2630,9 @@ export const ordinaryCaseSearchConfigSchema = z.strictObject({
 	// exist only after a completed search; the browse list goes away.
 	// Presence IS the switch (`true` or absent), so an app that never
 	// turned it on serializes byte-identically to one that cannot. On
-	// the wire this is CommCare's inline-search shape on every platform
-	// (`lib/commcare/suite/case-search/compileForPlatform.ts`).
+	// the wire this is CommCare's inline-search shape
+	// (`lib/commcare/suite/case-search/searchWireShape.ts`), which only an
+	// app that runs in Web Apps only holds (`search-first`).
 	searchFirst: z.literal(true).optional(),
 });
 

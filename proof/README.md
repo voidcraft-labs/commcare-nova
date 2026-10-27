@@ -1115,6 +1115,32 @@ emission stops. A document Nova's publish or local export refuses is not a
 corpus document: the emission leaves it out and names it, with the boundary's
 findings, in the census (`index.json`).
 
+### Platforms
+
+Every document declares where its app runs (`appSettings.runsOnlyOn`, absent
+for Web Apps and Android), and each reader reads it only on a platform it
+declares (`proof/CLAUDE.md`, "A reader reads an app on the platforms it
+declares"). A document declares the platforms on which none of its uses is
+unavailable, as Nova's own rule gives its content
+(`lib/domain/platformUses.ts::contentRunsOn`), or what a targeted document
+states for its witness; a declaration is never chosen to make the lane pass.
+Every corpus source of a document narrower than both writes its declaration
+in the module that builds it (the producer fixtures in
+`lib/commcare/__tests__/`, the expander documents and the targeted specs),
+except the Connect fixtures, which take `buildDoc`'s derivation, and the
+workforce documents, which carry their producer base's. The fuzz generators
+draw no declaration: the last step of each generator's `lowerToDoc` maps the
+draw through `lib/doc/platformDeclaration.ts::declaredForContent`, the
+cutover's own planner, with no further random call, so a draw that runs on
+neither platform only because of a date-and-time question
+(`fuzz-suite-20260930-8`) declares Web Apps with each such question split.
+The edit kind `setConnectType` narrows the app to Android in the batch that
+turns Connect on, as the builder commits it.
+`proof/checks/test_corpus.py::test_the_corpus_holds_each_declaration_and_a_narrowing_edit`
+holds that some document declares each of both, Web Apps only and Android
+only, and some D′ declares fewer platforms than its D, so no branch of a
+reader's policy is left with no document to read.
+
 ### Emitting it
 
 ```bash
@@ -1438,6 +1464,13 @@ reads it, and HQ's two editor saves of each form hold the typed bind of the
 joined value. It passes with no entry and no control; the
 `expression` native family's `DatetimeSplitRuntimeTest` runs the same forms in
 Core in four device zones.
+`targeted-platform-declaration` narrows an app from both platforms to Android
+only: D is a follow-up form whose text question writes the patient's note,
+and D′ declares Android only and adds a date-and-time question the narrowing
+admits, so the gate judges the two as one batch. At A every reader reads it,
+the client replaying it; at B-edit Formplayer's walk answers the date and time
+question as Core's session does, a device walks it, and the client does not
+replay it. It passes with no entry and no control.
 Their Core families read these targeted archives on both export paths, so
 the added scenarios do not change another fixed document's balanced edit.
 The native package's cache key includes the five target directories the native
@@ -2212,7 +2245,11 @@ pins, and nothing is called on a system's behalf:
   token endpoint) and posts the payload to Connect over a real connection.
   Connect answers through its own URLconf, middleware, authentication and
   request transaction, and HQ keeps the answer on its repeat record.
-- **Whose submissions.** Formplayer's are the ones its walk of the state
+- **Whose submissions.** A Connect app declares Android only (no Connect
+  worker signs in to Web Apps), so Formplayer's runs of it are Core's
+  sessions on a server, kept because Connect reads them as it reads a
+  device's, all but the location; a `connect` run brings Formplayer and no
+  device. Formplayer's are the ones its walk of the state
   makes, and a device's are the ones CommCare Android's own send made as
   its walks of the state saved each form ("Android in the unit"): to the
   address the archive's profile names, with the worker's own credentials,
@@ -2930,6 +2967,12 @@ entry joins the unchanged one on `targeted-datetime-ordering`; both belong
 to step 4. The list then held 25 entries: 30 before these six removals,
 plus this newly reached stop (R5 run 39129168950); finding 75's stop on its
 control (step 3) made it 26.
+
+Step 4 offers a date-and-time question only in an app that does not declare
+Web Apps. `targeted-datetime-ordering` declares Android only, so its stop
+moved to its control, which keeps the form an app declaring Web Apps held;
+`fuzz-xform-20260930-0` is declared Android only by the fuzz mapping, and its
+entry is removed. The list holds 25 entries.
 
 ```json
 {"document": "tile-grouped-one", "reader": "webapps", "cause": "case-not-listed",

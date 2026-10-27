@@ -117,6 +117,32 @@ describe("the corpus's fuzz sample", () => {
 		}
 	});
 
+	it("declares each draw for the platforms its content runs on and splits the date-and-time questions of one that runs on neither, with no further draw", () => {
+		const declared = new Map(
+			sampleFuzzDocuments({
+				size: 24,
+				seed: DEFAULT_CORPUS_SEED,
+				manifestFor,
+			}).map((sampled) => [sampled.document.id, sampled.document.doc]),
+		);
+		const runsOnlyOn = (id: string) => {
+			const doc = declared.get(id);
+			if (doc === undefined) throw new Error(`The sample holds no ${id}.`);
+			return doc.appSettings.runsOnlyOn;
+		};
+		expect(runsOnlyOn("fuzz-xform-20260930-0")).toBe("android");
+		expect(runsOnlyOn("fuzz-xform-20260930-2")).toBe("android");
+		expect(runsOnlyOn("fuzz-suite-20260930-0")).toBeUndefined();
+		expect(runsOnlyOn("fuzz-suite-20260930-8")).toBe("web-apps");
+		const split = Object.values(
+			declared.get("fuzz-suite-20260930-8")?.fields ?? {},
+		);
+		expect(split.map((field) => field.id)).toEqual(
+			expect.arrayContaining(["model_date", "model_time"]),
+		);
+		expect(split.filter((field) => field.kind === "datetime")).toEqual([]);
+	});
+
 	afterAll(() => {
 		// A sample that could not be drawn in full is not written; the
 		// failing test says why.
