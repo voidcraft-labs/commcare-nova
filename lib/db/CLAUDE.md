@@ -37,8 +37,8 @@ class** (`privilegeConvergence.ts`, DDL in
 not Nova's derivation) is runtime read-only: only a migration writes it, as the
 migration role, and a publish writes none. `app_deployment_confirmations` (what
 a person confirmed about one project space for one app: a plan feature, the
-flat location fixture, a Connect forwarder) is inserted on confirm and updated
-on withdrawal, never deleted. `app_deployment_baselines` (the app as CommCare
+flat location fixture, a Connect forwarder, sync on form entry turned off) is
+inserted on confirm and updated on withdrawal, never deleted. `app_deployment_baselines` (the app as CommCare
 HQ returned it when Nova last read it, gzip `bytea`) and
 `project_space_resource_baselines` (a lookup table or place as CommCare HQ
 returned it, keyed by Project, server, project space and HQ resource, so two

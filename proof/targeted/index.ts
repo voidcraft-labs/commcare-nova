@@ -68,6 +68,7 @@ import {
 	searchHqCompile,
 	searchRelatedLookups,
 	syncOnFormEntry,
+	syncOnFormEntryWebApps,
 } from "./documents/searchApps";
 import { sessionReads } from "./documents/sessionReads";
 import { sharedPropertySort } from "./documents/sortKeys";
@@ -141,6 +142,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	csqlComposition,
 	datetimeSplit,
 	platformDeclaration,
+	syncOnFormEntryWebApps,
 ];
 
 /** Every targeted document, in a fixed order. */

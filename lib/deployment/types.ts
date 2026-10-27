@@ -21,6 +21,7 @@ import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
 import {
 	PLAN_FEATURE_IDS,
 	type PlanFeatureId,
+	PROJECT_SPACE_SETTING_KINDS,
 } from "@/lib/publish/planFeatures";
 import type { WebAppsChange } from "@/lib/publish/webApps";
 
@@ -210,8 +211,8 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	"hq_changed",
 	/**
 	 * The app needs something of the project space that no API key reads (a
-	 * plan feature, the flat location list, a Connect forwarder), and a person
-	 * has not confirmed it there. Nothing was sent.
+	 * plan feature, the flat location list, a Connect forwarder, sync on form
+	 * entry turned off), and a person has not confirmed it there. Nothing was sent.
 	 */
 	"hq_confirmation_needed",
 	/**
@@ -316,7 +317,8 @@ export interface DeploymentAttemptRefusal {
 export type DeploymentConfirmationKey =
 	| { readonly kind: "plan-feature"; readonly subject: PlanFeatureId }
 	| { readonly kind: "flat-location-fixture" }
-	| { readonly kind: "connect-forwarder" };
+	| { readonly kind: "connect-forwarder" }
+	| { readonly kind: "form-entry-sync-off" };
 
 /**
  * One thing a publish asks a person to confirm, with the words to ask it in:
@@ -326,7 +328,7 @@ export type DeploymentConfirmationKey =
  */
 export interface DeploymentConfirmationNeeded {
 	readonly kind: DeploymentConfirmationKind;
-	/** A plan feature's id, or the kind's own name for the other two kinds. */
+	/** A plan feature's id, or the kind's own name for the other kinds. */
 	readonly subject: string;
 	readonly label: string;
 	readonly plans: string;
@@ -592,8 +594,7 @@ export interface DeploymentWithResources {
 /** What a person can confirm about a project space before a publish there. */
 export const DEPLOYMENT_CONFIRMATION_KINDS = [
 	"plan-feature",
-	"flat-location-fixture",
-	"connect-forwarder",
+	...PROJECT_SPACE_SETTING_KINDS,
 ] as const;
 export type DeploymentConfirmationKind =
 	(typeof DEPLOYMENT_CONFIRMATION_KINDS)[number];
@@ -601,7 +602,7 @@ export type DeploymentConfirmationKind =
 /** One confirmation in force on a deployment. */
 export interface DeploymentConfirmation {
 	readonly kind: DeploymentConfirmationKind;
-	/** The confirmed subject: the kind's own name for the two single-subject kinds. */
+	/** The confirmed subject: the kind's own name for the single-subject kinds. */
 	readonly subject: string;
 	/** `auth_user.name` by left join, or "A former member". The confirming user's id stays in the row and reaches no projection. */
 	readonly confirmedByName: string;
@@ -767,6 +768,7 @@ export const deploymentConfirmationKeySchema = z.discriminatedUnion("kind", [
 	}),
 	z.strictObject({ kind: z.literal("flat-location-fixture") }),
 	z.strictObject({ kind: z.literal("connect-forwarder") }),
+	z.strictObject({ kind: z.literal("form-entry-sync-off") }),
 ]);
 
 /** Withdraw one confirmation from the deployment on one target. */

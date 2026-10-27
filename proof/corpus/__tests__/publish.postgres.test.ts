@@ -294,6 +294,7 @@ const CONFIRM_ALL: readonly DeploymentConfirmationKey[] = [
 	})),
 	{ kind: "flat-location-fixture" },
 	{ kind: "connect-forwarder" },
+	{ kind: "form-entry-sync-off" },
 ];
 
 /** Publish the stored app through the real lifecycle, as the MCP tool calls it, with what a person confirmed. */

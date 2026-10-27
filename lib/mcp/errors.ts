@@ -157,7 +157,8 @@ export type HqToolErrorType =
  *     the payload lists nothing; calling again lists what changed.
  *   - `hq_confirmation_needed` — the app needs something of the project
  *     space no API key reads (a plan feature, the flat location list, a
- *     Connect forwarder), and nobody confirmed it there. Nothing was sent:
+ *     Connect forwarder, sync on form entry turned off), and nobody
+ *     confirmed it there. Nothing was sent:
  *     the payload lists each with its label, plans, consequence and
  *     reasons, and the caller sends back the ones the user said yes to.
  *   - `hq_web_apps_change` — the app's Web App setting on CommCare HQ

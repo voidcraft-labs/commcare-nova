@@ -46,6 +46,8 @@ import {
 	setLocationArchived,
 } from "@/lib/organization/service";
 import {
+	FORM_ENTRY_SYNC_OFF,
+	formEntrySyncWhereMissing,
 	LOGO_UPLOAD_STEP_TEXT,
 	PLAN_FEATURE_IDS,
 	PLAN_FEATURES,
@@ -108,6 +110,7 @@ const CONFIRM_ALL = {
 	confirm_plan_features: [...PLAN_FEATURE_IDS],
 	confirm_flat_location_fixture: true,
 	confirm_connect_forwarder: true,
+	confirm_form_entry_sync_off: true,
 };
 function call(client: Client, extra: Record<string, unknown> = {}) {
 	return client.callTool({
@@ -1149,6 +1152,71 @@ it("names what a person has to confirm structurally, and sends nothing until the
 					},
 				],
 			});
+		});
+		expect(requests(peer)).toEqual([]);
+	});
+	expect(await snapshot()).toEqual({ deployments: [], resources: [] });
+});
+
+it("names sync on form entry structurally for an app with a menu with Search whose form works on a case, answered by confirm_form_entry_sync_off", async () => {
+	await seed(
+		buildDoc({
+			appName: "Patient search",
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseSearchConfig: {},
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [{ id: "note", kind: "text" }],
+						},
+					],
+				},
+			],
+		}),
+	);
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			const refused = body(
+				await call(client, {
+					confirm_plan_features: [],
+					confirm_form_entry_sync_off: false,
+				}),
+				true,
+			);
+			expect(refused.error_type).toBe("hq_confirmation_needed");
+			expect(refused.confirmations_needed).toContainEqual({
+				kind: "form-entry-sync-off",
+				subject: "form-entry-sync-off",
+				label: FORM_ENTRY_SYNC_OFF.label,
+				plans: "",
+				consequence: FORM_ENTRY_SYNC_OFF.consequence,
+				reasons: [
+					"Visit works on a case chosen in Patients, a menu with Search.",
+				],
+				/* Nothing in the app keeps it off Web Apps alone. */
+				where_missing: formEntrySyncWhereMissing({ open: true, features: [] }),
+			});
+			/* Answered, it is no longer asked; the plan feature still is. */
+			const answered = body(
+				await call(client, {
+					confirm_plan_features: [],
+					confirm_form_entry_sync_off: true,
+				}),
+				true,
+			);
+			expect(
+				answered.confirmations_needed.map(
+					(need: { kind: string; subject: string }) => need.subject,
+				),
+			).toEqual(["web-apps"]);
 		});
 		expect(requests(peer)).toEqual([]);
 	});

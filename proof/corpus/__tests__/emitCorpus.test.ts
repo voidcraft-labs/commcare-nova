@@ -90,7 +90,10 @@ import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { blueprintDocSchema, effectiveAppLocalization } from "@/lib/domain";
 import { hqSideState } from "../../targeted/documents/hqSideState";
 import { lookupReservedTags } from "../../targeted/documents/lookupReservedTags";
-import { syncOnFormEntry } from "../../targeted/documents/searchApps";
+import {
+	syncOnFormEntry,
+	syncOnFormEntryWebApps,
+} from "../../targeted/documents/searchApps";
 import { CORPUS_COMMCARE_VERSION } from "../configurations";
 import { DEFAULT_CORPUS_SEED } from "../defaults";
 import { type CorpusDocument, lookupContextOf } from "../documents";
@@ -544,7 +547,7 @@ describe("the corpus emitter", () => {
 
 	it("writes a targeted document's written edit, its HQ-side saves and its project settings where the lane reads them", async () => {
 		const saving = hqSideState();
-		const syncing = syncOnFormEntry();
+		const syncing = syncOnFormEntryWebApps();
 		const out = join(root, "with-hq-side");
 		const emitted = await emit(out, [...fixed, saving, syncing], []);
 		const entry = emitted.index.documents.find(
@@ -592,6 +595,18 @@ describe("the corpus emitter", () => {
 		}
 		expect((await files(join(out, syncing.id))).has("hq-side.json")).toBe(
 			false,
+		);
+	});
+
+	it("refuses a document that turns sync on form entry on while its publish asks that it be off", async () => {
+		const refused: CorpusDocument = {
+			...syncOnFormEntry(),
+			projectSettings: { syncCasesOnFormEntry: true },
+		};
+		await expect(
+			emit(join(root, "sync-on-refused"), [refused], []),
+		).rejects.toThrow(
+			`${refused.id} turns sync on form entry on, and Nova's publish asks the person to confirm it is off for this document, so its configuration is one Nova refuses; a check runs only against a target Nova's publish accepts (decision 19).`,
 		);
 	});
 

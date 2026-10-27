@@ -140,6 +140,7 @@ const CONFIRM_ALL: readonly DeploymentConfirmationKey[] = [
 	})),
 	{ kind: "flat-location-fixture" },
 	{ kind: "connect-forwarder" },
+	{ kind: "form-entry-sync-off" },
 ];
 
 function publish(

@@ -424,6 +424,19 @@ export async function writeEntry(
 	const least = minimumConfiguration(
 		editVerdict === undefined ? [verdict] : [verdict, editVerdict],
 	);
+	/* The corpus's one sync-on refusal: a document whose project space syncs
+	 * cases on form entry while Nova's publish asks that it be off (for D or
+	 * D′) stands in a configuration Nova refuses. */
+	if (
+		document.projectSettings?.syncCasesOnFormEntry === true &&
+		[verdict, editVerdict].some(
+			(item) => item?.minimumConfiguration.syncCasesOnFormEntry === false,
+		)
+	) {
+		throw new Error(
+			`${document.id} turns sync on form entry on, and Nova's publish asks the person to confirm it is off for this document, so its configuration is one Nova refuses; a check runs only against a target Nova's publish accepts (decision 19).`,
+		);
+	}
 	await writeJson(
 		join(root, "document.json"),
 		documentJson(document.id, document.source, publish, entry.doc),

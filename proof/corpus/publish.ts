@@ -137,6 +137,7 @@ import { DERIVED_WIRE_IDENTITY } from "@/lib/commcare/wireIdentity";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { attachmentUrlTarget } from "@/lib/deployment/attachmentTarget";
+import { requiredConfirmations } from "@/lib/deployment/confirmations";
 import {
 	ABSENT_RESOURCE_DIGEST,
 	canonicalLookupTable,
@@ -334,6 +335,12 @@ export interface NovaPublishVerdict {
 	readonly minimumConfiguration: {
 		readonly flags: readonly string[];
 		readonly caseSearchEnabled: boolean;
+		/**
+		 * Present, and `false`, where Nova's publish asks the person to
+		 * confirm sync on form entry is off; absent where it asks nothing,
+		 * which every retained verdict written before step 4 reads as.
+		 */
+		readonly syncCasesOnFormEntry?: false;
 	};
 	/**
 	 * The `corehq/privileges.py` constants of the plan privileges Nova's
@@ -359,19 +366,34 @@ const PRIVILEGE_CONSTANTS: ReadonlyMap<string, readonly string[]> = new Map(
 );
 
 /**
- * The privilege constants Nova's publish asks to be confirmed for `doc`. A
- * capture publishes to a project space, so its capture links are written
- * (`capturePublish` hands the emitter that space's target); which space it is
- * decides no privilege.
+ * What a capture's publish sends besides the app: the lookup workbook exactly
+ * when the document reads a lookup table, and no places (the organization it
+ * is published from holds none).
  */
+function capturePushes(doc: BlueprintDoc) {
+	return {
+		lookupTables: extractLookupReferenceTargets(doc).tableIds.length > 0,
+		places: false,
+	};
+}
+
+/**
+ * The target a capture's publish hands the emitter. A capture publishes to a
+ * project space, so its capture links are written (`capturePublish` hands the
+ * emitter that space's target); which space it is decides no privilege and no
+ * confirmation.
+ */
+const CAPTURE_ATTACHMENT_TARGET = attachmentUrlTarget({
+	server: PROOF_SERVER,
+	domain: PROOF_DOMAIN,
+});
+
+/** The privilege constants Nova's publish asks to be confirmed for `doc`. */
 function planPrivileges(doc: BlueprintDoc): string[] {
 	const uses = requiredPlanPrivileges(
 		doc,
-		{
-			lookupTables: extractLookupReferenceTargets(doc).tableIds.length > 0,
-			places: false,
-		},
-		attachmentUrlTarget({ server: PROOF_SERVER, domain: PROOF_DOMAIN }),
+		capturePushes(doc),
+		CAPTURE_ATTACHMENT_TARGET,
 	);
 	return [
 		...new Set(
@@ -404,6 +426,18 @@ function verdictFlags(
 	});
 }
 
+/**
+ * Whether Nova's publish asks the person to confirm sync on form entry is off
+ * for `doc` (`form-entry-sync-off`), from the same needs the publish reads.
+ */
+function asksFormEntrySyncOff(doc: BlueprintDoc): boolean {
+	return requiredConfirmations(
+		doc,
+		capturePushes(doc),
+		CAPTURE_ATTACHMENT_TARGET,
+	).some((need) => need.kind === "form-entry-sync-off");
+}
+
 export function novaPublishVerdict(doc: BlueprintDoc): NovaPublishVerdict {
 	const plan = projectSpaceCompatibilityProbePlan(doc);
 	const capabilities = plan.capabilities.map((item) => ({
@@ -426,6 +460,9 @@ export function novaPublishVerdict(doc: BlueprintDoc): NovaPublishVerdict {
 			caseSearchEnabled: capabilities.some((item) =>
 				item.runtimeProbes.includes("case-search"),
 			),
+			...(asksFormEntrySyncOff(doc) && {
+				syncCasesOnFormEntry: false as const,
+			}),
 		},
 		planPrivileges: planPrivileges(doc),
 	};

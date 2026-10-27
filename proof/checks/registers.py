@@ -117,12 +117,11 @@ HELD_CHECKS = frozenset(
     }
 )
 
-# Each defect the known-defect register may hold, mapped to the later step that owns its fix: steps 2 and 3
+# Each defect the known-defect register may hold, mapped to the later step that owns its fix: steps 2, 3 and 4
 # fixed every other numbered defect and finding they registered, so an entry of any of them is a regression or a
 # fix left listed (``test_registers.test_every_live_defect_is_a_later_steps``). Registering another defect adds it
 # here with its step.
 OPEN_DEFECTS = {
-    20: 4,
     21: 5,
     23: 5,
     24: 5,

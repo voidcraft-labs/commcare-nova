@@ -261,12 +261,15 @@ nothing externally visible has happened.
 `plan-features`, titled "What this project space needs", asks CommCare HQ
 nothing and comes before every edge that does. No API key reads a project
 space's plan or its privileges, whether it still sends its flat location list
-(`LocationFixtureConfiguration.sync_flat_fixture`), or whether it holds a
-forwarder to CommCare Connect, so a person confirms each one the app needs:
+(`LocationFixtureConfiguration.sync_flat_fixture`), whether it holds a
+forwarder to CommCare Connect, or whether it syncs cases on form entry, so a
+person confirms each one the app needs:
 the plan features `lib/commcare/planPrivileges.ts::requiredPlanFeatures`
 derives from the document and from what this publish sends (a lookup table
 workbook, live places), the flat location list for an app that reads places,
-and a Connect forwarder for an app whose forms hold a Connect block
+a Connect forwarder for an app whose forms hold a Connect block, and sync on
+form entry turned off for an Android app with a form that works on a case
+chosen in a menu with Search (`planPrivileges.ts::formEntrySyncReasons`)
 (`confirmations.ts::requiredConfirmations`). The edge and the pre-publish
 check (`service.ts::projectSpaceConfirmations`, which lists nothing until a
 project space is chosen) read the needs through one helper,
@@ -274,8 +277,9 @@ project space is chosen) read the needs through one helper,
 the ones the publish asks for. It mirrors adoption: the refusal,
 `hq_confirmation_needed`, names each need with its label, plans, consequence
 and reasons, and the caller comes back naming what the person confirmed in
-`confirm`. Confirmations live in `app_deployment_confirmations`, three kinds
-(`plan-feature`, `flat-location-fixture`, `connect-forwarder`), written only by
+`confirm`. Confirmations live in `app_deployment_confirmations`, four kinds
+(`plan-feature`, `flat-location-fixture`, `connect-forwarder`,
+`form-entry-sync-off`), written only by
 the fold of a passed preflight (`foldDeploymentAttempt`'s `confirmations`), so
 a refused publish stores none and the caller resends them; the one exception is
 the resources fold of `hq_plan_lacks_web_apps`, which withdraws the `web-apps`

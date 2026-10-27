@@ -235,10 +235,14 @@ describe("confirmations", () => {
 		]);
 	});
 
-	it("refuse a flat location list or Connect forwarder confirmation under another subject", async () => {
+	it("refuse a flat location list, Connect forwarder or sync on form entry confirmation under another subject", async () => {
 		const scope = await seed();
 		const view = await confirm(scope, []);
-		for (const kind of ["flat-location-fixture", "connect-forwarder"]) {
+		for (const kind of [
+			"flat-location-fixture",
+			"connect-forwarder",
+			"form-entry-sync-off",
+		]) {
 			await expect(
 				h
 					.db()
@@ -251,7 +255,7 @@ describe("confirmations", () => {
 					})
 					.execute(),
 			).rejects.toThrow(
-				/app_deployment_confirmations_(fixture|forwarder)_subject/,
+				/app_deployment_confirmations_(fixture|forwarder|form_entry_sync)_subject/,
 			);
 		}
 	});

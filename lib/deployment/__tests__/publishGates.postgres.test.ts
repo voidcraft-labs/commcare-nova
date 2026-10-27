@@ -29,7 +29,7 @@ import {
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { connectWireFixtures } from "@/lib/commcare/__tests__/connectWireFixtures";
 import { decrypt } from "@/lib/commcare/encryption";
 import { locationOwnerFixture } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
@@ -48,6 +48,8 @@ import { createLocation } from "@/lib/organization/service";
 import {
 	CONNECT_FORWARDER,
 	FLAT_LOCATION_FIXTURE,
+	FORM_ENTRY_SYNC_OFF,
+	formEntrySyncWhereMissing,
 	PLAN_FEATURES,
 } from "@/lib/publish/planFeatures";
 import {
@@ -825,6 +827,7 @@ describe("the pre-publish check's confirmations", () => {
 			plan_features: [],
 			flat_location_fixture: null,
 			connect_forwarder: null,
+			form_entry_sync_off: null,
 		});
 	});
 
@@ -838,6 +841,114 @@ describe("the pre-publish check's confirmations", () => {
 		await expect(
 			projectSpaceConfirmations(elsewhere, doc, null),
 		).resolves.toMatchObject({ plan_features: [] });
+	});
+});
+
+// ── Defect 20. Sync on form entry ───────────────────────────────────────
+
+/** A menu with Search whose follow-up form works on the case chosen there. */
+function searchingDocument(): BlueprintDoc {
+	return buildDoc({
+		appName: "Patient search",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseSearchConfig: {},
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [{ id: "note", kind: "text" }],
+					},
+				],
+			},
+		],
+	});
+}
+
+/**
+ * The compatibility probes a publish of an app with Search makes, each
+ * answering that the project space has Search. The advisory's flag is left
+ * unanswered, which reads as unverified and never blocks.
+ */
+function searchReady(peer: MockAgent) {
+	const visible = {
+		meta: { total_count: 1 },
+		objects: [{ domain_name: "clinic", project_name: "Clinic" }],
+	};
+	request(peer, PROJECT_SPACES).reply(200, visible);
+	request(peer, `${PROJECT_SPACES}&feature_flag=search_claim`).reply(
+		200,
+		visible,
+	);
+	request(
+		peer,
+		"/a/clinic/phone/search/?case_type=__nova_compatibility_probe__",
+	).reply(200, "<results/>", { headers: { "content-type": "text/xml" } });
+}
+
+describe("sync on form entry", () => {
+	it("ask an Android app with a searching menu's case form for sync on form entry, ask a Web-Apps-only app nothing, and land once confirmed", async () => {
+		const both = await seed(searchingDocument());
+		const webAppsOnly: BlueprintDoc = {
+			...both,
+			appSettings: { ...both.appSettings, runsOnlyOn: "web-apps" },
+		};
+		await withHttpPeer(async (peer) => {
+			/* A Web-Apps-only app is asked only for Web Apps itself. */
+			expect(
+				refusal(
+					await publish(webAppsOnly, [], { webApps: false }),
+				).confirmationsNeeded.map(({ kind, subject }) => ({ kind, subject })),
+			).toEqual([{ kind: "plan-feature", subject: "web-apps" }]);
+			expect(
+				(await projectSpaceConfirmations(SCOPE, webAppsOnly, TARGET))
+					.form_entry_sync_off,
+			).toBeNull();
+
+			const needed = refusal(await publish(both)).confirmationsNeeded;
+			expect(needed).toEqual([
+				{
+					kind: "form-entry-sync-off",
+					subject: "form-entry-sync-off",
+					label: FORM_ENTRY_SYNC_OFF.label,
+					plans: "",
+					consequence: FORM_ENTRY_SYNC_OFF.consequence,
+					reasons: [
+						"Visit works on a case chosen in Patients, a menu with Search.",
+					],
+					/* The app holds nothing Web Apps can't run, so it may run there alone. */
+					whereMissing: formEntrySyncWhereMissing({ open: true, features: [] }),
+				},
+			]);
+			expect(
+				(await projectSpaceConfirmations(SCOPE, both, TARGET))
+					.form_entry_sync_off,
+			).toMatchObject({
+				label: FORM_ENTRY_SYNC_OFF.label,
+				where_missing: formEntrySyncWhereMissing({ open: true, features: [] }),
+				state: "needs_confirmation",
+			});
+			expect(allRequests(peer)).toEqual([]);
+
+			searchReady(peer);
+			await firstPublishConfirming(peer, both, [
+				{ kind: "form-entry-sync-off" },
+			]);
+		});
+		expect(await confirmationRows()).toEqual([
+			{ kind: "plan-feature", subject: "web-apps", confirmed_by: ACTOR },
+			{
+				kind: "form-entry-sync-off",
+				subject: "form-entry-sync-off",
+				confirmed_by: ACTOR,
+			},
+		]);
 	});
 });
 

@@ -32,7 +32,7 @@
  *
  * `confirm` is the third: what a person confirmed about the project space
  * that no API key reads (a plan feature, the flat location list, a Connect
- * forwarder), each named after an `hq_confirmation_needed` refusal or the
+ * forwarder, sync on form entry turned off), each named after an `hq_confirmation_needed` refusal or the
  * pre-publish check listed it. Unlike the other two it is remembered, but
  * only once a publish passes preflight: the deployment keeps it until
  * someone withdraws it.

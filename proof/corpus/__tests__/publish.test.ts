@@ -25,7 +25,10 @@ import {
 	wireRow,
 	wireTable,
 } from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
-import { searchLookupMediaDocument } from "@/lib/deployment/__tests__/publishFixtures";
+import {
+	clinicVisitsDocument,
+	searchLookupMediaDocument,
+} from "@/lib/deployment/__tests__/publishFixtures";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import {
@@ -78,6 +81,10 @@ it("sends under the document's minimum configuration and refuses without any one
 	expect(verdict.planPrivileges).toEqual(["CLOUDCARE", "LOOKUP_TABLES"]);
 	expect(minimum.caseSearchEnabled).toBe(true);
 	expect(minimum.domain).toBe(PROOF_DOMAIN);
+	// The follow-up form works on a case chosen in a menu with Search, and the
+	// document runs on Android too, so Nova's publish asks that sync on form
+	// entry be off.
+	expect(verdict.minimumConfiguration.syncCasesOnFormEntry).toBe(false);
 
 	const outcomes: Record<string, string> = {};
 	for (const configuration of [
@@ -98,4 +105,16 @@ it("sends under the document's minimum configuration and refuses without any one
 		"without SYNC_SEARCH_CASE_CLAIM": "refused",
 		"without case search": "refused",
 	});
+});
+
+it("says nothing of sync on form entry for a document whose publish asks nothing about it", () => {
+	const verdict = documentVerdict({
+		id: "clinic-visits",
+		doc: toPersistableDoc(clinicVisitsDocument()),
+		compiledAtSeq: 1,
+		media: new Map(),
+	});
+	expect(verdict.minimumConfiguration).not.toHaveProperty(
+		"syncCasesOnFormEntry",
+	);
 });

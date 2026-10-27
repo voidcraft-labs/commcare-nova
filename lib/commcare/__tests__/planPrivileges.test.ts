@@ -22,11 +22,17 @@ import {
 } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { HqApplication } from "@/lib/commcare/types";
+import { derivedUniqueId } from "@/lib/commcare/wireIdentity";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import { parser } from "@/lib/commcare/xpath/parser";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, NEW_APP_SETTINGS, proseText } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	declaresAndroid,
+	NEW_APP_SETTINGS,
+	proseText,
+} from "@/lib/domain";
 import { eq, fixedLocation, literal, term } from "@/lib/domain/expression";
 import {
 	PLAN_FEATURE_IDS,
@@ -43,6 +49,7 @@ import planPrivilegePlans from "../planPrivilegePlans.json";
 import {
 	CURRENT_PLANS,
 	flatLocationFixtureReasons,
+	formEntrySyncReasons,
 	formsUsingWorkerRecord,
 	HQ_PLAN_PRIVILEGE_IDS,
 	type HqPlanPrivilegeId,
@@ -307,6 +314,43 @@ function holdsWire(doc: BlueprintDoc): void {
 			});
 		}
 		if (wire.itemset) expect(fromDoc.has("lookup_tables")).toBe(true);
+		/* Sync on form entry: HQ's build gives a claim `<post>` to a form that
+		 * requires a case in a module that offers search
+		 * (`entries.py::EntriesHelper.include_post_in_entry`, called only
+		 * `if form.requires_case()`; `util.py::module_offers_search`). */
+		const claimed = new Set(
+			declaresAndroid(doc)
+				? hq.modules.flatMap((module) =>
+						module.search_config.properties.length > 0 ||
+						module.search_config.default_properties.length > 0
+							? module.forms
+									.filter((form) => form.requires === "case")
+									.map((form) => form.unique_id)
+							: [],
+					)
+				: [],
+		);
+		/* Each claimed form, named by the document form its HQ id derives
+		 * from, in the document's form order: the reasons name exactly these
+		 * forms, so a predicate that names the wrong form fails here even when
+		 * the count agrees. */
+		const named = doc.moduleOrder.flatMap((moduleUuid) => {
+			const module = doc.modules[moduleUuid];
+			return (doc.formOrder[moduleUuid] ?? []).flatMap((formUuid) => {
+				const form = doc.forms[formUuid];
+				if (!claimed.has(derivedUniqueId(formUuid))) return [];
+				return [
+					`${form.name.trim() || form.id} works on a case chosen in ${module.name.trim() || module.id}, a menu with Search.`,
+				];
+			});
+		});
+		expect({
+			attachmentTarget,
+			syncReasons: formEntrySyncReasons(doc),
+		}).toEqual({
+			attachmentTarget,
+			syncReasons: named,
+		});
 	}
 }
 
@@ -672,6 +716,73 @@ describe("each privilege's reasons", () => {
 		expect(formsReadingLocationsFixture(doc)).toEqual([]);
 		expect(reasonsOf(doc, "locations")).toBeUndefined();
 		holdsWire(doc);
+	});
+});
+
+describe("sync on form entry", () => {
+	const note = () =>
+		f({ kind: "label", id: "note", label: proseText("Seen today") });
+	const searching = (runsOnlyOn?: "web-apps" | "android") =>
+		buildDoc({
+			appName: "Visits",
+			...(runsOnlyOn !== undefined && {
+				appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn },
+			}),
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+			modules: [
+				{
+					name: "Find patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					caseSearchConfig: {},
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+							],
+						},
+						{ name: "Visit", type: "followup", fields: [note()] },
+						{ name: "Close", type: "close", fields: [note()] },
+					],
+				},
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [{ name: "Check in", type: "followup", fields: [note()] }],
+				},
+			],
+		});
+
+	it("names each form that works on a case in a menu with Search, for an app that declares Android, and none for a Web-Apps-only app", () => {
+		const reasons = [
+			"Visit works on a case chosen in Find patients, a menu with Search.",
+			"Close works on a case chosen in Find patients, a menu with Search.",
+		];
+		expect(formEntrySyncReasons(searching())).toEqual(reasons);
+		expect(formEntrySyncReasons(searching("android"))).toEqual(reasons);
+		expect(formEntrySyncReasons(searching("web-apps"))).toEqual([]);
+		for (const runsOnlyOn of [undefined, "android", "web-apps"] as const) {
+			const doc = searching(runsOnlyOn);
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+			holdsWire(doc);
+		}
 	});
 });
 

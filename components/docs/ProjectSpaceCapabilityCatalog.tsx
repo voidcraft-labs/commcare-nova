@@ -5,9 +5,8 @@
  */
 
 import {
-	CONNECT_FORWARDER,
-	FLAT_LOCATION_FIXTURE,
 	PLAN_FEATURES,
+	PROJECT_SPACE_SETTINGS,
 } from "@/lib/publish/planFeatures";
 import {
 	PROJECT_SPACE_ADVISORIES,
@@ -67,7 +66,7 @@ export function ProjectSpaceCapabilityCatalog() {
  * window reads.
  */
 export function PlanFeatureCatalog() {
-	const settings = [FLAT_LOCATION_FIXTURE, CONNECT_FORWARDER];
+	const settings = Object.values(PROJECT_SPACE_SETTINGS);
 	return (
 		<div className="not-prose my-6 space-y-4">
 			{Object.values(PLAN_FEATURES).map((feature) => (

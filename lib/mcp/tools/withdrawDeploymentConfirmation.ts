@@ -3,7 +3,8 @@
  * about a CommCare HQ project space, so the next upload there asks again.
  *
  * A confirmation records that a project space has something no API key
- * reads: a plan feature, its flat location list, a Connect forwarder. Nova
+ * reads: a plan feature, its flat location list, a Connect forwarder, sync
+ * on form entry turned off. Nova
  * cannot see a plan change in CommCare HQ, so a confirmation stands until
  * someone withdraws it, here or from the deployment's card in the builder.
  * The row is kept with who withdrew it and when.
@@ -63,7 +64,7 @@ export function registerWithdrawDeploymentConfirmation(
 		{
 			scopeChallenge: oauthScopeChallenge(ctx, SCOPES.hqWrite),
 			description:
-				"Withdraw something a user confirmed about a CommCare HQ project space (a plan feature, the flat location list, or a Connect forwarder), so the next `upload_app_to_hq` there asks about it again. Use it when the user says the project space no longer has it, for example after a plan change, which Nova cannot see. Read the confirmations in force from `get_deployment`'s `confirmations`. Withdrawing one that is not in force changes nothing. Returns the deployment.",
+				"Withdraw something a user confirmed about a CommCare HQ project space (a plan feature, the flat location list, a Connect forwarder, or Sync Cases On Form Entry turned off), so the next `upload_app_to_hq` there asks about it again. Use it when the user says the project space no longer has it, for example after a plan change, which Nova cannot see. Read the confirmations in force from `get_deployment`'s `confirmations`. Withdrawing one that is not in force changes nothing. Returns the deployment.",
 			inputSchema: z.object({
 				app_id: deploymentAppIdSchema.describe(
 					"App id whose deployment holds the confirmation. Requires edit access in the app's Project.",
@@ -79,13 +80,13 @@ export function registerWithdrawDeploymentConfirmation(
 				kind: z
 					.enum(DEPLOYMENT_CONFIRMATION_KINDS)
 					.describe(
-						"`plan-feature`, `flat-location-fixture` or `connect-forwarder`, as `get_deployment`'s `confirmations` names it.",
+						"`plan-feature`, `flat-location-fixture`, `connect-forwarder` or `form-entry-sync-off`, as `get_deployment`'s `confirmations` names it.",
 					),
 				subject: z
 					.string()
 					.optional()
 					.describe(
-						"For a `plan-feature`, the plan feature's id as `confirmations` names it. Omit for the other two kinds.",
+						"For a `plan-feature`, the plan feature's id as `confirmations` names it. Omit for the other three kinds.",
 					),
 			}),
 		},

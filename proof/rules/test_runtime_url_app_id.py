@@ -14,7 +14,9 @@ suite and profile name the working app; and the rule erasing an address
 that names another view, another project space or an id that is neither.
 
 Three tests, over one served state of ``targeted-sync-on-form-entry`` (its
-search, its claim and its sync before the form opens):
+search and the follow-up form it opens on the case the worker picks; from step 4
+the document is published with sync cases on form entry off, so no claim or sync
+step comes before the form):
 
 - the rule over addresses alone;
 - HQ's search, restore and receiver views asked directly with the worker's

@@ -23,6 +23,8 @@ import {
 import {
 	CONNECT_FORWARDER,
 	FLAT_LOCATION_FIXTURE,
+	FORM_ENTRY_SYNC_OFF,
+	formEntrySyncWhereMissing,
 	LOGO_UPLOAD_STEP_TEXT,
 	PLAN_FEATURES,
 	webAppsWhereMissing,
@@ -40,6 +42,11 @@ import {
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 
+/* What a person can do where the project space syncs cases on form entry, for an app nothing keeps off Web Apps alone. */
+const SYNC_WHERE_MISSING = formEntrySyncWhereMissing({
+	open: true,
+	features: [],
+});
 /* What a person can do where the plan lacks Web Apps, for an app nothing keeps off Android. */
 const WEB_APPS_WHERE_MISSING = webAppsWhereMissing({
 	open: true,
@@ -877,6 +884,7 @@ test("native import file download lists the guide's steps once the file arrives"
 		runsInWebApps: true,
 		readsLocations: false,
 		sendsToConnect: false,
+		formEntrySync: false,
 		distanceSearches: [],
 	});
 	await page.route("**/api/compile/json", (route) =>
@@ -1005,6 +1013,15 @@ test("native publish asks for each plan feature and project-space setting before
 						where_missing: CONNECT_FORWARDER.whereMissing,
 						state: "needs_confirmation",
 					},
+					form_entry_sync_off: {
+						label: FORM_ENTRY_SYNC_OFF.label,
+						consequence: FORM_ENTRY_SYNC_OFF.consequence,
+						reasons: [
+							"Visit works on a case chosen in Patients, a menu with Search.",
+						],
+						where_missing: SYNC_WHERE_MISSING,
+						state: "needs_confirmation",
+					},
 				},
 			},
 		}),
@@ -1063,6 +1080,18 @@ test("native publish asks for each plan feature and project-space setting before
 	await page
 		.getByRole("checkbox", { name: "It does A Connect forwarder" })
 		.check();
+	await expect(upload).toBeDisabled();
+	await expect(
+		page.getByText(FORM_ENTRY_SYNC_OFF.question("alpha"), { exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByText(SYNC_WHERE_MISSING, { exact: true }),
+	).toBeVisible();
+	await page
+		.getByRole("checkbox", {
+			name: `${FORM_ENTRY_SYNC_OFF.confirmLabel} ${FORM_ENTRY_SYNC_OFF.label}`,
+		})
+		.check();
 	await expect(upload).toBeEnabled();
 	await upload.click();
 	await expect(
@@ -1074,6 +1103,7 @@ test("native publish asks for each plan feature and project-space setting before
 		{ kind: "plan-feature", subject: "worker-records" },
 		{ kind: "flat-location-fixture" },
 		{ kind: "connect-forwarder" },
+		{ kind: "form-entry-sync-off" },
 	]);
 	const download = page.waitForEvent("download");
 	await page
