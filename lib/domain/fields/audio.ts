@@ -6,11 +6,13 @@
 // its own `captureCaseWriteSchema` destination, which carries the mode
 // deciding how the answer reaches the case.
 //
-// This is an attachment, not a recording: CommCare Web Apps has no
-// microphone or recorder anywhere in cloudcare, so the worker picks an
-// existing audio file. Android records (`WidgetFactory` routes
-// `CONTROL_AUDIO_CAPTURE` to `CommCareAudioWidget`); that contrast is a
-// docs fact, not a Nova behavior.
+// How the worker adds the sound depends on where the app runs: CommCare
+// Web Apps has no microphone or recorder anywhere in cloudcare, so the
+// worker picks an existing audio file, while Android records
+// (`WidgetFactory` routes `CONTROL_AUDIO_CAPTURE` to
+// `CommCareAudioWidget`). So `saDocs` names what to capture, never how;
+// the platform table's `audio-question` row says how each platform
+// captures it.
 
 import tablerMicrophone from "@iconify-icons/tabler/microphone";
 import { z } from "zod";
@@ -42,6 +44,6 @@ export const audioFieldMetadata: FieldKindMetadata<"audio"> = {
 	isContainer: false,
 	carriesValidation: false,
 	saDocs:
-		"Audio attachment, the worker attaches an existing MP3, WAV, OGG, AMR, QCP, or 3GA file. Web Apps has no recorder, so never describe this as recording audio.",
+		'Audio attachment. Name what to capture, such as "Recording of the interview", rather than how.',
 	convertTargets: ["image", "video", "signature", "file"],
 };

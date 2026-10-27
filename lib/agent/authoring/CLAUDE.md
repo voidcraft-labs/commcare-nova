@@ -24,6 +24,11 @@ orientation separately, shared by editor turns, retries, and MCP `get_app`.
 Detailed questions and configuration belong to scoped reads. The plugin only
 bootstraps current server guidance; it does not keep another authoring manual.
 
+Platform sentences in the guide are generated from `lib/domain/platforms.ts`,
+so a change to a platform note or remedy changes the guide and moves
+`MODEL_CONTEXT_VERSION`. The overview's `platforms` and `notOffered` come from
+the same table.
+
 Workflow guidance distinguishes record persistence, standalone report collection,
 and retrieval at the configured CommCare destination. Preview submission receipts
 do not establish an answer-document archive or reporting permissions. Retained

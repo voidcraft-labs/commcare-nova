@@ -13,7 +13,7 @@ export const INTERACTIVITY_INSTRUCTIONS = {
 	interactive:
 		"AskUserQuestion is available when an answer would materially change the app.",
 	autonomous:
-		"The user is away. Make reasonable choices within their request and report consequential assumptions when you finish. AskUserQuestion is unavailable.",
+		"The user is away. Make reasonable choices within their request and report consequential assumptions when you finish. AskUserQuestion is unavailable. When the request names a feature that runs on only one platform, set the app to that platform and report it with your assumptions; otherwise keep it running on both.",
 } as const;
 
 export function agentPromptSegments(

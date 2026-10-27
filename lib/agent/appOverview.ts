@@ -1,8 +1,10 @@
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
+	declaredPlatforms,
 	effectiveAppLocalization,
 	effectiveCaseTypes,
+	featuresNotOffered,
 	isStandardCaseListProperty,
 	orderedAutomations,
 	orderedLocationProperties,
@@ -30,6 +32,9 @@ export function appOverview(doc: BlueprintDoc) {
 			showSavedForms: doc.appSettings.showSavedForms,
 			showIncompleteForms: doc.appSettings.showIncompleteForms,
 		},
+		/** Where workers use the app, and the features that declaration refuses. */
+		platforms: declaredPlatforms(doc),
+		notOffered: featuresNotOffered(doc),
 		standardRecordProperties: Object.entries(
 			STANDARD_CASE_LIST_PROPERTY_DATA_TYPES,
 		).map(([name, type]) => ({

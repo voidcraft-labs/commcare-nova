@@ -85,6 +85,7 @@ import {
 	resolveFieldAddress,
 } from "./shared/entityAddresses";
 import type { CreatedOptionIdentity } from "./shared/fieldAssembly";
+import { fieldKindPlatformRefusal } from "./shared/platformPrecheck";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -365,6 +366,21 @@ export const editFieldTool = {
 						result: {
 							error: `Field "${currentId}" is a "${fromKind}" field, but you passed kind="${newKind}". To edit it in place, pass kind="${fromKind}".${convertHint}`,
 						},
+					};
+				}
+
+				// A kind the app's platforms can't run is refused before it
+				// stages, in the platform rule's own words for this question.
+				const platformRefusal = fieldKindPlatformRefusal(
+					doc,
+					resolved.formUuid,
+					[{ kind: newKind, id: newId ?? currentId }],
+				);
+				if (platformRefusal !== undefined) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						result: { error: platformRefusal },
 					};
 				}
 

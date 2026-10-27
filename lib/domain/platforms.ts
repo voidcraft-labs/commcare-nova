@@ -870,3 +870,27 @@ export function platformRefusalMessage(options: {
 		other === "web-apps" ? "Web Apps" : "the CommCare app on Android";
 	return `${lead} You can ${copy.alternative}, or, if workers use only ${otherAudience}, set the app to run ${platformDeclarationPhrase([other])} (updateApp/update_app, runs_only_on "${other}").`;
 }
+
+/**
+ * The features the app's declaration refuses, in table order, each as
+ * "<label>, not in Web Apps" or "<label>, not on Android": the overview's
+ * `notOffered`, so a model reads what it can't use before it tries.
+ */
+export function featuresNotOffered(
+	doc: Pick<BlueprintDoc, "appSettings">,
+): string[] {
+	const platforms = declaredPlatforms(doc);
+	return PLATFORM_FEATURE_IDS.flatMap((id) => {
+		const platform = unavailablePlatform(id, platforms);
+		return platform === undefined
+			? []
+			: [`${PLATFORM_FEATURES[id].label}, not ${inPlatform(platform)}`];
+	});
+}
+
+/** The guide's platform sentence for a question kind, over both platforms,
+ * or "" for a kind that is no platform feature. */
+export function platformSentenceForFieldKind(kind: FieldKind): string {
+	const feature = featureForFieldKind(kind);
+	return feature === undefined ? "" : platformSentence(feature, PLATFORMS);
+}

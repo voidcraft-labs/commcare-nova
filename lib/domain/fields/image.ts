@@ -6,12 +6,13 @@
 // its own `captureCaseWriteSchema` destination, which carries the mode
 // deciding how the answer reaches the case.
 //
-// The worker ATTACHES a photo; they do not take one. CommCare Web Apps
-// has no camera — `entry_file.html` binds only `accept` on its file
-// input, and `getUserMedia` / `MediaRecorder` / `capture=` occur nowhere
-// in cloudcare. Android is the contrast (`ImageWidget` fires
-// `MediaStore.ACTION_IMAGE_CAPTURE`), which is a docs fact, not a Nova
-// behavior. Every author- and worker-facing string here says "attach".
+// How the worker adds the photo depends on where the app runs. CommCare
+// Web Apps has no camera: `entry_file.html` binds only `accept` on its
+// file input, and `getUserMedia` / `MediaRecorder` / `capture=` occur
+// nowhere in cloudcare, so the worker attaches a file. Android takes a
+// picture (`ImageWidget` fires `MediaStore.ACTION_IMAGE_CAPTURE`). So
+// `saDocs` names what to capture, never how; the platform table's
+// `image-question` row says how each platform captures it.
 
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { z } from "zod";
@@ -43,6 +44,6 @@ export const imageFieldMetadata: FieldKindMetadata<"image"> = {
 	isContainer: false,
 	carriesValidation: false,
 	saDocs:
-		'Photo attachment, the worker attaches a JPG, JPEG, or PNG from their device. Those three are the whole accepted set; GIF and WebP are rejected at pick time. Web Apps has no camera, so say "attach a photo", never "take a photo".',
+		'Photo attachment. Name what to capture, such as "Photo of the meter", rather than how, because how the worker adds it depends on where the app runs.',
 	convertTargets: ["audio", "video", "signature", "file"],
 };

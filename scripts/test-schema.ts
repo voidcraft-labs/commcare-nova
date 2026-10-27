@@ -398,7 +398,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: updateAppTool.description,
 		schema: updateAppTool.inputSchema,
 		prompt:
-			"Use updateApp to name the app 'Village Health' and turn its incomplete forms list on.",
+			"Use updateApp to name the app 'Village Health', set it to run only on Android, and turn its incomplete forms list on.",
 	},
 	/* Language tools — the two identity-object schemas most exposed to
 	 * provider-side normalization: the nested refined identity with

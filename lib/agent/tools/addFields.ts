@@ -16,7 +16,7 @@
  * tool — one field is just a length-1 `fields` array.
  *
  * Both the SA chat factory and the MCP adapter call this through the
- * shared `ToolInvocationContext` interface. Five legal exit branches
+ * shared `ToolInvocationContext` interface. Seven legal exit branches
  * all land on the `MutatingToolResult` shape:
  *
  *   1. UUID address miss or parent-membership mismatch → `{ error }`, no
@@ -25,11 +25,18 @@
  *      over-long / sibling-conflicting per the shared verdicts in
  *      `lib/doc/identifierVerdicts.ts`) → `{ error }` naming EVERY
  *      failing item, no mutations, nothing persisted.
- *   3. Commit-gate rejection (`guardedMutate` — the batch would
+ *   3. A question kind the app's platforms can't run (the date-and-time
+ *      question in an app that runs in Web Apps) → `{ error }` naming every
+ *      such item in the gate's own words (`fieldKindPlatformRefusal`),
+ *      before staging, since private work stages a batch whatever its
+ *      findings. Nothing persisted.
+ *   4. A landing a sectioned form refuses (`sectionPlacementRefusal`) →
+ *      `{ error }` in one sentence, nothing persisted.
+ *   5. Commit-gate rejection (`guardedMutate` — the batch would
  *      introduce a validator finding) → `{ error }` listing each
  *      finding, nothing persisted.
- *   4. Runtime error in the pipeline → `{ error }`, no mutations.
- *   5. Success → a human-readable `message` (+ a UI `summary`); the stage
+ *   6. Runtime error in the pipeline → `{ error }`, no mutations.
+ *   7. Success → a human-readable `message` (+ a UI `summary`); the stage
  *      tag drives lifecycle derivation on the chat client.
  */
 
@@ -63,6 +70,7 @@ import {
 	type CreatedFieldIdentity,
 	describeRejectedFields,
 } from "./shared/fieldAssembly";
+import { fieldKindPlatformRefusal } from "./shared/platformPrecheck";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -185,6 +193,23 @@ export const addFieldsTool = {
 				};
 			}
 			const { mutations, created } = assembly;
+
+			// A question kind the app's platforms can't run is refused before
+			// it stages, in the platform rule's own words for that question.
+			const platformRefusal = fieldKindPlatformRefusal(
+				doc,
+				formUuid,
+				mutations.flatMap((m) =>
+					m.kind === "addField" ? [{ kind: m.field.kind, id: m.field.id }] : [],
+				),
+			);
+			if (platformRefusal !== undefined) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: { error: platformRefusal },
+				};
+			}
 
 			// Sections make a form a closed state; say why a landing is refused
 			// in one sentence before the gate's finding list would.

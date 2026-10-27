@@ -130,7 +130,8 @@ const CONNECT_ACTIONS: Record<string, string> = {
 	off: "Turned off CommCare Connect",
 };
 
-/** `updateApp` sets the app name and the form-list settings. A call that set
+/** `updateApp` sets the app name, the form-list settings and where the app
+ *  runs. A call that set
  *  a name names the act itself — "Named the app" / "Renamed the app" — and
  *  one that changed settings alone reads the generic "Updated app settings".
  *  The name and each changed setting render on the secondary "→" line (see
@@ -403,8 +404,16 @@ export const toolAction = (part: ToolUIPart): string => {
 		: action;
 };
 
+/** Where the app runs after an `updateApp` call that changed it. */
+const UPDATE_APP_PLATFORM_PHRASES = {
+	both: "Runs in Web Apps and on Android",
+	"web-apps": "Runs only in Web Apps",
+	android: "Runs only on Android",
+} as const satisfies Record<NonNullable<ToolCallSummary["platforms"]>, string>;
+
 /** `updateApp`'s "→" line: the name it set, then each form-list setting it
- *  changed, joined by " · " ("Village Health · Incomplete forms off"). */
+ *  changed, then where the app runs when it changed that, joined by " · "
+ *  ("Village Health · Incomplete forms off · Runs only on Android"). */
 const updateAppLocation = (summary: ToolCallSummary): string | null => {
 	const parts = [
 		...(summary.subject !== undefined ? [summary.subject] : []),
@@ -413,6 +422,9 @@ const updateAppLocation = (summary: ToolCallSummary): string | null => {
 			: []),
 		...(summary.formLists?.incomplete !== undefined
 			? [`Incomplete forms ${summary.formLists.incomplete ? "on" : "off"}`]
+			: []),
+		...(summary.platforms !== undefined
+			? [UPDATE_APP_PLATFORM_PHRASES[summary.platforms]]
 			: []),
 	];
 	return parts.length > 0 ? parts.join(" · ") : null;

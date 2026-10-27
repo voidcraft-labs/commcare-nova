@@ -1,5 +1,12 @@
 import { expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import {
+	PLATFORM_FEATURE_IDS,
+	PLATFORM_FEATURES,
+	PLATFORMS,
+	type Platform,
+	platformBehavior,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { appOverview } from "../appOverview";
 import { buildAppStateMessage } from "../prompts";
@@ -64,3 +71,45 @@ it("holds the document's form-list settings", () => {
 		showIncompleteForms: false,
 	});
 });
+
+it.each([
+	[undefined, ["web-apps", "android"]],
+	["web-apps", ["web-apps"]],
+	["android", ["android"]],
+] as const)(
+	"names where an app with runsOnlyOn %s runs and every feature refused there",
+	(runsOnlyOn, platforms) => {
+		const doc = buildDoc({
+			appSettings: {
+				showSavedForms: false,
+				showIncompleteForms: false,
+				...(runsOnlyOn !== undefined && { runsOnlyOn }),
+			},
+		});
+		const overview = appOverview(doc);
+		expect(overview.platforms).toEqual(platforms);
+		const suffix: Record<Platform, string> = {
+			"web-apps": "not in Web Apps",
+			android: "not on Android",
+		};
+		const expected = PLATFORM_FEATURE_IDS.flatMap((id) => {
+			const platform = PLATFORMS.find(
+				(each) =>
+					(platforms as readonly Platform[]).includes(each) &&
+					platformBehavior(id, each).reading === "unavailable",
+			);
+			return platform === undefined
+				? []
+				: [`${PLATFORM_FEATURES[id].label}, ${suffix[platform]}`];
+		});
+		expect(overview.notOffered).toEqual(expected);
+		if (runsOnlyOn === undefined)
+			expect(overview.notOffered).toContain(
+				`${PLATFORM_FEATURES["datetime-question"].label}, not in Web Apps`,
+			);
+		if (runsOnlyOn === "android")
+			expect(overview.notOffered).not.toContain(
+				`${PLATFORM_FEATURES["datetime-question"].label}, not in Web Apps`,
+			);
+	},
+);

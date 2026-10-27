@@ -23,3 +23,22 @@ describe("summarizeBlueprint form-list settings", () => {
 		},
 	);
 });
+
+describe("summarizeBlueprint's platform line", () => {
+	it.each([
+		[undefined, "Runs on: Web Apps and Android"],
+		["web-apps", "Runs on: Web Apps only"],
+		["android", "Runs on: Android only"],
+	] as const)("prints runsOnlyOn %s as one line", (runsOnlyOn, line) => {
+		const doc = surveyFixture();
+		doc.appSettings = {
+			showSavedForms: false,
+			showIncompleteForms: false,
+			...(runsOnlyOn !== undefined && { runsOnlyOn }),
+		};
+		const lines = summarizeBlueprint(expectAdmittedDoc(doc)).split("\n");
+		expect(lines.filter((entry) => entry.startsWith("Runs on:"))).toEqual([
+			line,
+		]);
+	});
+});

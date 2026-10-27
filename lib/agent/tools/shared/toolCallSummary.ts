@@ -1,3 +1,5 @@
+import type { Platform } from "@/lib/domain";
+
 /** Transcript presentation captured when a tool runs, so its names remain
  * correct after later edits. Model and MCP projections omit this metadata. */
 export interface ToolCallSummary {
@@ -51,6 +53,12 @@ export interface ToolCallSummary {
 	 * recorded before the settings existed reads as it always did.
 	 */
 	formLists?: { saved?: boolean; incomplete?: boolean };
+	/**
+	 * For a call that changed where the app runs: the RESULTING declaration,
+	 * `"both"` or the one platform. Absent when it left the declaration as it
+	 * was.
+	 */
+	platforms?: "both" | Platform;
 	/**
 	 * For a call that deliberately changed NOTHING because it first needs the
 	 * user's go-ahead — `editField`'s conversion consent round. The transcript

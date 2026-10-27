@@ -164,6 +164,22 @@ describe("updateApp transcript row", () => {
 		expect(toolAction(part)).toBe("Renamed the app");
 		expect(toolLocation(part)).toBe("Village Health · Incomplete forms off");
 	});
+
+	it.each([
+		["both", "Runs in Web Apps and on Android"],
+		["web-apps", "Runs only in Web Apps"],
+		["android", "Runs only on Android"],
+	] as const)(
+		"names where the app runs after the form lists when a call changed it to %s",
+		(platforms, phrase) => {
+			const part = donePart("updateApp", {
+				formLists: { incomplete: true },
+				platforms,
+			});
+			expect(toolAction(part)).toBe("Updated app settings");
+			expect(toolLocation(part)).toBe(`Incomplete forms on · ${phrase}`);
+		},
+	);
 });
 
 describe("configureConnect transcript row", () => {
