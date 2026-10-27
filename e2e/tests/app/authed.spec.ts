@@ -17,6 +17,7 @@ import { FORM_LINKS_SEED } from "../../lib/formLinksSeed";
 import { FORM_SECTIONS_SEED } from "../../lib/formSectionsSeed";
 import {
 	expectBuilderDataLoaded,
+	expectBuilderDataLoading,
 	openBuilder,
 	openPage,
 	reloadBuilder,
@@ -3684,9 +3685,6 @@ test.describe("authenticated builder", () => {
 					}
 				};
 			});
-			const lookupCatalog = page.locator(
-				'[data-builder-resource="lookup-catalog"]',
-			);
 			const releaseReads = Promise.withResolvers<void>();
 			let heldActions = 0;
 			const actionRoutes = removableRoutes(page);
@@ -3710,7 +3708,7 @@ test.describe("authenticated builder", () => {
 					page.getByRole("heading", { name: "Case changes", level: 1 }),
 				).toBeVisible({ timeout: 20_000 });
 				await expect.poll(() => heldActions).toBeGreaterThan(0);
-				await expect(lookupCatalog).toHaveAttribute("data-state", "loading");
+				await expectBuilderDataLoading(page);
 				// This alert is produced only by a refused edit. Its absence while
 				// the real reads are held cannot establish mutation readiness.
 				await expect(

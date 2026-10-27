@@ -545,8 +545,14 @@
 			"xform:model/instance//*@xmlns"
 		],
 		"valueClass": "unique-in-app",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.xmlns`, the submission identity a new project space and the local `.ccz` take (exports, UCR, repeaters and forwarders key on it); the deployment ledger records each project space's `xmlns`, and a project space that already has its own keeps it",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived from the form's UUID (`wireIdentity.ts::derivedFormXmlns`), or the `xmlns` the deployment ledger records for that project space (`app_deployment_identities`, `wireIdentity.ts::targetWireIdentity`); widen: `Form.xmlns`, a stored submission identity an import keeps for a new project space and the local `.ccz`",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`Form.xmlns`, a stored submission identity an import keeps for a new project space and the local `.ccz`"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -558,7 +564,7 @@
 			}
 		},
 		"emission": {
-			"cell": "the target's recorded `xmlns`, or `Form.xmlns` (today re-minted per expansion)",
+			"cell": "the target's recorded `xmlns`, else the one derived from the form's UUID",
 			"markers": []
 		},
 		"gates": []
@@ -2863,10 +2869,9 @@
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "UNAVAILABLE (the question has no Web Apps entry: defect 18) / RUNS",
+			"cell": "RUNS / RUNS",
 			"webApps": {
-				"reading": "unavailable",
-				"note": "the question has no Web Apps entry: defect 18"
+				"reading": "runs"
 			},
 			"android": {
 				"reading": "runs"
@@ -4181,6 +4186,25 @@
 		},
 		"emission": {
 			"cell": "`close_condition`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "forms-and-case-writes/subcases-close-condition-never",
+		"area": "forms-and-case-writes",
+		"section": "Basic form actions",
+		"item": "`subcases[].close_condition` never (any `operator`)",
+		"surfaceKeys": ["schema:OpenSubCaseAction.close_condition"],
+		"valueClass": "subcase-close-never",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: no close: HQ reads only the condition's `type` (`models/form_actions.py::FormActionCondition.is_active`), and its `operator` only where the type is `if` (`xform.py::XForm.action_relevance`), so `never` with any `operator` is HQ's default",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`never`, `operator: null` (`hqShells.ts::neverCondition`)",
 			"markers": []
 		},
 		"gates": []

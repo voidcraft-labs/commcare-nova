@@ -37,6 +37,32 @@ const LOOKUP_CATALOG = '[data-builder-resource="lookup-catalog"]';
  * ready. A timeout names the states it last saw.
  */
 export async function expectBuilderDataLoaded(page: Page): Promise<void> {
+	await expectEveryCatalogMarker(
+		page,
+		"ready",
+		"The builder's Project data never finished loading",
+	);
+}
+
+/**
+ * Waits until the builder on this page shows its catalog read in progress,
+ * for a test that holds that read on purpose. The not yet revealed copy
+ * described above is the server's render and always reads loading, so this
+ * too waits on every copy: the live one reading loading is what it proves.
+ */
+export async function expectBuilderDataLoading(page: Page): Promise<void> {
+	await expectEveryCatalogMarker(
+		page,
+		"loading",
+		"The builder never showed its Project data loading",
+	);
+}
+
+async function expectEveryCatalogMarker(
+	page: Page,
+	state: "loading" | "ready",
+	message: string,
+): Promise<void> {
 	await expect
 		.poll(
 			async () => {
@@ -46,16 +72,13 @@ export async function expectBuilderDataLoaded(page: Page): Promise<void> {
 						markers.map((marker) => marker.getAttribute("data-state")),
 					);
 				if (states.length === 0) return "no catalog marker on the page";
-				return states.every((state) => state === "ready")
-					? "ready"
+				return states.every((seen) => seen === state)
+					? state
 					: `catalog ${states.join(", ")}`;
 			},
-			{
-				message: "The builder's Project data never finished loading",
-				timeout: 20_000,
-			},
+			{ message, timeout: 20_000 },
 		)
-		.toBe("ready");
+		.toBe(state);
 }
 
 /** Loads a builder URL (`/build/...`) and waits for its Project data. */

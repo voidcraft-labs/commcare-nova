@@ -797,11 +797,11 @@ def test_a_feature_is_hqs_setting_or_the_one_its_template_writes_for_every_app(m
 
 
 def test_a_use_no_entry_names_is_one_difference_per_artifact_and_key(manifest):
-    # A key only allowing entries name, so every use of it is held.
+    # A key only allowing entries name (HELD, TARGET-OWNED or INERT), so every use of it is held.
     named = next(
         key
         for key, entries in sorted(manifest.entries.items())
-        if all(entry.disposition != "REFUSED" for entry in entries)
+        if all(entry.disposition not in ("REFUSED", "HELD-NEW") for entry in entries)
     )
     unnamed = next(key for key in sorted(manifest.items) if key not in manifest.entries)
     uses = [
@@ -952,6 +952,49 @@ def test_the_bar_and_the_local_archives_take_their_refusals_from_the_entries_rea
     assert standing("edit/local.ccz/form:0.0", "runtime") == (manifest_usage.REFUSED, ["runtime-class"])
     assert standing("form:0.0", "runtime") == (manifest_usage.REFUSED, ["editor-class", "runtime-class"])
     assert manifest_usage.is_build("local-again.ccz/suite.xml") and not manifest_usage.is_build("edit/app.json")
+
+
+def test_a_use_only_held_new_entries_name_is_held_new():
+    """A use whose key only HELD-NEW entries name is Nova emitting what the manifest says it does not hold yet:
+    held-new, named after the key alone and resting on those entries. An allowing entry (HELD, TARGET-OWNED or
+    INERT) beside it holds the use, a REFUSED class that takes the use still refuses it, and in a local archive a
+    class refused for the source still takes its uses as the source's. Beside the bar's entries alone, a use is
+    held-new too: no entry allows any of the key's values."""
+    new = ("questions/new", "HELD-NEW", "new-class")
+    entries = {
+        "jr-type:int": [new],
+        "jr-type:date": [new, ("questions/held", "HELD", "held-class")],
+        "jr-type:time": [new, ("questions/target", "TARGET-OWNED", "target-class")],
+        "jr-type:long": [new, ("questions/inert", "INERT", "inert-class")],
+        "jr-type:decimal": [new, ("questions/refusing", "REFUSED", "refused-class", EDITOR)],
+        # Beside the bar's entry alone: no allowing entry, so every use of the key is an item Nova does not hold.
+        "jr-type:boolean": [new, ("questions/bar", "REFUSED", "bar-class", BUILD)],
+        "jr-type:string": [("questions/whole-new", "HELD-NEW", None)],
+    }
+    built = _built(entries, {"questions/refusing": _placed(True, False)})
+
+    def standing(key, where, artifact="form:0.0"):
+        kind, held = manifest_usage.standing(built, manifest_usage.Use(key, artifact, str(where)))
+        return kind, [entry.value_class for entry in held]
+
+    assert standing("jr-type:int", 0) == (manifest_usage.HELD_NEW, ["new-class"])
+    assert standing("jr-type:boolean", 0) == (manifest_usage.HELD_NEW, ["new-class"])
+    assert standing("jr-type:string", 0) == (manifest_usage.HELD_NEW, [None])
+    for key in ("jr-type:date", "jr-type:time", "jr-type:long"):
+        assert standing(key, 0) == (manifest_usage.HELD, []), key
+    assert standing("jr-type:decimal", 0) == (manifest_usage.REFUSED, ["refused-class"])
+    assert standing("jr-type:decimal", 1) == (manifest_usage.HELD_NEW, ["new-class"])
+    archive = "local.ccz/form:0.0"
+    assert standing("jr-type:decimal", 0, archive) == (manifest_usage.SOURCE, ["refused-class"])
+    assert standing("jr-type:decimal", 1, archive) == (manifest_usage.HELD_NEW, ["new-class"])
+    found = manifest_usage.unclassified(
+        "doc",
+        [manifest_usage.Use("jr-type:int", "form:0.0", "0"), manifest_usage.Use("jr-type:date", "form:0.0", "0")],
+        built,
+    )
+    assert [(d.path, [e["id"] for e in d.after["entries"]]) for d in found] == [
+        ("/jr-type:int/held-new", ["questions/new"])
+    ]
 
 
 def test_a_use_no_entry_refuses_where_it_sits_stands_by_where_its_class_is_judged():

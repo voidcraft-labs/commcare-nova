@@ -982,6 +982,7 @@
 			"mug:Trigger",
 			"jr-control:trigger",
 			"appearance:android/minimal",
+			"appearance:web-apps/minimal",
 			"xform:trigger",
 			"xform:trigger@ref",
 			"xform:trigger@appearance"
@@ -1168,6 +1169,38 @@
 		},
 		"emission": {
 			"cell": "— (in-envelope: `nova_operations` and `nova_subcases` are groups)",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/hidden-value-bound-xsd-datetime",
+		"area": "questions",
+		"section": "Question types",
+		"item": "Hidden Value (data node and bind, no control) whose bind type is `xsd:dateTime`",
+		"surfaceKeys": ["jr-type:dateTime", "xform:model/bind@type"],
+		"valueClass": "hidden-value-datetime",
+		"origin": "export-use",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a Hidden Value that writes a date-and-time case property, bound `xsd:dateTime` (`lib/domain/fieldValueType.ts::fieldValueType`); widen: a Hidden Value that writes nothing, bound `xsd:dateTime` where its calculate keeps a date's clock (`datePattern.ts::isClockKeepingDate`)",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "a Hidden Value that writes nothing, bound `xsd:dateTime` where its calculate keeps a date's clock (`datePattern.ts::isClockKeepingDate`)"
+			}
+		],
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / RUNS",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "`type=\"xsd:dateTime\"` on the bind of a data node no control draws",
 			"markers": []
 		},
 		"gates": []
@@ -4968,7 +5001,8 @@
 			"xform:setvalue@event",
 			"xform:setvalue@ref",
 			"xform:setvalue@value",
-			"xform:model/instance//*"
+			"xform:model/instance//*",
+			"session-path:session/context/drift"
 		],
 		"valueClass": "hq-build-meta",
 		"disposition": "HELD",

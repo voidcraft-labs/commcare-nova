@@ -176,6 +176,36 @@ test("canvas reference picker supports keyboard insertion, replacement and liter
 	tag: "@seed:sections",
 }, async ({ page, scenario, request }) => {
 	const { formSections } = seedFor(scenario, "sections");
+	// Every frame runs late, as on a busy machine. Choosing a reference then
+	// closes the picker and returns focus to the label before the frame that
+	// checks the blur which opened it, and that check must see the editor
+	// still focused rather than save and close it.
+	await page.addInitScript(() => {
+		const nextFrame = window.requestAnimationFrame.bind(window);
+		const cancelFrame = window.cancelAnimationFrame.bind(window);
+		const pending = new Map<number, { timer: number; frame?: number }>();
+		let lastHandle = 0;
+		window.requestAnimationFrame = (callback) => {
+			const handle = ++lastHandle;
+			const entry: { timer: number; frame?: number } = {
+				timer: window.setTimeout(() => {
+					entry.frame = nextFrame((time) => {
+						pending.delete(handle);
+						callback(time);
+					});
+				}, 80),
+			};
+			pending.set(handle, entry);
+			return handle;
+		};
+		window.cancelAnimationFrame = (handle) => {
+			const entry = pending.get(handle);
+			if (entry === undefined) return;
+			pending.delete(handle);
+			window.clearTimeout(entry.timer);
+			if (entry.frame !== undefined) cancelFrame(entry.frame);
+		};
+	});
 	await openBuilder(page, formSections.route);
 	const main = page.getByRole("main");
 	await main.getByRole("button", { name: "Your name", exact: true }).click();

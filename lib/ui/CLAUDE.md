@@ -35,8 +35,12 @@ unmounts with the editor it removed) and `hooks/useRemovedRowFocus` (a row's
 own Remove; next, then previous, then Add). Base UI's `finalFocus` alone does
 NOT do this**: it resolves during the closing dialog's layout-effect cleanup,
 before the replacement button's ref is attached, so it reads `null` and falls
-back to the trigger being unmounted. Both hooks therefore carry the intent on a
-ref and consume it in an effect once the slot or list has actually re-rendered.
+back to the trigger being unmounted. Both hooks therefore hold the intent in
+STATE set in the same event as the removal, so it lands in the very render that
+shows the result, and an effect judges it once. Never a ref: React flushes a
+still-pending passive effect from an earlier non-urgent commit before rendering
+the click, and that stale effect would read the fresh intent against the old
+list and discard it.
 Pass `finalFocus` as well; it costs nothing and covers an already-mounted
 replacement.
 

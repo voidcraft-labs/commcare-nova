@@ -569,8 +569,14 @@
 			"parser:SessionDatumParser/query@default_search"
 		],
 		"valueClass": "skip-to-default-results",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `caseSearchConfig.workflow: skipToResults` (authored; today Nova derives it only for a filter with no visible inputs)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: derived for a module whose search has an effective filter and no visible Search field (`suite/case-search/compileForPlatform.ts::compileForPlatform`); widen: `caseSearchConfig.workflow: skipToResults`, authored",
+		"slotChanges": [
+			{
+				"direction": "widen",
+				"text": "`caseSearchConfig.workflow: skipToResults`, authored"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS (only `<data>` sent; prompts refine in the sidebar) / IGNORED (the local list first; the search action opens the query screen: Android never reads `auto_launch`)",
@@ -2116,8 +2122,9 @@
 			"parser:QueryPromptParser/sort@ref"
 		],
 		"valueClass": "lookup-field",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `options.sortColumn` (the carrier has no sort today)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `SearchInputLookupOptions.sortColumnId` (absent: the label column)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

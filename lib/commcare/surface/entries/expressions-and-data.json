@@ -3244,10 +3244,10 @@
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "UNAVAILABLE in case-list rows and sorts (Core's São Paulo placeholder, `EntityScreen`), RUNS in the case detail with the browser's location, blank until granted (`MenuSessionRunnerService`, `FormplayerHereFunctionHandler`) / RUNS",
+			"cell": "UNAVAILABLE in case-list rows, sorts and the case detail (Core's São Paulo placeholder where Formplayer builds the list, `EntityScreen`; `''` everywhere else, since HQ's Web Apps client sends no location, `SessionNavigationBean.getGeoLocation`, `FormplayerHereFunctionHandler`) / RUNS",
 			"webApps": {
 				"reading": "unavailable",
-				"note": "in case-list rows and sorts (Core's São Paulo placeholder, `EntityScreen`), RUNS in the case detail with the browser's location, blank until granted (`MenuSessionRunnerService`, `FormplayerHereFunctionHandler`)"
+				"note": "in case-list rows, sorts and the case detail: Core's São Paulo placeholder where Formplayer builds the list (`EntityScreen`), and `''` everywhere else, since HQ's Web Apps client sends no location (`SessionNavigationBean.getGeoLocation`, `FormplayerHereFunctionHandler`)"
 			},
 			"android": {
 				"reading": "runs"

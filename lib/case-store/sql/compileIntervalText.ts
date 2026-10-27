@@ -19,11 +19,9 @@
  *     standard property is the text its reading holds
  *     (`compileReadingText`): under `results`, `last_modified` is HQ's
  *     `json_format_datetime` text, as the column shows it.
- *   - `d` is its calendar day in the viewer's zone: a date-only or zone-less
- *     value is read in the viewer's zone and an authored offset is kept
- *     (`compilePinnedInstant`), and the instant's date is taken in the
- *     viewer's zone, both as `java.util.TimeZone` reads it
- *     (`javaLocalTimestamp`, the standard offset before 1900).
+ *   - `d` is its calendar day as Core's `date()` gives it
+ *     (`compileCoreDateDay`): Core reads the authored day and keeps it, and
+ *     only an authored offset's clock moves into the viewer's zone.
  *   - `today` is the viewer's date (`compileToday`).
  *   - The guard comes before any cast: a value that is no date yields its
  *     raw text, as Preview shows it. A date is what Core's `date()` reads, a
@@ -44,13 +42,12 @@ import { type AliasableExpression, expressionBuilder } from "kysely";
 import type { CaseType } from "@/lib/domain/blueprint";
 import { prop, term } from "@/lib/domain/expression/builders";
 import {
-	compilePinnedInstant,
 	compileReadingText,
 	compileToday,
 	type ExpressionCompileContext,
 } from "./compileExpression";
 import type { Database } from "./database";
-import { javaLocalTimestamp } from "./javaZone";
+import { javaLocalTimestamp, javaWallInstant } from "./javaZone";
 import { resolveViewerTimeZone } from "./viewerTimeZone";
 
 const eb = expressionBuilder<Database, keyof Database>();
@@ -92,6 +89,49 @@ function withTextRead(
 	return next;
 }
 
+/**
+ * The calendar day Core's `date()` gives date text `v` (already guarded as
+ * one) in the viewer's `zone`, as `today() - date(v)` counts it: Core's
+ * `daysSinceEpoch` rounds the `Date` that `DateUtils.parseDateTime` returns to
+ * its local day.
+ *
+ * `parseDateTime` keeps the authored `year-month-day` whatever the time says.
+ * A time without an offset is a wall clock in the device's zone. A time with
+ * one (`Z`, or a `+` or `-` after the `T`, `parseTimeAndStore`) is read as
+ * its instant, and only that instant's local clock (hour, minute, second and
+ * milliseconds) is copied back onto the authored day; the instant's own local
+ * day is dropped. So `2026-10-22T02:30:00Z` is 22 October in Los Angeles,
+ * where that instant falls on the 21st. The wall clock then resolves as
+ * `java.util.Calendar` resolves it (`javaWallInstant`) and its day is taken
+ * as `java.util.TimeZone` reads it (`javaLocalTimestamp`), as Preview's
+ * `XPathDate.parse` does.
+ */
+function compileCoreDateDay(
+	v: AliasableExpression<string>,
+	zone: string,
+): AliasableExpression<unknown> {
+	const time = eb.fn<string>("split_part", [v, eb.val("T"), eb.val(2)]);
+	const hasOffset = eb(time, "~", eb.val("(Z$|[-+])"));
+	const authoredDay = eb.cast(
+		eb.fn<string>("split_part", [v, eb.val("T"), eb.val(1)]),
+		"date",
+	);
+	const localClock = eb.cast(
+		javaLocalTimestamp(zone, eb.cast(v, "timestamptz")),
+		"time",
+	);
+	const wallClock = eb
+		.case()
+		.when(hasOffset)
+		.then(eb(authoredDay, "+", localClock))
+		.else(eb.cast(v, "timestamp"))
+		.end();
+	return eb.cast(
+		javaLocalTimestamp(zone, javaWallInstant(zone, wallClock)),
+		"date",
+	);
+}
+
 export function compileIntervalText(
 	key: IntervalTextKey,
 	ctx: ExpressionCompileContext,
@@ -113,10 +153,7 @@ export function compileIntervalText(
 			eb.fn<boolean>("pg_input_is_valid", [v, eb.val("timestamptz")]),
 		]),
 	);
-	const day = eb.cast(
-		javaLocalTimestamp(zone, compilePinnedInstant(v, zone)),
-		"date",
-	);
+	const day = compileCoreDateDay(v, zone);
 	const elapsed = eb(compileToday(ctx), "-", day);
 	// The threshold can be fractional (a month is 30.4375 days), so it is
 	// compared as a number, never an integer parameter.

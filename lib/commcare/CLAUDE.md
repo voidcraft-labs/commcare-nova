@@ -148,9 +148,11 @@ Nova does with each, in two layers:
 
 A surface item no entry names is refused wherever an app uses it: a schema
 field at any value other than HQ's default, and any other item wherever it
-occurs. The manifest is the living record of every disposition; the
-inventory under `docs/research/2026-09-26-hq-round-trip/` stays the
-research's evidence and is not kept in step with it.
+occurs. The manifest is the living record of every disposition. A change to
+an entry edits its row in the inventory under
+`docs/research/2026-09-26-hq-round-trip/inventory/` in the same pull request:
+a split entry adds its row beside the row it splits from, an entry marked
+`export-use` has none, and the inventory's Counts table stays the research's.
 
 `surface/__tests__/manifest.test.ts`, in ordinary CI, holds the entries to the
 schema and to the surface (every key and gate an entry names exists, no two
@@ -158,10 +160,12 @@ entries claim one key at one value class, a REFUSED entry without a value
 class shares its key with no other entry unless only HQ's build refuses it)
 and prints the coverage, "N of M entries held". The proof lane's manifest
 check holds Nova's own exports to the entries: every item an export uses must
-be held by the entry whose value class takes it, and every flag HQ reads
-while building it must have a gate entry (`proof/README.md`, "Manifest
-checks"). Server code reads gate entries through `surface/gates.ts`, never
-`surface.json`, so a server bundle carries the gate entries alone.
+be held by the entry whose value class takes it, where holding is a HELD,
+TARGET-OWNED or INERT entry's, so a use whose key only HELD-NEW entries name
+is a difference (`/<key>/held-new`); and every flag HQ reads while building it
+must have a gate entry (`proof/README.md`, "Manifest checks"). Server code
+reads gate entries through `surface/gates.ts`, never `surface.json`, so a
+server bundle carries the gate entries alone.
 
 ### CommCare HQ project-space compatibility
 

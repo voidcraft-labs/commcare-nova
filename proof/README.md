@@ -176,23 +176,28 @@ only by the entry whose class takes it
 in the export by the rule the entry's row states): a use a REFUSED class takes
 is refused under that class's name, and a use the check cannot place in or out
 of a REFUSED class is undecided, a gap in the check that a value-class reader
-closes and that the register refuses to hold.
+closes and that the register refuses to hold. A use whose key only HELD-NEW
+entries name is held-new: Nova emits an item the manifest says it does not
+hold yet, so the entry's disposition or the emitter is wrong, and the register
+refuses to hold it too.
 
-An allowing class is what its row describes and is never read: it holds the
-rest of its item's values, every use no REFUSED class takes, so a value is a
-use only where a reader of it reads it (an appearance token only on the
-elements whose appearance that reader compares). A REFUSED class refused only
-because HQ's build refuses its state is the bar's, which reports every export
-HQ cannot build. In Nova's own local archives, which runtimes read and no
-editor does, a REFUSED class refuses only for what a runtime does: a use a
-class refused for how HQ's editors treat the source takes is judged on the app
-JSON that carries it, and a use no class takes (what HQ's build adds to the
-source) needs an allowing entry like any other. Each standing is its own
-symptom, named in the difference's path after the surface key: `/<key>` (no
-entry names it), `/<key>/refused/<value class>`,
-`/<key>/undecided/<value class>` and `/<key>/unheld` (every entry naming the
-key rules the use out). A REFUSED class whose uses are two defects' names the
-part a use is after its class (`/<key>/refused/<value class>/<part>`,
+An allowing class is a HELD, TARGET-OWNED or INERT entry's. An allowing class
+is what its row describes and is never read: it holds the rest of its item's
+values, every use no REFUSED class takes, so a value is a use only where a
+reader of it reads it (an appearance token only on the elements whose
+appearance that reader compares). A REFUSED class refused only because HQ's
+build refuses its state is the bar's, which reports every export HQ cannot
+build. In Nova's own local archives, which runtimes read and no editor does, a
+REFUSED class refuses only for what a runtime does: a use a class refused for
+how HQ's editors treat the source takes is judged on the app JSON that carries
+it, and a use no class takes (what HQ's build adds to the source) needs an
+allowing entry like any other. Each standing is its own symptom, named in the
+difference's path after the surface key: `/<key>` (no entry names it),
+`/<key>/refused/<value class>`, `/<key>/undecided/<value class>`,
+`/<key>/held-new` (only HELD-NEW entries name the key) and `/<key>/unheld`
+(every entry naming the key rules the use out). A REFUSED class whose uses are
+two defects' names the part a use is after its class
+(`/<key>/refused/<value class>/<part>`,
 `manifest_value_classes.py::VARIANTS`): Nova's scaffolding nodes by their
 name, apart from the ids a person authors.
 
@@ -2586,7 +2591,8 @@ Nova reports of it is observed on Nova's code too.
   entry for them; the loader refuses an `equivalence` field, and an
   `android` field that cites a class in place of a run.
 - `control` names the entry's control under `proof/controls/`.
-- A manifest entry never names an undecided use: that is a gap in the check.
+- A manifest entry never names an undecided use, a gap in the check, or a
+  held-new one, a disposition to correct or an emission to stop.
 
 The register is strict. A check on a document passes only when every
 difference it reports falls in an entry, every entry naming that document and
@@ -2674,7 +2680,8 @@ loader and the gate hold eight rules:
 
 1. A fixed entry meets the field checks of a known one: its check is one the
    register holds, its path is from the root, its kind is a known kind, it
-   names no undecided manifest use, and its control directory exists.
+   names no undecided or held-new manifest use, and its control directory
+   exists.
 2. An id is in one register only, and no two fixed entries share check,
    artifact, path, kind, values and control.
 3. A fixed entry is held on its control alone, by every run that runs its
