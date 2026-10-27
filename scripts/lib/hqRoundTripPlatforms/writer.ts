@@ -361,17 +361,23 @@ async function checkPostconditions(
 	) {
 		fail("a ready media row does not hold its planned format");
 	}
+	// Each catalog read names its table, not only the constraint or column:
+	// every app test's namespace holds copies of the case store's tables with
+	// their checks under the same names, still as they were when it was made.
 	const constraint = await sql<{ convalidated: boolean }>`
 		SELECT convalidated FROM pg_constraint
 		WHERE conname = 'media_assets_ready_media_format'
+			AND conrelid = 'media_assets'::regclass
 	`.execute(tx);
 	if (constraint.rows[0]?.convalidated !== true) {
 		fail("media_assets_ready_media_format is not validated");
 	}
 	const column = await sql<{ present: boolean }>`
 		SELECT EXISTS (
-			SELECT 1 FROM information_schema.columns
-			WHERE table_name = 'app_deployments' AND column_name = 'target_web_apps_enabled'
+			SELECT 1 FROM pg_attribute
+			WHERE attrelid = 'app_deployments'::regclass
+				AND attname = 'target_web_apps_enabled'
+				AND NOT attisdropped
 		) AS present
 	`.execute(tx);
 	if (column.rows[0]?.present !== false) {
@@ -380,6 +386,7 @@ async function checkPostconditions(
 	const size = await sql<{ definition: string }>`
 		SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint
 		WHERE conname = 'form_attachments_size_check'
+			AND conrelid = 'form_attachments'::regclass
 	`.execute(tx);
 	if (!(size.rows[0]?.definition ?? "").includes("15727616")) {
 		fail("form_attachments_size_check is not the capture size check");

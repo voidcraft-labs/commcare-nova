@@ -139,6 +139,23 @@ interface SeededFleet {
  */
 async function seedFleet(): Promise<SeededFleet> {
 	await h.seedProjectMember(OWNER, PROJECT, "owner");
+	/* An app test's namespace, as production holds them: copies of the case
+	 * store's tables whose checks carry the same names and keep the limits of
+	 * the moment it was made, so the postcondition must read the live table's.
+	 * Production's catalog is large enough that a lookup by name reads it in
+	 * heap order, where the check the migration adds again lands after the
+	 * namespace's copy; compacting this one and leaving index scans off
+	 * returns them in that same order. */
+	await sql`
+		SELECT public.nova_create_app_test_namespace(${crypto.randomUUID()}::uuid)
+	`.execute(h.db());
+	await sql`VACUUM FULL pg_constraint`.execute(h.db());
+	await sql`
+		DO $$ BEGIN
+			EXECUTE format('ALTER DATABASE %I SET enable_indexscan = off', current_database());
+		END $$
+	`.execute(h.db());
+	await sql`SET enable_indexscan = off`.execute(h.db());
 	const split = splitApp();
 	const apps: [string, BlueprintDoc, Date?][] = [
 		["app-a-android", featureDoc("datetime-question")],
