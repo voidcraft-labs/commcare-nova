@@ -17,6 +17,7 @@ import {
 	projectLocalizedForm,
 	projectLocalizedModule,
 } from "@/lib/domain/localizedBlueprintProjection";
+import { PLATFORM_LABELS } from "@/lib/domain/platforms";
 import { locationFixtureRows } from "@/lib/organization/footprint";
 import type {
 	PreviewCaseChoice,
@@ -24,6 +25,7 @@ import type {
 } from "@/lib/session/types";
 import { caseListStep } from "../caseListPhase";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
+import { deviceHomeButtons } from "../deviceHome";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import { evaluateForm } from "../engine/evaluateForm";
 import { appReadsPlaces } from "../engine/expressionCaseReads";
@@ -50,6 +52,7 @@ import { appTestCellProjector, appTestDetails } from "./details";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import {
 	appTestCanContinue,
+	appTestEntryScreen,
 	appTestForms,
 	appTestMenuSelection,
 	appTestMenus,
@@ -162,6 +165,7 @@ async function appTestFormContext(
 		screen: searchResults === undefined ? screen : { ...screen, searchResults },
 		formContext: {
 			identity: context.identity,
+			device: context.device,
 			cases: appTestEntryCases(context, state, screen.entryCases),
 			lookup: context.lookup,
 			entry: screen.entry,
@@ -201,6 +205,23 @@ async function observeScreen(
 			context.testAssignmentPersonaIds.includes(state.personaUuid),
 	};
 	switch (screen.kind) {
+		case "device-home":
+			return {
+				state,
+				observation: {
+					screen: "device-home",
+					name: projectLocalizedAppName(context.doc, context.language),
+					worker,
+					buttons: deviceHomeButtons(
+						context.doc.appSettings,
+						context.language,
+					).map(({ label, available, reason }) => ({
+						label,
+						available,
+						...(reason === undefined ? {} : { reason }),
+					})),
+				},
+			};
 		case "home":
 			return {
 				state,
@@ -276,6 +297,8 @@ async function observeScreen(
 						searchFirst: search.searchFirst,
 						hasVisibleInputs: search.hasVisibleInputs,
 						hasSubmitted: search.hasSubmitted,
+						submittedFoundNothing: read.result?.kind === "empty",
+						rules: context.rules,
 					}),
 					worker,
 					name: mod.name,
@@ -353,10 +376,10 @@ async function observeScreen(
 				},
 				held.formContext,
 			);
-			const pages = availablePages(evaluated.sections);
-			const currentPage = pages.findIndex(
-				(page) => page.uuid === evaluated.presentation.currentSectionUuid,
-			);
+			/* The form's pages are its screens on the session's platform: one
+			 * on Web Apps, so no page turn is offered there. */
+			const pages = availablePages(evaluated.screens);
+			const currentPage = pages.findIndex((page) => page.current);
 			return {
 				state: {
 					...state,
@@ -400,15 +423,18 @@ export async function observeAppTest(
 	const result = await observeScreen(context, scope, state);
 	const screen = result.state.screen;
 	const identity = parseLanguageTag(context.language);
+	const entry = appTestEntryScreen(result.state.platform).kind;
 	const actions = [
 		"observe",
 		"identity",
 		"language",
 		"sync",
 		"finish",
-		...(screen.kind !== "home" ? ["home"] : []),
+		...(screen.kind !== entry && screen.kind !== "device-home" ? ["home"] : []),
 		...(result.state.history.length ? ["back", "routeBack"] : []),
 	];
+	/* Android's home screen: Start opens the module list. */
+	if (screen.kind === "device-home") actions.push("continue");
 	if (screen.kind === "home" || screen.kind === "menu") actions.push("menu");
 	if (screen.kind === "menu") {
 		if ((result.observation.forms as unknown[] | undefined)?.length)
@@ -444,6 +470,10 @@ export async function observeAppTest(
 			actions,
 			controls: Object.fromEntries(
 				actions.flatMap((action) => {
+					if (screen.kind === "device-home" && action === "continue")
+						return [
+							[action, runtimeMessage(context.language, "deviceHomeStart")],
+						];
 					const label =
 						action === "routeBack" || action === "pagePrevious"
 							? "back"
@@ -461,6 +491,10 @@ export async function observeAppTest(
 						: [];
 				}),
 			),
+			platform: {
+				selected: result.state.platform,
+				label: PLATFORM_LABELS[result.state.platform],
+			},
 			language: {
 				selected: identity,
 				direction: languageDirection(identity),
@@ -471,7 +505,9 @@ export async function observeAppTest(
 			},
 			route: {
 				kind: screen.kind,
-				...(screen.kind !== "home" ? { moduleUuid: screen.moduleUuid } : {}),
+				...(screen.kind !== "home" && screen.kind !== "device-home"
+					? { moduleUuid: screen.moduleUuid }
+					: {}),
 				...(screen.kind === "form"
 					? { formUuid: screen.formUuid, selectedRecordIds: screen.caseIds }
 					: {}),
@@ -544,10 +580,12 @@ async function postAppTestClaims(
 				]
 			: [];
 	const held = new Set(next.claimedCaseIds);
-	const added = [...new Set(claimableCaseIds([...atResult, ...atForm]))].filter(
-		(caseId) => !held.has(caseId),
-	);
-	if (added.length === 0) return { context, state: next };
+	const posted = [...new Set(claimableCaseIds([...atResult, ...atForm]))];
+	const added = posted.filter((caseId) => !held.has(caseId));
+	/* Android follows every claim with a sync, so a claim of a case the
+	 * session already holds still reads its device again there. */
+	if (added.length === 0 && !(context.rules.claimThenSync && posted.length > 0))
+		return { context, state: next };
 	const claimedCaseIds = [...next.claimedCaseIds, ...added];
 	const restoreScope = { ...context.restoreScope, claimedCaseIds };
 	const deviceCases = await context.store.readDeviceCaseDatabase({
@@ -603,6 +641,16 @@ export async function advanceAppTest(
 		}
 		case "routeContinue":
 		case "continue": {
+			if (screen.kind === "device-home" && action.kind === "continue") {
+				/* Start: the module list, which `StandardHomeActivity::enterRootModule`
+				 * opens. */
+				next = {
+					...state,
+					screen: { kind: "home" },
+					history: [...state.history, screen],
+				};
+				break;
+			}
 			if (
 				screen.kind !== "details" ||
 				!appTestCanContinue(context, screen.source)
@@ -632,7 +680,7 @@ export async function advanceAppTest(
 		case "home":
 			next = {
 				...state,
-				screen: { kind: "home" },
+				screen: appTestEntryScreen(state.platform),
 				history: [],
 				selections: {},
 			};
@@ -879,10 +927,8 @@ export async function advanceAppTest(
 				},
 				held.formContext,
 			);
-			const pages = availablePages(evaluated.sections);
-			const current = pages.findIndex(
-				(page) => page.uuid === evaluated.presentation.currentSectionUuid,
-			);
+			const pages = availablePages(evaluated.screens);
+			const current = pages.findIndex((page) => page.current);
 			const target =
 				current < 0
 					? undefined
@@ -891,12 +937,28 @@ export async function advanceAppTest(
 				throw new AppTestActionError(
 					"That page turn is not available on this form.",
 				);
-			return advanceAppTest(
-				context,
-				scope,
-				{ ...state, screen: { ...held.screen, entry: evaluated.entry } },
-				{ kind: "section", sectionUuid: target.uuid },
+			const turned = await evaluateForm(
+				context.doc,
+				{
+					formUuid: screen.formUuid,
+					language: context.language,
+					caseIds: screen.caseIds,
+					answers: [],
+					screenPath: target.path,
+					searchAnswers: screen.searchAnswers,
+				},
+				{ ...held.formContext, entry: evaluated.entry },
 			);
+			next = { ...state, screen: { ...held.screen, entry: turned.entry } };
+			/* A forward turn stops on the first earlier screen that fails its
+			 * checks, as Next does; the turn completed only when it landed on
+			 * the page it was turning to. */
+			extra = {
+				completed:
+					availablePages(turned.screens).find((page) => page.current)?.path ===
+					target.path,
+			};
+			break;
 		}
 		case "section":
 		case "answer": {
@@ -920,6 +982,8 @@ export async function advanceAppTest(
 			next = { ...state, screen: { ...held.screen, entry: evaluated.entry } };
 			if (action.kind === "section")
 				extra = {
+					/* On Web Apps every section is on the form's one screen, so
+					 * each is current. */
 					completed: evaluated.sections.some(
 						(section) => section.uuid === action.sectionUuid && section.current,
 					),

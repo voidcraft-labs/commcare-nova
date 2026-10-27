@@ -18,6 +18,66 @@ capability tables keep independent runtime evidence, but they do not authorize
 an authorable Preview subset. Adding an authorable capability therefore adds
 its Preview implementation and its CommCare proof in the same change.
 
+## Platforms
+
+Preview plays one platform the app runs on at a time, Web Apps or Android.
+`platform.ts::effectivePreviewPlatform(declared, chosen)` returns the platform
+the author chose under **Runs on** while the app declares it, else Web Apps when
+the app declares Web Apps, else Android; Preview, App Tests and
+`evaluate_form` all call it, so the three never disagree. Web Apps is the
+default for an app that runs on both: it changes the fewest behaviors an author
+relies on and simulates no hardware. The choice is session state, never stored
+and never in the URL (`lib/session/CLAUDE.md`); a choice the app no longer
+declares derives away with no write.
+
+`platform.ts::PREVIEW_PLATFORM_RULES` is the one rule table: every behavior that
+differs by platform is one field of `PreviewPlatformRules` (where the app
+opens, after-submit landings, entry points, a case list with no forms, tile
+grouping, borders and alignment, search screen text and checks, zero results,
+skip to results, `here()`'s spelling, form screens, recalculation, day-number
+epoch, help, hints, labels, capture and more), each citing the CommCare reader
+it plays. No other module under `lib/preview`, `components/preview`,
+`lib/preview/app-tests` or the authoring evaluator compares a platform value:
+each reads a field, or calls `platformUnavailableSentence` (the refusal for a
+platform the app does not declare) or `engine/previewDevice.ts`'s
+`serverPreviewDevice` and `withNavigationWidth`. A value marked "until" is held
+until a lane observation on Android decides it, and nothing reads it yet.
+
+The device is an engine input beside the resolved identity, never part of it
+(`engine/previewDevice.ts::PreviewDevice`: the platform, Android's install id,
+the window width a navigation read measured on Web Apps, the worker language's
+wire code). `previewSessionValues(identity, device)` merges the device's session
+context values into the identity's: `deviceid` `Formplayer` on Web Apps and
+`commcare_` with the install id on Android, `appversion` Formplayer's
+`Formplayer Version: 2.64` or Android's version template, `drift` `0`,
+`window_width` on Web Apps only and only when the navigation measured one, and
+`applanguage` the worker language's wire code. The running shell installs the
+device on the `EngineController` (`setPreviewDevice`; a platform change
+restarts the entry, a language change rebuilds it with its answers), and every
+Server Action that reads session values takes it as plain JSON; the server
+parses it (`previewDeviceInput`) and checks it against the committed blueprint
+(`previewAuthorization.ts::admitPreviewDevice`: an undeclared platform is
+`platform-unavailable`, a language the app no longer holds
+`language-unavailable`), so the SQL session bindings, the Search session and the
+form's `commcaresession` cannot answer two ways. A journey or a check with no
+browser window uses `serverPreviewDevice`, whose Web Apps window is 1280 wide.
+An engine built without a device plays a Web Apps device with a fresh id.
+
+`FormEngine` reads its device's rules for three things. **Screens**:
+`formScreens()` is the one page model the pager's successors, App Tests and
+`evaluate_form` read; on Web Apps the whole form is one screen (`/data`), and
+entering it enters every section, as Formplayer walks the whole form; on
+Android a sectioned form is one screen per section and a form without sections
+pages as Core's `FormEntryController.getQuestionPrompts` collects prompts, one
+screen per labeled group (a field-list, as Nova emits it) and one per question
+outside one, inside every live repeat entry. A screen's identity is its path.
+**Recalculation**: on Web Apps every request runs every triggerable in
+dependency order (`TriggerDag.getAllWork`), as Formplayer rebuilds the session
+per request, and `prepareSubmit` runs one more pass before a submission
+validates; defaults and start-of-form setvalues never re-run, so a calculate
+reading `now()`, `random()` or `uuid()` changes after an unrelated answer.
+Android re-evaluates what an answer reaches. **Day numbers**: below.
+
 Hidden calculations retain their evaluated numeric and boolean types in the live
 instance, entry checkpoints, and worker updates. UI/submission values remain text;
 counts reading those nodes use Core's typed conversion without replaying calculations.
@@ -356,7 +416,7 @@ parent before their detail is shown.
 
 ## First-class date type in the XPath evaluator
 
-XPath values include a `XPathDate` alongside string/number/boolean. It holds its local calendar date (`calendarDays`) and, for a date and time, its instant (`timeMilliseconds`). `today()` returns a date, so `today() + 1` yields tomorrow, not `NaN`. CommCare's arithmetic converts dates to day numbers, and Preview's day number is Core's: `xpath/coreDays.ts::coreDaysSinceEpoch` and `coreDateAdd` compute it from the browser's zone as `DateUtils.daysSinceEpoch` and `dateAdd` do (the device-zone midnight of 1 January 1970, fixed 24-hour days, half-day rounding). The zone's offset is Java's, never the browser's own: `java.util.TimeZone` keeps a zone's history only from 1900-01-01T00:00Z and reads every earlier instant at the zone's current standard offset, so `lib/domain/javaZoneOffset.ts::javaZoneOffsetMs` gives the IANA offset from that instant on and the standard offset before it, and every Preview zone field (`coreDays.ts`, `instantDatetimeValue`, `format-date`'s `%Z`, a setvalue cast's clock, the offset a setvalue's uncast stamps, `string()` of a Date's zone name) reads through it rather than `Date`'s local getters, which follow the IANA history back into local mean time. Kiritimati's +14:00 before 1900 counts one day less there as well, and its clock steps back a day at the cutoff. That is a day off the calendar in `Pacific/Apia`, `Pacific/Enderbury`, `Pacific/Fakaofo`, `Pacific/Kiritimati` and `Pacific/Kwajalein`, as it is on a device. Numeric coercion of a date (`toNumeric`) and `date(<number>)` use it, `date(<number>)` truncating the number toward zero as Core's `toInt` does; a direct date in `toDouble` keeps its fractional days (`DateUtils.fractionalDaysSinceEpoch`, the wall clock), and `toISOString` keeps the calendar date, printed as `DateUtils.formatDate` prints it (the year unpadded). Calendar fields are Java's, `GregorianCalendar`'s: Julian before 1582-10-15 and Gregorian from it, both when fields become a day (`coreDays.ts::javaCalendarDays`, a date in the cutover's gap read as Julian) and when a day is read as fields (`javaCalendarDate`, the year counted in its era), so `format-date`, `format-date-for-calendar` and string coercion all print what Core prints. Core's `DateUtils.roundDate` is not the identity, and Preview runs it wherever Core does (`coreDays.ts::coreRoundDay`: every `daysSinceEpoch`, `dateAdd`, `date()` of a Date, a node's date in `format-date`, a calculated date): it reads `YEAR` without its era and sets it on an AD calendar, so a day before AD 1 folds to the AD date with the same fields (`number(date('0000-06-15'))` counts AD 1 June 15), and its proleptic Gregorian date check refuses a Julian February 29 in a year such as 100 or 1500. That refusal is Java's null: `date()` returns it as `runtimeValues.ts::XPathCoreNull`, which `coalesce` skips, `format-date` of a number or a node reads as no date, and every other read refuses (`types.ts::CoreUnroundableDateError`), as each read on a device throws. Day numbers are integer arithmetic on days, so every `int` Core accepts in `date(<number>)` has its date, past the range of a JavaScript `Date`; before 1900 a zone's offset is constant, so the far past is exact, and beyond the range's future edge the offset is the one at that edge (its final rule), which no zone's rounded day can tell apart. A date-and-time text beyond that range still has no instant in Preview and reads as no date. `date()` rounds a date and time to its local date whether it arrives directly or through a node (`coerce.ts::toDateRounding`, Core's `FunctionUtils.toDate`: a parsed string keeps its clock, `''` and NaN pass through). `format-date` and `format-date-for-calendar` keep a direct date's clock and round a node's (`expandDateSafe`), so `format-date(/data/dt, '%H')` is `00`, as on a device, and a blank node formats as `''`. `coerce.ts::toDate` keeps its name for the callers that read stored text and must not round. A datetime answer is read by the offset its canonical storage text carries, never re-resolved from wall time. A time answer reads as its wall clock with no zone, as Core's `TimeData.uncast` gives it (`engine/dataInstance.ts::answerXPathValue`), though its storage keeps a `Z` tag. A wall clock resolves as Java's `Calendar` resolves it (`coreDays.ts::javaWallInstant`): a repeated hour takes its later occurrence and a skipped one moves forward by the gap. `DateTimeData.uncast` stamps a date and time with `TimeZone.getOffset` of its local day (`coreDays.ts::javaOffsetMsOnDay`), which reads the day's midnight less the zone's raw offset as an instant and never resolves the wall clock, so Kiritimati's 1900-01-01 stamps +14 though its midnight there reads -10:29:20. A calculated date is held as the node's runtime value: a datetime bind keeps the instant, any other bind its date. The engine reads an answer by Core's type for its bind (a Hidden Value by its writer destination), never by its field kind alone. Every evaluation, synchronous or asynchronous, shares one parse cache per JavaScript realm (`evaluator.ts::parseAdmittedXPath`, 2,048 entries, keyed by the exact source). `lib/preview/xpath/__tests__/coreDateParity.test.ts` holds these rules to the fixture `proof/native/core/CoreDateParityRuntimeTest.java` holds Core to, in four device zones. Compatible typed emitters add the required wire coercion themselves. The experimental raw-XPath transpiler is not a production boundary and Preview must never assume that it ran.
+XPath values include a `XPathDate` alongside string/number/boolean. It holds its local calendar date (`calendarDays`) and, for a date and time, its instant (`timeMilliseconds`). `today()` returns a date, so `today() + 1` yields tomorrow, not `NaN`. CommCare's arithmetic converts dates to day numbers, and Preview's day number is Core's: `xpath/coreDays.ts::coreDaysSinceEpoch` and `coreDateAdd` compute it from the browser's zone as `DateUtils.daysSinceEpoch` and `dateAdd` do (the device-zone midnight of 1 January 1970, fixed 24-hour days, half-day rounding). The zone's offset is Java's, never the browser's own: `java.util.TimeZone` keeps a zone's history only from 1900-01-01T00:00Z and reads every earlier instant at the zone's current standard offset, so `lib/domain/javaZoneOffset.ts::javaZoneOffsetMs` gives the IANA offset from that instant on and the standard offset before it, and every Preview zone field (`coreDays.ts`, `instantDatetimeValue`, `format-date`'s `%Z`, a setvalue cast's clock, the offset a setvalue's uncast stamps, `string()` of a Date's zone name) reads through it rather than `Date`'s local getters, which follow the IANA history back into local mean time. Kiritimati's +14:00 before 1900 counts one day less there as well, and its clock steps back a day at the cutoff. That is a day off the calendar in `Pacific/Apia`, `Pacific/Enderbury`, `Pacific/Fakaofo`, `Pacific/Kiritimati` and `Pacific/Kwajalein`, as it is on a device. Numeric coercion of a date (`toNumeric`) and `date(<number>)` use it, `date(<number>)` truncating the number toward zero as Core's `toInt` does; a direct date in `toDouble` keeps its fractional days (`DateUtils.fractionalDaysSinceEpoch`, the wall clock), and `toISOString` keeps the calendar date, printed as `DateUtils.formatDate` prints it (the year unpadded). Calendar fields are Java's, `GregorianCalendar`'s: Julian before 1582-10-15 and Gregorian from it, both when fields become a day (`coreDays.ts::javaCalendarDays`, a date in the cutover's gap read as Julian) and when a day is read as fields (`javaCalendarDate`, the year counted in its era), so `format-date`, `format-date-for-calendar` and string coercion all print what Core prints. Core's `DateUtils.roundDate` is not the identity, and Preview runs it wherever Core does (`coreDays.ts::coreRoundDay`: every `daysSinceEpoch`, `dateAdd`, `date()` of a Date, a node's date in `format-date`, a calculated date): it reads `YEAR` without its era and sets it on an AD calendar, so a day before AD 1 folds to the AD date with the same fields (`number(date('0000-06-15'))` counts AD 1 June 15), and its proleptic Gregorian date check refuses a Julian February 29 in a year such as 100 or 1500. That refusal is Java's null: `date()` returns it as `runtimeValues.ts::XPathCoreNull`, which `coalesce` skips, `format-date` of a number or a node reads as no date, and every other read refuses (`types.ts::CoreUnroundableDateError`), as each read on a device throws. Day numbers are integer arithmetic on days, so every `int` Core accepts in `date(<number>)` has its date, past the range of a JavaScript `Date`; before 1900 a zone's offset is constant, so the far past is exact, and beyond the range's future edge the offset is the one at that edge (its final rule), which no zone's rounded day can tell apart. A date-and-time text beyond that range still has no instant in Preview and reads as no date. `date()` rounds a date and time to its local date whether it arrives directly or through a node (`coerce.ts::toDateRounding`, Core's `FunctionUtils.toDate`: a parsed string keeps its clock, `''` and NaN pass through). `format-date` and `format-date-for-calendar` keep a direct date's clock and round a node's (`expandDateSafe`), so `format-date(/data/dt, '%H')` is `00`, as on a device, and a blank node formats as `''`. `coerce.ts::toDate` keeps its name for the callers that read stored text and must not round. A datetime answer is read by the offset its canonical storage text carries, never re-resolved from wall time. A time answer reads as its wall clock with no zone, as Core's `TimeData.uncast` gives it (`engine/dataInstance.ts::answerXPathValue`), though its storage keeps a `Z` tag. A wall clock resolves as Java's `Calendar` resolves it (`coreDays.ts::javaWallInstant`): a repeated hour takes its later occurrence and a skipped one moves forward by the gap. `DateTimeData.uncast` stamps a date and time with `TimeZone.getOffset` of its local day (`coreDays.ts::javaOffsetMsOnDay`), which reads the day's midnight less the zone's raw offset as an instant and never resolves the wall clock, so Kiritimati's 1900-01-01 stamps +14 though its midnight there reads -10:29:20. A calculated date is held as the node's runtime value: a datetime bind keeps the instant, any other bind its date. The engine reads an answer by Core's type for its bind (a Hidden Value by its writer destination), never by its field kind alone. The day number's epoch is the platform's (`coreDays.ts::DayNumberEpoch`), and it travels with each evaluation (`EvalContext.dayNumberEpoch`, read once per call site through `types.ts::dayNumberEpochOf`; the worker request carries it; an evaluation that awaits never reads one another left behind): on Android the device-zone midnight above; on Web Apps UTC's 1970 midnight, since Formplayer's `DateUtils.EPOCH_TIME` is computed in its JVM's `Etc/UTC` before the browser's zone is set per request, so a day number is the browser-zone midnight counted from UTC's in fixed days with half-day rounding, one less in zones more than twelve hours ahead of UTC and one more at exactly twelve behind, and `toDouble` of a direct date is its instant in days. `date(<number>)` stays on the browser's local midnight on both, as Formplayer's `date(n)` builds its epoch per call. Every evaluation, synchronous or asynchronous, shares one parse cache per JavaScript realm (`evaluator.ts::parseAdmittedXPath`, 2,048 entries, keyed by the exact source). `lib/preview/xpath/__tests__/coreDateParity.test.ts` holds these rules to the fixture `proof/native/core/CoreDateParityRuntimeTest.java` holds Core to, in four device zones. Compatible typed emitters add the required wire coercion themselves. The experimental raw-XPath transpiler is not a production boundary and Preview must never assume that it ran.
 
 Always use the shared XPath-to-string helper when stringifying results. Native `String()` on a date value gives `[object Object]`.
 
@@ -701,12 +761,17 @@ capture questions use the same custom-control-aware focus selector.
 `AttachmentNotReadyError` carries stable slot, concrete path, and field UUID;
 the same reveal path opens a collapsed blocker and focuses its exact Retry
 action. Both paths use immediate scrolling when reduced motion is requested.
+A reveal waits for the form to be live: the refusal arrives while Submit's
+running state still freezes the body (`inert`, disabled fieldset), where
+`focus()` does nothing, so the latest reveal runs two frames after the commit
+that unfreezes the form, and a form frozen again in those frames keeps it for
+the next.
 
 ## Sections page the preview on Android's rules
 
 A sectioned form (root sections only, `lib/doc/formSectionVerdicts.ts`) previews one page per section, because that is what the wire's `appearance="field-list"` group is on a phone: one screen per section, Next validating the screen before it turns, Back never validating, an empty or all-irrelevant screen skipped. Default Web Apps shows the same form as titled groups on one page; the preview follows the device and the docs say so. A form with no sections is untouched.
 
-- **The engine owns the page model**: `FormEngine.sectionPages()` (root sections in order, each with its `/data/<id>` path, current question visibility and any pending row insertion), `validateSection(uuid)` (`validateAll` restricted to the paths under that section, marking them touched) and `firstInvalidFieldTarget({ withinSection })` (the same target, with the section leading `ancestorUuids`). The controller mirrors all three; `hooks/useSectionPages.ts` subscribes through a one-string key so a keystroke does not re-render the pager.
+- **The engine owns the page model**: `FormEngine.formScreens()` (the platform's screens, `rules.formScreens`: one `/data` screen on Web Apps; on Android one per section, or Core's field-list screens in a form with no sections), `FormEngine.sectionScreens()` (root sections in order, each with its `/data/<id>` path, current question visibility and any pending row insertion), `validateSection(uuid)` (`validateAll` restricted to the paths under that section, marking them touched) and `firstInvalidFieldTarget({ withinSection })` (the same target, with the section leading `ancestorUuids`). The controller mirrors them; `hooks/useFormScreens.ts` (`useFormScreens`, `useSectionScreens`) subscribes through a one-string key so a keystroke does not re-render the pager.
 - **The open page is session state**, `activeSectionByForm` (`lib/session`), shared with the edit canvas so a flip keeps the page. `components/preview/form/sections/useSectionPaging.ts` arbitrates: the remembered page while it is visible, re-anchored (`engine/sectionPaging.ts::resolveCurrentPage`) and written back when it empties; `goNext` validates the current page and on failure announces through the form's `role="alert"` node and reveals the first invalid question on that page; a forward `goTo` validates every page between; `showPage` turns with no check, which is what Submit routing (the earliest invalid page, `ancestorUuids[0]`) and Clear form (the first page) use. Enter never advances.
 - **`FormScreen` renders `SectionPage`** (the shared `SectionHeading` as a focusable `h2` the page is labelled by, over `InteractiveFormRenderer` rooted at the section, so every question reads and writes the same paths as on one page) in place of `FormRenderer` while paging, and the bottom bar carries the `SectionStepper` (`nav aria-label="Sections"`, `aria-current="step"`, a polite "Section k of n: title" after a user-driven turn) plus Back / Next, with Submit taking Next's place on the last visible page. The invalid-submit and attachment-not-ready arms turn to the question's page before the ordinary two-frame reveal.
 
@@ -881,14 +946,24 @@ mode never hides. A condition is evaluated as stored
 An item off the menu (`hiddenFromMenu`) is `hidden` before its condition is
 read, and a module off the menu takes its child modules off with it, as on
 both runtimes; its reveal summary reads "Off the menu" (`menuProjection.ts::
-OFF_THE_MENU_SUMMARY`). App Tests cannot open one from a menu. Preview plays one
-runtime per behavior until it plays each platform: after-submit routing opens a
-link's target whatever its visibility (Android), and an entry point opens a
-form off the menu only when it ignores display conditions (Web Apps), with
-`entryPointLaunch.ts::FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL` saying what each
-platform does otherwise. `firstMenu` resolves to the same home screen as
-`app_home` (Web Apps shows the app's first screen for both), and `parentMenu`
-to the parent module's screen with its selection kept.
+OFF_THE_MENU_SUMMARY`). App Tests cannot open one from a menu. Preview plays
+the platform it runs as (`lib/preview/platform.ts`): after submit, a link's
+target hidden by its condition opens on Android and lands where Web Apps lands
+it on Web Apps (`afterSubmitHiddenTarget`), and an entry point keeps display
+conditions on Web Apps unless it ignores them and ignores them on Android
+(`entryPointDisplayConditions`). `firstMenu` opens the app's first screen on
+both; `app_home` opens it on Web Apps and the device home screen on Android
+(`postSubmitAppHome`); and `parentMenu` opens the parent module's screen with
+its selection kept. On Web Apps a form target off the menu or whose condition
+is false lands on its module, and a target inside or under a module the menu
+hides, or a module target whose condition is false, lands on the menu above the
+topmost hidden module: its shown parent's, or the app's first screen for a
+top-level module (`afterSubmitRouting.ts::afterSubmitTargetVisibility`), as Formplayer's
+`MenuSessionFactory.rebuildSessionFromFrame` walks the frame only through the
+menus it would show. A module with a case list and no forms plays the runtime:
+choosing a case returns to the app's first screen in Web Apps, with its sync
+notice, or to the phone's home screen on Android
+(`formlessCaseListRoute.ts::formlessCaseListSelection`).
 
 ## Value persistence across engine recreation
 
@@ -896,7 +971,7 @@ Blueprint mutations in edit mode recreate the engine. The engine hook snapshots 
 
 ## Resolved preview identity
 
-`engine/identity.ts` is the ONE identity contract every preview surface speaks — Search/Results session evaluation, form XPath's `commcaresession` user data, the SQL compiler's session bindings, and the acting user behind case writes. Providers are the sole constructors of `ResolvedPreviewIdentity`, and every provider must present a persisted user id: `previewAsMe` and `previewAsPersona` both refuse without one, and no session-only pseudo-persona is constructible.
+`engine/identity.ts` is the ONE identity contract every preview surface speaks — Search/Results session evaluation, form XPath's `commcaresession` user data, the SQL compiler's session bindings, and the acting user behind case writes. Providers are the sole constructors of `ResolvedPreviewIdentity`, and every provider must present a persisted user id: `previewAsMe` and `previewAsPersona` both refuse without one, and no session-only pseudo-persona is constructible. The device is a separate input, merged by `previewSessionValues(identity, device)` (§ Platforms): the identity carries the worker's `userid` and `username` and the user data, never `deviceid` or `appversion`, and `samePreviewIdentity` never compares a device.
 
 **Two ids, and they are NOT interchangeable.** `actorUserId` is the signed-in member and the ONLY thing that ever authorizes. `ownerId` is the CommCare worker the preview acts as — the `owner_id` stamped on rows it writes and what `session/context/userid` resolves to. Previewing as yourself makes them the same string; previewing as a persona makes `ownerId` that persona's UUID while the member still authorizes. `ownerId` is authored blueprint content, so keying an authorization decision on it would let an app choose whose data a request reads; `resolveAuthorizedPreviewContext` passes `actorUserId` into the locked authorized-app snapshot before resolving any persona and threads `ownerId` through `withProjectContext(projectId, actorUserId, ownerId)` as the worker only, and the consumer tests pin that the two cannot be re-conflated (including Project-scoped lookup reads, which always use the actor). A Server Action accepts a persona SELECTOR (a uuid) and resolves it against the committed document; it never accepts an identity.
 
@@ -1107,6 +1182,16 @@ resolves the geometry and `caseTileRendering.ts` turns it into declarations;
 Results rows and the tile pinned above forms, so the two cannot draw one case
 differently. Both files carry the CommCare citations — read them before changing
 a number.
+
+On Android the list is flat, borderless and aligned only in the middle, as
+commcare-android draws it (`tileGrouping`, `tileBorderShading`,
+`tileVerticalAlign`): `caseDataBindingHelpers.ts::readCases` takes its grouped
+early exit only on `"grouped"`, so Android reads, counts and pages by cases,
+`caseTileGrouping.ts::splitTileGridByGroupHeader` returns one group per case,
+`caseTileRendering.ts::planTileCell` draws no border or shading and keeps a
+middle cell centered and a top or bottom cell at the top (until the lane
+observes what Android draws there), and a link column shows its literal
+`[text](value)` in Results rows and tiles (`columnDisplay.ts`, `linkColumnInList`).
 
 Four things the rest of the preview has to know:
 
@@ -1546,8 +1631,20 @@ the caller's saved revision before reads and a fresh authorized snapshot after
 reads. Case bindings come from one mandatory restore-scoped device snapshot; the
 pure `prepareEntryPointLaunch` checks shared endpoint selection requirements,
 ordered distinct IDs, case types, direct child indices, and prospective navigation
-visibility. It never claims cases, records a completed search, or fabricates Search
-answers. A case absent from that worker's restore refuses the launch.
+visibility. It never records a completed search or fabricates Search answers.
+Each platform plays its own launch (`rules`):
+
+| | Web Apps | Android |
+|---|---|---|
+| Display conditions | A form off the menu, or in or under a module off the menu, opens only when the entry point ignores display conditions; a hidden module refuses. | Ignored. |
+| Claims | Every chosen case of a module that does not open on its search is claimed (`claimCaseIds`), installed with the launch under its worker in one session write, as HQ's claim frame posts before it navigates. | None. |
+| A case this worker's phone does not hold | Claimed: the form reads it with its saved values. | Opens with blank preloads and no persistent case tile (`blankCaseIds`), as Core checks only the datum's key. |
+
+The case picker offers, under the worker's cases, the Project's open cases of
+the type the worker's restore does not hold (`loadEntryPointOtherCasesAction`,
+a search population read with `onlyOutsideRestore`); the launch reads a chosen
+one with its index edges as a claim of it would deliver it. A case in neither
+group refuses the launch.
 
 The session installer publishes the complete identity and case bindings together.
 The launch hook discards a response after a document, scope, identity, or request
@@ -1687,7 +1784,9 @@ accuracy or better is in hand. That is CommCare Android's rule
 (`AndroidHereFunctionHandler.java::REFRESH_METER_DELTA`,
 `::shouldRefreshEntityList`, `GeoUtils.java::DEFAULT_ACCEPTABLE_ACCURACY`): Web
 Apps' list rows never read the worker's location, so Android's handler is the
-one CommCare rule for a moving position. A list read sends the latest fix and
+one CommCare rule for a moving position. Android's value holds four numbers,
+latitude, longitude, altitude and accuracy, the last two floored to two
+decimals (`hereValue`); an app that runs in Web Apps cannot hold `here()`. A list read sends the latest fix and
 records it as shown; Details and the tile send the latest without recording it.
 The note beside the list (`runtimeMessages.ts`, `hereColumns*`) says why the
 columns are blank and offers **Share your location** while the browser has

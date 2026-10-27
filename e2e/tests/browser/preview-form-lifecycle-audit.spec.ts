@@ -174,14 +174,18 @@ test("Submit commits the coordinate and clock currently being edited", async ({
 		expect(submissions).toHaveLength(1);
 		expect(submissions[0]?.[0]).toMatchObject({
 			kind: "registration",
-			primary: { properties: { place: "40 -74 0 0", clock: "14:30:00.000Z" } },
+			primary: {
+				properties: { place: "40.0 -74.0 0.0 0.0", clock: "14:30:00.000Z" },
+			},
 		});
 		await clock.fill("3:45 PM");
 		await page.getByRole("button", { name: "Submit", exact: true }).click();
 		await expect.poll(() => submissions.length).toBe(2);
 		expect(submissions[1]?.[0]).toMatchObject({
 			kind: "registration",
-			primary: { properties: { place: "40 -74 0 0", clock: "15:45:00.000Z" } },
+			primary: {
+				properties: { place: "40.0 -74.0 0.0 0.0", clock: "15:45:00.000Z" },
+			},
 		});
 	} finally {
 		try {

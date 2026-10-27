@@ -6,6 +6,7 @@ import {
 	type LanguageTag,
 } from "@/lib/domain/localization";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
+import { PLATFORMS, type Platform } from "@/lib/domain/platforms";
 import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
@@ -53,6 +54,12 @@ export const appTestStartSchema = z.strictObject({
 						"A saved Preview identity's name or stable ID; null or omitted means yourself.",
 					),
 				language: appLanguageIdentitySchema.optional(),
+				platform: z
+					.enum(PLATFORMS)
+					.optional()
+					.describe(
+						"Where this session runs: web-apps or android, a platform the saved app runs on. Omit to use Web Apps when the app runs on both, or its only platform.",
+					),
 			}),
 		)
 		.min(1)
@@ -65,6 +72,12 @@ export const appTestStartSchema = z.strictObject({
 		.optional()
 		.describe(
 			"A language configured in the saved app. Omit to use its default worker language.",
+		),
+	platform: z
+		.enum(PLATFORMS)
+		.optional()
+		.describe(
+			"Where sessions that leave out platform run: web-apps or android, a platform the saved app runs on. Omit to use Web Apps when the app runs on both, or its only platform.",
 		),
 	purpose: z
 		.string()
@@ -271,6 +284,10 @@ export interface AppTestSnapshot {
 }
 export type AppTestScreen =
 	| { kind: "home" }
+	/** Android's home screen, where an Android session starts and its `home`
+	 *  and an `app_home` submission return; `continue` (Start) opens the
+	 *  module list. */
+	| { kind: "device-home" }
 	| { kind: "after-submit"; moduleUuid: Uuid; message: string }
 	| {
 			kind: "menu";
@@ -318,6 +335,11 @@ export type AppTestScreen =
 	  };
 export interface AppTestSessionState {
 	language: LanguageTag;
+	/** The platform this session runs on, one the saved app declares. */
+	platform: Platform;
+	/** The UUID part of the session's Android `deviceid`, minted when the
+	 *  session starts: one session is one install. */
+	androidDeviceId: string;
 	personaUuid: Uuid | null;
 	screen: AppTestScreen;
 	history: readonly AppTestScreen[];

@@ -41,6 +41,7 @@ function workerFor(engine: FormEngine) {
 		stateOverrides,
 	) => {
 		const result = await runtime.request({
+			dayNumberEpoch: "device-zone",
 			entryKey: "case-choice-entry",
 			revision: 0,
 			profile: "form",

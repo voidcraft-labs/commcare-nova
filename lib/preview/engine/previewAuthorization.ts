@@ -21,6 +21,8 @@ import {
 	type UserCollections,
 	type UsercaseWorker,
 } from "@/lib/domain";
+import { effectiveAppLocalization } from "@/lib/domain/localization";
+import { declaredPlatforms } from "@/lib/domain/platforms";
 import { log } from "@/lib/logger";
 import type { LookupScope } from "@/lib/lookup/types";
 import { PREVIEW_CLAIMS_LIMIT } from "@/lib/session/previewClaims";
@@ -30,6 +32,11 @@ import {
 	previewAsPersona,
 	type ResolvedPreviewIdentity,
 } from "./identity";
+import {
+	defaultPreviewDevice,
+	type PreviewDevice,
+	previewDeviceInput,
+} from "./previewDevice";
 import { resolveRestoreScope } from "./restoreScope";
 
 // Request authentication stays outside the production I/O helpers, which also
@@ -68,9 +75,20 @@ export async function resolvePreviewIdentity(
 export type AuthorizedPreviewContext =
 	| { kind: "unauthenticated" }
 	| { kind: "persona-unavailable"; message: string }
+	| { kind: "platform-unavailable"; message: string }
+	| { kind: "language-unavailable"; message: string }
 	| {
 			kind: "ready";
 			identity: ResolvedPreviewIdentity;
+			/**
+			 * The device Preview runs on: the one the client sent, checked
+			 * against the committed blueprint (its platform declared, its
+			 * language one of the app's), else the app's default. Every
+			 * server-side session read binds `previewSessionValues(identity,
+			 * device)`, so the SQL session bindings, the Search session and
+			 * the form's session cannot answer two ways.
+			 */
+			device: PreviewDevice;
 			store: CaseStore;
 			scope: LookupScope;
 			blueprint?: PersistableDoc;
@@ -96,6 +114,12 @@ export type AuthorizedPreviewContext =
 
 export const PERSONA_UNAVAILABLE_MESSAGE =
 	"The selected preview persona is no longer available. Choose another worker and try again.";
+
+export const PLATFORM_UNAVAILABLE_MESSAGE =
+	"This app no longer runs on the platform Preview is playing. Choose another in the Runs on menu and try again.";
+
+export const PREVIEW_LANGUAGE_UNAVAILABLE_MESSAGE =
+	"This app no longer has the language Preview is showing. Choose another language and try again.";
 
 const CASE_ID_MAX_LENGTH = 255;
 
@@ -138,8 +162,13 @@ export async function resolveAuthorizedPreviewContext(args: {
 	/** Submission program derivation needs the committed blueprint even while
 	 * previewing as the signed-in member. Persona selection implies a load. */
 	readonly loadBlueprint?: boolean;
+	/** The device Preview runs on, client input parsed by
+	 *  `previewDeviceInput`; a supplied device implies a blueprint load. */
+	readonly device?: unknown;
 }): Promise<AuthorizedPreviewContext> {
 	const claimedCaseIds = previewClaimedCaseIds(args.claimedCaseIds);
+	const suppliedDevice =
+		args.device === undefined ? undefined : previewDeviceInput(args.device);
 	const session = await getSession();
 	const memberIdentity = previewAsMe(session?.user);
 	if (memberIdentity === null) return { kind: "unauthenticated" };
@@ -149,7 +178,9 @@ export async function resolveAuthorizedPreviewContext(args: {
 	// cannot straddle a concurrent app move or commit. Member-only paths avoid
 	// the full document through the lightweight scope resolver.
 	const needsBlueprint =
-		args.loadBlueprint === true || args.personaUuid !== undefined;
+		args.loadBlueprint === true ||
+		args.personaUuid !== undefined ||
+		suppliedDevice !== undefined;
 	const snapshot = needsBlueprint
 		? await resolveAuthorizedAppSnapshot(
 				args.appId,
@@ -212,6 +243,13 @@ export async function resolveAuthorizedPreviewContext(args: {
 		}
 	}
 
+	/* The device is checked against the same locked snapshot as the persona:
+	 * a platform the committed app no longer declares, or a language it no
+	 * longer holds, refuses rather than reading as another device. */
+	const admitted = admitPreviewDevice(blueprint, suppliedDevice);
+	if (admitted.kind !== "device") return admitted;
+	const device = admitted.device;
+
 	const store = schemaHealingCaseStore(
 		await withProjectContext(
 			access.projectId,
@@ -245,6 +283,7 @@ export async function resolveAuthorizedPreviewContext(args: {
 	return {
 		kind: "ready",
 		identity: identityOnRecord,
+		device,
 		restoreScope:
 			claimedCaseIds.length === 0
 				? ownedScope
@@ -258,6 +297,43 @@ export async function resolveAuthorizedPreviewContext(args: {
 		...(blueprint !== undefined && { blueprint }),
 		...(snapshot !== undefined && { baseSeq: snapshot.baseSeq }),
 	};
+}
+
+/**
+ * The device a server read binds: the one the client sent, when the committed
+ * blueprint declares its platform and holds its language, else a refusal
+ * naming which; with none sent, the platform the app previews on by default
+ * and its default language.
+ */
+export function admitPreviewDevice(
+	blueprint: PersistableDoc | undefined,
+	supplied: PreviewDevice | undefined,
+):
+	| { readonly kind: "device"; readonly device: PreviewDevice }
+	| { readonly kind: "platform-unavailable"; readonly message: string }
+	| { readonly kind: "language-unavailable"; readonly message: string } {
+	if (supplied === undefined || blueprint === undefined) {
+		return {
+			kind: "device",
+			device: defaultPreviewDevice(blueprint, undefined),
+		};
+	}
+	if (!declaredPlatforms(blueprint).includes(supplied.platform)) {
+		return {
+			kind: "platform-unavailable",
+			message: PLATFORM_UNAVAILABLE_MESSAGE,
+		};
+	}
+	const wireCodes = Object.values(
+		effectiveAppLocalization(blueprint.localization).wireCodes,
+	);
+	if (!wireCodes.includes(supplied.appLanguage)) {
+		return {
+			kind: "language-unavailable",
+			message: PREVIEW_LANGUAGE_UNAVAILABLE_MESSAGE,
+		};
+	}
+	return { kind: "device", device: supplied };
 }
 
 /**

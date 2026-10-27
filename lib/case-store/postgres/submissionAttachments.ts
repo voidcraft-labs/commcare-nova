@@ -8,8 +8,11 @@ import {
 import {
 	captureContentType,
 	captureExtensionFor,
+	captureFamilyExtensionFor,
 	captureInstancePathMatchesTemplate,
+	captureMimeFamilyFor,
 	captureObjectKeyFor,
+	isCaptureMimeFamilyKind,
 	MAX_SUBMITTED_CAPTURE_BYTES,
 	MAX_SUBMITTED_CAPTURE_COUNT,
 } from "@/lib/domain/captureFormats";
@@ -99,18 +102,31 @@ export function captureRowMatchesCommittedDescriptor(
 		"captureKind" | "acceptedFormats"
 	>,
 ): boolean {
-	const committedExtension = captureExtensionFor(
-		descriptor.captureKind,
-		row.originalFilename,
+	/* The extension-list arm is held to the formats the committed kind
+	 * listed at submission; Android's family arm (an image, sound or video
+	 * question admitting any file of its MIME family) is held to the kind's
+	 * family. Either way a question that changed kind refuses the row. */
+	const listed = descriptor.acceptedFormats.some(
+		(format) =>
+			format.extension === row.extension &&
+			format.contentType === row.contentType,
 	);
+	if (
+		listed &&
+		captureExtensionFor(descriptor.captureKind, row.originalFilename) ===
+			row.extension &&
+		captureContentType(row.extension) === row.contentType
+	) {
+		return true;
+	}
+	/* A family row can carry a listed (extension, type) pair while its
+	 * filename gave no listed extension (`photo` kept `.jpg`), so a failed
+	 * list check still falls through to the family's own rule. */
+	const kind = descriptor.captureKind;
 	return (
-		committedExtension === row.extension &&
-		captureContentType(row.extension) === row.contentType &&
-		descriptor.acceptedFormats.some(
-			(format) =>
-				format.extension === row.extension &&
-				format.contentType === row.contentType,
-		)
+		isCaptureMimeFamilyKind(kind) &&
+		captureMimeFamilyFor(kind, row.contentType) !== undefined &&
+		captureFamilyExtensionFor(kind, row.originalFilename) === row.extension
 	);
 }
 

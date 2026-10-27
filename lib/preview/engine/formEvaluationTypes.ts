@@ -4,6 +4,7 @@ import type { SetvalueRefusalDetails } from "./answerCast";
 import type { FormAnswerValue } from "./formAnswerValue";
 import type { ResolvedPreviewIdentity } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
+import type { PreviewDevice } from "./previewDevice";
 import type {
 	CaseDatabaseSnapshot,
 	SearchResultsSnapshot,
@@ -47,6 +48,10 @@ export interface FormEvaluationInput {
 	readonly formUuid: Uuid;
 	/** Internal page navigation for a retained test journey. */
 	readonly sectionUuid?: Uuid;
+	/** Internal screen navigation for a retained test journey: the path of a
+	 *  screen of `FormEngine.formScreens()`, entered as `sectionUuid` is,
+	 *  every earlier screen validated in order. */
+	readonly screenPath?: string;
 	readonly answers: readonly { path: string; value: FormAnswerValue }[];
 	readonly repeats?: readonly { path: string; count: number }[];
 	readonly caseIds?: readonly string[];
@@ -65,6 +70,9 @@ export interface FormEvaluationContext {
 	entry?: FormEvaluationEntry;
 	captureEntry?: boolean;
 	identity: ResolvedPreviewIdentity;
+	/** The device the check or journey session runs on: its platform's
+	 *  screens, recalculation, day numbers and session values. */
+	device: PreviewDevice;
 	cases: CaseDatabaseSnapshot;
 	lookup: Pick<
 		PreviewLookupData,

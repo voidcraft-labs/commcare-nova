@@ -219,7 +219,7 @@ test("a production form keeps partial drafts and capture identity mounted throug
 			name: "Amina",
 			date: "2024-01-09",
 			when: "2024-01-15T14:30:00.000-05:00",
-			location: "40 -74 0 0",
+			location: "40.0 -74.0 0.0 0.0",
 			note: "Retained visit note",
 		});
 		const canvas = page.locator(
@@ -683,7 +683,7 @@ test("held section unwrap and wrap retain the published controls until their new
 			name: "Amina",
 			date: "2024-01-09",
 			when: "2024-01-15T14:30:00.000-05:00",
-			location: "40 -74 0 0",
+			location: "40.0 -74.0 0.0 0.0",
 			note: "Retained visit note",
 		});
 		expect(initial.topology.sectioned).toBe(true);

@@ -45,7 +45,7 @@ test("worker date, manual location and live announcements switch language withou
 			.toMatchObject({
 				"/data/visit/date": "2024-01-09",
 				"/data/visit/recorded_at": "2024-01-15T14:30:00.000-05:00",
-				"/data/visit/location": "40 -74 0 0",
+				"/data/visit/location": "40.0 -74.0 0.0 0.0",
 				"/data/visits[0]/notes": "Retained note",
 			});
 		// A language switch rebuilds the entry, and the rebuilding form takes no
@@ -86,7 +86,7 @@ test("worker date, manual location and live announcements switch language withou
 			.toMatchObject({
 				"/data/visit/date": "2024-01-09",
 				"/data/visit/recorded_at": "2024-01-15T14:30:00.000-05:00",
-				"/data/visit/location": "40 -74 0 0",
+				"/data/visit/location": "40.0 -74.0 0.0 0.0",
 				"/data/visits[0]/notes": "Retained note",
 			});
 		// Observe ordinary blur first, then switch with a new partial clock and
@@ -134,7 +134,7 @@ test("worker date, manual location and live announcements switch language withou
 			.toMatchObject({
 				"/data/visit/date": "2024-01-09",
 				"/data/visit/recorded_at": "2024-01-15T2:4",
-				"/data/visit/location": "40 -74 0 0",
+				"/data/visit/location": "40.0 -74.0 0.0 0.0",
 				"/data/visits[0]/notes": "Retained note",
 			});
 		await page

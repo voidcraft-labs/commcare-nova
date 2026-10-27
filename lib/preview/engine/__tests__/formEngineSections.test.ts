@@ -12,7 +12,10 @@ import type { FieldSpec } from "@/lib/__tests__/docHelpers";
 import type { Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { FormEngine, type FormEngineInput } from "../formEngine";
+import type { PreviewDevice } from "../previewDevice";
+import { availablePages } from "../sectionPaging";
 import { engineFixtureInput } from "./fixtures/engineInput";
+import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
 /** Lower-level page projection includes deliberately empty/hidden-only sections
  * to exercise defensive page skipping in a complete document topology. */
@@ -25,7 +28,7 @@ function input(fields: FieldSpec[]): FormEngineInput {
 
 const u = (path: string): Uuid => testUuid(`form.${path}`);
 
-function sectionedForm(): FormEngine {
+function sectionedForm(device?: PreviewDevice): FormEngine {
 	return new FormEngine(
 		input([
 			{
@@ -74,12 +77,18 @@ function sectionedForm(): FormEngine {
 				children: [{ id: "calc", kind: "hidden" }],
 			},
 		]),
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		device === undefined ? {} : { device },
 	);
 }
 
-describe("FormEngine.sectionPages", () => {
+describe("FormEngine.sectionScreens", () => {
 	it("lists the root sections in order, with their data paths", () => {
-		const pages = sectionedForm().sectionPages();
+		const pages = sectionedForm().sectionScreens();
 		expect(pages.map((page) => page.uuid)).toEqual([
 			u("intro"),
 			u("details"),
@@ -101,7 +110,7 @@ describe("FormEngine.sectionPages", () => {
 		const visibility = () =>
 			Object.fromEntries(
 				engine
-					.sectionPages()
+					.sectionScreens()
 					.map((page) => [page.path, page.hasVisibleQuestions]),
 			);
 		expect(visibility()).toEqual({
@@ -129,7 +138,7 @@ describe("FormEngine.sectionPages", () => {
 				},
 			]),
 		);
-		expect(engine.sectionPages()).toEqual([]);
+		expect(engine.sectionScreens()).toEqual([]);
 	});
 });
 
@@ -187,5 +196,135 @@ describe("FormEngine.firstInvalidFieldTarget({ withinSection })", () => {
 		expect(
 			engine.firstInvalidFieldTarget({ withinSection: u("nope") }),
 		).toBeUndefined();
+	});
+});
+
+describe("FormEngine.formScreens", () => {
+	function on(
+		device: PreviewDevice,
+		fields: FieldSpec[],
+		unlabeled: readonly string[] = [],
+	): FormEngine {
+		const built = input(fields);
+		/* A group's label is optional, and the fixture gives every group
+		 * one; an unlabeled group draws no field-list. */
+		for (const path of unlabeled) {
+			const field = built.doc.fields[u(path)];
+			if (field !== undefined && "label" in field) delete field.label;
+		}
+		return new FormEngine(
+			built,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ device },
+		);
+	}
+	const shown = (engine: FormEngine) =>
+		availablePages(engine.formScreens()).map(({ kind, path }) => ({
+			kind,
+			path,
+		}));
+
+	it("is one screen on Web Apps, sections and all", () => {
+		const engine = sectionedForm(webAppsDevice());
+		expect(
+			engine.formScreens().map(({ kind, path }) => ({ kind, path })),
+		).toEqual([{ kind: "form", path: "/data" }]);
+		expect(engine.currentScreenPath()).toBe("/data");
+	});
+
+	it("is one screen per section of a sectioned form on Android", () => {
+		const engine = sectionedForm(androidDevice());
+		expect(
+			engine.formScreens().map(({ kind, path }) => ({ kind, path })),
+		).toEqual(
+			engine.sectionScreens().map(({ path }) => ({ kind: "section", path })),
+		);
+	});
+
+	it("pages an unsectioned form on Android as Core collects its prompts", () => {
+		const engine = on(
+			androidDevice(),
+			[
+				{ id: "name", kind: "text", label: proseText("Name") },
+				{ id: "secret", kind: "hidden", calculate: "1" },
+				{
+					id: "household",
+					kind: "group",
+					label: proseText("Household"),
+					children: [
+						{ id: "size", kind: "int", label: proseText("Size") },
+						{
+							id: "inner",
+							kind: "group",
+							label: proseText("Head"),
+							children: [
+								{ id: "head", kind: "text", label: proseText("Head") },
+							],
+						},
+						{
+							id: "members",
+							kind: "repeat",
+							children: [
+								{ id: "member", kind: "text", label: proseText("Member") },
+							],
+						},
+					],
+				},
+				{
+					id: "loose",
+					kind: "group",
+					children: [
+						{ id: "phone", kind: "text", label: proseText("Phone") },
+						{
+							id: "skipped",
+							kind: "text",
+							label: proseText("Skipped"),
+							relevant: "/data/name = 'yes'",
+						},
+					],
+				},
+				{
+					id: "visits",
+					kind: "repeat",
+					children: [
+						{
+							id: "visit",
+							kind: "group",
+							label: proseText("Visit"),
+							children: [
+								{ id: "note", kind: "text", label: proseText("Note") },
+							],
+						},
+						{ id: "rating", kind: "int", label: proseText("Rating") },
+					],
+				},
+			],
+			["loose"],
+		);
+		/* The form opens with one entry; add a second. */
+		engine.addRepeat("/data/visits");
+		/* A labeled group, with its nested group and its repeat, is one
+		 * screen and offers no screen of its own to add an entry; an
+		 * unlabeled group's questions are a screen each, an irrelevant one
+		 * skipped; a hidden value is on no screen; a repeat's questions are
+		 * one screen per entry. */
+		expect(shown(engine)).toEqual([
+			{ kind: "question", path: "/data/name" },
+			{ kind: "field-list", path: "/data/household" },
+			{ kind: "question", path: "/data/loose/phone" },
+			{ kind: "field-list", path: "/data/visits[0]/visit" },
+			{ kind: "question", path: "/data/visits[0]/rating" },
+			{ kind: "field-list", path: "/data/visits[1]/visit" },
+			{ kind: "question", path: "/data/visits[1]/rating" },
+		]);
+		const paths = engine.formScreens().map(({ path }) => path);
+		expect(new Set(paths).size).toBe(paths.length);
+		expect(
+			engine.formScreens().find(({ path }) => path === "/data/loose/skipped"),
+		).toMatchObject({ hasVisibleQuestions: false });
 	});
 });

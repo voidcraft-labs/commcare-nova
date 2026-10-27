@@ -10,6 +10,7 @@ import { blueprintDocSchema, orderedColumns } from "@/lib/domain";
 import { splitTileGridByGroupHeader } from "@/lib/preview/caseTileGrouping";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
+import { previewPlatformRules } from "@/lib/preview/platform";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { tileFixture, tileScenarios } from "./tileFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
@@ -323,6 +324,7 @@ describe("delivered case tiles", () => {
 				const split = splitTileGridByGroupHeader(
 					grid,
 					config.tile.grouping.headerRows,
+					previewPlatformRules("web-apps"),
 				);
 				expect(split.header.cells.map((cell) => cell.columnUuid)).toEqual([
 					config.columns[0].uuid,

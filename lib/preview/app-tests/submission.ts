@@ -63,6 +63,7 @@ export async function submitAppTest(
 		committedApp: { blueprint: context.doc, mutation_seq: scope.blueprintSeq },
 		blueprintDigest: scope.blueprintDigest,
 		identity: context.identity,
+		device: context.device,
 		viewerTimeZone: context.clock.timeZone,
 		lookupScope: {
 			projectId: scope.projectId,
@@ -143,6 +144,7 @@ export async function submitAppTest(
 			},
 			{
 				identity,
+				device: context.device,
 				// The places travel with the device's cases; the session state
 				// keeps the cases alone, as it does before the submission.
 				cases: formContext.cases.locations
@@ -199,9 +201,19 @@ export async function submitAppTest(
 				throw new AppTestActionError(next.route.reason);
 			case "post-submit":
 				switch (next.route.destination) {
-					/* One home screen for both until Preview plays each platform:
-					 * Web Apps shows the app's first screen for both. */
+					/* `app_home` opens the app's first screen in Web Apps and the
+					 * phone's home screen on Android; `firstMenu` opens the app's
+					 * first screen on both. */
 					case "app_home":
+						nextState = {
+							...nextState,
+							screen:
+								context.rules.postSubmitAppHome === "device-home"
+									? { kind: "device-home" }
+									: { kind: "home" },
+							history: [],
+						};
+						break;
 					case "firstMenu":
 						nextState = { ...nextState, screen: { kind: "home" }, history: [] };
 						break;

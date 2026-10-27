@@ -179,7 +179,7 @@ function session(
 		boundCases: [],
 		menuSelections: {},
 		caseDatabase: null,
-		identity: SESSION,
+		session: SESSION,
 		...args,
 	});
 }

@@ -84,7 +84,9 @@ export type PreviewSearchFailure =
 	| "invalid-search"
 	| "error"
 	| "unauthenticated"
-	| "persona-unavailable";
+	| "persona-unavailable"
+	| "platform-unavailable"
+	| "language-unavailable";
 
 /**
  * What the device worked out for a search's `_xpath_query` rows when the

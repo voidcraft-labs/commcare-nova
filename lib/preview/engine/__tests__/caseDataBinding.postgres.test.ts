@@ -50,6 +50,7 @@ import {
 	SEARCH_READING,
 } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
 import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
@@ -360,6 +361,7 @@ describe("readCases", () => {
 		await seedSchema(store, blueprint, "patient");
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -394,6 +396,7 @@ describe("readCases", () => {
 		});
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -454,6 +457,7 @@ describe("readCases", () => {
 		});
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
@@ -517,6 +521,7 @@ describe("readCases", () => {
 		});
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
@@ -569,6 +574,7 @@ describe("readCases", () => {
 		});
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "visit",
@@ -637,6 +643,7 @@ describe("readCases", () => {
 		it("counts what a bounded read left out", async () => {
 			const store = await seedTwoOwners();
 			const result = await readCases(store, {
+				tileGrouping: "grouped",
 				reading: CASEDB_READING,
 				appId: APP_ID,
 				caseType: "patient",
@@ -652,6 +659,7 @@ describe("readCases", () => {
 		it("counts what an empty bounded read left out", async () => {
 			const store = await seedTwoOwners();
 			const result = await readCases(store, {
+				tileGrouping: "grouped",
 				reading: CASEDB_READING,
 				appId: APP_ID,
 				caseType: "patient",
@@ -669,6 +677,7 @@ describe("readCases", () => {
 			const store = await seedTwoOwners();
 			const counts = vi.spyOn(store, "count");
 			const result = await readCases(store, {
+				tileGrouping: "grouped",
 				reading: CASEDB_READING,
 				appId: APP_ID,
 				caseType: "patient",
@@ -692,6 +701,7 @@ describe("readCases", () => {
 			const store = await seedTwoOwners();
 			const counts = vi.spyOn(store, "count");
 			const result = await readCases(store, {
+				tileGrouping: "grouped",
 				reading: CASEDB_READING,
 				appId: APP_ID,
 				caseType: "patient",
@@ -709,6 +719,7 @@ describe("readCases", () => {
 		it("stays silent when no restore is bound", async () => {
 			const store = await seedTwoOwners();
 			const result = await readCases(store, {
+				tileGrouping: "grouped",
 				reading: CASEDB_READING,
 				appId: APP_ID,
 				caseType: "patient",
@@ -748,6 +759,7 @@ describe("readCases", () => {
 		}
 
 		const firstPage = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -766,6 +778,7 @@ describe("readCases", () => {
 		]);
 
 		const staleFinalPage = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -839,6 +852,7 @@ describe("readCases", () => {
 			modules: { ...blueprint.modules, [moduleUuid]: mod },
 		});
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -875,6 +889,7 @@ describe("readCases", () => {
 
 		const storeB = makeStore(PROJECT_B, OWNER_B);
 		const result = await readCases(storeB, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -904,6 +919,7 @@ describe("readCases", () => {
 		};
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -997,6 +1013,7 @@ describe("readCases — grouped tile", () => {
 		const { blueprint, north, south } = await seedVisits(store);
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
@@ -1040,11 +1057,42 @@ describe("readCases — grouped tile", () => {
 		expect(result.pageSize).toBeUndefined();
 	});
 
+	it("reads the same list flat on Android: sort order, paged and counted by cases", async () => {
+		const store = makeStore(PROJECT_A, OWNER_A);
+		const { blueprint } = await seedVisits(store);
+		const page = (offset: number) =>
+			readCases(store, {
+				tileGrouping: "flat",
+				reading: CASEDB_READING,
+				appId: APP_ID,
+				caseType: "visit",
+				caseTypeSchemas: buildCaseTypeMap(blueprint),
+				caseListConfig: groupedConfig(),
+				page: { offset, limit: 2 },
+			});
+		const pages = [await page(0), await page(2), await page(4)];
+		for (const result of pages) {
+			expect(result.kind).toBe("rows");
+			if (result.kind !== "rows") return;
+			expect(result.grouped).toBeUndefined();
+			expect(result.totalCount).toBe(5);
+		}
+		expect(
+			pages.map((result) =>
+				result.kind === "rows" ? result.rows.map((row) => row.case_name) : [],
+			),
+		).toEqual([["Ada", "Ben"], ["Cal", "Dot"], ["Eve"]]);
+		expect(
+			pages.map((result) => result.kind === "rows" && result.pageOffset),
+		).toEqual([0, 2, 4]);
+	});
+
 	it("puts every case with no such connection in one group", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const { blueprint } = await seedVisits(store);
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
@@ -1069,6 +1117,7 @@ describe("readCases — grouped tile", () => {
 		const { blueprint } = await seedVisits(store);
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
@@ -1091,6 +1140,7 @@ describe("readCases — grouped tile", () => {
 		// The form's auto-selection read wants the complete candidate set and
 		// draws no list, so it stays on the ordinary path even here.
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
@@ -1166,6 +1216,7 @@ describe("readCases — running-app search-input composition", () => {
 			.execute();
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -1212,6 +1263,7 @@ describe("readCases — running-app search-input composition", () => {
 		});
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -1261,6 +1313,7 @@ describe("readCases — running-app search-input composition", () => {
 		});
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -1320,6 +1373,7 @@ describe("readCases — running-app search-input composition", () => {
 		// `inputValues` map binds "Al" at the substitution site, so
 		// only Alice survives.
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -1395,6 +1449,7 @@ describe("readCases — running-app search-input composition", () => {
 		});
 
 		const present = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -1408,6 +1463,7 @@ describe("readCases — running-app search-input composition", () => {
 		expect(present.constraintSource).toBe("worker-search");
 
 		const absent = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -1464,6 +1520,7 @@ describe("readCases — running-app search-input composition", () => {
 		});
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -1540,6 +1597,7 @@ describe("readCases — running-app search-input composition", () => {
 		});
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -1597,6 +1655,7 @@ describe("readCases — running-app search-input composition", () => {
 		});
 
 		const result = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -1623,6 +1682,7 @@ describe("readCases — running-app search-input composition", () => {
 		expect(result.rows[0]?.case_id).toBe(BOB_CASE_ID);
 
 		const noMatch = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: SEARCH_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -1702,6 +1762,7 @@ describe("readCases — running-app search-input composition", () => {
 		]);
 		const query = async (property: "dob" | "last_seen") =>
 			readCases(store, {
+				tileGrouping: "grouped",
 				reading: SEARCH_READING,
 				appId: APP_ID,
 				caseType: "patient",
@@ -1753,6 +1814,7 @@ describe("resetSampleCases", () => {
 		if (seeded.kind !== "ok") return;
 		expect(seeded.inserted).toBe(SAMPLE_CASE_DEFAULT_COUNT);
 		const before = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -1771,6 +1833,7 @@ describe("resetSampleCases", () => {
 		// Population after reset MUST equal the default count — the
 		// helper deleted the old rows before regenerating.
 		const after = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -2393,6 +2456,7 @@ describe("seedSampleCases", () => {
 
 		// The seeded rows should land in the same case-type's table.
 		const after = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -2545,6 +2609,7 @@ describe("applySubmission — registration", () => {
 		// the right column values + JSONB document; the visit row's
 		// `parent_case_id` is threaded from the primary's generated id.
 		const patients = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -2557,6 +2622,7 @@ describe("applySubmission — registration", () => {
 		expect(patients.rows[0]?.properties).toEqual({ age: 30 });
 
 		const visits = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
@@ -2654,6 +2720,7 @@ describe("applySubmission — registration", () => {
 		const identity = previewAsMe({ id: OWNER_A });
 		if (identity === null) throw new Error("expected preview identity");
 		const built = buildCaseOperationProgramFromDoc({
+			device: webAppsDevice(),
 			blueprint: pickBlueprintDoc(blueprint),
 			mutation,
 			projection,
@@ -2704,6 +2771,7 @@ describe("applySubmission — registration", () => {
 		expect(result.createdChildren).toEqual([]);
 
 		const patients = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -2740,6 +2808,7 @@ describe("applySubmission — registration", () => {
 		expect(result.createdChildren).toEqual([]);
 
 		const patients = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -2777,6 +2846,7 @@ describe("applySubmission — registration", () => {
 
 		// The envelope threw before its first insert — nothing landed.
 		const patients = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -2814,12 +2884,14 @@ describe("applySubmission — registration", () => {
 		// inside the one envelope transaction, so the whole submission
 		// rolled back — neither row persists.
 		const patients = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
 		});
 		expect(patients.kind).toBe("empty");
 		const visits = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
@@ -2870,6 +2942,7 @@ describe("applySubmission — followup", () => {
 		// Primary's `age` updated; `name` preserved (JSONB merge, not
 		// replace); the new display name lands on the `case_name` column.
 		const patients = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -2880,6 +2953,7 @@ describe("applySubmission — followup", () => {
 
 		// Child row's `parent_case_id` matches the bound caseId.
 		const visits = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
@@ -2933,6 +3007,7 @@ describe("applySubmission — followup", () => {
 		// the row still reads its pre-submission state, and no visit row
 		// landed.
 		const patients = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -2941,6 +3016,7 @@ describe("applySubmission — followup", () => {
 		expect(patients.rows[0]?.properties).toEqual({ age: 30 });
 		expect(patients.rows[0]?.case_name).toBe("Alice");
 		const visits = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "visit",
@@ -2987,6 +3063,7 @@ describe("applySubmission — close", () => {
 		expect(result.createdChildren).toHaveLength(1);
 
 		const patients = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",
@@ -3047,6 +3124,7 @@ describe("applySubmission — close", () => {
 		expect(result.createdChildren).toHaveLength(1);
 
 		const patients = await readCases(store, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",

@@ -3,13 +3,19 @@ import {
 	caseListStep,
 	resultsConstraintContext,
 } from "@/lib/preview/caseListPhase";
+import { WEB_APPS_RULES } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 
 describe("caseListStep", () => {
 	it("keeps a browse-then-search module on the ordinary composition", () => {
 		for (const hasVisibleInputs of [true, false]) {
 			for (const hasSubmitted of [true, false]) {
 				expect(
-					caseListStep({ searchFirst: false, hasVisibleInputs, hasSubmitted }),
+					caseListStep({
+						rules: WEB_APPS_RULES,
+						searchFirst: false,
+						hasVisibleInputs,
+						hasSubmitted,
+					}),
 				).toBe("browse");
 			}
 		}
@@ -18,6 +24,7 @@ describe("caseListStep", () => {
 	it("opens a search-first module on Search until a search completes", () => {
 		expect(
 			caseListStep({
+				rules: WEB_APPS_RULES,
 				searchFirst: true,
 				hasVisibleInputs: true,
 				hasSubmitted: false,
@@ -25,6 +32,7 @@ describe("caseListStep", () => {
 		).toBe("search");
 		expect(
 			caseListStep({
+				rules: WEB_APPS_RULES,
 				searchFirst: true,
 				hasVisibleInputs: true,
 				hasSubmitted: true,
@@ -35,6 +43,7 @@ describe("caseListStep", () => {
 	it("puts a search-first module with nothing to answer on Results at once", () => {
 		expect(
 			caseListStep({
+				rules: WEB_APPS_RULES,
 				searchFirst: true,
 				hasVisibleInputs: false,
 				hasSubmitted: false,

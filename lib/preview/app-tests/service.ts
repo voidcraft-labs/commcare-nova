@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import "server-only";
 import { sql, type Transaction } from "kysely";
 import type { Database } from "@/lib/case-store/sql/database";
@@ -13,8 +14,13 @@ import { ownRecordValue } from "@/lib/domain";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import { appTestExpectationMismatch, bindAppTestAction } from "./addresses";
 import { captureAppTestSnapshot } from "./capture";
-import { appTestLanguage, withAppTestContext } from "./context";
+import {
+	appTestLanguage,
+	appTestPlatform,
+	withAppTestContext,
+} from "./context";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
+import { appTestEntryScreen } from "./navigation";
 import { restoreAppTestState } from "./retainedState";
 import { advanceAppTest, observeAppTest } from "./run";
 import { seedAppTest } from "./seed";
@@ -41,6 +47,7 @@ function sessionObservation(state: AppTestState, sessionId: string) {
 				id,
 				personaUuid: session.personaUuid,
 				language: session.language,
+				platform: session.platform,
 				screen: session.screen.kind,
 				...(session.screen.kind === "form"
 					? { formUuid: session.screen.formUuid }
@@ -86,7 +93,12 @@ export async function startAppTest(
 ) {
 	const input = appTestStartSchema.parse(args.input);
 	const sessionInputs = input.sessions ?? [
-		{ id: "default", personaUuid: null, language: input.language },
+		{
+			id: "default",
+			personaUuid: null,
+			language: input.language,
+			platform: input.platform,
+		},
 	];
 	if (
 		new Set(sessionInputs.map((session) => session.id)).size !==
@@ -148,13 +160,19 @@ export async function startAppTest(
 			const sessions: Record<string, AppTestSessionState> = {};
 			let primaryObservation: Record<string, unknown> = {};
 			for (const sessionInput of sessionInputs) {
+				const platform = appTestPlatform(
+					snapshot,
+					sessionInput.platform ?? input.platform,
+				);
 				const initial: AppTestSessionState = {
 					language: appTestLanguage(
 						snapshot,
 						sessionInput.language ?? input.language,
 					),
+					platform,
+					androidDeviceId: randomUUID(),
 					personaUuid: null,
-					screen: { kind: "home" },
+					screen: appTestEntryScreen(platform),
 					history: [],
 					selections: {},
 					deviceCases: { rows: [], indices: [] },
@@ -296,7 +314,7 @@ export async function continueAppTest(
 						? {
 								...state,
 								personaUuid: bound.personaUuid,
-								screen: { kind: "home" },
+								screen: appTestEntryScreen(state.platform),
 								history: [],
 								selections: {},
 								deviceCases: { rows: [], indices: [] },

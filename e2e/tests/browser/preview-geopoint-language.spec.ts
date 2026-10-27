@@ -268,7 +268,7 @@ gps(
 		await page.evaluate(() => window.phoneGeolocation?.release());
 		await expect
 			.poll(() => page.evaluate(() => window.previewGeopointAudit.answer()))
-			.toBe("41 -75 0 3");
+			.toBe("41.0 -75.0 0.0 3.0");
 		await expect.poll(() => google.requested("reverse?lat=41")).toBe(1);
 		await expect(page.getByRole("combobox")).toHaveValue("Coordinates 41");
 		await capturePhoneRuntime(

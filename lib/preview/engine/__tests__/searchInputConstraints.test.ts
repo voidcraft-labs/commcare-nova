@@ -16,6 +16,10 @@ import {
 	sessionContext,
 	term,
 } from "@/lib/domain/expression";
+import {
+	ANDROID_RULES,
+	WEB_APPS_RULES,
+} from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { evaluateAsync } from "../../xpath/asyncEvaluator";
 import { toBoolean } from "../../xpath/coerce";
 import type { PreviewSearchSessionValues } from "../identity";
@@ -70,6 +74,7 @@ const INPUTS = [name, phone, ssn];
 describe("searchInputConstraintErrors", () => {
 	it("fires an unconditional requirement on a blank answer with the authored or default message", () => {
 		const errors = searchInputConstraintErrors(
+			WEB_APPS_RULES,
 			INPUTS,
 			new Map(),
 			SESSION,
@@ -81,6 +86,7 @@ describe("searchInputConstraintErrors", () => {
 	it("fires a conditional requirement only when its condition holds over the siblings", () => {
 		expect(
 			searchInputConstraintErrors(
+				WEB_APPS_RULES,
 				INPUTS,
 				new Map(),
 				SESSION,
@@ -89,6 +95,7 @@ describe("searchInputConstraintErrors", () => {
 		).toBe("Give a name or a phone");
 		expect(
 			searchInputConstraintErrors(
+				WEB_APPS_RULES,
 				INPUTS,
 				new Map([["name", "Asha"]]),
 				SESSION,
@@ -99,6 +106,7 @@ describe("searchInputConstraintErrors", () => {
 
 	it("skips the check on a blank answer and never reports two messages for one prompt", () => {
 		const errors = searchInputConstraintErrors(
+			WEB_APPS_RULES,
 			INPUTS,
 			new Map([["name", "Asha"]]),
 			SESSION,
@@ -113,6 +121,7 @@ describe("searchInputConstraintErrors", () => {
 		// check neither fires nor clears here; the running Search screen judges
 		// it in the XPath worker.
 		const errors = searchInputConstraintErrors(
+			WEB_APPS_RULES,
 			INPUTS,
 			new Map([
 				["name", "Asha"],
@@ -140,6 +149,7 @@ describe("searchInputConstraintErrors", () => {
 		);
 		expect(
 			searchInputConstraintErrors(
+				WEB_APPS_RULES,
 				[bySession],
 				new Map(),
 				SESSION,
@@ -151,6 +161,7 @@ describe("searchInputConstraintErrors", () => {
 		).toBe(false);
 		expect(
 			searchInputConstraintErrors(
+				WEB_APPS_RULES,
 				[bySession],
 				new Map(),
 				SESSION,
@@ -160,10 +171,56 @@ describe("searchInputConstraintErrors", () => {
 	});
 });
 
+describe("search field checks on Android", () => {
+	/* Android's search screen draws no required marks and runs no field
+	 * checks (no reader of `QueryPrompt`'s `required` or `validation` in
+	 * commcare-android), so Search runs whatever was typed. */
+	it("reports no errors and no marks, on either path", async () => {
+		const answers = new Map([["ssn", "12-345"]]);
+		expect(
+			searchInputConstraintErrors(
+				ANDROID_RULES,
+				INPUTS,
+				answers,
+				SESSION,
+				constraintEnvironment(INPUTS),
+			).size,
+		).toBe(0);
+		expect(
+			(
+				await searchInputConstraintErrorsOnDevice(
+					ANDROID_RULES,
+					INPUTS,
+					answers,
+					SESSION,
+					constraintEnvironment(INPUTS),
+					{
+						evaluateOnDevice: async () => {
+							throw new Error("Android runs no check on the device");
+						},
+					},
+				)
+			).size,
+		).toBe(0);
+		expect(
+			[
+				...searchInputRequiredMarks(
+					ANDROID_RULES,
+					INPUTS,
+					new Map(),
+					SESSION,
+					constraintEnvironment(INPUTS),
+				).values(),
+			].some(Boolean),
+		).toBe(false);
+	});
+});
+
 describe("searchInputConstraintErrorsOnDevice", () => {
 	it("judges a pattern-bearing check through the real async Java Pattern evaluator with the answers bound in", async () => {
 		const sources: string[] = [];
 		const errors = await searchInputConstraintErrorsOnDevice(
+			WEB_APPS_RULES,
 			INPUTS,
 			new Map([
 				["name", "Asha"],
@@ -188,6 +245,7 @@ describe("searchInputConstraintErrorsOnDevice", () => {
 
 	it("clears the check when the real Java Pattern accepts the value", async () => {
 		const errors = await searchInputConstraintErrorsOnDevice(
+			WEB_APPS_RULES,
 			INPUTS,
 			new Map([
 				["name", "Asha"],
@@ -203,6 +261,7 @@ describe("searchInputConstraintErrorsOnDevice", () => {
 	it("keeps plain constraints on the scalar evaluator", async () => {
 		let devicePasses = 0;
 		const errors = await searchInputConstraintErrorsOnDevice(
+			WEB_APPS_RULES,
 			INPUTS,
 			new Map(),
 			SESSION,
@@ -224,6 +283,7 @@ describe("searchInputRequiredMarks", () => {
 	it("marks an unconditional requirement always and a conditional one by its verdict over the draft", () => {
 		expect([
 			...searchInputRequiredMarks(
+				WEB_APPS_RULES,
 				INPUTS,
 				new Map(),
 				SESSION,
@@ -235,6 +295,7 @@ describe("searchInputRequiredMarks", () => {
 		]);
 		expect(
 			searchInputRequiredMarks(
+				WEB_APPS_RULES,
 				INPUTS,
 				new Map([["name", "Asha"]]),
 				SESSION,
@@ -260,6 +321,7 @@ describe("searchInputRequiredMarks", () => {
 		const draft = new Map([["name", "Dr Asha"]]);
 		expect(
 			searchInputRequiredMarks(
+				WEB_APPS_RULES,
 				[name, byPattern],
 				draft,
 				SESSION,
@@ -268,6 +330,7 @@ describe("searchInputRequiredMarks", () => {
 		).toBeUndefined();
 		const sources: string[] = [];
 		const marks = await searchInputRequiredMarksOnDevice(
+			WEB_APPS_RULES,
 			[name, byPattern],
 			draft,
 			SESSION,
@@ -314,6 +377,7 @@ describe("hidden inputs on the Search screen", () => {
 	it("judges a condition reading a hidden input against its seeded value", () => {
 		expect(
 			searchInputConstraintErrors(
+				WEB_APPS_RULES,
 				[mode, strictPhone],
 				new Map(),
 				SESSION,
@@ -322,6 +386,7 @@ describe("hidden inputs on the Search screen", () => {
 		).toBe("Strict searches need a phone");
 		expect(
 			searchInputRequiredMarks(
+				WEB_APPS_RULES,
 				[mode, strictPhone],
 				new Map(),
 				SESSION,
@@ -333,6 +398,7 @@ describe("hidden inputs on the Search screen", () => {
 	it("keeps a hidden value the submitted bag already carries", () => {
 		expect(
 			searchInputConstraintErrors(
+				WEB_APPS_RULES,
 				[mode, strictPhone],
 				new Map([["search_mode", "loose"]]),
 				SESSION,
@@ -343,6 +409,7 @@ describe("hidden inputs on the Search screen", () => {
 
 	it("never raises a constraint for the hidden input itself", () => {
 		const marks = searchInputRequiredMarks(
+			WEB_APPS_RULES,
 			[mode, strictPhone],
 			new Map(),
 			SESSION,

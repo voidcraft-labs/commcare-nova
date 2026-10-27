@@ -10,8 +10,9 @@ import { tileFixture } from "@/lib/commcare/__tests__/tileFixture";
 import { wireTable } from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
 import { calculatedColumn } from "@/lib/domain";
 import { eq, literal, matchAll, tableLookup } from "@/lib/domain/expression";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { entrySessionData } from "@/lib/preview/engine/entrySessionData";
-
+import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { getFormTool } from "../getForm";
 import { getModuleTool } from "../getModule";
 import { updateFormTool } from "../updateForm";
@@ -76,7 +77,7 @@ describe("navigation through authoring reads", () => {
 				boundCases: [{ caseId: "loan-a" }],
 				menuSelections: {},
 				caseDatabase: null,
-				identity: null,
+				session: previewSessionValues(null, webAppsDevice()),
 			}).values.values(),
 		]).toContainEqual({ value: "loan-a" });
 	});
@@ -129,7 +130,7 @@ describe("navigation through authoring reads", () => {
 				boundCases: [{ caseId: "visit-a" }],
 				menuSelections: {},
 				caseDatabase: null,
-				identity: null,
+				session: previewSessionValues(null, webAppsDevice()),
 			}).values.values(),
 		]).toContainEqual({ value: "visit-a" });
 	});

@@ -14,8 +14,12 @@ import {
 	useBlueprintDocApi,
 } from "@/lib/doc/hooks/useBlueprintDoc";
 import { entryPointInventory, type Uuid } from "@/lib/domain";
+import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
-import { usePreviewEntryPointLaunch } from "@/lib/session/hooks";
+import {
+	usePreviewDevice,
+	usePreviewEntryPointLaunch,
+} from "@/lib/session/hooks";
 import { claimsFor, previewClaimsWorker } from "@/lib/session/previewClaims";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { launchEntryPointAction } from "../entryPointLaunchAction";
@@ -27,6 +31,7 @@ import type {
 export function useEntryPointLaunch() {
 	const session = useBuilderSessionApi();
 	const doc = useBlueprintDocApi();
+	const device = usePreviewDevice();
 	const reconciler = useReconcilerContext()?.reconciler;
 	const navigate = useNavigate();
 	const generation = useRef(0);
@@ -70,6 +75,7 @@ export function useEntryPointLaunch() {
 						previewClaimsWorker(personaUuid),
 					),
 				],
+				device: withNavigationWidth(device),
 			});
 			const current = session.getState();
 			if (
@@ -86,12 +92,31 @@ export function useEntryPointLaunch() {
 					message: "The app or Preview worker changed. Try again.",
 				};
 			if (result.kind === "ready") {
-				current.installEntryPointLaunch(result.launch);
-				navigate.push(result.launch.location);
+				/* Web Apps' claim frame claims the chosen cases before it
+				 * navigates; the claims land with the launch, under its worker. */
+				/* A case the phone lacks opens with blank preloads: the form reads
+				 * no saved values for it (Android). */
+				const blank = new Set(result.blankCaseIds);
+				const formTarget = result.launch.formTarget;
+				const launch =
+					blank.size === 0
+						? result.launch
+						: {
+								...result.launch,
+								blankCaseIds: result.blankCaseIds,
+								...(formTarget !== undefined &&
+								(formTarget.cases ?? []).some((choice) =>
+									blank.has(choice.caseId),
+								)
+									? { formTarget: { ...formTarget, caseData: new Map() } }
+									: {}),
+							};
+				current.installEntryPointLaunch(launch, result.claimCaseIds);
+				navigate.push(launch.location);
 			}
 			return result;
 		},
-		[doc, navigate, reconciler, session],
+		[device, doc, navigate, reconciler, session],
 	);
 }
 

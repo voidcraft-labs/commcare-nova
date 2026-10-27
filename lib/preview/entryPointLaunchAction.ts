@@ -33,6 +33,8 @@ const requestSchema = z.strictObject({
 		.max(100),
 	/** The chosen worker's claims; the context checks their shape. */
 	claimedCaseIds: z.array(z.string()).max(1000).optional(),
+	/** The device Preview runs on; the context parses and checks it. */
+	device: z.unknown().optional(),
 });
 
 export async function launchEntryPointAction(input: {
@@ -44,6 +46,8 @@ export async function launchEntryPointAction(input: {
 	/** The chosen worker's claims (`lib/session/previewClaims.ts`): a
 	 *  claimed case is held, so the launch's device snapshot holds it. */
 	claimedCaseIds?: readonly string[];
+	/** The device Preview runs on (`previewDevice.ts`), plain JSON. */
+	device?: PreviewDevice;
 }): Promise<EntryPointLaunchResult> {
 	const parsed = requestSchema.safeParse(input);
 	if (!parsed.success)
@@ -59,6 +63,7 @@ export async function launchEntryPointAction(input: {
 			claimedCaseIds: args.claimedCaseIds,
 			required: "view",
 			loadBlueprint: true,
+			device: args.device,
 		});
 		if (context.kind !== "ready")
 			return {
@@ -68,6 +73,7 @@ export async function launchEntryPointAction(input: {
 						? "Sign in to test this entry point."
 						: context.message,
 			};
+		const rules = previewPlatformRules(context.device.platform);
 		if (!context.blueprint || context.baseSeq !== args.expectedSeq)
 			return {
 				kind: "refused",
@@ -84,12 +90,29 @@ export async function launchEntryPointAction(input: {
 				? getLookupFixtureData(context.scope, tableIds).then(previewLookupData)
 				: undefined,
 		]);
+		/* A chosen case the worker's restore does not hold, read with its
+		 * index edges as a claim of it would deliver it. The claim seeds only
+		 * a case of this app in the bound Project, so nothing else is read. */
+		const held = new Set(database.rows.map((row) => row.case_id));
+		const outside = [
+			...new Set(
+				args.selections.flatMap((selection) =>
+					selection.caseIds.filter((caseId) => !held.has(caseId)),
+				),
+			),
+		];
+		const notHeld = await readNotHeldCases(context, args.appId, outside);
 		const result = prepareEntryPointLaunch({
 			...args,
 			doc,
 			database,
-			session: context.identity.session,
+			notHeld: {
+				rows: notHeld.rows.filter((row) => !held.has(row.case_id)),
+				indices: notHeld.indices.filter((index) => !held.has(index.case_id)),
+			},
+			session: previewSessionValues(context.identity, context.device),
 			lookup: lookup ? { kind: "data", data: lookup } : { kind: "idle" },
+			rules,
 		});
 		// Authorization and committed topology must still describe this result after
 		// its device/lookup reads. A Project move or concurrent edit retires it.
@@ -121,4 +144,93 @@ export async function launchEntryPointAction(input: {
 	}
 }
 
-import { resolveAuthorizedPreviewContext } from "./engine/previewAuthorization";
+/** The chosen cases outside the worker's restore, with their index edges, as
+ * a claim of each would put them on the device. */
+async function readNotHeldCases(
+	context: Extract<AuthorizedPreviewContext, { kind: "ready" }>,
+	appId: string,
+	caseIds: readonly string[],
+): Promise<CaseDatabaseSnapshot> {
+	if (caseIds.length === 0) return { rows: [], indices: [] };
+	const wanted = new Set(caseIds);
+	const claimed = await readCaseDatabaseSnapshot(context.store, {
+		appId,
+		restoreScope: {
+			...context.restoreScope,
+			claimedCaseIds: [
+				...(context.restoreScope.claimedCaseIds ?? []),
+				...caseIds,
+			],
+		},
+	});
+	return {
+		rows: claimed.rows.filter((row) => wanted.has(row.case_id)),
+		indices: claimed.indices.filter((index) => wanted.has(index.case_id)),
+	};
+}
+
+/**
+ * The Project's open cases of a case type that the worker's restore does not
+ * hold, 50 a page: HQ's search population less the worker's restore closure,
+ * paged and counted in one statement each. An entry point's case picker
+ * offers them under the worker's own cases, so an author can see what each
+ * platform does with a case the worker's phone lacks.
+ */
+export async function loadEntryPointOtherCasesAction(input: {
+	appId: string;
+	caseType: string;
+	personaUuid?: string;
+	claimedCaseIds?: readonly string[];
+	parentCase?: ParentCaseSelection;
+	page: { offset: number; limit: number };
+	device?: PreviewDevice;
+}): Promise<LoadCasesResult> {
+	try {
+		const context = await resolveAuthorizedPreviewContext({
+			appId: input.appId,
+			personaUuid: input.personaUuid,
+			claimedCaseIds: input.claimedCaseIds,
+			required: "view",
+			loadBlueprint: true,
+			device: input.device,
+		});
+		if (context.kind !== "ready") return context;
+		return await readCases(context.store, {
+			appId: input.appId,
+			caseType: input.caseType,
+			reading: SEARCH_READING,
+			tileGrouping: "flat",
+			parentCase: input.parentCase,
+			page: input.page,
+			searchPopulation: {
+				heldBy: context.restoreScope,
+				onlyOutsideRestore: true,
+			},
+		});
+	} catch (error) {
+		if (error instanceof AppAccessError)
+			return { kind: "error", message: "App not found." };
+		reportUnexpectedActionError("loadEntryPointOtherCases", error, {
+			appId: input.appId,
+		});
+		return {
+			kind: "error",
+			message: "We couldn't load these cases. Try again.",
+		};
+	}
+}
+
+import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
+import { readCases } from "./engine/caseDataBindingHelpers";
+import type {
+	LoadCasesResult,
+	ParentCaseSelection,
+} from "./engine/caseDataBindingTypes";
+import { previewSessionValues } from "./engine/identity";
+import {
+	type AuthorizedPreviewContext,
+	resolveAuthorizedPreviewContext,
+} from "./engine/previewAuthorization";
+import type { PreviewDevice } from "./engine/previewDevice";
+import type { CaseDatabaseSnapshot } from "./engine/xpathInstances";
+import { previewPlatformRules } from "./platform";

@@ -11,6 +11,12 @@ import { DataInstance } from "../../engine/dataInstance";
 import { buildFieldTree } from "../../engine/fieldTree";
 import { evaluateAsync } from "../asyncEvaluator";
 import { xpathToString } from "../coerce";
+import {
+	coreDateAdd,
+	coreDaysSinceEpoch,
+	coreFractionalDays,
+	type DayNumberEpoch,
+} from "../coreDays";
 import { evaluate } from "../evaluator";
 import {
 	CoreUnroundableDateError,
@@ -150,6 +156,83 @@ describe("Preview dates against Core in four device zones", () => {
 						row.expect[label],
 						`${name} (async)`,
 					);
+				}
+			}
+		} finally {
+			vi.useRealTimers();
+			if (originalTimeZone === undefined) delete process.env.TZ;
+			else process.env.TZ = originalTimeZone;
+		}
+	});
+});
+
+/* Formplayer's JVM runs in `Etc/UTC`, so its `DateUtils.EPOCH_TIME` is UTC
+ * midnight; Android's is the device zone's midnight. */
+describe("day numbers from the UTC epoch", () => {
+	const ZONES = {
+		...CORE_DATE_PARITY_ZONES,
+		"Etc/GMT+12": "Etc/GMT+12",
+	} as const;
+	/* The calendar day minus one where local midnight is more than twelve
+	 * hours ahead of UTC, the day itself in between, and plus one where it
+	 * is twelve hours behind. */
+	const UTC_SHIFT: Readonly<Record<string, number>> = {
+		"Pacific/Kiritimati": -1,
+		"Asia/Kolkata": 0,
+		"Etc/GMT+12": 1,
+	};
+	const DAY = 86_400_000;
+	const MAY_6 = Date.UTC(2026, 4, 6) / DAY;
+
+	function emptyContext(dayNumberEpoch: DayNumberEpoch): EvalContext {
+		const data = new DataInstance();
+		const root = testUuid("utc-epoch-root");
+		data.initFromFields(buildFieldTree(root, {}, { [root]: [] }));
+		const mainInstance = data.asXPathInstance();
+		const rootNode = mainInstance.root();
+		return {
+			mainInstance,
+			contextNode: rootNode,
+			originalContextNode: rootNode,
+			contextPath: "/",
+			position: undefined,
+			getValue: (path) => data.get(path),
+			dayNumberEpoch,
+		};
+	}
+
+	it("counts from UTC midnight in every zone, synchronously and on the async path", async () => {
+		const originalTimeZone = process.env.TZ;
+		vi.useFakeTimers();
+		try {
+			for (const zone of Object.values(ZONES)) {
+				process.env.TZ = zone;
+				vi.setSystemTime(new Date("2026-05-06T12:00:00Z"));
+				const utc = coreDaysSinceEpoch(MAY_6, "utc");
+				if (zone in UTC_SHIFT) expect(utc, zone).toBe(MAY_6 + UTC_SHIFT[zone]);
+				const instant = Date.parse("2026-05-06T07:30:00Z");
+				expect(coreFractionalDays(instant, "utc"), zone).toBe(instant / DAY);
+				/* `date(n)` reads `getDate(1970, 1, 1)` per call on both. */
+				expect(coreDateAdd(20_579), zone).toBe(coreDateAdd(20_579));
+
+				expect(
+					XPathDate.fromCalendarDays(MAY_6).coreDaysUnder("utc"),
+					zone,
+				).toBe(utc);
+				const today = evaluate("today()", emptyContext("utc"));
+				if (!(today instanceof XPathDate)) throw new Error("today() is a date");
+				for (const epoch of ["utc", "device-zone"] as const) {
+					const expected = coreDaysSinceEpoch(today.calendarDays, epoch);
+					expect(evaluate("int(today())", emptyContext(epoch)), zone).toBe(
+						expected,
+					);
+					expect(
+						await evaluateAsync(
+							"if(regex('a', 'a'), int(today()), -1)",
+							emptyContext(epoch),
+						),
+						`${zone} (async, ${epoch})`,
+					).toBe(expected);
 				}
 			}
 		} finally {

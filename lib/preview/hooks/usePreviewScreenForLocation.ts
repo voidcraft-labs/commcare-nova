@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
+import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDeviceCases";
@@ -14,6 +15,7 @@ import { locationToPreviewScreen } from "@/lib/preview/screenProjection";
 import type { Location } from "@/lib/routing/types";
 import {
 	useEditMode,
+	usePreviewDevice,
 	usePreviewEntryPointLaunch,
 	usePreviewMenuCaseSelections,
 	usePreviewTaskContinuation,
@@ -42,7 +44,11 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 	const identityState = useSelectedPreviewIdentityState();
 	const identity =
 		identityState.kind === "ready" ? identityState.identity : null;
-	const session = useMemo(() => previewSessionValues(identity), [identity]);
+	const device = usePreviewDevice();
+	const session = useMemo(
+		() => previewSessionValues(identity, withNavigationWidth(device)),
+		[identity, device],
+	);
 	const lookup = usePreviewLookupStatus();
 	const deviceCases = useNavigationDeviceCases(menuSource.caseTypes);
 	const moduleVisibility = useMemo(

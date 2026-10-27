@@ -13,7 +13,16 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { plainColumn, proseText, simpleSearchInputDef } from "@/lib/domain";
 import { count } from "@/lib/domain/expression";
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
+import type { Platform } from "@/lib/domain/platforms";
 import { createEvaluationApp } from "@/lib/preview/engine/__tests__/evaluationFixture";
+import { sectionEntryDoc } from "@/lib/preview/engine/__tests__/fixtures/sectionEntry";
+import { evaluateForm } from "@/lib/preview/engine/evaluateForm";
+import { previewSessionValues } from "@/lib/preview/engine/identity";
+import {
+	ANDROID_DEVICE_ID_PREFIX,
+	platformUnavailableSentence,
+	WEB_APPS_DEVICE_ID,
+} from "@/lib/preview/platform";
 import { loadFormEvaluationContext } from "../evaluationContext";
 
 const h = setupAppStateTestDb("authoring_evaluation_", {
@@ -370,4 +379,98 @@ it("runs the module's search for a form that reads what it found", async () => {
 		"error",
 		expect.stringContaining("Leave out the scenario"),
 	);
+});
+
+it("runs a check on the platform it names, with that platform's session values and pages", async () => {
+	const source = sectionEntryDoc();
+	const appId = await h.seedAppWithBlueprint(source, {
+		owner: actor,
+		projectId,
+	});
+	const doc = { ...source, appId };
+	const workspace = makeToolWorkspaceHarness(doc, {
+		appId,
+		userId: actor,
+		projectId,
+	}).workspace;
+	const contextOn = (platform?: Platform) =>
+		workspace.invoke({
+			toolName: "evaluateForm",
+			execute: (ctx) =>
+				loadFormEvaluationContext(
+					ctx,
+					undefined,
+					undefined,
+					undefined,
+					platform,
+				),
+		});
+	const web = await contextOn("web-apps");
+	expect(previewSessionValues(web.identity, web.device).context).toMatchObject({
+		deviceid: WEB_APPS_DEVICE_ID,
+		window_width: "1280",
+		drift: "0",
+	});
+	const phone = await contextOn("android");
+	const phoneContext = previewSessionValues(
+		phone.identity,
+		phone.device,
+	).context;
+	expect(phoneContext.deviceid).toMatch(
+		new RegExp(`^${ANDROID_DEVICE_ID_PREFIX}[0-9a-f-]{36}$`),
+	);
+	expect(phoneContext).not.toHaveProperty("window_width");
+	/* An app on both platforms checks on Web Apps when none is named. */
+	expect((await contextOn()).device.platform).toBe("web-apps");
+
+	const moduleUuid = doc.moduleOrder[0];
+	const formUuid = doc.formOrder[moduleUuid][0];
+	const second = Object.values(doc.fields).find(
+		(field) => field.id === "second",
+	);
+	if (!second) throw new Error("Missing the second section.");
+	const sectionOn = async (context: typeof web) =>
+		(
+			await evaluateForm(
+				doc,
+				{ formUuid, sectionUuid: second.uuid, answers: [] },
+				{ ...context, captureEntry: true },
+			)
+		).sections.map(({ uuid, current }) => ({ uuid, current }));
+	/* Web Apps draws every section on its one screen, so naming one changes
+	 * nothing; Android enters it. */
+	expect((await sectionOn(web)).every(({ current }) => current)).toBe(true);
+	expect(await sectionOn(phone)).toContainEqual({
+		uuid: second.uuid,
+		current: true,
+	});
+	expect(
+		(await sectionOn(phone)).filter(({ current }) => current),
+	).toHaveLength(1);
+});
+
+it("refuses a check on a platform the app does not run on", async () => {
+	const source = structuredClone(sectionEntryDoc());
+	source.appSettings = { ...source.appSettings, runsOnlyOn: "web-apps" };
+	const appId = await h.seedAppWithBlueprint(source, {
+		owner: actor,
+		projectId,
+	});
+	const workspace = makeToolWorkspaceHarness(
+		{ ...source, appId },
+		{ appId, userId: actor, projectId },
+	).workspace;
+	await expect(
+		workspace.invoke({
+			toolName: "evaluateForm",
+			execute: (ctx) =>
+				loadFormEvaluationContext(
+					ctx,
+					undefined,
+					undefined,
+					undefined,
+					"android",
+				),
+		}),
+	).rejects.toThrow(platformUnavailableSentence("android", "the form"));
 });

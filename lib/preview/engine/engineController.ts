@@ -61,7 +61,13 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { compilerBugMessage } from "@/lib/domain/expression/errors";
+import { declaredPlatforms, PLATFORMS } from "@/lib/domain/platforms";
 import type { ProseTemplate } from "@/lib/domain/prose";
+import {
+	effectivePreviewPlatform,
+	type PreviewPlatformRules,
+	previewPlatformRules,
+} from "../platform";
 import { PreviewXPathRuntimeError } from "../xpath/runtimeError";
 import type { XPathValue } from "../xpath/types";
 import type { XPathRuntime } from "../xpath/workerClient";
@@ -91,15 +97,25 @@ import {
 	type FormEngineAsyncEvaluator,
 	type FormEngineInput,
 	type FormEngineRuntimeOptions,
+	type FormScreenPage,
 	type InvalidFieldTarget,
-	type SectionPage,
 } from "./formEngine";
 import type { FormLinkAsyncEvaluator } from "./formLinkEvaluation";
-import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
+import {
+	previewSessionValues,
+	type ResolvedPreviewIdentity,
+	samePreviewIdentity,
+} from "./identity";
 import {
 	formLogicLookupsCovered,
 	type PreviewLookupData,
 } from "./lookupEvaluation";
+import {
+	defaultPreviewDevice,
+	type PreviewDevice,
+	previewDeviceContext,
+	samePreviewDevice,
+} from "./previewDevice";
 import {
 	type SearchScreenXPath,
 	searchScreenWorkerInstances,
@@ -715,6 +731,11 @@ export class EngineController {
 	/** A selected persona disappeared. Never fall through to anonymous form
 	 * execution while the user is deciding which identity to use instead. */
 	private previewIdentityBlocked = false;
+	/** The device Preview runs on (`previewDevice.ts`), installed by the
+	 *  running shell from the session store; an engine input beside the
+	 *  identity. `undefined` until installed: an engine then plays the
+	 *  default device. Session-scoped like the identity. */
+	private previewDevice: PreviewDevice | undefined;
 
 	/** The builder session's lookup fixture snapshot. Session-scoped like
 	 *  the identity — engines CAPTURE it at activation (per-form-session
@@ -867,7 +888,10 @@ export class EngineController {
 						...input,
 						entryKey,
 						caseDatabase: caseDatabase ?? null,
-						identity: this.previewIdentity,
+						session: previewSessionValues(
+							this.previewIdentity,
+							this.previewDeviceOrDefault(state),
+						),
 					});
 		return this.activeEntrySession;
 	}
@@ -879,10 +903,14 @@ export class EngineController {
 		session: EntrySessionData | undefined,
 	): Pick<
 		FormEngineRuntimeOptions,
-		"sessionData" | "selectedCases" | "searchResults"
+		"sessionData" | "selectedCases" | "searchResults" | "device"
 	> {
-		if (session === undefined) return {};
+		const doc = this.docStore?.getState();
+		const device =
+			doc === undefined ? {} : { device: this.previewDeviceOrDefault(doc) };
+		if (session === undefined) return device;
 		return {
+			...device,
 			sessionData: session.data,
 			selectedCases: session.selectedCases,
 			...(session.searchResults === undefined
@@ -1273,6 +1301,7 @@ export class EngineController {
 					profile: "form",
 					source,
 					instances: engine.workerInstances(path, world, stateOverrides),
+					dayNumberEpoch: engine.dayNumberEpoch,
 					resultMode,
 				},
 				{ signal },
@@ -1593,6 +1622,75 @@ export class EngineController {
 				} else this.activateForm(formUuid, this.activeCaseData);
 			}
 		}
+	}
+
+	/**
+	 * Install the device Preview runs on. A change of platform is a new
+	 * evaluation world, as a change of worker is: the active entry restarts
+	 * (the running navigation is reset by the platform change itself). A
+	 * change of the device's language comes with the worker language, whose
+	 * install rebuilds the same entry with every touched answer kept
+	 * (`setPresentationLanguage`), so the device is only stored here; the
+	 * running shell installs the device before the language.
+	 */
+	setPreviewDevice(device: PreviewDevice): void {
+		const previous = this.previewDevice;
+		if (previous !== undefined && samePreviewDevice(previous, device)) return;
+		const played = previous ?? this.previewDeviceOrDefault();
+		this.previewDevice = device;
+		const formUuid = this.activeFormUuid;
+		if (formUuid === undefined) return;
+		if (played.platform !== device.platform) {
+			if (this.xpathRuntime) {
+				this.activateFormAsync(formUuid, this.activeCaseData).catch(
+					() => undefined,
+				);
+			} else this.activateForm(formUuid, this.activeCaseData);
+			return;
+		}
+		/* An entry begun on this controller's own install id, before the
+		 * shell installed the session's device, rebuilds in place so its
+		 * `deviceid` agrees with every request the session sends. Only a
+		 * `deviceid` that differs counts: Web Apps' never names the install. */
+		if (
+			previewDeviceContext(played).deviceid !==
+			previewDeviceContext(device).deviceid
+		) {
+			if (this.xpathRuntime) {
+				this.rebuildActiveFormAsync(formUuid, this.activeCaseData).catch(
+					() => undefined,
+				);
+			} else this.rebuildActiveForm(formUuid, this.activeCaseData);
+		}
+	}
+
+	/** The device an entry runs on: the installed one, else the platform
+	 *  the document previews on by default, with this controller's own
+	 *  install id. */
+	private previewDeviceOrDefault(state?: BlueprintDocState): PreviewDevice {
+		if (this.previewDevice !== undefined) return this.previewDevice;
+		const doc = state ?? this.docStore?.getState();
+		return {
+			...defaultPreviewDevice(doc, this.presentationLanguage),
+			androidDeviceId: this.defaultAndroidDeviceId,
+		};
+	}
+
+	/** The install id of a controller no shell has given a device. */
+	private readonly defaultAndroidDeviceId = crypto.randomUUID();
+
+	/** The rules of the platform the controller's entries play, for the
+	 *  worker requests it makes outside a form engine (Search screen checks
+	 *  and after-submit links). */
+	private previewRules(): PreviewPlatformRules {
+		const doc = this.docStore?.getState();
+		const platform =
+			this.previewDevice?.platform ??
+			effectivePreviewPlatform(
+				doc === undefined ? PLATFORMS : declaredPlatforms(doc),
+				undefined,
+			);
+		return previewPlatformRules(platform);
 	}
 
 	/** Suspend form execution while a selected persona cannot be resolved. */
@@ -2455,6 +2553,7 @@ export class EngineController {
 				profile: "search",
 				source: xpath.source,
 				instances: searchScreenWorkerInstances(xpath),
+				dayNumberEpoch: this.previewRules().dayNumberEpoch,
 			},
 			signal === undefined ? {} : { signal },
 		);
@@ -2905,13 +3004,18 @@ export class EngineController {
 				"validation",
 				formUuid,
 				{ kind: "retired" },
-				() =>
-					complete(
+				() => {
+					/* A submit's whole-form validation runs the platform's
+					 * request pass first (Formplayer rebuilds the session before
+					 * it validates a submission). */
+					if (sectionUuid === undefined) engine.prepareSubmit();
+					return complete(
 						sectionUuid === undefined
 							? engine.validateAll()
 							: engine.validateSection(sectionUuid),
 						this.runtimeRevision,
-					),
+					);
+				},
 			);
 		}
 		return this.runAsyncRevision<EngineValidationCompletion>(
@@ -2927,6 +3031,8 @@ export class EngineController {
 					generation,
 					signal,
 				);
+				if (sectionUuid === undefined)
+					await engine.prepareSubmitAsync(evaluate);
 				const valid =
 					sectionUuid === undefined
 						? await engine.validateAllAsync(evaluate)
@@ -2945,10 +3051,19 @@ export class EngineController {
 		return this.engine?.firstInvalidFieldTarget(opts);
 	}
 
-	/** The form's pages (root sections) with their current visibility. */
-	sectionPages(): ReadonlyArray<SectionPage> {
+	/** The form's screens on the platform the engine plays
+	 *  (`FormEngine.formScreens`), with their current visibility. */
+	formScreens(): ReadonlyArray<FormScreenPage> {
 		return (
-			(this.retainedPresentation?.engine ?? this.engine)?.sectionPages() ?? []
+			(this.retainedPresentation?.engine ?? this.engine)?.formScreens() ?? []
+		);
+	}
+
+	/** The form's root sections with their current visibility, which the
+	 *  section pager reads (`FormEngine.sectionScreens`). */
+	sectionScreens(): ReadonlyArray<FormScreenPage> {
+		return (
+			(this.retainedPresentation?.engine ?? this.engine)?.sectionScreens() ?? []
 		);
 	}
 
@@ -2964,7 +3079,7 @@ export class EngineController {
 			engine !== this.engine ||
 			entryKey !== this.currentEntryKey ||
 			formUuid !== this.activeFormUuid ||
-			!engine.sectionPages().some((page) => page.uuid === sectionUuid)
+			!engine.sectionScreens().some((page) => page.uuid === sectionUuid)
 		)
 			return false;
 		if (this.xpathRuntime === undefined)
@@ -2977,7 +3092,7 @@ export class EngineController {
 			"repeat-change",
 			formUuid,
 			async (revision, generation, signal) => {
-				if (!engine.sectionPages().some((page) => page.uuid === sectionUuid))
+				if (!engine.sectionScreens().some((page) => page.uuid === sectionUuid))
 					return false;
 				await engine.enterSectionAsync(
 					sectionUuid,
@@ -3387,6 +3502,7 @@ export class EngineController {
 							profile: "form-link",
 							source,
 							instances,
+							dayNumberEpoch: this.previewRules().dayNumberEpoch,
 						},
 						{ signal },
 					);

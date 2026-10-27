@@ -88,7 +88,19 @@ export interface PreviewTrailInput {
 	 * hidden child, or direct case-dependent leaf falls back to another screen,
 	 * the trail must follow that rendered screen instead of the requested URL. */
 	renderedScreen?: PreviewScreen;
+	/** Where the platform Preview plays opens the app
+	 *  (`lib/preview/platform.ts`, `appHome`). Android opens on the phone's
+	 *  home screen, so the module list sits one step below it. */
+	appHome?: "root-menu" | "device-home";
+	/** Preview on Android is showing the phone's home screen. */
+	atDeviceHome?: boolean;
+	/** The app's name, the module list's crumb under Android's home. */
+	appName?: string;
 }
+
+/** The crumb of the phone's home screen above Android's module list; its
+ *  handler returns to the home screen. */
+export const DEVICE_HOME_CRUMB_KEY = "device-home";
 
 /**
  * Build the preview-mode breadcrumb trail. Returns `baseBreadcrumbs`
@@ -116,7 +128,26 @@ export function previewBreadcrumbTrail(
 	);
 
 	if (renderedScreen?.type === "home") {
-		return baseBreadcrumbs.filter((crumb) => crumb.location.kind === "home");
+		const home = baseBreadcrumbs.filter(
+			(crumb) => crumb.location.kind === "home",
+		);
+		/* Android: the phone's home screen is one crumb; the module list is
+		 * that crumb and the app's root below it. */
+		if (input.appHome === "device-home" && input.atDeviceHome !== true) {
+			return [
+				{
+					key: DEVICE_HOME_CRUMB_KEY,
+					label: runtimeMessage(language, "home"),
+					location: { kind: "home" },
+				},
+				{
+					key: "home",
+					label: input.appName ?? runtimeMessage(language, "home"),
+					location: { kind: "home" },
+				},
+			];
+		}
+		return home;
 	}
 	if (renderedScreen?.type === "module") {
 		const targetKey = `m:${renderedScreen.moduleUuid}`;

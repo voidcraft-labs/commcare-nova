@@ -141,6 +141,9 @@ const session = createBuilderSessionStore({
 	role: "editor",
 	canEdit: true,
 });
+/* The section pager's subject is Android's paging: a page initializes its
+ * rows when it is entered. */
+session.getState().setPreviewPlatform("android");
 session.getState().setPreviewing(true);
 let controller: EngineController | undefined;
 const entries: EngineEntryState[] = [];

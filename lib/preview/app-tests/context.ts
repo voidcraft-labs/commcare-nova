@@ -20,10 +20,20 @@ import {
 	languageTag,
 	resolveAppLanguage,
 } from "@/lib/domain/localization";
+import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
 import { memberOwnerIds, personaOwnerIds } from "@/lib/organization/ownerSets";
 import { viewerTimeZone } from "../engine/caseDataBindingClient";
 import { previewAsMe, previewAsPersona } from "../engine/identity";
 import { previewLookupData } from "../engine/lookupEvaluation";
+import {
+	previewAppLanguage,
+	serverPreviewDevice,
+} from "../engine/previewDevice";
+import {
+	effectivePreviewPlatform,
+	platformUnavailableSentence,
+	previewPlatformRules,
+} from "../platform";
 import { XPathDate } from "../xpath/types";
 import { AppTestActionError } from "./errors";
 import type { AppTestSessionState, AppTestSnapshot } from "./types";
@@ -41,6 +51,23 @@ export function appTestLanguage(
 	)
 		throw new AppTestActionError("Choose a language configured in this app.");
 	return resolveAppLanguage(snapshot.blueprint.localization, tag);
+}
+
+/**
+ * The platform a session runs on: its own, else the start's, else the one
+ * the saved app previews on by default. A platform the app does not declare
+ * refuses, naming the one it runs on.
+ */
+export function appTestPlatform(
+	snapshot: AppTestSnapshot,
+	requested?: Platform,
+): Platform {
+	const declared = declaredPlatforms(snapshot.blueprint);
+	if (requested !== undefined && !declared.includes(requested))
+		throw new AppTestActionError(
+			platformUnavailableSentence(requested, "a session"),
+		);
+	return effectivePreviewPlatform(declared, requested);
 }
 
 export function appTestIdentity(
@@ -114,8 +141,17 @@ async function contextFor(
 		projectSpace: snapshot.projectSpace,
 		ensureOnly: true,
 	});
+	const language = resolveAppLanguage(doc.localization, state.language);
 	return {
-		language: resolveAppLanguage(doc.localization, state.language),
+		language,
+		/* A journey has no browser window: its device is the session's own
+		 * install on Android and a 1280-wide window on Web Apps. */
+		device: serverPreviewDevice({
+			platform: state.platform,
+			appLanguage: previewAppLanguage(doc.localization, language),
+			androidDeviceId: state.androidDeviceId,
+		}),
+		rules: previewPlatformRules(state.platform),
 		// FormEngine workers inherit this process's local timezone. SQL must
 		// use it too, independently of the database connection's timezone.
 		clock: {

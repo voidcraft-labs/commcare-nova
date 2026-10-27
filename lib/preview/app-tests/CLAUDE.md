@@ -91,7 +91,20 @@ custom-constraint wording fallback, and the stored expression model with
 Preview's Core-matching dates and setvalue casts, two-valued record predicates,
 and a search's population and claims); bump it when those semantics change.
 Version 16 fences the expression model: a journey started before it pinned a
-document whose expressions the current model does not read. Older journeys remain readable but require a fresh test to execute. Search,
+document whose expressions the current model does not read. Version 17 fences platforms: each session runs on one platform the app declares;
+a journey started before it ran Preview's former mix of runtimes. A session's
+platform is its own `platform`, else the start's, else the one the saved app
+previews on by default (`context.ts::appTestPlatform`, which refuses a platform
+the app does not declare with `platformUnavailableSentence`); the session keeps
+its platform and its own Android install id, and its device has no window, so
+Web Apps reads a 1280-wide one (`serverPreviewDevice`). An Android session
+starts on the phone's home screen (`{ kind: "device-home" }`), where `continue`
+is Start and opens the module list; `home` and an `app_home` submission return
+there, and an expectation of `home` is met by either. On Web Apps the form is
+one screen, so no page turn is offered and `section` admits a section of the
+form without changing anything; on Android a form without sections turns one
+screen of `FormEngine.formScreens()` at a time. Every observation names its
+`platform`. Older journeys remain readable but require a fresh test to execute. Search,
 FormEngine and after-submit expression evaluation use bounded workers. Form
 checkpoints retain answers, defaults, repeat identities and captured entry data
 between calls. Form and journey observations share the question participation

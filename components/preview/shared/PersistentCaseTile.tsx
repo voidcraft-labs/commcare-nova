@@ -28,6 +28,7 @@ import { orderedColumns } from "@/lib/domain";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 import { CaseTile } from "./CaseTile";
 import { useColumnDisplayContext } from "./useColumnDisplayContext";
 import { useWorkerMessage } from "./WorkerText";
@@ -85,12 +86,18 @@ export function PersistentCaseTile({
 		// position the list's watch saw.
 		positionScreen: "list",
 	});
-	const displayContext = useColumnDisplayContext(
+	const listDisplayContext = useColumnDisplayContext(
 		config,
 		caseType,
 		fallbackProperties,
 		// The tile reads the device's own copy of the case.
 		{ doc: blueprint, moduleUuid, reading: "casedb" },
+	);
+	/* A tile reads a link column as the platform's list draws it. */
+	const linkColumnInList = usePreviewPlatformRules().linkColumnInList;
+	const displayContext = useMemo(
+		() => ({ ...listDisplayContext, linkColumnInList }),
+		[listDisplayContext, linkColumnInList],
 	);
 	const tileColumns = useMemo(
 		() => tileResultsColumns(orderedColumns(config, "list"), config.tile),
@@ -151,7 +158,9 @@ function CaseUnavailableNotice({
 		| "missing"
 		| "error"
 		| "unauthenticated"
-		| "persona-unavailable";
+		| "persona-unavailable"
+		| "platform-unavailable"
+		| "language-unavailable";
 	readonly onRetry: () => void;
 }) {
 	const message = useWorkerMessage();
@@ -164,7 +173,11 @@ function CaseUnavailableNotice({
 						? message("caseSignedOut")
 						: kind === "persona-unavailable"
 							? "Choose another worker to show this case's information."
-							: message("caseInformationFailed")}
+							: kind === "platform-unavailable"
+								? "Choose another platform under Runs on to show this case's information."
+								: kind === "language-unavailable"
+									? "Choose another language to show this case's information."
+									: message("caseInformationFailed")}
 			</p>
 			{kind === "error" && (
 				<Button

@@ -59,7 +59,8 @@ export async function appTestDetails(
 		caseListConfig: mod.caseListConfig,
 		caseTypeSchemas: context.caseTypeSchemas,
 		bindings: previewCaseStoreBindings(
-			previewSessionValues(context.identity),
+			previewSessionValues(context.identity, context.device),
+			context.rules,
 			undefined,
 			undefined,
 			context.clock.timeZone,

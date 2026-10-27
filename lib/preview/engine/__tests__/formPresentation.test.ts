@@ -5,9 +5,11 @@ import type { ProseTemplate } from "@/lib/domain";
 import { buildEngineInput } from "../engineInput";
 import { FormEngine } from "../formEngine";
 import { projectFormPresentation } from "../formPresentation";
+import type { PreviewDevice } from "../previewDevice";
 import { availablePages } from "../sectionPaging";
+import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
-function runtime(fields: FieldSpec[]) {
+function runtime(fields: FieldSpec[], device?: PreviewDevice) {
 	const formUuid = testUuid("worker-presentation-form");
 	const doc = buildDoc({
 		modules: [
@@ -28,7 +30,19 @@ function runtime(fields: FieldSpec[]) {
 	}
 	const input = buildEngineInput(doc, formUuid, null);
 	if (!input) throw new Error("Form fixture is incomplete.");
-	return { doc, input, engine: new FormEngine(input) };
+	return {
+		doc,
+		input,
+		engine: new FormEngine(
+			input,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			device === undefined ? {} : { device },
+		),
+	};
 }
 
 const literalText = (prose: ProseTemplate) =>
@@ -43,7 +57,7 @@ function observe(engine: FormEngine) {
 		{
 			currentSectionUuid: engine.currentSectionUuid(),
 			availableSectionUuids: new Set(
-				availablePages(engine.sectionPages()).map((page) => page.uuid),
+				availablePages(engine.sectionScreens()).map((page) => page.uuid),
 			),
 			text: literalText,
 		},
@@ -249,29 +263,58 @@ it("uses concrete-instance relevance and resolved prose without replacing option
 	).toMatchObject({ visible: false });
 });
 
-it("marks the current page and excludes pages the actual pager skips", () => {
-	const { engine } = runtime([
-		{
-			kind: "section",
-			id: "first",
-			label: "First page",
-			children: [{ kind: "text", id: "name", label: "Name" }],
-		},
-		{
-			kind: "section",
-			id: "processing",
-			label: "Processing",
-			children: [{ kind: "hidden", id: "computed", calculate: "1" }],
-		},
-		{
-			kind: "section",
-			id: "review",
-			label: "Review",
-			children: [
-				{ kind: "label", id: "intro", label: "Review before submitting" },
-			],
-		},
+const PAGED_FORM: FieldSpec[] = [
+	{
+		kind: "section",
+		id: "first",
+		label: "First page",
+		children: [{ kind: "text", id: "name", label: "Name" }],
+	},
+	{
+		kind: "section",
+		id: "processing",
+		label: "Processing",
+		children: [{ kind: "hidden", id: "computed", calculate: "1" }],
+	},
+	{
+		kind: "section",
+		id: "review",
+		label: "Review",
+		children: [
+			{ kind: "label", id: "intro", label: "Review before submitting" },
+		],
+	},
+];
+
+it("puts every shown page on Web Apps' one screen", () => {
+	const { engine } = runtime(PAGED_FORM, webAppsDevice());
+	const screens = engine.formScreens();
+	expect(screens.map(({ kind, path }) => ({ kind, path }))).toEqual([
+		{ kind: "form", path: "/data" },
 	]);
+	const view = projectFormPresentation(
+		engine.getFieldTree(),
+		{ stateAt: (_field, path) => engine.getState(path) },
+		{
+			currentScreenPath: engine.currentScreenPath(),
+			/* As `evaluate_form` passes: a section with nothing to show is
+			 * drawn on no screen. */
+			availableSectionUuids: new Set(
+				availablePages(engine.sectionScreens()).map((page) => page.uuid),
+			),
+			text: literalText,
+		},
+	);
+	expect(
+		view.nodes.map(({ path, onCurrentPage }) => ({ path, onCurrentPage })),
+	).toEqual([
+		{ path: "first", onCurrentPage: true },
+		{ path: "review", onCurrentPage: true },
+	]);
+});
+
+it("marks the current page and excludes pages the actual pager skips", () => {
+	const { engine } = runtime(PAGED_FORM, androidDevice());
 	const initial = observe(engine);
 	expect(
 		initial.nodes.map(({ path, onCurrentPage }) => ({ path, onCurrentPage })),

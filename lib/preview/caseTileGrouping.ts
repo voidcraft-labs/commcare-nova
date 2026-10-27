@@ -29,6 +29,7 @@
 //      Re-deriving a narrower extent per half would slide every cell.
 
 import type { TileGridProjection } from "./caseTileLayout";
+import type { PreviewPlatformRules } from "./platform";
 
 /**
  * One grouped tile's two halves. The header is drawn ONCE per group,
@@ -50,6 +51,9 @@ export interface GroupedTileProjection {
  * them as two grids of identical geometry and every cell keeps the square
  * its author placed it in.
  *
+ * On Android the list is flat: the header holds no cell and the body is the
+ * whole tile, so each case draws as a group of one.
+ *
  * Total: a `headerRows` covering every cell yields an empty body, and one
  * covering none yields an empty header. Neither can commit — the validator
  * refuses both — but the projection stays honest about what it was handed
@@ -59,7 +63,17 @@ export interface GroupedTileProjection {
 export function splitTileGridByGroupHeader(
 	projection: TileGridProjection,
 	headerRows: number,
+	rules: Pick<PreviewPlatformRules, "tileGrouping">,
 ): GroupedTileProjection {
+	/* Android draws an ordinary tile list (commcare-android holds no reader
+	 * of `Detail.getGroup`, `DetailGroup` or `header-rows`): every case is a
+	 * group of its own whose body is the whole tile. */
+	if (rules.tileGrouping === "flat") {
+		return {
+			header: { columns: projection.columns, rows: projection.rows, cells: [] },
+			body: projection,
+		};
+	}
 	const header = projection.cells.filter((cell) => cell.gridY < headerRows);
 	const body = projection.cells.filter((cell) => cell.gridY >= headerRows);
 	return {

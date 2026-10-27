@@ -17,6 +17,7 @@ import type {
 	UnconfirmedWorker,
 } from "@/lib/deployment/workerProvisionPlan";
 import { provisioningOutcomeKey } from "@/lib/deployment/workerProvisionPlan";
+import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
@@ -25,7 +26,17 @@ import { docHasData } from "@/lib/doc/predicates";
 import { BlueprintEditableContext } from "@/lib/doc/provider";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaKind } from "@/lib/domain/multimedia";
+import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
 import type { Event } from "@/lib/log/types";
+import {
+	type PreviewDevice,
+	previewAppLanguage,
+} from "@/lib/preview/engine/previewDevice";
+import {
+	effectivePreviewPlatform,
+	type PreviewPlatformRules,
+	previewPlatformRules,
+} from "@/lib/preview/platform";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import {
 	deriveAgentError,
@@ -78,8 +89,70 @@ export function usePreviewing(): boolean {
 
 /** Atomic preview toggle with sidebar stash/restore — entering closes both
  *  sidebars, leaving restores the stashed layout. */
-export function useSetPreviewing(): (on: boolean) => void {
+export function useSetPreviewing(): (
+	on: boolean,
+	at?: { readonly atHome: boolean },
+) => void {
 	return useBuilderSession((s) => s.setPreviewing);
+}
+
+// ── Preview platform ──────────────────────────────────────────────────────
+
+/** The platform Preview plays: the author's choice under Runs on while the
+ *  app declares it, else Web Apps where the app runs there, else Android.
+ *  Derived from the document's declaration on every read, never stored. */
+export function usePreviewPlatform(): Platform {
+	const appSettings = useBlueprintDoc((s) => s.appSettings);
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	const chosen = useStore(store, (s) => s.previewPlatform);
+	return effectivePreviewPlatform(declaredPlatforms({ appSettings }), chosen);
+}
+
+/** The rule table of the platform Preview plays. */
+export function usePreviewPlatformRules(): PreviewPlatformRules {
+	return previewPlatformRules(usePreviewPlatform());
+}
+
+/** Preview on Android is showing the device's home screen. */
+export function usePreviewAtDeviceHome(): boolean {
+	return useBuilderSession((s) => s.previewAtDeviceHome);
+}
+
+export function useSetPreviewPlatform(): (platform: Platform) => void {
+	return useBuilderSession((s) => s.setPreviewPlatform);
+}
+
+export function useSetPreviewAtDeviceHome(): (atHome: boolean) => void {
+	return useBuilderSession((s) => s.setPreviewAtDeviceHome);
+}
+
+/** When this Preview run last synced on Android, epoch milliseconds. */
+export function usePreviewDeviceSyncedAt(): number | undefined {
+	return useBuilderSession((s) => s.previewDeviceSyncedAt);
+}
+
+export function useMarkPreviewDeviceSynced(): (at: number) => void {
+	return useBuilderSession((s) => s.markPreviewDeviceSynced);
+}
+
+/**
+ * The device Preview runs on: the platform it plays, this page load's
+ * Android install id, and the worker language's CommCare code. It holds no
+ * window width: a width read at render would be the last render's, so each
+ * navigation read passes `withNavigationWidth(device)` at the moment it is
+ * made. Stable across renders while its parts are.
+ */
+export function usePreviewDevice(): PreviewDevice {
+	const platform = usePreviewPlatform();
+	const store = useContext(BuilderSessionContext) ?? FALLBACK_SESSION_STORE;
+	const androidDeviceId = useStore(store, (s) => s.previewAndroidDeviceId);
+	const localization = useBlueprintDoc((s) => s.localization);
+	const language = useContext(BlueprintAuthoringLanguageContext);
+	const appLanguage = previewAppLanguage(localization, language);
+	return useMemo(
+		() => ({ platform, androidDeviceId, appLanguage }),
+		[platform, androidDeviceId, appLanguage],
+	);
 }
 
 /** The running-app preview's case target — the case-loading form the case

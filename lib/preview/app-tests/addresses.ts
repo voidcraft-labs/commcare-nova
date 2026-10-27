@@ -134,7 +134,9 @@ export function bindAppTestAction(
 				formUuid: form(
 					doc,
 					action.formUuid,
-					state.screen.kind === "home" ? undefined : state.screen.moduleUuid,
+					state.screen.kind === "home" || state.screen.kind === "device-home"
+						? undefined
+						: state.screen.moduleUuid,
 					state.language,
 				),
 			};
@@ -167,7 +169,13 @@ export function appTestExpectationMismatch(
 ): string | undefined {
 	if (!expect) return;
 	const screen = state.screen;
-	if (expect.screen !== undefined && observation.screen !== expect.screen)
+	/* `home` is met on the module list and on Android's home screen alike;
+	 * the observation names which one the session is on. */
+	if (
+		expect.screen !== undefined &&
+		observation.screen !== expect.screen &&
+		!(expect.screen === "home" && observation.screen === "device-home")
+	)
 		return `Expected ${expect.screen}; observed ${String(observation.screen)}.`;
 	if (
 		expect.submitted !== undefined &&
@@ -179,6 +187,7 @@ export function appTestExpectationMismatch(
 	if (
 		expect.moduleUuid !== undefined &&
 		(screen.kind === "home" ||
+			screen.kind === "device-home" ||
 			screen.moduleUuid !== menu(doc, expect.moduleUuid, state.language))
 	)
 		return "The observed menu differs from the expected destination.";

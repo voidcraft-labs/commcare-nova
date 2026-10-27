@@ -90,6 +90,7 @@ import type {
 import { fieldValueType } from "@/lib/domain/fieldValueType";
 import { directRepeatCountReference } from "@/lib/domain/repeatCount";
 import { normalizeJavaIntegerLexical } from "@/lib/preview/xpath/javaInteger";
+import { type PreviewPlatformRules, previewPlatformRules } from "../platform";
 import { runtimeMessage } from "../runtimeMessages";
 import { toBoolean, xpathToString } from "../xpath/coerce";
 import { evaluate, evaluateRuntime } from "../xpath/evaluator";
@@ -168,6 +169,7 @@ import {
 	type PreviewLookupData,
 	predicateLookupsCovered,
 } from "./lookupEvaluation";
+import { defaultPreviewDevice, type PreviewDevice } from "./previewDevice";
 import { sessionInstancePathValue } from "./searchExpressionEvaluation";
 import { resolveCurrentPage } from "./sectionPaging";
 import {
@@ -286,10 +288,21 @@ export interface InvalidFieldTarget {
 	readonly ancestorUuids: readonly Uuid[];
 }
 
-/** One page of a sectioned form, as the running form sees it. */
-export interface SectionPage {
+/**
+ * One screen of the running form: the whole form (Web Apps draws every
+ * question on one screen), one section (a sectioned form on Android), one
+ * labeled group drawn as a field-list, or one question (an unsectioned form
+ * on Android, which pages as Core's `FormEntryController.getQuestionPrompts`
+ * collects its prompts).
+ */
+export interface FormScreenPage {
+	readonly kind: "form" | "section" | "field-list" | "question";
+	/** The form's, the section's, the group's or the question's uuid. Two
+	 *  entries of one repeat share a uuid and never a `path`. */
 	readonly uuid: Uuid;
-	/** The section's data path, `/data/<id>`. */
+	/** The screen's concrete instance path with repeat indexes, its identity:
+	 *  `/data` for a whole-form screen, `/data/<section>` for a section,
+	 *  `/data/visits[2]/note` for a question in an entry. */
 	readonly path: string;
 	/** Whether the page has anything to show: at least one effectively
 	 *  visible descendant that is neither a container nor `hidden`. A label
@@ -448,6 +461,11 @@ export interface FormEngineRuntimeOptions {
 	 *  the `results:inline` instance. Absent, the form has no search
 	 *  results to read. */
 	readonly searchResults?: SearchResultsSnapshot;
+	/** The device the form runs on (`previewDevice.ts`): the platform whose
+	 *  screens, recalculation and day numbers the engine plays, and the
+	 *  session context values it supplies. Absent means a Web Apps device with
+	 *  a fresh id, never "no platform". */
+	readonly device?: PreviewDevice;
 }
 
 interface RepeatInitializationSnapshot {
@@ -465,6 +483,10 @@ export interface FormEngineEntryCheckpoint {
 		RepeatInitializationSnapshot,
 	])[];
 	readonly activeSectionUuid?: Uuid;
+	/** The screen the entry is on (`FormScreenPage.path`). */
+	readonly activeScreenPath?: string;
+	/** Every section has been entered, as a whole-form screen enters them. */
+	readonly allSectionsEntered?: boolean;
 }
 
 export interface FormEngineWorkerWorld {
@@ -489,6 +511,29 @@ function isAsyncNodesetValues(
 		"kind" in Object(value) &&
 		(value as { kind?: string }).kind === "nodeset-values"
 	);
+}
+
+/** A screen's identity is its path; a section's pager remembers its uuid. */
+function pageUuid(page: FormScreenPage): string {
+	return page.uuid;
+}
+
+/** Whether a group draws as a field-list on Android: Nova writes
+ *  `appearance="field-list"` on every labeled group and never on an
+ *  unlabeled one (`lib/commcare/xform/builder.ts::buildContainer`), the
+ *  same transparency the running renderer gives an unlabeled group. */
+function groupDrawsAsFieldList(field: Field & { kind: "group" }): boolean {
+	return Boolean(field.label);
+}
+
+/** The engine paths one screen holds: every path for the whole form, else
+ *  the screen's own and everything under it. */
+function screenIncludes(screenPath: string): (path: string) => boolean {
+	if (screenPath === "/data") return () => true;
+	return (path) =>
+		path === screenPath ||
+		path.startsWith(`${screenPath}/`) ||
+		path.startsWith(`${screenPath}[`);
 }
 
 /** Keep the owning document and replace its active form's localized view.
@@ -635,6 +680,14 @@ export class FormEngine {
 	 *  value agrees on one evaluation world. `null` (signed-out client
 	 *  paint) reads every user slice as absent. */
 	private previewIdentity: ResolvedPreviewIdentity | null;
+	/** Where the form runs, an input beside the identity and never part of
+	 * it. The engine reads its platform's rules once, here. */
+	private readonly device: PreviewDevice;
+	private readonly rules: PreviewPlatformRules;
+	/** Every section is entered at once: a form shown on one screen
+	 * initializes each section's rows when it opens, as Formplayer does when
+	 * it walks the whole form. */
+	private allSectionsEntered = false;
 	private moduleCaseType: string | undefined;
 	/** The module case type `caseData` was SUPPLIED under — the type
 	 *  whose entry is the bound row. Stamped only where a fresh
@@ -684,6 +737,9 @@ export class FormEngine {
 		RepeatInitializationSnapshot
 	>();
 	private activeSectionUuid: Uuid | undefined;
+	/** The screen the entry is on: a section's path, `/data` for a
+	 * whole-form screen, a group's or a question's path on Android. */
+	private activeScreenPath: string | undefined;
 	private initializationStates: EngineStoreState | undefined;
 	private initializationContext: XPathInitializationContext | undefined;
 	private readonly presentationLanguage: LanguageTag | undefined;
@@ -725,6 +781,9 @@ export class FormEngine {
 		this.hasCaseSnapshot = caseDatabase != null;
 		this.lookupData = lookupData ?? null;
 		this.previewIdentity = previewIdentity ?? null;
+		this.device =
+			runtimeOptions.device ?? defaultPreviewDevice(input.doc, input.language);
+		this.rules = previewPlatformRules(this.device.platform);
 		this.workerProperty = previewWorkerPropertyBinding(
 			this.previewIdentity?.session.context.userid,
 			this.previewIdentity?.usercase,
@@ -748,7 +807,7 @@ export class FormEngine {
 			throw new PreviewDataRefusal({ kind: "owner-without-place" });
 		this.ownerRepeatsWithoutPlace = ownerWithoutPlace?.repeats ?? new Set();
 		this.secondaryInstances = secondaryXPathInstances({
-			identity: this.previewIdentity,
+			session: previewSessionValues(this.previewIdentity, this.device),
 			lookupData: this.lookupData,
 			caseDatabase: caseDatabase ?? null,
 			caseTypes: input.caseTypes,
@@ -811,7 +870,7 @@ export class FormEngine {
 		this.initStatesInto(states, this.tree);
 		this.store.setState(states);
 		this.evaluateAllInto();
-		this.enterFirstSection();
+		this.enterFirstScreen();
 	}
 
 	// ── Public API ───────────────────────────────────────────────────
@@ -933,6 +992,8 @@ export class FormEngine {
 			repeatKeys: [...this.repeatInstanceKeys],
 			pendingSectionRepeats: [...this.pendingSectionRepeats],
 			activeSectionUuid: this.activeSectionUuid,
+			activeScreenPath: this.activeScreenPath,
+			allSectionsEntered: this.allSectionsEntered,
 		});
 	}
 
@@ -943,6 +1004,8 @@ export class FormEngine {
 		this.instance.restoreCheckpoint(checkpoint.instance);
 		this.pendingSectionRepeats = new Map(checkpoint.pendingSectionRepeats);
 		this.activeSectionUuid = checkpoint.activeSectionUuid;
+		this.activeScreenPath = checkpoint.activeScreenPath;
+		this.allSectionsEntered = checkpoint.allSectionsEntered === true;
 		this.repeatInstanceKeys = new Map(
 			checkpoint.repeatKeys.map(([path, keys]) => [path, [...keys]]),
 		);
@@ -1012,7 +1075,7 @@ export class FormEngine {
 		this.initStatesInto(states, this.tree);
 		this.store.setState(states, true);
 		await this.settleAsync(evaluateAsync);
-		await this.enterFirstSectionAsync(evaluateAsync);
+		await this.enterFirstScreenAsync(evaluateAsync);
 	}
 
 	async setValueAsync(
@@ -1022,8 +1085,7 @@ export class FormEngine {
 	): Promise<void> {
 		this.setValue(path, value);
 		await this.settleValueChangesAsync([path], evaluateAsync);
-		if (this.activeSectionUuid)
-			await this.enterSectionAsync(this.activeSectionUuid, evaluateAsync);
+		await this.reenterActiveScreenAsync(evaluateAsync);
 	}
 
 	/** Reconcile every raw value staged since the previous worker revision in
@@ -1034,7 +1096,7 @@ export class FormEngine {
 		evaluateAsync: FormEngineAsyncEvaluator,
 		beforeInsertion?: () => void,
 	): Promise<void> {
-		const affected = this.dag.getAffectedWork(paths, this.repeatCounts);
+		const affected = this.requestWork(paths);
 		await this.evaluatePathsIntoAsync(
 			affected.values,
 			evaluateAsync,
@@ -1167,9 +1229,10 @@ export class FormEngine {
 			updates[path] = { ...current, value, edited: true };
 		}
 
-		/* Cascade: re-evaluate expressions for all affected paths. Only
-		 * paths whose state actually changed are included in the update. */
-		const affected = this.dag.getAffectedWork([path], this.repeatCounts);
+		/* Cascade: re-evaluate expressions for all affected paths (every path,
+		 * where the platform recalculates per request). Only paths whose state
+		 * actually changed are included in the update. */
+		const affected = this.requestWork([path]);
 		this.evaluateWorkInto(affected, updates);
 
 		/* Re-validate the changed field itself */
@@ -1186,8 +1249,7 @@ export class FormEngine {
 			this.store.setState(updates);
 		}
 		this.settleLiveRepeats();
-		if (!this.asyncRuntime && this.activeSectionUuid)
-			this.enterSection(this.activeSectionUuid);
+		if (!this.asyncRuntime) this.reenterActiveScreen();
 	}
 
 	/**
@@ -1355,11 +1417,62 @@ export class FormEngine {
 		for (const path of this.dag.getAllPaths(this.repeatCounts)) {
 			if (path.startsWith(subtreePrefix)) subtree.push(path);
 		}
-		const affected = this.dag.getAffectedWork(leafPaths, this.repeatCounts);
+		const affected = this.requestWork(leafPaths);
 		this.evaluateWork({
 			values: [...new Set([...subtree, ...affected.values])],
 			required: [...new Set([...subtree, ...affected.required])],
 		});
+	}
+
+	/**
+	 * The work a worker's request runs. Web Apps recalculates as Formplayer
+	 * does: every request rebuilds the form session and Core runs every
+	 * triggerable (`FormDef.initialize(false, …)` → `initAllTriggerables`), so
+	 * a calculate reading `now()`, `random()` or `uuid()` changes after an
+	 * unrelated answer. Android re-evaluates what the change reaches.
+	 * Document edits and default re-evaluation are authoring, not a worker's
+	 * request, and keep the affected work.
+	 */
+	private requestWork(
+		changedPaths: readonly string[],
+	): ExpressionEvaluationPaths {
+		return this.rules.recalculation === "every-request"
+			? this.dag.getAllWork(this.repeatCounts)
+			: this.dag.getAffectedWork(changedPaths, this.repeatCounts);
+	}
+
+	/** The midnight a day number counts from on this engine's platform,
+	 * which every worker request carries (`workerProtocol.ts`). */
+	get dayNumberEpoch(): PreviewPlatformRules["dayNumberEpoch"] {
+		return this.rules.dayNumberEpoch;
+	}
+
+	/** The device this engine runs on. */
+	get previewDevice(): PreviewDevice {
+		return this.device;
+	}
+
+	/**
+	 * The pass a submit runs before it validates. Formplayer rebuilds the
+	 * session before it validates a submission (`FormSubmissionHelper`), so
+	 * on Web Apps every triggerable runs once more; on Android nothing does.
+	 */
+	prepareSubmit(): void {
+		if (this.rules.recalculation !== "every-request") return;
+		this.evaluateWork(this.requestWork([]));
+	}
+
+	/** Worker-backed `prepareSubmit`. */
+	async prepareSubmitAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		if (this.rules.recalculation !== "every-request") return;
+		const work = this.requestWork([]);
+		await this.evaluatePathsIntoAsync(
+			work.values,
+			evaluateAsync,
+			work.required,
+		);
 	}
 
 	/** The data type Core gives a field's node, from the bind the XForm
@@ -1792,59 +1905,272 @@ export class FormEngine {
 		return valid;
 	}
 
-	/**
-	 * The form's pages, in order: its root sections. Empty for a form with
-	 * no sections. `hasVisibleQuestions` is read against the current store,
-	 * so a page whose every question is irrelevant right now reports false
-	 * and the pager skips it (and re-anchors when the answer that hid it
-	 * changes).
-	 */
-	sectionPages(): ReadonlyArray<SectionPage> {
-		const states = this.store.getState();
-		const effectivelyVisible = this.effectivelyVisiblePaths(states);
-		const hasVisibleQuestion = (
-			nodes: ReadonlyArray<FieldTreeNode>,
-			prefix: string,
-		): boolean => {
-			for (const node of nodes) {
-				const path = `${prefix}/${node.field.id}`;
-				if (!effectivelyVisible.has(path)) continue;
-				if (!isContainer(node.field)) {
-					if (node.field.kind !== "hidden") return true;
-					continue;
-				}
-				if (node.field.kind === "repeat") {
-					const count = this.instance.getRepeatCount(path);
-					for (let index = 0; index < count; index++) {
-						if (hasVisibleQuestion(node.children ?? [], `${path}[${index}]`)) {
-							return true;
-						}
-					}
-				} else if (hasVisibleQuestion(node.children ?? [], path)) {
-					return true;
-				}
+	/** Whether a subtree holds something to show: an effectively visible
+	 *  descendant that is neither a container nor `hidden`. A label counts
+	 *  (the device renders a trigger as a prompt). */
+	private screenHasVisibleQuestion(
+		nodes: ReadonlyArray<FieldTreeNode>,
+		prefix: string,
+		effectivelyVisible: ReadonlySet<string>,
+	): boolean {
+		for (const node of nodes) {
+			const path = `${prefix}/${node.field.id}`;
+			if (!effectivelyVisible.has(path)) continue;
+			if (!isContainer(node.field)) {
+				if (node.field.kind !== "hidden") return true;
+				continue;
 			}
-			return false;
-		};
-		const pages: SectionPage[] = [];
+			if (node.field.kind === "repeat") {
+				const count = this.instance.getRepeatCount(path);
+				for (let index = 0; index < count; index++) {
+					if (
+						this.screenHasVisibleQuestion(
+							node.children ?? [],
+							`${path}[${index}]`,
+							effectivelyVisible,
+						)
+					) {
+						return true;
+					}
+				}
+			} else if (
+				this.screenHasVisibleQuestion(
+					node.children ?? [],
+					path,
+					effectivelyVisible,
+				)
+			) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** A section waits for entry when a repeat on it has rows to initialize. */
+	private sectionNeedsEntry(
+		path: string,
+		effectivelyVisible: ReadonlySet<string>,
+	): boolean {
+		return [...this.pendingSectionRepeats].some(
+			([repeatPath, snapshot]) =>
+				snapshot.count > 0 &&
+				repeatPath.startsWith(`${path}/`) &&
+				effectivelyVisible.has(repeatPath),
+		);
+	}
+
+	/**
+	 * The form's root sections as screens, in order. Empty for a form with no
+	 * sections. `hasVisibleQuestions` is read against the current store, so a
+	 * section whose every question is irrelevant right now reports false and
+	 * a pager skips it (and re-anchors when the answer that hid it changes).
+	 */
+	sectionScreens(): ReadonlyArray<FormScreenPage> {
+		const effectivelyVisible = this.effectivelyVisiblePaths(
+			this.store.getState(),
+		);
+		const pages: FormScreenPage[] = [];
 		for (const node of this.tree) {
 			if (node.field.kind !== "section") continue;
 			const path = `/data/${node.field.id}`;
 			pages.push({
+				kind: "section",
 				uuid: node.field.uuid,
 				path,
-				needsEntry: [...this.pendingSectionRepeats].some(
-					([repeatPath, snapshot]) =>
-						snapshot.count > 0 &&
-						repeatPath.startsWith(`${path}/`) &&
-						effectivelyVisible.has(repeatPath),
-				),
+				needsEntry: this.sectionNeedsEntry(path, effectivelyVisible),
 				hasVisibleQuestions:
 					effectivelyVisible.has(path) &&
-					hasVisibleQuestion(node.children ?? [], path),
+					this.screenHasVisibleQuestion(
+						node.children ?? [],
+						path,
+						effectivelyVisible,
+					),
 			});
 		}
 		return pages;
+	}
+
+	/**
+	 * The form's screens on the platform this engine plays: the one page
+	 * model App Tests, `evaluate_form` and Submit routing read.
+	 *
+	 * - Web Apps draws every question of the form, so the form is one screen,
+	 *   `{ kind: "form", path: "/data" }`, sections included.
+	 * - Android pages as Core's `FormEntryController.getQuestionPrompts`
+	 *   collects prompts, and Nova writes `appearance="field-list"` on every
+	 *   section and every labeled group: a sectioned form is one screen per
+	 *   section; in a form with no sections a labeled group is one screen of
+	 *   every question inside it (nested groups included, and one screen per
+	 *   live entry inside a repeat), an unlabeled group is transparent, and
+	 *   every other visible, non-hidden question is its own screen in
+	 *   document order, inside every live repeat entry.
+	 */
+	formScreens(): ReadonlyArray<FormScreenPage> {
+		const effectivelyVisible = this.effectivelyVisiblePaths(
+			this.store.getState(),
+		);
+		if (this.rules.formScreens === "one-screen") {
+			return [
+				{
+					kind: "form",
+					uuid: this.inputFormUuid,
+					path: "/data",
+					needsEntry: this.sectionNeedsEntry("/data", effectivelyVisible),
+					hasVisibleQuestions: this.screenHasVisibleQuestion(
+						this.tree,
+						"/data",
+						effectivelyVisible,
+					),
+				},
+			];
+		}
+		if (this.tree.some((node) => node.field.kind === "section"))
+			return this.sectionScreens();
+		const screens: FormScreenPage[] = [];
+		const walk = (nodes: ReadonlyArray<FieldTreeNode>, prefix: string) => {
+			for (const node of nodes) {
+				const field = node.field;
+				const path = `${prefix}/${field.id}`;
+				if (field.kind === "repeat") {
+					const count = this.instance.getRepeatCount(path);
+					for (let index = 0; index < count; index++)
+						walk(node.children ?? [], `${path}[${index}]`);
+					continue;
+				}
+				if (field.kind === "group") {
+					if (!groupDrawsAsFieldList(field)) {
+						walk(node.children ?? [], path);
+						continue;
+					}
+					screens.push({
+						kind: "field-list",
+						uuid: field.uuid,
+						path,
+						hasVisibleQuestions:
+							effectivelyVisible.has(path) &&
+							this.screenHasVisibleQuestion(
+								node.children ?? [],
+								path,
+								effectivelyVisible,
+							),
+					});
+					continue;
+				}
+				if (isContainer(field) || field.kind === "hidden") continue;
+				screens.push({
+					kind: "question",
+					uuid: field.uuid,
+					path,
+					hasVisibleQuestions: effectivelyVisible.has(path),
+				});
+			}
+		};
+		walk(this.tree, "/data");
+		return screens;
+	}
+
+	/** The screen the entry is on, by path. */
+	currentScreenPath(): string | undefined {
+		return this.activeScreenPath;
+	}
+
+	/** Validate one screen's effectively visible questions: the whole form
+	 *  for `/data`, else every path under the screen's. */
+	validateScreen(path: string): boolean {
+		return this.validateWhere(screenIncludes(path));
+	}
+
+	async validateScreenAsync(
+		path: string,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<boolean> {
+		return this.validateWhereAsync(screenIncludes(path), evaluateAsync);
+	}
+
+	/** Enter a screen: a whole-form screen enters every section in order, a
+	 *  section screen enters its section, and an Android group or question
+	 *  screen initializes nothing (an unsectioned form defers no rows). */
+	enterScreen(path: string): void {
+		if (this.asyncRuntime)
+			throw new Error("Screen entry requires the asynchronous evaluator.");
+		if (path === "/data") {
+			this.enterAllSections();
+			this.activeScreenPath = path;
+			return;
+		}
+		const section = this.sectionAtScreenPath(path);
+		if (section !== undefined) {
+			this.enterSection(section);
+			return;
+		}
+		this.activeScreenPath = path;
+	}
+
+	async enterScreenAsync(
+		path: string,
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		if (path === "/data") {
+			await this.enterAllSectionsAsync(evaluateAsync);
+			this.activeScreenPath = path;
+			return;
+		}
+		const section = this.sectionAtScreenPath(path);
+		if (section !== undefined) {
+			await this.enterSectionAsync(section, evaluateAsync);
+			return;
+		}
+		this.activeScreenPath = path;
+	}
+
+	private sectionAtScreenPath(path: string): Uuid | undefined {
+		return this.tree.find(
+			(node) =>
+				node.field.kind === "section" && `/data/${node.field.id}` === path,
+		)?.field.uuid;
+	}
+
+	/** A whole-form screen: every section entered, in document order. */
+	private enterAllSections(): void {
+		this.allSectionsEntered = true;
+		const active = this.activeSectionUuid;
+		const screen = this.activeScreenPath;
+		for (const node of this.tree) {
+			if (node.field.kind !== "section") continue;
+			this.enterSection(node.field.uuid);
+		}
+		this.activeSectionUuid = active;
+		this.activeScreenPath = screen;
+	}
+
+	private async enterAllSectionsAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		this.allSectionsEntered = true;
+		const active = this.activeSectionUuid;
+		const screen = this.activeScreenPath;
+		for (const node of this.tree) {
+			if (node.field.kind !== "section") continue;
+			await this.enterSectionAsync(node.field.uuid, evaluateAsync);
+		}
+		this.activeSectionUuid = active;
+		this.activeScreenPath = screen;
+	}
+
+	/** After an answer, enter the current screen again so rows its sections
+	 *  now need are initialized. */
+	private reenterActiveScreen(): void {
+		if (this.allSectionsEntered) this.enterAllSections();
+		else if (this.activeSectionUuid) this.enterSection(this.activeSectionUuid);
+	}
+
+	private async reenterActiveScreenAsync(
+		evaluateAsync: FormEngineAsyncEvaluator,
+	): Promise<void> {
+		if (this.allSectionsEntered)
+			await this.enterAllSectionsAsync(evaluateAsync);
+		else if (this.activeSectionUuid)
+			await this.enterSectionAsync(this.activeSectionUuid, evaluateAsync);
 	}
 
 	/**
@@ -2896,8 +3222,9 @@ export class FormEngine {
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.expressions);
 		this.activeSectionUuid = resolveCurrentPage(
-			this.sectionPages(),
+			this.sectionScreens(),
 			this.activeSectionUuid,
+			pageUuid,
 		)?.uuid;
 		this.adoptScalarTextGuards(input.caseScalarTextGuards ?? {});
 	}
@@ -3525,7 +3852,7 @@ export class FormEngine {
 		this.initStatesInto(states, this.tree);
 		this.store.setState(states, true);
 		this.evaluateAllInto();
-		this.enterFirstSection();
+		this.enterFirstScreen();
 	}
 
 	/** Clear touched state and validation errors (for mode switches). */
@@ -4375,7 +4702,7 @@ export class FormEngine {
 		 * outside the context's repeats pass through. */
 		const read = (p: string): string | undefined =>
 			this.instance.get(rebaseOntoContext(p, path));
-		const session = previewSessionValues(this.previewIdentity);
+		const session = previewSessionValues(this.previewIdentity, this.device);
 		const relevance = this.effectiveRelevanceByPath(stateOverrides);
 		const mainInstance = this.instance.asXPathInstance((candidatePath) =>
 			relevance.has(candidatePath)
@@ -4396,6 +4723,7 @@ export class FormEngine {
 
 		const formText = this.formText();
 		return {
+			dayNumberEpoch: this.rules.dayNumberEpoch,
 			invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
 			...(this.presentationLanguage === undefined
 				? {}
@@ -4644,7 +4972,9 @@ export class FormEngine {
 			const path = `${prefix}/${field.id}`;
 			const inEnteredScope =
 				entered &&
-				(field.kind !== "section" || field.uuid === this.activeSectionUuid);
+				(field.kind !== "section" ||
+					this.allSectionsEntered ||
+					field.uuid === this.activeSectionUuid);
 			if (!visible.has(path)) continue;
 			if (field.kind === "repeat") {
 				if (field.repeat_mode === "count_bound") {
@@ -4883,9 +5213,14 @@ export class FormEngine {
 			this.evaluateAllInto();
 		}
 		this.settleLiveRepeats();
-		const resolved = resolveCurrentPage(this.sectionPages(), sectionUuid);
+		const resolved = resolveCurrentPage(
+			this.sectionScreens(),
+			sectionUuid,
+			pageUuid,
+		);
 		if (!resolved) this.activeSectionUuid = undefined;
 		else if (resolved.uuid !== sectionUuid) this.enterSection(resolved.uuid);
+		else this.activeScreenPath = resolved.path;
 	}
 
 	async enterSectionAsync(
@@ -4902,10 +5237,15 @@ export class FormEngine {
 			await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
 		}
 		await this.settleLiveRepeatsAsync(evaluateAsync);
-		const resolved = resolveCurrentPage(this.sectionPages(), sectionUuid);
+		const resolved = resolveCurrentPage(
+			this.sectionScreens(),
+			sectionUuid,
+			pageUuid,
+		);
 		if (!resolved) this.activeSectionUuid = undefined;
 		else if (resolved.uuid !== sectionUuid)
 			await this.enterSectionAsync(resolved.uuid, evaluateAsync);
+		else this.activeScreenPath = resolved.path;
 	}
 
 	/** Nova context recovery re-evaluates untouched defaults with retained row
@@ -4917,8 +5257,9 @@ export class FormEngine {
 		);
 		this.publishInitializedSections();
 		this.evaluateAllInto();
-		if (this.activeSectionUuid) this.enterSection(this.activeSectionUuid);
-		else this.enterFirstSection();
+		if (this.allSectionsEntered) this.enterAllSections();
+		else if (this.activeSectionUuid) this.enterSection(this.activeSectionUuid);
+		else this.enterFirstScreen();
 	}
 
 	private async healEntryContextAsync(
@@ -4930,21 +5271,25 @@ export class FormEngine {
 		);
 		this.publishInitializedSections();
 		await this.settleAsync(evaluateAsync);
-		if (this.activeSectionUuid)
+		if (this.allSectionsEntered)
+			await this.enterAllSectionsAsync(evaluateAsync);
+		else if (this.activeSectionUuid)
 			await this.enterSectionAsync(this.activeSectionUuid, evaluateAsync);
-		else await this.enterFirstSectionAsync(evaluateAsync);
+		else await this.enterFirstScreenAsync(evaluateAsync);
 	}
 
-	private enterFirstSection(): void {
-		const first = resolveCurrentPage(this.sectionPages(), undefined);
-		if (first) this.enterSection(first.uuid);
+	/** Open the form on its first screen: the whole form on Web Apps, else
+	 *  the first section, or the first screen an unsectioned form shows. */
+	private enterFirstScreen(): void {
+		const first = resolveCurrentPage(this.formScreens(), undefined);
+		if (first) this.enterScreen(first.path);
 	}
 
-	private async enterFirstSectionAsync(
+	private async enterFirstScreenAsync(
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
-		const first = resolveCurrentPage(this.sectionPages(), undefined);
-		if (first) await this.enterSectionAsync(first.uuid, evaluateAsync);
+		const first = resolveCurrentPage(this.formScreens(), undefined);
+		if (first) await this.enterScreenAsync(first.path, evaluateAsync);
 	}
 
 	private *initializeExpressions(
@@ -4980,6 +5325,8 @@ export class FormEngine {
 			this.pendingSectionRepeats.clear();
 			this.repeatInsertRefusals.clear();
 			this.activeSectionUuid = undefined;
+			this.activeScreenPath = undefined;
+			this.allSectionsEntered = false;
 		}
 		this.runInitialization(
 			this.initializeScope(tree, prefix, insertedPath),
@@ -5029,6 +5376,8 @@ export class FormEngine {
 			this.pendingSectionRepeats.clear();
 			this.repeatInsertRefusals.clear();
 			this.activeSectionUuid = undefined;
+			this.activeScreenPath = undefined;
+			this.allSectionsEntered = false;
 		}
 		await this.runInitializationAsync(
 			this.initializeScope(tree, prefix, insertedPath),
@@ -5186,7 +5535,7 @@ export class FormEngine {
 			formCaseProperty: this.formCaseProperty(session.formCaseProperty),
 			workerProperty: this.workerProperty,
 			userPropertySlugs: previewUserPropertySlugMap(
-				previewSessionValues(this.previewIdentity),
+				previewSessionValues(this.previewIdentity, this.device),
 			),
 		};
 	}

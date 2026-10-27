@@ -60,6 +60,7 @@ import {
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import {
 	afterSubmitRoute,
+	afterSubmitTargetVisibility,
 	automaticLinkedCaseCollection,
 	carriedChildCasesFromReceipt,
 	previewMenuSelectionsAfterTargetCases,
@@ -104,7 +105,11 @@ import {
 } from "@/lib/preview/engine/previousTask";
 import { searchInputInstanceValues } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
-import { usePreviewLookupReload } from "@/lib/preview/engine/useLookupPreviewData";
+import {
+	type PreviewLookupStatus,
+	usePreviewLookupReload,
+	usePreviewLookupStatus,
+} from "@/lib/preview/engine/useLookupPreviewData";
 import {
 	type CaseDatabaseSnapshot,
 	formReadsSearchResults,
@@ -139,11 +144,15 @@ import {
 	useCanEdit,
 	useEditMode,
 	usePreviewCaseTarget,
+	usePreviewDevice,
+	usePreviewEntryPointLaunch,
 	usePreviewMenuCaseSelections,
 	usePreviewPersonaUuid,
+	usePreviewPlatformRules,
 	usePreviewSearchState,
 	useProjectId,
 	useProjectScopeEpoch,
+	useSetPreviewAtDeviceHome,
 	useSetPreviewCaseTarget,
 	useSetPreviewing,
 	useSetPreviewMenuCaseSelection,
@@ -205,6 +214,8 @@ function describeSubmitError(result: SubmissionFailure): string {
 		case "unauthenticated":
 			return "Sign in to submit this form.";
 		case "persona-unavailable":
+		case "platform-unavailable":
+		case "language-unavailable":
 			return result.message;
 		case "blueprint-changed":
 			return result.message;
@@ -417,6 +428,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 	// neither of which is an argument to these reads. See `useRestoreScopeKey`.
 	const restoreScopeKey = useRestoreScopeKey(personaUuid);
 	const previewIdentity = useSelectedPreviewIdentity();
+	/* The device the running form plays: its after-submit landing, its
+	 * session values and the submission's (`lib/preview/platform.ts`). */
+	const previewDevice = usePreviewDevice();
+	const entryPointLaunch = usePreviewEntryPointLaunch();
+	const platformRules = usePreviewPlatformRules();
+	const setPreviewAtDeviceHome = useSetPreviewAtDeviceHome();
 	const session = useBuilderSessionApi();
 	const collab = useReconcilerContext();
 	/* A viewer may preview the running app but not WRITE case data (submit a
@@ -829,6 +846,32 @@ export function FormScreen({ screen }: FormScreenProps) {
 			mountedRef.current = false;
 		};
 	}, []);
+	/* The live lookup status and worker, for the after-submit route: a link
+	 * target whose menu visibility is still pending (lookup data loading, the
+	 * worker hydrating) waits for the next of either, as the menus' own
+	 * visibility reads do. Unmounting releases a waiting route, which then
+	 * finds its attempt stale. */
+	const lookupStatus = usePreviewLookupStatus();
+	const visibilityInputsRef = useRef({ lookupStatus, previewIdentity });
+	const visibilityWaitersRef = useRef(new Set<() => void>());
+	useEffect(() => {
+		visibilityInputsRef.current = { lookupStatus, previewIdentity };
+		const waiters = [...visibilityWaitersRef.current];
+		visibilityWaitersRef.current.clear();
+		for (const wake of waiters) wake();
+	}, [lookupStatus, previewIdentity]);
+	useEffect(() => {
+		const waiters = visibilityWaitersRef.current;
+		return () => {
+			const pending = [...waiters];
+			waiters.clear();
+			for (const wake of pending) wake();
+		};
+	}, []);
+	const nextVisibilityInputs = (): Promise<void> =>
+		new Promise((resolve) => {
+			visibilityWaitersRef.current.add(resolve);
+		});
 	const submissionContextRef = useRef<SubmissionContextSnapshot>({
 		scopeEpoch,
 		appId,
@@ -903,7 +946,17 @@ export function FormScreen({ screen }: FormScreenProps) {
 
 	const formBodyElRef = useRef<HTMLDivElement>(null);
 	const formLayoutRef = useRef<FormLayoutHandle>(null);
-	const invalidFocusRafRef = useRef<number | undefined>(undefined);
+	/* A reveal waits here until the form is live. Submit's refusal arrives
+	 * while the form is still frozen (its running state commits back to idle
+	 * in the same render as the refusal), and a control inside the inert,
+	 * disabled body ignores `focus()`, so focusing on a timer alone lands
+	 * nowhere whenever that commit is slower than the timer. */
+	const pendingFocusRef = useRef<(() => void) | undefined>(undefined);
+	const [focusRequest, setFocusRequest] = useState(0);
+	const requestFocus = useCallback((focus: () => void): void => {
+		pendingFocusRef.current = focus;
+		setFocusRequest((request) => request + 1);
+	}, []);
 
 	const formBodyRef = useCallback(
 		(el: HTMLDivElement | null) => {
@@ -920,15 +973,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 			return () => cancelAnimationFrame(raf);
 		},
 		[mode, selectedUuid],
-	);
-
-	useEffect(
-		() => () => {
-			if (invalidFocusRafRef.current !== undefined) {
-				cancelAnimationFrame(invalidFocusRafRef.current);
-			}
-		},
-		[],
 	);
 
 	/* Submit lifecycle + post-submit dispatch live above the early-
@@ -1071,9 +1115,14 @@ export function FormScreen({ screen }: FormScreenProps) {
 					else navigate.goHome();
 					return;
 				}
-				/* Preview has one home screen for both until it plays each
-				 * platform; Web Apps shows the app's first screen for both. */
+				/* `app_home` opens the app's first screen in Web Apps and the
+				 * phone's home screen on Android (`postSubmitAppHome`);
+				 * `firstMenu` opens the app's first screen on both. */
 				case "app_home":
+					navigate.goHome();
+					if (platformRules.postSubmitAppHome === "device-home")
+						setPreviewAtDeviceHome(true);
+					return;
 				case "firstMenu":
 					navigate.goHome();
 					return;
@@ -1098,7 +1147,13 @@ export function FormScreen({ screen }: FormScreenProps) {
 				}
 			}
 		},
-		[navigate, session, setPreviewMenuCaseSelection],
+		[
+			navigate,
+			platformRules.postSubmitAppHome,
+			session,
+			setPreviewAtDeviceHome,
+			setPreviewMenuCaseSelection,
+		],
 	);
 
 	/**
@@ -1360,7 +1415,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			const input = {
 				doc,
 				formUuid: sourceFormUuid,
-				session: previewSessionValues(previewIdentity),
+				session: previewSessionValues(previewIdentity, previewDevice),
 				usercase: postSubmissionUsercase,
 				/* The entry's own session map: the device's session does not
 				 * change when the form closes, so a link reads the ids its form
@@ -1420,35 +1475,88 @@ export function FormScreen({ screen }: FormScreenProps) {
 			});
 			const linkedCaseCollections =
 				linkedCaseCollection === undefined ? [] : [linkedCaseCollection];
-			const route = afterSubmitRoute({
-				previousTask: () =>
-					resolvePreviousTask({
-						doc,
-						formUuid: sourceFormUuid,
-						submittedCaseIds: resultCaseIds,
-						selections: menuCaseSelections,
-						caseDatabase: refreshedCaseDatabase,
-					}),
-				choice,
-				doc,
-				caseFirstModules,
-				hasSelectedCase: (targetModuleUuid, projectedSelections) => {
-					return previewTargetHasSelectedCase({
-						menuSource: routeMenuSource,
-						current: selectionsForModuleTask(
+			/* The menu reads the live lookup snapshot; the form's own capture
+			 * stands in until one arrives. */
+			const targetLookup = (): PreviewLookupStatus => {
+				const live = visibilityInputsRef.current.lookupStatus;
+				if (live.kind === "data") return live;
+				const captured = input.lookupData;
+				return captured === null || captured === undefined
+					? live
+					: { kind: "data", data: captured };
+			};
+			const routeOnce = () =>
+				afterSubmitRoute({
+					previousTask: () =>
+						resolvePreviousTask({
 							doc,
+							formUuid: sourceFormUuid,
+							submittedCaseIds: resultCaseIds,
+							selections: menuCaseSelections,
+							caseDatabase: refreshedCaseDatabase,
+						}),
+					choice,
+					doc,
+					caseFirstModules,
+					hasSelectedCase: (targetModuleUuid, projectedSelections) => {
+						return previewTargetHasSelectedCase({
+							menuSource: routeMenuSource,
+							current: selectionsForModuleTask(
+								doc,
+								targetModuleUuid,
+								menuCaseSelections,
+							),
 							targetModuleUuid,
-							menuCaseSelections,
-						),
-						targetModuleUuid,
-						projected: projectedSelections,
-						collections: linkedCaseCollections,
-					});
-				},
-				carriedCase: (link) =>
-					carriedCaseFromSelections(input, link, projectedSelections),
-				caseSelections: () => projectedSelections,
-			});
+							projected: projectedSelections,
+							collections: linkedCaseCollections,
+						});
+					},
+					carriedCase: (link) =>
+						carriedCaseFromSelections(input, link, projectedSelections),
+					caseSelections: () => projectedSelections,
+					rules: platformRules,
+					targetVisibility: (link) =>
+						afterSubmitTargetVisibility({
+							doc,
+							link,
+							session: previewSessionValues(
+								visibilityInputsRef.current.previewIdentity,
+								previewDevice,
+							),
+							lookup: targetLookup(),
+							deviceCases: {
+								snapshot: refreshedCaseDatabase,
+								caseTypes: submitted.caseTypes,
+							},
+							caseSelections: projectedSelections,
+						}),
+				});
+			let route = routeOnce();
+			while (route.kind === "pending") {
+				/* With the worker known and the device's cases in hand, a still
+				 * pending target waits only on lookup data, and a failed read
+				 * brings no later change to wake on. */
+				if (
+					targetLookup().kind === "error" &&
+					previewSessionValues(
+						visibilityInputsRef.current.previewIdentity,
+						previewDevice,
+					).identityPending !== true
+				) {
+					failAfterSave(
+						"Your answers were saved, but the next screen depends on lookup data that didn't load. Reload the app and try again.",
+						"target-lookup-unavailable",
+					);
+					return;
+				}
+				await nextVisibilityInputs();
+				if (!isCurrent()) {
+					announceWrite();
+					settleAttempt({ kind: "idle" });
+					return;
+				}
+				route = routeOnce();
+			}
 			let targetCaseData = caseData;
 			let targetFormCaseData: ReturnType<typeof caseDatabaseToFormPreloads>;
 			if (route.kind === "module" || route.kind === "form") {
@@ -1702,38 +1810,30 @@ export function FormScreen({ screen }: FormScreenProps) {
 			requireInvalid: boolean,
 		): void => {
 			formLayoutRef.current?.expandContainers(target.ancestorUuids);
-			if (invalidFocusRafRef.current !== undefined) {
-				cancelAnimationFrame(invalidFocusRafRef.current);
-			}
-			// Expansion is a React state commit. Two frames let nested collapsed
-			// ancestors mount before resolving the concrete repeated question.
-			invalidFocusRafRef.current = requestAnimationFrame(() => {
-				invalidFocusRafRef.current = requestAnimationFrame(() => {
-					invalidFocusRafRef.current = undefined;
-					const body = formBodyElRef.current;
-					if (body === null) return;
-					const field = [
-						...body.querySelectorAll<HTMLElement>("[data-instance-path]"),
-					].find(
-						(element) =>
-							element.dataset.instancePath === target.instancePath &&
-							element.dataset.fieldUuid === target.fieldUuid &&
-							(!requireInvalid || element.dataset.invalid === "true"),
-					);
-					if (field === undefined) return;
-					const reducedMotion =
-						typeof window.matchMedia === "function" &&
-						window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-					field.scrollIntoView?.({
-						behavior: reducedMotion ? "auto" : "smooth",
-						block: "center",
-					});
-					const control = field.querySelector<HTMLElement>(controlSelector);
-					(control ?? field).focus();
+			requestFocus(() => {
+				const body = formBodyElRef.current;
+				if (body === null) return;
+				const field = [
+					...body.querySelectorAll<HTMLElement>("[data-instance-path]"),
+				].find(
+					(element) =>
+						element.dataset.instancePath === target.instancePath &&
+						element.dataset.fieldUuid === target.fieldUuid &&
+						(!requireInvalid || element.dataset.invalid === "true"),
+				);
+				if (field === undefined) return;
+				const reducedMotion =
+					typeof window.matchMedia === "function" &&
+					window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+				field.scrollIntoView?.({
+					behavior: reducedMotion ? "auto" : "smooth",
+					block: "center",
 				});
+				const control = field.querySelector<HTMLElement>(controlSelector);
+				(control ?? field).focus();
 			});
 		},
-		[],
+		[requestFocus],
 	);
 
 	const revealInvalidOnPage = useCallback(
@@ -1762,29 +1862,23 @@ export function FormScreen({ screen }: FormScreenProps) {
 
 	const focusAttachmentInvariantRecovery = useCallback(
 		(fieldUuid: string | undefined): void => {
-			if (invalidFocusRafRef.current !== undefined) {
-				cancelAnimationFrame(invalidFocusRafRef.current);
-			}
-			invalidFocusRafRef.current = requestAnimationFrame(() => {
-				invalidFocusRafRef.current = requestAnimationFrame(() => {
-					invalidFocusRafRef.current = undefined;
-					const candidates = [
-						...(formBodyElRef.current?.querySelectorAll<HTMLElement>(
-							"[data-attachment-recovery-field-uuid]",
-						) ?? []),
-					];
-					const recovery =
-						candidates.find(
-							(candidate) =>
-								fieldUuid === undefined ||
-								candidate.dataset.attachmentRecoveryFieldUuid === fieldUuid,
-						) ?? candidates[0];
-					recovery?.scrollIntoView?.({ block: "center" });
-					recovery?.focus();
-				});
+			requestFocus(() => {
+				const candidates = [
+					...(formBodyElRef.current?.querySelectorAll<HTMLElement>(
+						"[data-attachment-recovery-field-uuid]",
+					) ?? []),
+				];
+				const recovery =
+					candidates.find(
+						(candidate) =>
+							fieldUuid === undefined ||
+							candidate.dataset.attachmentRecoveryFieldUuid === fieldUuid,
+					) ?? candidates[0];
+				recovery?.scrollIntoView?.({ block: "center" });
+				recovery?.focus();
 			});
 		},
-		[],
+		[requestFocus],
 	);
 
 	const handleSubmit = async (): Promise<void> => {
@@ -2033,6 +2127,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 					/* The places the entry opened with: an owner moved to a place
 					 * is resolved among the ones the form read. */
 					submitted.caseDatabase.locations?.map((place) => place.id),
+					previewDevice,
 				);
 			};
 			const result = await runFormAttachmentBarrier(
@@ -2255,6 +2350,24 @@ export function FormScreen({ screen }: FormScreenProps) {
 		},
 		[formFrozen],
 	);
+	/* The latest reveal runs once the form is live, two frames after the
+	 * commit that unfroze it: an expansion is a React state commit, and the
+	 * frames let nested collapsed ancestors mount before the concrete
+	 * repeated question is resolved. A form frozen again in those frames
+	 * keeps the reveal for the next time it is live. */
+	useEffect(() => {
+		const focus = pendingFocusRef.current;
+		if (focusRequest === 0 || formFrozen || focus === undefined) return;
+		let frame = requestAnimationFrame(() => {
+			frame = requestAnimationFrame(() => {
+				if (pendingFocusRef.current !== focus) return;
+				if (formBodyElRef.current?.closest("[inert]")) return;
+				pendingFocusRef.current = undefined;
+				focus();
+			});
+		});
+		return () => cancelAnimationFrame(frame);
+	}, [focusRequest, formFrozen]);
 
 	if (!form || !formUuid || !moduleUuid) return null;
 
@@ -2983,7 +3096,10 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const persistentTile =
 		mode === "preview" &&
 		mod?.caseListConfig?.tile?.persistOnForms === true &&
-		effectiveCaseId !== undefined ? (
+		effectiveCaseId !== undefined &&
+		/* A case the phone lacks has no tile there: Android's breadcrumb
+		 * builds no context tile for a case it does not hold. */
+		!(entryPointLaunch?.blankCaseIds ?? []).includes(effectiveCaseId) ? (
 			<PersistentCaseTile
 				blueprint={menuSource.doc}
 				moduleUuid={moduleUuid}

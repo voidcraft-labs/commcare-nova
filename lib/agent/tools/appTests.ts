@@ -56,7 +56,7 @@ const testIdSchema = z
 
 export const startAppTestTool = {
 	description:
-		"Start a worker journey at app entry using saved Preview identities and disposable records. Optionally retain up to four named sessions sharing test records so one worker can keep a form open while another submits. Real records are never copied or changed. Supply only the test records and fictional places the journey needs. Continue through the visible menus, record selection, answers and submissions. Uses Preview and the production Postgres transaction path; does not establish native device, media capture or deployment readiness.",
+		"Start a worker journey at app entry using saved Preview identities and disposable records. Optionally retain up to four named sessions sharing test records so one worker can keep a form open while another submits. Each session runs on one platform the app runs on, so two sessions can compare Web Apps and Android. Real records are never copied or changed. Supply only the test records and fictional places the journey needs. Continue through the visible menus, record selection, answers and submissions. Uses Preview and the production Postgres transaction path; does not establish native device, media capture or deployment readiness.",
 	inputSchema: appTestStartSchema,
 	async execute(
 		input: z.infer<typeof appTestStartSchema>,

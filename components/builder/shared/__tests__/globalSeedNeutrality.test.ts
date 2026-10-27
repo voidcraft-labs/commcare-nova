@@ -24,6 +24,7 @@ import {
 } from "@/components/builder/shared/editorSchemas";
 import type { Expression } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import {
 	previewAsMe,
 	previewSessionValues,
@@ -57,6 +58,7 @@ const SESSION = previewSessionValues(
 		name: "Amina Diallo",
 		email: "amina@example.org",
 	}),
+	webAppsDevice(),
 );
 function evalSeed(predicate: Expression): boolean {
 	return evaluatePreviewSearchPredicate(

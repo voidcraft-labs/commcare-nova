@@ -184,6 +184,8 @@ describe("entry point launch responses", () => {
 			personaUuid: undefined,
 			expectedSeq: 4,
 			claimedCaseIds: [],
+			/* The device the session plays, measured at the request. */
+			device: expect.objectContaining({ platform: "web-apps" }),
 		});
 		expect(h.session.getState().previewCaseTarget).toBe(launch.formTarget);
 		expect(push).toHaveBeenCalledWith(launch.location);
@@ -276,14 +278,24 @@ describe("entry point launch responses", () => {
 					else view.unmount();
 				});
 				await act(async () => {
-					gate.resolve({ kind: "ready", launch });
+					gate.resolve({
+						kind: "ready",
+						launch,
+						claimCaseIds: [],
+						blankCaseIds: [],
+					});
 					expect(await pending).toMatchObject({ kind: "refused" });
 				});
 				expect(push).not.toHaveBeenCalled();
 				expect(h.session.getState().previewEntryPointLaunch).toBeUndefined();
 			} finally {
 				await act(async () => {
-					gate.resolve({ kind: "ready", launch });
+					gate.resolve({
+						kind: "ready",
+						launch,
+						claimCaseIds: [],
+						blankCaseIds: [],
+					});
 					await pending;
 				});
 			}

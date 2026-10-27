@@ -3,6 +3,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { CaptureSubmissionRejectedError } from "@/lib/case-store/errors";
 import type { CaseOperation } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import { buildCaseOperationProgramFromDoc } from "../caseDataBindingHelpers";
 import type { SubmissionMutation } from "../caseDataBindingTypes";
@@ -39,6 +40,7 @@ describe("committed program input rejection", () => {
 			const projection = validateCaptureSubmissionProjection(forged);
 			expect(() =>
 				buildCaseOperationProgramFromDoc({
+					device: webAppsDevice(),
 					blueprint: committed,
 					mutation: forged,
 					projection,
@@ -146,6 +148,7 @@ describe("committed program input rejection", () => {
 
 		expect(() =>
 			buildCaseOperationProgramFromDoc({
+				device: webAppsDevice(),
 				blueprint: doc,
 				mutation: forged,
 				projection,
@@ -177,6 +180,7 @@ describe("committed program input rejection", () => {
 		// committed operation program.
 		expect(() =>
 			buildCaseOperationProgramFromDoc({
+				device: webAppsDevice(),
 				blueprint: doc,
 				mutation: missingAnswers,
 				projection,

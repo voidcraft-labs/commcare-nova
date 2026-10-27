@@ -4,6 +4,7 @@ import {
 	orderedCaseOperations,
 	uuidSchema,
 } from "@/lib/domain";
+import { PLATFORMS } from "@/lib/domain/platforms";
 import {
 	evaluateForm,
 	FormEvaluationInputError,
@@ -62,12 +63,18 @@ export const evaluateFormInputSchema = formAddressSchema
 				"Values from the preceding Search. Date ranges use name:from and name:to.",
 			),
 		language: languageTagSchema.optional(),
+		platform: z
+			.enum(PLATFORMS)
+			.optional()
+			.describe(
+				"Where to run the form: web-apps or android, a platform the app runs on. Omit to use Web Apps when the app runs on both, or its only platform.",
+			),
 	})
 	.strict();
 
 export const evaluateFormTool = {
 	description:
-		"Run a form using Preview's engine. Supply test records in scenario to check a new app or a specific failure; otherwise use the worker's actual records. Lookup data remains real. Returns validation, question participation and proposed case values. Excluded questions may retain an answer, but that is not a submitted value. Saves nothing; capture, case operations and submission checks require the running app.",
+		"Run a form using Preview's engine. Supply test records in scenario to check a new app or a specific failure; otherwise use the worker's actual records. Lookup data remains real. Returns validation, question participation and proposed case values. Session values and when calculations re-run follow the platform. Excluded questions may retain an answer, but that is not a submitted value. Saves nothing; capture, case operations and submission checks require the running app.",
 	inputSchema: evaluateFormInputSchema,
 	async execute(
 		input: z.infer<typeof evaluateFormInputSchema>,
@@ -82,6 +89,7 @@ export const evaluateFormTool = {
 				input.personaUuid,
 				input.scenario,
 				input,
+				input.platform,
 			);
 			const result = await evaluateForm(ctx.snapshot.doc, input, context);
 			const { submission, ...observation } = result;

@@ -278,6 +278,14 @@ export interface RestoreScope {
  */
 export interface SearchPopulation {
 	readonly heldBy: RestoreScope;
+	/**
+	 * Read only the population's cases `heldBy`'s restore does not hold:
+	 * HQ's search population less the worker's restore closure, which is
+	 * what an entry point offers as the cases this worker's phone lacks. The
+	 * query and its count leave out every held case in the same statement,
+	 * so a page and its count describe one set.
+	 */
+	readonly onlyOutsideRestore?: true;
 }
 
 /**

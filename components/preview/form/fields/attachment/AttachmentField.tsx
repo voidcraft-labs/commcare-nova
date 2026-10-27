@@ -7,8 +7,8 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { type CaptureField, fieldRegistry } from "@/lib/domain";
 import {
+	CAPTURE_LIMITS,
 	captureAcceptAttribute,
-	MAX_CAPTURE_BYTES,
 } from "@/lib/domain/captureFormats";
 import type { CaptureAnswerCommit } from "@/lib/preview/engine/engineController";
 import type { FieldState } from "@/lib/preview/engine/types";
@@ -16,6 +16,7 @@ import {
 	useAccessPhase,
 	useCanEdit,
 	useEditMode,
+	usePreviewPlatform,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import {
@@ -54,8 +55,9 @@ import { SignaturePad } from "./SignaturePad";
  *
  * ## What this deliberately does NOT show
  *
- * No thumbnail, no playback, no way to reopen the file. That is not a gap:
- * it is what CommCare Web Apps shows. `entry_file.html` is a Browse
+ * In Web Apps: no thumbnail, no playback, no way to reopen the file. That is
+ * not a gap: it is what CommCare Web Apps shows; the limits and the upload's
+ * acceptance follow the platform Preview plays (`CAPTURE_LIMITS`). `entry_file.html` is a Browse
  * button, a filename text node, and a Clear button; there is no `<img>`,
  * no `<audio>`, no `<video>`, and Formplayer declares no route that serves
  * a staged capture back (`FormController` has one GET mapping,
@@ -220,6 +222,9 @@ function AttachmentControl({
 	const mayEdit = useCanEdit();
 	const accessPhase = useAccessPhase();
 	const scopeEpoch = useProjectScopeEpoch();
+	/* The platform Preview plays: its limit is the one this line states and
+	 * the upload route applies. */
+	const platform = usePreviewPlatform();
 	const projectProse = useProseProjection();
 	const mayWrite = mayEdit && accessPhase === "authorized";
 	const inputId = useId();
@@ -421,6 +426,7 @@ function AttachmentControl({
 					fieldUuid: field.uuid,
 					instancePath: uploadPath,
 					file,
+					platform,
 					signal: context.signal,
 				});
 				confirmed = next;
@@ -514,6 +520,7 @@ function AttachmentControl({
 			blurCurrent,
 			setIntent,
 			hasWriteAuthority,
+			platform,
 		],
 	);
 
@@ -1028,7 +1035,7 @@ function AttachmentControl({
 			) : null}
 
 			<p id={helpId} className="text-xs text-nova-text-muted">
-				Up to {Math.floor(MAX_CAPTURE_BYTES / 1_000_000)} MB.
+				Up to {Math.floor(CAPTURE_LIMITS[platform].maxBytes / 1_000_000)} MB.
 			</p>
 		</div>
 	);

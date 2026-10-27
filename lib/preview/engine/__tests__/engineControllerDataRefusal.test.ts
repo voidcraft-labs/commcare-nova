@@ -16,6 +16,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
 import { type LanguageTag, proseText } from "@/lib/domain";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import { snapshotXPathWorkerInstance } from "../../xpath/workerProjection";
@@ -324,6 +325,7 @@ describe("an evaluation of a form whose choice table has no rows", () => {
 			doc,
 			{ formUuid: FORM, answers: [], language: "eng" as LanguageTag },
 			{
+				device: webAppsDevice(),
 				identity,
 				cases: { rows: [], indices: [] },
 				lookup: {
@@ -342,6 +344,7 @@ describe("an evaluation of a form whose choice table has no rows", () => {
 			doc,
 			{ formUuid: FORM, answers: [] },
 			{
+				device: webAppsDevice(),
 				identity,
 				cases: { rows: [], indices: [] },
 				lookup: {

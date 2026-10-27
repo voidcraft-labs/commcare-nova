@@ -108,6 +108,7 @@ import * as caseIndexTargetType from "./20260825000000_case_index_target_type";
 import * as betterAuth17RollingDeployBridge from "./20260829000000_better_auth_17_rolling_deploy_bridge";
 import * as designLookupMaterialization from "./20260829010000_design_lookup_materialization";
 import * as designLookupHandleKinds from "./20260830000000_design_lookup_handle_kinds";
+import * as hqRoundTripPlatformsAndroidCaptureSize from "./20261101025000_hq_round_trip_platforms_android_capture_size";
 
 export const CANONICAL_IDENTITY_FOUNDATION_MIGRATION_NAME =
 	"20260728000000_canonical_identity_foundation";
@@ -220,6 +221,8 @@ export const caseStoreMigrations: Record<string, Migration> = {
 		hqRoundTripPlatformsFormEntrySync,
 	"20261101020000_hq_round_trip_platforms_media_format":
 		hqRoundTripPlatformsMediaFormat,
+	"20261101025000_hq_round_trip_platforms_android_capture_size":
+		hqRoundTripPlatformsAndroidCaptureSize,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

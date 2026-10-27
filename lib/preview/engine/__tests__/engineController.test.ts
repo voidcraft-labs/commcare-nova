@@ -209,12 +209,13 @@ describe("EngineController", () => {
 
 		it("contains an impossible runtime activation fault and can open a valid form afterward", () => {
 			const invalidStore = createLoadedStore();
-			vi.spyOn(
-				FormEngine.prototype,
-				"enterFirstSection",
-			).mockImplementationOnce(() => {
-				throw new Error("The runtime failed while entering its first section.");
-			});
+			vi.spyOn(FormEngine.prototype, "enterFirstScreen").mockImplementationOnce(
+				() => {
+					throw new Error(
+						"The runtime failed while entering its first section.",
+					);
+				},
+			);
 			const ctrl = ownedController();
 			const report = vi.fn();
 			ctrl.setFaultReporter(report);
@@ -268,12 +269,13 @@ describe("EngineController", () => {
 				throw new Error("telemetry unavailable");
 			});
 			ctrl.setDocStore(createLoadedStore());
-			vi.spyOn(
-				FormEngine.prototype,
-				"enterFirstSection",
-			).mockImplementationOnce(() => {
-				throw new Error("The runtime failed while entering its first section.");
-			});
+			vi.spyOn(FormEngine.prototype, "enterFirstScreen").mockImplementationOnce(
+				() => {
+					throw new Error(
+						"The runtime failed while entering its first section.",
+					);
+				},
+			);
 
 			expect(() => ctrl.activateForm(FORM_UUID)).not.toThrow();
 			expect(ctrl.entryStore.getState().fault).toEqual({
@@ -295,12 +297,11 @@ describe("EngineController", () => {
 				value: "ab",
 				answerType: "int",
 			};
-			vi.spyOn(
-				FormEngine.prototype,
-				"enterFirstSection",
-			).mockImplementationOnce(() => {
-				throw new SetvalueRefusal(details);
-			});
+			vi.spyOn(FormEngine.prototype, "enterFirstScreen").mockImplementationOnce(
+				() => {
+					throw new SetvalueRefusal(details);
+				},
+			);
 
 			expect(() => ctrl.activateForm(FORM_UUID)).not.toThrow();
 			expect(ctrl.entryStore.getState()).toMatchObject({

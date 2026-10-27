@@ -21,6 +21,7 @@ export function appTestSearchWorld(
 		language: context.language,
 		appId: scope.appId,
 		identity: context.identity,
+		device: context.device,
 		deviceCases: state.deviceCases,
 		lookup: context.lookup,
 		caseTypeSchemas: context.caseTypeSchemas,

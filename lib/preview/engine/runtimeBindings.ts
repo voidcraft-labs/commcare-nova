@@ -44,6 +44,7 @@ import {
 } from "@/lib/domain/expression";
 import { openJdk17DoubleToString } from "@/lib/domain/expression/openJdk17DoubleString";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
+import type { PreviewPlatformRules } from "../platform";
 import {
 	dateRangeInputErrors,
 	ISO_DATE_PATTERN,
@@ -548,6 +549,7 @@ function substituteInputInPredicate(
  */
 export function previewCaseStoreBindings(
 	session: PreviewSearchSessionValues,
+	rules: PreviewPlatformRules,
 	searchInputs: readonly SearchInputDef[] = [],
 	inputValues: SearchInputValues = new Map(),
 	viewerTimeZone?: string,
@@ -570,31 +572,37 @@ export function previewCaseStoreBindings(
 		userPropertySlugs: new Map(Object.entries(session.userPropertySlugs)),
 		sessionUserFallback: "",
 		...(viewerTimeZone === undefined ? {} : { viewerTimeZone }),
-		viewerLocation: viewerLocationText(viewerLocation),
+		viewerLocation: viewerLocationText(viewerLocation, rules),
 	};
 }
 
 /**
- * The text `here()` reads for the viewer's position, or `null` when the
- * browser has shared none, which the compiler reads as `''`, as both
- * runtimes give before a fix.
+ * The text `here()` reads for the viewer's position on the platform Preview
+ * plays, or `null` when the browser has shared none, which the compiler
+ * reads as `''`, as both runtimes give before a fix.
  *
- * The spelling is the one a CommCare handler that is given a browser
- * position returns: Formplayer's `util/FormplayerHereFunctionHandler.java::
- * eval` builds `GeoPointData(new double[]{lat, lon}).getDisplayText()`,
- * which for two values is `Double.toString(lat) + " " + Double.toString(lon)`
- * (`GeoPointData.java::getDisplayText`). So 40 reads `40.0` and 0.0005
+ * Android's handler gives four numbers
+ * (`utils/AndroidHereFunctionHandler.java::toGeoPointData`): latitude,
+ * longitude, altitude (`0` when the fix has none, as `Location.getAltitude`
+ * gives) and accuracy, the last two floored to two decimals by Core's
+ * `GeoPointData.java::fillArray`, each printed with `Double.toString`. Web
+ * Apps' handler (`util/FormplayerHereFunctionHandler.java::eval`) gives two,
+ * `GeoPointData(new double[]{lat, lon}).getDisplayText()`; an app that runs
+ * in Web Apps cannot hold `here()` in a case list, so that arm keeps the
+ * rule table total and nothing reads it. So 40 reads `40.0` and 0.0005
  * reads `5.0E-4`.
  *
  * The position arrives from the client, so it is checked rather than
- * trusted: a latitude outside [-90, 90], a longitude outside [-180, 180] or
- * a value that is not a finite number is refused, never repaired.
+ * trusted: a latitude outside [-90, 90], a longitude outside [-180, 180], a
+ * negative accuracy or a value that is not a finite number is refused,
+ * never repaired.
  */
 export function viewerLocationText(
 	viewerLocation: ViewerLocation | null | undefined,
+	rules: PreviewPlatformRules,
 ): string | null {
 	if (viewerLocation === null || viewerLocation === undefined) return null;
-	const { latitude, longitude } = viewerLocation;
+	const { latitude, longitude, altitude, accuracy } = viewerLocation;
 	if (
 		typeof latitude !== "number" ||
 		typeof longitude !== "number" ||
@@ -603,18 +611,30 @@ export function viewerLocationText(
 		latitude < -90 ||
 		latitude > 90 ||
 		longitude < -180 ||
-		longitude > 180
+		longitude > 180 ||
+		(altitude !== null &&
+			(typeof altitude !== "number" || !Number.isFinite(altitude))) ||
+		typeof accuracy !== "number" ||
+		!Number.isFinite(accuracy) ||
+		accuracy < 0
 	) {
 		throw new ViewerLocationError();
 	}
-	return `${openJdk17DoubleToString(latitude)} ${openJdk17DoubleToString(longitude)}`;
+	const latLon = `${openJdk17DoubleToString(latitude)} ${openJdk17DoubleToString(longitude)}`;
+	if (rules.hereValue === "lat-lon") return latLon;
+	return `${latLon} ${openJdk17DoubleToString(coreHundredthsFloor(altitude ?? 0))} ${openJdk17DoubleToString(coreHundredthsFloor(accuracy))}`;
+}
+
+/** `GeoPointData.java::roundDecimalUp`: `Math.floor(x * 100) / 100`. */
+export function coreHundredthsFloor(value: number): number {
+	return Math.floor(value * 100) / 100;
 }
 
 /** A position that is not a place on Earth reached the case-list read. */
 export class ViewerLocationError extends Error {
 	constructor() {
 		super(
-			"The position sent with this list isn't a place on Earth. A latitude runs from -90 to 90 and a longitude from -180 to 180, each a finite number of degrees. Look at what the browser's location watch reported.",
+			"The position sent with this list isn't a place on Earth. A latitude runs from -90 to 90 and a longitude from -180 to 180, each a finite number of degrees, with a finite altitude or none and an accuracy of zero or more metres. Look at what the browser's location watch reported.",
 		);
 		this.name = "ViewerLocationError";
 	}

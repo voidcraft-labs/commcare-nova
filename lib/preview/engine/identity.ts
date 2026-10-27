@@ -50,6 +50,9 @@ import {
 	userPropertiesOf,
 } from "@/lib/domain";
 import type { SessionContextField } from "@/lib/domain/expression";
+import { previewPlatformRules } from "../platform";
+import type { DayNumberEpoch } from "../xpath/coreDays";
+import { type PreviewDevice, previewDeviceContext } from "./previewDevice";
 
 /**
  * The session slices a preview expression can read on the device: the
@@ -67,6 +70,11 @@ export interface PreviewSearchSessionValues {
 	readonly user: Readonly<Record<string, string>>;
 	/** Stable custom-property identity → current worker-data wire slug. */
 	readonly userPropertySlugs: Readonly<Record<string, string>>;
+	/** The device's platform's day-number epoch (`lib/preview/platform.ts`,
+	 * `dayNumberEpoch`), which every evaluation context built over these
+	 * values sets. The device supplies it through `previewSessionValues`; an
+	 * identity's own session never carries it. */
+	readonly dayNumberEpoch?: DayNumberEpoch;
 }
 
 /** Narrow user shape shared by Better Auth's client and server session. */
@@ -99,10 +107,7 @@ export interface ResolvedPreviewIdentity {
  */
 const ANONYMOUS_SESSION_VALUES: PreviewSearchSessionValues = {
 	identityPending: true,
-	context: {
-		deviceid: "nova-preview",
-		appversion: "preview",
-	},
+	context: {},
 	user: {},
 	userPropertySlugs: {},
 };
@@ -173,8 +178,6 @@ function projections(
 			context: {
 				userid: worker.id,
 				username: worker.username,
-				deviceid: "nova-preview",
-				appversion: "preview",
 			},
 			user: mergeOwnRecords(
 				declared,
@@ -300,13 +303,24 @@ export function previewAsPersona(
 }
 
 /**
- * Project an identity — or its absence — into the session vocabulary
- * expression evaluation reads. `null` yields the anonymous projection.
+ * Project an identity — or its absence — and the device it runs on into the
+ * session vocabulary expression evaluation reads. The identity supplies the
+ * worker's values (`userid`, `username`, the user data); the device supplies
+ * the runtime's (`deviceid`, `appversion`, `drift`, `window_width`,
+ * `applanguage`, `previewDevice.ts::previewDeviceContext`) and its
+ * platform's day-number epoch. `null` yields the anonymous projection, which
+ * carries the device's values only.
  */
 export function previewSessionValues(
 	identity: ResolvedPreviewIdentity | null,
+	device: PreviewDevice,
 ): PreviewSearchSessionValues {
-	return identity?.session ?? ANONYMOUS_SESSION_VALUES;
+	const base = identity?.session ?? ANONYMOUS_SESSION_VALUES;
+	return {
+		...base,
+		context: { ...base.context, ...previewDeviceContext(device) },
+		dayNumberEpoch: previewPlatformRules(device.platform).dayNumberEpoch,
+	};
 }
 
 /** Project the serializable identity record into emitter/compiler bindings. */

@@ -7,6 +7,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { plainColumn, simpleSearchInputDef } from "@/lib/domain";
 import { eq, literal } from "@/lib/domain/expression";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { previewAsMe } from "@/lib/preview/engine/identity";
 import { formSearchResults } from "../evaluationContext";
 
@@ -77,6 +78,7 @@ function check(
 			...(searchAnswers === undefined ? {} : { searchAnswers }),
 		},
 		{
+			device: webAppsDevice(),
 			appId: undefined,
 			identity,
 			cases: { rows: [], indices: [] },

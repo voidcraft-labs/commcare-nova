@@ -71,6 +71,7 @@ import { XML_ELEMENT_NAME_PATTERN } from "@/lib/domain/expression/types";
 import { CANONICAL_UUID_PATTERN } from "@/lib/domain/uuid";
 import { MAX_LOCATIONS_PER_APP } from "@/lib/organization/schema";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import { previewPlatformRules } from "../platform";
 import { validateCaptureSubmissionProjection } from "./captureSubmissionValidation";
 import {
 	mapFilterPreviewError,
@@ -120,8 +121,14 @@ import type { PreviewSearchSessionValues } from "./identity";
 import {
 	previewAsMe,
 	previewAsPersona,
+	previewSessionValues,
 	type ResolvedPreviewIdentity,
 } from "./identity";
+import {
+	defaultPreviewDevice,
+	type PreviewDevice,
+	previewDeviceInput,
+} from "./previewDevice";
 import {
 	previewCaseStoreBindings,
 	type SearchInputValuesWire,
@@ -373,6 +380,10 @@ type RunningCaseReadArgs = {
 	/** Which persona Preview is running as, if any. A SELECTOR — the
 	 *  identity itself is resolved server-side from the committed doc. */
 	personaUuid?: string;
+	/** The device Preview runs on (`previewDevice.ts`), plain JSON, with the
+	 *  window width read when the read was made. Checked server-side against
+	 *  the committed blueprint. */
+	device?: PreviewDevice;
 	/** The module in the live candidate that owns the requested list or
 	 * excluded-owner expression. The action checks that the supplied settings
 	 * match that module before evaluating them or building its order plan. */
@@ -425,9 +436,12 @@ async function prepareRunningCaseRead(
 		claimedCaseIds: args.claimedCaseIds,
 		required: "view",
 		loadBlueprint: true,
+		device: args.device,
 	});
 	if (context.kind !== "ready") return context;
-	const { identity, store, scope } = context;
+	const { identity, store, scope, device } = context;
+	const rules = previewPlatformRules(device.platform);
+	const session = previewSessionValues(identity, device);
 	let environment: PreviewSearchEnvironment | undefined;
 	if (
 		args.caseListConfig !== undefined ||
@@ -455,9 +469,9 @@ async function prepareRunningCaseRead(
 			: buildCaseTypeMap(environment.doc);
 	const searchSession =
 		environment === undefined
-			? identity.session
+			? session
 			: {
-					...identity.session,
+					...session,
 					userPropertySlugs: recordFromEntries(
 						userPropertySlugsByUuid(environment.doc),
 					),
@@ -513,6 +527,7 @@ async function prepareRunningCaseRead(
 		 * Pattern engine, so Preview's Search screen enforces those in its
 		 * XPath worker, the way it alone enforces lookup-bearing ones. */
 		const runtimeErrors = searchInputSubmissionErrors(
+			rules,
 			args.caseListConfig,
 			args.caseType,
 			inputValues,
@@ -561,6 +576,7 @@ async function prepareRunningCaseRead(
 	const bindings = {
 		...previewCaseStoreBindings(
 			searchSession,
+			rules,
 			args.caseListConfig?.searchInputs,
 			expressionInputValues,
 			args.viewerTimeZone,
@@ -653,6 +669,7 @@ async function prepareRunningCaseRead(
 		read: {
 			appId: args.appId,
 			caseType: args.caseType,
+			tileGrouping: rules.tileGrouping,
 			caseIds: args.caseIds,
 			caseTypeSchemas,
 			caseListConfig: args.caseListConfig,
@@ -1003,6 +1020,8 @@ export async function loadCaseDataAction(
 	/** The viewer's latest position for a Details column's `here()`; `null`
 	 *  or omitted while the browser has shared none. Never stored or logged. */
 	viewerLocation?: ViewerLocation | null,
+	/** The device Preview runs on (`previewDevice.ts`), plain JSON. */
+	device?: PreviewDevice,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -1011,9 +1030,12 @@ export async function loadCaseDataAction(
 			claimedCaseIds: deviceScoped === true ? claimedCaseIds : undefined,
 			required: "view",
 			loadBlueprint: true,
+			device,
 		});
 		if (context.kind !== "ready") return context;
 		const { identity, store, scope } = context;
+		const rules = previewPlatformRules(context.device.platform);
+		const session = previewSessionValues(identity, context.device);
 		let environment: PreviewSearchEnvironment | undefined;
 		if (caseListConfig !== undefined) {
 			const candidate = candidateSearchEnvironment({
@@ -1031,9 +1053,9 @@ export async function loadCaseDataAction(
 		);
 		const searchSession =
 			environment === undefined
-				? identity.session
+				? session
 				: {
-						...identity.session,
+						...session,
 						userPropertySlugs: recordFromEntries(
 							userPropertySlugsByUuid(environment.doc),
 						),
@@ -1056,6 +1078,7 @@ export async function loadCaseDataAction(
 			lookupTableSchemas,
 			bindings: previewCaseStoreBindings(
 				searchSession,
+				rules,
 				caseListConfig?.searchInputs,
 				expressionInputValues,
 				viewerTimeZone,
@@ -1493,8 +1516,11 @@ export async function loadFilterPreviewAction(args: {
 			scope,
 			args.excludedOwnerIdsExpression,
 		);
+		/* The builder's sample is the author's view of stored data, read with
+		 * the session values of the platform the app previews on by default. */
+		const sampleDevice = defaultPreviewDevice(parsedBlueprint.data, undefined);
 		const searchSession: PreviewSearchSessionValues = {
-			...boundIdentity.session,
+			...previewSessionValues(boundIdentity, sampleDevice),
 			// This action intentionally previews the parsed candidate document,
 			// so immutable worker references must resolve through that candidate's
 			// catalog. Authorization still belongs to the server-resolved member.
@@ -1554,6 +1580,7 @@ export async function loadFilterPreviewAction(args: {
 			lookupTableSchemas,
 			bindings: previewCaseStoreBindings(
 				searchSession,
+				previewPlatformRules(sampleDevice.platform),
 				parsedConfig.data.searchInputs,
 				withSearchInputExpressionValues(
 					parsedConfig.data.searchInputs,
@@ -1673,9 +1700,14 @@ export async function submitFormAction(
 	 *  places the form read. They are the selected worker's own, which the
 	 *  author previewing as that worker may already read. */
 	workerPlaceIds?: readonly string[],
+	/** The device Preview runs on (`previewDevice.ts`), plain JSON: a case
+	 *  operation writing a session context value writes the platform's. */
+	device?: PreviewDevice,
 ): Promise<SubmissionResult> {
 	try {
 		const entryPlaceIds = submittedPlaceIds(workerPlaceIds);
+		const suppliedDevice =
+			device === undefined ? undefined : previewDeviceInput(device);
 		/* This runtime boundary is mandatory even though the TypeScript surface
 		 * is required: Server Action payloads are untrusted JSON. Consume the
 		 * normalized projection below so missing/stale clients cannot bypass
@@ -1787,6 +1819,11 @@ export async function submitFormAction(
 			);
 		}
 		if (!identity) return { kind: "unauthenticated" };
+		const admitted = admitPreviewDevice(
+			authorized.app.blueprint,
+			suppliedDevice,
+		);
+		if (admitted.kind !== "device") return admitted;
 		/* Membership BEFORE the program build: the build reads the
 		 * committed doc, and the survey short-circuit below reflects that
 		 * doc's contents — distinguishable arms a non-member must never
@@ -1803,6 +1840,7 @@ export async function submitFormAction(
 			committedApp: authorized.app,
 			blueprintDigest: expectedBlueprintDigest,
 			identity,
+			device: admitted.device,
 			lookupScope: scope,
 			mutation: normalizedMutation,
 			receiptMutation: wireMutation,
@@ -1914,6 +1952,7 @@ function submissionResultFromEnvelope(
 }
 
 import {
+	admitPreviewDevice,
 	PERSONA_UNAVAILABLE_MESSAGE,
 	resolveAuthorizedPreviewContext,
 	resolvePreviewIdentity,

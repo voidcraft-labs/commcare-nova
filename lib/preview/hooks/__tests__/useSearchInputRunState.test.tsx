@@ -6,6 +6,7 @@ import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import type { SearchInputDef } from "@/lib/domain";
 import { hiddenSearchInputDef, simpleSearchInputDef } from "@/lib/domain";
 import { sessionContext, term } from "@/lib/domain/expression";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import {
 	previewAsMe,
 	previewSessionValues,
@@ -27,6 +28,7 @@ const session = previewSessionValues(
 		name: "Worker One",
 		email: "worker@example.org",
 	}),
+	webAppsDevice(),
 );
 
 it("keeps the query reference stable across draft renders and masks an old scope during render", () => {
@@ -87,6 +89,7 @@ it("validates a prospective search with the latest identity while preserving the
 			name: "Second Worker",
 			email: "next@example.org",
 		}),
+		webAppsDevice(),
 	);
 	rerender({ identity: nextIdentity });
 	expect(result.current.resolveHidden().get("run_by")).toBe("next@example.org");

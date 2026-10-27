@@ -76,6 +76,28 @@ drop them. An App Test journey holds its claims in its own state on the server
 claimed case is held for an entry-point launch, whose device snapshot sends
 the claims like every other device-scoped read.
 
+Preview plays one platform the app runs on at a time, and four running facts
+carry it. `previewPlatform` is the platform the author chose under **Runs on**,
+`undefined` for the default; it survives a flip out of Preview and back (a flip
+keeps the runtime the author is checking) and is cleared by a confirmed Project
+change and `reset()`. `setPreviewPlatform` clears the running navigation in one
+`set`, keeps the claims, and opens Android on its home screen.
+`previewAtDeviceHome` says Preview on Android is showing the phone's home
+screen: true when Preview opens on the app's home on Android (`setPreviewing(on,
+{ atHome })`, whose `atHome` the preview-mode transition passes because the URL,
+not this store, owns the location), on a change of worker on Android and after
+an Android landing that returns there; false on leaving Preview, on an
+entry-point launch and on Start. `previewDeviceSyncedAt` is this Preview run's
+last sync on Android, set when Preview starts on Android, by a change of worker
+or an entry-point launch there, and by Sync with server; it clears on leaving
+Preview. `previewAndroidDeviceId` is the UUID of Android's `deviceid`, minted
+when the store is created and kept by `reset()`: one page load is one install.
+The platform Preview plays is derived, never stored:
+`usePreviewPlatform()` is `effectivePreviewPlatform(declaredPlatforms(doc),
+previewPlatform)`, so a choice the app no longer declares derives away with no
+write, and `usePreviewDevice()` builds the device the engine and every Server
+Action read from it (`lib/preview/CLAUDE.md`, "Platforms").
+
 `viewerPosition.ts` is a separate module store, `viewerPositionStore`, for the
 browser's position behind a case list's `here()` column, one per tab as
 CommCare Android keeps one location handler for every list. It holds the

@@ -33,7 +33,7 @@ import {
 	loadFormAttachmentForEdit,
 	retargetStagedFormAttachment,
 } from "@/lib/db/formAttachments";
-import { MAX_CAPTURE_BYTES } from "@/lib/domain/captureFormats";
+import { MAX_CAPTURE_BYTES_ON_ANY_PLATFORM } from "@/lib/domain/captureFormats";
 import { log } from "@/lib/logger";
 import {
 	deleteAsset,
@@ -79,7 +79,7 @@ export async function POST(
 			);
 		}
 		if (
-			stored.size > MAX_CAPTURE_BYTES ||
+			stored.size > MAX_CAPTURE_BYTES_ON_ANY_PLATFORM ||
 			stored.size !== existing.sizeBytes ||
 			stored.contentType !== existing.contentType
 		) {

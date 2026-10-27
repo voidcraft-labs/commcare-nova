@@ -41,6 +41,8 @@ import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
+import { previewSessionValues } from "@/lib/preview/engine/identity";
 import type {
 	PreviewCaseChoice,
 	PreviewMenuCaseSelection,
@@ -114,7 +116,7 @@ function submittedSession(
 		boundCases: args.bound === undefined ? [] : [args.bound],
 		menuSelections: args.selections ?? {},
 		caseDatabase: null,
-		identity: null,
+		session: previewSessionValues(null, webAppsDevice()),
 	});
 	return afterSubmitSessionDatums(entry, {
 		childCases: Object.entries(args.savedNames ?? {}).map(
@@ -391,6 +393,7 @@ describe("form-link worker instances", () => {
 			world,
 			evaluate: async (source, instances) => {
 				const result = await runtime.request({
+					dayNumberEpoch: "device-zone",
 					entryKey: "entry",
 					revision: 1,
 					profile: "form-link",
@@ -443,6 +446,7 @@ describe("form-link worker instances", () => {
 			expect(evaluate(source, formLinkEvalContext(input))).toBe("north");
 			await expect(
 				runtime.request({
+					dayNumberEpoch: "device-zone",
 					entryKey: "entry",
 					revision: 1,
 					profile: "form-link",

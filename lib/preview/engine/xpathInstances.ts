@@ -28,11 +28,7 @@ import type {
 } from "@/lib/preview/xpath/runtimeValues";
 import { XPathDate, type XPathValue } from "@/lib/preview/xpath/types";
 import type { CaseRow, JsonValue } from "./caseDataBindingTypes";
-import {
-	type PreviewSearchSessionValues,
-	previewSessionValues,
-	type ResolvedPreviewIdentity,
-} from "./identity";
+import type { PreviewSearchSessionValues } from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
 
 /** The complete set of case rows the selected worker's restore would place on
@@ -83,13 +79,25 @@ export interface SearchResultsSnapshot {
 export type LoadSearchResultsSnapshotResult =
 	| { readonly kind: "data"; readonly snapshot: SearchResultsSnapshot }
 	| { readonly kind: "invalid-search"; readonly message: string }
-	| { readonly kind: "persona-unavailable"; readonly message: string }
+	| {
+			readonly kind:
+				| "persona-unavailable"
+				| "platform-unavailable"
+				| "language-unavailable";
+			readonly message: string;
+	  }
 	| { readonly kind: "unauthenticated" }
 	| { readonly kind: "error"; readonly message: string };
 
 export type LoadCaseDatabaseSnapshotResult =
 	| { readonly kind: "data"; readonly snapshot: CaseDatabaseSnapshot }
-	| { readonly kind: "persona-unavailable"; readonly message: string }
+	| {
+			readonly kind:
+				| "persona-unavailable"
+				| "platform-unavailable"
+				| "language-unavailable";
+			readonly message: string;
+	  }
 	| { readonly kind: "unauthenticated" }
 	| { readonly kind: "error"; readonly message: string };
 
@@ -514,13 +522,9 @@ export function caseDatabaseXPathInstance(
 
 /** Project the browser/server-shared identity into the session instance. */
 export function commcareSessionXPathInstance(
-	identity: ResolvedPreviewIdentity | PreviewSearchSessionValues | null,
+	session: PreviewSearchSessionValues,
 	data: Readonly<Record<string, string>> = {},
 ): XPathInstance {
-	const session =
-		identity !== null && "context" in identity
-			? identity
-			: previewSessionValues(identity);
 	const children = (record: Readonly<Record<string, string | undefined>>) =>
 		Object.entries(record).flatMap(([name, value]) =>
 			value === undefined ? [] : [{ name, value }],
@@ -876,10 +880,9 @@ export function formReadsSearchResults(
 
 /** One resolver map for a form engine's immutable evaluation world. */
 export function secondaryXPathInstances(args: {
-	readonly identity:
-		| ResolvedPreviewIdentity
-		| PreviewSearchSessionValues
-		| null;
+	/** The session the device holds: the worker's values and the device's
+	 *  (`identity.ts::previewSessionValues`). */
+	readonly session: PreviewSearchSessionValues;
 	readonly lookupData: PreviewLookupData | null;
 	readonly caseDatabase: CaseDatabaseSnapshot | null;
 	readonly caseTypes?: readonly CaseType[];
@@ -902,7 +905,7 @@ export function secondaryXPathInstances(args: {
 	return new Map<string, XPathInstance>([
 		[
 			"commcaresession",
-			commcareSessionXPathInstance(args.identity, args.sessionData),
+			commcareSessionXPathInstance(args.session, args.sessionData),
 		],
 		[
 			"casedb",

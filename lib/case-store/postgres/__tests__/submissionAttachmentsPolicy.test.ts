@@ -45,4 +45,21 @@ describe("capture submission metadata policy", () => {
 			),
 		).toBe(false);
 	});
+
+	it("accepts an Android family row whose filename gave no listed extension", () => {
+		// The upload kept the family's default `.jpg` for `photo`; the
+		// pair (.jpg, image/jpeg) is listed, but the filename alone is not.
+		const committed = {
+			captureKind: "image" as const,
+			acceptedFormats: [{ extension: ".jpg", contentType: "image/jpeg" }],
+		};
+		for (const originalFilename of ["photo", "img.jpg_large"]) {
+			expect(
+				captureRowMatchesCommittedDescriptor(
+					{ originalFilename, extension: ".jpg", contentType: "image/jpeg" },
+					committed,
+				),
+			).toBe(true);
+		}
+	});
 });

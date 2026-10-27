@@ -8,6 +8,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { projectLocalizedModule } from "@/lib/domain/localizedBlueprintProjection";
+import type { Platform } from "@/lib/domain/platforms";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
@@ -19,6 +20,7 @@ import {
 import { caseListStepSession } from "../engine/entrySessionData";
 import { previewSessionValues } from "../engine/identity";
 import { previousTaskFormSelectors } from "../engine/previousTask";
+import { formlessCaseListSelection } from "../formlessCaseListRoute";
 import {
 	moduleHasChildren,
 	previewAutomaticForm,
@@ -27,10 +29,19 @@ import {
 	previewMenuModuleUuids,
 	previewModuleVisibility,
 } from "../menuProjection";
+import { previewPlatformRules } from "../platform";
 import { previewCaseChoiceOf } from "../searchClaims";
 import type { AppTestContext } from "./context";
 import { AppTestActionError } from "./errors";
 import type { AppTestScreen, AppTestSessionState } from "./types";
+
+/** Where a session of this platform enters the app: Android's home screen,
+ *  or the module list on Web Apps, which has no home inside an app. */
+export function appTestEntryScreen(platform: Platform): AppTestScreen {
+	return previewPlatformRules(platform).appHome === "device-home"
+		? { kind: "device-home" }
+		: { kind: "home" };
+}
 
 /** The session's device cases, as a navigation condition reads them. */
 function appTestDeviceCases(
@@ -51,7 +62,7 @@ export function appTestMenus(
 	const { doc, identity, lookup } = context;
 	const visibility = previewModuleVisibility(doc, {
 		authoring: false,
-		session: previewSessionValues(identity),
+		session: previewSessionValues(identity, context.device),
 		lookup: { kind: "data", data: lookup },
 		deviceCases: appTestDeviceCases(context, state),
 	});
@@ -109,7 +120,7 @@ export function appTestForms(
 						caseListStepSession(doc, moduleUuid, {
 							menuSelections: state.selections,
 							caseDatabase: appTestDeviceCases(context, state).snapshot,
-							identity,
+							session: previewSessionValues(identity, context.device),
 						}).data,
 					);
 		return [
@@ -118,7 +129,7 @@ export function appTestForms(
 				visibility: formDisplayVisibility({
 					condition: form.displayCondition,
 					hiddenFromMenu: form.hiddenFromMenu === true,
-					session: previewSessionValues(identity),
+					session: previewSessionValues(identity, context.device),
 					types: previewExpressionContext(
 						doc,
 						{ entity: "form", uuid, slot: "form_display_condition" },
@@ -144,7 +155,7 @@ export function enterAppTestMenu(
 	const { doc } = context;
 	const visibility = previewModuleVisibility(doc, {
 		authoring: false,
-		session: previewSessionValues(context.identity),
+		session: previewSessionValues(context.identity, context.device),
 		lookup: { kind: "data", data: context.lookup },
 		deviceCases: appTestDeviceCases(context, state),
 	});
@@ -334,6 +345,20 @@ export function selectAppTestRecords(
 				true,
 			),
 		};
+	/* A case list with no forms ends the session on a selection: the app's
+	 * first screen in Web Apps, the phone's home screen on Android. */
+	if (isFormlessCaseList(context, screen.moduleUuid)) {
+		const route = formlessCaseListSelection(context.rules);
+		return {
+			...state,
+			screen:
+				route.kind === "device-home"
+					? { kind: "device-home" }
+					: { kind: "home" },
+			history: [],
+			selections: {},
+		};
+	}
 	const forms = appTestForms(context, next, screen.moduleUuid, true);
 	if (forms.length === 0)
 		throw new AppTestActionError("This record list has no next task.");
@@ -347,12 +372,27 @@ export function selectAppTestRecords(
 	};
 }
 
+/** A module with a case list and no forms (the case list menu item). */
+function isFormlessCaseList(
+	context: AppTestContext,
+	moduleUuid: Uuid,
+): boolean {
+	const mod = context.doc.modules[moduleUuid];
+	return (
+		mod?.caseListOnly === true &&
+		mod.caseType !== undefined &&
+		menuFormUuidsOf(context.doc, moduleUuid).length === 0 &&
+		!moduleHasChildren(context.doc, moduleUuid)
+	);
+}
+
 export function appTestCanContinue(
 	context: AppTestContext,
 	screen: Extract<AppTestScreen, { kind: "records" }>,
 ): boolean {
 	return (
 		!!screen.returnModules?.length ||
+		isFormlessCaseList(context, screen.moduleUuid) ||
 		(screen.formUuid === undefined &&
 			moduleHasChildren(context.doc, screen.moduleUuid)) ||
 		screen.formUuid !== undefined ||

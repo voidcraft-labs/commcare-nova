@@ -46,6 +46,7 @@ describe("readCases boundary interleaving", () => {
 		const racingStore = { count, query } as unknown as CaseStore;
 
 		const result = await readCases(racingStore, {
+			tileGrouping: "grouped",
 			reading: CASEDB_READING,
 			appId: APP_ID,
 			caseType: "patient",

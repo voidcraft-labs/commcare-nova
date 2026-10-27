@@ -9,6 +9,7 @@ import {
 	XPathDateConversionError,
 	xpathToString,
 } from "./coerce";
+import type { DayNumberEpoch } from "./coreDays";
 import { formatCommCareDate } from "./dateFormatting";
 import { javaRosaPow } from "./javaMathRuntime";
 import { javaRosaFormatDateForCalendar } from "./javaRosaAlternateCalendar";
@@ -30,11 +31,14 @@ import { isXPathDate, XPathDate } from "./types";
 
 export interface XPathFunctionContext {
 	readonly locale?: string;
+	/** The midnight a day number counts from, which every numeric coercion of
+	 * a date reads (`coreDays.ts::DayNumberEpoch`). */
+	readonly dayNumberEpoch: DayNumberEpoch;
 }
 
 type XPathFn = (
 	args: XPathRuntimeValue[],
-	context?: XPathFunctionContext,
+	context: XPathFunctionContext,
 ) => XPathRuntimeValue;
 
 /** Registry of supported XPath/CommCare functions. */
@@ -64,7 +68,7 @@ export function registeredPreviewFunctions(): ReadonlySet<string> {
 export function invokeFunction(
 	name: string,
 	args: XPathRuntimeValue[],
-	context?: XPathFunctionContext,
+	context: XPathFunctionContext,
 ): XPathFunctionInvocation {
 	/* User-authored Java Pattern calls belong to the async worker. The sync
 	 * evaluator gets one further chance through its generated-pattern seam,
@@ -150,20 +154,24 @@ register("if", (args) => {
 // ── Type conversion ─────────────────────────────────────────────────
 
 register("string", (args) => xpathToString(args[0] ?? ""));
-register("number", (args) => toNumber(args[0] ?? ""));
-register("double", (args) => toDouble(args[0] ?? ""));
-register("int", (args) => {
-	const n = toNumber(args[0] ?? "");
+register("number", (args, { dayNumberEpoch }) =>
+	toNumber(args[0] ?? "", dayNumberEpoch),
+);
+register("double", (args, { dayNumberEpoch }) =>
+	toDouble(args[0] ?? "", dayNumberEpoch),
+);
+register("int", (args, { dayNumberEpoch }) => {
+	const n = toNumber(args[0] ?? "", dayNumberEpoch);
 	return Number.isNaN(n) ? NaN : Math.trunc(n);
 });
-register("round", (args) => {
-	const n = toDouble(args[0] ?? "");
+register("round", (args, { dayNumberEpoch }) => {
+	const n = toDouble(args[0] ?? "", dayNumberEpoch);
 	if (Number.isNaN(n)) return NaN;
 	// Core's one-argument round is `Math.floor(x + 0.5)` on the double
 	// (`XPathRoundFunc.evalBody`), which differs from Math.round only where
 	// `x + 0.5` itself rounds (0.49999999999999994).
 	if (args.length <= 1) return Math.floor(n + 0.5);
-	const factor = 10 ** toNumber(args[1] ?? 0);
+	const factor = 10 ** toNumber(args[1] ?? 0, dayNumberEpoch);
 	return Math.round(n * factor) / factor;
 });
 
@@ -205,13 +213,16 @@ register("translate", (args) => {
 	}
 	return result;
 });
-register("substr", (args) => {
+register("substr", (args, { dayNumberEpoch }) => {
 	const str = xpathToString(args[0] ?? "");
 	// JavaRosa is 0-based, accepts negative offsets from the end, and returns
 	// blank (rather than swapping indices like String.substring) for an invalid
 	// adjusted range.
-	let start = javaIntValue(toNumber(args[1] ?? 0));
-	let end = args.length > 2 ? javaIntValue(toNumber(args[2] ?? 0)) : str.length;
+	let start = javaIntValue(toNumber(args[1] ?? 0, dayNumberEpoch));
+	let end =
+		args.length > 2
+			? javaIntValue(toNumber(args[2] ?? 0, dayNumberEpoch))
+			: str.length;
 	if (start < 0) start = str.length + start;
 	if (end < 0) end = str.length + end;
 	start = Math.min(Math.max(0, start), end);
@@ -236,7 +247,7 @@ register("count-selected", (args) => {
 	const value = requireJavaString(args[0] ?? "", "count-selected", 1);
 	return javaRosaSplitOnSpaces(value).length;
 });
-register("selected-at", (args) => {
+register("selected-at", (args, { dayNumberEpoch }) => {
 	// Mirrors commcare-core `XPathSelectedAtFunc.selectedAt`: the selection
 	// splits per `DataUtil.splitOnSpaces` ("" → zero entries; runs of spaces
 	// collapse; Java's split drops trailing empty tokens), and an
@@ -244,7 +255,7 @@ register("selected-at", (args) => {
 	// rather than rendering an empty string, and Preview must fail the same
 	// way instead of green-lighting an expression that crashes the real app.
 	const selection = requireJavaString(args[0] ?? "", "selected-at", 1);
-	const index = javaIntValue(toNumber(args[1] ?? 0));
+	const index = javaIntValue(toNumber(args[1] ?? 0, dayNumberEpoch));
 	const entries = javaRosaSplitOnSpaces(selection);
 	if (index < 0 || entries.length <= index) {
 		throw new Error(
@@ -286,14 +297,27 @@ register("cond", () => {
 
 // ── Math ────────────────────────────────────────────────────────────
 
-register("ceiling", (args) => Math.ceil(toDouble(args[0] ?? "")));
-register("floor", (args) => Math.floor(toDouble(args[0] ?? "")));
-register("abs", (args) => Math.abs(toDouble(args[0] ?? "")));
-register("pow", (args) =>
-	javaRosaPow(toDouble(args[0] ?? 0), toDouble(args[1] ?? 0)),
+register("ceiling", (args, { dayNumberEpoch }) =>
+	Math.ceil(toDouble(args[0] ?? "", dayNumberEpoch)),
 );
-register("min", (args) => Math.min(...args.map((arg) => toNumber(arg))));
-register("max", (args) => Math.max(...args.map((arg) => toNumber(arg))));
+register("floor", (args, { dayNumberEpoch }) =>
+	Math.floor(toDouble(args[0] ?? "", dayNumberEpoch)),
+);
+register("abs", (args, { dayNumberEpoch }) =>
+	Math.abs(toDouble(args[0] ?? "", dayNumberEpoch)),
+);
+register("pow", (args, { dayNumberEpoch }) =>
+	javaRosaPow(
+		toDouble(args[0] ?? 0, dayNumberEpoch),
+		toDouble(args[1] ?? 0, dayNumberEpoch),
+	),
+);
+register("min", (args, { dayNumberEpoch }) =>
+	Math.min(...args.map((arg) => toNumber(arg, dayNumberEpoch))),
+);
+register("max", (args, { dayNumberEpoch }) =>
+	Math.max(...args.map((arg) => toNumber(arg, dayNumberEpoch))),
+);
 
 // ── Position ────────────────────────────────────────────────────────
 // Handled directly by the evaluator via context.position; registered so the
@@ -323,7 +347,7 @@ register("now", () => XPathDate.fromInstant(Date.now()));
  * check refuses), `date()` gives that null (`XPathCoreNull`), which
  * `coalesce` skips and every other read refuses.
  */
-register("date", (args) => {
+register("date", (args, { dayNumberEpoch }) => {
 	try {
 		const date = toDateRounding(args[0] ?? "");
 		if (date !== null) return date;
@@ -331,7 +355,7 @@ register("date", (args) => {
 		return new XPathCoreNull(
 			isXPathDate(value)
 				? `the date ${value.toISOString()}`
-				: `day number ${xpathToString(Math.trunc(toNumber(value)))}`,
+				: `day number ${xpathToString(Math.trunc(toNumber(value, dayNumberEpoch)))}`,
 		);
 	} catch (error) {
 		if (error instanceof XPathDateConversionError) {
@@ -375,9 +399,9 @@ function expandPreviewDate(
 
 // ── Misc ────────────────────────────────────────────────────────────
 
-register("uuid", (args) => {
+register("uuid", (args, { dayNumberEpoch }) => {
 	if (args.length === 0) return crypto.randomUUID();
-	const length = Math.trunc(toNumber(args[0] ?? 0));
+	const length = Math.trunc(toNumber(args[0] ?? 0, dayNumberEpoch));
 	let value = "";
 	for (let index = 0; index < length; index += 1) {
 		value += Math.floor(Math.random() * 36).toString(36);
@@ -390,14 +414,18 @@ register("uuid", (args) => {
 // surface the evaluator and the admission parity test inspect. Entries such as
 // uuid() deliberately replace their historical implementation.
 for (const [name, implementation] of scalarJavaRosaFunctions) {
-	register(name, (args) => implementation(args));
+	register(name, (args, { dayNumberEpoch }) =>
+		implementation(args, dayNumberEpoch),
+	);
 }
 
 // These entries replace the scalar fallbacks above when JavaRosa overloads a
 // function for nodesets or sequences. The dispatcher receives the uncollapsed
 // runtime value, so it can preserve Core's overload selection exactly.
 for (const [name, implementation] of nodeSetJavaRosaFunctions) {
-	register(name, (args) => implementation(args));
+	register(name, (args, { dayNumberEpoch }) =>
+		implementation(args, dayNumberEpoch),
+	);
 }
 
 register("distance", (args) =>
@@ -432,9 +460,9 @@ register("format-date-for-calendar", (args, context) => {
 				date,
 				calendar,
 				xpathToString(args[2] ?? ""),
-				context?.locale,
+				context.locale,
 			)
-		: javaRosaFormatDateForCalendar(date, calendar, undefined, context?.locale);
+		: javaRosaFormatDateForCalendar(date, calendar, undefined, context.locale);
 });
 
 // These functions execute in the bounded XPath worker. Keeping them in the

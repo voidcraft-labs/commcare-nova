@@ -49,8 +49,8 @@ import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { isCaptureFieldKind, type Uuid } from "@/lib/domain";
 import {
 	captureAttachmentName,
-	captureExtensionFor,
 	captureInstancePathMatchesTemplate,
+	captureRowFitsKind,
 	committedCapturePath,
 	MAX_CAPTURE_ATTEMPTS_PER_MINUTE,
 	MAX_CAPTURE_ROWS_PER_ENTRY,
@@ -310,7 +310,11 @@ export async function createPendingFormAttachment(args: {
 				args.instancePath,
 				committedPath.instancePathTemplate,
 			) ||
-			captureExtensionFor(field.kind, args.originalFilename) !== args.extension
+			!captureRowFitsKind(field.kind, {
+				originalFilename: args.originalFilename,
+				extension: args.extension,
+				contentType: args.contentType,
+			})
 		) {
 			throw new FormAttachmentWriteRejectedError(
 				"The capture question changed while the upload started. Reload and attach the file again.",
@@ -675,8 +679,7 @@ export async function confirmFormAttachment(args: {
 				current.instancePath,
 				committedPath.instancePathTemplate,
 			) ||
-			captureExtensionFor(field.kind, current.originalFilename) !==
-				current.extension
+			!captureRowFitsKind(field.kind, current)
 		) {
 			throw new FormAttachmentWriteRejectedError(
 				"The capture question changed before the upload finished. Reload and attach it again.",
@@ -1080,8 +1083,7 @@ export async function retargetStagedFormAttachment(args: {
 				args.instancePath,
 				committedPath.instancePathTemplate,
 			) ||
-			captureExtensionFor(field.kind, current.originalFilename) !==
-				current.extension
+			!captureRowFitsKind(field.kind, current)
 		) {
 			throw new FormAttachmentWriteRejectedError(
 				"The capture question changed while its attachment moved. Attach the file again.",

@@ -10,6 +10,7 @@ import {
 	sessionContext,
 	term,
 } from "@/lib/domain/expression";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { previewAsMe, previewSessionValues } from "../identity";
 import {
 	buildSearchRunState,
@@ -28,6 +29,7 @@ const SESSION = previewSessionValues(
 		name: "Worker One",
 		email: "worker@example.org",
 	}),
+	webAppsDevice(),
 );
 const input = (value: string) =>
 	simpleSearchInputDef(INPUT, "name", "Name", "text", "case_name", {

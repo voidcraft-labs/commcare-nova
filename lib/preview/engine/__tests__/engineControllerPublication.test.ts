@@ -1036,14 +1036,14 @@ describe("same-entry runtime publication", () => {
 			await seed(subject);
 			const previous = ctrl.store.getState();
 			const entryKey = ctrl.entryKey;
-			const pages = ctrl.sectionPages();
+			const pages = ctrl.sectionScreens();
 			const keys = [0, 1].map((index) =>
 				ctrl.getRepeatInstanceKey(fields.visits.uuid, index),
 			);
 			const publications: (typeof previous)[] = [];
 			unsubscribe = ctrl.store.subscribe((state) => {
 				publications.push(state);
-				expect(ctrl.sectionPages()).toEqual(pages);
+				expect(ctrl.sectionScreens()).toEqual(pages);
 				expect(
 					[0, 1].map((index) =>
 						ctrl.getRepeatInstanceKey(fields.visits.uuid, index),
@@ -1061,7 +1061,7 @@ describe("same-entry runtime publication", () => {
 				settling: true,
 			});
 			expect(ctrl.getPath(fields.name.uuid)).toBe("/data/visit/name");
-			expect(ctrl.sectionPages()).toEqual(pages);
+			expect(ctrl.sectionScreens()).toEqual(pages);
 			expect(ctrl.getRepeatCount(fields.visits.uuid)).toBe(2);
 			expect(
 				[0, 1].map((index) =>
@@ -1246,14 +1246,14 @@ describe("same-entry runtime publication", () => {
 				expect(ctrl.getPath(fields.name.uuid)).toBe(
 					"/data/encounter/patient_name",
 				);
-				expect(ctrl.sectionPages()).toMatchObject([
+				expect(ctrl.sectionScreens()).toMatchObject([
 					{ path: "/data/encounter" },
 				]);
 			});
 			const request = barrier.holdNext();
 			ctrl.setPresentationLanguage("spa");
 			expect(await request).toBeDefined();
-			expect(ctrl.sectionPages()).toMatchObject([{ path: "/data/visit" }]);
+			expect(ctrl.sectionScreens()).toMatchObject([{ path: "/data/visit" }]);
 			expect(await ctrl.enterSectionAsync(fields.visit.uuid)).toBe(false);
 			applyControllerEdit(store, [
 				{
@@ -1352,7 +1352,7 @@ describe("same-entry runtime publication", () => {
 			expect(await ctrl.awaitSettled()).toBe(false);
 			expect(ctrl.store.getState()).toEqual({});
 			expect(ctrl.getPath(fields.name.uuid)).toBeUndefined();
-			expect(ctrl.sectionPages()).toEqual([]);
+			expect(ctrl.sectionScreens()).toEqual([]);
 			expect(ctrl.entryStore.getState()).toMatchObject({
 				entryKey: undefined,
 				ready: false,

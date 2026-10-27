@@ -157,7 +157,7 @@ geopoint(
 			.click();
 		await expect
 			.poll(() => page.evaluate(() => window.previewGeopointAudit.answer()))
-			.toBe("41 -75 0 3");
+			.toBe("41.0 -75.0 0.0 3.0");
 		await committedFrame(page);
 		expect(
 			await page.evaluate(() => window.previewGeopointAudit.toasts()),
@@ -203,7 +203,7 @@ geopoint(
 		await input.press("Enter");
 		await expect
 			.poll(() => page.evaluate(() => window.previewGeopointAudit.answer()))
-			.toBe("41 -75 0 0");
+			.toBe("41.0 -75.0 0.0 0.0");
 	},
 );
 
@@ -230,7 +230,7 @@ geopoint(
 		await page.getByRole("option", { name: "Fresh address" }).click();
 		await expect
 			.poll(() => page.evaluate(() => window.previewGeopointAudit.answer()))
-			.toBe("41 -75 0 0");
+			.toBe("41.0 -75.0 0.0 0.0");
 		await committedFrame(page);
 		await expect(input).toHaveValue("Fresh address");
 		google.hold("details?place=Unmounted");
@@ -244,7 +244,7 @@ geopoint(
 		await committedFrame(page);
 		expect(
 			await page.evaluate(() => window.previewGeopointAudit.answer()),
-		).toBe("41 -75 0 0");
+		).toBe("41.0 -75.0 0.0 0.0");
 	},
 );
 

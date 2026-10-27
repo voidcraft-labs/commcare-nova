@@ -17,6 +17,7 @@ const request = (source: string): XPathRuntimeRequest => ({
 	profile: "form",
 	source,
 	instances: { contextPath: "/data/value" },
+	dayNumberEpoch: "device-zone",
 });
 const api = {
 	run: (source: string, timeoutMilliseconds = 2000) =>

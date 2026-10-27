@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
 import type { Platform } from "@/lib/domain";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { evaluateForm } from "@/lib/preview/engine/evaluateForm";
 import { evaluationScenarioCases } from "@/lib/preview/engine/evaluationScenario";
 import { previewAsMe } from "@/lib/preview/engine/identity";
@@ -148,6 +149,7 @@ it("reads a repeat's own row from inside it and every row from outside", async (
 			],
 		},
 		{
+			device: webAppsDevice(),
 			identity,
 			cases: evaluationScenarioCases(doc, identity.ownerId, {
 				records: [{ id: "visit-1", caseType: "visit", name: "Visit" }],

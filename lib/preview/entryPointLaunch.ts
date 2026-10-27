@@ -1,5 +1,9 @@
 import { entryPointRequirements } from "@/lib/doc/entryPointProjection";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	moduleOpensOnSearch,
+	type Uuid,
+} from "@/lib/domain";
 import { entryPointInventory } from "@/lib/domain/entryPoints";
 import { moduleParent } from "@/lib/domain/moduleHierarchy";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
@@ -20,12 +24,13 @@ import type {
 	EntryPointSelection,
 } from "./entryPointLaunchTypes";
 import { previewMenuCaseContext } from "./menuProjection";
+import type { PreviewPlatformRules } from "./platform";
 
 /** What Preview says when a form off the menu is launched from an entry point
- * that does not ignore display conditions. Preview plays Web Apps here; the
- * copy says what each platform does. */
+ * that does not ignore display conditions. Only Web Apps reaches it: Android
+ * ignores display conditions on an entry point. */
 export const FORM_OFF_THE_MENU_ENTRY_POINT_REFUSAL =
-	"This form is off the menu. On Android this entry point opens it. In Web Apps it opens only when the entry point ignores display conditions.";
+	"This form is off the menu, and in Web Apps an entry point opens it only when the entry point ignores display conditions. You can set it to ignore them.";
 
 /** Whether `moduleUuid` or a module above it is off the menu: a module off
  * the menu takes its child modules off with it, so no menu reaches either. */
@@ -47,8 +52,17 @@ export function prepareEntryPointLaunch(args: {
 	readonly personaUuid?: string;
 	readonly selections: readonly EntryPointSelection[];
 	readonly database: CaseDatabaseSnapshot;
+	/** The chosen cases this worker's device does not hold, read from the
+	 *  Project past the worker's restore (`onlyOutsideRestore`). */
+	readonly notHeld: CaseDatabaseSnapshot;
 	readonly session: PreviewSearchSessionValues;
 	readonly lookup: PreviewLookupStatus;
+	/** The platform Preview plays: whether display conditions hold, whether
+	 *  the launch claims its cases, and what a case the phone lacks does. */
+	readonly rules: Pick<
+		PreviewPlatformRules,
+		"entryPointDisplayConditions" | "entryPointClaims" | "entryPointCaseNotHeld"
+	>;
 }): EntryPointLaunchResult {
 	const refuse = (message: string): EntryPointLaunchResult => ({
 		kind: "refused",
@@ -69,6 +83,15 @@ export function prepareEntryPointLaunch(args: {
 	)
 		return refuse("Choose cases for each required selection and try again.");
 	const rows = new Map(args.database.rows.map((row) => [row.case_id, row]));
+	const outsideRows = new Map(
+		args.notHeld.rows
+			.filter((row) => !rows.has(row.case_id))
+			.map((row) => [row.case_id, row]),
+	);
+	/* A case the worker's device lacks: Web Apps claims it, so the form reads
+	 * it with its saved values; Android opens the form with blank preloads,
+	 * as Core checks only the datum's key. */
+	const blankCaseIds: string[] = [];
 	// This plan crosses a Server Action boundary; React requires plain objects.
 	const menuSelections: Record<string, PreviewMenuCaseSelection> = {};
 	for (const requirement of required) {
@@ -86,7 +109,9 @@ export function prepareEntryPointLaunch(args: {
 			return refuse(
 				"Choose the required number of distinct cases and try again.",
 			);
-		const selectedRows = selection.caseIds.map((id) => rows.get(id));
+		const selectedRows = selection.caseIds.map(
+			(id) => rows.get(id) ?? outsideRows.get(id),
+		);
 		if (
 			selectedRows.some((row) => !row || row.case_type !== requirement.caseType)
 		)
@@ -98,10 +123,16 @@ export function prepareEntryPointLaunch(args: {
 			cases: selectedRows.map((row) => {
 				if (!row)
 					throw new Error("Selected case disappeared from immutable snapshot.");
+				const blank =
+					!rows.has(row.case_id) &&
+					args.rules.entryPointCaseNotHeld === "opens-blank";
+				if (blank) blankCaseIds.push(row.case_id);
 				return {
 					caseId: row.case_id,
 					caseName: row.case_name,
-					caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
+					caseProperties: blank
+						? {}
+						: Object.fromEntries(caseRowToFormPreload(row)),
 				};
 			}),
 		};
@@ -140,14 +171,16 @@ export function prepareEntryPointLaunch(args: {
 		snapshot: args.database,
 		caseTypes: args.doc.caseTypes ?? [],
 	};
+	/* Android ignores display conditions on an entry point (commcare-android
+	 * holds no reader of `Endpoint.isRespectRelevancy`); Web Apps keeps them
+	 * unless the entry point ignores them. */
 	const bypass =
-		item.target.kind === "form" &&
-		item.entryPoint.ignoreDisplayConditions === true;
+		args.rules.entryPointDisplayConditions === "ignored" ||
+		(item.target.kind === "form" &&
+			item.entryPoint.ignoreDisplayConditions === true);
 	if (!bypass) {
 		/* A form off the menu, or inside a module off the menu or under one,
-		 * opens from an entry point only when it ignores display conditions:
-		 * Web Apps' behavior. Android opens it either way, which the copy
-		 * says. */
+		 * opens from an entry point only when it ignores display conditions. */
 		if (
 			item.target.kind === "form" &&
 			(args.doc.forms[item.target.formUuid]?.hiddenFromMenu === true ||
@@ -196,7 +229,7 @@ export function prepareEntryPointLaunch(args: {
 							caseListStepSession(args.doc, item.target.moduleUuid, {
 								menuSelections,
 								caseDatabase: args.database,
-								identity: args.session,
+								session: args.session,
 							}).data,
 						)
 					: undefined;
@@ -226,8 +259,23 @@ export function prepareEntryPointLaunch(args: {
 		}
 	}
 	const target = item.target;
+	/* Web Apps' claim frame posts a claim for every chosen case before it
+	 * navigates, except in a module that opens on its search; Android keeps
+	 * only the last command and never reaches the claim. */
+	const claimCaseIds =
+		args.rules.entryPointClaims === "posted" &&
+		!moduleOpensOnSearch(args.doc.modules[target.moduleUuid])
+			? required.flatMap(
+					(requirement) =>
+						menuSelections[requirement.moduleUuid]?.cases.map(
+							(choice) => choice.caseId,
+						) ?? [],
+				)
+			: [];
 	return {
 		kind: "ready",
+		claimCaseIds,
+		blankCaseIds,
 		launch: {
 			entryPointUuid: args.entryPointUuid,
 			expectedSeq: args.expectedSeq,

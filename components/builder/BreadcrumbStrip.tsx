@@ -27,6 +27,7 @@ import type { BreadcrumbPart } from "@/components/builder/SubheaderToolbar";
 
 export { BuilderPageNavigation } from "@/components/builder/BuilderPageNavigation";
 
+import { useAppName } from "@/lib/doc/hooks/useAppName";
 import {
 	useEffectiveCaseTypes,
 	useMaterializableCaseTypes,
@@ -41,15 +42,19 @@ import type { Uuid } from "@/lib/doc/types";
 import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
 import { useBreadcrumbs, useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
+	DEVICE_HOME_CRUMB_KEY,
 	type PreviewBreadcrumbItem,
 	previewBreadcrumbTrail,
 } from "@/lib/routing/previewBreadcrumbs";
 import {
 	useAppId,
 	useCanEdit,
+	usePreviewAtDeviceHome,
 	usePreviewCaseTarget,
 	usePreviewing,
+	usePreviewPlatformRules,
 	usePreviewSelectedCase,
+	useSetPreviewAtDeviceHome,
 	useSetPreviewCaseTarget,
 } from "@/lib/session/hooks";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
@@ -64,7 +69,19 @@ export function BreadcrumbStrip() {
 
 	const loc = useLocation();
 	const navigate = useNavigate();
-	const canGoBack = loc.kind !== "home";
+	const previewing = usePreviewing();
+	/* Android opens on the phone's home screen, so Back on its module list
+	 * returns there. The strip renders in edit mode too, where Back stays off
+	 * on the home screen. */
+	const platformRules = usePreviewPlatformRules();
+	const atDeviceHome = usePreviewAtDeviceHome();
+	const setPreviewAtDeviceHome = useSetPreviewAtDeviceHome();
+	const backToDeviceHome =
+		previewing &&
+		loc.kind === "home" &&
+		platformRules.appHome === "device-home" &&
+		!atDeviceHome;
+	const canGoBack = loc.kind !== "home" || backToDeviceHome;
 
 	/* Every preview/edit surface shares ONE content frame: `5xl` wide with
 	 * a `px-6` inset, so navigating between screens never swaps width OR
@@ -80,8 +97,8 @@ export function BreadcrumbStrip() {
 	 * semantics (the case workspace's Search / Results / Details, App
 	 * setup's section strip): on handsets the breadcrumb drops the
 	 * redundant leaf and collapses its ancestors into one path menu. */
-	const previewing = usePreviewing();
 	const { language } = useBuilderLanguage();
+	const appName = useAppName();
 	const renderedPreviewScreen = usePreviewScreenForLocation(loc);
 	const compactWorkspaceBreadcrumb =
 		handsetLayout &&
@@ -138,8 +155,14 @@ export function BreadcrumbStrip() {
 			previewCaseTarget,
 			previewSelectedCase,
 			renderedScreen: renderedPreviewScreen,
+			appHome: platformRules.appHome,
+			atDeviceHome,
+			appName,
 		});
 	}, [
+		appName,
+		atDeviceHome,
+		platformRules.appHome,
 		language,
 		previewing,
 		moduleUuid,
@@ -161,6 +184,8 @@ export function BreadcrumbStrip() {
 		() =>
 			effectiveBreadcrumbs.map((item) => {
 				const reselectFor = item.reselectCaseFor;
+				if (item.key === DEVICE_HOME_CRUMB_KEY)
+					return () => setPreviewAtDeviceHome(true);
 				if (reselectFor && moduleUuid) {
 					return () => {
 						setPreviewCaseTarget({ formUuid: reselectFor });
@@ -169,7 +194,13 @@ export function BreadcrumbStrip() {
 				}
 				return () => navigate.push(item.location);
 			}),
-		[effectiveBreadcrumbs, navigate, moduleUuid, setPreviewCaseTarget],
+		[
+			effectiveBreadcrumbs,
+			navigate,
+			moduleUuid,
+			setPreviewAtDeviceHome,
+			setPreviewCaseTarget,
+		],
 	);
 
 	/* Assemble breadcrumb parts: memoized so CollapsibleBreadcrumb's memo
@@ -199,7 +230,9 @@ export function BreadcrumbStrip() {
 				<BuilderPageNavigation
 					hasData={hasData}
 					canGoBack={canGoBack}
-					onBack={() => navigate.back()}
+					onBack={() =>
+						backToDeviceHome ? setPreviewAtDeviceHome(true) : navigate.back()
+					}
 					parts={breadcrumbParts}
 					workerLanguage={previewing ? language : undefined}
 					compactWorkspaceBreadcrumb={compactWorkspaceBreadcrumb}

@@ -37,9 +37,23 @@ export type ViewerPositionStatus =
 	| "unavailable"
 	| "unsupported";
 
-/** A position with the browser's accuracy radius in metres. */
-export interface ViewerFix extends ViewerLocation {
+/** A position with the browser's accuracy radius in metres, `Infinity` when
+ *  it reported none (so the fix never settles a watch). */
+export interface ViewerFix {
+	readonly latitude: number;
+	readonly longitude: number;
+	readonly altitude: number | null;
 	readonly accuracy: number;
+}
+
+/** The location a read sends for a fix: an unreported accuracy reads `0`. */
+function fixLocation(fix: ViewerFix): ViewerLocation {
+	return {
+		latitude: fix.latitude,
+		longitude: fix.longitude,
+		altitude: fix.altitude,
+		accuracy: Number.isFinite(fix.accuracy) ? fix.accuracy : 0,
+	};
 }
 
 export interface ViewerPositionState {
@@ -87,7 +101,7 @@ export function positionReported(
 	state: ViewerPositionState,
 	fix: ViewerFix,
 ): ViewerPositionState {
-	const location = { latitude: fix.latitude, longitude: fix.longitude };
+	const location = fixLocation(fix);
 	if (!shouldReReadForPosition(state.shown, location)) {
 		return { ...state, status: "sharing", latest: fix };
 	}
@@ -134,7 +148,9 @@ export function positionShown(
 	if (
 		state.shown !== undefined &&
 		state.shown.latitude === location.latitude &&
-		state.shown.longitude === location.longitude
+		state.shown.longitude === location.longitude &&
+		state.shown.altitude === location.altitude &&
+		state.shown.accuracy === location.accuracy
 	) {
 		return state;
 	}
@@ -166,9 +182,7 @@ export function createViewerPositionStore(): StoreApi<ViewerPositionStore> {
 		};
 		const latestLocation = (): ViewerLocation | null => {
 			const latest = get().latest;
-			return latest === undefined
-				? null
-				: { latitude: latest.latitude, longitude: latest.longitude };
+			return latest === undefined ? null : fixLocation(latest);
 		};
 		return {
 			...INITIAL_VIEWER_POSITION,

@@ -16,14 +16,17 @@
 import { Icon } from "@iconify/react/offline";
 import tablerEdit from "@iconify-icons/tabler/edit";
 import tablerPlayerPlay from "@iconify-icons/tabler/player-play";
-import { usePreviewModeTransition } from "@/components/builder/usePreviewModeTransition";
+import {
+	type SetPreviewing,
+	usePreviewModeTransition,
+} from "@/components/builder/usePreviewModeTransition";
 import { Button } from "@/components/shadcn/button";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { usePreviewing } from "@/lib/session/hooks";
 
 interface PreviewToggleProps {
 	/** Scroll-anchor-capturing wrapper around the store's `setPreviewing`. */
-	onSetPreviewing: (on: boolean) => void;
+	onSetPreviewing: SetPreviewing;
 }
 
 export function PreviewToggle({ onSetPreviewing }: PreviewToggleProps) {

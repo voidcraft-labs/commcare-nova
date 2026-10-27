@@ -43,7 +43,7 @@ import { toBoolean } from "../xpath/coerce";
 import { evaluate } from "../xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "../xpath/generatedJavaRosaFunctions";
 import type { XPathInstance } from "../xpath/runtimeValues";
-import type { EvalContext } from "../xpath/types";
+import { dayNumberEpochOf, type EvalContext } from "../xpath/types";
 import { expressionReadsCaseDatabase } from "./expressionCaseReads";
 import type { PreviewSearchSessionValues } from "./identity";
 import {
@@ -224,7 +224,7 @@ function conditionVisibility(
 	return toBoolean(
 		evaluate(
 			serializeWire(wire, { target: "preview" }).text,
-			navigationEvalContext(instances),
+			navigationEvalContext(instances, args.session),
 		),
 	)
 		? "shown"
@@ -273,9 +273,11 @@ function lookupInstances(
 }
 
 /** A menu has no form instance and no context node: only the named
- * instances the device holds when it builds the menu. */
+ * instances the device holds when it builds the menu, counting day numbers
+ * from its platform's epoch. */
 function navigationEvalContext(
 	instances: ReadonlyMap<string, XPathInstance>,
+	session: PreviewSearchSessionValues,
 ): EvalContext {
 	return {
 		contextPath: "",
@@ -283,5 +285,6 @@ function navigationEvalContext(
 		getValue: () => undefined,
 		resolveXPathInstance: (instanceId) => instances.get(instanceId),
 		invokeGeneratedFunction: invokeGeneratedJavaRosaFunction,
+		dayNumberEpoch: dayNumberEpochOf(session),
 	};
 }

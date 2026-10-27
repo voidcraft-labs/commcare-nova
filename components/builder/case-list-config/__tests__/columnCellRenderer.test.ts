@@ -171,6 +171,30 @@ describe("case-list Preview cell formatting", () => {
 		it("renders an empty cell when the property holds nothing", () => {
 			expect(linkCell("")).not.toContain("href=");
 		});
+
+		it("shows the column's markdown as written in an Android list, and the filter matches it", () => {
+			const column = linkColumn(
+				COLUMN_UUID,
+				"photo_url",
+				"Photo",
+				"View photo",
+			);
+			const android: ColumnDisplayContext = {
+				...EMPTY_CONTEXT,
+				linkColumnInList: "raw-text",
+			};
+			const row = makeRow({ photo_url: "https://example.org/x" });
+			const html = renderToStaticMarkup(renderColumnCell(column, row, android));
+			expect(html).not.toContain("href=");
+			expect(visibleText(html)).toBe("[View photo](https://example.org/x)");
+			expect(rowMatchesFilterText([column], row, "example.org", android)).toBe(
+				true,
+			);
+			/* Blank in, blank out, as the column's display expression gives. */
+			expect(
+				projectColumnDisplay(column, makeRow({ photo_url: "" }), android),
+			).toEqual({ kind: "value", text: "" });
+		});
 	});
 
 	it.each(["not an address", "javascript:alert(1)", "   "])(

@@ -35,7 +35,7 @@ import {
 	type ControllerDocSource,
 	type ControllerFieldSource,
 } from "./fixtures/controllerDoc";
-
+import { androidDevice } from "./fixtures/previewDevices";
 import { sectionEntryDoc } from "./fixtures/sectionEntry";
 
 const controllers = new Set<EngineController>();
@@ -1414,6 +1414,7 @@ it("keeps pending page snapshots reachable after an authored section rename", as
 		new XPathRuntime({ workerFactory: createInProcessXPathWorkerFactory() }),
 	);
 	ctrl.setDocStore(store);
+	ctrl.setPreviewDevice(androidDevice());
 	await ctrl.activateFormAsync(formUuid);
 	await ctrl.setValueAtAsync("/data/first/zone", "south");
 	applyControllerEdit(store, [
@@ -1470,6 +1471,7 @@ it.each([false, true])(
 				: undefined,
 		);
 		ctrl.setDocStore(store);
+		ctrl.setPreviewDevice(androidDevice());
 		await ctrl.activateFormAsync(form);
 		await ctrl.setValueAtAsync("/data/first/zone", "south");
 		await ctrl.enterSectionAsync(second.uuid);
@@ -1601,6 +1603,7 @@ it.each([false, true])(
 			data_source: { ids_query: "if(#user/username = '', '', 'round')" },
 		};
 		const ctrl = controllerForDoc(doc);
+		ctrl.setPreviewDevice(androidDevice());
 		await ctrl.activateFormAsync(form);
 		if (visited) await ctrl.enterSectionAsync(second.uuid);
 		ctrl.setPreviewIdentity(
@@ -1748,8 +1751,41 @@ it.each([false, true])(
 		await ctrl.awaitSettled();
 		expect(ctrl.entryKey).toBe(entry);
 		expect(ctrl.formUuid).toBe(form);
-		expect(ctrl.sectionPages()).toHaveLength(1);
+		expect(ctrl.sectionScreens()).toHaveLength(1);
 		expect(ctrl.entryStore.getState().fault).toBeUndefined();
 		expect(await ctrl.validateAllAsync()).toEqual({ kind: "valid" });
+	},
+);
+
+it.each([false, true])(
+	"rebuilds an entry begun on the controller's own install id when the session's Android device arrives (worker=%s)",
+	async (worker) => {
+		const doc = docWith({
+			uuid: FIELD_UUID,
+			id: "device",
+			kind: "hidden",
+			calculate: "instance('commcaresession')/session/context/deviceid",
+		});
+		doc.appSettings = { ...doc.appSettings, runsOnlyOn: "android" };
+		const store = createBlueprintDocStore();
+		store.getState().load(admittedControllerDoc(doc));
+		store.getState().startTracking();
+		const ctrl = ownedController(
+			worker
+				? new XPathRuntime({
+						workerFactory: createInProcessXPathWorkerFactory(),
+					})
+				: undefined,
+		);
+		ctrl.setDocStore(store);
+		if (worker) await ctrl.activateFormAsync(FORM_UUID);
+		else ctrl.activateForm(FORM_UUID);
+		const before = ctrl.store.getState()[FIELD_UUID]?.value;
+		expect(before).toMatch(/^commcare_/);
+		ctrl.setPreviewDevice(androidDevice());
+		await ctrl.awaitSettled();
+		expect(ctrl.store.getState()[FIELD_UUID]?.value).toBe(
+			`commcare_${androidDevice().androidDeviceId}`,
+		);
 	},
 );

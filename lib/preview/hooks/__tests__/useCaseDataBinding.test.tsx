@@ -12,6 +12,7 @@ import {
 	ReconcilerContext,
 	type ReconcilerContextValue,
 } from "@/lib/collab/context";
+import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { BlueprintDoc, CaseListConfig, CaseType } from "@/lib/domain";
 import { literal, matchAll, term } from "@/lib/domain/expression";
 import type {
@@ -53,6 +54,11 @@ import {
 } from "../useCaseDataBinding";
 
 const APP_ID = "app-hook-test";
+
+/** The document the running Preview reads its platform and language from. */
+function Doc({ children }: { children: ReactNode }) {
+	return <BlueprintDocProvider appId={APP_ID}>{children}</BlueprintDocProvider>;
+}
 
 /** The live `CaseType` definition the hook forwards verbatim to the
  *  action — the hook never reads its shape, so an empty-property literal
@@ -132,7 +138,9 @@ describe("useResetSampleCases", () => {
 		const store = createBuilderSessionStore({ appId: APP_ID });
 		store.getState().setPreviewPersonaUuid(personaUuid);
 		const wrapper = ({ children }: { children: ReactNode }) => (
-			<BuilderSessionContext value={store}>{children}</BuilderSessionContext>
+			<BuilderSessionContext value={store}>
+				<Doc>{children}</Doc>
+			</BuilderSessionContext>
 		);
 		const { result } = renderHook(
 			() => useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
@@ -156,7 +164,9 @@ describe("useResetSampleCases", () => {
 		store.getState().setPreviewing(true);
 		store.getState().setPreviewPersonaUuid("persona-asha");
 		const wrapper = ({ children }: { children: ReactNode }) => (
-			<BuilderSessionContext value={store}>{children}</BuilderSessionContext>
+			<BuilderSessionContext value={store}>
+				<Doc>{children}</Doc>
+			</BuilderSessionContext>
 		);
 		const { result } = renderHook(
 			() => useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
@@ -178,16 +188,19 @@ describe("useResetSampleCases", () => {
 			kind: "ok",
 			inserted: 30,
 		});
-		const revision = renderHook(() =>
-			useCaseDataRevision(APP_ID, PATIENT.name),
+		const revision = renderHook(
+			() => useCaseDataRevision(APP_ID, PATIENT.name),
+			{ wrapper: Doc },
 		);
 		const before = revision.result.current;
-		const replacementRevision = renderHook(() =>
-			useCaseDataReplacementRevision(APP_ID, PATIENT.name),
+		const replacementRevision = renderHook(
+			() => useCaseDataReplacementRevision(APP_ID, PATIENT.name),
+			{ wrapper: Doc },
 		);
 		const replacementBefore = replacementRevision.result.current;
-		const reset = renderHook(() =>
-			useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
+		const reset = renderHook(
+			() => useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
+			{ wrapper: Doc },
 		);
 
 		await act(async () => {
@@ -216,7 +229,9 @@ describe("useCases query constraints", () => {
 			);
 		const store = createBuilderSessionStore({ appId: APP_ID });
 		const wrapper = ({ children }: { children: ReactNode }) => (
-			<BuilderSessionContext value={store}>{children}</BuilderSessionContext>
+			<BuilderSessionContext value={store}>
+				<Doc>{children}</Doc>
+			</BuilderSessionContext>
 		);
 		const hook = renderHook(
 			() => useCases({ appId: APP_ID, caseType: PATIENT.name }),
@@ -309,8 +324,9 @@ describe("useCases query constraints", () => {
 				}),
 			);
 		let page = { offset: 0, limit: 50 };
-		const hook = renderHook(() =>
-			useCases({ appId: APP_ID, caseType: PATIENT.name, page }),
+		const hook = renderHook(
+			() => useCases({ appId: APP_ID, caseType: PATIENT.name, page }),
+			{ wrapper: Doc },
 		);
 
 		await waitFor(() => expect(hook.result.current.state.kind).toBe("rows"));
@@ -352,8 +368,9 @@ describe("useCases query constraints", () => {
 		const consoleError = vi.spyOn(console, "error");
 		let page: { offset: number; limit: number } | undefined;
 		try {
-			const hook = renderHook(() =>
-				useCases({ appId: APP_ID, caseType: PATIENT.name, page }),
+			const hook = renderHook(
+				() => useCases({ appId: APP_ID, caseType: PATIENT.name, page }),
+				{ wrapper: Doc },
 			);
 			await waitFor(() => expect(hook.result.current.state.kind).toBe("empty"));
 
@@ -387,16 +404,18 @@ describe("useCases query constraints", () => {
 		let excludedOwnerIdsExpression: ReturnType<typeof term> | undefined;
 		let caseTypes: readonly CaseType[] | undefined;
 		try {
-			const hook = renderHook(() =>
-				useCases({
-					appId: APP_ID,
-					caseType: PATIENT.name,
-					blueprint,
-					moduleUuid,
-					caseListConfig,
-					excludedOwnerIdsExpression,
-					caseTypes,
-				}),
+			const hook = renderHook(
+				() =>
+					useCases({
+						appId: APP_ID,
+						caseType: PATIENT.name,
+						blueprint,
+						moduleUuid,
+						caseListConfig,
+						excludedOwnerIdsExpression,
+						caseTypes,
+					}),
+				{ wrapper: Doc },
 			);
 			await waitFor(() => expect(loadCasesAction).toHaveBeenCalledTimes(1));
 
@@ -451,12 +470,14 @@ describe("useCases query constraints", () => {
 			kind: "empty",
 			constraintSource: "unconstrained",
 		});
-		const hook = renderHook(() =>
-			useCases({
-				appId: APP_ID,
-				caseType: PATIENT.name,
-				page: { offset: 0, limit: 50 },
-			}),
+		const hook = renderHook(
+			() =>
+				useCases({
+					appId: APP_ID,
+					caseType: PATIENT.name,
+					page: { offset: 0, limit: 50 },
+				}),
+			{ wrapper: Doc },
 		);
 
 		await waitFor(() => expect(hook.result.current.state.kind).toBe("empty"));
@@ -481,7 +502,7 @@ describe("useCases query constraints", () => {
 				}),
 			);
 		let identity = { appId: APP_ID, caseType: PATIENT.name };
-		const hook = renderHook(() => useCases(identity));
+		const hook = renderHook(() => useCases(identity), { wrapper: Doc });
 
 		await waitFor(() => expect(hook.result.current.state.kind).toBe("rows"));
 		identity = { appId: "other-app", caseType: "visit" };
@@ -512,12 +533,14 @@ describe("useCases query constraints", () => {
 				}),
 			);
 		let requestScopeKey = "module-a";
-		const hook = renderHook(() =>
-			useCases({
-				appId: APP_ID,
-				caseType: PATIENT.name,
-				requestScopeKey,
-			}),
+		const hook = renderHook(
+			() =>
+				useCases({
+					appId: APP_ID,
+					caseType: PATIENT.name,
+					requestScopeKey,
+				}),
+			{ wrapper: Doc },
 		);
 
 		await waitFor(() => expect(hook.result.current.state.kind).toBe("rows"));
@@ -546,12 +569,14 @@ describe("useCases query constraints", () => {
 					resolveNext = resolve;
 				}),
 			);
-		const hook = renderHook(() =>
-			useCases({
-				appId: APP_ID,
-				caseType: PATIENT.name,
-				requestScopeKey: "module-a",
-			}),
+		const hook = renderHook(
+			() =>
+				useCases({
+					appId: APP_ID,
+					caseType: PATIENT.name,
+					requestScopeKey: "module-a",
+				}),
+			{ wrapper: Doc },
 		);
 
 		await waitFor(() => expect(hook.result.current.state.kind).toBe("rows"));
@@ -579,7 +604,7 @@ describe("useCaseCount request identity", () => {
 			return ({ children }: { children: ReactNode }) => (
 				<BuilderSessionContext value={session}>
 					<ReconcilerContext value={scopeContext(projectScopeId)}>
-						{children}
+						<Doc>{children}</Doc>
 					</ReconcilerContext>
 				</BuilderSessionContext>
 			);
@@ -621,7 +646,9 @@ describe("useCaseCount request identity", () => {
 				}),
 			);
 		let caseType = PATIENT.name;
-		const hook = renderHook(() => useCaseCount({ appId: APP_ID, caseType }));
+		const hook = renderHook(() => useCaseCount({ appId: APP_ID, caseType }), {
+			wrapper: Doc,
+		});
 
 		await waitFor(() =>
 			expect(hook.result.current.state).toEqual({ kind: "count", count: 30 }),
@@ -646,8 +673,9 @@ describe("useCaseCount request identity", () => {
 			caseType: "household",
 			caseIds: ["household-a", "household-b"],
 		};
-		const hook = renderHook(() =>
-			useCaseCount({ appId: APP_ID, caseType: "visit", parentCase }),
+		const hook = renderHook(
+			() => useCaseCount({ appId: APP_ID, caseType: "visit", parentCase }),
+			{ wrapper: Doc },
 		);
 
 		await waitFor(() => expect(loadCaseCountAction).toHaveBeenCalledTimes(1));
@@ -691,7 +719,9 @@ describe("case-data invalidation", () => {
 			);
 		const store = createBuilderSessionStore({ appId: APP_ID });
 		const wrapper = ({ children }: { children: ReactNode }) => (
-			<BuilderSessionContext value={store}>{children}</BuilderSessionContext>
+			<BuilderSessionContext value={store}>
+				<Doc>{children}</Doc>
+			</BuilderSessionContext>
 		);
 		const selected = renderHook(
 			() =>
@@ -750,13 +780,15 @@ describe("case-data invalidation", () => {
 					resolveReload = resolve;
 				}),
 			);
-		const selected = renderHook(() =>
-			useCaseData({
-				appId: APP_ID,
-				caseType: PATIENT.name,
-				caseId: "case-1",
-				ancestorDepth: 0,
-			}),
+		const selected = renderHook(
+			() =>
+				useCaseData({
+					appId: APP_ID,
+					caseType: PATIENT.name,
+					caseId: "case-1",
+					ancestorDepth: 0,
+				}),
+			{ wrapper: Doc },
 		);
 
 		await waitFor(() => expect(selected.result.current.state.kind).toBe("row"));
@@ -782,19 +814,23 @@ describe("case-data invalidation", () => {
 		});
 		vi.mocked(loadCaseDataAction).mockResolvedValue({ kind: "missing" });
 
-		const countHook = renderHook(() =>
-			useCaseCount({ appId: APP_ID, caseType: PATIENT.name }),
+		const countHook = renderHook(
+			() => useCaseCount({ appId: APP_ID, caseType: PATIENT.name }),
+			{ wrapper: Doc },
 		);
-		const casesHook = renderHook(() =>
-			useCases({ appId: APP_ID, caseType: PATIENT.name }),
+		const casesHook = renderHook(
+			() => useCases({ appId: APP_ID, caseType: PATIENT.name }),
+			{ wrapper: Doc },
 		);
-		const caseHook = renderHook(() =>
-			useCaseData({
-				appId: APP_ID,
-				caseType: PATIENT.name,
-				caseId: "case-1",
-				ancestorDepth: 0,
-			}),
+		const caseHook = renderHook(
+			() =>
+				useCaseData({
+					appId: APP_ID,
+					caseType: PATIENT.name,
+					caseId: "case-1",
+					ancestorDepth: 0,
+				}),
+			{ wrapper: Doc },
 		);
 
 		await waitFor(() => {
@@ -826,7 +862,9 @@ describe("case-data invalidation", () => {
 			kind: "count",
 			count: 2,
 		});
-		renderHook(() => useCaseCount({ appId: APP_ID, caseType: "visit" }));
+		renderHook(() => useCaseCount({ appId: APP_ID, caseType: "visit" }), {
+			wrapper: Doc,
+		});
 		await waitFor(() => expect(loadCaseCountAction).toHaveBeenCalledTimes(1));
 
 		act(() => invalidateCaseData(APP_ID, PATIENT.name));
@@ -847,11 +885,13 @@ describe("case resource completion and invalidation ownership", () => {
 				}),
 			)
 			.mockResolvedValueOnce({ kind: "count", count: 8 });
-		const first = renderHook(() =>
-			useCaseCount({ appId: APP_ID, caseType: PATIENT.name }),
+		const first = renderHook(
+			() => useCaseCount({ appId: APP_ID, caseType: PATIENT.name }),
+			{ wrapper: Doc },
 		);
-		const second = renderHook(() =>
-			useCaseCount({ appId: APP_ID, caseType: PATIENT.name }),
+		const second = renderHook(
+			() => useCaseCount({ appId: APP_ID, caseType: PATIENT.name }),
+			{ wrapper: Doc },
 		);
 		expect(loadCaseCountAction).toHaveBeenCalledTimes(1);
 		await act(async () => {
@@ -878,8 +918,9 @@ describe("case resource completion and invalidation ownership", () => {
 					finish = resolve;
 				}),
 			);
-		const h = renderHook(() =>
-			useCases({ appId: APP_ID, caseType: PATIENT.name }),
+		const h = renderHook(
+			() => useCases({ appId: APP_ID, caseType: PATIENT.name }),
+			{ wrapper: Doc },
 		);
 		await waitFor(() => expect(h.result.current.state.kind).toBe("rows"));
 		let pending: Promise<void> | undefined;
@@ -918,7 +959,9 @@ describe("case resource completion and invalidation ownership", () => {
 			);
 		const store = createBuilderSessionStore({ appId: APP_ID });
 		const wrapper = ({ children }: { children: ReactNode }) => (
-			<BuilderSessionContext value={store}>{children}</BuilderSessionContext>
+			<BuilderSessionContext value={store}>
+				<Doc>{children}</Doc>
+			</BuilderSessionContext>
 		);
 		const h = renderHook(
 			() => useCases({ appId: APP_ID, caseType: PATIENT.name, search: true }),
@@ -960,7 +1003,9 @@ describe("case resource completion and invalidation ownership", () => {
 			canEdit: true,
 		});
 		const wrapper = ({ children }: { children: ReactNode }) => (
-			<BuilderSessionContext value={session}>{children}</BuilderSessionContext>
+			<BuilderSessionContext value={session}>
+				<Doc>{children}</Doc>
+			</BuilderSessionContext>
 		);
 		const h = renderHook(
 			() => ({

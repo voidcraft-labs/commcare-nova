@@ -151,6 +151,11 @@ export function projectFormPresentation(
 	options: {
 		language?: LanguageTag;
 		currentSectionUuid?: Uuid;
+		/** The current screen's path (`FormScreenPage.path`) where the form is
+		 *  not paged by section: `/data` for Web Apps' one screen, a group's or
+		 *  a question's path on Android. A field is on the current page when
+		 *  it is the screen, inside it, or a container holding it. */
+		currentScreenPath?: string;
 		availableSectionUuids?: ReadonlySet<Uuid>;
 		text(prose: ProseTemplate): string;
 	},
@@ -190,7 +195,16 @@ export function projectFormPresentation(
 			const path = `${parentPath}/${field.id}`;
 			const state = source.stateAt(field, path);
 			const section = field.kind === "section" ? field.uuid : sectionUuid;
-			const onCurrentPage = section === options.currentSectionUuid;
+			const screenPath = options.currentScreenPath;
+			const onCurrentPage =
+				screenPath === undefined
+					? section === options.currentSectionUuid
+					: screenPath === "/data" ||
+						path === screenPath ||
+						path.startsWith(`${screenPath}/`) ||
+						path.startsWith(`${screenPath}[`) ||
+						screenPath.startsWith(`${path}/`) ||
+						screenPath.startsWith(`${path}[`);
 			const visible =
 				ancestorVisible &&
 				(field.kind !== "section" ||

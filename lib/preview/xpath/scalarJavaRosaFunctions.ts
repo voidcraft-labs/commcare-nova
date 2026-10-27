@@ -1,4 +1,5 @@
 import { toBoolean, toNumber, xpathToString } from "./coerce";
+import type { DayNumberEpoch } from "./coreDays";
 import { javaBmpDecimalDigit } from "./javaInteger";
 import { javaRosaJsonStringProperty } from "./javaRosaJson";
 import { javaRosaSplitOnSpaces, javaTrim } from "./javaString";
@@ -9,10 +10,11 @@ import {
 
 export type ScalarJavaRosaFunction = (
 	args: readonly XPathRuntimeValue[],
+	epoch: DayNumberEpoch,
 ) => XPathRuntimeValue;
 
-function javaInt32(value: XPathRuntimeValue): number {
-	const number = toNumber(value);
+function javaInt32(value: XPathRuntimeValue, epoch: DayNumberEpoch): number {
+	const number = toNumber(value, epoch);
 	if (Number.isNaN(number)) return 0;
 	if (number >= 2_147_483_647) return 2_147_483_647;
 	if (number <= -2_147_483_648) return -2_147_483_648;
@@ -50,28 +52,37 @@ function cryptoBase36(length: number): string {
 	return result;
 }
 
-function checklist(args: readonly XPathRuntimeValue[]): boolean {
-	const min = javaInt32(args[0] ?? Number.NaN);
-	const max = javaInt32(args[1] ?? Number.NaN);
+function checklist(
+	args: readonly XPathRuntimeValue[],
+	epoch: DayNumberEpoch,
+): boolean {
+	const min = javaInt32(args[0] ?? Number.NaN, epoch);
+	const max = javaInt32(args[1] ?? Number.NaN, epoch);
 	const count = args.slice(2).filter(toBoolean).length;
 	return (min < 0 || count >= min) && (max < 0 || count <= max);
 }
 
-function weightedChecklist(args: readonly XPathRuntimeValue[]): boolean {
-	const min = toNumber(args[0] ?? Number.NaN);
-	const max = toNumber(args[1] ?? Number.NaN);
+function weightedChecklist(
+	args: readonly XPathRuntimeValue[],
+	epoch: DayNumberEpoch,
+): boolean {
+	const min = toNumber(args[0] ?? Number.NaN, epoch);
+	const max = toNumber(args[1] ?? Number.NaN, epoch);
 	let sum = 0;
 	for (let index = 2; index < args.length; index += 2) {
 		if (toBoolean(args[index] ?? "")) {
-			sum += toNumber(args[index + 1] ?? Number.NaN);
+			sum += toNumber(args[index + 1] ?? Number.NaN, epoch);
 		}
 	}
 	return sum >= min && sum <= max;
 }
 
-function joinChunked(args: readonly XPathRuntimeValue[]): string {
+function joinChunked(
+	args: readonly XPathRuntimeValue[],
+	epoch: DayNumberEpoch,
+): string {
 	const separator = xpathToString(args[0] ?? "");
-	const chunkSize = javaInt32(args[1] ?? Number.NaN);
+	const chunkSize = javaInt32(args[1] ?? Number.NaN, epoch);
 	const input = args
 		.slice(2)
 		.map((value) => xpathToString(value))
@@ -140,12 +151,15 @@ function checksum(args: readonly XPathRuntimeValue[]): string {
 	return String(VERHOEFF_INVERSE[check] ?? 0);
 }
 
-function idCompress(args: readonly XPathRuntimeValue[]): string {
-	let input = javaInt32(args[0] ?? Number.NaN);
+function idCompress(
+	args: readonly XPathRuntimeValue[],
+	epoch: DayNumberEpoch,
+): string {
+	let input = javaInt32(args[0] ?? Number.NaN, epoch);
 	const growth = xpathToString(args[1] ?? "");
 	const lead = xpathToString(args[2] ?? "");
 	const body = xpathToString(args[3] ?? "");
-	const bodyCount = javaInt32(args[4] ?? Number.NaN);
+	const bodyCount = javaInt32(args[4] ?? Number.NaN, epoch);
 	if (input < 0 || bodyCount < 0) {
 		throw new Error(
 			"ID compression requires a nonnegative input and body digit count.",
@@ -249,22 +263,25 @@ export const scalarJavaRosaFunctions: ReadonlyMap<
 			return value.toLowerCase() === "true" || value === "1";
 		},
 	],
-	["log", (args) => Math.log(toNumber(args[0] ?? Number.NaN))],
-	["log10", (args) => Math.log10(toNumber(args[0] ?? Number.NaN))],
-	["sqrt", (args) => Math.sqrt(toNumber(args[0] ?? Number.NaN))],
-	["exp", (args) => Math.exp(toNumber(args[0] ?? Number.NaN))],
-	["sin", (args) => Math.sin(toNumber(args[0] ?? Number.NaN))],
-	["cos", (args) => Math.cos(toNumber(args[0] ?? Number.NaN))],
-	["tan", (args) => Math.tan(toNumber(args[0] ?? Number.NaN))],
-	["asin", (args) => Math.asin(toNumber(args[0] ?? Number.NaN))],
-	["acos", (args) => Math.acos(toNumber(args[0] ?? Number.NaN))],
-	["atan", (args) => Math.atan(toNumber(args[0] ?? Number.NaN))],
+	["log", (args, epoch) => Math.log(toNumber(args[0] ?? Number.NaN, epoch))],
+	[
+		"log10",
+		(args, epoch) => Math.log10(toNumber(args[0] ?? Number.NaN, epoch)),
+	],
+	["sqrt", (args, epoch) => Math.sqrt(toNumber(args[0] ?? Number.NaN, epoch))],
+	["exp", (args, epoch) => Math.exp(toNumber(args[0] ?? Number.NaN, epoch))],
+	["sin", (args, epoch) => Math.sin(toNumber(args[0] ?? Number.NaN, epoch))],
+	["cos", (args, epoch) => Math.cos(toNumber(args[0] ?? Number.NaN, epoch))],
+	["tan", (args, epoch) => Math.tan(toNumber(args[0] ?? Number.NaN, epoch))],
+	["asin", (args, epoch) => Math.asin(toNumber(args[0] ?? Number.NaN, epoch))],
+	["acos", (args, epoch) => Math.acos(toNumber(args[0] ?? Number.NaN, epoch))],
+	["atan", (args, epoch) => Math.atan(toNumber(args[0] ?? Number.NaN, epoch))],
 	[
 		"atan2",
-		(args) =>
+		(args, epoch) =>
 			Math.atan2(
-				toNumber(args[0] ?? Number.NaN),
-				toNumber(args[1] ?? Number.NaN),
+				toNumber(args[0] ?? Number.NaN, epoch),
+				toNumber(args[1] ?? Number.NaN, epoch),
 			),
 	],
 	["upper-case", (args) => xpathToString(args[0] ?? "").toLocaleUpperCase()],
@@ -306,10 +323,10 @@ export const scalarJavaRosaFunctions: ReadonlyMap<
 	["random", () => cryptoRandomDouble()],
 	[
 		"uuid",
-		(args) =>
+		(args, epoch) =>
 			args.length === 0
 				? globalThis.crypto.randomUUID()
-				: cryptoBase36(javaInt32(args[0] ?? Number.NaN)),
+				: cryptoBase36(javaInt32(args[0] ?? Number.NaN, epoch)),
 	],
 	["checklist", checklist],
 	["weighted-checklist", weightedChecklist],

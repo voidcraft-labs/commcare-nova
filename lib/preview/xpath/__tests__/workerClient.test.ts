@@ -99,6 +99,7 @@ function request(
 	overrides: Partial<XPathRuntimeRequest> = {},
 ): XPathRuntimeRequest {
 	return {
+		dayNumberEpoch: "device-zone",
 		entryKey: "entry-a",
 		revision: 1,
 		profile: "form",

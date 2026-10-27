@@ -142,6 +142,7 @@ function worker(engine: FormEngine) {
 		stateOverrides?: Parameters<FormEngineAsyncEvaluator>[3],
 	) => {
 		const result = await runtime.request({
+			dayNumberEpoch: "device-zone",
 			entryKey: "constraint-message-entry",
 			revision: 0,
 			profile: "form",

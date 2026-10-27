@@ -128,7 +128,7 @@ async function searched(
 	const step = caseListStepSession(doc, moduleUuid, {
 		menuSelections: choosingNorth,
 		caseDatabase: device,
-		identity: SESSION,
+		session: SESSION,
 	});
 	const wire = await evaluateSearchCsqlRuntime(
 		{
@@ -237,7 +237,7 @@ describe("a search's runtime values in Preview", () => {
 			caseListStepSession(doc, moduleNamed(doc, "Members by village"), {
 				menuSelections: choosingNorth,
 				caseDatabase: device,
-				identity: SESSION,
+				session: SESSION,
 			}).chosenCaseIds,
 		).toEqual({ [households]: NORTH });
 	});
@@ -796,7 +796,7 @@ describe("a form's display condition after a parent menu's choice", () => {
 					caseListStepSession(doc, members, {
 						menuSelections: choosingNorth,
 						caseDatabase: device,
-						identity: SESSION,
+						session: SESSION,
 					}).data,
 				),
 				deviceCases: {

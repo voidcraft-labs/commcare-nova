@@ -9,9 +9,19 @@ import {
 } from "../viewerPosition";
 
 /* About 11 metres of latitude per 1e-4 degrees at the equator. */
-const HERE = { latitude: 0, longitude: 0, accuracy: 2000 };
-const TEN_METRES = { latitude: 0.00009, longitude: 0, accuracy: 2000 };
-const FORTY_METRES = { latitude: 0.00036, longitude: 0, accuracy: 2000 };
+const HERE = { latitude: 0, longitude: 0, altitude: null, accuracy: 2000 };
+const TEN_METRES = {
+	latitude: 0.00009,
+	longitude: 0,
+	altitude: null,
+	accuracy: 2000,
+};
+const FORTY_METRES = {
+	latitude: 0.00036,
+	longitude: 0,
+	altitude: null,
+	accuracy: 2000,
+};
 
 describe("viewer position", () => {
 	it("asks the browser once, then lets a list watch only when that can help", () => {
@@ -54,10 +64,20 @@ describe("viewer position", () => {
 		const near = positionReported(first, TEN_METRES);
 		expect(near.moves).toBe(1);
 		expect(near.latest).toBe(TEN_METRES);
-		expect(near.shown).toEqual({ latitude: 0, longitude: 0 });
+		expect(near.shown).toEqual({
+			latitude: 0,
+			longitude: 0,
+			altitude: null,
+			accuracy: 2000,
+		});
 		const far = positionReported(near, FORTY_METRES);
 		expect(far.moves).toBe(2);
-		expect(far.shown).toEqual({ latitude: 0.00036, longitude: 0 });
+		expect(far.shown).toEqual({
+			latitude: 0.00036,
+			longitude: 0,
+			altitude: null,
+			accuracy: 2000,
+		});
 	});
 
 	it("forgets every position on a refusal and re-reads a list that showed one", () => {
@@ -93,16 +113,22 @@ describe("viewer position", () => {
 		expect(store.getState().takeForListRead()).toEqual({
 			latitude: 0.00009,
 			longitude: 0,
+			altitude: null,
+			accuracy: 2000,
 		});
 		expect(store.getState().shown).toEqual({
 			latitude: 0.00009,
 			longitude: 0,
+			altitude: null,
+			accuracy: 2000,
 		});
 		/* Recording what a read showed is not a move. */
 		expect(store.getState().moves).toBe(1);
 		expect(store.getState().latestLocation()).toEqual({
 			latitude: 0.00009,
 			longitude: 0,
+			altitude: null,
+			accuracy: 2000,
 		});
 	});
 });

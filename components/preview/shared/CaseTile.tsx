@@ -23,6 +23,7 @@ import {
 } from "@/lib/preview/caseTileRendering";
 import type { ColumnDisplayContext } from "@/lib/preview/columnDisplay";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
+import { usePreviewPlatformRules } from "@/lib/session/hooks";
 
 /**
  * Where the tile is drawn. The geometry is identical either way; the
@@ -70,6 +71,7 @@ export function CaseTile({
 	surface,
 	className,
 }: CaseTileProps) {
+	const platformRules = usePreviewPlatformRules();
 	const byUuid = new Map<string, TileResultsColumn>(
 		columns.map((entry) => [entry.column.uuid, entry]),
 	);
@@ -86,7 +88,7 @@ export function CaseTile({
 			{projection.cells.map((cell) => {
 				const entry = byUuid.get(cell.columnUuid);
 				if (entry === undefined) return null;
-				const plan = planTileCell(cell);
+				const plan = planTileCell(cell, platformRules);
 				const label = caseColumnLabel(
 					entry.column,
 					caseProperties,

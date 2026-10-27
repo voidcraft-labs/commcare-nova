@@ -20,6 +20,7 @@ const args = {
 	fieldUuid: "field",
 	instancePath: "/data/photo",
 	file,
+	platform: "web-apps" as const,
 };
 const initiation = {
 	attachmentId: "attachment/name",
@@ -167,6 +168,10 @@ describe("attachment HTTP transport", () => {
 						instancePath: "/data/photo",
 						filename: file.name,
 						sizeBytes: 3,
+						/* The platform decides the size limit and which files the
+						 * question accepts; the type travels without parameters. */
+						platform: "web-apps",
+						contentType: "image/png",
 					});
 					expect(requests[1]).toMatchObject({
 						contentType: "image/png",

@@ -15,6 +15,7 @@ import {
 	prop,
 	term,
 } from "@/lib/domain/expression/builders";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { previewAsMe } from "../../engine/identity";
 import { SEARCH_CSQL_UNEVALUATED_MESSAGE } from "../../engine/searchCsqlRuntime";
 import {
@@ -86,6 +87,7 @@ it("refuses a search whose row the server can't work out, as the browser does", 
 	if (identity === null) throw new Error("The fixture has no worker.");
 	const outcome = await serverRecordsRead(
 		{
+			device: webAppsDevice(),
 			doc: { ...doc, caseTypes: doc.caseTypes ?? [] },
 			language: "eng",
 			appId: "app",

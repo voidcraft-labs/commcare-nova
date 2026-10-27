@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { SearchInputDef } from "@/lib/domain";
+import { PLATFORMS } from "@/lib/domain/platforms";
 import type { PreviewSearchSessionValues } from "../engine/identity";
 import type { SearchInputValues } from "../engine/runtimeBindings";
 import type { PreviewSearchEnvironment } from "../engine/searchExpressionEvaluation";
@@ -14,6 +15,11 @@ import {
 	restoreSearchRun,
 	withHiddenValues,
 } from "../engine/searchRunState";
+import {
+	effectivePreviewPlatform,
+	type PreviewPlatformRules,
+	previewPlatformRules,
+} from "../platform";
 
 export interface SearchInputRunState {
 	readonly draft: SearchInputValues;
@@ -37,7 +43,27 @@ export interface SearchInputRunState {
 	 *  them, so a `now()` search time is the time of that search. */
 	readonly restore: (values: SearchInputValues) => void;
 	readonly clear: () => void;
+	/** The fields the Search screen draws, in order: every visible input,
+	 *  and on Android every hidden input too, which a phone shows as an
+	 *  ordinary field holding its starting value (manifest
+	 *  `case-search/hidden-exclude-with-a-default-value-on-a-prompt-with-no-itemset`). */
+	readonly drawnInputs: readonly SearchInputDef[];
 }
+
+/** The inputs a Search screen draws on a platform: Web Apps hides a hidden
+ *  input; Android draws it as an editable field holding its value. */
+export function drawnSearchInputs(
+	searchInputs: readonly SearchInputDef[],
+	rules: Pick<PreviewPlatformRules, "hiddenSearchFieldWithDefault">,
+): readonly SearchInputDef[] {
+	return rules.hiddenSearchFieldWithDefault === "editable"
+		? searchInputs
+		: searchInputs.filter((input) => input.kind !== "hidden");
+}
+
+const DEFAULT_RULES = previewPlatformRules(
+	effectivePreviewPlatform(PLATFORMS, undefined),
+);
 
 /** React owns subscription timing; searchRunState owns the search commands. */
 export function useSearchInputRunState(args: {
@@ -45,6 +71,8 @@ export function useSearchInputRunState(args: {
 	readonly searchInputs: readonly SearchInputDef[];
 	readonly session: PreviewSearchSessionValues;
 	readonly environment: PreviewSearchEnvironment;
+	/** The platform Preview plays; defaults to an app's default platform. */
+	readonly rules?: Pick<PreviewPlatformRules, "hiddenSearchFieldWithDefault">;
 }): SearchInputRunState {
 	const desired = useMemo(
 		() =>
@@ -85,5 +113,9 @@ export function useSearchInputRunState(args: {
 		restore: (values) =>
 			setStored((previous) => restoreSearchRun(previous, desired, values)),
 		clear: () => setStored((previous) => clearSearchRun(previous, desired)),
+		drawnInputs: drawnSearchInputs(
+			args.searchInputs,
+			args.rules ?? DEFAULT_RULES,
+		),
 	};
 }

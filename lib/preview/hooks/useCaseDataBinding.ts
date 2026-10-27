@@ -52,6 +52,10 @@ import type {
 	SetParkedValuesDismissedResult,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
+	previewDeviceKey,
+	withNavigationWidth,
+} from "@/lib/preview/engine/previewDevice";
+import {
 	type SearchInputValues,
 	searchInputValuesToWire,
 } from "@/lib/preview/engine/runtimeBindings";
@@ -67,6 +71,7 @@ import { useViewerPositionMoves } from "@/lib/preview/hooks/useViewerPosition";
 import {
 	useAccessPhase,
 	usePreviewClaimedCaseIds,
+	usePreviewDevice,
 	usePreviewPersonaUuid,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
@@ -261,6 +266,10 @@ export function useCases(args: {
 	 * so it must re-fire the load, not reuse another worker's rows. */
 	const personaUuid = usePreviewPersonaUuid();
 	const claimedCaseIds = usePreviewClaimedCaseIds(personaUuid);
+	/* The device Preview runs on: its platform's search checks, tile
+	 * grouping and session values decide what the read returns. */
+	const device = usePreviewDevice();
+	const deviceKey = previewDeviceKey(device);
 	const readsHere = columnsReadHere(caseListConfig, "list");
 	const positionMoves = useViewerPositionMoves();
 	const positionKey = readsHere ? positionMoves : "no-position";
@@ -272,7 +281,7 @@ export function useCases(args: {
 	 * claim is no such boundary: it only adds a case the device holds, so it
 	 * re-reads through the reload token and the settled rows stay on screen. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}\u0000${search}\u0000${deviceKey}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -357,6 +366,7 @@ export function useCases(args: {
 								viewerLocation: readsHere
 									? viewerPositionStore.getState().takeForListRead()
 									: null,
+								device: withNavigationWidth(device),
 							}),
 						}),
 					},
@@ -677,6 +687,8 @@ export function useCaseData(args: {
 	 * forget them; any other read is the tenant and sends none. */
 	const workerClaims = usePreviewClaimedCaseIds(personaUuid);
 	const claimedCaseIds = deviceScoped === true ? workerClaims : NO_CLAIMS;
+	const device = usePreviewDevice();
+	const deviceKey = previewDeviceKey(device);
 	const ready = Boolean(
 		appId && caseType && caseId && accessPhase === "authorized",
 	);
@@ -685,7 +697,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${claimedCaseIds.join(",")}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${claimedCaseIds.join(",")}\u0000${deviceKey}`
 		: "";
 	const personaRequestKey = ready
 		? `${requestKey}\u0000${personaUuid ?? "me"}`
@@ -746,6 +758,7 @@ export function useCaseData(args: {
 								sendsPosition
 									? viewerPositionStore.getState().latestLocation()
 									: null,
+								withNavigationWidth(device),
 							),
 						}),
 					},

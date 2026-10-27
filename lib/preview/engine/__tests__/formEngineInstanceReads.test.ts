@@ -14,6 +14,7 @@ import {
 import { LOCATION_LEVELS } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
 import type { BlueprintDoc } from "@/lib/domain";
 import type { LocationFixtureRow } from "@/lib/organization/footprint";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import { deserializeXPathWorkerValue } from "../../xpath/workerProjection";
@@ -173,7 +174,7 @@ describe("form logic reading secondary instances", () => {
 			boundCases: [{ caseId: "p-3" }, { caseId: "p-1" }, { caseId: "p-2" }],
 			menuSelections: {},
 			caseDatabase: null,
-			identity: null,
+			session: previewSessionValues(null, webAppsDevice()),
 		});
 		expect(Object.values(session.selectedCases)).toEqual([
 			["p-3", "p-1", "p-2"],
@@ -200,7 +201,7 @@ describe("form logic reading secondary instances", () => {
 			menuSelections: {},
 			searchResults,
 			caseDatabase: null,
-			identity: null,
+			session: previewSessionValues(null, webAppsDevice()),
 		});
 		expect(session.searchResults).toBe(searchResults);
 		const engine = engineFor(doc, INSTANCE_READS.searchForm, {
@@ -233,6 +234,7 @@ describe("form logic reading secondary instances", () => {
 			stateOverrides,
 		) => {
 			const result = await runtime.request({
+				dayNumberEpoch: "device-zone",
 				entryKey: "entry-instance-reads",
 				revision: 0,
 				profile: "form",
@@ -269,7 +271,7 @@ describe("after-submit links reading secondary instances", () => {
 	) => ({
 		doc,
 		formUuid: formUuid as never,
-		session: previewSessionValues(null),
+		session: previewSessionValues(null, webAppsDevice()),
 		usercase: {},
 		sessionDatums: new Map(),
 		...extra,

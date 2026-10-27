@@ -29,6 +29,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/expression";
+import { WEB_APPS_RULES } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { evaluateAsync } from "../../xpath/asyncEvaluator";
 import { toBoolean } from "../../xpath/coerce";
 import type { PreviewSearchSessionValues } from "../identity";
@@ -299,6 +300,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 
 		expect(
 			searchInputSubmissionErrors(
+				WEB_APPS_RULES,
 				config,
 				"patient",
 				new Map([["months", "1.5"]]),
@@ -308,6 +310,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 		).toContain("whole number");
 		expect(
 			searchInputSubmissionErrors(
+				WEB_APPS_RULES,
 				config,
 				"patient",
 				new Map([["months", "2"]]),
@@ -317,6 +320,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 		).toBe(0);
 		expect(
 			searchInputSubmissionErrors(
+				WEB_APPS_RULES,
 				config,
 				"patient",
 				new Map([["months", ""]]),
@@ -341,6 +345,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 		for (const invalid of ["-1", "+1", "1e3", "1.5", "not a number"]) {
 			expect(
 				searchInputSubmissionErrors(
+					WEB_APPS_RULES,
 					config,
 					"patient",
 					new Map([["minimum", invalid]]),
@@ -352,6 +357,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 		for (const valid of ["0", "-0", "-0.0", "1.0"]) {
 			expect(
 				searchInputSubmissionErrors(
+					WEB_APPS_RULES,
 					config,
 					"patient",
 					new Map([["minimum", valid]]),
@@ -372,6 +378,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 		});
 
 		const errors = searchInputSubmissionErrors(
+			WEB_APPS_RULES,
 			config,
 			"patient",
 			new Map([
@@ -399,6 +406,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 		]) {
 			expect(
 				searchInputSubmissionErrors(
+					WEB_APPS_RULES,
 					config,
 					"patient",
 					new Map([["nearby", value]]),
@@ -429,6 +437,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 		]) {
 			expect(
 				searchInputSubmissionErrors(
+					WEB_APPS_RULES,
 					config,
 					"patient",
 					new Map([["nearby", value]]),
@@ -469,6 +478,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 
 		expect(
 			searchInputSubmissionErrors(
+				WEB_APPS_RULES,
 				config,
 				"patient",
 				new Map([
@@ -608,6 +618,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 
 	it("reports a blank required prompt with its message", () => {
 		const errors = searchInputSubmissionErrors(
+			WEB_APPS_RULES,
 			config,
 			"patient",
 			new Map(),
@@ -620,6 +631,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 
 	it("judges a sibling-answered condition from the submitted values", () => {
 		const errors = searchInputSubmissionErrors(
+			WEB_APPS_RULES,
 			config,
 			"patient",
 			new Map([["full_name", "Asha"]]),
@@ -632,6 +644,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 
 	it("skips a check on a blank answer", () => {
 		const errors = searchInputSubmissionErrors(
+			WEB_APPS_RULES,
 			config,
 			"patient",
 			new Map([["full_name", "Asha"]]),
@@ -643,6 +656,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 
 	it("leaves a pattern-bearing check unjudged without a Pattern engine", () => {
 		const errors = searchInputSubmissionErrors(
+			WEB_APPS_RULES,
 			config,
 			"patient",
 			new Map([
@@ -658,6 +672,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 	it("judges the pattern-bearing check with the real async XPath evaluator", async () => {
 		const sources: string[] = [];
 		const errors = await searchInputSubmissionErrorsOnDevice(
+			WEB_APPS_RULES,
 			config,
 			"patient",
 			new Map([
@@ -681,6 +696,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 
 	it("clears the check on the device path when the answer fits", async () => {
 		const errors = await searchInputSubmissionErrorsOnDevice(
+			WEB_APPS_RULES,
 			config,
 			"patient",
 			new Map([
@@ -699,6 +715,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 	it("decides plain constraints identically on both gates without the device", async () => {
 		let devicePasses = 0;
 		const onDevice = await searchInputSubmissionErrorsOnDevice(
+			WEB_APPS_RULES,
 			config,
 			"patient",
 			new Map(),
@@ -714,6 +731,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 		expect(devicePasses).toBe(0);
 		expect(onDevice).toEqual(
 			searchInputSubmissionErrors(
+				WEB_APPS_RULES,
 				config,
 				"patient",
 				new Map(),
@@ -761,6 +779,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 		).toContain("quotation mark");
 		expect(
 			searchInputSubmissionErrors(
+				WEB_APPS_RULES,
 				quoted,
 				"patient",
 				value,

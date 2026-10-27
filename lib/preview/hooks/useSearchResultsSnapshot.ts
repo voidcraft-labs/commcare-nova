@@ -28,6 +28,7 @@ import type { BlueprintDoc, CaseType, Uuid } from "@/lib/domain";
 import { loadSearchResultsSnapshotAction } from "@/lib/preview/engine/caseDataBinding";
 import { viewerTimeZone } from "@/lib/preview/engine/caseDataBindingClient";
 import type { ParentCaseSelection } from "@/lib/preview/engine/caseDataBindingTypes";
+import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import type {
 	LoadSearchResultsSnapshotResult,
 	SearchResultsSnapshot,
@@ -35,6 +36,7 @@ import type {
 import {
 	useAccessPhase,
 	usePreviewClaimedCaseIds,
+	usePreviewDevice,
 	usePreviewPersonaUuid,
 } from "@/lib/session/hooks";
 import type { PreviewSearchState } from "@/lib/session/types";
@@ -139,6 +141,7 @@ export function useSearchResultsSnapshot(args: {
 	const accessPhase = useAccessPhase();
 	const personaUuid = usePreviewPersonaUuid();
 	const claimedCaseIds = usePreviewClaimedCaseIds(personaUuid);
+	const device = usePreviewDevice();
 	const [retries, setRetries] = useState(0);
 	const module =
 		args.moduleUuid === undefined
@@ -189,8 +192,20 @@ export function useSearchResultsSnapshot(args: {
 	 * whether one starts. */
 	const csqlRuntime =
 		deviceValues.kind === "ready" ? deviceValues.value : undefined;
-	const latest = useRef({ ...args, claimedCaseIds, personaUuid, csqlRuntime });
-	latest.current = { ...args, claimedCaseIds, personaUuid, csqlRuntime };
+	const latest = useRef({
+		...args,
+		claimedCaseIds,
+		personaUuid,
+		csqlRuntime,
+		device,
+	});
+	latest.current = {
+		...args,
+		claimedCaseIds,
+		personaUuid,
+		csqlRuntime,
+		device,
+	};
 	const [result, setResult] = useState<{
 		readonly key: string;
 		readonly state: SearchResultsSnapshotState;
@@ -240,6 +255,7 @@ export function useSearchResultsSnapshot(args: {
 				? {}
 				: { personaUuid: input.personaUuid }),
 			claimedCaseIds: [...input.claimedCaseIds],
+			device: withNavigationWidth(input.device),
 		}).then(
 			(loaded) => {
 				if (!current) return;

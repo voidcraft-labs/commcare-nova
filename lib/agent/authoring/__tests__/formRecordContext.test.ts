@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 import { z } from "zod";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
+import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { evaluateForm } from "@/lib/preview/engine/evaluateForm";
 import { evaluationScenarioCases } from "@/lib/preview/engine/evaluationScenario";
 import { previewAsMe } from "@/lib/preview/engine/identity";
@@ -140,6 +141,7 @@ it("uses the form's published ancestor reference to validate against the selecte
 			doc,
 			{ formUuid, caseIds: ["visit"], answers: [{ path: "amount", value }] },
 			{
+				device: webAppsDevice(),
 				identity,
 				cases,
 				lookup: {

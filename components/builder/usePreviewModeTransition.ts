@@ -27,7 +27,7 @@ import { previewModeNavigation } from "./previewModeNavigation";
  * is what "Preview" means here.
  */
 export function usePreviewModeTransition(
-	setPreviewing: (on: boolean) => void,
+	setPreviewing: SetPreviewing,
 ): (on: boolean) => void {
 	const docApi = useBlueprintDocApi();
 	const navigate = useNavigate();
@@ -36,8 +36,20 @@ export function usePreviewModeTransition(
 			const loc = readBuilderLocation(docApi.getState());
 			const change = previewModeNavigation(on, loc);
 			if (change) navigate[change.method](change.location);
-			setPreviewing(on);
+			/* The session store does not know the location (the URL owns it),
+			 * so it is told whether Preview opens on the app's home, which on
+			 * Android is the device's home screen. */
+			setPreviewing(on, {
+				atHome: (change?.location ?? loc).kind === "home",
+			});
 		},
 		[docApi, navigate, setPreviewing],
 	);
 }
+
+/** The session's preview setter, told where Preview opens. An absent `at`
+ *  reads as not at the app's home. */
+export type SetPreviewing = (
+	on: boolean,
+	at?: { readonly atHome: boolean },
+) => void;

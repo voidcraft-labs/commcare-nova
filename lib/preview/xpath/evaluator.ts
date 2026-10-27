@@ -21,7 +21,7 @@ import {
 	type XPathRuntimeValue,
 } from "./runtimeValues";
 import { selectCondArgument } from "./scalarJavaRosaFunctions";
-import type { EvalContext, XPathValue } from "./types";
+import { dayNumberEpochOf, type EvalContext, type XPathValue } from "./types";
 
 /** Path initializers the structural evaluator executes. */
 export const PREVIEW_EXECUTABLE_PATH_INITIALIZERS: ReadonlySet<string> =
@@ -266,7 +266,9 @@ function evalNode(
 		// parenthesized operand (`-(2)`) splices its `)` token flat as the
 		// last child.
 		const [operand] = getBinaryOperands(node);
-		return operand ? -toNumber(evalNode(operand, source, ctx)) : 0;
+		return operand
+			? -toNumber(evalNode(operand, source, ctx), dayNumberEpochOf(ctx))
+			: 0;
 	}
 
 	// ── Binary arithmetic and comparison ──
@@ -277,6 +279,7 @@ function evalNode(
 			type.name,
 			evalNode(left, source, ctx),
 			evalNode(right, source, ctx),
+			dayNumberEpochOf(ctx),
 		);
 	}
 
@@ -467,7 +470,10 @@ function evalInvoke(
 	 * multi-node argument before count() can observe it. */
 	const formTextInvocation = invokeFormTextFunction(fnName, args, ctx.formText);
 	if (formTextInvocation.kind === "handled") return formTextInvocation.value;
-	const invocation = invokeFunction(fnName, args, { locale: ctx.locale });
+	const invocation = invokeFunction(fnName, args, {
+		locale: ctx.locale,
+		dayNumberEpoch: dayNumberEpochOf(ctx),
+	});
 	if (invocation.kind === "handled") return invocation.value;
 	const generatedInvocation = ctx.invokeGeneratedFunction?.(
 		fnName,

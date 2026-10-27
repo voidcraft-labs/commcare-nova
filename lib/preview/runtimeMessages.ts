@@ -271,6 +271,51 @@ const english = {
 		"{subject} a value a phone doesn't have at this point, so a phone stops here.",
 	thisQuestion: "this question",
 	thisSearchField: "this field",
+
+	// ── Preview per platform ─────────────────────────────────────────
+	// Android's home screen (`activities/HomeButtons.java`, strings `home.*`).
+	deviceHomeStart: "Start",
+	deviceHomeSaved: "Saved",
+	deviceHomeIncomplete: "Incomplete",
+	deviceHomeSync: "Sync with server",
+	deviceHomeLastSync: "You last synced with the server: {time}",
+	deviceHomeLogOut: "Log out of CommCare",
+	// Web Apps' notice after a case list with no forms
+	// ("Redirecting after sync").
+	formlessReturned: "Synced and back at the app's first screen",
+	// Android's form screens (`form.entry.finish.button`, `repeat.dialog.*`).
+	finish: "Finish",
+	repeatGoBack: "Go back",
+	repeatAddNew: "Add a new {label}?",
+	repeatAddAnother: "Add another {label}?",
+	repeatDoNotAdd: "Do not add",
+	repeatDoNotAddFinish: "Do not add, I'm finished",
+	// Help, in each runtime's button and dialog.
+	showHelp: "Show help",
+	close: "Close",
+	ok: "OK",
+	// Android's location question (`R.string.get_location` and its siblings).
+	recordLocation: "Record location",
+	replaceLocation: "Replace location",
+	findingLocation: "Finding location",
+	locationAccuracy: "Location accuracy: {meters} m",
+	cancelLocation: "Cancel",
+	locationCaptureCancelled: "Location capture cancelled",
+	latitudeLine: "Latitude: {dms}",
+	longitudeLine: "Longitude: {dms}",
+	altitudeLine: "Altitude: {m}m",
+	accuracyLine: "Accuracy: {m}m",
+	// Android's barcode question.
+	scanBarcode: "Scan",
+	// Android's capture widgets (`R.string.capture_image` and its siblings).
+	takePicture: "Take picture",
+	chooseImage: "Choose image",
+	removeImage: "Remove image",
+	recordSound: "Record sound",
+	startRecording: "Start recording",
+	stopRecording: "Stop recording",
+	recordVideo: "Record video",
+	chooseVideo: "Choose video",
 } as const;
 
 export type RuntimeMessage = keyof typeof english;
@@ -550,6 +595,42 @@ const spanish: Record<RuntimeMessage, string> = {
 		"{subject} un valor que un teléfono no tiene en este punto, así que un teléfono se detiene aquí.",
 	thisQuestion: "esta pregunta",
 	thisSearchField: "este campo",
+
+	deviceHomeStart: "Iniciar",
+	deviceHomeSaved: "Guardados",
+	deviceHomeIncomplete: "Incompletos",
+	deviceHomeSync: "Sincronizar con el servidor",
+	deviceHomeLastSync: "Última sincronización con el servidor: {time}",
+	deviceHomeLogOut: "Cerrar sesión en CommCare",
+	formlessReturned: "Sincronizado y de vuelta en la primera pantalla",
+	finish: "Terminar",
+	repeatGoBack: "Volver",
+	repeatAddNew: "¿Agregar un nuevo {label}?",
+	repeatAddAnother: "¿Agregar otro {label}?",
+	repeatDoNotAdd: "No agregar",
+	repeatDoNotAddFinish: "No agregar, terminé",
+	showHelp: "Mostrar ayuda",
+	close: "Cerrar",
+	ok: "Aceptar",
+	recordLocation: "Registrar ubicación",
+	replaceLocation: "Reemplazar ubicación",
+	findingLocation: "Buscando ubicación",
+	locationAccuracy: "Precisión de la ubicación: {meters} m",
+	cancelLocation: "Cancelar",
+	locationCaptureCancelled: "Captura de ubicación cancelada",
+	latitudeLine: "Latitud: {dms}",
+	longitudeLine: "Longitud: {dms}",
+	altitudeLine: "Altitud: {m}m",
+	accuracyLine: "Precisión: {m}m",
+	scanBarcode: "Escanear",
+	takePicture: "Tomar foto",
+	chooseImage: "Elegir imagen",
+	removeImage: "Quitar imagen",
+	recordSound: "Grabar sonido",
+	startRecording: "Empezar a grabar",
+	stopRecording: "Detener la grabación",
+	recordVideo: "Grabar video",
+	chooseVideo: "Elegir video",
 };
 
 export function runtimeLanguage(language: LanguageTag | null | undefined) {

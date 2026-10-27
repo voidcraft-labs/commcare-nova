@@ -15,7 +15,8 @@
  *     default is the production Luna executor (cheap + fast —
  *     tool-input acceptance is the same across models).
  *   - Pass a schema name to test only that schema; omit to test every
- *     registered schema. Known names: `evaluateForm`, `createLocation`,
+ *     registered schema. Known names: `evaluateForm`, `startAppTest`,
+ *     `createLocation`,
  *     `updateLocation`, `addFields`, `addAutomations`, `updateAutomation`,
  *     `addCaseOperations`, `updateCaseOperation`, `updateCaseProperty`,
  *     `setFieldOptionsSource`,
@@ -42,6 +43,7 @@ import type { z } from "zod";
 import { authoringToolSchema } from "../lib/agent/authoring/toolSchema";
 import { SHARED_TOOL_REGISTRY } from "../lib/agent/sharedToolRegistry";
 import { addFieldsTool } from "../lib/agent/tools/addFields";
+import { startAppTestTool } from "../lib/agent/tools/appTests";
 import {
 	addAutomationsTool,
 	updateAutomationTool,
@@ -132,7 +134,14 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: evaluateFormTool.description,
 		schema: evaluateFormTool.inputSchema,
 		prompt:
-			'Use evaluateForm on the form "Follow-up visit" in the module "Patients" with a scenario holding one patient record whose properties are case_name "Asha" and status "active".',
+			'Use evaluateForm on the form "Follow-up visit" in the module "Patients" on android with a scenario holding one patient record whose properties are case_name "Asha" and status "active".',
+	},
+	{
+		name: "startAppTest",
+		description: startAppTestTool.description,
+		schema: startAppTestTool.inputSchema,
+		prompt:
+			'Use startAppTest with two sessions, "web" on web-apps and "phone" on android, whose purpose is checking that a registered patient appears in the follow-up list.',
 	},
 	{
 		name: "createLocation",

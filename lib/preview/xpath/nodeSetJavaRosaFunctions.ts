@@ -1,4 +1,5 @@
 import { toBoolean, toNumber, xpathToString } from "./coerce";
+import type { DayNumberEpoch } from "./coreDays";
 import { javaRosaSplitOnSpaces } from "./javaString";
 import {
 	invalidPathError,
@@ -11,6 +12,7 @@ import type { XPathValue } from "./types";
 
 export type NodeSetJavaRosaFunction = (
 	args: readonly XPathRuntimeValue[],
+	epoch: DayNumberEpoch,
 ) => XPathRuntimeValue;
 
 function requireNodeSetValues(value: XPathRuntimeValue): readonly XPathValue[] {
@@ -38,8 +40,8 @@ function joinValues(
 	return values.map((value) => xpathToString(value)).join(delimiter);
 }
 
-function javaInt32(value: XPathRuntimeValue): number {
-	const number = toNumber(value);
+function javaInt32(value: XPathRuntimeValue, epoch: DayNumberEpoch): number {
+	const number = toNumber(value, epoch);
 	if (Number.isNaN(number)) return 0;
 	if (number >= 2_147_483_647) return 2_147_483_647;
 	if (number <= -2_147_483_648) return -2_147_483_648;
@@ -50,9 +52,10 @@ function joinChunkedValues(
 	separator: XPathRuntimeValue,
 	chunkSizeValue: XPathRuntimeValue,
 	values: readonly XPathRuntimeValue[],
+	epoch: DayNumberEpoch,
 ): string {
 	const delimiter = xpathToString(separator);
-	const chunkSize = javaInt32(chunkSizeValue);
+	const chunkSize = javaInt32(chunkSizeValue, epoch);
 	const input = values.map((value) => xpathToString(value)).join("");
 	let output = "";
 	for (let index = 0; index < input.length; index += 1) {
@@ -83,17 +86,21 @@ function join(args: readonly XPathRuntimeValue[]): string {
 	return joinValues(args[0] ?? "", tail);
 }
 
-function joinChunked(args: readonly XPathRuntimeValue[]): string {
+function joinChunked(
+	args: readonly XPathRuntimeValue[],
+	epoch: DayNumberEpoch,
+): string {
 	const tail =
 		args.length === 3 && isXPathNodeSet(args[2])
 			? requireNodeSetValues(args[2])
 			: args.slice(2);
-	return joinChunkedValues(args[0] ?? "", args[1] ?? Number.NaN, tail);
+	return joinChunkedValues(args[0] ?? "", args[1] ?? Number.NaN, tail, epoch);
 }
 
 function extrema(
 	args: readonly XPathRuntimeValue[],
 	kind: "min" | "max",
+	epoch: DayNumberEpoch,
 ): number {
 	const values =
 		args.length === 1 && isXPathNodeSet(args[0])
@@ -104,15 +111,18 @@ function extrema(
 	for (const value of values) {
 		result =
 			kind === "min"
-				? Math.min(result, toNumber(value))
-				: Math.max(result, toNumber(value));
+				? Math.min(result, toNumber(value, epoch))
+				: Math.max(result, toNumber(value, epoch));
 	}
 	return result;
 }
 
-function checklist(args: readonly XPathRuntimeValue[]): boolean {
-	const min = javaInt32(args[0] ?? Number.NaN);
-	const max = javaInt32(args[1] ?? Number.NaN);
+function checklist(
+	args: readonly XPathRuntimeValue[],
+	epoch: DayNumberEpoch,
+): boolean {
+	const min = javaInt32(args[0] ?? Number.NaN, epoch);
+	const max = javaInt32(args[1] ?? Number.NaN, epoch);
 	const factors =
 		args.length === 3 && isXPathNodeSet(args[2])
 			? requireNodeSetValues(args[2])
@@ -121,9 +131,12 @@ function checklist(args: readonly XPathRuntimeValue[]): boolean {
 	return (min < 0 || count >= min) && (max < 0 || count <= max);
 }
 
-function weightedChecklist(args: readonly XPathRuntimeValue[]): boolean {
-	const min = toNumber(args[0] ?? Number.NaN);
-	const max = toNumber(args[1] ?? Number.NaN);
+function weightedChecklist(
+	args: readonly XPathRuntimeValue[],
+	epoch: DayNumberEpoch,
+): boolean {
+	const min = toNumber(args[0] ?? Number.NaN, epoch);
+	const max = toNumber(args[1] ?? Number.NaN, epoch);
 	let flags: readonly XPathRuntimeValue[];
 	let weights: readonly XPathRuntimeValue[];
 	if (args.length === 4 && isXPathNodeSet(args[2]) && isXPathNodeSet(args[3])) {
@@ -141,7 +154,7 @@ function weightedChecklist(args: readonly XPathRuntimeValue[]): boolean {
 	let sum = 0;
 	for (let index = 0; index < flags.length; index += 1) {
 		if (toBoolean(flags[index] ?? "")) {
-			sum += toNumber(weights[index] ?? Number.NaN);
+			sum += toNumber(weights[index] ?? Number.NaN, epoch);
 		}
 	}
 	return sum >= min && sum <= max;
@@ -157,9 +170,12 @@ function count(args: readonly XPathRuntimeValue[]): number {
 	return value.validPath ? value.size : 0;
 }
 
-function sum(args: readonly XPathRuntimeValue[]): number {
+function sum(
+	args: readonly XPathRuntimeValue[],
+	epoch: DayNumberEpoch,
+): number {
 	return requireNodeSetValues(args[0] ?? "").reduce<number>(
-		(total, value) => total + toNumber(value),
+		(total, value) => total + toNumber(value, epoch),
 		0,
 	);
 }
@@ -203,8 +219,8 @@ export const nodeSetJavaRosaFunctions: ReadonlyMap<
 	["concat", concat],
 	["join", join],
 	["join-chunked", joinChunked],
-	["min", (args) => extrema(args, "min")],
-	["max", (args) => extrema(args, "max")],
+	["min", (args, epoch) => extrema(args, "min", epoch)],
+	["max", (args, epoch) => extrema(args, "max", epoch)],
 	["checklist", checklist],
 	["weighted-checklist", weightedChecklist],
 ]);

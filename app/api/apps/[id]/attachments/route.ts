@@ -38,12 +38,20 @@ import {
 import { isCaptureFieldKind, uuidSchema } from "@/lib/domain";
 import {
 	CAPTURE_EXTENSIONS_BY_KIND,
+	CAPTURE_LIMITS,
 	captureContentType,
 	captureExtensionFor,
+	captureFamilyExtensionFor,
 	captureInstancePathMatchesTemplate,
+	captureMimeFamilyFor,
 	committedCapturePath,
-	MAX_CAPTURE_BYTES,
+	isCaptureMimeFamilyKind,
 } from "@/lib/domain/captureFormats";
+import {
+	declaredPlatforms,
+	inPlatform,
+	PLATFORMS,
+} from "@/lib/domain/platforms";
 import { log } from "@/lib/logger";
 import { createSignedUploadUrl } from "@/lib/storage/media";
 
@@ -59,6 +67,19 @@ const requestBodySchema = z.strictObject({
 	instancePath: z.string().min(1).max(1024),
 	filename: z.string().min(1).max(255),
 	sizeBytes: z.number().int().positive(),
+	/** The platform Preview is playing, whose limits and acceptance apply.
+	 *  Checked against the committed blueprint's declaration. */
+	platform: z.enum(PLATFORMS),
+	/** The browser's `File.type`: a MIME type and subtype, or `""` for a file
+	 *  the browser cannot type. Read only where Android admits by MIME
+	 *  family, so nothing else reaches the stored row or the signed PUT. */
+	contentType: z.union([
+		z.literal(""),
+		z
+			.string()
+			.max(255)
+			.regex(/^[a-z]+\/[a-z0-9.+-]+$/i),
+	]),
 });
 
 /** Metadata only: two uuids, a path, a filename, a number. 4 KB is
@@ -115,8 +136,15 @@ export async function POST(
 		if (!parsed.success) {
 			throw new ApiError("Invalid attachment request", 400);
 		}
-		const { entryKey, fieldUuid, instancePath, filename, sizeBytes } =
-			parsed.data;
+		const {
+			entryKey,
+			fieldUuid,
+			instancePath,
+			filename,
+			sizeBytes,
+			platform,
+			contentType: fileType,
+		} = parsed.data;
 
 		// Attaching is a data write, so it needs `edit`. The snapshot is the
 		// documented one-authorized-read path and gives the Project plus the
@@ -154,25 +182,50 @@ export async function POST(
 			);
 		}
 
-		if (sizeBytes > MAX_CAPTURE_BYTES) {
+		if (!declaredPlatforms(snapshot.app.blueprint).includes(platform)) {
 			throw new ApiError(
-				`That file is larger than the ${Math.floor(MAX_CAPTURE_BYTES / 1_000_000)} MB limit CommCare accepts for one attachment. Attach a smaller file.`,
+				"This app doesn't run on that platform. You can reload the form and try again.",
+				400,
+			);
+		}
+		const limits = CAPTURE_LIMITS[platform];
+		if (sizeBytes > limits.maxBytes) {
+			throw new ApiError(
+				`That file is larger than the ${Math.floor(limits.maxBytes / 1_000_000)} MB limit CommCare accepts for one attachment ${inPlatform(platform)}. You can attach a smaller file.`,
 				400,
 			);
 		}
 
-		// The extension is checked against what the DEVICE would accept for
-		// this exact kind, so the preview cannot stage a file a real worker
-		// could never have picked.
-		const extension = captureExtensionFor(field.kind, filename);
-		if (extension === undefined) {
-			const article = /^[aeiou]/u.test(field.kind) ? "An" : "A";
-			throw new ApiError(
-				`${article} ${field.kind} question accepts ${CAPTURE_EXTENSIONS_BY_KIND[field.kind].join(", ")}. Attach one of those instead.`,
-				400,
-			);
+		// What the DEVICE would accept for this exact kind, so the preview
+		// cannot stage a file a real worker could never have picked. Android's
+		// image, sound and video widgets take any file of their MIME family
+		// (HQ's receiver takes any image, audio or video attachment); Web Apps,
+		// and a signature or document question on both platforms, check the
+		// kind's extension list (`entries.js::FileEntry`).
+		const kind = field.kind;
+		const article = /^[aeiou]/u.test(kind) ? "An" : "A";
+		let extension: string;
+		let contentType: string;
+		if (limits.acceptance === "mime-family" && isCaptureMimeFamilyKind(kind)) {
+			if (captureMimeFamilyFor(kind, fileType) === undefined) {
+				throw new ApiError(
+					`${article} ${kind} question accepts ${kind} files, so you can attach one of those instead.`,
+					400,
+				);
+			}
+			extension = captureFamilyExtensionFor(kind, filename);
+			contentType = fileType;
+		} else {
+			const listed = captureExtensionFor(kind, filename);
+			if (listed === undefined) {
+				throw new ApiError(
+					`${article} ${kind} question accepts ${CAPTURE_EXTENSIONS_BY_KIND[kind].join(", ")}, so you can attach one of those instead.`,
+					400,
+				);
+			}
+			extension = listed;
+			contentType = captureContentType(listed);
 		}
-		const contentType = captureContentType(extension);
 
 		const { attachmentId, attachmentName, objectKey } =
 			await createPendingFormAttachment({

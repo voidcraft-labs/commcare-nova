@@ -241,7 +241,7 @@ async function previewSearchQuery(
 			sessionData: caseListStepSession(doc, module.uuid, {
 				menuSelections,
 				caseDatabase,
-				identity: session,
+				session,
 			}).data,
 			caseDatabase,
 		});

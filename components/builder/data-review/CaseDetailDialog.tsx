@@ -21,6 +21,7 @@ import {
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { CaseProperty, CaseType } from "@/lib/domain";
+import { isPreviewUnavailable } from "@/lib/preview/engine/caseDataBindingTypes";
 import { useCaseData } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useAccessPhase } from "@/lib/session/hooks";
 import { caseDetailRows } from "./caseDetailRows";
@@ -117,12 +118,12 @@ export function CaseDetailDialog({
 						<LoadingTable />
 					) : state.kind === "error" ||
 						state.kind === "unauthenticated" ||
-						state.kind === "persona-unavailable" ? (
+						isPreviewUnavailable(state) ? (
 						<div role="alert">
 							<p className="text-sm leading-relaxed text-nova-text-secondary">
 								{state.kind === "error"
 									? state.message
-									: state.kind === "persona-unavailable"
+									: isPreviewUnavailable(state)
 										? state.message
 										: "You're signed out. Reload the page to sign in again."}
 							</p>
