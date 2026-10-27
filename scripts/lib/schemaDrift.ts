@@ -36,9 +36,9 @@
 
 import type { Kysely } from "kysely";
 import type { Database } from "../../lib/case-store/postgres/connection";
-import type { PersistableDoc } from "../../lib/domain";
+import { buildCaseTypeMap } from "../../lib/case-store/store";
+import { type PersistableDoc, USERCASE_CASE_TYPE } from "../../lib/domain";
 import type { CasePropertyDataType } from "../../lib/domain/casePropertyTypes";
-import { materializableCaseTypes } from "../../lib/domain/effectiveCaseTypes";
 import {
 	type CaseTypePropertyJsonSchema,
 	caseTypeToJsonSchema,
@@ -164,9 +164,14 @@ export async function computeSchemaDrift(
 	const storedByType = new Map(storedRows.map((r) => [r.case_type, r.schema]));
 
 	const drifts: CaseTypeDrift[] = [];
-	for (const ct of materializableCaseTypes(blueprint)) {
+	// The catalog the storage boundary writes rows from, so the worker's own
+	// case is compared against `usercaseCaseType` even where a document also
+	// declares a `commcare-user` entry. Its row is made by the first sync that
+	// touches it, so an app with none has nothing to converge.
+	for (const ct of buildCaseTypeMap(blueprint).values()) {
 		const desired = caseTypeToJsonSchema(ct);
 		const stored = storedByType.get(ct.name);
+		if (stored === undefined && ct.name === USERCASE_CASE_TYPE) continue;
 		if (stored === undefined) {
 			drifts.push({
 				caseType: ct.name,

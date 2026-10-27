@@ -138,6 +138,51 @@ class JobExecutionTests(unittest.TestCase):
             with self.assertRaises(deploy.DeploymentPolicyError):
                 deploy._effective_execution_args(JOB, args)
 
+    def test_hq_round_trip_platforms_admits_its_runbook_shapes_and_nothing_else(self):
+        cutover = "commcare-nova-hq-round-trip-platforms"
+        tool = "hq-round-trip-platforms.cjs"
+        digest = "0123456789abcdef" * 4
+        contract = deploy.JOB_TEMPLATE_CONTRACTS[cutover]
+        self.assertEqual(contract.service_account, "nova-migrate@commcare-nova.iam.gserviceaccount.com")
+        self.assertEqual(contract.stored_args, (tool,))
+        self.assertEqual(contract.max_retries, 0)
+        self.assertEqual(dict(contract.environment)["NOVA_MEDIA_BUCKET"], "nova-multimedia-prod")
+        self.assertEqual(deploy._effective_execution_args(cutover, []), (tool,))
+        for args in (
+            [tool, "--prove-media-read"],
+            [tool, "--settle-holders"],
+            [tool, "--execute", "--expect-plan-digest", digest],
+        ):
+            with self.subTest(args=args):
+                self.assertEqual(deploy._effective_execution_args(cutover, args), tuple(args))
+        for args in (
+            [tool, "--rehearse"],
+            [tool, "--execute"],
+            [tool, "--execute", "--expect-plan-digest"],
+            [tool, "--execute", "--expect-plan-digest", digest[:-1]],
+            [tool, "--execute", "--expect-plan-digest", digest + "0"],
+            [tool, "--execute", "--expect-plan-digest", digest.upper()],
+            [tool, "--execute", "--expect-plan-digest", digest[:-1] + "\n"],
+            [tool, "--execute", "--expect-plan-digest", digest, "--rehearse"],
+            [tool, "--settle-holders", "--prove-media-read"],
+            [tool, "--prove-media-read", "--settle-holders"],
+            [tool, "--expect-plan-digest", digest, "--execute"],
+            [tool, "--prod"],
+            [tool, "--app", "app_123"],
+            [tool, "--debug-details"],
+            ["migrate.cjs"],
+        ):
+            with self.subTest(args=args), self.assertRaises(deploy.DeploymentPolicyError):
+                deploy._effective_execution_args(cutover, args)
+        for job in ("commcare-nova-migrate", "commcare-nova-historical-repair"):
+            for args in (
+                [tool],
+                [tool, "--settle-holders"],
+                [tool, "--execute", "--expect-plan-digest", digest],
+            ):
+                with self.subTest(job=job, args=args), self.assertRaises(deploy.DeploymentPolicyError):
+                    deploy._effective_execution_args(job, args)
+
 
 class MigrationAdmissionTests(unittest.TestCase):
     def admit(self, image=IMAGE):

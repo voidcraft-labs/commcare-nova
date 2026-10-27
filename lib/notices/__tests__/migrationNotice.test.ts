@@ -554,6 +554,47 @@ const REAL_ENTRIES = {
 	"expressions-sent-at-next-publish": deploymentEntry(
 		"expressions-sent-at-next-publish",
 	),
+	"platforms-declared": {
+		kind: "document",
+		reason: "platforms-declared",
+		entity: { type: "app", nameAtMigration: "Clinic visits" },
+		detail: {
+			runsOn: "web-apps",
+			causes: "search-first,search-field-single-date",
+			split: "1",
+		},
+	},
+	"datetime-question-split": {
+		kind: "document",
+		reason: "datetime-question-split",
+		entity: {
+			type: "field",
+			uuid: "01992000-0000-7000-8000-0000000000e1",
+			nameAtMigration: "Visit time",
+		},
+		detail: { form: "Visit", date: "visit_time_date", time: "visit_time_time" },
+	},
+	"media-not-played-removed": {
+		kind: "document",
+		reason: "media-not-played-removed",
+		entity: {
+			type: "caseListColumn",
+			uuid: "01992000-0000-7000-8000-0000000000c9",
+			nameAtMigration: "Zone",
+		},
+		detail: {
+			module: "Patients",
+			carrier: "image-map-row",
+			row: "north",
+			media: "image",
+			file: "north.ico",
+			cause: "android",
+		},
+	},
+	"next-publish-asks-web-apps": {
+		...deploymentEntry("next-publish-asks-web-apps"),
+		detail: { to: "off" },
+	},
 } as const;
 
 function deploymentEntry<const R extends string>(reason: R) {
@@ -629,10 +670,11 @@ describe("migrationNoticeEntrySchema", () => {
 });
 
 describe("the cutovers that write notices", () => {
-	it("are the emission and the expressions cutovers, each with its own lead", () => {
+	it("are the emission, the expressions and the platforms cutovers, each with its own lead", () => {
 		expect(MIGRATION_NOTICE_CUTOVERS).toEqual([
 			"hq-round-trip-emission",
 			"hq-round-trip-expressions",
+			"hq-round-trip-platforms",
 		]);
 		expect(migrationNoticeCutoverSchema.safeParse("other").success).toBe(false);
 		const day = { locale: "en-GB", timeZone: "UTC" } as const;
@@ -645,6 +687,11 @@ describe("the cutovers that write notices", () => {
 			noticeLead("hq-round-trip-expressions", "2026-10-21T09:00:00.000Z", day),
 		).toBe(
 			"Nova changed how it stores and checks expressions on 21 October. Here is what that means for this app.",
+		);
+		expect(
+			noticeLead("hq-round-trip-platforms", "2026-11-02T09:00:00.000Z", day),
+		).toBe(
+			"On 2 November, Nova started recording where each app runs: in Web Apps, on Android, or both. Here is what that means for this app.",
 		);
 	});
 });
@@ -666,7 +713,36 @@ describe("the reasons' order", () => {
 			"expressions-respelled",
 			"case-property-declared",
 			"repeat-read-takes-first-row",
+			"platforms-declared",
+			"datetime-question-split",
+			"media-not-played-removed",
 			"lookup-tag-renamed",
+		]);
+	});
+
+	it("puts the platforms cutover's step reasons in step order after the expressions cutover's, and its Web Apps question between the drift check and the confirmations", () => {
+		expect(
+			DOCUMENT_NOTICE_REASONS.slice(
+				at("repeat-read-takes-first-row"),
+				at("lookup-tag-renamed") + 1,
+			),
+		).toEqual([
+			"repeat-read-takes-first-row",
+			"platforms-declared",
+			"datetime-question-split",
+			"media-not-played-removed",
+			"lookup-tag-renamed",
+		]);
+		const deployment = DEPLOYMENT_NOTICE_REASONS as readonly string[];
+		expect(
+			deployment.slice(
+				deployment.indexOf("next-publish-asks-before-overwriting"),
+				deployment.indexOf("next-publish-asks-more") + 1,
+			),
+		).toEqual([
+			"next-publish-asks-before-overwriting",
+			"next-publish-asks-web-apps",
+			"next-publish-asks-more",
 		]);
 	});
 
@@ -720,6 +796,25 @@ describe("the reasons' order", () => {
 			"case-property-rules-removed",
 			"repeat-read-takes-first-row",
 			"case-property-type-now-known",
+		]);
+	});
+
+	it("orders a platforms notice's entries: its Web Apps question before the confirmations, its document lines in step order", () => {
+		const entries = migrationNoticeEntriesSchema.parse([
+			REAL_ENTRIES["media-not-played-removed"],
+			REAL_ENTRIES["next-publish-asks-more"],
+			REAL_ENTRIES["datetime-question-split"],
+			REAL_ENTRIES["deep-links-need-republish"],
+			REAL_ENTRIES["next-publish-asks-web-apps"],
+			REAL_ENTRIES["platforms-declared"],
+		]);
+		expect(orderNoticeEntries(entries).map((entry) => entry.reason)).toEqual([
+			"deep-links-need-republish",
+			"next-publish-asks-web-apps",
+			"next-publish-asks-more",
+			"platforms-declared",
+			"datetime-question-split",
+			"media-not-played-removed",
 		]);
 	});
 });

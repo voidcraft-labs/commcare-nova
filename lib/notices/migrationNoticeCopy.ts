@@ -22,7 +22,9 @@ import {
 	type ReservedInstanceTagWord,
 	reservedInstanceTagCause,
 } from "@/lib/lookup/constants";
+import { REEXPORT_AS } from "@/lib/media/platformPlayback";
 import {
+	FORM_ENTRY_SYNC_OFF,
 	isPlanFeatureId,
 	PLAN_FEATURE_IDS,
 	PLAN_FEATURES,
@@ -303,6 +305,100 @@ function expressionCount(
 	return count === 1
 		? one
 		: several(count === undefined ? "Expressions" : `${count} expressions`);
+}
+
+/**
+ * What a person calls each platform feature one platform can't run, as the
+ * platforms cutover's notice names the uses that decided where an app runs:
+ * keyed by every feature id whose reading is `unavailable` on a platform. An
+ * id this record does not hold is left out of the line.
+ */
+export const PLATFORM_CAUSE_WORDS: Readonly<Record<string, string>> = {
+	"datetime-question": "date-and-time questions",
+	"case-list-here": "case-list columns that read the worker's location",
+	"case-list-search-text": "reads of the case list's search text",
+	"search-first": "menus that use Search first",
+	"several-cases": "menus that choose several cases",
+	"search-field-single-date": "date search fields",
+	"search-field-multiple-choice": "multiple-choice search fields",
+	"window-width": "reads of the window's width",
+	"connect-app": "CommCare Connect",
+};
+
+/** "its date-and-time questions and date search fields", or "part of it". */
+function causePhrase(causes: string | undefined): string {
+	const words = detailIds(causes).flatMap((id) =>
+		Object.hasOwn(PLATFORM_CAUSE_WORDS, id)
+			? [PLATFORM_CAUSE_WORDS[id] as string]
+			: [],
+	);
+	return words.length === 0 ? "part of it" : `its ${joinedNames(words)}`;
+}
+
+/** Where an unplayable reference sat, by `detail.carrier`, as its line says it. */
+function removedCarrier(detail: Readonly<Record<string, string>>): string {
+	switch (detail.carrier) {
+		case "label":
+			return "on its label";
+		case "help":
+			return "on its help";
+		case "option":
+			return detail.option === undefined
+				? "on one of its choices"
+				: `on its choice ${detail.option}`;
+		case "menu-icon":
+			return "as its menu icon";
+		case "menu-audio":
+			return "as its menu audio label";
+		case "case-list-icon":
+			return "as its case list's menu icon";
+		case "case-list-audio":
+			return "as its case list's menu audio label";
+		case "logo":
+			return "as its logo";
+		case "image-map-row":
+			return detail.row === undefined
+				? "for one of its values"
+				: `for ${detail.row}`;
+		default:
+			return "in it";
+	}
+}
+
+/** Why an unplayable reference was removed, by `detail.cause`. */
+const REMOVED_MEDIA_CAUSE: Readonly<Record<string, string>> = {
+	"web-apps": "because Web Apps can't play it",
+	android: "because Android can't play it",
+	neither: "because neither Web Apps nor Android can play it",
+	missing: "because its content is missing from Nova's storage",
+	"too-large": "because it's larger than Nova accepts for its kind",
+};
+
+/** What brings a removed file back, by its cause and kind. */
+function removedMediaAfter(detail: Readonly<Record<string, string>>): string {
+	const sorting =
+		detail.carrier === "image-map-row"
+			? " Sorting by that column now puts those cases with the ones that match no image."
+			: "";
+	switch (detail.cause) {
+		case "web-apps":
+		case "android":
+		case "neither": {
+			const media = detail.media;
+			const advice =
+				media === "image" || media === "audio" || media === "video"
+					? REEXPORT_AS[media]
+					: "a format both platforms play";
+			const closed = advice.includes(",") ? `${advice},` : advice;
+			return `${sorting} The file is still in your media library. Exporting it again as ${closed} and attaching it again brings it back.`;
+		}
+		case "missing":
+			return `${sorting} You can upload it again and attach it.`;
+		case "too-large":
+			return `${sorting} You can upload a smaller copy and attach it.`;
+		default:
+			return sorting;
+	}
 }
 
 export const MIGRATION_NOTICE_COPY = {
@@ -765,6 +861,84 @@ export const MIGRATION_NOTICE_COPY = {
 			),
 		]);
 	},
+	/* The entity is the app; `detail.runsOn` is `android` or `web-apps`,
+	 * `detail.causes` the comma-joined feature ids of the uses the other
+	 * platform can't run, and `detail.split` the count of split questions,
+	 * absent where none. */
+	"platforms-declared": (entry: DocumentNoticeEntry) => {
+		const detail = entry.detail ?? {};
+		const causes = causePhrase(detail.causes);
+		if (detail.runsOn === "android") {
+			if (detailIds(detail.causes).includes("connect-app")) {
+				return noticeLine([
+					text(
+						"Connect workers open this app only in the Connect app on Android, so it now runs on Android only.",
+					),
+				]);
+			}
+			return noticeLine([
+				text(
+					`This app now runs on Android only, because Web Apps can't run ${causes}. If workers use it in Web Apps too, you can change those and then set it to run in Web Apps as well, in App settings.`,
+				),
+			]);
+		}
+		if (detail.runsOn === "web-apps") {
+			const split =
+				countOf(detail.split) === undefined
+					? ""
+					: " Web Apps can't show a date-and-time question, so each one in this app now asks for the date and the time separately.";
+			return noticeLine([
+				text(
+					`This app now runs in Web Apps only, because Android can't run ${causes}.${split} Nova no longer offers a CCZ of it to install on phones. If workers use it on Android too, you can change those and then set it to run on Android as well, in App settings.`,
+				),
+			]);
+		}
+		return noticeLine([
+			text(
+				"Nova now records where this app runs. You can see where, and change it, in App settings.",
+			),
+		]);
+	},
+	/* The entity is the original question, which keeps its uuid;
+	 * `detail.form` names its form, `detail.date` and `detail.time` the ids
+	 * of the two questions that now ask for it. */
+	"datetime-question-split": (entry: DocumentNoticeEntry, ctx) => {
+		const detail = entry.detail ?? {};
+		const where =
+			detail.date !== undefined && detail.time !== undefined
+				? `, in ${detail.date} and ${detail.time}`
+				: "";
+		return noticeLine([
+			...formBeside(detail.form),
+			entityPart(entry.entity, ctx),
+			text(
+				`: it now asks for the date and the time separately${where}, because this app runs in Web Apps, which can't show a date-and-time question. A hidden value with the same name joins the two answers, so your rules and saved cases read the same date and time. Workers now see two questions with its label, each required wherever it was. You can give each one its own label, such as "Visit date" and "Visit time".`,
+			),
+		]);
+	},
+	/* The entity owns the carrier (the field, the form, the module, the
+	 * case-list column or the app); `detail.form` names a field's form,
+	 * `detail.module` a form's or a column's menu, `detail.carrier` where the
+	 * file sat (with `detail.option` or `detail.row` where it names one),
+	 * `detail.media` its kind, `detail.file` its name where it fits, and
+	 * `detail.cause` why it was removed. */
+	"media-not-played-removed": (entry: DocumentNoticeEntry, ctx) => {
+		const detail = entry.detail ?? {};
+		const owner = detail.form ?? detail.module;
+		const file = detail.file === undefined ? "" : ` ${detail.file}`;
+		const cause =
+			detail.cause !== undefined &&
+			Object.hasOwn(REMOVED_MEDIA_CAUSE, detail.cause)
+				? REMOVED_MEDIA_CAUSE[detail.cause]
+				: "because this app can't play it where it runs";
+		return noticeLine([
+			...formBeside(owner),
+			entityPart(entry.entity, ctx),
+			text(
+				`: the ${removedMediaKind(detail.media)}${file} ${removedCarrier(detail)} was removed, ${cause}.${removedMediaAfter(detail)}`,
+			),
+		]);
+	},
 	/* The entity is the lookup table; `detail.from` and `detail.to` its old
 	 * and new export tag. The word is the one the old tag holds. */
 	"lookup-tag-renamed": (entry: DocumentNoticeEntry, ctx) => {
@@ -1117,8 +1291,34 @@ export const MIGRATION_NOTICE_COPY = {
 			),
 		]);
 	},
+	/* `detail.to` is `on` or `off`: what the next publish asks to turn the
+	 * app's Web App setting to there. */
+	"next-publish-asks-web-apps": (entry: DeploymentNoticeEntry) => {
+		const space = projectSpace(entry);
+		const to = onOff(entry.detail?.to);
+		if (to === "off") {
+			return noticeLine([
+				text(
+					`This app runs on Android only, and its Web App setting on ${space} is on. The next publish there asks you before turning it off, and from the next version Web Apps serves after that, nobody there can open the app in Web Apps.`,
+				),
+			]);
+		}
+		if (to === "on") {
+			return noticeLine([
+				text(
+					`This app runs in Web Apps, and its Web App setting on ${space} is off. The next publish there asks you before turning it on, so workers there can open it in Web Apps from the next version Web Apps serves.`,
+				),
+			]);
+		}
+		return noticeLine([
+			text(
+				`The next publish to ${space} asks you about this app's Web App setting there.`,
+			),
+		]);
+	},
 	/* `detail.planFeatures` holds the plan feature ids, `detail.settings`
-	 * `flat-location-fixture` and `connect-forwarder` where each is asked,
+	 * `flat-location-fixture`, `connect-forwarder` and `form-entry-sync-off`
+	 * where each is asked,
 	 * and `detail.capabilities` the capability ids the probe newly checks,
 	 * each comma-joined and absent where empty. Each is named in today's
 	 * words, in the order every surface lists them; an id Nova no longer
@@ -1131,6 +1331,7 @@ export const MIGRATION_NOTICE_COPY = {
 		const settings = detailIds(entry.detail?.settings);
 		const fixture = settings.includes("flat-location-fixture");
 		const forwarder = settings.includes("connect-forwarder");
+		const formEntrySync = settings.includes("form-entry-sync-off");
 		const capabilities = detailIds(entry.detail?.capabilities).filter(
 			isCapabilityId,
 		);
@@ -1140,6 +1341,7 @@ export const MIGRATION_NOTICE_COPY = {
 			),
 			...(fixture ? ["the flat location list"] : []),
 			...(forwarder ? ["a Connect forwarder"] : []),
+			...(formEntrySync ? [FORM_ENTRY_SYNC_OFF.label] : []),
 			...capabilities.map((id) => PROJECT_SPACE_CAPABILITIES[id].label),
 		];
 		const sentences = [
@@ -1154,6 +1356,11 @@ export const MIGRATION_NOTICE_COPY = {
 			...(forwarder
 				? [
 						`This app's forms reach CommCare Connect only through CommCare HQ's data forwarding, so Nova asks whether ${space} has Data Forwarding and a Connect forwarder.`,
+					]
+				: []),
+			...(formEntrySync
+				? [
+						`Android phones can't open this app's forms that work on a case chosen in a menu with Search while ${possessive(space)} Sync Cases On Form Entry is on, so Nova asks whether it's off.`,
 					]
 				: []),
 		];
@@ -1344,6 +1551,8 @@ export const MIGRATION_NOTICE_LEADS = {
 		`Nova changed how it writes apps for CommCare HQ on ${day}. Here is what that means for this app.`,
 	"hq-round-trip-expressions": (day: string) =>
 		`Nova changed how it stores and checks expressions on ${day}. Here is what that means for this app.`,
+	"hq-round-trip-platforms": (day: string) =>
+		`On ${day}, Nova started recording where each app runs: in Web Apps, on Android, or both. Here is what that means for this app.`,
 } satisfies Readonly<Record<MigrationNoticeCutover, (day: string) => string>>;
 
 export function noticeLead(

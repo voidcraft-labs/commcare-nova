@@ -5,7 +5,13 @@ import {
 	expect,
 	test,
 } from "@/lib/case-store/sql/__tests__/setup";
-import type { CasePropertyDataType, CaseType } from "@/lib/domain";
+import {
+	asUuid,
+	type CasePropertyDataType,
+	type CaseType,
+	USERCASE_CASE_TYPE,
+	usercaseCaseType,
+} from "@/lib/domain";
 import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
 import { proseText } from "@/lib/domain/prose";
 import { computeSchemaDrift } from "../schemaDrift";
@@ -202,5 +208,64 @@ test("reports added and removed property names that also exist on Object.prototy
 			retyped: [],
 			unresolvable: [],
 		},
+	]);
+});
+
+test("compares the worker's own case against the schema storage writes for it", async ({
+	db,
+}) => {
+	// A document that also declares a `commcare-user` entry, typed apart from
+	// the worker-property catalog the stored row is built from.
+	const declared: CaseType = {
+		name: USERCASE_CASE_TYPE,
+		properties: [
+			{
+				name: "learning_mode",
+				data_type: "single_select",
+				label: proseText("Learning mode"),
+				options: [{ value: "on", label: proseText("On") }],
+			},
+		],
+	};
+	const propertyUuid = asUuid("0b6f4d55-6c1c-4c86-9a43-4f1d2e8a7b10");
+	const blueprint = {
+		...buildSimpleBlueprint([declared], APP),
+		userProperties: {
+			[propertyUuid]: {
+				uuid: propertyUuid,
+				slug: "learning_mode",
+				label: "Learning mode",
+			},
+		},
+	};
+
+	// No row yet: the first sync that touches the worker's case makes it.
+	expect(await computeSchemaDrift(db, APP, blueprint)).toEqual([]);
+
+	const storedFor = (ct: CaseType) =>
+		db
+			.insertInto("case_type_schemas")
+			.values({
+				app_id: APP,
+				case_type: USERCASE_CASE_TYPE,
+				schema: JSON.stringify(caseTypeToJsonSchema(ct)),
+				synced_seq: 1,
+			})
+			.execute();
+	await storedFor(usercaseCaseType(blueprint));
+	expect(await computeSchemaDrift(db, APP, blueprint)).toEqual([]);
+
+	// A worker property the stored row lacks is drift a re-sync converges.
+	await db.deleteFrom("case_type_schemas").execute();
+	await storedFor(usercaseCaseType({}));
+	const drift = await computeSchemaDrift(db, APP, blueprint);
+	expect(drift).toEqual([
+		expect.objectContaining({
+			caseType: USERCASE_CASE_TYPE,
+			missingRow: false,
+			added: ["learning_mode"],
+			removed: [],
+			retyped: [],
+		}),
 	]);
 });

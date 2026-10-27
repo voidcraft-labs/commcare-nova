@@ -91,6 +91,10 @@ RUN npx esbuild scripts/migrate-schema-drift.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=schema-drift.cjs
+RUN npx esbuild scripts/migrate-hq-round-trip-platforms.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --external:sharp --outfile=hq-round-trip-platforms.cjs
 RUN npx esbuild scripts/migrate-legacy-preplan-builds.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
@@ -106,6 +110,9 @@ ENV NODE_ENV=production
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 COPY --from=maintenance-build --chown=nextjs:nodejs /app/*.cjs ./
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/sharp ./node_modules/sharp
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/@img ./node_modules/@img
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/detect-libc ./node_modules/detect-libc
 USER nextjs
 # Safe default: the repair CLI scans unless an operator explicitly executes it.
 CMD ["node", "legacy-preplan-repair.cjs"]

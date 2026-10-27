@@ -28,6 +28,7 @@ import { uuidSchema } from "@/lib/domain/uuid";
 export const MIGRATION_NOTICE_CUTOVERS = [
 	"hq-round-trip-emission",
 	"hq-round-trip-expressions",
+	"hq-round-trip-platforms",
 ] as const;
 export type MigrationNoticeCutover = (typeof MIGRATION_NOTICE_CUTOVERS)[number];
 export const migrationNoticeCutoverSchema = z.enum(MIGRATION_NOTICE_CUTOVERS);
@@ -69,6 +70,9 @@ export const DOCUMENT_NOTICE_REASONS = [
 	"expressions-respelled",
 	"case-property-declared",
 	"repeat-read-takes-first-row",
+	"platforms-declared",
+	"datetime-question-split",
+	"media-not-played-removed",
 	"lookup-tag-renamed",
 	"validation-now-enforced",
 	"follow-up-now-touches-case",
@@ -106,6 +110,7 @@ export const DEPLOYMENT_NOTICE_REASONS = [
 	"deep-links-need-republish",
 	"next-publish-overwrites-hq-edits",
 	"next-publish-asks-before-overwriting",
+	"next-publish-asks-web-apps",
 	"next-publish-asks-more",
 	"commcare-version-below-floor",
 	"logo-upload-in-hq",

@@ -207,6 +207,16 @@ names members by user id, so the future whole-tenant deletion lifecycle must
 list it. Do not delete them until a successful release no longer refreshes
 them. Historical schema migrations are immutable.
 
+The HQ round-trip platforms cutover runs on its own Job,
+`commcare-nova-hq-round-trip-platforms`, from the maintenance image as
+`hq-round-trip-platforms.cjs`, with a time-conditioned read grant on the media
+bucket made only for a run that must read stored media bytes and revoked after
+it. With no override the Job runs the dry run, which writes nothing;
+`--prove-media-read`, `--settle-holders` and `--execute --expect-plan-digest
+<digest>` are its only other admitted shapes. Its runbook is
+`docs/plans/hq-round-trip/4-cutover-runbook.md`; the tool, the Job, the
+runbook and this paragraph leave together once the cutover has run.
+
 ## Benchmarking
 
 `cloudbuild.benchmark.yaml` builds and inspects the full final image with a fresh

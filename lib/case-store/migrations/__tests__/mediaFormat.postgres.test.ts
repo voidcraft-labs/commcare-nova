@@ -1,9 +1,11 @@
 /**
- * The media-format migration over real Postgres. A ready media row without a
- * format can exist only if it is written before the migration, so each case
- * migrates to the migration before it, writes its rows there, then applies
- * it: the existing rows must stay, and from then on the presence check and
- * the value domain hold every write.
+ * The two media-format migrations over real Postgres. A ready media row
+ * without a format can exist only if it is written before the first of them,
+ * so each case migrates to the migration before it, writes its rows there,
+ * then applies it: the existing rows must stay, and from then on the presence
+ * check and the value domain hold every write. The validation migration then
+ * validates the presence check only over a table where every ready row
+ * records its format.
  */
 
 import { sql } from "kysely";
@@ -13,6 +15,10 @@ import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import { caseStoreMigrations } from "..";
 
 const MEDIA_FORMAT = "20261101020000_hq_round_trip_platforms_media_format";
+const ANDROID_CAPTURE_SIZE =
+	"20261101025000_hq_round_trip_platforms_android_capture_size";
+const MEDIA_FORMAT_VALIDATED =
+	"20261101030000_hq_round_trip_platforms_media_format_validated";
 
 const database = setupPerTestDatabase({
 	databaseNamePrefix: "media_format_migration_",
@@ -32,13 +38,27 @@ const database = setupPerTestDatabase({
 	},
 });
 
-/** Apply the stack's migrations through the media-format migration. */
-async function migrateThroughMediaFormat(): Promise<void> {
+/** Apply the stack's migrations through `target`, throwing what one threw. */
+async function migrateThrough(target: string): Promise<void> {
 	const result = await new Migrator({
 		db: database.db,
 		provider: { getMigrations: async () => caseStoreMigrations },
-	}).migrateTo(MEDIA_FORMAT);
+	}).migrateTo(target);
 	if (result.error !== undefined) throw result.error;
+}
+
+/** Apply the stack's migrations through the media-format migration. */
+async function migrateThroughMediaFormat(): Promise<void> {
+	await migrateThrough(MEDIA_FORMAT);
+}
+
+/** Whether the presence check is validated. */
+async function presenceCheckValidated(): Promise<boolean> {
+	const row = await sql<{ convalidated: boolean }>`
+		SELECT convalidated FROM pg_constraint
+		WHERE conname = 'media_assets_ready_media_format'
+	`.execute(database.db);
+	return row.rows[0]?.convalidated === true;
 }
 
 let counter = 0;
@@ -161,5 +181,60 @@ describe(MEDIA_FORMAT, () => {
 				format: "mp4-av1",
 			}),
 		).rejects.toThrow(/media_assets_media_format_known/);
+	});
+});
+
+describe(MEDIA_FORMAT_VALIDATED, () => {
+	it("validates the presence check over an empty table", async () => {
+		await migrateThrough(ANDROID_CAPTURE_SIZE);
+		expect(await presenceCheckValidated()).toBe(false);
+		await migrateThrough(MEDIA_FORMAT_VALIDATED);
+		expect(await presenceCheckValidated()).toBe(true);
+	});
+
+	it("validates the presence check over a table whose every ready media row records its format", async () => {
+		const image = await insertAsset({
+			kind: "image",
+			mime: "image/png",
+			status: "ready",
+		});
+		await migrateThrough(ANDROID_CAPTURE_SIZE);
+		await sql`UPDATE media_assets SET media_format = 'png' WHERE id = ${image}`.execute(
+			database.db,
+		);
+		await insertAsset({
+			kind: "audio",
+			mime: "audio/wav",
+			status: "ready",
+			format: "unplayable",
+		});
+		await insertAsset({
+			kind: "pdf",
+			mime: "application/pdf",
+			status: "ready",
+		});
+		await insertAsset({ kind: "video", mime: "video/mp4", status: "pending" });
+		await migrateThrough(MEDIA_FORMAT_VALIDATED);
+		expect(await presenceCheckValidated()).toBe(true);
+	});
+
+	it("refuses a ready image without a format with its message, the presence check still not valid", async () => {
+		/* In order: a NOT VALID check still holds every insert after it, so the
+		 * row is written before the media-format migration. */
+		await insertAsset({ kind: "image", mime: "image/png", status: "ready" });
+		await migrateThrough(ANDROID_CAPTURE_SIZE);
+		const result = await new Migrator({
+			db: database.db,
+			provider: { getMigrations: async () => caseStoreMigrations },
+		}).migrateTo(MEDIA_FORMAT_VALIDATED);
+		expect(result.error).toBeInstanceOf(Error);
+		expect((result.error as Error).message).toBe(
+			"1 ready image, audio or video files in this database have no recorded format, so Nova can't check where they play. Nova records a file's format when it is uploaded, and these came before it did. The one-time platforms cutover recorded the formats of the databases that existed then; for this one, make the database again from the migrations, or run that cutover over it from a commit that still has it.",
+		);
+		expect(await presenceCheckValidated()).toBe(false);
+		const applied = await sql<{ name: string }>`
+			SELECT name FROM kysely_migration WHERE name = ${MEDIA_FORMAT_VALIDATED}
+		`.execute(database.db);
+		expect(applied.rows).toEqual([]);
 	});
 });

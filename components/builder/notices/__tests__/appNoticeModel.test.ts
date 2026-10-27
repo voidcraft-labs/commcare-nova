@@ -184,6 +184,88 @@ describe("noticeDialogSections", () => {
 		).toEqual(["unsaved-assistant-work-discarded"]);
 	});
 
+	it("groups three cutovers' notices, the platforms notice's Web Apps question before its confirmations and its lines in step order", () => {
+		const field = "01992000-0000-7000-8000-0000000000e1";
+		const fieldOps = {
+			deploymentId: "01992000-0000-7000-8000-000000000001",
+			server: "production",
+			domain: "field-ops",
+		} as const;
+		const platforms: AppMigrationNotice = {
+			id: "platforms",
+			cutover: "hq-round-trip-platforms",
+			createdAt: "2026-11-02T09:00:00.000Z",
+			entries: [
+				migrationNoticeEntrySchema.parse({
+					kind: "document",
+					reason: "datetime-question-split",
+					entity: { type: "field", uuid: field, nameAtMigration: "Visit time" },
+					detail: {
+						form: "Visit",
+						date: "visit_time_date",
+						time: "visit_time_time",
+					},
+				}),
+				migrationNoticeEntrySchema.parse({
+					kind: "deployment",
+					reason: "next-publish-asks-more",
+					deployment: fieldOps,
+					detail: { planFeatures: "web-apps" },
+				}),
+				migrationNoticeEntrySchema.parse({
+					kind: "document",
+					reason: "platforms-declared",
+					entity: { type: "app", nameAtMigration: "Clinic visits" },
+					detail: { runsOn: "web-apps", causes: "search-first", split: "1" },
+				}),
+				migrationNoticeEntrySchema.parse({
+					kind: "deployment",
+					reason: "next-publish-asks-web-apps",
+					deployment: fieldOps,
+					detail: { to: "on" },
+				}),
+			],
+		};
+		const expressions: AppMigrationNotice = {
+			id: "expressions",
+			cutover: "hq-round-trip-expressions",
+			createdAt: "2026-10-21T09:00:00.000Z",
+			entries: [
+				migrationNoticeEntrySchema.parse({
+					kind: "document",
+					reason: "expressions-respelled",
+					entity: { type: "app", nameAtMigration: "Clinic visits" },
+					detail: { count: "2" },
+				}),
+			],
+		};
+		const sections = noticeDialogSections(
+			[platforms, expressions, notice("emission", [documentEntry("a")])],
+			NAMES,
+		);
+		expect(
+			sections.map((section) => [section.noticeId, section.cutover]),
+		).toEqual([
+			["platforms", "hq-round-trip-platforms"],
+			["expressions", "hq-round-trip-expressions"],
+			["emission", "hq-round-trip-emission"],
+		]);
+		const [first] = sections;
+		expect(
+			first?.groups.map((group) =>
+				group.kind === "deployment" ? group.heading : group.reason,
+			),
+		).toEqual([
+			"At the next publish to field-ops",
+			"platforms-declared",
+			"datetime-question-split",
+		]);
+		expect(first?.groups[0]?.lines.map((line) => line.text)).toEqual([
+			"This app runs in Web Apps, and its Web App setting on field-ops is off. The next publish there asks you before turning it on, so workers there can open it in Web Apps from the next version Web Apps serves.",
+			"The next publish to field-ops asks you to confirm what the project space has: Web-Based Apps (CloudCare).",
+		]);
+	});
+
 	it("gives one section per notice, in the order the store returns them", () => {
 		const sections = noticeDialogSections(
 			[
