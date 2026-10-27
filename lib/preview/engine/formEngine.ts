@@ -314,6 +314,27 @@ export interface FormScreenPage {
 	readonly needsEntry?: boolean;
 }
 
+/**
+ * Where Android's repeat prompt opens in a form without sections: after the
+ * last screen of a repeat the worker adds to (or where the repeat stands,
+ * when it has no entry yet), stepping Next asks whether to add an entry
+ * (`FormEntryActivityUIController.java::createRepeatDialog`). Only a
+ * user-added repeat outside a labeled group has one: inside a group the
+ * screen is a field-list, and Core's `getQuestionPrompts` steps over the
+ * new-repeat event while it collects one.
+ */
+export interface RepeatPromptPoint {
+	readonly repeatUuid: Uuid;
+	/** The repeat's concrete path, with the indexes of enclosing entries. */
+	readonly repeatPath: string;
+	readonly entryCount: number;
+	/** The index in `formScreens()` of the last screen before the prompt;
+	 *  -1 when no screen precedes it. */
+	readonly afterScreen: number;
+	/** Whether the repeat itself is relevant right now. */
+	readonly visible: boolean;
+}
+
 /** Stable fallback for paths that don't exist in the engine. Frozen so
  *  Zustand selectors always return the same reference — no spurious re-renders. */
 export const DEFAULT_ENGINE_STATE: FieldState = Object.freeze({
@@ -2006,10 +2027,10 @@ export class FormEngine {
 	 *   document order, inside every live repeat entry.
 	 */
 	formScreens(): ReadonlyArray<FormScreenPage> {
-		const effectivelyVisible = this.effectivelyVisiblePaths(
-			this.store.getState(),
-		);
 		if (this.rules.formScreens === "one-screen") {
+			const effectivelyVisible = this.effectivelyVisiblePaths(
+				this.store.getState(),
+			);
 			return [
 				{
 					kind: "form",
@@ -2026,7 +2047,69 @@ export class FormEngine {
 		}
 		if (this.tree.some((node) => node.field.kind === "section"))
 			return this.sectionScreens();
+		return this.unsectionedScreens().screens;
+	}
+
+	/**
+	 * Android's repeat prompts in a form without sections, in screen order
+	 * (`RepeatPromptPoint`). Empty on Web Apps and in a sectioned form, which
+	 * holds no user-added repeat.
+	 */
+	repeatPromptPoints(): ReadonlyArray<RepeatPromptPoint> {
+		if (
+			this.rules.repeatAdd !== "prompt" ||
+			this.rules.formScreens === "one-screen" ||
+			this.tree.some((node) => node.field.kind === "section")
+		)
+			return [];
+		return this.unsectionedScreens().prompts;
+	}
+
+	/** The last walk of a form without sections, with what it was read
+	 *  from. Screens and prompts are read together on every store update
+	 *  (`useFormScreens`, `useRepeatPromptPoints`), so one walk serves both
+	 *  until the state, the tree or the instance changes. */
+	private unsectionedWalk:
+		| {
+				readonly state: EngineStoreState;
+				readonly tree: FieldTreeNode[];
+				readonly instance: DataInstance;
+				readonly result: ReturnType<FormEngine["screensWithoutSections"]>;
+		  }
+		| undefined;
+
+	private unsectionedScreens(): ReturnType<
+		FormEngine["screensWithoutSections"]
+	> {
+		const state = this.store.getState();
+		const cached = this.unsectionedWalk;
+		if (
+			cached !== undefined &&
+			cached.state === state &&
+			cached.tree === this.tree &&
+			cached.instance === this.instance
+		)
+			return cached.result;
+		const result = this.screensWithoutSections(
+			this.effectivelyVisiblePaths(state),
+		);
+		this.unsectionedWalk = {
+			state,
+			tree: this.tree,
+			instance: this.instance,
+			result,
+		};
+		return result;
+	}
+
+	/** One walk of a form without sections on Android: its screens, and the
+	 *  repeat prompts between them. */
+	private screensWithoutSections(effectivelyVisible: ReadonlySet<string>): {
+		readonly screens: ReadonlyArray<FormScreenPage>;
+		readonly prompts: ReadonlyArray<RepeatPromptPoint>;
+	} {
 		const screens: FormScreenPage[] = [];
+		const prompts: RepeatPromptPoint[] = [];
 		const walk = (nodes: ReadonlyArray<FieldTreeNode>, prefix: string) => {
 			for (const node of nodes) {
 				const field = node.field;
@@ -2035,6 +2118,14 @@ export class FormEngine {
 					const count = this.instance.getRepeatCount(path);
 					for (let index = 0; index < count; index++)
 						walk(node.children ?? [], `${path}[${index}]`);
+					if (field.repeat_mode === "user_controlled")
+						prompts.push({
+							repeatUuid: field.uuid,
+							repeatPath: path,
+							entryCount: count,
+							afterScreen: screens.length - 1,
+							visible: effectivelyVisible.has(path),
+						});
 					continue;
 				}
 				if (field.kind === "group") {
@@ -2066,7 +2157,7 @@ export class FormEngine {
 			}
 		};
 		walk(this.tree, "/data");
-		return screens;
+		return { screens, prompts };
 	}
 
 	/** The screen the entry is on, by path. */
@@ -2203,8 +2294,14 @@ export class FormEngine {
 	 */
 	firstInvalidFieldTarget(opts?: {
 		readonly withinSection?: Uuid;
+		/** Only a question on this screen (`FormScreenPage.path`). */
+		readonly withinScreen?: string;
 	}): InvalidFieldTarget | undefined {
 		const states = this.store.getState();
+		const onScreen =
+			opts?.withinScreen === undefined
+				? () => true
+				: screenIncludes(opts.withinScreen);
 		const walk = (
 			nodes: ReadonlyArray<FieldTreeNode>,
 			prefix: string,
@@ -2221,7 +2318,8 @@ export class FormEngine {
 					!structural &&
 					node.field.kind !== "label" &&
 					node.field.kind !== "hidden" &&
-					states[instancePath]?.valid === false
+					states[instancePath]?.valid === false &&
+					onScreen(instancePath)
 				) {
 					return {
 						fieldUuid: node.field.uuid,

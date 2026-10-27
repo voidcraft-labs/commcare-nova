@@ -275,6 +275,25 @@ final class Forms {
         return shadow.getResultCode() == Activity.RESULT_OK;
     }
 
+    /**
+     * The title of each message CommCare holds for the worker's notification, as a navigation leaves them
+     * (CommCareNoficationManager.reportNotificationMessage: a form its processing quarantines posts "Problem
+     * with your App", FormSubmissionHelper.handleExceptionFromFormProcessing), in the order it posted them.
+     */
+    static JSONArray notifications() throws Exception {
+        JSONArray found = new JSONArray();
+        Object pending = Screens.field(CommCareApplication.notificationManager(), "pendingMessages");
+        if (pending instanceof List) {
+            synchronized (pending) {
+                for (Object message : (List<?>)pending) {
+                    found.put(String.valueOf(
+                            ((org.commcare.views.notifications.NotificationMessage)message).getTitle()));
+                }
+            }
+        }
+        return found;
+    }
+
     /** The form's data as it stands, serialized as the form's own save serializes it. */
     private static String data() throws java.io.IOException {
         return new String(new org.javarosa.model.xform.XFormSerializingVisitor()

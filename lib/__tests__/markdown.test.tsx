@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
 	ChatMarkdown,
 	composeRenderRules,
+	PREVIEW_LABEL_RENDERING,
 	PREVIEW_OPTIONS,
 	PreviewMarkdown,
 	withChipInjection,
@@ -12,6 +13,17 @@ import {
 /** Render a React element to an HTML string for assertion. */
 function html(element: React.ReactElement): string {
 	return renderToStaticMarkup(element);
+}
+
+/** The text a reader sees in rendered markup: every tag removed until none
+ * is left, so a tag that removing another one forms is removed too. */
+function visibleText(markup: string): string {
+	let text = markup;
+	for (;;) {
+		const next = text.replace(/<[^>]*>/g, "");
+		if (next === text) return text.replace(/\s+/g, " ").trim();
+		text = next;
+	}
 }
 
 /* ---------------------------------------------------------------------------
@@ -299,5 +311,56 @@ describe("untrusted HTML stays literal in both renderers", () => {
 		);
 		expect(output).toContain("first\nsecond");
 		expect(output).not.toContain("<br");
+	});
+});
+
+/* ---------------------------------------------------------------------------
+ * Label rendering per runtime
+ * ------------------------------------------------------------------------ */
+
+describe("PreviewMarkdown's label rendering", () => {
+	const LABEL = "a\nb ![x](y) <b>c</b>";
+
+	it("keeps today's rendering by default: breaks, literal HTML, the image", () => {
+		const output = html(
+			<PreviewMarkdown rendering={PREVIEW_LABEL_RENDERING}>
+				{LABEL}
+			</PreviewMarkdown>,
+		);
+		expect(output).toBe(html(<PreviewMarkdown>{LABEL}</PreviewMarkdown>));
+		expect(output).toContain("<br/>");
+		expect(output).toContain("<img");
+		expect(output).toContain("&lt;b&gt;c&lt;/b&gt;");
+	});
+
+	it("joins a single newline, draws an image as its alt text and drops raw HTML", () => {
+		const output = html(
+			<PreviewMarkdown
+				rendering={{
+					singleNewline: "space",
+					html: "dropped",
+					images: "alt-text",
+				}}
+			>
+				{LABEL}
+			</PreviewMarkdown>,
+		);
+		expect(output).not.toContain("<br");
+		expect(output).not.toContain("<img");
+		expect(output).not.toContain("&lt;b&gt;");
+		expect(visibleText(output)).toBe("a b x c");
+	});
+
+	it("drops raw HTML and still breaks lines where the runtime breaks them", () => {
+		const output = html(
+			<PreviewMarkdown
+				rendering={{ singleNewline: "break", html: "dropped", images: "shown" }}
+			>
+				{"one <i>two</i>\nthree"}
+			</PreviewMarkdown>,
+		);
+		expect(output).toContain("<br/>");
+		expect(output).not.toContain("&lt;i&gt;");
+		expect(output).toContain("two");
 	});
 });

@@ -324,9 +324,12 @@ The requests (`Reader.java`):
   starts no screen), a menu's `menu.id` and `menu.items[*].id`, and a form's
   `form` with `FormEntryActivity.getHeaderString`; an endpoint's
   `dispatched` (the dispatcher's chain), `handedHome.endpoint` and
-  `landed.steps`. `test_navigation.py` holds what the device does with each
-  after-submit destination, with an item off the menu, and with a link to a
-  target its menu hides.
+  `landed.steps`, and for a completed entry point `landed.notifications`, the
+  title of each message CommCare then holds for the worker's notification
+  (`Forms.notifications`). `test_navigation.py` holds what the device does
+  with each after-submit destination, with an item off the menu, with a link
+  to a target its menu hides, and with an entry point to a case the phone
+  lacks.
 
 An answer holds what Android gave: a status Android reports, a screen's own
 alert, what the app itself raised on a walk. A request the reader itself could

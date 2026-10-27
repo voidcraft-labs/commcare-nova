@@ -40,8 +40,12 @@ it plays. No other module under `lib/preview`, `components/preview`,
 `lib/preview/app-tests` or the authoring evaluator compares a platform value:
 each reads a field, or calls `platformUnavailableSentence` (the refusal for a
 platform the app does not declare) or `engine/previewDevice.ts`'s
-`serverPreviewDevice` and `withNavigationWidth`. A value marked "until" is held
-until a lane observation on Android decides it, and nothing reads it yet.
+`serverPreviewDevice` and `withNavigationWidth`. Three Android values no source
+reading settles (Markwon's label rendering, a tile cell's vertical alignment,
+and what a phone does with a form for a case it lacks) are each held by an
+Android reader test over `targeted-preview-android-renders` that asserts what
+the device does, so a change in Android's behavior fails the lane before
+Preview's reading goes stale.
 
 The device is an engine input beside the resolved identity, never part of it
 (`engine/previewDevice.ts::PreviewDevice`: the platform, Android's install id,
@@ -243,10 +247,12 @@ languages
 use English platform copy. Invalid Submit and section Next/jump feedback both
 retain the `reviewHighlightedQuestion` intent and render it in the selected worker
 language, including after a same-entry language change. Authored and server error
-text remains literal. Browser geolocation failures carry typed reasons; the picker
-resolves their catalog wording in the committed worker language at delivery,
-after its existing Project and continuation fences. A language change does not
-restart the request or change coordinate values. Google's map tiles, controls,
+text remains literal. Running as Web Apps, the location question is the map and
+address search with no browser location, as Web Apps draws it; running as
+Android, Record location's dialog watches the browser's position and shows its
+accuracy in the worker language, and a browser that refuses its location keeps
+the dialog open with Nova's line. A language change does not restart the watch
+or change coordinate values. Google's map tiles, controls,
 gestures, place names and resolved addresses retain Google's own language.
 Clock formatting, record metadata,
 media controls, other accessibility labels and diagnostics remain outside this
@@ -767,13 +773,13 @@ running state still freezes the body (`inert`, disabled fieldset), where
 that unfreezes the form, and a form frozen again in those frames keeps it for
 the next.
 
-## Sections page the preview on Android's rules
+## Form screens per platform
 
-A sectioned form (root sections only, `lib/doc/formSectionVerdicts.ts`) previews one page per section, because that is what the wire's `appearance="field-list"` group is on a phone: one screen per section, Next validating the screen before it turns, Back never validating, an empty or all-irrelevant screen skipped. Default Web Apps shows the same form as titled groups on one page; the preview follows the device and the docs say so. A form with no sections is untouched.
+A sectioned form (root sections only, `lib/doc/formSectionVerdicts.ts`) previews one page per section, because that is what the wire's `appearance="field-list"` group is on a phone: one screen per section, Next validating the screen before it turns, Back never validating, an empty or all-irrelevant screen skipped. Running as Web Apps, Preview shows the same form as titled groups on one page, as Web Apps does. Running as Android, a form with no sections pages one screen per labeled group and per question outside one.
 
-- **The engine owns the page model**: `FormEngine.formScreens()` (the platform's screens, `rules.formScreens`: one `/data` screen on Web Apps; on Android one per section, or Core's field-list screens in a form with no sections), `FormEngine.sectionScreens()` (root sections in order, each with its `/data/<id>` path, current question visibility and any pending row insertion), `validateSection(uuid)` (`validateAll` restricted to the paths under that section, marking them touched) and `firstInvalidFieldTarget({ withinSection })` (the same target, with the section leading `ancestorUuids`). The controller mirrors them; `hooks/useFormScreens.ts` (`useFormScreens`, `useSectionScreens`) subscribes through a one-string key so a keystroke does not re-render the pager.
-- **The open page is session state**, `activeSectionByForm` (`lib/session`), shared with the edit canvas so a flip keeps the page. `components/preview/form/sections/useSectionPaging.ts` arbitrates: the remembered page while it is visible, re-anchored (`engine/sectionPaging.ts::resolveCurrentPage`) and written back when it empties; `goNext` validates the current page and on failure announces through the form's `role="alert"` node and reveals the first invalid question on that page; a forward `goTo` validates every page between; `showPage` turns with no check, which is what Submit routing (the earliest invalid page, `ancestorUuids[0]`) and Clear form (the first page) use. Enter never advances.
-- **`FormScreen` renders `SectionPage`** (the shared `SectionHeading` as a focusable `h2` the page is labelled by, over `InteractiveFormRenderer` rooted at the section, so every question reads and writes the same paths as on one page) in place of `FormRenderer` while paging, and the bottom bar carries the `SectionStepper` (`nav aria-label="Sections"`, `aria-current="step"`, a polite "Section k of n: title" after a user-driven turn) plus Back / Next, with Submit taking Next's place on the last visible page. The invalid-submit and attachment-not-ready arms turn to the question's page before the ordinary two-frame reveal.
+- **The engine owns the page model**: `FormEngine.formScreens()` (the platform's screens, `rules.formScreens`: one `/data` screen on Web Apps; on Android one per section, or Core's field-list screens in a form with no sections), `FormEngine.sectionScreens()` (root sections in order, each with its `/data/<id>` path, current question visibility and any pending row insertion), `FormEngine.repeatPromptPoints()` (Android's repeat prompts in a form without sections: after the last screen of a user-added repeat outside a labeled group, or where the repeat stands when it has no entry), `validateSection(uuid)` / `validateScreen(path)` (`validateAll` restricted to the paths under that section or screen, marking them touched) and `firstInvalidFieldTarget({ withinSection })` / `({ withinScreen })` (the same target, limited to the page). The controller mirrors them, with `enterScreenAsync(path)` and `validateScreenAsync(path)` beside the section pair; `hooks/useFormScreens.ts` (`useFormScreens`, `useSectionScreens`, `useRepeatPromptPoints`) subscribes through a one-string key so a keystroke does not re-render the pager; the engine keeps its last unsectioned walk keyed on the store state, tree and instance, so screens and prompts share one walk.
+- **The pager follows the platform** (`components/preview/form/sections/useFormPaging.ts`): off on Web Apps (`mode: "none"`), where `form/sections/useScrolledSection.ts` writes `activeSectionByForm` with the section in view as the author scrolls, so a flip to edit mode opens on it; by section on Android in a sectioned form, the open page session state, `activeSectionByForm` (`lib/session`), shared with the edit canvas so a flip keeps the page; by screen on Android in a form without sections, the open screen (by path) belonging to the form entry. It arbitrates: the remembered page while it is visible, re-anchored (`engine/sectionPaging.ts::resolveCurrentPage`) and written back when it empties (a screen only while its path is still in the list); `goNext` validates the current page and on failure announces through the form's `role="alert"` node and reveals the first invalid question on that page; a forward `goTo` validates every page between; `showPage` and `showPageOf` turn with no check, which is what Submit routing (the page holding the earliest invalid question) and Clear form (the first page) use. Stepping Next past a repeat prompt's place opens `RepeatAddPrompt` (Go back, Android's add choice, Do not add, or Do not add, I'm finished when nothing follows); Add appends an entry and opens its first screen. The prompts before the first visible screen (a repeat the form opens with) open once when the entry starts, as Android raises them on opening the form. Enter never advances.
+- **`FormScreen` renders the page the pager names**: `SectionPage` for a section (the shared `SectionHeading` as a focusable `h2` the page is labelled by, over `InteractiveFormRenderer` rooted at the section, so every question reads and writes the same paths as on one page), or `ScreenPage` for a screen of a form without sections (Android's one header line, the enclosing labeled groups joined with ` > ` and a repeat entry's position, over the whole form's renderer scoped to the screen by `FormScreenScope`, so entries and capture slots keep their identities). Running as Android, groups and repeats draw no card, add or remove: a screen's groups are its header. Running as Web Apps there is no pager, and each section reaches `InteractiveFormRenderer` as a titled group (the same `SectionHeading`, not focusable as a page). The bottom bar carries the `SectionStepper` for sections alone (`nav aria-label="Sections"`, `aria-current="step"`, a polite "Section k of n: title" after a user-driven turn) plus Back / Next, with Submit, or Android's Finish (`submitLabel`), taking Next's place on the last visible page. The invalid-submit and attachment-not-ready arms turn to the question's page before the ordinary two-frame reveal.
 
 Page announcements and pending heading focus belong to the actual controller
 entry and visible page, not the retained FormScreen. `showPage`, `showFirst`,
@@ -1189,8 +1195,8 @@ commcare-android draws it (`tileGrouping`, `tileBorderShading`,
 early exit only on `"grouped"`, so Android reads, counts and pages by cases,
 `caseTileGrouping.ts::splitTileGridByGroupHeader` returns one group per case,
 `caseTileRendering.ts::planTileCell` draws no border or shading and keeps a
-middle cell centered and a top or bottom cell at the top (until the lane
-observes what Android draws there), and a link column shows its literal
+middle cell centered and a top or bottom cell at the top (what a device draws,
+`proof/android/test_case_lists.py`), and a link column shows its literal
 `[text](value)` in Results rows and tiles (`columnDisplay.ts`, `linkColumnInList`).
 
 Four things the rest of the preview has to know:
@@ -1639,6 +1645,7 @@ Each platform plays its own launch (`rules`):
 | Display conditions | A form off the menu, or in or under a module off the menu, opens only when the entry point ignores display conditions; a hidden module refuses. | Ignored. |
 | Claims | Every chosen case of a module that does not open on its search is claimed (`claimCaseIds`), installed with the launch under its worker in one session write, as HQ's claim frame posts before it navigates. | None. |
 | A case this worker's phone does not hold | Claimed: the form reads it with its saved values. | Opens with blank preloads and no persistent case tile (`blankCaseIds`), as Core checks only the datum's key. |
+| Submitting a form for such a case | Saves as any submission does. | A form that updates or closes the case (`unheldCaseSubmit.ts::formChangesSessionCase`: a close whose condition holds, a primary update, an update or close operation on the session's case) saves nothing and lands where its after-submit destination lands, with the toast "CommCare couldn't save this form": Core's `loadCase` refuses it and the phone quarantines the form (`entryPointUnheldCaseSubmit`, read off a device by `proof/android/test_navigation.py`). App Tests open no entry point, so no journey meets it. |
 
 The case picker offers, under the worker's cases, the Project's open cases of
 the type the worker's restore does not hold (`loadEntryPointOtherCasesAction`,

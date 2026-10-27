@@ -13,159 +13,195 @@ async function committedFrame(page: Page) {
 	});
 }
 
+/* Web Apps' location question is the map and address search; Android's is
+ * Record location, which reads the browser's position (`?android`). */
 const geopoint = test.extend<{
+	runsOn: "web-apps" | "android";
 	google: {
 		hold(path: string): void;
 		release(path: string): void;
 		requested(path: string): number;
 	};
 }>({
-	google: async ({ page }, use) => {
-		const peer = await componentPeer(
-			"e2e/lib/preview-geopoint-client.tsx",
-			[],
-			{
-				"@googlemaps/js-api-loader": resolve(
-					"e2e/lib/preview-geopoint-google-peer.ts",
-				),
-			},
-			{
-				"process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY":
-					'"synthetic-public-browser-key"',
-				"process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID": '"synthetic-map"',
-			},
-		);
-		const held = new Map<
-			string,
-			ReturnType<typeof Promise.withResolvers<void>>
-		>();
-		const requests = new Map<string, number>();
-		const peerRoutes = removableRoutes(page);
-		await peerRoutes.route(`${peer.origin}/geopoint-peer/**`, async (route) => {
-			const url = new URL(route.request().url());
-			const path = `${url.pathname.split("/").at(-1)}${url.search}`;
-			requests.set(path, (requests.get(path) ?? 0) + 1);
-			await held.get(path)?.promise;
-			const query = url.searchParams.get("query") ?? "";
-			const place = url.searchParams.get("place");
-			const json = url.pathname.endsWith("suggestions")
-				? [{ id: query, label: `${query} address` }]
-				: url.pathname.endsWith("details")
-					? {
-							lat: place === "Fresh" ? 41 : 40,
-							lng: place === "Fresh" ? -75 : -74,
-							label: `${place} address`,
-						}
-					: [
-							{
-								formatted_address: `Coordinates ${url.searchParams.get("lat")}`,
-							},
-						];
-			await route.fulfill({ json });
-		});
-		try {
-			await page.goto(peer.origin);
-			await expect(page.getByRole("combobox")).toBeVisible();
-			await use({
-				hold(path) {
-					held.set(path, Promise.withResolvers<void>());
+	runsOn: ["web-apps", { option: true }],
+	/* Automatic: it opens the peer page, which a test that never asks for
+	 * the Places peer (Android's Record location) still needs. */
+	google: [
+		async ({ page, runsOn }, use) => {
+			const peer = await componentPeer(
+				"e2e/lib/preview-geopoint-client.tsx",
+				[],
+				{
+					"@googlemaps/js-api-loader": resolve(
+						"e2e/lib/preview-geopoint-google-peer.ts",
+					),
 				},
-				release(path) {
-					held.get(path)?.resolve();
-					held.delete(path);
+				{
+					"process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY":
+						'"synthetic-public-browser-key"',
+					"process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID": '"synthetic-map"',
 				},
-				requested(path) {
-					return requests.get(path) ?? 0;
+			);
+			const held = new Map<
+				string,
+				ReturnType<typeof Promise.withResolvers<void>>
+			>();
+			const requests = new Map<string, number>();
+			const peerRoutes = removableRoutes(page);
+			await peerRoutes.route(
+				`${peer.origin}/geopoint-peer/**`,
+				async (route) => {
+					const url = new URL(route.request().url());
+					const path = `${url.pathname.split("/").at(-1)}${url.search}`;
+					requests.set(path, (requests.get(path) ?? 0) + 1);
+					await held.get(path)?.promise;
+					const query = url.searchParams.get("query") ?? "";
+					const place = url.searchParams.get("place");
+					const json = url.pathname.endsWith("suggestions")
+						? [{ id: query, label: `${query} address` }]
+						: url.pathname.endsWith("details")
+							? {
+									lat: place === "Fresh" ? 41 : 40,
+									lng: place === "Fresh" ? -75 : -74,
+									label: `${place} address`,
+								}
+							: [
+									{
+										formatted_address: `Coordinates ${url.searchParams.get("lat")}`,
+									},
+								];
+					await route.fulfill({ json });
 				},
-			});
-		} finally {
-			for (const gate of held.values()) gate.resolve();
+			);
 			try {
-				await page.evaluate(async () => {
-					window.nativeGeolocationDelivery?.release();
-					await window.previewGeopointAudit?.dispose();
+				if (runsOn === "android") {
+					await page.goto(`${peer.origin}/?android`);
+					await expect(
+						page.getByRole("button", { name: "Record location", exact: true }),
+					).toBeVisible();
+				} else {
+					await page.goto(peer.origin);
+					await expect(page.getByRole("combobox")).toBeVisible();
+				}
+				await use({
+					hold(path) {
+						held.set(path, Promise.withResolvers<void>());
+					},
+					release(path) {
+						held.get(path)?.resolve();
+						held.delete(path);
+					},
+					requested(path) {
+						return requests.get(path) ?? 0;
+					},
 				});
 			} finally {
+				for (const gate of held.values()) gate.resolve();
 				try {
-					await peerRoutes.removeAll();
-					await page.close();
+					await page.evaluate(async () => {
+						window.nativeGeolocationDelivery?.release();
+						await window.previewGeopointAudit?.dispose();
+					});
 				} finally {
-					await peer.close();
+					try {
+						await peerRoutes.removeAll();
+						await page.close();
+					} finally {
+						await peer.close();
+					}
 				}
 			}
-		}
-	},
+		},
+		{ auto: true },
+	],
 });
 
-geopoint(
-	"native location ignores an old delivery after refresh and accepts a fresh browser location",
-	async ({ page, context, google }) => {
-		// The barrier holds a position Chromium actually produced; it does not
-		// fabricate coordinates or replace Nova's requestGeolocation adapter.
-		await context.grantPermissions(["geolocation"]);
-		await context.setGeolocation({ latitude: 40, longitude: -74, accuracy: 4 });
-		await page.evaluate(() => {
-			const native = navigator.geolocation.getCurrentPosition.bind(
-				navigator.geolocation,
-			);
-			const held: Array<() => void> = [];
-			let first = true;
-			navigator.geolocation.getCurrentPosition = (success, error, options) => {
-				const hold = first;
-				first = false;
-				native(
-					(position) => {
-						if (hold) held.push(() => success(position));
-						else success(position);
-					},
-					error,
-					options,
+geopoint.describe("on Android", () => {
+	geopoint.use({ runsOn: "android" });
+
+	geopoint(
+		"Record location ignores an old delivery after refresh and accepts a fresh browser location",
+		async ({ page, context }) => {
+			// The barrier holds a position Chromium actually produced; it does not
+			// fabricate coordinates or replace Nova's watchGeolocation adapter.
+			await context.grantPermissions(["geolocation"]);
+			await context.setGeolocation({
+				latitude: 40,
+				longitude: -74,
+				accuracy: 4,
+			});
+			await page.evaluate(() => {
+				const native = navigator.geolocation.watchPosition.bind(
+					navigator.geolocation,
 				);
-			};
-			window.nativeGeolocationDelivery = {
-				held: () => held.length,
-				release() {
-					for (const deliver of held.splice(0)) deliver();
-				},
-			};
-		});
-		await page
-			.getByRole("button", { name: "Your location", exact: true })
-			.click();
-		await expect
-			.poll(() => page.evaluate(() => window.nativeGeolocationDelivery.held()))
-			.toBe(1);
-		await expect(
-			page.getByRole("button", { name: "Locating", exact: true }),
-		).toBeDisabled();
-		await page.evaluate(() => window.previewGeopointAudit.refresh());
-		await expect(
-			page.getByRole("button", { name: "Your location", exact: true }),
-		).toBeEnabled();
-		await page.evaluate(() => window.previewGeopointAudit.authorize());
-		await committedFrame(page);
-		// Deliver before any new request: a newer request counter must not be
-		// what hides a missing reset fence.
-		await page.evaluate(() => window.nativeGeolocationDelivery.release());
-		await committedFrame(page);
-		expect(
-			await page.evaluate(() => window.previewGeopointAudit.answer()),
-		).toBe("");
-		await context.setGeolocation({ latitude: 41, longitude: -75, accuracy: 3 });
-		await page
-			.getByRole("button", { name: "Your location", exact: true })
-			.click();
-		await expect
-			.poll(() => page.evaluate(() => window.previewGeopointAudit.answer()))
-			.toBe("41.0 -75.0 0.0 3.0");
-		await committedFrame(page);
-		expect(
-			await page.evaluate(() => window.previewGeopointAudit.toasts()),
-		).toEqual([]);
-		await expect.poll(() => google.requested("reverse?lat=41")).toBe(1);
-		await expect(page.getByRole("combobox")).toHaveValue("Coordinates 41");
-	},
-);
+				const held: Array<() => void> = [];
+				let first = true;
+				navigator.geolocation.watchPosition = (success, error, options) => {
+					const hold = first;
+					first = false;
+					return native(
+						(position) => {
+							if (hold) held.push(() => success(position));
+							else success(position);
+						},
+						error,
+						options,
+					);
+				};
+				window.nativeGeolocationDelivery = {
+					held: () => held.length,
+					release() {
+						for (const deliver of held.splice(0)) deliver();
+					},
+				};
+			});
+			await page
+				.getByRole("button", { name: "Record location", exact: true })
+				.click();
+			await expect(
+				page.getByRole("dialog", { name: "Finding location" }),
+			).toBeVisible();
+			await expect
+				.poll(() =>
+					page.evaluate(() => window.nativeGeolocationDelivery.held()),
+				)
+				.toBe(1);
+			// A Project scope reset closes the dialog and stops its watch.
+			await page.evaluate(() => window.previewGeopointAudit.refresh());
+			await expect(
+				page.getByRole("dialog", { name: "Finding location" }),
+			).toHaveCount(0);
+			await page.evaluate(() => window.previewGeopointAudit.authorize());
+			await committedFrame(page);
+			// Deliver before any new request: the closed dialog must not take it.
+			await page.evaluate(() => window.nativeGeolocationDelivery.release());
+			await committedFrame(page);
+			expect(
+				await page.evaluate(() => window.previewGeopointAudit.answer()),
+			).toBe("");
+			await context.setGeolocation({
+				latitude: 41,
+				longitude: -75,
+				accuracy: 3,
+			});
+			await page
+				.getByRole("button", { name: "Record location", exact: true })
+				.click();
+			// A fix of 5 metres or better is taken at once.
+			await expect
+				.poll(() => page.evaluate(() => window.previewGeopointAudit.answer()))
+				.toBe("41.0 -75.0 0.0 3.0");
+			await expect(
+				page.getByRole("button", { name: "Replace location", exact: true }),
+			).toBeVisible();
+			await expect(page.getByText(/Accuracy: 3m/)).toBeVisible();
+			await committedFrame(page);
+			expect(
+				await page.evaluate(() => window.previewGeopointAudit.toasts()),
+			).toEqual([]);
+		},
+	);
+});
 
 geopoint(
 	"native Places popup retains RTL, drops a cleared query response, and clears results during refresh",

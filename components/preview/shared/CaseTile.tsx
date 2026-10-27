@@ -62,6 +62,10 @@ interface CaseTileProps {
 const RESULTS_TILE_INTERACTION =
 	"pointer-events-none [&_a]:pointer-events-auto [&_a]:relative [&_a]:z-20 [&_button]:pointer-events-auto [&_button]:relative [&_button]:z-20";
 
+/** One case's tile on the platform Preview plays: running as Android, no
+ *  cell draws a border or shading, and only a middle cell takes its vertical
+ *  alignment (`planTileCell` over `tileBorderShading` and
+ *  `tileVerticalAlign`), as commcare-android draws a tile. */
 export function CaseTile({
 	projection,
 	columns,

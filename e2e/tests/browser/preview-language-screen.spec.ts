@@ -1,5 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import type { Page } from "@playwright/test";
 import { componentPeer } from "../../lib/componentPeer";
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { expect, test } from "../../lib/fixtures";
@@ -12,7 +13,35 @@ import { replaceRichText } from "../../lib/richText";
 // (`DateTimeData.uncast`), and the browser stands in for the device, so the
 // held text and the shown clock follow the browser's zone. New York keeps
 // both as authored on every runner.
+//
+// The document runs only on Android, so Preview plays Android's screens: the
+// section is one screen, its last button reads Finish (Terminar), the
+// location is recorded from the browser's position in place of the phone's
+// GPS, and the image is chosen through Choose image.
 test.use({ timezoneId: "America/New_York" });
+
+/** The browser's position Record location reads: a fix of 4 metres, which
+ *  Android takes at once. */
+async function grantLocation(page: Page) {
+	await page.context().grantPermissions(["geolocation"]);
+	await page
+		.context()
+		.setGeolocation({ latitude: 40, longitude: -74, accuracy: 4 });
+}
+
+/** Records the location through Android's Record location button, in
+ *  English, and returns the button, which then reads Replace location. */
+async function recordLocation(page: Page) {
+	await page
+		.getByRole("button", { name: "Record location", exact: true })
+		.click();
+	const replace = page.getByRole("button", {
+		name: "Replace location",
+		exact: true,
+	});
+	await expect(replace).toBeVisible();
+	return replace;
+}
 
 test("a rejected submission keeps required errors and review announcements in the current language", async ({
 	page,
@@ -62,7 +91,7 @@ test("a rejected submission keeps required errors and review announcements in th
 				`[data-field-uuid="${NAME}"][data-instance-path]`,
 			);
 			const announcement = page.locator('p[role="alert"].sr-only');
-			await page.getByRole("button", { name: "Enviar", exact: true }).click();
+			await page.getByRole("button", { name: "Terminar", exact: true }).click();
 			await expect(question).toHaveAttribute("data-invalid", "true");
 			await expect(
 				question.getByText("Este campo es obligatorio", { exact: true }),
@@ -98,7 +127,7 @@ test("a rejected submission keeps required errors and review announcements in th
 				await capture(`required-rebuilt-${tag}`);
 			}
 			await question.getByRole("textbox").fill("   ");
-			await page.getByRole("button", { name: "Enviar", exact: true }).click();
+			await page.getByRole("button", { name: "Terminar", exact: true }).click();
 			await expect(
 				question.getByText("Ingrese un nombre con letras.", { exact: true }),
 			).toBeVisible();
@@ -174,6 +203,7 @@ test("a production form keeps partial drafts and capture identity mounted throug
 		await testInfo.attach(name, { path: screenPath, contentType: "image/png" });
 	}
 	try {
+		await grantLocation(page);
 		await page.clock.setFixedTime(new Date(2024, 0, 15, 12));
 		await page.setViewportSize({ width: 320, height: 720 });
 		await page.goto(peer.origin);
@@ -190,23 +220,7 @@ test("a production form keeps partial drafts and capture identity mounted throug
 		await expect(
 			page.locator('[data-preview-engine-ready="true"]'),
 		).toBeVisible();
-		const manualCoordinates = page.getByRole("button", {
-			name: "Enter coordinates manually",
-			exact: true,
-		});
-		await manualCoordinates.click();
-		await expect(manualCoordinates).toHaveAttribute("aria-expanded", "true");
-		const latitude = page.getByRole("spinbutton", {
-			name: "Latitude",
-			exact: true,
-		});
-		const longitude = page.getByRole("spinbutton", {
-			name: "Longitude",
-			exact: true,
-		});
-		await expect(latitude).toBeVisible();
-		await latitude.fill("40");
-		await longitude.fill("-74");
+		const replaceLocation = await recordLocation(page);
 		await page
 			.getByRole("textbox", { name: /Visit note/ })
 			.first()
@@ -219,7 +233,7 @@ test("a production form keeps partial drafts and capture identity mounted throug
 			name: "Amina",
 			date: "2024-01-09",
 			when: "2024-01-15T14:30:00.000-05:00",
-			location: "40.0 -74.0 0.0 0.0",
+			location: "40.0 -74.0 0.0 4.0",
 			note: "Retained visit note",
 		});
 		const canvas = page.locator(
@@ -235,17 +249,15 @@ test("a production form keeps partial drafts and capture identity mounted throug
 		const ink = await canvas.evaluate((element: HTMLCanvasElement) =>
 			element.toDataURL(),
 		);
-		const latitudeNode = await latitude.elementHandle();
-		const longitudeNode = await longitude.elementHandle();
+		const locationNode = await replaceLocation.elementHandle();
 		const signatureNode = await canvas.elementHandle();
+		// Choose image: the image question's input that asks for no camera.
 		const fileNode = await page
-			.locator('input[type="file"]')
+			.locator('input[type="file"]:not([capture])')
 			.first()
 			.elementHandle();
-		if (!latitudeNode || !longitudeNode || !signatureNode || !fileNode)
+		if (!locationNode || !signatureNode || !fileNode)
 			throw new Error("Missing native input identities");
-		await longitude.fill("");
-		await latitude.fill("4");
 		const clock = page.getByRole("textbox", { name: "Time", exact: true });
 		await clock.fill("2:4");
 		await page.evaluate(() => window.previewLanguageScreen.arm());
@@ -271,21 +283,14 @@ test("a production form keeps partial drafts and capture identity mounted throug
 			page.getByText("This form is getting ready.", { exact: true }),
 		).toHaveCount(0);
 		await expect(
-			page.getByRole("button", { name: "Enviar", exact: true }),
+			page.getByRole("button", { name: "Terminar", exact: true }),
 		).toBeDisabled();
 		expect(
-			await latitudeNode.evaluate((element: HTMLInputElement) => ({
+			await locationNode.evaluate((element: HTMLButtonElement) => ({
 				connected: element.isConnected,
-				value: element.value,
 				disabled: element.matches(":disabled"),
 			})),
-		).toEqual({ connected: true, value: "4", disabled: true });
-		expect(
-			await longitudeNode.evaluate((element: HTMLInputElement) => ({
-				connected: element.isConnected,
-				value: element.value,
-			})),
-		).toEqual({ connected: true, value: "" });
+		).toEqual({ connected: true, disabled: true });
 		expect(
 			await signatureNode.evaluate((element: HTMLCanvasElement) => ({
 				connected: element.isConnected,
@@ -315,11 +320,11 @@ test("a production form keeps partial drafts and capture identity mounted throug
 		await page.evaluate(() => window.previewLanguageScreen.release());
 		await page.evaluate(() => window.previewLanguageScreen.settled());
 		await expect(
-			page.getByRole("spinbutton", { name: "Latitud", exact: true }),
-		).toHaveValue("4");
-		await expect(
-			page.getByRole("spinbutton", { name: "Longitud", exact: true }),
-		).toHaveValue("");
+			page.getByRole("button", { name: "Reemplazar ubicación", exact: true }),
+		).toBeVisible();
+		expect(await locationNode.evaluate((element) => element.isConnected)).toBe(
+			true,
+		);
 		await expect(
 			page.getByRole("textbox", { name: "Hora", exact: true }),
 		).toHaveValue("2:4");
@@ -372,7 +377,7 @@ test("a production form keeps partial drafts and capture identity mounted throug
 			)
 			.not.toBe(before.entry?.entryKey);
 		await page.evaluate(() => window.previewLanguageScreen.settled());
-		expect(await latitudeNode.evaluate((element) => element.isConnected)).toBe(
+		expect(await locationNode.evaluate((element) => element.isConnected)).toBe(
 			false,
 		);
 		expect(await signatureNode.evaluate((element) => element.isConnected)).toBe(
@@ -504,11 +509,15 @@ for (const outcome of ["accept", "new-entry"] as const) {
 			const before = await page.evaluate(() =>
 				window.previewLanguageScreen.observation(),
 			);
-			await page.locator('input[type="file"]').first().setInputFiles({
-				name: filename,
-				mimeType: "image/png",
-				buffer: bytes,
-			});
+			// Choose image: the image question's input that asks for no camera.
+			await page
+				.locator('input[type="file"]:not([capture])')
+				.first()
+				.setInputFiles({
+					name: filename,
+					mimeType: "image/png",
+					buffer: bytes,
+				});
 			await expect.poll(() => confirmEntered).toBe(true);
 			await page.evaluate(() => window.previewLanguageScreen.arm());
 			await page.getByRole("button", { name: "Español", exact: true }).click();
@@ -636,6 +645,7 @@ test("held section unwrap and wrap retain the published controls until their new
 		});
 	}
 	try {
+		await grantLocation(page);
 		await page.clock.setFixedTime(new Date(2024, 0, 15, 12));
 		await page.setViewportSize({ width: 320, height: 720 });
 		await page.goto(peer.origin);
@@ -651,26 +661,11 @@ test("held section unwrap and wrap retain the published controls until their new
 			page.locator(`[data-field-uuid="${DATE}"][data-instance-path]`),
 		).not.toHaveAttribute("data-invalid", "true");
 		await page.getByRole("button", { name: /January 9th, 2024/ }).click();
-		const manualCoordinates = page.getByRole("button", {
-			name: "Enter coordinates manually",
-			exact: true,
-		});
-		await manualCoordinates.click();
-		await expect(manualCoordinates).toHaveAttribute("aria-expanded", "true");
-		const originalLatitude = page.getByRole("spinbutton", {
-			name: "Latitude",
-			exact: true,
-		});
-		const originalLongitude = page.getByRole("spinbutton", {
-			name: "Longitude",
-			exact: true,
-		});
+		const originalLocation = await recordLocation(page);
 		const originalClock = page.getByRole("textbox", {
 			name: "Time",
 			exact: true,
 		});
-		await originalLatitude.fill("40");
-		await originalLongitude.fill("-74");
 		await page
 			.getByRole("textbox", { name: /Visit note/ })
 			.first()
@@ -683,19 +678,16 @@ test("held section unwrap and wrap retain the published controls until their new
 			name: "Amina",
 			date: "2024-01-09",
 			when: "2024-01-15T14:30:00.000-05:00",
-			location: "40.0 -74.0 0.0 0.0",
+			location: "40.0 -74.0 0.0 4.0",
 			note: "Retained visit note",
 		});
 		expect(initial.topology.sectioned).toBe(true);
 		expect(initial.topology.pages).toHaveLength(1);
 		expect(initial.paths.repeat).toBe("/data/visit/visits");
-		const oldLatitudeNode = await originalLatitude.elementHandle();
-		const oldLongitudeNode = await originalLongitude.elementHandle();
+		const oldLocationNode = await originalLocation.elementHandle();
 		const oldClockNode = await originalClock.elementHandle();
-		if (!oldLatitudeNode || !oldLongitudeNode || !oldClockNode)
-			throw new Error("Missing original section inputs");
-		await originalLongitude.fill("");
-		await originalLatitude.fill("4");
+		if (!oldLocationNode || !oldClockNode)
+			throw new Error("Missing original section controls");
 		await originalClock.fill("2:4");
 		await page.evaluate(() => window.previewLanguageScreen.arm());
 		await page.getByRole("button", { name: "Español", exact: true }).click();
@@ -707,18 +699,11 @@ test("held section unwrap and wrap retain the published controls until their new
 			page.locator('[data-preview-engine-ready="false"]'),
 		).toHaveAttribute("inert", "");
 		expect(
-			await oldLatitudeNode.evaluate((element: HTMLInputElement) => ({
+			await oldLocationNode.evaluate((element: HTMLButtonElement) => ({
 				connected: element.isConnected,
-				value: element.value,
 				disabled: element.matches(":disabled"),
 			})),
-		).toEqual({ connected: true, value: "4", disabled: true });
-		expect(
-			await oldLongitudeNode.evaluate((element: HTMLInputElement) => ({
-				connected: element.isConnected,
-				value: element.value,
-			})),
-		).toEqual({ connected: true, value: "" });
+		).toEqual({ connected: true, disabled: true });
 		expect(
 			await oldClockNode.evaluate((element: HTMLInputElement) => ({
 				connected: element.isConnected,
@@ -770,10 +755,7 @@ test("held section unwrap and wrap retain the published controls until their new
 			page.getByRole("navigation", { name: "Secciones", exact: true }),
 		).toHaveCount(0);
 		expect(
-			await oldLatitudeNode.evaluate((element) => element.isConnected),
-		).toBe(false);
-		expect(
-			await oldLongitudeNode.evaluate((element) => element.isConnected),
+			await oldLocationNode.evaluate((element) => element.isConnected),
 		).toBe(false);
 		expect(await oldClockNode.evaluate((element) => element.isConnected)).toBe(
 			false,
@@ -795,43 +777,35 @@ test("held section unwrap and wrap retain the published controls until their new
 		});
 		expect(unwrapped.values).toEqual(heldUnwrap.values);
 		expect(unwrapped.repeatKeys).toEqual(initial.repeatKeys);
+		// With no section, Android pages the form one question at a time: the
+		// first screen is the name, alone.
+		await expect(page.locator('[data-instance-path="/data/name"]')).toHaveCount(
+			1,
+		);
+		await expect(
+			page.locator('[data-instance-path="/data/location"]'),
+		).toHaveCount(0);
+		await capture("unwrap-published");
+		// Next turns past the name, the greeting and the date, each valid, to the
+		// clock, which still holds its half-typed answer.
+		for (let turn = 0; turn < 3; turn++)
+			await page
+				.getByRole("button", { name: "Siguiente", exact: true })
+				.click();
+		await expect(page.locator('[data-instance-path="/data/when"]')).toHaveCount(
+			1,
+		);
 		await expect(
 			page.getByText("«2:4» no es una hora. Introduzca una hora como 14:30.", {
 				exact: true,
 			}),
 		).toBeVisible();
-		await expect(
-			page.locator('[data-instance-path="/data/location"]'),
-		).toHaveCount(1);
-		await expect(page.locator('[data-instance-path="/data/name"]')).toHaveCount(
-			1,
-		);
-		await capture("unwrap-published");
-		await page
-			.getByRole("button", {
-				name: "Introducir coordenadas manualmente",
-				exact: true,
-			})
-			.click();
-		const unpagedLatitude = page.getByRole("spinbutton", {
-			name: "Latitud",
-			exact: true,
-		});
-		const unpagedLongitude = page.getByRole("spinbutton", {
-			name: "Longitud",
-			exact: true,
-		});
 		const unpagedClock = page.getByRole("textbox", {
 			name: "Hora",
 			exact: true,
 		});
-		const unpagedLatitudeNode = await unpagedLatitude.elementHandle();
-		const unpagedLongitudeNode = await unpagedLongitude.elementHandle();
 		const unpagedClockNode = await unpagedClock.elementHandle();
-		if (!unpagedLatitudeNode || !unpagedLongitudeNode || !unpagedClockNode)
-			throw new Error("Missing unsectioned inputs");
-		await unpagedLongitude.fill("");
-		await unpagedLatitude.fill("5");
+		if (!unpagedClockNode) throw new Error("Missing the unsectioned clock");
 		await unpagedClock.fill("3:4");
 		await page.evaluate(() => window.previewLanguageScreen.arm());
 		await page.getByRole("button", { name: "English", exact: true }).click();
@@ -840,24 +814,12 @@ test("held section unwrap and wrap retain the published controls until their new
 			.toBe(true);
 		await page.evaluate(() => window.previewLanguageScreen.wrap());
 		expect(
-			await unpagedLatitudeNode.evaluate((element: HTMLInputElement) => ({
+			await unpagedClockNode.evaluate((element: HTMLInputElement) => ({
 				connected: element.isConnected,
 				value: element.value,
 				disabled: element.matches(":disabled"),
 			})),
-		).toEqual({ connected: true, value: "5", disabled: true });
-		expect(
-			await unpagedLongitudeNode.evaluate((element: HTMLInputElement) => ({
-				connected: element.isConnected,
-				value: element.value,
-			})),
-		).toEqual({ connected: true, value: "" });
-		expect(
-			await unpagedClockNode.evaluate((element: HTMLInputElement) => ({
-				connected: element.isConnected,
-				value: element.value,
-			})),
-		).toEqual({ connected: true, value: "3:4" });
+		).toEqual({ connected: true, value: "3:4", disabled: true });
 		await expect(
 			page.getByRole("heading", { name: /Wrapped visit/, includeHidden: true }),
 		).toHaveCount(0);
@@ -896,12 +858,6 @@ test("held section unwrap and wrap retain the published controls until their new
 				.getByRole("navigation", { name: "Sections", exact: true })
 				.getByRole("button", { name: /Wrapped visit/ }),
 		).toBeVisible();
-		expect(
-			await unpagedLatitudeNode.evaluate((element) => element.isConnected),
-		).toBe(false);
-		expect(
-			await unpagedLongitudeNode.evaluate((element) => element.isConnected),
-		).toBe(false);
 		expect(
 			await unpagedClockNode.evaluate((element) => element.isConnected),
 		).toBe(false);

@@ -59,6 +59,7 @@ import {
 } from "./documents/nativeSessionReads";
 import { noMatchesReturnIdentity } from "./documents/noMatchesReturnIdentity";
 import { platformDeclaration } from "./documents/platformDeclaration";
+import { previewAndroidRenders } from "./documents/previewAndroidRenders";
 import { queryRepeatPlaces, repeatCountCopy } from "./documents/repeats";
 import { saveToCaseRead } from "./documents/saveToCaseRead";
 import {
@@ -143,6 +144,7 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	datetimeSplit,
 	platformDeclaration,
 	syncOnFormEntryWebApps,
+	previewAndroidRenders,
 ];
 
 /** Every targeted document, in a fixed order. */

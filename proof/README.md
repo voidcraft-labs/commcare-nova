@@ -1491,6 +1491,20 @@ setting, and has no control of its own: the entry keeps
 `targeted-sync-on-form-entry`'s. `targeted-sync-on-form-entry` itself is
 published with the setting off from step 4, so its two paths agree, and its
 control keeps the session from before the fix.
+`targeted-preview-android-renders` holds the three Android readings Preview's
+rule table (`lib/preview/platform.ts`) waits on, which no source reading
+settles: a survey whose label question writes a single newline, a Markdown
+image and a raw tag (Markwon's rendering), a custom tile whose three cells are
+aligned top, middle and bottom (`EntityViewTile.java::computeGravity`), and a
+follow-up form updating the visit's status with an entry point, launched on a
+case no project space holds (what a phone does with a form it cannot process).
+It declares Android only, so Formplayer and a device read it and no client
+replays it, and it passes with no entry and no control. Its three readings are
+`proof/android`'s `test_form_reads.py::test_a_markdown_label_renders_as_markwon_renders_it`,
+`test_case_lists.py::test_a_tile_cell_takes_only_middle_vertical_alignment` and
+`test_navigation.py::test_an_entry_point_to_a_case_the_phone_lacks_opens_blank_and_its_completion_is_read`,
+each asserting what the device showed, so a change in Android's behavior fails
+the lane.
 `targeted-list-first-places` adds a location question behind the list-first
 Web Apps search workflow. HQ's Case List save turns it into search-first
 (defect 21), which changes the runs that reach a location and the viewport

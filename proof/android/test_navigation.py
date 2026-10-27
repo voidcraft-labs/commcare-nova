@@ -18,11 +18,18 @@ Android's own home activity reads the session each navigation leaves (``proof.an
 - ``targeted-form-link-hidden-target`` (finding 58): links to a shown form, to a form whose display condition
   is false for the worker, and to a menu whose condition is false for them. The two forms open, and the menu
   opens with nothing in it.
+- ``targeted-preview-android-renders``: the entry point ``update_visit`` launched on a case id no project space
+  holds opens "Update visit" anyway (Core checks only that the session holds the datum's key,
+  ``CommCareSession.getFirstMissingDatum``), its status starting blank; completing it, the form updates a case the
+  phone lacks, which Core's ``CaseXmlParser.loadCase`` refuses as the form saves, so the device quarantines the
+  form, sends nothing and tells the worker "Form Record Quarantined". Preview running as Android saves nothing for
+  such a form and says so (``lib/preview/platform.ts``, ``entryPointUnheldCaseSubmit``).
 
 The plausible failures: a destination HQ builds as another (``root`` as the app's home, ``parent_module`` as
 the form's own menu); a device that opens a menu selecting several cases, so a destination there would be one a
 worker reaches; a form off the menu a link or an entry point no longer opens, which would make what Nova says
-of Android untrue; and a hidden menu a link opens as anything but an empty screen.
+of Android untrue; a hidden menu a link opens as anything but an empty screen; and a form for a case the phone
+lacks that reaches HQ, which would make Preview's refusal to save it untrue.
 """
 
 from __future__ import annotations
@@ -36,6 +43,11 @@ pytestmark = pytest.mark.reader("android")
 DESTINATIONS = "targeted-multi-select-destinations"
 HIDDEN = "targeted-hidden-from-menu"
 HIDDEN_TARGET = "targeted-form-link-hidden-target"
+RENDERS = "targeted-preview-android-renders"
+# A case id no project space holds, which the entry point names all the same.
+UNHELD_CASE = "targeted-unheld-visit"
+# Android's notification for a form its failed save quarantined (notification.quarantine.local.title).
+FORM_RECORD_QUARANTINED = "Form Record Quarantined"
 FORM_ENTRY = "FormEntryActivity"
 MENU = "MenuActivity"
 LIST = "EntitySelectActivity"
@@ -56,7 +68,8 @@ def _served(document):
 
 
 def _navs(document, label, **asked):
-    """The ``nav`` request's records over HQ's release of ``document``, by navigation."""
+    """The ``nav`` request's records over HQ's release of ``document``, by navigation; a ``sent`` list among
+    ``asked`` gains each form the device sent HQ."""
     from proof.android.navigation import nav
     from proof.observe.record import Blobs
 
@@ -171,3 +184,32 @@ def test_a_link_to_a_target_its_menu_hides_opens_the_form_and_an_empty_menu(andr
     _, landed = _after_form(navs["command:m0-f2"])
     assert landed["screen"] == MENU and landed["menu"]["id"] == "m2", landed
     assert landed["menu"]["items"] == [], landed
+
+
+def test_an_entry_point_to_a_case_the_phone_lacks_opens_blank_and_its_completion_is_read(android_documents, hq):
+    """``update_visit`` names a case no project space holds and completes the form it opens. The form opens, its
+    status question holding no answer; the device sends HQ nothing, and the worker is told "Form Record
+    Quarantined": Android processes the form as it saves it, Core refuses the update, and the failed save
+    quarantines the form, never processed, the reading Preview's ``entryPointUnheldCaseSubmit`` holds for Android
+    (its outcome A)."""
+    sent = []
+    navs = _navs(
+        android_documents[RENDERS],
+        "unheld-case",
+        endpoints=[{"id": "update_visit", "arguments": [UNHELD_CASE], "complete": True}],
+        sent=sent,
+    )
+
+    record = navs["endpoint:update_visit"]
+    assert "raised" not in record, record
+    opened = record["landed"]["steps"][0]
+    assert opened["screen"] == FORM_ENTRY and opened["session"]["command"] == "m1-f0", opened
+    (status,) = [
+        question
+        for screen in opened["form"]["screens"]
+        for question in screen["questions"]
+        if question["reference"].startswith("/data/status")
+    ]
+    assert status["answer"] is None, status
+    assert sent == [], sent
+    assert FORM_RECORD_QUARANTINED in record["landed"]["notifications"], record["landed"]

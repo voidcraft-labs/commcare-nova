@@ -3164,10 +3164,17 @@ test.describe("authenticated builder", () => {
 				const trail = page.getByRole("navigation", { name: "Page navigation" });
 				await expect(trail).toContainText(FORM_LINKS_SEED.caseName);
 				await expect(trail).toContainText(followUp.formName);
-				await main.getByRole("button", { name: "Next", exact: true }).click();
+				// Preview runs as Web Apps, which shows a sectioned form on one
+				// screen: both sections are there, with no pager.
+				await expect(
+					main.getByRole("heading", { name: "Follow-up details", exact: true }),
+				).toBeVisible();
 				await expect(
 					main.getByRole("heading", { name: "Follow-up review", exact: true }),
 				).toBeVisible();
+				await expect(
+					main.getByRole("button", { name: "Next", exact: true }),
+				).toHaveCount(0);
 				// Hold only the source's selected-record read, retaining its real
 				// response. The previously visited form must not accept answers
 				// against stale data while the fresh entry is still being prepared.
@@ -3486,8 +3493,26 @@ test.describe("authenticated builder", () => {
 		const nameField = main.getByRole("textbox", { name: aboutYou.nameLabel });
 		const next = main.getByRole("button", { name: "Next", exact: true });
 
-		await test.step("Preview opens on the first page with the stepper and Next", async () => {
+		await test.step("Preview running as Android opens on the first page with the stepper and Next", async () => {
 			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			// Preview starts as Web Apps, which shows the whole form on one
+			// screen; a phone pages it by section, so choose Android under Runs
+			// on. That starts the app again on the phone's home screen.
+			await page
+				.getByRole("button", { name: /^Running as .* in Web Apps\./ })
+				.click({ timeout: 20_000 });
+			await page.getByRole("menuitemradio", { name: /^Android/ }).click();
+			await main
+				.getByRole("button", { name: "Start", exact: true })
+				.click({ timeout: 20_000 });
+			await main
+				.getByRole("button", {
+					name: new RegExp(`^${FORM_SECTIONS_SEED.moduleName}`),
+				})
+				.click();
+			await main
+				.getByRole("button", { name: FORM_SECTIONS_SEED.formName, exact: true })
+				.click();
 			await expect(stepper).toBeVisible({ timeout: 20_000 });
 			await expect(stepper.getByRole("button")).toHaveCount(2);
 			await expect(step("Section 1 of 2")).toHaveAttribute(
@@ -3500,7 +3525,7 @@ test.describe("authenticated builder", () => {
 			await expect(nameField).toBeVisible();
 			await expect(next).toBeVisible();
 			await expect(
-				main.getByRole("button", { name: "Submit", exact: true }),
+				main.getByRole("button", { name: "Finish", exact: true }),
 			).toHaveCount(0);
 		});
 
@@ -3518,7 +3543,7 @@ test.describe("authenticated builder", () => {
 			);
 		});
 
-		await test.step("an answered page turns, focuses the next heading, and offers Submit", async () => {
+		await test.step("an answered page turns, focuses the next heading, and offers Finish", async () => {
 			await nameField.fill("Ada");
 			await next.click();
 			const heading = main.getByRole("heading", {
@@ -3531,8 +3556,9 @@ test.describe("authenticated builder", () => {
 				"aria-current",
 				"step",
 			);
+			// The last page's button reads Finish, as a phone's does.
 			await expect(
-				main.getByRole("button", { name: "Submit", exact: true }),
+				main.getByRole("button", { name: "Finish", exact: true }),
 			).toBeVisible();
 			await expect(next).toHaveCount(0);
 		});
@@ -3559,7 +3585,7 @@ test.describe("authenticated builder", () => {
 			await next.click();
 			const note = main.getByRole("textbox", { name: yourVisit.noteLabel });
 			await note.fill("invalid");
-			await main.getByRole("button", { name: "Submit", exact: true }).click();
+			await main.getByRole("button", { name: "Finish", exact: true }).click();
 			await expect(note).toBeFocused();
 			await expect(step("Section 2 of 2")).toHaveAttribute(
 				"aria-current",
@@ -3569,7 +3595,7 @@ test.describe("authenticated builder", () => {
 			// first visible page would incorrectly remember page two again.
 			await note.fill("skip intro");
 			await expect(stepper.getByRole("button")).toHaveCount(1);
-			await main.getByRole("button", { name: "Submit", exact: true }).click();
+			await main.getByRole("button", { name: "Finish", exact: true }).click();
 			await main
 				.getByRole("button", { name: FORM_SECTIONS_SEED.formName, exact: true })
 				.click();

@@ -99,6 +99,7 @@ import {
 	type FormEngineRuntimeOptions,
 	type FormScreenPage,
 	type InvalidFieldTarget,
+	type RepeatPromptPoint,
 } from "./formEngine";
 import type { FormLinkAsyncEvaluator } from "./formLinkEvaluation";
 import {
@@ -2932,8 +2933,12 @@ export class EngineController {
 	}
 
 	private async validateAsync(
-		sectionUuid?: Uuid,
+		within?:
+			| { readonly kind: "section"; readonly uuid: Uuid }
+			| { readonly kind: "screen"; readonly path: string },
 	): Promise<EngineValidationCompletion> {
+		const sectionUuid = within?.kind === "section" ? within.uuid : undefined;
+		const screenPath = within?.kind === "screen" ? within.path : undefined;
 		const engine = this.engine;
 		const formUuid = this.activeFormUuid;
 		const entryKey = this.currentEntryKey;
@@ -2987,9 +2992,11 @@ export class EngineController {
 				: {
 						kind: "invalid",
 						target: engine.firstInvalidFieldTarget(
-							sectionUuid === undefined
-								? undefined
-								: { withinSection: sectionUuid },
+							sectionUuid !== undefined
+								? { withinSection: sectionUuid }
+								: screenPath !== undefined
+									? { withinScreen: screenPath }
+									: undefined,
 						),
 					};
 			this.validationCompletions.set(completion, {
@@ -3008,11 +3015,13 @@ export class EngineController {
 					/* A submit's whole-form validation runs the platform's
 					 * request pass first (Formplayer rebuilds the session before
 					 * it validates a submission). */
-					if (sectionUuid === undefined) engine.prepareSubmit();
+					if (within === undefined) engine.prepareSubmit();
 					return complete(
-						sectionUuid === undefined
-							? engine.validateAll()
-							: engine.validateSection(sectionUuid),
+						sectionUuid !== undefined
+							? engine.validateSection(sectionUuid)
+							: screenPath !== undefined
+								? engine.validateScreen(screenPath)
+								: engine.validateAll(),
 						this.runtimeRevision,
 					);
 				},
@@ -3031,12 +3040,13 @@ export class EngineController {
 					generation,
 					signal,
 				);
-				if (sectionUuid === undefined)
-					await engine.prepareSubmitAsync(evaluate);
+				if (within === undefined) await engine.prepareSubmitAsync(evaluate);
 				const valid =
-					sectionUuid === undefined
-						? await engine.validateAllAsync(evaluate)
-						: await engine.validateSectionAsync(sectionUuid, evaluate);
+					sectionUuid !== undefined
+						? await engine.validateSectionAsync(sectionUuid, evaluate)
+						: screenPath !== undefined
+							? await engine.validateScreenAsync(screenPath, evaluate)
+							: await engine.validateAllAsync(evaluate);
 				return complete(valid, revision);
 			},
 			{ kind: "retired" },
@@ -3128,7 +3138,68 @@ export class EngineController {
 	async validateSectionAsync(
 		sectionUuid: Uuid,
 	): Promise<EngineValidationCompletion> {
-		return this.validateAsync(sectionUuid);
+		return this.validateAsync({ kind: "section", uuid: sectionUuid });
+	}
+
+	/** Validate the visible questions on one screen of the platform's page
+	 *  model (`FormScreenPage.path`): what Android's Next checks before it
+	 *  turns a screen of a form without sections. */
+	async validateScreenAsync(path: string): Promise<EngineValidationCompletion> {
+		return this.validateAsync({ kind: "screen", path });
+	}
+
+	/** Enter one screen of the platform's page model, as App Tests' page
+	 *  turns do: a section's screen initializes its rows, and a group's or a
+	 *  question's screen of a form without sections initializes nothing. */
+	async enterScreenAsync(path: string): Promise<boolean> {
+		if (this.rebuilding) return false;
+		const engine = this.engine;
+		const formUuid = this.activeFormUuid;
+		const entryKey = this.currentEntryKey;
+		if (!engine || !formUuid || !entryKey) return false;
+		await this.pendingWork;
+		const onScreens = () =>
+			engine.formScreens().some((page) => page.path === path);
+		if (
+			engine !== this.engine ||
+			entryKey !== this.currentEntryKey ||
+			formUuid !== this.activeFormUuid ||
+			!onScreens()
+		)
+			return false;
+		if (this.xpathRuntime === undefined)
+			return this.contain("repeat-change", formUuid, false, () => {
+				engine.enterScreen(path);
+				this.syncAllPathsSelectively();
+				return true;
+			});
+		return this.runAsyncRevision(
+			"repeat-change",
+			formUuid,
+			async (revision, generation, signal) => {
+				if (!onScreens()) return false;
+				await engine.enterScreenAsync(
+					path,
+					this.evaluatorFor(engine, entryKey, revision, generation, signal),
+				);
+				if (engine !== this.engine || entryKey !== this.currentEntryKey)
+					return false;
+				this.syncAllPathsSelectively();
+				return true;
+			},
+			false,
+			{ atomic: true },
+		);
+	}
+
+	/** Android's repeat prompts in the running form without sections
+	 *  (`FormEngine.repeatPromptPoints`). */
+	repeatPromptPoints(): ReadonlyArray<RepeatPromptPoint> {
+		return (
+			(
+				this.retainedPresentation?.engine ?? this.engine
+			)?.repeatPromptPoints() ?? []
+		);
 	}
 
 	/** Resolve a concrete question to the collapsed containers that hide it. */

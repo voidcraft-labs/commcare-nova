@@ -10,7 +10,7 @@ import type {
 } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
 import { LabelContent } from "@/lib/references/LabelContent";
-import { useEditMode } from "@/lib/session/hooks";
+import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
 import { FIELD_STYLES } from "../fieldStyles";
 import { TextEditable } from "../TextEditable";
 
@@ -32,6 +32,9 @@ export function LabelField({
 }) {
 	const mode = useEditMode();
 	const isEditMode = mode === "edit";
+	/* The running preview renders the label as the runtime it plays does
+	 * (`lib/preview/platform.ts`, `labelMarkdown`). */
+	const labelRendering = usePreviewPlatformRules().labelMarkdown;
 	const { updateField } = useBlueprintMutations();
 	/* Inline save callback: null in preview mode so the TextEditable
 	 * below falls back to read-only. In edit mode returns a stable
@@ -66,6 +69,7 @@ export function LabelField({
 					label={field.label}
 					resolvedLabel={state.resolvedLabel}
 					isEditMode={isEditMode}
+					rendering={labelRendering}
 					className={FIELD_STYLES.label}
 				/>
 			</TextEditable>

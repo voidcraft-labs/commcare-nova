@@ -17,12 +17,16 @@
 // `engine/previewDevice.ts::serverPreviewDevice`.
 //
 // Each field cites the CommCare reader it plays, read at the pins
-// `proof/pins.json` names. A value marked "until" is held until a lane
-// observation on Android decides it; nothing reads it yet.
+// `proof/pins.json` names. Three Android values no source reading settles
+// (the label rendering, a tile cell's vertical alignment, and what a phone
+// does with a form for a case it lacks) are held by the Android reader tests
+// that read `targeted-preview-android-renders` off a device, each asserting
+// what the device does.
 //
 // Client-safe: the browser, the App Test runtime and the authoring evaluator
 // all import it.
 
+import { CASE_SEARCH_BUTTON_LABEL } from "@/lib/domain/modules";
 import {
 	inPlatform,
 	PLATFORM_LABELS,
@@ -72,8 +76,12 @@ export interface PreviewPlatformRules {
 	readonly entryPointCaseNotHeld: "claimed" | "opens-blank";
 	/** Submitting a form opened for a case the phone lacks. Core
 	 *  `xml/CaseXmlParser.java::loadCase` throws for an update or close of a
-	 *  missing case; what reaches HQ is a lane observation. Android: until
-	 *  that observation, `"not-processed"`, with no reader. */
+	 *  missing case; Android processes the form as it saves it, so the save
+	 *  fails and the phone quarantines the form, sends nothing and posts
+	 *  "Form Record Quarantined" (`FormEntryActivity.java::savingComplete`,
+	 *  `FormRecordProcessor.java::quarantineRecord`;
+	 *  `proof/android/test_navigation.py` reads it off a device). Preview saves
+	 *  nothing for a form that changes such a case (`unheldCaseSubmit.ts`). */
 	readonly entryPointUnheldCaseSubmit: "submits" | "not-processed";
 	/** Choosing a case in a module with a case list and no forms. Formplayer
 	 *  `MenuSessionRunnerService.java::advanceSessionWithSelections` →
@@ -92,8 +100,9 @@ export interface PreviewPlatformRules {
 	readonly tileBorderShading: boolean;
 	/** `views/EntityViewTile.java::computeGravity` matches `center`, `top`
 	 *  and `bottom`, and Nova writes `start`, `center` and `end`, so only a
-	 *  middle cell reaches its gravity there. What `top` and `bottom` draw on
-	 *  Android is a lane observation; until it runs both draw at the top. */
+	 *  middle cell reaches its gravity there; a text view with no vertical
+	 *  gravity draws at the top, so `top` and `bottom` both draw there
+	 *  (`proof/android/test_case_lists.py` reads each cell's gravity). */
 	readonly tileVerticalAlign: "as-authored" | "middle-only";
 	/** Android's markdown arm is on the case detail only
 	 *  (`views/EntityDetailView.java`, `FORM_MARKDOWN`). */
@@ -152,11 +161,11 @@ export interface PreviewPlatformRules {
 	 *  Android `QuestionWidget::addHintText` as plain text. */
 	readonly hint: "markdown" | "plain";
 	/** Label markdown. Web Apps `cloudcare/js/markdown.js::render`
-	 *  (`breaks: true`, markdown-it `html: false`); Android
-	 *  `CommCareApplication.java::getMarkwonInstance`. Android: until a lane
-	 *  observation, the manifest's reading of
-	 *  `questions/markdown-form-equal-to-the-default-text` for newlines and
-	 *  images, and today's rendering for HTML. */
+	 *  (`breaks: true`, markdown-it `html: false`, so raw HTML shows as
+	 *  written); Android `CommCareApplication.java::getMarkwonInstance`, with
+	 *  no HTML or image plugin: a single newline joins with a space, an image
+	 *  shows its alt text, and a raw tag is dropped with its text kept
+	 *  (`proof/android/test_form_reads.py` reads a label off a device). */
 	readonly labelMarkdown: {
 		readonly singleNewline: "break" | "space";
 		readonly html: "literal" | "dropped";
@@ -238,7 +247,6 @@ export const PREVIEW_PLATFORM_RULES = {
 		entryPointDisplayConditions: "ignored",
 		entryPointClaims: "none",
 		entryPointCaseNotHeld: "opens-blank",
-		/* Until the lane observes Android's completion of such a form. */
 		entryPointUnheldCaseSubmit: "not-processed",
 		formlessCaseListSelection: "device-home",
 		claimThenSync: true,
@@ -259,10 +267,9 @@ export const PREVIEW_PLATFORM_RULES = {
 		help: "info-button",
 		helpMediaWithoutText: "shown",
 		hint: "plain",
-		/* Until the lane observes Markwon's rendering of a label. */
 		labelMarkdown: Object.freeze({
 			singleNewline: "space",
-			html: "literal",
+			html: "dropped",
 			images: "alt-text",
 		}),
 		groupLabel: "screen-header",
@@ -279,6 +286,18 @@ export const PREVIEW_PLATFORM_RULES = {
 /** The rules of one platform. */
 export function previewPlatformRules(platform: Platform): PreviewPlatformRules {
 	return PREVIEW_PLATFORM_RULES[platform];
+}
+
+/** The search screen's heading and description. Web Apps shows the
+ *  authored title and description; Android shows neither, and its heading is
+ *  the search action's label (`searchScreenText`). */
+export function searchScreenHeading(
+	rules: Pick<PreviewPlatformRules, "searchScreenText">,
+	authored: { readonly title: string; readonly subtitle: string | undefined },
+): { readonly title: string; readonly subtitle: string | undefined } {
+	return rules.searchScreenText
+		? authored
+		: { title: CASE_SEARCH_BUTTON_LABEL, subtitle: undefined };
 }
 
 function otherPlatform(platform: Platform): Platform {

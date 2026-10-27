@@ -199,6 +199,7 @@ import {
 	reconcilePreviewCaseChoices,
 	togglePreviewCaseChoice,
 } from "@/lib/preview/orderedCaseSelection";
+import { searchScreenHeading } from "@/lib/preview/platform";
 import {
 	type RuntimeMessage,
 	runtimeMessage,
@@ -1538,20 +1539,26 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			: message(pageLocalFilter ? "showingResults" : "resultsFound", {
 					count: visibleResultCount,
 				});
-	const title =
-		(localizedValues.get(
-			makeTranslationUnitId("module", moduleUuid ?? "missing", "search-title"),
-		) as string | undefined) ??
-		searchConfig?.searchScreenTitle ??
-		DEFAULT_CASE_SEARCH_TITLE;
-	const subtitle =
-		(localizedValues.get(
-			makeTranslationUnitId(
-				"module",
-				moduleUuid ?? "missing",
-				"search-subtitle",
-			),
-		) as string | undefined) ?? searchConfig?.searchScreenSubtitle;
+	const { title, subtitle } = searchScreenHeading(platformRules, {
+		title:
+			(localizedValues.get(
+				makeTranslationUnitId(
+					"module",
+					moduleUuid ?? "missing",
+					"search-title",
+				),
+			) as string | undefined) ??
+			searchConfig?.searchScreenTitle ??
+			DEFAULT_CASE_SEARCH_TITLE,
+		subtitle:
+			(localizedValues.get(
+				makeTranslationUnitId(
+					"module",
+					moduleUuid ?? "missing",
+					"search-subtitle",
+				),
+			) as string | undefined) ?? searchConfig?.searchScreenSubtitle,
+	});
 	const localizedSearchValidationMessages = useMemo(
 		() =>
 			new Map(

@@ -25,6 +25,14 @@ HQ's receiver; ``sent`` holds each instance it sent, as Android wrote it.
   bare ``.``), decides the dependent answer: accepted where the count is the
   one the validation asks for, refused with Android's own message where it is
   not.
+- A label's markdown form, as Android's label renderer draws it (Markwon,
+  ``CommCareApplication.getMarkwonInstance``, with no HTML or image plugin):
+  ``targeted-preview-android-renders``'s label ``a``, a newline, then
+  ``b ![x](y) <b>c</b>`` reads ``a b x c``, the single newline a space, the
+  image its alt text and the raw tag gone with its text kept. Preview running
+  as Android renders labels the same way (``lib/preview/platform.ts``,
+  ``labelMarkdown``); the test asserts what the device drew, so a change in
+  Android's rendering fails here before Preview's reading goes stale.
 
 The plausible failures: a session read Android does not resolve, or resolves
 to another id than the create block's after a reopen (an id drawn again); a
@@ -44,6 +52,7 @@ from lxml import etree
 pytestmark = pytest.mark.reader("android")
 
 REGISTRATION = "expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0"
+RENDERS = "targeted-preview-android-renders"
 BILINGUAL = "localization-bilingual"
 COUNTED = "container-query-conditional"
 CASE = "{http://commcarehq.org/case/transaction/v2}case"
@@ -163,3 +172,29 @@ def test_a_count_that_reads_its_own_node_decides_the_dependent_answer(android_do
     assert form["saved"]["finishing"] is False, form
     assert INVALID in json.dumps(form["screens"][-1], ensure_ascii=False), form["screens"][-1]
     assert sent_unmatched == []
+
+
+def _texts(view):
+    """Every text a laid-out view shows, in the order its tree holds them."""
+    found = [view["text"]] if view.get("text") else []
+    for child in view.get("children", ()):
+        found.extend(_texts(child))
+    return found
+
+
+def test_a_markdown_label_renders_as_markwon_renders_it(android_documents, hq):
+    """The survey "Text" holds one label question, labelled ``a``, a newline, then ``b ![x](y) <b>c</b>``. Its
+    screen shows the label's text as ``a b x c``: Markwon joins the single newline with a space, draws the image as
+    its alt text, and drops the raw tag and keeps its text, the reading Preview's ``labelMarkdown`` holds for
+    Android."""
+    with _served(android_documents[RENDERS]) as (served, archive):
+        answer, _ = _app(served, archive, "label", commands=[FORM], views=True)
+
+    (form,) = _forms(answer["walks"][FORM])
+    (label,) = [
+        text
+        for screen in form["screens"]
+        for text in _texts(screen.get("view") or {})
+        if text.startswith("a") and "c" in text
+    ]
+    assert " ".join(label.split()) == "a b x c", label

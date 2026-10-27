@@ -4,11 +4,15 @@ import { openBuilder } from "../../lib/pageLoads";
 import { HERE_COLUMN_SEED } from "../../lib/previewRuntimeSeeds";
 
 /**
- * A case list whose calculated column is a raw `here()`. The column fills
+ * A case list whose calculated column is a raw `here()`, which only an app
+ * that runs on Android can hold, so Preview plays Android. The column fills
  * from the browser's real position (Chromium's geolocation override, which
- * reaches `watchPosition`) as CommCare prints two doubles, and re-reads on
- * Android's rule: a move of a few metres leaves the list as it is, a move past
- * 30 metres from the position the list shows reads it again. The accuracy is
+ * reaches `watchPosition`) as Android prints it: the latitude and longitude,
+ * then the altitude and accuracy floored to two decimals (`0.0` where the
+ * browser gives no altitude), four Java doubles
+ * (`AndroidHereFunctionHandler.toGeoPointData`). It re-reads on Android's
+ * rule: a move of a few metres leaves the list as it is, a move past 30
+ * metres from the position the list shows reads it again. The accuracy is
  * coarser than 1,600 metres, so the watch keeps running through every move.
  */
 
@@ -17,20 +21,21 @@ const WAITING =
 const REFUSED =
 	"Your browser isn't sharing your location, so columns that use it stay blank. You can allow location for this site in your browser's settings.";
 const ACCURACY = 2000;
-/** Each position with the text CommCare prints for it: Java's
- * `Double.toString` of the latitude and of the longitude. */
-const START = { latitude: 40, longitude: -74, text: "40.0 -74.0" };
+/** Each position with the text Android prints for it: Java's
+ * `Double.toString` of the latitude, the longitude, the altitude (none, so
+ * `0.0`) and the accuracy. */
+const START = { latitude: 40, longitude: -74, text: "40.0 -74.0 0.0 2000.0" };
 /** About 10 metres north of the start. */
 const SMALL_MOVE = {
 	latitude: 40.00009,
 	longitude: -74,
-	text: "40.00009 -74.0",
+	text: "40.00009 -74.0 0.0 2000.0",
 };
 /** About 40 metres north of the start, the position the list last showed. */
 const LARGE_MOVE = {
 	latitude: 40.00036,
 	longitude: -74,
-	text: "40.00036 -74.0",
+	text: "40.00036 -74.0 0.0 2000.0",
 };
 const at = ({
 	latitude,
@@ -143,7 +148,7 @@ test("a here() column fills once the browser shares its position and re-reads pa
 		await page.evaluate(() => window.hereWatch?.release());
 	});
 
-	await test.step("the shared position fills the column as two Java doubles", async () => {
+	await test.step("the shared position fills the column as Android's four Java doubles", async () => {
 		await expect(row).toContainText(START.text, { timeout: 20_000 });
 		await expect(note).toHaveCount(0);
 	});

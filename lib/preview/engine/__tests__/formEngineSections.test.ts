@@ -328,3 +328,110 @@ describe("FormEngine.formScreens", () => {
 		).toMatchObject({ hasVisibleQuestions: false });
 	});
 });
+
+describe("FormEngine.repeatPromptPoints", () => {
+	function engineOn(device: PreviewDevice, fields: FieldSpec[]): FormEngine {
+		return new FormEngine(
+			input(fields),
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ device },
+		);
+	}
+	const FIELDS: FieldSpec[] = [
+		{ id: "name", kind: "text", label: proseText("Name") },
+		{
+			id: "visits",
+			kind: "repeat",
+			repeat_mode: "user_controlled",
+			label: proseText("Visit"),
+			children: [{ id: "note", kind: "text", label: proseText("Note") }],
+		},
+		{
+			id: "counted",
+			kind: "repeat",
+			repeat_mode: "count_bound",
+			repeat_count: "1",
+			children: [{ id: "item", kind: "text", label: proseText("Item") }],
+		},
+		{
+			id: "household",
+			kind: "group",
+			label: proseText("Household"),
+			children: [
+				{
+					id: "members",
+					kind: "repeat",
+					repeat_mode: "user_controlled",
+					children: [
+						{ id: "member", kind: "text", label: proseText("Member") },
+					],
+				},
+			],
+		},
+		{ id: "done", kind: "text", label: proseText("Done") },
+	];
+
+	it("places Android's prompt after a user-added repeat's last screen, and none in a labeled group or for a counted repeat", () => {
+		const engine = engineOn(androidDevice(), FIELDS);
+		const screens = engine.formScreens().map(({ path }) => path);
+		const [visits] = engine.repeatPromptPoints();
+		expect(engine.repeatPromptPoints()).toHaveLength(1);
+		expect(visits).toMatchObject({
+			repeatUuid: u("visits"),
+			repeatPath: "/data/visits",
+			visible: true,
+		});
+		expect(screens[visits.afterScreen]).toBe(
+			`/data/visits[${visits.entryCount - 1}]/note`,
+		);
+		engine.addRepeat("/data/visits");
+		const [after] = engine.repeatPromptPoints();
+		expect(after.entryCount).toBe(visits.entryCount + 1);
+		expect(engine.formScreens()[after.afterScreen].path).toBe(
+			`/data/visits[${after.entryCount - 1}]/note`,
+		);
+	});
+
+	it("has no prompt on Web Apps or in a sectioned form", () => {
+		expect(engineOn(webAppsDevice(), FIELDS).repeatPromptPoints()).toEqual([]);
+		expect(sectionedForm(androidDevice()).repeatPromptPoints()).toEqual([]);
+	});
+});
+
+describe("FormEngine.firstInvalidFieldTarget({ withinScreen })", () => {
+	it("finds an invalid question only on the screen it is asked about", () => {
+		const engine = new FormEngine(
+			input([
+				{
+					id: "first",
+					kind: "text",
+					label: proseText("First"),
+					required: "true()",
+				},
+				{
+					id: "second",
+					kind: "text",
+					label: proseText("Second"),
+					required: "true()",
+				},
+			]),
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ device: androidDevice() },
+		);
+		expect(engine.validateScreen("/data/second")).toBe(false);
+		expect(
+			engine.firstInvalidFieldTarget({ withinScreen: "/data/second" }),
+		).toMatchObject({ instancePath: "/data/second" });
+		expect(
+			engine.firstInvalidFieldTarget({ withinScreen: "/data/first" }),
+		).toBeUndefined();
+	});
+});

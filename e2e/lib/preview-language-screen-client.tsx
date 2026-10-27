@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { createRoot } from "react-dom/client";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContext";
@@ -28,6 +28,7 @@ import {
 	useBuilderFormEngine,
 } from "@/lib/preview/engine/provider";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
+import { usePreviewDevice } from "@/lib/session/hooks";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
 import {
@@ -69,6 +70,13 @@ const entryPublications: unknown[] = [];
 function LanguageControls() {
 	const current = useBuilderFormEngine();
 	const language = useBuilderLanguage();
+	/* The document runs only on Android, so Preview plays Android: the running
+	 * shell installs the device it plays, and this peer mounts the form screen
+	 * alone, so it installs it the same way. */
+	const device = usePreviewDevice();
+	useLayoutEffect(() => {
+		current.setPreviewDevice(device);
+	}, [current, device]);
 	useEffect(() => {
 		controller = current;
 		observeLanguageWorkerEntry(current.entryStore.getState());

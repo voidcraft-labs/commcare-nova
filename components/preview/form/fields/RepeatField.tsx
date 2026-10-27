@@ -22,6 +22,12 @@
  * The inner renderer is called with `leadingGap={false}`: the instance
  * divider supplies the 24px gap between the divider and the first
  * field, so the default `pt-6` would double up.
+ *
+ * This shell is Web Apps' repeat. Running as Android, a repeat draws no
+ * card, no divider and no Add or Remove (Android offers no delete, and adds
+ * an entry only through the pager's prompt), so `InteractiveFormRenderer`
+ * renders `RepeatEntriesWithoutChrome` instead: each live entry's questions
+ * in place.
  */
 
 "use client";
@@ -470,6 +476,56 @@ export function RepeatField({
 				</>
 			)}
 			{collapsed ? <div id={contentId} hidden /> : null}
+		</>
+	);
+}
+
+// ── Android: entries without chrome ──────────────────────────────────
+
+/**
+ * A repeat as Android draws it inside a screen: no card, no instance
+ * divider, no Add or Remove, each live entry's questions in place. Each
+ * entry keeps its stable instance identity, so capture slots and engine
+ * paths are the ones the Web Apps shell would give it.
+ */
+export function RepeatEntriesWithoutChrome({
+	field,
+	path,
+	fieldPath,
+	depth,
+	instanceScopeKey,
+	repeatInstances,
+	accessibleContext,
+}: Omit<RepeatFieldProps, "position">) {
+	const controller = useEngineController();
+	const hasChildren = usePresentationHasFields(field.uuid);
+	const visibleInstances = useVisibleRepeatInstances(field, path);
+	if (!hasChildren) return null;
+	return (
+		<>
+			{visibleInstances.map((idx) => {
+				const instanceKey = controller.getRepeatInstanceKey(
+					field.uuid,
+					idx,
+					path,
+				);
+				return (
+					<InteractiveFormRenderer
+						key={instanceKey}
+						parentEntityId={field.uuid}
+						prefix={`${path}[${idx}]`}
+						parentPath={fieldPath}
+						depth={depth}
+						leadingGap={false}
+						instanceScopeKey={`${instanceScopeKey}\u0000${field.uuid}:${instanceKey}`}
+						repeatInstances={[
+							...repeatInstances,
+							{ fieldUuid: field.uuid, instanceKey },
+						]}
+						accessibleContext={accessibleContext}
+					/>
+				);
+			})}
 		</>
 	);
 }

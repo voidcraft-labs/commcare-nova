@@ -7,6 +7,7 @@ import {
 } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { LanguageSelector } from "@/components/builder/localization/LanguageSelector";
 import { GeopointPicker } from "@/components/preview/form/fields/geopoint/GeopointPicker";
+import { RecordLocationField } from "@/components/preview/form/fields/geopoint/RecordLocationField";
 import { PortaledContentDirectionProvider } from "@/components/shadcn/portaled-content-direction";
 import { TooltipProvider } from "@/components/shadcn/tooltip";
 import { ToastContainer } from "@/components/ui/ToastContainer";
@@ -26,6 +27,10 @@ import { createBuilderSessionStore } from "@/lib/session/store";
 import { toastStore } from "@/lib/ui/toastStore";
 import { settleGooglePeer } from "./preview-geopoint-google-peer";
 
+/* `?android`: the app runs only on Android, whose location question is
+ * Record location, read from the browser's position; otherwise Web Apps' map
+ * and address search. */
+const android = new URL(window.location.href).searchParams.has("android");
 const MODULE = testUuid("native-geopoint-module"),
 	FORM = testUuid("native-geopoint-form"),
 	FIELD = testUuid("native-geopoint-field");
@@ -33,7 +38,11 @@ const doc = admittedControllerDoc({
 	appId: "native-geopoint",
 	appName: "Location",
 	connectType: null,
-	appSettings: { showSavedForms: false, showIncompleteForms: false },
+	appSettings: {
+		showSavedForms: false,
+		showIncompleteForms: false,
+		...(android ? { runsOnlyOn: "android" as const } : {}),
+	},
 	caseTypes: null,
 	modules: { [MODULE]: { uuid: MODULE, id: "capture", name: "Capture" } },
 	forms: { [FORM]: { uuid: FORM, id: "visit", name: "Visit", type: "survey" } },
@@ -92,6 +101,14 @@ toastStore.activateProjectScope({
 function Control() {
 	const state = useStore(controller.store, (states) => states[FIELD]);
 	if (!state) throw new Error("Missing location state");
+	if (android)
+		return (
+			<RecordLocationField
+				state={state}
+				onChange={(value) => controller.setValueAt(state.path, value)}
+				onBlur={() => controller.touchAt(state.path)}
+			/>
+		);
 	return (
 		<GeopointPicker
 			value={state.value}

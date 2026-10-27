@@ -18,11 +18,13 @@
 // Per-type widget dispatch:
 //
 //   text     → `<Input>` (shadcn Input: Base UI Input under the hood)
-//   barcode  → `<Input>` + progressively enhanced camera scanner.
-//              Manual entry and paste always remain available. Scan
-//              appears only when this secure browser exposes both
-//              BarcodeDetector and camera capture; unsupported
-//              browsers get truthful fallback copy, not a dead button.
+//   barcode  → Running as Web Apps, a plain `<Input>`, as Web Apps draws
+//              it. Running as Android, `<Input>` + the progressively
+//              enhanced camera scanner (`BarcodeScanner`). Manual entry
+//              and paste always remain available. Scan appears only when
+//              this secure browser exposes both BarcodeDetector and
+//              camera capture; unsupported browsers get truthful
+//              fallback copy, not a dead button.
 //   date     → the shared `DatePicker` (shadcn date-picker composition):
 //              value emits as ISO `YYYY-MM-DD` to match the
 //              runtime-bindings layer's `parseDateBound` shape.
@@ -36,7 +38,6 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
-import tablerScan from "@iconify-icons/tabler/scan";
 import tablerSearch from "@iconify-icons/tabler/search";
 import {
 	useCallback,
@@ -51,17 +52,6 @@ import { choiceKeysForAnswer } from "@/components/preview/shared/multiSelectChoi
 import { WorkerDatePicker } from "@/components/preview/shared/WorkerDatePicker";
 import { Button } from "@/components/shadcn/button";
 import {
-	Dialog,
-	DialogBody,
-	DialogClose,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-	DialogTrigger,
-} from "@/components/shadcn/dialog";
-import {
 	Field,
 	FieldDescription,
 	FieldError,
@@ -75,8 +65,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
-import { Spinner } from "@/components/shadcn/spinner";
-import { useReconcilerContext } from "@/lib/collab/context";
 import {
 	type CaseType,
 	joinMultiSelectSearchAnswer,
@@ -107,6 +95,7 @@ import {
 	LookupChoicesEmpty,
 	LookupChoicesLoading,
 } from "../form/fields/LookupChoiceStates";
+import { BarcodeScanner, useBarcodeScanSupport } from "./BarcodeScanner";
 
 type SearchInputValidationModule =
 	typeof import("@/lib/preview/engine/searchInputValidation");
@@ -174,8 +163,13 @@ interface SearchInputFormProps {
 	readonly localizeValidationMessage?: (source: string) => string;
 	/** The platform Preview plays: Android searches whatever the answers, so
 	 *  its Search fields are checked for nothing and marked required for
-	 *  nothing. Defaults to the platform an app that runs on both plays. */
-	readonly platformRules?: Pick<PreviewPlatformRules, "searchFieldChecks">;
+	 *  nothing; it shows no Search field hints; and only Android scans a
+	 *  barcode Search field, which Web Apps draws as a plain text box.
+	 *  Defaults to the platform an app that runs on both plays. */
+	readonly platformRules?: Pick<
+		PreviewPlatformRules,
+		"searchFieldChecks" | "searchScreenText" | "barcodeSearchField"
+	>;
 }
 
 const DEFAULT_SEARCH_RULES = previewPlatformRules(
@@ -522,6 +516,10 @@ export function SearchInputForm({
 								input={input}
 								draft={draft}
 								setKey={setKey}
+								showHint={platformRules.searchScreenText}
+								scanBarcode={
+									platformRules.barcodeSearchField === "scan-or-text"
+								}
 								required={requiredNow(input)}
 								choices={
 									"options" in input && session !== undefined
@@ -592,6 +590,10 @@ interface SearchInputRowProps {
 	readonly input: VisibleSearchInputDef;
 	readonly draft: SearchInputValues;
 	readonly setKey: (key: string, next: string) => void;
+	/** Android shows no Search field hints (`searchScreenText`). */
+	readonly showHint: boolean;
+	/** Android scans a barcode Search field; Web Apps draws a text box. */
+	readonly scanBarcode: boolean;
 	/** Required right now; the label carries the mark. */
 	readonly required: boolean;
 	/** A choice prompt's live rows; `undefined` while they load. */
@@ -610,11 +612,17 @@ function SearchInputRow({
 	input,
 	draft,
 	setKey,
+	showHint,
+	scanBarcode,
 	required,
 	choices,
 	error,
 }: SearchInputRowProps) {
-	const chrome = { label: input.label, hint: input.hint, required };
+	const chrome = {
+		label: input.label,
+		hint: showHint ? input.hint : undefined,
+		required,
+	};
 	switch (input.type) {
 		case "text":
 			return (
@@ -627,8 +635,16 @@ function SearchInputRow({
 				/>
 			);
 		case "barcode":
-			return (
+			return scanBarcode ? (
 				<BarcodeRow
+					{...chrome}
+					name={input.name}
+					value={draft.get(input.name) ?? ""}
+					onChange={(next) => setKey(input.name, next)}
+					error={error}
+				/>
+			) : (
+				<TextRow
 					{...chrome}
 					name={input.name}
 					value={draft.get(input.name) ?? ""}
@@ -790,158 +806,6 @@ function TextRow({
 
 type BarcodeRowProps = TextRowProps;
 
-interface DetectedBarcodeLike {
-	readonly rawValue: string;
-}
-
-interface BarcodeDetectorLike {
-	detect(source: HTMLVideoElement): Promise<ReadonlyArray<DetectedBarcodeLike>>;
-}
-
-interface BarcodeDetectorConstructorLike {
-	new (options?: {
-		readonly formats?: ReadonlyArray<string>;
-	}): BarcodeDetectorLike;
-	getSupportedFormats(): Promise<ReadonlyArray<string>>;
-}
-
-type BarcodeScanSupport =
-	| { readonly kind: "checking" }
-	| { readonly kind: "unsupported" }
-	| {
-			readonly kind: "supported";
-			readonly detector: BarcodeDetectorLike;
-	  };
-
-type BarcodeScanStatus =
-	| { readonly kind: "starting"; readonly retry: boolean }
-	| { readonly kind: "scanning" }
-	| {
-			readonly kind: "error";
-			readonly title: string;
-			readonly message: string;
-	  };
-
-function barcodeDetectorConstructor():
-	| BarcodeDetectorConstructorLike
-	| undefined {
-	const candidate = (
-		globalThis as typeof globalThis & {
-			readonly BarcodeDetector?: unknown;
-		}
-	).BarcodeDetector;
-	if (typeof candidate !== "function") return undefined;
-	if (
-		typeof (candidate as { readonly getSupportedFormats?: unknown })
-			.getSupportedFormats !== "function"
-	) {
-		return undefined;
-	}
-	return candidate as unknown as BarcodeDetectorConstructorLike;
-}
-
-/** BarcodeDetector is experimental and absent in many browsers. Keep the
- * first render hydration-safe, then expose Scan only after verifying a secure
- * camera-capable context and at least one detector format. */
-function useBarcodeScanSupport(): BarcodeScanSupport {
-	const [support, setSupport] = useState<BarcodeScanSupport>({
-		kind: "checking",
-	});
-
-	useEffect(() => {
-		let active = true;
-		const Detector = barcodeDetectorConstructor();
-		const hasCamera =
-			typeof navigator.mediaDevices?.getUserMedia === "function";
-		if (
-			globalThis.isSecureContext === false ||
-			Detector === undefined ||
-			!hasCamera
-		) {
-			setSupport({ kind: "unsupported" });
-			return;
-		}
-
-		void Detector.getSupportedFormats()
-			.then((formats) => {
-				if (!active) return;
-				const usableFormats = formats.filter((format) => format !== "unknown");
-				if (usableFormats.length === 0) {
-					setSupport({ kind: "unsupported" });
-					return;
-				}
-				try {
-					setSupport({
-						kind: "supported",
-						detector: new Detector({ formats: usableFormats }),
-					});
-				} catch {
-					setSupport({ kind: "unsupported" });
-				}
-			})
-			.catch(() => {
-				if (active) setSupport({ kind: "unsupported" });
-			});
-
-		return () => {
-			active = false;
-		};
-	}, []);
-
-	return support;
-}
-
-function stopCamera(stream: MediaStream | undefined): void {
-	for (const track of stream?.getTracks() ?? []) track.stop();
-}
-
-function scanErrorMessage(
-	error: unknown,
-): Extract<BarcodeScanStatus, { kind: "error" }> {
-	const name =
-		typeof error === "object" && error !== null && "name" in error
-			? String(error.name)
-			: "";
-	switch (name) {
-		case "NotAllowedError":
-		case "SecurityError":
-			return {
-				kind: "error",
-				title: "Your browser blocked camera access",
-				message:
-					"Allow camera access in your browser, then try scanning again or enter the barcode",
-			};
-		case "NotFoundError":
-			return {
-				kind: "error",
-				title: "No camera is connected",
-				message: "Connect a camera or enter the barcode",
-			};
-		case "NotReadableError":
-		case "AbortError":
-			return {
-				kind: "error",
-				title: "Your camera isn't available",
-				message: "Close other apps using your camera, then try scanning again",
-			};
-		default:
-			return {
-				kind: "error",
-				title: "Barcode scanning stopped",
-				message: "Try scanning again or enter the barcode",
-			};
-	}
-}
-
-function isTransientDetectionError(error: unknown): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		"name" in error &&
-		error.name === "InvalidStateError"
-	);
-}
-
 /** Manual entry remains the primary durable control. Camera scanning is a
  * capability-gated enhancement, never a replacement or an inert promise. */
 function BarcodeRow({
@@ -985,11 +849,7 @@ function BarcodeRow({
 					data-1p-ignore
 				/>
 				{support.kind === "supported" && (
-					<BarcodeScannerDialog
-						label={label}
-						support={support}
-						onScan={onChange}
-					/>
+					<BarcodeScanner label={label} support={support} onScan={onChange} />
 				)}
 			</div>
 			{support.kind === "unsupported" && (
@@ -1000,223 +860,6 @@ function BarcodeRow({
 			)}
 			<FieldError id={errorId}>{error}</FieldError>
 		</Field>
-	);
-}
-
-function BarcodeScannerDialog({
-	label,
-	support,
-	onScan,
-}: {
-	readonly label: string;
-	readonly support: Extract<BarcodeScanSupport, { kind: "supported" }>;
-	readonly onScan: (value: string) => void;
-}) {
-	const [open, setOpen] = useState(false);
-	const [attempt, setAttempt] = useState(0);
-	const [status, setStatus] = useState<BarcodeScanStatus>({
-		kind: "starting",
-		retry: false,
-	});
-	const videoRef = useRef<HTMLVideoElement>(null);
-	const disposeCameraRef = useRef<(() => void) | null>(null);
-	const reconciler = useReconcilerContext();
-	const onScanRef = useRef(onScan);
-	useEffect(() => {
-		onScanRef.current = onScan;
-	}, [onScan]);
-
-	useEffect(() => {
-		if (!open) return;
-		let disposed = false;
-		let frameId: number | undefined;
-		let stream: MediaStream | undefined;
-
-		const dispose = () => {
-			if (disposed) return;
-			disposed = true;
-			if (frameId !== undefined) cancelAnimationFrame(frameId);
-			stopCamera(stream);
-			const video = videoRef.current;
-			if (video !== null) video.srcObject = null;
-		};
-		disposeCameraRef.current = dispose;
-		const fail = (error: unknown) => {
-			if (disposed) return;
-			if (frameId !== undefined) cancelAnimationFrame(frameId);
-			frameId = undefined;
-			stopCamera(stream);
-			stream = undefined;
-			const video = videoRef.current;
-			if (video !== null) video.srcObject = null;
-			setStatus(scanErrorMessage(error));
-		};
-
-		setStatus({ kind: "starting", retry: attempt > 0 });
-		const scheduleScan = () => {
-			if (!disposed) frameId = requestAnimationFrame(scanFrame);
-		};
-		const scanFrame = async () => {
-			frameId = undefined;
-			if (disposed) return;
-			const video = videoRef.current;
-			if (video === null) return;
-			try {
-				const detected = await support.detector.detect(video);
-				if (disposed) return;
-				const result = detected.find((item) => item.rawValue.length > 0);
-				if (result === undefined) {
-					scheduleScan();
-					return;
-				}
-				dispose();
-				onScanRef.current(result.rawValue);
-				setOpen(false);
-			} catch (error) {
-				if (isTransientDetectionError(error)) {
-					scheduleScan();
-					return;
-				}
-				fail(error);
-			}
-		};
-
-		const mediaDevices = navigator.mediaDevices;
-		if (typeof mediaDevices?.getUserMedia !== "function") {
-			fail({ name: "NotFoundError" });
-			return dispose;
-		}
-		void mediaDevices
-			.getUserMedia({
-				audio: false,
-				video: { facingMode: { ideal: "environment" } },
-			})
-			.then(async (nextStream) => {
-				if (disposed) {
-					stopCamera(nextStream);
-					return;
-				}
-				stream = nextStream;
-				const video = videoRef.current;
-				if (video === null) {
-					fail(new Error("Camera preview was unavailable"));
-					return;
-				}
-				video.srcObject = nextStream;
-				await video.play();
-				if (disposed) return;
-				setStatus({ kind: "scanning" });
-				scheduleScan();
-			})
-			.catch(fail);
-
-		return () => {
-			if (disposeCameraRef.current === dispose) {
-				disposeCameraRef.current = null;
-			}
-			dispose();
-		};
-	}, [attempt, open, support.detector]);
-
-	useEffect(
-		() =>
-			reconciler?.subscribeProjectScopeReset(() => {
-				/* Camera capture is an external resource: stop its tracks inside the
-				 * reset stack rather than waiting for the keyed search form to unmount. */
-				disposeCameraRef.current?.();
-				setOpen(false);
-			}),
-		[reconciler],
-	);
-
-	const description =
-		status.kind === "starting"
-			? status.retry
-				? "Restarting your camera…"
-				: "Starting your camera…"
-			: status.kind === "scanning"
-				? "Point your camera at the barcode"
-				: "Enter the barcode manually or try scanning again";
-
-	return (
-		<Dialog open={open} onOpenChange={setOpen}>
-			<DialogTrigger
-				render={
-					<Button
-						type="button"
-						variant="outline"
-						aria-label={`Scan ${label}`}
-						className="shrink-0"
-					/>
-				}
-			>
-				<Icon icon={tablerScan} aria-hidden="true" />
-				Scan
-			</DialogTrigger>
-			<DialogContent className="sm:max-w-xl">
-				<DialogHeader>
-					<DialogTitle>Scan barcode</DialogTitle>
-					<DialogDescription aria-live="polite">
-						{description}
-					</DialogDescription>
-				</DialogHeader>
-				<DialogBody>
-					<div className="relative grid aspect-video overflow-hidden rounded-lg border border-nova-border bg-nova-void">
-						{status.kind !== "error" && (
-							<video
-								ref={videoRef}
-								autoPlay
-								muted
-								playsInline
-								aria-label="Barcode camera preview"
-								className="size-full object-cover"
-							/>
-						)}
-						{status.kind === "starting" && (
-							<div className="absolute inset-0 grid place-items-center bg-nova-void">
-								<Spinner className="size-6 text-nova-text-secondary" />
-							</div>
-						)}
-						{status.kind === "scanning" && (
-							<div
-								aria-hidden="true"
-								className="pointer-events-none absolute inset-[16%] rounded-lg border-2 border-nova-violet-bright ring-[999px] ring-nova-void/60"
-							/>
-						)}
-						{status.kind === "error" && (
-							<div
-								role="alert"
-								className="grid place-items-center gap-2 p-6 text-center"
-							>
-								<Icon
-									icon={tablerAlertCircle}
-									className="size-8 text-nova-rose"
-								/>
-								<p className="text-sm font-semibold text-nova-text">
-									{status.title}
-								</p>
-								<p className="max-w-sm text-sm text-nova-text-secondary">
-									{status.message}
-								</p>
-							</div>
-						)}
-					</div>
-				</DialogBody>
-				<DialogFooter>
-					<DialogClose render={<Button type="button" variant="outline" />}>
-						Cancel
-					</DialogClose>
-					{status.kind === "error" && (
-						<Button
-							type="button"
-							onClick={() => setAttempt((value) => value + 1)}
-						>
-							Try again
-						</Button>
-					)}
-				</DialogFooter>
-			</DialogContent>
-		</Dialog>
 	);
 }
 

@@ -4,7 +4,7 @@ import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { MultiSelectField, SelectOption } from "@/lib/domain";
 import { PreviewMarkdown } from "@/lib/markdown";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { useEditMode } from "@/lib/session/hooks";
+import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
 import { focusChosenChoice, retainChoiceFocus } from "./choiceLabelActivation";
 import { LookupChoicesEmpty, LookupChoicesLoading } from "./LookupChoiceStates";
 import { ValidationError } from "./ValidationError";
@@ -59,6 +59,11 @@ export function SelectMultiField({
 	const selected = new Set(state.value ? state.value.split(" ") : []);
 	const showError = state.touched && !state.valid;
 	const isEditMode = useEditMode() === "edit";
+	/* Choice media draws on Android and in edit mode; Web Apps draws none
+	 * (manifest `questions/choice-image`, `choice-audio-video`). */
+	const rules = usePreviewPlatformRules();
+	const drawChoiceMedia = isEditMode || rules.choiceMedia;
+	const labelRendering = isEditMode ? undefined : rules.labelMarkdown;
 
 	const toggle = (optValue: string) => {
 		const next = new Set(selected);
@@ -133,14 +138,18 @@ export function SelectMultiField({
 								)}
 							</div>
 							<span className="preview-markdown text-sm text-nova-text">
-								<PreviewMarkdown inline>{opt.label}</PreviewMarkdown>
+								<PreviewMarkdown inline rendering={labelRendering}>
+									{opt.label}
+								</PreviewMarkdown>
 							</span>
 							{/* Per-option media: compact, same as the single-select. */}
-							<MediaDisplay
-								media={opt.media}
-								interactive={!isEditMode}
-								imageClassName="max-h-24 max-w-full rounded-lg object-contain"
-							/>
+							{drawChoiceMedia && (
+								<MediaDisplay
+									media={opt.media}
+									interactive={!isEditMode}
+									imageClassName="max-h-24 max-w-full rounded-lg object-contain"
+								/>
+							)}
 						</label>
 					);
 				})}

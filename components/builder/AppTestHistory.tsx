@@ -11,6 +11,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@/components/shadcn/dialog";
+import { inPlatform, PLATFORMS } from "@/lib/domain/platforms";
 import {
 	listAppTestsAction,
 	readAppTestAction,
@@ -214,6 +215,14 @@ function items(value: unknown): Record<string, unknown>[] {
 	return Array.isArray(value) ? value.map(record) : [];
 }
 
+/** "In Web Apps" or "On Android": where the recorded session ran. */
+function platformLine(selected: unknown): string | undefined {
+	const platform = PLATFORMS.find((each) => each === selected);
+	if (platform === undefined) return undefined;
+	const phrase = inPlatform(platform);
+	return phrase.charAt(0).toUpperCase() + phrase.slice(1);
+}
+
 function RecordedObservation({
 	observation: o,
 }: {
@@ -246,6 +255,11 @@ function RecordedObservation({
 				</h3>
 				{worker ? (
 					<p className="text-nova-text-muted">Preview as {worker}</p>
+				) : null}
+				{platformLine(record(o.platform).selected) !== undefined ? (
+					<p className="text-nova-text-muted">
+						{platformLine(record(o.platform).selected)}
+					</p>
 				) : null}
 				{role ? <p>Role: {role}</p> : null}
 				{places.length ? (

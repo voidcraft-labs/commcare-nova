@@ -10,11 +10,13 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
  * The line shown under every logo. A publish never sends the logo: HQ
  * writes a logo into its builds and its Web Apps tile only from the record
  * its own uploader stores, so the logo reaches Web Apps once a person adds
- * it in the app's settings there. No sentence names a downloaded app,
- * because no reader of a `.ccz` reads the key the local archive writes.
+ * it in the app's settings there. Android ignores the logo, so Preview
+ * draws it only while it runs as Web Apps. No sentence names a downloaded
+ * app, because no reader of a `.ccz` reads the key the local archive
+ * writes.
  */
 export const APP_LOGO_NOTE =
-	"Your logo shows in Preview. Web Apps shows it once you add it in this app's settings in CommCare HQ.";
+	"Your logo shows in Preview when it runs as Web Apps. Web Apps shows it once you add it in this app's settings in CommCare HQ, and Android doesn't show it.";
 
 /**
  * App-level appearance: the logo image. A single optional image asset: no

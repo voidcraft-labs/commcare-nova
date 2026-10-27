@@ -32,10 +32,11 @@ def nav(
     paths: Iterable[Sequence[str]] = (),
     endpoints: Iterable[Mapping] = (),
     device: str = "phone",
+    sent: list | None = None,
 ) -> dict:
     """The ``nav`` request on ``archive`` over the served state, sent as the ``app`` request is
     (``proof.android.observe._read``), with the lane's answer table: the record ``_read`` makes, whose
-    ``answer`` blob holds the device's answer."""
+    ``answer`` blob holds the device's answer; ``sent``, a list each form the device sent HQ is added to."""
     from proof.android import observe
 
     options = {
@@ -45,4 +46,4 @@ def nav(
         "paths": [list(path) for path in paths],
         "endpoints": [dict(endpoint) for endpoint in endpoints],
     }
-    return observe._read(served, blobs, label, "nav", {"archive": archive}, options)
+    return observe._read(served, blobs, label, "nav", {"archive": archive}, options, sent=sent)

@@ -297,9 +297,11 @@ chat status line instead of falling back to `understanding`.
 
 `activeSectionByForm` (`setActiveSection` / `useActiveSection` /
 `useGetActiveSection`) remembers which page (section uuid) each sectioned form
-is open on, the way `editScrollByForm` remembers the edit canvas's scroll. Two
-writers, two readers: the preview pager writes it on every page change and
-renders from the reactive hook; the edit canvas writes the page its first
+is open on, the way `editScrollByForm` remembers the edit canvas's scroll.
+Running as Android, the preview pager writes it on every page change and
+renders from the reactive hook; on Web Apps' one screen,
+`components/preview/form/sections/useScrolledSection.ts` writes the section in
+view as the author scrolls; the edit canvas writes the page its first
 visible row belonged to on unmount and reads it imperatively, once, to seed the
 virtualizer's `initialOffset` (`components/preview/form/virtual/sectionScroll.ts`).
 A form that was never paged has no entry, and an entry outlives a visit the way

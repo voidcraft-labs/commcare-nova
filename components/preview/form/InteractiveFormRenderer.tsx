@@ -51,13 +51,15 @@ import {
 } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { LabelContent } from "@/lib/references/LabelContent";
-import { useAppId } from "@/lib/session/hooks";
+import { useAppId, usePreviewPlatformRules } from "@/lib/session/hooks";
 import { FieldHelp } from "./FieldHelp";
 import { FieldRenderer } from "./FieldRenderer";
+import { onFormScreen, useFormScreenScope } from "./FormScreenScope";
 import { FIELD_STYLES } from "./fieldStyles";
 import { GroupField } from "./fields/GroupField";
 import { LabelField } from "./fields/LabelField";
-import { RepeatField } from "./fields/RepeatField";
+import { RepeatEntriesWithoutChrome, RepeatField } from "./fields/RepeatField";
+import { SectionHeading } from "./sections/SectionHeading";
 import { depthPadding } from "./virtual/rowStyles";
 
 // ── Props ─────────────────────────────────────────────────────────────
@@ -130,6 +132,7 @@ export const InteractiveFormRenderer = memo(function InteractiveFormRenderer({
 						repeatInstances={repeatInstances}
 						accessibleContext={accessibleContext}
 						position={index + 1}
+						siblingCount={fieldUuids.length}
 					/>
 				);
 			})}
@@ -148,6 +151,8 @@ interface InteractiveFieldProps {
 	readonly repeatInstances: readonly RepeatInstanceIdentity[];
 	readonly accessibleContext: string;
 	readonly position: number;
+	/** Visible siblings at this level: a section's "Section k of n". */
+	readonly siblingCount: number;
 }
 
 /**
@@ -171,8 +176,11 @@ const InteractiveField = memo(function InteractiveField({
 	repeatInstances,
 	accessibleContext,
 	position,
+	siblingCount,
 }: InteractiveFieldProps) {
 	const { language } = useBuilderLanguage();
+	const rules = usePreviewPlatformRules();
+	const screen = useFormScreenScope();
 	const field = usePresentationField(uuid);
 	// Engine state is keyed by the CONCRETE path so each repeat instance
 	// carries its own value / visibility / validity; the uuid covers the
@@ -189,7 +197,6 @@ const InteractiveField = memo(function InteractiveField({
 	// below must be per mounted field instance rather than UUID-derived.
 	const questionLabelId = useId();
 	const hintId = useId();
-	const helpId = useId();
 	const transparentSectionId = useId();
 
 	// Keep the per-field guard during blueprint/runtime transitions. The parent
@@ -205,6 +212,9 @@ const InteractiveField = memo(function InteractiveField({
 	const fieldId = field.id;
 	const path = `${prefix}/${fieldId}`;
 	const fieldPath = fpath(fieldId, parentPath);
+	/* Android paging an unsectioned form one screen at a time: a row off the
+	 * screen draws nothing (`FormScreenScope`). */
+	if (!onFormScreen(screen, path)) return null;
 
 	// Transparent group: an empty/absent label means the group has no UI
 	// chrome at runtime: matches CommCare's behavior for unlabeled
@@ -218,7 +228,14 @@ const InteractiveField = memo(function InteractiveField({
 	// Edit-mode rendering still surfaces empty-labeled groups via
 	// `VirtualFormList` → `GroupBracket` so authors can select and edit
 	// them; this transparency only applies to interactive/preview mode.
-	if (field.kind === "group" && !field.label) {
+	//
+	// Running as Android, every group is transparent too: Android draws no
+	// group card, and a screen's enclosing groups read as the one header line
+	// above it (`groupLabel: "screen-header"`), which the pager draws.
+	if (
+		field.kind === "group" &&
+		(!field.label || rules.groupLabel === "screen-header")
+	) {
 		const childContext = [accessibleContext, transparentSectionId]
 			.filter(Boolean)
 			.join(" ");
@@ -241,28 +258,62 @@ const InteractiveField = memo(function InteractiveField({
 		);
 	}
 
-	// A section reached here (any path but the preview pager, which owns
-	// sectioned forms) renders its title and its children inline at the same
-	// depth: a page is a place questions live, and outside the pager there is
-	// no page to turn.
+	// Running as Android, a repeat draws no card either, and Android offers
+	// no add or delete on a screen that holds one (a user-added repeat's add
+	// is the pager's prompt): its live entries' questions draw in place.
+	if (field.kind === "repeat" && rules.repeatAdd === "prompt") {
+		return (
+			<RepeatEntriesWithoutChrome
+				field={field}
+				path={path}
+				fieldPath={fieldPath}
+				depth={depth}
+				instanceScopeKey={instanceScopeKey}
+				repeatInstances={repeatInstances}
+				accessibleContext={accessibleContext}
+			/>
+		);
+	}
+
+	// A section reached here (Web Apps' one screen, which draws every section
+	// of the form as a titled group) renders the same heading box as the
+	// edit canvas and the Android pager, not focusable as a page, over its
+	// children inline at the same depth. The heading block names its section
+	// (`useScrolledSection`) so scrolling the screen records the section in
+	// view for the edit canvas.
 	if (field.kind === "section") {
 		return (
 			<>
-				{field.label && (
-					<div
-						style={{
-							paddingLeft: depthPadding(depth),
-							paddingRight: depthPadding(depth),
-						}}
-					>
-						<LabelContent
-							label={field.label}
-							resolvedLabel={state.resolvedLabel}
-							isEditMode={false}
-							className={FIELD_STYLES.label}
+				<div
+					className="mb-6"
+					data-section-uuid={field.uuid}
+					style={{
+						paddingLeft: depthPadding(depth),
+						paddingRight: depthPadding(depth),
+					}}
+				>
+					<div className="px-3">
+						<SectionHeading
+							language={language}
+							as="h2"
+							index={position - 1}
+							count={siblingCount}
+							pageBreak={position > 1}
+							titleInset
+							title={
+								field.label ? (
+									<LabelContent
+										label={field.label}
+										resolvedLabel={state.resolvedLabel}
+										isEditMode={false}
+										rendering={rules.labelMarkdown}
+										className="text-lg font-semibold leading-7 text-nova-text"
+									/>
+								) : null
+							}
 						/>
 					</div>
-				)}
+				</div>
 				<InteractiveFormRenderer
 					parentEntityId={field.uuid}
 					prefix={path}
@@ -298,6 +349,9 @@ const InteractiveField = memo(function InteractiveField({
 	const questionLabelledBy = [accessibleContext, questionLabelId]
 		.filter(Boolean)
 		.join(" ");
+	const questionLabelText =
+		state.resolvedLabel ??
+		(field.label ? projectProse(field.label) : undefined);
 
 	// Discriminated union narrowing on `field.kind` so each branch sees
 	// the kind-specific entity shape. `label` is absent from the `hidden`
@@ -376,6 +430,7 @@ const InteractiveField = memo(function InteractiveField({
 								label={field.label}
 								resolvedLabel={state.resolvedLabel}
 								isEditMode={false}
+								rendering={rules.labelMarkdown}
 								className={FIELD_STYLES.label}
 							/>
 							{state.required ? (
@@ -392,6 +447,14 @@ const InteractiveField = memo(function InteractiveField({
 									</span>
 								</>
 							) : null}
+							<FieldHelp
+								help={"help" in field ? field.help : undefined}
+								resolvedHelp={state.resolvedHelp}
+								helpMedia={"help_media" in field ? field.help_media : undefined}
+								interactive
+								questionLabel={questionLabelText}
+								placement="label"
+							/>
 						</div>
 					</div>
 				) : (
@@ -402,26 +465,41 @@ const InteractiveField = memo(function InteractiveField({
 							: ""}
 					</span>
 				)}
-				{field.hint && (
-					<div id={hintId} className="px-[5px] py-[5px]">
-						<LabelContent
-							label={field.hint}
-							resolvedLabel={state.resolvedHint}
-							isEditMode={false}
-							className={FIELD_STYLES.hint}
-						/>
-					</div>
+				{field.hint &&
+					(rules.hint === "markdown" ? (
+						<div id={hintId} className="px-[5px] py-[5px]">
+							<LabelContent
+								label={field.hint}
+								resolvedLabel={state.resolvedHint}
+								isEditMode={false}
+								className={FIELD_STYLES.hint}
+							/>
+						</div>
+					) : (
+						/* Android draws the hint as plain text
+						 * (`QuestionWidget::addHintText`): markdown shows as
+						 * written. */
+						<p
+							id={hintId}
+							className="px-[5px] py-[5px] text-xs italic whitespace-pre-wrap text-nova-text-muted"
+						>
+							{state.resolvedHint ?? projectProse(field.hint)}
+						</p>
+					))}
+				{/* Help plays each runtime's button and dialog: Web Apps' sits on
+				    the label line above (or here, for an unlabeled question),
+				    Android's right-aligned under the question below. Both slots
+				    are input-kind only, so guard the access. */}
+				{field.label ? null : (
+					<FieldHelp
+						help={"help" in field ? field.help : undefined}
+						resolvedHelp={state.resolvedHelp}
+						helpMedia={"help_media" in field ? field.help_media : undefined}
+						interactive
+						questionLabel={questionLabelText}
+						placement="label"
+					/>
 				)}
-				{/* Help text + help media: shown inline in the builder preview
-				    (CommCare hides help behind a "?"); both slots are input-kind
-				    only, so guard the access. */}
-				<FieldHelp
-					id={helpId}
-					help={"help" in field ? field.help : undefined}
-					resolvedHelp={state.resolvedHelp}
-					helpMedia={"help_media" in field ? field.help_media : undefined}
-					interactive
-				/>
 				<FieldRenderer
 					field={field}
 					state={state}
@@ -432,18 +510,8 @@ const InteractiveField = memo(function InteractiveField({
 					attachmentSlotKey={`${field.uuid}\u0000${instanceScopeKey}`}
 					questionLabelId={labelId}
 					questionLabelledBy={questionLabelledBy}
-					questionDescriptionIds={[
-						field.hint ? hintId : undefined,
-						"help" in field && (field.help || field.help_media)
-							? helpId
-							: undefined,
-					]
-						.filter((id): id is string => id !== undefined)
-						.join(" ")}
-					questionLabel={
-						state.resolvedLabel ??
-						(field.label ? projectProse(field.label) : undefined)
-					}
+					questionDescriptionIds={field.hint ? hintId : ""}
+					questionLabel={questionLabelText}
 					onCommitCapture={async (value, gate, onAccepted) => {
 						if (entryKey === undefined || !isCaptureFieldKind(field.kind))
 							return false;
@@ -461,6 +529,14 @@ const InteractiveField = memo(function InteractiveField({
 						controller.setValueAtAsync(targetPath, value)
 					}
 					onBlurAt={(targetPath) => controller.touchAtAsync(targetPath)}
+				/>
+				<FieldHelp
+					help={"help" in field ? field.help : undefined}
+					resolvedHelp={state.resolvedHelp}
+					helpMedia={"help_media" in field ? field.help_media : undefined}
+					interactive
+					questionLabel={questionLabelText}
+					placement="below"
 				/>
 			</div>
 		);
