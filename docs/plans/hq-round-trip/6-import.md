@@ -135,7 +135,8 @@ Planned in full when step 5 exits. The design is the research's "The reader",
    - *Offered the split, else refused.* An app whose content runs on neither
      platform only because of its date-and-time questions beside something
      Android cannot run is offered step 4's split
-     (`lib/doc/platformDeclaration.ts::planContentDeclaration`, design E),
+     (`lib/doc/platformDeclaration.ts::planContentDeclaration`, with the split
+     `lib/doc/datetimeSplit.ts` plans),
      declared Web Apps only, as step 4's cutover and fuzz mapping make such
      content run; the split changes the HQ app's forms at its next publish, so
      the person confirms it before the app exists, and this step's plan

@@ -252,6 +252,12 @@ The operator must touch the locked root and all entity rows in the same
 transaction; snapshot, digest, Project and marker checks still apply. Runtime
 grants remain read-only. Adding another baseline identity needs new DDL.
 
+The `hq-round-trip-platforms` cutover took the other route: its transform
+leaves every earlier row parseable, so it wrote no fold baseline. Each app it
+changed carries one ordinary `blueprint-migration` row, batch
+`hq-round-trip-platforms:<app_id>` by `system:hq-round-trip-platforms`,
+written through `appendSyntheticBatchInTransaction` like any synthetic batch.
+
 **Realtime pokes ride LISTEN/NOTIFY.** `writeCommittedBatch` calls
 `pg_notify('nova_app_stream', {appId, seq})` INSIDE the commit transaction
 (delivered on commit, after the rows are visible); `completeAndSettleRun`

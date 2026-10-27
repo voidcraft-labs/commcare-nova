@@ -141,20 +141,3 @@ npx tsx scripts/scan-legacy-preplan-builds.ts --prod
 The Cloud Run Job is dry-run by default. Held rows remain untouched until the
 run finishes or the reaper releases them; empty rows require an explicit
 operator decision instead of automatic recovery.
-
-## HQ round-trip platforms cutover
-
-A one-off pair, a read-only scan and a migrate script, run from the maintenance image's commit. The scan reads no media bytes; its `media` line's `needsBytes` says whether the migrate script must read any, which decides whether the window grants the Job the media bucket. Production writes run only through the Job `commcare-nova-hq-round-trip-platforms` as `hq-round-trip-platforms.cjs`, by `docs/plans/hq-round-trip/4-cutover-runbook.md`; neither script writes with `--prod`.
-
-```bash
-npx tsx --conditions=react-server scripts/scan-hq-round-trip-platforms.ts
-npx tsx --conditions=react-server scripts/scan-hq-round-trip-platforms.ts --prod
-npx tsx --conditions=react-server scripts/scan-hq-round-trip-platforms.ts --prod --app <appId> --debug-details
-NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-platforms.ts
-NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-platforms.ts --prove-media-read
-NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-platforms.ts --settle-holders
-NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-platforms.ts --rehearse
-NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-platforms.ts --execute --expect-plan-digest <digest>
-```
-
-The migrate script is a dry run unless told otherwise: it classifies the media (reading a stored object only for a row whose MIME cannot give its format, from `NOVA_MEDIA_BUCKET`), prints the plan's content-free report and `planDigest`, and writes nothing. `--rehearse` runs the whole fleet transaction and rolls it back, the ledgered migrations with it; it is for local databases and tests, and the Job refuses it. `--execute` applies step 4's five ledgered migrations only inside the fleet transaction it commits.

@@ -14,7 +14,7 @@ changes" table.
 | 1 | The manifest and the harness | done: [`proof/README.md`](../../../proof/README.md) |
 | 2 | Emission and publish fixes | done: [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`lib/deployment/CLAUDE.md`](../../../lib/deployment/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
 | 3 | Expressions | done: [`lib/domain/CLAUDE.md`](../../../lib/domain/CLAUDE.md), [`lib/domain/expression/CLAUDE.md`](../../../lib/domain/expression/CLAUDE.md), [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
-| 4 | [Platforms](4-platforms.md) | planned in full |
+| 4 | Platforms | done: ["Step 4 is done"](#step-4-is-done) |
 | 5 | [Case writes, forms and navigation](5-case-writes-forms-navigation.md) | outline |
 | 6 | [Import](6-import.md) | outline |
 | 7 | [The rest of the model](7-rest-of-model.md) | outline |
@@ -154,21 +154,107 @@ is read:
   [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md),
   "Found while planning step 3".
 - **What step 3 left to later steps**, each with its reason, in
-  [`4-platforms.md`](4-platforms.md),
   [`5-case-writes-forms-navigation.md`](5-case-writes-forms-navigation.md),
-  [`6-import.md`](6-import.md) and [`7-rest-of-model.md`](7-rest-of-model.md).
+  [`6-import.md`](6-import.md) and [`7-rest-of-model.md`](7-rest-of-model.md);
+  what step 4 took of it is in ["Step 4 is done"](#step-4-is-done).
 - **The cutover's trace.** The cutover ran once, before the merge, and its
   scripts, its Job and its runbook are removed. What it left is each app's
   `fold-baseline:hq-round-trip-expressions` row (`lib/db/CLAUDE.md`), each
   app's notice (`lib/notices/`) and its evidence archive
   (`docs/architecture/deployment.md`, "Historical repairs").
 
-Finding 74 belongs to step 4 and is held until then by two walk stops, on
-`targeted-datetime-ordering` and `fuzz-xform-20260930-0`. Step 4 declares
-both documents Android only, so the stop on the first moves to its retained
-control and the second is removed ([`4-platforms.md`](4-platforms.md),
-"Proof"). The register's other entries are defects 21, 23 to 28 and 30,
-which `OPEN_DEFECTS` gives to step 5.
+Finding 74 was held by two walk stops, on `targeted-datetime-ordering` and
+`fuzz-xform-20260930-0`, and step 4 closed it. Step 4 declares both documents
+Android only, so the stop on the first is held on its retained control in
+`proof/walk-stops.json` and the second is removed (["Step 4 is
+done"](#step-4-is-done)). The register's other entries are defects 21, 23 to
+28 and 30, which `OPEN_DEFECTS` gives to step 5.
+
+## Step 4 is done
+
+Step 4 made where an app runs a fact of the app, and its plan has left this
+directory. Every app declares Web Apps, Android or both
+(`appSettings.runsOnlyOn`), and from that one declaration Nova refuses a
+feature or a media file a declared platform cannot run, offers each choice
+only where it runs, states each difference where the author works, publishes
+the declaration to CommCare HQ, and plays each declared platform in Preview.
+It fixed the second half of defect 11 (media by platform), defect 18 (the
+date-and-time question in Web Apps), defect 19 (features that behave
+differently by platform, silently), defect 20's sync on form entry and
+finding 74. What endures lives where it is read:
+
+- **The declaration and the platform table**, `lib/domain/platforms.ts` and
+  its detectors `lib/domain/platformUses.ts`: each feature one platform
+  cannot run, with its readings and copy, and the ambient differences no
+  author chooses (`lib/domain/CLAUDE.md`). The table stands for the surface
+  manifest's per-platform readings, held to them by a binding test, and the
+  gate refuses a use a declared platform cannot run
+  (`PLATFORM_FEATURE_UNAVAILABLE`, and the checker's `platform-unavailable`
+  reason in an expression slot) (`lib/commcare/CLAUDE.md`,
+  `lib/domain/expression/CLAUDE.md`). `docs/architecture/complex-apps.md`,
+  "Where an app runs", records the binding CommCare facts, and
+  `docs/architecture/contracts.md` the emission contract.
+- **The date-and-time split**, `lib/doc/datetimeSplit.ts`, and the planner
+  of the declaration a document's content allows,
+  `lib/doc/platformDeclaration.ts` (`lib/doc/CLAUDE.md`).
+- **Media by platform**, `lib/media/`: the variant each ready file records
+  (`media_assets.media_format`) and a reference accepted only where every
+  declared platform plays it (`lib/media/CLAUDE.md`, "Accepted formats and
+  where they play"; `docs/architecture/complex-apps.md`, "Media").
+- **Publish**, `lib/deployment/`: the declaration written as HQ's Web App
+  setting, the `web-apps` plan feature, the Web Apps question, the
+  first-publish stop, the `form-entry-sync-off` confirmation, and no `.ccz`
+  for an app that does not declare Android (`lib/deployment/CLAUDE.md`,
+  `lib/export/CLAUDE.md`).
+- **Preview per platform**, `lib/preview/`: one declared platform at a time,
+  one rule table, and a cell table that holds every differing cell to its
+  evidence (`lib/preview/CLAUDE.md`, "Platforms").
+- **Authoring**: the builder's platform section, offering by declaration and
+  the note row (`components/builder/CLAUDE.md`); `updateApp`'s
+  `runs_only_on`, the guide's platform sentences and the pre-checks
+  (`lib/agent/CLAUDE.md`, `lib/agent/authoring/CLAUDE.md`); the public page
+  "Where workers use your app" (`content/docs/where-workers-use-your-app.mdx`).
+- **The proof lane**: each reader reads a document only on a platform it
+  declares (`proof/CLAUDE.md`; `proof/README.md`, "Platforms"); defect 20's
+  entries are in `proof/fixed-defects.json`, each still showing on its
+  retained control (`proof/README.md`, "Fixed defects"); finding 74's stop is
+  held on the control of `targeted-datetime-ordering` in
+  `proof/walk-stops.json` (`proof/README.md`, "Walk stops").
+- **What planning step 4 found**,
+  [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md),
+  "Found while planning step 4".
+- **What step 4 left to later steps**, each with its reason: CommTrack's
+  confirmation and defect 21 in
+  [`5-case-writes-forms-navigation.md`](5-case-writes-forms-navigation.md);
+  the split's read-back and the guarded and `current()` reads in
+  [`6-import.md`](6-import.md); a child module of a search-first parent,
+  `fingerprintquery` and an ordinary search's results detail in
+  [`7-rest-of-model.md`](7-rest-of-model.md).
+- **The baseline step 4's plan was written against**: `main` at `e9e6cd93`,
+  which is step 3's stack (#773 to #791) merged and its cutover run, then
+  #798, #799 and #800, at the CommCare pins named under "Rules every plan
+  follows".
+- **The cutover's trace.** The cutover ran once, before the merge, and its
+  scripts, its Job and its runbook are removed; they stay in `main`'s history
+  on the commit before the one that removed them, which is where the
+  validation migration's refusal sends a database that predates the cutover
+  and never ran it. What it left is the five
+  ledgered migrations of step 4 with `mediaFormat.postgres.test.ts`
+  (`lib/case-store/migrations/`); `lib/doc/platformDeclaration.ts`, which
+  the fuzz mapping and step 6's import proposal read; each changed app's
+  `blueprint-migration` row by `system:hq-round-trip-platforms`
+  (`lib/db/CLAUDE.md`); each affected app's notice, cutover
+  `hq-round-trip-platforms`, whose lead, four reasons
+  (`platforms-declared`, `datetime-question-split`,
+  `media-not-played-removed` and `next-publish-asks-web-apps`),
+  `PLATFORM_CAUSE_WORDS` and the `form-entry-sync-off` sentence of
+  `next-publish-asks-more` stay so stored rows render (`lib/notices/`); the
+  two public-docs sentences that name where an app runs as something Nova
+  changed (`content/docs/publishing.mdx`, "Updates to review", and the
+  `get_app` row of `content/docs/mcp/tools.mdx`); and its content-free
+  evidence archive under the prefix `hq-round-trip-platforms/`, reports and
+  IAM policy reads only, never deleted from
+  (`docs/architecture/deployment.md`, "Historical repairs").
 
 ## Why each later step is planned when the one before it exits
 
@@ -268,8 +354,8 @@ Step 4's plan reads `main` at `e9e6cd93`. After `5cf6e327`:
   What step 4 builds on is the one `Expression` union with its checker and
   slot profiles (`arm-unavailable` and its reasons), `DatumRef`, the instant
   lowering and its held classes, and Preview on the device's own XPath
-  ([`4-platforms.md`](4-platforms.md), "The baseline this plan was written
-  against").
+  (["Step 4 is done"](#step-4-is-done), which records the baseline step 4's
+  plan was written against).
 - #798 and #799 (dependency upgrades and the supported APIs they bring) and
   #800 (the nightly lanes keep running past an independent reader's failure,
   and the native slices and reader checks it repaired).

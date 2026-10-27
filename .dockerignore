@@ -51,9 +51,6 @@ scripts/lib/*
 .nova-build-cache
 !scripts/migrate-language-identity.ts
 !scripts/lib/prodDb.ts
-!scripts/migrate-hq-round-trip-platforms.ts
-!scripts/lib/hqRoundTripPlatforms/
-scripts/lib/hqRoundTripPlatforms/__tests__/
 
 # Cloud Build control files are generated between artifact exports.
 rollout.env
