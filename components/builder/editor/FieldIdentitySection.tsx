@@ -24,6 +24,7 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowDown from "@iconify-icons/tabler/arrow-down";
 import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
 import tablerArrowsExchange from "@iconify-icons/tabler/arrows-exchange";
+import tablerArrowsSplit from "@iconify-icons/tabler/arrows-split";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerCopyPlus from "@iconify-icons/tabler/copy-plus";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
@@ -35,9 +36,14 @@ import {
 	REJECTION_SURFACE_CLS,
 	RejectionBody,
 } from "@/components/builder/RejectionNotice";
+import {
+	announceDatetimeSplit,
+	SPLIT_DATETIME_LABEL,
+} from "@/components/builder/shared/datetimeSplitNotice";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { renameFieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import {
@@ -53,6 +59,11 @@ import {
 	fieldRegistry,
 	getConvertibleTypes,
 } from "@/lib/domain";
+import {
+	featureForFieldKind,
+	platformPickerLine,
+	platformRefusal,
+} from "@/lib/domain/platforms";
 import { shortcutLabel } from "@/lib/platform";
 import { useLocation, useSelect } from "@/lib/routing/hooks";
 import {
@@ -144,6 +155,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 		moveField,
 		duplicateField,
 		convertField,
+		splitDatetimeQuestion,
 		// Rename rejections render in this section's own popover, so the
 		// dispatch is the inline flavor: the toast stays quiet. The menu
 		// actions (move/duplicate/convert) have no contextual anchor and
@@ -162,6 +174,15 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 	const docApi = useBlueprintDocApi();
 
 	const appId = useAppId();
+	const platforms = useDeclaredPlatforms();
+	/* A target kind a platform the app runs on can't run stays offered,
+	 * disabled with that platform's picker line. */
+	const kindRefusal = (kind: FieldKind): string | undefined => {
+		const feature = featureForFieldKind(kind);
+		const refusal =
+			feature === undefined ? undefined : platformRefusal(feature, platforms);
+		return refusal === undefined ? undefined : platformPickerLine(refusal);
+	};
 	/* A conversion the plan flags as failable (`dataLossRisk`) waits here
 	 * for the consent dialog; everything else dispatches directly. */
 	const [pendingConvert, setPendingConvert] =
@@ -524,6 +545,25 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 
 									<Menu.Separator className="mx-2 h-px bg-white/[0.06]" />
 
+									{/* A date-and-time question can ask for its date and its
+									 *  time separately, on every declaration: an ordinary,
+									 *  valid edit that runs in Web Apps. */}
+									{field.kind === "datetime" && selectedUuid !== undefined && (
+										<MenuItem
+											icon={tablerArrowsSplit}
+											label={SPLIT_DATETIME_LABEL}
+											description="Two questions that work in Web Apps, joined in a hidden value"
+											onClick={() => {
+												const outcome = splitDatetimeQuestion(
+													asUuid(selectedUuid),
+												);
+												if (!outcome.ok) return;
+												select(outcome.dateUuid);
+												announceDatetimeSplit();
+											}}
+										/>
+									)}
+
 									{/* Convert type: submenu with conversion targets. When the
 									 *  current kind has no convert targets, the trigger
 									 *  collapses to a disabled item with an explanatory
@@ -573,6 +613,7 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 																	key={target}
 																	icon={targetMeta.icon}
 																	label={targetMeta.label}
+																	disabledReason={kindRefusal(target)}
 																	onClick={() => requestConvert(target)}
 																/>
 															);
@@ -628,21 +669,29 @@ export function FieldIdentitySection({ field }: FieldIdentitySectionProps) {
 function MenuItem({
 	icon,
 	label,
+	description,
 	shortcut,
 	disabled,
+	disabledReason,
 	onClick,
 }: {
 	icon: IconifyIcon;
 	label: string;
+	/** A second line under the label. */
+	description?: string;
 	shortcut?: string;
 	disabled?: boolean;
+	/** Why the item is withheld; disables it and replaces the description. */
+	disabledReason?: string;
 	onClick?: () => void;
 }) {
+	const withheld = disabled === true || disabledReason !== undefined;
+	const detail = disabledReason ?? description;
 	return (
 		<Menu.Item
-			disabled={disabled}
-			onClick={disabled ? undefined : onClick}
-			className={disabled ? MENU_ITEM_DISABLED_CLS : MENU_ITEM_CLS}
+			disabled={withheld}
+			onClick={withheld ? undefined : onClick}
+			className={withheld ? MENU_ITEM_DISABLED_CLS : MENU_ITEM_CLS}
 		>
 			<Icon
 				icon={icon}
@@ -650,7 +699,12 @@ function MenuItem({
 				height="16"
 				className="text-nova-text-muted shrink-0"
 			/>
-			<span className="flex-1 text-left">{label}</span>
+			<span className="flex min-w-0 flex-1 flex-col text-left">
+				<span>{label}</span>
+				{detail !== undefined && (
+					<span className="text-xs text-nova-text-muted">{detail}</span>
+				)}
+			</span>
 			{shortcut && (
 				<kbd className="text-[10px] text-nova-text-muted font-mono ml-4 shrink-0">
 					{shortcut}

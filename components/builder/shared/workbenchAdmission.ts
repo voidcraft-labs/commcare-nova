@@ -18,5 +18,9 @@ export function workbenchExpressionAdmission(
 	const verdict = expressionEditVerdict(candidate, expressionContext);
 	return verdict.ok
 		? { admitted: true as const }
-		: { admitted: false as const, reason: verdict.reason };
+		: {
+				admitted: false as const,
+				reason: verdict.reason,
+				...(verdict.platform !== undefined && { platform: verdict.platform }),
+			};
 }

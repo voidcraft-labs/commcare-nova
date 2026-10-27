@@ -43,6 +43,7 @@ test.beforeAll(async () => {
 			"@/lib/auth/hooks/useAuth": boundary,
 			"@/lib/lookup/actions": boundary,
 			"@/lib/deployment/actions": boundary,
+			"@/lib/doc/platformChangePreflight": boundary,
 			"@/lib/preview/app-tests/actions": boundary,
 		},
 	);

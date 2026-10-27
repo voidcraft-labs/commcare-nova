@@ -109,7 +109,6 @@ import {
 	type OrdinaryCaseSearchConfig,
 	type SearchInputDef,
 	type TileCell,
-	uuidSchema,
 } from "@/lib/domain";
 import {
 	type Expression,
@@ -121,6 +120,10 @@ import { useAppId, useCanEdit, usePreviewing } from "@/lib/session/hooks";
 import { selectableSegmentCls } from "@/lib/styles";
 import { useIsBreakpoint } from "@/lib/ui/hooks/useIsBreakpoint";
 import { useKeyboardShortcuts } from "@/lib/ui/hooks/useKeyboardShortcuts";
+import {
+	findingOpenAction,
+	findingTargetName,
+} from "../shared/findingDestination";
 import {
 	type CaseListWorkspaceControllerBridgeProps,
 	type CaseListWorkspaceTab,
@@ -1539,59 +1542,8 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			if (finding === undefined) {
 				return { key: `candidate:${index}`, message };
 			}
-			const { location, details } = finding;
-			const parsedOperationUuid = uuidSchema.safeParse(details?.operationUuid);
-			const operationUuid = parsedOperationUuid.success
-				? parsedOperationUuid.data
-				: undefined;
-			const parsedLinkUuid = uuidSchema.safeParse(details?.linkUuid);
-			const linkUuid = parsedLinkUuid.success ? parsedLinkUuid.data : undefined;
-			const surface = details?.surface;
-			const { moduleUuid: findingModuleUuid, formUuid: findingFormUuid } =
-				location;
-			const targetName =
-				location.fieldId ??
-				location.formName ??
-				location.moduleName ??
-				"this item";
-			let onOpen: (() => void) | undefined;
-			if (findingModuleUuid !== undefined && findingFormUuid !== undefined) {
-				if (operationUuid !== undefined) {
-					onOpen = () =>
-						navigate.openFormOperations(
-							findingModuleUuid,
-							findingFormUuid,
-							operationUuid,
-						);
-				} else if (
-					linkUuid !== undefined ||
-					finding.code.startsWith("FORM_LINK_") ||
-					surface === "form_link_condition" ||
-					surface === "form_link_datum_xpath"
-				) {
-					onOpen = () =>
-						navigate.openFormLinks(
-							findingModuleUuid,
-							findingFormUuid,
-							linkUuid,
-						);
-				} else if (
-					finding.code.includes("FORM_DISPLAY_CONDITION") ||
-					surface === "form_display_condition"
-				) {
-					onOpen = () =>
-						navigate.openFormCondition(findingModuleUuid, findingFormUuid);
-				} else {
-					onOpen = () =>
-						navigate.openForm(
-							findingModuleUuid,
-							findingFormUuid,
-							location.fieldUuid,
-						);
-				}
-			} else if (findingModuleUuid !== undefined) {
-				onOpen = () => navigate.openModule(findingModuleUuid);
-			}
+			const onOpen = findingOpenAction(finding, navigate);
+			const targetName = findingTargetName(finding.location);
 			return {
 				key: `${finding.code}:${index}`,
 				message,
@@ -2839,6 +2791,7 @@ function ColumnInspectorBody({
 				}
 			/>
 			<TileCellInspector
+				moduleUuid={moduleUuid}
 				column={column}
 				config={config}
 				tileOn={tileOn}

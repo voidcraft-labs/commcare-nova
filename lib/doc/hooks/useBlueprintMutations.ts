@@ -40,6 +40,7 @@
 
 "use client";
 
+import { produce } from "immer";
 import { useContext, useMemo } from "react";
 import type { CaseDisplaySurface } from "@/components/builder/case-list-config/workspaceProjection";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
@@ -50,6 +51,7 @@ import {
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
 import { mutationCommitVerdictWithPrevalidation } from "@/lib/doc/commitVerdicts";
+import { planDatetimeSplit } from "@/lib/doc/datetimeSplit";
 import { automationChangesForUpdate } from "@/lib/doc/diffDocsToMutations";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
 import type { FieldPath } from "@/lib/doc/fieldPath";
@@ -74,8 +76,10 @@ import {
 	type ModuleAuthoringPatch,
 	modulePatchMutations,
 } from "@/lib/doc/modulePatchMutations";
+import { applyMutations } from "@/lib/doc/mutations";
 import {
 	notifyPreservedChoices,
+	notifyRefusedSplit,
 	notifyRejectedCommit,
 } from "@/lib/doc/mutations/notify";
 import {
@@ -147,6 +151,7 @@ import {
 	type UserType,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
+import { proseText } from "@/lib/domain/prose";
 
 /**
  * Outcome of an entity-adding dispatch: the minted uuid on success, the
@@ -365,6 +370,34 @@ export interface BlueprintMutations {
 	 * equals the target kind.
 	 */
 	convertField: (uuid: Uuid, toKind: FieldKind) => CommitOutcome;
+	/**
+	 * Ask for a date-and-time question's date and time separately: the
+	 * planner (`lib/doc/datetimeSplit.ts::planDatetimeSplit`) inserts a date
+	 * question and a time question before it and turns it into a Hidden
+	 * Value that joins them, so every reader keeps reading one date and
+	 * time. One gated batch, one undo step. Two people splitting the same
+	 * question mint the same derived identities, so the second save meets
+	 * the server's conflict rather than four questions.
+	 */
+	splitDatetimeQuestion: (
+		uuid: Uuid,
+	) =>
+		| { ok: true; dateUuid: Uuid; timeUuid: Uuid }
+		| { ok: false; messages: string[] };
+	/**
+	 * Insert a date and a time as two questions joined in a Hidden Value: a
+	 * date-and-time question added and split in one batch, so the gate sees
+	 * only the split shape and the insertion commits in an app that runs in
+	 * Web Apps, where a date-and-time question can't. One undo removes all
+	 * three. `uuid` is the joining Hidden Value's.
+	 */
+	addDatetimeAsTwoQuestions: (
+		parentUuid: Uuid,
+		field: { id: string; label: string },
+		opts?: { atIndex?: number },
+	) =>
+		| { ok: true; uuid: Uuid; dateUuid: Uuid; timeUuid: Uuid }
+		| { ok: false; messages: string[] };
 
 	// ── Form mutations ────────────────────────────────────────────────────
 	/** Insert a new form into a module. Returns the minted uuid on
@@ -803,6 +836,7 @@ export function createBlueprintMutations(
 		const guardedApply = (
 			mutations: Mutation[],
 			commitCandidate = true,
+			announceRefusal = announce,
 		):
 			| { ok: true; results: MutationResult[] }
 			| {
@@ -821,7 +855,7 @@ export function createBlueprintMutations(
 				lookupCommitState,
 			});
 			if (!admission.ok) {
-				if (announce) notifyRejectedCommit(admission.messages);
+				if (announceRefusal) notifyRejectedCommit(admission.messages);
 				return { ok: false, messages: admission.messages };
 			}
 			const doc = get();
@@ -836,7 +870,7 @@ export function createBlueprintMutations(
 			);
 			if (!projected.ok) {
 				const lines = [projected.message];
-				if (announce) notifyRejectedCommit(lines);
+				if (announceRefusal) notifyRejectedCommit(lines);
 				return { ok: false, messages: lines };
 			}
 			const verdict = mutationCommitVerdictWithPrevalidation(
@@ -849,7 +883,7 @@ export function createBlueprintMutations(
 				// and the returned `CommitOutcome.messages` speak it. The
 				// SA path keeps the verbose `ValidationError.message`.
 				const lines = userFacingErrors(verdict.findings);
-				if (announce) notifyRejectedCommit(lines);
+				if (announceRefusal) notifyRejectedCommit(lines);
 				return { ok: false, messages: lines, findings: verdict.findings };
 			}
 			// The candidate commits, and the batch that produced it is kept
@@ -1162,6 +1196,71 @@ export function createBlueprintMutations(
 				if (applied.ok && planned.preservedChoiceCount > 0)
 					notifyPreservedChoices(planned.preservedChoiceCount);
 				return toOutcome(applied);
+			},
+
+			splitDatetimeQuestion(uuid) {
+				const refuse = (messages: string[]) => {
+					if (announce) notifyRefusedSplit(messages[0]);
+					return { ok: false as const, messages };
+				};
+				const admission = builderWriteAdmission({
+					canEdit,
+					lookupCommitState,
+				});
+				if (!admission.ok) return refuse(admission.messages);
+				const plan = planDatetimeSplit(get(), uuid);
+				if (!plan.ok) return refuse([plan.message]);
+				const applied = guardedApply([...plan.mutations], true, false);
+				if (!applied.ok) return refuse(applied.messages);
+				return { ok: true, dateUuid: plan.dateUuid, timeUuid: plan.timeUuid };
+			},
+
+			addDatetimeAsTwoQuestions(parentUuid, field, opts) {
+				const refuse = (messages: string[]) => {
+					if (announce) notifyRefusedSplit(messages[0]);
+					return { ok: false as const, messages };
+				};
+				const admission = builderWriteAdmission({
+					canEdit,
+					lookupCommitState,
+				});
+				if (!admission.ok) return refuse(admission.messages);
+				const doc = get();
+				if (
+					doc.forms[parentUuid] === undefined &&
+					doc.fields[parentUuid] === undefined
+				) {
+					warnUnresolved("addDatetimeAsTwoQuestions", { parentUuid });
+					return NOOP_REJECTION;
+				}
+				const uuid = asUuid(crypto.randomUUID());
+				const entity: Field = {
+					kind: "datetime",
+					uuid,
+					id: field.id,
+					label: proseText(field.label),
+				};
+				const insert: Mutation = {
+					kind: "addField",
+					parentUuid,
+					field: entity,
+					after: fieldSlotAfter(doc, parentUuid, { index: opts?.atIndex }),
+				};
+				// The planner reads the inserted question, so it plans over a
+				// working copy that holds it; the gate then sees the one batch.
+				const working = produce(doc, (draft) => {
+					applyMutations(draft, [insert]);
+				});
+				const plan = planDatetimeSplit(working, uuid);
+				if (!plan.ok) return refuse([plan.message]);
+				const applied = guardedApply([insert, ...plan.mutations], true, false);
+				if (!applied.ok) return refuse(applied.messages);
+				return {
+					ok: true,
+					uuid,
+					dateUuid: plan.dateUuid,
+					timeUuid: plan.timeUuid,
+				};
 			},
 
 			addForm(moduleUuid, form) {

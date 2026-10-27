@@ -109,9 +109,9 @@ import {
 	type Term,
 	tableColumn,
 	timeLiteral,
-	windowWidthOffered,
 	term as wrapTerm,
 } from "@/lib/domain/expression";
+import { platformPickerLine } from "@/lib/domain/platforms";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import { asChoiceOf, type StaticSelectSubject } from "../../choiceValueModel";
 import {
@@ -1279,6 +1279,11 @@ function TermBodyInput({
 					value={term.field}
 					onChange={(field) => onChange(sessionContext(field))}
 					invalid={invalid}
+					admit={(field) =>
+						admitExpressionChange?.(path, wrapTerm(sessionContext(field))) ?? {
+							admitted: true,
+						}
+					}
 				/>
 			);
 		case "session-user":
@@ -1742,25 +1747,25 @@ function FormFieldRefMenu({
 
 /** The seven session values, each by its own name. The window width is
  * offered only where the slot's profile admits it (`SlotProfile.windowWidth`:
- * a slot CommCare evaluates while a menu or a list loads) and no declared
- * platform lacks it (`typeChecker.ts::windowWidthOffered`, as the XPath
- * editor); a stored read elsewhere keeps its name, and the checker says why
- * it can't stay. */
+ * a slot CommCare evaluates while a menu or a list loads); a stored read
+ * elsewhere keeps its name, and the checker says why it can't stay. Each
+ * choice asks the slot's rule admission, so one a platform the app runs on
+ * refuses is disabled with that platform's picker line. */
 function SessionContextMenu({
 	value,
 	onChange,
 	invalid,
+	admit,
 }: {
 	readonly value: SessionContextField;
 	readonly onChange: (field: SessionContextField) => void;
 	readonly invalid: boolean;
+	readonly admit: (field: SessionContextField) => ExpressionChangeAdmission;
 }) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const current = sessionContextPresentation(value);
 	const ctx = usePredicateEditContext();
-	const windowWidth =
-		ctx.expressionContext !== undefined &&
-		windowWidthOffered(ctx.expressionContext);
+	const windowWidth = ctx.expressionContext?.profile.windowWidth === true;
 	const choices = SESSION_CONTEXT_CHOICES.filter(
 		(it) => it.field !== "window_width" || windowWidth,
 	);
@@ -1800,15 +1805,30 @@ function SessionContextMenu({
 					<DropdownMenuPopup className="min-w-0">
 						{choices.map((it) => {
 							const isActive = it.field === value;
+							const admission = isActive
+								? ({ admitted: true } as const)
+								: admit(it.field);
+							const platformLine =
+								admission.admitted || admission.platform === undefined
+									? undefined
+									: platformPickerLine(admission.platform);
 							return (
 								<DropdownMenuItem
 									key={it.field}
+									disabled={platformLine !== undefined}
 									onClick={() => onChange(it.field)}
 									className={
 										isActive ? "bg-nova-violet/10 text-nova-violet-bright" : ""
 									}
 								>
-									<span>{it.label}</span>
+									<span className="min-w-0 flex-1 text-left">
+										<div className="break-words">{it.label}</div>
+										{platformLine !== undefined && (
+											<div className="break-words text-xs text-nova-text-muted">
+												{platformLine}
+											</div>
+										)}
+									</span>
 								</DropdownMenuItem>
 							);
 						})}

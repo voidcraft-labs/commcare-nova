@@ -90,8 +90,7 @@ export function LinkColumnCard({
 					ariaLabel="Link text"
 				/>
 				<p className="mt-1.5 text-xs leading-relaxed text-nova-text-muted">
-					Every row shows this same wording. It stays in one language, and
-					CommCare Android shows the address as plain text rather than a link.
+					Every row shows this same wording, in one language.
 				</p>
 			</div>
 		</div>

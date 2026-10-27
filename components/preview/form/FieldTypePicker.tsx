@@ -7,16 +7,23 @@ import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
 import tablerFolder from "@iconify-icons/tabler/folder";
 import tablerForms from "@iconify-icons/tabler/forms";
 import tablerPhoto from "@iconify-icons/tabler/photo";
-import { useCallback, useContext, useEffect } from "react";
+import { Fragment, useCallback, useContext, useEffect } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
+import { announceDatetimeAsTwoQuestions } from "@/components/builder/shared/datetimeSplitNotice";
 import {
 	formSectionsOf,
 	landingSectionOf,
 } from "@/lib/doc/formSectionVerdicts";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import type { Uuid } from "@/lib/doc/types";
 import { type FieldKind, fieldKinds, fieldRegistry } from "@/lib/domain";
+import {
+	featureForFieldKind,
+	platformPickerLine,
+	platformRefusal,
+} from "@/lib/domain/platforms";
 import { useSelect } from "@/lib/routing/hooks";
 import { useMarkNewField } from "@/lib/session/hooks";
 import {
@@ -103,6 +110,28 @@ const INSERTION_TOP_LEVEL: readonly FieldKind[] = [
 	"hidden",
 ];
 
+/** A fresh `new_<kind>` id no field of the app holds yet. CommCare requires
+ *  unique ids across the entire form, not just siblings, so it scans the
+ *  full field entity map. */
+function uniqueFieldId(
+	doc: {
+		readonly fields: Readonly<Record<string, { id: string } | undefined>>;
+	},
+	kind: FieldKind,
+): string {
+	const existingIds = new Set<string>();
+	for (const f of Object.values(doc.fields)) {
+		if (f) existingIds.add(f.id);
+	}
+	let newId = `new_${kind}`;
+	if (existingIds.has(newId)) {
+		let counter = 2;
+		while (existingIds.has(`new_${kind}_${counter}`)) counter++;
+		newId = `new_${kind}_${counter}`;
+	}
+	return newId;
+}
+
 interface FieldTypePickerPopupProps {
 	/** Insertion index within the parent's children array. */
 	atIndex: number;
@@ -137,7 +166,17 @@ export function FieldTypePickerPopup({
 }: FieldTypePickerPopupProps) {
 	const { setPending } = useScrollIntoView();
 	const select = useSelect();
-	const { addField, applyFormSectionPlan } = useBlueprintMutations();
+	const { addField, addDatetimeAsTwoQuestions, applyFormSectionPlan } =
+		useBlueprintMutations();
+	const platforms = useDeclaredPlatforms();
+	/* A kind a platform the app runs on can't run stays in the menu, disabled
+	 * with that platform's picker line, never hidden. */
+	const kindRefusal = (kind: FieldKind): string | undefined => {
+		const feature = featureForFieldKind(kind);
+		const refusal =
+			feature === undefined ? undefined : platformRefusal(feature, platforms);
+		return refusal === undefined ? undefined : platformPickerLine(refusal);
+	};
 	const markNewField = useMarkNewField();
 	const docStore = useContext(BlueprintDocContext);
 
@@ -197,18 +236,7 @@ export function FieldTypePickerPopup({
 			/* Collect all existing field IDs to generate a unique name.
 			 * CommCare requires unique IDs across the entire form, not just
 			 * siblings, so we scan the full field entity map. */
-			const doc = docStore.getState();
-			const existingIds = new Set<string>();
-			for (const f of Object.values(doc.fields)) {
-				if (f) existingIds.add(f.id);
-			}
-
-			let newId = `new_${kind}`;
-			if (existingIds.has(newId)) {
-				let counter = 2;
-				while (existingIds.has(`new_${kind}_${counter}`)) counter++;
-				newId = `new_${kind}_${counter}`;
-			}
+			const newId = uniqueFieldId(docStore.getState(), kind);
 
 			// Build the kind's starter field through the typed per-kind builder
 			// map: each kind's shape is checked against its own schema, so an
@@ -244,6 +272,31 @@ export function FieldTypePickerPopup({
 		},
 		[parentUuid, atIndex, addField, markNewField, setPending, select, docStore],
 	);
+
+	/** Insert a date and a time as two questions joined in a hidden value,
+	 *  and land on the date question. */
+	const handleTwoQuestions = useCallback(() => {
+		if (!docStore) return;
+		const id = uniqueFieldId(docStore.getState(), "datetime");
+		const outcome = addDatetimeAsTwoQuestions(
+			parentUuid,
+			{ id, label: `New ${fieldRegistry.datetime.label}` },
+			{ atIndex },
+		);
+		if (!outcome.ok) return;
+		markNewField(outcome.dateUuid);
+		setPending(outcome.dateUuid, "smooth", false);
+		select(outcome.dateUuid);
+		announceDatetimeAsTwoQuestions();
+	}, [
+		docStore,
+		parentUuid,
+		atIndex,
+		addDatetimeAsTwoQuestions,
+		markNewField,
+		setPending,
+		select,
+	]);
 
 	return (
 		<Menu.Portal>
@@ -294,11 +347,21 @@ export function FieldTypePickerPopup({
 										>
 											<Menu.Popup className={MENU_POPUP_CLS}>
 												{cat.types.map((type) => (
-													<TypeMenuItem
-														key={type}
-														type={type}
-														onSelect={handleSelect}
-													/>
+													<Fragment key={type}>
+														<TypeMenuItem
+															type={type}
+															onSelect={handleSelect}
+															disabledReason={kindRefusal(type)}
+														/>
+														{/* Where a declared platform can't ask a date and
+														 *  time as one question, it is offered as two. */}
+														{type === "datetime" &&
+															kindRefusal(type) !== undefined && (
+																<TwoQuestionsMenuItem
+																	onSelect={handleTwoQuestions}
+																/>
+															)}
+													</Fragment>
 												))}
 												{/* The page gestures ride in Structure: a split
 												 *  or a new page is structure, not a question. */}
@@ -326,7 +389,12 @@ export function FieldTypePickerPopup({
 
 							{/* ── Top-level items (no submenu) ── */}
 							{INSERTION_TOP_LEVEL.map((type) => (
-								<TypeMenuItem key={type} type={type} onSelect={handleSelect} />
+								<TypeMenuItem
+									key={type}
+									type={type}
+									onSelect={handleSelect}
+									disabledReason={kindRefusal(type)}
+								/>
 							))}
 						</>
 					)}
@@ -395,20 +463,54 @@ function GestureMenuItem({
 function TypeMenuItem({
 	type,
 	onSelect,
+	disabledReason,
 }: {
 	type: FieldKind;
 	onSelect: (type: FieldKind) => void;
+	/** Why the kind is withheld, shown on a second line, as a page gesture's. */
+	disabledReason?: string;
 }) {
 	const { icon, label } = fieldRegistry[type];
+	const disabled = disabledReason !== undefined;
 	return (
-		<Menu.Item className={MENU_ITEM_CLS} onClick={() => onSelect(type)}>
+		<Menu.Item
+			disabled={disabled}
+			className={disabled ? MENU_ITEM_DISABLED_CLS : MENU_ITEM_CLS}
+			onClick={disabled ? undefined : () => onSelect(type)}
+		>
 			<Icon
 				icon={icon}
 				width="16"
 				height="16"
 				className="text-nova-text-muted shrink-0"
 			/>
-			<span>{label}</span>
+			<span className="flex min-w-0 flex-1 flex-col text-left">
+				<span>{label}</span>
+				{disabled && (
+					<span className="text-xs text-nova-text-muted">{disabledReason}</span>
+				)}
+			</span>
+		</Menu.Item>
+	);
+}
+
+/* ── A date and a time, as two questions ───────────────────────────── */
+
+function TwoQuestionsMenuItem({ onSelect }: { onSelect: () => void }) {
+	return (
+		<Menu.Item className={MENU_ITEM_CLS} onClick={onSelect}>
+			<Icon
+				icon={fieldRegistry.datetime.icon}
+				width="16"
+				height="16"
+				className="text-nova-text-muted shrink-0"
+			/>
+			<span className="flex min-w-0 flex-1 flex-col text-left">
+				<span>Date and time (as two questions)</span>
+				<span className="text-xs text-nova-text-muted">
+					A date question and a time question, joined in a hidden value
+				</span>
+			</span>
 		</Menu.Item>
 	);
 }

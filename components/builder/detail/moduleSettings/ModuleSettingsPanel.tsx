@@ -3,13 +3,31 @@ import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
 import { EntryPointSettingsShortcut } from "@/components/builder/app-setup/EntryPointSettingsShortcut";
 import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
+import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import { Button } from "@/components/shadcn/button";
 import { PopoverTitle } from "@/components/shadcn/popover";
+import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
 import type { Uuid } from "@/lib/doc/types";
+import type { PlatformFeatureId } from "@/lib/domain/platforms";
 import { MenuPlacementSection } from "./MenuPlacementSection";
 import { ModuleAppearanceSection } from "./ModuleAppearanceSection";
 import { ModuleCaseTypeSection } from "./ModuleCaseTypeSection";
 import { ModuleNameSection } from "./ModuleNameSection";
+
+/** What a module's own platform note can state: a case list on the menu. */
+const MODULE_NOTE_FEATURES: readonly PlatformFeatureId[] = [
+	"case-list-menu-item",
+];
+
+/** The module's platform note row: how a platform the app runs on shows a
+ *  module that is only a case list. */
+function ModulePlatformNotes({ moduleUuid }: { readonly moduleUuid: Uuid }) {
+	const features = useOwnerPlatformFeatures(
+		{ kind: "module", moduleUuid },
+		MODULE_NOTE_FEATURES,
+	);
+	return <PlatformNoteRow features={features} />;
+}
 
 /** Shell prop shape: the module being edited plus a dismiss callback
  *  wired from the popover trigger. */
@@ -61,6 +79,7 @@ export function ModuleSettingsPanel({
 					onNavigateAway={onClose}
 				/>
 				<MenuPlacementSection moduleUuid={moduleUuid} />
+				<ModulePlatformNotes moduleUuid={moduleUuid} />
 				<ModuleCaseTypeSection moduleUuid={moduleUuid} />
 				<ModuleAppearanceSection moduleUuid={moduleUuid} />
 				<DisplayConditionSection

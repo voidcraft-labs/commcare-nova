@@ -47,6 +47,8 @@ import {
 } from "./tilePresets";
 
 export interface TileLayoutCanvasProps {
+	/** The module whose list this is, the owner of its grouping's platform note. */
+	readonly moduleUuid: Uuid;
 	readonly config: CaseListConfig;
 	readonly tile: CaseTileLayout;
 	/** The type this list shows, for the grouping section's connection hint
@@ -65,6 +67,7 @@ export interface TileLayoutCanvasProps {
 }
 
 export function TileLayoutCanvas({
+	moduleUuid,
 	config,
 	tile,
 	caseType,
@@ -121,6 +124,7 @@ export function TileLayoutCanvas({
 
 			{canEdit && (
 				<TileGroupingSection
+					moduleUuid={moduleUuid}
 					config={config}
 					tile={tile}
 					caseType={caseType}

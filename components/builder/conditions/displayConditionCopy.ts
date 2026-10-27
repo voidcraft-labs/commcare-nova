@@ -22,6 +22,8 @@
 // `lib/domain/forms.ts::isCaseFirstModule` is the same distinction the
 // runtime makes; this module only puts it into words.
 
+import type { Platform } from "@/lib/domain/platforms";
+
 export type DisplayConditionCarrier =
 	| {
 			readonly kind: "module";
@@ -70,7 +72,7 @@ export interface DisplayConditionCopy {
 	/** What the switch says while the item is on the menu. */
 	readonly onTheMenuNote: string;
 	/** What the switch says once the item is off the menu: what still
-	 *  opens it, per platform. */
+	 *  opens it, on each platform the app runs on. */
 	readonly offTheMenuNote: string;
 	/** Settings-panel row copy. */
 	readonly settingTitle: string;
@@ -104,13 +106,29 @@ export const MENU_SWITCH_LABEL = "Show on the menu";
  *  the menu. */
 export const SHOWN_ON_THE_MENU_TITLE = "When shown on the menu";
 
-/** What still opens a form that is off the menu, per platform. */
-export const FORM_OFF_THE_MENU_NOTE =
-	"Off the menu. On Android this form opens from an after-submit link or an entry point. In Web Apps it opens only from an entry point that ignores display conditions.";
+/** What still opens a form that is off the menu, on each platform the app
+ *  runs on. For both platforms it says both, Android first. */
+export function formOffTheMenuNote(platforms: readonly Platform[]): string {
+	const android = platforms.includes("android");
+	const webApps = platforms.includes("web-apps");
+	if (android && webApps)
+		return "Off the menu. On Android this form opens from an after-submit link or an entry point. In Web Apps it opens only from an entry point that ignores display conditions.";
+	if (android)
+		return "Off the menu. On Android this form opens from an after-submit link or an entry point.";
+	return "Off the menu. In Web Apps this form opens only from an entry point that ignores display conditions.";
+}
 
-/** What still opens the forms of a module that is off the menu. */
-export const MODULE_OFF_THE_MENU_NOTE =
-	"Off the menu, with every form in it. On Android its forms open from an after-submit link or an entry point. In Web Apps they open only from an entry point that ignores display conditions.";
+/** What still opens the forms of a module that is off the menu, on each
+ *  platform the app runs on. */
+export function moduleOffTheMenuNote(platforms: readonly Platform[]): string {
+	const android = platforms.includes("android");
+	const webApps = platforms.includes("web-apps");
+	if (android && webApps)
+		return "Off the menu, with every form in it. On Android its forms open from an after-submit link or an entry point. In Web Apps they open only from an entry point that ignores display conditions.";
+	if (android)
+		return "Off the menu, with every form in it. On Android its forms open from an after-submit link or an entry point.";
+	return "Off the menu, with every form in it. In Web Apps its forms open only from an entry point that ignores display conditions.";
+}
 
 const NO_CASE_SCOPE_NOTE =
 	"No case has been chosen at that point, so the condition can use fixed values and information about the person signed in, not case information.";
@@ -121,6 +139,7 @@ function quoted(name: string): string {
 
 export function displayConditionCopy(
 	carrier: DisplayConditionCarrier,
+	platforms: readonly Platform[],
 ): DisplayConditionCopy {
 	if (carrier.kind === "module") {
 		const name = quoted(carrier.moduleName);
@@ -148,7 +167,7 @@ export function displayConditionCopy(
 				parentName === undefined
 					? "Workers find this module on the home screen."
 					: `Workers find this module inside ${parentName}.`,
-			offTheMenuNote: MODULE_OFF_THE_MENU_NOTE,
+			offTheMenuNote: moduleOffTheMenuNote(platforms),
 			settingTitle: SHOWN_ON_THE_MENU_TITLE,
 			settingDescription:
 				parentName === undefined
@@ -178,7 +197,7 @@ export function displayConditionCopy(
 		alwaysSummary: `${name} always appears`,
 		menuSwitchLabel: MENU_SWITCH_LABEL,
 		onTheMenuNote: `Workers find this form in ${moduleName}.`,
-		offTheMenuNote: FORM_OFF_THE_MENU_NOTE,
+		offTheMenuNote: formOffTheMenuNote(platforms),
 		settingTitle: SHOWN_ON_THE_MENU_TITLE,
 		settingDescription:
 			"Keep this form out of the list unless a condition matches",

@@ -27,6 +27,7 @@ import {
 	useMemo,
 	useRef,
 } from "react";
+import type { EditPlatformRefusal } from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	type CheckError,
@@ -77,7 +78,14 @@ type ValidityIndex = ReadonlyMap<string, EditorPathErrors>;
 
 export type ExpressionChangeAdmission =
 	| { readonly admitted: true }
-	| { readonly admitted: false; readonly reason: string };
+	| {
+			readonly admitted: false;
+			readonly reason: string;
+			/** The platform the app runs on that refuses the change, copied
+			 * from the verdict; a menu shows its picker line instead of
+			 * `reason`, which speaks in the agent's voice. */
+			readonly platform?: EditPlatformRefusal;
+	  };
 
 export type AdmitExpressionChange = (
 	path: EditorPath,

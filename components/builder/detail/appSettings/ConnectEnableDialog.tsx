@@ -2,7 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerX from "@iconify-icons/tabler/x";
-import { type ReactNode, useCallback, useId, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import { useAppPublishedAnywhere } from "@/components/builder/app-setup/usePublishingRecords";
 import { LabeledXPathField } from "@/components/builder/detail/formSettings/LabeledXPathField";
 import { RejectionBody } from "@/components/builder/RejectionNotice";
@@ -15,6 +15,7 @@ import {
 } from "@/components/shadcn/dialog";
 import { Switch } from "@/components/shadcn/switch";
 import type { ExpressionEditorContext } from "@/lib/codemirror/expressionEditorContext";
+import { useReconcilerContext } from "@/lib/collab/context";
 import {
 	DEFAULT_ASSESSMENT_USER_SCORE,
 	DEFAULT_DELIVER_ENTITY_ID,
@@ -26,14 +27,18 @@ import {
 } from "@/lib/doc/hooks/useAppConnectIds";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useConnectExpressionStructure } from "@/lib/doc/hooks/useConnectExpressionStructure";
+import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionEditorContext } from "@/lib/doc/hooks/useXPathSlots";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
 import { lookupExpressionDefinitions } from "@/lib/doc/lookupExpressionContext";
 import type { ConnectConfig, ConnectType } from "@/lib/domain";
 import { asUuid, CONNECT_TYPE_LABELS } from "@/lib/domain";
 import { CurrentFormScope } from "@/lib/references/ReferenceContext";
+import { useAppId } from "@/lib/session/hooks";
 import { useStopEscape } from "@/lib/ui/hooks/useStopEscape";
 import { assertNever } from "@/lib/utils/assertNever";
+import { CHECKING_LINE, checkPlatformChange } from "./AppPlatformsSection";
 import {
 	assignDraftConnectIds,
 	type BlockDraft,
@@ -609,6 +614,120 @@ export function RejectionNoticeBlock({
 	);
 }
 
+// ── Turning on Connect sets the app to Android only ────────────────────────
+
+/** Said under each dialog's opening paragraph while Connect is off and the
+ *  app runs in Web Apps: the store sets it to Android only in the same batch. */
+export const CONNECT_NARROWS_LINE =
+	"Connect workers open this app in the Connect app on Android, so turning on Connect sets it to run on Android only.";
+
+/** The hint while a refusal lists what Android can't run. */
+const CONNECT_BLOCKED_HINT = "Once these change, you can turn on Connect.";
+
+/** What the dialogs know about turning on Connect where the app runs. */
+export interface ConnectNarrowing {
+	/** Turning on Connect narrows the app to Android only. */
+	readonly narrows: boolean;
+	/** The server check for an app that gains Android by the change. */
+	readonly check:
+		| { readonly kind: "idle" }
+		| { readonly kind: "checking" }
+		| { readonly kind: "refused"; readonly lines: readonly string[] }
+		/** The check couldn't run: the save barrier didn't settle, the app
+		 *  couldn't be reached, or the request failed. */
+		| { readonly kind: "unchecked"; readonly line: string };
+	/** Run the check again, after it couldn't run. */
+	readonly retry: () => void;
+}
+
+/**
+ * Turning on Connect sets an app that runs in Web Apps to Android only. An
+ * app that runs in Web Apps only gains Android by that, so on opening while
+ * Connect is off the dialog runs the platform change check with
+ * `runsOnlyOn: "android"`, and a refusal lists what Android can't run. A
+ * check that couldn't run says why on its own and offers to run again. An
+ * app that runs on both needs no check: the change only removes Web Apps.
+ */
+export function useConnectNarrowing(connectOn: boolean): ConnectNarrowing {
+	const platforms = useDeclaredPlatforms();
+	const reconciler = useReconcilerContext()?.reconciler;
+	const appId = useAppId();
+	const gainsAndroid = !connectOn && !platforms.includes("android");
+	const [check, setCheck] = useState<ConnectNarrowing["check"]>(
+		gainsAndroid ? { kind: "checking" } : { kind: "idle" },
+	);
+	const [attempt, setAttempt] = useState(0);
+	const retry = useCallback(() => setAttempt((n) => n + 1), []);
+	useEffect(() => {
+		// Each attempt runs the check afresh.
+		void attempt;
+		if (!gainsAndroid) {
+			setCheck({ kind: "idle" });
+			return;
+		}
+		let live = true;
+		setCheck({ kind: "checking" });
+		void checkPlatformChange(reconciler, appId, "android", () => live).then(
+			(result) => {
+				if (!live || result.kind === "stale") return;
+				if (result.kind === "ok") setCheck({ kind: "idle" });
+				else if (result.kind === "line")
+					setCheck({ kind: "unchecked", line: result.text });
+				else
+					setCheck({
+						kind: "refused",
+						lines: [
+							...result.findings.map((row) => row.line),
+							...result.media.map((row) => row.line),
+						],
+					});
+			},
+		);
+		return () => {
+			live = false;
+		};
+	}, [gainsAndroid, reconciler, appId, attempt]);
+	return {
+		narrows: !connectOn && platforms.includes("web-apps"),
+		check,
+		retry,
+	};
+}
+
+/** The footer hint the check replaces, while it runs, refuses, or couldn't
+ *  run (where the line says why alone and a retry stands beside it). */
+export function connectNarrowingHint(
+	narrowing: ConnectNarrowing,
+): string | undefined {
+	if (narrowing.check.kind === "checking") return CHECKING_LINE;
+	if (narrowing.check.kind === "refused") return CONNECT_BLOCKED_HINT;
+	if (narrowing.check.kind === "unchecked") return "";
+	return undefined;
+}
+
+/** The lines the footer's rejection block shows for the check. */
+export function connectNarrowingLines(
+	narrowing: ConnectNarrowing,
+): readonly string[] {
+	if (narrowing.check.kind === "refused") return narrowing.check.lines;
+	if (narrowing.check.kind === "unchecked") return [narrowing.check.line];
+	return [];
+}
+
+/** Offered beside the footer hint when the check couldn't run. */
+export function ConnectNarrowingRetry({
+	narrowing,
+}: {
+	readonly narrowing: ConnectNarrowing;
+}) {
+	if (narrowing.check.kind !== "unchecked") return null;
+	return (
+		<Button type="button" variant="outline" onClick={narrowing.retry}>
+			Check again
+		</Button>
+	);
+}
+
 // ── The per-form enable dialog (form settings) ─────────────────────────────
 
 /** The request the dialog renders; `undefined` closes it. */
@@ -719,7 +838,16 @@ function ConnectEnableBody({
 	const participatingCount =
 		restoredFormCount +
 		targets.filter((t) => draftParticipates(draftOf(t.formUuid), mode)).length;
-	const canConfirm = sectionsComplete && idsValid && participatingCount >= 1;
+	/* The form's own dialog opens while Connect is on, where it narrows
+	 * nothing; it reads the live state so it never says otherwise. */
+	const narrowing = useConnectNarrowing(
+		useConnectTypeOrUndefined() !== undefined,
+	);
+	const canConfirm =
+		sectionsComplete &&
+		idsValid &&
+		participatingCount >= 1 &&
+		narrowing.check.kind === "idle";
 
 	const docApi = useBlueprintDocApi();
 	const confirm = () => {
@@ -758,15 +886,17 @@ function ConnectEnableBody({
 	};
 
 	const single = targets.length === 1 && restoredFormCount === 0;
-	const hint = !sectionsComplete
-		? "Finish the sections you've turned on."
-		: !idsValid
-			? "Fix the highlighted ID."
-			: participatingCount < 1
-				? single
-					? "Turn on a section to add this form to Connect."
-					: "Turn on a section for at least one form."
-				: "Ready to enable.";
+	const hint =
+		connectNarrowingHint(narrowing) ??
+		(!sectionsComplete
+			? "Finish the sections you've turned on."
+			: !idsValid
+				? "Fix the highlighted ID."
+				: participatingCount < 1
+					? single
+						? "Turn on a section to add this form to Connect."
+						: "Turn on a section for at least one form."
+					: "Ready to enable.");
 
 	return (
 		<>
@@ -794,6 +924,11 @@ function ConnectEnableBody({
 							? "Turn on a section below and fill it in to add this form to Connect."
 							: "Pick which forms take part in Connect by turning on their sections and filling them in. Forms you leave off stay out, you can add them later from each form's settings."}
 					</p>
+					{narrowing.narrows && (
+						<p className="text-[11px] leading-snug text-nova-text-muted">
+							{CONNECT_NARROWS_LINE}
+						</p>
+					)}
 					{restoredFormCount > 0 && (
 						<p className="text-[11px] text-nova-text-muted">
 							{restoredFormCount === 1
@@ -827,11 +962,16 @@ function ConnectEnableBody({
 
 			<div className="space-y-2 border-t border-nova-border px-5 py-3">
 				<RejectionNoticeBlock
-					messages={[...rejectionMessages, ...parseRejections]}
+					messages={[
+						...connectNarrowingLines(narrowing),
+						...rejectionMessages,
+						...parseRejections,
+					]}
 				/>
 				<div className="flex items-center justify-between gap-3">
 					<span className="text-[11px] text-nova-text-muted">{hint}</span>
 					<div className="flex gap-2">
+						<ConnectNarrowingRetry narrowing={narrowing} />
 						<Button type="button" variant="outline" onClick={onCancel}>
 							Cancel
 						</Button>

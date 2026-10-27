@@ -13,6 +13,7 @@
 "use client";
 
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import type {
 	CaseListConfig,
 	CaseProperty,
@@ -27,6 +28,7 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
+import { platformPickerLine, platformRefusal } from "@/lib/domain/platforms";
 import { useCanEdit } from "@/lib/session/hooks";
 import { CaseOrderingComposer } from "../SortPriorityStack";
 import {
@@ -130,6 +132,12 @@ export function CaseListCanvas({
 	onCaseSelectionChange,
 }: CaseListCanvasProps) {
 	const canEdit = useCanEdit();
+	const platforms = useDeclaredPlatforms();
+	const severalCasesRefusal = platformRefusal("several-cases", platforms);
+	const severalRefusal =
+		severalCasesRefusal === undefined
+			? undefined
+			: platformPickerLine(severalCasesRefusal);
 	const projection = projectCaseWorkspaceColumns(config);
 	const availableProperties = unrepresentedColumnProperties(config, caseType);
 	const repeatableProperties = representedColumnProperties(config, caseType);
@@ -164,6 +172,7 @@ export function CaseListCanvas({
 					<CaseSelectionSetting
 						value={config.selection}
 						canEdit={canEdit}
+						severalRefusal={severalRefusal}
 						onChange={onCaseSelectionChange}
 					/>
 
@@ -213,6 +222,7 @@ export function CaseListCanvas({
 							</div>
 						) : tile !== undefined ? (
 							<TileLayoutCanvas
+								moduleUuid={moduleUuid}
 								config={config}
 								tile={tile}
 								caseType={caseType}

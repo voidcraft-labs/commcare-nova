@@ -23,6 +23,7 @@ import {
 	PopoverContent,
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useFormLinkTargetVisibility } from "@/lib/doc/hooks/useFormLinkFacts";
 import { useFormLinks } from "@/lib/doc/hooks/useFormLinks";
@@ -61,6 +62,7 @@ export function FormLinkInspectorBody({
 	const index = links.findIndex((candidate) => candidate.uuid === linkUuid);
 	const link = index < 0 ? undefined : links[index];
 	const targetModule = useModule(link?.target.moduleUuid);
+	const platforms = useDeclaredPlatforms();
 	if (plan === undefined || link === undefined || form === undefined)
 		return null;
 
@@ -72,6 +74,7 @@ export function FormLinkInspectorBody({
 	const hiddenLine = hiddenTargetLine(
 		visibility,
 		link.target.type === "form" && targetModule?.hiddenFromMenu === true,
+		platforms,
 	);
 
 	const commit = (next: FormLink, said: string): CommitOutcome => {

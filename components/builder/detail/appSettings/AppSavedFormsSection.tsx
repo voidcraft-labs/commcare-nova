@@ -4,17 +4,27 @@ import { useId } from "react";
 import { Switch } from "@/components/shadcn/switch";
 import { useAppSettings } from "@/lib/doc/hooks/useAppSettings";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
+import type { PlatformFeatureOwner } from "@/lib/domain/platformUses";
+import { PlatformNoteRow } from "../../shared/PlatformNoteRow";
+
+const APP: PlatformFeatureOwner = { kind: "app" };
 
 /**
  * The app's saved and incomplete forms lists: two switches, each reading the
  * document through `useAppSettings` and committing `setAppSettings` with the
  * one key it changes, so a stale editor never writes over a peer's change to
  * the other. The section holds no state of its own; the reducer is its state
- * model.
+ * model. Under each switch that is on, the platform note row says how a
+ * platform the app runs on treats the list.
  */
 export function AppSavedFormsSection() {
 	const settings = useAppSettings();
 	const { setAppSettings } = useBlueprintMutations();
+	const features = useOwnerPlatformFeatures(APP, [
+		"saved-forms",
+		"incomplete-forms",
+	]);
 
 	return (
 		<div className="border-t border-white/[0.06] pt-3">
@@ -24,15 +34,23 @@ export function AppSavedFormsSection() {
 			<div className="space-y-1.5">
 				<SettingRow
 					label="Show saved forms"
-					description="Workers can look back at forms they have sent, from the Android home screen."
+					description="Workers can look back at forms they have sent."
 					checked={settings.showSavedForms}
 					onChange={(next) => setAppSettings({ showSavedForms: next })}
 				/>
+				<PlatformNoteRow
+					features={features.filter((feature) => feature === "saved-forms")}
+				/>
 				<SettingRow
 					label="Show incomplete forms"
-					description="Workers can pick up a form they started and left unfinished, on Android and in Web Apps."
+					description="Workers can pick up a form they started and left unfinished."
 					checked={settings.showIncompleteForms}
 					onChange={(next) => setAppSettings({ showIncompleteForms: next })}
+				/>
+				<PlatformNoteRow
+					features={features.filter(
+						(feature) => feature === "incomplete-forms",
+					)}
 				/>
 			</div>
 		</div>

@@ -1010,22 +1010,34 @@ function caseListSearchTextAdmission(
 }
 
 /**
- * Whether an editor offers the case list's search text in this slot: the
- * checker admits it ({@link caseListSearchTextAdmission}) and no declared
- * platform lacks it. The card picker and the XPath completions both ask this,
- * so neither offers a read the checker refuses.
+ * Whether this slot reaches the case list's search text at all
+ * ({@link caseListSearchTextAdmission}), whatever platforms the app runs on.
+ * The card editor offers it on this alone, so a declared platform that lacks
+ * it shows the choice disabled with that platform's picker line.
+ */
+export function caseListSearchTextReachable(ctx: ExpressionContext): boolean {
+	return caseListSearchTextAdmission(ctx) === undefined;
+}
+
+/**
+ * Whether the XPath editor completes the case list's search text in this
+ * slot: the slot reaches it ({@link caseListSearchTextReachable}) and no
+ * declared platform lacks it, so a completion never inserts a read the
+ * checker refuses.
  */
 export function caseListSearchTextOffered(ctx: ExpressionContext): boolean {
 	return (
-		caseListSearchTextAdmission(ctx) === undefined &&
+		caseListSearchTextReachable(ctx) &&
 		unavailablePlatform("case-list-search-text", ctx.platforms) === undefined
 	);
 }
 
 /**
- * Whether an editor offers the window width in this slot: the slot is one
- * CommCare evaluates while a menu or a list loads (`SlotProfile.windowWidth`)
- * and no declared platform lacks it.
+ * Whether the XPath editor completes the window width in this slot: the slot
+ * is one CommCare evaluates while a menu or a list loads
+ * (`SlotProfile.windowWidth`) and no declared platform lacks it. The card
+ * editor offers it on the profile alone and disables it with the refusing
+ * platform's picker line.
  */
 export function windowWidthOffered(ctx: ExpressionContext): boolean {
 	return (

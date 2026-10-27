@@ -170,7 +170,13 @@ export function ExpressionCardEditor({
 			const finalVerdict = verdict.ok ? surfaceVerdict : verdict;
 			return finalVerdict === undefined || finalVerdict.ok
 				? ({ admitted: true } as const)
-				: ({ admitted: false, reason: finalVerdict.reason } as const);
+				: ({
+						admitted: false,
+						reason: finalVerdict.reason,
+						...(finalVerdict.platform !== undefined && {
+							platform: finalVerdict.platform,
+						}),
+					} as const);
 		},
 		[value, expressionContext, candidateEditVerdict],
 	);

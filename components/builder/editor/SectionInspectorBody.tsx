@@ -36,11 +36,16 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useSubtreeFieldCount } from "@/lib/doc/hooks/useFieldKind";
 import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
 import type { SectionField, Uuid } from "@/lib/domain";
+import type { PlatformFeatureId } from "@/lib/domain/platforms";
 import { useDeleteSelectedField } from "@/lib/routing/builderActions";
 import { useSelect } from "@/lib/routing/hooks";
 import { useCanEdit, useSetActiveFieldId } from "@/lib/session/hooks";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import { FieldIdentitySection } from "./FieldIdentitySection";
+import { FieldPlatformNotes } from "./FieldInspectorBody";
+
+/** A page's platform note: how a platform the app runs on pages a form. */
+const PAGE_NOTE: readonly PlatformFeatureId[] = ["question-pages"];
 
 interface SectionInspectorBodyProps {
 	readonly field: SectionField;
@@ -68,6 +73,7 @@ export function SectionInspectorBody({ field }: SectionInspectorBodyProps) {
 			{canEdit ? (
 				<>
 					<FieldIdentitySection field={field} />
+					<FieldPlatformNotes fieldUuid={field.uuid} keep={PAGE_NOTE} />
 					<PageSection sectionUuid={field.uuid} />
 					<DeleteSectionRow sectionUuid={field.uuid} />
 				</>
@@ -75,6 +81,7 @@ export function SectionInspectorBody({ field }: SectionInspectorBodyProps) {
 				<>
 					<div aria-disabled className="space-y-4 pointer-events-none">
 						<FieldIdentitySection field={field} />
+						<FieldPlatformNotes fieldUuid={field.uuid} keep={PAGE_NOTE} />
 						<PageSection sectionUuid={field.uuid} />
 					</div>
 					<p className="flex items-center gap-1.5 border-t border-nova-border pt-3 text-[11px] text-nova-text-muted">

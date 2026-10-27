@@ -103,10 +103,26 @@ import {
 import type { ExpressionContext } from "@/lib/domain/expression/context";
 import { checkExpression } from "@/lib/domain/expression/typeChecker";
 import type { Expression, MatchMode } from "@/lib/domain/expression/types";
+import type { Platform, PlatformFeatureId } from "@/lib/domain/platforms";
+
+/** Where a refused edit names a platform the app runs on: the checker's
+ * `CheckError.platform`, which a picker turns into its picker line. */
+export interface EditPlatformRefusal {
+	readonly feature: PlatformFeatureId;
+	readonly platform: Platform;
+}
 
 export type PredicateEditVerdict =
 	| { readonly ok: true }
-	| { readonly ok: false; readonly reason: string };
+	| {
+			readonly ok: false;
+			readonly reason: string;
+			/** Present when a declared platform refuses the candidate
+			 * (`arm-unavailable`, reason `platform-unavailable`), whichever of
+			 * its errors says so: the gate keeps no stored use a declared
+			 * platform lacks, so any such error is the candidate's own. */
+			readonly platform?: EditPlatformRefusal;
+	  };
 
 function predicateEditIssueReason(issue: CsqlRepresentabilityIssue): string {
 	if (issue.reason === "case-property-on-value-side") {
@@ -145,11 +161,22 @@ export function expressionEditVerdict(
 	context: ExpressionContext,
 ): PredicateEditVerdict {
 	const checked = checkExpression(candidate, context);
-	if (checked.errors.length > 0)
+	if (checked.errors.length > 0) {
+		const first = checked.errors[0];
+		const platform = checked.errors.find(
+			(error) => error.platform !== undefined,
+		)?.platform;
 		return {
 			ok: false,
-			reason: formLogicFinding(checked.errors[0], context, candidate).message,
+			reason: formLogicFinding(first, context, candidate).message,
+			...(platform !== undefined && {
+				platform: {
+					feature: platform.feature,
+					platform: platform.platform,
+				},
+			}),
 		};
+	}
 	const targets = context.profile.targets;
 	const remote = targets.has("CS");
 	const device = targets.has("XF") || targets.has("SU");

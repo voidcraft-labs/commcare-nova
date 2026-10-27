@@ -16,6 +16,7 @@ import type {
 } from "@/lib/doc/formLinkMutations";
 import type { FormLinkTargetVisibility } from "@/lib/doc/hooks/useFormLinkFacts";
 import type { FormLinkTarget, PostSubmitDestination } from "@/lib/domain";
+import type { Platform } from "@/lib/domain/platforms";
 
 /** Where the person goes, as a prepositional phrase: "goes {phrase}". */
 export function destinationPhrase(destination: PostSubmitDestination): string {
@@ -74,32 +75,69 @@ export function destinationDetail(destination: PostSubmitDestination): string {
 }
 
 /**
- * What First menu means, beside App home: the two land on one screen in
- * Web Apps and on two on Android.
+ * What First menu means, beside App home. On Android the two open different
+ * screens; that difference is the `after-submit-home` note row under the
+ * chooser, read from the platform table.
  */
 export const FIRST_MENU_HELP =
-	"Opens the app's first menu, which lists its modules. On Android, App home opens the app's home screen, and First menu opens that list.";
+	"Opens the app's first menu, which lists its modules";
+
+/** One sentence per platform the app runs on, Android's clause first; for
+ *  both platforms, the two joined as one sentence. */
+function perPlatform(
+	platforms: readonly Platform[],
+	lead: string,
+	android: string,
+	webApps: string,
+): string {
+	const onAndroid = platforms.includes("android");
+	const inWebApps = platforms.includes("web-apps");
+	if (onAndroid && inWebApps) return `${lead}${android}, and ${webApps}.`;
+	return onAndroid ? `${lead}${android}.` : `${lead}${webApps}.`;
+}
 
 /**
  * The line under a link whose target some worker may not see on the menu,
- * from `formLinkTargetVisibility`: what each platform does when that worker
- * submits. `insideHiddenModule` says a target form is off the menu because
- * the module that holds it is. Nothing for a target nothing hides.
+ * from `formLinkTargetVisibility`: what each platform the app runs on does
+ * when that worker submits. `insideHiddenModule` says a target form is off
+ * the menu because the module that holds it is. Nothing for a target
+ * nothing hides.
  */
 export function hiddenTargetLine(
 	visibility: FormLinkTargetVisibility | undefined,
-	insideHiddenModule = false,
+	insideHiddenModule: boolean,
+	platforms: readonly Platform[],
 ): string | undefined {
 	if (visibility?.hiddenBy === undefined) return undefined;
 	if (visibility.hiddenBy === "condition") {
 		return visibility.targetKind === "form"
-			? "When this form's display condition is false for a worker, Android still opens it after submit, and Web Apps opens the module that holds it instead."
-			: "When this module's display condition is false for a worker, Android opens it with nothing in it, and Web Apps opens the app's first screen instead.";
+			? perPlatform(
+					platforms,
+					"When this form's display condition is false for a worker, ",
+					"Android still opens it after submit",
+					"Web Apps opens the module that holds it instead",
+				)
+			: perPlatform(
+					platforms,
+					"When this module's display condition is false for a worker, ",
+					"Android opens it with nothing in it",
+					"Web Apps opens the app's first screen instead",
+				);
 	}
 	if (visibility.targetKind === "module") return undefined;
 	return insideHiddenModule
-		? "This form's module is off the menu. Android still opens the form after submit, and Web Apps opens the app's first screen instead."
-		: "This form is off the menu. Android still opens it after submit, and Web Apps opens the module that holds it instead.";
+		? perPlatform(
+				platforms,
+				"This form's module is off the menu. ",
+				"Android still opens the form after submit",
+				"Web Apps opens the app's first screen instead",
+			)
+		: perPlatform(
+				platforms,
+				"This form is off the menu. ",
+				"Android still opens it after submit",
+				"Web Apps opens the module that holds it instead",
+			);
 }
 
 /** The chooser's fourth item: a link instead of a built-in destination. */

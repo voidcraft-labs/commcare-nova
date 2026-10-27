@@ -4,12 +4,17 @@ import { useEffect, useId, useState } from "react";
 import { Input } from "@/components/shadcn/input";
 import type { CaseSelection } from "@/lib/domain";
 import { selectableSegmentCls } from "@/lib/styles";
+import { cn } from "@/lib/utils";
 
 const DEFAULT_MULTIPLE_MAXIMUM = 100;
 
 export interface CaseSelectionSettingProps {
 	readonly value: CaseSelection | undefined;
 	readonly canEdit: boolean;
+	/** Why Several cases is withheld, when a platform the app runs on can't
+	 *  run it: that platform's picker line, under the choice's label. A stored
+	 *  choice shows as it is. */
+	readonly severalRefusal?: string;
 	readonly onChange: (
 		next: CaseSelection | undefined,
 		origin?: HTMLElement,
@@ -23,9 +28,11 @@ export interface CaseSelectionSettingProps {
 export function CaseSelectionSetting({
 	value,
 	canEdit,
+	severalRefusal,
 	onChange,
 }: CaseSelectionSettingProps) {
 	const multiple = value?.kind === "multiple";
+	const severalWithheld = !multiple && severalRefusal !== undefined;
 	const maximum = value?.maximum ?? DEFAULT_MULTIPLE_MAXIMUM;
 	const selectionName = useId();
 	const maximumInputId = useId();
@@ -122,13 +129,19 @@ export function CaseSelectionSetting({
 							One case
 						</label>
 						<label
-							className={`${selectableSegmentCls(multiple)} has-[input:focus-visible]:border-nova-ring has-[input:focus-visible]:shadow-(--focus-ring)`}
+							className={cn(
+								selectableSegmentCls(multiple),
+								"has-[input:focus-visible]:border-nova-ring has-[input:focus-visible]:shadow-(--focus-ring)",
+								severalWithheld &&
+									"h-auto flex-col gap-0.5 py-2 whitespace-normal cursor-not-allowed opacity-(--disabled-opacity)",
+							)}
 						>
 							<input
 								type="radio"
 								name={selectionName}
 								value="several"
 								checked={multiple}
+								disabled={severalWithheld}
 								onChange={(event) => {
 									if (!multiple) {
 										onChange(
@@ -140,6 +153,11 @@ export function CaseSelectionSetting({
 								className="sr-only"
 							/>
 							Several cases
+							{severalWithheld && (
+								<span className="text-center text-xs leading-snug text-nova-text-muted">
+									{severalRefusal}
+								</span>
+							)}
 						</label>
 					</fieldset>
 

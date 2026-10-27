@@ -21,6 +21,7 @@ import {
 	useBlueprintMutations,
 } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import {
@@ -82,6 +83,7 @@ export function useDisplayConditionCarrier(
 	const moduleIsBareCaseList = useIsBareCaseListModule(target.moduleUuid);
 	const caseTypes = useEffectiveCaseTypes();
 	const mutations = useBlueprintMutations();
+	const platforms = useDeclaredPlatforms();
 	const expressionContext = useExpressionSlotContext(
 		target.kind === "form"
 			? {
@@ -164,7 +166,7 @@ export function useDisplayConditionCarrier(
 			return null;
 		return {
 			expressionContext,
-			copy: displayConditionCopy(carrier),
+			copy: displayConditionCopy(carrier, platforms),
 			condition:
 				carrier.kind === "module"
 					? mod.displayCondition
@@ -186,5 +188,6 @@ export function useDisplayConditionCarrier(
 		setHiddenFromMenu,
 		caseTypes,
 		expressionContext,
+		platforms,
 	]);
 }

@@ -16,6 +16,7 @@ import { useRootFieldIdsByForm } from "@/lib/doc/hooks/useAppConnectIds";
 import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useConnectTypeOrUndefined } from "@/lib/doc/hooks/useConnectType";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useDocEntityMaps } from "@/lib/doc/hooks/useDocEntityMaps";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
 import { lookupExpressionDefinitions } from "@/lib/doc/lookupExpressionContext";
@@ -30,7 +31,16 @@ import {
 import type { LookupDefinitionIndex } from "@/lib/domain/expression/context";
 import { useLastConnectType, useSwitchConnectMode } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
-import { FormSubConfigs, RejectionNoticeBlock } from "./ConnectEnableDialog";
+import {
+	CONNECT_NARROWS_LINE,
+	ConnectNarrowingRetry,
+	connectNarrowingHint,
+	connectNarrowingLines,
+	FormSubConfigs,
+	RejectionNoticeBlock,
+	useConnectNarrowing,
+} from "./ConnectEnableDialog";
+
 import {
 	assignDraftConnectIds,
 	type BlockDraft,
@@ -44,6 +54,11 @@ import {
 	hasDraftConnectParticipant,
 } from "./connectDraft";
 import { connectDraftParser } from "./connectDraftExpressions";
+
+/** Said above the footer while Connect is on and the app runs on Android
+ *  only: turning Connect off never widens where the app runs. */
+const CONNECT_TURN_OFF_LINE =
+	"Turning off Connect keeps this app running on Android only. You can change where it runs in App settings.";
 
 /**
  * App-wide CommCare Connect manager: the single surface that owns the
@@ -234,6 +249,8 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 	const sessionApi = useBuilderSessionApi();
 
 	const enabled = !!connectType;
+	const platforms = useDeclaredPlatforms();
+	const androidOnly = !platforms.includes("web-apps");
 	const { lookupContext } = useLookupCommitState();
 
 	const forms = useFormRows();
@@ -323,11 +340,13 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 		modeDrafts,
 		selectedMode,
 	);
+	const narrowing = useConnectNarrowing(enabled);
 	// Same-mode apply needs real edits; a switch / enable is itself the change.
 	const canApply =
 		sectionsComplete &&
 		idsValid &&
 		hasParticipant &&
+		narrowing.check.kind === "idle" &&
 		(isCurrentMode ? dirty : true);
 
 	const modeLabel = (m: ConnectType) => CONNECT_TYPE_LABELS[m];
@@ -337,19 +356,21 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 			? "Apply changes"
 			: `Switch to ${modeLabel(selectedMode)}`;
 
-	const hint = !sectionsComplete
-		? "Finish the sections you've turned on."
-		: !idsValid
-			? "Fix the highlighted ID."
-			: !hasParticipant
-				? "Turn on a section for at least one form."
-				: !enabled
-					? "Ready to enable."
-					: isCurrentMode
-						? dirty
-							? "Unsaved changes."
-							: "All changes saved."
-						: `Ready to switch to ${modeLabel(selectedMode)}.`;
+	const hint =
+		connectNarrowingHint(narrowing) ??
+		(!sectionsComplete
+			? "Finish the sections you've turned on."
+			: !idsValid
+				? "Fix the highlighted ID."
+				: !hasParticipant
+					? "Turn on a section for at least one form."
+					: !enabled
+						? "Ready to enable."
+						: isCurrentMode
+							? dirty
+								? "Unsaved changes."
+								: "All changes saved."
+							: `Ready to switch to ${modeLabel(selectedMode)}.`);
 
 	const reseed = () => {
 		// Only the just-applied mode changed on the doc: rebuild ITS drafts +
@@ -487,6 +508,11 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 								? `Set up ${modeLabel(selectedMode)} for the forms that should take part, then switch. Your ${modeLabel(connectType)} setup is kept.`
 								: `Pick which forms take part as ${modeLabel(selectedMode)} and fill them in. Forms you leave off stay out.`}
 				</p>
+				{narrowing.narrows && (
+					<p className="text-[11px] leading-snug text-nova-text-muted">
+						{CONNECT_NARROWS_LINE}
+					</p>
+				)}
 
 				{forms.map((f) => (
 					<div key={f.formUuid} className="space-y-2">
@@ -511,7 +537,14 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 			</div>
 
 			<div className="space-y-2 border-t border-nova-border px-5 py-3">
-				<RejectionNoticeBlock messages={rejectionMessages} />
+				{enabled && androidOnly && (
+					<p className="text-[11px] leading-snug text-nova-text-muted">
+						{CONNECT_TURN_OFF_LINE}
+					</p>
+				)}
+				<RejectionNoticeBlock
+					messages={[...connectNarrowingLines(narrowing), ...rejectionMessages]}
+				/>
 				<div className="flex items-center justify-between gap-3">
 					{enabled ? (
 						<button
@@ -526,6 +559,7 @@ function ManagerBody({ onClose }: { onClose: () => void }) {
 					)}
 					<div className="flex items-center gap-3">
 						<span className="text-[11px] text-nova-text-muted">{hint}</span>
+						<ConnectNarrowingRetry narrowing={narrowing} />
 						<Button type="button" onClick={apply} disabled={!canApply}>
 							{primaryLabel}
 						</Button>

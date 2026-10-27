@@ -14,6 +14,7 @@ import {
 	plainColumn,
 	tileCell,
 } from "@/lib/domain";
+import { PLATFORMS } from "@/lib/domain/platforms";
 import {
 	describeTileCell,
 	describeTilePlace,
@@ -499,16 +500,26 @@ describe("tileLayoutIssues", () => {
 
 describe("groupingReopenNotice", () => {
 	it("says nothing for a list that groups nothing", () => {
-		expect(groupingReopenNotice(undefined)).toBeNull();
+		expect(groupingReopenNotice(undefined, PLATFORMS)).toBeNull();
 	});
 
 	it("names the connection the list groups by, so the line shows exactly when grouping is on", () => {
-		expect(groupingReopenNotice({ identifier: "parent", headerRows: 1 })).toBe(
+		expect(
+			groupingReopenNotice({ identifier: "parent", headerRows: 1 }, PLATFORMS),
+		).toBe(
 			"On Android, a form left unfinished for a case with no parent connection can't be opened again: CommCare stops when the worker picks it from incomplete forms. Apps built in CommCare HQ with grouped tiles do the same.",
 		);
 		expect(
-			groupingReopenNotice({ identifier: "host", headerRows: 2 }),
+			groupingReopenNotice({ identifier: "host", headerRows: 2 }, ["android"]),
 		).toContain("a case with no host connection");
+	});
+
+	it("says nothing where the app doesn't run on Android", () => {
+		expect(
+			groupingReopenNotice({ identifier: "parent", headerRows: 1 }, [
+				"web-apps",
+			]),
+		).toBeNull();
 	});
 });
 

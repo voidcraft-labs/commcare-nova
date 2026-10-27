@@ -4,7 +4,7 @@ CodeMirror 6 extensions for editing CommCare XPath inside the builder: language 
 
 ## No offer-then-reject
 
-Autocomplete's per-case-type namespaces (`#<type>/`) and properties come from the SAME accept set the validator enforces (`caseRefAcceptMap`), so the editor never offers a reference it would then reject. Keep completion and validation reading one source.
+Autocomplete's per-case-type namespaces (`#<type>/`) and properties come from the SAME accept set the validator enforces (`caseRefAcceptMap`), so the editor never offers a reference it would then reject. Keep completion and validation reading one source. A session read one platform lacks (`session/data/stringquery`, the case list's search text, which Web Apps doesn't keep, and `session/context/window_width`, which Android doesn't have) is offered only where the slot's declared platforms (`ExpressionContext.platforms`) admit it, beside the slot-profile filter that decides where each can be read at all; the linter explains a read typed by hand.
 
 Every completion source (instance roots, case-query properties, session values, worker properties, data-table columns, relative steps, a static select's choices) is built from the same `FormParseScope` the parser resolves against, and the slot's profile decides what the checker admits, so autocomplete, the linter and the commit gate read one scope and one profile.
 

@@ -35,6 +35,7 @@ import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { OptionalMarkdownRow } from "@/components/builder/inspector/OptionalMarkdownRow";
 import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow";
 import { ConditionSlotSetting } from "@/components/builder/shared/ConditionSlotSetting";
+import { PlatformNoteRow } from "@/components/builder/shared/PlatformNoteRow";
 import type { EditorSearchInputDecl } from "@/components/builder/shared/searchInputPresentation";
 import { setOptionalSlot } from "@/components/builder/shared/setOptionalSlot";
 import {
@@ -42,7 +43,9 @@ import {
 	CollapsibleContent,
 	CollapsibleTrigger,
 } from "@/components/shadcn/collapsible";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
+import { useOwnerPlatformFeatures } from "@/lib/doc/hooks/usePlatformNotes";
 import {
 	CASE_SEARCH_BUTTON_LABEL,
 	type CaseType,
@@ -51,6 +54,11 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression";
+import {
+	type PlatformFeatureId,
+	platformPickerLine,
+	platformRefusal,
+} from "@/lib/domain/platforms";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
 
 export interface SearchPanelInspectorBodyProps {
@@ -81,6 +89,13 @@ export interface SearchPanelInspectorBodyProps {
 	 *  first needs. Absent means the switch is withheld. */
 	readonly canOpenOnSearch?: boolean;
 }
+
+/** What the Search screen's platform note can state. */
+const SEARCH_PANEL_NOTE_FEATURES: readonly PlatformFeatureId[] = [
+	"search",
+	"search-screen-text",
+	"skip-to-results",
+];
 
 export function SearchPanelInspectorBody({
 	moduleUuid,
@@ -118,6 +133,14 @@ export function SearchPanelInspectorBody({
 	const setDisplayCondition = (next: Expression | undefined) =>
 		onChange(setOptionalSlot(value, "searchButtonDisplayCondition", next));
 	const searchFirst = value?.searchFirst === true;
+	const platforms = useDeclaredPlatforms();
+	/* Search first a platform the app runs on can't run is offered disabled,
+	 * with that platform's picker line; a stored choice shows as it is. */
+	const searchFirstRefusal = platformRefusal("search-first", platforms);
+	const noteFeatures = useOwnerPlatformFeatures(
+		moduleUuid === undefined ? undefined : { kind: "module", moduleUuid },
+		SEARCH_PANEL_NOTE_FEATURES,
+	);
 	const setSearchFirst = (next: boolean) =>
 		onChange(setOptionalSlot(value, "searchFirst", next ? true : undefined));
 	const searchActionIsActive = hasSearchAction ?? value !== undefined;
@@ -169,6 +192,11 @@ export function SearchPanelInspectorBody({
 						}
 						checked={searchFirst}
 						onChange={setSearchFirst}
+						disabledReason={
+							searchFirst || searchFirstRefusal === undefined
+								? undefined
+								: platformPickerLine(searchFirstRefusal)
+						}
 					/>
 					{searchFirst && hasVisibleSearchScreen && (
 						<p className="mt-2 px-1 text-[13px] leading-relaxed text-nova-text-muted">
@@ -178,6 +206,8 @@ export function SearchPanelInspectorBody({
 					)}
 				</div>
 			)}
+
+			<PlatformNoteRow features={noteFeatures} className="px-1" />
 
 			<AdvancedSearchSettings
 				active={advancedIsActive}

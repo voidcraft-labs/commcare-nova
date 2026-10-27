@@ -362,10 +362,6 @@ export function NoMatchesFormReviewDialog({
 									from the answer, and a name for the new case.
 								</p>
 							)}
-							<p className="text-nova-text-muted">
-								This works in the browser app. A phone never shows Results for
-								an empty search.
-							</p>
 						</div>
 					)}
 				</AlertDialogBody>
