@@ -25,8 +25,10 @@ every lane run with the store is refused; a hook that reads a file it
 does not declare; and a control observed afresh on every run, its records
 never kept.
 
-The document is the corpus's cheapest edited one (by the lane's timings),
-the control the smallest that keeps an edit and a local archive, each in its
+The document is the corpus's cheapest edited one that carries a local
+archive (by the lane's timings: a document without one gives its ``local``
+part no own input to leave out, so its refusal could not be shown), the
+control the smallest that keeps an edit and a local archive, each in its
 first configuration, observed with HQ, the Core runner and the editor driver
 as the lane runs them.
 """
@@ -50,8 +52,15 @@ def _cheapest_edited():
     from proof.checks import cases
 
     estimate = sharding.estimate(sharding.load_timings())
-    edited = [document for document in cases.load_corpus().emitted if document.edit is not None]
-    assert edited, "The corpus holds no edited document, so no observation of every part can be guarded."
+    edited = [
+        document
+        for document in cases.load_corpus().emitted
+        if document.edit is not None and document.local_ccz is not None
+    ]
+    assert edited, (
+        "The corpus holds no edited document that carries a local archive, so no observation of every part can be"
+        " guarded."
+    )
     return min(edited, key=lambda document: (estimate(document.group), document.id)).id
 
 

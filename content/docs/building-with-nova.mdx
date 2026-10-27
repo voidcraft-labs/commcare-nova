@@ -306,10 +306,28 @@ same thing. A fixed starting value has to be one of the question's choices, or
 empty, because CommCare's Web Apps can't open a form whose question starts on a
 choice it doesn't offer.
 
-The images, audio and video you upload to an app can be PNG, JPEG, GIF, WebP or
-BMP images, MP3, WAV, M4A, FLAC or Ogg audio, and MP4 or WebM video. Nova checks
-each file as you add it and says so when it is saved in a way some CommCare apps
-can't play.
+The images, audio and video you upload can be PNG, JPEG, GIF, WebP, BMP, ICO
+or AVIF images, MP3, WAV, M4A, FLAC, Ogg, AAC, AMR or MIDI audio, and MP4, WebM
+or MKV video. Nova checks each file as you add it and shows where it plays: ICO
+and AVIF images play only in Web Apps, and AAC, AMR and MIDI audio, MP4 with
+HEVC or MPEG-4 Part 2 video and MKV play only on Android. A file goes in an app
+where it plays on every platform the app runs on. SVG images can't be used,
+because CommCare HQ can't store them.
+
+## Asking for a date and a time separately
+
+Web Apps has no way to answer a date-and-time question, so in an app that runs
+in Web Apps, Nova asks for the date and the time as two questions. Choose **Ask
+for the date and the time separately** on a date-and-time question, and Nova
+adds a date question and a time question just before it and turns the original
+into a hidden value that joins them. Your rules, labels and saved cases keep
+reading the original, so they read the same date and time as before. Workers
+see two questions with the original's label, and you can give each one its own,
+such as Visit date and Visit time. A date with no time, or a time with no date,
+gives a blank value, so both are required where the original was. CommCare HQ's
+exports gain a column for each new question.
+[Where workers use your app](./where-workers-use-your-app.mdx) lists everything
+else one platform can't run.
 
 ## XPath that will run in CommCare
 
@@ -391,10 +409,10 @@ and times shows as a longer formula that compares the moments. It keeps its
 meaning if you leave it as it is.
 
 `here()`, the worker's current location, belongs in a case list's calculated
-column. On Android it shows the worker's location in the list and in the
-case's details. On Web Apps it shows it in the case's details, once the browser
-shares its location, while the list's rows and sorts don't know where the
-worker is.
+column, in an app that runs only on Android. On Android it shows the worker's
+location in the list and in the case's details. Web Apps never shares where the
+worker is with a case list, so Nova refuses `here()` in an app that runs in Web
+Apps.
 
 A formula in a form can read a Project data table by its export tag. For
 example, `instance('facilities')/facilities_list/facilities[code = #form/facility]/name`

@@ -193,8 +193,13 @@ establish only what the target wire and runtime accept, reject, or execute. Two
 further HQ facts bind Nova: every app Nova emits is one HQ's current editors can
 produce and keep, and reading an app changes nothing HQ's servers or existing data
 depend on. HQ's authoring models and UI still set nothing about how Nova
-authors, and "HQ does it this way" is never a design argument. Nova emits one
-wire flavor: the maximal subset Web Apps supports, faithfully.
+authors, and "HQ does it this way" is never a design argument. Each app says
+where it runs, in Web Apps, on Android or both, and a new app runs on both. Nova
+emits for the platforms an app declares and holds only what each of them runs;
+where a feature behaves differently on the two, the difference is a row of one
+table held to the surface manifest (`lib/domain/platforms.ts`,
+`lib/commcare/surface/__tests__/platformFeatures.test.ts`), and the builder
+states it where the author works.
 
 ---
 
@@ -330,12 +335,16 @@ These decisions are closed unless the project owner explicitly reopens them.
   there without a person's word. Every such decision a person can answer is
   made in preflight, before any write, by comparing HQ's current read of the
   app, each mapped lookup table and each mapped place with HQ's own read after
-  Nova's last push. One `hq_changed` refusal lists every change of every kind,
-  and a person publishes over a change only by naming it back with the digest
-  of the state they were shown, so a state HQ has since left is asked about
-  again. The one later stop is a change that reaches the app in HQ while the
+  Nova's last push. One `hq_changed` refusal lists every change of every kind
+  but the app's Web App setting, and a person publishes over a change only by
+  naming it back with the digest of the state they were shown, so a state HQ
+  has since left is asked about again. The Web App setting has one question of
+  its own, `hq_web_apps_change`, asked before any write whether Nova's
+  declaration or a save in CommCare HQ moved it, and answered for that publish
+  alone. The one later stop is a change that reaches the app in HQ while the
   Project data is pushed: it stops that publish at `upload`, before the app's
-  content is sent, and the next publish's preflight asks about it.
+  content is sent, and the next publish's preflight asks about it. A change of
+  the Web App setting during the push stops that publish the same way.
 - Phases are idempotent and independently retryable. Retrying a table or location
   push must not require importing a duplicate app.
 - `uploaded`, `built`, `released`, and `runnable` are distinct states. Entry-point
@@ -379,6 +388,9 @@ These decisions are closed unless the project owner explicitly reopens them.
   presentation is not promised until the Web Apps HTTPS-resource path works.
 - **Smart links belong to data registries, which are retiring, so they never
   ship.** No unused emission helper lands as speculative machinery.
+- **SVG images never ship.** HQ types an SVG as an image and cannot store it
+  (Pillow reads none), and one SVG stops a whole bulk upload, so Nova refuses
+  SVG at upload for every app (`lib/media/validate.ts::SVG_REFUSAL_MESSAGE`).
 - **A tile list's search misses a hidden column with no order rule.** In a list
   with a case tile, a column hidden from Results is no field of the tile's short
   detail. One that carries an order rule rides as a sort row with no stored

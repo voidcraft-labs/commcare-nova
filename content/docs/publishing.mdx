@@ -44,16 +44,17 @@ above the form, with a link across to Publishing for the full picture.
 
 ### Checked
 
-Before anything leaves Nova, it checks what would stop the publish working:
-that your API key can reach the project space you picked, that the app itself
-has nothing outstanding, that you have confirmed what the project space's plan
-and settings give the app, that the project space supports the app features
-that need destination support, that the app already there is set to CommCare
-2.57 or later, and that nothing Nova publishes there has changed in CommCare HQ
-since its last publish. If any required support is missing, or Nova cannot
-confirm it, nothing is sent. The result names the capability and the next step.
-A change made in CommCare HQ is yours to decide on; see
-[Changes made in CommCare HQ](#changes-made-in-commcare-hq).
+Before anything leaves Nova, it checks what would stop the publish working: that
+your API key can reach the project space you picked, that the app itself has
+nothing outstanding, that you have confirmed what the project space's plan and
+settings give the app, that the project space supports the app features that
+need destination support, that the app already there is set to CommCare 2.57 or
+later, that nothing Nova publishes there has changed in CommCare HQ since its
+last publish, and that the app's Web App setting there matches where the app
+runs ([A note on Web Apps](#a-note-on-web-apps)). If any required support is
+missing, or Nova cannot confirm it, nothing is sent. The result names the
+capability and the next step. A change made in CommCare HQ is yours to decide
+on; see [Changes made in CommCare HQ](#changes-made-in-commcare-hq).
 
 If Nova cannot confirm the complete list of project spaces your key can reach,
 it reports the connection problem instead of showing an incomplete list. A
@@ -62,16 +63,17 @@ last confirmed status.
 
 #### What the project space's plan includes
 
-Some of what an app uses comes with some CommCare HQ plans and not others:
-worker records, lookup tables, child cases, links to other forms, Save to Case,
-locations, and Data Forwarding for a CommCare Connect app. No API key can read a
+Some of what an app uses comes with some CommCare HQ plans and not others: Web
+Apps for an app that runs there, worker records, lookup tables, child cases,
+links to other forms, Save to Case, locations, and Data Forwarding for a
+CommCare Connect app. No API key can read a
 project space's plan, so Nova asks you. The Publish dialog lists each one your
 app needs, with the plans that include it, the forms that need it, and what
 goes wrong without it. Tick **This project space has it** for each one, and
 publishing can go ahead. [Project-space compatibility](/docs/project-space-compatibility#plan-features)
 lists them all.
 
-Two project-space settings are asked about the same way, because no plan
+Three project-space settings are asked about the same way, because no plan
 decides them and no API reads them:
 
 - **The flat location list**, for an app that reads the places in your
@@ -80,6 +82,11 @@ decides them and no API reads them:
   Fixture page.
 - **A Connect forwarder**, for a CommCare Connect app. Its forms reach CommCare
   Connect only through a forwarder set up on CommCare HQ's Data Forwarding page.
+- **Sync Cases On Form Entry turned off**, for an app that runs on Android and
+  has a menu with Search whose form works on a case. While it's on, Android
+  phones can't open those forms. A project space admin can turn it off on the
+  project space's Case Search page, and an app that runs in Web Apps only
+  doesn't need it.
 
 Nova keeps your answer with that project space, so the next publish there
 doesn't ask again. A publish that stops for another reason keeps nothing, and
@@ -216,9 +223,8 @@ that app cannot be read safely, Nova sends none of the app's content instead of
 guessing what to keep. On a first publish the empty app it made is already
 there, and your next publish fills it.
 
-In your app's settings you can show workers their saved forms, on the Android
-home screen, and their incomplete forms, on Android and in Web Apps. A publish
-writes both to CommCare HQ.
+In your app's settings you can show workers their saved forms and their
+incomplete forms. A publish writes both to CommCare HQ.
 
 Your app also states fifteen more of CommCare's app settings, each at the value
 a phone uses when the app sets none, so a publish changes nothing a phone does
@@ -322,11 +328,13 @@ Some changes read a little differently:
   Nova recorded it.** The next publish lists the app as changed, though the
   change is Nova's own. Publishing over it sends this app again.
 
-**A publish keeps what was set in CommCare HQ for things Nova doesn't hold**:
-UI translations, add-ons and Auto Capture Location, along with the app settings
+**A publish keeps what was set in CommCare HQ for things Nova doesn't hold**: UI
+translations, add-ons and Auto Capture Location, along with the app settings
 above that Nova only writes where none is set. It replaces what Nova holds: the
 app's name, each language's name, and the saved and incomplete forms settings.
-What it keeps is what CommCare HQ held when the publish last read your app.
+It also sets the Web App setting from where the app runs, asking first where it
+differs ([A note on Web Apps](#a-note-on-web-apps)). What it keeps is what
+CommCare HQ held when the publish last read your app.
 
 A publish reads your app in CommCare HQ and then writes to it, and CommCare HQ
 gives Nova no way to write only if nothing changed in between. So a change
@@ -482,14 +490,16 @@ and when, even where you no longer reach the app.
 
 ## A note on Web Apps
 
-CommCare HQ sets an app's **Web App** setting when the app is created, from
-whether the project space's plan included Web Apps at that moment, and Nova
-never changes it. Each publish reads it back, and where it is off, the result
-says so and the project space's setup notes keep saying so until a publish
-reads it on.
-
-Once the plan includes Web Apps, open the app's Settings on CommCare HQ and
-tick **Web App**. You do not need to publish again.
+Nova sets the app's **Web App** setting on CommCare HQ from where the app runs,
+at every publish: on for an app that runs in Web Apps, off for one that runs
+only on Android. If the setting there differs, because you changed where the
+app runs or someone changed it in CommCare HQ, the publish asks you before
+changing it, and says which it was. CommCare HQ makes a new app with Web Apps
+on only where the project space's plan includes it, so a first publish of an
+app that runs in Web Apps to a plan without it stops after making the empty
+app. You can then set the app to run on Android only, if its content allows it,
+or confirm the plan again once it includes Web Apps, and the next publish fills
+in the same app.
 
 ## Sharing deep links
 
@@ -506,7 +516,10 @@ See [Deep links](/docs/deep-links) for Preview testing and release behavior.
 published to.** It signs workers in there and sends their forms there. When
 your app is published to one project space, the download is made for it; with
 several, you choose which one. An app that isn't published anywhere has no CCZ
-yet, so publish it to a project space first.
+yet, so publish it to a project space first. An app that runs in Web Apps only
+has no CCZ either, because a CCZ installs an app on Android phones. If its
+workers use phones too, you can set it to run on Android as well, in App
+settings.
 
 A newer CCZ for the same project space keeps every form's identity, so a phone
 that updates to it reopens the forms a worker saved incomplete.
