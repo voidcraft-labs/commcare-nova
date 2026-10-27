@@ -17,7 +17,8 @@ reorder or erase what Core reads otherwise; and the port refusing what the
 corpus spells in those shapes, so a rule would erase nothing.
 
 Every bind node set and expression, control and setvalue ref and setvalue
-value of each rule document's local build, and texts built to cross each
+value of the local build of each rule document that declares Android (Nova
+makes no local archive of one that does not), and texts built to cross each
 boundary, are read both ways: by the port, and by the runner's
 ``xpathParse`` (``XPathParseTool.parseXPath``, the parser every form reader
 calls). Each text the port reads as a shape, Core parses as that shape;
@@ -35,7 +36,6 @@ import zipfile
 from lxml import etree
 
 from proof.rules._xpath import calls, node_free, plain_path, tokens
-from proof.rules.conftest import DOCUMENTS
 
 XF = "{http://www.w3.org/2002/xforms}"
 # The node-free calls Core builds into classes of their own (XPathNowFunc, XPathTodayFunc, XPathUuidFunc); a negated
@@ -184,8 +184,9 @@ def _core_formatted_clocks(texts, parsed, core_runner):
     return {text for text, result in zip(owners, results, strict=True) if result["same"]}
 
 
-def test_the_port_reads_each_shape_as_cores_parser_builds_it(rule_documents, core_runner):
-    corpus = set().union(*(_texts(rule_documents[document_id]) for document_id in DOCUMENTS))
+def test_the_port_reads_each_shape_as_cores_parser_builds_it(android_rule_documents, core_runner):
+    # A local archive exists only for a document that declares Android: a `.ccz` installs an app on Android.
+    corpus = set().union(*(_texts(document) for document in android_rule_documents.values()))
     texts = sorted(corpus | set(CROSSING) | set(CALLING))
     results = core_runner.request("xpathParse", deadline=120.0, expressions=texts)["results"]
     parsed = dict(zip(texts, results, strict=True))

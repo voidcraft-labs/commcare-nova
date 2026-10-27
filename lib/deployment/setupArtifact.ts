@@ -36,6 +36,8 @@ import { formsUsingWorkerRecord } from "@/lib/commcare/planPrivileges";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import type { BlueprintDoc, OrganizationLevel } from "@/lib/domain";
 import {
+	declaresAndroid,
+	declaresWebApps,
 	entryPointInventory,
 	orderedAutomations,
 	orderedLocationProperties,
@@ -52,10 +54,7 @@ import {
 	distanceSearchSetupStep,
 	distanceSearchSetupSummary,
 } from "@/lib/publish/distanceSearchSetup";
-import {
-	LOGO_UPLOAD_STEP_TEXT,
-	webAppsOffText,
-} from "@/lib/publish/planFeatures";
+import { LOGO_UPLOAD_STEP_TEXT } from "@/lib/publish/planFeatures";
 import { workerRecordSetup } from "./workerRecordRequirements";
 
 type SetupArtifactSectionId =
@@ -141,13 +140,6 @@ export interface SetupArtifactInput {
 	 * than what it has done.
 	 */
 	readonly pushedPlaces?: ReadonlyMap<string, { readonly adopted: boolean }>;
-	/**
-	 * HQ's `cloudcare_enabled` for the app as the deployment's last landed
-	 * publish read it, or null where no publish has read it for the app that
-	 * holds the content: before a first publish, for an empty shell, and for
-	 * an app CommCare HQ reports gone.
-	 */
-	readonly targetWebAppsEnabled: boolean | null;
 }
 
 function hqBase(server: CommCareServer): string {
@@ -496,63 +488,45 @@ function buildAndReleaseSection(
 		caveats: [
 			"CommCare HQ only lets a signed-in person do this. Its build and release pages accept a browser session and not an API key, so Nova watches for it rather than doing it.",
 			"CommCare HQ validates the app again while it builds. If it reports errors there, they are about the version you just published, so fix them in Nova and publish again.",
-			"Web Apps serves the released version, so an app with a version but no released one still opens as whatever was released before.",
+			...(declaresWebApps(input.doc)
+				? [
+						"Web Apps serves the released version, so an app with a version but no released one still opens as whatever was released before.",
+					]
+				: []),
+			...(declaresAndroid(input.doc)
+				? []
+				: [
+						"This app runs in Web Apps only. CommCare HQ's release page still offers an install for phones, which this app isn't made for.",
+					]),
 		],
 	};
 }
 
 /**
- * Whether the target's Web Apps offers this app. A publish reads HQ's
- * setting and Nova never writes it: where the last publish read it off,
- * this says so; where it read it on, there is nothing left to do; where no
- * publish has read it, the section keeps the general check.
+ * Whether workers open this app in Web Apps on the target. A publish writes
+ * the app's Web App setting from where it runs, so the section is there
+ * exactly for an app that declares Web Apps.
  */
 function webAppsSection(
 	input: SetupArtifactInput,
 ): SetupArtifactSection | null {
-	if (input.targetWebAppsEnabled === true) return null;
-	const base = {
-		id: "web-apps",
-		title: "Web Apps availability",
-		url: `${hqBase(input.server)}/a/${input.domain}/cloudcare/apps/v2/`,
-	} as const;
-	const sameSetting =
-		"You do not need to publish again. It is an ordinary app setting you can change at any time.";
-	if (input.targetWebAppsEnabled === false) {
-		return {
-			...base,
-			summary: webAppsOffText(input.domain),
-			steps: [
-				step(
-					"enable-web-app",
-					"Once the project space's plan includes Web Apps, you can open the app's Settings on CommCare HQ and tick “Web App”.",
-					[sameSetting],
-				),
-			],
-			caveats: [
-				"Nova read this when it last published here. If Web Apps has been turned on in CommCare HQ since, this note stays until the next publish reads it.",
-			],
-		};
-	}
+	if (!declaresWebApps(input.doc)) return null;
 	return {
-		...base,
-		summary: `Whether “${input.domain}” can open this app in a browser at all.`,
+		id: "web-apps",
+		title: "Web Apps",
+		summary: `Workers on “${input.domain}” open this app in Web Apps once Web Apps serves a version of it, usually the latest one you released.`,
+		url: `${hqBase(input.server)}/a/${input.domain}/cloudcare/apps/v2/`,
 		steps: [
 			step(
 				"check-listed",
-				"Open Web Apps on the project space and check the app is listed.",
-			),
-			step(
-				"enable-web-app",
-				"If it is not listed, open the app's Settings on CommCare HQ and tick “Web App”.",
+				"After the next release, you can open Web Apps on the project space and check the app is listed.",
 				[
-					"CommCare HQ sets that box when the app is created, from whether the project had Web Apps at that moment, so an app published before the feature was on starts with it off.",
-					sameSetting,
+					"Nova sets the app's Web App setting at every publish, so there's nothing to tick in CommCare HQ.",
 				],
 			),
 		],
 		caveats: [
-			"Nova reads that setting when it publishes and has no reading for this project space yet, so it reports what it can see: a released version that serves its install file. If the app still does not appear in Web Apps, the “Web App” setting is the first thing to check.",
+			"Mobile workers open the app in Web Apps only where the project space's plan includes Web-Based Apps (CloudCare). On other plans, saving the app's settings in CommCare HQ turns its Web App setting off, and the next publish asks before turning it back on.",
 		],
 	};
 }

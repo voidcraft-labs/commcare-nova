@@ -209,7 +209,7 @@ export function inlineSearchReads() {
 		doc,
 		expected: {
 			intent: [
-				answerHeld("note-held", visit, "/data/note", "seen", "local", {
+				answerHeld("note-held", visit, "/data/note", "seen", "A", {
 					command: "m0-f1",
 					caseId: "targeted-patient",
 				}),

@@ -1,7 +1,8 @@
 /**
  * The publish gates: what `publishAppToHq` asks a person to confirm, the
- * CommCare version it holds the target app to, what it reads of Web Apps
- * and stores for the setup artifact, and what it does with the app's logo,
+ * CommCare version it holds the target app to, when it asks before
+ * changing the app's Web App setting and when HQ's create stops a first
+ * publish, and what it does with the app's logo,
  * over real Postgres and a peer standing in for CommCare HQ.
  *
  * Every source read the peer serves is HQ's own answer, retained by the
@@ -37,6 +38,7 @@ import { commitAppProjectMoveInTransaction } from "@/lib/db/apps";
 import {
 	asUuid,
 	type BlueprintDoc,
+	declaresWebApps,
 	type MediaAssetId,
 	type OrganizationLevel,
 } from "@/lib/domain";
@@ -48,14 +50,19 @@ import {
 	FLAT_LOCATION_FIXTURE,
 	PLAN_FEATURES,
 } from "@/lib/publish/planFeatures";
+import {
+	planLacksWebAppsMessage,
+	webAppsChangeMessage,
+} from "@/lib/publish/webApps";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { confirmationKeyOf } from "../confirmations";
 import { DeploymentError } from "../errors";
+import { narrowingTo } from "../platformNarrowing";
+import { HQ_CHANGED_DURING_PUSH_MESSAGE } from "../remoteChanges";
 import {
 	type PublishOutcome,
 	projectSpaceConfirmations,
 	publishAppToHq,
-	setupArtifactFor,
 } from "../service";
 import { readDeployment } from "../store";
 import type { DeploymentConfirmationKey } from "../types";
@@ -134,17 +141,37 @@ async function seed(doc: BlueprintDoc = clinicVisitsDocument()) {
 	return doc;
 }
 
+const WEB_APPS: DeploymentConfirmationKey = {
+	kind: "plan-feature",
+	subject: "web-apps",
+};
+
+/**
+ * A publish of `doc`, confirming `confirm` and, for an app that declares Web
+ * Apps, the `web-apps` plan feature every such app needs, unless the case
+ * shows that confirmation being asked (`webApps: false`). `confirmWebApps` is
+ * the answer to the Web Apps question.
+ */
 function publish(
 	doc: BlueprintDoc,
 	confirm: readonly DeploymentConfirmationKey[] = [],
+	options: {
+		readonly webApps?: boolean;
+		readonly confirmWebApps?: boolean;
+	} = {},
 ): Promise<PublishOutcome> {
+	const withWebApps =
+		declaresWebApps(doc) && options.webApps !== false ? [WEB_APPS] : [];
 	return publishAppToHq({
 		scope: SCOPE,
 		...TARGET,
 		doc,
 		compiledAtSeq: 0,
 		appName: doc.appName,
-		confirm,
+		confirm: [...withWebApps, ...confirm],
+		...(options.confirmWebApps !== undefined && {
+			confirmWebApps: options.confirmWebApps,
+		}),
 	});
 }
 
@@ -704,6 +731,7 @@ describe("confirmations", () => {
 			await firstLookupPublish(peer, doc);
 		});
 		expect(await confirmationRows()).toEqual([
+			{ kind: "plan-feature", subject: "web-apps", confirmed_by: ACTOR },
 			{ kind: "plan-feature", subject: "lookup-tables", confirmed_by: ACTOR },
 		]);
 	});
@@ -732,6 +760,7 @@ describe("confirmations", () => {
 			landed(await publish(doc));
 		});
 		expect(await confirmationRows()).toEqual([
+			{ kind: "plan-feature", subject: "web-apps", confirmed_by: ACTOR },
 			{ kind: "plan-feature", subject: "lookup-tables", confirmed_by: ACTOR },
 		]);
 	});
@@ -759,6 +788,7 @@ describe("confirmations", () => {
 					"Activity sends a deliver unit to CommCare Connect.",
 					"Record & review sends a task to CommCare Connect.",
 				],
+				whereMissing: CONNECT_FORWARDER.whereMissing,
 			});
 			expect(needed[1]?.reasons).toEqual(needed[2]?.reasons);
 			expect(allRequests(peer)).toEqual([]);
@@ -783,6 +813,7 @@ describe("the pre-publish check's confirmations", () => {
 		await seedPlace();
 		const checks = await projectSpaceConfirmations(SCOPE, doc, TARGET);
 		expect(checks.plan_features.map((feature) => feature.id)).toEqual([
+			"web-apps",
 			"lookup-tables",
 			"organization",
 		]);
@@ -826,6 +857,7 @@ describe("the flat location list", () => {
 				reasons: [
 					"Transfer sets a case's owner from a place in your organization.",
 				],
+				whereMissing: FLAT_LOCATION_FIXTURE.whereMissing,
 			});
 			expect(allRequests(peer)).toEqual([]);
 			await firstPublishConfirming(
@@ -860,79 +892,247 @@ describe("the flat location list", () => {
 	});
 });
 
-// ── C2. The Web Apps line and its stored value ──────────────────────────
+// ── C2. The Web Apps question ──────────────────────────────────────────
 
-describe("the Web Apps line", () => {
-	it("reads Web Apps off the read after the import, stores it, and never blocks", async () => {
+/** `doc` declared to run on Android only. */
+function androidOnly(doc: BlueprintDoc): BlueprintDoc {
+	return {
+		...doc,
+		appSettings: { ...doc.appSettings, runsOnlyOn: "android" },
+	};
+}
+
+/** The Web App setting an import body writes. */
+function webAppsWritten(body: ImportBody | undefined): unknown {
+	if (body === undefined) throw new Error("Expected the import's body");
+	return body.app.cloudcare_enabled;
+}
+
+describe("the Web Apps question", () => {
+	it("asks before turning Web Apps on for an app that holds content, sends nothing, and lands once the person answers with the declaration", async () => {
 		const doc = await seed();
+		const bodies: ImportBody[] = [];
 		await withHttpPeer(async (peer) => {
-			const off = await firstPublish(peer, doc, webApps(false));
-			expect(off.webAppsEnabled).toBe(false);
-			expect(off.deployment.deployment.targetWebAppsEnabled).toBe(false);
+			/* The last push read the setting off, so it is the declaration that
+			 * moved, not a save in HQ. */
+			await firstPublish(peer, doc, webApps(false));
+			const before = requests(peer).length;
+			serve(peer, "source-live", webApps(false));
+			const asked = refusal(await publish(doc));
+			expect(asked).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "hq_web_apps_change",
+					message: webAppsChangeMessage("clinic", {
+						from: false,
+						to: true,
+						changedInHq: false,
+					}),
+				},
+				webAppsChange: { from: false, to: true, changedInHq: false },
+			});
+			expect(requests(peer).slice(before)).toEqual([`GET ${SOURCE}`]);
 
 			serve(peer, "source-live", webApps(false));
-			accepted(peer, 200);
-			serve(peer, "source-live", webApps(true));
-			const on = landed(await publish(doc));
-			expect(on.webAppsEnabled).toBe(true);
-			expect(on.deployment.deployment.targetWebAppsEnabled).toBe(true);
+			accepted(peer, 200, bodies);
+			serve(peer, "source-live");
+			landed(await publish(doc, [], { confirmWebApps: true }));
+		});
+		expect(bodies.map(webAppsWritten)).toEqual([true]);
+	});
+
+	it("says someone changed it in CommCare HQ when the baseline held the other value", async () => {
+		const doc = await seed();
+		await withHttpPeer(async (peer) => {
+			await firstPublish(peer, doc);
+			serve(peer, "source-live", webApps(false));
+			const asked = refusal(await publish(doc));
+			expect(asked.webAppsChange).toEqual({
+				from: false,
+				to: true,
+				changedInHq: true,
+			});
+			expect(asked.failure.message).toMatch(
+				/^Someone turned this app's Web App setting off in CommCare HQ since Nova last published it to “clinic”\./,
+			);
 		});
 	});
 
-	it("takes the last read before the import where the read back failed", async () => {
+	it("never asks over the empty app an earlier try made", async () => {
+		const doc = await seed();
+		const bodies: ImportBody[] = [];
+		await withHttpPeer(async (peer) => {
+			accepted(peer, 201, bodies);
+			serve(peer, "source-shell", version("2.53.0"));
+			expect(refusal(await publish(doc)).failure.code).toBe(
+				"hq_app_version_below_floor",
+			);
+			/* Someone raised the version and, saving the settings page on a
+			 * plan without Web Apps, turned the setting off: the shell holds no
+			 * content, so the fill writes the declaration with no question. */
+			const raisedOff = (source: Record<string, unknown>) => {
+				version("2.57.0")(source);
+				webApps(false)(source);
+			};
+			serve(peer, "source-shell", raisedOff);
+			accepted(peer, 200, bodies);
+			serve(peer, "source-live");
+			const filled = landed(await publish(doc));
+			expect(
+				filled.checks.find((check) => check.id === "web-apps"),
+			).toMatchObject({ status: "passed" });
+		});
+		expect(bodies.map((body) => body.appId)).toEqual([null, HQ_APP]);
+		expect(webAppsWritten(bodies[1])).toBe(true);
+		expect(Object.hasOwn(bodies[0]?.app ?? {}, "cloudcare_enabled")).toBe(
+			false,
+		);
+	});
+
+	it("asks again on the next publish whose read differs, storing no answer", async () => {
 		const doc = await seed();
 		await withHttpPeer(async (peer) => {
+			await firstPublish(peer, doc);
+			serve(peer, "source-live", webApps(false));
+			accepted(peer, 200);
+			serve(peer, "source-live");
+			landed(await publish(doc, [], { confirmWebApps: true }));
+
+			serve(peer, "source-live", webApps(false));
+			expect(refusal(await publish(doc)).failure.code).toBe(
+				"hq_web_apps_change",
+			);
+		});
+		expect(await confirmationRows()).toEqual([
+			{ kind: "plan-feature", subject: "web-apps", confirmed_by: ACTOR },
+		]);
+	});
+
+	it("answers for the value it agreed to: an answer for the old value still asks", async () => {
+		const doc = await seed();
+		await withHttpPeer(async (peer) => {
+			await firstPublish(peer, doc);
+			serve(peer, "source-live", webApps(false));
+			expect(
+				refusal(await publish(doc, [], { confirmWebApps: false })).failure.code,
+			).toBe("hq_web_apps_change");
+		});
+	});
+
+	it("stops at the upload with hq_changed when the setting moved while a table was pushed", async () => {
+		const doc = await seed(await lookupDocument());
+		await withHttpPeer(async (peer) => {
+			await firstLookupPublish(peer, doc);
+			const before = requests(peer).length;
+			tablesWithOurs(peer);
+			tableRows(peer);
+			serve(peer, "source-live");
+			workbookTaken(peer);
+			tablesWithOurs(peer);
+			tableRows(peer);
+			serve(peer, "source-live", webApps(false));
+			const stopped = refusal(await publish(doc, [LOOKUP]));
+			expect(stopped).toMatchObject({
+				phase: "upload",
+				failure: {
+					code: "hq_changed",
+					message: HQ_CHANGED_DURING_PUSH_MESSAGE,
+				},
+			});
+			expect(requests(peer).slice(before)).not.toContain(`POST ${IMPORT}`);
+		});
+	});
+});
+
+describe("a first publish to a plan without Web Apps", () => {
+	it("stops at resources when the new app reads Web Apps off, keeps the mapping, sends no table, and withdraws the web-apps confirmation in the same fold", async () => {
+		const doc = await seed(await lookupDocument());
+		await withHttpPeer(async (peer) => {
+			emptyTables(peer);
 			accepted(peer, 201);
 			serve(peer, "source-shell", webApps(false));
-			accepted(peer, 200);
-			request(peer, SOURCE).reply(500, "");
-			const first = landed(await publish(doc));
-			expect(first.webAppsEnabled).toBe(false);
-			expect(first.deployment.deployment.targetWebAppsEnabled).toBe(false);
+			const stopped = await publish(doc, [LOOKUP]);
+			expect(refusal(stopped)).toMatchObject({
+				phase: "resources",
+				failure: {
+					code: "hq_plan_lacks_web_apps",
+					message: planLacksWebAppsMessage(
+						"clinic",
+						narrowingTo(doc, "android"),
+					),
+				},
+				webAppsChange: null,
+			});
+			expect(requests(peer)).toEqual([
+				`GET ${TABLES}`,
+				`POST ${IMPORT}`,
+				`GET ${SOURCE}`,
+			]);
+			const kept = await readDeployment(SCOPE, TARGET);
+			expect(kept?.active).toEqual([
+				expect.objectContaining({ kind: "app", remoteId: HQ_APP }),
+			]);
+			expect(kept?.confirmations.map((row) => row.subject)).toEqual([
+				"lookup-tables",
+			]);
+
+			/* The next publish asks the plan question again. */
+			const asked = refusal(await publish(doc, [], { webApps: false }));
+			expect(asked.confirmationsNeeded.map((need) => need.subject)).toEqual([
+				"web-apps",
+			]);
 		});
+		expect(await confirmationRows()).toEqual([
+			{ kind: "plan-feature", subject: "lookup-tables", confirmed_by: ACTOR },
+		]);
 	});
 
-	it("takes the target-app read on a republish whose read back failed", async () => {
+	it("fills the same app on the retry once the person narrows the app to Android only, writing the setting off", async () => {
 		const doc = await seed();
+		const bodies: ImportBody[] = [];
 		await withHttpPeer(async (peer) => {
-			await firstPublish(peer, doc, webApps(true));
-			serve(peer, "source-live", webApps(true));
-			accepted(peer, 200);
-			request(peer, SOURCE).reply(500, "");
-			const again = landed(await publish(doc));
-			expect(again.webAppsEnabled).toBe(true);
-			expect(again.deployment.deployment.targetWebAppsEnabled).toBe(true);
+			accepted(peer, 201, bodies);
+			serve(peer, "source-shell", webApps(false));
+			expect(refusal(await publish(doc)).failure.code).toBe(
+				"hq_plan_lacks_web_apps",
+			);
+			const narrowed = androidOnly(doc);
+			serve(peer, "source-shell", webApps(false));
+			accepted(peer, 200, bodies);
+			serve(peer, "source-live", webApps(false));
+			expect(landed(await publish(narrowed)).hqAppAction).toBe("created");
 		});
+		expect(bodies.map((body) => body.appId)).toEqual([null, HQ_APP]);
+		expect(webAppsWritten(bodies[1])).toBe(false);
 	});
 
-	it("keeps the stored value through a refused publish, and speaks for no app CommCare HQ reports gone", async () => {
+	it("fills the same app on the retry once the person confirms the plan again, writing the setting on", async () => {
 		const doc = await seed();
+		const bodies: ImportBody[] = [];
 		await withHttpPeer(async (peer) => {
-			await firstPublish(peer, doc, webApps(false));
-			serve(peer, "source-live", version("2.53.0"));
+			accepted(peer, 201, bodies);
+			serve(peer, "source-shell", webApps(false));
 			refusal(await publish(doc));
-			const held = await readDeployment(SCOPE, TARGET);
-			if (held === null) throw new Error("Expected the deployment");
-			expect(held.deployment.targetWebAppsEnabled).toBe(false);
-			const callsBefore = allRequests(peer).length;
-			const artifact = await setupArtifactFor(SCOPE, held, doc);
-			expect(allRequests(peer)).toHaveLength(callsBefore);
-			expect(
-				artifact.sections.find((section) => section.id === "web-apps")?.steps,
-			).toHaveLength(1);
-
-			serve(peer, "source-missing");
-			const gone = refusal(await publish(doc));
-			expect(gone.failure.code).toBe("remote_app_missing");
-			const after = await readDeployment(SCOPE, TARGET);
-			if (after === null) throw new Error("Expected the deployment");
-			const general = await setupArtifactFor(SCOPE, after, doc);
-			expect(
-				general.sections
-					.find((section) => section.id === "web-apps")
-					?.steps.map((step) => step.id),
-			).toEqual(["check-listed", "enable-web-app"]);
+			serve(peer, "source-shell", webApps(false));
+			accepted(peer, 200, bodies);
+			serve(peer, "source-live");
+			landed(await publish(doc));
 		});
+		expect(bodies.map((body) => body.appId)).toEqual([null, HQ_APP]);
+		expect(webAppsWritten(bodies[1])).toBe(true);
+	});
+
+	it("does not stop an Android-only app whose new app reads Web Apps on", async () => {
+		const doc = androidOnly(await seed());
+		const bodies: ImportBody[] = [];
+		await withHttpPeer(async (peer) => {
+			accepted(peer, 201, bodies);
+			serve(peer, "source-shell");
+			accepted(peer, 200, bodies);
+			serve(peer, "source-live", webApps(false));
+			landed(await publish(doc));
+		});
+		expect(webAppsWritten(bodies[1])).toBe(false);
 	});
 });
 

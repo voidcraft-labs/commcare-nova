@@ -191,7 +191,6 @@ function toDeploymentRecord(
 		lastObservedAt: isoOrNull(row.last_observed_at),
 		offeredLogoContentHash: row.offered_logo_content_hash,
 		targetEmptyCaseListText: row.target_empty_case_list_text,
-		targetWebAppsEnabled: row.target_web_apps_enabled,
 	};
 }
 
@@ -666,15 +665,30 @@ export async function foldDeploymentAttempt(
 	options: {
 		readonly ensure?: boolean;
 		readonly confirmations?: readonly DeploymentConfirmationKey[];
+		/**
+		 * The confirmations CommCare HQ's own answer contradicted, withdrawn in
+		 * this fold: a first publish's `hq_plan_lacks_web_apps` stop withdraws
+		 * the `web-apps` plan feature. Only with a failed `resources` outcome.
+		 */
+		readonly withdraw?: readonly DeploymentConfirmationKey[];
 	} = {},
 ): Promise<DeploymentWithResources> {
 	const confirmations = options.confirmations ?? [];
+	const withdraw = options.withdraw ?? [];
 	if (
 		confirmations.length > 0 &&
 		(phase !== "preflight" || outcome.status !== "succeeded")
 	) {
 		throw new Error(
 			"A confirmation is stored only with a preflight that passed, and this fold was not one.",
+		);
+	}
+	if (
+		withdraw.length > 0 &&
+		(phase !== "resources" || outcome.status !== "failed")
+	) {
+		throw new Error(
+			"A confirmation is withdrawn by a publish only where CommCare HQ's own answer contradicted it, at resources, and this fold was not one.",
 		);
 	}
 	return withDeploymentRow(
@@ -710,7 +724,19 @@ export async function foldDeploymentAttempt(
 					)
 					.execute();
 			}
-			if (next !== record || confirmations.length > 0) {
+			let withdrew = false;
+			for (const key of withdraw) {
+				const withdrawn = await tx
+					.updateTable("app_deployment_confirmations")
+					.set({ withdrawn_by: scope.actorUserId, withdrawn_at: sql`now()` })
+					.where("deployment_id", "=", row.id)
+					.where("kind", "=", key.kind)
+					.where("subject", "=", confirmationSubject(key))
+					.where("withdrawn_at", "is", null)
+					.executeTakeFirst();
+				if (Number(withdrawn.numUpdatedRows) > 0) withdrew = true;
+			}
+			if (next !== record || confirmations.length > 0 || withdrew) {
 				/* Delivered on commit, so connected tabs re-resolve what
 				 * Preview may name only once the fold is visible. */
 				await notifyAppDeployments(tx, scope.appId);
@@ -794,12 +820,6 @@ export interface RecordRemoteAppInput extends RecordRemoteResourceInput {
 	 */
 	readonly targetEmptyCaseListText?: boolean;
 	/**
-	 * HQ's `cloudcare_enabled` for the app as this publish read it: the read
-	 * after the import, or the last read before it where that read failed.
-	 * Written with the upload's fold; the setup artifact reads it.
-	 */
-	readonly targetWebAppsEnabled: boolean;
-	/**
 	 * The content hash of the logo this publish offered for upload in
 	 * CommCare HQ. Written only when present; `null` clears it.
 	 */
@@ -851,7 +871,6 @@ export async function recordRemoteResource(
 					...(input.targetEmptyCaseListText !== undefined && {
 						target_empty_case_list_text: input.targetEmptyCaseListText,
 					}),
-					target_web_apps_enabled: input.targetWebAppsEnabled,
 					...(input.offeredLogoContentHash !== undefined && {
 						offered_logo_content_hash: input.offeredLogoContentHash,
 					}),

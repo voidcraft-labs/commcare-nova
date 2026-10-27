@@ -33,7 +33,7 @@ import { targetWireIdentity } from "@/lib/commcare/wireIdentity";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
-import { organizationLevelsOf } from "@/lib/domain";
+import { declaresWebApps, organizationLevelsOf } from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { getLookupDefinitions } from "@/lib/lookup/service";
 import { assetWirePaths } from "@/lib/media/manifest";
@@ -61,11 +61,13 @@ import {
 } from "./importApplication";
 import type { PlannedPlacePush } from "./locationResourcePlan";
 import { observeDeployment } from "./observe";
+import { narrowingTo } from "./platformNarrowing";
 import type { LocationPushPlan, LookupPushPlan } from "./preflight";
 import {
 	CREATED_APP_IS_EMPTY,
 	hqAppSourceReadFailure,
 	type PreflightCheck,
+	planLacksWebAppsFailure,
 	publishConfirmationNeeds,
 	remoteAppMissingFailure,
 	runDeploymentPreflight,
@@ -121,6 +123,7 @@ import type {
 	RemoteChangeDiscard,
 	ResourceBaselineWrite,
 } from "./types";
+import { createdWithoutWebApps, webAppsMovedDuringPush } from "./webApps";
 
 /**
  * The one publish lifecycle.
@@ -189,13 +192,6 @@ export type PublishOutcome =
 			 */
 			readonly appPreviewNote: string | null;
 			/**
-			 * Whether Web Apps offers the app on CommCare HQ, as this publish
-			 * read it: HQ's `cloudcare_enabled` from the read after the import,
-			 * or from the last read before it where that read failed. Nova never
-			 * writes the setting, so this is said, never asked.
-			 */
-			readonly webAppsEnabled: boolean;
-			/**
 			 * The app's logo, which a publish never sends, offered for a person
 			 * to add in CommCare HQ. `changed` is true when it is not the logo
 			 * this deployment last offered. Null for an app with no logo.
@@ -248,6 +244,11 @@ export interface PublishInput {
 	 */
 	readonly confirm?: readonly DeploymentConfirmationKey[];
 	/**
+	 * The Web App setting a person agreed to write after an
+	 * `hq_web_apps_change` refusal. Never defaulted from an earlier attempt.
+	 */
+	readonly confirmWebApps?: boolean;
+	/**
 	 * Called once, after every blocking preflight edge has passed and just
 	 * before anything is sent. A caller that reports progress hooks in here
 	 * so a refused publish never announces an upload that was never going
@@ -295,13 +296,6 @@ export async function setupArtifactFor(
 		/* Links into the app's pages only where its content is there: a
 		 * shell holds nothing, and a gone app holds nothing at all. */
 		hqAppId: publishedRemoteApp(deployment)?.remoteId ?? null,
-		/* What a publish read of the app's Web Apps setting speaks only for
-		 * the app that holds its content: never for an empty shell, nor for
-		 * an app CommCare HQ reports gone. */
-		targetWebAppsEnabled:
-			publishedRemoteApp(deployment) === null
-				? null
-				: deployment.deployment.targetWebAppsEnabled,
 		locations: locations ?? (await artifactLocations(scope)),
 		lookupTables: await artifactLookupTables(scope, deployment, doc),
 		pushedPlaces: pushedPlacesOf(deployment),
@@ -560,6 +554,7 @@ export async function publishAppToHq(
 		discardRemoteChanges: input.discardRemoteChanges ?? [],
 		confirmations: existing?.confirmations ?? [],
 		confirm: input.confirm ?? [],
+		confirmWebApps: input.confirmWebApps,
 		access: {
 			appId: input.scope.appId,
 			projectId: input.scope.projectId,
@@ -604,6 +599,8 @@ export async function publishAppToHq(
 			/* Empty unless the refusal was `hq_confirmation_needed`. Nothing a
 			 * person confirmed is stored by a refused attempt. */
 			confirmationsNeeded: preflight.confirmationsNeeded ?? [],
+			/* Non-null exactly for `hq_web_apps_change`. Nothing was sent. */
+			webAppsChange: preflight.webAppsChange ?? null,
 		};
 		const deployment =
 			existing === null
@@ -632,7 +629,6 @@ export async function publishAppToHq(
 							domain: input.domain,
 							hqAppId: null,
 							locations: await artifactLocations(input.scope),
-							targetWebAppsEnabled: null,
 						})
 					: await setupArtifactFor(input.scope, deployment, input.doc),
 			warnings: [],
@@ -698,12 +694,22 @@ export async function publishAppToHq(
 		const refused = async (
 			phase: "resources" | "upload",
 			failure: DeploymentFailure,
+			options: {
+				/** The confirmations HQ's own answer contradicted, withdrawn in the fold. */
+				readonly withdraw?: readonly DeploymentConfirmationKey[];
+			} = {},
 		): Promise<PublishOutcome> => {
-			deployment = await foldDeploymentAttempt(input.scope, target, phase, {
-				status: "failed",
-				at: new Date().toISOString(),
-				failure,
-			});
+			deployment = await foldDeploymentAttempt(
+				input.scope,
+				target,
+				phase,
+				{
+					status: "failed",
+					at: new Date().toISOString(),
+					failure,
+				},
+				options.withdraw === undefined ? {} : { withdraw: options.withdraw },
+			);
 			return {
 				landed: false,
 				refusal: {
@@ -712,6 +718,7 @@ export async function publishAppToHq(
 					resourceConflicts: [],
 					remoteChanges: [],
 					confirmationsNeeded: [],
+					webAppsChange: null,
 				},
 				deployment,
 				checks: preflight.checks,
@@ -818,6 +825,25 @@ export async function publishAppToHq(
 				return refused(
 					"resources",
 					hqAppSourceReadFailure(MALFORMED_SOURCE, domain, true),
+				);
+			}
+			/* HQ's create sets the new app's Web App setting from the plan
+			 * (`_create_app_from_doc`), so off for an app that runs in Web Apps
+			 * means the plan has no Web Apps, whatever the person confirmed.
+			 * Before the floor, whose remedy is wasted on an app that can't land
+			 * on this plan; the mapping is kept, and the person's `web-apps`
+			 * answer is withdrawn in the same fold, so the next publish asks it
+			 * again. */
+			if (
+				createdWithoutWebApps({
+					declaresWebApps: declaresWebApps(prepared.doc),
+					shell: read.source,
+				})
+			) {
+				return refused(
+					"resources",
+					planLacksWebAppsFailure(domain, narrowingTo(prepared.doc, "android")),
+					{ withdraw: [{ kind: "plan-feature", subject: "web-apps" }] },
 				);
 			}
 			/* HQ's default CommCare version for a new app can be known only
@@ -984,7 +1010,14 @@ export async function publishAppToHq(
 				shell,
 				schemaDefault: schemaPropertyDefault,
 			});
-			if (moved.length > 0) {
+			/* The Web App setting is left out of the drift comparison, to its
+			 * own question, so its move is read here: the person decided over
+			 * the earlier value, and the next publish's preflight asks afresh.
+			 * A shell is exempt, as it is from the question. */
+			if (
+				moved.length > 0 ||
+				(!shell && webAppsMovedDuringPush(source, read.source))
+			) {
 				return refused("upload", {
 					code: "hq_changed",
 					message: HQ_CHANGED_DURING_PUSH_MESSAGE,
@@ -1038,15 +1071,6 @@ export async function publishAppToHq(
 			discard:
 				appDiscard === undefined ? null : { digest: appDiscard.observedDigest },
 		});
-		/* Web Apps as the publish left the app. No body Nova sends names
-		 * `cloudcare_enabled`, so where the read back failed, the last read
-		 * before the import holds what the import left. */
-		const webAppsEnabled =
-			pushBaseline.normalized !== null &&
-			!("success" in readBack) &&
-			readBack.kind === "source"
-				? readBack.source.cloudcareEnabled
-				: source.cloudcareEnabled;
 
 		// ── Record what it gave back, before anything else can fail ─────
 		// The mapping, its baseline and the `uploaded` state land in one
@@ -1062,7 +1086,6 @@ export async function publishAppToHq(
 			remoteRevision: result.version,
 			uploadedAt: new Date().toISOString(),
 			baseline: pushBaseline.write,
-			targetWebAppsEnabled: webAppsEnabled,
 			offeredLogoContentHash: logoStep?.contentHash ?? null,
 			/* A failed read leaves the column as an earlier publish wrote it,
 			 * and never blocks: the flag only decides a `.ccz`'s empty-list text. */
@@ -1131,7 +1154,6 @@ export async function publishAppToHq(
 			refusal: null,
 			hqAppAction,
 			deployment,
-			webAppsEnabled,
 			logoStep:
 				logoStep === null
 					? null
@@ -1206,6 +1228,7 @@ async function remoteAppGoneOutcome(
 			resourceConflicts: [],
 			remoteChanges: [],
 			confirmationsNeeded: [],
+			webAppsChange: null,
 		},
 		deployment: observed.view,
 		checks: context.checks,

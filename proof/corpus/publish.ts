@@ -170,8 +170,19 @@ import type {
 	DeploymentResource,
 	RemoteChangeDiscard,
 } from "@/lib/deployment/types";
+import {
+	createdWithoutWebApps,
+	type WebAppsChange,
+	webAppsChange,
+	webAppsMovedDuringPush,
+} from "@/lib/deployment/webApps";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
-import type { BlueprintDoc, PersistableDoc } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	declaresAndroid,
+	declaresWebApps,
+	type PersistableDoc,
+} from "@/lib/domain";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import {
 	ASSET_SIZE_CAPS_BYTES,
@@ -843,6 +854,12 @@ export interface AssumedSource {
 	readonly add_ons: HqAppSource["addOns"];
 	readonly langs: HqAppSource["langs"];
 	readonly auto_gps_capture: boolean;
+	/**
+	 * The app's Web App setting as the peer answered the read: a create's is
+	 * the configuration's `CLOUDCARE` grant (`_create_app_from_doc`), and the
+	 * HQ side holds it to HQ's own create.
+	 */
+	readonly cloudcare_enabled: boolean;
 }
 
 /** The fields of `source` a captured import depends on. */
@@ -861,6 +878,7 @@ function assumedSourceOf(source: HqAppSource): AssumedSource {
 		add_ons: source.addOns,
 		langs: source.langs,
 		auto_gps_capture: autoGpsCapture,
+		cloudcare_enabled: source.cloudcareEnabled,
 	};
 }
 
@@ -1004,16 +1022,20 @@ export interface SentImport {
  * changes made there since Nova's last publish (`hq_changed`), tables
  * under Nova's tags that Nova cannot account for (`hq_resource_conflict`),
  * or tables under Nova's tags that hold what Nova's push would remove
- * (`hq_table_content_unsupported`), which no confirmation resolves.
+ * (`hq_table_content_unsupported`), which no confirmation resolves; or the
+ * app's Web App setting differing from the declaration (`hq_web_apps_change`).
  */
 export interface PublishStop {
 	readonly code:
 		| "hq_changed"
 		| "hq_resource_conflict"
-		| "hq_table_content_unsupported";
+		| "hq_table_content_unsupported"
+		| "hq_web_apps_change";
 	readonly remoteChanges: readonly DeploymentRemoteChange[];
 	/** The tables in conflict, by Nova's table id, with their tag and HQ's id. */
 	readonly conflicts: readonly LookupTableConflict[];
+	/** The Web Apps question, non-null exactly for `hq_web_apps_change`. */
+	readonly webAppsChange: WebAppsChange | null;
 }
 
 /**
@@ -1028,6 +1050,8 @@ export interface StopConfirmation {
 	readonly stops: readonly PublishStop[];
 	readonly discards: readonly RemoteChangeDiscard[];
 	readonly adopted: readonly string[];
+	/** The Web App setting the person agreed to write (`confirmWebApps`). */
+	readonly webApps?: boolean;
 }
 
 /** One update of a document: refused by Nova's check, stopped by its preflight, or what it sent. */
@@ -1399,6 +1423,11 @@ async function sendContent(
 				`Nova's publish of ${prepared.source.id} would stop at its second source read: the app moved in the capture peer while its tables were pushed (${JSON.stringify(moved)}), and nothing moves it there.`,
 			);
 		}
+		if (held.origin !== "create" && webAppsMovedDuringPush(read, source)) {
+			throw new Error(
+				`Nova's publish of ${prepared.source.id} would stop at its second source read: the app's Web App setting moved in the capture peer while its tables were pushed, and nothing moves it there.`,
+			);
+		}
 	}
 	const { application, ownership } = hqImportApplication({
 		prepared: prepared.export,
@@ -1529,6 +1558,16 @@ async function firstPublish(
 		`/a/${domain}/apps/api/import_app/`,
 	);
 	const read = await readSource(peer, prepared, created.appId);
+	if (
+		createdWithoutWebApps({
+			declaresWebApps: declaresWebApps(prepared.export.doc),
+			shell: read,
+		})
+	) {
+		throw new Error(
+			`Nova's first publish of ${prepared.source.id} would stop with hq_plan_lacks_web_apps: the capture peer made the app with Web Apps off for an app that declares Web Apps, and the lane's configuration grants CLOUDCARE to every document that does.`,
+		);
+	}
 	const { sent: content, ledger } = await sendContent(
 		peer,
 		prepared,
@@ -1565,9 +1604,11 @@ async function firstPublish(
  * `target-app` source read and its comparison with the ledger's baseline
  * (`appEdge`), the verdict over every change collected
  * (`remoteChanges.ts::decideRemoteChanges`, under what `confirm` names),
- * then the app's content (`sendContent`). A conflict or a change nobody
- * confirmed stops it before any write, as preflight's `hq_resource_conflict`
- * and `hq_changed` do.
+ * then the Web Apps question (`webApps.ts::webAppsChange`, under what
+ * `confirm` answers), then the app's content (`sendContent`). A conflict, a
+ * change nobody confirmed or an unanswered Web Apps question stops it before
+ * any write, as preflight's `hq_resource_conflict`, `hq_changed` and
+ * `hq_web_apps_change` do.
  */
 async function updateStep(
 	peer: TargetPeer,
@@ -1584,6 +1625,7 @@ async function updateStep(
 			code: "hq_table_content_unsupported",
 			remoteChanges: [],
 			conflicts: [],
+			webAppsChange: null,
 		};
 	}
 	if (edge !== null && "conflicts" in edge) {
@@ -1592,6 +1634,7 @@ async function updateStep(
 			code: "hq_resource_conflict",
 			remoteChanges: [],
 			conflicts: edge.conflicts,
+			webAppsChange: null,
 		};
 	}
 	const { report, outcome } = await compatibilityCheck(peer, prepared);
@@ -1611,6 +1654,23 @@ async function updateStep(
 			code: "hq_changed",
 			remoteChanges: verdict.remoteChanges,
 			conflicts: [],
+			webAppsChange: null,
+		};
+	}
+	/* The `web-apps` edge, after `hq-changes`, as preflight asks it. */
+	const change = webAppsChange({
+		declaresWebApps: declaresWebApps(prepared.export.doc),
+		held: read.cloudcareEnabled,
+		baseline: { origin: ledger.app.origin, source: ledger.app.normalized },
+		confirmWebApps: confirm?.webApps,
+	});
+	if (change !== null) {
+		return {
+			status: "stopped",
+			code: "hq_web_apps_change",
+			remoteChanges: [],
+			conflicts: [],
+			webAppsChange: change,
 		};
 	}
 	const { sent } = await sendContent(
@@ -1725,6 +1785,7 @@ function confirming(
 				code: stop.code,
 				remoteChanges: stop.remoteChanges,
 				conflicts: stop.conflicts,
+				webAppsChange: stop.webAppsChange,
 			},
 		],
 		discards: [
@@ -1739,6 +1800,32 @@ function confirming(
 			...(before?.adopted ?? []),
 			...stop.conflicts.map((conflict) => conflict.tableId),
 		],
+		...(before?.webApps !== undefined && { webApps: before.webApps }),
+	};
+}
+
+/**
+ * What a person who saw the Web Apps question answers to send the publish
+ * again: the value the declaration writes, beside what they confirmed of
+ * the stops before it.
+ */
+function answeringWebApps(
+	before: StopConfirmation | undefined,
+	stop: PublishStop & { readonly webAppsChange: WebAppsChange },
+): StopConfirmation {
+	return {
+		stops: [
+			...(before?.stops ?? []),
+			{
+				code: stop.code,
+				remoteChanges: stop.remoteChanges,
+				conflicts: stop.conflicts,
+				webAppsChange: stop.webAppsChange,
+			},
+		],
+		discards: before?.discards ?? [],
+		adopted: before?.adopted ?? [],
+		webApps: stop.webAppsChange.to,
 	};
 }
 
@@ -1804,6 +1891,9 @@ export async function capturePublish(
 			caseSearchEnabled: configuration.caseSearchEnabled,
 			appId: PLACEHOLDER_APP_ID,
 			commcareVersion: CORPUS_COMMCARE_VERSION,
+			/* The lane grants `CLOUDCARE` exactly where the content declares
+			 * Web Apps (`proof/checks/configurations.py::_needs_cloudcare`). */
+			cloudcareGranted: declaresWebApps(create.export.doc),
 			...(input.source !== undefined && { sourceChanges: input.source }),
 		},
 		async (peer) => {
@@ -1825,7 +1915,11 @@ export async function capturePublish(
 					const appName = update.appName ?? prepared.export.doc.appName;
 					const statement = input.hqSide?.republish;
 					let confirm: StopConfirmation | undefined;
-					for (let stops = 0; ; stops += 1) {
+					/* Counts only drift and conflict stops: a Web Apps question is
+					 * answered before every other branch and counts against
+					 * neither `republish` nor `CONFIRMED_STOPS`. */
+					let stops = 0;
+					for (;;) {
 						peer.restore(stateA);
 						const step = await updateStep(
 							peer,
@@ -1834,9 +1928,31 @@ export async function capturePublish(
 							ledger,
 							confirm,
 						);
+						/* The person's answer to a question Nova asks of every
+						 * declaration change and of a person's save of the setting
+						 * in HQ, recorded beside the body (`confirmed`). */
+						if (
+							step.status === "stopped" &&
+							step.code === "hq_web_apps_change"
+						) {
+							const asked = step.webAppsChange;
+							if (asked === null || confirm?.webApps === asked.to) {
+								throw new Error(
+									`Nova's ${update.name} of ${prepared.source.id} asked the Web Apps question again after the capture answered it with ${JSON.stringify(confirm?.webApps)}. An answer equal to the declaration passes the question; look at what the question reads.`,
+								);
+							}
+							confirm = answeringWebApps(confirm, {
+								...step,
+								webAppsChange: asked,
+							});
+							continue;
+						}
+						const driftStops = (confirm?.stops ?? []).filter(
+							(stop) => stop.code !== "hq_web_apps_change",
+						);
 						if (step.status !== "stopped") {
 							if (
-								(statement === "discards" && confirm === undefined) ||
+								(statement === "discards" && driftStops.length === 0) ||
 								statement === "stops"
 							) {
 								throw new Error(
@@ -1868,6 +1984,7 @@ export async function capturePublish(
 						}
 						if (stops === CONFIRMED_STOPS) return step;
 						confirm = confirming(confirm, step);
+						stops += 1;
 					}
 				});
 			const outcomes: Record<string, StepOutcome> = {};
@@ -1958,8 +2075,10 @@ function atInstant<T>(instant: number, build: () => T): T {
  * afresh (`earlierHqApps` 0), and it holds `USH_EMPTY_CASE_LIST_TEXT` where
  * `emptyCaseListText` says the configuration does, as the publish would have
  * read it, so the archive writes the empty-list text exactly where HQ's
- * build there does. Throws `UnexportableDocumentError` where the route's
- * boundary refuses. With an operation, a draw made while the archive is
+ * build there does. Returns null where the rule refuses an app that does
+ * not declare Android (`not-declared-for-android`): Nova offers no `.ccz` of
+ * it. Throws `UnexportableDocumentError` where the route's boundary refuses,
+ * and on any other refusal of the rule. With an operation, a draw made while the archive is
  * built is answered from its seeded generator (`./entropy.mts`); the build
  * makes none.
  */
@@ -1968,7 +2087,7 @@ export async function localCcz(
 	domain: string,
 	operation?: EntropyOperation,
 	options: { readonly emptyCaseListText?: boolean } = {},
-): Promise<Buffer> {
+): Promise<Buffer | null> {
 	const emptyCaseListText = options.emptyCaseListText === true;
 	const choice = chooseDownloadTarget(
 		[
@@ -1980,8 +2099,12 @@ export async function localCcz(
 				earlierHqApps: 0,
 			},
 		],
-		{ format: "ccz", domain },
+		{ format: "ccz", domain, declaresAndroid: declaresAndroid(source.doc) },
 	);
+	/* A `.ccz` installs an app on Android and nothing else: Nova offers
+	 * none for an app that does not declare it. */
+	if (choice.kind === "refused" && choice.reason === "not-declared-for-android")
+		return null;
 	if (choice.kind !== "project-space") {
 		throw new Error(
 			`The download rule chose no project space for a CCZ of ${source.id} from its one reached deployment (${JSON.stringify(choice)}).`,
@@ -2032,7 +2155,7 @@ export async function importFile(
 				earlierHqApps: 0,
 			},
 		],
-		{ format: "json" },
+		{ format: "json", declaresAndroid: declaresAndroid(source.doc) },
 	);
 	const { export: prepared } = await prepareDocument(
 		source,

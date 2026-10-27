@@ -131,7 +131,7 @@ import {
 	type PublishConfiguration,
 	type PublishDocument,
 } from "../publish";
-import { type PeerRequest, TargetPeer } from "../targetPeer";
+import { type PeerRequest, shellSource, TargetPeer } from "../targetPeer";
 
 vi.mock("@/lib/auth-utils", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/auth-utils")>()),
@@ -233,6 +233,7 @@ function projectSpace(
 		readonly caseSearchEnabled?: boolean;
 		readonly appId?: string;
 		readonly sourceChanges?: Readonly<Record<string, unknown>>;
+		readonly cloudcareGranted?: boolean;
 	} = {},
 ): TargetPeer {
 	return new TargetPeer({
@@ -246,6 +247,9 @@ function projectSpace(
 		caseSearchEnabled: options.caseSearchEnabled ?? false,
 		appId: options.appId ?? REMOTE_APP,
 		commcareVersion: CORPUS_COMMCARE_VERSION,
+		/* Every app these publish declares Web Apps, so the space grants it,
+		 * as the lane's configuration does (`_needs_cloudcare`). */
+		cloudcareGranted: options.cloudcareGranted ?? true,
 		...(options.sourceChanges !== undefined && {
 			sourceChanges: options.sourceChanges,
 		}),
@@ -882,6 +886,8 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 		add_ons: {},
 		langs: ["en"],
 		auto_gps_capture: false,
+		/* The space grants Web Apps, so HQ's create made the app with it on. */
+		cloudcare_enabled: true,
 	});
 	expect(sentContent.profile).toBeDefined();
 	expect(capture.update.assumedSource.profile).toEqual(sentContent.profile);
@@ -899,6 +905,8 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 	expect(response.status).toBe(200);
 	const routed = new Uint8Array(await response.arrayBuffer());
 	const local = await localCcz(document, DOMAIN);
+	if (local === null)
+		throw new Error("The app declares Android, and has no CCZ.");
 	// The profile's uniqueid is derived from the app's id and the project
 	// space alone, so the two archives carry one though they name other HQ
 	// apps.
@@ -1100,6 +1108,7 @@ it("captures the stop Nova makes over a person's save of a value Nova owns, and 
 			code: "hq_changed",
 			remoteChanges: refused.refusal.remoteChanges,
 			conflicts: [],
+			webAppsChange: null,
 		},
 	]);
 	expect(refused.refusal.remoteChanges.map((change) => change.parts)).toEqual([
@@ -1461,4 +1470,67 @@ it("stops on HQ's plan page over an app that was there, with nothing changed and
 	expect(pushed).toBeGreaterThan(-1);
 	expect(sent.slice(pushed + 1)).toEqual([]);
 	expect(after).toEqual(held);
+});
+
+/** The stored survey app declared to run only on `platform`. */
+function declaring(
+	document: PublishDocument,
+	platform: "web-apps" | "android",
+): PublishDocument {
+	return {
+		...document,
+		doc: {
+			...document.doc,
+			appSettings: { ...document.doc.appSettings, runsOnlyOn: platform },
+		},
+	};
+}
+
+it("answers the Web Apps question of an edit that narrows the app to Android only with the declaration, and records the answer beside the body", async () => {
+	await seed(clinicVisitsDocument());
+	const document = await storedDocument();
+	const { update, confirmed } = confirmedUpdate(
+		await capturePublish({
+			create: document,
+			updates: [{ name: "update", document: declaring(document, "android") }],
+			configuration: CLINIC,
+		}),
+	);
+	/* The question a publish asks of every declaration change, answered
+	 * with the value the declaration writes. */
+	expect(confirmed.webApps).toBe(false);
+	expect(confirmed.stops).toEqual([
+		{
+			code: "hq_web_apps_change",
+			remoteChanges: [],
+			conflicts: [],
+			webAppsChange: { from: true, to: false, changedInHq: false },
+		},
+	]);
+	expect(confirmed.discards).toEqual([]);
+	expect(update.application.cloudcare_enabled).toBe(false);
+	/* It was built over the read the content left, with Web Apps on. */
+	expect(update.assumedSource.cloudcare_enabled).toBe(true);
+});
+
+it("makes the shell's source carry Web Apps as the configuration grants it", () => {
+	/* HQ's create takes the plan's answer whatever the body says
+	 * (`_create_app_from_doc`), so the body's own value never reaches it. */
+	for (const granted of [true, false]) {
+		for (const body of [{}, { cloudcare_enabled: !granted }]) {
+			const source = shellSource(
+				{ doc_type: "Application", name: "Clinic visits", ...body },
+				CORPUS_COMMCARE_VERSION,
+				granted,
+			);
+			expect(source.cloudcare_enabled).toBe(granted);
+		}
+	}
+});
+
+it("makes no CCZ of a Web-Apps-only document", async () => {
+	await seed(clinicVisitsDocument());
+	const document = await storedDocument();
+	expect(await localCcz(declaring(document, "web-apps"), DOMAIN)).toBeNull();
+	expect(await localCcz(document, DOMAIN)).not.toBeNull();
 });

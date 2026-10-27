@@ -3,8 +3,19 @@
 Contract: Nova's publish asks the person to confirm each plan privilege an
 app needs (``lib/commcare/planPrivileges.ts::requiredPlanPrivileges``),
 because no API key reads a plan, and each one's consequence says what a
-person meets in HQ without it. HQ's build is unchanged without these four;
+person meets in HQ without it. HQ's build is unchanged without these five;
 its editors are not:
+
+- ``cloudcare`` on ``navigation-base``, which declares Web Apps: the App
+  Settings page's save turns the app's Web App setting off without the
+  privilege (``views/apps.py::edit_app_attr``, ``should_edit("cloudcare_enabled")``
+  then ``has_privilege(request, privileges.CLOUDCARE)``), because the page
+  posts the stored value even where it hides the row
+  (``commcare_settings.js``, ``setting.valueToSave`` reads only
+  ``enabled()``), and keeps it on with the privilege. The app is published
+  without the privilege on purpose, a state Nova's publish stops at
+  (``hq_plan_lacks_web_apps``), so the content's hold leaves out
+  ``cloudcare_enabled`` alone (``proof/observe/publish.py::create``);
 
 - ``child_cases`` on ``case-capture-query``: the form's Case Management page
   shows its child cases under HQ's notice that they stay un-editable, with
@@ -64,7 +75,12 @@ class _Opened:
 
 @contextmanager
 def _published(document, privilege, granted):
-    """``document`` as Nova's first publish leaves it, on its plan with ``privilege`` or without it."""
+    """``document`` as Nova's first publish leaves it, on its plan with ``privilege`` or without it.
+
+    Without ``CLOUDCARE`` HQ's create stores the app with Web Apps off, which Nova's publish stops at
+    (``hq_plan_lacks_web_apps``); the test reaches that state on purpose, so the content's hold leaves out
+    ``cloudcare_enabled`` alone (``proof/observe/publish.py::create``).
+    """
     from proof.observe import publish
 
     configuration = document.exports["minimum"].configuration.hq()
@@ -72,7 +88,11 @@ def _published(document, privilege, granted):
     if not granted:
         configuration = dataclasses.replace(configuration, privileges=frozenset(configuration.privileges - {privilege}))
     with hq_check(configuration) as (state, _):
-        app_id, refusal, _ = publish.create(state, document.exports["minimum"])
+        app_id, refusal, _ = publish.create(
+            state,
+            document.exports["minimum"],
+            plan_without_web_apps=(privilege == "CLOUDCARE" and not granted),
+        )
         assert refusal is None, refusal
         yield _Opened(state, app_id)
 
@@ -96,6 +116,26 @@ def _offered(driver, state, app_id, form_id, selectors):
     )
     answers.check()
     return {name: counted["held"] for name, counted in run["outcomes"][-1]["value"].items()}
+
+
+def test_without_cloudcare_a_settings_save_turns_web_apps_off(hq, core_runner, editor_driver):
+    document = corpus_document("navigation-base")
+    found = {}
+    for granted in (True, False):
+        with _published(document, "CLOUDCARE", granted) as opened:
+            before = operations.held_app(opened.state, opened.app_id).cloudcare_enabled
+            saved = pages.fresh_section_save(editor_driver, opened.state, pages.APP_SETTINGS, opened.app_id)
+            record_timing("page_save:app settings", saved.seconds)
+            found[granted] = {
+                # Nova's update wrote the declaration, which HQ's update keeps with no privilege check.
+                "before": before,
+                "saved": saved.save is not None and saved.save.status == 200 and not saved.refused,
+                "after": operations.held_app(opened.state, opened.app_id).cloudcare_enabled,
+            }
+    assert found == {
+        True: {"before": True, "saved": True, "after": True},
+        False: {"before": True, "saved": True, "after": False},
+    }, found
 
 
 def _form(state, app_id, holds):

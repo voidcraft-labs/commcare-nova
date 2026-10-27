@@ -169,7 +169,10 @@ def project(document, configuration="minimum", *, web_apps=True):
 
     With ``web_apps`` false the project space is the document's
     configuration without the Web Apps privilege, for the test that shows
-    what the privilege decides.
+    what the privilege decides; HQ's create then stores the app with Web Apps
+    off, which Nova's own publish stops at (``hq_plan_lacks_web_apps``), so the
+    content's hold leaves out ``cloudcare_enabled`` alone
+    (``proof/observe/publish.py::create``).
     """
     from proof.checks.corpus import WEB_APPS
     from proof.hq import operations
@@ -193,7 +196,9 @@ def project(document, configuration="minimum", *, web_apps=True):
         # each media file's) is then this document's own and the same on every run.
         with unit.operation("webapps:publish", document.id.encode()):
             # Nova's first publish: the shell and the content that fills it, after the workbook it pushes.
-            app_id, refusal, lookups = publish.create(unit, export)
+            # Without the privilege HQ's create stores Web Apps off, a state Nova's publish stops at
+            # (hq_plan_lacks_web_apps), which the test reaches on purpose to show what HQ then does.
+            app_id, refusal, lookups = publish.create(unit, export, plan_without_web_apps=not web_apps)
             assert refusal is None, refusal
             assert lookups is None or lookups["errors"] == [], lookups
             if export.content.media is not None:

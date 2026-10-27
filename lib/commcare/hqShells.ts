@@ -254,7 +254,9 @@ export function applicationShell(
 	appName: string,
 	modules: HqModuleTree[],
 	attachments: Record<string, string>,
-	options?: {
+	options: {
+		/** Where the app runs, on the wire: `declaresWebApps(doc)`. */
+		cloudcareEnabled: boolean;
 		autoGpsCapture?: boolean;
 		langs?: string[];
 		translations?: Record<string, Record<string, string>>;
@@ -272,8 +274,8 @@ export function applicationShell(
 	 * overlay merge on the update path (`models/applications.py::
 	 * _merge_source_into_app`): every field present in the source
 	 * overwrites the HQ app's value, and a field absent from the source is
-	 * retained. So app content Nova does not author yet (`cloudcare_enabled`,
-	 * `case_sharing`) and target-owned settings and state
+	 * retained. So app content Nova does not author yet (`case_sharing`)
+	 * and target-owned settings and state
 	 * (`secure_submissions`, the build/release metadata, and the rest of HQ's
 	 * app Settings page attributes) are deliberately NOT emitted. Three keys carry Nova's values beside the
 	 * target's own, `translations`, `add_ons` and `profile`; the update path
@@ -283,7 +285,8 @@ export function applicationShell(
 	 * turned on in HQ. Every other omitted field was previously sent at
 	 * exactly HQ's own schema default, so create behaves identically (couch
 	 * `wrap` supplies the same default, and `_create_app_from_doc` sets
-	 * `cloudcare_enabled` itself from the domain's Web Apps privilege),
+	 * `cloudcare_enabled` itself from the domain's Web Apps privilege, which a
+	 * first publish reads),
 	 * while an in-place update leaves the project's HQ-side configuration
 	 * standing instead of resetting it on every republish. No `build_spec`
 	 * is written: a create stores the server's default build
@@ -294,9 +297,13 @@ export function applicationShell(
 	 * `location_fixture_restore` is `project_default` on every app, so a
 	 * device and Web Apps both take the flat location list by the project
 	 * space's own setting (`locations/fixtures.py::should_sync_flat_fixture`
-	 * falls to `LocationFixtureConfiguration.sync_flat_fixture`). */
-	const properties = options?.profileProperties ?? [];
-	const customProperties = options?.profileCustomProperties ?? {};
+	 * falls to `LocationFixtureConfiguration.sync_flat_fixture`).
+	 * `cloudcare_enabled` is where the app runs, written on every body from
+	 * the declaration: HQ's update writes the body's value with no privilege
+	 * check (`_merge_source_into_app`), so carrying the key is the whole
+	 * write. */
+	const properties = options.profileProperties ?? [];
+	const customProperties = options.profileCustomProperties ?? {};
 	const profile = {
 		...(properties.length > 0 && {
 			properties: Object.fromEntries(
@@ -307,15 +314,16 @@ export function applicationShell(
 			custom_properties: { ...customProperties },
 		}),
 	};
-	const addOns = options?.addOns ?? [];
+	const addOns = options.addOns ?? [];
 	return {
 		doc_type: "Application",
 		application_version: "2.0",
 		name: appName,
-		langs: options?.langs ?? ["en"],
-		translations: options?.translations ?? {},
-		...(options?.autoGpsCapture === true && { auto_gps_capture: true }),
+		langs: options.langs ?? ["en"],
+		translations: options.translations ?? {},
+		...(options.autoGpsCapture === true && { auto_gps_capture: true }),
 		location_fixture_restore: "project_default",
+		cloudcare_enabled: options.cloudcareEnabled,
 		...(Object.keys(profile).length > 0 && { profile }),
 		...(addOns.length > 0 && {
 			add_ons: Object.fromEntries(addOns.map((slug) => [slug, true])),

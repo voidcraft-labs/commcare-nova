@@ -185,7 +185,7 @@ function baselineTree(): HqApplicationTree {
 		["en"],
 	);
 
-	return applicationShell("Clinic", [module], {});
+	return applicationShell("Clinic", [module], {}, { cloudcareEnabled: true });
 }
 
 /** Malformed-wire tests edit only the serialized consumer object. */

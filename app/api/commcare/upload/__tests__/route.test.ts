@@ -94,7 +94,6 @@ function deploymentView(state: string, resumePhase: string | null = null) {
 			lastObservedAt: null,
 			offeredLogoContentHash: null,
 			targetEmptyCaseListText: null,
-			targetWebAppsEnabled: null,
 		},
 		active: [],
 		superseded: [],
@@ -223,6 +222,8 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		expect(body.setup_artifact.domain).toBe(DOMAIN);
 		expect(body.project_space_compatibility).toBeNull();
 		expect(body.url).toContain("/a/acme/apps/view/");
+		/* A publish writes the declaration, so it answers with no read of it. */
+		expect(Object.hasOwn(body, "web_apps_enabled")).toBe(false);
 	});
 
 	it("names a lookup table an earlier publish left behind", async () => {
@@ -584,6 +585,40 @@ it("hands each confirmation to the lifecycle as it was named, and none when none
 	}
 	expect(vi.mocked(publishAppToHq).mock.calls[1]?.[0].confirm).toEqual([]);
 	expect(vi.mocked(publishAppToHq).mock.calls[2]?.[0].confirm).toEqual([]);
+});
+
+it("reads confirmWebApps as true, false or absent, refuses anything else with 400, and hands it to the publish", async () => {
+	for (const confirmWebApps of [true, false]) {
+		await read(
+			await POST(
+				req({ domain: DOMAIN, appName: "App", appId: "app-1", confirmWebApps }),
+			),
+		);
+	}
+	for (const confirmWebApps of [undefined, null]) {
+		await read(
+			await POST(
+				req({ domain: DOMAIN, appName: "App", appId: "app-1", confirmWebApps }),
+			),
+		);
+	}
+	const sent = vi
+		.mocked(publishAppToHq)
+		.mock.calls.map((call) => call[0].confirmWebApps);
+	expect(sent).toEqual([true, false, undefined, undefined]);
+	for (const confirmWebApps of ["true", 1, {}, []]) {
+		const { status, body } = await read(
+			await POST(
+				req({ domain: DOMAIN, appName: "App", appId: "app-1", confirmWebApps }),
+			),
+		);
+		expect(status).toBe(400);
+		expect(body).toMatchObject({
+			error:
+				"Whether to change the app's Web App setting has to be true or false.",
+		});
+	}
+	expect(publishAppToHq).toHaveBeenCalledTimes(4);
 });
 
 it("answers with the App Preview line a landed publish carries", async () => {

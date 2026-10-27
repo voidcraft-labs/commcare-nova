@@ -31,6 +31,7 @@ const BARE: ManualImportGuideInput = {
 	capabilities: [],
 	planFeatures: [],
 	logo: null,
+	runsInWebApps: true,
 	readsLocations: false,
 	sendsToConnect: false,
 	distanceSearches: [],
@@ -190,6 +191,35 @@ describe("manualImportGuide", () => {
 				"It helps to check that the project space's plan includes Data Forwarding and that it has a forwarder set up as Forward Form Metadata to Commcare Connect.",
 			],
 		});
+	});
+
+	it("tells a person to turn Web Apps off for an Android-only app, after the logo, and says nothing of it for an app that runs in Web Apps", () => {
+		const android: ManualImportGuideInput = {
+			...BARE,
+			logo: { fileName: "logo.png" },
+			runsInWebApps: false,
+			readsLocations: true,
+		};
+		expect(kinds(android)).toEqual([
+			"import-app",
+			"commcare-version",
+			"logo",
+			"web-apps",
+			"flat-location-fixture",
+		]);
+		expect(
+			manualImportGuide(android).find((step) => step.kind === "web-apps"),
+		).toEqual({
+			kind: "web-apps",
+			title: "Web Apps",
+			lines: [
+				"This app runs on Android only.",
+				"CommCare HQ turns Web Apps on for an imported app wherever the project space's plan includes it. It helps to open the imported app's settings in CommCare HQ and turn “Web App” off, so workers don't meet it in Web Apps.",
+			],
+		});
+		expect(kinds({ ...android, runsInWebApps: true })).not.toContain(
+			"web-apps",
+		);
 	});
 
 	it("closes with the Data Dictionary step for each property a search measures distance on", () => {

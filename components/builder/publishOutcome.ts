@@ -30,7 +30,7 @@ import type {
 	DeploymentRemoteChange,
 	DeploymentResourceConflict,
 } from "@/lib/deployment/types";
-import { webAppsOffText } from "@/lib/publish/planFeatures";
+import type { WebAppsChange } from "@/lib/publish/webApps";
 
 /** The logo a landed publish offers for a person to add in CommCare HQ. */
 export interface PublishLogoStepBody {
@@ -54,11 +54,6 @@ export interface PublishResponseBody {
 	 * without knowing it unchanged; null on every other publish.
 	 */
 	readonly app_preview_note?: string | null;
-	/**
-	 * Whether Web Apps offers the app on the project space, as this publish
-	 * read it back; null on a refusal, where nothing was read back.
-	 */
-	readonly web_apps_enabled?: boolean | null;
 	/** The logo step a landed publish offers; null without a logo. */
 	readonly logo_step?: PublishLogoStepBody | null;
 	/**
@@ -117,12 +112,6 @@ export type PublishOutcome =
 			 * the cutover read. Null on every other publish.
 			 */
 			readonly appPreviewNote: string | null;
-			/**
-			 * Whether Web Apps offers the app there, as this publish read it.
-			 * Null for a response that carried no answer, where nothing is
-			 * said about Web Apps.
-			 */
-			readonly webAppsEnabled: boolean | null;
 			/** The logo step, for an app with a logo; null otherwise. */
 			readonly logoStep: PublishLogoStepBody | null;
 	  }
@@ -167,6 +156,11 @@ export type PublishOutcome =
 			 * travel structurally too.
 			 */
 			readonly confirmationsNeeded: readonly DeploymentConfirmationNeeded[];
+			/**
+			 * The Web Apps question, for `hq_web_apps_change`: the change the
+			 * publish would make to the app's Web App setting. Null otherwise.
+			 */
+			readonly webAppsChange: WebAppsChange | null;
 			readonly warnings: string[];
 			readonly previewProjectSpace: string | null;
 	  }
@@ -181,20 +175,6 @@ export type PublishOutcome =
 			 */
 			readonly blockedDetail: string | undefined;
 	  };
-
-/**
- * The landed dialog's Web Apps line: said where the publish read Web Apps
- * as off for the app, naming the project space the publish went to. It is
- * the request's own target, so the line stands whether or not the response
- * carried the deployment record. Null where Web Apps offers the app, or no
- * read gave an answer.
- */
-export function landedWebAppsLine(
-	webAppsEnabled: boolean | null,
-	publishedDomain: string,
-): string | null {
-	return webAppsEnabled === false ? webAppsOffText(publishedDomain) : null;
-}
 
 export function publishOutcome(
 	responseOk: boolean,
@@ -224,7 +204,6 @@ export function publishOutcome(
 			warnings: body.warnings ?? [],
 			previewProjectSpace: body.preview_project_space ?? null,
 			appPreviewNote: body.app_preview_note ?? null,
-			webAppsEnabled: body.web_apps_enabled ?? null,
 			logoStep: body.logo_step ?? null,
 		};
 	}
@@ -244,6 +223,7 @@ export function publishOutcome(
 			resourceConflicts: body.refusal.resourceConflicts ?? [],
 			remoteChanges: body.refusal.remoteChanges ?? [],
 			confirmationsNeeded: body.refusal.confirmationsNeeded ?? [],
+			webAppsChange: body.refusal.webAppsChange ?? null,
 			warnings: body.warnings ?? [],
 			previewProjectSpace: body.preview_project_space ?? null,
 		};

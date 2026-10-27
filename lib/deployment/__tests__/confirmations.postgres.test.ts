@@ -162,6 +162,79 @@ describe("confirmations", () => {
 		expect(stored[1]).toMatchObject({ withdrawn_by: null, withdrawn_at: null });
 	});
 
+	it("are withdrawn by a refused resources fold that names them, in its transaction, attributed to the publisher", async () => {
+		const scope = await seed();
+		const WEB_APPS: DeploymentConfirmationKey = {
+			kind: "plan-feature",
+			subject: "web-apps",
+		};
+		await confirm(scope, [WEB_APPS, LOOKUP]);
+		const failure = {
+			code: "hq_plan_lacks_web_apps" as const,
+			message: "CommCare HQ made this app with Web Apps off.",
+			details: [],
+		};
+		const view = await foldDeploymentAttempt(
+			scope,
+			TARGET,
+			"resources",
+			{ status: "failed", at: AT, failure },
+			{ withdraw: [WEB_APPS] },
+		);
+		/* The view the fold returns already reads the withdrawal beside the
+		 * refusal it folded: one transaction wrote both. */
+		expect(view.confirmations.map((item) => item.subject)).toEqual([
+			"lookup-tables",
+		]);
+		expect(view.deployment.phases.resources).toMatchObject({
+			status: "failed",
+			failure: { code: "hq_plan_lacks_web_apps" },
+		});
+		const stored = await rows();
+		expect(stored).toEqual([
+			expect.objectContaining({
+				subject: "web-apps",
+				withdrawn_by: ACTOR,
+			}),
+			expect.objectContaining({
+				subject: "lookup-tables",
+				withdrawn_by: null,
+				withdrawn_at: null,
+			}),
+		]);
+		expect(stored[0]?.withdrawn_at).not.toBeNull();
+	});
+
+	it("refuse a withdrawal from any other fold", async () => {
+		const scope = await seed();
+		const WEB_APPS: DeploymentConfirmationKey = {
+			kind: "plan-feature",
+			subject: "web-apps",
+		};
+		await confirm(scope, [WEB_APPS]);
+		const failure = {
+			code: "hq_rejected_upload" as const,
+			message: "Refused.",
+			details: [],
+		};
+		for (const [phase, outcome] of [
+			["upload", { status: "failed", at: AT, failure }],
+			["resources", { status: "succeeded", at: AT }],
+			["preflight", { status: "failed", at: AT, failure }],
+		] as const) {
+			await expect(
+				foldDeploymentAttempt(scope, TARGET, phase, outcome, {
+					withdraw: [WEB_APPS],
+				}),
+			).rejects.toThrow(
+				"A confirmation is withdrawn by a publish only where CommCare HQ's own answer contradicted it, at resources, and this fold was not one.",
+			);
+		}
+		expect(await rows()).toEqual([
+			expect.objectContaining({ subject: "web-apps", withdrawn_at: null }),
+		]);
+	});
+
 	it("refuse a flat location list or Connect forwarder confirmation under another subject", async () => {
 		const scope = await seed();
 		const view = await confirm(scope, []);

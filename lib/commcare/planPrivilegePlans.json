@@ -1,4 +1,5 @@
 {
+	"cloudcare": ["pro_v0", "advanced_v0", "enterprise_v0"],
 	"user_case": [
 		"standard_v0",
 		"standard_v1",

@@ -87,4 +87,6 @@ that holds one of the two selections has that archive only for a project space
 it reached without the selection. Published nowhere it has no export of any
 kind: `resolveDownloadTarget` refuses its `.ccz` with `selection-held-from-hq`,
 carrying the findings' lines, and it runs in Preview until an edit clears the
-finding.
+finding. An app that does not declare Android has no `.ccz` at all:
+`chooseDownloadTarget` refuses it with `not-declared-for-android` before any
+project space.

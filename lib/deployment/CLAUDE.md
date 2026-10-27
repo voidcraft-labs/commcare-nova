@@ -252,7 +252,9 @@ boundary refuses, Project data Nova may not write over, or a change made in
 CommCare HQ since Nova's last push that the person has not confirmed
 discarding, an HQ app below CommCare 2.57, and a plan feature or project-space
 setting the app needs that the person has not confirmed (`plan-features`, which
-asks HQ nothing). Failing one leaves
+asks HQ nothing), and, on an update of an app that holds Nova's content, a Web
+App setting on HQ that differs from where the app runs (`web-apps`, after
+`hq-changes`). Failing one leaves
 the deployment `incomplete` rather than succeeding with a warning attached, and
 nothing externally visible has happened.
 
@@ -275,7 +277,9 @@ and reasons, and the caller comes back naming what the person confirmed in
 `confirm`. Confirmations live in `app_deployment_confirmations`, three kinds
 (`plan-feature`, `flat-location-fixture`, `connect-forwarder`), written only by
 the fold of a passed preflight (`foldDeploymentAttempt`'s `confirmations`), so
-a refused publish stores none and the caller resends them. One the app does
+a refused publish stores none and the caller resends them; the one exception is
+the resources fold of `hq_plan_lacks_web_apps`, which withdraws the `web-apps`
+answer HQ's create contradicted. One the app does
 not need is dropped. A confirmation stands until someone withdraws it
 (`withdrawDeploymentConfirmation`, from the deployment's card or MCP's
 `withdraw_deployment_confirmation`), because Nova cannot see a plan change; a
@@ -598,12 +602,14 @@ goes in the bulk media upload. The landed outcome offers it as `logoStep`, its
 `changed` read against `app_deployments.offered_logo_content_hash`, a content
 hash (a Project move remaps asset ids), written with the `uploaded` fold.
 
-The Web Apps line reads the read after the import, or the last read before it
-when that read failed. That value is stored as
-`app_deployments.target_web_apps_enabled` with the `uploaded` fold and nowhere
-else, and the setup artifact reads it from the row: it says Web Apps is off
-where the last publish read it off, says nothing where it read it on, and keeps
-the general check where no publish has read it.
+Every update writes the app's Web App setting from where it runs. The
+`web-apps` preflight edge asks a person before an update changes the setting
+HQ holds on an app that holds Nova's content (`hq_web_apps_change`), whoever
+moved it, and the answer is that publish's alone; the drift check leaves the
+setting to it. A first publish whose new app reads Web Apps off for an app that
+runs in Web Apps stops at `resources` (`hq_plan_lacks_web_apps`), keeps the
+mapping and withdraws the `web-apps` confirmation in that fold. The setup
+artifact's Web Apps section reads the declaration.
 
 A refused publish answers **200 with the refusal and whatever record the
 target has**, not a 4xx: the request succeeded and the answer names where

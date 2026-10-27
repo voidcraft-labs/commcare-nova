@@ -160,9 +160,19 @@ export type HqToolErrorType =
  *     Connect forwarder), and nobody confirmed it there. Nothing was sent:
  *     the payload lists each with its label, plans, consequence and
  *     reasons, and the caller sends back the ones the user said yes to.
+ *   - `hq_web_apps_change` — the app's Web App setting on CommCare HQ
+ *     differs from where the app runs, and the user has not said to change
+ *     it. Nothing was sent: the payload names `from`, `to` and
+ *     `changed_in_hq`, and the caller sends `confirm_web_apps` with that
+ *     `to` once the user said to change it.
  *   - `hq_app_version_below_floor` — the app on CommCare HQ is set to a
  *     CommCare version below the one Nova's apps need. Nothing of its
  *     content was sent; the payload carries the app's `url` there.
+ *   - `hq_plan_lacks_web_apps` — CommCare HQ made the new app with Web Apps
+ *     off for an app that runs in Web Apps, so the project space's plan has
+ *     no Web Apps. Only the empty app was made, and Nova withdrew the
+ *     `web-apps` plan feature's confirmation; the caller sends it again
+ *     only once the user says the plan now includes it.
  */
 export type UploadErrorType =
 	| HqToolErrorType
@@ -174,7 +184,9 @@ export type UploadErrorType =
 	| "hq_app_state_unknown"
 	| "hq_changed"
 	| "hq_confirmation_needed"
-	| "hq_app_version_below_floor";
+	| "hq_web_apps_change"
+	| "hq_app_version_below_floor"
+	| "hq_plan_lacks_web_apps";
 
 /**
  * Closed union of every `error_type` string an MCP tool response can

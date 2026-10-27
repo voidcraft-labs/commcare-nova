@@ -37,11 +37,38 @@ const HELD =
 	"A CCZ signs workers in to one project space and sends their forms there, so it is made for a project space this app is published to. This app can't be published to CommCare HQ as it is, so it has no CCZ yet.";
 const NOT_FOR_IMPORT_FILE =
 	"The CommCare HQ import file works in any project space, so it isn't made for one. You can download it again without a project space.";
+const WEB_APPS_ONLY =
+	"A CCZ installs this app on Android phones, and this app runs in Web Apps only, so it has no CCZ. If its workers use phones too, you can set it to run on Android as well, in App settings.";
 const unknown = (named: string) =>
 	`This app isn't published to ${named}, so there's no CCZ for it there. You can pick one of the project spaces it's published to.`;
 const EVERY_SPACE = ["acme on US", "acme on India", "field-ops on India"];
 
 describe("chooseDownloadTarget for a CCZ", () => {
+	it("refuses a CCZ of an app that does not declare Android before any project space, listing nothing", () => {
+		for (const reached of [[], [US_ACME], REACHED]) {
+			for (const input of [
+				{},
+				{ domain: "acme", server: "india" as const },
+				{ heldFromHq: ["a line"] },
+			]) {
+				const choice = chooseDownloadTarget(reached, {
+					format: "ccz",
+					declaresAndroid: false,
+					...input,
+				});
+				expect(choice).toEqual({
+					kind: "refused",
+					reason: "not-declared-for-android",
+					message: WEB_APPS_ONLY,
+					reached,
+					heldFromHq: [],
+				});
+				if (choice.kind === "refused")
+					expect(downloadRefusalLines(choice)).toEqual([]);
+			}
+		}
+	});
+
 	it("refuses an app published nowhere, whatever it names", () => {
 		for (const input of [
 			{},
@@ -49,7 +76,11 @@ describe("chooseDownloadTarget for a CCZ", () => {
 			{ domain: "acme" },
 			{ heldFromHq: [] },
 		]) {
-			const choice = chooseDownloadTarget([], { format: "ccz", ...input });
+			const choice = chooseDownloadTarget([], {
+				format: "ccz",
+				declaresAndroid: true,
+				...input,
+			});
 			expect(choice).toEqual({
 				kind: "refused",
 				reason: "needs-published-project-space",
@@ -66,6 +97,7 @@ describe("chooseDownloadTarget for a CCZ", () => {
 		const held = ['"Child care" reads several parents.'];
 		const choice = chooseDownloadTarget([], {
 			format: "ccz",
+			declaresAndroid: true,
 			domain: "acme",
 			heldFromHq: held,
 		});
@@ -84,28 +116,43 @@ describe("chooseDownloadTarget for a CCZ", () => {
 		expect(
 			chooseDownloadTarget([US_ACME], {
 				format: "ccz",
+				declaresAndroid: true,
 				heldFromHq: ["a line"],
 			}),
 		).toEqual({ kind: "project-space", target: US_ACME });
 	});
 
 	it("takes the only deployment there is, or the one the inputs name", () => {
-		expect(chooseDownloadTarget([INDIA_FIELD], { format: "ccz" })).toEqual({
+		expect(
+			chooseDownloadTarget([INDIA_FIELD], {
+				format: "ccz",
+				declaresAndroid: true,
+			}),
+		).toEqual({
 			kind: "project-space",
 			target: INDIA_FIELD,
 		});
 		expect(
-			chooseDownloadTarget(REACHED, { format: "ccz", domain: "field-ops" }),
+			chooseDownloadTarget(REACHED, {
+				format: "ccz",
+				declaresAndroid: true,
+				domain: "field-ops",
+			}),
 		).toEqual({ kind: "project-space", target: INDIA_FIELD });
 		expect(
 			chooseDownloadTarget(REACHED, {
 				format: "ccz",
+				declaresAndroid: true,
 				domain: "acme",
 				server: "india",
 			}),
 		).toEqual({ kind: "project-space", target: INDIA_ACME });
 		expect(
-			chooseDownloadTarget(REACHED, { format: "ccz", server: "production" }),
+			chooseDownloadTarget(REACHED, {
+				format: "ccz",
+				declaresAndroid: true,
+				server: "production",
+			}),
 		).toEqual({ kind: "project-space", target: US_ACME });
 	});
 
@@ -117,6 +164,7 @@ describe("chooseDownloadTarget for a CCZ", () => {
 		]) {
 			const choice = chooseDownloadTarget(REACHED, {
 				format: "ccz",
+				declaresAndroid: true,
 				...input,
 			});
 			expect(choice).toEqual({
@@ -140,6 +188,7 @@ describe("chooseDownloadTarget for a CCZ", () => {
 		] as const) {
 			const choice = chooseDownloadTarget(REACHED, {
 				format: "ccz",
+				declaresAndroid: true,
 				...input,
 			});
 			expect(choice).toEqual({
@@ -160,6 +209,7 @@ describe("chooseDownloadTarget for the import file", () => {
 		for (const reached of [[], REACHED]) {
 			const choice = chooseDownloadTarget(reached, {
 				format: "json",
+				declaresAndroid: true,
 				domain: "acme",
 			});
 			expect(choice).toMatchObject({
@@ -174,30 +224,61 @@ describe("chooseDownloadTarget for the import file", () => {
 	});
 
 	it("scopes its links to the one deployment the server leaves, and else to none", () => {
-		expect(chooseDownloadTarget([], { format: "json" })).toEqual({
+		expect(
+			chooseDownloadTarget([], { format: "json", declaresAndroid: true }),
+		).toEqual({
 			kind: "none",
 		});
-		expect(chooseDownloadTarget([US_ACME], { format: "json" })).toEqual({
+		expect(
+			chooseDownloadTarget([US_ACME], {
+				format: "json",
+				declaresAndroid: true,
+			}),
+		).toEqual({
 			kind: "project-space",
 			target: US_ACME,
 		});
-		expect(chooseDownloadTarget(REACHED, { format: "json" })).toEqual({
+		expect(
+			chooseDownloadTarget(REACHED, { format: "json", declaresAndroid: true }),
+		).toEqual({
 			kind: "none",
 		});
 		expect(
-			chooseDownloadTarget(REACHED, { format: "json", server: "production" }),
+			chooseDownloadTarget(REACHED, {
+				format: "json",
+				declaresAndroid: true,
+				server: "production",
+			}),
 		).toEqual({ kind: "project-space", target: US_ACME });
 		expect(
-			chooseDownloadTarget(REACHED, { format: "json", server: "india" }),
+			chooseDownloadTarget(REACHED, {
+				format: "json",
+				declaresAndroid: true,
+				server: "india",
+			}),
 		).toEqual({ kind: "none" });
 		expect(
-			chooseDownloadTarget(REACHED, { format: "json", server: "eu" }),
+			chooseDownloadTarget(REACHED, {
+				format: "json",
+				declaresAndroid: true,
+				server: "eu",
+			}),
 		).toEqual({ kind: "none" });
 	});
 
-	it("is never refused for want of a deployment or for a held selection", () => {
+	it("is never refused for want of a deployment, for a held selection, or for an app without Android", () => {
 		expect(
-			chooseDownloadTarget([], { format: "json", heldFromHq: ["a line"] }),
+			chooseDownloadTarget([], {
+				format: "json",
+				declaresAndroid: true,
+				heldFromHq: ["a line"],
+			}),
 		).toEqual({ kind: "none" });
+		expect(
+			chooseDownloadTarget([US_ACME], {
+				format: "json",
+				declaresAndroid: false,
+			}),
+		).toEqual({ kind: "project-space", target: US_ACME });
 	});
 });

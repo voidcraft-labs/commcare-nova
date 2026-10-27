@@ -353,6 +353,24 @@ function outcomeJson(
 	};
 }
 
+/**
+ * A second local archive of a document whose first one was made: the same
+ * declaration, so the download rule makes this one too.
+ */
+async function requiredLocalCcz(
+	source: Parameters<typeof localCcz>[0],
+	operation: EntropyOperation,
+	options: Parameters<typeof localCcz>[3],
+): Promise<Buffer> {
+	const archive = await localCcz(source, PROOF_DOMAIN, operation, options);
+	if (archive === null) {
+		throw new Error(
+			`The download rule refused a second local archive of ${source.id}, whose first it made: both read the same declaration.`,
+		);
+	}
+	return archive;
+}
+
 function publishConfiguration(
 	id: string,
 	configuration: ConfigurationFlags,
@@ -518,25 +536,33 @@ export async function writeEntry(
 		});
 	}
 
-	await writeFile(
-		join(root, "local.ccz"),
-		await localCcz(publish, PROOF_DOMAIN, local(OPERATION_ORDINALS.local)),
+	/* A `.ccz` installs an app on Android and nothing else, so Nova's own
+	 * download refuses one for a document that does not declare it
+	 * (`not-declared-for-android`), and the corpus writes no local archive
+	 * of it: a Web Apps worker meets HQ's build. */
+	const localArchive = await localCcz(
+		publish,
+		PROOF_DOMAIN,
+		local(OPERATION_ORDINALS.local),
 	);
-	await writeFile(
-		join(root, "local-again.ccz"),
-		await localCcz(publish, PROOF_DOMAIN, local(OPERATION_ORDINALS.localAgain)),
-	);
-	if (
-		named.some(([, configuration]) =>
-			configuration.flags.includes(EMPTY_LIST_TEXT_FLAG),
-		)
-	) {
+	if (localArchive !== null) {
+		await writeFile(join(root, "local.ccz"), localArchive);
 		await writeFile(
-			join(root, EMPTY_LIST_TEXT_ARCHIVE),
-			await localCcz(publish, PROOF_DOMAIN, local(OPERATION_ORDINALS.local), {
-				emptyCaseListText: true,
-			}),
+			join(root, "local-again.ccz"),
+			await requiredLocalCcz(publish, local(OPERATION_ORDINALS.localAgain), {}),
 		);
+		if (
+			named.some(([, configuration]) =>
+				configuration.flags.includes(EMPTY_LIST_TEXT_FLAG),
+			)
+		) {
+			await writeFile(
+				join(root, EMPTY_LIST_TEXT_ARCHIVE),
+				await requiredLocalCcz(publish, local(OPERATION_ORDINALS.local), {
+					emptyCaseListText: true,
+				}),
+			);
+		}
 	}
 	await writeFile(
 		join(root, "import-file.zip"),
@@ -574,14 +600,15 @@ export async function writeEntry(
 				update: outcomeJson(update),
 			});
 		}
-		await writeFile(
-			join(editRoot, "local.ccz"),
-			await localCcz(
-				edit.publish,
-				PROOF_DOMAIN,
-				local(OPERATION_ORDINALS.editLocal),
-			),
+		/* D′ may change the declaration, so its archive follows its own. */
+		const editArchive = await localCcz(
+			edit.publish,
+			PROOF_DOMAIN,
+			local(OPERATION_ORDINALS.editLocal),
 		);
+		if (editArchive !== null) {
+			await writeFile(join(editRoot, "local.ccz"), editArchive);
+		}
 	}
 
 	const configurations = named.map(([name]) => name);

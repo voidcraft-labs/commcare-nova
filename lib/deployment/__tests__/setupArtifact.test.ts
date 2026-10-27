@@ -28,10 +28,7 @@ import {
 	within,
 } from "@/lib/domain/expression";
 import type { StoredLocation } from "@/lib/organization/types";
-import {
-	LOGO_UPLOAD_STEP_TEXT,
-	webAppsOffText,
-} from "@/lib/publish/planFeatures";
+import { LOGO_UPLOAD_STEP_TEXT } from "@/lib/publish/planFeatures";
 import {
 	previewProjectSpace,
 	resolvePreviewDeploymentTarget,
@@ -150,7 +147,6 @@ function artifact(overrides: Partial<SetupArtifactInput> = {}): SetupArtifact {
 		domain: "rhi-bihar",
 		hqAppId: "hq-abc",
 		locations: [],
-		targetWebAppsEnabled: null,
 		...overrides,
 	};
 	blueprintDocSchema.parse(toPersistableDoc(input.doc));
@@ -200,10 +196,21 @@ it.each([
 	},
 );
 
+/** The base document declaring where it runs. */
+function declaring(runsOnlyOn: "web-apps" | "android"): BlueprintDoc {
+	const doc = baseDoc();
+	doc.appSettings = { ...doc.appSettings, runsOnlyOn };
+	return doc;
+}
+
+const WEB_APPS_SERVES_RELEASED =
+	"Web Apps serves the released version, so an app with a version but no released one still opens as whatever was released before.";
+const NOT_FOR_PHONES =
+	"This app runs in Web Apps only. CommCare HQ's release page still offers an install for phones, which this app isn't made for.";
+
 it("keeps manual build, release and Web App setup explicit", () => {
 	const result = artifact(),
-		build = section(result, "build-and-release"),
-		web = section(result, "web-apps");
+		build = section(result, "build-and-release");
 	expect(build.steps).toEqual([
 		{
 			id: "open-releases",
@@ -220,53 +227,52 @@ it("keeps manual build, release and Web App setup explicit", () => {
 	expect(build.caveats).toContain(
 		"CommCare HQ only lets a signed-in person do this. Its build and release pages accept a browser session and not an API key, so Nova watches for it rather than doing it.",
 	);
-	expect(web.steps.map(({ id }) => id)).toEqual([
-		"check-listed",
-		"enable-web-app",
-	]);
-	expect(web.steps[1]?.text).toBe(
-		"If it is not listed, open the app's Settings on CommCare HQ and tick “Web App”.",
+	/* The Web Apps caveat only for an app that runs there, and the phone
+	 * install caveat only for one that runs nowhere else. */
+	expect(build.caveats).toContain(WEB_APPS_SERVES_RELEASED);
+	expect(build.caveats).not.toContain(NOT_FOR_PHONES);
+	const android = section(
+		artifact({ doc: declaring("android") }),
+		"build-and-release",
 	);
-	expect(web.steps[1]?.detail).toContain(
-		"You do not need to publish again. It is an ordinary app setting you can change at any time.",
+	expect(android.caveats).not.toContain(WEB_APPS_SERVES_RELEASED);
+	expect(android.caveats).not.toContain(NOT_FOR_PHONES);
+	const webApps = section(
+		artifact({ doc: declaring("web-apps") }),
+		"build-and-release",
 	);
+	expect(webApps.caveats).toContain(WEB_APPS_SERVES_RELEASED);
+	expect(webApps.caveats).toContain(NOT_FOR_PHONES);
 });
 
 describe("the Web Apps section", () => {
-	it("keeps the general check where no publish has read the setting", () => {
-		const web = section(artifact({ targetWebAppsEnabled: null }), "web-apps");
-		expect(web.steps.map(({ id }) => id)).toEqual([
-			"check-listed",
-			"enable-web-app",
-		]);
-		expect(web.caveats).toEqual([
-			"Nova reads that setting when it publishes and has no reading for this project space yet, so it reports what it can see: a released version that serves its install file. If the app still does not appear in Web Apps, the “Web App” setting is the first thing to check.",
-		]);
-	});
-
-	it("says Web Apps is off where the last publish read it off", () => {
-		const web = section(artifact({ targetWebAppsEnabled: false }), "web-apps");
-		expect(web.summary).toBe(webAppsOffText("rhi-bihar"));
-		expect(web.url).toBe(
-			"https://www.commcarehq.org/a/rhi-bihar/cloudcare/apps/v2/",
-		);
-		expect(web.steps).toEqual([
-			{
-				id: "enable-web-app",
-				text: "Once the project space's plan includes Web Apps, you can open the app's Settings on CommCare HQ and tick “Web App”.",
-				detail: [
-					"You do not need to publish again. It is an ordinary app setting you can change at any time.",
+	it("names Web Apps for an app that declares it, with its listing check and plan caveat", () => {
+		for (const doc of [baseDoc(), declaring("web-apps")]) {
+			expect(section(artifact({ doc }), "web-apps")).toEqual({
+				id: "web-apps",
+				title: "Web Apps",
+				summary:
+					"Workers on “rhi-bihar” open this app in Web Apps once Web Apps serves a version of it, usually the latest one you released.",
+				url: "https://www.commcarehq.org/a/rhi-bihar/cloudcare/apps/v2/",
+				steps: [
+					{
+						id: "check-listed",
+						text: "After the next release, you can open Web Apps on the project space and check the app is listed.",
+						detail: [
+							"Nova sets the app's Web App setting at every publish, so there's nothing to tick in CommCare HQ.",
+						],
+					},
 				],
-			},
-		]);
-		expect(web.caveats).toEqual([
-			"Nova read this when it last published here. If Web Apps has been turned on in CommCare HQ since, this note stays until the next publish reads it.",
-		]);
+				caveats: [
+					"Mobile workers open the app in Web Apps only where the project space's plan includes Web-Based Apps (CloudCare). On other plans, saving the app's settings in CommCare HQ turns its Web App setting off, and the next publish asks before turning it back on.",
+				],
+			});
+		}
 	});
 
-	it("is left out where the last publish read Web Apps on", () => {
+	it("is left out of an Android-only app", () => {
 		expect(
-			artifact({ targetWebAppsEnabled: true }).sections.some(
+			artifact({ doc: declaring("android") }).sections.some(
 				(item) => item.id === "web-apps",
 			),
 		).toBe(false);

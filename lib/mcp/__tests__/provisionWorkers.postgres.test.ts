@@ -144,7 +144,6 @@ async function seed(
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: at,
-		targetWebAppsEnabled: true,
 		baseline: {
 			origin: "unread",
 			remoteAppId: "published-app",

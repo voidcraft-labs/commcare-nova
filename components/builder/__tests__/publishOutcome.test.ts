@@ -19,13 +19,8 @@ import type {
 import {
 	FLAT_LOCATION_FIXTURE,
 	PLAN_FEATURES,
-	webAppsOffText,
 } from "@/lib/publish/planFeatures";
-import {
-	landedWebAppsLine,
-	type PublishResponseBody,
-	publishOutcome,
-} from "../publishOutcome";
+import { type PublishResponseBody, publishOutcome } from "../publishOutcome";
 
 const RECORD: DeploymentRecord = {
 	id: "dep-1",
@@ -49,7 +44,6 @@ const RECORD: DeploymentRecord = {
 	lastObservedAt: null,
 	offeredLogoContentHash: null,
 	targetEmptyCaseListText: null,
-	targetWebAppsEnabled: null,
 };
 const VIEW: NonNullable<PublishResponseBody["deployment"]> = {
 	deployment: RECORD,
@@ -73,6 +67,7 @@ const REFUSAL = {
 	resourceConflicts: [],
 	remoteChanges: [],
 	confirmationsNeeded: [],
+	webAppsChange: null,
 };
 
 describe("a publish that landed", () => {
@@ -93,20 +88,8 @@ describe("a publish that landed", () => {
 			warnings: ["media still processing"],
 			previewProjectSpace: "acme",
 			appPreviewNote: null,
-			webAppsEnabled: null,
 			logoStep: null,
 		});
-	});
-
-	it("carries whether Web Apps offers the app there, as the publish read it", () => {
-		// False is the one answer the dialog speaks to; the server read it
-		// after the import, and the client never guesses it.
-		expect(
-			publishOutcome(true, { success: true, web_apps_enabled: false }),
-		).toMatchObject({ kind: "landed", webAppsEnabled: false });
-		expect(
-			publishOutcome(true, { success: true, web_apps_enabled: true }),
-		).toMatchObject({ kind: "landed", webAppsEnabled: true });
 	});
 
 	it("carries the logo step the publish offers, and none for an app with no logo", () => {
@@ -193,9 +176,40 @@ describe("a publish that was refused", () => {
 			resourceConflicts: [conflict],
 			remoteChanges: [],
 			confirmationsNeeded: [],
+			webAppsChange: null,
 			warnings: ["Review target"],
 			previewProjectSpace: null,
 		});
+	});
+
+	it("carries the Web Apps question from the refusal, and none where it carries none", () => {
+		const change = { from: false, to: true, changedInHq: true };
+		expect(
+			publishOutcome(true, {
+				success: false,
+				refusal: {
+					...REFUSAL,
+					failure: {
+						code: "hq_web_apps_change",
+						message: "Publishing turns Web Apps on.",
+						details: [],
+					},
+					webAppsChange: change,
+				},
+			}),
+		).toMatchObject({
+			kind: "refused",
+			refusal: { code: "hq_web_apps_change" },
+			webAppsChange: change,
+		});
+		/* A server from before the question carries no field: no question. */
+		const { webAppsChange: _, ...older } = REFUSAL;
+		expect(
+			publishOutcome(true, {
+				success: false,
+				refusal: older as typeof REFUSAL,
+			}),
+		).toMatchObject({ kind: "refused", webAppsChange: null });
 	});
 
 	it("preserves each change in CommCare HQ with the state it was read in, so publishing over it can name that state back", () => {
@@ -221,6 +235,7 @@ describe("a publish that was refused", () => {
 				resourceConflicts: [],
 				remoteChanges: [change],
 				confirmationsNeeded: [],
+				webAppsChange: null,
 			},
 		});
 		expect(outcome).toMatchObject({
@@ -278,6 +293,7 @@ describe("a publish that was refused", () => {
 				resourceConflicts: [],
 				remoteChanges: [],
 				confirmationsNeeded: [],
+				webAppsChange: null,
 			},
 			preview_project_space: null,
 		});
@@ -299,6 +315,7 @@ describe("a publish that was refused", () => {
 				plans: PLAN_FEATURES["lookup-tables"].plans,
 				consequence: PLAN_FEATURES["lookup-tables"].consequence,
 				reasons: ["The app reads data from a lookup table."],
+				whereMissing: null,
 			},
 			{
 				kind: "flat-location-fixture",
@@ -309,6 +326,7 @@ describe("a publish that was refused", () => {
 				reasons: [
 					"Intake sets a case's owner from a place in your organization.",
 				],
+				whereMissing: FLAT_LOCATION_FIXTURE.whereMissing,
 			},
 		];
 		const outcome = publishOutcome(true, {
@@ -402,33 +420,5 @@ describe("nothing to show", () => {
 			kind: "failure",
 			blockedDetail: undefined,
 		});
-	});
-});
-
-describe("the landed Web Apps line", () => {
-	it("names the space published to when the publish read Web Apps as off, with or without a record in the answer", () => {
-		const outcome = publishOutcome(true, {
-			success: true,
-			hq_app_action: "created",
-			url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
-			warnings: [],
-			deployment: null,
-			web_apps_enabled: false,
-			logo_step: { assetId: "asset-logo", fileName: "logo.png", changed: true },
-		});
-		if (outcome.kind !== "landed") throw new Error("Expected a landed publish");
-		expect(landedWebAppsLine(outcome.webAppsEnabled, "alpha")).toBe(
-			webAppsOffText("alpha"),
-		);
-		expect(outcome.logoStep).toEqual({
-			assetId: "asset-logo",
-			fileName: "logo.png",
-			changed: true,
-		});
-	});
-
-	it("says nothing where Web Apps offers the app or no read answered", () => {
-		expect(landedWebAppsLine(true, "alpha")).toBeNull();
-		expect(landedWebAppsLine(null, "alpha")).toBeNull();
 	});
 });

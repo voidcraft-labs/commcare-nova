@@ -30,12 +30,13 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
-import type {
-	BlueprintDoc,
-	CaseListConfig,
-	Column,
-	PersistableDoc,
-	Uuid,
+import {
+	type BlueprintDoc,
+	type CaseListConfig,
+	type Column,
+	declaresAndroid,
+	type PersistableDoc,
+	type Uuid,
 } from "@/lib/domain";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import {
@@ -176,6 +177,18 @@ export function targetedDocument(spec: TargetedSpec): CorpusDocument {
 				);
 	for (const name of Object.keys(spec.files ?? {})) {
 		checkDocumentFileName(spec.id, name);
+	}
+	/* A `.ccz` installs an app on Android and nothing else, so a document
+	 * that declares no Android has no local archive, and its expectations
+	 * run on HQ's build, which a Web Apps worker meets. */
+	if (!declaresAndroid(committed)) {
+		for (const expectation of spec.expected.intent) {
+			if (expectation.export === "local") {
+				throw new Error(
+					`The targeted document ${spec.id} declares no Android, so Nova offers no local archive of it; run its expectation ${expectation.id} on HQ's build ("A").`,
+				);
+			}
+		}
 	}
 	return {
 		id: spec.id,

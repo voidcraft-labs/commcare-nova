@@ -96,6 +96,8 @@ On every corpus document the checks are structural:
   ``/*/raised/<exception class>/<where HQ raised it>`` (``search_compiles``),
   so HQ refusing an ordering on a time and a related case lookup without its
   flag are two classes.
+- **HQ, Web Apps**: the stored app's ``cloudcare_enabled`` is the document's
+  declaration (``app.json@<state>``, ``/cloudcare_enabled``).
 - **Core, on what HQ built** (Core's own parse of each form HQ built, the
   runner's ``formShape`` op; ``core:form:<m>.<f>@<state>``): each case the
   document says the form creates is a case block whose ``case_type`` is
@@ -155,7 +157,7 @@ from dataclasses import dataclass, field
 from lxml import etree
 
 from proof.checks import observations
-from proof.checks.corpus import CorpusLayoutError
+from proof.checks.corpus import WEB_APPS, CorpusLayoutError
 from proof.checks.differences import Difference, pointer_token
 from proof.observe.intent import (
     DEFAULT_CONFIGURATION,
@@ -1020,6 +1022,27 @@ def _configuration_records(document, records, name):
     return held
 
 
+def web_apps_setting(document, platforms, state) -> list:
+    """HQ's stored app lists the app in Web Apps (``cloudcare_enabled``) exactly where the document declares
+    Web Apps: Nova writes the declaration on every publish, and HQ's update keeps it
+    (``models/applications.py::_merge_source_into_app``)."""
+    expected = WEB_APPS in platforms
+    observed = state.doc.get("cloudcare_enabled")
+    if observed == expected:
+        return []
+    return [
+        _difference(
+            document,
+            f"app.json@{state.name}",
+            "/cloudcare_enabled",
+            "/cloudcare_enabled",
+            "changed",
+            expected,
+            observed,
+        )
+    ]
+
+
 def intent_differences(document, records, manifest_items) -> list:
     """Every intent difference on one corpus document, from its records (``proof.observe.record.DocumentRecords``):
     its states under each configuration, its archives, a targeted document's values, and every note HQ made in
@@ -1036,6 +1059,7 @@ def intent_differences(document, records, manifest_items) -> list:
             state = held_state(held.part(part), state_name, blobs)
             if state is not None:
                 found += state_differences(document.id, intent, state, configuration, manifest_items, saved)
+                found += web_apps_setting(document.id, document.platforms(), state)
         found += search_compiles(document, records, name)
     archives = archive_shapes(local_observation(document, records), blobs)
     for prefix in ("local.ccz", "local-again.ccz"):
@@ -1052,6 +1076,7 @@ def intent_differences(document, records, manifest_items) -> list:
             if state is not None:
                 configuration = JudgedConfiguration.of(name, held.a)
                 found += state_differences(document.id, edited, state, configuration, manifest_items, saved)
+                found += web_apps_setting(document.id, document.platforms(edit=True), state)
         if "edit/local.ccz" in archives:
             found += core_local(document.id, edited, archives["edit/local.ccz"], "edit/local.ccz")
         if document.edit.local_ccz is not None:

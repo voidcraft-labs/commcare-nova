@@ -55,6 +55,7 @@ function application(
 		},
 		add_ons: { display_conditions: true },
 		location_fixture_restore: "project_default",
+		cloudcare_enabled: true,
 		modules: [],
 		_attachments: { "form.xml": "<data/>" },
 		...overrides,

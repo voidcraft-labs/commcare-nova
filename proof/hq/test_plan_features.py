@@ -30,9 +30,17 @@ each beside the same app with the privilege granted, the accepted case:
   over ``Domain.uses_locations``), and its locations API answers 403
   (``locations/resources/v0_5.py::BaseLocationsResource.dispatch``).
 
+``cloudcare`` on a document that declares Web Apps: HQ's create stores the
+plan's own answer whatever the body says, and Web Apps answers a mobile
+worker without the privilege with HQ's "Upgrade Required" page (status
+200, ``domain/views/accounting.py::SubscriptionUpgradeRequiredView``). The first is
+``proof/hq/test_publish.py::test_a_create_takes_web_apps_from_the_plan_and_the_update_writes_the_declaration``'s,
+the second ``proof/webapps/test_session.py``'s, since it needs the Web Apps
+reader.
+
 The privileges whose absence HQ's pages and Vellum show (child cases, form
-links, Save to Case, and Vellum's lookup table check) are
-``proof/editors/test_plan_features.py``'s. What Core does with a form whose
+links, Save to Case, Vellum's lookup table check, and the App Settings save
+that turns Web Apps off) are ``proof/editors/test_plan_features.py``'s. What Core does with a form whose
 places are not sent is held by proof 3 on ``location-direct``.
 """
 
@@ -51,6 +59,7 @@ PLAN_PRIVILEGE_PLANS = Path(__file__).resolve().parents[2] / "lib" / "commcare" 
 # ``lib/commcare/planPrivileges.ts::PLAN_FEATURE_FOR_PRIVILEGE``), by HQ's slug. HQ's ``Titles`` names no
 # ``user_case``, so Nova's own label stands there.
 NOVA_LABELS = {
+    "cloudcare": "Web-Based Apps (CloudCare)",
     "user_case": "Worker records (user cases)",
     "lookup_tables": "Lookup Tables",
     "child_cases": "Child Cases",

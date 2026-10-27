@@ -63,7 +63,16 @@ from proof.hq.configuration import DEFAULT_COMMCARE_VERSION
 
 # The fields of HQ's source a captured update is built over (``proof/corpus/publish.ts::AssumedSource``).
 ASSUMED_SOURCE_FIELDS = frozenset(
-    {"doc_type", "build_spec.version", "profile", "translations", "add_ons", "langs", "auto_gps_capture"}
+    {
+        "doc_type",
+        "build_spec.version",
+        "profile",
+        "translations",
+        "add_ons",
+        "langs",
+        "auto_gps_capture",
+        "cloudcare_enabled",
+    }
 )
 
 
@@ -82,7 +91,10 @@ def test_a_document_is_read_with_every_export_and_its_configuration(copied):
     for name, export in document.exports.items():
         assert export.configuration.name == name
         assert export.create.upload().body and export.content.upload().body and export.republish.upload().body
-    assert document.local_ccz is not None and document.local_again_ccz is not None
+    # A `.ccz` installs an app on Android, so the corpus writes a local archive exactly where D declares Android.
+    android = corpus.ANDROID in document.platforms()
+    assert (document.local_ccz is not None) == android
+    assert (document.local_again_ccz is not None) == android
     assert [language["tag"] for language in document.wire_languages], "every document has a language"
 
 
@@ -139,10 +151,11 @@ def test_a_configuration_grants_the_privileges_hq_derives_from_what_nova_sends(h
 
 
 # The privileges Nova's publish asks a person to confirm (``lib/commcare/planPrivileges.ts::requiredPlanPrivileges``),
-# by their ``corehq/privileges.py`` constants. Web Apps is not among them: Nova reads it after a publish and confirms
-# nothing about it, and the lane grants it to every app (``configurations._needs_cloudcare``).
+# by their ``corehq/privileges.py`` constants. Web Apps is among them for an app that declares it: Nova asks for the
+# plan feature and the lane grants it from the body's ``cloudcare_enabled`` (``configurations._needs_cloudcare``).
 PLAN_PRIVILEGES = frozenset(
     {
+        "CLOUDCARE",
         "USERCASE",
         "LOOKUP_TABLES",
         "CHILD_CASES",

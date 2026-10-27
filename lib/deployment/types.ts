@@ -22,6 +22,7 @@ import {
 	PLAN_FEATURE_IDS,
 	type PlanFeatureId,
 } from "@/lib/publish/planFeatures";
+import type { WebAppsChange } from "@/lib/publish/webApps";
 
 /* `z.enum` takes a non-empty tuple; the ids are a fixed, non-empty list. */
 export const PLAN_FEATURE_ID_LIST = PLAN_FEATURE_IDS as unknown as readonly [
@@ -214,10 +215,21 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	 */
 	"hq_confirmation_needed",
 	/**
+	 * The app's Web App setting on CommCare HQ differs from where the app
+	 * runs, and a person has not said to change it. Nothing was sent.
+	 */
+	"hq_web_apps_change",
+	/**
 	 * The app on CommCare HQ is set to a CommCare version below the one Nova's
 	 * apps need. Nothing of this publish's content was sent.
 	 */
 	"hq_app_version_below_floor",
+	/**
+	 * CommCare HQ made the new app with Web Apps off, which it does where the
+	 * plan has no Web Apps, for an app that runs in Web Apps. Only the empty
+	 * app was made, and the person's plan answer is withdrawn.
+	 */
+	"hq_plan_lacks_web_apps",
 	/** The released build did not serve the profile a device installs from. */
 	"build_not_installable",
 ] as const;
@@ -293,6 +305,8 @@ export interface DeploymentAttemptRefusal {
 	 * confirm about the project space before this publish goes ahead.
 	 */
 	readonly confirmationsNeeded: readonly DeploymentConfirmationNeeded[];
+	/** Non-null exactly for `hq_web_apps_change`. */
+	readonly webAppsChange: WebAppsChange | null;
 }
 
 /**
@@ -318,6 +332,8 @@ export interface DeploymentConfirmationNeeded {
 	readonly plans: string;
 	readonly consequence: string;
 	readonly reasons: readonly string[];
+	/** What a person can do where the project space lacks it, or null where Nova has nothing to offer. */
+	readonly whereMissing: string | null;
 }
 
 /** The subject a confirmation key is stored under. */
@@ -556,8 +572,6 @@ export interface DeploymentRecord {
 	readonly offeredLogoContentHash: string | null;
 	/** The target's USH_EMPTY_CASE_LIST_TEXT as the last publish read it; null until a publish has read it. */
 	readonly targetEmptyCaseListText: boolean | null;
-	/** HQ's cloudcare_enabled for the app as the last landed publish read it; null until a publish has read it. */
-	readonly targetWebAppsEnabled: boolean | null;
 }
 
 /** A deployment plus the resource mappings that belong to it. */

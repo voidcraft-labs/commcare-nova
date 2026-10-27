@@ -1,7 +1,8 @@
 /**
  * The publish dialog's read of where a CCZ can be made for, against real
- * Postgres: the Project gate, the ledger's reached deployments, and the
- * lines the stored document gives when no project space holds the app.
+ * Postgres: the Project gate, the ledger's reached deployments, the lines
+ * the stored document gives when no project space holds the app, and no
+ * target at all for an app that does not declare Android.
  */
 import { beforeEach, expect, it, vi } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -66,7 +67,6 @@ async function publish(server: "india" | "production", domain: string) {
 		pushedRevision: 0,
 		remoteRevision: 1,
 		uploadedAt: AT,
-		targetWebAppsEnabled: true,
 		baseline: {
 			origin: "unread",
 			remoteAppId: `${server}-${domain}-app`,
@@ -110,7 +110,7 @@ it("refuses a caller outside the app's Project as not found, reading no deployme
 });
 
 it("gives a viewer every reached project space and no lines", async () => {
-	await seed(nestedMenuWireFixture("parent-multiple"));
+	await seed(plainDoc());
 	await publish("india", "clinic");
 	await publish("production", "training");
 	const result = await readDownloadTargetsAction(APP);
@@ -122,22 +122,28 @@ it("gives a viewer every reached project space and no lines", async () => {
 				{ server: "production", domain: "training" },
 			]),
 			heldFromHq: [],
+			webAppsOnly: false,
 		},
 	});
 	if (result.success) expect(result.data.targets).toHaveLength(2);
 	expect(readReachedDeploymentTargets).toHaveBeenCalledOnce();
 });
 
+/* Each selection CommCare HQ cannot take chooses several cases, which
+ * Android can't run, so an app that holds one runs in Web Apps only and has
+ * no CCZ anywhere: the dialog says so rather than naming its menus. */
 it.each(["parent-multiple", "same-smaller"] as const)(
-	"names the menus of a %s selection for an app published nowhere",
+	"offers no CCZ target for a Web-Apps-only app (%s) and says why, whatever it reached",
 	async (scenario) => {
 		await seed(nestedMenuWireFixture(scenario));
-		const result = await readDownloadTargetsAction(APP);
-		if (!result.success) throw new Error(result.message);
-		expect(result.data.targets).toEqual([]);
-		expect(result.data.heldFromHq).toHaveLength(1);
-		expect(result.data.heldFromHq[0]).toContain('"Parents"');
-		expect(result.data.heldFromHq[0]).toContain('"Child care"');
+		for (const reach of [false, true]) {
+			if (reach) await publish("india", "clinic");
+			expect(await readDownloadTargetsAction(APP)).toEqual({
+				success: true,
+				data: { targets: [], heldFromHq: [], webAppsOnly: true },
+			});
+		}
+		expect(readReachedDeploymentTargets).not.toHaveBeenCalled();
 	},
 );
 
@@ -145,6 +151,6 @@ it("gives no lines for an app published nowhere that CommCare HQ can take", asyn
 	await seed(plainDoc());
 	expect(await readDownloadTargetsAction(APP)).toEqual({
 		success: true,
-		data: { targets: [], heldFromHq: [] },
+		data: { targets: [], heldFromHq: [], webAppsOnly: false },
 	});
 });

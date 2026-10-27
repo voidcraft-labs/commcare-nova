@@ -58,11 +58,15 @@ from proof.rules import normalized
 # The check the comparisons name (a known one; the differences are compared here, never reported).
 CHECK = "proof4"
 # Every corpus document a rule's test reads, by id, and no other: ``rule_documents`` hands a test these alone.
+# ``case-list-local`` is the case list fixture's list-first scenario, the same "Visit" form as ``case-list-inline``
+# on both platforms, so ``test_xpath_reading.py`` reads its local archive; ``case-list-inline`` runs in Web Apps
+# only and has none, and stays for ``test_stored_position_keys.py``, which publishes it.
 DOCUMENTS = (
     "arithmetic",
     "case-capture-repeat",
     "case-extension-registration",
     "case-list-inline",
+    "case-list-local",
     "case-operation-sequence",
     "expander-conditional-required-generates-required-xpath-ae4797f7-0",
     "nested-menu-parent",
@@ -96,6 +100,18 @@ def rule_documents():
             " own tests build. Name documents the corpus holds."
         )
     return _Named({document_id: found[document_id] for document_id in DOCUMENTS})
+
+
+@pytest.fixture(scope="session")
+def android_rule_documents(rule_documents):
+    """The documents of ``DOCUMENTS`` that declare Android, by id: Nova makes a local archive of these alone (a
+    ``.ccz`` installs an app on Android), and a test of their archives reads the declaration here, where the
+    package reads the corpus."""
+    from proof.checks.corpus import ANDROID
+
+    return {
+        document_id: document for document_id, document in rule_documents.items() if ANDROID in document.platforms()
+    }
 
 
 def rewritten(change=None):

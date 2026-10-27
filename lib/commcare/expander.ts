@@ -66,6 +66,7 @@ import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
+	declaresWebApps,
 	effectivePostSubmit,
 	makeTranslationUnitId,
 	moduleParent,
@@ -586,6 +587,7 @@ export function expandDoc(
 	const derivedProfile = derivedProfileProperties(doc);
 	const serialized = serializeHqApplication(
 		applicationShell(doc.appName, modules, attachments, {
+			cloudcareEnabled: declaresWebApps(doc),
 			...appLevelValues(doc, localization),
 			profileProperties: appProfileProperties(authoredDoc),
 			...(Object.keys(derivedProfile).length > 0 && {
@@ -701,7 +703,10 @@ export function expandAppShell(doc: BlueprintDoc): HqAppShell {
 			doc.appName,
 			[],
 			{},
-			appLevelValues(doc, commCareLocalization(doc)),
+			{
+				cloudcareEnabled: declaresWebApps(doc),
+				...appLevelValues(doc, commCareLocalization(doc)),
+			},
 		),
 	);
 	const shell: Partial<Record<AppShellKey, unknown>> = {};

@@ -31,7 +31,8 @@ never stores.
 
 The documents are two of Nova's own publish-test apps
 (``publishCaptureDocuments.ts``); each capture runs under its minimum
-configuration, read from the capture's ``outcome.json``. The capture is
+configuration, read from the capture's ``outcome.json``, with Web Apps where
+the content declares it, as the lane and the capture's peer grant it. The capture is
 Nova's TypeScript, so it is produced where Nova's ``node_modules`` are
 (``proof.native.produce``): read from the products the lane's corpus carries
 (CI's shards mount no ``node_modules``), or produced here when it carries
@@ -50,7 +51,16 @@ from proof.native import produce
 
 # The fields of HQ's source a captured update is built over (``proof/corpus/publish.ts::AssumedSource``).
 ASSUMED_SOURCE_FIELDS = frozenset(
-    {"doc_type", "build_spec.version", "profile", "translations", "add_ons", "langs", "auto_gps_capture"}
+    {
+        "doc_type",
+        "build_spec.version",
+        "profile",
+        "translations",
+        "add_ons",
+        "langs",
+        "auto_gps_capture",
+        "cloudcare_enabled",
+    }
 )
 
 
@@ -78,10 +88,16 @@ def _upload(directory, name):
 
 
 def _configuration(directory):
-    """The configuration the capture ran under, as the harness's configuration."""
+    """The configuration the capture ran under, as the harness's configuration: its flags, case search and
+    project space, and Web Apps where the content declares it, as the lane grants it
+    (``proof/checks/configurations.py::_needs_cloudcare``) and the capture's peer did (its shell source's
+    ``cloudcare_enabled``, ``proof/corpus/publish.ts``)."""
     captured = json.loads((directory / "outcome.json").read_text())["configuration"]
+    content, _ = _upload(directory, "content.import")
+    web_apps = json.loads(operations.upload_field(content, "app_file")).get("cloudcare_enabled") is not False
     return Configuration(
         flags=frozenset(captured["flags"]),
+        privileges=frozenset({"CLOUDCARE"} if web_apps else ()),
         case_search_enabled=captured["case_search_enabled"],
         domain=captured["domain"],
     )

@@ -9,6 +9,7 @@ import {
 	HQ_CHANGED_MESSAGE,
 	LOOKUP_ADOPTION_NOTE,
 } from "@/lib/deployment/remoteChanges";
+import { WEB_APPS_ONLY_HAS_NO_CCZ } from "@/lib/deployment/runtimeTarget";
 import { buildSetupArtifact } from "@/lib/deployment/setupArtifact";
 import {
 	type DeploymentConfirmationNeeded,
@@ -24,7 +25,7 @@ import {
 	FLAT_LOCATION_FIXTURE,
 	LOGO_UPLOAD_STEP_TEXT,
 	PLAN_FEATURES,
-	webAppsOffText,
+	webAppsWhereMissing,
 } from "@/lib/publish/planFeatures";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import {
@@ -32,8 +33,18 @@ import {
 	PROJECT_SPACE_COMPATIBILITY_DOCS_URL,
 	PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL,
 } from "@/lib/publish/projectSpaceCompatibility";
+import {
+	WEB_APPS_CHANGE_HEADING,
+	webAppsChangeMessage,
+} from "@/lib/publish/webApps";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
+
+/* What a person can do where the plan lacks Web Apps, for an app nothing keeps off Android. */
+const WEB_APPS_WHERE_MISSING = webAppsWhereMissing({
+	open: true,
+	features: [],
+});
 
 let peer: Awaited<ReturnType<typeof componentPeer>>;
 test.use({ actionTimeout: 10_000 });
@@ -97,6 +108,7 @@ async function open(page: Page, query = "") {
 				data: {
 					targets: [{ server: "india", domain: "alpha" }],
 					heldFromHq: [],
+					webAppsOnly: false,
 				},
 			},
 		}),
@@ -142,6 +154,7 @@ const refusal = {
 		],
 		remoteChanges: [],
 		confirmationsNeeded: [],
+		webAppsChange: null,
 	},
 	preview_project_space: null,
 } satisfies PublishResponseBody;
@@ -206,6 +219,7 @@ test("native publish lists what changed in CommCare HQ, publishes over each tick
 			resourceConflicts: [],
 			remoteChanges: [...remoteChanges],
 			confirmationsNeeded: [],
+			webAppsChange: null,
 		},
 		preview_project_space: null,
 	} satisfies PublishResponseBody;
@@ -632,7 +646,6 @@ test("native publish to the empty app an earlier try made says it fills it in, a
 				lastObservedAt: null,
 				offeredLogoContentHash: null,
 				targetEmptyCaseListText: null,
-				targetWebAppsEnabled: null,
 			},
 			active: [
 				{
@@ -662,7 +675,6 @@ test("native publish to the empty app an earlier try made says it fills it in, a
 			domain: "alpha",
 			hqAppId: null,
 			locations: [],
-			targetWebAppsEnabled: null,
 		}),
 		leftBehind: [],
 	};
@@ -714,12 +726,14 @@ test("native CCZ download is made for a project space the app is published to", 
 		return route.fulfill({ json: { ok: true } });
 	});
 	async function targets(
-		data: { targets: unknown[]; heldFromHq: string[] },
+		data: { targets: unknown[]; heldFromHq: string[]; webAppsOnly?: boolean },
 		query = "",
 	) {
 		await open(page, query);
 		await page.route("**/publishing/download-targets", (route) =>
-			route.fulfill({ json: { success: true, data } }),
+			route.fulfill({
+				json: { success: true, data: { webAppsOnly: false, ...data } },
+			}),
 		);
 		await page.keyboard.press("Escape");
 		await page
@@ -803,7 +817,10 @@ test("native CCZ offers the project space a publish just reached, without reopen
 	await open(page);
 	await page.route("**/publishing/download-targets", (route) =>
 		route.fulfill({
-			json: { success: true, data: { targets: [], heldFromHq: [] } },
+			json: {
+				success: true,
+				data: { targets: [], heldFromHq: [], webAppsOnly: false },
+			},
 		}),
 	);
 	await page.keyboard.press("Escape");
@@ -828,6 +845,7 @@ test("native CCZ offers the project space a publish just reached, without reopen
 				data: {
 					targets: [{ server: "india", domain: "alpha" }],
 					heldFromHq: [],
+					webAppsOnly: false,
 				},
 			},
 		}),
@@ -856,6 +874,7 @@ test("native import file download lists the guide's steps once the file arrives"
 		capabilities: [],
 		planFeatures: [],
 		logo: null,
+		runsInWebApps: true,
 		readsLocations: false,
 		sendsToConnect: false,
 		distanceSearches: [],
@@ -928,7 +947,6 @@ function landedView(
 				lastObservedAt: null,
 				offeredLogoContentHash: null,
 				targetEmptyCaseListText: null,
-				targetWebAppsEnabled: true,
 			},
 			active: [],
 			superseded: [],
@@ -940,13 +958,12 @@ function landedView(
 			domain: "alpha",
 			hqAppId: null,
 			locations: [],
-			targetWebAppsEnabled: null,
 		}),
 		leftBehind: [],
 	};
 }
 
-test("native publish asks for each plan feature and project-space setting before the first press, holds Upload until each is ticked, and lands with the Web Apps line and the logo step", async ({
+test("native publish asks for each plan feature and project-space setting before the first press, holds Upload until each is ticked, and lands with the logo step", async ({
 	page,
 }) => {
 	const sent: Record<string, unknown>[] = [];
@@ -960,8 +977,15 @@ test("native publish asks for each plan feature and project-space setting before
 				confirmations: {
 					plan_features: [
 						{
+							...PLAN_FEATURES["web-apps"],
+							reasons: ["This app runs in Web Apps."],
+							where_missing: WEB_APPS_WHERE_MISSING,
+							state: "needs_confirmation",
+						},
+						{
 							...PLAN_FEATURES["worker-records"],
 							reasons: ["Visit reads worker information."],
+							where_missing: null,
 							state: "needs_confirmation",
 						},
 					],
@@ -971,12 +995,14 @@ test("native publish asks for each plan feature and project-space setting before
 						reasons: [
 							"Visit sets a case's owner from a place in your organization.",
 						],
+						where_missing: FLAT_LOCATION_FIXTURE.whereMissing,
 						state: "needs_confirmation",
 					},
 					connect_forwarder: {
 						label: CONNECT_FORWARDER.label,
 						consequence: CONNECT_FORWARDER.consequence,
 						reasons: ["Visit sends a deliver unit to CommCare Connect."],
+						where_missing: CONNECT_FORWARDER.whereMissing,
 						state: "needs_confirmation",
 					},
 				},
@@ -993,7 +1019,6 @@ test("native publish asks for each plan feature and project-space setting before
 				warnings: [],
 				deployment: null,
 				preview_project_space: "alpha",
-				web_apps_enabled: false,
 				logo_step: {
 					assetId: "asset-logo",
 					fileName: "logo.png",
@@ -1017,7 +1042,15 @@ test("native publish asks for each plan feature and project-space setting before
 	await expect(
 		page.getByText(FLAT_LOCATION_FIXTURE.question("alpha"), { exact: true }),
 	).toBeVisible();
+	await expect(
+		page.getByText(WEB_APPS_WHERE_MISSING, { exact: true }),
+	).toBeVisible();
 	await expect(upload).toBeDisabled();
+	await page
+		.getByRole("checkbox", {
+			name: "This project space has it Web-Based Apps (CloudCare)",
+		})
+		.check();
 	await page
 		.getByRole("checkbox", {
 			name: "This project space has it Worker records (user cases)",
@@ -1033,13 +1066,11 @@ test("native publish asks for each plan feature and project-space setting before
 	await expect(upload).toBeEnabled();
 	await upload.click();
 	await expect(
-		page.getByText(webAppsOffText("alpha"), { exact: true }),
-	).toBeVisible();
-	await expect(
 		page.getByText(LOGO_UPLOAD_STEP_TEXT, { exact: true }),
 	).toBeVisible();
 	expect(sent).toHaveLength(1);
 	expect(sent[0].confirm).toEqual([
+		{ kind: "plan-feature", subject: "web-apps" },
 		{ kind: "plan-feature", subject: "worker-records" },
 		{ kind: "flat-location-fixture" },
 		{ kind: "connect-forwarder" },
@@ -1063,6 +1094,7 @@ test("native publish answers a confirmation refusal with the same rows, and With
 		plans: PLAN_FEATURES["lookup-tables"].plans,
 		consequence: PLAN_FEATURES["lookup-tables"].consequence,
 		reasons: ["The app reads data from a lookup table."],
+		whereMissing: null,
 	};
 	await page.route("**/api/commcare/upload", (route) => {
 		sent.push(route.request().postDataJSON());
@@ -1082,6 +1114,7 @@ test("native publish answers a confirmation refusal with the same rows, and With
 								resourceConflicts: [],
 								remoteChanges: [],
 								confirmationsNeeded: [lookupTables],
+								webAppsChange: null,
 							},
 							preview_project_space: null,
 						} satisfies PublishResponseBody)
@@ -1100,7 +1133,6 @@ test("native publish answers a confirmation refusal with the same rows, and With
 							]).deployment,
 							setup_artifact: landedView([]).artifact,
 							preview_project_space: "alpha",
-							web_apps_enabled: true,
 							logo_step: null,
 						} satisfies PublishResponseBody),
 		});
@@ -1125,9 +1157,6 @@ test("native publish answers a confirmation refusal with the same rows, and With
 	expect(sent[1]).toMatchObject({
 		confirm: [{ kind: "plan-feature", subject: "lookup-tables" }],
 	});
-	await expect(
-		page.getByText(webAppsOffText("alpha"), { exact: true }),
-	).toHaveCount(0);
 	await page
 		.getByRole("button", { name: "Withdraw Lookup Tables", exact: true })
 		.click();
@@ -1153,6 +1182,7 @@ test("native publish answers a confirmation refusal with the same rows, and With
 						{
 							...lookupTables,
 							id: "lookup-tables",
+							where_missing: null,
 							state: "needs_confirmation",
 						},
 					],
@@ -1191,6 +1221,7 @@ test("native publish below the CommCare version floor links to the app whose set
 					resourceConflicts: [],
 					remoteChanges: [],
 					confirmationsNeeded: [],
+					webAppsChange: null,
 				},
 				url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
 				preview_project_space: null,
@@ -1228,6 +1259,7 @@ test("native publish says what taking a table over does, and shows a table HQ ho
 				resourceConflicts: [],
 				remoteChanges: [],
 				confirmationsNeeded: [],
+				webAppsChange: null,
 			},
 			preview_project_space: null,
 		},
@@ -1246,4 +1278,102 @@ test("native publish says what taking a table over does, and shows a table HQ ho
 	await expect(page.getByText(line, { exact: true })).toBeVisible();
 	// Neither an adoption nor a discard keeps the content, so nothing is offered.
 	await expect(page.getByRole("checkbox")).toHaveCount(0);
+});
+
+test("native publish asks before turning Web Apps on for the app, holds Upload until it is ticked, and sends the answer with the next upload", async ({
+	page,
+}) => {
+	const sent: Record<string, unknown>[] = [];
+	const change = { from: false, to: true, changedInHq: true };
+	const message = webAppsChangeMessage("alpha", change);
+	await page.route("**/api/commcare/upload", (route) => {
+		sent.push(route.request().postDataJSON());
+		return route.fulfill({
+			json:
+				sent.length === 1
+					? ({
+							success: false,
+							refusal: {
+								phase: "preflight",
+								failure: {
+									code: "hq_web_apps_change",
+									message,
+									details: [],
+								},
+								resourceConflicts: [],
+								remoteChanges: [],
+								confirmationsNeeded: [],
+								webAppsChange: change,
+							},
+							preview_project_space: null,
+						} satisfies PublishResponseBody)
+					: ({
+							success: true,
+							hq_app_action: "updated",
+							url: "https://www.commcarehq.org/a/alpha/apps/view/hq-app/",
+							warnings: [],
+							deployment: null,
+							preview_project_space: "alpha",
+						} satisfies PublishResponseBody),
+		});
+	});
+	await open(page);
+	const upload = page.getByRole("button", { name: "Upload", exact: true });
+	await upload.click();
+	await expect(
+		page.getByRole("heading", { name: WEB_APPS_CHANGE_HEADING, exact: true }),
+	).toBeVisible();
+	const answer = page.getByRole("checkbox", {
+		name: "Turn Web Apps on for this app",
+		exact: true,
+	});
+	await expect(answer).not.toBeChecked();
+	await expect(upload).toBeDisabled();
+	await answer.check();
+	await expect(upload).toBeEnabled();
+	await upload.click();
+	await expect(
+		page.getByText("Your app is updated on CommCare HQ", { exact: true }),
+	).toBeVisible();
+	expect(sent).toHaveLength(2);
+	expect(sent[0]).not.toHaveProperty("confirmWebApps");
+	expect(sent[1]).toMatchObject({ confirmWebApps: true });
+});
+
+test("native CCZ of an app that runs in Web Apps only says why there is none", async ({
+	page,
+}) => {
+	await open(page);
+	await page.route("**/publishing/download-targets", (route) =>
+		route.fulfill({
+			json: {
+				success: true,
+				data: { targets: [], heldFromHq: [], webAppsOnly: true },
+			},
+		}),
+	);
+	await page.keyboard.press("Escape");
+	await page.getByRole("button", { name: "Open publish", exact: true }).click();
+	/* The option stays offered and selectable: choosing it says why. */
+	await choose(page, "Publish option", "CommCare mobile app file");
+	await expect(
+		page.getByText(WEB_APPS_ONLY_HAS_NO_CCZ, { exact: true }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("combobox", { name: "Project space", exact: true }),
+	).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: "Download CCZ", exact: true }),
+	).toHaveCount(0);
+	await expect(
+		page.getByRole("button", { name: "Publish to CommCare HQ", exact: true }),
+	).toHaveCount(0);
+	/* The footer offers Close in place of the actions; the header's X shares
+	 * that name, so the assertion reads the footer. */
+	await expect(
+		page
+			.getByRole("dialog")
+			.locator('[data-slot="dialog-footer"]')
+			.getByRole("button", { name: "Close", exact: true }),
+	).toBeVisible();
 });

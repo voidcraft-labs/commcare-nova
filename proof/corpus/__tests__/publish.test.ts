@@ -73,8 +73,9 @@ it("sends under the document's minimum configuration and refuses without any one
 	// link.
 	expect(minimum.flags).toEqual(["SYNC_SEARCH_CASE_CLAIM"]);
 	// The plan privileges the publish asks to be confirmed, by the constant
-	// each gate entry's surface key names: the document reads a lookup table.
-	expect(verdict.planPrivileges).toEqual(["LOOKUP_TABLES"]);
+	// each gate entry's surface key names: the document runs in Web Apps and
+	// reads a lookup table.
+	expect(verdict.planPrivileges).toEqual(["CLOUDCARE", "LOOKUP_TABLES"]);
 	expect(minimum.caseSearchEnabled).toBe(true);
 	expect(minimum.domain).toBe(PROOF_DOMAIN);
 

@@ -35,6 +35,7 @@ import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	type BlueprintDoc,
+	declaresWebApps,
 	locationPropertiesOf,
 	organizationLevelsOf,
 } from "@/lib/domain";
@@ -43,7 +44,15 @@ import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganization } from "@/lib/organization/service";
 import type { StoredLocation } from "@/lib/organization/types";
+import type { PlatformNarrowing } from "@/lib/publish/planFeatures";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
+import {
+	planLacksWebAppsMessage,
+	webAppsChangeMessage,
+	webAppsCheckAnsweredDetail,
+	webAppsCheckMatchesDetail,
+	webAppsCheckNoContentDetail,
+} from "@/lib/publish/webApps";
 import { mapWithConcurrency } from "@/lib/utils/concurrency";
 import { attachmentUrlTarget } from "./attachmentTarget";
 import {
@@ -108,6 +117,7 @@ import type {
 	RemoteChangeDiscard,
 	ResourceBaseline,
 } from "./types";
+import { type WebAppsChange, webAppsChange } from "./webApps";
 import { describeRequiredWorkerDataGaps } from "./workerProvisionPlan";
 import { workerRecordSetup } from "./workerRecordRequirements";
 
@@ -160,6 +170,7 @@ export const PREFLIGHT_CHECK_IDS = [
 	"project-space-compatibility",
 	"target-app",
 	"hq-changes",
+	"web-apps",
 	"required-worker-data",
 	"worker-record-access",
 ] as const;
@@ -282,6 +293,8 @@ export type PreflightResult =
 			readonly remoteChanges?: readonly DeploymentRemoteChange[];
 			/** What a person has to confirm, listed exactly when the refusal is `hq_confirmation_needed`. */
 			readonly confirmationsNeeded?: readonly DeploymentConfirmationNeeded[];
+			/** The Web Apps question, exactly when the refusal is `hq_web_apps_change`. */
+			readonly webAppsChange?: WebAppsChange;
 	  };
 
 /** The tables to push, and what Nova may claim about each. */
@@ -342,6 +355,11 @@ export interface PreflightInput {
 	 * defaulted from an earlier attempt.
 	 */
 	readonly confirm: readonly DeploymentConfirmationKey[];
+	/**
+	 * The Web App setting a person agreed to write after an
+	 * `hq_web_apps_change` refusal. Never defaulted from an earlier attempt.
+	 */
+	readonly confirmWebApps: boolean | undefined;
 	readonly access: {
 		/** The app whose organization this reads. Authorized by the caller. */
 		readonly appId: string;
@@ -437,6 +455,7 @@ function blockedOutcome(
 		| "remote_app_missing"
 		| "hq_changed"
 		| "hq_confirmation_needed"
+		| "hq_web_apps_change"
 		| "hq_app_version_below_floor",
 	message: string,
 	details: readonly string[] = [],
@@ -1322,6 +1341,61 @@ export async function runDeploymentPreflight(
 		items: verdict.confirmed.map((change) => change.name),
 	});
 
+	// ── 8b. Does the app's Web App setting on HQ match where it runs? ──
+	// Blocking, after `hq-changes` because a person decides a drift discard
+	// over the app first, and before every write. It asks CommCare HQ
+	// nothing more: the read it judges is step 7's. A first publish, or the
+	// recreate after HQ reported the app gone, has no target app yet, and
+	// its fill writes the declaration.
+	if (targetApp === null) {
+		checks.push({
+			id: "web-apps",
+			title: "Web Apps",
+			status: "passed",
+			detail: webAppsCheckNoContentDetail(domain),
+			items: [],
+		});
+	} else {
+		const declares = declaresWebApps(boundary.prepared.doc);
+		const held = targetApp.source.cloudcareEnabled;
+		const change = webAppsChange({
+			declaresWebApps: declares,
+			held,
+			baseline: appBaseline,
+			confirmWebApps: input.confirmWebApps,
+		});
+		if (change !== null) {
+			const detail = webAppsChangeMessage(domain, change);
+			checks.push({
+				id: "web-apps",
+				title: "Web Apps",
+				status: "blocked",
+				detail,
+				items: [],
+			});
+			return {
+				checks,
+				outcome: blockedOutcome(input.now, "hq_web_apps_change", detail),
+				ready: null,
+				projectSpaceCompatibility,
+				conflicts: [],
+				webAppsChange: change,
+			};
+		}
+		checks.push({
+			id: "web-apps",
+			title: "Web Apps",
+			status: "passed",
+			detail:
+				appBaseline?.origin === "create"
+					? webAppsCheckNoContentDetail(domain)
+					: held === declares
+						? webAppsCheckMatchesDetail(domain)
+						: webAppsCheckAnsweredDetail(domain, declares),
+			items: [],
+		});
+	}
+
 	// ── 9. Will the workers you create there have what they need? ───
 	// Attention rather than blocking: a publish creates no workers, so
 	// refusing it over a gap would refuse a publish that would have
@@ -1656,6 +1730,27 @@ export function versionBelowFloorFailure(
 		message: createdApp
 			? `${opening} Nova created the app there and will fill it in on the next publish.`
 			: `${opening} Saving that page can also set the app's other settings there, so Nova may show you what changed before it publishes.`,
+		details: [],
+	};
+}
+
+/**
+ * The refusal for a first publish whose new app CommCare HQ made with Web
+ * Apps off, for an app that runs in Web Apps: HQ's create answered the plan
+ * question from the plan itself. `narrowing` is the app's narrowing to
+ * Android, so the message offers it only where the content allows it.
+ */
+export function planLacksWebAppsFailure(
+	domain: string,
+	narrowing: PlatformNarrowing,
+): {
+	readonly code: "hq_plan_lacks_web_apps";
+	readonly message: string;
+	readonly details: readonly string[];
+} {
+	return {
+		code: "hq_plan_lacks_web_apps",
+		message: planLacksWebAppsMessage(domain, narrowing),
 		details: [],
 	};
 }

@@ -26,7 +26,7 @@ import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import { parser } from "@/lib/commcare/xpath/parser";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { type BlueprintDoc, proseText } from "@/lib/domain";
+import { type BlueprintDoc, NEW_APP_SETTINGS, proseText } from "@/lib/domain";
 import { eq, fixedLocation, literal, term } from "@/lib/domain/expression";
 import {
 	PLAN_FEATURE_IDS,
@@ -166,6 +166,8 @@ function markers(hq: HqApplication): {
 } {
 	const privileges = new Set<HqPlanPrivilegeId>();
 	let itemset = false;
+	/* Web Apps lists an app by its `cloudcare_enabled` (`get_web_apps_available_to_user`). */
+	if (hq.cloudcare_enabled === true) privileges.add("cloudcare");
 	for (const module of hq.modules) {
 		for (const form of module.forms) {
 			if (Object.keys(form.actions.usercase_update.update).length > 0) {
@@ -382,7 +384,7 @@ describe("requiredPlanPrivileges over the fuzz corpora", () => {
 });
 
 describe("plan features", () => {
-	it("maps the seven privileges one to one onto the seven plan features", () => {
+	it("maps the eight privileges one to one onto the eight plan features", () => {
 		const features = HQ_PLAN_PRIVILEGE_IDS.map(
 			(id) => PLAN_FEATURE_FOR_PRIVILEGE[id],
 		);
@@ -429,7 +431,10 @@ describe("plan features", () => {
 	});
 
 	it("asks nothing of an app that needs no plan feature", () => {
-		expect(requiredPlanPrivileges(buildDoc({}), NO_PUSHES, TARGET)).toEqual([]);
+		const android = buildDoc({
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
+		});
+		expect(requiredPlanPrivileges(android, NO_PUSHES, TARGET)).toEqual([]);
 		expect(formsUsingWorkerRecord(buildDoc({}))).toEqual([]);
 	});
 });
@@ -442,6 +447,27 @@ describe("each privilege's reasons", () => {
 	) =>
 		requiredPlanPrivileges(doc, pushes, TARGET).find((use) => use.id === id)
 			?.reasons;
+
+	it("asks for Web-Based Apps for an app that declares Web Apps, with one reason, and not for an Android-only app", () => {
+		for (const runsOnlyOn of [undefined, "web-apps"] as const) {
+			const doc = buildDoc({
+				appSettings: {
+					...NEW_APP_SETTINGS,
+					...(runsOnlyOn !== undefined && { runsOnlyOn }),
+				},
+			});
+			expect(reasonsOf(doc, "cloudcare")).toEqual([
+				"This app runs in Web Apps.",
+			]);
+			expect(requiredPlanPrivileges(doc, NO_PUSHES, TARGET)[0]?.id).toBe(
+				"cloudcare",
+			);
+		}
+		const android = buildDoc({
+			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "android" },
+		});
+		expect(reasonsOf(android, "cloudcare")).toBeUndefined();
+	});
 
 	it("names each form that reads, saves, or reads and saves the worker's record, in form order", () => {
 		const reads = () =>

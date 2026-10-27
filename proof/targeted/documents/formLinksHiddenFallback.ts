@@ -126,7 +126,7 @@ export function formLinksHiddenFallback() {
 		rows: ["26"],
 		doc,
 		expected: {
-			intent: [answerHeld("note-held", source, "/data/note", "fed")],
+			intent: [answerHeld("note-held", source, "/data/note", "fed", "A")],
 		},
 	});
 }

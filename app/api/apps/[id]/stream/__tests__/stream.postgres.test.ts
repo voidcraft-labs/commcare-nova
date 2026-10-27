@@ -922,7 +922,6 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 					ownership: "nova-created",
 					pushedRevision: 1,
 					uploadedAt: at,
-					targetWebAppsEnabled: true,
 					remoteRevision: null,
 					baseline: {
 						origin: "unread",

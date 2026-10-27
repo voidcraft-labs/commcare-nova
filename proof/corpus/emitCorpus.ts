@@ -22,6 +22,7 @@
  *                                     lookups and media (.body + .json), and
  *                                     outcome.json
  *   <out>/<id>/local.ccz, local-again.ccz
+ *                                     only where D declares Android
  *   <out>/<id>/import-file.zip        the HQ import file for D, as
  *                                     `/api/compile/json` builds it
  *   <out>/<id>/edit/batch.json        the batch, its kinds, touched entities
@@ -30,7 +31,7 @@
  *   <out>/<id>/edit/verdict.json      Nova's publish verdict for D′
  *   <out>/<id>/edit/export/<config>/  update (with lookups and media), and
  *                                     outcome.json
- *   <out>/<id>/edit/local.ccz
+ *   <out>/<id>/edit/local.ccz         only where D′ declares Android
  *   <out>/<id>/inputs.json            the document's input manifest
  *
  * `<config>` is `minimum`, `maximum`, or a single-flag configuration's flag
@@ -76,7 +77,11 @@ import {
 import type { ValidationError } from "@/lib/commcare/validator/errors";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	declaresAndroid,
+} from "@/lib/domain";
 import { type MediaSlotKind, walkAssetRefs } from "@/lib/domain/mediaRefs";
 import { mediaAssetIdSchema } from "@/lib/domain/multimedia";
 import {
@@ -290,7 +295,12 @@ async function refusal(
 ): Promise<Pick<RefusedDocument, "by" | "codes"> | undefined> {
 	const publish = publishFindings(doc, source.lookup);
 	if (publish.length > 0) return { by: "publish", codes: codes(publish) };
-	for (const mode of ["hq-upload", "ccz"] as const) {
+	/* The local export is checked only for a document that declares Android:
+	 * Nova offers no `.ccz` of one that does not, so it stays in the corpus. */
+	const modes = declaresAndroid(doc)
+		? (["hq-upload", "ccz"] as const)
+		: (["hq-upload"] as const);
+	for (const mode of modes) {
 		const findings = await exportFindings(source, mode);
 		if (findings.length > 0) return { by: mode, codes: codes(findings) };
 	}

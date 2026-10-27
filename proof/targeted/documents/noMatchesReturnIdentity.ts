@@ -105,7 +105,7 @@ export function noMatchesReturnIdentity() {
 		edit,
 		expected: {
 			intent: [
-				answerHeld("note-held", uuid("visit"), "/data/note", "seen", "local", {
+				answerHeld("note-held", uuid("visit"), "/data/note", "seen", "A", {
 					command: "m0-f0",
 					caseId: "targeted-patient",
 				}),

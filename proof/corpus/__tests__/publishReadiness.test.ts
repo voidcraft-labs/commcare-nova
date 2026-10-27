@@ -292,5 +292,8 @@ it("stops the publish and the download of a document the boundary refuses, and l
 		(await capturePublish({ create: accepted, updates: [], configuration }))
 			.status,
 	).toBe("sent");
-	expect((await localCcz(accepted, PROOF_DOMAIN)).length).toBeGreaterThan(0);
+	const archive = await localCcz(accepted, PROOF_DOMAIN);
+	if (archive === null)
+		throw new Error("The app declares Android, and has no CCZ.");
+	expect(archive.length).toBeGreaterThan(0);
 });

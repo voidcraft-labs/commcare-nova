@@ -49,7 +49,12 @@ import {
 	LOGO_UPLOAD_STEP_TEXT,
 	PLAN_FEATURE_IDS,
 	PLAN_FEATURES,
+	webAppsWhereMissing,
 } from "@/lib/publish/planFeatures";
+import {
+	planLacksWebAppsMessage,
+	webAppsChangeMessage,
+} from "@/lib/publish/webApps";
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { loadAppBlueprint } from "../loadApp";
 import { registerUploadAppToHq } from "../tools/uploadAppToHq";
@@ -1087,7 +1092,6 @@ it("offers a logo only the logo uses for upload in CommCare HQ, and sends it in 
 			expect(result).toMatchObject({
 				stage: "upload_complete",
 				warnings: [],
-				web_apps_enabled: true,
 				logo_step: {
 					asset_id: image,
 					file_name: "logo.png",
@@ -1126,11 +1130,22 @@ it("names what a person has to confirm structurally, and sends nothing until the
 				confirmations_needed: [
 					{
 						kind: "plan-feature",
+						subject: "web-apps",
+						label: PLAN_FEATURES["web-apps"].label,
+						plans: PLAN_FEATURES["web-apps"].plans,
+						consequence: PLAN_FEATURES["web-apps"].consequence,
+						reasons: ["This app runs in Web Apps."],
+						/* Nothing in the app keeps it off Android. */
+						where_missing: webAppsWhereMissing({ open: true, features: [] }),
+					},
+					{
+						kind: "plan-feature",
 						subject: "lookup-tables",
 						label: PLAN_FEATURES["lookup-tables"].label,
 						plans: PLAN_FEATURES["lookup-tables"].plans,
 						consequence: PLAN_FEATURES["lookup-tables"].consequence,
 						reasons: ["The app reads data from a lookup table."],
+						where_missing: null,
 					},
 				],
 			});
@@ -1138,6 +1153,82 @@ it("names what a person has to confirm structurally, and sends nothing until the
 		expect(requests(peer)).toEqual([]);
 	});
 	expect(await snapshot()).toEqual({ deployments: [], resources: [] });
+});
+
+/** HQ's retained read, with the app's Web App setting as a case names it. */
+function webAppsSource(peer: MockAgent, enabled: boolean, shell = false) {
+	const answer = retainedPublishRead(shell ? "source-shell" : "source-live");
+	replyRetained(request(peer, SOURCE), {
+		...answer,
+		body: { ...retainedBodyJson(answer), cloudcare_enabled: enabled },
+	});
+}
+
+it("answers hq_web_apps_change structurally and lands with confirm_web_apps", async () => {
+	await seed();
+	await withHttpPeer(async (peer) => {
+		shellCreated(peer);
+		imported(peer);
+		await asUser(async (client) => {
+			const first = body(await call(client));
+			expect(Object.hasOwn(first, "web_apps_enabled")).toBe(false);
+
+			/* Someone turned the setting off in CommCare HQ since. */
+			webAppsSource(peer, false);
+			const asked = body(await call(client), true);
+			expect(asked).toEqual({
+				error_type: "hq_web_apps_change",
+				message: webAppsChangeMessage("clinic", {
+					from: false,
+					to: true,
+					changedInHq: true,
+				}),
+				app_id: APP,
+				web_apps_change: { from: false, to: true, changed_in_hq: true },
+			});
+
+			webAppsSource(peer, false);
+			imported(peer);
+			const answered = body(await call(client, { confirm_web_apps: true }));
+			expect(answered).toMatchObject({ stage: "upload_complete" });
+			expect(Object.hasOwn(answered, "web_apps_enabled")).toBe(false);
+		});
+	});
+});
+
+it("answers hq_plan_lacks_web_apps with its message and keeps the empty app", async () => {
+	await seed();
+	await withHttpPeer(async (peer) => {
+		request(peer, IMPORT, "POST").reply(201, {
+			success: true,
+			app_id: "working-app",
+			version: 1,
+		});
+		webAppsSource(peer, false, true);
+		await asUser(async (client) => {
+			const refused = body(await call(client), true);
+			expect(refused).toEqual({
+				error_type: "hq_plan_lacks_web_apps",
+				message: planLacksWebAppsMessage("clinic", {
+					open: true,
+					features: [],
+				}),
+				app_id: APP,
+			});
+		});
+		expect(requests(peer)).toEqual([
+			PROJECT_SPACES,
+			`POST ${HOST}${IMPORT}`,
+			`GET ${HOST}${SOURCE}`,
+		]);
+	});
+	const kept = await state();
+	expect(kept?.active).toEqual([
+		expect.objectContaining({ kind: "app", remoteId: "working-app" }),
+	]);
+	expect(kept?.confirmations.map((row) => row.subject)).not.toContain(
+		"web-apps",
+	);
 });
 
 it("refuses a target app below the CommCare version floor with its address", async () => {
