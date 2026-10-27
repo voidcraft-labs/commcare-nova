@@ -4000,7 +4000,25 @@ Opus and a WebM, each in a slot of its kind), maps each zip entry to the form
 path HQ derives, stores exactly the uploaded bytes and records the project
 space as each file's owner. Every form HQ sends to Formplayer on the way must
 be one Core certified, and Formplayer's own controller validates it.
-`MediaRuntimeTest` then resolves prompts and image maps over both paths, and
+
+Three more scenarios run the same bulk upload over what Nova accepts by
+platform (step 4). `media-web-apps-on`, an app that declares Web Apps only,
+adds an ICO and an AVIF (seven files: five images, an audio file, a video),
+and executes HQ storing each through Pillow in the proof image;
+`media-android-on`, an app that declares Android only, adds raw AAC, AMR,
+MIDI, an HEVC MP4, an MPEG-4 Part 2 MP4 and a VP8 MKV (eleven files: three
+images, four audio files, four videos). Each completes with no error,
+unmatched or skipped file, each file classed as the kind Nova gives it and
+stored byte for byte, and its media suite matches the CCZ's.
+`media-svg-refused` is the one emission Nova would refuse, built on its own
+path without the validator (`emit-media-evidence.ts::svgRefusedScenario`) so
+that HQ's refusal is executed: one SVG among the base files stops the whole
+upload ("Error while processing zip"), and no file of the zip is in the app's
+multimedia map afterwards. Core certifies all seven scenarios' sources. A
+variant HQ types as another kind or cannot store fails the family by name,
+and the variant then leaves what Nova accepts.
+`MediaRuntimeTest` then resolves prompts and image maps over both paths of the
+first four scenarios, and
 installs their media resources two ways: from files on disk, Android's shape,
 where a missing file is refused; and from Nova's local archive registered
 with Core's `ArchiveFileRoot`, Core's and Formplayer's shape, where a

@@ -73,6 +73,7 @@ import {
 	mimeTypeForFilename,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
+import { namesSvg, SVG_REFUSAL_MESSAGE } from "@/lib/media/svg";
 import {
 	useAccessPhase,
 	useCanEdit,
@@ -743,6 +744,11 @@ function UploadTab({
 		// `image/apng`), falling back to the filename extension: browsers
 		// set `File.type` to "" or `application/octet-stream` for `.md` and
 		// some office files, which would otherwise reject a valid document.
+		// SVG gets its own sentence: CommCare HQ can't store it.
+		if (namesSvg(file.name, file.type)) {
+			setKindError(SVG_REFUSAL_MESSAGE);
+			return;
+		}
 		const dropped = normalizeMimeType(file.type);
 		const kind =
 			(dropped ? assetKindForMimeType(dropped) : undefined) ??

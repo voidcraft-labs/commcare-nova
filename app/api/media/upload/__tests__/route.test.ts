@@ -253,3 +253,20 @@ it.each([
 		expect(createSignedUploadUrlMock).not.toHaveBeenCalled();
 	},
 );
+it.each([
+	{ filename: "logo.svg", mimeType: "image/png" },
+	{ filename: "logo.png", mimeType: "image/svg+xml" },
+])(
+	"answers an SVG with its own sentence before reserving or signing: %j",
+	async (patch) => {
+		const response = await POST(
+			reqWith({ sizeBytes: 100, contentHash: HASH, ...patch }),
+		);
+		expect(response.status).toBe(400);
+		expect(JSON.stringify(await response.json())).toContain(
+			"CommCare HQ can't store SVG images, so no CommCare app can show this one. Saving it as a PNG fixes that.",
+		);
+		expect(createPendingAssetMock).not.toHaveBeenCalled();
+		expect(createSignedUploadUrlMock).not.toHaveBeenCalled();
+	},
+);

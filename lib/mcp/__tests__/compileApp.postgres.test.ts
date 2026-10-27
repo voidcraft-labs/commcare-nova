@@ -275,6 +275,7 @@ async function seedImage(projectId = PROJECT, status = "ready") {
 			original_filename: "household.png",
 			display_name: "Household",
 			status,
+			media_format: status === "ready" ? "png" : null,
 		})
 		.execute();
 	vi.mocked(downloadAssetBytes).mockImplementation(async (key) => {

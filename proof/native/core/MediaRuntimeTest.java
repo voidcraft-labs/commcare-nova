@@ -36,6 +36,9 @@ import static org.junit.Assert.*;
 
 public class MediaRuntimeTest {
     private static final String[] SCENARIOS = {"media-rich-on", "media-rich-off", "media-only-on", "media-only-off"};
+    // The per-declaration scenarios and the refused SVG's: HQ's upload pass validates their forms too, so Core
+    // certifies their sources; the installs below hold the four scenarios above.
+    private static final String[] FORMAT_SCENARIOS = {"media-web-apps-on", "media-android-on", "media-svg-refused"};
     private byte[] resource(String path) throws IOException {
         try (InputStream stream = getClass().getResourceAsStream("/media/" + path)) {
             assertNotNull(path, stream);
@@ -51,7 +54,9 @@ public class MediaRuntimeTest {
     }
     @Test public void sourceFormsParseWithRealCoreBeforeHqMatching() throws Exception {
         Properties certificate = new Properties();
-        for (String name : SCENARIOS) {
+        List<String> certified = new ArrayList<>(Arrays.asList(SCENARIOS));
+        certified.addAll(Arrays.asList(FORMAT_SCENARIOS));
+        for (String name : certified) {
             String filename = name + ".validation.xml";
             FormParseInit parsed = parse(filename);
             assertEquals(2, parsed.getFormDef().getChildren().size());

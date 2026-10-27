@@ -84,6 +84,11 @@ import type {
 } from "../domain/blueprint";
 import { asWalkableDoc, walkAuthoredAssetRefs } from "../domain/mediaRefs";
 import { asMediaAssetId } from "../domain/multimedia";
+import { declaredPlatforms } from "../domain/platforms";
+import {
+	describeUnplayableReferences,
+	unplayableReferences,
+} from "../media/platformPlayback";
 import { diffBlueprints } from "./blueprintRows";
 import {
 	type CanonicalCommitSidecar,
@@ -447,14 +452,21 @@ export function denormalize(doc: PersistableDoc) {
 
 // ── Media + lookup + membership admission ──────────────────────────
 
+/**
+ * Every authored reference of a document as a requirement of its row: the
+ * slot's kind, and the platforms the app runs on, which the row's variant
+ * must play on every one of (`lockAndValidateMediaReferences`).
+ */
 export function blueprintMediaRequirements(
 	doc: BlueprintDoc | PersistableDoc,
 ): MediaReferenceRequirement[] {
+	const platforms = declaredPlatforms(doc);
 	return [...walkAuthoredAssetRefs(asWalkableDoc(doc))]
 		.filter((ref) => !isBuiltinIconRef(ref.assetId))
 		.map((ref) => ({
 			assetId: asMediaAssetId(ref.assetId),
 			expectedKind: ref.slotKind,
+			platforms,
 		}));
 }
 
@@ -509,6 +521,23 @@ export async function admitExactMediaReferences(
 	try {
 		await replaceExactMediaReferencesForApp(tx, args);
 	} catch (error) {
+		if (
+			error instanceof MediaReferenceProjectionError &&
+			error.reason === "platform-unplayable" &&
+			error.formats !== undefined
+		) {
+			// Every carrier named, each with its format and the platform that
+			// can't play it, on chat, MCP and the builder alike.
+			throw new BlueprintCommitRejectedError(
+				describeUnplayableReferences(
+					unplayableReferences(
+						asWalkableDoc(args.candidateDoc),
+						error.formats,
+						declaredPlatforms(args.candidateDoc),
+					),
+				),
+			);
+		}
 		if (error instanceof MediaReferenceProjectionError) {
 			throw new BlueprintCommitRejectedError(
 				"A media file used by this app is unavailable, outside this Project, not ready, or the wrong kind for its authored slot. Choose it again and retry.",

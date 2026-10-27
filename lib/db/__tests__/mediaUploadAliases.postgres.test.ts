@@ -60,6 +60,7 @@ async function seedAsset(args: {
 			original_filename: "logo.png",
 			display_name: "Logo",
 			status: args.status,
+			media_format: args.status === "ready" ? "png" : null,
 			extract: null,
 			...(args.createdAt && { created_at: args.createdAt }),
 		})

@@ -153,7 +153,7 @@ export function registerUploadMediaAsset(
 		"upload_media_asset",
 		{
 			description:
-				"Upload a media file (image, audio, or video) from inline base64 bytes, returning the asset id the attach/set media tools reference. Media is Project-scoped: pass project_id to upload into a shared Project's library (use the Project of the app that will reference it); omit it for your personal Project. Images: .png, .jpg, .gif, .webp or .bmp. Audio: .mp3, .wav, .m4a (AAC), .flac or .ogg (Vorbis or Opus). Video: .mp4 or .webm (VP8, or VP9 in 8-bit 4:2:0 color). The file is validated (format, encoding, size, integrity) before it's stored; a re-upload of an identical file returns the existing asset.",
+				"Upload a media file (image, audio, or video) from inline base64 bytes, returning the asset id the attach/set media tools reference. Media is Project-scoped: pass project_id to upload into a shared Project's library (use the Project of the app that will reference it); omit it for your personal Project. Images: .png, .jpg, .gif, .webp, .bmp, .ico or .avif. Audio: .mp3, .wav (8- or 16-bit PCM), .m4a (AAC), .flac, .ogg (Vorbis or Opus), .aac, .amr or .mid. Video: .mp4 (H.264, HEVC Main or MPEG-4 Part 2), .webm (VP8, or VP9 in 8-bit 4:2:0 color) or .mkv. ICO and AVIF play only in Web Apps; AAC, AMR, MIDI, HEVC, MPEG-4 Part 2 and MKV play only on Android, and an app takes a file only where it plays on every platform the app runs on. list_media_assets shows where each file plays. The file is validated (format, encoding, size, integrity) before it's stored; a re-upload of an identical file returns the existing asset.",
 			inputSchema: uploadMediaAssetInputSchema,
 		},
 		async (args): Promise<McpToolSuccessResult | McpToolErrorResult> => {
@@ -275,6 +275,9 @@ export function registerUploadMediaAsset(
 										}),
 										...(validated.durationMs !== undefined && {
 											durationMs: validated.durationMs,
+										}),
+										...(validated.mediaFormat !== undefined && {
+											mediaFormat: validated.mediaFormat,
 										}),
 									}),
 							);

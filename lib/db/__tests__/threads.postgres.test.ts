@@ -326,7 +326,7 @@ describe("thread attachment admission", () => {
 		await h
 			.db()
 			.updateTable("media_assets")
-			.set({ kind: "image" })
+			.set({ kind: "image", media_format: "png" })
 			.where("id", "=", assetId)
 			.execute();
 
@@ -2037,7 +2037,7 @@ it.each(["not-ready", "wrong-project", "wrong-kind"] as const)(
 				reason === "not-ready"
 					? { status: "pending" }
 					: reason === "wrong-kind"
-						? { kind: "image" }
+						? { kind: "image", media_format: "png" }
 						: { project_id: "other-project" },
 			)
 			.where("id", "=", assetId)

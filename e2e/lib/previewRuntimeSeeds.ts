@@ -1,5 +1,5 @@
 /**
- * Five running-app fixtures that only a real browser over real case rows can
+ * Six running-app fixtures that only a real browser over real case rows can
  * exercise, one per smoke:
  *
  * - **form-refused**: a follow-up form whose date question preloads a case
@@ -21,6 +21,11 @@
  *   distance read from the Radius answer in that field's condition, then
  *   watches Preview's results change with the Area and Radius answers. Three
  *   sites sit about 1, 6 and 56 kilometers from the point.
+ *
+ * - **preview-android-media**: an app that runs only on Android whose one
+ *   question's label carries an AMR recording, which only Android plays, so
+ *   Preview, which plays media in the browser, shows its line in the player's
+ *   place, read from the asset's real row.
  *
  * Each journey reads its own rows, so every Playwright attempt gets its own
  * app through its native profile.
@@ -46,6 +51,7 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/expression";
+import type { MediaAssetId } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import { buildUrl } from "@/lib/routing/location";
 
@@ -436,5 +442,63 @@ export function searchChoiceRoute(appId: string): string {
 	return buildUrl(`/build/${appId}`, {
 		kind: "search-config",
 		moduleUuid: SEARCH_CHOICE_SEED.moduleUuid,
+	});
+}
+
+export const PREVIEW_ANDROID_MEDIA_SEED = {
+	appName: "Smoke — Android audio",
+	moduleUuid: testUuid("preview-android-media-module"),
+	formUuid: testUuid("preview-android-media-form"),
+	moduleName: "Visits",
+	formName: "Record visit",
+	questionLabel: "Listen to the greeting",
+	filename: "greeting.amr",
+	standIn:
+		"This audio plays on Android devices. Your browser can't play it here.",
+} as const;
+
+/** An Android-only app whose one survey question's label plays `assetId`, an AMR recording. */
+export function buildPreviewAndroidMediaBlueprint(
+	appId: string,
+	assetId: MediaAssetId,
+): BlueprintDoc {
+	const seed = PREVIEW_ANDROID_MEDIA_SEED;
+	return buildDoc({
+		appId,
+		appName: seed.appName,
+		appSettings: {
+			showSavedForms: false,
+			showIncompleteForms: false,
+			runsOnlyOn: "android",
+		},
+		modules: [
+			{
+				uuid: seed.moduleUuid,
+				name: seed.moduleName,
+				forms: [
+					{
+						uuid: seed.formUuid,
+						name: seed.formName,
+						type: "survey",
+						fields: [
+							f({
+								kind: "text",
+								id: "greeting",
+								label: proseText(seed.questionLabel),
+								label_media: { audio: assetId },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+export function previewAndroidMediaRoute(appId: string): string {
+	return buildUrl(`/build/${appId}`, {
+		kind: "form",
+		moduleUuid: PREVIEW_ANDROID_MEDIA_SEED.moduleUuid,
+		formUuid: PREVIEW_ANDROID_MEDIA_SEED.formUuid,
 	});
 }

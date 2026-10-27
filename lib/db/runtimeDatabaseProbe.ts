@@ -23,8 +23,12 @@ import {
 	type AssetKind,
 	asMediaAssetId,
 	type MediaAssetId,
+	mediaFormatValueSchema,
+	UNPLAYABLE_MEDIA_FORMAT,
 } from "@/lib/domain/multimedia";
+import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
 import { readLookupDefinitionsInTransaction } from "@/lib/lookup/definitionSnapshot";
+import { playsOnEvery } from "@/lib/media/platformPlayback";
 import { readAppChangeStreamRowsSince } from "./appChangeStream";
 import { commitGuardedBatchInTransaction, loadAppInTransaction } from "./apps";
 import {
@@ -475,14 +479,15 @@ async function auditRuntimeMediaReferenceProjection(
 		 * conversation attachments hold exactly that thread's
 		 * `thread_media_refs` rows. Each family re-derives independently; a
 		 * thread attachment must never appear in the app-wide family. */
-		const requirements: Array<{
-			assetId: MediaAssetId;
-			expectedKind: AssetKind;
-		}> = [...walkAuthoredAssetRefs(args.doc)]
+		const platforms = declaredPlatforms(args.doc);
+		const requirements: RuntimeMediaRequirement[] = [
+			...walkAuthoredAssetRefs(args.doc),
+		]
 			.filter((ref) => !isBuiltinIconRef(ref.assetId))
 			.map((ref) => ({
 				assetId: asMediaAssetId(ref.assetId),
 				expectedKind: ref.slotKind,
+				platforms,
 			}));
 		const expectedAssetIds = [
 			...new Set(requirements.map((requirement) => requirement.assetId)),
@@ -551,23 +556,58 @@ async function auditRuntimeMediaReferenceProjection(
 		if (requiredAssetIds.length === 0) return 0;
 		const assets = await tx
 			.selectFrom("media_assets")
-			.select(["id", "project_id", "status", "kind"])
+			.select(["id", "project_id", "status", "kind", "media_format"])
 			.where("id", "in", requiredAssetIds)
 			.execute();
-		const byId = new Map(assets.map((asset) => [asset.id, asset]));
-		return requirements.every((requirement) => {
-			const asset = byId.get(requirement.assetId);
-			return (
-				asset?.project_id === args.projectId &&
-				asset.status === "ready" &&
-				asset.kind === requirement.expectedKind
-			);
-		})
+		return runtimeMediaRequirementsHold(requirements, assets, args.projectId)
 			? 0
 			: 1;
 	} catch {
 		return 1;
 	}
+}
+
+/** One reference the probe holds a row to; a Blueprint reference carries its app's platforms. */
+export interface RuntimeMediaRequirement {
+	readonly assetId: MediaAssetId;
+	readonly expectedKind: AssetKind;
+	readonly platforms?: readonly Platform[];
+}
+
+/**
+ * Whether every requirement's row is in the app's Project, ready, of its
+ * slot's kind, and, for a Blueprint reference, of a variant that plays on
+ * every platform the app runs on (a NULL format read as `unplayable`, as the
+ * commit kernel reads it). Thread requirements are not judged by platform.
+ */
+export function runtimeMediaRequirementsHold(
+	requirements: readonly RuntimeMediaRequirement[],
+	rows: readonly {
+		readonly id: string;
+		readonly project_id: string;
+		readonly status: string;
+		readonly kind: string;
+		readonly media_format: string | null;
+	}[],
+	projectId: string,
+): boolean {
+	const byId = new Map(rows.map((row) => [row.id, row]));
+	return requirements.every((requirement) => {
+		const asset = byId.get(requirement.assetId);
+		if (
+			asset?.project_id !== projectId ||
+			asset.status !== "ready" ||
+			asset.kind !== requirement.expectedKind
+		) {
+			return false;
+		}
+		if (requirement.platforms === undefined) return true;
+		const parsed = mediaFormatValueSchema.safeParse(asset.media_format);
+		return playsOnEvery(
+			parsed.success ? parsed.data : UNPLAYABLE_MEDIA_FORMAT,
+			requirement.platforms,
+		);
+	});
 }
 
 export function auditRuntimeProbeParsedBlueprint(args: {

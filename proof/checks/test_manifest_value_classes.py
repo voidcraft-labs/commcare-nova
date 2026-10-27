@@ -1104,6 +1104,7 @@ def _png():
 
 
 TIFF = b"II*\x00\x08\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+SVG = b'<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>\n'
 OGG_THEORA = b"OggS\x00\x02" + b"\0" * 22 + b"\x01\x2a\x80theora\x03\x02\x01" + b"\0" * 40
 OGG_VORBIS = b"OggS\x00\x02" + b"\0" * 22 + b"\x01\x1e\x01vorbis" + b"\0" * 40
 
@@ -3083,6 +3084,9 @@ def _search_and_menus():
         ),
         "expressions-and-data/image-tiff-heif": _media_shapes(
             "CommCareImage", "media-class:CommCareImage", ("a.tif", TIFF), ("b.png", _png())
+        ),
+        "expressions-and-data/image-svg": _media_shapes(
+            "CommCareImage", "media-class:CommCareImage", ("m.svg", SVG), ("n.png", _png())
         ),
         "expressions-and-data/audio-wav-that-is-not-8-or-16-bit-pcm": _media_shapes(
             "CommCareAudio", "media-class:CommCareAudio", ("c.wav", _wav(3, 32)), ("d.wav", _wav(1, 16))

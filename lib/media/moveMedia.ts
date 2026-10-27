@@ -232,6 +232,7 @@ async function copyOneAsset(
 							displayName: source.displayName,
 							dimensions: source.dimensions,
 							durationMs: source.durationMs,
+							mediaFormat: source.mediaFormat,
 							extract: sourceExtractPair?.extract,
 						},
 						lockedDb,

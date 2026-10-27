@@ -3,13 +3,13 @@
     PROOF_ANDROID_DECODE_AVDS="23=<avd>,29=<avd>,35=<avd>" python3 -m unittest proof.android.decode.probe -v
 
 Each image is booted by ``run.sh``, which runs ``DecodeProbe.java`` with ``app_process`` over
-``lib/media/__tests__/fixtures/`` and the BMP files ``lib/media/__tests__/bmpFixtures.ts`` builds: each audio and
-video file decoded to the end of its stream by the platform's own ``MediaCodec`` decoder, each image by
-``BitmapFactory`` (CommCare Android plays an app's media with the platform's own MediaPlayer, VideoView and image
-views). Contract: every file of a format Nova accepts decodes fully on Android 6.0 (API 23, CommCare's minimum),
-10 (API 29) and 15 (API 35), and each VP9 profile Nova refuses is refused by Android 6.0's decoder, the reason
-Nova holds VP9 to profile 0. Failure it catches: a format or a variant Nova accepts that a supported device cannot
-play, and a near miss Nova refuses for no reason a device shows.
+``lib/media/__tests__/fixtures/`` and the files ``lib/media/__tests__/bmpFixtures.ts`` and ``builtFixtures.ts``
+build: each audio and video file decoded to the end of its stream by the platform's own ``MediaCodec`` decoder, each
+image by ``BitmapFactory`` (CommCare Android plays an app's media with the platform's own MediaPlayer, VideoView and
+image views). Contract: every file of a variant whose Android reading is ``runs`` decodes fully on Android 6.0 (API
+23, CommCare's minimum), 10 (API 29) and 15 (API 35), and each VP9 profile Nova refuses is refused by Android 6.0's
+decoder, the reason Nova holds VP9 to profile 0. Failure it catches: a format or a variant Nova accepts that a
+supported device cannot play, and a near miss Nova refuses for no reason a device shows.
 
 It needs an Apple-silicon Mac with the Android SDK's emulator and the arm64 system images of API 23, 29 and 35;
 no proof machine and no CI runner boots them, so the lane never collects this (it is no ``test_*.py``). Each run
@@ -28,7 +28,9 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 
-# Every accepted file (the validator's own fixtures and the BMPs the builders make).
+# Every file of a variant whose Android reading is runs (the validator's own fixtures and the files the builders
+# make). A file of a variant whose reading is still the documentation's gains its run's ``executed`` mark when it
+# decodes on all three images.
 ACCEPTED = (
     "tone.m4a",
     "tone-m4b.m4a",
@@ -46,7 +48,26 @@ ACCEPTED = (
     "pattern-1.bmp",
     "pattern-4.bmp",
     "pattern-v5-srgb-32.bmp",
+    "tiny-video.mp4",
+    "pattern-h264-baseline.mp4",
+    "pattern-h264-main-aac.mp4",
+    "pattern-hevc.mp4",
+    "pattern-mpeg4.mp4",
+    "pattern-vp8.mkv",
+    "tone.wav",
+    "tone-8.wav",
+    "tone.mp3",
+    "tone.aac",
+    "amr-nb.amr",
+    "amr-wb.amr",
+    "midi.mid",
+    "pattern.png",
+    "pattern.jpg",
+    "pattern.gif",
+    "pattern.webp",
 )
+# The image files, which BitmapFactory decodes whole and which carry no frame count.
+IMAGES = (".bmp", ".png", ".jpg", ".gif", ".webp")
 # The VP9 profiles Nova refuses, each refused by Android 6.0's decoder.
 REFUSED_ON_API_23 = ("pattern-vp9-profile1.webm", "pattern-vp9-profile2.webm")
 
@@ -97,7 +118,7 @@ class Decode(unittest.TestCase):
                     result = results.get(name)
                     self.assertIsNotNone(result, f"API {api} read no {name}")
                     self.assertEqual(result["outcome"], "decoded", result)
-                    if not name.endswith(".bmp"):
+                    if not name.endswith(IMAGES):
                         self.assertGreater(result["frames"], 0, result)
 
     def test_android_6_refuses_the_vp9_profiles_nova_refuses(self):

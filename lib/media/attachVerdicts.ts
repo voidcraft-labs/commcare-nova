@@ -7,8 +7,9 @@
 // a Postgres status row), so no doc commit fires when it changes — which
 // makes the attach the LAST commit that can see the asset's state. The
 // verdict holds the line there: a committed media reference always points
-// at an asset that exists, belongs to the app's Project, is `ready`, and
-// matches its slot's kind — and the attach never pushes the app's
+// at an asset that exists, belongs to the app's Project, is `ready`,
+// matches its slot's kind and plays on every platform the app runs on
+// (`platformPlayback.ts`) — and the attach never pushes the app's
 // referenced-media aggregate past the export ceiling.
 //
 // Why attach-time checking holds:
@@ -29,7 +30,8 @@
 //     the asset's tenant; no update path carries it.
 //   - `kind` is immutable: written once in `createPendingAsset`;
 //     `confirmAssetReady` refines `mimeType`/`extension` but never
-//     `kind`.
+//     `kind`. `media_format` is written once with the `ready` flip and
+//     never changed.
 //
 // The export boundary (`lib/export/boundaryValidation.ts`) keeps running
 // the same media rules with a freshly resolved manifest — as
@@ -52,8 +54,10 @@ import type {
 	MediaAssetId,
 	MediaKind,
 } from "@/lib/domain/multimedia";
+import { declaredPlatforms, type Platform } from "@/lib/domain/platforms";
 import { partitionAssetRefs } from "./builtinIconAssets";
 import { attachOverBudgetMessage, exportBudgetExcess } from "./exportBudget";
+import { attachPlatformLine } from "./platformPlayback";
 
 /**
  * One asset reference an attach is about to commit: the id the caller
@@ -77,7 +81,7 @@ export type MediaAttachVerdict = { ok: true } | { ok: false; error: string };
  *  pre-commit verdict consume the same shape. */
 export type MediaExpectationRow = Pick<
 	MediaAssetRecord,
-	"project_id" | "status" | "kind"
+	"project_id" | "status" | "kind" | "mimeType" | "mediaFormat"
 >;
 
 /** "an image" / "an audio file" / "a video" / "a pdf document" — the
@@ -104,12 +108,15 @@ function kindPhrase(kind: AssetKind): string {
  * A row in another Project reads as "not in your library" — the same
  * message as a deleted asset — so a guessed id can't probe whether
  * another Project's asset exists (mirrors `loadAssetsByIds`'s silent
- * project filter).
+ * project filter). After the kind check, a file a declared platform
+ * cannot play gets its own line (`attachPlatformLine`), an absent format
+ * read as `unplayable`.
  */
 export function describeMediaExpectationFailures(
 	expectations: readonly MediaAttachExpectation[],
 	rows: ReadonlyMap<string, MediaExpectationRow>,
 	projectId: string,
+	platforms: readonly Platform[],
 ): string | null {
 	const failures: string[] = [];
 	for (const expectation of expectations) {
@@ -130,7 +137,15 @@ export function describeMediaExpectationFailures(
 			failures.push(
 				`Tried to attach asset "${expectation.assetId}" as ${expectation.slot}, but that asset is ${kindPhrase(row.kind)} and this slot takes ${kindPhrase(expectation.kind)}. Pick ${kindPhrase(expectation.kind)} from list_media_assets instead.`,
 			);
+			continue;
 		}
+		const platformLine = attachPlatformLine({
+			assetId: expectation.assetId,
+			slot: expectation.slot,
+			row,
+			platforms,
+		});
+		if (platformLine !== null) failures.push(platformLine);
 	}
 	return failures.length > 0 ? failures.join("\n") : null;
 }
@@ -180,6 +195,7 @@ export async function mediaAttachVerdict(args: {
 		expectations,
 		rowsById,
 		projectId,
+		declaredPlatforms(doc),
 	);
 	if (failure) return { ok: false, error: failure };
 

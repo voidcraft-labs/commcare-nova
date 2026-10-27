@@ -64,6 +64,7 @@ import {
 	UNREADABLE_DATETIME_NEXT,
 } from "@/lib/domain/expression/typeChecker";
 import {
+	inPlatform,
 	PLATFORMS,
 	platformDeclarationPhrase,
 	REFUSABLE_PLATFORM_FEATURE_IDS,
@@ -1533,6 +1534,15 @@ const USER_MESSAGE_BY_CODE: Record<
 		return kind
 			? `An attached file is the wrong type, this slot takes ${kind}. Swap it out, or clear the slot.`
 			: "An attached file is the wrong type for its slot. Swap it out, or clear the slot.";
+	},
+	MEDIA_FORMAT_NOT_PLAYED: (e) => {
+		if (det(e, "mediaFormat", "") === "unplayable") {
+			return "An attached file can't play in any CommCare app. You can swap it out, or clear the slot.";
+		}
+		const [missing] = det(e, "missingPlatforms", "").split(",");
+		return missing === "web-apps" || missing === "android"
+			? `An attached file can't play ${inPlatform(missing)}, where this app runs. You can swap it for a file that plays there, or clear the slot.`
+			: "An attached file can't play where this app runs. You can swap it for a file that plays there, or clear the slot.";
 	},
 	MEDIA_EXPORT_TOO_LARGE: () =>
 		"This app has more media than it can export at once. Remove or shrink some attachments and try again.",

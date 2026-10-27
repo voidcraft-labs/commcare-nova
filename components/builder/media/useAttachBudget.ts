@@ -1,7 +1,8 @@
 // components/builder/media/useAttachBudget.ts
 //
 // The browser slots' pre-dispatch export-ceiling check: the client
-// twin of the SA/MCP attach verdict's budget arm. Both run the SAME
+// twin of the SA/MCP attach verdict's platform and budget arms. A file the
+// app's platforms can't play is refused first (`platformPlayback.ts`). Both run the SAME
 // arithmetic and speak the SAME rejection prose
 // (`lib/media/exportBudget.ts`), so an honest user hears "this would
 // put the app over its media export limit" at the click, never at the
@@ -30,10 +31,12 @@ import { useReconcilerContext } from "@/lib/collab/context";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { isBuiltinIconRef } from "@/lib/domain/builtinIcons";
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
+import { declaredPlatforms } from "@/lib/domain/platforms";
 import {
 	type ExportBudgetRowView,
 	postAttachBudgetError,
 } from "@/lib/media/exportBudget";
+import { attachPlatformSentence } from "@/lib/media/platformPlayback";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { fetchAssetsByIds, type MediaAssetView } from "./mediaClient";
 
@@ -84,6 +87,14 @@ export function useAttachBudgetGuard(): (
 				);
 			};
 			if (start.accessPhase !== "authorized") return accessChanged();
+			// A file the app's platforms can't play is refused before the
+			// budget, from the candidate's own format (no fetch): the commit
+			// kernel would refuse it, and a refused builder batch reloads.
+			const platformError = attachPlatformSentence(
+				candidate,
+				declaredPlatforms(docApi.getState()),
+			);
+			if (platformError !== null) return { ok: false, error: platformError };
 			// The candidate's own row is known-good metadata: record it so
 			// a later check (or a re-attach) needs no fetch for it.
 			session.getState().recordAssetMeta([candidate]);

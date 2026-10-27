@@ -224,6 +224,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 				extension: ".png",
 				dimensions: { width: 1, height: 1 },
 				durationMs: undefined,
+				mediaFormat: "png",
 			},
 			expect.anything(),
 		);
@@ -496,6 +497,7 @@ describe("POST /api/media/upload/[assetId]/confirm", () => {
 				extension: ".png",
 				dimensions: { width: 1, height: 1 },
 				durationMs: undefined,
+				mediaFormat: "png",
 			},
 			expect.anything(),
 		);

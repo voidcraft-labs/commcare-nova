@@ -375,6 +375,13 @@ export interface MediaAssetsTable {
 		string | null,
 		string | null
 	>;
+	/** The media variant the bytes are (`MEDIA_FORMATS`) or `unplayable`;
+	 *  NULL on a document or a pending row. */
+	media_format: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
 	created_at: Timestamp;
 }
 

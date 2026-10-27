@@ -163,6 +163,7 @@ async function seedReadyAsset(args: {
 				args.kind === "image" ? "field-photo.png" : "requirements.pdf",
 			display_name: args.kind === "image" ? "Field photo" : "Requirements",
 			status: "ready",
+			media_format: args.kind === "image" ? "png" : null,
 			extract:
 				args.kind === "document"
 					? JSON.stringify({

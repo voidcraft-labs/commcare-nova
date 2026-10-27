@@ -225,6 +225,7 @@ export async function POST(
 								extension: result.validated.extension,
 								dimensions: result.validated.dimensions,
 								durationMs: result.validated.durationMs,
+								mediaFormat: result.validated.mediaFormat,
 							},
 							lockedDb,
 						);
@@ -300,6 +301,7 @@ export async function POST(
 							extension: result.validated.extension,
 							dimensions: result.validated.dimensions,
 							durationMs: result.validated.durationMs,
+							mediaFormat: result.validated.mediaFormat,
 						},
 						lockedDb,
 					);

@@ -33,6 +33,8 @@ interface MockRow {
 	project_id: string;
 	status: "pending" | "ready";
 	kind: string;
+	mimeType: string;
+	mediaFormat?: string;
 	sizeBytes: number;
 }
 
@@ -65,6 +67,8 @@ function seed(
 		project_id: "project-1",
 		status: "ready",
 		kind: "image",
+		mimeType: "image/png",
+		mediaFormat: "png",
 		sizeBytes: 1024,
 		...overrides,
 	});
@@ -157,7 +161,11 @@ describe("mediaAttachVerdict", () => {
 	});
 
 	it("fails a kind mismatch naming both kinds", async () => {
-		seed(testMediaAssetId("a-audio"), { kind: "audio" });
+		seed(testMediaAssetId("a-audio"), {
+			kind: "audio",
+			mimeType: "audio/mpeg",
+			mediaFormat: "mp3",
+		});
 		const verdict = await mediaAttachVerdict({
 			projectId: "project-1",
 			doc: emptyDoc(),
@@ -167,6 +175,88 @@ describe("mediaAttachVerdict", () => {
 		if (verdict.ok) return;
 		expect(verdict.error).toContain("an audio file");
 		expect(verdict.error).toContain("an image");
+	});
+
+	it("refuses a file a declared platform can't play, naming the format and the platform", async () => {
+		seed(testMediaAssetId("a-hevc"), {
+			kind: "video",
+			mimeType: "video/mp4",
+			mediaFormat: "mp4-hevc",
+		});
+		const hevc = await mediaAttachVerdict({
+			projectId: "project-1",
+			doc: emptyDoc(),
+			expectations: [
+				{
+					assetId: testMediaAssetId("a-hevc"),
+					kind: "video",
+					slot: 'the video on field "intro"',
+				},
+			],
+		});
+		expect(hevc).toEqual({
+			ok: false,
+			error: `Tried to attach asset "${testMediaAssetId("a-hevc")}" as the video on field "intro", but it is MP4 (HEVC), which Web Apps can't play, and this app runs in Web Apps. Exporting it again as MP4 with H.264 Main video and uploading that fixes it.`,
+		});
+
+		seed(testMediaAssetId("a-ico"), {
+			mimeType: "image/vnd.microsoft.icon",
+			mediaFormat: "ico",
+		});
+		const androidOnly = emptyDoc();
+		androidOnly.appSettings = {
+			...androidOnly.appSettings,
+			runsOnlyOn: "android",
+		};
+		const ico = await mediaAttachVerdict({
+			projectId: "project-1",
+			doc: androidOnly,
+			expectations: [imageExpectation(testMediaAssetId("a-ico"))],
+		});
+		expect(ico).toEqual({
+			ok: false,
+			error: `Tried to attach asset "${testMediaAssetId("a-ico")}" as the app logo, but it is ICO, which Android can't play, and this app runs on Android. Exporting it again as a PNG or JPEG and uploading that fixes it.`,
+		});
+		expect(
+			await mediaAttachVerdict({
+				projectId: "project-1",
+				doc: {
+					...androidOnly,
+					appSettings: { ...androidOnly.appSettings, runsOnlyOn: "web-apps" },
+				},
+				expectations: [imageExpectation(testMediaAssetId("a-ico"))],
+			}),
+		).toEqual({ ok: true });
+	});
+
+	it("refuses a file no CommCare app plays, and a ready row with no format as one", async () => {
+		seed(testMediaAssetId("a-wav"), {
+			kind: "audio",
+			mimeType: "audio/wav",
+			mediaFormat: "unplayable",
+		});
+		seed(testMediaAssetId("a-unknown"), {
+			kind: "audio",
+			mimeType: "audio/wav",
+			mediaFormat: undefined,
+		});
+		for (const id of [
+			testMediaAssetId("a-wav"),
+			testMediaAssetId("a-unknown"),
+		]) {
+			expect(
+				await mediaAttachVerdict({
+					projectId: "project-1",
+					doc: emptyDoc(),
+					expectations: [
+						{ assetId: id, kind: "audio", slot: "the audio label" },
+					],
+				}),
+			).toEqual({
+				ok: false,
+				error: `Tried to attach asset "${id}" as the audio label, but no CommCare app can play it (WAV). Exporting it again as MP3, or M4A with AAC audio, and uploading that fixes it.`,
+			});
+		}
 	});
 
 	it("rejects when the attach would push the byte aggregate past the export ceiling", async () => {
@@ -233,6 +323,15 @@ describe("mediaAttachVerdict", () => {
 	});
 });
 
+const BOTH = ["web-apps", "android"] as const;
+const PNG_ROW: MediaExpectationRow = {
+	project_id: "project-1",
+	status: "ready",
+	kind: "image",
+	mimeType: "image/png",
+	mediaFormat: "png",
+};
+
 describe("describeMediaExpectationFailures", () => {
 	it("refuses a foreign row even when supplied directly and cannot distinguish it from missing", () => {
 		const id = testMediaAssetId("foreign");
@@ -240,28 +339,42 @@ describe("describeMediaExpectationFailures", () => {
 		const foreign = describeMediaExpectationFailures(
 			expectations,
 			new Map([
-				[id, { project_id: "private-project", status: "ready", kind: "image" }],
+				[
+					id,
+					{
+						project_id: "private-project",
+						status: "ready",
+						kind: "image",
+						mimeType: "image/png",
+						mediaFormat: "png",
+					},
+				],
 			]),
 			"project-1",
+			BOTH,
 		);
 		expect(foreign).not.toBeNull();
 		expect(foreign).toBe(
-			describeMediaExpectationFailures(expectations, new Map(), "project-1"),
+			describeMediaExpectationFailures(
+				expectations,
+				new Map(),
+				"project-1",
+				BOTH,
+			),
 		);
 	});
 	it("reports every failed expectation, one line each, and null when all hold", () => {
 		const table = new Map<MediaAssetId, MediaExpectationRow>([
-			[
-				testMediaAssetId("ok"),
-				{ project_id: "project-1", status: "ready", kind: "image" },
-			],
-			[
-				testMediaAssetId("pending"),
-				{ project_id: "project-1", status: "pending", kind: "image" },
-			],
+			[testMediaAssetId("ok"), PNG_ROW],
+			[testMediaAssetId("pending"), { ...PNG_ROW, status: "pending" }],
 			[
 				testMediaAssetId("wrong-kind"),
-				{ project_id: "project-1", status: "ready", kind: "video" },
+				{
+					...PNG_ROW,
+					kind: "video",
+					mimeType: "video/mp4",
+					mediaFormat: "mp4-h264-main",
+				},
 			],
 		]);
 		const failures = describeMediaExpectationFailures(
@@ -277,6 +390,7 @@ describe("describeMediaExpectationFailures", () => {
 			],
 			table,
 			"project-1",
+			BOTH,
 		);
 		expect(failures).not.toBeNull();
 		const lines = (failures ?? "").split("\n");
@@ -290,6 +404,7 @@ describe("describeMediaExpectationFailures", () => {
 				[{ assetId: testMediaAssetId("ok"), kind: "image", slot: "slot A" }],
 				table,
 				"project-1",
+				BOTH,
 			),
 		).toBeNull();
 	});

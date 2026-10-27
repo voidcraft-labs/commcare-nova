@@ -109,6 +109,7 @@ const ROW: MediaAssetRecord = {
 	originalFilename: "image.png",
 	displayName: "Image",
 	status: "ready",
+	mediaFormat: "png",
 	created_at: new Date(0),
 };
 const TABLE = lookupTableIdSchema.parse("018f0000-0000-7000-8000-000000000001");
@@ -450,7 +451,13 @@ for (const [mode, post, verb] of [
 		it("runs the real media gate before downloading a mismatched asset", async () => {
 			loads(fixture({ media: true }));
 			vi.mocked(loadAssetsByIds).mockResolvedValue([
-				{ ...ROW, kind: "audio", mimeType: "audio/mpeg", extension: ".mp3" },
+				{
+					...ROW,
+					kind: "audio",
+					mimeType: "audio/mpeg",
+					extension: ".mp3",
+					mediaFormat: "mp3",
+				},
 			]);
 			const response = await post(request());
 			expect(await response.json()).toMatchObject({

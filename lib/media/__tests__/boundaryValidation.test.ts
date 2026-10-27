@@ -109,6 +109,32 @@ function validDoc(assetId?: MediaAssetId) {
 }
 
 describe("collectExportBoundaryViolations media arm", () => {
+	it("refuses a file only Android plays in an app that runs on both platforms", async () => {
+		vi.mocked(loadAssetsByIds).mockResolvedValue([
+			makeAssetRecord("ico-asset", {
+				mimeType: "image/vnd.microsoft.icon",
+				mediaFormat: "ico",
+			}),
+		]);
+		const doc = validDoc(testMediaAssetId("ico-asset"));
+		const both = {
+			...doc,
+			appSettings: { ...doc.appSettings, runsOnlyOn: undefined },
+		};
+		delete both.appSettings.runsOnlyOn;
+		const errors = await collectBoundaryViolations(both, PROJECT);
+		expect(errors.map((error) => error.code)).toEqual([
+			"MEDIA_FORMAT_NOT_PLAYED",
+		]);
+		expect(errors[0]?.details).toMatchObject({ missingPlatforms: "android" });
+		expect(
+			await collectBoundaryViolations(
+				{ ...doc, appSettings: { ...doc.appSettings, runsOnlyOn: "web-apps" } },
+				PROJECT,
+			),
+		).toEqual([]);
+	});
+
 	it("returns no violations for a fully valid doc with resolved media", async () => {
 		vi.mocked(loadAssetsByIds).mockResolvedValue([
 			makeAssetRecord("good-asset"),

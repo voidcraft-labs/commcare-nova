@@ -186,6 +186,7 @@ async function seedReadyImage(
 			original_filename: "icon.png",
 			display_name: null,
 			status: "ready",
+			media_format: "png",
 			extract: null,
 		})
 		.execute();

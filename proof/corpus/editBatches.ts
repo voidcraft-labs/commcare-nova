@@ -65,6 +65,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { type MediaSlotKind, walkAssetRefs } from "@/lib/domain/mediaRefs";
+import type { MediaFormatKey } from "@/lib/domain/multimedia";
 import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import { exportBudgetExcess } from "@/lib/media/exportBudget";
 import { lookupContextOf } from "./documents";
@@ -160,13 +161,27 @@ export interface EditBatchOutcome {
 
 // ── The publish-side checks ──────────────────────────────────────────
 
-const MEDIA_MIME: Record<
+/**
+ * The stand-in file of each slot kind: its MIME, extension and the variant
+ * its bytes are, the corpus's one PNG, WAV and H.264 High MP4
+ * (`lib/commcare/__tests__/mediaWireFixtures.ts::mediaManifest`), which
+ * `editBatches.test.ts` holds equal to the production classifier.
+ */
+export const MEDIA_MIME: Record<
 	MediaSlotKind,
-	{ mimeType: MediaAssetRecord["mimeType"]; extension: string }
+	{
+		mimeType: MediaAssetRecord["mimeType"];
+		extension: string;
+		mediaFormat: MediaFormatKey;
+	}
 > = {
-	image: { mimeType: "image/png", extension: ".png" },
-	audio: { mimeType: "audio/wav", extension: ".wav" },
-	video: { mimeType: "video/mp4", extension: ".mp4" },
+	image: { mimeType: "image/png", extension: ".png", mediaFormat: "png" },
+	audio: { mimeType: "audio/wav", extension: ".wav", mediaFormat: "wav-pcm" },
+	video: {
+		mimeType: "video/mp4",
+		extension: ".mp4",
+		mediaFormat: "mp4-h264-high",
+	},
 };
 
 function readyRow(
@@ -174,7 +189,7 @@ function readyRow(
 	kind: MediaSlotKind,
 	fields: { sizeBytes: number; contentHash: string },
 ): MediaAssetRecord {
-	const { mimeType, extension } = MEDIA_MIME[kind];
+	const { mimeType, extension, mediaFormat } = MEDIA_MIME[kind];
 	return {
 		id: id as MediaAssetRecord["id"],
 		project_id: "proof-corpus",
@@ -187,6 +202,7 @@ function readyRow(
 		gcsObjectKey: "",
 		originalFilename: `asset${extension}`,
 		status: "ready",
+		mediaFormat,
 		created_at: new Date(0),
 	};
 }

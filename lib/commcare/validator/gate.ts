@@ -520,6 +520,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	MEDIA_ASSET_NOT_FOUND: "environment",
 	MEDIA_ASSET_NOT_READY: "environment",
 	MEDIA_KIND_MISMATCH: "environment",
+	MEDIA_FORMAT_NOT_PLAYED: "environment",
 	MEDIA_EXPORT_TOO_LARGE: "environment",
 	// Lookup references are authored structural identities. Missing validation
 	// context is therefore a whole-candidate soundness failure.

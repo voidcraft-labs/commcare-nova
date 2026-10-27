@@ -1,7 +1,9 @@
 import Ajv2020 from "ajv/dist/2020";
 import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { distanceValueSeed } from "@/components/builder/shared/distanceDraft";
+import { makeAssetRecord } from "@/lib/commcare/validator/rules/media/__tests__/fixtures";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -18,11 +20,14 @@ import {
 	within,
 } from "@/lib/domain/expression";
 import { caseTypeToJsonSchema } from "@/lib/domain/expression/jsonSchema";
+import { collectRealAssetRefs } from "@/lib/domain/mediaRefs";
+import { declaredPlatforms } from "@/lib/domain/platforms";
 import { columnsReadHere } from "@/lib/preview/engine/viewerLocation";
 import { formReadsSearchResults } from "@/lib/preview/engine/xpathInstances";
 import {
 	buildFormRefusedBlueprint,
 	buildHereColumnBlueprint,
+	buildPreviewAndroidMediaBlueprint,
 	buildSearchChoiceBlueprint,
 	buildSearchClaimBlueprint,
 	buildSearchResultsBlueprint,
@@ -46,6 +51,31 @@ describe("Preview runtime smoke seeds", () => {
 		const persistable = toPersistableDoc(doc);
 		expect(blueprintDocSchema.parse(persistable)).toEqual(persistable);
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	});
+
+	it("holds the Android audio's reference in an app that runs only on Android, admitted by its AMR row", () => {
+		const assetId = testMediaAssetId("preview-android-media");
+		const doc = buildPreviewAndroidMediaBlueprint(APP_ID, assetId);
+		const persistable = toPersistableDoc(doc);
+		expect(blueprintDocSchema.parse(persistable)).toEqual(persistable);
+		expect(declaredPlatforms(doc)).toEqual(["android"]);
+		expect(collectRealAssetRefs(doc)).toEqual([assetId]);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+				mediaAssets: new Map([
+					[
+						assetId,
+						makeAssetRecord("preview-android-media", {
+							id: assetId,
+							kind: "audio",
+							mimeType: "audio/amr",
+							extension: ".amr",
+							mediaFormat: "amr",
+						}),
+					],
+				]),
+			}),
+		).toEqual([]);
 	});
 
 	it("puts here() on Results, so the list watches the viewer's position", () => {

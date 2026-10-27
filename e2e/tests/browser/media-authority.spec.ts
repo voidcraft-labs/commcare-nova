@@ -18,6 +18,9 @@ const asset = {
 	originalFilename: "workflow.png",
 	status: "ready",
 	createdAt: "2026-10-09T00:00:00Z",
+	mediaFormat: "png",
+	formatLabel: "PNG",
+	playsOn: ["web-apps", "android"],
 };
 const document = {
 	...asset,
@@ -25,6 +28,9 @@ const document = {
 	mimeType: "application/pdf",
 	kind: "pdf",
 	extension: ".pdf",
+	mediaFormat: undefined,
+	formatLabel: undefined,
+	playsOn: undefined,
 	originalFilename: "protocol.pdf",
 	extract: { status: "failed", version: 1, truncated: false, charCount: 0 },
 };

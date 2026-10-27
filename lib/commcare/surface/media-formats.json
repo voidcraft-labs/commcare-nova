@@ -38,7 +38,7 @@
 	},
 	"executions": {
 		"android-decode": {
-			"files": "lib/media/__tests__/fixtures/ and the BMP files lib/media/__tests__/bmpFixtures.ts builds",
+			"files": "lib/media/__tests__/fixtures/ and the files lib/media/__tests__/bmpFixtures.ts and lib/media/__tests__/builtFixtures.ts build",
 			"method": "Each audio and video file read by MediaExtractor and decoded to the end of its stream by the platform's own MediaCodec decoder; each image decoded by BitmapFactory (proof/android/decode/DecodeProbe.java).",
 			"platform": "android",
 			"readers": [
@@ -128,13 +128,31 @@
 					"version": "26.6"
 				}
 			]
+		},
+		"browser-playback-ci": {
+			"files": "lib/media/__tests__/fixtures/ and the BMP files lib/media/__tests__/bmpFixtures.ts builds",
+			"method": "Each file served over HTTP with range requests and its MIME type; audio and video played muted to the ended event; each image decoded into an img with a width above 0 (e2e/tests/browser/media-play.spec.ts), in CI's browser and browser-webkit projects.",
+			"platform": "webApps",
+			"readers": [
+				{
+					"name": "Chromium headless shell",
+					"os": "Linux amd64",
+					"version": "156.0.8078.4"
+				},
+				{
+					"name": "WebKit",
+					"os": "Linux amd64",
+					"version": "27.2"
+				}
+			]
 		}
 	},
 	"hqClassification": {
 		"method": "Executed: HQ booted in the proof image, and get_class_by_data called on a file of each format under its usual extension.",
 		"mimeTable": "libmagic 5.44, the compiled magic database of Debian bookworm's libmagic1, which commcare-hq/Dockerfile installs at the pin, read through python-magic 0.4.27 (commcare-hq/uv.lock); Python's mimetypes is consulted only for an application/* result, which no format here gives.",
 		"reader": "commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data",
-		"rule": "The base MIME type image, audio or video gives CommCareImage, CommCareAudio or CommCareVideo; any other gives no class, and the multimedia upload skips the file (commcare-hq/corehq/apps/hqmedia/tasks.py::process_bulk_upload_zip)."
+		"rule": "The base MIME type image, audio or video gives CommCareImage, CommCareAudio or CommCareVideo; any other gives no class, and the multimedia upload skips the file (commcare-hq/corehq/apps/hqmedia/tasks.py::process_bulk_upload_zip).",
+		"storage": "An image must also open in Pillow: CommCareImage.attach_data opens every image (get_image_object) and refuses one it cannot read, and process_bulk_upload_zip does not catch that per file, so the whole upload stops. HQ stores audio and video without decoding them (CommCareAudio and CommCareVideo do not override attach_data)."
 	},
 	"items": {
 		"media-format:audio/3gp": {
@@ -246,7 +264,7 @@
 				"mdn-containers",
 				"apple-safari-html5-audio-video"
 			],
-			"format": "AAC-LC in an MPEG-4 container whose major brand is `M4A ` or `M4B `",
+			"format": "AAC in an MPEG-4 container whose major brand is `M4A ` or `M4B `",
 			"hq": {
 				"class": "CommCareAudio",
 				"mimeTypes": ["audio/x-m4a", "audio/mp4"],
@@ -328,6 +346,7 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback-ci",
 				"reading": "runs"
 			}
 		},
@@ -433,6 +452,7 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback-ci",
 				"reading": "runs"
 			}
 		},
@@ -479,6 +499,7 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback-ci",
 				"reading": "runs"
 			}
 		},
@@ -520,6 +541,7 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback-ci",
 				"reading": "runs"
 			}
 		},
@@ -559,6 +581,7 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback-ci",
 				"reading": "runs"
 			}
 		},
@@ -577,6 +600,7 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback-ci",
 				"reading": "runs"
 			}
 		},
@@ -595,6 +619,7 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback-ci",
 				"reading": "runs"
 			}
 		},
@@ -607,7 +632,8 @@
 			"format": "SVG",
 			"hq": {
 				"class": "CommCareImage",
-				"mimeTypes": ["image/svg+xml"]
+				"mimeTypes": ["image/svg+xml"],
+				"note": "HQ types it as an image and cannot store it: Pillow reads no SVG (commcare-hq/corehq/apps/hqmedia/models.py::CommCareImage.attach_data), and the error stops the whole bulk upload (commcare-hq/corehq/apps/hqmedia/tasks.py::process_bulk_upload_zip)."
 			},
 			"kind": "image",
 			"source": [
@@ -653,6 +679,7 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback-ci",
 				"reading": "runs"
 			}
 		},
@@ -797,7 +824,7 @@
 				"mdn-containers",
 				"apple-safari-html5-audio-video"
 			],
-			"format": "MP4 with H.264 Baseline video and AAC-LC or no audio",
+			"format": "MP4 with H.264 Baseline video and AAC or no audio",
 			"hq": {
 				"class": "CommCareVideo",
 				"mimeTypes": ["video/mp4"]
@@ -807,13 +834,15 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback-ci",
 				"reading": "runs"
 			}
 		},
 		"media-format:video/mp4-h264-high": {
 			"android": {
-				"note": "Android 6.0 guarantees only the Baseline and Main profiles.",
-				"reading": "unavailable"
+				"executed": "android-decode",
+				"note": "Decoded by the emulator images' software decoders; Android 6.0 guarantees only Baseline and Main.",
+				"reading": "runs"
 			},
 			"documentation": [
 				"android-supported-formats",
@@ -832,6 +861,7 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback-ci",
 				"reading": "runs"
 			}
 		},
@@ -846,7 +876,7 @@
 				"mdn-containers",
 				"apple-safari-html5-audio-video"
 			],
-			"format": "MP4 with H.264 Main video and AAC-LC or no audio",
+			"format": "MP4 with H.264 Main video and AAC or no audio",
 			"hq": {
 				"class": "CommCareVideo",
 				"mimeTypes": ["video/mp4"]
@@ -856,6 +886,7 @@
 				"commcare-hq/corehq/apps/hqmedia/models.py::CommCareMultimedia.get_class_by_data"
 			],
 			"webApps": {
+				"executed": "browser-playback-ci",
 				"reading": "runs"
 			}
 		},

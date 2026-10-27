@@ -41,6 +41,7 @@ import {
 	EXTENSION_FOR_MIME_TYPE,
 	normalizeMimeType,
 } from "@/lib/domain/multimedia";
+import { namesSvg, SVG_REFUSAL_MESSAGE } from "@/lib/media/svg";
 import { createSignedUploadUrl } from "@/lib/storage/media";
 
 const requestBodySchema = z.strictObject({
@@ -81,6 +82,12 @@ export async function POST(req: NextRequest) {
 			);
 		}
 		const { filename, sizeBytes, contentHash, appId } = parsed.data;
+
+		// SVG gets its own sentence before the generic one: CommCare HQ can't
+		// store it.
+		if (namesSvg(filename, parsed.data.mimeType)) {
+			throw new ApiError(SVG_REFUSAL_MESSAGE, 400);
+		}
 
 		// Normalize the claimed MIME to its canonical accepted form
 		// (handles browser alias spellings); reject if it isn't an

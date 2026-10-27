@@ -28,7 +28,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { ACCEPTED_FORMATS } from "@/lib/domain/multimedia";
+import {
+	ACCEPTED_FORMATS,
+	acceptedFormatFor,
+	isMediaKind,
+	MEDIA_FORMATS,
+} from "@/lib/domain/multimedia";
 import {
 	type GateEntry,
 	INVENTORY_AREAS,
@@ -534,23 +539,75 @@ const EXECUTED_ITEMS = [
 	"media-format:video/webm-vp9",
 ];
 
+/** The items the browser playback spec plays in CI (`e2e/tests/browser/media-play.spec.ts`). */
+const CI_EXECUTED_ITEMS = [
+	"media-format:image/png",
+	"media-format:image/jpeg",
+	"media-format:image/gif",
+	"media-format:image/webp",
+	"media-format:image/ico",
+	"media-format:image/avif",
+	"media-format:audio/mp3",
+	"media-format:audio/wav-pcm-8-or-16-bit",
+	"media-format:video/mp4-h264-baseline",
+	"media-format:video/mp4-h264-main",
+	"media-format:video/mp4-h264-high",
+];
+
+/** The items whose Android reading is a run of the decode probe, overriding the documentation. */
+const ANDROID_RUN_ITEMS = ["media-format:video/mp4-h264-high"];
+
 describe("the accepted formats and the media-format family", () => {
 	const media = readJson("media-formats.json") as {
 		items: Readonly<Record<string, MediaFormatItem>>;
 		executions: Readonly<Record<string, Execution>>;
 	};
+	const manifest = loadManifest();
 
-	it("names, for each registry format, items of its kind that HQ files as that kind and both platforms run", () => {
+	it("holds each variant to its item: its kind, HQ's class and where it plays", () => {
+		for (const variant of MEDIA_FORMATS) {
+			const item = media.items[variant.surfaceKey];
+			expect(item, variant.key).toBeDefined();
+			if (item === undefined) continue;
+			expect(item.kind, variant.key).toBe(variant.kind);
+			expect(item.hq.class, variant.key).toBe(HQ_CLASS_OF_KIND[variant.kind]);
+			expect(variant.playsOn.includes("web-apps"), variant.key).toBe(
+				item.webApps.reading === "runs",
+			);
+			expect(variant.playsOn.includes("android"), variant.key).toBe(
+				item.android.reading === "runs",
+			);
+			expect(variant.playsOn.length, variant.key).toBeGreaterThan(0);
+		}
+	});
+
+	it("names each variant's MIME as an accepted entry of its kind, and a variant for each media entry", () => {
+		for (const variant of MEDIA_FORMATS) {
+			expect(acceptedFormatFor(variant.mime)?.kind, variant.key).toBe(
+				variant.kind,
+			);
+		}
 		for (const format of ACCEPTED_FORMATS) {
-			for (const key of format.surfaceKeys) {
-				const item = media.items[key];
-				expect(item, key).toBeDefined();
-				if (item === undefined) continue;
-				expect(item.kind, key).toBe(format.kind);
-				expect(item.hq.class, key).toBe(HQ_CLASS_OF_KIND[format.kind]);
-				expect(item.android.reading, key).toBe("runs");
-				expect(item.webApps.reading, key).toBe("runs");
-			}
+			if (!isMediaKind(format.kind)) continue;
+			expect(
+				MEDIA_FORMATS.some((variant) => variant.mime === format.mime),
+				format.mime,
+			).toBe(true);
+		}
+	});
+
+	it("accepts or refuses, for a reason, every item that plays somewhere and that HQ files as its kind", () => {
+		const variantItems = new Set(MEDIA_FORMATS.map((v) => v.surfaceKey));
+		const refused = new Set(
+			manifest.inventory
+				.filter((entry) => entry.disposition === "REFUSED")
+				.flatMap((entry) => entry.surfaceKeys),
+		);
+		for (const [key, item] of Object.entries(media.items)) {
+			const plays =
+				item.webApps.reading === "runs" || item.android.reading === "runs";
+			if (!plays || item.hq.class !== HQ_CLASS_OF_KIND[item.kind]) continue;
+			expect(variantItems.has(key) || refused.has(key), key).toBe(true);
 		}
 	});
 
@@ -567,6 +624,21 @@ describe("the accepted formats and the media-format family", () => {
 					0,
 				);
 			}
+		}
+	});
+
+	it("records the CI playback on each item the browser spec plays, and the decode run on H.264 High", () => {
+		for (const key of CI_EXECUTED_ITEMS) {
+			expect(media.items[key]?.webApps.executed, key).toBe(
+				"browser-playback-ci",
+			);
+		}
+		expect(media.executions["browser-playback-ci"]?.platform).toBe("webApps");
+		for (const key of ANDROID_RUN_ITEMS) {
+			expect(media.items[key]?.android, key).toMatchObject({
+				reading: "runs",
+				executed: "android-decode",
+			});
 		}
 	});
 

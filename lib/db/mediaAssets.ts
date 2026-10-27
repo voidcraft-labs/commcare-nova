@@ -23,11 +23,20 @@ import {
 	type AssetKind,
 	type AssetMimeType,
 	asMediaAssetId,
+	isMediaKind,
 	type MediaAssetId,
 	type MediaAssetStatus,
+	type MediaFormatKey,
+	type MediaFormatValue,
 	mediaAssetIdSchema,
+	mediaFormatLabel,
+	mediaFormatPlaysOn,
+	mediaFormatValueSchema,
 	pendingGcsObjectKeyFor,
+	UNPLAYABLE_MEDIA_FORMAT,
 } from "@/lib/domain/multimedia";
+import type { Platform } from "@/lib/domain/platforms";
+import { playsOnEvery } from "@/lib/media/platformPlayback";
 import {
 	type AppDatabase,
 	getAppDb,
@@ -86,6 +95,10 @@ export function mediaAssetRecordFromRow(
 		sizeBytes: Number(row.size_bytes),
 		...(row.dimensions !== null && { dimensions: row.dimensions }),
 		...(row.duration_ms !== null && { durationMs: Number(row.duration_ms) }),
+		// An unknown value throws: a row the registry cannot name fails closed.
+		...(row.media_format !== null && {
+			mediaFormat: mediaFormatValueSchema.parse(row.media_format),
+		}),
 		kind: row.kind as AssetKind,
 		gcsObjectKey: row.gcs_object_key,
 		originalFilename: row.original_filename,
@@ -115,6 +128,13 @@ export interface WireMediaAsset {
 	sizeBytes: number;
 	dimensions?: { width: number; height: number };
 	durationMs?: number;
+	/** The variant the bytes are, or `unplayable`; present exactly on a ready
+	 *  row of a media kind that records one. */
+	mediaFormat?: MediaFormatValue;
+	/** "MP4 (HEVC)", or the MIME's label for `unplayable` ("WAV"). */
+	formatLabel?: string;
+	/** Where it plays, in `PLATFORMS` order; `[]` for `unplayable`. */
+	playsOn?: Platform[];
 	originalFilename: string;
 	displayName?: string;
 	status: MediaAssetStatus;
@@ -146,6 +166,12 @@ export interface WireMediaAsset {
  * serializes via `.toISOString()`.
  */
 export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
+	const format =
+		record.status === "ready" &&
+		isMediaKind(record.kind) &&
+		record.mediaFormat !== undefined
+			? record.mediaFormat
+			: undefined;
 	return {
 		id: record.id,
 		contentHash: record.contentHash,
@@ -155,6 +181,11 @@ export function toWireMediaAsset(record: MediaAssetRecord): WireMediaAsset {
 		sizeBytes: record.sizeBytes,
 		dimensions: record.dimensions,
 		durationMs: record.durationMs,
+		...(format !== undefined && {
+			mediaFormat: format,
+			formatLabel: mediaFormatLabel(format, record.mimeType),
+			playsOn: [...mediaFormatPlaysOn(format)],
+		}),
 		originalFilename: record.originalFilename,
 		displayName: record.displayName,
 		status: record.status,
@@ -262,6 +293,7 @@ export async function confirmAssetReady(
 		extension?: string;
 		dimensions?: { width: number; height: number };
 		durationMs?: number;
+		mediaFormat?: MediaFormatKey;
 	},
 	lockedDb?: Kysely<AppDatabase>,
 ): Promise<void> {
@@ -283,6 +315,7 @@ export async function confirmAssetReady(
 			// carry is simply absent from the patch.
 			...(args.dimensions && { dimensions: JSON.stringify(args.dimensions) }),
 			...(args.durationMs !== undefined && { duration_ms: args.durationMs }),
+			...(args.mediaFormat !== undefined && { media_format: args.mediaFormat }),
 		})
 		.where("id", "=", args.assetId)
 		.executeTakeFirst();
@@ -321,6 +354,9 @@ export async function publishPendingAssetForActor(
 		extension: string;
 		dimensions?: { width: number; height: number };
 		durationMs?: number;
+		/** The validated variant, written with the `ready` flip; a media kind's
+		 *  ready row must carry one (`media_assets_ready_media_format`). */
+		mediaFormat?: MediaFormatKey;
 	},
 	lockedDb: Kysely<AppDatabase>,
 ): Promise<PendingAssetPublicationResult> {
@@ -360,6 +396,9 @@ export async function publishPendingAssetForActor(
 				}),
 				...(args.durationMs !== undefined && {
 					duration_ms: args.durationMs,
+				}),
+				...(args.mediaFormat !== undefined && {
+					media_format: args.mediaFormat,
 				}),
 			})
 			.where("id", "=", args.assetId)
@@ -670,6 +709,8 @@ export interface ReadyAssetInsert {
 	displayName?: string;
 	dimensions?: { width: number; height: number };
 	durationMs?: number;
+	/** The variant the bytes are; a media kind's ready row must carry one. */
+	mediaFormat?: MediaFormatValue;
 	extract?: MediaAssetExtract;
 }
 
@@ -716,6 +757,9 @@ export async function insertReadyAssetInTransaction(
 				dimensions: JSON.stringify(args.dimensions),
 			}),
 			...(args.durationMs !== undefined && { duration_ms: args.durationMs }),
+			...(args.mediaFormat !== undefined && {
+				media_format: args.mediaFormat,
+			}),
 			...(args.extract !== undefined && {
 				extract: JSON.stringify(args.extract),
 			}),
@@ -1370,6 +1414,18 @@ export class MalformedCursorError extends Error {
 export interface MediaReferenceRequirement {
 	readonly assetId: MediaAssetId;
 	readonly expectedKind: AssetKind;
+	/**
+	 * The platforms the referencing app runs on, for an authored Blueprint
+	 * reference: its row must play on every one. Thread requirements carry
+	 * none, since conversation files never reach a runtime.
+	 */
+	readonly platforms?: readonly Platform[];
+}
+
+/** A failing row of a `platform-unplayable` refusal. */
+export interface UnplayableMediaRow {
+	readonly mediaFormat: MediaFormatValue;
+	readonly mimeType: AssetMimeType;
 }
 
 export class MediaReferenceProjectionError extends Error {
@@ -1382,14 +1438,25 @@ export class MediaReferenceProjectionError extends Error {
 			| "wrong-project"
 			| "not-ready"
 			| "wrong-kind"
+			| "platform-unplayable"
 			| "invalid-projection" = "invalid-projection",
 		readonly expectedKind?: AssetKind,
+		/** Every failing row of a `platform-unplayable` refusal, by id. */
+		readonly formats?: ReadonlyMap<MediaAssetId, UnplayableMediaRow>,
 	) {
 		super(message);
 	}
 }
 
-/** Lock every referenced asset in UUID order and prove its exact live shape. */
+/**
+ * Lock every referenced asset in UUID order and prove its exact live shape.
+ *
+ * The first pass throws at the first missing, foreign, unready or wrong-kind
+ * requirement. The second collects every requirement with `platforms` whose
+ * row (a NULL format read as `unplayable`) does not play on every one of
+ * them, and throws one `platform-unplayable` refusal holding them all, so
+ * its caller can name every carrier.
+ */
 export async function lockAndValidateMediaReferences(
 	tx: Transaction<AppDatabase>,
 	projectId: string,
@@ -1418,6 +1485,28 @@ export async function lockAndValidateMediaReferences(
 				requirement.expectedKind,
 			);
 		}
+	}
+	const unplayable = new Map<MediaAssetId, UnplayableMediaRow>();
+	for (const requirement of requirements) {
+		if (requirement.platforms === undefined) continue;
+		const asset = assets.get(requirement.assetId);
+		if (asset === undefined) continue;
+		const mediaFormat = asset.mediaFormat ?? UNPLAYABLE_MEDIA_FORMAT;
+		if (playsOnEvery(mediaFormat, requirement.platforms)) continue;
+		unplayable.set(requirement.assetId, {
+			mediaFormat,
+			mimeType: asset.mimeType,
+		});
+	}
+	const [first] = unplayable.keys();
+	if (first !== undefined) {
+		throw new MediaReferenceProjectionError(
+			"A referenced media file does not play on every platform its app runs on.",
+			first,
+			"platform-unplayable",
+			undefined,
+			unplayable,
+		);
 	}
 	return ids;
 }

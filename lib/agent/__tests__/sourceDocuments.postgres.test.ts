@@ -95,6 +95,12 @@ async function seed(
 			gcs_object_key: `projects/${project}/${hash}.md`,
 			original_filename: opts.name ?? "Specification.md",
 			status: opts.status ?? "ready",
+			// A ready image row records the variant its bytes are; the seed's
+			// image stands in as a PNG.
+			media_format:
+				opts.kind === "image" && (opts.status ?? "ready") === "ready"
+					? "png"
+					: null,
 			extract: extract ? JSON.stringify(extract) : null,
 			created_at: opts.createdAt ?? new Date(),
 		})

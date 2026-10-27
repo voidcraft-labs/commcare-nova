@@ -45,6 +45,7 @@ function record(
 		originalFilename: `${id}.png`,
 		displayName: id,
 		status: "ready",
+		mediaFormat: "png",
 		created_at: new Date(0),
 		...overrides,
 		id: overrides.id ?? testMediaAssetId(id),
@@ -142,12 +143,14 @@ describe("media validation integration", () => {
 			kind: "audio",
 			mimeType: "audio/mpeg",
 			extension: ".mp3",
+			mediaFormat: "mp3",
 			status: "pending",
 		});
 		const audioAsset = record("audio-asset", {
 			kind: "audio",
 			mimeType: "audio/mpeg",
 			extension: ".mp3",
+			mediaFormat: "mp3",
 		});
 		const manifest = new Map([
 			[goodImage.id, goodImage],

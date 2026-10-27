@@ -19,8 +19,14 @@ import {
 	extensionOf,
 	gcsObjectKeyFor,
 	IMAGE_MIME_TYPES,
+	imageFormatNoun,
 	isModelReadableImageMimeType,
+	MEDIA_FORMAT_KEYS,
+	MEDIA_FORMATS,
 	MODEL_READABLE_IMAGE_MIME_TYPES,
+	mediaFormatLabel,
+	mediaFormatPlaysOn,
+	mediaFormatValueSchema,
 	mediaSchema,
 	mimeTypeForExtension,
 	mimeTypeForFilename,
@@ -162,10 +168,16 @@ describe("normalizeMimeType", () => {
 		expect(normalizeMimeType("image/x-bmp")).toBe("image/bmp");
 	});
 
-	it("still refuses a format no platform plays everywhere", () => {
-		expect(normalizeMimeType("video/matroska")).toBeUndefined();
+	it("maps the sniff's spellings of the formats one platform plays", () => {
+		expect(normalizeMimeType("video/matroska")).toBe("video/x-matroska");
+		expect(normalizeMimeType("image/x-icon")).toBe("image/vnd.microsoft.icon");
+		expect(normalizeMimeType("audio/aac")).toBe("audio/aac");
+		expect(normalizeMimeType("audio/x-midi")).toBe("audio/midi");
+	});
+
+	it("still refuses a format no platform plays, and SVG", () => {
 		expect(normalizeMimeType("video/ogg")).toBeUndefined();
-		expect(normalizeMimeType("audio/aac")).toBeUndefined();
+		expect(normalizeMimeType("image/svg+xml")).toBeUndefined();
 	});
 
 	it("maps animated PNG (image/apng) to image/png", () => {
@@ -325,6 +337,8 @@ describe("ACCEPTED_FORMATS, the one registry", () => {
 			"image/gif",
 			"image/webp",
 			"image/bmp",
+			"image/vnd.microsoft.icon",
+			"image/avif",
 		]);
 		expect(AUDIO_MIME_TYPES).toEqual([
 			"audio/mpeg",
@@ -332,8 +346,15 @@ describe("ACCEPTED_FORMATS, the one registry", () => {
 			"audio/mp4",
 			"audio/flac",
 			"audio/ogg",
+			"audio/aac",
+			"audio/amr",
+			"audio/midi",
 		]);
-		expect(VIDEO_MIME_TYPES).toEqual(["video/mp4", "video/webm"]);
+		expect(VIDEO_MIME_TYPES).toEqual([
+			"video/mp4",
+			"video/webm",
+			"video/x-matroska",
+		]);
 	});
 
 	it("resolves every alias and declared extension only through its own entry", () => {
@@ -358,19 +379,55 @@ describe("ACCEPTED_FORMATS, the one registry", () => {
 		}
 	});
 
-	it("names the fifteen surface items of the formats it admits, and none for a document", () => {
-		const keys = ACCEPTED_FORMATS.flatMap((format) => format.surfaceKeys);
-		expect(keys).toHaveLength(15);
-		expect(new Set(keys).size).toBe(15);
+	it("names a variant for every media entry, and none for a document", () => {
+		const variantMimes = new Set<string>(
+			MEDIA_FORMATS.map((format) => format.mime),
+		);
 		for (const format of ACCEPTED_FORMATS) {
-			if (
-				format.kind !== "image" &&
-				format.kind !== "audio" &&
-				format.kind !== "video"
-			) {
-				expect(format.surfaceKeys).toEqual([]);
-			}
+			const media =
+				format.kind === "image" ||
+				format.kind === "audio" ||
+				format.kind === "video";
+			expect(variantMimes.has(format.mime), format.mime).toBe(media);
 		}
+		for (const variant of MEDIA_FORMATS) {
+			expect(assetKindForMimeType(variant.mime)).toBe(variant.kind);
+		}
+	});
+});
+
+describe("MEDIA_FORMATS, the variants beneath a MIME", () => {
+	it("lists each key once, in key order, each playing somewhere", () => {
+		expect(MEDIA_FORMATS.map((format) => format.key)).toEqual([
+			...MEDIA_FORMAT_KEYS,
+		]);
+		expect(new Set(MEDIA_FORMATS.map((f) => f.surfaceKey)).size).toBe(
+			MEDIA_FORMATS.length,
+		);
+		for (const format of MEDIA_FORMATS) {
+			expect(format.playsOn.length, format.key).toBeGreaterThan(0);
+		}
+	});
+
+	it("reads a stored value's platforms and label, unplayable included", () => {
+		expect(mediaFormatPlaysOn("mp4-hevc")).toEqual(["android"]);
+		expect(mediaFormatPlaysOn("ico")).toEqual(["web-apps"]);
+		expect(mediaFormatPlaysOn("mp4-h264-high")).toEqual([
+			"web-apps",
+			"android",
+		]);
+		expect(mediaFormatPlaysOn("unplayable")).toEqual([]);
+		expect(mediaFormatLabel("mp4-hevc", "video/mp4")).toBe("MP4 (HEVC)");
+		expect(mediaFormatLabel("unplayable", "audio/wav")).toBe("WAV");
+		expect(mediaFormatValueSchema.safeParse("mp4-hevc").success).toBe(true);
+		expect(mediaFormatValueSchema.safeParse("unplayable").success).toBe(true);
+		expect(mediaFormatValueSchema.safeParse("svg").success).toBe(false);
+	});
+
+	it("names an image with the article its label takes", () => {
+		expect(imageFormatNoun("image/bmp")).toBe("a BMP image");
+		expect(imageFormatNoun("image/vnd.microsoft.icon")).toBe("an ICO image");
+		expect(imageFormatNoun("image/avif")).toBe("an AVIF image");
 	});
 });
 

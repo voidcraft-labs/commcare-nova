@@ -78,6 +78,7 @@ function asset(
 		contentHash: id.padEnd(64, "a").slice(0, 64),
 		mimeType: "image/png",
 		kind: "image",
+		mediaFormat: "png",
 		extension: ".png",
 		sizeBytes: 100,
 		gcsObjectKey: `projects/${FROM}/${id}.png`,
@@ -198,6 +199,28 @@ describe("copyAssetsIntoProject", () => {
 			}),
 		);
 		expect(copyAssetObject).not.toHaveBeenCalled();
+	});
+
+	it("keeps an asset's media format on its copy", async () => {
+		const video = asset("hevc-source", {
+			mimeType: "video/mp4",
+			kind: "video",
+			extension: ".mp4",
+			mediaFormat: "mp4-hevc",
+			contentHash: "e".repeat(64),
+			gcsObjectKey: `projects/${FROM}/${"e".repeat(64)}.mp4`,
+		});
+		arrangeLoadedAssets([video]);
+		await copyAssetsIntoProject({
+			assetIds: [video.id],
+			fromProjectId: FROM,
+			toProjectId: TO,
+			actorUserId: "actor-1",
+		});
+		expect(createReadyAsset).toHaveBeenCalledWith(
+			expect.objectContaining({ project_id: TO, mediaFormat: "mp4-hevc" }),
+			expect.anything(),
+		);
 	});
 
 	it("copies an image and a document with its ready extract", async () => {

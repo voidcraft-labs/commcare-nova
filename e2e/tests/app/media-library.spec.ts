@@ -34,6 +34,9 @@ const asset = {
 	originalFilename: "client-photo.png",
 	status: "ready",
 	createdAt: "2026-09-05T00:00:00Z",
+	mediaFormat: "png",
+	formatLabel: "PNG",
+	playsOn: ["web-apps", "android"],
 };
 async function expectTouchTarget(control: Locator) {
 	await expect
@@ -249,6 +252,9 @@ test("search and pagination use server results; full document names disclose on 
 		mimeType:
 			"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 		extension: ".docx",
+		mediaFormat: undefined,
+		formatLabel: undefined,
+		playsOn: undefined,
 		originalFilename: filename,
 		extract: {
 			status: "ready",
@@ -433,6 +439,8 @@ test("a live editor-to-viewer change closes pending deletion and reopens the fil
 		kind: "audio",
 		mimeType: "audio/wav",
 		extension: ".wav",
+		mediaFormat: "wav-pcm",
+		formatLabel: "WAV",
 		originalFilename: "visit.wav",
 		sizeBytes: audioBytes.length,
 	};

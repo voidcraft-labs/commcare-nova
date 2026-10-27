@@ -18,12 +18,16 @@
 //    it; per-kind size caps; and the GCS object-key derivations — the
 //    cross-cutting constants both the storage layer and the upload routes
 //    consume.
+//  - `MEDIA_FORMATS`, the variants beneath a media MIME (an MP4 by its
+//    codec and profile), each with its surface item and the platforms that
+//    play it; a stored asset row holds one variant key, or `unplayable`.
 //
 // The stored-record shapes live with their boundaries: the
 // `MediaAssetDoc` interface in `lib/db/types.ts`, the client-facing
 // wire shape in `lib/db/mediaAssets.ts`.
 
 import { z } from "zod";
+import type { Platform } from "./platforms";
 import { CANONICAL_UUID_PATTERN, type Uuid } from "./uuid";
 
 /**
@@ -102,30 +106,23 @@ export interface AcceptedFormat {
 	readonly aliases: readonly string[];
 	/** The format's name as a person reads it. */
 	readonly label: string;
-	/**
-	 * The items of `lib/commcare/surface/media-formats.json` the format
-	 * admits; empty for a document, which never reaches a CommCare carrier.
-	 */
-	readonly surfaceKeys: readonly string[];
 }
 
 /**
  * Every asset format the upload gate accepts, one entry per canonical MIME.
  *
- * A media format is accepted when every CommCare platform plays it and HQ
- * files its bytes as the same kind: CommCare Android's decoders on Android
- * 6.0, 10 and 15, the browser engines Web Apps runs in, and HQ's bulk upload,
- * which types each file by its bytes (`hqmedia/models.py::
- * CommCareMultimedia.get_class_by_data`), never by its extension. Several
- * formats are accepted only in the variant every reader played: the body
- * checks in `lib/media/validate.ts` hold a BMP to two headers, an M4A to its
- * brand and AAC, an Ogg to Vorbis or Opus, and a WebM to VP8 or 8-bit 4:2:0
- * VP9 with Vorbis or Opus audio (`media-formats.json`'s `executions` record
- * where each was played).
+ * A media format is accepted when at least one CommCare platform plays it and
+ * HQ types and stores its bytes as its kind: HQ's bulk upload types each file
+ * by its bytes (`hqmedia/models.py::CommCareMultimedia.get_class_by_data`),
+ * never by its extension, and stores an image only once Pillow opens it.
+ * `MEDIA_FORMATS` names each variant beneath a MIME and where it plays, and
+ * the body checks in `lib/media/validate.ts` tell the variants apart; an app
+ * references a file only where it plays on every platform the app declares
+ * (`lib/media/platformPlayback.ts`).
  *
- * SVG is deliberately absent — it's a script container with active
- * content surface (XSS via embedded `<script>` / event handlers),
- * and the wire-side carriers don't render it usefully either way.
+ * SVG is absent: HQ types it as an image and cannot store it (Pillow reads no
+ * SVG, and the error stops the whole bulk upload), and it is a script
+ * container besides.
  *
  * Text carries no magic-bytes signature, so `file-type` can't sniff it — the
  * validator gives the `text` kind a dedicated arm (extension + UTF-8
@@ -144,7 +141,6 @@ export const ACCEPTED_FORMATS = [
 		// renderers without APNG support fall back to the first frame.
 		aliases: ["image/apng"],
 		label: "PNG",
-		surfaceKeys: ["media-format:image/png"],
 	},
 	{
 		mime: "image/jpeg",
@@ -153,7 +149,6 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".jpg", ".jpeg"],
 		aliases: [],
 		label: "JPEG",
-		surfaceKeys: ["media-format:image/jpeg"],
 	},
 	{
 		mime: "image/gif",
@@ -162,7 +157,6 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".gif"],
 		aliases: [],
 		label: "GIF",
-		surfaceKeys: ["media-format:image/gif"],
 	},
 	{
 		mime: "image/webp",
@@ -171,7 +165,6 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".webp"],
 		aliases: [],
 		label: "WebP",
-		surfaceKeys: ["media-format:image/webp"],
 	},
 	{
 		mime: "image/bmp",
@@ -180,7 +173,24 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".bmp"],
 		aliases: ["image/x-ms-bmp", "image/x-bmp"],
 		label: "BMP",
-		surfaceKeys: ["media-format:image/bmp"],
+	},
+	{
+		// The registered spelling, which HQ's libmagic gives; `file-type`
+		// sniffs `image/x-icon`, which the alias maps.
+		mime: "image/vnd.microsoft.icon",
+		kind: "image",
+		extension: ".ico",
+		declaredExtensions: [".ico"],
+		aliases: ["image/x-icon"],
+		label: "ICO",
+	},
+	{
+		mime: "image/avif",
+		kind: "image",
+		extension: ".avif",
+		declaredExtensions: [".avif"],
+		aliases: [],
+		label: "AVIF",
 	},
 	{
 		// `audio/mpeg`'s "mpeg" is historical; the MPEG-1 Audio Layer 3
@@ -192,18 +202,14 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".mp3"],
 		aliases: [],
 		label: "MP3",
-		surfaceKeys: ["media-format:audio/mp3"],
 	},
 	{
-		// The item is the one step 4 narrows acceptance to: step 2 checks no
-		// WAV encoding.
 		mime: "audio/wav",
 		kind: "audio",
 		extension: ".wav",
 		declaredExtensions: [".wav"],
 		aliases: [],
 		label: "WAV",
-		surfaceKeys: ["media-format:audio/wav-pcm-8-or-16-bit"],
 	},
 	{
 		mime: "audio/mp4",
@@ -212,7 +218,6 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".m4a"],
 		aliases: ["audio/x-m4a", "audio/m4a"],
 		label: "M4A",
-		surfaceKeys: ["media-format:audio/m4a"],
 	},
 	{
 		mime: "audio/flac",
@@ -221,7 +226,6 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".flac"],
 		aliases: ["audio/x-flac"],
 		label: "FLAC",
-		surfaceKeys: ["media-format:audio/flac"],
 	},
 	{
 		// One entry for Vorbis and Opus: both are `audio/ogg`, and an Opus
@@ -232,24 +236,39 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".ogg", ".opus"],
 		aliases: ["audio/opus", "audio/vorbis", "application/ogg"],
 		label: "Ogg",
-		surfaceKeys: [
-			"media-format:audio/ogg-vorbis",
-			"media-format:audio/ogg-opus",
-		],
 	},
 	{
-		// The items are the ones step 4 narrows acceptance to: step 2 checks
-		// no MP4 codec.
+		// Raw AAC in ADTS frames, which `file-type` sniffs as `audio/aac`.
+		mime: "audio/aac",
+		kind: "audio",
+		extension: ".aac",
+		declaredExtensions: [".aac"],
+		aliases: ["audio/x-aac"],
+		label: "AAC",
+	},
+	{
+		mime: "audio/amr",
+		kind: "audio",
+		extension: ".amr",
+		declaredExtensions: [".amr"],
+		aliases: [],
+		label: "AMR",
+	},
+	{
+		mime: "audio/midi",
+		kind: "audio",
+		extension: ".mid",
+		declaredExtensions: [".mid", ".midi"],
+		aliases: ["audio/x-midi"],
+		label: "MIDI",
+	},
+	{
 		mime: "video/mp4",
 		kind: "video",
 		extension: ".mp4",
 		declaredExtensions: [".mp4"],
 		aliases: [],
 		label: "MP4",
-		surfaceKeys: [
-			"media-format:video/mp4-h264-baseline",
-			"media-format:video/mp4-h264-main",
-		],
 	},
 	{
 		// One entry for VP8 and VP9, both `video/webm`.
@@ -259,7 +278,16 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".webm"],
 		aliases: [],
 		label: "WebM",
-		surfaceKeys: ["media-format:video/webm-vp8", "media-format:video/webm-vp9"],
+	},
+	{
+		// HQ's libmagic gives `video/x-matroska`; `file-type` sniffs
+		// `video/matroska`, which the alias maps.
+		mime: "video/x-matroska",
+		kind: "video",
+		extension: ".mkv",
+		declaredExtensions: [".mkv"],
+		aliases: ["video/matroska"],
+		label: "MKV",
 	},
 	{
 		mime: "application/pdf",
@@ -268,7 +296,6 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".pdf"],
 		aliases: [],
 		label: "PDF",
-		surfaceKeys: [],
 	},
 	{
 		mime: "text/plain",
@@ -277,7 +304,6 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".txt"],
 		aliases: [],
 		label: "Text",
-		surfaceKeys: [],
 	},
 	{
 		mime: "text/markdown",
@@ -286,7 +312,6 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".md"],
 		aliases: [],
 		label: "Markdown",
-		surfaceKeys: [],
 	},
 	{
 		mime: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -295,7 +320,6 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".docx"],
 		aliases: [],
 		label: "Word",
-		surfaceKeys: [],
 	},
 	{
 		mime: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -304,7 +328,6 @@ export const ACCEPTED_FORMATS = [
 		declaredExtensions: [".xlsx"],
 		aliases: [],
 		label: "Excel",
-		surfaceKeys: [],
 	},
 ] as const satisfies readonly AcceptedFormat[];
 
@@ -358,6 +381,301 @@ export const ALL_MIME_TYPES: readonly AssetMimeType[] = ACCEPTED_FORMATS.map(
 );
 
 /**
+ * Every media variant Nova tells apart, beneath the MIME of its
+ * `ACCEPTED_FORMATS` entry: an MP4 is one of five by its video codec and
+ * profile, an Ogg one of two by its codec. A validated media asset stores the
+ * one variant its bytes are (`media_assets.media_format`), written once and
+ * never changed, like its kind.
+ */
+export const MEDIA_FORMAT_KEYS = [
+	"png",
+	"jpeg",
+	"gif",
+	"webp",
+	"bmp",
+	"ico",
+	"avif",
+	"mp3",
+	"wav-pcm",
+	"m4a",
+	"flac",
+	"ogg-vorbis",
+	"ogg-opus",
+	"aac-adts",
+	"amr",
+	"midi",
+	"mp4-h264-baseline",
+	"mp4-h264-main",
+	"mp4-h264-high",
+	"mp4-hevc",
+	"mp4-mpeg4-part2",
+	"webm-vp8",
+	"webm-vp9",
+	"mkv",
+] as const;
+export type MediaFormatKey = (typeof MEDIA_FORMAT_KEYS)[number];
+
+/** What a stored media row holds: a variant, or bytes no variant admits. */
+export const UNPLAYABLE_MEDIA_FORMAT = "unplayable";
+export type MediaFormatValue = MediaFormatKey | typeof UNPLAYABLE_MEDIA_FORMAT;
+export const mediaFormatValueSchema = z.enum([
+	...MEDIA_FORMAT_KEYS,
+	UNPLAYABLE_MEDIA_FORMAT,
+]);
+
+/** One media variant, as `MEDIA_FORMATS` lists it. */
+export interface MediaFormat {
+	readonly key: MediaFormatKey;
+	/** The canonical MIME of its `ACCEPTED_FORMATS` entry. */
+	readonly mime: AssetMimeType;
+	readonly kind: MediaKind;
+	/** The format as a person reads it: "MP4 (HEVC)". */
+	readonly label: string;
+	/** The one `lib/commcare/surface/media-formats.json` item it is. */
+	readonly surfaceKey: string;
+	/** The platforms that play it, in `PLATFORMS` order; never empty. */
+	readonly playsOn: readonly Platform[];
+}
+
+const BOTH_PLATFORMS: readonly Platform[] = Object.freeze([
+	"web-apps",
+	"android",
+]);
+const WEB_APPS: readonly Platform[] = Object.freeze(["web-apps"]);
+const ANDROID: readonly Platform[] = Object.freeze(["android"]);
+
+/**
+ * Every variant, in key order. `playsOn` is each item's readings in
+ * `media-formats.json` (`lib/commcare/surface/__tests__/manifest.test.ts`
+ * holds them equal): a platform whose reading is `runs` plays it.
+ */
+export const MEDIA_FORMATS: readonly MediaFormat[] = [
+	{
+		key: "png",
+		mime: "image/png",
+		kind: "image",
+		label: "PNG",
+		surfaceKey: "media-format:image/png",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "jpeg",
+		mime: "image/jpeg",
+		kind: "image",
+		label: "JPEG",
+		surfaceKey: "media-format:image/jpeg",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "gif",
+		mime: "image/gif",
+		kind: "image",
+		label: "GIF",
+		surfaceKey: "media-format:image/gif",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "webp",
+		mime: "image/webp",
+		kind: "image",
+		label: "WebP",
+		surfaceKey: "media-format:image/webp",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "bmp",
+		mime: "image/bmp",
+		kind: "image",
+		label: "BMP",
+		surfaceKey: "media-format:image/bmp",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "ico",
+		mime: "image/vnd.microsoft.icon",
+		kind: "image",
+		label: "ICO",
+		surfaceKey: "media-format:image/ico",
+		playsOn: WEB_APPS,
+	},
+	{
+		key: "avif",
+		mime: "image/avif",
+		kind: "image",
+		label: "AVIF",
+		surfaceKey: "media-format:image/avif",
+		playsOn: WEB_APPS,
+	},
+	{
+		key: "mp3",
+		mime: "audio/mpeg",
+		kind: "audio",
+		label: "MP3",
+		surfaceKey: "media-format:audio/mp3",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "wav-pcm",
+		mime: "audio/wav",
+		kind: "audio",
+		label: "WAV",
+		surfaceKey: "media-format:audio/wav-pcm-8-or-16-bit",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "m4a",
+		mime: "audio/mp4",
+		kind: "audio",
+		label: "M4A",
+		surfaceKey: "media-format:audio/m4a",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "flac",
+		mime: "audio/flac",
+		kind: "audio",
+		label: "FLAC",
+		surfaceKey: "media-format:audio/flac",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "ogg-vorbis",
+		mime: "audio/ogg",
+		kind: "audio",
+		label: "Ogg (Vorbis)",
+		surfaceKey: "media-format:audio/ogg-vorbis",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "ogg-opus",
+		mime: "audio/ogg",
+		kind: "audio",
+		label: "Ogg (Opus)",
+		surfaceKey: "media-format:audio/ogg-opus",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "aac-adts",
+		mime: "audio/aac",
+		kind: "audio",
+		label: "AAC",
+		surfaceKey: "media-format:audio/aac-adts",
+		playsOn: ANDROID,
+	},
+	{
+		key: "amr",
+		mime: "audio/amr",
+		kind: "audio",
+		label: "AMR",
+		surfaceKey: "media-format:audio/amr",
+		playsOn: ANDROID,
+	},
+	{
+		key: "midi",
+		mime: "audio/midi",
+		kind: "audio",
+		label: "MIDI",
+		surfaceKey: "media-format:audio/midi",
+		playsOn: ANDROID,
+	},
+	{
+		key: "mp4-h264-baseline",
+		mime: "video/mp4",
+		kind: "video",
+		label: "MP4 (H.264 Baseline)",
+		surfaceKey: "media-format:video/mp4-h264-baseline",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "mp4-h264-main",
+		mime: "video/mp4",
+		kind: "video",
+		label: "MP4 (H.264 Main)",
+		surfaceKey: "media-format:video/mp4-h264-main",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "mp4-h264-high",
+		mime: "video/mp4",
+		kind: "video",
+		label: "MP4 (H.264 High)",
+		surfaceKey: "media-format:video/mp4-h264-high",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "mp4-hevc",
+		mime: "video/mp4",
+		kind: "video",
+		label: "MP4 (HEVC)",
+		surfaceKey: "media-format:video/mp4-hevc",
+		playsOn: ANDROID,
+	},
+	{
+		key: "mp4-mpeg4-part2",
+		mime: "video/mp4",
+		kind: "video",
+		label: "MP4 (MPEG-4 Part 2)",
+		surfaceKey: "media-format:video/mp4-mpeg4-part2",
+		playsOn: ANDROID,
+	},
+	{
+		key: "webm-vp8",
+		mime: "video/webm",
+		kind: "video",
+		label: "WebM (VP8)",
+		surfaceKey: "media-format:video/webm-vp8",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "webm-vp9",
+		mime: "video/webm",
+		kind: "video",
+		label: "WebM (VP9)",
+		surfaceKey: "media-format:video/webm-vp9",
+		playsOn: BOTH_PLATFORMS,
+	},
+	{
+		key: "mkv",
+		mime: "video/x-matroska",
+		kind: "video",
+		label: "MKV",
+		surfaceKey: "media-format:video/mkv",
+		playsOn: ANDROID,
+	},
+];
+
+const MEDIA_FORMAT_BY_KEY: ReadonlyMap<MediaFormatKey, MediaFormat> = new Map(
+	MEDIA_FORMATS.map((format) => [format.key, format]),
+);
+
+/** The registry entry of a variant key. */
+export function mediaFormatOf(key: MediaFormatKey): MediaFormat {
+	const format = MEDIA_FORMAT_BY_KEY.get(key);
+	if (format === undefined) {
+		throw new Error(
+			`"${key}" is not a media variant Nova knows. Each key comes from MEDIA_FORMAT_KEYS.`,
+		);
+	}
+	return format;
+}
+
+/** The platforms a stored value plays on: `[]` for `unplayable`. */
+export function mediaFormatPlaysOn(
+	value: MediaFormatValue,
+): readonly Platform[] {
+	return value === UNPLAYABLE_MEDIA_FORMAT ? [] : mediaFormatOf(value).playsOn;
+}
+
+/** The label of a stored value; for `unplayable`, the label of the row's MIME. */
+export function mediaFormatLabel(
+	value: MediaFormatValue,
+	mimeType: string,
+): string {
+	if (value !== UNPLAYABLE_MEDIA_FORMAT) return mediaFormatOf(value).label;
+	return FORMAT_BY_MIME.get(mimeType)?.label ?? mimeType;
+}
+
+/**
  * The image formats a model provider reads: the four the chat and document
  * extraction send as pixels. An image asset outside it (a BMP) reaches the
  * model as a placeholder, never as its own MIME.
@@ -380,10 +698,11 @@ export function isModelReadableImageMimeType(
 	);
 }
 
-/** "a BMP image": an image format, as a person names it in a sentence. */
+/** "a BMP image", "an ICO image": an image format, as a person names it in a sentence. */
 export function imageFormatNoun(mimeType: string): string {
 	const label = FORMAT_BY_MIME.get(mimeType)?.label;
-	return label === undefined ? "an image" : `a ${label} image`;
+	if (label === undefined) return "an image";
+	return `${/^[AEIOU]/.test(label) ? "an" : "a"} ${label} image`;
 }
 
 /**

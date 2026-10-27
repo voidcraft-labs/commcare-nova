@@ -18,6 +18,21 @@ file's owner. Every form HQ sends to Formplayer while doing so is one Core
 certified (``MediaRuntimeTest.sourceFormsParseWithRealCoreBeforeHqMatching``)
 and is validated by the Core runner.
 
+Three more scenarios run HQ's real bulk upload over what Nova accepts by
+platform. ``media-web-apps-on`` (an app that declares Web Apps only) adds an
+ICO and an AVIF, seven files (five images, an audio file, a video), and
+executes HQ storing each through Pillow in the proof image;
+``media-android-on`` (Android only) adds raw AAC, AMR, MIDI, an HEVC MP4, an
+MPEG-4 Part 2 MP4 and a VP8 MKV, eleven files (three images, four audio
+files, four videos). Each completes with no error, unmatched or skipped
+file, each file classed as its Nova kind and stored byte for byte. The
+third, ``media-svg-refused``, is the one emission Nova would refuse, built
+only so HQ's refusal is executed: one SVG among the base files stops the
+whole upload ("Error while processing zip"), and no file of it is in the
+app's multimedia map afterwards. The plausible failures: a variant Nova
+accepts that HQ types as another kind or cannot store, and an SVG HQ would
+store, either of which moves what Nova accepts.
+
 ``MediaRuntimeTest`` then installs both paths' media in Core, two ways. The
 file-system install (Android's shape) installs each resource from a file
 that exists and refuses one that doesn't. The archive install (Core's and
@@ -36,7 +51,7 @@ import json
 from lxml import etree
 
 from proof.native.hq_support import hq_commit, hq_source_hashes, write_evidence
-from proof.native.steps.media_emission import HQ_SOURCES, SCENARIOS
+from proof.native.steps.media_emission import FORMAT_SCENARIOS, HQ_SOURCES, SCENARIOS
 
 FAMILIES = ("media",)
 # The class HQ's upload gives a file of each kind Nova gives it (``hqmedia/models.py``).
@@ -56,12 +71,23 @@ def _resource_shape(root):
     )
 
 
+# The files of each scenario with media, by kind: (images, audio files, videos).
+COUNTS = {
+    "media-rich-on": (4, 5, 2),
+    "media-only-on": (4, 5, 2),
+    "media-web-apps-on": (5, 1, 1),
+    "media-android-on": (3, 4, 4),
+}
+
+
 def _check_upload(record):
     result = record["bulkStatus"]
     uploaded = record["uploaded"]
+    counts = COUNTS[record["scenario"]]
     assert result["complete"] and result["progress"]["percent"] == 100, result
     assert result["errors"] == [] and result["unmatched_count"] == 0 and result["skipped_files"] == [], result
-    assert (result["image_count"], result["audio_count"], result["video_count"]) == (4, 5, 2), result
+    assert (result["image_count"], result["audio_count"], result["video_count"]) == counts, result
+    assert len(uploaded) == sum(counts), record["scenario"]
     assert {info["original_path"] for group in result["matched_files"].values() for info in group} == set(uploaded)
     for path, file in uploaded.items():
         mapped = record["mapped"][file["reference"]]
@@ -76,10 +102,19 @@ def test_hq_media_resources_and_bulk_upload_match_novas_archive(native):
     result = native.step("media")
     certificate = result["certificate"]
     assert certificate.mismatched == [], "Core certified different bytes than the validation sources hold"
-    assert len(certificate.by_canonical) == 4
+    assert len(certificate.by_canonical) == 7
     results = []
     for record in result["records"]:
         name = record["scenario"]
+        if name == "media-svg-refused":
+            # HQ cannot store the SVG, and the error escapes the upload's loop, so the whole upload stops and
+            # nothing of it is mapped, the files the zip holds beside the SVG included.
+            assert record["multimediaMapBeforeUpload"] == 0, name
+            status = record["bulkStatus"]
+            assert any("Error while processing zip" in str(error) for error in status["errors"]), status
+            assert record["mapped"] == {}, sorted(record["mapped"])
+            results.append({"scenario": name, "bulkStatus": record["bulkStatus"]})
+            continue
         local_media = etree.fromstring(record["localMediaSuite"])
         native_media = etree.fromstring(record["nativeMediaSuite"])
         assert _resource_shape(local_media) == _resource_shape(native_media), (
@@ -93,7 +128,6 @@ def test_hq_media_resources_and_bulk_upload_match_novas_archive(native):
             assert len(local_media) == 0
             results.append({"scenario": name, "mediaResources": 0})
             continue
-        assert len(record["uploaded"]) == 11
         _check_upload({**record, "domain": "nova-media-proof"})
         results.append(
             {"scenario": name, "mediaResources": len(record["uploaded"]), "bulkStatus": record["bulkStatus"]}
@@ -115,4 +149,4 @@ def test_hq_media_resources_and_bulk_upload_match_novas_archive(native):
             "certified only. No network, rendered client or media playback.",
         },
     )
-    assert SCENARIOS == [record["scenario"] for record in result["records"]]
+    assert SCENARIOS + FORMAT_SCENARIOS == [record["scenario"] for record in result["records"]]

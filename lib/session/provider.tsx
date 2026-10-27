@@ -30,7 +30,7 @@ import {
 /** Re-exported for component-level type annotations (refs, callback params).
  *  Components should use the context-bound hooks for reactive reads — this
  *  type is for imperative-access patterns only. */
-export type { BuilderSessionStoreApi } from "./store";
+export type { AssetMetaRow, BuilderSessionStoreApi } from "./store";
 
 // ── Context ───────────────────────────────────────────────────────────────
 

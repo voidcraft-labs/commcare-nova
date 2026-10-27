@@ -425,7 +425,7 @@ export type ValidationErrorCode =
 	| "MEDIA_LOCATION_UNKNOWN_AUTHORITY"
 	| "MEDIA_RESOURCE_DUPLICATE_ID"
 	| "MEDIA_LOCATION_PATH_NOT_BUNDLED"
-	// Media — the three asset-context rules under `rules/media/`. Each
+	// Media — the four asset-context rules under `rules/media/`. Each
 	// fires only when the validator runs with a resolved asset manifest
 	// (the SA validation loop's path); structural rules (e.g. image-map
 	// duplicate values) live alongside the case-list rules and fire
@@ -433,6 +433,7 @@ export type ValidationErrorCode =
 	| "MEDIA_ASSET_NOT_FOUND"
 	| "MEDIA_ASSET_NOT_READY"
 	| "MEDIA_KIND_MISMATCH"
+	| "MEDIA_FORMAT_NOT_PLAYED"
 	// Lookup references — structural carrier vs Project definition snapshot.
 	| "LOOKUP_CONTEXT_UNAVAILABLE"
 	| "LOOKUP_TABLE_NOT_AVAILABLE"
@@ -560,6 +561,7 @@ export const MEDIA_VALIDATION_CODES: ReadonlySet<ValidationErrorCode> = new Set(
 		"MEDIA_ASSET_NOT_FOUND",
 		"MEDIA_ASSET_NOT_READY",
 		"MEDIA_KIND_MISMATCH",
+		"MEDIA_FORMAT_NOT_PLAYED",
 		"CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE",
 	],
 );

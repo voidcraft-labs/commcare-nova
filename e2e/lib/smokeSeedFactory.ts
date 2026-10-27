@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import type { UIMessage } from "ai";
 import { betterAuth } from "better-auth";
@@ -26,6 +26,7 @@ import {
 	completeAndSettleRun,
 } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
+import { createReadyAsset } from "@/lib/db/mediaAssets";
 import {
 	loadThread,
 	persistResponseSnapshot,
@@ -43,8 +44,10 @@ import {
 	sessionUserProperty,
 	term,
 } from "@/lib/domain/expression";
+import { gcsObjectKeyFor } from "@/lib/domain/multimedia";
 import { proseText } from "@/lib/domain/prose";
 import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
+import { amrNb } from "@/lib/media/__tests__/builtFixtures";
 import { continueAppTest, startAppTest } from "@/lib/preview/app-tests/service";
 import { buildUrl } from "@/lib/routing/location";
 import { APP_NOTICES_SEED, appNoticesEntries } from "./appNoticesSeed";
@@ -84,6 +87,7 @@ import {
 import {
 	buildFormRefusedBlueprint,
 	buildHereColumnBlueprint,
+	buildPreviewAndroidMediaBlueprint,
 	buildSearchChoiceBlueprint,
 	buildSearchClaimBlueprint,
 	buildSearchResultsBlueprint,
@@ -91,6 +95,8 @@ import {
 	formRefusedRoute,
 	HERE_COLUMN_SEED,
 	hereColumnRoute,
+	PREVIEW_ANDROID_MEDIA_SEED,
+	previewAndroidMediaRoute,
 	SEARCH_CHOICE_SEED,
 	SEARCH_CLAIM_SEED,
 	SEARCH_RESULTS_SEED,
@@ -1204,6 +1210,36 @@ export async function createSmokeBuilders(
 				},
 			});
 			return { hereColumn: { appId, route: hereColumnRoute(appId) } };
+		},
+		"preview-android-media": async () => {
+			/* One ready AMR row in the seed's Project, written by the production
+			 * writer with the variant its bytes are; Preview never asks for the
+			 * bytes of a file only Android plays, so the seed stores none. */
+			const bytes = amrNb();
+			const contentHash = createHash("sha256").update(bytes).digest("hex");
+			const { assetId } = await createReadyAsset({
+				owner: SEED.userId,
+				project_id: seedProjectId,
+				contentHash,
+				mimeType: "audio/amr",
+				kind: "audio",
+				extension: ".amr",
+				sizeBytes: bytes.length,
+				gcsObjectKey: gcsObjectKeyFor(seedProjectId, contentHash, ".amr"),
+				originalFilename: PREVIEW_ANDROID_MEDIA_SEED.filename,
+				mediaFormat: "amr",
+			});
+			const appId = await seedRuntimeApp(
+				PREVIEW_ANDROID_MEDIA_SEED.appName,
+				(id) => buildPreviewAndroidMediaBlueprint(id, assetId),
+			);
+			return {
+				previewAndroidMedia: {
+					appId,
+					assetId,
+					route: previewAndroidMediaRoute(appId),
+				},
+			};
 		},
 		"search-claim": async () => {
 			const seed = SEARCH_CLAIM_SEED;

@@ -1,5 +1,6 @@
 /**
- * The VP9 profile of a WebM file's video, read from its first frame.
+ * The VP9 profile of a WebM or MKV file's first video track, read from its
+ * first frame.
  *
  * music-metadata names every VP9 profile `VP9`, and the profile is what
  * decides whether a device plays the file: Android 6.0's decoder refuses
