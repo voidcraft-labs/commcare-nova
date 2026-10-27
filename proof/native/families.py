@@ -65,6 +65,9 @@ ZONED_CLASSES = {
     # run time, in a zone whose day differs from UTC's and in one with
     # daylight saving (the csql fixture's CSQL_DEVICE_ZONES).
     "CsqlCompositionRuntimeTest": (ZONES[0], ZONES[3], ZONES[1]),
+    # The date-and-time split's join holds the instant the question held for a
+    # wall clock, in a gap and a repeated hour too, as a device reads it.
+    "DatetimeSplitRuntimeTest": DEVICE_ZONES,
     "InstantOrderingRuntimeTest": ZONES,
 }
 
@@ -133,6 +136,7 @@ CORE_CLASSES = {
     "CsqlCompositionRuntimeTest": "csql",
     "CsqlFunctionRuntimeTest": "function",
     "CsqlQuoteRuntimeTest": "quote",
+    "DatetimeSplitRuntimeTest": "expression",
     "EndpointRuntimeTest": "endpoint",
     "ExpanderRuntimeTest": "expander",
     "FormLinkRuntimeTest": "form-link",

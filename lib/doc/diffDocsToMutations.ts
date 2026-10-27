@@ -121,6 +121,7 @@ import type {
 	CaseType,
 	EffectiveAppLocalization,
 	Field,
+	FieldKind,
 	Form,
 	FormLink,
 	LanguageTag,
@@ -133,6 +134,7 @@ import {
 	caseOperationSchema,
 	caseSearchConfigAfterFinalInputRemoval,
 	caseSearchConfigHasAuthoredSettings,
+	convertNeedsLabelSeed,
 	convertNeedsOptionSeed,
 	effectiveAppLocalization,
 	emptyCaseListConfig,
@@ -392,14 +394,23 @@ const FORM_PATCH_SKIP = new Set<string>([
 
 // ── Field media diff ─────────────────────────────────────────────────
 
+/**
+ * One `setFieldMedia` per changed slot. `convertedTo` is the destination kind
+ * when the field's kind changed: a slot that kind does not declare is
+ * skipped, since the convert already dropped it (`reconcileFieldForKind`) and
+ * admission refuses media on a slot the kind lacks.
+ */
 function diffFieldMedia(
 	prev: Record<string, unknown>,
 	next: Record<string, unknown>,
 	uuid: Uuid,
+	convertedTo?: FieldKind,
 ): Mutation[] {
 	const out: Mutation[] = [];
 	for (const slot of FIELD_MEDIA_SLOTS) {
 		const key = `${slot}_media`;
+		if (convertedTo !== undefined && !fieldKindDeclaresKey(convertedTo, key))
+			continue;
 		const prevMedia = prev[key];
 		const nextMedia = next[key];
 		if (deepEqual(prevMedia, nextMedia)) continue;
@@ -788,6 +799,11 @@ export function diffDocsToMutations(
 					"optionsSource" in nField && {
 						optionsSource: cloneEntity(nField.optionsSource),
 					}),
+				...(convertNeedsLabelSeed(pField, nField.kind) &&
+					"label" in nField &&
+					nField.label !== undefined && {
+						label: cloneEntity(nField.label),
+					}),
 			});
 		}
 
@@ -828,7 +844,9 @@ export function diffDocsToMutations(
 		}
 
 		// Field message media — one `setFieldMedia` per changed slot.
-		media.push(...diffFieldMedia(p, n, uuid));
+		media.push(
+			...diffFieldMedia(p, n, uuid, kindChanged ? nField.kind : undefined),
+		);
 
 		// Select options — diffed per-uuid into the granular option kinds (a
 		// content change excludes `order`/`uuid`; an `order` shift emits a

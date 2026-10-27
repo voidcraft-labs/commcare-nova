@@ -11,8 +11,8 @@ import {
 	entryPointAt,
 	entryPointByUuid,
 	fieldKindDeclaresKey,
-	getConvertibleTypes,
 	isContainer,
+	isRepresentableConversion,
 	languageTag,
 	ownRecordValue,
 	type TranslationEntry,
@@ -724,10 +724,21 @@ export function mutationTargetsInvalid(
 				if (currentKind === undefined) return true;
 				if (
 					currentKind !== m.toKind &&
-					!getConvertibleTypes(currentKind).includes(m.toKind)
+					!isRepresentableConversion(currentKind, m.toKind)
 				) {
 					return true;
 				}
+				// A birth into a kind that requires a label, from a kind with none
+				// (a Hidden Value back to a question), needs a label seed. Without
+				// it the reducer cannot convert, so accepting would acknowledge a
+				// no-op.
+				if (
+					currentKind !== m.toKind &&
+					fieldKindDeclaresKey(m.toKind, "label") &&
+					!fieldKindDeclaresKey(currentKind, "label") &&
+					m.label === undefined
+				)
+					return true;
 				// A select birth needs a complete authored source. Without it the
 				// reducer cannot convert, so accepting would acknowledge a no-op.
 				if (

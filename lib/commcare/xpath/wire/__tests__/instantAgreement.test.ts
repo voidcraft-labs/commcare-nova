@@ -3,9 +3,11 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	between,
 	coalesce,
+	dateCoerce,
 	dateLiteral,
 	datetimeCoerce,
 	eq,
+	formatDate,
 	gt,
 	gte,
 	ifExpr,
@@ -24,12 +26,15 @@ import {
 	today,
 } from "@/lib/domain/expression/builders";
 import type { ExpressionContext } from "@/lib/domain/expression/context";
+import { INSTANT_TEXT_PATTERN } from "@/lib/domain/expression/datePattern";
+import { instantOperand } from "@/lib/domain/expression/instantOperand";
 import {
 	type CheckError,
 	checkExpression,
 } from "@/lib/domain/expression/typeChecker";
 import type { Expression, Literal } from "@/lib/domain/expression/types";
 import type { WireTarget } from "../fromExpression";
+import { serializeWire } from "../serialize";
 import type { WireExpr } from "../tree";
 import { instantFixture } from "./instantFixture";
 import { parsedLiteralTexts } from "./instantParse";
@@ -147,6 +152,12 @@ const formLeaves = new Map<string, Expression>([
 	),
 	["coerce-'2026-01-02'", datetimeCoerce(term(literal("2026-01-02")))],
 	["coerce-20455", datetimeCoerce(term(literal(20455)))],
+	// The clock-keeping date, which R2 types as a date and time Core holds as
+	// a `Date`, as the date-and-time split's joined value is.
+	[
+		"clock-keeping",
+		dateCoerce(formatDate(fx.field("dt"), INSTANT_TEXT_PATTERN)),
+	],
 ]);
 
 /** Literals a `datetime-coerce` reads, each spelling a date, a date and
@@ -479,4 +490,25 @@ describe("the checker admits a comparison of moments exactly when a device can p
 			expect(seen.refused).toBeGreaterThan(0);
 			if (slot.stricter) expect(seen.stricter).toBeGreaterThan(0);
 		});
+});
+
+describe("the clock-keeping date as a comparison operand", () => {
+	const joined = dateCoerce(formatDate(fx.field("dt"), INSTANT_TEXT_PATTERN));
+	it("is a typed date and time, so its comparisons lower through its own instant text", () => {
+		expect(instantOperand(joined, fx.form)).toMatchObject({
+			kind: "leaf",
+			class: "typed",
+		});
+		const comparison = lte(joined, now());
+		expect(checkExpression(comparison, fx.form).errors).toEqual([]);
+		const text = serializeWire(fx.lowerForm(comparison, "xform"), {
+			target: "xform",
+			constraint: false,
+		}).text;
+		// `instant.ts::typedInstantText`: `coalesce` unpacks the Date so
+		// `format-date` keeps its clock.
+		expect(text).toContain(
+			"format-date(coalesce(date(format-date(/data/dt, '%Y-%m-%dT%H:%M:%S.%3%Z')), ''), '%Y-%m-%dT%H:%M:%S.%3%Z')",
+		);
+	});
 });

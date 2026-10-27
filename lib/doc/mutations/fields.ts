@@ -7,9 +7,10 @@ import {
 	type Field,
 	fieldCaseWrite,
 	fieldKindDeclaresKey,
+	fieldKinds,
 	fieldSchema,
-	getConvertibleTypes,
 	isContainer,
+	isRepresentableConversion,
 	pickFieldKeysForKind,
 	proseText,
 	reconcileFieldForKind,
@@ -296,8 +297,13 @@ export function applyFieldMutation(
 			//     order slot" invariant enforced everywhere else.
 			// The convertTargets list in each kind's FieldKindMetadata is the
 			// single source of truth for which swaps are semantically valid.
-			const allowed = getConvertibleTypes(field.kind);
-			if (!allowed.includes(mut.toKind)) {
+			// A pair is representable when either kind lists the other, so the
+			// inverse of every offered conversion (an undo) replays.
+			if (!isRepresentableConversion(field.kind, mut.toKind)) {
+				const allowed = fieldKinds.filter(
+					(kind) =>
+						kind !== field.kind && isRepresentableConversion(field.kind, kind),
+				);
 				// `console.warn`, not the structured logger — reducers bundle
 				// client-side, where the logger's production path throws (see
 				// the moveField guard note).
@@ -307,13 +313,12 @@ export function applyFieldMutation(
 				);
 				return;
 			}
-			const reconciled = reconcileFieldForKind(
-				field,
-				mut.toKind,
-				mut.optionsSource !== undefined
-					? { optionsSource: mut.optionsSource }
-					: undefined,
-			);
+			const reconciled = reconcileFieldForKind(field, mut.toKind, {
+				...(mut.optionsSource !== undefined && {
+					optionsSource: mut.optionsSource,
+				}),
+				...(mut.label !== undefined && { label: mut.label }),
+			});
 			if (!reconciled) {
 				// Reachable on one real path: a conversion into a select kind
 				// (options `.min(2)` required) whose mutation carries no — or

@@ -12,6 +12,8 @@
  * one parse whose every sub-term is built once and shared, so the print, which
  * memoises shared nodes, stays linear in its bytes.
  */
+
+import { INSTANT_TEXT_PATTERN } from "@/lib/domain/expression/datePattern";
 import {
 	type InstantLeaf,
 	type InstantOperand,
@@ -24,7 +26,6 @@ import { w } from "./builders";
 import type { WireExpr } from "./tree";
 
 const MICROS_PER_DAY = 86_400_000_000;
-const TYPED_INSTANT_PATTERN = "%Y-%m-%dT%H:%M:%S.%3%Z";
 
 /**
  * Integer microseconds of instant text `t`: days from the civil date (era
@@ -164,7 +165,7 @@ function literalText(leaf: Extract<InstantLeaf, { class: "literal-instant" }>) {
 export function typedInstantText(value: WireExpr): WireExpr {
 	return w.call("format-date", [
 		w.call("coalesce", [value, w.str("")]),
-		w.str(TYPED_INSTANT_PATTERN),
+		w.str(INSTANT_TEXT_PATTERN),
 	]);
 }
 

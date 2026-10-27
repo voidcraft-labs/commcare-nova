@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { type Field, fieldSchema, type Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import { instantDatetimeValue } from "@/lib/domain/temporalValues";
+import {
+	instantDatetimeValue,
+	storageTimeValue,
+} from "@/lib/domain/temporalValues";
 import { castAnswerText, setvalueText } from "../../engine/answerCast";
 import { DataInstance } from "../../engine/dataInstance";
 import { buildFieldTree } from "../../engine/fieldTree";
@@ -33,6 +36,7 @@ const FIELD_KIND: Record<CoreDateParityNode["held"], Field["kind"]> = {
 	text: "text",
 	"setvalue-datetime": "datetime",
 	"datetime-uncast": "text",
+	time: "time",
 };
 
 /** The answer text Preview's instance holds for each kind of node, written
@@ -51,6 +55,9 @@ function heldText(node: CoreDateParityNode, zone: string): string {
 			if (!cast.ok) throw new Error(`Core refuses ${node.value}.`);
 			return cast.text;
 		}
+		case "time":
+			// The time widget's storage, with its `Z` tag (`DateField.tsx`).
+			return storageTimeValue(node.value);
 		case "datetime-uncast": {
 			// The engine's own uncast of a date and time (DateTimeData.uncast).
 			const text = setvalueText(

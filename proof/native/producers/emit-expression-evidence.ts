@@ -1,6 +1,7 @@
 /** Private expression controls for Core and HQ. This family constructs no app. */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import AdmZip from "adm-zip";
 import { testUuid } from "../../../__tests__/helpers/uuid";
 import { buildDoc, f } from "../../../lib/__tests__/docHelpers";
 import {
@@ -9,7 +10,9 @@ import {
 	instantFixedClock,
 	instantOrderingPairs,
 } from "../../../lib/commcare/__tests__/instantOrderingTable";
+import { compileCcz } from "../../../lib/commcare/compiler";
 import { xel } from "../../../lib/commcare/elementBuilders";
+import { expandDoc } from "../../../lib/commcare/expander";
 import { requireExpressionContext } from "../../../lib/commcare/expressionContext";
 import { serializeXml } from "../../../lib/commcare/serializeXml";
 import { formNodeProjection } from "../../../lib/commcare/xpath/formNodeProjection";
@@ -17,8 +20,12 @@ import { w } from "../../../lib/commcare/xpath/wire/builders";
 import { toWire } from "../../../lib/commcare/xpath/wire/fromExpression";
 import { InstanceSink } from "../../../lib/commcare/xpath/wire/instances";
 import { serializeWire } from "../../../lib/commcare/xpath/wire/serialize";
+import { datetimeSplitOriginal } from "../../../lib/doc/__tests__/datetimeSplitFixture";
+import { mutationCommitVerdict } from "../../../lib/doc/commitVerdicts";
+import { planDatetimeSplits } from "../../../lib/doc/datetimeSplit";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import type { Uuid } from "../../../lib/domain";
-import { proseText } from "../../../lib/domain";
+import { fieldCaseWrite, proseText } from "../../../lib/domain";
 import type { Expression } from "../../../lib/domain/expression";
 import {
 	concat,
@@ -40,6 +47,7 @@ import {
 	CORE_DATE_PARITY,
 	CORE_DATE_PARITY_ZONES,
 } from "../../../lib/preview/xpath/__tests__/fixtures/coreDateParity";
+import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const output = process.argv[2];
 if (!output)
@@ -248,6 +256,114 @@ writeFileSync(
 	resolve(output, "core-date-parity.json"),
 	`${JSON.stringify({ ...CORE_DATE_PARITY, zones: CORE_DATE_PARITY_ZONES })}\n`,
 );
+
+// DatetimeSplitRuntimeTest runs the date-and-time split's forms in Core: the
+// shared original (`datetimeSplitFixture.ts`) with Nova's planner's splits
+// admitted by Nova's commit gate, compiled into a local archive.
+{
+	const original = datetimeSplitOriginal();
+	const plan = planDatetimeSplits(original);
+	if (!plan.ok)
+		throw new Error(
+			`Nova's planner refused to split the shared original: ${plan.message}`,
+		);
+	const verdict = mutationCommitVerdict(
+		original,
+		plan.mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!verdict.ok)
+		throw new Error(
+			`Nova's commit gate refused the split of the shared original (${verdict.findings
+				.map((finding) => `${finding.code}: ${finding.message}`)
+				.join("; ")}), so no device would receive it.`,
+		);
+	const doc = verdict.nextDoc;
+	const archive = new AdmZip(
+		compileCcz(expandDoc(doc), doc.appName, doc, {
+			runtimeTarget: NATIVE_RUNTIME_TARGET,
+		}),
+	);
+	const directory = resolve(output, "datetime-split");
+	mkdirSync(directory, { recursive: true });
+	const forms = { book: [0, 0], check: [0, 1], plan: [1, 0] } as const;
+	for (const [name, [module, form]] of Object.entries(forms))
+		writeFileSync(
+			resolve(directory, `${name}.xml`),
+			archive.readAsText(`modules-${module}/forms-${form}.xml`),
+		);
+	const paths = (fieldUuid: Uuid) => {
+		const split = plan.splits.find((entry) => entry.fieldUuid === fieldUuid);
+		const field = doc.fields[fieldUuid];
+		if (split === undefined || field === undefined)
+			throw new Error("The shared original's split is missing a question.");
+		return {
+			date: `/data/${split.dateId}`,
+			time: `/data/${split.timeId}`,
+			joined: `/data/${field.id}`,
+		};
+	};
+	// The writer is the one split question that writes a case property; the
+	// others only read. Its untyped case value must be in the compiled form,
+	// so a renamed node fails here rather than in the Core run.
+	const writers = plan.splits.filter((split) => {
+		const field = doc.fields[split.fieldUuid];
+		return field !== undefined && fieldCaseWrite(field) !== undefined;
+	});
+	if (writers.length !== 1 || writers[0] === undefined)
+		throw new Error(
+			`The shared original's split should hold one question that writes a case property, and it holds ${writers.length}.`,
+		);
+	const writer = paths(writers[0].fieldUuid);
+	const readers = plan.splits
+		.filter((split) => split !== writers[0])
+		.map((split) => paths(split.fieldUuid));
+	const caseValue = `/data/nova_datetime_${writer.joined.slice("/data/".length)}`;
+	if (
+		!archive
+			.readAsText(`modules-${forms.check[0]}/forms-${forms.check[1]}.xml`)
+			.includes(`nodeset="${caseValue}"`)
+	)
+		throw new Error(
+			`The check form holds no bind for the split question's case value ${caseValue}, so the Core run would read a missing node.`,
+		);
+	writeFileSync(
+		resolve(output, "datetime-split.json"),
+		`${JSON.stringify({
+			schemaVersion: 1,
+			writer: {
+				form: "/expression/datetime-split/check.xml",
+				...writer,
+				caseValue,
+			},
+			readers: readers.map((reader) => ({
+				form: "/expression/datetime-split/plan.xml",
+				...reader,
+			})),
+			// Entries away from every transition: the answered wall clock reads
+			// back as itself in every zone.
+			entries: [
+				{ date: "2026-03-04", time: "10:30:00" },
+				{ date: "2026-07-15", time: "23:45:00" },
+				{ date: "2026-01-01", time: "00:00:00" },
+			],
+			// New York's spring-forward gap and its fall-back repeated hour.
+			transitions: [
+				{ id: "spring-forward-gap", date: "2026-03-08", time: "02:30:00" },
+				{ id: "fall-back-repeated-hour", date: "2026-11-01", time: "01:30:00" },
+			],
+			// The case the writer's form opens, whose value fills both questions.
+			preload: {
+				caseDatum: "case_id",
+				caseId: "native-visit",
+				caseType: "visit",
+				property: "seen_at",
+				value: "2026-03-04T10:30:00.000000Z",
+				instant: "2026-03-04T10:30:00Z",
+			},
+		})}\n`,
+	);
+}
 
 // HQ replaces shortcuts without parsing literals and scans for instance calls
 // after HTML decoding. These are values, never authored XPath source. The final

@@ -15,6 +15,7 @@ import org.javarosa.core.model.condition.IFunctionHandler;
 import org.javarosa.core.model.data.DateData;
 import org.javarosa.core.model.data.DateTimeData;
 import org.javarosa.core.model.data.StringData;
+import org.javarosa.core.model.data.TimeData;
 import org.javarosa.core.model.data.UncastData;
 import org.javarosa.core.model.instance.FormInstance;
 import org.javarosa.core.model.instance.TreeElement;
@@ -81,7 +82,7 @@ public class CoreDateParityRuntimeTest {
         };
     }
 
-    /** Each node as the device holds it (the fixture's header names the five storages). */
+    /** Each node as the device holds it (the fixture's header names the six storages). */
     private static TreeElement node(JSONObject spec) {
         TreeElement element = new TreeElement(spec.getString("name"), 0);
         String held = spec.getString("held");
@@ -106,6 +107,10 @@ public class CoreDateParityRuntimeTest {
             case "setvalue-datetime":
                 // SetValueAction.processAction casts written text through the bind's template.
                 element.setValue(new DateTimeData().cast(new UncastData(value)));
+                break;
+            case "time":
+                // A time answer as the widget's answer is cast (TimeData.cast).
+                element.setValue(new TimeData().cast(new UncastData(value)));
                 break;
             case "datetime-uncast": {
                 // The text DateTimeData.uncast writes for the instant, held as text.

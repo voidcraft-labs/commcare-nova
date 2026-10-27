@@ -4,6 +4,7 @@ import {
 } from "@/lib/commcare/xform/bindType";
 import type { XFormDataRootRuntimeAttributes } from "@/lib/commcare/xform/dataRootAttributes";
 import type { CaseType, Field } from "@/lib/domain";
+import { wireTimeOfDay } from "@/lib/domain/temporalValues";
 import type {
 	XPathInstance,
 	XPathNode,
@@ -20,7 +21,10 @@ import type { FieldTreeNode } from "./fieldTree";
  * A datetime answer is held as Nova's canonical text, which carries the
  * offset of its own instant, so it reads by that offset exactly: the instant
  * Core's `DateTimeData` holds, a repeated hour's occurrence included. A date
- * answer reads as Core's `DateData` of its local midnight. */
+ * answer reads as Core's `DateData` of its local midnight. A time answer
+ * reads as its wall clock with no zone, as Core's `TimeData.uncast` gives it
+ * (`XPathPathExpr.unpackValue` falls through to it), where storage keeps a
+ * `Z` tag. */
 export function answerXPathValue(
 	type: CoreAnswerType,
 	raw: string,
@@ -36,6 +40,8 @@ export function answerXPathValue(
 			return XPathDate.parse(raw) ?? raw;
 		case "datetime":
 			return XPathDate.parseExactInstant(raw) ?? raw;
+		case "time":
+			return wireTimeOfDay(raw);
 		default:
 			return raw;
 	}

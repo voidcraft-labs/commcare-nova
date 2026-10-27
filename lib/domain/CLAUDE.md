@@ -281,8 +281,9 @@ A property's `data_type` in the catalog is a plan-time SEED, usually absent. The
 
 A Hidden Value has two type facts, and neither is an authored setting. Its
 BIND follows `fieldValueType`: the type of the property it writes, from the
-effective catalog, so a Hidden Value that writes nothing keeps `xsd:string`
-whatever its calculation works out to; visible questions keep their field-kind
+effective catalog, so a Hidden Value that writes nothing keeps `xsd:string`,
+except one calculated by the clock-keeping date (`expression/datePattern.ts::isClockKeepingDate`),
+which binds `xsd:dateTime` so Core keeps its clock; visible questions keep their field-kind
 type. Emission and Preview's form engine read this projection. Its DATA type is inference's `hiddenTypes`: the type inferred for its
 calculation, or the property's agreed type where that inference is unknown or
 storage-assignable to it. The checker reads the data type, together with
