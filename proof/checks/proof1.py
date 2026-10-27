@@ -40,6 +40,7 @@ does not report names its cause in its path (``/no-<state>``,
 from __future__ import annotations
 
 from proof.checks.compare.json_tree import compare_json
+from proof.checks.corpus import ANDROID
 from proof.checks.differences import Difference
 from proof.checks.identity import compare_identities, data_maps, local_identity
 
@@ -321,7 +322,8 @@ def local_identity_differences(document, reports):
 
 
 def document_identity(document, records):
-    """Proof 1's differences on one document, judged from its records: every publish, the edit, the local path."""
+    """Proof 1's differences on one document, judged from its records: every publish, the edit, and the local path
+    where the document declares Android."""
     from proof.checks import observations
 
     found = []
@@ -345,4 +347,7 @@ def document_identity(document, records):
     from proof.checks import android
 
     found += android.identity(document.id, android.document_record(records))
+    # Nova hands a local archive only to an app that declares Android, so the local path is judged only there.
+    if ANDROID not in document.platforms():
+        return found
     return found + local_identity_differences(document.id, observations.local_reports(records))

@@ -120,7 +120,8 @@ harness keeps, each with its reason.
   (`proof/webapps`): HQ's `FormplayerMain` page, the bundle built from HQ's
   entry, HQ's own compiled stylesheets, and Formplayer's own answers to the
   client's own requests, over a build HQ released in a project space that
-  has Web Apps (every configuration of the lane grants it), on a desktop,
+  has Web Apps (every configuration of a document that declares Web Apps
+  grants it, `proof/checks/configurations.py::_needs_cloudcare`), on a desktop,
   on a phone and in App Preview: HQ's `PreviewAppView` page at the size of
   the builder's frame, for the project space's admin, who logs in as the
   worker through the client's own Log in as, which HQ draws only where the
@@ -504,6 +505,26 @@ harness keeps, each with its reason.
   that is, so a flip into such a configuration is still built and its
   differences are held to the gate's effects alone, never to the register
   (`proof/checks/sensitivity.py`).
+- **A reader reads an app on the platforms it declares.** An app declares
+  Web Apps, Android, or both (`appSettings.runsOnlyOn`, absent for both),
+  and Nova refuses what a declared platform cannot run, so what a reader
+  shows on a platform the app does not declare reaches no worker (decision
+  19, read for platforms). The Web Apps client, in App Preview too, replays
+  a state only where its app declares Web Apps, a device reads one only
+  where its app declares Android, and proof 3 compares Nova's local archive
+  with HQ's build only for an app that declares Android, the only app Nova
+  hands one (`proof/lane/readers.py::PLATFORM_OF`,
+  `proof/observe/served.py`). Formplayer reads every app: its walk is how
+  every state is served to the other readers and to Connect (`BRINGS`), and
+  it models the client's placeholder for a question it draws no widget for
+  (`walk.py::UNSUPPORTED`) only where the app declares Web Apps; elsewhere
+  it answers the date and time question the client cannot. A document's
+  declaration is read from its `document.json` and a control's from its
+  `derived.json` (`Document.platforms`), never derived again from what the
+  app holds, and a control retained before step 4 reads as both, as it was
+  published. A corpus document declares what Nova's own rule gives its
+  content, or what a targeted document states for its witness: a declaration
+  is never chosen to make the lane pass.
 - **Tests follow `docs/testing.md`.** Each names its contract and the
   plausible failure it catches, pairs every refusal with an accepted case,
   never sleeps, and owns every process it starts: run commands through

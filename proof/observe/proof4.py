@@ -1366,12 +1366,13 @@ class _Observation:
         settings: that archive with its profile's ``version`` raised by one (``next_build``), which Android stages
         as the next build of the same app. A setting the profile forces resets a worker's own at every update,
         whatever the save did, and the second update says which do (``proof.checks.android.settings_replaced``).
-        None where the save did not change the profile."""
+        None where the save did not change the profile, or where the state's app declares no Android
+        (``proof.observe.served.observes_state``)."""
         from proof.android import observe as android
         from proof.observe import served
         from proof.observe.build import device_archive
 
-        if not served.observes("android"):
+        if not served.observes_state("android", serving.served):
             return None
         before = device_archive(over.build, over.held.app)
         after = device_archive(outcome, held.app)

@@ -1043,6 +1043,62 @@ def test_a_republish_hq_refuses_still_compares_the_local_archive_with_build_a(hq
     assert not [d for d in refused if d.artifact.endswith("@B")]
 
 
+def _declaring(source, root, runs_only_on):
+    """A copy of ``source`` at ``root`` declaring ``runs_only_on`` (nothing, for both) and holding no local archive,
+    as the corpus writes a document that declares no Android."""
+    shutil.copytree(source.root, root)
+    (root / "inputs.json").unlink()  # the copy's keys are its own files' (unit.computed_inputs)
+    for archive in ("local.ccz", "local-again.ccz", "local-empty-list-text.ccz", "edit/local.ccz"):
+        (root / archive).unlink(missing_ok=True)
+    path = root / "document.json"
+    value = json.loads(path.read_text(encoding="utf-8"))
+    settings = value["doc"].setdefault("appSettings", {})
+    settings.pop("runsOnlyOn", None)
+    if runs_only_on is not None:
+        settings["runsOnlyOn"] = runs_only_on
+    path.write_text(json.dumps(value), encoding="utf-8")
+    return Document(id=source.id, source=source.source, root=root)
+
+
+def test_a_document_that_declares_no_android_is_compared_on_hqs_builds_and_never_on_a_local_archive(
+    hq, core_runner, tmp_path
+):
+    """Nova hands a local archive only to an app that declares Android, so a document that declares Web Apps only is
+    compared on HQ's builds alone: its sessions record holds A's baseline and no local side, and nothing reports a
+    missing archive. The same copy declaring nothing (both) and holding no archive is missing one. The plausible
+    failures: a Web Apps-only document losing proof 3's B comparison and the CSQL compiles with its archive, and a
+    document that declares Android whose lost archive goes unreported."""
+    source = cases.load_corpus().document("case-list-inline")
+    name = "minimum"
+    web_apps = _declaring(source, tmp_path / "web-apps" / source.id, "web-apps")
+    assert web_apps.platforms() == {"web-apps"} and web_apps.local_ccz_for(name) is None
+
+    records = _observed_without_hooks(web_apps, core_runner, [name])
+    recorded = observations.sessions_record(records, name)
+    assert recorded is not None and recorded["baseline"]["trace"] and "local" not in recorded
+    found = proof3.behavioral_equivalence(
+        web_apps.id,
+        observations.republish_view(records, name),
+        recorded,
+        records.blobs,
+        has_local=False,
+        platforms=web_apps.platforms(),
+    )
+    assert not [d for d in found if d.path == "/no-local-archive" or d.artifact.endswith("@local.ccz")], found
+
+    both = _declaring(source, tmp_path / "both" / source.id, None)
+    assert both.platforms() == {"web-apps", "android"}
+    missing = proof3.behavioral_equivalence(
+        both.id,
+        observations.republish_view(records, name),
+        recorded,
+        records.blobs,
+        has_local=both.local_ccz_for(name) is not None,
+        platforms=both.platforms(),
+    )
+    assert [d.path for d in missing] == ["/no-local-archive"], missing
+
+
 # Lookup tables ---------------------------------------------------------------
 
 

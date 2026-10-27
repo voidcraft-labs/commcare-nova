@@ -74,7 +74,9 @@ from email.parser import BytesParser
 from email.policy import HTTP
 from urllib.parse import parse_qs
 
+from proof.checks.corpus import BOTH
 from proof.formplayer.client import AUTH_KEY, FormplayerRunnerError, HqAnswer, HqRequest
+from proof.lane import readers
 from proof.observe import casedata
 
 # Request headers that belong to Formplayer's connection with the harness's peer.
@@ -661,6 +663,9 @@ class Served:
     # Where the project space forwards what it receives (``proof.observe.connect.Forwarder``): told as each
     # run begins and ends, inside the run's fork; None where it forwards nowhere.
     forwarding: object = None
+    # The platforms the state's app declares (``proof.checks.corpus.Document.platforms``): a reader reads the state
+    # only where it runs the app on one of them (``proof.lane.readers.reads_app``).
+    platforms: frozenset = BOTH
     _runs: int = 0
     _archive: bytes | None = None
 
@@ -673,6 +678,10 @@ class Served:
         if self._archive is None:
             self._archive = webapps_hq._archive(operations.held_app(self.unit, self.build_id))
         return self._archive
+
+    def reads(self, reader) -> bool:
+        """Whether ``reader`` reads this state: its app declares the platform ``reader`` runs it on."""
+        return readers.reads_app(reader, self.platforms)
 
     @property
     def acting(self):
@@ -806,7 +815,9 @@ def serve(
     versions with. ``archives`` are archives HQ does not hold (Nova's local
     export) by the app id Formplayer is given for each. The worker's cases
     are the document's case database (``proof.observe.casedata``), or
-    ``database`` where a test names the cases it turns on.
+    ``database`` where a test names the cases it turns on. The state carries
+    the platforms D (or D′, ``edit``) declares (``Served.platforms``). A state
+    served with no document is HQ's own app, read as both platforms.
     """
     from proof.hq import operations
     from proof.hq import redis as hq_redis
@@ -841,5 +852,15 @@ def serve(
                 build = _released(unit, app, app_id)
         hq = HqViews(unit, worker.username, archives=dict(archives or {}))
         yield Served(
-            unit, operation, worker, app_id, build._id, build.version, hq, build.to_json(), runner, usercase_id
+            unit,
+            operation,
+            worker,
+            app_id,
+            build._id,
+            build.version,
+            hq,
+            build.to_json(),
+            runner,
+            usercase_id,
+            platforms=BOTH if document is None else document.platforms(edit=edit),
         )

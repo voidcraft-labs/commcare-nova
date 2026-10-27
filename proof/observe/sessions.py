@@ -52,6 +52,7 @@ from pathlib import Path
 
 from proof.checks.compare.trace import renamespace
 from proof.checks.compare.xml_tree import parse_xml
+from proof.checks.corpus import ANDROID
 from proof.observe import casedata
 from proof.observe.build import _placed, admission_placeholders, arrange
 from proof.observe.record import bytes_digest, digest
@@ -444,19 +445,26 @@ def observe(
     differ, so that B's sessions run; ``operation`` the unit's operation each
     HQ step runs in (``unit.operation`` by default, or the part's logged one,
     which records what HQ noted in each).
+
+    Nova hands a local archive only to an app that declares Android
+    (``Document.platforms``): for a document that declares none, A's
+    baseline, its CSQL compiles and B's sessions run, and no ``local`` side is
+    recorded. A document that declares Android and holds no archive runs
+    none, as one A is missing or unbuildable for.
     """
     from proof.hq.operations import with_runtime_app_id
 
     operation = operation or unit.operation
-    archive = document.local_ccz_for(export.configuration.name)
-    if a_build is None or unbuildable(a_build) is not None or archive is None:
+    android = ANDROID in document.platforms()
+    archive = document.local_ccz_for(export.configuration.name) if android else None
+    if a_build is None or unbuildable(a_build) is not None or (android and archive is None):
         return None
     database = casedata.document_case_database(document)
     lookups_a, restore_hq = restore_a
     recorded = {"lookupsA": lookups_a}
     if restore_hq is None:
         return recorded
-    restore_plain = local_restore(unit, database, operation)
+    restore_plain = local_restore(unit, database, operation) if archive is not None else None
     with tempfile.TemporaryDirectory(prefix="proof-observe-sessions-") as scratch:
         baseline, recorded["baseline"] = _side(
             core_runner,
@@ -474,20 +482,21 @@ def observe(
             unit, baseline.trace, operation, core_runner=core_runner, suite=(a_build.files or {}).get("suite.xml")
         )
         script = script_of(baseline.trace)
-        local = Path(scratch, "local.ccz")
-        local.write_bytes(with_runtime_app_id(archive.read_bytes(), app_id))
-        _, recorded["local"] = _side(
-            core_runner,
-            unit,
-            database,
-            "local.ccz",
-            local,
-            restore_plain,
-            blobs,
-            operation=operation,
-            script=script,
-            baseline=baseline,
-        )
+        if archive is not None:
+            local = Path(scratch, "local.ccz")
+            local.write_bytes(with_runtime_app_id(archive.read_bytes(), app_id))
+            _, recorded["local"] = _side(
+                core_runner,
+                unit,
+                database,
+                "local.ccz",
+                local,
+                restore_plain,
+                blobs,
+                operation=operation,
+                script=script,
+                baseline=baseline,
+            )
         if b_aligned is None or b_aligned.files is None or not b_differs or unbuildable(b_aligned) is not None:
             return recorded
         restore_b = restore_hq

@@ -144,6 +144,7 @@ from dataclasses import dataclass, field
 
 from lxml import etree
 
+from proof.checks import corpus
 from proof.checks.compare.app_json import DATA_MAPS
 from proof.checks.compare.app_json import language_maps as _language_maps
 from proof.checks.compare.json_tree import compare_json
@@ -155,7 +156,7 @@ from proof.checks.compare.xml_tree import (
     parse_xml,
     qname,
 )
-from proof.checks.corpus import CorpusLayoutError
+from proof.checks.corpus import ANDROID, CorpusLayoutError
 from proof.checks.differences import Difference
 from proof.observe.alignment import Alignment, AlignmentIncomplete, map_values, renamespace_xform
 from proof.observe.identity import data_namespace
@@ -1196,30 +1197,11 @@ def _leftovers(side, replaced, where):
 def _edit_lacks(document, configuration):
     """What Nova's publish of D' requires that ``configuration`` lacks (decision 19); empty when it would send D'.
 
-    Read from ``edit/verdict.json``'s ``minimumConfiguration`` as ``corpus.Document._publishable`` reads a
-    verdict beside an export: the flags it names, and whether case search must be on.
+    Read from ``edit/verdict.json`` by ``corpus.lacking``, which reads every verdict beside an export
+    (``corpus.Document._publishable``): the flags it names, whether case search must be on, and whether sync cases
+    on form entry must be off.
     """
-    path = document.edit.root / "verdict.json"
-    try:
-        verdict = json.loads(path.read_text(encoding="utf-8"))
-    except FileNotFoundError as error:
-        raise CorpusLayoutError(f"The corpus has no {path}, Nova's publish verdict for D'.") from error
-    except json.JSONDecodeError as error:
-        raise CorpusLayoutError(f"{path} is not JSON ({error}).") from error
-    minimum = verdict.get("minimumConfiguration") if isinstance(verdict, dict) else None
-    if (
-        not isinstance(minimum, dict)
-        or not isinstance(minimum.get("flags"), list)
-        or not isinstance(minimum.get("caseSearchEnabled"), bool)
-    ):
-        raise CorpusLayoutError(
-            f"{path} holds no minimumConfiguration with its flags and caseSearchEnabled, so it does not say"
-            " whether Nova's publish would send D' (decision 19)."
-        )
-    lacking = sorted(set(minimum["flags"]) - set(configuration.flags))
-    if minimum["caseSearchEnabled"] and not configuration.case_search_enabled:
-        lacking.append("case search")
-    return lacking
+    return corpus.lacking(configuration, document.edit.root / "verdict.json")
 
 
 def unpublished(document):
@@ -1246,7 +1228,7 @@ def unpublished(document):
 
 def comparisons(document, *, local=None, map_suite_ids=True):
     """Every wire proof 5 compares for one edited document: each configuration's publishes, then the local archives
-    (their forms, and with the ``local`` record their suites)."""
+    (their forms, and with the ``local`` record their suites) where D and D' both declare Android."""
     if document.edit is None:
         raise CorpusLayoutError(f"{document.root} has no edit/, so it carries no batch whose locality to prove.")
     layout_before, layout_after = document.wire_modules, document.edit_wire_modules
@@ -1287,7 +1269,10 @@ def comparisons(document, *, local=None, map_suite_ids=True):
         _leftovers(after, set(alignment.value_map()), f"{document.id} under {name}")
         langs = frozenset(json_before.get("langs") or []) | frozenset(json_after.get("langs") or [])
         found.append(Comparison(name, before, after, langs))
-    if (document.local_ccz is None) != (document.edit.local_ccz is None):
+    # Nova hands a local archive only to an app that declares Android, so the two are compared only where D and D'
+    # both declare it.
+    android = ANDROID in document.platforms() and ANDROID in document.platforms(edit=True)
+    if android and (document.local_ccz is None) != (document.edit.local_ccz is None):
         held, lost = (
             (document.local_ccz, document.edit.root / "local.ccz")
             if document.edit.local_ccz is None
@@ -1297,7 +1282,7 @@ def comparisons(document, *, local=None, map_suite_ids=True):
             f"{held} is one side's local export and {lost} does not exist, so the local archives of D and D'"
             " cannot be compared. The corpus writes both (proof/corpus/entryWriter.ts)."
         )
-    if document.local_ccz is not None:
+    if android and document.local_ccz is not None:
         sources_before = _local_sources(document.local_ccz, placed_before[1])
         sources_after = _local_sources(document.edit.local_ccz, placed_after[1])
 

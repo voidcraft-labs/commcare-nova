@@ -1217,10 +1217,12 @@ turns one on for the document (`CorpusDocument.projectSettings`:
 The plan privileges a document's content needs are HQ's to say: the lane
 derives them where HQ runs, from the apps Nova sends, one rule per privilege
 gate (`proof/checks/configurations.py`), so the emission never starts HQ.
-One of them every document needs: Web Apps (`CLOUDCARE`). Every app Nova
-sends is one a worker opens there, and Web Apps lists an app only in a
-project space that has it (finding 64), so every configuration grants it
-and every app the lane builds is one Web Apps runs.
+Web Apps (`CLOUDCARE`) is one of them where an app Nova sends declares it,
+which every app sent before step 4 did (finding 64). Web Apps lists an app
+only in a project space that has it, so the configuration of every document
+that declares Web Apps grants it and every app such a document builds is one
+Web Apps runs (`_needs_cloudcare`: an app body that carries
+`cloudcare_enabled: false` needs none, and one that says nothing needs it).
 
 Each document publishes with the confirmations its content needs: Nova's
 publish asks a person to confirm each plan privilege its app needs, since no
@@ -1880,8 +1882,10 @@ a step clicks what a worker clicks, or reads what the page shows.
 - **The project space and the release** (`hq.py`). Web Apps lists an app only
   where the project space has Web Apps (the `CLOUDCARE` privilege, from which
   HQ sets a new app's `cloudcare_enabled` when Nova's upload lands) and the
-  app has a released build. Every configuration of the lane grants the
-  privilege (finding 64), so every app it builds is one Web Apps lists. The
+  app has a released build. A configuration grants the privilege where the
+  document declares Web Apps (finding 64), so every app such a document
+  builds is one Web Apps lists; a document declaring Android only is not
+  replayed by the client (`hq.py::project` refuses one). The
   build is made as HQ's Releases page makes one
   (`Application.make_build` and the build's save, then HQ's own
   `release_build` view), optionally after HQ's own editor pages saved the app
@@ -2091,7 +2095,23 @@ the client itself:
 ### Served states
 
 A document's unit serves each state of its app as HQ serves an app to Web
-Apps and keeps what its two readers make of it (`proof/observe/served.py`):
+Apps and keeps what its two readers make of it (`proof/observe/served.py`).
+
+Each reader reads a state only where the state's app declares the platform
+it runs the app on (`proof.lane.readers.PLATFORM_OF`, `Served.platforms`):
+the client an app that declares Web Apps, a device one that declares
+Android. Formplayer's walk runs for every app, the serving every other
+reader relies on, and models the client only where the app declares Web
+Apps (`proof.formplayer.walk.Walk.web_apps`): elsewhere it answers a date
+and time question as Core's session does, and submits no placeholder. A
+document's declaration is `Document.platforms` (its `document.json`'s
+`appSettings.runsOnlyOn`, both where absent); a control's is what its
+`derived.json` retains, and a control retained before step 4 reads as both.
+Nova's local archive is walked, installed on a device and replayed by Core
+only for a document that declares Android, the only app Nova hands one
+(`proof/observe/sessions.py`, the local-archive checks of proofs 1, 3 and 5).
+
+What the served observation holds:
 
 - **Which states.** A (the unit's `served` hook, the baseline of proof 3's
   comparisons); with `b_aligned`, B aligned to A wherever its raw build
@@ -2686,7 +2706,9 @@ loader and the gate hold eight rules:
    artifact, path, kind, values and control.
 3. A fixed entry is held on its control alone, by every run that runs its
    control: the check ran there and some difference matches it (its class,
-   and its values where pinned). It fails by name under `control:<id>` where
+   and its values where pinned). Configuration sensitivity holds a control's
+   fixed entries before the gate's effects, as it holds a document's known
+   entries (`sensitivity.flip_entries`). It fails by name under `control:<id>` where
    its control ran without its check or does not show it. A sampled run and
    a whole run run every control; a run over documents named by hand holds
    the fixed entries of the controls it ran and leaves the rest, since a
@@ -2891,8 +2913,9 @@ The corrected walk then reaches finding 74 on `fuzz-xform-20260930-0`: its
 request replaces the datetime question's `UnsupportedEntry` placeholder.
 Formplayer refuses that submission. Its `submit-refused:validation-error`
 entry joins the unchanged one on `targeted-datetime-ordering`; both belong
-to step 4. The list now holds 25 entries: 30 before these six removals,
-plus this newly reached stop (R5 run 39129168950).
+to step 4. The list then held 25 entries: 30 before these six removals,
+plus this newly reached stop (R5 run 39129168950); finding 75's stop on its
+control (step 3) made it 26.
 
 ```json
 {"document": "tile-grouped-one", "reader": "webapps", "cause": "case-not-listed",

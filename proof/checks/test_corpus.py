@@ -439,3 +439,76 @@ def test_the_wire_layout_is_read_from_the_document_and_refused_without_it(copied
         _ = corpus.load(root).document(document_id).wire_modules
     with pytest.raises(corpus.CorpusLayoutError, match="wire.languages"):
         _ = corpus.load(root).document(document_id).wire_languages
+
+
+def _write_json(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value), encoding="utf-8")
+
+
+def test_a_documents_platforms_are_its_declaration_and_a_control_without_one_reads_as_both(tmp_path):
+    """A document's platforms are its ``appSettings.runsOnlyOn``, both where it names none; a control's are what its
+    ``derived.json`` retains, both where it retains none, as it was published. The plausible failures: a control read
+    as narrower than it was published, and a typo read as both."""
+
+    def document(name, settings):
+        _write_json(tmp_path / name / "document.json", {"doc": {"appSettings": settings}})
+        return corpus.Document(id=name, source="test", root=tmp_path / name)
+
+    assert document("both", {"showSavedForms": False}).platforms() == corpus.BOTH
+    assert document("android", {"runsOnlyOn": "android"}).platforms() == {corpus.ANDROID}
+    with pytest.raises(corpus.CorpusLayoutError, match="declares the app's platforms as 'tablet'"):
+        document("tablet", {"runsOnlyOn": "tablet"}).platforms()
+
+    def control(name, platforms=None):
+        held = dict.fromkeys(corpus.DERIVED_KEYS)
+        if platforms is not None:
+            held["platforms"] = platforms
+        _write_json(tmp_path / name / corpus.DERIVED, {"D": held})
+        return corpus.Document(id=name, source="control", root=tmp_path / name, kind="control")
+
+    assert control("web-apps-control", ["web-apps"]).platforms() == {corpus.WEB_APPS}
+    assert control("older-control").platforms() == corpus.BOTH
+    for refused in ([], ["tablet"], "android"):
+        with pytest.raises(corpus.CorpusLayoutError, match="a control retains a non-empty list"):
+            control("refused-control", refused).platforms()
+
+
+def _verdict(tmp_path, **minimum):
+    path = tmp_path / "verdict.json"
+    _write_json(path, {"minimumConfiguration": {"flags": [], "caseSearchEnabled": False, **minimum}})
+    return path
+
+
+def _sync_on():
+    return corpus.Configuration(
+        name="minimum",
+        flags=(),
+        named_privileges=(),
+        commcare_version=DEFAULT_COMMCARE_VERSION,
+        commtrack=False,
+        sync_cases_on_form_entry=True,
+        case_search_enabled=False,
+    )
+
+
+def test_a_configuration_with_sync_on_lacks_what_a_verdict_requiring_it_off_names(tmp_path):
+    """A verdict requiring sync cases on form entry off names it as lacking under a configuration with it on; a
+    verdict saying nothing of it requires nothing, and one holding anything but false is refused by name."""
+    assert corpus.lacking(_sync_on(), _verdict(tmp_path, syncCasesOnFormEntry=False)) == [
+        "sync cases on form entry off"
+    ]
+    assert corpus.lacking(_sync_on(), _verdict(tmp_path)) == []
+    with pytest.raises(corpus.CorpusLayoutError, match="holds syncCasesOnFormEntry True"):
+        corpus.lacking(_sync_on(), _verdict(tmp_path, syncCasesOnFormEntry=True))
+
+
+def test_web_apps_is_granted_where_the_app_nova_sends_declares_it_or_says_nothing():
+    """An app Nova sends needs Web Apps where its body carries ``cloudcare_enabled`` true or says nothing (every
+    publish before step 4), and not where it carries false (an app declaring Android only)."""
+
+    def needs(source):
+        return configurations._needs_cloudcare(configurations.AppContent(app=None, source=source, lookup_push=False))
+
+    assert needs({"cloudcare_enabled": True}) and needs({})
+    assert not needs({"cloudcare_enabled": False})

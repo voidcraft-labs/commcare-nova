@@ -38,10 +38,13 @@ from __future__ import annotations
 
 import json
 import shutil
+from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
 from proof.checks import cases, observations, sensitivity
+from proof.checks.corpus import CorpusLayoutError
 from proof.checks.differences import Difference
 from proof.checks.registers import Entry
 from proof.hq import operations
@@ -63,7 +66,11 @@ def test_every_change_a_flipped_gate_makes_is_its_effect_or_registered(document,
         for name in sorted(document.exports)
     ]
     entries = cases.load_register()
-    holding = sensitivity.hold_flips(observed, sensitivity.load_effects(), entries)
+    # On a control the fixed entries of this check naming it hold their flips' differences before the gate's
+    # effects, as the known register's do; ``cases.hold`` adds them itself.
+    holding = sensitivity.hold_flips(
+        observed, sensitivity.load_effects(), sensitivity.flip_entries(document, entries, cases.load_fixed())
+    )
     problems = []
     try:
         cases.hold(
@@ -374,6 +381,45 @@ def test_a_refused_flip_is_held_to_its_gates_effects_alone():
     )
     assert holding.held == [], "a symptom under a configuration Nova refuses never reaches the register"
     assert holding.explained == [CLAIM] and holding.unexplained_refused == [stranger]
+
+
+def test_a_fixed_entry_holds_its_flip_on_its_own_control_and_owns_nothing_on_a_document():
+    """A fixed entry naming control ``c`` holds the accepted flip's difference on ``c`` before the gate's effects, so
+    it keeps showing there; on a document the entries are the known register's alone, and the gate's effects explain
+    the same difference."""
+    fixed = replace(DEFECT_20, id="defect-20-sync-fixed", document=None, control="c")
+    control = SimpleNamespace(id="c", kind="control")
+    document = SimpleNamespace(id="doc", kind="corpus")
+
+    on_control = sensitivity.flip_entries(control, (), (fixed,))
+    assert on_control == (fixed,)
+    holding = sensitivity.hold_flips(_observed(_flip(CLAIM)), EFFECTS, on_control)
+    assert holding.held == [CLAIM] and holding.explained == []
+
+    assert sensitivity.flip_entries(document, (), (fixed,)) == ()
+    holding = sensitivity.hold_flips(_observed(_flip(CLAIM)), EFFECTS, sensitivity.flip_entries(document, (), (fixed,)))
+    assert holding.held == [] and holding.explained == [CLAIM]
+    # Another control's fixed entry, or another check's, holds nothing here.
+    assert sensitivity.flip_entries(SimpleNamespace(id="other", kind="control"), (), (fixed,)) == ()
+    elsewhere = replace(fixed, check="proof1")
+    assert sensitivity.flip_entries(control, (), (elsewhere,)) == ()
+
+
+def test_a_flip_turning_sync_on_is_refused_where_the_verdict_requires_it_off():
+    """A verdict requiring sync cases on form entry off refuses the sync flip and accepts every other; the same verdict
+    without the key accepts it."""
+    plain = Configuration(flags={"SYNC_SEARCH_CASE_CLAIM"}, case_search_enabled=True)
+    reads = ({"SESSION_ENDPOINTS"}, {SYNC: 1, sensitivity.FLAT_FIXTURE: 1})
+    minimum = {"flags": ["SYNC_SEARCH_CASE_CLAIM"], "caseSearchEnabled": True}
+    requiring_off = {"minimumConfiguration": {**minimum, "syncCasesOnFormEntry": False}}
+    off = {flip.gate: flip for flip in sensitivity.flips(plain, *reads, requiring_off)}
+    assert not off[SYNC].accepted and off[SYNC].configuration.sync_cases_on_form_entry
+    assert all(flip.accepted for gate, flip in off.items() if gate != SYNC)
+    silent = {flip.gate: flip for flip in sensitivity.flips(plain, *reads, {"minimumConfiguration": minimum})}
+    assert all(flip.accepted for flip in silent.values())
+    # The verdict is read as corpus.lacking reads it: a sync requirement other than off is refused, not accepted.
+    with pytest.raises(CorpusLayoutError, match="syncCasesOnFormEntry True"):
+        sensitivity.accepts({"minimumConfiguration": {**minimum, "syncCasesOnFormEntry": True}}, plain)
 
 
 def test_a_flip_is_refused_exactly_where_nova_publish_would_refuse_the_configuration():

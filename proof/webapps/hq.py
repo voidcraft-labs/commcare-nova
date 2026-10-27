@@ -7,8 +7,8 @@ lane's other checks need, so this module makes each with HQ's own code:
   ``models/applications.py::_create_app_from_doc`` sets a new app's
   ``cloudcare_enabled`` from it when Nova's upload lands, and
   ``cloudcare/utils.py::get_web_apps_available_to_user`` lists only an app
-  that has it. Every configuration of the lane grants it, since every app
-  Nova sends is one a worker opens in Web Apps
+  that has it. A configuration grants it where an app Nova sends declares
+  Web Apps, which every app Nova sent before step 4 did
   (``proof.checks.configurations``, finding 64); ``without_web_apps`` is
   the same configuration with that one privilege taken away, for the test
   that shows what it decides.
@@ -171,16 +171,22 @@ def project(document, configuration="minimum", *, web_apps=True):
     configuration without the Web Apps privilege, for the test that shows
     what the privilege decides.
     """
+    from proof.checks.corpus import WEB_APPS
     from proof.hq import operations
     from proof.hq.check import hq_check
     from proof.observe import publish
 
+    if WEB_APPS not in document.platforms():
+        raise AssertionError(
+            f"{document.id} declares Android only, so no worker opens it in Web Apps and HQ's Web Apps page lists no"
+            " build of it. A Web Apps test reads a document that declares Web Apps (Document.platforms)."
+        )
     export = document.exports[configuration]
     held = export.configuration.hq()
     if WEB_APPS_PRIVILEGE not in held.privileges:
         raise AssertionError(
-            f"{document.id}'s configuration {configuration} grants no {WEB_APPS_PRIVILEGE}, which every"
-            " configuration of the lane grants (proof/checks/configurations.py::_needs_cloudcare)."
+            f"{document.id}'s configuration {configuration} grants no {WEB_APPS_PRIVILEGE}, which the configuration"
+            " of every document that declares Web Apps grants (proof/checks/configurations.py::_needs_cloudcare)."
         )
     with hq_check(held if web_apps else without_web_apps(held)) as (unit, _):
         # One operation, its digest the document's: what HQ draws while it applies the publish (the app's id,

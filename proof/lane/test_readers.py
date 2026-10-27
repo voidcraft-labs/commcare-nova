@@ -175,6 +175,22 @@ def test_the_readers_a_run_names_bring_formplayer_and_nothing_else_is_a_set_of_t
     assert readers.canonical(readers.parse("connect,android")) == "formplayer,android,connect"
 
 
+def test_a_reader_reads_an_app_only_on_a_platform_it_declares():
+    """The client reads an app that declares Web Apps and a device one that declares Android; Formplayer and
+    Connect read every app. Catches a reader handed an app it does not run, or one withheld from an app it does."""
+    both, web_apps, android = {"web-apps", "android"}, {"web-apps"}, {"android"}
+    assert readers.reads_app("webapps", both) and readers.reads_app("webapps", web_apps)
+    assert not readers.reads_app("webapps", android)
+    assert readers.reads_app("android", both) and readers.reads_app("android", android)
+    assert not readers.reads_app("android", web_apps)
+    for reader in ("formplayer", "connect"):
+        assert all(readers.reads_app(reader, platforms) for platforms in (both, web_apps, android))
+    # The module stays on the standard library, so it spells the platforms itself; they are the corpus's.
+    from proof.checks.corpus import PLATFORMS
+
+    assert set(readers.PLATFORM_OF.values()) == set(PLATFORMS)
+
+
 def test_a_run_with_the_readers_runs_every_test_and_holds_each_marked_by_hand_to_asking_for_one(tmp_path):
     outcomes, deselected, output = _child(tmp_path, "all")
     assert deselected == 0, output[-3000:]
@@ -224,9 +240,10 @@ def test_the_services_refuse_every_served_reader_without_the_readers_and_count_e
 
 def test_a_slice_without_the_client_walks_formplayer_without_the_clients_browser(monkeypatch):
     """Formplayer's derived walk gives each location question the place the client's map gives, which it learns
-    in the client's browser, only where the run hands its states to the client: a slice of a device alone walks
-    Formplayer with the answer table's places and asks for no browser (it once did, and every such slice failed
-    with ``ReadersOff``)."""
+    in the client's browser, only where the run hands its states to the client and the state's app declares Web
+    Apps: a slice of a device alone walks Formplayer with the answer table's places and asks for no browser (it
+    once did, and every such slice failed with ``ReadersOff``), and so does a run with every reader over an app
+    that declares Android only."""
     from proof.formplayer import observe as formplayer_observe
     from proof.observe import served
 
@@ -236,14 +253,25 @@ def test_a_slice_without_the_client_walks_formplayer_without_the_clients_browser
         walked.append(places)
         return "side", "trace"
 
+    class State:
+        """A served state whose app declares ``platforms`` (``proof.formplayer.hq.Served.reads``)."""
+
+        def __init__(self, platforms):
+            self.platforms = frozenset(platforms)
+
+        def reads(self, reader):
+            return readers.reads_app(reader, self.platforms)
+
     monkeypatch.setattr(formplayer_observe, "walked", walk)
     monkeypatch.setitem(services._SESSION, "open", False)
-    held = served.Serving(object(), object(), object(), object())
+    held = served.Serving(State({"web-apps", "android"}), object(), object(), object())
     monkeypatch.setenv(readers.VARIABLE, "android")
     assert held.formplayer() == ("side", "trace") and walked == [None]
     monkeypatch.setenv(readers.VARIABLE, "all")
     with pytest.raises(services.NoSession, match="the Web Apps client's browser"):
         held.formplayer()
+    android_only = served.Serving(State({"android"}), object(), object(), object())
+    assert android_only.formplayer() == ("side", "trace") and walked == [None, None]
 
 
 def test_without_the_readers_the_unit_calls_no_served_hook_and_every_part_is_keyed_apart():

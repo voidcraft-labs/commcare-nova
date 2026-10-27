@@ -126,6 +126,10 @@ def test_a_control_reads_what_its_documents_checks_derive_and_holds_no_document(
     assert document_case_database(control) == document_case_database(document)
     assert document_lookup_tags(control) == document_lookup_tags(document)
     assert control.case_types() == document.case_types()
+    # The control retains the platforms its document declares, and reads them back as the document does.
+    held = json.loads((retained / corpus.DERIVED).read_text(encoding="utf-8"))
+    assert held["D"]["platforms"] == sorted(document.platforms())
+    assert control.platforms() == document.platforms()
     assert control.exports.keys() == document.exports.keys()
     assert control.targeted == document.targeted
     if document.edit is not None:
@@ -133,6 +137,8 @@ def test_a_control_reads_what_its_documents_checks_derive_and_holds_no_document(
         assert intent_of(control, edit=True) == intent_of(document, edit=True)
         assert document_case_database(control, edit=True) == document_case_database(document, edit=True)
         assert control.case_types(edit=True) == document.case_types(edit=True)
+        assert held["D'"]["platforms"] == sorted(document.platforms(edit=True))
+        assert control.platforms(edit=True) == document.platforms(edit=True)
         assert control.edit.footprint == document.edit.footprint
         # The batch keeps its footprint, never the mutations Nova's planner wrote.
         assert set(json.loads((retained / "edit" / "batch.json").read_text())) <= set(controls.BATCH_KEYS)

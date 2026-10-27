@@ -24,8 +24,9 @@ under another name) is the corpus layout
   Nova's persistable shape, which a later cutover changes, what the checks
   derive from D and D' (``derived.json``, ``derived``): the wire layout and
   languages, the intent (``intent.intent_json``), the lookup tags and the
-  case database (``casedata.database_json``) and effective case-property
-  types from the emitted catalog. Each is read where a check reads it of a
+  case database (``casedata.database_json``), effective case-property
+  types from the emitted catalog, and the platforms D and D′ declare
+  (``Document.platforms``). Each is read where a check reads it of a
   document (``Document.derived``).
 
 Never ``inputs.json``: a control's part keys and the evidence store's guard
@@ -92,6 +93,7 @@ def derived(document, *, edit=True) -> dict:
             "lookupTags": lookup_tags(document_json),
             "caseDatabase": database_json(case_database(document_json)),
             "caseTypes": document.case_types(edit=edit),
+            "platforms": sorted(document.platforms(edit=edit)),
         }
 
     found = {"D": of(document.document)}
