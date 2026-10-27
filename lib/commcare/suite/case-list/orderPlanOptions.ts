@@ -21,6 +21,7 @@ import {
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	type Module,
+	moduleOpensOnSearch,
 } from "@/lib/domain";
 import { checkExpression, scalarDataType } from "@/lib/domain/expression";
 import {
@@ -31,6 +32,7 @@ import { w } from "../../xpath/wire/builders";
 import { toWire } from "../../xpath/wire/fromExpression";
 import { serializeWire } from "../../xpath/wire/serialize";
 import type { WireExpr } from "../../xpath/wire/tree";
+import { INLINE_SEARCH_INPUT_INSTANCE_ID } from "../case-search/noMatches";
 import { classifyRelatedCaseSearchExpression } from "../case-search/relatedCaseProjection";
 import { casePropertyPath } from "../wire";
 import {
@@ -104,6 +106,9 @@ export function hqExpressionField(
 					naming: lookupNaming ?? identityLookupWireNaming(),
 					instanceScope: "suite",
 				},
+				...(moduleOpensOnSearch(mod)
+					? { searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID }
+					: {}),
 			},
 		});
 	}

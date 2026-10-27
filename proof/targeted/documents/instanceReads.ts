@@ -18,9 +18,17 @@
  * `LocationOwnerRuntimeTest` reads this form and its link over HQ's bytes and
  * `LookupRuntimeTest` reads the table the same way.
  *
+ * The repeat "visits" counts, in each entry, the regions whose code is the
+ * entry's own answer: a form read inside a row predicate that crosses the
+ * repeat the calculate is in, which Nova prints `current()/../region`, since
+ * Core evaluates such a predicate in the bind's context or row by row and an
+ * absolute path names every entry row by row (`formReads.ts`).
+ *
  * Fixed values: over a restore holding the regions table and those places,
  * North region holds code `north`, the table holds two rows, and the one
- * clinic is "clinic & North", whose ward is "A & B".
+ * clinic is "clinic & North", whose ward is "A & B". With two visits
+ * answered `north` and `east`, the first counts one region and the second
+ * none.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -146,6 +154,36 @@ export function instanceReads() {
 								id: "note",
 								label: proseText("Note"),
 							}),
+							f({
+								kind: "repeat",
+								uuid: uuid("visits"),
+								id: "visits",
+								label: proseText("Visits"),
+								children: [
+									f({
+										kind: "text",
+										uuid: uuid("visit-region"),
+										id: "region",
+										label: proseText("Region"),
+									}),
+									hidden(
+										"same_region",
+										count({
+											kind: "table-rows",
+											tableId: table.id,
+											where: [
+												eq(
+													tableColumn(table.id, code.id),
+													term({
+														kind: "field",
+														uuid: uuid("visit-region"),
+													}),
+												),
+											],
+										}),
+									),
+								],
+							}),
 						],
 						formLinks: [
 							{
@@ -218,6 +256,30 @@ export function instanceReads() {
 			{ pointer: "/values/3/value", value: "A & B" },
 		],
 	}));
+	for (const exportName of ["local", "A"] as const)
+		intent.push({
+			id: `own-row-count-${exportName}`,
+			export: exportName,
+			form,
+			restore: "restore.xml",
+			request: {
+				repeats: { "/data/visits": 2 },
+				answers: [
+					{ path: "/data/visits[1]/region[1]", value: "north" },
+					{ path: "/data/visits[2]/region[1]", value: "east" },
+				],
+				expressions: [
+					"/data/visits[1]/same_region[1]",
+					"/data/visits[2]/same_region[1]",
+				],
+			},
+			expect: [
+				{ pointer: "/answers/0/result", value: "ok" },
+				{ pointer: "/answers/1/result", value: "ok" },
+				{ pointer: "/values/0/value", value: "1" },
+				{ pointer: "/values/1/value", value: "0" },
+			],
+		});
 	const lineage = (region: string, district: string, place: string) => ({
 		region,
 		district,
@@ -225,7 +287,12 @@ export function instanceReads() {
 	});
 	return targetedDocument({
 		id: ID,
-		rows: ["form-logic-lookup-reads", "flat-location-reads", "link-reads"],
+		rows: [
+			"form-logic-lookup-reads",
+			"flat-location-reads",
+			"link-reads",
+			"form read inside a row predicate, per repeat entry",
+		],
 		doc,
 		lookup: {
 			projectId: `project-${ID}`,

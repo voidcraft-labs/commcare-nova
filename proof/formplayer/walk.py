@@ -79,7 +79,7 @@ from typing import Any
 from proof.core.client import DEFAULT_CLOCK
 from proof.formplayer import canonical
 from proof.formplayer.client import FormplayerRunner, HqHandler
-from proof.formplayer.webapps import FormplayerRefused, WebApps
+from proof.formplayer.webapps import WINDOW_WIDTH, FormplayerRefused, WebApps
 from proof.observe import walks
 
 ANSWERS_PATH = Path(__file__).resolve().parents[1] / "core" / "answers.json"
@@ -464,13 +464,20 @@ class Walk:
     # client's placeholder for a question it draws no widget for (``UNSUPPORTED``); elsewhere it answers a date and
     # time question as Core's session does.
     web_apps: bool = True
+    # The width the worker's browser window reads, which the client sends with every menu request: a desktop's,
+    # or the width another window's client sent where a run is walked again for it
+    # (``proof.webapps.observe.walked_in_window``).
+    window_width: str = WINDOW_WIDTH
 
     @classmethod
-    def of(cls, served, *, runner=None, app_id: str | None = None, scope=None, places=None) -> Walk:
+    def of(
+        cls, served, *, runner=None, app_id: str | None = None, scope=None, places=None, window_width=WINDOW_WIDTH
+    ) -> Walk:
         """The walk of a state HQ serves (``proof.formplayer.hq.Served``) in every language its app holds, each
         run in a run of the state (``Served.run``) unless ``scope`` says otherwise; ``app_id`` names an archive HQ
-        does not hold in place of the released build (Nova's local archive), and ``places`` the place the
-        client's map gave each location question on a desktop and on a phone (``proof.observe.walks.Places``)."""
+        does not hold in place of the released build (Nova's local archive), ``places`` the place the client's
+        map gave each location question on a desktop and on a phone (``proof.observe.walks.Places``), and
+        ``window_width`` the width the worker's window reads (a desktop's unless another window's is named)."""
         return cls(
             runner or served.runner,
             served.hq,
@@ -482,6 +489,7 @@ class Walk:
             small_places=dict(places.small) if places else {},
             toward=dict(places.toward) if places else {},
             web_apps=served.reads("webapps"),
+            window_width=window_width,
         )
 
     # -- one execution -----------------------------------------------------
@@ -497,6 +505,7 @@ class Walk:
             locale=self.locale if self.locale is not None else walks.default_language(self.languages),
             # The Django session HQ made for the worker as the run began (``proof.formplayer.hq.Served.run``).
             session_key=self.hq.session_key,
+            window_width=self.window_width,
         )
 
     def _web(self) -> WebApps:

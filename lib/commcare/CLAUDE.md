@@ -560,8 +560,13 @@ An XForm's `<instance>` elements are the set its printed attributes read, the ca
 `deviceid`, `appversion`, `username`, `userid`, `drift`, `window_width`, and
 `applanguage`. Both the binding-resolution oracle and Preview's structural
 instance template consume that set. The `session-context` leaf stores and
-parses all seven. The authoring choices offer four (`deviceid`, `appversion`,
-`username`, `userid`); the other three differ by platform. The primary instance root follows the same
+parses all seven. The authoring choices offer all seven. `drift` and
+`window_width` type as whole numbers; `window_width` is admitted only in a slot
+CommCare evaluates while a menu or a list loads; and `window_width` and
+`applanguage`, which can be absent, print under the count guard
+(`xpath/wire/emptyRows.ts::guardAbsentNode`). The case list's search text,
+`session/data/stringquery`, is a value arm admitted in a form that opens after
+exactly one case list, printed `if(count(P) > 0, P[1], '')`. The primary instance root follows the same
 rule: `xform/dataRootAttributes.ts` is the shared projection for emitted and
 Preview-visible `uiVersion`, `version`, and `name` attributes. The data node's
 `name` and `<h:title>` are the form's name in the app's default language

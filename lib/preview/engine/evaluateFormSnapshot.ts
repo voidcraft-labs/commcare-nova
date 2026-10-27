@@ -238,7 +238,9 @@ export async function evaluateFormSnapshot(
 			searchAnswers: searchInputInstanceValues(
 				module.caseListConfig?.searchInputs ?? [],
 				new Map(
-					(input.searchAnswers ?? []).map(({ name, value }) => [name, value]),
+					(input.searchAnswers ?? context.searchAnswers ?? []).map(
+						({ name, value }) => [name, value],
+					),
 				),
 			),
 		},

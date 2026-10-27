@@ -20,6 +20,8 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"case-search/inline-search-default-search-on-a-module-without-visible-inputs",
 		"menus-and-case-lists/inline-search-in-a-parent-select-module-hq-adds-xpath-query",
 		"menus-and-case-lists/case-list-form-on-a-search-first-host-pointing-at-a-registration",
+		"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module",
+		"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search",
 	],
 	"several-cases": [
 		"menus-and-case-lists/detail-multi-select",
@@ -32,6 +34,11 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"connect-app": [
 		"application-and-settings/connect-app-opened-in-the-connect-app",
+	],
+	"case-list-search-text": ["expressions-and-data/session-data-stringquery"],
+	"window-width": [
+		"expressions-and-data/session-context-window-width",
+		"case-search/runtime-values-read-from-the-session-context-window-width",
 	],
 	"location-question": ["questions/gps-geopoint"],
 	"barcode-question": ["questions/barcode-barcode"],
@@ -68,6 +75,11 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	],
 	"device-id": ["expressions-and-data/session-context-deviceid"],
 	"app-version": ["expressions-and-data/session-context-appversion"],
+	"clock-drift": [
+		"expressions-and-data/session-context-drift",
+		"case-search/runtime-values-read-from-the-session-context-drift",
+	],
+	"app-language": ["expressions-and-data/session-context-applanguage"],
 	"entry-points": [
 		"menus-and-case-lists/session-endpoint-id",
 		"menus-and-case-lists/case-list-session-endpoint-id",

@@ -8,7 +8,8 @@
 // a two-batch flip would leave the first batch failing the gate. Clearing
 // it is the mirror image: a registration form on the menu makes the module
 // forms-first, which `SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE` refuses, and
-// a `#search/` read outside a no-matches form is `INVALID_SEARCH_REF`, so
+// a `#search/` read outside a search-first module's own forms is
+// `INVALID_SEARCH_REF`, so
 // the clear turns Search first off and drops the starting values read from
 // the search in the same batch. The carried-answer fields are the scaffold
 // every editor offers: one field per Search prompt, seeded from
@@ -126,8 +127,8 @@ export function searchAnswerDefaultsOf(
  * that opens on Search may hold, so Search first turns off in the same
  * batch (the module lands on its case list with a Search button again), a
  * bare host loses `caseListOnly`, and every field whose only search read is
- * its starting value loses that `default_value` (`#search/` resolves inside
- * a no-matches form alone). A read in any other slot is left for the gate
+ * its starting value loses that `default_value` (`#search/` resolves only in
+ * a search-first module's own forms). A read in any other slot is left for the gate
  * to name: it is hand-authored, and dropping it would be a decision made
  * for the person.
  */

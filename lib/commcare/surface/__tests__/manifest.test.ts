@@ -243,8 +243,8 @@ const KEYLESS = MANIFEST.inventory.find(
  * The typed instance reads and the reads of the form's own text are emittable
  * from Nova's expressions, so their entries are HELD and each names, in its
  * Disposition cell, the narrowing it records as a slot change. The reads that
- * wait for a later step stay HELD-NEW, and the hierarchical fixture stays
- * refused.
+ * wait for a later step stay HELD-NEW, and the reads no runtime evaluates
+ * where they sit stay refused.
  */
 const HELD_INSTANCE_READS = [
 	"expressions-and-data/session-data-datum",
@@ -255,15 +255,23 @@ const HELD_INSTANCE_READS = [
 	"expressions-and-data/results-read-in-form-expressions-of-an-inline-search-module",
 	"expressions-and-data/jr-itext-id",
 	"expressions-and-data/jr-choice-name-value-path-on-a-static-choice-select",
+	"expressions-and-data/session-data-stringquery",
+	"expressions-and-data/session-context-drift",
+	"expressions-and-data/session-context-window-width",
+	"expressions-and-data/session-context-applanguage",
+	"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module",
+	"expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search",
 ] as const;
 const WAITING_INSTANCE_READS = {
 	"case-search/instance-name-without-casedb-ledgerdb-fixture-or-session-in-it":
 		"HELD-NEW",
 	"expressions-and-data/groups-jr-fixture-user-groups": "HELD-NEW",
-	"expressions-and-data/search-input-read-in-form-expressions-of-an-inline-search-module":
-		"HELD-NEW",
 	"expressions-and-data/commtrack-locations-hierarchical": "REFUSED",
 	"expressions-and-data/jr-choice-name-on-a-lookup-itemset-select": "REFUSED",
+	"expressions-and-data/session-data-fingerprintquery": "HELD-NEW",
+	"expressions-and-data/search-input-results-read-in-the-search-results-detail":
+		"HELD-NEW",
+	"expressions-and-data/session-context-window-width-in-form-logic": "REFUSED",
 } as const;
 
 describe("the instance reads Nova's expressions hold", () => {

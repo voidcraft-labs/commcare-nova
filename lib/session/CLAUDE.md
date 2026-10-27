@@ -17,7 +17,8 @@ Same as `lib/doc`: the store is private. Consumers go through the named hooks in
 The running menu keeps three distinct case facts, and they must not collapse:
 
 - `previewCaseTarget` means one exact Form is opening with an ordered `cases`
-  collection. Absence is still waiting for Results, an empty collection is an
+  collection and, after a case list's filter, `caseListSearchText`, which the
+  entry's session holds as `stringquery`. Absence is still waiting for Results, an empty collection is an
   explicitly blank link, one is the ordinary scalar workflow, and many is the
   batch workflow.
 - `previewSelectedCase` mirrors the one record currently open on Results for the

@@ -30,19 +30,21 @@ import tablerHash from "@iconify-icons/tabler/hash";
 import tablerLink from "@iconify-icons/tabler/link";
 import tablerListSearch from "@iconify-icons/tabler/list-search";
 import tablerMapPin from "@iconify-icons/tabler/map-pin";
+import tablerSearch from "@iconify-icons/tabler/search";
 import tablerSwitch from "@iconify-icons/tabler/switch";
 import tablerUser from "@iconify-icons/tabler/user";
 import tablerUserOff from "@iconify-icons/tabler/user-off";
 import tablerVariable from "@iconify-icons/tabler/variable";
 import type { ComponentType } from "react";
 import type { CaseType, UserProperty, Uuid } from "@/lib/domain";
-import type {
-	Expression,
-	ExpressionContext,
-	ExpressionOfKind,
-	SearchInputDecl,
-	SlotConstraint,
-	ValueArm,
+import {
+	caseListSearchTextOffered,
+	type Expression,
+	type ExpressionContext,
+	type ExpressionOfKind,
+	type SearchInputDecl,
+	type SlotConstraint,
+	type ValueArm,
 } from "@/lib/domain/expression";
 import { ArithCard, arithDefault } from "./cards/expression/ArithCard";
 import { CoalesceCard, coalesceDefault } from "./cards/expression/CoalesceCard";
@@ -66,6 +68,7 @@ import {
 	formatDateDefault,
 } from "./cards/expression/FormatDateCard";
 import {
+	CaseListSearchTextCard,
 	HereCard,
 	NegateCard,
 	ValueListCard,
@@ -199,6 +202,14 @@ export const expressionCardSchemas: {
 		description: "The worker's location when the case list shows",
 		component: HereCard,
 		defaultValue: () => ({ kind: "here" }),
+	},
+	"case-list-search-text": {
+		kind: "case-list-search-text",
+		label: "Case list search text",
+		icon: tablerSearch,
+		description: "What the worker typed into the case list's search box",
+		component: CaseListSearchTextCard,
+		defaultValue: () => ({ kind: "case-list-search-text" }),
 	},
 	"value-list": {
 		kind: "value-list",
@@ -400,6 +411,14 @@ export function isAuthorableExpressionKind(
 	// The worker's location has a handler only in a case list's calculated
 	// column, which the slot's profile says (`SlotProfile.here`).
 	if (kind === "here") return ctx?.expressionContext?.profile.here === true;
+	// A case list's search text reaches a form's questions and Connect
+	// settings after exactly one case list, where no declared platform lacks
+	// it (`typeChecker.ts::caseListSearchTextOffered`, as the XPath editor).
+	if (kind === "case-list-search-text")
+		return (
+			ctx?.expressionContext !== undefined &&
+			caseListSearchTextOffered(ctx.expressionContext)
+		);
 	if (kind === "id-of") {
 		return (ctx?.operationScope?.creates.length ?? 0) > 0;
 	}

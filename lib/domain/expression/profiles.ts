@@ -36,6 +36,14 @@ export interface SlotProfile {
 	 * (Formplayer `MenuSessionRunnerService.java::addHereFuncHandler`, Android
 	 * `EntitySelectActivity.getHereFunctionHandler`); no form context does. */
 	readonly here: boolean;
+	/** The `case-list-search-text` arm: a form's questions and Connect
+	 * settings, which Core evaluates with the entry's session data. */
+	readonly caseListSearchText: boolean;
+	/** `window_width`: only a slot CommCare evaluates while a menu or a list
+	 * loads, the one request HQ's Web Apps client sends the width with
+	 * (`formplayer/menus/api.js`); a form request carries none, and a fresh
+	 * form's bare read of the absent node throws (`SessionContextRuntimeTest`). */
+	readonly windowWidth: boolean;
 }
 
 export function slotProfile(
@@ -53,6 +61,8 @@ export function slotProfile(
 			| "ownerValues"
 			| "patternMatching"
 			| "here"
+			| "caseListSearchText"
+			| "windowWidth"
 		>
 	> = {},
 ): SlotProfile {
@@ -68,6 +78,8 @@ export function slotProfile(
 		ownerValues: false,
 		patternMatching: false,
 		here: false,
+		caseListSearchText: false,
+		windowWidth: false,
 		...facts,
 	};
 }

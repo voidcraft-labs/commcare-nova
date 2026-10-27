@@ -5,30 +5,18 @@ import type {
 	SessionUserRef,
 } from "@/lib/domain/expression";
 
-/** Stored session values outlive the Builder's current authoring choices. */
+/** Every session context field, offered and shown by its own name. */
 const PRESENTATIONS = {
-	userid: { kind: "editable", field: "userid", label: "Current user's ID" },
-	username: {
-		kind: "editable",
-		field: "username",
-		label: "Current user's name",
-	},
-	deviceid: { kind: "editable", field: "deviceid", label: "This device's ID" },
-	appversion: { kind: "editable", field: "appversion", label: "App version" },
-	drift: { kind: "preserved", field: "drift", label: "Device clock offset" },
-	window_width: {
-		kind: "preserved",
-		field: "window_width",
-		label: "Window width",
-	},
-	applanguage: {
-		kind: "preserved",
-		field: "applanguage",
-		label: "App language",
-	},
+	userid: { field: "userid", label: "Current user's ID" },
+	username: { field: "username", label: "Current user's name" },
+	deviceid: { field: "deviceid", label: "This device's ID" },
+	appversion: { field: "appversion", label: "App version" },
+	drift: { field: "drift", label: "Device clock offset" },
+	window_width: { field: "window_width", label: "Window width" },
+	applanguage: { field: "applanguage", label: "App language" },
 } as const satisfies Record<
 	SessionContextField,
-	{ kind: "editable" | "preserved"; field: SessionContextField; label: string }
+	{ field: SessionContextField; label: string }
 >;
 
 export function sessionContextPresentation<Field extends SessionContextField>(
@@ -37,11 +25,7 @@ export function sessionContextPresentation<Field extends SessionContextField>(
 	return PRESENTATIONS[field];
 }
 
-export const SESSION_CONTEXT_CHOICES = Object.values(PRESENTATIONS).filter(
-	(value) => value.kind === "editable",
-);
-export type EditableSessionContextField =
-	(typeof SESSION_CONTEXT_CHOICES)[number]["field"];
+export const SESSION_CONTEXT_CHOICES = Object.values(PRESENTATIONS);
 
 export type SessionUserReference = SessionUserRef | SessionUserPropertyRef;
 

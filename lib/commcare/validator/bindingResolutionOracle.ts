@@ -11,7 +11,10 @@
 import type { SyntaxNode } from "@lezer/common";
 import { getAttributeValue } from "domutils";
 import { parser } from "@/lib/commcare/xpath";
-import { COMMCARE_SESSION_CONTEXT_FIELDS } from "../sessionContext";
+import {
+	CASE_LIST_SEARCH_TEXT_DATA_NAME,
+	COMMCARE_SESSION_CONTEXT_FIELDS,
+} from "../sessionContext";
 import {
 	type ValidationError,
 	type ValidationLocation,
@@ -36,6 +39,15 @@ import { buildXFormDataModel, type XFormDataModel } from "./xformDataModel";
 const SESSION_CONTEXT_FIELDS: ReadonlySet<string> = new Set(
 	COMMCARE_SESSION_CONTEXT_FIELDS,
 );
+
+/**
+ * The `session/data` nodes Core adds beside the entry's datums from the frame
+ * (`SessionInstanceBuilder.addUserQueryData`): the case list's search text,
+ * which Nova reads under the count guard, so an absent node reads blank.
+ */
+const SESSION_QUERY_DATA_NAMES: ReadonlySet<string> = new Set([
+	CASE_LIST_SEARCH_TEXT_DATA_NAME,
+]);
 
 /**
  * The XPath surfaces JavaRosa evaluates at install / form-init time. Each
@@ -87,6 +99,7 @@ export function validateBindingResolution(
 		// must declare `<X>` as a session datum on the form's entry.
 		for (const datumId of refs.sessionDataRefs) {
 			if (sessionDatumIds.has(datumId)) continue;
+			if (SESSION_QUERY_DATA_NAMES.has(datumId)) continue;
 			errors.push(
 				validationError(
 					"BINDING_RESOLUTION_SESSION_DATUM_UNDECLARED",

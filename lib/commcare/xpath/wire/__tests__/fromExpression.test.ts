@@ -15,6 +15,7 @@ import {
 	ancestorPath,
 	anyRelationPath,
 	arith,
+	caseListSearchText,
 	coalesce,
 	concat,
 	count,
@@ -874,5 +875,31 @@ describe("instance arms declare what they read, per target", () => {
 			text: "count(instance('results:inline')/results/case[not(commcare_is_related_case = true())][district = 'north'])",
 			instances: [["results:inline", "jr://instance/remote/results:inline"]],
 		});
+	});
+});
+
+describe("session reads that can be absent", () => {
+	const printed = (expression: Expression) =>
+		serializeWire(lower(expression), { target: "suite" }).text;
+	const context = (field: string) =>
+		`instance('commcaresession')/session/context/${field}`;
+
+	it("guards the window width and the app language by their own count", () => {
+		for (const field of ["window_width", "applanguage"] as const)
+			expect(printed(term(sessionContext(field)))).toBe(
+				`if(count(${context(field)}) > 0, ${context(field)}, '')`,
+			);
+	});
+
+	it("reads the case list's search text as its first node, guarded by their count", () => {
+		const nodes = "instance('commcaresession')/session/data/stringquery";
+		expect(printed(caseListSearchText())).toBe(
+			`if(count(${nodes}) > 0, ${nodes}[1], '')`,
+		);
+	});
+
+	it("keeps the bytes of a field every session holds", () => {
+		expect(printed(term(sessionContext("drift")))).toBe(context("drift"));
+		expect(printed(term(sessionContext("userid")))).toBe(context("userid"));
 	});
 });

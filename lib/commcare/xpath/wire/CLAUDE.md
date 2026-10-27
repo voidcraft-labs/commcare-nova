@@ -135,6 +135,30 @@ link's argument on commas), never through the list. A `<data nodeset>` over
 the chosen cases is a `TreeReference` that Core expands
 (`ListQueryData.getValues`), never checked by `XPathPathExpr`, so it stays bare.
 
+A session read that can be absent (`window_width`, `applanguage`, the case
+list's search text) prints `if(count(<read>) > 0, <read>, '')` for the same
+reason (`emptyRows.ts::guardAbsentNode`). The search text counts its nodes and
+reads the first, `if(count(P) > 0, P[1], '')`, since one Android case list can
+leave its text on two frame steps, where a bare read throws.
+
+A form read spelled absolute or as a hashtag prints `current()/<relative>`
+(`formReads.ts::formReadToWire`) when it sits in a secondary instance's row
+predicate (a `case`, `table` or `location` row, never a form repeat's, and
+never a case operation's own case row) and crosses a repeat the slot is in, or
+the repeat whose own slot it is. Core evaluates such a predicate in the bind's
+context where it is a leading predicate on an indexed path
+(`StorageBackedTreeRoot.tryBatchChildFetch`, `TreeUtilities.tryBatchChildFetch`)
+and row by row otherwise (`EvaluationContext.expandReferenceAccumulator`),
+where an absolute path contextualized against a row is cloned unbound and names
+every entry of the repeat, which Core refuses or reads as the entry its reference
+cache resolved first (`DataInstance.resolveReference`); `current()` is the
+bind's node under both, so the relative read answers per entry wherever Core
+evaluates it (`proof/native/core/RowPredicateCurrentRuntimeTest.java`). Every
+other read keeps its bytes. The Vellum shadow follows from the printed tree: a
+`current` path is no hashtag form read, so where the moved read was the
+expression's only one, no `vellum:` shadow is written, and where another
+hashtag form read remains, the shadow holds `current()/…` beside it.
+
 ## Instances and element slots
 
 Every instance root holds the declaration from `instances.ts`. Serialization

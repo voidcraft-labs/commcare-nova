@@ -1022,6 +1022,9 @@ export async function loadCaseDataAction(
 	viewerLocation?: ViewerLocation | null,
 	/** The device Preview runs on (`previewDevice.ts`), plain JSON. */
 	device?: PreviewDevice,
+	/** A search-first module's completed search answers, plain JSON: what its
+	 *  detail columns read as `#search/<name>`. */
+	searchAnswers?: Readonly<Record<string, string>>,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -1065,7 +1068,7 @@ export async function loadCaseDataAction(
 				? undefined
 				: withSearchInputExpressionValues(
 						caseListConfig.searchInputs,
-						new Map(),
+						new Map(Object.entries(searchAnswers ?? {})),
 					);
 		return await readCaseData(store, {
 			appId,

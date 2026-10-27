@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { simpleSearchInputDef } from "@/lib/domain";
 import {
+	formSearchAnswers,
 	noMatchesFormAdmission,
 	noMatchesPostSubmit,
 	noMatchesRefusalCopy,
@@ -183,5 +185,84 @@ describe("noMatchesPostSubmit", () => {
 			"firstMenu",
 		);
 		expect(noMatchesPostSubmit({ postSubmit: "firstMenu" })).toBeUndefined();
+	});
+});
+
+describe("formSearchAnswers", () => {
+	const searchInputs = [
+		simpleSearchInputDef(
+			testUuid("input-patient-name"),
+			"patient_name",
+			"Patient name",
+			"text",
+			"case_name",
+		),
+	];
+	const defaults = new Map([["patient_name", "Ama"]]);
+	const answersOf = (args: {
+		readonly admission: Parameters<typeof formSearchAnswers>[0]["admission"];
+		readonly searchFirst: boolean;
+		readonly searchState: PreviewSearchState | undefined;
+		readonly openedByLink?: boolean;
+	}) => {
+		const found = formSearchAnswers({
+			searchInputs,
+			defaults,
+			openedByLink: false,
+			...args,
+		});
+		return found === undefined ? undefined : Object.fromEntries(found);
+	};
+
+	it("gives a search-first module's form its completed search's answers", () => {
+		expect(
+			answersOf({
+				admission: { kind: "not-applicable" },
+				searchFirst: true,
+				searchState: completed(3),
+			}),
+		).toEqual({ patient_name: "Zzz" });
+	});
+
+	it("gives it the Search fields' starting values when a link or an entry point opened it", () => {
+		for (const searchState of [undefined, { kind: "not-searched" } as const])
+			expect(
+				answersOf({
+					admission: { kind: "not-applicable" },
+					searchFirst: true,
+					searchState,
+				}),
+			).toEqual({ patient_name: "Ama" });
+	});
+
+	it("gives a form a link opened the starting values, even after a search in its module", () => {
+		expect(
+			answersOf({
+				admission: { kind: "not-applicable" },
+				searchFirst: true,
+				searchState: completed(3),
+				openedByLink: true,
+			}),
+		).toEqual({ patient_name: "Ama" });
+	});
+
+	it("gives a no-matches form its admitted launch's answers", () => {
+		expect(
+			answersOf({
+				admission: { kind: "admitted", answers: { patient_name: "Kofi" } },
+				searchFirst: true,
+				searchState: completed(0),
+			}),
+		).toEqual({ patient_name: "Kofi" });
+	});
+
+	it("gives a form of any other module none", () => {
+		expect(
+			answersOf({
+				admission: { kind: "not-applicable" },
+				searchFirst: false,
+				searchState: completed(3),
+			}),
+		).toBeUndefined();
 	});
 });

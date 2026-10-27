@@ -40,6 +40,7 @@ import {
 	anyRelationPath,
 	arith,
 	between,
+	caseListSearchText,
 	coalesce,
 	concat,
 	count,
@@ -105,6 +106,22 @@ import {
 	readsContext,
 	searchResults,
 } from "./instanceReadsFixture";
+import {
+	CHILD_HIDDEN,
+	calculateOf,
+	choiceSlot,
+	connectSlot,
+	linkSlot,
+	OTHER_FORM,
+	OTHER_HIDDEN,
+	OTHER_INPUT,
+	OTHER_MODULE,
+	operationSlot,
+	READS_HIDDEN,
+	READS_INPUT,
+	readsDoc,
+	SURVEY_HIDDEN,
+} from "./sessionReadsFixture";
 
 type QueryFixture = Parameters<typeof recordQueryContext>[0] & {
 	readonly ownerValues?: boolean;
@@ -4237,5 +4254,129 @@ describe("typing rule R2: the clock-keeping date", () => {
 		expect(
 			resolve(dateCoerce(formatDate(now(), "%Y-%m-%dT%H:%M:%S.%3%Z"))).type,
 		).toBe("date");
+	});
+});
+
+// ── Pull request 10's reads: Search answers in a search-first module's
+// forms, the case list's search text, and the session context fields. ──
+describe("the reads a form and a menu make of the session and the search", () => {
+	const errorsIn = (slot: ExpressionSlotRef, expression: Expression) => {
+		const ctx = slotContext(readsDoc(), slot, new Map());
+		if (ctx === undefined) throw new Error("The slot has no context.");
+		return checkExpression(expression, ctx).errors;
+	};
+	const reasons = (errors: ReturnType<typeof errorsIn>) =>
+		errors.map((error) => [error.code, error.reason]);
+
+	describe("a Search answer", () => {
+		const answer = term(input(READS_INPUT));
+		it("is admitted in a question and a Connect setting of a search-first module's form", () => {
+			expect(errorsIn(calculateOf(READS_HIDDEN), answer)).toEqual([]);
+			expect(errorsIn(connectSlot, answer)).toEqual([]);
+		});
+		it("is refused in that form's link, which runs after the form closes", () => {
+			expect(reasons(errorsIn(linkSlot, eq(answer, literal("a"))))).toEqual([
+				["search-answer-unavailable", "form-link"],
+			]);
+		});
+		it("is refused in a form whose module doesn't open on its search, a child module's included", () => {
+			expect(
+				reasons(errorsIn(calculateOf(OTHER_HIDDEN), term(input(OTHER_INPUT)))),
+			).toEqual([["search-answer-unavailable", "not-search-first"]]);
+			expect(
+				reasons(errorsIn(calculateOf(CHILD_HIDDEN), term(input(OTHER_INPUT)))),
+			).toEqual([["search-answer-unavailable", "not-search-first"]]);
+		});
+	});
+
+	describe("the case list's search text", () => {
+		const text = caseListSearchText();
+		it("is admitted in a form that opens after exactly one case list, as text", () => {
+			const doc = readsDoc("android");
+			const ctx = slotContext(doc, calculateOf(OTHER_HIDDEN), new Map());
+			if (ctx === undefined) throw new Error("The slot has no context.");
+			const outcome = checkExpression(text, ctx);
+			expect(outcome.errors).toEqual([]);
+			expect(scalarDataType(typeOf(text, ctx)?.data)).toBe("text");
+		});
+		it("is refused in a form that opens after no case list, or after two", () => {
+			const none = errorsIn(calculateOf(SURVEY_HIDDEN), text);
+			expect(reasons(none)).toEqual([
+				["datum-not-supplied", "case-list-search-text"],
+			]);
+			expect(none[0]?.caseLists).toBe(0);
+			const two = errorsIn(calculateOf(CHILD_HIDDEN), text);
+			expect(reasons(two)).toEqual([
+				["datum-not-supplied", "case-list-search-text"],
+			]);
+			expect(two[0]?.caseLists).toBe(2);
+		});
+		it("is refused in a record setting", () => {
+			expect(
+				reasons(
+					errorsIn(
+						{
+							entity: "module",
+							uuid: OTHER_MODULE,
+							slot: "module_display_condition",
+						},
+						eq(text, literal("a")),
+					),
+				),
+			).toEqual([["arm-unavailable", "case-list-search-text-slot"]]);
+		});
+	});
+
+	describe("the session context fields", () => {
+		const width = term(sessionContext("window_width"));
+		it.each([
+			["a question", calculateOf(READS_HIDDEN)],
+			["a Connect setting", connectSlot],
+			["a case operation", operationSlot],
+			["a form link", linkSlot],
+			["a case choice's filter", choiceSlot],
+		] as const)("refuses the window width in %s", (_name, slot) => {
+			expect(reasons(errorsIn(slot, gt(width, literal(0))))).toContainEqual([
+				"arm-unavailable",
+				"window-width-in-form",
+			]);
+		});
+		it("admits the window width in a module's and a form's display condition", () => {
+			expect(
+				errorsIn(
+					{
+						entity: "module",
+						uuid: OTHER_MODULE,
+						slot: "module_display_condition",
+					},
+					gt(width, literal(0)),
+				),
+			).toEqual([]);
+			expect(
+				errorsIn(
+					{ entity: "form", uuid: OTHER_FORM, slot: "form_display_condition" },
+					gt(width, literal(0)),
+				),
+			).toEqual([]);
+		});
+		it("types drift and the window width as whole numbers and the others as text", () => {
+			const doc = readsDoc();
+			const ctx = slotContext(
+				doc,
+				{
+					entity: "module",
+					uuid: OTHER_MODULE,
+					slot: "module_display_condition",
+				},
+				new Map(),
+			);
+			if (ctx === undefined) throw new Error("The slot has no context.");
+			const typeOfField = (field: Parameters<typeof sessionContext>[0]) =>
+				scalarDataType(typeOf(term(sessionContext(field)), ctx)?.data);
+			expect(typeOfField("drift")).toBe("int");
+			expect(typeOfField("window_width")).toBe("int");
+			expect(typeOfField("applanguage")).toBe("text");
+			expect(typeOfField("userid")).toBe("text");
+		});
 	});
 });

@@ -319,31 +319,37 @@ describe("INVALID_SEARCH_REF", () => {
 		expect(codes(doc, "INVALID_SEARCH_REF")).toEqual([]);
 	});
 
-	it("refuses a search answer read outside a no-matches form", () => {
-		const doc = docWith({
-			forms: [
-				{
-					uuid: VISIT,
-					name: "Visit",
-					type: "followup",
-					fields: [
-						f({
-							kind: "text",
-							id: "note",
-							label: proseText("Note"),
-							default_value: {
-								kind: "term",
-								term: { kind: "input", searchInputUuid: NAME_INPUT },
-							},
-						}),
-					],
+	const visitReading = (): FormSpec => ({
+		uuid: VISIT,
+		name: "Visit",
+		type: "followup",
+		fields: [
+			f({
+				kind: "text",
+				id: "note",
+				label: proseText("Note"),
+				default_value: {
+					kind: "term",
+					term: { kind: "input", searchInputUuid: NAME_INPUT },
 				},
-			],
+			}),
+		],
+	});
+
+	it("admits a search answer read in a form of the module that opens on its search", () => {
+		const doc = docWith({ forms: [visitReading(), registerForm()] });
+		expect(codes(doc, "INVALID_SEARCH_REF")).toEqual([]);
+	});
+
+	it("refuses a search answer read in a form of a module that doesn't open on its search", () => {
+		const doc = docWith({
+			caseSearchConfig: {},
+			forms: [visitReading()],
 		});
 		const messages = codes(doc, "INVALID_SEARCH_REF");
 		expect(messages).toHaveLength(1);
 		expect(messages[0]).toContain(
-			"only in the form opened when a search found no matches",
+			"only in the forms of a menu that opens on its search",
 		);
 	});
 

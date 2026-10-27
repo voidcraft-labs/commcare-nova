@@ -4445,6 +4445,22 @@ def here_in_form(use, manifest):
     return document.kind == "xform"
 
 
+def window_width_in_form_logic(use, manifest):
+    """``expressions-and-data/session-context-window-width-in-form-logic``: a read of the session's
+    ``context/window_width`` in an XForm's expression. HQ's Web Apps client sends the width only with a
+    menu request (``formplayer/menus/api.js``), never with a form request
+    (``form_entry/web_form_session.js``), and Formplayer runs every calculate again on each form
+    request, which throws on a ``FormDef`` it deserializes afresh from the session's stored
+    definition after a miss of ``FormDefinitionService.getFormDefWithCache``, since ``XPathPathExpr``
+    does not serialize ``templatePathChecked``; Android never sets it. A suite's and an app JSON's
+    expressions (case lists, details, display conditions, search values) are evaluated on a menu
+    request, outside the class."""
+    document, _ = _expression_at(use)
+    if document is None:
+        return None
+    return document.kind == "xform"
+
+
 def choice_name_on_lookup(use, manifest):
     """``expressions-and-data/jr-choice-name-on-a-lookup-itemset-select``: a ``jr:choice-name(value, 'path')`` call in
     an XForm's expression whose question (its second argument's value, which Core's handler reads as a reference,
@@ -6098,6 +6114,7 @@ VALUE_CLASSES = {
     "expressions-and-data/session-data-supply-point-id-anywhere-except-in-an-advanced-form": supply_point_datum,
     "expressions-and-data/var-in-a-form-expression": var_in_form,
     "expressions-and-data/here-in-a-form": here_in_form,
+    "expressions-and-data/session-context-window-width-in-form-logic": window_width_in_form_logic,
     "expressions-and-data/jr-choice-name-on-a-lookup-itemset-select": choice_name_on_lookup,
     "expressions-and-data/declared-and-referenced-instance-with-an-unrecognized-src": referenced_unrecognized_source,
     "expressions-and-data/after-a-named-step-data-a-b": parent_after_named_step,

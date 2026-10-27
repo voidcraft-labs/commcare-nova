@@ -23,6 +23,7 @@ import {
 	formLinkProjectionContext,
 	owningModuleOf,
 } from "@/lib/commcare/formLinkProjection";
+import { CASE_LIST_SEARCH_TEXT_DATA_NAME } from "@/lib/commcare/sessionContext";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import {
 	type BlueprintDoc,
@@ -64,6 +65,10 @@ export interface EntrySessionInput {
 	/** What the search of the form's search-first module returned, which
 	 *  the session holds on its query step for the whole entry. */
 	readonly searchResults?: SearchResultsSnapshot;
+	/** What the worker typed into the case list's filter before choosing the
+	 *  case: Core writes `session/data/stringquery` for a step that carries a
+	 *  non-empty last query (`SessionInstanceBuilder.addUserQueryData`). */
+	readonly caseListSearchText?: string;
 }
 
 export interface EntrySessionData {
@@ -205,6 +210,8 @@ export function entrySessionData(
 		if (ref?.kind === "new-case") newCaseId = value;
 		hold(datum.id, { value });
 	}
+	if (args.caseListSearchText !== undefined && args.caseListSearchText !== "")
+		data[CASE_LIST_SEARCH_TEXT_DATA_NAME] = args.caseListSearchText;
 	return {
 		data,
 		values,

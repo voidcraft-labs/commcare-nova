@@ -100,17 +100,23 @@ import {
 	projectTargetCaseSelectionsAsync,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
+import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import {
 	resolvePreviousTask,
 	selectionsForModuleTask,
 } from "@/lib/preview/engine/previousTask";
-import { searchInputInstanceValues } from "@/lib/preview/engine/runtimeBindings";
+import { moduleSearchReadsCaseDatabase } from "@/lib/preview/engine/searchCsqlRuntime";
+import { resolveSearchInputDefaults } from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import {
 	type PreviewLookupStatus,
 	usePreviewLookupReload,
 	usePreviewLookupStatus,
 } from "@/lib/preview/engine/useLookupPreviewData";
+import {
+	useDeviceCaseDatabaseLoad,
+	useNavigationDeviceCases,
+} from "@/lib/preview/engine/useNavigationDeviceCases";
 import {
 	type CaseDatabaseSnapshot,
 	formReadsSearchResults,
@@ -128,10 +134,16 @@ import {
 } from "@/lib/preview/hooks/usePresentationDocument";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
 import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
+import {
+	searchWorld,
+	useCaseListStepSession,
+} from "@/lib/preview/hooks/useSearchCsqlRuntime";
 import { useSearchResultsSnapshot } from "@/lib/preview/hooks/useSearchResultsSnapshot";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { previewMenuCaseContext } from "@/lib/preview/menuProjection";
 import {
+	formReadsCompletedSearch,
+	formSearchAnswers,
 	noMatchesFormAdmission,
 	noMatchesPostSubmit,
 	noMatchesRefusalCopy,
@@ -414,6 +426,9 @@ function stringArrayValuesEqual(
  * no primary case-data map and keeps the complete casedb snapshot separate.
  */
 /** The focusable control inside an invalid question, or the question itself. */
+/** No starting values: the form reads a completed search's answers, or none. */
+const NO_SEARCH_DEFAULTS: ReadonlyMap<string, string> = new Map();
+
 const INVALID_CONTROL_SELECTOR =
 	'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])';
 
@@ -505,18 +520,86 @@ export function FormScreen({ screen }: FormScreenProps) {
 	);
 	/* The search context keeps the screen's answers (a date range as its
 	 * two bounds); the engine's search-input instance holds one field per
-	 * prompt, as the device's does. */
+	 * prompt, as the device's does. A no-matches form reads its launch's
+	 * answers; a form of a module that opens on its search reads the
+	 * completed search's, or each Search field's starting value when a link
+	 * or an entry point opened it with no search behind it. */
 	const hostSearchInputs = mod?.caseListConfig?.searchInputs;
-	const searchAnswers = useMemo(
-		() =>
-			mode === "preview" && noMatchesAdmission.kind === "admitted"
-				? searchInputInstanceValues(
-						hostSearchInputs ?? [],
-						new Map(Object.entries(noMatchesAdmission.answers)),
-					)
-				: undefined,
-		[mode, noMatchesAdmission, hostSearchInputs],
+	const searchFirstForm = mod !== undefined && moduleOpensOnSearch(mod);
+	const openedByLink =
+		previewCaseTarget?.formUuid === formUuid &&
+		previewCaseTarget.openedByLink === true;
+	/* The starting values read the device's cases and lookups, so a form that
+	 * reads them waits for both before its entry starts, as the Search screen's
+	 * own search does (`useSearchCsqlRuntime.ts::searchWorld`): the engine
+	 * captures its search answers once, at activation. */
+	const readsSearchDefaults =
+		mode === "preview" &&
+		searchFirstForm &&
+		noMatchesAdmission.kind === "not-applicable" &&
+		!formReadsCompletedSearch(searchState, openedByLink);
+	const searchDefaultsLookup = usePreviewLookupStatus();
+	const searchDefaultsCases = useNavigationDeviceCases(menuSource.caseTypes);
+	const searchDefaultsCasesLoad = useDeviceCaseDatabaseLoad();
+	const searchDefaultsReady =
+		!readsSearchDefaults ||
+		searchWorld({
+			readsCaseDatabase:
+				mod !== undefined && moduleSearchReadsCaseDatabase(mod),
+			deviceCases: searchDefaultsCases.snapshot,
+			deviceCasesLoad: searchDefaultsCasesLoad.status,
+			lookup: searchDefaultsLookup,
+		}) !== "waiting";
+	const searchDefaultsStep = useCaseListStepSession(
+		menuSource.doc,
+		searchFirstForm ? moduleUuid : undefined,
 	);
+	const searchAnswers = useMemo(() => {
+		if (mode !== "preview") return undefined;
+		const searchInputs = hostSearchInputs ?? [];
+		const defaults =
+			readsSearchDefaults && moduleUuid !== undefined
+				? resolveSearchInputDefaults(
+						searchInputs,
+						previewSessionValues(
+							previewIdentity,
+							withNavigationWidth(previewDevice),
+						),
+						{
+							doc: menuSource.doc,
+							moduleUuid,
+							...(searchDefaultsLookup.kind === "data" && {
+								lookup: searchDefaultsLookup.data,
+							}),
+							sessionData: searchDefaultsStep.data,
+							caseDatabase: searchDefaultsCases.snapshot,
+						},
+					)
+				: NO_SEARCH_DEFAULTS;
+		return formSearchAnswers({
+			searchInputs,
+			admission: noMatchesAdmission,
+			searchFirst: searchFirstForm,
+			searchState,
+			openedByLink,
+			defaults,
+		});
+	}, [
+		mode,
+		noMatchesAdmission,
+		hostSearchInputs,
+		searchFirstForm,
+		readsSearchDefaults,
+		openedByLink,
+		moduleUuid,
+		searchState,
+		previewIdentity,
+		previewDevice,
+		menuSource.doc,
+		searchDefaultsLookup,
+		searchDefaultsStep.data,
+		searchDefaultsCases.snapshot,
+	]);
 	const language = useBuilderLanguage();
 	/* A form of a search-first module that reads what the search found
 	 * opens with that search's results, as a device's session holds them on
@@ -761,6 +844,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 
 	const editable = isReady;
 
+	/* What the worker typed into the case list's filter before choosing the
+	 * case, which the entry's session holds as `stringquery`. */
+	const caseListSearchText =
+		previewCaseTarget?.formUuid === formUuid
+			? previewCaseTarget.caseListSearchText
+			: undefined;
 	/* The running session the entry starts from: its bound cases and the
 	 * menu's choices. The controller builds the entry's session map, which
 	 * the form reads as `session/data` and its links read after submit. */
@@ -775,15 +864,26 @@ export function FormScreen({ screen }: FormScreenProps) {
 						...(searchResultsSnapshot === undefined
 							? {}
 							: { searchResults: searchResultsSnapshot }),
+						...(caseListSearchText === undefined ? {} : { caseListSearchText }),
 					},
-		[appId, mode, effectiveCases, menuCaseSelections, searchResultsSnapshot],
+		[
+			appId,
+			mode,
+			effectiveCases,
+			menuCaseSelections,
+			searchResultsSnapshot,
+			caseListSearchText,
+		],
 	);
 	const controller = useFormEngine(
 		formUuid,
 		caseData,
 		carriedCaseDatabase,
 		searchAnswers,
-		caseBindingReady && searchResultsReady && !searchResultsRefused,
+		caseBindingReady &&
+			searchResultsReady &&
+			!searchResultsRefused &&
+			searchDefaultsReady,
 		entrySession,
 	);
 	const engineEntry = useEngineEntry();
@@ -1746,6 +1846,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 					setPreviewSelectedCase(undefined);
 					setPreviewCaseTarget({
 						formUuid: route.formUuid,
+						openedByLink: true,
 						...(linkedCaseCollection !== undefined
 							? { cases: linkedCaseCollection.cases }
 							: route.carried.kind === "carried"

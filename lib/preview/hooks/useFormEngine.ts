@@ -44,8 +44,9 @@ export function useFormEngine(
 	formUuid: Uuid | undefined,
 	caseData?: CaseDataByType,
 	caseDatabase?: CaseDatabaseSnapshot,
-	/** An admitted no-matches launch's search answers; fixed for the entry,
-	 * like `caseDatabase`. */
+	/** The search answers the form reads (`noMatchesForm.ts::formSearchAnswers`):
+	 * an admitted no-matches launch's, or a search-first module's completed
+	 * search's or starting values; fixed for the entry, like `caseDatabase`. */
 	searchAnswers?: ReadonlyMap<string, string>,
 	/** A selected record and its ancestors must arrive before one-time defaults
 	 * and query row membership run. Later refreshes retain the existing entry. */

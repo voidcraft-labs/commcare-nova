@@ -93,6 +93,41 @@ export function formReadNode(term: FormReadTerm): FormNodeRef {
 	}
 }
 
+/** Whether an absolute read must print `current()/…`: it sits in a
+ * secondary instance's row predicate and crosses a repeat the slot is in (or
+ * the repeat whose own slot it is). Core evaluates such a predicate either in
+ * the bind's context (a leading predicate on an indexed path, through
+ * `tryBatchChildFetch`) or row by row, where an absolute path contextualized
+ * against a row is cloned unbound (`TreeReference.contextualize`) and names
+ * every entry of the repeat, which Core refuses or reads as the entry its
+ * reference cache resolved first (`DataInstance.resolveReference`).
+ * `current()` is the bind's node under both (`EvaluationContext.rescope`),
+ * so the relative read
+ * answers per entry wherever Core evaluates it. A read crossing no such
+ * repeat names one node either way and keeps its bytes. A case operation's
+ * own case row is its slot's, not a predicate's. */
+function crossesSourceRepeatInRowPredicate(
+	coordinates: readonly FormNodeRef[],
+	types: ExpressionContext,
+	projection: FormNodeProjection,
+): boolean {
+	const rows =
+		types.profile.scope === "submission" ? types.rows.slice(1) : types.rows;
+	const row = rows.at(-1);
+	if (row === undefined || row.root === "form") return false;
+	if (types.sourceNode === undefined) return false;
+	const source = projection.graph.path(types.sourceNode);
+	if (source === undefined) return false;
+	const enclosing = new Set(source.map(formNodeKey));
+	return coordinates.some(
+		(node) =>
+			node.kind === "field" &&
+			node.role === undefined &&
+			types.form?.fields.get(node.uuid)?.kind === "repeat" &&
+			enclosing.has(formNodeKey(node)),
+	);
+}
+
 /** Lower one form read from the shared identity graph. The source slot remains
  * current()'s origin while predicates replace only the lexical context node. */
 export function formReadToWire(
@@ -134,7 +169,8 @@ export function formReadToWire(
 	const defaultValue =
 		types.slot.entity === "field" && types.slot.slot === "default_value";
 	const spelling =
-		defaultValue &&
+		(defaultValue ||
+			crossesSourceRepeatInRowPredicate(coordinates, types, projection)) &&
 		(term.spelling === undefined || term.spelling === "absolute")
 			? "current"
 			: term.spelling;

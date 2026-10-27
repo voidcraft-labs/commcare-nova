@@ -261,6 +261,7 @@ export function compileExpression(
 		case "table-rows":
 		case "locations":
 		case "selected-cases":
+		case "case-list-search-text":
 			throw new Error(
 				compilerBugMessage({
 					where: "compileExpression",

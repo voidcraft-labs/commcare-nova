@@ -25,6 +25,7 @@ import type {
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { formOfField } from "@/lib/domain/fieldForm";
+import { PLATFORMS, platformRefusalMessage } from "@/lib/domain/platforms";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import { FIELD_REFERENCE_SLOTS } from "@/lib/domain/referenceSlots";
 import type { Uuid } from "@/lib/domain/uuid";
@@ -280,8 +281,29 @@ export function formLogicFinding(
 		case "unknown-search-input":
 		case "search-answer-unavailable":
 			code = "INVALID_SEARCH_REF";
+			// Why the form can't reach the menu's Search answers: a link runs
+			// after its form closes, and any other form's menu doesn't open on
+			// its search.
+			if (error.reason === "form-link" || error.reason === "not-search-first")
+				details = { reason: error.reason };
 			break;
 		case "datum-not-supplied": {
+			if (error.reason === "case-list-search-text") {
+				const owner = slotOwner(ctx);
+				const caseLists = error.caseLists ?? 0;
+				code = "SESSION_DATUM_NOT_SUPPLIED";
+				details = {
+					slot: ctx?.slot.slot ?? "",
+					carrier: carrierOf(ctx),
+					reason: "case-list-search-text",
+					caseLists: String(caseLists),
+				};
+				message =
+					caseLists === 0
+						? `${owner.slotSubject} reads what the worker typed into a case list's search box, but this form doesn't open after a case list. You can read a question or a case property instead.`
+						: `${owner.slotSubject} reads what the worker typed into a case list's search box, but this form opens after ${caseLists} case lists, so CommCare can't tell which search it means. You can read it in a form that opens after one case list.`;
+				break;
+			}
 			const targetUnused = error.reason === "target-not-requested";
 			const selected =
 				expression === undefined
@@ -394,7 +416,28 @@ export function formLogicFinding(
 			break;
 		case "arm-unavailable": {
 			const owner = slotOwner(ctx);
-			if (error.reason === "here") {
+			if (error.reason === "platform-unavailable" && error.platform) {
+				code = "XPATH_FUNCTION_CONTEXT_UNAVAILABLE";
+				details = {
+					reason: "platform-unavailable",
+					feature: error.platform.feature,
+					platform: error.platform.platform,
+				};
+				message = platformRefusalMessage({
+					feature: error.platform.feature,
+					platform: error.platform.platform,
+					platforms: ctx?.platforms ?? PLATFORMS,
+					subject: owner.slotSubject,
+				});
+			} else if (error.reason === "case-list-search-text-slot") {
+				code = "XPATH_FUNCTION_CONTEXT_UNAVAILABLE";
+				details = { reason: "case-list-search-text-slot" };
+				message = `${owner.slotSubject} reads what the worker typed into a case list's search box, which only a form's questions and Connect settings can read. You can read it in one of the form's questions instead.`;
+			} else if (error.reason === "window-width-in-form") {
+				code = "XPATH_FUNCTION_CONTEXT_UNAVAILABLE";
+				details = { reason: "window-width" };
+				message = `${owner.slotSubject} reads the window width, which CommCare sends only while a menu or a list loads, so a form can't rely on it. You can use it in a display condition or a case list instead.`;
+			} else if (error.reason === "here") {
 				code = "XPATH_FUNCTION_CONTEXT_UNAVAILABLE";
 				// A slot that reads the form's answers can read a location
 				// question instead; one that reads no answers (a case list

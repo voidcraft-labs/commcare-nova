@@ -638,6 +638,9 @@ export type ValueArm =
 	| { kind: "itext"; unit: ItextUnit }
 	| { kind: "choice-name"; field: Uuid; value: Expression }
 	| { kind: "here" }
+	/** What the worker typed into the case list's search box, on the entry's
+	 * one case list: `session/data/stringquery`, which only Android sets. */
+	| { kind: "case-list-search-text" }
 	| { kind: "value-list"; items: [Expression, ...Expression[]] };
 export type InstanceArm =
 	| { kind: "cases"; source: "casedb" | "search-results"; where: Expression[] }
@@ -692,6 +695,7 @@ const VALUE_KINDS = new Set<string>([
 	"itext",
 	"choice-name",
 	"here",
+	"case-list-search-text",
 	"value-list",
 ]);
 const INSTANCE_KINDS = new Set<string>([
@@ -974,6 +978,7 @@ const valueSchemas = [
 		value: E,
 	}),
 	z.strictObject({ kind: z.literal("here") }),
+	z.strictObject({ kind: z.literal("case-list-search-text") }),
 	z.strictObject({ kind: z.literal("value-list"), items: manyE }),
 ] as const;
 const instanceSchemas = [

@@ -348,6 +348,13 @@ export function today(): Extract<Expression, { kind: "today" }> {
 export function now(): Extract<Expression, { kind: "now" }> {
 	return { kind: "now" };
 }
+/** What the worker typed into the entry's one case list's search box. */
+export function caseListSearchText(): Extract<
+	Expression,
+	{ kind: "case-list-search-text" }
+> {
+	return { kind: "case-list-search-text" };
+}
 export function idOf(opUuid: Uuid): Extract<Expression, { kind: "id-of" }> {
 	return { kind: "id-of", opUuid };
 }

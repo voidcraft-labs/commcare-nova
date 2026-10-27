@@ -279,6 +279,32 @@ never stored raw-XPath validation codes. There is no printed-source checker.
   `ofCaseType`; never pretend a custom index follows the `parent_type` graph.
 - `count(self)` is the cardinality of the current row: `1` without a filter, or
   `1`/`0` according to its `where`.
+- `case-list-search-text` is a value arm, not a `Term`: it names no identity,
+  since no datum supplies it and its node names no list. It is what the worker
+  typed into the evaluating entry's one case list's search box, read as text
+  from `session/data/stringquery`, which only Android sets. A slot admits it
+  where `SlotProfile.caseListSearchText` holds (a form's questions and Connect
+  settings), and elsewhere it is `arm-unavailable` reason
+  `case-list-search-text-slot`; the entry must supply exactly one
+  `selected-case` (`entryDatumSupplies.ts`), and otherwise it is
+  `datum-not-supplied` reason `case-list-search-text` with the count of case
+  lists (`CheckError.caseLists`). Form text spells it
+  `instance('commcaresession')/session/data/stringquery`; the record dialect
+  has no spelling, and no Postgres-target slot admits it.
+- The session context fields type by what Core writes: `drift` and
+  `window_width` as whole numbers (`int`, held as strings), the other five as
+  text. `window_width` is admitted only where `SlotProfile.windowWidth` holds,
+  a slot CommCare evaluates while a menu or a list loads (every module slot and
+  a form's display condition): a later form request carries no width, and a
+  fresh form's bare read of the absent node throws
+  (`proof/native/core/SessionContextRuntimeTest.java`), so every slot a form
+  evaluates refuses it as `arm-unavailable` reason `window-width-in-form`.
+- A form of a module that opens on its search reads that module's Search
+  fields (`FormExpressionFacts.searchFirstModule`) in its questions and
+  Connect settings; a form link's slots refuse the read as
+  `search-answer-unavailable` reason `form-link` (it runs after the form
+  closes), and any other form, a child module's of a search-first parent
+  included, as reason `not-search-first`.
 
 ## The clock-keeping date
 

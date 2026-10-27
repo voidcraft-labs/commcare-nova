@@ -84,6 +84,12 @@ function precedence(node: Expression): number {
 
 /** The width past which a laid-out print breaks its argument lists. */
 export const LAYOUT_WIDTH = 60;
+
+/** The form text of the `case-list-search-text` arm: the session's
+ * `data/stringquery` node, which Core writes from each frame step's last
+ * case list search (`SessionInstanceBuilder.addUserQueryData`). */
+export const CASE_LIST_SEARCH_TEXT_PATH =
+	"instance('commcaresession')/session/data/stringquery";
 const INDENT = "    ";
 
 export interface FormPrintOptions {
@@ -567,6 +573,9 @@ function printWith(
 			case "now":
 			case "here":
 				emit(`${node.kind}()`);
+				break;
+			case "case-list-search-text":
+				emit(CASE_LIST_SEARCH_TEXT_PATH);
 				break;
 			case "date-coerce":
 			case "double":

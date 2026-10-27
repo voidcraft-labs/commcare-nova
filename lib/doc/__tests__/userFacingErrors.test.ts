@@ -1143,3 +1143,85 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 		);
 	});
 });
+
+describe("the session and search reads a form makes, in the builder's voice", () => {
+	const VISIT_CHECK = testUuid("user-facing-reads-visit-check");
+	function read(
+		code: ValidationErrorCode,
+		details: Record<string, string>,
+		location: Partial<ValidationError["location"]> = {},
+	): ValidationError {
+		return validationError(
+			code,
+			"field",
+			"internal implementation detail",
+			{
+				moduleName: "Clients",
+				formName: "Register Client",
+				fieldUuid: VISIT_CHECK,
+				fieldId: "visit_check",
+				field: "calculate",
+				...location,
+			},
+			details,
+		);
+	}
+
+	it.each([
+		[
+			"XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+			{ reason: "window-width" },
+			'A formula on "visit_check" in "Register Client" reads the window width, which CommCare sends only while a menu or a list loads, so a form can\'t rely on it. You can use it in a display condition or a case list instead.',
+		],
+		[
+			"XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+			{ reason: "case-list-search-text-slot" },
+			'A formula on "visit_check" in "Register Client" reads what the worker typed into a case list\'s search box, which only a form\'s questions and Connect settings can read. You can read it in one of the form\'s questions instead.',
+		],
+		[
+			"XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+			{
+				reason: "platform-unavailable",
+				feature: "case-list-search-text",
+				platform: "web-apps",
+			},
+			'A formula on "visit_check" in "Register Client" reads the case list\'s search text, which Web Apps doesn\'t keep. You can take it out, or set the app to run only on Android in App settings.',
+		],
+		[
+			"XPATH_FUNCTION_CONTEXT_UNAVAILABLE",
+			{
+				reason: "platform-unavailable",
+				feature: "window-width",
+				platform: "android",
+			},
+			'A formula on "visit_check" in "Register Client" reads the window width, which Android doesn\'t have. You can take it out, or set the app to run only in Web Apps in App settings.',
+		],
+		[
+			"SESSION_DATUM_NOT_SUPPLIED",
+			{ carrier: "field", reason: "case-list-search-text", caseLists: "0" },
+			'"visit_check" reads what the worker typed into a case list\'s search box, but "Register Client" doesn\'t open after a case list. You can read a question or a case property instead.',
+		],
+		[
+			"SESSION_DATUM_NOT_SUPPLIED",
+			{ carrier: "field", reason: "case-list-search-text", caseLists: "2" },
+			'"visit_check" reads what the worker typed into a case list\'s search box, but "Register Client" opens after 2 case lists, so CommCare can\'t tell which search it means. You can read it in a form that opens after one case list.',
+		],
+		[
+			"INVALID_SEARCH_REF",
+			{ reason: "not-search-first" },
+			'"visit_check" in "Register Client" reads a search answer this form can\'t get to. Only a form in a menu that opens on its search can read that menu\'s Search fields. You can turn Search first back on, or read a question or a case property instead.',
+		],
+		[
+			"INVALID_SEARCH_REF",
+			{ reason: "form-link" },
+			'A link from "Register Client" reads a search answer after the form has closed, where CommCare no longer holds it. You can save the answer to a question in the form and read that instead.',
+		],
+		[
+			"INVALID_SEARCH_REF",
+			{},
+			'"visit_check" in "Register Client" reads a search answer this form can\'t get to. Only a form that opens after its menu\'s search can read that menu\'s Search fields.',
+		],
+	] as const)("renders %s with %j as its own line", (code, details, line) => {
+		expect(userFacingError(read(code, { ...details }))).toBe(line);
+	});
+});

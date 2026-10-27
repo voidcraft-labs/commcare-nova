@@ -652,6 +652,9 @@ export function useCaseData(args: {
 	 *  latest position. It is not part of the read's identity: like Android's
 	 *  Details, the row does not re-read as the position moves. */
 	positionScreen?: "list" | "detail";
+	/** A search-first module's completed search answers, which its list and
+	 *  detail columns read from the inline query's input instance. */
+	searchAnswers?: Readonly<Record<string, string>>;
 }): {
 	state: LoadingState<LoadCaseDataResult>;
 	reload: () => Promise<void>;
@@ -671,7 +674,10 @@ export function useCaseData(args: {
 		scopeKey = "",
 		search = false,
 		positionScreen,
+		searchAnswers,
 	} = args;
+	const searchAnswersKey =
+		searchAnswers === undefined ? "" : JSON.stringify(searchAnswers);
 	const sendsPosition =
 		deviceScoped === true &&
 		positionScreen !== undefined &&
@@ -697,7 +703,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${claimedCaseIds.join(",")}\u0000${deviceKey}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}\u0000${search}\u0000${claimedCaseIds.join(",")}\u0000${deviceKey}\u0000${searchAnswersKey}`
 		: "";
 	const personaRequestKey = ready
 		? `${requestKey}\u0000${personaUuid ?? "me"}`
@@ -759,6 +765,7 @@ export function useCaseData(args: {
 									? viewerPositionStore.getState().latestLocation()
 									: null,
 								withNavigationWidth(device),
+								searchAnswers,
 							),
 						}),
 					},

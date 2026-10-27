@@ -149,21 +149,28 @@
 		"section": "Secondary instances",
 		"item": "session `data/stringquery`",
 		"surfaceKeys": ["session-path:session/data/stringquery"],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the `case-list-search-text` arm, printed under the count guard; narrow: to an entry with exactly one case list (`SESSION_DATUM_NOT_SUPPLIED`)",
+		"slotChanges": [
+			{
+				"direction": "narrow",
+				"text": "to an entry with exactly one case list (`SESSION_DATUM_NOT_SUPPLIED`)"
+			}
+		],
 		"platforms": {
 			"kind": "each",
-			"cell": "UNAVAILABLE (node absent) / RUNS",
+			"cell": "UNAVAILABLE (node absent, so the guarded read is always blank: only Android sets the last query, `CommCareActivity.saveLastQueryString`) / RUNS (the text typed into the case list's search box, blank when none)",
 			"webApps": {
 				"reading": "unavailable",
-				"note": "node absent"
+				"note": "node absent, so the guarded read is always blank: only Android sets the last query, `CommCareActivity.saveLastQueryString`"
 			},
 			"android": {
-				"reading": "runs"
+				"reading": "runs",
+				"note": "the text typed into the case list's search box, blank when none"
 			}
 		},
 		"emission": {
-			"cell": "path",
+			"cell": "path, under the count guard",
 			"markers": []
 		},
 		"gates": []
@@ -278,17 +285,19 @@
 		"section": "Secondary instances",
 		"item": "session `context/drift`",
 		"surfaceKeys": ["session-path:session/context/drift"],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `session-context`, field `drift`, typed as an integer",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "DIFFERENT (always 0) / RUNS",
+			"cell": "DIFFERENT (always `0`: Formplayer keeps Core's `getCurrentDrift`) / RUNS (signed whole hours the device's clock is ahead of the server's, from the last response, `DriftHelper.getCurrentDrift`)",
 			"webApps": {
 				"reading": "different",
-				"note": "always 0"
+				"note": "always `0`: Formplayer keeps Core's `getCurrentDrift`"
 			},
 			"android": {
-				"reading": "runs"
+				"reading": "runs",
+				"note": "signed whole hours the device's clock is ahead of the server's, from the last response, `DriftHelper.getCurrentDrift`"
 			}
 		},
 		"emission": {
@@ -301,23 +310,56 @@
 		"id": "expressions-and-data/session-context-window-width",
 		"area": "expressions-and-data",
 		"section": "Secondary instances",
-		"item": "session `context/window_width`",
+		"item": "session `context/window_width` read outside form logic (menus, case lists, case details, display conditions, search values)",
 		"surfaceKeys": ["session-path:session/context/window_width"],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"valueClass": "outside-form-logic",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `session-context`, field `window_width`, typed as an integer; narrow: outside form logic, where the next row refuses it",
+		"slotChanges": [
+			{
+				"direction": "narrow",
+				"text": "outside form logic, where the next row refuses it"
+			}
+		],
 		"platforms": {
 			"kind": "each",
-			"cell": "DIFFERENT (first render only) / UNAVAILABLE",
+			"cell": "RUNS (the browser window's width, sent with every menu request) / UNAVAILABLE (never set, so a read fails)",
 			"webApps": {
-				"reading": "different",
-				"note": "first render only"
+				"reading": "runs",
+				"note": "the browser window's width, sent with every menu request"
 			},
 			"android": {
-				"reading": "unavailable"
+				"reading": "unavailable",
+				"note": "never set, so a read fails"
 			}
 		},
 		"emission": {
 			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/session-context-window-width-in-form-logic",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "session `context/window_width` read in form logic",
+		"surfaceKeys": ["session-path:session/context/window_width"],
+		"valueClass": "in-form-logic",
+		"disposition": "REFUSED",
+		"dispositionCell": "**REFUSED**: broken at runtime: Android never sets it, and Web Apps sets it only on the request that opens the form, while Formplayer runs every calculate again on each later request, so the read stops the form whenever Formplayer deserializes the form afresh from the session's stored definition rather than reusing its cached copy",
+		"reasons": [
+			{
+				"kind": "broken-at-runtime",
+				"named": "Android never sets it (`AndroidSessionWrapper` builds its `SessionWrapper` with no width, and `SessionInstanceBuilder.addData` adds no node for a null value); Web Apps sends `windowWidth` only from `formplayer/menus/api.js`, never from `form_entry/web_form_session.js`, and each form request rebuilds the session from that request (`FormController`, `FormSession`) and runs every calculate again, so a read of the absent node throws on a `FormDef` Formplayer deserializes afresh from the session's stored definition after a miss of `FormDefinitionService.getFormDefWithCache`, whose expressions check their path again since `XPathPathExpr` does not serialize `templatePathChecked` (`XPathPathExpr.evalRaw`, `XPathNodeset.unpack`), and reads blank only on a cached form whose expression checked its path while the width was present (the native run `SessionContextRuntimeTest`, `windowWidthReadOnAFreshForm` and `windowWidthReadOnACachedForm`)"
+			}
+		],
+		"platforms": {
+			"kind": "none",
+			"cell": "—"
+		},
+		"emission": {
+			"cell": "—",
 			"markers": []
 		},
 		"gates": []
@@ -328,14 +370,15 @@
 		"section": "Secondary instances",
 		"item": "session `context/applanguage`",
 		"surfaceKeys": ["session-path:session/context/applanguage"],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed session reference",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `session-context`, field `applanguage`, text whose values are the app's language wire codes",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "DIFFERENT (unreliable after first render) / RUNS",
+			"cell": "DIFFERENT (the worker's language in menus, case lists and when a form opens; on later form requests, whatever language Formplayer's request thread last held) / RUNS",
 			"webApps": {
 				"reading": "different",
-				"note": "unreliable after first render"
+				"note": "the worker's language in menus, case lists and when a form opens; on later form requests, whatever language Formplayer's request thread last held"
 			},
 			"android": {
 				"reading": "runs"
@@ -731,11 +774,43 @@
 		"id": "expressions-and-data/search-input-results-read-in-the-search-results-detail",
 		"area": "expressions-and-data",
 		"section": "Secondary instances",
-		"item": "`search-input:results[:…]` read in the search results detail",
+		"item": "`search-input:results[:…]` read in the search results detail of a search that is not inline",
 		"surfaceKeys": ["instance-scheme:search-input"],
 		"valueClass": "results-detail",
 		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a typed search-input reference (typed expression model)",
+		"dispositionCell": "**HELD-NEW**: a typed search-input reference (typed expression model); step 7: Nova projects one case list onto both the module's list and its search results detail (`compiler.ts`)",
+		"platforms": {
+			"kind": "each",
+			"cell": "RUNS / UNAVAILABLE (Formplayer keeps the inputs, `QueryScreen.updateSession`; Android sets only the results on the query step, `QueryRequestActivity`, so a read throws)",
+			"webApps": {
+				"reading": "runs"
+			},
+			"android": {
+				"reading": "unavailable",
+				"note": "Formplayer keeps the inputs, `QueryScreen.updateSession`; Android sets only the results on the query step, `QueryRequestActivity`, so a read throws"
+			}
+		},
+		"emission": {
+			"cell": "path",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "expressions-and-data/search-input-results-read-in-the-case-list-of-an-inline-search",
+		"area": "expressions-and-data",
+		"section": "Secondary instances",
+		"item": "`search-input:results:inline` read in the case list or case detail of an inline-search module",
+		"surfaceKeys": ["instance-scheme:search-input"],
+		"valueClass": "inline-search-list",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `input` reads of the module's Search fields in the `case_list_column_expression` profile; narrow: to a search-first module's case list and case detail",
+		"slotChanges": [
+			{
+				"direction": "narrow",
+				"text": "to a search-first module's case list and case detail"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE (Formplayer keeps the inputs, `QueryScreen.updateSession`; Android sets only the results on the query step, `QueryRequestActivity`, so a read throws)",
@@ -791,8 +866,14 @@
 			"instance-source:jr://instance/search-input"
 		],
 		"valueClass": "inline-search-form",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: typed search-input reference",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `input` reads of the module's Search fields from `search-input:results:inline`; narrow: to the forms of a search-first module and its no-matches form; a form link's slots and a child module of a search-first parent stay refused (`INVALID_SEARCH_REF`)",
+		"slotChanges": [
+			{
+				"direction": "narrow",
+				"text": "to the forms of a search-first module and its no-matches form; a form link's slots and a child module of a search-first parent stay refused (`INVALID_SEARCH_REF`)"
+			}
+		],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / UNAVAILABLE",

@@ -51,10 +51,15 @@ import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { Uuid } from "@/lib/domain/uuid";
 import { matchModeRunsOnDevice } from "../../csql/matchModes";
 import type { LookupWireNaming } from "../../lookup/naming";
+import {
+	ABSENT_CAPABLE_SESSION_CONTEXT_FIELDS,
+	CASE_LIST_SEARCH_TEXT_DATA_NAME,
+} from "../../sessionContext";
 import { USERCASE_CASE_SELECTOR } from "../../usercaseWire";
 import type { FormNodeProjection } from "../formNodeProjection";
 import { w } from "./builders";
 import {
+	guardAbsentNode,
 	guardChecklistPair,
 	guardNodeSetConsumer,
 	guardValue,
@@ -523,12 +528,18 @@ function term(input: Term, ctx: Context): WireExpr {
 				w.step(slug),
 			]);
 		}
-		case "session-context":
-			return w.instance(sessionInstance(), [
+		case "session-context": {
+			const read = w.instance(sessionInstance(), [
 				w.step("session"),
 				w.step("context"),
 				w.step(input.field),
 			]);
+			return (
+				ABSENT_CAPABLE_SESSION_CONTEXT_FIELDS as readonly string[]
+			).includes(input.field)
+				? guardAbsentNode(read)
+				: read;
+		}
 		case "fixed-location":
 			return w.str(input.locationUuid);
 		case "owner-location-at-level": {
@@ -829,6 +840,17 @@ function lowerExpression(expr: Expression, ctx: Context, use: Use): WireExpr {
 				: emitCall(expr.fn, expr.args, ctx, use);
 		case "here":
 			return w.call("here");
+		case "case-list-search-text": {
+			// `if(count(P) > 0, P[1], '')`: Android can leave the same text on
+			// two frame steps, where a bare read of `P` throws.
+			const nodes = (predicates: readonly WireExpr[] = []) =>
+				w.instance(sessionInstance(), [
+					w.step("session"),
+					w.step("data"),
+					w.step(CASE_LIST_SEARCH_TEXT_DATA_NAME, predicates),
+				]);
+			return guardAbsentNode(nodes([w.num(1)]), nodes());
+		}
 		case "itext": {
 			const id = ctx.bindings.itextId?.(expr.unit);
 			if (id === undefined)

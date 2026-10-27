@@ -63,6 +63,16 @@ export interface PreviewCaseTarget {
 	 * opens against the case and casedb state the submitting entry committed. */
 	caseData?: CaseDataByType;
 	caseDatabase?: CaseDatabaseSnapshot;
+	/** What the worker typed into the case list's filter when they chose the
+	 * case, which the entry's session holds as `session/data/stringquery`, as
+	 * Android keeps a case list's last search on its frame. Absent when the
+	 * filter was empty or no case list opened the form. */
+	caseListSearchText?: string;
+	/** A form link opened the form. A form of a module that opens on its
+	 * search then reads each Search field's starting value, not the module's
+	 * last search, as Web Apps rebuilds a linked form's query step
+	 * (`noMatchesForm.ts::formSearchAnswers`). */
+	openedByLink?: true;
 }
 
 /** A command retained by after-submit navigation. Its exact task may finish
