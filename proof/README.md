@@ -1660,9 +1660,10 @@ HQ's own build has made it by then, writing the same app's media suite
   and every quickcache tier to local memory, and runs Celery tasks inline with
   their errors propagated. HQ's soft assertions behave as production's: noted
   and passed over, each kept in the record. An exception a view raises is
-  answered by HQ's own `handler500` (an empty 500 under the lane's
-  `UNIT_TESTING`), never Django's DEBUG page, which formats every frame
-  local, the seams' record among them, and prints per-process addresses.
+  answered by HQ's own handlers (`handler500`, an empty 500 under the lane's
+  `UNIT_TESTING`; `handler404`; `handler400`), never Django's DEBUG pages,
+  which format every frame local, the seams' record among them, and print
+  per-process addresses.
 - **State** (`state.py`, `database.py`, `couch.py`, `branch.py`): Postgres is
   a clone of the database HQ's own migrations create, restored once per
   session as a template and cloned once per worker; each unit is one
@@ -5000,7 +5001,7 @@ marks; app-manager pages render through
 HQ's own page views (`view_generic`), their JavaScript bundled at image build
 time with an esbuild configuration derived from HQ's webpack configuration;
 `DEBUG` stays on, with only its speed effects as seams, and a view's
-exception is answered by HQ's own `handler500`, never Django's DEBUG page;
+exception is answered by HQ's own handlers, never Django's DEBUG pages;
 HQ's soft assertions are noted as production notes them and kept as
 evidence; every input is deterministic from a content key; observations are
 reused only under exact keys, with audits; proof 4 saves every section and

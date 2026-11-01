@@ -33,14 +33,14 @@ const run = promisify(execFile);
 const TRANSIENT = [
 	/toomanyrequests/i,
 	/too many requests/i,
-	/\b429\b/,
+	/status(?: code)?:? 429\b/i,
 	/\b5\d\d (?:Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout)\b/i,
 	/HTTP (?:code |status:? )?5\d\d\b/i,
 	/status(?: code)?:? 5\d\d\b/i,
 	/TLS handshake timeout/i,
 	/i\/o timeout/i,
 	/connection reset/i,
-	/\bEOF\b/,
+	/unexpected EOF/i,
 ];
 
 const { values } = parseArgs({

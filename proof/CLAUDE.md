@@ -33,7 +33,7 @@ harness keeps, each with its reason.
   (`proof/formplayer/shared.py`), which holds only because Formplayer's validation keeps no state between
   requests: a seam that made it keep any would need a Formplayer a worker again. A speed seam computes exactly
   what HQ computes and can be switched off to compare (`PROOF_HQ_SPEED=0`). `DEBUG` stays on, since HQ branches on
-  it in what it does, but a view's exception is answered by HQ's own `handler500`, never Django's DEBUG page
+  it in what it does, but a view's exception is answered by HQ's own handlers (`handler500`, `handler404`, `handler400`), never Django's DEBUG pages
   (which formats every frame local and prints per-process addresses); HQ's soft assertions are noted as production
   notes them, never raised, and each one is evidence. A view or Couch query the harness does not answer raises
   rather than returning empty.

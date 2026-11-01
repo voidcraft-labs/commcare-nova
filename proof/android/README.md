@@ -67,8 +67,10 @@ The device waits for an answer as long as the app's own client does: Core's
 `CommCareNetworkServiceGenerator` reads with
 `ModernHttpRequester.CONNECTION_SO_TIMEOUT`, a minute, which `Peer.java`
 leaves as it is (`peer.py::DEVICE_READ_SECONDS`). The proxy writes nothing of
-an answer until HQ has given it whole, so an answer that took a minute from
-the moment its request was read reaches a device that has stopped waiting and
+an answer until HQ has given it whole, so an answer that took about a minute
+from the moment its request was read (less a few seconds, since the device's
+minute starts before the proxy has read the request whole,
+`DEVICE_READ_MARGIN_SECONDS`) may reach a device that has stopped waiting and
 closed the connection. The proxy tells the peer, which marks that exchange
 `unread` in the record's `hq` (the key is written only where it holds, so
 every answer the device read is recorded as it always was), still tries the

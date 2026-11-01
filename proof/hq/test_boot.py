@@ -468,6 +468,36 @@ def test_a_view_that_raises_is_answered_by_hqs_own_500_handler_never_djangos_deb
     assert (second.status_code, second.content) == (first.status_code, first.content)
 
 
+@pytest.mark.parametrize("status", [404, 400], ids=["not-found", "bad-request"])
+def test_a_view_that_refuses_is_answered_by_hqs_own_handler_never_djangos_debug_page(hq, status):
+    """Contract: an ``Http404`` or a ``SuspiciousOperation`` a view raises is answered by HQ's ``handler404`` or
+    ``handler400``, as Django answers with ``DEBUG`` off, the same bytes every time. The failure: Django's technical
+    404 page (the URLconf, ``DEBUG = True``) or its technical 400 page, which formats every frame local."""
+    from django.core.exceptions import SuspiciousOperation
+    from django.core.handlers.exception import response_for_exception
+    from django.http import Http404
+    from django.test import RequestFactory
+    from django.urls import get_resolver
+
+    request = RequestFactory().get("/a/nova-proof/phone/search/proof-app/", secure=True)
+
+    def answer():
+        error = Http404("Nothing here.") if status == 404 else SuspiciousOperation("A request HQ refuses.")
+        try:
+            raise error
+        except type(error):
+            return response_for_exception(request, error), get_resolver().resolve_error_handler(status)(request, error)
+
+    with hq_state(Configuration()):
+        first, handlers = answer()
+        second, _ = answer()
+    assert (first.status_code, first.content) == (handlers.status_code, handlers.content)
+    assert first.status_code == status
+    for marker in (b"DEBUG = True", b"Traceback", b"URLconf"):
+        assert marker not in first.content
+    assert (second.status_code, second.content) == (first.status_code, first.content)
+
+
 # HQ's own address ----------------------------------------------------------------------------------------
 
 

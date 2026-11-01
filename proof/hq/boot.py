@@ -56,9 +56,10 @@ boot takes (``corehq/tests/pytest_hooks.py::pytest_load_initial_conftests``:
    inline, which production's request never does, so the harness neither
    counts nor enqueues, and HQ's code after the assertion runs as
    production's does.
-   An exception a view raises is answered by HQ's own ``handler500``
-   (``urls.py``; ``corehq/apps/hqwebapp/views.py::server_error``) as HQ's
-   settings in the lane run it: an empty 500, since ``UNIT_TESTING`` is on.
+   An exception a view raises is answered by HQ's own handlers (``urls.py``:
+   ``handler500``, ``corehq/apps/hqwebapp/views.py::server_error``, an empty
+   500 since the lane's ``UNIT_TESTING`` is on; ``handler404``; Django's
+   ``handler400``), as Django answers with ``DEBUG`` off.
    With ``DEBUG`` on, Django would answer with its technical page instead
    (``django/core/handlers/exception.py::handle_uncaught_exception``), which
    no HQ server sends: it formats every local of every frame before trimming
@@ -579,14 +580,21 @@ def _install_production_soft_asserts():
 
 
 def _install_production_error_answer():
-    """An exception a view raises is answered by HQ's own ``handler500``, as Django answers it with ``DEBUG`` off.
+    """An exception a view raises is answered by HQ's own handlers, as Django answers it with ``DEBUG`` off.
 
-    Django's ``response_for_exception`` looks ``handle_uncaught_exception`` up in its module when it calls it, so
-    replacing the module's function reaches every answer, the one ``get_exception_response`` gives when a 4xx
-    handler raises included.
+    Django's ``response_for_exception`` (``django/core/handlers/exception.py``) answers with its technical pages in
+    three places while ``DEBUG`` is on: an uncaught exception (``handle_uncaught_exception``), an ``Http404``
+    (``debug.technical_404_response``), and a ``BadRequest`` or ``SuspiciousOperation`` (``debug.
+    technical_500_response`` with status 400). It looks each name up in its module when it calls it, so replacing
+    the module's ``handle_uncaught_exception`` and its ``debug`` reaches every answer: the first goes to
+    ``handler500``, the others to ``get_exception_response``, which is what Django calls with ``DEBUG`` off
+    (``handler404``, ``handler400``). Nothing else in that module reads ``debug``.
     """
+    from types import SimpleNamespace
+
     from django.conf import settings
     from django.core.handlers import exception
+    from django.urls import get_resolver, get_urlconf
 
     def production_answer(request, resolver, exc_info):
         if settings.DEBUG_PROPAGATE_EXCEPTIONS:
@@ -594,7 +602,16 @@ def _install_production_error_answer():
             raise
         return resolver.resolve_error_handler(500)(request)
 
+    def not_found(request, raised):
+        return exception.get_exception_response(request, get_resolver(get_urlconf()), 404, raised)
+
+    def refused(request, kind, raised, traceback, status_code=500):
+        if status_code == 500:
+            return production_answer(request, get_resolver(get_urlconf()), (kind, raised, traceback))
+        return exception.get_exception_response(request, get_resolver(get_urlconf()), status_code, raised)
+
     exception.handle_uncaught_exception = production_answer
+    exception.debug = SimpleNamespace(technical_404_response=not_found, technical_500_response=refused)
 
 
 def _check_celery():
