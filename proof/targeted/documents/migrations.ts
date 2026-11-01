@@ -494,10 +494,28 @@ export function migrationCaseWrites() {
 		doc,
 		expected: {
 			intent: [
-				answerHeld("note-held", visit, "/data/visit_note", "seen", "B", {
-					command: "m1-f0",
-					caseId: "targeted-household",
-				}),
+				// Visit writes the worker's record, so its session holds the
+				// worker's case beside the household.
+				{
+					id: "note-held",
+					export: "B",
+					form: visit,
+					request: {
+						session: {
+							command: "m1-f0",
+							data: {
+								case_id: "targeted-household",
+								usercase_id: "targeted-worker",
+							},
+						},
+						answers: [{ path: "/data/visit_note", value: "seen" }],
+						expressions: ["/data/visit_note"],
+					},
+					expect: [
+						{ pointer: "/answers/0/result", value: "ok" },
+						{ pointer: "/values/0/value", value: "seen" },
+					],
+				},
 			],
 		},
 	});
