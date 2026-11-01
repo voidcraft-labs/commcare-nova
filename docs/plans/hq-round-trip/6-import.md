@@ -162,8 +162,10 @@ Planned in full when step 5 exits. The design is the research's "The reader",
      the app from, the confirmations publish asks for it
      (`lib/deployment/confirmations.ts::requiredConfirmations`): step 4's
      `form-entry-sync-off`, for an app that declares Android and holds a form
-     that works on a case in a menu with Search, and step 5's CommTrack kind.
-     It records only the answers the person gives.
+     that works on a case in a menu with Search, and step 5's `commtrack-off`.
+     The same-type child check is not a confirmation of this list: what
+     import does for it is item 10's *Confirmations* bullet, decided by step
+     5's gated runs. It records only the answers the person gives.
    - *The split's joined value.* A bind-only node with no control,
      `type="xsd:dateTime"` and a calculate reads back as a Hidden Value with
      that calculate; the reader admits `xsd:dateTime` on a bind-only node
@@ -182,6 +184,129 @@ Planned in full when step 5 exits. The design is the research's "The reader",
      (`lib/commcare/xpath/wire/emptyRows.ts::guardAbsentNode`). A form read
      inside a secondary-instance row predicate that step 4 prints
      `current()/<relative path>` reads back as a field read spelled `current`.
+10. **What step 5 left to import.** Step 5 builds no reader, so what it
+    writes reads back here, with the shapes only an imported app holds:
+    - *Placements.* From step 5 each case operation, own close and query
+      repeat may hold where HQ holds it (basic, Save to Case or advanced),
+      and a module may hold its kind. The reader matches an imported form's
+      case transactions to placements through
+      `lib/commcare/hq/publishedCaseBlocks.ts::publishedCaseBlocks`, which
+      step 5 builds for its cutover, and holds each; it needs no frozen
+      classifier, since an imported app has no Nova emission before it. The
+      retained HQ reads of step 5's migration witnesses
+      (`proof/hq-reads/targeted-migration-*`) stay as the evidence it is
+      proven over. The drift merge (item 4) inherits step 5's rule for a
+      published deployment whose baseline is unread: its operations and
+      query repeats keep the placements they hold, except a query repeat
+      whose rule gives the count placement, which moves to it; a stored
+      baseline whose bytes fail gunzip, the digest or the parse is first
+      refreshed from CommCare HQ, as step 5's blocker `baseline-unreadable`
+      requires. Ending a
+      deployment, this step's lifecycle ("creating afresh after an ended
+      deployment"), decides which deployments stop counting as published
+      for placements, since step 5 has no ended state.
+    - *Case writes.* HQ's subcase condition picker offers every repeat
+      question (`case_config_utils.js::getQuestions`), where step 5 admits a
+      child's condition only from the child's own repeat or from no repeat,
+      since an absolute path to another repeat's question in a bind
+      under this repeat reads several nodes; the reader reads the wider set
+      and judges it. A preload from any other index path
+      (`forms-and-case-writes/case-preload-from-any-other-index-path-host-user-a-mixed-path`,
+      HELD-NEW) and a preload that is not an exact case read are this step's,
+      since Nova never emits them. An advanced load's HQ `preload`
+      (`forms-and-case-writes/loadupdateaction-preload-question-property`,
+      HELD-NEW) reads back as the question's default only where nothing
+      later in the form reads the question at load: HQ's build appends a
+      load's preload setvalues after every setvalue the form holds
+      (`xform.py::_create_casexml_advanced`), and step 5 writes a writer's
+      starting value as its default in an advanced form as in a basic one.
+      `show_product_stock` true, or a non-empty `product_program`, is
+      refused (`forms-and-case-writes/show-product-stock-true-or-a-non-empty-product-program`
+      stays REFUSED), since Nova always writes `false` and `""`.
+    - *An advanced form's case selections.* Step 5 stores no case selection:
+      an advanced form's loads (each one's type, list module, tag and index
+      name) are derived from its module's parent-selection chain
+      (`Module.parentCaseModuleUuid`). The reader reads an imported advanced
+      form whose loads that chain gives into it, and refuses one whose
+      selections the chain does not give (a load beyond the chain, or a chain
+      that differs between the module's forms), naming the form and the
+      load, because the stored selections that would hold it are step 7's
+      (group 6).
+    - *Query repeats.* The reader recognizes the count placement (the
+      wrapper Group, `nova_query_ids_<repeat>`, `nova_query_count_<repeat>`,
+      `nova_query_id_<repeat>`, the guard condition, and the position and
+      index nodes) as one query repeat with its placement held, and reads
+      an expression's count-placement spelling back into the one authoring
+      spelling both placements share (`item/@id` and the others,
+      `formNodeProjection`'s `authoring` surface). Model iteration's
+      admission widens from step 5's structural rule to the research's
+      load-time rule for imported repeats, since step 5 has no import to
+      need it.
+    - *Labels and markdown.* The reader reads `plainLabel` from an item's
+      `hasMarkdown`, including the one Vellum turns on when an HQ author
+      types text that looks like markdown
+      (`javaRosa/util.js::looksLikeMarkdown`), and a field-list appearance
+      spelled in another case, which Core reads and Vellum loads as a plain
+      group. This step holds a hint or validation message imported without
+      a markdown form, which otherwise gains one on republish, since step 5
+      always writes one and no runtime reads it; a help text imported
+      without a markdown form, because republishing it adds markdown
+      rendering on Android; and
+      `Form.plainText` for `vellum:ignore="markdown"`
+      (`questions/vellum-ignore-containing-markdown-on-h-html-vellum-s-disable`,
+      HELD-NEW), which only an imported form holds.
+    - *Search and menus.* The reader reads `auto_launch`, `default_search` and
+      `inline_search` into `caseSearchConfig.workflow` and `formsReadSearch`
+      (absent for `auto_launch` without `default_search`), and `auto_launch:
+      false` in an app with `cloudcare_enabled: false` into `listFirst`; on a
+      module that searches (one with search properties; HQ stores a default
+      `search_config` with `auto_launch: false` on every module, which a
+      module without search properties reads as no search) it refuses
+      `auto_launch: false` where Web Apps is declared, with the `list-first`
+      reason. It reads `case_list.show` into
+      `Module.caseListMenuItem` (its label and media), and `case_list_form`
+      on a host whose forms read the search, its form in a `module_filter:
+      false()` module, into `caseListRegistrationForm { kind:
+      "after-empty-search" }`. It reads `commcare-case-claim` cases nowhere,
+      since they are case data, not app content. If step 5's gated run on
+      HQ's Case List page (part 05's G3) shows a save changing a workflow
+      shape, step 5 refuses that shape (`SEARCH_WORKFLOW_NOT_KEPT_<SHAPE>`)
+      and the reader refuses it with that reason; if the save keeps every
+      shape, the reader reads each as written here.
+    - *Form links.* The reader reads `form_links` in reverse order into
+      `formLinks`, and an otherwise (`Form.otherwise`) from exactly two
+      shapes: a `post_form_workflow_fallback` word beside some non-blank
+      `xpath`, or the last element of `form_links` when its `xpath` is
+      `not(x_1) and … and not(x_n)` over every other link's, then any
+      held-case conjuncts. Only the last element can be the otherwise link;
+      the elements before it are the destinations, read in reverse. An
+      HQ-authored last link that matches the pattern reads as the otherwise,
+      and the round trip keeps HQ's JSON order: Nova emits the destinations
+      reversed and the otherwise link last, so `[L1: c, L2: not(c)]` reads as
+      destination L1 with otherwise L2 and republishes as `[L1, L2]`. It strips a
+      trailing held-case conjunct spelled as `caseById` prints it, whose
+      value equals a carried datum's and whose type equals the target
+      datum's case type, read through the grammar, and reads a link to the
+      source form as `this-form`. It refuses, naming each, a link to a
+      submenu HQ does not offer and datums on a menu (apps under
+      `FORM_LINK_ADVANCED_MODE`); reads a fallback outside the offered set
+      as INERT where no conditional link exists and refuses it otherwise;
+      and reads an HQ fallback beside an unconditional link as the
+      otherwise it is. If step 5's gated run on the held-case guard (part
+      06's G2) shows a runtime evaluating it before the submission lands, or
+      the settings save rewriting it, step 5 emits no guard and refuses a
+      carried value that is not a case of the target datum's type
+      (`FORM_LINK_DATUM_NOT_A_CASE`); the reader then strips nothing and
+      refuses such a link with that reason.
+    - *Confirmations.* Import is the other way an app reaches a project
+      space, so it asks `commtrack-off` with the predicate publish uses
+      (`lib/commcare/planPrivileges.ts::commtrackReasons`) over the imported
+      source. For an imported same-type basic child case it takes the check
+      step 5's gated runs leave (part 03's G3 and G4): where the project-space
+      list reads `DONT_INDEX_SAME_CASETYPE` and the flag drops the child's
+      index, it probes `same-type-child-links` (the flag off); where the list
+      cannot read the flag, it asks the confirmation `same-type-links-kept`;
+      where the flag leaves Nova's shape unchanged, it checks nothing.
 
 ## Cutover and migration
 
