@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import datetime
 import gc
+import hashlib
 import json
 import os
 import socket
@@ -34,6 +35,7 @@ import pytest
 import proof
 from proof.hq.boot import GUARD, REDIS_CLIENT_SERVICE, NetworkRefused, cache_census, quickcache_census
 from proof.hq.configuration import Configuration
+from proof.hq.determinism import operation
 from proof.hq.state import hq_state
 
 PINS = json.loads((Path(proof.__file__).parent / "pins.json").read_text())
@@ -482,14 +484,19 @@ def test_a_view_that_refuses_is_answered_by_hqs_own_handler_never_djangos_debug_
 
     request = RequestFactory().get("/a/nova-proof/phone/search/proof-app/", secure=True)
 
+    # Every request the lane answers runs inside an operation, which seeds what HQ's page draws (its CSRF token).
+    key = hashlib.sha256(f"proof boot test|{status}".encode()).digest()
+
     def answer():
         error = Http404("Nothing here.") if status == 404 else SuspiciousOperation("A request HQ refuses.")
         try:
             raise error
         except type(error):
-            return response_for_exception(request, error), get_resolver().resolve_error_handler(status)(
-                request, exception=error
-            )
+            with operation(key, 1):
+                answered = response_for_exception(request, error)
+            with operation(key, 1):
+                handled = get_resolver().resolve_error_handler(status)(request, exception=error)
+            return answered, handled
 
     # HQ's 404 page names the request's language, which LocaleMiddleware activates before any view runs.
     with hq_state(Configuration()), translation.override(translation.get_language_from_request(request)):
