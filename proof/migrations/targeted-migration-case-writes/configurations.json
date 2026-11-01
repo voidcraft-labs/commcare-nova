@@ -1,6 +1,8 @@
 {
 	"minimum": {
-		"flags": ["CASE_SEARCH_ADVANCED"],
+		"flags": [
+			"CASE_SEARCH_ADVANCED"
+		],
 		"namedPrivileges": [],
 		"commcareVersion": "2.57.0",
 		"commtrack": false,

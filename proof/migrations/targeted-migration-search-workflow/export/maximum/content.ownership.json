@@ -4,7 +4,12 @@
 		"display_conditions",
 		"register_from_case_list"
 	],
-	"profileProperties": ["cc-show-saved", "cc-show-incomplete"],
-	"profileCustomProperties": ["cc-index-case-search-results"],
+	"profileProperties": [
+		"cc-show-saved",
+		"cc-show-incomplete"
+	],
+	"profileCustomProperties": [
+		"cc-index-case-search-results"
+	],
 	"autoGpsCapture": false
 }

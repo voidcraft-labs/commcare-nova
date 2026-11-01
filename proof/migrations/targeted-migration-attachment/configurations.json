@@ -1,6 +1,8 @@
 {
 	"minimum": {
-		"flags": ["MM_CASE_PROPERTIES"],
+		"flags": [
+			"MM_CASE_PROPERTIES"
+		],
 		"namedPrivileges": [],
 		"commcareVersion": "2.57.0",
 		"commtrack": false,
