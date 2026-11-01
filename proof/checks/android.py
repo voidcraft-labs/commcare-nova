@@ -532,7 +532,7 @@ def refused_searches(answer: dict | None, asked=()) -> list[tuple[str, str, dict
     its prompts, which the screen never reads (its Search button calls ``QueryRequestActivity.makeQueryRequest``
     unconditionally, ``QueryRequestUiController.setupUI``). ``asked`` is every request the device made of HQ (a
     record's ``hq``), in which the walk's request carrying the placeholder is that search's, and HQ's answer to
-    it is part of the one symptom."""
+    it is part of the one symptom; where the device never read that answer, the path ends ``/unread``."""
     sending = {}
     for place, entry in enumerate(asked or ()):
         if _sends_unquotable(entry):
@@ -548,12 +548,18 @@ def refused_searches(answer: dict | None, asked=()) -> list[tuple[str, str, dict
                 shown = (probe.get("afterServerAnswers") or probe.get("afterServerAnswers400") or {}).get("errorText")
                 places = sending.get(name) or []
                 place = places.pop(0) if places else None
-                hq = None
+                hq, unread = None, ""
                 if place is not None:
                     hq = {key: asked[place].get(key) for key in ("url_name", "status", "said", "raised")}
-                at = f"/walks/{pointer_token(name)}/steps/{index}/query/withAnswer/sent-unquotable-search"
+                    if asked[place].get("unread"):
+                        # The device stopped waiting for HQ's answer (``proof.android.hq.Exchange.unread``), so
+                        # what the screen showed is no answer of HQ's: a symptom of its own, which the
+                        # register's entry for the placeholder does not hold.
+                        hq["unread"], unread = True, "/unread"
+                path = f"/walks/*/steps/*/query/withAnswer/sent-unquotable-search{unread}"
+                at = f"/walks/{pointer_token(name)}/steps/{index}/query/withAnswer/sent-unquotable-search{unread}"
                 value = {"sent": sent, "hq": hq, "shown": shown}
-                found.append(("/walks/*/steps/*/query/withAnswer/sent-unquotable-search", at, value, place))
+                found.append((path, at, value, place))
     return found
 
 
@@ -882,26 +888,32 @@ def _asked(held, blobs) -> list:
 
 
 def hq_refusals(asked, *, beside=frozenset()) -> list:
-    """Each request of a device's HQ's views did not answer 2xx, as a served state's ``hq`` entries are written
-    (``proof.checks.served.refusal_differences``): the view, its status, what HQ said or raised. ``beside`` names
-    the places in ``asked`` of requests another difference already reports with HQ's answer."""
-    return [
-        {
+    """Each request of a device's HQ's views did not answer 2xx, or whose answer the device had stopped waiting
+    for (``unread``, ``proof.android.hq.Exchange``), as a served state's ``hq`` entries are written
+    (``proof.checks.served.refusal_differences``): the view, its status, what HQ said or raised, and ``unread``
+    where the device never read the answer. ``beside`` names the places in ``asked`` of requests another
+    difference already reports with HQ's answer."""
+    found = []
+    for place, entry in enumerate(asked or []):
+        unread = bool(entry.get("unread"))
+        if place in beside or (200 <= int(entry.get("status") or 0) < 400 and not unread):
+            continue
+        refusal = {
             "view": entry.get("url_name"),
             "status": entry.get("status"),
             "said": entry.get("said"),
             "raised": entry.get("raised"),
         }
-        for place, entry in enumerate(asked or [])
-        if not 200 <= int(entry.get("status") or 0) < 400 and place not in beside
-    ]
+        found.append({**refusal, "unread": True} if unread else refusal)
+    return found
 
 
 def _refusal_class(entry) -> tuple:
     from proof.checks import served
 
     cause = entry.get("raised") or served.refusal_cause(entry.get("said"))
-    return (entry.get("view") or "unresolved", entry.get("status"), cause)
+    # An answer the device never read is never one Formplayer's walk met: Formplayer reads every answer.
+    return (entry.get("view") or "unresolved", entry.get("status"), cause, bool(entry.get("unread")))
 
 
 def device_only_refusals(held: dict, *, beside=frozenset()) -> list:

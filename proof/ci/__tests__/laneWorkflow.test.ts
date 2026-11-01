@@ -14,7 +14,14 @@
 // whole tree and absent on every shard.
 
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import {
+	chmod,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -218,4 +225,160 @@ it("keeps Android result artifacts separate for each reusable lane and attempt",
 		expect(upload.with.name).toContain("inputs.label");
 		expect(upload.with.name).toContain("github.run_attempt");
 	}
+});
+
+// GitHub's cache evicts the least recently used entries once the repository
+// is over its limit, so a snapshot the prune listed can be gone when it is
+// deleted. The plausible failures are a night failed by that eviction, and a
+// prune that hides a delete that truly failed. The step runs as written
+// against a controlled `gh` that holds the listed caches.
+it("prunes main's older snapshots past one already gone, and fails on one still held", async () => {
+	const workflow = parse(
+		await readFile(join(WORKTREE, ".github/workflows/proof-audit.yml"), "utf8"),
+	);
+	const prune = workflow.jobs.prune.steps.find(
+		(step: { name?: string }) => step.name === "Delete all but the newest two",
+	).run;
+	const scratch = await mkdtemp(join(tmpdir(), "proof-audit-prune-"));
+	const PREFIX = "proof-store-amd64-abc-main-";
+	// `cache list --key K` prints the held keys K begins (skipping the newest two when the step's --jq asks it
+	// to); `cache delete K` fails for a key in `gone` (dropping it, as an eviction just before would) or in
+	// `broken` (keeping it), and otherwise drops it.
+	const gh = `#!/bin/sh
+if [ "$2" = list ]; then
+  key=""; skip=0
+  while [ $# -gt 0 ]; do
+    [ "$1" = --key ] && key="$2"
+    [ "$1" = ".[2:][].key" ] && skip=2
+    shift
+  done
+  grep -F -- "$key" "$FAKE/held" | awk -v k="$key" -v s="$skip" 'index($0, k) == 1 && ++n > s'
+  exit 0
+fi
+key=$5
+echo "delete $key" >> "$FAKE/calls"
+if grep -qxF -- "$key" "$FAKE/gone"; then
+  grep -vxF -- "$key" "$FAKE/held" > "$FAKE/next" || true; mv "$FAKE/next" "$FAKE/held"
+  echo "X Could not find a cache matching $key" >&2; exit 1
+fi
+if grep -qxF -- "$key" "$FAKE/broken"; then echo "HTTP 502" >&2; exit 1; fi
+grep -vxF -- "$key" "$FAKE/held" > "$FAKE/next" || true; mv "$FAKE/next" "$FAKE/held"
+`;
+	const pruned = async (gone: string[], broken: string[]) => {
+		await writeFile(
+			join(scratch, "held"),
+			`${[1, 2, 3, 4, 5].map((n) => `${PREFIX}${6 - n}`).join("\n")}\n${PREFIX}10\n`,
+		);
+		await writeFile(join(scratch, "gone"), `${gone.join("\n")}\n`);
+		await writeFile(join(scratch, "broken"), `${broken.join("\n")}\n`);
+		await writeFile(join(scratch, "calls"), "");
+		const code = await run("bash", ["-e", "-c", prune], {
+			env: {
+				NODE_ENV: "test",
+				PATH: `${join(scratch, "bin")}:${process.env.PATH ?? ""}`,
+				FAKE: scratch,
+				PREFIX,
+				GITHUB_REPOSITORY: "voidcraft-labs/commcare-nova",
+			},
+		}).then(
+			() => 0,
+			(error: { code: number }) => error.code,
+		);
+		return {
+			code,
+			held: (await readFile(join(scratch, "held"), "utf8"))
+				.split("\n")
+				.filter(Boolean),
+		};
+	};
+	try {
+		await mkdir(join(scratch, "bin"));
+		await writeFile(join(scratch, "bin", "gh"), gh);
+		await chmod(join(scratch, "bin", "gh"), 0o755);
+		// Newest first: 5, 4, then 3, 2, 1 and 10 to delete. 10 shares 1's prefix, so a re-list by prefix alone
+		// would find 1 still held after it was evicted.
+		const gone = await pruned([`${PREFIX}1`], []);
+		expect(gone.code).toBe(0);
+		expect(gone.held).toEqual([`${PREFIX}5`, `${PREFIX}4`]);
+		const broken = await pruned([], [`${PREFIX}2`]);
+		expect(broken.code).toBe(1);
+		expect(broken.held).toContain(`${PREFIX}2`);
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
+	}
+});
+
+// The cache's storage refuses some of a lane's concurrent runtime downloads
+// though it holds the entry, and a refused restore reads as a miss. The
+// plausible failures are a shard failed by one refusal, and a missing runtime
+// that a shard (which cannot build one) goes on without. The summarizing step
+// runs as written for each outcome of the two restores.
+it("restores the Android runtime a second time before a shard concludes it is missing", async () => {
+	const action = parse(
+		await readFile(
+			join(WORKTREE, ".github/actions/proof-android-runtime/action.yml"),
+			"utf8",
+		),
+	);
+	const steps = action.runs.steps;
+	const restores = steps.filter((step: { uses?: string }) =>
+		step.uses?.startsWith("actions/cache/restore@"),
+	);
+	expect(restores.map((step: { id?: string }) => step.id)).toEqual([
+		"first",
+		"again",
+	]);
+	for (const restore of restores) {
+		expect(restore.with["fail-on-cache-miss"]).toBeUndefined();
+	}
+	expect(restores[1].if).toContain("steps.first.outputs.cache-hit != 'true'");
+	const held = steps.findIndex((step: { id?: string }) => step.id === "held");
+	expect(held).toBeGreaterThan(steps.indexOf(restores[1]));
+	expect(steps[held].env.HIT).toContain("steps.first.outputs.cache-hit");
+	expect(steps[held].env.HIT).toContain("steps.again.outputs.cache-hit");
+	const scratch = await mkdtemp(join(tmpdir(), "proof-android-held-"));
+	try {
+		for (const [hit, build, code, output] of [
+			["true", "false", 0, "cache-hit=true"],
+			["false", "true", 0, "cache-hit=false"],
+			["false", "false", 1, "cache-hit=false"],
+		] as const) {
+			const out = join(scratch, `${hit}-${build}`);
+			const result = await run("bash", ["-e", "-c", steps[held].run], {
+				env: {
+					...process.env,
+					GITHUB_OUTPUT: out,
+					HIT: hit,
+					BUILD: build,
+					KEY: "proof-android-runtime-x",
+				},
+			}).then(
+				() => ({ code: 0, stdout: "" }),
+				(error: { code: number; stdout: string }) => error,
+			);
+			expect(result.code, `${hit} ${build}`).toBe(code);
+			expect(await readFile(out, "utf8")).toBe(`${output}\n`);
+			expect(result.stdout.includes("Egress is over the account limit")).toBe(
+				code === 1,
+			);
+		}
+	} finally {
+		await rm(scratch, { recursive: true, force: true });
+	}
+});
+
+it("pulls a shard's image and Postgres through the retrying script, on the lane's own Node", async () => {
+	const workflow = parse(
+		await readFile(join(WORKTREE, ".github/workflows/proof-lane.yml"), "utf8"),
+	);
+	const steps = workflow.jobs.shard.steps;
+	const pull = steps.findIndex(
+		(step: { name?: string }) => step.name === "Pull the image and Postgres",
+	);
+	const node = steps.findIndex((step: { uses?: string }) =>
+		step.uses?.startsWith("actions/setup-node@"),
+	);
+	expect(steps[pull].run).toBe("node proof/ci/pull.mjs");
+	expect(node).toBeGreaterThanOrEqual(0);
+	expect(node).toBeLessThan(pull);
 });

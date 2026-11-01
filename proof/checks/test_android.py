@@ -736,6 +736,50 @@ def test_hqs_refusal_of_the_search_that_sent_the_placeholder_is_that_searchs_one
     assert sent.after["hq"] == {key: placeholder[key] for key in ("url_name", "status", "said", "raised")}
 
 
+def test_a_placeholder_search_whose_answer_the_device_never_read_is_a_difference_the_register_cannot_hold():
+    """Contract: where the device stopped waiting for HQ's answer to the search that sent the placeholder
+    (``unread``), the search's one difference carries the mark and its path ends ``/unread``, so the register's
+    entry for the placeholder search does not hold it. Failure it catches: a search too slow for the device
+    absorbed by that entry, since the request is kept out of the device's own refusals."""
+    record = {"configurations": {"minimum": {"A": {"app": _app(), "formplayerHq": []}}}}
+    app = record["configurations"]["minimum"]["A"]["app"]
+    app["walks"]["m0/m0-f0"]["steps"].insert(
+        1,
+        {
+            "screen": "QueryRequestActivity",
+            "query": {
+                "withAnswer": {
+                    "RemoteQuerySessionManager.getErrors": {},
+                    "RemoteQuerySessionManager.getRawQueryParams": {"_xpath_query": [android.UNQUOTABLE]},
+                    "afterServerAnswers": {"errorText": "Client-side error"},
+                }
+            },
+        },
+    )
+    search = "https://www.commcarehq.org/a/d/phone/search/@build/?case_type=p&_xpath_query="
+    placeholder = {
+        "walk": "m0/m0-f0",
+        "url": search + "search-value-mixes-quote-marks%28%29",
+        "url_name": "app_aware_remote_search",
+        "status": 400,
+        "said": "'search-value-mixes-quote-marks' is not a valid standalone function",
+        "raised": None,
+    }
+    record["configurations"]["minimum"]["A"]["hq"] = [placeholder]
+    read = android.behavior("document", record)
+    assert [d.path for d in read] == ["/walks/*/steps/*/query/withAnswer/sent-unquotable-search"]
+    assert "unread" not in read[0].after["hq"]
+    record["configurations"]["minimum"]["A"]["hq"] = [{**placeholder, "unread": True}]
+    unread = android.behavior("document", record)
+    assert [(d.path, d.at) for d in unread] == [
+        (
+            "/walks/*/steps/*/query/withAnswer/sent-unquotable-search/unread",
+            "/walks/m0~1m0-f0/steps/1/query/withAnswer/sent-unquotable-search/unread",
+        )
+    ]
+    assert unread[0].after["hq"]["unread"] is True
+
+
 def test_a_devices_refusal_is_its_own_only_where_formplayers_walk_never_met_it():
     """Contract: HQ's refusal of a device's request at A (a search a device built from a typed answer among them)
     is judged against what HQ refused Formplayer's walk of the same state: the same view, status and cause is
@@ -746,6 +790,25 @@ def test_a_devices_refusal_is_its_own_only_where_formplayers_walk_never_met_it()
     met = [{"view": "app_aware_remote_search", "status": 400, "said": "Invalid date value 3", "raised": None}]
     found = android.device_only_refusals({"hq": [shared, own], "formplayerHq": met})
     assert [entry["said"] for entry in found] == ["Unknown function x"]
+
+
+def test_an_answer_the_device_never_read_is_a_difference_even_where_formplayers_walk_met_it():
+    """Contract: a request whose answer the device had stopped waiting for (``unread``, the proxy's mark past the
+    device's read timeout) is reported as the device's own, whatever HQ answered: a 2xx it never read, and a
+    refusal Formplayer's walk met, which Formplayer read and the device did not. Failure it catches: an answer
+    too slow for the device passing unseen because its status was 2xx or Formplayer met the same refusal."""
+    from proof.checks import served
+
+    read = {"url_name": "app_aware_remote_search", "status": 200, "said": None, "raised": None}
+    slow = {**read, "unread": True}
+    refused = {"url_name": "app_aware_remote_search", "status": 500, "said": None, "raised": "ESError"}
+    met = [{"view": "app_aware_remote_search", "status": 500, "said": None, "raised": "ESError"}]
+    found = android.device_only_refusals(
+        {"hq": [read, slow, refused, {**refused, "unread": True}], "formplayerHq": met}
+    )
+    assert [(entry["status"], entry.get("unread")) for entry in found] == [(200, True), (500, True)]
+    paths = [d.path for d in served.refusal_differences(found, check="proof3", document="d", artifact="android@A")]
+    assert paths == ["/hq/app_aware_remote_search/200/-/unread", "/hq/app_aware_remote_search/500/ESError/unread"]
 
 
 def test_the_local_archives_device_is_compared_with_the_same_configurations_a():

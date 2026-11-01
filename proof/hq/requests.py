@@ -17,7 +17,12 @@ request does (``domain/decorators.py::login_and_domain_required``,
   ``messages.warning``, and the import API returns those messages as its
   warnings);
 - optionally the ``lang`` cookie HQ's app manager reads.
+
+``held_get`` also holds its request as HQ's server holds the one it is
+answering, where ``get_request()`` reads it.
 """
+
+from contextlib import contextmanager
 
 
 def _factory():
@@ -47,6 +52,32 @@ def _attach(request, state, lang=None):
 
 def get(state, path, data=None, *, lang=None):
     return _attach(_factory().get(path, data or {}), state, lang)
+
+
+@contextmanager
+def held_get(state, path, data=None, *, lang=None):
+    """A GET request held for the block as HQ's server holds the request it is answering.
+
+    ``corehq/util/global_request/middleware.py::GlobalRequestMiddleware`` sets
+    the request (``process_request``) before ``UsersMiddleware`` looks up the
+    user and the project space, and sets None once the response comes back
+    (``process_response``), its templates rendered and the bootstrap version
+    ``ThreadLocalCleanupMiddleware`` clears already cleared. So the request is
+    set here the moment it exists, before ``_attach``'s lookups, and the block
+    holds the view and its rendering. HQ reads it through ``get_request()``:
+    quickcache keeps its per-request memo with it
+    (``corehq/util/quickcache.py::get_session_key``, which
+    ``Domain.get_by_name`` uses), and the superuser check, the request's time
+    zone and a form's rendering context read it too.
+    """
+    from corehq.util.global_request.api import set_request
+
+    request = _factory().get(path, data or {})
+    set_request(request)
+    try:
+        yield _attach(request, state, lang)
+    finally:
+        set_request(None)
 
 
 def form_post(state, path, pairs, *, lang=None):

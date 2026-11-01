@@ -19,6 +19,15 @@ Connections are read on threads of their own, so a request the app makes while a
 it; every answer is written from the reader's thread, one at a time, in the order the requests arrived. A
 device of the lane makes one request at a time (its tasks wait for each answer), so the order is the app's.
 
+The device waits for an answer as long as its own client does (``DEVICE_READ_SECONDS``), and the proxy writes
+nothing of an answer until HQ has given it whole. So an answer that took that long from the moment its request
+was read, less a margin for when the device's clock started (``DEVICE_READ_MARGIN_SECONDS``), may reach a
+device that has stopped waiting: the proxy tells ``peer.unread``, which records that the
+device never read HQ's answer, still writes the answer, and serves on whether the write fails or not (a write
+to a connection the device has closed can still succeed until the device's reset arrives). An answer that
+slow is the harness's to find, and the mark makes it a difference rather than a silent one; a failed write
+before then still ends the request with ``PeerFailed``.
+
 Standard library only, and the ``openssl`` command, which the image holds with its certificate store and every
 machine the reader runs on has.
 """
@@ -44,6 +53,16 @@ from urllib.parse import parse_qs, urlsplit
 
 # How long a connection may wait for the device's request, or for the device to read its answer.
 SOCKET_SECONDS = 120.0
+# How long the device's own client waits for an answer to begin before it stops waiting and closes the
+# connection: Core's ``CommCareNetworkServiceGenerator`` builds the app's client with
+# ``readTimeout(ModernHttpRequester.CONNECTION_SO_TIMEOUT)``, a minute, which ``Peer.java::route`` leaves as the
+# app has it (it adds only the proxy and the authority's trust).
+DEVICE_READ_SECONDS = 60.0
+# How much sooner than that an answer counts as one the device may not read: its client's minute starts when it
+# finished writing the request, a little before the proxy has read the request whole, so an answer a moment under
+# the minute here can already be past it on the device. An answer this slow is the harness's to find whether the
+# device read it or not, so the mark errs toward reporting it.
+DEVICE_READ_MARGIN_SECONDS = 5.0
 # The device's own messages to the harness (Peer.java CONTROL), sent to the proxy's address with no proxy;
 # HQ's URLconf names nothing under it, and the device never names the proxy's address for a server.
 CONTROL = "/_proof/"
@@ -196,6 +215,9 @@ class _Pending:
     request: DeviceRequest | None = None
     control: str | None = None
     name: str = ""
+    # When the request was read whole (``time.perf_counter``), which is when the device began waiting; the reader's
+    # thread sets it before the request is handed to the answerer.
+    read_at: float | None = None
 
 
 def _start_line(read: _Read):
@@ -305,6 +327,7 @@ class Proxy:
             if pending is None:
                 connection.close()
                 return
+            pending.read_at = time.perf_counter()
             with self._lock:
                 self._ready.append(pending)
         try:
@@ -344,6 +367,26 @@ class Proxy:
                     raise PeerFailed(
                         f"What answers the Android device's network raised on {what}: {error!r}"
                     ) from error
+                if pending.request is not None and pending.read_at is None:
+                    raise PeerFailed(
+                        f"The proxy answered {what} without knowing when the device began waiting for it: the"
+                        " reader's thread hands each request on only once it has noted when it was read."
+                    )
+                waited = time.perf_counter() - pending.read_at
+                if pending.request is not None and waited >= DEVICE_READ_SECONDS - DEVICE_READ_MARGIN_SECONDS:
+                    # The device's client has stopped waiting and closed the connection, as it does with any
+                    # server that slow, which ends the request on the device's side; its exchange says so.
+                    try:
+                        self.peer.unread(pending.request)
+                    except BaseException as error:
+                        raise PeerFailed(
+                            f"What answers the Android device's network raised marking {what} unread: {error!r}"
+                        ) from error
+                    try:
+                        write_answer(pending.connection, status, headers, body)
+                    except OSError:
+                        pass
+                    continue
                 try:
                     write_answer(pending.connection, status, headers, body)
                 except OSError as error:

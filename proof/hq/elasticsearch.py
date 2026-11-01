@@ -50,8 +50,11 @@ what a fresh run to the same point reads (``UnitIndexes``):
   indexes hold none of its documents;
 - a mark keeps what each index holds (its documents in the order the index
   holds them, read once per state), and a restore puts back each index a
-  write touched since: every document removed, the marked ones written
-  again in their order;
+  write touched since: every document removed, searchable yet or not (the
+  index is refreshed before its documents are deleted, since a delete by
+  query finds only what a refresh has made searchable, and one still holding
+  a document once emptied is refused), the marked ones written again in
+  their order;
 - Elasticsearch's own refresh timer (HQ's ``index.refresh_interval`` of 5 s)
   is held, as the pages' repeating timers are: a write is searchable once HQ
   asks for a refresh itself (``refresh=True``) or once its operation or
@@ -584,8 +587,23 @@ def _documents(name) -> list:
 
 
 def _replace(name, type_, documents):
-    """The index holds exactly ``documents``, in their order, in one segment."""
+    """The index holds exactly ``documents``, in their order, in one segment.
+
+    A delete by query removes what its own search finds, and a search finds only what the index's last refresh
+    made searchable. A write HQ sent since then (outside every operation, which a lenient unit allows, or inside a
+    scope that raised before it settled) would outlive the delete, and every later unit of the process, which
+    starts from indexes it is told are empty, would read it as its own. So the index is refreshed first, and one
+    still holding a document once emptied is refused."""
+    _call("POST", f"/{name}/_refresh")
     _call("POST", f"/{name}/_delete_by_query?refresh=true&conflicts=proceed", {"query": {"match_all": {}}})
+    left = _call("GET", f"/{name}/_count")["count"]
+    if left:
+        raise ElasticsearchFailed(
+            f"The harness emptied the {name} index, to put back a unit's mark or to start or end a unit, and it "
+            f"still holds {left} document(s) that no mark accounts for. Look for an HQ write to the index that no "
+            "operation settled: one outside every operation in a lenient unit (hq_check), or one inside an "
+            "operation or request that raised before it ended."
+        )
     if documents:
         lines = []
         for doc_type, doc_id, routing, source in documents:

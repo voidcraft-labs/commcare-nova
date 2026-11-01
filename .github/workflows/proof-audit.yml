@@ -280,10 +280,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PREFIX: ${{ steps.store.outputs.main }}
         run: |
+          set -o pipefail
           gh cache list --repo "$GITHUB_REPOSITORY" --key "$PREFIX" --sort created_at --order desc \
             --limit 100 --json key --jq '.[2:][].key' |
             while IFS= read -r key; do
-              gh cache delete --repo "$GITHUB_REPOSITORY" "$key"
+              # GitHub evicts the least recently used caches once the repository holds more than its
+              # limit, and another run's prune can delete the same snapshot, so a snapshot listed above
+              # can be gone before it is deleted here, which is what this step wants. `--key` matches
+              # by prefix, so the key is looked for exactly; a delete that failed for any other reason
+              # leaves the snapshot listed, and fails the step.
+              if ! gh cache delete --repo "$GITHUB_REPOSITORY" "$key"; then
+                held="$(gh cache list --repo "$GITHUB_REPOSITORY" --key "$key" --limit 100 --json key --jq '.[].key')"
+                if grep -qxF -- "$key" <<< "$held"; then
+                  echo "::error::Deleting the snapshot $key failed (its answer is above), and the repository still holds it."
+                  exit 1
+                fi
+                echo "The snapshot $key was already gone: GitHub evicted it, or another run deleted it."
+              fi
             done
 
   # A scheduled night that fails, in either profile, says so where it is seen:

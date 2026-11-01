@@ -325,13 +325,13 @@ jobs:
         with:
           name: ${{ inputs.surface }}
           path: lib/commcare/surface
+      # Postgres comes through mirror.gcr.io, whose per-minute quota is shared
+      # by everyone pulling through it, and fourteen shards start at once, so
+      # a pull is sometimes refused with nothing wrong with it. The script
+      # tries a throttled or lost pull again past the minute, and fails any
+      # other answer at once in the registry's own words (proof/ci/pull.mjs).
       - name: Pull the image and Postgres
-        run: |
-          image="$(jq -r .image proof/image.lock)"
-          docker pull --quiet "$image" &
-          pull=$!
-          PROOF_IMAGE="$image" docker compose -f proof/compose.yaml pull --quiet postgres
-          wait "$pull"
+        run: node proof/ci/pull.mjs
       - uses: ./.github/actions/proof-runtime
       # The Android reader's runtime and its JDK, mounted into the harness at the paths they have here.
       - id: android

@@ -54,7 +54,9 @@ the answers it refuses with 429.
 The plausible failures: an answer written by hand that HQ never gives, a
 read made outside HQ's own authentication and limiter (so a refusal Nova
 classifies is not HQ's), a file that moves run to run (a read outside its
-operation), and a committed file left stale by a pin move.
+operation, or a list HQ asks its database for in no order, which follows
+where Postgres placed each row), and a committed file left stale by a pin
+move.
 """
 
 from __future__ import annotations

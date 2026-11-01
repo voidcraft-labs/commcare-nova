@@ -500,13 +500,15 @@ gate's effects are what HQ's build changes wherever that is, and holds its
 differences to the gate's effects, never to the register.
 
 The lane's accepted seams each stand for a state production can be in, and
-`proof/CLAUDE.md` gives each its reason. A restore hands a worker's cases in
-the order of their ids (`proof/formplayer/hq.py::cases_in_id_order`; HQ asks
-its database for no order, so every fixed order is one production gives); a
-page's repeating timers of 10 s or more and Elasticsearch's own refresh timer
-are held; the Connect opportunity's own rows (its worker, payment unit, claim
-and assigned tasks) are made with Connect's own factories; and Connect's
-source is fetched at its pin when a run starts.
+`proof/CLAUDE.md` gives each its reason. A restore hands a worker's cases, and
+HQ's lookup table resource lists its tables, in the order of their ids
+(`proof/formplayer/hq.py::cases_in_id_order`,
+`proof/hq/operations.py::lookup_tables_in_id_order`; HQ asks its database for
+no order, so every fixed order is one production gives); a page's repeating
+timers of 10 s or more and Elasticsearch's own refresh timer are held; the
+Connect opportunity's own rows (its worker, payment unit, claim and assigned
+tasks) are made with Connect's own factories; and Connect's source is fetched
+at its pin when a run starts.
 
 These claims are held by a test of their own, or by a document and check
 named here, rather than by every document's checks:
@@ -750,7 +752,9 @@ group is one wherever the branch changes a file of the harness. Started so,
 it saves no store (`proof/ci/store-keys.mjs` names no key for a dispatch on
 a branch other than main), opens no issue (only a scheduled run's failure
 does), and trims main's older snapshots as any night does (its last job
-keeps the newest two). It holds up to fourteen of the account's twenty
+keeps the newest two, and takes a snapshot GitHub already evicted, or
+another run already deleted, as trimmed; a delete that fails while the
+snapshot is still held fails the job). It holds up to fourteen of the account's twenty
 runners for as long as it runs, so beside a scheduled lane it takes the six
 the schedules leave to pull requests. A branch that changes the emission,
 the observation's code or a pin changes every document's key, and its run is
@@ -1655,7 +1659,11 @@ HQ's own build has made it by then, writing the same app's media suite
   socket, UDP send and name lookup but the lane's Postgres, moves every cache
   and every quickcache tier to local memory, and runs Celery tasks inline with
   their errors propagated. HQ's soft assertions behave as production's: noted
-  and passed over, each kept in the record.
+  and passed over, each kept in the record. An exception a view raises is
+  answered by HQ's own handlers (`handler500`, an empty 500 under the lane's
+  `UNIT_TESTING`; `handler404`; `handler400`), never Django's DEBUG pages,
+  which format every frame local, the seams' record among them, and print
+  per-process addresses.
 - **State** (`state.py`, `database.py`, `couch.py`, `branch.py`): Postgres is
   a clone of the database HQ's own migrations create, restored once per
   session as a template and cloned once per worker; each unit is one
@@ -1706,7 +1714,9 @@ HQ's own build has made it by then, writing the same app's media suite
   unit holds is held to its marks as Postgres is: each unit starts with
   every index empty, a mark keeps what each index holds (its documents in
   the order it holds them), and a restore puts back each index a write
-  touched since. Elasticsearch's own refresh timer is held, as the pages'
+  touched since. Each index is refreshed before it is emptied, so a write no
+  operation settled goes too, and one still holding a document once emptied
+  is refused. Elasticsearch's own refresh timer is held, as the pages'
   repeating timers are, and each index a scope wrote is refreshed and merged
   to one segment as the scope ends, so what a search scores against and the
   order it gives documents that score alike (HQ's case search sorts by score,
@@ -1851,7 +1861,8 @@ the caches left, the second omits the fetch).
   space's default roles, the worker (`CommCareUser.create`), the document's
   cases submitted through HQ's receiver as the worker, and a build released
   as HQ's Releases page releases one. A view that raises answers Formplayer
-  a 500, as production's does, and is recorded with what it raised.
+  a 500 from HQ's own `handler500`, never Django's DEBUG page, and is
+  recorded with what it raised.
 - **The package's own tests** (`apps.py`): a document published as Nova
   publishes it and served by `hq.py` as the lane serves it, and a state a
   person's save leaves saved by HQ's own App Settings page in Chromium
@@ -2938,7 +2949,7 @@ commit gate, which refuses a datum the form's entry does not supply
 | 57, `case_id` column | a case list column over `case_id` was blank on HQ's build (`detail_screen.py::CASE_PROPERTY_MAP` has no entry for it, and the case database holds the id only as an attribute), and a hidden sort column over `case_id`, `owner_id` or `status` made HQ's Case List page refuse to save. Fixed in step 2: every column over the three is an expression column over the attribute | manifest; proof 3 across the two paths; proof 4 | fixed; still shown by the control `targeted-case-id-column`; `targeted-attribute-columns` holds every column over the three |
 | 70, reserved question names | HQ's form builder warns about a question named `case`, `registration` or `script` (Vellum `src/mugs/baseSpecs.js`, `RESERVED_NAMES`), and a root question named `case` in a form that saves a case stops HQ's build ("You cannot use the Case Management UI if you already have a case block in your form.", `xform.py::XForm._create_casexml`). Fixed in step 2: Nova refuses the three names in any case for every question and Connect block | the bar; proof 4 | fixed; still shown by the control `targeted-reserved-question-names` |
 | 71, the form's root | HQ's form builder reports "Unknown question: #form" on a calculation or a repeat's count that reads the form's root (`/data`), which Nova admitted. Fixed in step 2: Nova refuses a read of the form's root alone (`INVALID_REF`) | proof 4 | fixed; still shown by the control `targeted-form-root-read` |
-| 75, datetime equality | a case list filter that asks for a date and time equal to a value compares text on a device (`XPathEqExpr.java::testEquality`), so it lists none of the cases holding that instant in HQ's stored spelling, and `!=` lists every case; HQ's search matches the text in `case_properties.value.exact`, so an instant in another spelling finds nothing, and sends a system date's date-and-time value as a raw term, so the minute-precision value the builder writes makes the search answer 500; Preview compares instants. The device half is fixed in step 3: `=`, `!=`, `in` and `switch` between two dates and times lower to instant equality (`lib/commcare/xpath/wire/instant.ts`). HQ's half is fixed in step 3 too: a search's `=`, `!=` and `in` on a date and time are a closed instant range (`lib/commcare/csql/emitter.ts`), which HQ's range query parses in every spelling, held by the `csql` native family's `datetime-equality` scenario | intent (Core), on the local export; proofs 3 and 4 and a walk stop, with every reader (Formplayer's answer to HQ's 500) | fixed; still shown by the control `targeted-datetime-equality`, which holds the search's walk stop |
+| 75, datetime equality | a case list filter that asks for a date and time equal to a value compares text on a device (`XPathEqExpr.java::testEquality`), so it lists none of the cases holding that instant in HQ's stored spelling, and `!=` lists every case; HQ's search matches the text in `case_properties.value.exact`, so an instant in another spelling finds nothing, and sends a system date's date-and-time value as a raw term, so the minute-precision value the builder writes makes the search answer 500; Preview compares instants. The device half is fixed in step 3: `=`, `!=`, `in` and `switch` between two dates and times lower to instant equality (`lib/commcare/xpath/wire/instant.ts`). HQ's half is fixed in step 3 too: a search's `=`, `!=` and `in` on a date and time are a closed instant range (`lib/commcare/csql/emitter.ts`), which HQ's range query parses in every spelling, held by the `csql` native family's `datetime-equality` scenario | intent (Core), on the local export; proof 3 and a walk stop, with every reader (the error HQ's search view raises answering Formplayer) | fixed; still shown by the control `targeted-datetime-equality`, which holds the search's walk stop |
 
 The harness's own findings, numbered from 31, are in
 `docs/research/2026-09-26-hq-round-trip/harness-findings.md`, each with what
@@ -4239,7 +4250,13 @@ the weekly's and a run started by hand) and a proof machine. Runtime
 readiness is separate: `proof.android.ready` installs a retained survey in
 a real JVM before the runtime is saved. A load failure blocks shards that
 need it; a failed selfcheck or predicate keeps its failed job and log
-artifact while shards run on the usable runtime. Crashes inside distinct
+artifact while shards run on the usable runtime. Every shard restores the
+runtime from the Actions cache at once, and the cache's storage refuses
+some of those downloads partway ("Egress is over the account limit")
+though it holds the entry, so a shard whose restore misses waits 60 to 180
+seconds and restores once more, and fails only on a second miss, saying
+the cache may have refused the download
+(`.github/actions/proof-android-runtime`). Crashes inside distinct
 proof groups fail those groups and leave unrelated groups running; only
 repeated worker failures before any group starts stop that phase.
 
@@ -4338,7 +4355,13 @@ written from where a pull request's own run read documents from the store
   finds the Android reader's runtime. With `readers: false` it runs the pull
   request lane's profile instead, with no Android runtime. It records a
   candidate image in the checkout's lock first (`proof/ci/candidate.mjs`), so
-  every key the run computes names the image it pulls. As `store` asks, it
+  every key the run computes names the image it pulls. Each shard pulls the
+  image and Postgres through `proof/ci/pull.mjs`: Postgres comes through
+  mirror.gcr.io, whose per-minute quota everyone pulling through it shares,
+  and fourteen shards start at once, so a pull refused for throttling or
+  lost in transit is tried again after 30 to 60, 60 to 120 and 120 to 240
+  seconds, four tries in all, and any other refusal fails the shard at once
+  in the registry's own words. As `store` asks, it
   compares the fresh records with main's store, saves them as main's newest
   snapshot, or packs them for its caller to merge (`store: pack`). A cache
   miss starts with an empty store, including the first run for an image.
@@ -4977,12 +5000,14 @@ HQ's version, its indexes written by HQ's own code and held to each unit's
 marks; app-manager pages render through
 HQ's own page views (`view_generic`), their JavaScript bundled at image build
 time with an esbuild configuration derived from HQ's webpack configuration;
-`DEBUG` stays on, with only its speed effects as seams; HQ's soft assertions
-are noted as production notes them and kept as evidence; every input is
-deterministic from a content key; observations are reused only under exact
-keys, with audits; proof 4 saves every section and form over B, each in a fork
-of its own; the warm Vellum host follows Vellum's own tests; sensitivity runs
-under both the minimum and the maximum configuration; proof 5's footprint also
+`DEBUG` stays on, with only its speed effects as seams, and a view's
+exception is answered by HQ's own handlers, never Django's DEBUG pages;
+HQ's soft assertions are noted as production notes them and kept as
+evidence; every input is deterministic from a content key; observations are
+reused only under exact keys, with audits; proof 4 saves every section and
+form over B, each in a fork of its own; the warm Vellum host follows
+Vellum's own tests; sensitivity runs under both the minimum and the maximum
+configuration; proof 5's footprint also
 holds what `proof/corpus/footprint.ts` lists beyond the reference index's
 readers (among them the readers and writers of an edited case type or
 property; the owner of an edited translation, and a case property's readers

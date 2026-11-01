@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import datetime
 import gc
+import hashlib
 import json
 import os
 import socket
@@ -34,6 +35,7 @@ import pytest
 import proof
 from proof.hq.boot import GUARD, REDIS_CLIENT_SERVICE, NetworkRefused, cache_census, quickcache_census
 from proof.hq.configuration import Configuration
+from proof.hq.determinism import operation
 from proof.hq.state import hq_state
 
 PINS = json.loads((Path(proof.__file__).parent / "pins.json").read_text())
@@ -437,6 +439,91 @@ def test_a_soft_assertion_hq_raises_under_debug_is_noted_as_production_notes_it(
         )
     ]
     assert quiet == []
+
+
+def test_a_view_that_raises_is_answered_by_hqs_own_500_handler_never_djangos_debug_page(hq):
+    """Contract: an exception a view raises is answered by HQ's ``handler500`` (``server_error``, an empty 500 under
+    the lane's ``UNIT_TESTING``), the same bytes every time. The failure: Django's technical page, which the
+    harness's ``DEBUG`` would choose, formats every frame local and prints addresses that differ per process."""
+    from django.conf import settings
+    from django.core.handlers.exception import response_for_exception
+    from django.test import RequestFactory
+    from django.urls import get_resolver
+
+    # A path HQ's URLconf resolves (Formplayer's case search), since HQ's handler resolves the request's path.
+    request = RequestFactory().get("/a/nova-proof/phone/search/proof-app/", secure=True)
+
+    def answer():
+        try:
+            raise RuntimeError("A view raised.")
+        except RuntimeError as error:
+            return response_for_exception(request, error), get_resolver().resolve_error_handler(500)(request)
+
+    assert settings.DEBUG is True and settings.UNIT_TESTING is True
+    # HQ's handler writes the traceback into its cache, which the unit empties as it opens and closes.
+    with hq_state(Configuration()):
+        first, handlers = answer()
+        second, _ = answer()
+    assert (first.status_code, first.content) == (handlers.status_code, handlers.content) == (500, b"")
+    for marker in (b"DEBUG = True", b"Traceback", b"technical_500"):
+        assert marker not in first.content
+    assert (second.status_code, second.content) == (first.status_code, first.content)
+
+
+@pytest.mark.parametrize("status", [404, 400], ids=["not-found", "bad-request"])
+def test_a_view_that_refuses_is_answered_by_hqs_own_handler_never_djangos_debug_page(hq, status):
+    """Contract: an ``Http404`` or a ``SuspiciousOperation`` a view raises is answered by HQ's ``handler404`` or
+    ``handler400``, as Django answers with ``DEBUG`` off, the same bytes every time. The failure: Django's technical
+    404 page (the URLconf, ``DEBUG = True``) or its technical 400 page, which formats every frame local."""
+    from django.core.exceptions import SuspiciousOperation
+    from django.core.handlers.exception import response_for_exception
+    from django.http import Http404
+    from django.test import RequestFactory
+    from django.urls import get_resolver
+    from django.utils import translation
+
+    def request():
+        """A request of its own, as each the lane answers is: Django keeps the CSRF secret it draws on the request."""
+        return RequestFactory().get("/a/nova-proof/phone/search/proof-app/", secure=True)
+
+    # Every request the lane answers runs inside an operation, which seeds what HQ's page draws (its CSRF token).
+    key = hashlib.sha256(f"proof boot test|{status}".encode()).digest()
+
+    def answer():
+        error = Http404("Nothing here.") if status == 404 else SuspiciousOperation("A request HQ refuses.")
+        try:
+            raise error
+        except type(error):
+            with operation(key, 1):
+                answered = response_for_exception(request(), error)
+            with operation(key, 1):
+                handled = get_resolver().resolve_error_handler(status)(request(), exception=error)
+            return answered, handled
+
+    # HQ's 404 page names the request's language, which LocaleMiddleware activates before any view runs.
+    with hq_state(Configuration()), translation.override(translation.get_language_from_request(request())):
+        first, handlers = answer()
+        second, _ = answer()
+    assert first.status_code == handlers.status_code == second.status_code == status
+    for marker in (b"DEBUG = True", b"Traceback", b"URLconf"):
+        assert marker not in first.content
+    _assert_same_page("HQ's handler", handlers.content, first.content)
+    _assert_same_page("a second answer", second.content, first.content)
+
+
+def _assert_same_page(label, page, answered):
+    """``page`` is the answer's bytes; a failure names where they first part."""
+    if page == answered:
+        return
+    start = next((at for at in range(min(len(page), len(answered))) if page[at] != answered[at]), None)
+    start = min(len(page), len(answered)) if start is None else start
+    pytest.fail(
+        f"The answer and {label} part at byte {start} of {len(answered)} and {len(page)}.\n"
+        f"Both read before it: {answered[max(0, start - 200) : start]!r}\n"
+        f"The answer reads from there: {answered[start : start + 300]!r}\n"
+        f"{label} reads from there: {page[start : start + 300]!r}",
+        pytrace=False,
+    )
 
 
 # HQ's own address ----------------------------------------------------------------------------------------
