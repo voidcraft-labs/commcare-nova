@@ -478,6 +478,7 @@ def test_a_view_that_refuses_is_answered_by_hqs_own_handler_never_djangos_debug_
     from django.http import Http404
     from django.test import RequestFactory
     from django.urls import get_resolver
+    from django.utils import translation
 
     request = RequestFactory().get("/a/nova-proof/phone/search/proof-app/", secure=True)
 
@@ -490,7 +491,8 @@ def test_a_view_that_refuses_is_answered_by_hqs_own_handler_never_djangos_debug_
                 request, exception=error
             )
 
-    with hq_state(Configuration()):
+    # HQ's 404 page names the request's language, which LocaleMiddleware activates before any view runs.
+    with hq_state(Configuration()), translation.override(translation.get_language_from_request(request)):
         first, handlers = answer()
         second, _ = answer()
     assert (first.status_code, first.content) == (handlers.status_code, handlers.content)
