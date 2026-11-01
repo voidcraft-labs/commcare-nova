@@ -502,11 +502,26 @@ def test_a_view_that_refuses_is_answered_by_hqs_own_handler_never_djangos_debug_
     with hq_state(Configuration()), translation.override(translation.get_language_from_request(request)):
         first, handlers = answer()
         second, _ = answer()
-    assert (first.status_code, first.content) == (handlers.status_code, handlers.content)
-    assert first.status_code == status
+    assert first.status_code == handlers.status_code == second.status_code == status
     for marker in (b"DEBUG = True", b"Traceback", b"URLconf"):
         assert marker not in first.content
-    assert (second.status_code, second.content) == (first.status_code, first.content)
+    _assert_same_page("HQ's handler", handlers.content, first.content)
+    _assert_same_page("a second answer", second.content, first.content)
+
+
+def _assert_same_page(label, page, answered):
+    """``page`` is the answer's bytes; a failure names where they first part."""
+    if page == answered:
+        return
+    start = next((at for at in range(min(len(page), len(answered))) if page[at] != answered[at]), None)
+    start = min(len(page), len(answered)) if start is None else start
+    pytest.fail(
+        f"The answer and {label} part at byte {start} of {len(answered)} and {len(page)}.\n"
+        f"Both read before it: {answered[max(0, start - 200) : start]!r}\n"
+        f"The answer reads from there: {answered[start : start + 300]!r}\n"
+        f"{label} reads from there: {page[start : start + 300]!r}",
+        pytrace=False,
+    )
 
 
 # HQ's own address ----------------------------------------------------------------------------------------
