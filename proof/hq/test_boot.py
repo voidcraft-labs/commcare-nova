@@ -486,7 +486,9 @@ def test_a_view_that_refuses_is_answered_by_hqs_own_handler_never_djangos_debug_
         try:
             raise error
         except type(error):
-            return response_for_exception(request, error), get_resolver().resolve_error_handler(status)(request, error)
+            return response_for_exception(request, error), get_resolver().resolve_error_handler(status)(
+                request, exception=error
+            )
 
     with hq_state(Configuration()):
         first, handlers = answer()
