@@ -1501,6 +1501,331 @@ corrects or fixes it.
   request 14 rewrites the paragraph: `here()` belongs in a case list's
   calculated column of an app that runs only on Android.
 
+### Found while planning step 5
+
+Step 5's plan read its CommCare facts at the pins (commcare-hq `d6c6e16d8ae1`, commcare-core
+`8e9ba8d908e9`, commcare-android `7a5584475580`, formplayer `24383ac71bfb`, commcare-connect
+`046c7fd78081`, and Vellum `01215f251c57`, the build HQ vendors at its pin) and Nova at `2f985ed6`.
+It read the registers and the manifest's entries, took a census of the corpus's checked-in sources in
+memory (the producer, targeted and workforce documents; nothing emitted, nothing written), and ran one
+content-free, read-only scan of production with the person's yes, whose counts stay out of the
+repository. It ran nothing in HQ, Core, Formplayer, Android, Connect or a lane. It found claims of the
+research, of the manifest, of Nova's contracts and docs, of step 4's own corrections and of planning's
+own first readings that the pins or `main` contradict, defects of Nova's own that no check of the lane
+observes, and two facts of the lane the stack keeps. None of these is numbered: the numbered findings
+are what the harness showed. Each names the pull request of step 5's stack that corrects or fixes it;
+where a gated run of the plan still settles one, the bullet names the run, and the run's outcome is
+written here in the pull request that holds it.
+
+**Claims corrected.**
+
+- **Several form links that hold run last first on Core and Android, and only the top one runs in Web
+  Apps.** Core's session pushes a frame for each true `<create>` and pops the one pushed last
+  (`session/CommCareSession.java::executeStackOperations`, `createFrame`, `finishAndPop`), and Android
+  keeps the rest of the stack (`models/AndroidSessionWrapper.java::terminateSession`), as the research
+  says ("Navigation and after-submit links": "every matching destination runs, last first"). Formplayer
+  rebuilds the session from the popped frame with an empty stack
+  (`services/MenuSessionFactory.java::rebuildSessionFromFrame`, `session/MenuSession.java::resetSession`),
+  so Web Apps discards every pending frame. So step 5's outline ("every matching destination runs, in
+  the author's order") named no order Core has; the manifest's
+  `forms-and-case-writes/two-or-more-form-links-conditions-true-at-once` and its inventory row
+  (`inventory/forms-and-case-writes.md`, line 67) read RUNS on both platforms where Web Apps reads
+  `different`; `lib/commcare/CLAUDE.md`, "Exclusive guards" ("Core executes EVERY true `<create>` and
+  lands on the LAST one") omits that Android runs the others after it and Web Apps drops them; and
+  `content/docs/form-links.mdx`, "On a device" ("the first true link wins") holds only because Nova
+  emits exclusive guards today. *Step 5:* pull request 11 (form links) emits the destinations reversed
+  so Core runs them in the author's order, plays each platform's stack in Preview, and rewrites the
+  manifest row, the inventory row and the `lib/commcare/CLAUDE.md` sentence; pull request 15 (contracts
+  and public docs) rewrites the docs page. Subject to the reader run by hand at pull request 11's head
+  over `targeted-form-link-chain` (the plan's form-links G1): if Web Apps also runs the chain, the Web
+  Apps half is withdrawn here; if Android also runs only the top frame, the claim becomes that both do.
+- **HQ's form settings page offers a child menu without `FORM_LINK_ADVANCED_MODE`** from a child menu
+  whose parent's case type equals the target's parent's (`views/forms.py::_get_linkable_forms_context`,
+  `is_child_match`). The research's defect 26 ("only the retiring `FORM_LINK_ADVANCED_MODE` offers the
+  child menus") reads as if the flag were the only way. *Step 5:* pull request 11 offers the targets the
+  page offers (`lib/domain/formLinkTargets.ts::menuTargetOffered`), held to the page by
+  `proof/views/test_form_link_targets.py`.
+- **HQ's fallback runs beside every unconditional link.** It counts only links with a non-blank
+  `xpath`, builds no frame when no link has one, and is the last frame pushed
+  (`suite_xml/post_process/workflow.py::_get_fallback_frame`), so it runs whenever no link with a
+  condition holds, and before an unconditional link. Planning first read it
+  as running only when no destination runs; that reading is recorded so it is not repeated. *Step 5:*
+  pull request 11's `Form.otherwise` takes HQ's meaning.
+- **Step 4's correction of the case list menu item in Web Apps was read, not walked, and the pins
+  contradict it.** For `case_list.show` HQ builds an entry with no form, whatever else the module holds
+  (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`); Core reads it as a view entry
+  (`xml/EntryParser.java`, `session/CommCareSession.java::isViewCommand`); and Formplayer, on a view
+  command whose data is complete, steps the session back and asks for the next screen again
+  (`session/MenuSession.java::getNextScreen`), so the next screen is the case list again, never null,
+  and "Redirecting after sync" (`services/MenuSessionRunnerService.java::advanceSessionWithSelections`)
+  is not reached. The lane holds no walk of either reading. The manifest's Web Apps reading of
+  `menus-and-case-lists/module-case-list-show-true-on-a-basic-module-with-forms` and
+  `module-case-list-show-true-on-an-advancedmodule` ("selecting a case from that list leaves an empty
+  list") has no source at the pins. *Step 5:* pull request 10 (search workflow, menu concepts and
+  claims) admits the item beside forms and writes the three entries' readings, the feature's Web Apps
+  note and Preview's route from what the walks show. Subject to the reader run by hand at pull request
+  10's head, which walks `targeted-case-list-menu-item`'s forms-first and case-first menus (the plan's
+  search-and-menus G1): it decides between step 4's reading, the step back the pins predict and the
+  manifest's empty list, and this bullet is completed with its evidence.
+- **`case-search/auto-launch-false-in-an-app-with-cloudcare-enabled-false` cannot become an author's
+  choice.** Step 5's outline moved it to a feature. It reads `not-applicable` on Web Apps, and
+  `lib/commcare/surface/__tests__/platformFeatures.test.ts` (`readsUnlikeItsEntries`) holds a feature's
+  entries to a reading pair from `PLATFORM_FEATURE_READINGS`, which has no `not-applicable`. *Step 5:*
+  pull request 10 keeps the entry ambient with a new reason and makes list first a feature through a new
+  export-use entry.
+- **HQ offers inline search only under `CASE_SEARCH_ADVANCED`**
+  (`templates/app_manager/partials/modules/bootstrap5/case_search_properties.html`;
+  `case_claim.js::searchConfigModel`, `inlineSearchVisible`), but
+  `case-search/inline-search-default-search-on-a-module-without-visible-inputs` and
+  `case-search/inline-search-default-search-on-a-module-with-visible-inputs` name no gate, while their
+  two inline siblings name `toggle/CASE_SEARCH_ADVANCED` and that gate entry lists all four. Nova's
+  publish already asks for the flag on every inline module
+  (`lib/commcare/projectSpaceCompatibility.ts::advancedCaseSearchReasons`). *Step 5:* pull request 10
+  adds the gate to both entries.
+- **Search first is unavailable on Android only in its inline shape.** `docs/architecture/complex-apps.md`
+  ("Search first") and `content/docs/case-workspace.mdx` say Search first is unavailable on Android.
+  HQ's own Search First (`auto_launch` without `inline_search`) is read only by Core's cli entity screen,
+  which Formplayer runs (`src/cli/java/org/commcare/util/screen/EntityScreen.java::evaluateAutoLaunch`);
+  commcare-android's `app/src` holds no reader (its only auto-launch hits are callouts,
+  `activities/EntitySelectActivity.java::isCalloutAutoLaunching`), so Android opens the list first.
+  *Step 5:* pull request 15 rewrites both pages. Subject to the reader run by hand at pull request 10's
+  head (the plan's proof G3): if a device record differs on a document that declares both platforms,
+  the manifest's ignored Android reading of search first is corrected at the pins and recorded here.
+- **A parent selection in an advanced module lists other children.** The research ("Case writes") has a
+  parent selection there become each form's chained case selections. A basic parent selection lists
+  children under any non-extension index (`suite_xml/sections/entries.py::EntriesHelper.get_parent_filter`);
+  an advanced load lists only children under one named index (`::get_parent_filter_by_ref_id`).
+  *Step 5:* pull request 7 (advanced modules and extension child cases) names the chain's index from the
+  app's links (`lib/domain/advancedModule.ts::advancedChainIndex`) and keeps a module basic where its
+  links use two names (the kind blocker `chain-index`).
+- **The research's advanced refusals miss two shapes.** An advanced entry carries no query datum, so
+  forms that read the search cannot run there (`suite_xml/sections/entries.py`,
+  `configure_entry_advanced_form`, which never calls `add_remote_query_datums`); and an open action
+  indexed to a load whose datum HQ renames in a child module reads the unadjusted variable
+  (`xform.py::XForm._create_casexml_advanced`; `EntriesHelper.add_parent_datums`). *Step 5:* pull request
+  7 holds both: the first as the kind blocker `forms-read-search`, the second as the open action's
+  eligibility clause `link-renamed-load`.
+- **HQ owns an extension-only advanced open action by `-`.** The research places a carried extension
+  create on an advanced open action without its owner. HQ writes `-` when every index is `extension`
+  (`xform.py::autoset_owner_id_for_advanced_action`), where Nova's Save to Case extension block writes
+  the worker (`/data/meta/userID`). *Step 5:* pull request 7 writes the owner into `case_properties`
+  from a generated Hidden Value, `nova_owner_<operation id>`. Subject to the native
+  `AdvancedFormRuntimeTest` and pull request 7's proof 3 over `targeted-advanced-module` (the plan's
+  advanced-modules G6): if the case still ends owned by `-`, the node is removed, such a create is
+  stated as unowned before it commits, and this bullet records it.
+- **HQ's third CommTrack trigger is unreachable from a Nova export.** Step 5's outline asked the step to
+  decide `show_product_stock`. It defaults false
+  (`models/form_actions.py::LoadUpdateAction.show_product_stock`), and HQ's page keeps it true only
+  where product stock is allowed (`static/app_manager/js/forms/advanced/actions.js`,
+  `loadUpdateAction.unwrap`), behind a checkbox drawn only under CommTrack
+  (`templates/app_manager/partials/forms/case_config_advanced.html`); Nova writes false. *Step 5:* pull
+  request 8 (CommTrack and same-type child links at publish) gives `commtrackReasons` no third trigger.
+- **HQ's advanced page tags each new action with the module's case type**, not the action's
+  (`static/app_manager/js/forms/advanced/case_config_ui.js::addFormAction`), and keeps any tag its check
+  accepts. *Step 5:* pull request 7's `lib/commcare/advancedTags.ts::allocateAdvancedTags` names each tag
+  for the case type it holds.
+- **HQ's editor lets a child's condition read any repeat question.** The research says a child case in a
+  repeat may use that repeat's questions for its condition; HQ's subcase condition picker offers every
+  repeat question (`templates/app_manager/partials/forms/case_config_ko_templates.html`,
+  `case-config:condition`; `static/app_manager/js/case_config_utils.js::getQuestions`;
+  `static/app_manager/js/forms/case_config_ui.js`, `allow.repeats`). *Step 5:* pull request 4 (case
+  writes as one concept) keeps the narrower rule, the child's own repeat or none, because an absolute
+  path to another repeat's question is a read of several nodes; step 6's import judges the wider set.
+  Subject to pull request 4's lane started by hand over `targeted-case-writes-one-concept` (the plan's
+  case-writes G3): if each row's child does not follow its own row's answer, a child's condition is
+  stateable only over a question in no repeat, and this bullet records it.
+- **The Case Management save strips both quote kinds, and only from the own case's conditions.**
+  `views/forms.py::edit_form_actions` strips `"` and `'` from both ends of the open and close
+  conditions' answers (`condition.answer.strip('"\'')`), never a subcase's, so the research's rule
+  ("neither starts nor ends with `"`") is complete only with its "holds no `'`". *Step 5:* pull request
+  4 makes the open and close conditions `Expression`s, each printed from a shape HQ's action reads.
+- **`DONT_INDEX_SAME_CASETYPE` drops the parent index on registration forms too.**
+  `xform.py::XForm._create_casexml` drops it for every basic subcase of the form's own case type
+  wherever the form has its own case block, a registration's included (`index_same_casetype`).
+  *Step 5:* pull request 8 asks the flag off wherever a basic child shares its parent's type (the
+  capability `same-type-child-links`). Subject to pull request 8's sensitivity flip of the flag over
+  `targeted-same-type-child` (the plan's publish G4): if the basic child keeps its index, the
+  capability leaves the stack and this reading is recorded corrected.
+- **A basic subcase's wire path depends on its siblings.** Not in the research: HQ writes a repeat's
+  only basic subcase at the row's `case` and nests it at `subcase_<i>` only where that repeat holds more
+  than one (`xform.py::XForm._create_casexml`, `nest`;
+  `models/form_actions.py::FormActions.count_subcases_per_repeat_context`), and an advanced open action
+  likewise (`models/form_actions.py::AdvancedFormActions.count_subcases_per_repeat_context`;
+  `xform.py::XForm._create_casexml_advanced`, its nested `get_action_path`). *Step 5:* pull
+  request 4's placement shape records the nesting (`subcase` with its index, and `subcase-row`).
+- **Repeat counts: the integer type exists, and `int(...)` is not the carrier.** The research's defect
+  30 says Nova's expression types know a number but not an integer
+  (`lib/commcare/validator/typeChecker.ts`); at `2f985ed6` that file is gone and
+  `lib/domain/expression/typeChecker.ts` has typed integers since step 3. Its migration says `int(...)`
+  truncates exactly as the `xsd:int` count node does. That holds for every finite number within 32 bits,
+  NaN and blank, but not for text, which Core keeps as `StringData` under `xsd:int`
+  (`core/model/condition/Recalculate.java::wrapData`), so `'3.5'` stops the form
+  (`FormEntryModel.createModelForGroup`, "must be a number!") where `int('3.5')` is 3; nor beyond 32
+  bits, where the carrier saturates and `int(...)` stops the form. *Step 5:* pull request 3 (repeats:
+  query placement and whole-number counts) adds only the count's expectation, and pull request 14
+  (cutover)'s notice line `repeat-count-whole-number` says workers see the same rows wherever the count
+  was already whole.
+- **A query repeat's count placement need not move answer paths.** The research has it move the
+  repeat's answers and keep rows past the end with a blank id and a guard on each operation; that is a
+  design choice, not a CommCare fact. Core resolves `jr:count` against the repeat's parent
+  (`XFormParser`, `getAbsRef`) and drops a row that is not relevant (`FormDef.isRepeatRelevant`), so
+  step 5 keeps the wrapper and its `item` rows and only Nova's generated nodes move, each row's record id
+  among them. Core's rows are positional, so a row keeps its answers by position, not by record id.
+  *Step 5:* pull request 3. Subject to pull request 3's form-builder saves over the query documents and
+  its native `ContainerRuntimeTest` (the plan's questions G1 and G2): if the form builder cannot keep
+  the outer group, the count placement takes the research's shape and answer paths move.
+- **No runtime reads a hint's or validation message's markdown form; Android reads help text's.** The
+  research's defect 28 makes markdown a property of every display text. Core's
+  `FormEntryPrompt.getHintText`, `getHelpText` and `getConstraintText()` return the default form, while
+  `FormEntryPrompt.getHelpMultimedia(form)` returns any form of help text; Formplayer sends hint, help
+  and constraint text plain (`PromptToJson.parseQuestion`); HQ's Web Apps client renders hint and help
+  through markdown whatever form they hold (`form_ui.js`); and Android shows a hint as written
+  (`QuestionWidget.java`, `getHintText`) but renders help through its markdown form when one exists
+  (`views/widgets/QuestionWidget.java::createHelpLayout`:
+  `getHelpMultimedia(FormEntryCaption.TEXT_FORM_MARKDOWN)` → `forceMarkdown`). Question and group
+  labels, and on Android choices and help text, read a markdown form. Nova always writes help text's
+  markdown form, so help renders as markdown on both platforms. *Step 5:* pull request 9 (groups and
+  labels) puts `plainLabel` on labels and inline choices only.
+- **The manifest holds a count Nova refuses.**
+  `questions/jr-count-naming-a-single-select-question-whose-every-choice` reads HELD, while
+  `lib/commcare/validator/rules/field.ts::emptyRepeatXPath` raises `REPEAT_COUNT_TYPE` for every direct
+  count whose question is not an integer. *Step 5:* pull request 3 admits it.
+- **The builder has no repeat count editor.** The research says "The builder, SA and MCP refuse any
+  other count when it is written"; the builder has no repeat mode, count or query editor
+  (`components/builder/editor/fieldEditorSchemas.ts`, the repeat schema's comment: "reachable only via
+  the SA tool surface"). *Step 5:* pull request 12 (builder) adds the Rows editor
+  (`components/builder/editor/fields/RepeatRowsEditor.tsx`), which refuses a count that is not a whole
+  number.
+- **The research quotes contract sentences `main` no longer holds.** "Step 2 renames every such node but
+  the repeat-count snapshots, which step 5 removes" (README, "Contracts this work changes") and step 5's
+  outline's "`__nova_` count container": no count snapshot remains (`lib/commcare/CLAUDE.md`,
+  `count_bound`: "No count setvalues or count snapshots remain"; the helper is `nova_count_<repeatId>`),
+  and the `__nova_operations` container sentence became "Nova reserves no question names". The research
+  quotes "a reserved `__nova_subcases` container", where `main` says "a `nova_subcases` group", and
+  "`survey` touches no case", where `main` says "`survey` opens no primary case; it may still update
+  declared worker properties". Its table names the `publish-placement` fact in four files; `main` states
+  it in two more, `lib/collab/CLAUDE.md` and the comment on the kinds in `lib/db/types.ts`. *Step 5:*
+  step 5's half of the count row is defect 30's direct `jr:count` (pull request 3), and pull request 6
+  (publish placements) rewrites the two further files with the others.
+- **Publish already checks `VIEW_FORM_ATTACHMENT`.** The research ("Case writes") presents it as step 5
+  work; step 2 built it (`lib/commcare/projectSpaceCompatibility.ts`, the capability `attachment-links`
+  in `HQ_PRIVATE_FEATURE_FLAG_SYMBOLS`). *Step 5:* pull request 4 widens its predicate (below).
+- **`app_changes.kind` has no CHECK.** Step 5's outline spoke of the `publish-placement` kind's CHECK;
+  the closed set is the trigger function `nova_admit_app_change_insert()`
+  (`lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenDatabaseMigration.ts`),
+  registered by signature in `lib/db/privilegeConvergence.ts`. *Step 5:* pull request 6's migration
+  `20261110000000_hq_round_trip_case_writes_publish_placement` replaces the function.
+- **`proof/README.md`'s "Identity moves" says the file "stays empty by design".** That contradicts the
+  research ("Proof when a feature is built": a migration's decided identity moves are what proof 1
+  accepts) and step 5's exit, which observes a republish after each migration. *Step 5:* pull request 1
+  (lane mechanics) scopes each move to the migration witnesses it names (`documents`), whose A is a
+  retained export from before the migration (`proof/migrations/<id>/`), and rewrites the paragraph.
+- **Planning's own first readings, corrected so they are not repeated.** HQ's case block builder is
+  `xform.py::XForm._create_casexml`, not `_create_casexml_1`; HQ's refusal of the `previous` workflow
+  beside inline search is in `helpers/validators.py::FormBaseValidator.validate_for_module`, not
+  `validate_post_form_workflow`; the corpus's CommCare Supply field is `projectSettings.commtrack`
+  (`proof/corpus/documents.ts`), and only the verdict key is `minimumConfiguration.commtrackEnabled`;
+  and the known register holds 27 of defect 25's proof 4 entries on `container-nested-query` and 2 on
+  `container-query-conditional-relative`, not 26 and 3 (the total of 101 agrees). *Step 5:* pull request
+  1 adds the verdict key, pull request 8 writes it, and pull request 3 moves defect 25's entries as the
+  register holds them.
+
+**Defects of Nova's own, found by reading.**
+
+- **The `VIEW_FORM_ATTACHMENT` check misses a link a case list shows through a relation.**
+  `lib/commcare/projectSpaceCompatibility.ts::linkWriteIsShown` requires the column's module to be of the
+  write's case type and reads only a `prop` term whose `via` is absent or `self`, so a child menu's
+  calculated column that shows its parent's captured-file link asks nothing of the project space, while
+  HQ serves the file to a mobile worker only with the flag
+  (`corehq/apps/reports/views.py::_can_view_form_attachment`). No lane document holds such a column.
+  *Step 5:* pull request 4 reads every link write wherever it lands, and a calculated column in a module
+  of any case type whose `prop` term lands there (`relationDestinationCaseType`, the reader
+  `lib/commcare/distanceSearches.ts` uses).
+- **Preview's Android pager decides a group's screen by whether a label is stored, where the wire decides
+  by its text.** `lib/preview/engine/formEngine.ts::groupDrawsAsFieldList` returns `Boolean(field.label)`,
+  while the XForm builder writes `field-list` on a group whose label registers text in some language
+  (`lib/commcare/xform/builder.ts::buildContainer`, `hasLabel`; `lib/domain/platformUses.ts::groupLabelShows`).
+  A stored empty label reads true in Preview, and a group whose label only a translation fills reads
+  false. `lib/commcare/__tests__/platformQuestionPages.test.ts` holds the detector to the builder, not
+  Preview's pager, so no check observes it. *Step 5:* pull request 9 makes both read `group.fieldList`.
+- **Preview shows Continue on a case list menu item's case detail on Android and goes home.** Android
+  shows that detail in view mode with **Done** (`select.detail.bypass`), whose result leaves the list
+  showing (`EntityDetailActivity.java`, `viewMode`; `EntitySelectActivity.java::onActivityResult`;
+  `app/assets/locales/android_translatable_strings.txt`). Preview is not a lane reader, so no check
+  observes it. *Step 5:* pull request 10 shows **Done** and returns to the list on Android. Subject to
+  the device half of the reader run by hand at pull request 10's head: if the device shows Continue and
+  goes home, this bullet is withdrawn.
+- **A case list link's icon or spoken label can stay stored with no effect.** `setCaseListMeta`
+  (`lib/doc/types.ts`) admits `icon` and `audioLabel` on any module, and
+  `lib/doc/scaffolds.ts::moduleFormHostMutations` turns `caseListOnly` off when a form is added without
+  clearing them, while the emitters write `case_list.media_*` only under `caseListOnly`. No lane check
+  observes a stored slot with no wire effect. *Step 5:* pull request 10 moves the slots into
+  `caseListMenuItem`, and pull request 14 drops each dead reference and names it in its report.
+- **A root question named like a block HQ's build appends collides with it.** A question named
+  `subcase_<n>` beside a basic child case's block, or `commcare_usercase` in a form that writes the
+  worker's record, meets the element HQ appends to the data root with no existence check
+  (`xform.py::XForm._create_casexml`, the subcase loop; `_add_usercase`), and
+  `lib/domain/questionId.ts::RESERVED_QUESTION_IDS` reserves only `case` for this reason; from step 5
+  `case_<tag>` joins the class. *Step 5:* subject to pull request 7's first push over
+  `targeted-root-case-block-names` (the bar, proof 3 and a `CaseOperationRuntimeTest` scenario; the
+  plan's advanced-modules G3): if HQ's build or Core refuses the form, or a case write is lost or binds
+  to the question, pull request 7 makes such a slot ineligible (`appended-name-taken`, the operation
+  takes Save to Case) and refuses a held placement whose name a question takes
+  (`HELD_BLOCK_PATH_TAKEN`); if both nodes stay apart and every write lands, it is recorded here as a
+  claim corrected.
+- **A worker property whose slug starts with `_` may not be writable by a basic form.**
+  `lib/domain/users.ts::USER_PROPERTY_SLUG_PATTERN` admits a leading underscore, and HQ checks
+  `usercase_update`'s keys through `validate_property`, which requires a leading letter
+  (`helpers/validators.py::FormValidator.check_actions`, `validate_property`;
+  `models/form_actions.py::FormActions.all_property_names`), reading as "update_case word illegal".
+  *Step 5:* subject to pull request 7's first push over `targeted-worker-underscore-write` (the bar and
+  proof 3; the plan's advanced-modules G4): if the basic write is refused and the Save to Case one lands,
+  pull request 7 sends such a write to Save to Case (`worker-property-name`); if neither lands, a new
+  validator code, `WORKER_PROPERTY_WRITE_NAME`, refuses it; if the basic write lands, it is recorded
+  here as a claim corrected.
+- **The public docs present defect 26's symptom as product behavior.** `content/docs/case-changes.mdx`
+  says "if it names no case, CommCare HQ creates one" of a form link's carried case. No lane check reads
+  docs. *Step 5:* pull request 11 fixes the behavior, and pull request 15 rewrites the sentence.
+- **`_cheapest_edited` fails once the known register names no edited document for a check.**
+  `proof/checks/test_judge_purity.py::_cheapest_edited(check)` asserts a known entry of `check` on an
+  edited document, and `proof/checks/test_manifest.py::test_the_judge_gives_records_read_back_where_hq_cannot_be_imported_what_it_gives_them_here`
+  calls it with `"manifest"`; step 5 moves every such entry, so the test would fail with no lane check
+  observing why. *Step 5:* pull request 1 falls back to the cheapest control a fixed entry of the check
+  names that retains an edit.
+- **Step 4's cutover tests read catalog rows by name alone (a defect in tooling now removed).** Step 4's
+  postcondition fix (`93aef6232a`, squashed into `a8af778e`) made `writer.ts::checkPostconditions` read
+  its checks through their relations (`conrelid`, `pg_attribute`), which was correct, though each
+  relation resolved through `search_path`. Three name-only reads stayed in its tests:
+  `postgresSeed.ts::databaseImage` read `form_attachments_size_check` by `conname` alone, and
+  `writer.postgres.test.ts` read `media_assets_ready_media_format` by name and its columns through
+  `information_schema.columns`. With the App Test namespace the fix itself added, `databaseImage` read the
+  namespace's unchanged copy, so its assertion that a failure after each numbered step leaves the
+  database byte-identical could not see the live size check: a rollback that left it widened would have
+  passed. Its `ALTER DATABASE ... SET enable_indexscan = off` also persisted for later tests of that
+  harness database (cost only). *Step 5:* the tooling is gone from `main`, so nothing is repaired; pull
+  request 14 carries the lesson in its reads and its tests' alike: every `pg_catalog` read goes through
+  `scripts/lib/hqRoundTripCaseWrites/catalog.ts`, each naming its relation by schema and name, held by
+  `catalog.postgres.test.ts` over an App Test namespace decoy that precedes the live row in a compacted
+  heap.
+
+**Facts of the lane the stack keeps.**
+
+- **A register entry is keyed by its document and its path, so the stack keeps an order.** Defect 23's
+  entries on the `case-extension-*` documents sit under `nova_subcases/nova_subcase_*`, which pull request
+  7 moves, so attachment mode leaves in pull request 2 before pull requests 4 and 7; defect 25's entries
+  on `case-operation-query` move in pull request 3 before pull request 4 moves its operation paths; and
+  defect 21's entry on `expander-form-links-emission-forwards-literal-condition-47c96355-0` moves in pull
+  request 10 before pull request 11 rewrites that document's test, keeping its title so the document
+  keeps its id (`proof/corpus/documents.ts`, `expander-${slug(first)}-${shortHash(first)}-${index}`).
+  Each pull request moves the live entries its change fixes, since an entry whose symptom left its
+  document fails as `unseen` (`proof/checks/registers.py::reconcile`) and an entry may not name a
+  document the corpus no longer holds (`load_known_defects`).
+- **`proof/targeted/__tests__/unproducedInputs.test.ts` states three inputs step 5 produces.** Defect 23
+  without `MM_CASE_PROPERTIES` has no input once attachment mode leaves (pull request 2); a basic child
+  case of its own menu's case type and defect 20's `product_id` datum become produced and checked at
+  publish, and move to `proof/targeted/__tests__/publishChecks.test.ts` (pull request 8). The
+  supply-point read bullet stays.
+
 ### Found of the lane itself
 
 64. **No app the lane built was one Web Apps lists.** HQ sets a new app's
