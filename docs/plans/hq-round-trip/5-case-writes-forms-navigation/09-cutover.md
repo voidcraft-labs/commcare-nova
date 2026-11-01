@@ -310,7 +310,7 @@ This departs from step 4 (whose sources parsed at the head) and follows step 3's
 | `targeted-migration-attachment` | same | C4, C5 |
 | `targeted-migration-extension-children` | same | M1 to M3 of part 02, C2's extension buckets |
 | `targeted-migration-query-repeats` | same | Q1 |
-| `targeted-migration-form-links` | same | L1 to L5, in an app declared Web Apps (its several-case menu Batch is unavailable on Android) |
+| `targeted-migration-form-links` | same | L1 to L4, in an app declared for both platforms |
 | `targeted-migration-groups-preloads` | same | Q4, C7 |
 | `targeted-migration-repeat-counts` | same | Q2, Q3 |
 | `pre-step-own-close-operation` | this part, `buildDoc` | C9: a follow-up holding a `close` operation on `session` with a condition and no writes; a second follow-up whose session `close` operation holds two writes; a third whose session `close` operation runs under `forEach` (section 7.4's `own-close-in-repeat`); a close form with a structured close condition and a session `close` operation (section 7.4). Part 08's case-writes witness holds only the first arm |
@@ -318,7 +318,7 @@ This departs from step 4 (whose sources parsed at the head) and follows step 3's
 | `pre-step-registration-updates-own` | this part | C11: a registration whose `update` operation's target is an `expression` reading a Hidden Value `new_id` that calculates the `new-case` datum |
 | `pre-step-renamed-concepts` | this part | M2 and M3 (`caseListOnly` true and false), M4 (a case list icon on a module without `caseListOnly`), M5 with a target language whose overlay holds the no-matches form's label |
 | `pre-step-search-results` | this part | part 05 M1's last row: a search with no visible field and no effective filter in an app declaring both |
-| `pre-step-otherwise-unoffered` | this part | L3 and L6: a several-case form with a conditional link and a stored `postSubmit` that `main` admits beside links only through `postSubmitDestinationsAdmitted`'s several-case waiver, which the head's `otherwiseDestinationsOffered` does not offer |
+| `pre-step-otherwise-unoffered` | this part | L3, L5 and L6: a several-case form with a conditional link and a stored `postSubmit` that `main` admits beside links only through `postSubmitDestinationsAdmitted`'s several-case waiver, which the head's `otherwiseDestinationsOffered` does not offer (L3, L6); and a form in child menu Household members whose link to child menu Member notes carries the parent menu's selected household, datums on a menu link as `main` admits (L5). The form-links witness holds neither shape: `main`'s export of the L5 link shows a refused manifest use and HQ's form settings save drops the L6 fallback, which would need a live register entry |
 | `pre-step-preload-readers` | this part | C7's `load-time-value-reads-case`: a later Hidden Value default and a query repeat's ids query reading a preloaded writer |
 
 `fixtures/pre-step/digests.json` maps each file to its `canonicalJsonDigest`.

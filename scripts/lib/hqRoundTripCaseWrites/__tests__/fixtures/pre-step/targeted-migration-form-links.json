@@ -39,8 +39,7 @@
 	],
 	"appSettings": {
 		"showSavedForms": false,
-		"showIncompleteForms": false,
-		"runsOnlyOn": "web-apps"
+		"showIncompleteForms": false
 	},
 	"modules": {
 		"353036f8-e13f-57ac-a411-3cc2108e4ba8": {
@@ -86,29 +85,6 @@
 			"name": "Visits",
 			"uuid": "cbb0447d-2738-5471-ad8f-138391f2718d"
 		},
-		"a5cfe43b-34d0-583f-a868-924143ddc88b": {
-			"caseListConfig": {
-				"columns": [
-					{
-						"field": "case_name",
-						"header": "Name",
-						"kind": "plain",
-						"uuid": "f1a15ffe-6c5b-5452-adc9-35ec108c8c2e"
-					}
-				],
-				"detailColumnOrder": ["f1a15ffe-6c5b-5452-adc9-35ec108c8c2e"],
-				"listColumnOrder": ["f1a15ffe-6c5b-5452-adc9-35ec108c8c2e"],
-				"searchInputs": [],
-				"selection": {
-					"kind": "multiple",
-					"maximum": 5
-				}
-			},
-			"caseType": "patient",
-			"id": "batch",
-			"name": "Batch",
-			"uuid": "a5cfe43b-34d0-583f-a868-924143ddc88b"
-		},
 		"d88a4a41-7239-581d-a545-79439e1063b1": {
 			"caseListConfig": {
 				"columns": [
@@ -129,26 +105,6 @@
 			"parentCaseModuleUuid": "81207617-b17d-513b-a91a-c1d1379afd27",
 			"parentModuleUuid": "81207617-b17d-513b-a91a-c1d1379afd27",
 			"uuid": "d88a4a41-7239-581d-a545-79439e1063b1"
-		},
-		"52eaf5f6-3874-582a-a814-580493c347c6": {
-			"caseListConfig": {
-				"columns": [
-					{
-						"field": "case_name",
-						"header": "Name",
-						"kind": "plain",
-						"uuid": "b52daaf7-1eec-55db-a8e1-1a75b51798e7"
-					}
-				],
-				"detailColumnOrder": ["b52daaf7-1eec-55db-a8e1-1a75b51798e7"],
-				"listColumnOrder": ["b52daaf7-1eec-55db-a8e1-1a75b51798e7"],
-				"searchInputs": []
-			},
-			"caseType": "visit",
-			"id": "patient_notes",
-			"name": "Patient notes",
-			"parentModuleUuid": "81207617-b17d-513b-a91a-c1d1379afd27",
-			"uuid": "52eaf5f6-3874-582a-a814-580493c347c6"
 		}
 	},
 	"forms": {
@@ -268,83 +224,16 @@
 			"uuid": "e1bea635-3e2c-52b9-a568-7997919aa565"
 		},
 		"3c5ced7e-5efd-5752-a3c8-95e0050cae2e": {
-			"formLinks": [
-				{
-					"datums": [
-						{
-							"name": {
-								"kind": "selected-case",
-								"module": "81207617-b17d-513b-a91a-c1d1379afd27"
-							},
-							"xpath": {
-								"kind": "term",
-								"term": {
-									"datum": {
-										"kind": "selected-case",
-										"module": "81207617-b17d-513b-a91a-c1d1379afd27"
-									},
-									"kind": "session-datum"
-								}
-							}
-						}
-					],
-					"target": {
-						"moduleUuid": "52eaf5f6-3874-582a-a814-580493c347c6",
-						"type": "module"
-					},
-					"uuid": "78ac5e80-429e-5e94-a674-5a4eb8057e90"
-				}
-			],
 			"id": "record_visit",
 			"name": "Record visit",
 			"type": "followup",
 			"uuid": "3c5ced7e-5efd-5752-a3c8-95e0050cae2e"
-		},
-		"a9ca067b-2ac7-57a7-afc9-893d86864f6b": {
-			"id": "add_note",
-			"name": "Add note",
-			"type": "followup",
-			"uuid": "a9ca067b-2ac7-57a7-afc9-893d86864f6b"
 		},
 		"41d38027-018b-5bd3-a495-06edca563537": {
 			"id": "review_visit",
 			"name": "Review visit",
 			"type": "followup",
 			"uuid": "41d38027-018b-5bd3-a495-06edca563537"
-		},
-		"de725b9a-5123-5f3e-a8d4-0e18c927dc2a": {
-			"formLinks": [
-				{
-					"condition": {
-						"kind": "eq",
-						"left": {
-							"kind": "term",
-							"term": {
-								"field": "username",
-								"kind": "session-user",
-								"source": "worker-record"
-							}
-						},
-						"right": {
-							"kind": "term",
-							"term": {
-								"kind": "literal",
-								"value": "alice"
-							}
-						}
-					},
-					"target": {
-						"moduleUuid": "81207617-b17d-513b-a91a-c1d1379afd27",
-						"type": "module"
-					},
-					"uuid": "282d79f2-a12a-593e-ace5-d3f4d4be1a42"
-				}
-			],
-			"id": "batch_review",
-			"name": "Batch review",
-			"postSubmit": "previous",
-			"type": "followup",
-			"uuid": "de725b9a-5123-5f3e-a8d4-0e18c927dc2a"
 		}
 	},
 	"fields": {
@@ -400,19 +289,6 @@
 			},
 			"uuid": "ef7737f3-be59-53ef-adf7-6549d0b1e143"
 		},
-		"c840492e-9d11-5f7a-a7f1-4b0ca7f3dade": {
-			"id": "note",
-			"kind": "text",
-			"label": {
-				"parts": [
-					{
-						"kind": "text",
-						"text": "Note"
-					}
-				]
-			},
-			"uuid": "c840492e-9d11-5f7a-a7f1-4b0ca7f3dade"
-		},
 		"38fad710-71af-5b74-a892-aacad7172040": {
 			"id": "note",
 			"kind": "text",
@@ -425,28 +301,13 @@
 				]
 			},
 			"uuid": "38fad710-71af-5b74-a892-aacad7172040"
-		},
-		"942e0b6e-f5d2-5cb2-ab4b-57300efdc1fe": {
-			"id": "note",
-			"kind": "text",
-			"label": {
-				"parts": [
-					{
-						"kind": "text",
-						"text": "Note"
-					}
-				]
-			},
-			"uuid": "942e0b6e-f5d2-5cb2-ab4b-57300efdc1fe"
 		}
 	},
 	"moduleOrder": [
 		"353036f8-e13f-57ac-a411-3cc2108e4ba8",
 		"81207617-b17d-513b-a91a-c1d1379afd27",
 		"d88a4a41-7239-581d-a545-79439e1063b1",
-		"52eaf5f6-3874-582a-a814-580493c347c6",
-		"cbb0447d-2738-5471-ad8f-138391f2718d",
-		"a5cfe43b-34d0-583f-a868-924143ddc88b"
+		"cbb0447d-2738-5471-ad8f-138391f2718d"
 	],
 	"formOrder": {
 		"353036f8-e13f-57ac-a411-3cc2108e4ba8": [
@@ -459,14 +320,8 @@
 		"cbb0447d-2738-5471-ad8f-138391f2718d": [
 			"41d38027-018b-5bd3-a495-06edca563537"
 		],
-		"a5cfe43b-34d0-583f-a868-924143ddc88b": [
-			"de725b9a-5123-5f3e-a8d4-0e18c927dc2a"
-		],
 		"d88a4a41-7239-581d-a545-79439e1063b1": [
 			"3c5ced7e-5efd-5752-a3c8-95e0050cae2e"
-		],
-		"52eaf5f6-3874-582a-a814-580493c347c6": [
-			"a9ca067b-2ac7-57a7-afc9-893d86864f6b"
 		]
 	},
 	"fieldOrder": {
@@ -482,14 +337,8 @@
 		"3c5ced7e-5efd-5752-a3c8-95e0050cae2e": [
 			"ef7737f3-be59-53ef-adf7-6549d0b1e143"
 		],
-		"a9ca067b-2ac7-57a7-afc9-893d86864f6b": [
-			"c840492e-9d11-5f7a-a7f1-4b0ca7f3dade"
-		],
 		"41d38027-018b-5bd3-a495-06edca563537": [
 			"38fad710-71af-5b74-a892-aacad7172040"
-		],
-		"de725b9a-5123-5f3e-a8d4-0e18c927dc2a": [
-			"942e0b6e-f5d2-5cb2-ab4b-57300efdc1fe"
 		]
 	}
 }

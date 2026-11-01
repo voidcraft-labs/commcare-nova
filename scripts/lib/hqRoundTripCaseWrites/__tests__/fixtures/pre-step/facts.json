@@ -28,6 +28,16 @@
 					"formUuid": "0998dab8-a4c1-5d8c-a4b1-1432616b7ba8",
 					"unit": "own",
 					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "088bfe2b-0c70-576f-a998-26c1ae609f3b",
+					"unit": "own",
+					"emitted": "basic-own"
+				},
+				{
+					"formUuid": "7005ecf2-f599-5a7e-abb7-9ec8ae5a2782",
+					"unit": "own",
+					"emitted": "basic-own"
 				}
 			],
 			"preloadedWriters": {},
@@ -150,7 +160,9 @@
 			],
 			"preloadedWriters": {},
 			"labelledGroups": [],
-			"searchShapes": { "553670cc-823a-53a0-a0d3-aa9a25fd4a5c": "search-first" }
+			"searchShapes": {
+				"553670cc-823a-53a0-a0d3-aa9a25fd4a5c": "search-first"
+			}
 		},
 		"pre-step-search-results": {
 			"placements": [
@@ -162,7 +174,9 @@
 			],
 			"preloadedWriters": {},
 			"labelledGroups": [],
-			"searchShapes": { "dd485f97-ddd2-5b4b-af42-aff9953fa647": "list-first" }
+			"searchShapes": {
+				"dd485f97-ddd2-5b4b-af42-aff9953fa647": "list-first"
+			}
 		},
 		"targeted-migration-attachment": {
 			"placements": [
@@ -318,11 +332,6 @@
 				},
 				{
 					"formUuid": "3c5ced7e-5efd-5752-a3c8-95e0050cae2e",
-					"unit": "own",
-					"emitted": "basic-own"
-				},
-				{
-					"formUuid": "a9ca067b-2ac7-57a7-afc9-893d86864f6b",
 					"unit": "own",
 					"emitted": "basic-own"
 				},

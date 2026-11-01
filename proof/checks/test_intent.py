@@ -220,7 +220,9 @@ def test_formplayer_gives_the_session_values_preview_states_for_web_apps(tmp_pat
     (tmp_path / intent.FORMPLAYER_SESSION).write_text(
         json.dumps({"/data/app_version": "Formplayer Version: 2.64", "/data/device_id": "Formplayer"})
     )
-    document = SimpleNamespace(id="targeted-session-context-reads", root=tmp_path, exports={"minimum": None})
+    document = SimpleNamespace(
+        id="targeted-session-context-reads", root=tmp_path, exports={"minimum": None}, migration_witness=False
+    )
 
     def submitted(*instances):
         return {"runs": [{"steps": [{"submissions": [{"path": "/r", "instance": i, "files": 0} for i in instances]}]}]}

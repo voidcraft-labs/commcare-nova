@@ -454,7 +454,7 @@ is a decision; the part named gives its evidence.
     document sent, `baseline-unreadable`); part 04, Departures; part 05's Departures (no App Test
     session rewrite, the registration label unit); part 06's Departures table; part 07 §8; part 08,
     Departures (the witnesses as the cutover's republished documents, `flagsOff`, the split targeted
-    document, the case-writes witness's two close forms, the form-links witness declared Web Apps,
+    document, the case-writes witness's two close forms, the form-links witness holding L1 to L4,
     the capture's record applied from pull request 6); part 09, Departures (the blocker codes, the
     frozen classifier's production check, the new causes, the C10 and C11 fixtures' shapes); part 10, Departures (the tests excluded from the removal's diff check).
 

@@ -834,7 +834,7 @@ in; every part uses the names in the first column.
 | `targeted-migration-attachment` | 1 | both | §5.2 | defect 23's migration | proof's |
 | `targeted-migration-extension-children` | 1 | both | §5.2 | defect 24's migration, M1 to M3 | proof's |
 | `targeted-migration-query-repeats` | 1 | both | §5.2 | defect 25's migration, Q1 | proof's |
-| `targeted-migration-form-links` | 1 | Web Apps | §5.2 | defect 26's migration, L1 to L6 | proof's |
+| `targeted-migration-form-links` | 1 | both | §5.2 | defect 26's migration, L1 to L4 | proof's |
 | `targeted-migration-groups-preloads` | 1 | both | §5.2 | defects 27 and 28's migration, Q4, C7 | proof's |
 | `targeted-migration-repeat-counts` | 1 | both | §5.2 | defect 30's migration, Q2, Q3 | proof's |
 | `targeted-query-repeat-placements` | 3 | both | a survey form with (a) `visits`, model iteration over `'a b'` at the root; (b) `readings`, whose query reads `#form/site` (count); (c) `children`, count placement in a user repeat `households`, its query reading the outer row's answer; (d) `stock`, count placement whose results shrink when `#form/site` changes, with a case operation per row | each placement's two Vellum saves keep it (proof 4); Core and Formplayer rows; the intent values: (a) two rows `a`, `b`; (b) rows follow the answer; (c) each household's ids; (d) after the shrink, only the relevant rows and their case blocks are submitted | proof's and part 04's (same name) |
@@ -949,14 +949,15 @@ what the evidence shows.
    `nova_query_count_r` and `item/nova_query_id_r`, and no answer path (part 04 keeps `/data/r/item` in
    both placements), defect 25. Under part 04's G1 outcome C (the form builder cannot keep the count
    placement's outer Group) the answer paths move too, and the expected moves add them.
-6. **`targeted-migration-form-links`** (Web Apps; pull request 11). Pre-step: form Intake with two
+6. **`targeted-migration-form-links`** (both; pull request 11). Pre-step: form Intake with two
    conditional links and a terminal unconditional link; form Triage with a conditional link and a stored
-   `postSubmit`; form Refer in root menu Patients with a link to its child menu Patient visits, which HQ does not offer from it (L4); form
-   Record visit in child menu Patient visits with a link to child menu Patient notes carrying the
-   selected patient (datums on a menu link, as `main` allows); and, in menu Batch selecting several
-   cases, form Batch review with a conditional link beside `postSubmit: "previous"`. Declared Web Apps
-   because the several-case menu is unavailable on Android. Migrated: part 06's map of each (L1 to L6). Expected moves: none in proof
-   1's table (links and datums are no identities); the suite's stack moves, held in B's proof 4.
+   `postSubmit`; and form Refer in root menu Patients with a link to its child menu Patient visits,
+   which HQ does not offer from it (L4). It holds no menu link carrying datums and no several-case form.
+   L5 and L6 are held by part 09's `pre-step-otherwise-unoffered` fixture instead: `main`'s export of a
+   menu link carrying datums shows a refused manifest use (L5), and HQ's form settings save drops the
+   `previous` fallback of a several-case form (L6), so either shape on the witness would need a live
+   register entry. Migrated: part 06's map of each (L1 to L4). Expected moves: none in proof 1's table
+   (links are no identities); the suite's stack moves, held in B's proof 4.
 7. **`targeted-migration-groups-preloads`** (both; pull requests 4 and 9). Pre-step: follow-up Check with
    a labelled group `vitals`, a labelled group `household` holding a user repeat, a writer `weight` of
    the form's own case with an authored default, and a later Hidden Value whose default reads `weight`.
@@ -1324,14 +1325,19 @@ run, its first commit holding the eight pre-step specs, `migrationWitness` read 
 source name, and the retained-reads migration groups reading the corpus document's export. Then:
 
 ```bash
-gh run download <run id> -n proof-corpus-<attempt>.tar.zst -D <dir>
+artifact=$(gh api repos/voidcraft-labs/commcare-nova/actions/runs/<run id>/artifacts \
+  --jq '.artifacts[]|select(.name=="proof-corpus-<attempt>.tar.zst")|.id')
+gh api repos/voidcraft-labs/commcare-nova/actions/artifacts/$artifact/zip > <dir>/proof-corpus-<attempt>.tar.zst
 mkdir <dir>/corpus && zstd -dc <dir>/proof-corpus-<attempt>.tar.zst | tar -x -C <dir>/corpus
 for id in <the eight>; do python3 -m proof.checks.controls <dir>/corpus "$id" --migration-a; done
 gh run download <run id> -n proof-out-<shard>-<attempt> -D <dir>/out   # the shards that ran test_retained_reads.py
 cp -r <dir>/out/hq-reads/targeted-migration-* proof/hq-reads/
 ```
 
-committed as the pull request's second commit, after which the capture republishes over the retained A
+The corpus artifact is uploaded unzipped, so `gh run download -n proof-corpus-<attempt>.tar.zst`
+fails with "not a valid zip file"; the artifact's `zip` endpoint, named by the id the run's
+artifact list gives, fetches it as above.
+The result is committed as the pull request's second commit, after which the capture republishes over the retained A
 and the groups read `proof/migrations/<id>/`.
 - *Outcome A:* every witness is emitted, its A is retained, and HQ's read of each holds a block
   `publishedCaseBlocks` finds for every placement class of §5.2: the second commit's lane passes with the
@@ -1580,10 +1586,11 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   (§5.2 item 2), where the plan put both on the follow-up Visit: `main`'s gate admits a close condition
   only on a close form, one per form (`lib/commcare/validator/rules/form.ts::closeConditionValidation`),
   so Visit keeps its writes and operations and each condition is its own close form's.
-- **The form-links witness is declared Web Apps** (§5.1, §5.2 item 6), where the plan declared both:
-  its several-case menu Batch is unavailable on Android, and `main`'s gate refuses a feature an app's
-  platforms cannot run (`lib/commcare/validator/rules/platforms.ts::platformFeatureAvailability`,
-  `several-cases` in `lib/domain/platforms.ts`), as for the case-writes witness's several-case menu.
+- **The form-links witness holds L1 to L4 alone** (§5.1, §5.2 item 6), where the plan gave it L5 and
+  L6 too: `main`'s export of its menu link carrying datums showed a refused manifest use (L5), and HQ's
+  form settings save dropped the `previous` fallback of its several-case form (L6), and this plan adds
+  no live register entry. Part 09's `pre-step-otherwise-unoffered` fixture holds both shapes. With the
+  several-case menu gone the witness declares both platforms, as the plan first wrote.
 - **Pull request 1's placement record is applied by nothing** (§1.3), where the plan had
   `emitCorpus.ts` apply the empty list to D: at `main` the corpus plans D′ before the first publish's
   capture runs, so pull request 6 moves that capture ahead of edit planning in `emitCorpus.ts` and

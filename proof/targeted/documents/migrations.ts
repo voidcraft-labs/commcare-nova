@@ -37,11 +37,8 @@
  *   answer, and one under a group whose relevance reads an answer.
  * - `targeted-migration-form-links` (defect 26): a survey with two
  *   conditional links and an unconditional last one; a survey with a
- *   conditional link and a stored after-submit; a follow-up linking to a
- *   child menu; a link to a menu carrying the selected case; and, in a menu
- *   selecting several cases, a form with a conditional link beside a return
- *   to the previous screen. Declared Web Apps, where the menu selecting
- *   several cases opens.
+ *   conditional link and a stored after-submit; and a follow-up in a root
+ *   menu linking to its child menu, which HQ does not offer from it.
  * - `targeted-migration-groups-preloads` (defects 27 and 28): two labelled
  *   groups, one holding a user repeat; a writer of the form's own case with
  *   an authored default; a later Hidden Value whose default reads it.
@@ -229,7 +226,7 @@ export function migrationSearchWorkflow() {
 		doc,
 		expected: {
 			intent: [
-				answerHeld("note-held", visit, "/data/note", "seen", "A", {
+				answerHeld("note-held", visit, "/data/note", "seen", "B", {
 					command: "m0-f0",
 					caseId: "targeted-visit",
 				}),
@@ -497,7 +494,7 @@ export function migrationCaseWrites() {
 		doc,
 		expected: {
 			intent: [
-				answerHeld("note-held", visit, "/data/visit_note", "seen", "A", {
+				answerHeld("note-held", visit, "/data/visit_note", "seen", "B", {
 					command: "m1-f0",
 					caseId: "targeted-household",
 				}),
@@ -804,8 +801,8 @@ export function migrationQueryRepeats() {
 			},
 		],
 	});
-	const expectation = (exportName: "local" | "A"): Expectation => ({
-		id: `later-rows-${exportName === "local" ? "local" : "a"}`,
+	const expectation = (exportName: "local" | "B"): Expectation => ({
+		id: `later-rows-${exportName === "local" ? "local" : "b"}`,
 		export: exportName,
 		form: census,
 		request: {
@@ -822,7 +819,7 @@ export function migrationQueryRepeats() {
 		id,
 		rows: ["25"],
 		doc,
-		expected: { intent: [expectation("local"), expectation("A")] },
+		expected: { intent: [expectation("local"), expectation("B")] },
 	});
 }
 
@@ -833,7 +830,6 @@ export function migrationFormLinks() {
 	const triage = uuid("triage");
 	const patients = uuid("patients");
 	const patientVisits = uuid("patient-visits");
-	const patientNotes = uuid("patient-notes");
 	const visits = uuid("visits");
 	const alice = "#user/username = 'alice'";
 	const bob = "#user/username = 'bob'";
@@ -843,8 +839,6 @@ export function migrationFormLinks() {
 		{
 			appId: id,
 			appName: "Referrals",
-			// The several-case menu runs in Web Apps alone.
-			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 			caseTypes: [
 				caseType("patient"),
 				caseType("visit", [], { type: "patient" }),
@@ -922,36 +916,7 @@ export function migrationFormLinks() {
 							uuid: uuid("record-visit"),
 							name: "Record visit",
 							type: "followup",
-							formLinks: [
-								{
-									uuid: uuid("record-notes"),
-									target: { type: "module", moduleUuid: patientNotes },
-									datums: [
-										{
-											name: { kind: "selected-case", module: patients },
-											xpath: term({
-												kind: "session-datum",
-												datum: { kind: "selected-case", module: patients },
-											}),
-										},
-									],
-								},
-							],
 							fields: [note(uuid("record-note"))],
-						},
-					],
-				},
-				{
-					uuid: patientNotes,
-					name: "Patient notes",
-					caseType: "visit",
-					caseListConfig: caseListOf([nameColumn("patient-notes")]),
-					forms: [
-						{
-							uuid: uuid("add-note"),
-							name: "Add note",
-							type: "followup",
-							fields: [note(uuid("add-note-note"))],
 						},
 					],
 				},
@@ -969,36 +934,11 @@ export function migrationFormLinks() {
 						},
 					],
 				},
-				{
-					uuid: uuid("batch"),
-					name: "Batch",
-					caseType: "patient",
-					caseListConfig: caseListOf([nameColumn("batch")], {
-						selection: { kind: "multiple", maximum: 5 },
-					}),
-					forms: [
-						{
-							uuid: uuid("batch-review"),
-							name: "Batch review",
-							type: "followup",
-							postSubmit: "previous",
-							formLinks: [
-								{
-									uuid: uuid("batch-alice"),
-									condition: alice,
-									target: { type: "module", moduleUuid: patients },
-								},
-							],
-							fields: [note(uuid("batch-note"))],
-						},
-					],
-				},
 			],
 		},
 		(built) => {
 			built.modules[patientVisits].parentModuleUuid = patients;
 			built.modules[patientVisits].parentCaseModuleUuid = patients;
-			built.modules[patientNotes].parentModuleUuid = patients;
 		},
 	);
 	return witness({
@@ -1007,7 +947,7 @@ export function migrationFormLinks() {
 		doc,
 		expected: {
 			intent: [
-				answerHeld("note-held", uuid("intake"), "/data/note", "seen", "A"),
+				answerHeld("note-held", uuid("intake"), "/data/note", "seen", "B"),
 			],
 		},
 	});
@@ -1181,8 +1121,8 @@ export function migrationRepeatCounts() {
 			},
 		],
 	});
-	const expectation = (exportName: "local" | "A"): Expectation => ({
-		id: `counted-rows-${exportName === "local" ? "local" : "a"}`,
+	const expectation = (exportName: "local" | "B"): Expectation => ({
+		id: `counted-rows-${exportName === "local" ? "local" : "b"}`,
 		export: exportName,
 		form,
 		request: {
@@ -1199,6 +1139,6 @@ export function migrationRepeatCounts() {
 		id,
 		rows: ["30"],
 		doc,
-		expected: { intent: [expectation("local"), expectation("A")] },
+		expected: { intent: [expectation("local"), expectation("B")] },
 	});
 }

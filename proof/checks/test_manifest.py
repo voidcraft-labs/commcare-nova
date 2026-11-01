@@ -842,7 +842,9 @@ def _flag_records(*, b_build=("CASE_LIST_TILE",)):
         b_edit={"same_as": "b"},
     )
     exports = {"minimum": object()}
-    document = SimpleNamespace(id="doc", exports=exports, edit=SimpleNamespace(exports=exports))
+    document = SimpleNamespace(
+        id="doc", exports=exports, edit=SimpleNamespace(exports=exports), migration_witness=False
+    )
     return document, records
 
 

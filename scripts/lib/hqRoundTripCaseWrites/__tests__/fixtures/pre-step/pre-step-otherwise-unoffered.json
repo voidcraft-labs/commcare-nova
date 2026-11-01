@@ -34,6 +34,23 @@
 					}
 				}
 			]
+		},
+		{
+			"name": "member",
+			"properties": [
+				{
+					"name": "case_name",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Name"
+							}
+						]
+					}
+				}
+			],
+			"parent_type": "household"
 		}
 	],
 	"appSettings": {
@@ -83,6 +100,47 @@
 				"listColumnOrder": ["8cfc0d41-2b43-547d-a8e9-0ff32c989531"],
 				"detailColumnOrder": ["8cfc0d41-2b43-547d-a8e9-0ff32c989531"]
 			}
+		},
+		"f4350bee-4675-5e2a-a820-e284c0f9f8fe": {
+			"uuid": "f4350bee-4675-5e2a-a820-e284c0f9f8fe",
+			"id": "household_members",
+			"name": "Household members",
+			"caseType": "member",
+			"caseListConfig": {
+				"columns": [
+					{
+						"uuid": "5d1690a0-03f2-55ac-aa2c-2d36d2643910",
+						"kind": "plain",
+						"field": "case_name",
+						"header": "Name"
+					}
+				],
+				"searchInputs": [],
+				"listColumnOrder": ["5d1690a0-03f2-55ac-aa2c-2d36d2643910"],
+				"detailColumnOrder": ["5d1690a0-03f2-55ac-aa2c-2d36d2643910"]
+			},
+			"parentModuleUuid": "5ebed2b5-1bbd-5561-a3be-1d7f5b37c905",
+			"parentCaseModuleUuid": "5ebed2b5-1bbd-5561-a3be-1d7f5b37c905"
+		},
+		"9abc42ed-7f90-5791-a0cf-23bbd480427d": {
+			"uuid": "9abc42ed-7f90-5791-a0cf-23bbd480427d",
+			"id": "member_notes",
+			"name": "Member notes",
+			"caseType": "member",
+			"caseListConfig": {
+				"columns": [
+					{
+						"uuid": "c75cf3f5-2329-5b99-acec-133bfa9d38e5",
+						"kind": "plain",
+						"field": "case_name",
+						"header": "Name"
+					}
+				],
+				"searchInputs": [],
+				"listColumnOrder": ["c75cf3f5-2329-5b99-acec-133bfa9d38e5"],
+				"detailColumnOrder": ["c75cf3f5-2329-5b99-acec-133bfa9d38e5"]
+			},
+			"parentModuleUuid": "5ebed2b5-1bbd-5561-a3be-1d7f5b37c905"
 		}
 	},
 	"forms": {
@@ -124,6 +182,45 @@
 			"id": "household_visit",
 			"name": "Household visit",
 			"type": "followup"
+		},
+		"088bfe2b-0c70-576f-a998-26c1ae609f3b": {
+			"uuid": "088bfe2b-0c70-576f-a998-26c1ae609f3b",
+			"id": "household_members_review",
+			"name": "Review",
+			"type": "followup",
+			"formLinks": [
+				{
+					"uuid": "a97554a5-25ae-5ab9-a7f9-a23fd377e6d5",
+					"target": {
+						"type": "module",
+						"moduleUuid": "9abc42ed-7f90-5791-a0cf-23bbd480427d"
+					},
+					"datums": [
+						{
+							"name": {
+								"kind": "selected-case",
+								"module": "5ebed2b5-1bbd-5561-a3be-1d7f5b37c905"
+							},
+							"xpath": {
+								"kind": "term",
+								"term": {
+									"kind": "session-datum",
+									"datum": {
+										"kind": "selected-case",
+										"module": "5ebed2b5-1bbd-5561-a3be-1d7f5b37c905"
+									}
+								}
+							}
+						}
+					]
+				}
+			]
+		},
+		"7005ecf2-f599-5a7e-abb7-9ec8ae5a2782": {
+			"uuid": "7005ecf2-f599-5a7e-abb7-9ec8ae5a2782",
+			"id": "member_notes_review",
+			"name": "Review",
+			"type": "followup"
 		}
 	},
 	"fields": {
@@ -152,11 +249,39 @@
 					}
 				]
 			}
+		},
+		"9470faf9-cc3d-5d65-aee5-e5ebba8f1ac9": {
+			"uuid": "9470faf9-cc3d-5d65-aee5-e5ebba8f1ac9",
+			"kind": "text",
+			"id": "note",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			}
+		},
+		"a266df18-5aa2-5f0c-a6b3-e42244beefa8": {
+			"uuid": "a266df18-5aa2-5f0c-a6b3-e42244beefa8",
+			"kind": "text",
+			"id": "note",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			}
 		}
 	},
 	"moduleOrder": [
 		"a4357aa1-be60-5f2d-a988-8d5b36b09ad1",
-		"5ebed2b5-1bbd-5561-a3be-1d7f5b37c905"
+		"5ebed2b5-1bbd-5561-a3be-1d7f5b37c905",
+		"f4350bee-4675-5e2a-a820-e284c0f9f8fe",
+		"9abc42ed-7f90-5791-a0cf-23bbd480427d"
 	],
 	"formOrder": {
 		"a4357aa1-be60-5f2d-a988-8d5b36b09ad1": [
@@ -164,6 +289,12 @@
 		],
 		"5ebed2b5-1bbd-5561-a3be-1d7f5b37c905": [
 			"0998dab8-a4c1-5d8c-a4b1-1432616b7ba8"
+		],
+		"f4350bee-4675-5e2a-a820-e284c0f9f8fe": [
+			"088bfe2b-0c70-576f-a998-26c1ae609f3b"
+		],
+		"9abc42ed-7f90-5791-a0cf-23bbd480427d": [
+			"7005ecf2-f599-5a7e-abb7-9ec8ae5a2782"
 		]
 	},
 	"fieldOrder": {
@@ -172,6 +303,12 @@
 		],
 		"0998dab8-a4c1-5d8c-a4b1-1432616b7ba8": [
 			"79dc5088-540c-530c-adbd-4cee036d0398"
+		],
+		"088bfe2b-0c70-576f-a998-26c1ae609f3b": [
+			"9470faf9-cc3d-5d65-aee5-e5ebba8f1ac9"
+		],
+		"7005ecf2-f599-5a7e-abb7-9ec8ae5a2782": [
+			"a266df18-5aa2-5f0c-a6b3-e42244beefa8"
 		]
 	}
 }
