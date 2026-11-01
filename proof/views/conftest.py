@@ -52,11 +52,13 @@ def view_documents():
 
 @dataclass(frozen=True)
 class Answer:
-    """HQ's answer to one request: its status, its headers by name, and its body."""
+    """HQ's answer to one request: its status, its headers by name, its body, and what its views raised, each as
+    ``repr`` of the exception (HQ's handler answers a raised exception with an empty 500, so the body never says)."""
 
     status: int
     headers: dict
     body: bytes
+    raised: tuple[str, ...] = ()
 
     @property
     def content_type(self) -> str:
@@ -73,14 +75,20 @@ def ask(unit, method, path, *, body=b"", headers=(), query="", label="request") 
     digest = hashlib.sha256(f"views|{label}|{method}|{path}|{query}|".encode() + body).digest()
     # HQ's locale middleware leaves the request's language active on the thread; the next page the thread
     # renders (an editor page, answered with no middleware) must not inherit it.
-    with unit.committing(), unit.request(digest), formplayer_hq._language_put_back():
+    raised = []
+    with (
+        unit.committing(),
+        unit.request(digest),
+        formplayer_hq._language_put_back(),
+        formplayer_hq._raised_by_views(raised),
+    ):
         response = formplayer_hq.respond(
             formplayer_hq.django_request(HqRequest(method, path, query, tuple(headers), body))
         )
         if hasattr(response, "render") and not getattr(response, "is_rendered", True):
             response.render()
         content = b"".join(response.streaming_content) if response.streaming else response.content
-    return Answer(response.status_code, dict(response.items()), content)
+    return Answer(response.status_code, dict(response.items()), content, tuple(repr(info[1]) for info in raised))
 
 
 def api_key(unit) -> str:

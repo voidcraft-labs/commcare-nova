@@ -198,7 +198,7 @@ def test_a_linked_copy_fails_over_a_path_only_logo_entry_and_succeeds_without_on
             _path_only_written(unit, app_id, "first")
             refused = copied("path-only")
             assert refused.status == 500, (refused.status, refused.body[:400])
-            assert b"m_id" in refused.body, refused.body[:400]
+            assert any("m_id" in raised for raised in refused.raised), refused.raised
 
             # After the update Nova sends over it, which empties the dict: it links again.
             _cleanup_update(unit, app_id, export)
