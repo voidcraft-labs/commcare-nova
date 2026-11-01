@@ -482,7 +482,9 @@ def test_a_view_that_refuses_is_answered_by_hqs_own_handler_never_djangos_debug_
     from django.urls import get_resolver
     from django.utils import translation
 
-    request = RequestFactory().get("/a/nova-proof/phone/search/proof-app/", secure=True)
+    def request():
+        """A request of its own, as each the lane answers is: Django keeps the CSRF secret it draws on the request."""
+        return RequestFactory().get("/a/nova-proof/phone/search/proof-app/", secure=True)
 
     # Every request the lane answers runs inside an operation, which seeds what HQ's page draws (its CSRF token).
     key = hashlib.sha256(f"proof boot test|{status}".encode()).digest()
@@ -493,13 +495,13 @@ def test_a_view_that_refuses_is_answered_by_hqs_own_handler_never_djangos_debug_
             raise error
         except type(error):
             with operation(key, 1):
-                answered = response_for_exception(request, error)
+                answered = response_for_exception(request(), error)
             with operation(key, 1):
-                handled = get_resolver().resolve_error_handler(status)(request, exception=error)
+                handled = get_resolver().resolve_error_handler(status)(request(), exception=error)
             return answered, handled
 
     # HQ's 404 page names the request's language, which LocaleMiddleware activates before any view runs.
-    with hq_state(Configuration()), translation.override(translation.get_language_from_request(request)):
+    with hq_state(Configuration()), translation.override(translation.get_language_from_request(request())):
         first, handlers = answer()
         second, _ = answer()
     assert first.status_code == handlers.status_code == second.status_code == status
