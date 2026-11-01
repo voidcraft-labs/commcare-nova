@@ -236,6 +236,13 @@ harness keeps, each with its reason.
   or sends changes `proof/corpus/publish.ts` in the same pull request, the
   peer answers a read only with what the HQ side then holds to HQ's own view,
   and retained controls replay the layout they were captured in.
+- **A republish after a migration is observed on its witness.** A migration
+  that changes the wire or an identity has a targeted witness whose A is the
+  retained export from before it (`proof/migrations/<id>/`) and whose B is
+  Nova's republish of the migrated document; proof 1 accepts there only the
+  identity moves `proof/identity-moves.json` scopes to it, and nowhere else.
+  Never widen a move to other documents or write its path by hand: write it
+  from the witness's proof 1 evidence.
 - **A state made again under a stored part is made by every call of the first
   observation that can write to HQ.** A part the store lacks is observed over
   A or B made again (`proof/observe/unit.py::recreate_a`, `recreate_b`), and

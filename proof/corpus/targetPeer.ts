@@ -586,6 +586,43 @@ export class TargetPeer {
 		};
 	}
 
+	/**
+	 * Apply the requests a first publish sent, retained from before a
+	 * migration (`proof/migrations/<id>/`), in the order it sent them: each
+	 * answered as the view it reaches answers it, so the peer then holds what
+	 * HQ held after that publish, as it does after a first publish a capture
+	 * sent. They are no requests of this capture, so none is recorded; one
+	 * the peer refuses ends the capture.
+	 */
+	async applyRetained(
+		requests: readonly {
+			readonly method: string;
+			readonly path: string;
+			readonly contentType: string;
+			readonly body: Buffer;
+		}[],
+	): Promise<void> {
+		for (const request of requests) {
+			const unexpected = this.unexpected.length;
+			const answer = await this.answer({
+				method: request.method,
+				path: request.path,
+				contentType: request.contentType,
+				body: request.body,
+			});
+			if (
+				answer.status < 200 ||
+				answer.status >= 300 ||
+				this.unexpected.length !== unexpected
+			) {
+				this.unexpected.splice(unexpected);
+				throw new Error(
+					`The capture peer answered the retained ${request.method} ${request.path} of a migration witness's A with ${answer.status} (${answer.body}), and HQ took it when the first publish sent it. Look at the retained body and its sidecar under proof/migrations/, and at whether the configuration's domain is the one it was sent to.`,
+				);
+			}
+		}
+	}
+
 	/** HQ's upload of a workbook with `replace`, over what the peer holds. */
 	private uploadWorkbook(bytes: Uint8Array): void {
 		for (const { definition, rows } of workbookTables(bytes)) {

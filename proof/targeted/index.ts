@@ -3,7 +3,8 @@
  * admitted document per work item 12 row that no other corpus document shows,
  * and per symptom only the fuzz sample shows, each fixed so its symptom's
  * values are exact (plan decision 12, work items 10 and 12), plus precise
- * edit witnesses for the harness's own contracts. Each is built
+ * edit witnesses for the harness's own contracts, and the migration witnesses
+ * (`./documents/migrations.ts`). Each is built
  * by Nova's planners and admitted by Nova's commit gate (`./build.ts`).
  */
 
@@ -52,6 +53,16 @@ import { labelSort } from "./documents/labelSort";
 import { loadTimeValues } from "./documents/loadTimeValues";
 import { lookupReservedTags } from "./documents/lookupReservedTags";
 import { mediaSlots } from "./documents/mediaSlots";
+import {
+	migrationAttachment,
+	migrationCaseWrites,
+	migrationExtensionChildren,
+	migrationFormLinks,
+	migrationGroupsPreloads,
+	migrationQueryRepeats,
+	migrationRepeatCounts,
+	migrationSearchWorkflow,
+} from "./documents/migrations";
 import { multiSelectDestinations } from "./documents/multiSelectDestinations";
 import {
 	formLinkSessionReads,
@@ -149,6 +160,14 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	previewAndroidRenders,
 	sessionContextReads,
 	caseListSearchTextDocument,
+	migrationSearchWorkflow,
+	migrationCaseWrites,
+	migrationAttachment,
+	migrationExtensionChildren,
+	migrationQueryRepeats,
+	migrationFormLinks,
+	migrationGroupsPreloads,
+	migrationRepeatCounts,
 ];
 
 /** Every targeted document, in a fixed order. */

@@ -91,7 +91,7 @@ left that step 5 builds on:
   `catalog.ts` carries (part 09 §1, §21.2). The last migration at `main` is
   `20261101030000_hq_round_trip_platforms_media_format_validated`.
 - **The registers.** `proof/known-defects.json` 271 entries (defect 21 37, 23 79, 24 26, 25 101, 26
-  18, 27 3, 28 3, 30 4), `proof/fixed-defects.json` 749, `proof/walk-stops.json` 25,
+  18, 27 3, 28 3, 30 4), `proof/fixed-defects.json` 746, `proof/walk-stops.json` 25,
   `proof/controls/` 108 directories, `proof/identity-moves.json` `[]`, and
   `proof/checks/registers.py::OPEN_DEFECTS` `{21: 5, 23: 5, 24: 5, 25: 5, 26: 5, 27: 5, 28: 5, 30: 5}`.
   The corpus holds 398 documents (part 08 §2.1, part 10's opening).
@@ -454,8 +454,9 @@ is a decision; the part named gives its evidence.
     document sent, `baseline-unreadable`); part 04, Departures; part 05's Departures (no App Test
     session rewrite, the registration label unit); part 06's Departures table; part 07 §8; part 08,
     Departures (the witnesses as the cutover's republished documents, `flagsOff`, the split targeted
-    document); part 09, Departures (the blocker codes, the frozen classifier's production check, the
-    new causes); part 10, Departures (the tests excluded from the removal's diff check).
+    document, the case-writes witness's two close forms, the form-links witness declared Web Apps,
+    the capture's record applied from pull request 6); part 09, Departures (the blocker codes, the
+    frozen classifier's production check, the new causes, the C10 and C11 fixtures' shapes); part 10, Departures (the tests excluded from the removal's diff check).
 
 The plan's own pull request writes into the later outlines what moves there, each with its reason
 (part 10, "For the outlines"): into `6-import.md`, the import's readers of what step 5 writes
@@ -488,7 +489,7 @@ shadow menus as link targets, a child case type under more than one parent, and 
 
 Part 08 holds this in full.
 
-- **The known register goes from 271 to 0 and the fixed register from 749 to 1,020.** Every entry
+- **The known register goes from 271 to 0 and the fixed register from 746 to 1,017.** Every entry
   moves to `proof/fixed-defects.json` on its retained control in the pull request that takes its
   symptom off its document, none deleted: defect 23's 79 in 2, defect 25's 101 and defect 30's 4 in 3,
   defect 28's 3 in 4, defect 24's 26 in 7, defect 27's 3 in 9, defect 21's 37 in 10 and defect 26's 18
@@ -535,12 +536,12 @@ contents, files, register moves, cutover classes, lane cost and checks.
 
 | # | Pull request | Parts |
 |---|---|---|
-| 1 | Lane mechanics: `_cheapest_edited`'s fallback to a control, identity moves scoped to the eight migration witnesses with their retained A, the capture's placement record hook, the `commtrackEnabled` verdict key, runs by hand naming a control, the cutover's pre-step fixtures and the facts `main` derives; no product code | 08, 09 |
+| 1 | Lane mechanics: `_cheapest_edited`'s fallback to a control, identity moves scoped to the eight migration witnesses with their retained A, the capture's placement record hook (an empty list nothing applies), the `commtrackEnabled` verdict key, runs by hand naming a control, the cutover's pre-step fixtures and the facts `main` derives; no product code | 08, 09 |
 | 2 | Attachment mode removed: the mode, its capability and probe, `attachmentSlots.ts`; defect 23's 79 moves; the fixtures' capture test deleted; `MODEL_CONTEXT_VERSION` `.2` | 01, 03, 07, 08 |
 | 3 | Repeats: the query placement rule and both emissions, the held `placement` slot, whole-number counts and direct counts, Preview; defects 25 and 30 move; `RUNTIME_VERSION` 18; `.3` | 04, 07, 08 |
 | 4 | Case writes as one concept: `Field.caseWrite` leaves; the own arm, writes, `worker-record`, `capture-link`, conditions, explicit preloads; placement shapes and held slots; `planPlacements`; `planFormCaseWire`'s basic and Save to Case arms; N1; defect 28 moves; `.4` | 01, 02, 03, 07, 08 |
 | 5 | Held placements and identity moves: `holdPlacements`, the kernel rule's editor half, the held rules, `withIdentityMoves`, `IdentityMoveDialog`, undo and redo, `identityMoves` on the SA and MCP; `.5` | 01, 03, 04, 07, 08 |
-| 6 | Publish placements: the `publish-placement` kind and its migration, recording before anything is sent, the head fence, the frame fold and conflict replay, the `save-to-case` offer, `publishedCaseBlocks`; the capture records the first publish's holds | 03, 07, 08 |
+| 6 | Publish placements: the `publish-placement` kind and its migration, recording before anything is sent, the head fence, the frame fold and conflict replay, the `save-to-case` offer, `publishedCaseBlocks`; the capture records the first publish's holds, its capture moved ahead of edit planning | 03, 07, 08 |
 | 7 | Advanced modules and extension child cases: the advanced arm, `emittedModuleKind`, the held kind, HQ's JSON, tags, eligibility, `FORM_LINK_NEEDS_NEW_CASE_DATUM`; defect 24 moves; six targeted documents; `.7` | 02, 03, 07, 08 |
 | 8 | CommTrack and same-type child links at publish: `commtrack-off` and its migration, `same-type-child-links` with `featureFlagsOff` and its offer, the `flagsOff` verdict key | 02, 03, 08 |
 | 9 | Groups and labels: `group.fieldList`, `FIELD_LIST_USER_REPEAT`, `plainLabel`, the `plain-text` feature; defect 27 moves | 04, 08 |
@@ -677,7 +678,7 @@ behavior makes it false. In brief:
 Each row is checked by a machine after the merge, from `main`, the first nightly and production's
 read-only evidence (part 10 §11).
 
-- `proof/known-defects.json` is `[]`, `proof/fixed-defects.json` holds 1,020 entries (and any a §2.6
+- `proof/known-defects.json` is `[]`, `proof/fixed-defects.json` holds 1,017 entries (and any a §2.6
   run added, each on its control), `OPEN_DEFECTS` is `{}`, and every fixed entry shows on its control
   and on no document.
 - Proofs 1 to 5 pass on every Nova export, including a republish after each migration: every corpus

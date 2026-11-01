@@ -41,6 +41,11 @@
  *   shell's create under `create.` and the content import under `content.`,
  *   which names the workbook and the media, and the privileges name both
  *   (`privileges.create.`, `privileges.content.`).
+ *   A migration witness's first publish is its A, retained from before the
+ *   migration (`retainedMigrationA`) and copied into each `export/<config>/`,
+ *   so its `a` names, beside those, the overlay keys each retained import
+ *   writes (`create.ownership`, `content.ownership`), which the capture's
+ *   ledger reads: a change to any retained file keys the witness anew.
  * - `b`: the republish's request and the workbook and media upload it names,
  *   or `outcome.json` alone for a republish Nova stopped before it sent
  *   anything.
@@ -65,7 +70,19 @@ import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import AdmZip from "adm-zip";
-import { TWO_IMPORT_LAYOUT } from "./publish";
+import { z } from "zod";
+import {
+	type CorpusConfiguration,
+	configurationDirectory,
+	type DocumentConfigurations,
+} from "./configurations";
+import { WORKTREE } from "./emissionProcess";
+import {
+	type CapturedImport,
+	type CapturedRequest,
+	type RetainedPublish,
+	TWO_IMPORT_LAYOUT,
+} from "./publish";
 
 /**
  * The flag a local archive's bytes depend on: under `USH_EMPTY_CASE_LIST_TEXT`
@@ -235,6 +252,7 @@ export async function documentInputs(
 	root: string,
 	id: string,
 	configurations: readonly string[],
+	options: { readonly retainedA?: boolean } = {},
 ): Promise<DocumentInputs> {
 	const edited = existsSync(join(root, "edit", "batch.json"));
 	const privileges: Record<string, InputFile> = {
@@ -262,6 +280,16 @@ export async function documentInputs(
 			a: {
 				...shared,
 				...(await firstPublish(root, exported)),
+				...(options.retainedA === true && {
+					"create.ownership": await file(
+						root,
+						`${exported}/create.ownership.json`,
+					),
+					"content.ownership": await file(
+						root,
+						`${exported}/content.ownership.json`,
+					),
+				}),
 				...privileges,
 			},
 			b: (await republishStopped(root, exported))
@@ -317,8 +345,11 @@ export async function writeDocumentInputs(
 	root: string,
 	id: string,
 	configurations: readonly string[],
+	options: { readonly retainedA?: boolean } = {},
 ): Promise<string> {
-	const text = jsonText(await documentInputs(root, id, configurations));
+	const text = jsonText(
+		await documentInputs(root, id, configurations, options),
+	);
 	await writeFile(join(root, "inputs.json"), text);
 	return `sha256:${sha256(Buffer.from(text))}`;
 }
@@ -335,4 +366,255 @@ export async function writeCorpusInputs(
 		),
 	};
 	await writeFile(join(out, "inputs.json"), jsonText(inputs));
+}
+
+// ── A migration witness's retained A ─────────────────────────────────
+
+/** Where each migration witness's A is retained, by the witness's id. */
+export const MIGRATIONS = join(WORKTREE, "proof", "migrations");
+
+/** One configuration's retained first publish, as the witness's `export/<config>/` holds it. */
+export interface RetainedExport {
+	/** Each retained file under `export/<config>/`, by name, with its bytes. */
+	readonly files: ReadonlyMap<string, Buffer>;
+	readonly publish: RetainedPublish;
+	/** The compatibility outcome the create's sidecar records for A. */
+	readonly compatibility: unknown;
+	/** The files the content's sidecar names for its workbook (`lookups`) and media upload (`media`). */
+	readonly named: { readonly lookups?: string; readonly media?: string };
+}
+
+/** A migration witness's A: its configurations and each one's first publish. */
+export interface RetainedMigrationA {
+	/** `configurations.json` as retained, byte for byte. */
+	readonly configurationsBytes: Buffer;
+	readonly configurations: DocumentConfigurations;
+	/** Each configuration's retained first publish, by its directory under `export/`. */
+	readonly exports: ReadonlyMap<string, RetainedExport>;
+}
+
+const corpusConfigurationSchema = z.object({
+	flags: z.array(z.string()),
+	namedPrivileges: z.array(z.string()),
+	commcareVersion: z.string(),
+	commtrack: z.boolean(),
+	syncCasesOnFormEntry: z.boolean(),
+	caseSearchEnabled: z.boolean(),
+});
+
+const documentConfigurationsSchema = z.object({
+	minimum: corpusConfigurationSchema,
+	maximum: corpusConfigurationSchema,
+	singleFlag: z.record(z.string(), corpusConfigurationSchema),
+});
+
+const sidecarSchema = z.object({
+	method: z.string(),
+	path: z.string(),
+	contentType: z.string(),
+	fields: z.array(z.string()),
+	compatibility: z.unknown().optional(),
+	layout: z.unknown().optional(),
+	lookups: z.string().optional(),
+	media: z.string().optional(),
+});
+
+const ownershipSchema = z.object({
+	addOns: z.array(z.string()),
+	profileProperties: z.array(z.string()),
+	profileCustomProperties: z.array(z.string()),
+	autoGpsCapture: z.boolean(),
+});
+
+/** Each configuration of `configurations.json` by its directory under `export/`. */
+function configurationsByDirectory(
+	configurations: DocumentConfigurations,
+): [string, CorpusConfiguration][] {
+	return [
+		[configurationDirectory("minimum"), configurations.minimum],
+		[configurationDirectory("maximum"), configurations.maximum],
+		...Object.entries(configurations.singleFlag).map(
+			([flag, configuration]): [string, CorpusConfiguration] => [
+				configurationDirectory({ singleFlag: flag }),
+				configuration,
+			],
+		),
+	];
+}
+
+/** Each configuration of a retained `configurations.json`, by its directory under `export/`. */
+export function retainedConfigurations(
+	retained: RetainedMigrationA,
+): [string, CorpusConfiguration][] {
+	return configurationsByDirectory(retained.configurations);
+}
+
+/** A retained file's bytes, refused by name where the witness's A lacks it. */
+async function retainedFile(
+	directory: string,
+	name: string,
+	id: string,
+): Promise<Buffer> {
+	const path = join(directory, name);
+	if (!existsSync(path)) {
+		throw new Error(
+			`The retained A of the migration witness ${id} has no ${name} in ${directory}, which its first publish wrote. Retain it again from an emitted corpus (python3 -m proof.checks.controls <corpus> ${id} --migration-a).`,
+		);
+	}
+	return readFile(path);
+}
+
+/** A retained JSON file parsed under `schema`, refused by name where it does not parse. */
+function parsed<T>(
+	schema: z.ZodType<T>,
+	bytes: Buffer,
+	what: string,
+	id: string,
+): T {
+	let value: unknown;
+	try {
+		value = JSON.parse(bytes.toString("utf8"));
+	} catch (error) {
+		throw new Error(
+			`The retained A of the migration witness ${id} holds ${what}, which is not JSON (${String(error)}).`,
+		);
+	}
+	const result = schema.safeParse(value);
+	if (!result.success) {
+		throw new Error(
+			`The retained A of the migration witness ${id} holds ${what}, which is not what the capture writes there: ${result.error.message}`,
+		);
+	}
+	return result.data;
+}
+
+/** One retained request: `<name>.body` with its sidecar `<name>.json`, each kept for the copy. */
+async function retainedRequest(
+	directory: string,
+	name: string,
+	id: string,
+	files: Map<string, Buffer>,
+) {
+	const body = await retainedFile(directory, `${name}.body`, id);
+	const sidecarBytes = await retainedFile(directory, `${name}.json`, id);
+	files.set(`${name}.body`, body);
+	files.set(`${name}.json`, sidecarBytes);
+	const sidecar = parsed(
+		sidecarSchema,
+		sidecarBytes,
+		`${directory}/${name}.json`,
+		id,
+	);
+	const request: CapturedRequest = {
+		method: sidecar.method,
+		path: sidecar.path,
+		contentType: sidecar.contentType,
+		body,
+		fields: sidecar.fields,
+	};
+	return { request, sidecar };
+}
+
+/** One retained import with the overlay keys its body writes (`<name>.ownership.json`). */
+async function retainedImport(
+	directory: string,
+	name: "create" | "content",
+	id: string,
+	files: Map<string, Buffer>,
+) {
+	const { request, sidecar } = await retainedRequest(
+		directory,
+		name,
+		id,
+		files,
+	);
+	const ownershipBytes = await retainedFile(
+		directory,
+		`${name}.ownership.json`,
+		id,
+	);
+	files.set(`${name}.ownership.json`, ownershipBytes);
+	const imported: CapturedImport = {
+		request,
+		ownership: parsed(
+			ownershipSchema,
+			ownershipBytes,
+			`${directory}/${name}.ownership.json`,
+			id,
+		),
+	};
+	return { imported, sidecar };
+}
+
+/**
+ * The A of the migration witness `id`, retained from before its migration
+ * under `proof/migrations/<id>/` (`python3 -m proof.checks.controls <corpus>
+ * <id> --migration-a`): `configurations.json` and, for each configuration it
+ * names, `export/<config>/` with the shell's create and the content import
+ * (`create.body`, `create.json`, `content.body`, `content.json`,
+ * `create.ownership.json`, `content.ownership.json`) and the lookup workbook
+ * and media upload the content's sidecar names. Undefined where the witness
+ * has no retained A yet, so its first publish is captured as any document's.
+ */
+export async function retainedMigrationA(
+	id: string,
+	migrations: string = MIGRATIONS,
+): Promise<RetainedMigrationA | undefined> {
+	const root = join(migrations, id);
+	if (!existsSync(root)) return undefined;
+	const configurationsBytes = await retainedFile(
+		root,
+		"configurations.json",
+		id,
+	);
+	const configurations: DocumentConfigurations = parsed(
+		documentConfigurationsSchema,
+		configurationsBytes,
+		"configurations.json",
+		id,
+	);
+	const exports = new Map<string, RetainedExport>();
+	for (const [name] of configurationsByDirectory(configurations)) {
+		const directory = join(root, "export", name);
+		const files = new Map<string, Buffer>();
+		const create = await retainedImport(directory, "create", id, files);
+		if (create.sidecar.layout !== TWO_IMPORT_LAYOUT) {
+			throw new Error(
+				`The retained A of the migration witness ${id} holds a create under ${name} without the two-import layout marker (${TWO_IMPORT_LAYOUT}), and a witness's A is a first publish of two imports.`,
+			);
+		}
+		const content = await retainedImport(directory, "content", id, files);
+		const upload = async (named: string | undefined) =>
+			named === undefined
+				? undefined
+				: (
+						await retainedRequest(
+							directory,
+							named.replace(/\.body$/, ""),
+							id,
+							files,
+						)
+					).request;
+		const workbook = await upload(content.sidecar.lookups);
+		const media = await upload(content.sidecar.media);
+		exports.set(name, {
+			files,
+			publish: {
+				create: create.imported,
+				content: content.imported,
+				...(workbook !== undefined && { workbook }),
+				...(media !== undefined && { media }),
+			},
+			compatibility: create.sidecar.compatibility,
+			named: {
+				...(content.sidecar.lookups !== undefined && {
+					lookups: content.sidecar.lookups,
+				}),
+				...(content.sidecar.media !== undefined && {
+					media: content.sidecar.media,
+				}),
+			},
+		});
+	}
+	return { configurationsBytes, configurations, exports };
 }

@@ -1163,8 +1163,8 @@ def _edit_lacks(document, configuration):
     """What Nova's publish of D' requires that ``configuration`` lacks (decision 19); empty when it would send D'.
 
     Read from ``edit/verdict.json`` by ``corpus.lacking``, which reads every verdict beside an export
-    (``corpus.Document._publishable``): the flags it names, whether case search must be on, and whether sync cases
-    on form entry must be off.
+    (``corpus.Document._publishable``): the flags it names, whether case search must be on, whether sync cases
+    on form entry must be off, and whether CommCare Supply must be off (``commtrackEnabled``).
     """
     return corpus.lacking(configuration, document.edit.root / "verdict.json")
 

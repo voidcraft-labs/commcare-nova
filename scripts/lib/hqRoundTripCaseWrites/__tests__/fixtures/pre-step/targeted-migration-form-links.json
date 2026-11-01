@@ -1,0 +1,495 @@
+{
+	"appId": "targeted-migration-form-links",
+	"appName": "Referrals",
+	"connectType": null,
+	"caseTypes": [
+		{
+			"name": "patient",
+			"properties": [
+				{
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Name"
+							}
+						]
+					},
+					"name": "case_name"
+				}
+			]
+		},
+		{
+			"name": "visit",
+			"properties": [
+				{
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Name"
+							}
+						]
+					},
+					"name": "case_name"
+				}
+			],
+			"parent_type": "patient"
+		}
+	],
+	"appSettings": {
+		"showSavedForms": false,
+		"showIncompleteForms": false,
+		"runsOnlyOn": "web-apps"
+	},
+	"modules": {
+		"353036f8-e13f-57ac-a411-3cc2108e4ba8": {
+			"id": "front_desk",
+			"name": "Front desk",
+			"uuid": "353036f8-e13f-57ac-a411-3cc2108e4ba8"
+		},
+		"81207617-b17d-513b-a91a-c1d1379afd27": {
+			"caseListConfig": {
+				"columns": [
+					{
+						"field": "case_name",
+						"header": "Name",
+						"kind": "plain",
+						"uuid": "353aec4a-1a98-5cfe-a078-475ce789f87a"
+					}
+				],
+				"detailColumnOrder": ["353aec4a-1a98-5cfe-a078-475ce789f87a"],
+				"listColumnOrder": ["353aec4a-1a98-5cfe-a078-475ce789f87a"],
+				"searchInputs": []
+			},
+			"caseType": "patient",
+			"id": "patients",
+			"name": "Patients",
+			"uuid": "81207617-b17d-513b-a91a-c1d1379afd27"
+		},
+		"cbb0447d-2738-5471-ad8f-138391f2718d": {
+			"caseListConfig": {
+				"columns": [
+					{
+						"field": "case_name",
+						"header": "Name",
+						"kind": "plain",
+						"uuid": "8ecb4328-606b-5e7c-a1c2-ba26a99d3a18"
+					}
+				],
+				"detailColumnOrder": ["8ecb4328-606b-5e7c-a1c2-ba26a99d3a18"],
+				"listColumnOrder": ["8ecb4328-606b-5e7c-a1c2-ba26a99d3a18"],
+				"searchInputs": []
+			},
+			"caseType": "visit",
+			"id": "visits",
+			"name": "Visits",
+			"uuid": "cbb0447d-2738-5471-ad8f-138391f2718d"
+		},
+		"a5cfe43b-34d0-583f-a868-924143ddc88b": {
+			"caseListConfig": {
+				"columns": [
+					{
+						"field": "case_name",
+						"header": "Name",
+						"kind": "plain",
+						"uuid": "f1a15ffe-6c5b-5452-adc9-35ec108c8c2e"
+					}
+				],
+				"detailColumnOrder": ["f1a15ffe-6c5b-5452-adc9-35ec108c8c2e"],
+				"listColumnOrder": ["f1a15ffe-6c5b-5452-adc9-35ec108c8c2e"],
+				"searchInputs": [],
+				"selection": {
+					"kind": "multiple",
+					"maximum": 5
+				}
+			},
+			"caseType": "patient",
+			"id": "batch",
+			"name": "Batch",
+			"uuid": "a5cfe43b-34d0-583f-a868-924143ddc88b"
+		},
+		"d88a4a41-7239-581d-a545-79439e1063b1": {
+			"caseListConfig": {
+				"columns": [
+					{
+						"field": "case_name",
+						"header": "Name",
+						"kind": "plain",
+						"uuid": "74bd6dec-2aa5-55c8-a8c9-b4e6d547bfbc"
+					}
+				],
+				"detailColumnOrder": ["74bd6dec-2aa5-55c8-a8c9-b4e6d547bfbc"],
+				"listColumnOrder": ["74bd6dec-2aa5-55c8-a8c9-b4e6d547bfbc"],
+				"searchInputs": []
+			},
+			"caseType": "visit",
+			"id": "patient_visits",
+			"name": "Patient visits",
+			"parentCaseModuleUuid": "81207617-b17d-513b-a91a-c1d1379afd27",
+			"parentModuleUuid": "81207617-b17d-513b-a91a-c1d1379afd27",
+			"uuid": "d88a4a41-7239-581d-a545-79439e1063b1"
+		},
+		"52eaf5f6-3874-582a-a814-580493c347c6": {
+			"caseListConfig": {
+				"columns": [
+					{
+						"field": "case_name",
+						"header": "Name",
+						"kind": "plain",
+						"uuid": "b52daaf7-1eec-55db-a8e1-1a75b51798e7"
+					}
+				],
+				"detailColumnOrder": ["b52daaf7-1eec-55db-a8e1-1a75b51798e7"],
+				"listColumnOrder": ["b52daaf7-1eec-55db-a8e1-1a75b51798e7"],
+				"searchInputs": []
+			},
+			"caseType": "visit",
+			"id": "patient_notes",
+			"name": "Patient notes",
+			"parentModuleUuid": "81207617-b17d-513b-a91a-c1d1379afd27",
+			"uuid": "52eaf5f6-3874-582a-a814-580493c347c6"
+		}
+	},
+	"forms": {
+		"45245935-7634-5291-a0c9-6657df3715e5": {
+			"formLinks": [
+				{
+					"condition": {
+						"kind": "eq",
+						"left": {
+							"kind": "term",
+							"term": {
+								"field": "username",
+								"kind": "session-user",
+								"source": "worker-record"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "alice"
+							}
+						}
+					},
+					"target": {
+						"formUuid": "ef4bea41-ac16-5dad-a11b-65dbaf3b6591",
+						"moduleUuid": "353036f8-e13f-57ac-a411-3cc2108e4ba8",
+						"type": "form"
+					},
+					"uuid": "6b699c60-1294-5884-a09e-6bc644562410"
+				},
+				{
+					"condition": {
+						"kind": "eq",
+						"left": {
+							"kind": "term",
+							"term": {
+								"field": "username",
+								"kind": "session-user",
+								"source": "worker-record"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "bob"
+							}
+						}
+					},
+					"target": {
+						"moduleUuid": "81207617-b17d-513b-a91a-c1d1379afd27",
+						"type": "module"
+					},
+					"uuid": "eb3ae593-3963-5bcf-a044-55e92feb88c3"
+				},
+				{
+					"target": {
+						"moduleUuid": "cbb0447d-2738-5471-ad8f-138391f2718d",
+						"type": "module"
+					},
+					"uuid": "3a6344c9-901d-5f3d-a23a-ab9bf2d88bf9"
+				}
+			],
+			"id": "intake",
+			"name": "Intake",
+			"type": "survey",
+			"uuid": "45245935-7634-5291-a0c9-6657df3715e5"
+		},
+		"ef4bea41-ac16-5dad-a11b-65dbaf3b6591": {
+			"formLinks": [
+				{
+					"condition": {
+						"kind": "eq",
+						"left": {
+							"kind": "term",
+							"term": {
+								"field": "username",
+								"kind": "session-user",
+								"source": "worker-record"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "alice"
+							}
+						}
+					},
+					"target": {
+						"moduleUuid": "81207617-b17d-513b-a91a-c1d1379afd27",
+						"type": "module"
+					},
+					"uuid": "e1ee6bf4-5873-5ee8-ab61-0a12b0cea384"
+				}
+			],
+			"id": "triage",
+			"name": "Triage",
+			"postSubmit": "module",
+			"type": "survey",
+			"uuid": "ef4bea41-ac16-5dad-a11b-65dbaf3b6591"
+		},
+		"e1bea635-3e2c-52b9-a568-7997919aa565": {
+			"formLinks": [
+				{
+					"target": {
+						"moduleUuid": "d88a4a41-7239-581d-a545-79439e1063b1",
+						"type": "module"
+					},
+					"uuid": "cb8b9dd0-7eac-53d4-a32c-f45a9cc0d8e0"
+				}
+			],
+			"id": "refer",
+			"name": "Refer",
+			"type": "followup",
+			"uuid": "e1bea635-3e2c-52b9-a568-7997919aa565"
+		},
+		"3c5ced7e-5efd-5752-a3c8-95e0050cae2e": {
+			"formLinks": [
+				{
+					"datums": [
+						{
+							"name": {
+								"kind": "selected-case",
+								"module": "81207617-b17d-513b-a91a-c1d1379afd27"
+							},
+							"xpath": {
+								"kind": "term",
+								"term": {
+									"datum": {
+										"kind": "selected-case",
+										"module": "81207617-b17d-513b-a91a-c1d1379afd27"
+									},
+									"kind": "session-datum"
+								}
+							}
+						}
+					],
+					"target": {
+						"moduleUuid": "52eaf5f6-3874-582a-a814-580493c347c6",
+						"type": "module"
+					},
+					"uuid": "78ac5e80-429e-5e94-a674-5a4eb8057e90"
+				}
+			],
+			"id": "record_visit",
+			"name": "Record visit",
+			"type": "followup",
+			"uuid": "3c5ced7e-5efd-5752-a3c8-95e0050cae2e"
+		},
+		"a9ca067b-2ac7-57a7-afc9-893d86864f6b": {
+			"id": "add_note",
+			"name": "Add note",
+			"type": "followup",
+			"uuid": "a9ca067b-2ac7-57a7-afc9-893d86864f6b"
+		},
+		"41d38027-018b-5bd3-a495-06edca563537": {
+			"id": "review_visit",
+			"name": "Review visit",
+			"type": "followup",
+			"uuid": "41d38027-018b-5bd3-a495-06edca563537"
+		},
+		"de725b9a-5123-5f3e-a8d4-0e18c927dc2a": {
+			"formLinks": [
+				{
+					"condition": {
+						"kind": "eq",
+						"left": {
+							"kind": "term",
+							"term": {
+								"field": "username",
+								"kind": "session-user",
+								"source": "worker-record"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "alice"
+							}
+						}
+					},
+					"target": {
+						"moduleUuid": "81207617-b17d-513b-a91a-c1d1379afd27",
+						"type": "module"
+					},
+					"uuid": "282d79f2-a12a-593e-ace5-d3f4d4be1a42"
+				}
+			],
+			"id": "batch_review",
+			"name": "Batch review",
+			"postSubmit": "previous",
+			"type": "followup",
+			"uuid": "de725b9a-5123-5f3e-a8d4-0e18c927dc2a"
+		}
+	},
+	"fields": {
+		"0b4cb004-2d5a-5b40-af71-c1aa03c0c8f4": {
+			"id": "note",
+			"kind": "text",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			},
+			"uuid": "0b4cb004-2d5a-5b40-af71-c1aa03c0c8f4"
+		},
+		"ffdf5f30-8ef8-5f7c-a37d-160e55217440": {
+			"id": "note",
+			"kind": "text",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			},
+			"uuid": "ffdf5f30-8ef8-5f7c-a37d-160e55217440"
+		},
+		"5b305704-f26f-5c28-a977-686a1ee39774": {
+			"id": "note",
+			"kind": "text",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			},
+			"uuid": "5b305704-f26f-5c28-a977-686a1ee39774"
+		},
+		"ef7737f3-be59-53ef-adf7-6549d0b1e143": {
+			"id": "note",
+			"kind": "text",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			},
+			"uuid": "ef7737f3-be59-53ef-adf7-6549d0b1e143"
+		},
+		"c840492e-9d11-5f7a-a7f1-4b0ca7f3dade": {
+			"id": "note",
+			"kind": "text",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			},
+			"uuid": "c840492e-9d11-5f7a-a7f1-4b0ca7f3dade"
+		},
+		"38fad710-71af-5b74-a892-aacad7172040": {
+			"id": "note",
+			"kind": "text",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			},
+			"uuid": "38fad710-71af-5b74-a892-aacad7172040"
+		},
+		"942e0b6e-f5d2-5cb2-ab4b-57300efdc1fe": {
+			"id": "note",
+			"kind": "text",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			},
+			"uuid": "942e0b6e-f5d2-5cb2-ab4b-57300efdc1fe"
+		}
+	},
+	"moduleOrder": [
+		"353036f8-e13f-57ac-a411-3cc2108e4ba8",
+		"81207617-b17d-513b-a91a-c1d1379afd27",
+		"d88a4a41-7239-581d-a545-79439e1063b1",
+		"52eaf5f6-3874-582a-a814-580493c347c6",
+		"cbb0447d-2738-5471-ad8f-138391f2718d",
+		"a5cfe43b-34d0-583f-a868-924143ddc88b"
+	],
+	"formOrder": {
+		"353036f8-e13f-57ac-a411-3cc2108e4ba8": [
+			"45245935-7634-5291-a0c9-6657df3715e5",
+			"ef4bea41-ac16-5dad-a11b-65dbaf3b6591"
+		],
+		"81207617-b17d-513b-a91a-c1d1379afd27": [
+			"e1bea635-3e2c-52b9-a568-7997919aa565"
+		],
+		"cbb0447d-2738-5471-ad8f-138391f2718d": [
+			"41d38027-018b-5bd3-a495-06edca563537"
+		],
+		"a5cfe43b-34d0-583f-a868-924143ddc88b": [
+			"de725b9a-5123-5f3e-a8d4-0e18c927dc2a"
+		],
+		"d88a4a41-7239-581d-a545-79439e1063b1": [
+			"3c5ced7e-5efd-5752-a3c8-95e0050cae2e"
+		],
+		"52eaf5f6-3874-582a-a814-580493c347c6": [
+			"a9ca067b-2ac7-57a7-afc9-893d86864f6b"
+		]
+	},
+	"fieldOrder": {
+		"45245935-7634-5291-a0c9-6657df3715e5": [
+			"0b4cb004-2d5a-5b40-af71-c1aa03c0c8f4"
+		],
+		"ef4bea41-ac16-5dad-a11b-65dbaf3b6591": [
+			"ffdf5f30-8ef8-5f7c-a37d-160e55217440"
+		],
+		"e1bea635-3e2c-52b9-a568-7997919aa565": [
+			"5b305704-f26f-5c28-a977-686a1ee39774"
+		],
+		"3c5ced7e-5efd-5752-a3c8-95e0050cae2e": [
+			"ef7737f3-be59-53ef-adf7-6549d0b1e143"
+		],
+		"a9ca067b-2ac7-57a7-afc9-893d86864f6b": [
+			"c840492e-9d11-5f7a-a7f1-4b0ca7f3dade"
+		],
+		"41d38027-018b-5bd3-a495-06edca563537": [
+			"38fad710-71af-5b74-a892-aacad7172040"
+		],
+		"de725b9a-5123-5f3e-a8d4-0e18c927dc2a": [
+			"942e0b6e-f5d2-5cb2-ab4b-57300efdc1fe"
+		]
+	}
+}

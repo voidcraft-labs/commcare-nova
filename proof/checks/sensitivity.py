@@ -34,8 +34,8 @@ this check naming it are held so too (``flip_entries``): each must keep
 showing there, as a known entry does on its document, and the gate's effects
 would otherwise explain it away. A flip to a configuration Nova's
 publish refuses (decision 19: it lacks a flag Nova's verdict requires, or
-case search where Nova requires it, or has sync cases on form entry on where
-Nova requires it off) is still built, because a gate's effects
+case search where Nova requires it, or has sync cases on form entry or
+CommCare Supply on where Nova requires it off) is still built, because a gate's effects
 are what HQ's build changes when the gate flips, wherever that is; its
 differences are held to the gate's effects alone, never to the register,
 since a symptom there cannot reach anyone.
@@ -120,8 +120,9 @@ def accepts(verdict, configuration):
     """Whether Nova's publish would send the document to a project space configured so (decision 19).
 
     ``verdict`` is the document's ``verdict.json``: its ``minimumConfiguration`` names the flags Nova's
-    publish requires, whether it requires case search, and, where Nova's publish requires sync cases on
-    form entry off, ``syncCasesOnFormEntry: false``; a verdict without that key requires nothing of it.
+    publish requires, whether it requires case search, where Nova's publish requires sync cases on form
+    entry off, ``syncCasesOnFormEntry: false``, and where it requires CommCare Supply off,
+    ``commtrackEnabled: false``; a verdict without one of those keys requires nothing of it.
     """
     return not verdict_lacks(verdict, configuration, "The document's verdict")
 

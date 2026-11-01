@@ -1,0 +1,177 @@
+{
+	"appId": "2b5b014b-b19d-5a6f-a485-685164f3f15b",
+	"appName": "Otherwise unoffered",
+	"connectType": null,
+	"caseTypes": [
+		{
+			"name": "patient",
+			"properties": [
+				{
+					"name": "case_name",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Name"
+							}
+						]
+					}
+				}
+			]
+		},
+		{
+			"name": "household",
+			"properties": [
+				{
+					"name": "case_name",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Name"
+							}
+						]
+					}
+				}
+			]
+		}
+	],
+	"appSettings": {
+		"showSavedForms": false,
+		"showIncompleteForms": false,
+		"runsOnlyOn": "web-apps"
+	},
+	"modules": {
+		"a4357aa1-be60-5f2d-a988-8d5b36b09ad1": {
+			"uuid": "a4357aa1-be60-5f2d-a988-8d5b36b09ad1",
+			"id": "patients",
+			"name": "Patients",
+			"caseType": "patient",
+			"caseListConfig": {
+				"columns": [
+					{
+						"uuid": "a6388401-341e-542d-a96c-dda361588591",
+						"kind": "plain",
+						"field": "case_name",
+						"header": "Name"
+					}
+				],
+				"searchInputs": [],
+				"selection": {
+					"kind": "multiple",
+					"maximum": 10
+				},
+				"listColumnOrder": ["a6388401-341e-542d-a96c-dda361588591"],
+				"detailColumnOrder": ["a6388401-341e-542d-a96c-dda361588591"]
+			}
+		},
+		"5ebed2b5-1bbd-5561-a3be-1d7f5b37c905": {
+			"uuid": "5ebed2b5-1bbd-5561-a3be-1d7f5b37c905",
+			"id": "households",
+			"name": "Households",
+			"caseType": "household",
+			"caseListConfig": {
+				"columns": [
+					{
+						"uuid": "8cfc0d41-2b43-547d-a8e9-0ff32c989531",
+						"kind": "plain",
+						"field": "case_name",
+						"header": "Name"
+					}
+				],
+				"searchInputs": [],
+				"listColumnOrder": ["8cfc0d41-2b43-547d-a8e9-0ff32c989531"],
+				"detailColumnOrder": ["8cfc0d41-2b43-547d-a8e9-0ff32c989531"]
+			}
+		}
+	},
+	"forms": {
+		"e98b5c06-a2ed-53ba-a6ff-19c41d5e05f6": {
+			"uuid": "e98b5c06-a2ed-53ba-a6ff-19c41d5e05f6",
+			"id": "batch_review",
+			"name": "Batch review",
+			"type": "followup",
+			"postSubmit": "previous",
+			"formLinks": [
+				{
+					"uuid": "397b006d-cb4a-5469-a315-182bdcefd8dd",
+					"condition": {
+						"kind": "eq",
+						"left": {
+							"kind": "term",
+							"term": {
+								"kind": "session-user",
+								"field": "username"
+							}
+						},
+						"right": {
+							"kind": "term",
+							"term": {
+								"kind": "literal",
+								"value": "supervisor"
+							}
+						}
+					},
+					"target": {
+						"type": "module",
+						"moduleUuid": "5ebed2b5-1bbd-5561-a3be-1d7f5b37c905"
+					}
+				}
+			]
+		},
+		"0998dab8-a4c1-5d8c-a4b1-1432616b7ba8": {
+			"uuid": "0998dab8-a4c1-5d8c-a4b1-1432616b7ba8",
+			"id": "household_visit",
+			"name": "Household visit",
+			"type": "followup"
+		}
+	},
+	"fields": {
+		"9e13685f-128e-5b9b-a494-1c61e5bb844f": {
+			"uuid": "9e13685f-128e-5b9b-a494-1c61e5bb844f",
+			"kind": "text",
+			"id": "note",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			}
+		},
+		"79dc5088-540c-530c-adbd-4cee036d0398": {
+			"uuid": "79dc5088-540c-530c-adbd-4cee036d0398",
+			"kind": "text",
+			"id": "note",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			}
+		}
+	},
+	"moduleOrder": [
+		"a4357aa1-be60-5f2d-a988-8d5b36b09ad1",
+		"5ebed2b5-1bbd-5561-a3be-1d7f5b37c905"
+	],
+	"formOrder": {
+		"a4357aa1-be60-5f2d-a988-8d5b36b09ad1": [
+			"e98b5c06-a2ed-53ba-a6ff-19c41d5e05f6"
+		],
+		"5ebed2b5-1bbd-5561-a3be-1d7f5b37c905": [
+			"0998dab8-a4c1-5d8c-a4b1-1432616b7ba8"
+		]
+	},
+	"fieldOrder": {
+		"e98b5c06-a2ed-53ba-a6ff-19c41d5e05f6": [
+			"9e13685f-128e-5b9b-a494-1c61e5bb844f"
+		],
+		"0998dab8-a4c1-5d8c-a4b1-1432616b7ba8": [
+			"79dc5088-540c-530c-adbd-4cee036d0398"
+		]
+	}
+}

@@ -42,7 +42,7 @@ The stack is cut from a `main` whose nightly reader lanes hold. No production co
    and `proof/checks/configurations.py::_needs_cloudcare` still grants Web Apps to a control's bodies,
    which carry no `cloudcare_enabled`, so `targeted-list-first-web-apps`'s control keeps HQ's workflow
    selector shown and keeps showing defect 21. At the exit the known register is `[]`, the fixed
-   register holds 749 + 271 = 1,020 entries, and `OPEN_DEFECTS` is `{}`.
+   register holds 746 + 271 = 1,017 entries, and `OPEN_DEFECTS` is `{}`.
 2. **The moves by pull request**: 2 moves defect 23's 79; 3 defect 25's 101 and defect 30's 4; 4
    defect 28's 3; 7 defect 24's 26; 9 defect 27's 3; 10 defect 21's 37; 11 defect 26's 18 (§2.3).
    Ninety-four of them are served readers' entries, seen to move before the merge only in a run
@@ -277,8 +277,10 @@ with a stray file, a missing `content`, and a witness id with no directory each 
 `proof/corpus/publish.ts::capturePublish` returns, beside the captured requests, `placements:
 readonly Mutation[]`: the `holdPlacements` mutations the first publish's `publish-placement` change
 carried (`publishAppToHq`'s result names the change it wrote). In pull request 1 the list is always
-empty, because no publish writes the kind until pull request 6, and `proof/corpus/emitCorpus.ts`
-applies an empty list to D, which changes nothing. §4.5 is what the hook carries from pull request 6.
+empty (`placements: []`), because no publish writes the kind until pull request 6, and nothing applies
+it: `proof/corpus/emitCorpus.ts` and `proof/corpus/entryWriter.ts` plan D′ before the first publish's
+capture runs, so a record has nothing to reach in pull request 1. Pull request 6 moves the first
+publish's capture ahead of edit planning in those two files and applies the record there (§4.5).
 
 ### 1.4 The verdict's CommCare Supply key, and its flags-off key from pull request 8
 
@@ -422,7 +424,7 @@ their retained A and HQ's reads of it stay after pull request 16.
 proof 4 72), 24 ×26 (manifest 6, proof 3 19, proof 4 1), 25 ×101 (manifest 2, proof 4 99), 26 ×18
 (manifest 3, proof 3 1, proof 4 14), 27 ×3 (manifest 1, proof 4 2), 28 ×3 (manifest 3), 30 ×4 (intent 1,
 manifest 3). Ninety-four name a served reader's artifact (21: 6, 23: 10, 24: 8, 25: 61, 26: 9); the pull
-request lane holds the other 177. `proof/fixed-defects.json` holds 749; none shares (check, artifact,
+request lane holds the other 177. `proof/fixed-defects.json` holds 746; none shares (check, artifact,
 path, kind, values, control) with a known entry, so every move clears the fixed register's rules.
 `OPEN_DEFECTS = {21: 5, 23: 5, 24: 5, 25: 5, 26: 5, 27: 5, 28: 5, 30: 5}`. `proof/identity-moves.json`
 is `[]`. `proof/walk-stops.json` holds 25 entries (13 `document`, 12 `control`). `proof/controls/` holds
@@ -561,22 +563,22 @@ a later registration that gives a defect to step 5).
 
 | After | Known | Fixed | Walk stops | Controls | `proof/migrations/` | `OPEN_DEFECTS` |
 |---|---|---|---|---|---|---|
-| `main` | 271 | 749 | 25 | 108 | 0 | 21, 23 to 28, 30 |
-| 1, lane mechanics | 271 | 749 | 25 | 108 | 8 | unchanged |
-| 2, attachment | 192 | 828 | 25 | 108 | 8 | 21, 24 to 28, 30 |
-| 3, repeats | 87 | 933 | 25 | 108 | 8 | 21, 24, 26, 27, 28 |
-| 4, case writes | 84 | 936 | 25 | 108 | 8 | 21, 24, 26, 27 |
-| 5, 6 | 84 | 936 | 25 | 108 | 8 | unchanged |
-| 7, advanced | 58 | 962 | 25 | 108 | 8 | 21, 26, 27 |
-| 8 | 58 | 962 | 25 | 108 | 8 | unchanged |
-| 9, groups and labels | 55 | 965 | 25 | 108 | 8 | 21, 26 |
-| 10, search (G3 outcome A) | 18 | 1,002 | 25 (G3, G2 may add) | 108 | 8 | 26 |
-| 10, search (G3 outcome B) | 19 | 1,001 | as above | 108 | 8 | 21, 26 |
-| 11, form links | 0 | 1,020 | 25 (or as G2, G3 leave it) | 108 | 8 | `{}` |
-| step 5's exit | 0 | 1,020 | as 11 | 108 | 8 | `{}` |
+| `main` | 271 | 746 | 25 | 108 | 0 | 21, 23 to 28, 30 |
+| 1, lane mechanics | 271 | 746 | 25 | 108 | 8 | unchanged |
+| 2, attachment | 192 | 825 | 25 | 108 | 8 | 21, 24 to 28, 30 |
+| 3, repeats | 87 | 930 | 25 | 108 | 8 | 21, 24, 26, 27, 28 |
+| 4, case writes | 84 | 933 | 25 | 108 | 8 | 21, 24, 26, 27 |
+| 5, 6 | 84 | 933 | 25 | 108 | 8 | unchanged |
+| 7, advanced | 58 | 959 | 25 | 108 | 8 | 21, 26, 27 |
+| 8 | 58 | 959 | 25 | 108 | 8 | unchanged |
+| 9, groups and labels | 55 | 962 | 25 | 108 | 8 | 21, 26 |
+| 10, search (G3 outcome A) | 18 | 999 | 25 (G3, G2 may add) | 108 | 8 | 26 |
+| 10, search (G3 outcome B) | 19 | 998 | as above | 108 | 8 | 21, 26 |
+| 11, form links | 0 | 1,017 | 25 (or as G2, G3 leave it) | 108 | 8 | `{}` |
+| step 5's exit | 0 | 1,017 | as 11 | 108 | 8 | `{}` |
 
-The fixed register reaches 1,020 under every outcome of the runs §2.6 names: an outcome that adds a
-fixed entry adds it beside these, and the exit then states 1,020 plus those, with the control each
+The fixed register reaches 1,017 under every outcome of the runs §2.6 names: an outcome that adds a
+fixed entry adds it beside these, and the exit then states 1,017 plus those, with the control each
 retained (§2.6).
 
 ### 2.6 No step 5 pull request leaves a live entry
@@ -785,8 +787,11 @@ form with a conditional link")` (pull request 11).
 ### 4.5 The capture records the first publish's placements (pull request 6)
 
 From pull request 6, `capturePublish` returns the `holdPlacements` mutations of the
-`publish-placement` change the first publish (state A) wrote, and `proof/corpus/emitCorpus.ts` applies
-them to D through the reducer before the edit batch is planned (`proof/corpus/editBatches.ts`):
+`publish-placement` change the first publish (state A) wrote. Pull request 6 moves the first publish's
+capture ahead of edit planning in `proof/corpus/emitCorpus.ts` and `proof/corpus/entryWriter.ts`
+(through pull request 5 both plan D′ first and capture after), and applies the record to D through the
+reducer before the edit batch is planned (`proof/corpus/editBatches.ts`), so D′ is planned over the
+holds:
 
 - `document.json` holds D as stored after its first publish, with its placements;
 - `edit/document.json` is D with its placements plus the batch, as an editor edits a published app;
@@ -829,7 +834,7 @@ in; every part uses the names in the first column.
 | `targeted-migration-attachment` | 1 | both | §5.2 | defect 23's migration | proof's |
 | `targeted-migration-extension-children` | 1 | both | §5.2 | defect 24's migration, M1 to M3 | proof's |
 | `targeted-migration-query-repeats` | 1 | both | §5.2 | defect 25's migration, Q1 | proof's |
-| `targeted-migration-form-links` | 1 | both | §5.2 | defect 26's migration, L1 to L6 | proof's |
+| `targeted-migration-form-links` | 1 | Web Apps | §5.2 | defect 26's migration, L1 to L6 | proof's |
 | `targeted-migration-groups-preloads` | 1 | both | §5.2 | defects 27 and 28's migration, Q4, C7 | proof's |
 | `targeted-migration-repeat-counts` | 1 | both | §5.2 | defect 30's migration, Q2, Q3 | proof's |
 | `targeted-query-repeat-placements` | 3 | both | a survey form with (a) `visits`, model iteration over `'a b'` at the root; (b) `readings`, whose query reads `#form/site` (count); (c) `children`, count placement in a user repeat `households`, its query reading the outer row's answer; (d) `stock`, count placement whose results shrink when `#form/site` changes, with a case operation per row | each placement's two Vellum saves keep it (proof 4); Core and Formplayer rows; the intent values: (a) two rows `a`, `b`; (b) rows follow the answer; (c) each household's ids; (d) after the shrink, only the relevant rows and their case blocks are submitted | proof's and part 04's (same name) |
@@ -896,11 +901,14 @@ what the evidence shows.
    Households (`household`, child type `member`, child type `head`): registration Register writing
    `case_name` and `village` through field writes, a `head` child at the root and a `member` child in
    the repeat `members`; module Visits (`household`): follow-up Visit with field writes, a worker-record
-   write, a close condition `{field: outcome, answer: "moved"}` on a static select (C6), existing
-   operations at the root, in a repeat, keyed by an answer and conditional, and a close condition on a
-   question in a repeat (the own close's Save to Case placement); module Batch (`household`, several
-   cases) with a form writing to the selected cases (the several-case wrapper). Declared Web Apps
-   because of the several-case menu Android cannot open. Migrated: the operations C1 to C3 give, the
+   write, and existing operations at the root, in a repeat, keyed by an answer and conditional; close
+   form Close whose close condition is `{field: outcome, answer: "moved"}` on a static select (C6); close
+   form Close in repeat whose close condition reads a question in a repeat (the own close's Save to Case
+   placement); module Batch (`household`, several cases) with a form writing to the selected cases (the
+   several-case wrapper). The two close conditions sit on close forms of their own because `main` admits
+   a close condition only on a close form, one per form
+   (`lib/commcare/validator/rules/form.ts::closeConditionValidation`). Declared Web Apps because of the
+   several-case menu Android cannot open. Migrated: the operations C1 to C3 give, the
    close condition as C6 writes it, and every unit held where A carries it (C8), the holds the cutover
    writes for a published app (stored in the spec's document). Expected moves: none, the
    placement being read from the baseline.
@@ -941,11 +949,13 @@ what the evidence shows.
    `nova_query_count_r` and `item/nova_query_id_r`, and no answer path (part 04 keeps `/data/r/item` in
    both placements), defect 25. Under part 04's G1 outcome C (the form builder cannot keep the count
    placement's outer Group) the answer paths move too, and the expected moves add them.
-6. **`targeted-migration-form-links`** (both; pull request 11). Pre-step: form Intake with two
+6. **`targeted-migration-form-links`** (Web Apps; pull request 11). Pre-step: form Intake with two
    conditional links and a terminal unconditional link; form Triage with a conditional link and a stored
-   `postSubmit`; form Refer with a link to a child menu HQ does not offer from it; a link to a menu
-   carrying datums; and, in a menu selecting several cases, a form with a conditional link beside
-   `postSubmit: "previous"`. Migrated: part 06's map of each (L1 to L6). Expected moves: none in proof
+   `postSubmit`; form Refer in root menu Patients with a link to its child menu Patient visits, which HQ does not offer from it (L4); form
+   Record visit in child menu Patient visits with a link to child menu Patient notes carrying the
+   selected patient (datums on a menu link, as `main` allows); and, in menu Batch selecting several
+   cases, form Batch review with a conditional link beside `postSubmit: "previous"`. Declared Web Apps
+   because the several-case menu is unavailable on Android. Migrated: part 06's map of each (L1 to L6). Expected moves: none in proof
    1's table (links and datums are no identities); the suite's stack moves, held in B's proof 4.
 7. **`targeted-migration-groups-preloads`** (both; pull requests 4 and 9). Pre-step: follow-up Check with
    a labelled group `vitals`, a labelled group `household` holding a user repeat, a writer `weight` of
@@ -1277,7 +1287,7 @@ Every test below runs in the proof lane (the lane's pytest in the image) or in o
 ## Executed during planning
 
 - **The registers read** at `2f985ed6` with Python's standard library: `proof/known-defects.json` (271,
-  by defect, check, document, control and served reader, §2.1 and the appendix), `proof/fixed-defects.json` (749;
+  by defect, check, document, control and served reader, §2.1 and the appendix), `proof/fixed-defects.json` (746;
   none collides with a known entry; the eleven edited controls fixed `manifest` entries name, §1.1),
   `proof/walk-stops.json` (25), `proof/identity-moves.json` (`[]`), `proof/controls/` (108, the 28 the known
   register names, the 17 named by it alone, which of them keep an `edit/`).
@@ -1462,12 +1472,12 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   `scripts/lib/hqRoundTripCaseWrites/__tests__/fixtures/pre-step/<the eight>.json` (with part 09, whose
   capture test holds them in this pull request and whose digest test holds them from pull request 2),
   `proof/README.md`, `proof/CLAUDE.md`.
-- **2**: `proof/known-defects.json` (271 to 192), `proof/fixed-defects.json` (749 to 828),
+- **2**: `proof/known-defects.json` (271 to 192), `proof/fixed-defects.json` (746 to 825),
   `proof/checks/registers.py` (`OPEN_DEFECTS`), the capture sources of §4.2,
   `proof/native/core/CaseCaptureRuntimeTest.java`, `proof/native/producers/*`,
   `proof/targeted/__tests__/unproducedInputs.test.ts`, `proof/targeted/documents/migrations.ts`
   (the attachment witness), `proof/identity-moves.json` (G6), `proof/README.md` (row 23).
-- **3**: the registers (192 to 87, 828 to 933), `OPEN_DEFECTS`, `sectionEntry.ts` and the count sources of
+- **3**: the registers (192 to 87, 825 to 930), `OPEN_DEFECTS`, `sectionEntry.ts` and the count sources of
   §4.2, `lib/commcare/__tests__/xformDocArbitrary.ts`, `expressionDocArbitrary.ts`, `lib/doc/repeatCountWraps.ts`
   (part 04's), `proof/corpus/__tests__/fuzzSample.test.ts`, `proof/targeted/documents/repeats.ts`
   (`targeted-query-repeat-placements`, `targeted-repeat-count-whole`), `proof/targeted/index.ts`,
@@ -1475,7 +1485,7 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   `RepeatCountRuntimeTest.java`, `proof/native/families.py`, `proof/checks/test_corpus.py` (the census
   test), `lib/commcare/surface/entries/questions.json`, `proof/identity-moves.json`, `proof/README.md`
   (rows 25, 30; "The corpus").
-- **4**: the registers (87 to 84, 933 to 936), `OPEN_DEFECTS`, the field-write sources of §4.2,
+- **4**: the registers (87 to 84, 930 to 933), `OPEN_DEFECTS`, the field-write sources of §4.2,
   `xformDocArbitrary.ts`, `suiteDocArbitrary.ts`, `lib/doc/fieldWriteOperations.ts` and
   `lib/doc/explicitPreloads.ts` (part 01's, with part 09's identity module), `fuzzSample.test.ts`,
   `proof/targeted/documents/loadTimeValues.ts`, `closeConditions.ts`, `caseWritesOneConcept.ts`,
@@ -1485,10 +1495,11 @@ underscore worker property and the extension open action's owner (part 02's G2, 
 - **5**: `proof/corpus/editKinds.ts` (`holdPlacements`), `proof/corpus/editBatches.ts` (the kernel
   rule's editor half), `proof/corpus/__tests__/editBatches.test.ts`,
   `proof/targeted/documents/heldPlacement.ts`, `proof/targeted/index.ts`.
-- **6**: `proof/corpus/publish.ts` and `emitCorpus.ts` (§4.5, with part 03),
+- **6**: `proof/corpus/publish.ts`, `emitCorpus.ts` and `entryWriter.ts` (§4.5, with part 03: the first
+  publish's capture moved ahead of edit planning and its record applied to D),
   `proof/corpus/__tests__/publish.test.ts`, `heldPlacement.ts` (holds from the record), `migrations.ts`
   (holds).
-- **7**: the registers (84 to 58, 936 to 962), `OPEN_DEFECTS`, `extensionCaseFixture.ts`,
+- **7**: the registers (84 to 58, 933 to 959), `OPEN_DEFECTS`, `extensionCaseFixture.ts`,
   `proof/targeted/documents/advancedModules.ts` (six documents), `proof/targeted/index.ts`,
   `migrations.ts`, `proof/native/core/CaseOperationRuntimeTest.java`, `AdvancedFormRuntimeTest.java`,
   `proof/native/test_advanced_emission.py`, `proof/native/families.py`, `proof/native/producers/*`,
@@ -1503,12 +1514,12 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   (`own_case_type_where_same_type_unindexed`), `test_manifest_value_classes.py`,
   `proof/targeted/documents/sameTypeChild.ts`, `supplyPointText.ts`, `proof/targeted/index.ts`,
   `unproducedInputs.test.ts`, `gates.json` (part 03's G4), `proof/README.md` (row 12, "Configurations").
-- **9**: the registers (58 to 55, 962 to 965), `OPEN_DEFECTS`, the labelled-group sources,
+- **9**: the registers (58 to 55, 959 to 962), `OPEN_DEFECTS`, the labelled-group sources,
   `xformDocArbitrary.ts`, `lib/doc/groupFieldLists.ts` (with part 04), `fuzzSample.test.ts`,
   `proof/targeted/documents/formShapes.ts` (`targeted-field-list-flags`, `targeted-labelled-group-repeat`),
   `textReads.ts` (`targeted-plain-labels`), `proof/targeted/index.ts`, `migrations.ts`,
   `proof/android/test_form_reads.py`, `questions.json`, `proof/README.md` (row 27).
-- **10**: the registers (55 to 18, 965 to 1,002, or as G3 outcome B), `OPEN_DEFECTS`, the search sources
+- **10**: the registers (55 to 18, 962 to 999, or as G3 outcome B), `OPEN_DEFECTS`, the search sources
   of §4.2, `suiteDocArbitrary.ts`, `lib/doc/searchWorkflowPlan.ts` (with part 05), `fuzzSample.test.ts`,
   `searchApps.ts`, `inlineSearchReads.ts`, `noMatchesReturnIdentity.ts`, `searchWorkflows.ts`
   (`targeted-search-workflow`, `targeted-search-workflow-inline`, `targeted-search-workflow-android`),
@@ -1517,7 +1528,7 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   `migrations.ts`, `proof/views/test_search_workflow_offers.py`, `proof/walk-stops.json` (G2),
   `case-search.json`, `menus-and-case-lists.json`, `gates.json` (G4's menu item effect),
   `proof/README.md` (row 21, "Walk stops").
-- **11**: the registers (18 to 0, 1,002 to 1,020), `OPEN_DEFECTS` (`{}`), `test_registers.py` (docstring,
+- **11**: the registers (18 to 0, 999 to 1,017), `OPEN_DEFECTS` (`{}`), `test_registers.py` (docstring,
   `step > 5`), the form-link sources and `expander.test.ts`, `formLinkWireFixture.ts` (with part 06),
   `formLinksHiddenFallback.ts`, `instanceReads.ts`, `inlineSearchReads.ts`,
   `formLinkChain.ts`, `formLinkCarriedCase.ts`, `formLinkOtherwise.ts`, `proof/targeted/index.ts`,
@@ -1565,6 +1576,18 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   advanced modules and new link shapes: the proof sample keeps its draws, and those draws go to Vitest
   arbitraries of their own.
 - **No step 5 pull request leaves a live entry** (§2.6), where three briefs' outcome B registered one.
+- **The case-writes witness's two close conditions are on close forms Close and Close in repeat**
+  (§5.2 item 2), where the plan put both on the follow-up Visit: `main`'s gate admits a close condition
+  only on a close form, one per form (`lib/commcare/validator/rules/form.ts::closeConditionValidation`),
+  so Visit keeps its writes and operations and each condition is its own close form's.
+- **The form-links witness is declared Web Apps** (§5.1, §5.2 item 6), where the plan declared both:
+  its several-case menu Batch is unavailable on Android, and `main`'s gate refuses a feature an app's
+  platforms cannot run (`lib/commcare/validator/rules/platforms.ts::platformFeatureAvailability`,
+  `several-cases` in `lib/domain/platforms.ts`), as for the case-writes witness's several-case menu.
+- **Pull request 1's placement record is applied by nothing** (§1.3), where the plan had
+  `emitCorpus.ts` apply the empty list to D: at `main` the corpus plans D′ before the first publish's
+  capture runs, so pull request 6 moves that capture ahead of edit planning in `emitCorpus.ts` and
+  `entryWriter.ts` and applies the record there (§4.5).
 - **`container-nested-query` holds 28 defect 25 entries and `container-query-conditional-relative` 2**
   (read), where the proof brief's grouping said 27 and 3.
 
@@ -1624,7 +1647,7 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   names.
 - **Part 10**: the stack's order constraints (§2.2), every pull request's lane row (§8.2), the push costs
   (§8.3), pull request 1 settled before the cut, the runs by hand (§8.4), the first night (§8.5), and the
-  exit counts: known 0, fixed 1,020, `OPEN_DEFECTS` `{}`, 25 walk stops or as G2 leaves them, 108
+  exit counts: known 0, fixed 1,017, `OPEN_DEFECTS` `{}`, 25 walk stops or as G2 leaves them, 108
   controls, eight witnesses, thirty targeted documents by pull request (1: 8, 3: 2, 4: 1, 5: 1, 7: 6,
   8: 2, 9: 2, 10: 5, 11: 3) and part 06's three producer documents, a corpus of 431; under part 02's
   G4 outcome B, twenty-nine (7: 5) and a corpus of 430.

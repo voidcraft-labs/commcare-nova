@@ -40,16 +40,20 @@ the answers it refuses with 429.
   deletes, its refusals of a create over an archived place, and the level
   resource's refusal of a write (``places/``); and the upload view's answers
   to Nova's captured workbook, to a file that is no workbook and to a
-  request with none (``lookup-upload/``). Each read's project space is the
-  document's configuration with HQ's API access privilege beside it, which
-  every one of these resources requires. A read whose view raised is
-  ``{"exception": <its class name>}``. Beside them it holds the two premises
-  the comparison rests on: HQ's form-id reference paths are the four the
-  normalization replaces, and a stored document lacking a declared key at
-  its manifest default reads back at that default (``Detail.display`` alone
-  excepted). The editors' saves over ``navigation-base`` and the shell are
-  ``proof/editors/test_retained_reads.py``'s, which this module leaves out
-  of what it holds.
+  request with none (``lookup-upload/``).
+- the migration groups: each migration witness's A, published as Nova's
+  first publish before step 5 left it, read once (``app-source``).
+
+Each read's project space is the document's configuration (a witness's
+retained one) with HQ's API access privilege beside it, which every one of
+these resources requires. A read whose view raised is ``{"exception": <its
+class name>}``. Beside them it holds the two premises the comparison rests
+on: HQ's form-id reference paths are the four the normalization replaces,
+and a stored document lacking a declared key at its manifest default reads
+back at that default (``Detail.display`` alone excepted). The editors' saves
+over ``navigation-base`` and the shell are
+``proof/editors/test_retained_reads.py``'s, which this module leaves out of
+what it holds.
 
 The plausible failures: an answer written by hand that HQ never gives, a
 read made outside HQ's own authentication and limiter (so a refusal Nova
@@ -71,7 +75,7 @@ import pytest
 
 from proof.hq import operations
 from proof.hq.check import hq_check
-from proof.hq.conftest import nova_shaped_upload
+from proof.hq.conftest import MIGRATION_WITNESSES, nova_shaped_upload, retained_migration_a
 from proof.hq.seams import RedisCounters, api_rate_limits, rate_counters
 
 PROOF_DIR = Path(__file__).resolve().parents[1]
@@ -483,6 +487,41 @@ def test_the_drift_reads_nova_is_served_are_hqs_own(hq, core_runner, documents):
     assert {"lookup-tables", "app-source-after-lookupTable"} <= set(made["targeted-hq-side-lookup"])
     for group in (*groups, hq_built, shell):
         group.hold(READS / group.group, others=_editors_file)
+
+
+# The migration groups -----------------------------------------------------------------------------------------
+
+
+def _migration_reads(documents, document_id, member_name):
+    """One witness's A, published as Nova's first publish before step 5 left it, read once (``app-source``)."""
+    export, retained_a = retained_migration_a(documents[document_id])
+    retained = Retained(document_id)
+    with hq_check(_with_api_access(export)) as (state, _), _services(state), api_rate_limits(state):
+        with _operation(state, "api-user"):
+            member = operations.seed_api_user(state, member_name)
+        app_id = _first_publish(state, export)
+        with _operation(state, "app-source"):
+            read = retained.keep("app-source", operations.source_read(state, app_id, member))
+    assert len(_body(read)["modules"]) == len(_app_file(export.content)["modules"]), document_id
+    return retained, retained_a
+
+
+@pytest.mark.under_determinism
+def test_the_migration_reads_nova_is_served_are_hqs_own(hq, core_runner, documents):
+    groups = [
+        _migration_reads(documents, document_id, f"member-migration-{position}@example.org")
+        for position, document_id in enumerate(MIGRATION_WITNESSES)
+    ]
+    for group, retained_a in groups:
+        if retained_a:
+            group.hold(READS / group.group)
+            continue
+        # With no A retained, the read is written for retention beside it, and nothing can be committed yet.
+        assert not (READS / group.group).exists(), (
+            f"proof/hq-reads/{group.group}/ holds a read of the witness's A, and proof/migrations/{group.group}/"
+            f" retains no A it could be HQ's read of. Retain A (python3 -m proof.checks.controls <corpus>"
+            f" {group.group} --migration-a) and copy {group.out} into proof/hq-reads/{group.group}/ from the same run."
+        )
 
 
 def _lookup_workbook(tables):

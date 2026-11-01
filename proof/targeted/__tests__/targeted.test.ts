@@ -22,11 +22,31 @@
  * that declares no Android, which Nova offers no `.ccz` of. A document that writes D′ carries its edit as the batch
  * Nova's planner makes from D and the gate admits over D, so its edit is one
  * an editor could make too, and the edit is refused as the document is.
+ *
+ * A migration witness (`../documents/migrations.ts`) is a targeted document
+ * whose A is the export of the app from before a migration, retained under
+ * `proof/migrations/<id>/`, and whose B is Nova's republish of the migrated
+ * document over that A, under the configurations A was published to. The
+ * plausible failures: a witness its source does not mark (the lane would
+ * judge it as any document and compare the old A with nothing), and a
+ * witness spec whose content Nova's publish would refuse under a
+ * configuration its A was published to, which the corpus writer finds only
+ * once it captures. The observations are the witnesses' sources and Nova's
+ * publish verdict of each, held to the configurations of its retained A, or,
+ * before its A is retained, to the configurations the corpus derives for it.
  */
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { proseText } from "@/lib/domain";
+import {
+	type CorpusConfiguration,
+	documentConfigurations,
+} from "../../corpus/configurations";
+import type { CorpusDocument } from "../../corpus/documents";
+import { retainedMigrationA } from "../../corpus/inputs";
+import { minimumConfiguration, novaPublishVerdict } from "../../corpus/publish";
 import { targetedDocument, targetedUuid } from "../build";
 import type { Expected } from "../expected";
 import { TARGETED_DOCUMENTS, targetedDocuments } from "../index";
@@ -69,6 +89,80 @@ describe("the targeted documents", () => {
 					expect(entry.export, `${document.id}: ${entry.id}`).toBe("local");
 				}
 			}
+		}
+	});
+});
+
+/** The configurations the corpus writes for a document no A is retained for (`../../corpus/entryWriter.ts`). */
+function derivedConfigurations(document: CorpusDocument) {
+	const verdict = novaPublishVerdict(hydratePersistedBlueprint(document.doc));
+	const least = minimumConfiguration([verdict]);
+	return documentConfigurations({
+		flags: least.flags,
+		caseSearchEnabled: least.caseSearchEnabled,
+		singleFlags: document.singleFlags ?? [],
+		namedPrivileges: document.privileges ?? [],
+		...(document.projectSettings?.syncCasesOnFormEntry !== undefined && {
+			syncCasesOnFormEntry: document.projectSettings.syncCasesOnFormEntry,
+		}),
+		...(document.projectSettings?.commtrack !== undefined && {
+			commtrack: document.projectSettings.commtrack,
+		}),
+	});
+}
+
+describe("the migration witnesses", () => {
+	it("admits each migration witness and gives it the configurations of its retained A", async () => {
+		const documents = targetedDocuments();
+		const witnesses = documents.filter(
+			(document) =>
+				document.source.kind === "targeted" &&
+				document.source.migrationWitness === true,
+		);
+		// A witness is named for its migration, and only a witness is.
+		expect(witnesses.map((document) => document.id)).toEqual(
+			documents
+				.map((document) => document.id)
+				.filter((name) => name.startsWith("targeted-migration-")),
+		);
+		expect(witnesses.length).toBeGreaterThan(0);
+		for (const document of witnesses) {
+			const verdict = novaPublishVerdict(
+				hydratePersistedBlueprint(document.doc),
+			).minimumConfiguration;
+			const retained = await retainedMigrationA(document.id);
+			const configurations =
+				retained?.configurations ?? derivedConfigurations(document);
+			const named: [string, CorpusConfiguration][] = [
+				["minimum", configurations.minimum],
+				["maximum", configurations.maximum],
+				...Object.entries(configurations.singleFlag),
+			];
+			for (const [name, configuration] of named) {
+				const where = `${document.id} under ${name}`;
+				// Nova's publish of the witness accepts each project space its A was published to.
+				for (const flag of verdict.flags) {
+					expect(configuration.flags, where).toContain(flag);
+				}
+				if (verdict.caseSearchEnabled) {
+					expect(configuration.caseSearchEnabled, where).toBe(true);
+				}
+				expect(configuration.namedPrivileges, where).toEqual(
+					[...(document.privileges ?? [])].sort(),
+				);
+			}
+		}
+		// The attachment witness's A is published where case attachments are kept.
+		const attachment = witnesses.find(
+			(document) => document.id === "targeted-migration-attachment",
+		);
+		expect(attachment).toBeDefined();
+		if (attachment !== undefined) {
+			const retained = await retainedMigrationA(attachment.id);
+			expect(
+				(retained?.configurations ?? derivedConfigurations(attachment)).minimum
+					.flags,
+			).toContain("MM_CASE_PROPERTIES");
 		}
 	});
 });

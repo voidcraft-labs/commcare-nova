@@ -67,6 +67,13 @@ export type CorpusSource =
 			readonly kind: "targeted";
 			/** The register rows or harness contracts the document is built to show. */
 			readonly rows: readonly string[];
+			/**
+			 * Present, and `true`, for a migration witness: a targeted document
+			 * whose A is the retained export of the app from before a migration
+			 * (`proof/migrations/<id>/`) and whose B is Nova's republish of the
+			 * migrated document over it.
+			 */
+			readonly migrationWitness?: true;
 	  };
 
 /** Independent compiler fuzz streams the corpus samples. */

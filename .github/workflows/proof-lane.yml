@@ -93,7 +93,7 @@ on:
         type: string
         default: ''
       documents:
-        description: Which corpus documents to queue (all; sample:<n> for a sample of n the queue builder chooses; or only:<id>,<id> for those documents and their controls alone, which shows the lane on them and is no verdict on the corpus)
+        description: Which corpus documents to queue (all; sample:<n> for a sample of n the queue builder chooses; or only:<id>,<id> for those documents and their controls alone, a name control:<id> running that control too, which shows the lane on them and is no verdict on the corpus)
         type: string
         default: all
       split-above:

@@ -83,10 +83,14 @@ own holds that run to a register of its own, and to the fixed register
 ``fixed-defects.json`` beside it, read as empty where there is none
 (``fixed_defects_path``).
 
-``proof/identity-moves.json`` lists ``{"defect", "entity", "path"}``: an
-identity change a migration decides, which proof 1 accepts (``entity``
-matches a difference's artifact as an entry's artifact does, ``path`` its
-structural path). It is empty until a step decides one.
+``proof/identity-moves.json`` lists ``{"defect", "entity", "path", "documents"}``:
+an identity change a migration decides, which proof 1 accepts on the
+migration witnesses ``documents`` names and nowhere else (``entity`` matches a
+difference's artifact as an entry's artifact does, ``path`` its structural
+path). A witness's A is the retained export of the app from before its
+migration (``proof/migrations/<id>/``), so a move scoped to its witnesses never
+accepts its path on a document exported by the current code alone. It is
+empty until a step decides one.
 """
 
 from __future__ import annotations
@@ -142,7 +146,7 @@ ENTRY_KEYS = frozenset({"id", "defect", "part", "check", "artifact", "path", "do
 # A fixed entry names no document: it is held on its control alone.
 FIXED_KEYS = ENTRY_KEYS - {"document"}
 OPTIONAL_KEYS = frozenset({"kind", "values"})
-MOVE_KEYS = frozenset({"defect", "entity", "path"})
+MOVE_KEYS = frozenset({"defect", "entity", "path", "documents"})
 
 
 # The step of a manifest path that names a use the check could not place in or out of a REFUSED value class
@@ -243,10 +247,13 @@ class IdentityMove:
     defect: int
     entity: str
     path: str
+    # The migration witnesses the move holds on: the only documents whose A is an export from before the migration.
+    documents: frozenset[str]
 
-    def accepts(self, difference) -> bool:
+    def accepts(self, difference, document) -> bool:
         return (
             difference.check == "proof1"
+            and document in self.documents
             and difference.path == self.path
             and fnmatch.fnmatchcase(difference.artifact, self.entity)
         )
@@ -467,16 +474,34 @@ def load_fixed_defects(path: Path | None = None, *, known=(), controls: Path = C
     return tuple(entries)
 
 
-def load_identity_moves(path: Path = IDENTITY_MOVES):
+def load_identity_moves(path: Path = IDENTITY_MOVES, *, witnesses=None):
+    """The identity moves at ``path``, each scoped to the migration witnesses its ``documents`` names; with
+    ``witnesses`` (the ids of the corpus's migration witnesses), a move naming any other document is refused."""
     moves, problems = [], []
     for index, raw in enumerate(_load_list(path, "identity-move")):
-        if not isinstance(raw, dict) or set(raw) != MOVE_KEYS:
+        if not isinstance(raw, dict) or set(raw) - {"documents"} != MOVE_KEYS - {"documents"}:
             problems.append(f"{path.name} entry {index} holds exactly {sorted(MOVE_KEYS)}.")
+            continue
+        documents = raw.get("documents")
+        if not isinstance(documents, list) or not documents or not all(isinstance(name, str) for name in documents):
+            problems.append(
+                f"{path.name} entry {index} names the migration witnesses it holds on as a non-empty list of document"
+                " ids (documents)."
+            )
             continue
         if not isinstance(raw["defect"], int) or not all(isinstance(raw[k], str) for k in ("entity", "path")):
             problems.append(f"{path.name} entry {index}: defect is a number, entity and path are strings.")
             continue
-        moves.append(IdentityMove(raw["defect"], raw["entity"], raw["path"]))
+        strays = [] if witnesses is None else [name for name in documents if name not in witnesses]
+        for name in strays:
+            problems.append(
+                f"{path.name} entry {index} names {name}, which is no migration witness: a move holds only on a"
+                " witness of its migration, so it never accepts its path on a document exported by the current code"
+                " alone."
+            )
+        if strays:
+            continue
+        moves.append(IdentityMove(raw["defect"], raw["entity"], raw["path"], frozenset(documents)))
     if problems:
         raise RegisterError("The identity-move register is not one proof 1 can accept by:\n  " + "\n  ".join(problems))
     return tuple(moves)
@@ -565,11 +590,12 @@ def reconcile(check, document, differences, entries, *, fixed=()):
     return result
 
 
-def accepted_moves(differences, moves):
-    """Split proof 1's differences into those an identity move accepts and the rest."""
+def accepted_moves(differences, moves, document):
+    """Split proof 1's differences on the document ``document`` (its id) into those an identity move scoped to it
+    accepts and the rest."""
     accepted, rest = [], []
     for difference in differences:
-        (accepted if any(move.accepts(difference) for move in moves) else rest).append(difference)
+        (accepted if any(move.accepts(difference, document) for move in moves) else rest).append(difference)
     return accepted, rest
 
 

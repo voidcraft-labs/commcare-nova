@@ -58,7 +58,7 @@ ANY_TARGET = {"minimumConfiguration": {"flags": [], "caseSearchEnabled": False}}
 EMPTY_CASE_LIST_TEXT = sensitivity.flag_gate("USH_EMPTY_CASE_LIST_TEXT")
 
 
-@pytest.mark.parametrize("document", cases.document_params() + cases.control_params("sensitivity"))
+@pytest.mark.parametrize("document", cases.document_params("sensitivity") + cases.control_params("sensitivity"))
 def test_every_change_a_flipped_gate_makes_is_its_effect_or_registered(document, hq, core_runner, editor_driver):
     records = observations.records_for(document, core_runner, editor_driver=editor_driver)
     observed = [
@@ -420,6 +420,24 @@ def test_a_flip_turning_sync_on_is_refused_where_the_verdict_requires_it_off():
     # The verdict is read as corpus.lacking reads it: a sync requirement other than off is refused, not accepted.
     with pytest.raises(CorpusLayoutError, match="syncCasesOnFormEntry True"):
         sensitivity.accepts({"minimumConfiguration": {**minimum, "syncCasesOnFormEntry": True}}, plain)
+
+
+def test_a_verdict_requiring_commcare_supply_off_refuses_the_flip_into_it():
+    """A verdict requiring CommCare Supply off refuses the CommTrack flip that turns it on and accepts every other;
+    the same verdict without the key accepts it. The plausible failure: a flip into a project space Nova's publish
+    asks the person to confirm is not, whose differences then reach the register though no publish reaches there."""
+    plain = Configuration(flags={"SYNC_SEARCH_CASE_CLAIM"}, case_search_enabled=True)
+    reads = ({"SESSION_ENDPOINTS"}, {sensitivity.COMMTRACK: 1, SYNC: 1})
+    minimum = {"flags": ["SYNC_SEARCH_CASE_CLAIM"], "caseSearchEnabled": True}
+    requiring_off = {"minimumConfiguration": {**minimum, "commtrackEnabled": False}}
+    off = {flip.gate: flip for flip in sensitivity.flips(plain, *reads, requiring_off)}
+    assert not off[sensitivity.COMMTRACK].accepted and off[sensitivity.COMMTRACK].configuration.commtrack
+    assert all(flip.accepted for gate, flip in off.items() if gate != sensitivity.COMMTRACK)
+    silent = {flip.gate: flip for flip in sensitivity.flips(plain, *reads, {"minimumConfiguration": minimum})}
+    assert all(flip.accepted for flip in silent.values())
+    # The verdict is read as corpus.lacking reads it: a CommCare Supply requirement other than off is refused.
+    with pytest.raises(CorpusLayoutError, match="commtrackEnabled True"):
+        sensitivity.accepts({"minimumConfiguration": {**minimum, "commtrackEnabled": True}}, plain)
 
 
 def test_a_flip_is_refused_exactly_where_nova_publish_would_refuse_the_configuration():

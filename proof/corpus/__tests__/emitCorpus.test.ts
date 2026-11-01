@@ -68,6 +68,11 @@
  * admitted, never redrawn), `hq-side.json` keying its A, and every
  * configuration holding those settings; the plausible failures are an
  * edit, a save or a setting lost on the way to the files the lane reads.
+ * A document whose project space has CommCare Supply on while its verdict
+ * asks it off stands in a configuration Nova refuses, and is refused; one
+ * whose verdict says nothing keeps the setting in every configuration. The
+ * plausible failures are a refusal that reads the setting alone, refusing a
+ * document Nova publishes there, and one that never reads the verdict.
  *
  * The corpus here is small but spans what the emitter treats differently:
  * producer documents with lookup data and uploaded media, three languages
@@ -106,6 +111,7 @@ import {
 import { sampleFuzzDocuments } from "../fuzzSample";
 import { producerDocuments } from "../producers";
 import {
+	commtrackRequirement,
 	PLACEHOLDER_APP_ID,
 	PROOF_DOMAIN,
 	PROOF_SERVER,
@@ -608,6 +614,49 @@ describe("the corpus emitter", () => {
 		).rejects.toThrow(
 			`${refused.id} turns sync on form entry on, and Nova's publish asks the person to confirm it is off for this document, so its configuration is one Nova refuses; a check runs only against a target Nova's publish accepts (decision 19).`,
 		);
+	});
+
+	it("refuses CommCare Supply on where the verdict asks it off, and keeps it on for a document whose verdict says nothing", async () => {
+		const arithmetic = producers.find(
+			(document) => document.id === "arithmetic",
+		);
+		if (arithmetic === undefined) {
+			throw new Error("The producers emit no document arithmetic.");
+		}
+		const supplied: CorpusDocument = {
+			...arithmetic,
+			projectSettings: { commtrack: true },
+		};
+		// Nova's publish asks no document that CommCare Supply be off, so the
+		// requirement is stood in for the refusal.
+		const requirement = vi
+			.spyOn(commtrackRequirement, "asksCommtrackOff")
+			.mockReturnValue(true);
+		try {
+			await expect(
+				emit(join(root, "supply-on-refused"), [supplied], []),
+			).rejects.toThrow(
+				`${supplied.id} turns CommCare Supply on, and Nova's publish asks the person to confirm it is off for this document, so its configuration is one Nova refuses; a check runs only against a target Nova's publish accepts (decision 19).`,
+			);
+		} finally {
+			requirement.mockRestore();
+		}
+		const out = join(root, "supply-on-kept");
+		await emit(out, [supplied], []);
+		const verdict = JSON.parse(
+			await readFile(join(out, supplied.id, "verdict.json"), "utf8"),
+		);
+		expect(verdict.minimumConfiguration).not.toHaveProperty("commtrackEnabled");
+		const configurations = JSON.parse(
+			await readFile(join(out, supplied.id, "configurations.json"), "utf8"),
+		);
+		for (const configuration of [
+			configurations.minimum,
+			configurations.maximum,
+			...Object.values(configurations.singleFlag),
+		] as { commtrack: boolean }[]) {
+			expect(configuration.commtrack).toBe(true);
+		}
 	});
 
 	it("names in every configuration the privileges a document names, and none HQ would derive, at the harness's version", async () => {

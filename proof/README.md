@@ -62,6 +62,11 @@ its own views (`app_import_api.py::_handle_import_app` and
 - **B-edit** is what Nova's publish of D′ leaves over A, where D′ is D after
   the document's edit batch.
 
+A migration witness's A is the retained export of the app from before its
+migration, and B is Nova's republish of the migrated document over it; the
+bar, the intent and manifest checks and proof 4 judge B, proof 1 compares the
+two, and proofs 2, 3 and 5 and configuration sensitivity do not run on it.
+
 Nova's publish compares what HQ holds with what its last publish left there
 before it writes anything, and stops when a person changed it (`hq_changed`,
 `lib/deployment/remoteChanges.ts`) or when a table under Nova's tag is one it
@@ -697,7 +702,10 @@ gh run view <run id> --web                                           # its summa
 - `mechanics` names corpus documents by their ids, the ones your change
   touches. One of them must carry an edit (proof 5's check is collected over
   those, and the queue builder refuses a selection without one), so name an
-  edited document beside yours where yours carries none.
+  edited document beside yours where yours carries none. `mechanics` may
+  name a control as `control:<id>`, so a fixed entry's class is seen on its
+  control before a merge: the control runs and its fixed entries are held,
+  and a name that is no directory of `proof/controls/` is refused.
 - `mechanics_readers=false` runs the same selection without the readers.
   Left as it is, every reader runs, never some of them.
 - `mechanics_shards` is how many shards run it, 2 unless you say (`auto`
@@ -706,8 +714,8 @@ gh run view <run id> --web                                           # its summa
   every document and control under more than one configuration in pieces
   (`none` for no pieces).
 
-It runs the documents you name and the controls of the register's entries
-naming them, each state served to Formplayer, the Web Apps client, a device
+It runs the documents and controls you name and the controls of the
+register's entries naming those documents, each state served to Formplayer, the Web Apps client, a device
 and, for a Connect app, Connect; the Android reader's own checks and its
 predicates, in the job that builds or finds the reader's runtime; and the
 groups that read no corpus (the packages `proof`, `proof/android`,
@@ -1247,7 +1255,9 @@ A document whose verdict requires sync on form entry off
 (`minimumConfiguration.syncCasesOnFormEntry: false`, where Nova's publish asks
 the `form-entry-sync-off` confirmation) may not turn it on: the corpus
 refuses one that does (`proof/corpus/entryWriter.ts`), since a check runs only
-against a target Nova's publish accepts.
+against a target Nova's publish accepts. A document whose verdict requires
+CommCare Supply off (`minimumConfiguration.commtrackEnabled: false`, where
+Nova's publish asks the `commtrack-off` confirmation) may not turn it on.
 
 The plan privileges a document's content needs are HQ's to say: the lane
 derives them where HQ runs, from the apps Nova sends, one rule per privilege
@@ -1539,6 +1549,26 @@ each client replay uses. Its retained control holds three proof 4 classes beside
 added runs, changed viewport values, and a removed viewport member where the longer desktop
 run list displaces a small-screen run at the same position. The two viewport kinds are
 registered separately; R5 shows all three on the document and its unchanged control.
+The eight migration witnesses (`proof/targeted/documents/migrations.ts`, each
+spec marked `migrationWitness: true`, so its source is
+`targeted-migration:<rows>`) are small apps, one per step 5 migration that
+changes the wire or an identity: `targeted-migration-search-workflow` (Web
+Apps only) the search workflow, `targeted-migration-case-writes` (Web Apps
+only) case writes as one concept, `targeted-migration-attachment` the
+attachment mode, `targeted-migration-extension-children` extension child
+cases, `targeted-migration-query-repeats` repeats over a query,
+`targeted-migration-form-links` form links,
+`targeted-migration-groups-preloads` field lists and preloads, and
+`targeted-migration-repeat-counts` whole-number repeat counts. Each one's A is
+its app's export from before its migration, retained under
+`proof/migrations/<id>/` (`python3 -m proof.checks.controls <corpus> <id>
+--migration-a`, which refuses any other document), and its B is Nova's
+republish over that A of the document its spec holds: the app as the
+migrations that have landed leave it, which is the app itself until its own
+lands ("A, B and B-edit", "Identity moves"). Together they hold every
+placement class of a case block Nova's first publish wrote before step 5, so
+HQ's read of each A, which `proof/hq/test_retained_reads.py` retains as
+`proof/hq-reads/<id>/app-source.json`, holds how HQ keeps each one.
 
 To add one: write `proof/targeted/documents/<name>.ts` returning
 `targetedDocument({id, rows, doc, expected, ...})`, with its id
@@ -3004,13 +3034,16 @@ held walk stop moves with its fix the same way ("Walk stops").
 ### Identity moves
 
 `proof/identity-moves.json` lists each identity change a migration decides,
-`{"defect", "entity", "path"}`; proof 1 accepts exactly those. It stays empty
-by design. Proof 1 compares two exports of the current document by the current
-code (A with B, A with B-edit, the two local exports), so a fix's one-time
-change for a deployment made before it shows on neither side, and a move
-accepts its path on every document, so it would hide the very regression the
-fix removes. A step's one-time changes for existing deployments are held by its
-cutover's tests and notices.
+`{"defect", "entity", "path", "documents"}`, and proof 1 accepts a move only
+on the migration witnesses it names: targeted documents whose state A is the
+export of an app from before the migration, retained under
+`proof/migrations/<id>/`, and whose B is Nova's republish of the migrated
+document over it. On every other document proof 1 compares two exports of the
+current document by the current code, where no move applies, so a move never
+hides a regression elsewhere. Each move is written from its witness's proof 1
+evidence, and the cutover's planner tests hold each witness's document to what
+the planner makes of the app it was before. A step's one-time changes for
+existing deployments are held by its cutover's tests and notices.
 
 ### Walk stops
 
@@ -3391,7 +3424,7 @@ reused is only what a key names whole, and the reuse is audited:
 | The same inputs give the same bytes | an unseeded draw or a real clock inside an operation | `proof/corpus/__tests__/emitCorpus.test.ts` (the corpus), `proof/hq/test_determinism.py` (HQ), `proof/checks/test_record_determinism.py` (the records), `proof/editors/test_seeding.py` (the browser), the weekly unseeded comparison |
 | What a browser run asks HQ does not depend on how long it took | a page's poll reaching HQ in a slow run, or a hold that stops a timer a page needs | `proof/editors/test_polls.py`: a ten-second poll never runs, one just shorter does, and so do a quick poll and a longer one-off timer |
 | The harness publishes as Nova does | bodies other than the ones Nova sends | `proof/corpus/__tests__/publish.postgres.test.ts`: the captured requests are the ones Nova's real `publishAppToHq` sends, in its order, and three runs of it send the same menu ids, form ids and `xmlns` in every import body; `proof/hq/test_publish_capture.py`: an update applies only over the source it was built from |
-| The reads Nova is proven over are HQ's own answers | an answer a person wrote, or a pin move that changes an answer unseen | `proof/hq/test_retained_reads.py`: every file under `proof/hq-reads/` is written again on each run, each read made through HQ's own URLconf, API-key authentication, permission and privilege checks and rate limiter, the limiter over counters the lane answers (within limits, and as Redis does for the 429 answers), and held to the committed copy byte for byte (its `publish` group and its drift groups: five documents' reads before and after a person's saves, `hq-built/`, `shell/`, `lookups/`, `places/` and `lookup-upload/`); and `proof/editors/test_retained_reads.py`: the reads after each of HQ's pages is saved with nothing changed, through the editor driver |
+| The reads Nova is proven over are HQ's own answers | an answer a person wrote, or a pin move that changes an answer unseen | `proof/hq/test_retained_reads.py`: every file under `proof/hq-reads/` is written again on each run, each read made through HQ's own URLconf, API-key authentication, permission and privilege checks and rate limiter, the limiter over counters the lane answers (within limits, and as Redis does for the 429 answers), and held to the committed copy byte for byte (its `publish` group, its drift groups: five documents' reads before and after a person's saves, `hq-built/`, `shell/`, `lookups/`, `places/` and `lookup-upload/`, and its migration groups: each migration witness's A read once); and `proof/editors/test_retained_reads.py`: the reads after each of HQ's pages is saved with nothing changed, through the editor driver |
 | The Core runner's traces are faithful | a trace that omits a difference | `proof/core/test_session.py`: one altered answer path changes exactly the runs that reach it |
 | What runs is Formplayer's own application at its pin | another commit, or a runner that started something else | `proof/formplayer/test_boot.py` |
 | HQ's form validation is answered by Formplayer's own controller, with HQ's own request | a seam that answers validation itself or signs HQ's request again; a report not Formplayer's | `proof/formplayer/test_validation.py`, `proof/hq/test_build.py` |
@@ -4295,7 +4328,9 @@ its problems:
    documents; a document it was to be held to and did not run fails by
    name. Such a run holds the fixed entries of the controls it ran, run or
    cached, and leaves the rest: a fixed entry names no document, so its
-   control's own run is what brings it into a slice. The section counts the
+   control's own run is what brings it into a slice, and a hand run may name
+   the control itself (`--documents only:control:<id>`, or `control:<id>`
+   among the documents of proof-audit.yml's `mechanics` dispatch). The section counts the
    fixed entries it held and those it left (`fixedHeld`, `fixedLeft`), and
    notes each known entry that shares a class with a fixed one.
 4. **Walk stops**: the stops every document's and control's walks showed,

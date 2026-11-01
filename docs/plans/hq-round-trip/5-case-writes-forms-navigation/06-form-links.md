@@ -1466,10 +1466,12 @@ form-links brief, which seeded a household and purged a member: a walk cannot pu
 new-case destination tests the brief's harder claim, that the guard reads the device after the
 submission lands.
 
-The migration witness `targeted-migration-form-links` is part 08's (§5.2 there), whose pre-step A
-(built at `main`, pull request 1) holds two conditional links and a terminal unconditional link, a
-stored `postSubmit` beside a conditional link, a link to a submenu HQ does not offer, and datums on
-a menu link, so its migrated B (pull request 11) is §14's map of each (L1 to L5). L6 is witnessed by
+The migration witness `targeted-migration-form-links` is part 08's (§5.2 there), declared Web Apps
+because its several-case menu is unavailable on Android, whose pre-step A (built at `main`, pull
+request 1) holds two conditional links and a terminal unconditional link, a stored `postSubmit`
+beside a conditional link, a link from root menu Patients to its child menu Patient visits, which HQ does not offer from it, and
+datums on a menu link (Record visit's link to child menu Patient notes carrying the selected
+patient), so its migrated B (pull request 11) is §14's map of each (L1 to L5). L6 is witnessed by
 `targeted-form-links-hidden-and-fallback`'s migrated shape (§13.1), whose `previous` beside links in
 a several-case menu L3 then L6 move.
 

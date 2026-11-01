@@ -14,8 +14,9 @@ The early queue holds no group that reads the corpus, the main queue holds
 every document, the controls the two registers and the walk-stops list's
 ``control`` entries name, and the packages that read the corpus;
 ``sample:N`` keeps N documents in the corpus the lane collects, and the
-queue names the documents it leaves out. The same inputs write the same
-bytes.
+queue names the documents it leaves out; ``only:`` names documents and
+controls (``control:<id>``) by hand, and a named control is queued and holds
+its fixed entries. The same inputs write the same bytes.
 
 An edit of the browser's code alone leaves no document cached or judged:
 proof 4's parts name that code, and the queue reads a document's parts
@@ -590,6 +591,45 @@ def test_a_control_only_a_fixed_entry_or_a_held_stop_names_is_queued_for_the_rea
     assert queued == ["control:live"]
     left = [name for name in named["selection"]["left"] if name.startswith("control:")]
     assert left == ["control:fixed", "control:fixed-reader", "control:stop"]
+
+
+def test_a_run_by_hand_may_name_a_control(tmp_path, lane):
+    """``only:`` takes ``control:<id>`` beside a document's id: that control is queued and its fixed entries are held
+    there, beside the controls of the known entries naming the documents; a control that does not exist is refused.
+    The plausible failure: a fixed entry, which names no document, is never seen on its control before a merge,
+    since no run named by hand queues it."""
+    from proof.checks import registers
+    from proof.lane import gate
+
+    checkout, corpus = lane
+    write_files(checkout, {f"proof/controls/{name}/document.json": "{}" for name in ("live", "fixed", "other")})
+    entry = {"defect": 1, "part": "p", "check": "bar", "artifact": "upload", "path": "/x"}
+    fixed = [{**entry, "id": "f1", "control": "fixed"}, {**entry, "id": "f2", "control": "other"}]
+    write_files(
+        checkout,
+        {
+            "proof/known-defects.json": json.dumps([{**entry, "id": "d1", "document": "two", "control": "live"}]),
+            "proof/fixed-defects.json": json.dumps(fixed),
+        },
+    )
+    index = (corpus / "index.json").read_bytes()
+    named = _build(checkout, tmp_path / "named.json", "--documents", "only:two,control:fixed", corpus=corpus)
+    assert sorted(name for name in _queued(named) if name.startswith("control:")) == ["control:fixed", "control:live"]
+    assert named["selection"]["documents"] == ["two"]
+    assert [name for name in named["selection"]["left"] if name.startswith("control:")] == ["control:other"]
+    # The gate holds the fixed entries of the controls the run queued, and leaves the rest.
+    ran = gate._ran_controls([(tmp_path / "named.json", lane_blocks.parse_queue(named))])
+    proof = checkout / "proof"
+    entries = registers.load_fixed_defects(proof / "fixed-defects.json", controls=proof / "controls")
+    assert [held.id for held in registers.held_fixed(entries, selected={"two"}, ran_controls=ran)] == ["f1"]
+    # A control that does not exist is refused by name.
+    (corpus / "index.json").write_bytes(index)
+    out = tmp_path / "bad.json"
+    base = ["main", "--root", str(checkout), "--corpus", str(corpus), "--out", str(out)]
+    with pytest.raises(queue.QueueBuildError, match=r"--documents only:control:gone names no control: .*gone does not"):
+        queue.named_controls(["two", "control:gone"], checkout / "proof")
+    assert queue.main([*base, "--documents", "only:two,control:gone"]) == 2
+    assert (corpus / "index.json").read_bytes() == index
 
 
 def test_a_split_module_and_its_tests_are_queued_as_groups_of_their_own_keyed_by_their_packages_data(

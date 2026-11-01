@@ -306,16 +306,16 @@ This departs from step 4 (whose sources parsed at the head) and follows step 3's
 | Fixture | Source | Holds (the classes of section 7 it feeds) |
 |---|---|---|
 | `targeted-migration-search-workflow` | part 08 §5.2, the emitted `document.json` | M1 to M5 of part 05 |
-| `targeted-migration-case-writes` | same | C1 to C3, C6, C8, the several-case wrapper, and C9's writeless arm: the follow-up Discharge holds a conditional `close` operation on its own case with no writes (the shape the scan found in production), migrated to a close form whose close condition is the operation's, the operation removed, and its own close held through `Form.ownClosePlacement` at the removed operation's path. C9's arms holding writes and under `forEach` are `pre-step-own-close-operation`'s |
+| `targeted-migration-case-writes` | same | C1 to C3, C6 (on close form Close, its static-select close condition), C8 (with close form Close in repeat, whose close condition reads a question in a repeat), the several-case wrapper, and C9's writeless arm: the follow-up Discharge holds a conditional `close` operation on its own case with no writes (the shape the scan found in production), migrated to a close form whose close condition is the operation's, the operation removed, and its own close held through `Form.ownClosePlacement` at the removed operation's path. C9's arms holding writes and under `forEach` are `pre-step-own-close-operation`'s |
 | `targeted-migration-attachment` | same | C4, C5 |
 | `targeted-migration-extension-children` | same | M1 to M3 of part 02, C2's extension buckets |
 | `targeted-migration-query-repeats` | same | Q1 |
-| `targeted-migration-form-links` | same | L1 to L5 |
+| `targeted-migration-form-links` | same | L1 to L5, in an app declared Web Apps (its several-case menu Batch is unavailable on Android) |
 | `targeted-migration-groups-preloads` | same | Q4, C7 |
 | `targeted-migration-repeat-counts` | same | Q2, Q3 |
 | `pre-step-own-close-operation` | this part, `buildDoc` | C9: a follow-up holding a `close` operation on `session` with a condition and no writes; a second follow-up whose session `close` operation holds two writes; a third whose session `close` operation runs under `forEach` (section 7.4's `own-close-in-repeat`); a close form with a structured close condition and a session `close` operation (section 7.4). Part 08's case-writes witness holds only the first arm |
-| `pre-step-duplicate-own-write` | this part | C10: a follow-up whose `update` operation on `session` writes `status`, which a field also writes |
-| `pre-step-registration-updates-own` | this part | C11: a registration whose `update` operation's target is an `expression` reading the `new-case` datum |
+| `pre-step-duplicate-own-write` | this part | C10: a follow-up whose `update` operation on `session` writes `review_status`, which a field also writes |
+| `pre-step-registration-updates-own` | this part | C11: a registration whose `update` operation's target is an `expression` reading a Hidden Value `new_id` that calculates the `new-case` datum |
 | `pre-step-renamed-concepts` | this part | M2 and M3 (`caseListOnly` true and false), M4 (a case list icon on a module without `caseListOnly`), M5 with a target language whose overlay holds the no-matches form's label |
 | `pre-step-search-results` | this part | part 05 M1's last row: a search with no visible field and no effective filter in an app declaring both |
 | `pre-step-otherwise-unoffered` | this part | L3 and L6: a several-case form with a conditional link and a stored `postSubmit` that `main` admits beside links only through `postSubmitDestinationsAdmitted`'s several-case waiver, which the head's `otherwiseDestinationsOffered` does not offer |
@@ -1825,6 +1825,16 @@ writer converging exactly the planned differences (G7).
   their own, and HQ's reads of them are `proof/hq-reads/<witness id>/app-source.json`, not
   `fixtures/pre-step-hq/` (part 08's departure, adopted). The capture test leaves in pull request 2, and
   `facts.json` records what `main`'s code derives, which the brief did not hold.
+- **The C10 fixture writes `review_status`** (section 5.2), where the plan wrote `status`: `main`'s gate
+  refuses a write of `status`, a reserved case property
+  (`lib/domain/standardCaseProperties.ts::FORBIDDEN_CASE_WRITE_PROPERTIES`, which a field's write meets
+  in `lib/commcare/caseWriteAdmission.ts`, and `::FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES`, which an
+  operation's write meets), and the class is the same under any property the own arm also writes.
+- **The C11 fixture's operation target reads a Hidden Value `new_id` that calculates the `new-case`
+  datum** (section 5.2), where the plan read the datum in the target directly: `main`'s gate refuses a
+  `new-case` session-datum term in an operation's target, a record slot that reads only the case chosen
+  in an earlier menu (`lib/domain/expression/typeChecker.ts::chosenCaseAdmission`), so the target reads
+  the Hidden Value, which holds the id of the case the registration creates.
 - **The frozen classifier's production check** (section 8.6, G6) is not in the research or the brief.
 - **New causes**: `own-close-moved` (C9) and `case-changed-before-create` (part 01's C11) join the brief's.
 - **Copy**: `form-link-otherwise-set` reads `from` (part 06 §14.3); `menu-opens-on-search` has two sentences

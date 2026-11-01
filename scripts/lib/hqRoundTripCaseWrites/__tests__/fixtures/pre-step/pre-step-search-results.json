@@ -1,0 +1,83 @@
+{
+	"appId": "74372ae5-956e-5961-aae6-8b83ffd2a9b5",
+	"appName": "Search results",
+	"connectType": null,
+	"caseTypes": [
+		{
+			"name": "patient",
+			"properties": [
+				{
+					"name": "case_name",
+					"label": {
+						"parts": [
+							{
+								"kind": "text",
+								"text": "Name"
+							}
+						]
+					}
+				}
+			]
+		}
+	],
+	"appSettings": {
+		"showSavedForms": false,
+		"showIncompleteForms": false
+	},
+	"modules": {
+		"dd485f97-ddd2-5b4b-af42-aff9953fa647": {
+			"uuid": "dd485f97-ddd2-5b4b-af42-aff9953fa647",
+			"id": "patients",
+			"name": "Patients",
+			"caseType": "patient",
+			"caseListConfig": {
+				"columns": [
+					{
+						"uuid": "6d70ad30-3686-5da4-ac92-1cee9f5ec1a0",
+						"kind": "plain",
+						"field": "case_name",
+						"header": "Name"
+					}
+				],
+				"searchInputs": [],
+				"listColumnOrder": ["6d70ad30-3686-5da4-ac92-1cee9f5ec1a0"],
+				"detailColumnOrder": ["6d70ad30-3686-5da4-ac92-1cee9f5ec1a0"]
+			},
+			"caseSearchConfig": {}
+		}
+	},
+	"forms": {
+		"a833bbc2-a5b8-55b6-acec-86b82df98032": {
+			"uuid": "a833bbc2-a5b8-55b6-acec-86b82df98032",
+			"id": "visit",
+			"name": "Visit",
+			"type": "followup"
+		}
+	},
+	"fields": {
+		"e2b28d3c-5d47-5878-a1c9-31f6d6bea7ec": {
+			"uuid": "e2b28d3c-5d47-5878-a1c9-31f6d6bea7ec",
+			"kind": "text",
+			"id": "note",
+			"label": {
+				"parts": [
+					{
+						"kind": "text",
+						"text": "Note"
+					}
+				]
+			}
+		}
+	},
+	"moduleOrder": ["dd485f97-ddd2-5b4b-af42-aff9953fa647"],
+	"formOrder": {
+		"dd485f97-ddd2-5b4b-af42-aff9953fa647": [
+			"a833bbc2-a5b8-55b6-acec-86b82df98032"
+		]
+	},
+	"fieldOrder": {
+		"a833bbc2-a5b8-55b6-acec-86b82df98032": [
+			"e2b28d3c-5d47-5878-a1c9-31f6d6bea7ec"
+		]
+	}
+}

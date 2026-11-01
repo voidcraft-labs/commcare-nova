@@ -618,10 +618,9 @@ def test_a_pinned_entry_holds_its_values_alone_beside_its_class_unpinned():
 
 
 def test_proof1_accepts_exactly_the_identity_moves_the_register_names(known_differences, tmp_path):
-    moves = registers.load_identity_moves(
-        _write(tmp_path / "moves.json", [{"defect": 1, "entity": "case_types", "path": "/*/properties/*"}])
-    )
-    accepted, rest = registers.accepted_moves(known_differences, moves)
+    move = {"defect": 1, "entity": "case_types", "path": "/*/properties/*", "documents": ["suite-app"]}
+    moves = registers.load_identity_moves(_write(tmp_path / "moves.json", [move]))
+    accepted, rest = registers.accepted_moves(known_differences, moves, "suite-app")
     assert {(d.artifact, d.path) for d in accepted} == {("case_types", "/*/properties/*")}
     assert {(d.artifact, d.path) for d in rest} == {
         ("form:0.0", "/questions/*/options/*"),
@@ -629,6 +628,35 @@ def test_proof1_accepts_exactly_the_identity_moves_the_register_names(known_diff
     }
     with pytest.raises(registers.RegisterError):
         registers.load_identity_moves(_write(tmp_path / "bad.json", [{"defect": 1, "entity": "case_types"}]))
+
+
+def test_an_identity_move_holds_only_on_the_witnesses_it_names(tmp_path):
+    """A move accepts its difference on a migration witness it names and on no other document, so a path a
+    migration moves is never accepted where the current code alone exported both states. The plausible failures: a
+    move that accepts its path on every document (the register would hide a regression of that identity wherever it
+    shows), and a loader that takes a move scoped to nothing or to a document that is no witness."""
+    move = {"defect": 1, "entity": "form:*", "path": "/xmlns", "documents": ["targeted-migration-one"]}
+    moves = registers.load_identity_moves(
+        _write(tmp_path / "moves.json", [move]), witnesses={"targeted-migration-one", "targeted-migration-two"}
+    )
+    assert moves == (registers.IdentityMove(1, "form:*", "/xmlns", frozenset({"targeted-migration-one"})),)
+    moved = Difference("proof1", "targeted-migration-one", "form:0.0", "/xmlns", "/xmlns", "changed", "a", "b")
+    elsewhere = replace(moved, document="producer.one")
+    accepted, rest = registers.accepted_moves([moved], moves, "targeted-migration-one")
+    assert accepted == [moved] and rest == []
+    accepted, rest = registers.accepted_moves([elsewhere], moves, "producer.one")
+    assert accepted == [] and rest == [elsewhere]
+    # Another witness the move does not name keeps its difference too.
+    assert registers.accepted_moves([moved], moves, "targeted-migration-two") == ([], [moved])
+    unscoped = {key: value for key, value in move.items() if key != "documents"}
+    for raw in (unscoped, {**move, "documents": []}, {**move, "documents": [1]}):
+        with pytest.raises(registers.RegisterError, match="as a non-empty list of document ids"):
+            registers.load_identity_moves(_write(tmp_path / "bad.json", [raw]))
+    with pytest.raises(registers.RegisterError, match="names producer.one, which is no migration witness"):
+        registers.load_identity_moves(
+            _write(tmp_path / "bad.json", [{**move, "documents": ["producer.one"]}]),
+            witnesses={"targeted-migration-one"},
+        )
 
 
 def test_a_control_must_keep_showing_each_symptom_its_entries_name(known_differences, tmp_path, monkeypatch):
