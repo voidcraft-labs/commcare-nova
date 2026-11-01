@@ -1330,8 +1330,8 @@ artifact=$(gh api repos/voidcraft-labs/commcare-nova/actions/runs/<run id>/artif
 gh api repos/voidcraft-labs/commcare-nova/actions/artifacts/$artifact/zip > <dir>/proof-corpus-<attempt>.tar.zst
 mkdir <dir>/corpus && zstd -dc <dir>/proof-corpus-<attempt>.tar.zst | tar -x -C <dir>/corpus
 for id in <the eight>; do python3 -m proof.checks.controls <dir>/corpus "$id" --migration-a; done
-gh run download <run id> -n proof-out-<shard>-<attempt> -D <dir>/out   # the shards that ran test_retained_reads.py
-cp -r <dir>/out/hq-reads/targeted-migration-* proof/hq-reads/
+gh run download <run id> -n proof-out-<attempt>-<shard> -D <dir>/out/<shard>   # the shard that ran test_retained_reads.py
+cp -r <dir>/out/<shard>/blocks/*/hq-reads/targeted-migration-* proof/hq-reads/   # a shard writes each block's reads under blocks/<block>/
 ```
 
 The corpus artifact is uploaded unzipped, so `gh run download -n proof-corpus-<attempt>.tar.zst`
