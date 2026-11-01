@@ -39,11 +39,13 @@ runs.
 - ``lookup_tables_read``, ``fixture_rows_read``, ``locations_read``,
   ``location_patch``, ``location_type_write``: the reads and writes Nova's
   client makes of HQ's lookup table, row, location and level resources,
-  through ``api_request``.
+  through ``api_request`` (the table list in the order of its tables' ids,
+  ``lookup_tables_in_id_order``).
 """
 
 import json
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from email.parser import BytesHeaderParser
 from typing import NamedTuple
@@ -552,9 +554,40 @@ def import_request(state, upload: Upload, credential: ApiCredential) -> HqAnswer
     )
 
 
+@contextmanager
+def lookup_tables_in_id_order():
+    """``LookupTableResource``'s list, for the block, in the order of its tables' ids.
+
+    HQ lists a project space's tables with no order of its own
+    (``fixtures/resources/v0_1.py::LookupTableResource.obj_get_list``, through
+    ``fixtures/models.py::LookupTableManager.by_domain``, a plain filter on
+    a model with no ordering), so the list is in the order Postgres happens
+    to hand the rows back in: where each row sits in the table, which
+    depends on what was written and rolled back before in the worker's
+    database and on when Postgres's own vacuum last ran. Every edit to a
+    table writes its row anew, wherever the page has room. Every order is one
+    HQ may give, and Nova reads the list by id and tag; the harness gives the
+    same one in every state, as ``proof.formplayer.hq.cases_in_id_order``
+    does for a restore's cases.
+    """
+    from unittest import mock
+
+    from corehq.apps.fixtures.resources.v0_1 import LookupTableResource
+
+    held = LookupTableResource.obj_get_list
+
+    def obj_get_list(self, *args, **kwargs):
+        return sorted(held(self, *args, **kwargs), key=lambda table: table.id.hex)
+
+    with mock.patch.object(LookupTableResource, "obj_get_list", obj_get_list):
+        yield
+
+
 def lookup_tables_read(state, credential: ApiCredential) -> HqAnswer:
-    """``fixtures/resources/v0_1.py::LookupTableResource``'s list, as Nova's ``listHqLookupTables`` reads it."""
-    return api_request(state, "GET", f"/a/{state.domain}/api/lookup_table/v1/?limit=100", credential=credential)
+    """``fixtures/resources/v0_1.py::LookupTableResource``'s list, as Nova's ``listHqLookupTables`` reads it, in the
+    order of its tables' ids (``lookup_tables_in_id_order``)."""
+    with lookup_tables_in_id_order():
+        return api_request(state, "GET", f"/a/{state.domain}/api/lookup_table/v1/?limit=100", credential=credential)
 
 
 def fixture_rows_read(state, table_id, credential: ApiCredential, *, query="") -> HqAnswer:

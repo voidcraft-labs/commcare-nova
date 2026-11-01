@@ -8,9 +8,9 @@ description: >-
   exactly those (proof/android/build-runtime.sh, every download named by
   commit, checksum or revision) and saved, and the reader's own checks run
   on the runtime, built or kept (the reader's code changes without the
-  runtime changing); without it, a missing runtime fails the job, since the
-  proof shards, which mount it beside the harness, run after the job that
-  builds it. Needs `proof/` checked out, on linux/amd64:
+  runtime changing); without it, a runtime two restores miss fails the job,
+  since the proof shards, which mount it beside the harness, run after the
+  job that builds it. Needs `proof/` checked out, on linux/amd64:
   Robolectric's native runtime and the Android Gradle plugin's resource
   compiler ship for no other Linux.
 inputs:
@@ -54,12 +54,44 @@ runs:
         distribution: ${{ steps.name.outputs.distribution }}
         java-version: ${{ steps.name.outputs.jdk }}
         check-latest: false
-    - id: held
+    # Every shard restores the runtime at once, and the cache's storage refuses
+    # some of those downloads partway ("Egress is over the account limit", a
+    # throttle in GitHub's own storage) though it holds the entry; the restore
+    # reports that as a warning and a miss. A download that fails leaves
+    # nothing at the path, so a runner that missed waits a pause of its own
+    # and restores once more before it concludes the runtime is missing. The
+    # job that builds the runtime waits once too, so one throttled restore
+    # there does not build again a runtime the cache holds.
+    - id: first
       uses: actions/cache/restore@v6
       with:
         path: ${{ steps.name.outputs.runtime }}
         key: ${{ steps.name.outputs.key }}
-        fail-on-cache-miss: ${{ inputs.build != 'true' }}
+    - name: Wait before restoring again
+      if: ${{ steps.first.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: |
+        pause=$((60 + RANDOM % 121))
+        echo "The runtime's restore missed; restoring again in $pause s, in case the cache refused the download rather than lacking the entry."
+        sleep "$pause"
+    - id: again
+      if: ${{ steps.first.outputs.cache-hit != 'true' }}
+      uses: actions/cache/restore@v6
+      with:
+        path: ${{ steps.name.outputs.runtime }}
+        key: ${{ steps.name.outputs.key }}
+    - id: held
+      shell: bash
+      env:
+        HIT: ${{ steps.first.outputs.cache-hit == 'true' || steps.again.outputs.cache-hit == 'true' }}
+        BUILD: ${{ inputs.build }}
+        KEY: ${{ steps.name.outputs.key }}
+      run: |
+        echo "cache-hit=$HIT" >> "$GITHUB_OUTPUT"
+        if [ "$HIT" != true ] && [ "$BUILD" != true ]; then
+          echo "::error::Restoring the Android reader's runtime ($KEY) missed twice. The job that builds it runs before this one, so the cache may well hold the entry and have refused the download: a 'Cache hit for' line above followed by a 'Failed to restore' warning ('Egress is over the account limit') says so; that throttle is GitHub's storage, and a rerun usually reads the runtime. Without that line, the entry is gone, and the next run's runtime job builds it again."
+          exit 1
+        fi
     - name: Build the runtime
       if: ${{ inputs.build == 'true' && steps.held.outputs.cache-hit != 'true' }}
       shell: bash

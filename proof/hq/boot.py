@@ -56,6 +56,18 @@ boot takes (``corehq/tests/pytest_hooks.py::pytest_load_initial_conftests``:
    inline, which production's request never does, so the harness neither
    counts nor enqueues, and HQ's code after the assertion runs as
    production's does.
+   An exception a view raises is answered by HQ's own ``handler500``
+   (``urls.py``; ``corehq/apps/hqwebapp/views.py::server_error``) as HQ's
+   settings in the lane run it: an empty 500, since ``UNIT_TESTING`` is on.
+   With ``DEBUG`` on, Django would answer with its technical page instead
+   (``django/core/handlers/exception.py::handle_uncaught_exception``), which
+   no HQ server sends: it formats every local of every frame before trimming
+   it (``django/views/debug.py::ExceptionReporter.get_traceback_data``), the
+   unit's seams' record among them (``proof.hq.elasticsearch.install``'s
+   ``record``, observed at 34 MB to 640 MB for one answer, past a device's
+   minute of waiting), and prints frame ids and object addresses that differ
+   in every process. Formplayer keeps the body of HQ's 500 in its error and
+   a device reads it, so that page would be what a reader recorded.
 8. Every entropy reader is routed through ``proof.hq.determinism`` before HQ
    is imported, so ``determinism.operation`` can seed them.
 9. ``gc.collect()`` and ``gc.freeze()``: what the boot built is never
@@ -342,6 +354,7 @@ def boot() -> BootReport:
 
     speed.install()
     _install_production_soft_asserts()
+    _install_production_error_answer()
     t = step("seams", t)
 
     gc.collect()
@@ -563,6 +576,25 @@ def _install_production_soft_asserts():
     core.SoftAssert.__call__ = noting_call
     core.SoftAssert.call = noting_call
     core.SoftAssert._call = noting_call
+
+
+def _install_production_error_answer():
+    """An exception a view raises is answered by HQ's own ``handler500``, as Django answers it with ``DEBUG`` off.
+
+    Django's ``response_for_exception`` looks ``handle_uncaught_exception`` up in its module when it calls it, so
+    replacing the module's function reaches every answer, the one ``get_exception_response`` gives when a 4xx
+    handler raises included.
+    """
+    from django.conf import settings
+    from django.core.handlers import exception
+
+    def production_answer(request, resolver, exc_info):
+        if settings.DEBUG_PROPAGATE_EXCEPTIONS:
+            # Called inside Django's except block, as the function it replaces is, so this re-raises its exception.
+            raise
+        return resolver.resolve_error_handler(500)(request)
+
+    exception.handle_uncaught_exception = production_answer
 
 
 def _check_celery():

@@ -15,7 +15,12 @@ read as a JVM that could not start, which a ``TimeoutError`` (an ``OSError``) wa
 A response-write failure also ends the request with ``PeerFailed``: the reader retains the subprocess log
 and bounded request context, preserves the socket error as its cause, and stops and reaps the device before
 removing its temporary files. An ``OSError`` escaping the proxy used to call this a JVM that could not start
-and discard the log that could explain why the device stopped reading.
+and discard the log that could explain why the device stopped reading. An answer that took the device's own read
+timeout is one the device stopped waiting for: the proxy marks it unread on the peer and serves on, whether its
+write then fails or happens to succeed; the failure there is a device's own timeout read as the harness failing,
+or as an answer the device read. The mark lands on the exchange of the request the device stopped waiting for,
+and only that exchange's record carries it (``proof.android.hq``), so every exchange the device read is written
+as it always was.
 
 The device here is a Python process making its requests through the proxy with the authority as its only
 trust, as the JVM's client does (CommCare Android's own client is held to the same proxy in
@@ -27,6 +32,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import socket
 import ssl
 import sys
 import tempfile
@@ -83,7 +89,7 @@ class Recorded:
     """What answers the device's network here: each request it is handed, answered with what it says it got."""
 
     def __init__(self, refuse=None):
-        self.requests, self.controls, self.refuse = [], [], refuse
+        self.requests, self.controls, self.refuse, self.unread_paths = [], [], refuse, []
 
     def http(self, request):
         if self.refuse is not None and self.refuse in request.path:
@@ -94,6 +100,9 @@ class Recorded:
 
     def control(self, what, name):
         self.controls.append((what, name))
+
+    def unread(self, request):
+        self.unread_paths.append(request.path)
 
 
 def _serve(peer, scratch: Path):
@@ -133,6 +142,8 @@ def test_each_request_reaches_the_harness_as_the_client_wrote_it_and_its_answer_
         [200, "GET http://staging.commcarehq.org/ota_restore 0", True],
     ]
     assert answers[3] == [200] and peer.controls == [("run", "m0/f1")]
+    # At the device's real read timeout, an answer this quick is one the device read.
+    assert peer.unread_paths == []
 
 
 def test_a_request_the_harness_cannot_answer_ends_the_request_after_the_device_is_answered():
@@ -142,6 +153,7 @@ def test_a_request_the_harness_cannot_answer_ends_the_request_after_the_device_i
             _serve(peer, Path(directory))
     # The request before it was answered; nothing after it was asked.
     assert [r.path for r in peer.requests] == ["/a/space/phone/restore/"]
+    assert peer.unread_paths == []
 
 
 def test_a_response_the_device_stops_reading_keeps_its_context_and_log_and_reaps_the_device(tmp_path, monkeypatch):
@@ -207,6 +219,82 @@ def test_a_response_the_device_stops_reading_keeps_its_context_and_log_and_reaps
         assert not (reader._work / "request-1").exists()
     finally:
         reader.close()
+
+
+# A device that sends one request, tells the test it is waiting, and then either closes the connection with a
+# reset (its client giving up) or reads the answer; either way it goes on to its next message to the harness and
+# exits 0 once that is answered.
+STOPS_WAITING = textwrap.dedent(
+    r"""
+    import socket, struct, sys
+    proxy, told_port, closes = sys.argv[1], int(sys.argv[2]), sys.argv[3] == "closes"
+    host, port = proxy.split(":")
+    told = socket.create_connection(("127.0.0.1", told_port), timeout=30)
+    connection = socket.create_connection((host, int(port)), timeout=30)
+    connection.sendall(b"GET http://example.test/a/space/phone/search/x/ HTTP/1.1\r\nHost: example.test\r\n\r\n")
+    if told.recv(1) != b"r":
+        raise RuntimeError("The harness did not say it had the request.")
+    if closes:
+        connection.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
+        connection.close()
+    told.sendall(b"c")
+    if not closes:
+        answer = b""
+        while chunk := connection.recv(1 << 16):
+            answer += chunk
+        if not answer.startswith(b"HTTP/1.1 200"):
+            raise RuntimeError("The device read no answer: " + repr(answer[:100]))
+    control = socket.create_connection((host, int(port)), timeout=30)
+    control.sendall(b"GET /_proof/run?name=m0 HTTP/1.1\r\nHost: " + proxy.encode() + b"\r\n\r\n")
+    reply = b""
+    while chunk := control.recv(1 << 16):
+        reply += chunk
+    if not reply.startswith(b"HTTP/1.1 200"):
+        raise RuntimeError("The harness did not answer the device's message: " + repr(reply[:100]))
+    """
+)
+
+
+@pytest.mark.parametrize("closes", [True, False], ids=["the device closes first", "the write succeeds"])
+def test_an_answer_past_the_devices_read_timeout_is_marked_unread_and_the_proxy_serves_on(monkeypatch, closes):
+    """Contract: an answer that took the device's read timeout from the moment its request was read is marked
+    unread on the peer, its write is still tried, and the device's next message is answered, so the JVM's exit
+    status is the device's own. A device that reset the connection makes the write fail (the body is larger than
+    a socket buffer); one that kept it reads the answer. Failure it catches: the device's own timeout ending the
+    request as ``PeerFailed``, or an answer the device never read recorded as read."""
+    # Every answer counts as past the device's timeout, so no test waits a minute (or at all) to reach it.
+    monkeypatch.setattr(network, "DEVICE_READ_SECONDS", 0.0)
+    body = b"x" * (8 * 1024 * 1024)
+    told = socket.create_server(("127.0.0.1", 0))
+    told.settimeout(30)
+
+    class Waiting(Recorded):
+        def http(self, request):
+            # The device is told its request was read, and answered once it says it closed or kept waiting.
+            connection, _ = told.accept()
+            with connection:
+                connection.settimeout(30)
+                connection.sendall(b"r")
+                assert connection.recv(1) == b"c"
+            self.requests.append(request)
+            return 200, (("Content-Type", "text/plain"),), body
+
+    peer = Waiting()
+    with tempfile.TemporaryDirectory(prefix="proof-android-peer-") as directory:
+        scratch = Path(directory)
+        proxy = network.Proxy(peer, network.Authority(scratch / "authority"))
+        arguments = [proxy.address, str(told.getsockname()[1]), "closes" if closes else "reads"]
+        try:
+            with open(scratch / "device.log", "wb") as log:
+                status = proxy.serve(
+                    [sys.executable, "-I", "-c", STOPS_WAITING, *arguments], timeout=60, cwd=str(scratch), log=log
+                )
+        finally:
+            proxy.close()
+            told.close()
+        assert status == 0, (scratch / "device.log").read_text()
+    assert peer.unread_paths == ["/a/space/phone/search/x/"]
+    assert [r.path for r in peer.requests] == ["/a/space/phone/search/x/"] and peer.controls == [("run", "m0")]
 
 
 def test_a_device_past_its_deadline_is_stopped_and_reported_as_unanswered_with_how_far_it_walked():
@@ -284,3 +372,45 @@ def test_the_proxy_offers_a_device_tls_1_2_or_later_and_nothing_earlier():
         assert _handshake(allowing, old, host) == "TLSv1.1"
         with pytest.raises(ssl.SSLError):
             _handshake(served, old, host)
+
+
+def test_an_exchange_the_device_read_is_written_as_it_always_was_and_one_it_never_read_says_so():
+    """Contract (``proof.android.hq.Exchange.record``): an exchange whose answer the device read is written
+    without an ``unread`` key, exactly the exchange's fields as they were before the mark existed, so its record
+    and every key over it are unchanged; one the device stopped waiting for adds ``"unread": True``. Failure it
+    catches: every exchange's record gaining ``"unread": false``, which changes every stored record, or the mark
+    lost from the record the judge reads."""
+    from dataclasses import asdict
+
+    from proof.android.hq import Exchange
+
+    exchange = Exchange("m0", "GET", "https://www.commcarehq.org/a/d/phone/search/x/", "app_aware_remote_search", 200)
+    fields = {key: value for key, value in asdict(exchange).items() if key != "unread"}
+    assert exchange.record() == fields and "unread" not in exchange.record()
+    exchange.unread = True
+    assert exchange.record() == {**fields, "unread": True}
+
+
+def test_only_the_last_exchange_is_marked_unread_and_only_for_the_request_it_answered():
+    """Contract (``proof.android.hq.DevicePeer.unread``): the proxy answers one request at a time, so the request
+    the device stopped waiting for is the last exchange, which is marked; a request that is not the last exchange's
+    is refused with what to look at, and marks nothing. Failure it catches: the mark landing on another request's
+    exchange, or a mismatch passing silently."""
+    from types import SimpleNamespace
+
+    from proof.android.hq import DevicePeer, Exchange
+
+    def request(path):
+        return network.DeviceRequest("GET", "https", "www.commcarehq.org", path, "", (), b"")
+
+    earlier = Exchange("m0", "GET", request("/a/d/phone/restore/").url, "ota_restore", 200)
+    last = Exchange("m0", "GET", request("/a/d/phone/search/x/").url, "app_aware_remote_search", 200)
+    # Only the exchanges are read, so a device's peer stands in without HQ behind it.
+    device = SimpleNamespace(exchanges=[earlier, last])
+    with pytest.raises(ValueError, match="the last answer HQ gave it was for another request"):
+        DevicePeer.unread(device, request("/a/d/phone/restore/"))
+    assert not earlier.unread and not last.unread
+    with pytest.raises(ValueError, match="no exchange to mark"):
+        DevicePeer.unread(SimpleNamespace(exchanges=[]), request("/a/d/phone/search/x/"))
+    DevicePeer.unread(device, request("/a/d/phone/search/x/"))
+    assert last.unread and not earlier.unread

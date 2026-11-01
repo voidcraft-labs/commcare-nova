@@ -439,6 +439,35 @@ def test_a_soft_assertion_hq_raises_under_debug_is_noted_as_production_notes_it(
     assert quiet == []
 
 
+def test_a_view_that_raises_is_answered_by_hqs_own_500_handler_never_djangos_debug_page(hq):
+    """Contract: an exception a view raises is answered by HQ's ``handler500`` (``server_error``, an empty 500 under
+    the lane's ``UNIT_TESTING``), the same bytes every time. The failure: Django's technical page, which the
+    harness's ``DEBUG`` would choose, formats every frame local and prints addresses that differ per process."""
+    from django.conf import settings
+    from django.core.handlers.exception import response_for_exception
+    from django.test import RequestFactory
+    from django.urls import get_resolver
+
+    # A path HQ's URLconf resolves (Formplayer's case search), since HQ's handler resolves the request's path.
+    request = RequestFactory().get("/a/nova-proof/phone/search/proof-app/", secure=True)
+
+    def answer():
+        try:
+            raise RuntimeError("A view raised.")
+        except RuntimeError as error:
+            return response_for_exception(request, error), get_resolver().resolve_error_handler(500)(request)
+
+    assert settings.DEBUG is True and settings.UNIT_TESTING is True
+    # HQ's handler writes the traceback into its cache, which the unit empties as it opens and closes.
+    with hq_state(Configuration()):
+        first, handlers = answer()
+        second, _ = answer()
+    assert (first.status_code, first.content) == (handlers.status_code, handlers.content) == (500, b"")
+    for marker in (b"DEBUG = True", b"Traceback", b"technical_500"):
+        assert marker not in first.content
+    assert (second.status_code, second.content) == (first.status_code, first.content)
+
+
 # HQ's own address ----------------------------------------------------------------------------------------
 
 

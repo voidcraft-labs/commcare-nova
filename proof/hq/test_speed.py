@@ -16,6 +16,22 @@ its CSRF token and clock are the same): with the seams, with HQ's DEBUG boot
 with the seams again from the cache the first render filled (the same cached
 loader, holding every template the first render compiled). The pages are
 HQ's own views over HQ's suite-test apps as the editors' tests publish them.
+Each request is held as HQ's server holds the one it is answering
+(``proof.hq.requests.held_get``), so HQ's readers of ``get_request()`` see it.
+
+No render has the cyclic collector run inside it. The seams set the
+collector's thresholds and ``off()`` puts Python's back, and what ran before
+decides whether a collection lands inside one render and not another. Such a
+collection could run a finalizer, a weak reference's callback or a dead signal
+receiver's last call on the operation's thread, where anything it draws or
+puts back would change every masked CSRF token after it. So each render starts
+after a full collection made outside its operation and runs with the collector
+off. An order taken from object addresses is not ruled out here: the heap
+differs between renders anyway, and running the lane with
+``PROOF_HQ_SPEED=0`` is the comparison that covers it. Nor is a process-level
+memo that the seamed render is the first to fill. The three renders share one
+operation key, so they draw the same quickcache session id, and the later ones
+read the request memo the first filled; that tier hands copies.
 
 Every comparison opens the seams with ``speed.on()`` and closes them with
 ``speed.off()``, so it holds whichever the process booted with
@@ -30,6 +46,7 @@ import hashlib
 import io
 import json
 import os
+from contextlib import contextmanager
 
 import pytest
 
@@ -44,23 +61,66 @@ from proof.hq.determinism import operation
 CONFIGURATION = Configuration(privileges={"CLOUDCARE"})
 SEAMED = speed.SEAMED_ENGINE
 DEBUG_BOOT = speed.DEBUG_ENGINE
+# How many bytes a failure shows before the first difference, and from it on each side.
+CONTEXT_BYTES = 160
+SHOWN_BYTES = 240
 
 
 def _render(state, path):
-    """The page HQ's URLconf and view answer for ``path``, rendered as HQ's server renders it."""
+    """The page HQ's URLconf and view answer for ``path``, rendered as HQ's server renders it: the request held as
+    ``GlobalRequestMiddleware`` holds it, and the bootstrap version ``ThreadLocalCleanupMiddleware`` clears cleared
+    inside that, after the view and its templates."""
     from corehq.apps.hqwebapp.utils.bootstrap import clear_bootstrap_version
     from django.urls import resolve
 
     match = resolve(path)
-    request = hq_requests.get(state, path)
-    try:
-        response = match.func(request, *match.args, **match.kwargs)
-        if hasattr(response, "render") and not getattr(response, "is_rendered", True):
-            response.render()
-    finally:
-        clear_bootstrap_version()
+    with hq_requests.held_get(state, path) as request:
+        try:
+            response = match.func(request, *match.args, **match.kwargs)
+            if hasattr(response, "render") and not getattr(response, "is_rendered", True):
+                response.render()
+        finally:
+            clear_bootstrap_version()
     assert response.status_code == 200, (path, response.status_code)
     return response.content
+
+
+@contextmanager
+def _without_the_collector():
+    """The block with no collection inside it: the garbage collected before it, and the collector off until it ends.
+
+    Open it outside the operation, so whatever runs in that collection draws the system's entropy on the real
+    clock, not the operation's."""
+    gc.collect()
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        yield
+    finally:
+        if enabled:
+            gc.enable()
+
+
+def _assert_same_bytes(name, seamed, **others):
+    """Every render is the seamed render's bytes; a failure names where the first that differs parts from it."""
+    for label, other in others.items():
+        if other == seamed:
+            continue
+        shorter = min(len(seamed), len(other))
+        start = next((at for at in range(shorter) if seamed[at] != other[at]), shorter)
+        line = seamed.count(b"\n", 0, start) + 1
+        before = seamed[max(0, start - CONTEXT_BYTES) : start].decode("utf-8", "replace")
+        seamed_after, other_after = (
+            page[start : start + SHOWN_BYTES].decode("utf-8", "replace") for page in (seamed, other)
+        )
+        pytest.fail(
+            f"{name}: the {label} render parts from the seamed render at byte {start} (line {line}). The seamed"
+            f" render has {len(seamed)} bytes and the {label} render {len(other)}.\n"
+            f"Both read before it: {before!r}\n"
+            f"The seamed render reads from there: {seamed_after!r}\n"
+            f"The {label} render reads from there: {other_after!r}",
+            pytrace=False,
+        )
 
 
 def _pages(state, suite_id, advanced_id):
@@ -97,21 +157,21 @@ def test_each_page_renders_the_same_bytes_with_and_without_the_seams(hq, core_ru
             key = hashlib.sha256(f"proof speed test|{path}".encode()).digest()
             with speed.on():
                 assert speed.template_engine_state() == SEAMED
-                with operation(key, 1):
+                with _without_the_collector(), operation(key, 1):
                     seamed = _render(state, path)
                 loader, compiled = _template_cache()
                 with speed.off():
                     assert speed.template_engine_state() == DEBUG_BOOT
-                    with operation(key, 1):
+                    with _without_the_collector(), operation(key, 1):
                         debug_boot = _render(state, path)
                 # The cached loader is back with the templates the first render
                 # compiled, so this render reads every one of them from its cache.
                 assert speed.template_engine_state() == SEAMED
                 assert _template_cache() == (loader, compiled), name
-                with operation(key, 1):
+                with _without_the_collector(), operation(key, 1):
                     cached = _render(state, path)
                 assert _template_cache() == (loader, compiled), name
-            assert seamed == debug_boot == cached, name
+            _assert_same_bytes(name, seamed, debug_boot=debug_boot, cached=cached)
             assert b"csrfmiddlewaretoken" in seamed, name
 
 

@@ -63,8 +63,26 @@ test application's local requester, and the worker the restore registers
 becomes the device's worker (the reader's own checks and the spelling rules'
 predicates run so).
 
-If the proxy cannot write an answer while the device is running, the request
-fails with `PeerFailed`, retaining the JVM log and the original socket error.
+The device waits for an answer as long as the app's own client does: Core's
+`CommCareNetworkServiceGenerator` reads with
+`ModernHttpRequester.CONNECTION_SO_TIMEOUT`, a minute, which `Peer.java`
+leaves as it is (`peer.py::DEVICE_READ_SECONDS`). The proxy writes nothing of
+an answer until HQ has given it whole, so an answer that took a minute from
+the moment its request was read reaches a device that has stopped waiting and
+closed the connection. The proxy tells the peer, which marks that exchange
+`unread` in the record's `hq` (the key is written only where it holds, so
+every answer the device read is recorded as it always was), still tries the
+write, and serves on whether it fails or happens to succeed. Proof 3 reports
+an unread exchange at A as the device's own, whatever HQ answered
+(`/hq/<view>/<status>/<cause>/unread`, or the placeholder search's own
+difference with `/unread` at its end), so an answer too slow for a device is
+always a difference for the harness to find, never a silent one. The mark is
+judged only on the exchanges of A's device, which proof 3 reads; on every
+other state a device that stopped waiting shows only through its own screens.
+
+If the proxy cannot write an answer while the device is running, before the
+device's read timeout, the request fails with `PeerFailed`, retaining the JVM
+log and the original socket error.
 Its diagnostic names the bounded method and path, HTTP status, response byte
 count and elapsed time answering the request. It includes no query, host,
 headers or content. The proxy stops and reaps the device before the reader

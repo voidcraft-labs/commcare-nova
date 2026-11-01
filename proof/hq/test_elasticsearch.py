@@ -8,7 +8,9 @@ index back to what the mark held, so a fork reads what a fresh run to the
 same point reads; and HQ's client is refused outside a unit and on an index
 the lane keeps nothing in. The plausible failures: an index left holding a
 document a rolled-back fork wrote (the next run of a walk would find a case
-its own HQ never saved); a search answered from documents no filter was
+its own HQ never saved), or one HQ wrote after the index's last refresh,
+which a delete by query does not find (the next unit would find a user it
+never saved); a search answered from documents no filter was
 applied to; a pillow change indexed with no refresh, so whether a search sees
 it depends on Elasticsearch's own timer; an image whose server is not HQ's
 version; and a path answered from an index nothing fills.
@@ -123,6 +125,33 @@ def test_a_fork_reads_what_a_fresh_run_to_the_same_point_reads(hq):
             return _search(state), {name: state.indexes.documents(name) for name in state.indexes.generation}
 
     assert run(detour=True) == run(detour=False)
+
+
+def _searchable(name) -> int:
+    """How many documents the index's last refresh made searchable, asked of the server beside HQ's client."""
+    return elasticsearch._call("GET", f"/{name}/_count")["count"]
+
+
+def test_a_write_nothing_settled_is_gone_after_a_restore_and_after_the_unit(hq):
+    from proof.hq import operations
+    from proof.hq import redis as hq_redis
+
+    with hq_check(CONFIGURATION) as (state, _), hq_redis.shared(None), state.committing():
+        empty = state.mark()
+        # A web user's save writes the users index from HQ's own signal (users/signals.py::_update_user_in_es),
+        # with no refresh; here outside every operation, which hq_check allows, so nothing settles it.
+        operations.seed_api_user(state, "unsettled-first@example.org")
+        written = sorted(name for name, generation in state.indexes.generation.items() if generation)
+        assert written and state.indexes.unsettled()
+        # The write is in the index and not yet searchable, which is what a delete by query alone misses.
+        assert [_searchable(name) for name in written] == [0] * len(written)
+        state.restore(empty)
+        assert all(state.indexes.documents(name) == [] for name in state.indexes.generation)
+        operations.seed_api_user(state, "unsettled-second@example.org")
+        assert state.indexes.unsettled()
+    # The unit ended with that second write unsettled, and the next unit starts with every index empty.
+    with hq_check(CONFIGURATION) as (state, _):
+        assert all(state.indexes.documents(name) == [] for name in state.indexes.generation)
 
 
 def test_hqs_client_is_refused_outside_a_unit_and_on_an_index_the_lane_does_not_keep(hq):

@@ -649,5 +649,8 @@ def refusal_differences(refusals, *, check, document, artifact):
         path = f"/hq/{pointer_token(entry.get('view') or 'unresolved')}/{entry.get('status')}"
         cause = entry["raised"] if entry.get("raised") else refusal_cause(entry.get("said"))
         path = f"{path}/{pointer_token(cause)}"
+        if entry.get("unread"):
+            # A device that stopped waiting for the answer (``proof.android.hq.Exchange.unread``) never read it.
+            path = f"{path}/unread"
         found.append(Difference(check, document, artifact, path, f"{path}/{index}", "error", None, entry))
     return found

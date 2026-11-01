@@ -40,7 +40,7 @@ either is changed.
 from __future__ import annotations
 
 from contextlib import ExitStack
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 
 # What the device's own messages ask (Peer.java).
 RUN = "run"
@@ -61,6 +61,17 @@ class Exchange:
     delivered: str | None = None
     # What HQ said where it did not answer 2xx (the start of its body).
     said: str | None = None
+    # Whether the device had stopped waiting before HQ's answer reached it (its client's read timeout,
+    # ``proof.android.peer.DEVICE_READ_SECONDS``): the answer is HQ's, and the device never read it.
+    unread: bool = False
+
+    def record(self) -> dict:
+        """The exchange as a record keeps it: ``unread`` only where the device never read the answer, so every
+        exchange the device read is written as it always was."""
+        found = asdict(self)
+        if not found.pop("unread"):
+            return found
+        return {**found, "unread": True}
 
 
 def is_restore(request) -> bool:
@@ -185,6 +196,19 @@ class DevicePeer:
             )
         )
         return answer.status, answer.headers, answer.body
+
+    def unread(self, request) -> None:
+        """The device stopped waiting before HQ's answer to ``request`` reached it. Its exchange is the last one,
+        since the proxy answers one request at a time in the order they came, and is marked as an answer the
+        device never read."""
+        exchange = self.exchanges[-1] if self.exchanges else None
+        if exchange is None or exchange.method != request.method or exchange.url != request.url:
+            raise ValueError(
+                f"The Android device stopped waiting for {request.method[:16]} {request.path[:256]}, but the last"
+                " answer HQ gave it was for another request, so there is no exchange to mark as unread. Look at"
+                " proof/android/peer.py::Proxy._answer_ready, which answers one request at a time."
+            )
+        exchange.unread = True
 
     def _delivery(self, request) -> str:
         """Where HQ takes the device's restore or form for the worker and the app: the project space's restore

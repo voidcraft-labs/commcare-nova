@@ -33,9 +33,10 @@ harness keeps, each with its reason.
   (`proof/formplayer/shared.py`), which holds only because Formplayer's validation keeps no state between
   requests: a seam that made it keep any would need a Formplayer a worker again. A speed seam computes exactly
   what HQ computes and can be switched off to compare (`PROOF_HQ_SPEED=0`). `DEBUG` stays on, since HQ branches on
-  it in what it does; HQ's soft assertions are noted as production notes
-  them, never raised, and each one is evidence. A view or Couch query the
-  harness does not answer raises rather than returning empty.
+  it in what it does, but a view's exception is answered by HQ's own `handler500`, never Django's DEBUG page
+  (which formats every frame local and prints per-process addresses); HQ's soft assertions are noted as production
+  notes them, never raised, and each one is evidence. A view or Couch query the harness does not answer raises
+  rather than returning empty.
 - **Formplayer runs whole, and HQ answers it with its own views.** A claim
   about Formplayer or Web Apps' server side is observed on Formplayer's own
   application (`proof/formplayer`), started by its own `main` on its boot
@@ -62,13 +63,18 @@ harness keeps, each with its reason.
   cleared their data, and give each runner its own database and Redis.
 - **The accepted seams are these four, each for its reason; a new one is a
   claim to justify here.**
-  - *A restore hands a worker's cases in id order*
-    (`proof/formplayer/hq.py::cases_in_id_order`). HQ asks its database for
-    no order (`livequery.py::batch_cases`), so the order is whatever
-    Postgres returns, and every fixed order is one production can give;
+  - *A restore hands a worker's cases, and HQ's lookup table resource lists
+    a project space's tables, in id order*
+    (`proof/formplayer/hq.py::cases_in_id_order`,
+    `proof/hq/operations.py::lookup_tables_in_id_order`). HQ asks its
+    database for no order (`livequery.py::batch_cases`,
+    `LookupTableManager.by_domain`), so the order is whatever Postgres
+    returns, which follows what earlier units wrote and rolled back in the
+    worker's database, and every fixed order is one production can give;
     the lane needs one for its records to be byte-identical. What a device
     shows is not the restore's order where it matters: HQ's build gives an
-    unsorted list a default sort on its first column.
+    unsorted list a default sort on its first column, and Nova reads the
+    table list by id and tag.
   - *A page's repeating timers of 10 s or more are held*
     (`proof/editors/driver/steps/page/polls.js`), and so is Elasticsearch's
     own refresh timer (`proof/hq/elasticsearch.py`, each written index

@@ -24,7 +24,6 @@ import io
 import json
 import tempfile
 import zipfile
-from dataclasses import asdict
 from pathlib import Path
 
 # What every search screen's free-text prompts are also answered with, on a screen of its own: an answer that
@@ -140,7 +139,7 @@ def _read(
 
     ids = {served.app_id: "@app", served.build_id: "@build"}
     answer = canonical.replace_text({**answer, **(about or {})}, ids)
-    asked = canonical.replace_text([asdict(entry) for entry in peer.exchanges], ids)
+    asked = canonical.replace_text([entry.record() for entry in peer.exchanges], ids)
     found = {"answer": blobs.put_json(answer), "hq": blobs.put_json(asked)}
     if pictures:
         found["pictures"] = pictures
