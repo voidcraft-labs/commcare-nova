@@ -75,8 +75,9 @@ The stack is cut from a `main` whose nightly reader lanes hold. No production co
    whose capability needs it.
 9. **A run started by hand may name a control** (`mechanics=control:<id>`), so a moved served entry is
    seen on its control before the merge (§1.5). Lands in pull request 1.
-10. **The one list of targeted documents step 5 adds is §5's thirty**: the eight witnesses and
-    twenty-two documents of new shapes, reconciled from every area's proposals. Every other part uses
+10. **The one list of targeted documents step 5 adds is §5's thirty** (twenty-nine under part 02's
+    G4 outcome B, which removes `targeted-worker-underscore-write` in pull request 7): the eight
+    witnesses and twenty-two documents of new shapes (twenty-one under that outcome), reconciled from every area's proposals. Every other part uses
     these names. Existing targeted documents whose content changes keep their ids (§5.3).
 11. **Fixtures adopt the migration's own output**, source by source, in the pull request that makes
     the old shape inadmissible (§4.2). A corpus document declares what Nova's rule gives its content
@@ -855,7 +856,11 @@ in; every part uses the names in the first column.
 | `targeted-form-link-otherwise` | 11 | both | root Households with registration Add household holding a `this-form` destination; its child Checks (`member`) with registration Add member, follow-up Review member, four follow-ups each with one destination to Review member when `#user/username = 'alice'` and a built-in otherwise (`firstMenu`, `module`, `parentMenu`, `previous`), and a fifth, Check link, whose otherwise is a link to Review member carrying the form's own selected case; surveys Ping and Pong linking to each other; root Rounds (`household`) with child Round checks (`member`), to which Review member links (offered: both parents have case type `household`) | `form-links-target-the-current-form-or-a-link-cycle` and `two-or-more-form-links-conditions-true-at-once` flip here; HQ's form settings save keeps each shape (part 06's G3); `proof/views/test_form_link_targets.py` | part 06's, proof's `targeted-form-link-semantics` |
 
 Thirty documents; at the exit the corpus holds 431 documents (398 at `main`, these thirty, and part
-06's three new form-link producer documents of §4.2), the fuzz sample unchanged in count.
+06's three new form-link producer documents of §4.2), the fuzz sample unchanged in count. Under part
+02's G4 outcome B, `targeted-worker-underscore-write` leaves in pull request 7, so every count from
+pull request 7 on is one fewer: twenty-nine targeted documents, pull request 7's six become five, and
+the exit corpus holds 430. Pull request 7 writes `proof/checks/test_corpus.py`'s expected counts from
+the outcome its own lane records, so the test asserts the count that outcome gives.
 
 Part 02's G3 and G4 run on their documents' first push in pull request 7, before any clause depends
 on them. Under part 02's G4 outcome B (a new validator code, `WORKER_PROPERTY_WRITE_NAME`, refuses a
@@ -1127,7 +1132,8 @@ A pull request's store restore reads main's newest snapshot and its own scope on
 | 1 | 13.5 min, 12 shards, plus the eight witnesses | `proof/store/queue.py` is in the observation's partition (§1.5); the judges and the register loader change |
 | 2 to 16 | 13.5 min, 12 shards each, plus the targeted documents each adds | pull request 1's observation change is beneath each; 2, 3, 4, 6, 7, 9, 10 and 11 also move most documents' keys (an emission change, or the capture's record) |
 
-The corpus grows by thirty-three documents (thirty targeted, three form-link producer documents), at
+The corpus grows by thirty-three documents (thirty targeted, three form-link producer documents;
+thirty-two under part 02's G4 outcome B), at
 about 24 seconds each on one worker without the readers at the median, the advanced documents above it; G7 measures whether `plan fit` gives a thirteenth shard.
 
 ### 8.3 What a push costs
@@ -1620,7 +1626,8 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   (§8.3), pull request 1 settled before the cut, the runs by hand (§8.4), the first night (§8.5), and the
   exit counts: known 0, fixed 1,020, `OPEN_DEFECTS` `{}`, 25 walk stops or as G2 leaves them, 108
   controls, eight witnesses, thirty targeted documents by pull request (1: 8, 3: 2, 4: 1, 5: 1, 7: 6,
-  8: 2, 9: 2, 10: 5, 11: 3) and part 06's three producer documents, a corpus of 431.
+  8: 2, 9: 2, 10: 5, 11: 3) and part 06's three producer documents, a corpus of 431; under part 02's
+  G4 outcome B, twenty-nine (7: 5) and a corpus of 430.
 - **For the outlines.** Step 6: the witnesses' retained HQ reads (`proof/hq-reads/targeted-migration-*`)
   are the evidence its import's placement reader is proven over, kept for that reason. Step 7: the manifest
   entries §7.1 leaves HELD-NEW (an advanced load's preload, the auto-select modes, the usercase list module, a relationship chosen per

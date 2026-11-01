@@ -36,7 +36,9 @@ advanced entries to the frame algorithm, `formLinkProjection.ts::linkCarriedCrea
    after it, each when the one above it finishes (§2.2). The stored vocabulary keeps `formLinks`;
    the builder, the tools and the docs say "destination".
 2. **Web Apps opens only the first destination that holds.** Formplayer rebuilds its session from
-   the popped frame and drops every frame beneath it (§2.4). A new platform feature
+   the popped frame and drops every frame beneath it (§2.4). Because an otherwise that runs is
+   pushed last (decision 3), on Web Apps it opens in place of every destination that runs every
+   time, and the feature's note says so. A new platform feature
    `after-submit-several-destinations` reads `different` on Web Apps and `runs` on Android; it
    refuses nothing. Gated run G1 confirms it before the row, the Preview rule and the copy land
    (§19.1).
@@ -1021,7 +1023,7 @@ This section is written for G1's outcome A; §19.1 gives what outcomes B and C c
 	channel: "structure",
 	webApps: {
 		reading: "different",
-		note: "after submit, only the first destination that applies opens",
+		note: "after submit, only the first destination that applies opens, and when the otherwise applies it opens instead of any destination set to run every time",
 	},
 	android: { reading: "runs" },
 },
@@ -1520,7 +1522,7 @@ gate in `proof/targeted/build.ts::targetedDocument` refuses any it missed.
 
 | Entry id (prefix `forms-and-case-writes/`) | At `main` | From pull request 11 |
 |---|---|---|
-| `two-or-more-form-links-conditions-true-at-once` | HELD-NEW, RUNS / RUNS | HELD, `**HELD**: \`formLinks\`: every destination that holds runs, in author order`; platforms `each`, cell `DIFFERENT (only the first destination that applies opens) / RUNS`, webApps `different` "after submit, only the first destination that applies opens", android `runs`; emission "each destination's own condition and held-case conjuncts, in reverse author order"; feature `after-submit-several-destinations` |
+| `two-or-more-form-links-conditions-true-at-once` | HELD-NEW, RUNS / RUNS | HELD, `**HELD**: \`formLinks\`: every destination that holds runs, in author order`; platforms `each`, cell `DIFFERENT (only the first destination that applies opens; an otherwise that applies opens instead of every every-time destination) / RUNS`, webApps `different` "after submit, only the first destination that applies opens, and when the otherwise applies it opens instead of any destination set to run every time", android `runs`; emission "each destination's own condition and held-case conjuncts, in reverse author order"; feature `after-submit-several-destinations` |
 | `form-links-target-the-current-form-or-a-link-cycle` | HELD-NEW | HELD, `**HELD**: \`target {type: this-form}\`, and cycles`; emission "the source form's ids" |
 | `post-form-workflow-fallback-module-or-previous-screen-offered-in` | HELD, "`postSubmit` after the conditional links" | HELD, "`otherwise {destination: module \| previous}`" |
 | `post-form-workflow-fallback-root-or-parent-module-offered-in` | HELD, "`postSubmit: firstMenu` / `parentMenu` after the conditional links" | HELD, "`otherwise {destination: firstMenu \| parentMenu}`" |

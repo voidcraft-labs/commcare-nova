@@ -162,9 +162,10 @@ Planned in full when step 5 exits. The design is the research's "The reader",
      the app from, the confirmations publish asks for it
      (`lib/deployment/confirmations.ts::requiredConfirmations`): step 4's
      `form-entry-sync-off`, for an app that declares Android and holds a form
-     that works on a case in a menu with Search, step 5's `commtrack-off`,
-     and the same-type check item 10 writes with step 5's gated runs. It
-     records only the answers the person gives.
+     that works on a case in a menu with Search, and step 5's `commtrack-off`.
+     The same-type child check is not a confirmation of this list: what
+     import does for it is item 10's *Confirmations* bullet, decided by step
+     5's gated runs. It records only the answers the person gives.
    - *The split's joined value.* A bind-only node with no control,
      `type="xsd:dateTime"` and a calculate reads back as a Hidden Value with
      that calculate; the reader admits `xsd:dateTime` on a bind-only node
@@ -257,9 +258,12 @@ Planned in full when step 5 exits. The design is the research's "The reader",
     - *Search and menus.* The reader reads `auto_launch`, `default_search` and
       `inline_search` into `caseSearchConfig.workflow` and `formsReadSearch`
       (absent for `auto_launch` without `default_search`), and `auto_launch:
-      false` in an app with `cloudcare_enabled: false` into `listFirst`; it
-      refuses `auto_launch: false` where Web Apps is declared, with the
-      `list-first` reason. It reads `case_list.show` into
+      false` in an app with `cloudcare_enabled: false` into `listFirst`; on a
+      module that searches (one with search properties; HQ stores a default
+      `search_config` with `auto_launch: false` on every module, which a
+      module without search properties reads as no search) it refuses
+      `auto_launch: false` where Web Apps is declared, with the `list-first`
+      reason. It reads `case_list.show` into
       `Module.caseListMenuItem` (its label and media), and `case_list_form`
       on a host whose forms read the search, its form in a `module_filter:
       false()` module, into `caseListRegistrationForm { kind:
@@ -272,8 +276,14 @@ Planned in full when step 5 exits. The design is the research's "The reader",
     - *Form links.* The reader reads `form_links` in reverse order into
       `formLinks`, and an otherwise (`Form.otherwise`) from exactly two
       shapes: a `post_form_workflow_fallback` word beside some non-blank
-      `xpath`, or a last link whose `xpath` is `not(x_1) and … and
-      not(x_n)` over the others, then any held-case conjuncts. It strips a
+      `xpath`, or the last element of `form_links` when its `xpath` is
+      `not(x_1) and … and not(x_n)` over every other link's, then any
+      held-case conjuncts. Only the last element can be the otherwise link;
+      the elements before it are the destinations, read in reverse. An
+      HQ-authored last link that matches the pattern reads as the otherwise,
+      and the round trip keeps HQ's JSON order: Nova emits the destinations
+      reversed and the otherwise link last, so `[L1: c, L2: not(c)]` reads as
+      destination L1 with otherwise L2 and republishes as `[L1, L2]`. It strips a
       trailing held-case conjunct spelled as `caseById` prints it, whose
       value equals a carried datum's and whose type equals the target
       datum's case type, read through the grammar, and reads a link to the

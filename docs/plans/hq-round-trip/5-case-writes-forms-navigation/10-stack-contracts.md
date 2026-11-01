@@ -1489,7 +1489,8 @@ this part's included.
 - **Part 07**: §7.1's rows placed as its "PR" column gives; the billed question of house rule 7, over
   the nineteen entries (R11); the plugin pull request opened beside 13 and recorded in 15.
 - **Part 08**: the lane row, the reader runs by hand, the first night and the register totals of §1 are
-  its; this part adds no document; the corpus reaches 431 (thirty targeted, three producer documents).
+  its; this part adds no document; the corpus reaches 431 (thirty targeted, three producer documents), or 430 under part 02's G4
+  outcome B.
 - **Part 09**: the maintenance image from 15's head, `git diff --stat <15>..<16> -- lib app
   ':(exclude,glob)**/__tests__/**'` naming only `lib/db/designSessions.ts`, the runbook's variable for
   the image's commit; the two public passages in 14; the pre-step fixtures in 1 with the capture test
