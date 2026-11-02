@@ -90,7 +90,7 @@ describe("writerPreloadsFromLoadedCase", () => {
 			kind: "image",
 			id: "photo",
 			label: { parts: [{ kind: "text", text: "Photo" }] },
-			caseWrite: { caseType: "patient", property: "photo", mode: "url" },
+			caseWrite: { caseType: "patient", property: "photo" },
 		} as Field;
 		expect(
 			writerPreloadsFromLoadedCase(image, oneCaseModule, {

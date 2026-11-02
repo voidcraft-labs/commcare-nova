@@ -16,8 +16,7 @@
  * type, `case_name` included. What never preloads: a writer to a child type
  * (each submission creates a new case, so there is nothing to read), a writer
  * to the worker's own record (`#user/<prop>` already reads it), any capture
- * kind (a stored link or attachment is not an upload filename for the new
- * submission), any field on a several-case form (there is no single case to
+ * kind (a stored link is not an upload filename for the new submission), any field on a several-case form (there is no single case to
  * read), and every field on a registration or survey form.
  *
  * Inside a repeat, the running form seeds only the first instance; the
@@ -25,7 +24,7 @@
  */
 
 import { fieldCaseWrite } from "./caseTypes";
-import type { CaptureCaseWrite, CaseWrite, Field } from "./fields";
+import type { CaseWrite, Field } from "./fields";
 import { isCaptureField } from "./fields";
 import { CASE_LOADING_FORM_TYPES, type Form, type FormType } from "./forms";
 import {
@@ -117,7 +116,7 @@ export type CaseWriteDestinationClass =
 	| "none";
 
 export function caseWriteDestinationClass(
-	current: CaseWrite | CaptureCaseWrite | undefined,
+	current: CaseWrite | undefined,
 	module: Pick<Module, "caseType">,
 ): CaseWriteDestinationClass {
 	if (current === undefined) return "none";

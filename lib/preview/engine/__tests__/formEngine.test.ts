@@ -17,7 +17,6 @@ import { formExpressionEmission } from "@/lib/commcare/xform/formExpressions";
 import { serializeWire } from "@/lib/commcare/xpath/wire/serialize";
 import type {
 	CaseType,
-	CaseWrite,
 	Field,
 	FormType,
 	ProseTemplate,
@@ -1327,11 +1326,7 @@ describe("FormEngine", () => {
 				{
 					id: "photo",
 					kind: "image",
-					caseWrite: {
-						caseType: "patient",
-						property: "photo",
-						mode: "url",
-					} as unknown as CaseWrite,
+					caseWrite: { caseType: "patient", property: "photo" },
 				},
 				{
 					id: "region",

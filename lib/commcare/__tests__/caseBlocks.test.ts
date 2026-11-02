@@ -312,9 +312,13 @@ const names = (parent: Element) =>
 	parent.children.filter(isTag).map((e) => e.name);
 
 /** Both export paths of a document's first form: HQ's source and the archive's. */
-function bothExports(doc: ReturnType<typeof buildDoc>, formIndex = 0) {
+function bothExports(
+	doc: ReturnType<typeof buildDoc>,
+	formIndex = 0,
+	attachmentTarget?: { origin: string; domain: string },
+) {
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
-	const hq = expandDoc(doc);
+	const hq = expandDoc(doc, attachmentTarget && { attachmentTarget });
 	const form = hq.modules[0].forms[formIndex];
 	const source = hq._attachments[`${form.unique_id}.xml`];
 	if (typeof source !== "string") throw new Error("Missing form source");
@@ -417,12 +421,11 @@ it("touches the selected case on a follow-up that writes nothing, with no update
 it("writes update children and their binds in name order for every block", () => {
 	// Python orders HQ's update keys by code point, so an uppercase name
 	// stands before every lowercase one (`XFormCaseBlock.add_case_updates`).
-	const xml = host([
-		...["zeta", "external", "alpha", "name", "Upper"].map((id) =>
+	const xml = host(
+		["zeta", "external", "alpha", "name", "Upper"].map((id) =>
 			f({ kind: "text", id }),
 		),
-		...["scan", "badge"].map((id) => f({ kind: "image", id })),
-	]);
+	);
 	const writes = (
 		paths: Record<string, string>,
 	): Record<string, { question_path: string; update_mode: string }> =>
@@ -438,8 +441,6 @@ it("writes update children and their binds in name order for every block", () =>
 		alpha: "/data/alpha",
 		name: "/data/name",
 		Upper: "/data/Upper",
-		scan: "/data/scan",
-		badge: "/data/badge",
 	};
 	const actions = emptyFormActions();
 	actions.open_case.condition = alwaysCondition();
@@ -479,9 +480,68 @@ it("writes update children and their binds in name order for every block", () =>
 				)
 				.map((e) => e.attribs.nodeset.slice(`${casePath}/update/`.length)),
 		).toEqual(properties);
-		if (casePath !== "/data/commcare_usercase/case")
-			expect(names(child(block, "attachment"))).toEqual(["badge", "scan"]);
 	}
+});
+
+it("writes a capture's case write as an update reading its link sibling on both paths, with no attachment", () => {
+	// HQ's build turns an update whose question path is an upload question
+	// into an `<attachment>` (`xform.py::XFormCaseBlock.add_case_updates`,
+	// `::is_attachment`), which a project space without `MM_CASE_PROPERTIES`
+	// drops. Every capture's write names its link sibling instead, on the
+	// primary case, on a child case, and in HQ's source as in the archive.
+	const doc = patientApp("registration", [
+		f({ kind: "text", id: "name", ...write("case_name") }),
+		f({ kind: "image", id: "photo", ...write("alpha") }),
+		f({
+			kind: "repeat",
+			id: "visits",
+			repeat_mode: "user_controlled",
+			children: [
+				f({ kind: "text", id: "visit_name", ...write("case_name", "visit") }),
+				f({ kind: "file", id: "scan", ...write("zeta", "visit") }),
+			],
+		}),
+	]);
+	const { actions, source, local } = bothExports(doc, 0, {
+		origin: "https://www.commcarehq.org",
+		domain: "demo-project",
+	});
+	expect(actions.update_case.update.alpha.question_path).toBe(
+		"/data/nova_url_photo",
+	);
+	expect(actions.subcases[0].case_properties.zeta.question_path).toBe(
+		"/data/visits/nova_url_scan",
+	);
+	for (const form of [source, local]) {
+		expect(form.bind("/data/nova_url_photo").relevant).toBe(
+			"count(/data/photo) > 0",
+		);
+		expect(form.bind("/data/visits/nova_url_scan").relevant).toBe(
+			"count(/data/visits/scan) > 0",
+		);
+	}
+	for (const [casePath, link] of [
+		["/data/case", "/data/nova_url_photo"],
+		["/data/visits/case", "/data/visits/nova_url_scan"],
+	] as const) {
+		const property = casePath === "/data/case" ? "alpha" : "zeta";
+		expect(local.bind(`${casePath}/update/${property}`)).toEqual({
+			nodeset: `${casePath}/update/${property}`,
+			calculate: link,
+			relevant: `count(${link}) > 0`,
+		});
+	}
+	expect(names(child(child(local.data, "case"), "update"))).toEqual(["alpha"]);
+	for (const form of [source, local])
+		expect(
+			form.modelNodes.filter(
+				(e) => e.name === "bind" && e.attribs.nodeset.includes("/attachment"),
+			),
+		).toEqual([]);
+	expect(names(child(child(local.data, "visits"), "case"))).not.toContain(
+		"attachment",
+	);
+	expect(names(child(local.data, "case"))).not.toContain("attachment");
 });
 
 it("names each case name and external id by the question's trimmed sibling and checks the visible question", () => {

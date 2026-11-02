@@ -65,7 +65,6 @@ const caseOptionsSourceSchema = storedCaseOptionsSourceSchema.extend({
 import { z } from "zod";
 import type { FieldKind } from "@/lib/domain";
 import {
-	CAPTURE_CASE_WRITE_MODES,
 	caseWriteSchema,
 	fieldKindDeclaresKey,
 	fieldKinds,
@@ -117,7 +116,7 @@ const FIELD_DOCS = {
 	optionsSource:
 		"Inline choices, a Project data table, or cases available to the worker. Cases save exact record IDs; labelProperty defaults to case_name. Omit filter for every available record of the declared type, including closed records. In a case filter #row reads the candidate and #case reads the form’s selected record.",
 	caseWrite:
-		"Save this answer to a record property. The module's type writes its primary record; another type creates a child. Child creation needs a name writer. Capture fields save URLs with mode url; other fields omit mode. Use recordName for the primary record's name.",
+		"Save this answer to a record property. The module's type writes its primary record; another type creates a child. Child creation needs a name writer. A capture saves a link to its file. Use recordName for the primary record's name.",
 	repeat_mode:
 		"Worker-added rows, rows counted from an integer question or expression, or rows from a record query. Counts grow live during entry; decreasing a count retains created rows, answers, and case operations. A query is captured at form load or when its enclosing repeat row is created.",
 	repeat_count: "Row count for a count-bound repeat.",
@@ -245,58 +244,12 @@ const validateConfigField = () =>
 		);
 
 /**
- * One flat case destination covering both domain shapes.
- *
- * `mode` is optional HERE and required by the per-kind rule below, rather
- * than the schema splitting into a union: the flat object is what the
- * provider's strict-mode normalization handles predictably, and per-kind
- * legality is what `superRefine` is for on every other slot in this file.
- * The domain schemas stay strict — an attachment destination without a mode
- * is unrepresentable there — so this boundary refuses the same shapes, it
- * just refuses them with a sentence instead of a union mismatch.
+ * A field's case destination is the domain's strict `{ caseType, property }`
+ * on every kind. A capture's write is the link to its file, so a file kind
+ * has nothing further to decide.
  */
-const caseWriteToolSchema = caseWriteSchema
-	.extend({
-		mode: z.enum(CAPTURE_CASE_WRITE_MODES).optional(),
-	})
-	.strict();
-
 const caseWriteField = () =>
-	caseWriteToolSchema.nullable().optional().describe(FIELD_DOCS.caseWrite);
-
-/**
- * `mode` belongs to exactly the kinds whose answer is a file.
- *
- * An attachment's answer is a server-minted file name, so what reaches the
- * case is a decision the author has to make; every other kind's answer IS
- * the case value and has nothing to decide.
- */
-function gateCaseWriteMode(
-	ctx: z.RefinementCtx,
-	kind: FieldKind,
-	caseWrite: { readonly mode?: string } | null | undefined,
-): void {
-	if (caseWrite == null) return;
-	const isCapture = isCaptureFieldKind(kind);
-	if (isCapture && caseWrite.mode === undefined) {
-		ctx.addIssue({
-			code: "custom",
-			path: ["caseWrite", "mode"],
-			message:
-				`kind "${kind}" saves a file, so its case destination needs a ` +
-				`\`mode\`: "url" saves a link to the attached file.`,
-		});
-	}
-	if (!isCapture && caseWrite.mode !== undefined) {
-		ctx.addIssue({
-			code: "custom",
-			path: ["caseWrite", "mode"],
-			message:
-				`kind "${kind}" saves its answer to the case directly, so its ` +
-				`case destination carries no \`mode\` — leave it out.`,
-		});
-	}
-}
+	caseWriteSchema.nullable().optional().describe(FIELD_DOCS.caseWrite);
 
 // ── Flat tool inputs, kind-gated by refinement ───────────────────────
 //
@@ -502,7 +455,6 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 						'kind "repeat" needs its `repeat` config — pass at least { mode: "user_controlled" }.',
 				});
 			}
-			gateCaseWriteMode(ctx, item.kind, item.caseWrite);
 			gateRepeatSlot(ctx, item.kind, item.repeat);
 			gateHiddenValueSources(
 				ctx,
@@ -572,7 +524,6 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 					undeclaredSlotIssue(ctx, patch.kind, key);
 				}
 			}
-			gateCaseWriteMode(ctx, patch.kind, patch.caseWrite);
 			gateRepeatSlot(ctx, patch.kind, patch.repeat);
 			gateHiddenValueSources(
 				ctx,

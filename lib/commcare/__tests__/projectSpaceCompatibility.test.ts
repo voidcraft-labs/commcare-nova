@@ -320,31 +320,37 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 	});
 
 	describe("a captured file's link", () => {
+		// Every capture's case write is a link to the submitted file, a
+		// capture of any kind included. No export writes a case attachment,
+		// so no document asks the project space to store files on cases; the
+		// only thing a link asks is to be opened, where a screen shows it.
 		const capture = (
-			mode: "url" | "attachment",
+			kind: "image" | "file",
 			uuid: ReturnType<typeof testUuid>,
 		) => ({
 			uuid,
-			id: `photo_${mode}`,
-			kind: "image" as const,
+			id: `photo_${kind}`,
+			kind,
 			label: proseText("Photo"),
-			caseWrite: { caseType: "patient", property: "photo", mode },
+			caseWrite: { caseType: "patient", property: "photo" },
 		});
-		const urlUuid = testUuid("field-photo-url");
-		const attachmentUuid = testUuid("field-photo-attachment");
+		const imageUuid = testUuid("field-photo-image");
+		const fileUuid = testUuid("field-photo-file");
 		const fields = {
-			[urlUuid]: capture("url", urlUuid),
-			[attachmentUuid]: capture("attachment", attachmentUuid),
+			[imageUuid]: capture("image", imageUuid),
+			[fileUuid]: capture("file", fileUuid),
 		};
 		const columnUuid = testUuid("column-photo");
-		const capabilityIds = (columns: Module["caseListConfig"] = undefined) => {
+		const probePlan = (columns: Module["caseListConfig"] = undefined) => {
 			const patient = module(
 				columns === undefined ? {} : { caseListConfig: columns },
 			);
 			return projectSpaceCompatibilityProbePlan(
 				doc({ fields, modules: { [patient.uuid]: patient } }),
-			).capabilities.map((item) => item.capability.id);
+			);
 		};
+		const capabilityIds = (columns: Module["caseListConfig"] = undefined) =>
+			probePlan(columns).capabilities.map((item) => item.capability.id);
 		const listOf = (columns: Column[]) => ({
 			columns,
 			listColumnOrder: columns.map((column) => column.uuid),
@@ -353,13 +359,21 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 		});
 
 		it("asks nothing where no screen shows it", () => {
-			expect(capabilityIds()).toEqual(["case-attachments"]);
+			expect(capabilityIds()).toEqual([]);
 		});
 
 		it("asks for links to captured files where a column shows it", () => {
+			const plan = probePlan(
+				listOf([plainColumn(columnUuid, "photo", "Photo")]),
+			);
+			expect(plan.capabilities.map((item) => item.capability.id)).toEqual([
+				"attachment-links",
+			]);
 			expect(
-				capabilityIds(listOf([plainColumn(columnUuid, "photo", "Photo")])),
-			).toEqual(["case-attachments", "attachment-links"]);
+				plan.capabilities.flatMap((item) =>
+					item.featureFlags.map((flag) => flag.id),
+				),
+			).toEqual(["attachment-links"]);
 		});
 
 		it("asks for links to captured files where a calculated column reads it", () => {
@@ -374,7 +388,7 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 						},
 					]),
 				),
-			).toEqual(["case-attachments", "attachment-links"]);
+			).toEqual(["attachment-links"]);
 		});
 
 		it("asks nothing for a column hidden from both screens", () => {
@@ -387,7 +401,7 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 						}),
 					]),
 				),
-			).toEqual(["case-attachments"]);
+			).toEqual([]);
 		});
 	});
 });

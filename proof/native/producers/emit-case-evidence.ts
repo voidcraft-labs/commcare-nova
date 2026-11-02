@@ -56,7 +56,8 @@ for (const [scenario, doc, moduleIndex = 0] of [
 	if (findings.length) throw new Error(JSON.stringify(findings));
 	const hq = expandDoc(
 		doc,
-		scenario.startsWith("capture-")
+		scenario.startsWith("capture-") ||
+			(extensionScenarios as readonly string[]).includes(scenario)
 			? {
 					attachmentTarget: {
 						origin: "https://www.commcarehq.org",

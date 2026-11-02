@@ -133,6 +133,10 @@ def _check_extension(record):
     local_indexes = local.xpath('//cx:index/*[@relationship="extension"]', namespaces=NAMESPACES)
     assert len(indexes) == len(local_indexes) == 2, scenario
     assert [dict(node.attrib) for node in indexes] == [dict(node.attrib) for node in local_indexes], scenario
+    # The episode's photo saves a link to its file: one update in the episode's block, never an attachment.
+    for form in (tree, local):
+        assert form.xpath("//cx:attachment", namespaces=NAMESPACES) == [], scenario
+        assert len(form.xpath("//cx:update/cx:photo", namespaces=NAMESPACES)) == 1, scenario
     disabled = tree.xpath('//x:model/x:bind[@relevant="false()"]/@nodeset', namespaces=NAMESPACES)
     prefix = "/data/records/item" if scenario == "query" else "/data/records" if scenario == "repeat" else "/data"
     expected_disabled = (
@@ -229,7 +233,9 @@ def _check_capture(record):
         assert len(parent) == (0 if scenario == "multiple" else 1), name
         if scenario in ("repeat", "query"):
             assert list(parent[0]) == [], name
-        assert len(tree.xpath("//cx:attachment/cx:photo", namespaces=NAMESPACES)) == 1, name
+        # Every capture saves a link to its file: the picture is an update beside the scan, never an attachment.
+        assert tree.xpath("//cx:attachment", namespaces=NAMESPACES) == [], name
+        assert len(tree.xpath("//cx:update/cx:photo", namespaces=NAMESPACES)) == 1, name
         assert len(tree.xpath("//cx:update/cx:scan_url", namespaces=NAMESPACES)) == 1, name
         assert tree.xpath('//x:model/x:setvalue[contains(@ref,"/details/")]', namespaces=NAMESPACES) == [], name
         assert tree.xpath(VELLUM) == [], name

@@ -263,54 +263,24 @@ describe("RESERVED_CASE_PROPERTY — rejected at the introducing commit", () => 
 	});
 });
 
-// ── A mode-less attachment destination (shape — unrepresentable) ────
+// ── A capture's destination is its file's link (shape) ──────────────
 
-describe("an attachment destination without a mode — no construction surface can express it", () => {
-	it("the add arm refuses a capture destination with no mode", () => {
-		const parsed = addFieldsItemSchema.safeParse({
-			kind: "image",
-			id: "photo",
-			label: proseText("Photo"),
-			caseWrite: { caseType: "patient", property: "photo" },
-		});
-		expect(parsed.success).toBe(false);
-	});
+describe("a capture's case destination is the link to its file on every construction surface", () => {
+	const PLAIN = { caseType: "patient", property: "photo" };
+	const WITH_MODE = { ...PLAIN, mode: "url" };
 
-	it("the edit arm refuses a capture destination with no mode", () => {
-		const parsed = editFieldUpdatesSchema.safeParse({
-			kind: "image",
-			caseWrite: { caseType: "patient", property: "photo" },
-		});
-		expect(parsed.success).toBe(false);
-	});
-
-	it("the strict domain schema refuses a capture destination with no mode", () => {
-		// The reducers' `safeParse` and the auto-save's `blueprintDocSchema`
-		// both run this schema — the chokepoint behind every surface.
-		const parsed = fieldSchema.safeParse({
-			uuid: "00000000-0000-4000-8000-000000000001",
-			kind: "image",
-			id: "photo",
-			label: proseText("Photo"),
-			caseWrite: { caseType: "patient", property: "photo" },
-		});
-		expect(parsed.success).toBe(false);
-	});
-
-	it("every surface admits the same destination once it names a mode", () => {
+	it("every surface admits a capture destination that names only the property", () => {
 		expect(
 			addFieldsItemSchema.safeParse({
 				kind: "image",
 				id: "photo",
 				label: proseText("Photo"),
-				caseWrite: { caseType: "patient", property: "photo", mode: "url" },
+				caseWrite: PLAIN,
 			}).success,
 		).toBe(true);
 		expect(
-			editFieldUpdatesSchema.safeParse({
-				kind: "image",
-				caseWrite: { caseType: "patient", property: "photo", mode: "url" },
-			}).success,
+			editFieldUpdatesSchema.safeParse({ kind: "image", caseWrite: PLAIN })
+				.success,
 		).toBe(true);
 		expect(
 			fieldSchema.safeParse({
@@ -318,32 +288,38 @@ describe("an attachment destination without a mode — no construction surface c
 				kind: "image",
 				id: "photo",
 				label: proseText("Photo"),
-				caseWrite: { caseType: "patient", property: "photo", mode: "url" },
+				caseWrite: PLAIN,
 			}).success,
 		).toBe(true);
 	});
 
-	it("a mode is refused on a kind whose answer IS the case value", () => {
-		// The inverse fence: `mode` is a decision only a file forces, so a
-		// text field carrying one is a caller that misread the contract, not
-		// a slot to ignore.
-		expect(
-			addFieldsItemSchema.safeParse({
-				kind: "text",
-				id: "nickname",
-				label: proseText("Nickname"),
-				caseWrite: { caseType: "patient", property: "nickname", mode: "url" },
-			}).success,
-		).toBe(false);
-		expect(
-			fieldSchema.safeParse({
-				uuid: "00000000-0000-4000-8000-000000000002",
-				kind: "text",
-				id: "nickname",
-				label: proseText("Nickname"),
-				caseWrite: { caseType: "patient", property: "nickname", mode: "url" },
-			}).success,
-		).toBe(false);
+	it("every surface refuses a `mode`, on a capture and on any other kind", () => {
+		// The reducers' `safeParse` and the auto-save's `blueprintDocSchema`
+		// both run the strict domain schema, the chokepoint behind every
+		// surface; the tool arms refuse the same shape before it reaches it.
+		for (const kind of ["image", "text"] as const) {
+			expect(
+				addFieldsItemSchema.safeParse({
+					kind,
+					id: "photo",
+					label: proseText("Photo"),
+					caseWrite: WITH_MODE,
+				}).success,
+			).toBe(false);
+			expect(
+				editFieldUpdatesSchema.safeParse({ kind, caseWrite: WITH_MODE })
+					.success,
+			).toBe(false);
+			expect(
+				fieldSchema.safeParse({
+					uuid: "00000000-0000-4000-8000-000000000002",
+					kind,
+					id: "photo",
+					label: proseText("Photo"),
+					caseWrite: WITH_MODE,
+				}).success,
+			).toBe(false);
+		}
 	});
 });
 

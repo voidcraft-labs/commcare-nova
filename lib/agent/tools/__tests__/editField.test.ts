@@ -247,6 +247,88 @@ describe("editField — rename identifier guard", () => {
 	});
 });
 
+/* --- A capture's case write is its file's link ------------------------ */
+
+const PHOTO = testUuid("55555555-5555-4555-8555-555555555555");
+
+/** A follow-up form on `household` whose second question is an image. */
+function makeCaptureDoc(): BlueprintDoc {
+	const doc = structuredClone(makeDoc());
+	doc.caseTypes = [
+		{
+			name: "household",
+			properties: [
+				{ name: "case_name", label: proseText("Name") },
+				{ name: "photo", label: proseText("Photo") },
+			],
+		},
+	];
+	doc.modules[MOD] = {
+		...doc.modules[MOD],
+		caseType: "household",
+		caseListConfig: {
+			columns: [
+				{ uuid: COLUMN, kind: "plain", field: "case_name", header: "Name" },
+			],
+			listColumnOrder: [COLUMN],
+			detailColumnOrder: [COLUMN],
+			searchInputs: [],
+		},
+	};
+	doc.forms[FORM] = { ...doc.forms[FORM], type: "followup" };
+	const photo: Field = {
+		uuid: PHOTO,
+		id: "photo",
+		kind: "image",
+		label: proseText("Photo"),
+	};
+	return expectAdmittedDoc({
+		...doc,
+		fields: { ...doc.fields, [PHOTO]: photo },
+		fieldOrder: { [FORM]: [FIELD, PHOTO] },
+		fieldParent: { [FIELD]: FORM, [PHOTO]: FORM },
+	});
+}
+
+describe("editField: a capture's case write", () => {
+	const PHOTO_ADDRESS = { moduleUuid: MOD, formUuid: FORM, fieldUuid: PHOTO };
+
+	it("refuses a `mode` on the write, since a capture always saves its file's link", () => {
+		const parsed = editFieldTool.inputSchema.safeParse({
+			...PHOTO_ADDRESS,
+			updates: {
+				kind: "image",
+				caseWrite: { caseType: "household", property: "photo", mode: "url" },
+			},
+		});
+		expect(parsed.success).toBe(false);
+		expect(parsed.error?.issues).toContainEqual(
+			expect.objectContaining({
+				code: "unrecognized_keys",
+				keys: ["mode"],
+				path: ["updates", "caseWrite"],
+			}),
+		);
+	});
+
+	it("saves the plain destination on a capture as the link to its file", async () => {
+		const h = makeToolWorkspaceHarness(makeCaptureDoc());
+		const result = await h.runTool(editFieldTool, {
+			...PHOTO_ADDRESS,
+			updates: {
+				kind: "image",
+				caseWrite: { caseType: "household", property: "photo" },
+			},
+		});
+
+		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
+		expect(h.currentDoc().fields[PHOTO]).toMatchObject({
+			caseWrite: { caseType: "household", property: "photo" },
+		});
+	});
+});
+
 /* --- Wholesale options replacement keeps identity --------------------- */
 
 const SEL = testUuid("77777777-7777-7777-7777-777777777777");

@@ -61,7 +61,6 @@ import {
 	type CaseTarget,
 	closeConditionPlacement,
 	effectiveCaseTypes,
-	isCaptureField,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
 	MAX_CASE_SCALAR_TEXT_LENGTH,
 	moduleUuidOfForm,
@@ -415,16 +414,6 @@ export function buildCaseOperations(
 
 	const fields = collectFieldLocations(doc, formUuid);
 	const caseTypes = effectiveCaseTypes(doc);
-	const attachmentSourcePaths = new Set(
-		[...fields].flatMap(([uuid, location]) => {
-			const field = doc.fields[uuid];
-			return field !== undefined &&
-				isCaptureField(field) &&
-				field.caseWrite?.mode === "attachment"
-				? [location.path.toXPath()]
-				: [];
-		}),
-	);
 	const repeats = new Map<Uuid, FormPath>();
 	for (const [uuid, location] of fields) {
 		if (doc.fields[uuid]?.kind === "repeat") {
@@ -1199,50 +1188,33 @@ export function buildCaseOperations(
 		const conditionPath = group.path.child(conditionName);
 		const casePath = conditionPath.child(blockName).child("case");
 		const updatePath = casePath.child("update");
-		const attachmentPath = casePath.child("attachment");
 
+		// Every write is an `<update>` row. A name or an external id reads the
+		// question's trimmed sibling and a capture its link sibling, both of
+		// which `formActions.ts` names, so no row reads an upload question.
 		const writes = Object.entries(ordinaryPrimaryUpdate).map(
 			([formActionsProperty, mapping]) => {
 				const property = validatePropertyName(
 					formActionsProperty === "name" ? "case_name" : formActionsProperty,
 				);
-				// A name or an external id reads the question's trimmed sibling,
-				// which `formActions.ts` names.
-				const sourcePath = validateXFormPath(mapping.question_path);
-				const attachment = attachmentSourcePaths.has(sourcePath);
-				const source = FormPath.parse(sourcePath).toWire();
-				const count = w.call("count", [source]);
-				const countGuard = attachment
-					? w.eq(count, w.num(1))
-					: w.gt(count, w.num(0));
+				const source = FormPath.parse(
+					validateXFormPath(mapping.question_path),
+				).toWire();
 				const present = w.and(
-					countGuard,
+					w.gt(w.call("count", [source]), w.num(0)),
 					w.ne(w.call("string", [source]), w.str("")),
 				);
-				return { property, source, attachment, present };
+				return { property, source, present };
 			},
 		);
-		const scalarWrites = writes.filter((write) => !write.attachment);
-		const attachmentWrites = writes.filter((write) => write.attachment);
 
 		appendGroup(group, conditionName, [
 			saveToCaseBlock(blockName, moduleCaseType, [
 				el(
 					"update",
 					{},
-					scalarWrites.map((write) => el(write.property, {})),
+					writes.map((write) => el(write.property, {})),
 				),
-				...(attachmentWrites.length === 0
-					? []
-					: [
-							el(
-								"attachment",
-								{},
-								attachmentWrites.map((write) =>
-									el(write.property, { src: "", from: "local" }),
-								),
-							),
-						]),
 			]),
 		]);
 
@@ -1258,7 +1230,7 @@ export function buildCaseOperations(
 				context,
 			),
 		);
-		for (const write of scalarWrites) {
+		for (const write of writes) {
 			binds.push(
 				xel(
 					"bind",
@@ -1267,28 +1239,6 @@ export function buildCaseOperations(
 							nodeset: updatePath.child(write.property).toWire(),
 							calculate: write.source,
 							relevant: write.present,
-						},
-					},
-					context,
-				),
-			);
-		}
-		for (const write of attachmentWrites) {
-			const propertyPath = attachmentPath.child(write.property);
-			binds.push(
-				xel(
-					"bind",
-					{
-						xpath: { nodeset: propertyPath.toWire(), relevant: write.present },
-					},
-					context,
-				),
-				xel(
-					"bind",
-					{
-						xpath: {
-							nodeset: propertyPath.attr("src").toWire(),
-							calculate: write.source,
 						},
 					},
 					context,
@@ -1338,13 +1288,6 @@ export function buildCaseOperations(
 		const indexPath = casePath.child("index");
 		const indexId = subcase.reference_id || "parent";
 		const propertyEntries = Object.entries(subcase.case_properties);
-		const attachmentPropertyEntries = propertyEntries.filter(([, mapping]) =>
-			attachmentSourcePaths.has(validateXFormPath(mapping.question_path)),
-		);
-		const scalarPropertyEntries = propertyEntries.filter(
-			([, mapping]) =>
-				!attachmentSourcePaths.has(validateXFormPath(mapping.question_path)),
-		);
 		group.children.push(
 			saveToCaseBlock(blockName, subcase.case_type, [
 				el("create", {}, [
@@ -1358,18 +1301,7 @@ export function buildCaseOperations(
 							el(
 								"update",
 								{},
-								scalarPropertyEntries.map(([property]) => el(property, {})),
-							),
-						]),
-				...(attachmentPropertyEntries.length === 0
-					? []
-					: [
-							el(
-								"attachment",
-								{},
-								attachmentPropertyEntries.map(([property]) =>
-									el(property, { src: "", from: "local" }),
-								),
+								propertyEntries.map(([property]) => el(property, {})),
 							),
 						]),
 				el("index", {}, [
@@ -1469,7 +1401,7 @@ export function buildCaseOperations(
 				context,
 			),
 		);
-		for (const [property, mapping] of scalarPropertyEntries) {
+		for (const [property, mapping] of propertyEntries) {
 			const propertyPath = updatePath.child(property);
 			const source = sourceRef(mapping.question_path, propertyPath);
 			binds.push(
@@ -1480,35 +1412,6 @@ export function buildCaseOperations(
 							nodeset: propertyPath.toWire(),
 							calculate: source,
 							relevant: w.gt(w.call("count", [source]), w.num(0)),
-						},
-					},
-					context,
-				),
-			);
-		}
-		for (const [property, mapping] of attachmentPropertyEntries) {
-			const propertyPath = casePath.child("attachment").child(property);
-			const source = sourceRef(mapping.question_path, propertyPath);
-			binds.push(
-				xel(
-					"bind",
-					{
-						xpath: {
-							nodeset: propertyPath.toWire(),
-							relevant: w.eq(w.call("count", [source]), w.num(1)),
-						},
-					},
-					context,
-				),
-				xel(
-					"bind",
-					{
-						xpath: {
-							nodeset: propertyPath.attr("src").toWire(),
-							calculate: sourceRef(
-								mapping.question_path,
-								propertyPath.attr("src"),
-							),
 						},
 					},
 					context,

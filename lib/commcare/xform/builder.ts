@@ -1248,7 +1248,7 @@ function buildFieldParts(
 		),
 	);
 
-	// A capture saving to a case in URL mode carries a second node beside
+	// A capture saving to a case carries a second node beside
 	// it, holding the address of the submitted file. The capture question
 	// answers with a server-minted file name; the case property wants
 	// somewhere that file can be opened, and the two are different values.
@@ -1264,7 +1264,7 @@ function buildFieldParts(
 	if (
 		attachmentTarget !== undefined &&
 		isCaptureField(field) &&
-		field.caseWrite?.mode === "url"
+		field.caseWrite !== undefined
 	) {
 		const urlPath = captureUrlNodePath(generatedNodes, fieldUuid, nodePath);
 		dataElements.push(el(generatedNodes.url(fieldUuid), {}));

@@ -14,7 +14,6 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	blueprintDocSchema,
-	type CaptureCaseWrite,
 	type CaseWrite,
 	proseText,
 } from "@/lib/domain";
@@ -427,10 +426,9 @@ it.each(["case_name", "external_id", "photo_url"])(
 	"checks capture destination %s before persistence",
 	async (property) => {
 		const built = fixture({ capture: true });
-		const caseWrite: CaptureCaseWrite = {
+		const caseWrite: CaseWrite = {
 			caseType: "patient",
 			property,
-			mode: "url",
 		};
 		const harness = makeToolWorkspaceHarness(built.doc);
 		const input = editFieldTool.inputSchema.parse({

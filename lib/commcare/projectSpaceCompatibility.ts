@@ -50,7 +50,6 @@ export type HqPrivateFeatureFlagId =
 	| "case-search-base"
 	| "advanced-case-search"
 	| "commcare-connect"
-	| "case-attachments"
 	| "attachment-links"
 	| "no-matches-registration"
 	| "large-search-performance"
@@ -74,7 +73,6 @@ export const HQ_PRIVATE_FEATURE_FLAG_SYMBOLS = {
 	"case-search-base": "SYNC_SEARCH_CASE_CLAIM",
 	"advanced-case-search": "CASE_SEARCH_ADVANCED",
 	"commcare-connect": "COMMCARE_CONNECT",
-	"case-attachments": "MM_CASE_PROPERTIES",
 	"attachment-links": "VIEW_FORM_ATTACHMENT",
 	"no-matches-registration": "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
 	"large-search-performance": "CUSTOM_PROPERTIES",
@@ -208,7 +206,7 @@ function moduleHasCaseTiles(module: Module): boolean {
 }
 
 /**
- * Whether a link a capture question saves on a case is shown on a screen:
+ * Whether the link a capture question saves on a case is shown on a screen:
  * a column of some module of that case type, shown on Results or Details,
  * reads the property, as a column of its own or inside a calculated
  * column's expression. HQ reads `VIEW_FORM_ATTACHMENT` only when someone
@@ -216,7 +214,7 @@ function moduleHasCaseTiles(module: Module): boolean {
  * link no screen shows asks nothing of the project space.
  */
 export function linkWriteIsShown(doc: BlueprintDoc, field: Field): boolean {
-	if (!isCaptureField(field) || field.caseWrite?.mode !== "url") return false;
+	if (!isCaptureField(field) || field.caseWrite === undefined) return false;
 	const { caseType, property } = field.caseWrite;
 	return Object.values(doc.modules).some(
 		(module) =>
@@ -317,12 +315,7 @@ export function projectSpaceCompatibilityProbePlan(
 
 	for (const field of Object.values(doc.fields)) {
 		if (!isCaptureField(field) || field.caseWrite === undefined) continue;
-		if (field.caseWrite.mode === "attachment") {
-			addReason(
-				"case-attachments",
-				"A capture question saves its file on the case.",
-			);
-		} else if (linkWriteIsShown(doc, field)) {
+		if (linkWriteIsShown(doc, field)) {
 			addReason(
 				"attachment-links",
 				"A case list or its details show a link to a captured file.",
@@ -386,7 +379,6 @@ export function projectSpaceCompatibilityProbePlan(
 		["related-case-search", ["related-case-lookups"]],
 		["case-tiles", ["case-tiles", "custom-case-tiles"]],
 		["commcare-connect", ["commcare-connect"]],
-		["case-attachments", ["case-attachments"]],
 		["attachment-links", ["attachment-links"]],
 	] as const) {
 		const reasons = reasonsByCapability.get(capability);

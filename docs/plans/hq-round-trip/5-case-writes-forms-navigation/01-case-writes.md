@@ -2104,6 +2104,31 @@ From the research, the outline and the owner brief, each with its reason.
     the catalog keeps one `parent_type` per type, and every walk through an index resolves a step
     through it. A `create` already links to a case of any declared type (§3.4), so no step 5
     document needs a second parent in the catalog, and the item is written into step 7's outline.
+21. **`dropCaptureWriters` keeps its code in pull request 2** (§28 says it "keeps link writes
+    only"): at the base it already drops every capture writer, which is §19's end state (a
+    capture-link write is unwritten in Preview), so pull request 2 rewrites only its comments.
+22. **The local splicer loses its upload-ref partition whole** (§10.1 names only its
+    `<attachment>` block): `caseBlocks.ts::attachmentQuestionPaths` existed to route a write naming
+    an `<upload ref>` the way `xform.py::XFormCaseBlock.is_attachment` does, and from pull request
+    2 no action names one (a capture's write names its `nova_url_<question>` sibling,
+    `formActions.ts::caseUpdateQuestionPath`), so every write is an `<update>` row on both paths.
+23. **`lib/commcare/CLAUDE.md`'s capture URL node bullet changes in pull request 2** (part 10
+    §7.5 gives it to pull request 4): its opening, "`caseWrite` carries `mode`", is false from
+    pull request 2, and a subtree contract is true at every head. Pull request 2 drops only that
+    clause; pull request 4 writes the bullet's capture-link text.
+24. **`gates.json` does not change in pull request 2** (part 10 §2 lists it in the lane):
+    `lib/commcare/surface/entries/gates.json`'s `toggle/MM_CASE_PROPERTIES` already holds
+    `preflight: {kind: "refusal", cell: "refuse"}` at the base, which is §20.2's end state, and the
+    probe that stops asking it is `projectSpaceCompatibility.ts`'s, so the entry has nothing to
+    lose.
+25. **Four more readers of `caseWrite.mode` change in pull request 2** (part 10 §2 does not list
+    them): `lib/commcare/xform/generatedNodes.ts::allocateGeneratedNodes` and
+    `xform/builder.ts::buildFieldParts` allocate and emit the `nova_url_<question>` sibling for
+    every capture with a write, where they tested `mode === "url"`;
+    `lib/publish/exportAdvisories.ts::attachmentLinkProperties` names every capture write's
+    property; and `lib/domain/referenceSlots.ts::NON_REFERENCE_FIELD_PATHS` loses its
+    `"caseWrite.mode"` discriminator row, with the capture slot's comment reworded. Each reads a
+    member pull request 2 deletes, so it changes with it.
 
 ## 28. Files by pull request
 

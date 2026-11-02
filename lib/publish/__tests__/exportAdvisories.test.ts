@@ -56,7 +56,6 @@ function docWithCaptures(
 									caseWrite: {
 										caseType: "patient",
 										property: capture.property,
-										mode: "url",
 									},
 								}),
 							),

@@ -55,7 +55,6 @@ function collisionDoc(): { doc: BlueprintDoc; formUuid: Uuid } {
 								caseWrite: {
 									caseType: "patient",
 									property: "photo_url",
-									mode: "url",
 								},
 							}),
 							f({ kind: "text", id: "nova_operations" }),

@@ -152,18 +152,14 @@ describe("the migration witnesses", () => {
 				);
 			}
 		}
-		// The attachment witness's A is published where case attachments are kept.
-		const attachment = witnesses.find(
-			(document) => document.id === "targeted-migration-attachment",
+		// The attachment witness's retained A was published where case attachments
+		// are kept. Its migrated spec saves only links, so the flag is read from
+		// the retained A alone: a spec's derived configurations no longer hold it.
+		const retained = await retainedMigrationA("targeted-migration-attachment");
+		expect(retained).toBeDefined();
+		expect(retained?.configurations.minimum.flags).toContain(
+			"MM_CASE_PROPERTIES",
 		);
-		expect(attachment).toBeDefined();
-		if (attachment !== undefined) {
-			const retained = await retainedMigrationA(attachment.id);
-			expect(
-				(retained?.configurations ?? derivedConfigurations(attachment)).minimum
-					.flags,
-			).toContain("MM_CASE_PROPERTIES");
-		}
 	});
 });
 

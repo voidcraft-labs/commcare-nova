@@ -105,7 +105,7 @@ export interface GeneratedNodePlan {
 	constraintCount(fieldUuid: Uuid, ordinal: number): string;
 	/** The sibling that carries a protected validation message's itext. */
 	constraintMessage(fieldUuid: Uuid): string;
-	/** The sibling holding a URL-mode capture's case-bound address. */
+	/** The sibling holding the link a capture writes to its case. */
 	url(fieldUuid: Uuid): string;
 	/** The sibling holding a datetime answer's case value as text. */
 	datetime(fieldUuid: Uuid): string;
@@ -317,7 +317,7 @@ function allocateGeneratedNodes(
 					field.uuid,
 					scope.allocate(`nova_constraint_message_${field.id}`),
 				);
-			if (isCaptureField(field) && field.caseWrite?.mode === "url")
+			if (isCaptureField(field) && field.caseWrite !== undefined)
 				record("url", field.uuid, scope.allocate(`nova_url_${field.id}`));
 			if (
 				"caseWrite" in field &&

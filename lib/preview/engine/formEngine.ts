@@ -637,12 +637,14 @@ function retainSelection(
 }
 
 /**
- * Strip every attachment writer from an admitted inventory.
+ * Strip every capture writer from an admitted inventory.
  *
- * Preview's own rule, applied after admission rather than inside it: the
- * document is genuinely valid and the device genuinely writes these
- * properties. What preview lacks is the CommCare HQ submission the address
- * would point at, so it declines to invent one. Keeping this out of
+ * Every capture's write is a link to the submitted file, and Preview does
+ * not write it (`content/docs/attachments.mdx`). Preview's own rule, applied
+ * after admission rather than inside it: the document is genuinely valid and
+ * the device genuinely writes these properties. What preview lacks is the
+ * CommCare HQ submission the link would point at, so it declines to invent
+ * one. Keeping this out of
  * `assertAndProjectCaseWriteInventory` matters — that projection is what
  * the wire emitters consume, and they must keep seeing every writer.
  */
@@ -2575,9 +2577,9 @@ export class FormEngine {
 	 * by validation and wire emission. Preview never re-interprets field ids as
 	 * case properties and never invents child membership independently.
 	 *
-	 * An attachment's destination is dropped, and this is the one place
-	 * Preview deliberately writes LESS than the device. The address a URL
-	 * mode property carries is
+	 * A capture's link write is dropped, and this is the one place
+	 * Preview deliberately writes LESS than the device. The link a capture
+	 * writes is
 	 * `<origin>/a/<domain>/api/form_attachment/v1/<instance id>/<name>`, and
 	 * a preview submission has no CommCare HQ instance behind any of it: the
 	 * bytes live in Nova's own submission-scoped lane, `meta/instanceID`

@@ -16,7 +16,6 @@ export type ProjectSpaceCapabilityId =
 	| "deep-links"
 	| "case-search"
 	| "commcare-connect"
-	| "case-attachments"
 	| "attachment-links"
 	| "registration-after-empty-search"
 	| "multi-select-case-lists"
@@ -57,11 +56,6 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		label: "CommCare Connect",
 		description:
 			"Lets the app run CommCare Connect Learn or Deliver workflows and send Connect messages or surveys.",
-	},
-	"case-attachments": {
-		id: "case-attachments",
-		label: "Attachments saved to cases",
-		description: "Lets a captured file be stored on a case.",
 	},
 	"attachment-links": {
 		id: "attachment-links",
@@ -405,7 +399,6 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"deep-links",
 	"case-search",
 	"commcare-connect",
-	"case-attachments",
 	"attachment-links",
 	"registration-after-empty-search",
 	"multi-select-case-lists",

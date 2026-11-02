@@ -11,12 +11,14 @@
 //
 // The indirection is not a stylistic choice. CommCare HQ decides
 // `<attachment>` versus `<update>` by looking at the question path alone:
-// `app_manager/xform.py::CaseBlock.is_attachment` collects every
-// `<upload ref>` in the body and `::add_case_updates` routes the update
+// `corehq/apps/app_manager/xform.py::XFormCaseBlock.is_attachment` collects
+// every `<upload ref>` in the body and `::add_case_updates` routes the update
 // into an attachment block if the path is one of them, without consulting
-// the `MM_CASE_PROPERTIES` toggle. Pointing a URL property at the capture
-// question would therefore emit an attachment block on a domain that
-// silently drops it, and no property at all.
+// the `MM_CASE_PROPERTIES` toggle, which case processing then requires
+// (`corehq/form_processor/backends/sql/update_strategy.py::SqlCaseUpdateStrategy._apply_attachments_action`).
+// Pointing a capture's write at the capture question would therefore emit
+// an attachment block on a domain that silently drops it, and no property
+// at all.
 
 import type { Uuid } from "@/lib/domain";
 import { w } from "../xpath/wire/builders";

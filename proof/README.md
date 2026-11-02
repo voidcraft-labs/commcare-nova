@@ -497,9 +497,7 @@ reader is ("How the lane observes", below).
 A configuration Nova's publish refuses is not checked (decision 19): each
 document's configurations hold the flags and case search Nova's publish
 requires for it, so a symptom that shows only where Nova refuses to publish
-reaches no one and is not a defect. Defect 23 without `MM_CASE_PROPERTIES` is
-one, and Nova's publish check refusing that target is held by
-`proof/targeted/__tests__/unproducedInputs.test.ts`. Configuration
+reaches no one and is not a defect. Configuration
 sensitivity alone still builds a flip into such a configuration, since a
 gate's effects are what HQ's build changes wherever that is, and holds its
 differences to the gate's effects, never to the register.
@@ -530,7 +528,6 @@ named here, rather than by every document's checks:
 | "12, same-type child" | `proof/targeted/__tests__/unproducedInputs.test.ts` | Nova's gate admits a case type that is its own parent, and a write of the menu's own type from its own menu exports no `subcases` action: there is no such child case to index |
 | "20, CommTrack" | `proof/targeted/__tests__/unproducedInputs.test.ts`; the control `targeted-supply-point-read`, the manifest check and proof 4 | Nova's parser refuses the session's `supply_point_id` as an unknown datum, which no menu of a Nova app supplies, and a read of a datum the form's entry declares is admitted (finding 68) |
 | Defect 20's `product_id` datum | `proof/targeted/__tests__/unproducedInputs.test.ts` | HQ adds it only to an advanced module; a document holding both features HQ's branches read (a case list menu item, a form that loads a case) exports a basic module with basic actions, so no export reaches it |
-| Defect 23 without `MM_CASE_PROPERTIES` | the same vitest file | Nova's publish check, given HQ's own domain list for the flag, refuses a target without it, naming the capability, and passes the same target with it |
 | Defect 12's `VIEW_FORM_ATTACHMENT` | `proof/views/test_form_attachment.py` | a link write's file, submitted by a worker through HQ's receiver, is served by HQ's attachment view to the worker only under the flag, to an administrator either way, and to a web user without Submission History only under the flag |
 | Defect 14's logos on a linked app | `proof/views/test_linked_logos.py` | Nova writes no `logo_refs`, and HQ's own Copy Application view links the app as Nova publishes it; written into the stored app, an entry whose only key is `path` makes the copy fail (`LinkedApplication.reapply_overrides` reads its media object), and the copy succeeds again after the update Nova sends over that entry and over the record HQ's own uploader leaves in that slot |
 | Defect 30's export column | `proof/views/test_exports.py` | HQ's own form export of a walked submission, made from the app's builds and the forms index, holds a `nova_count_<repeat>` column the document does not author, holding the count |
@@ -2968,7 +2965,7 @@ commit gate, which refuses a datum the form's entry does not supply
 | 16, hidden columns | a case list search did not match a hidden column's values, because Nova dropped the column (`EntitySortUtil.sortEntities`). Fixed in step 2: in a list with no case tile a column hidden from Results is HQ's `invisible` column on both paths | intent (Core) | fixed; still shown by the control `targeted-hidden-column`; `targeted-hidden-calculated-column` holds a hidden calculated column |
 | 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`). Fixed in step 4: Nova's publish asks a person to confirm the setting is off for an app that declares Android and holds such a form (`form-entry-sync-off`), and an app for Web Apps only publishes with it on | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | fixed; still shown by the controls `targeted-sync-on-form-entry`, `targeted-list-first-web-apps`, `case-list-inline` and `search-multiple` |
 | 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | any list-first menu in a project space that searches; `targeted-list-first-web-apps`, `targeted-list-first-places` (the location question's runs and viewports) |
-| 23 | a Vellum save drops the Save to Case attachment | proof 4, then 3 | an attachment-mode capture |
+| 23 | a Vellum save drops the Save to Case attachment. Fixed in step 5: a capture saves only a link to its file, written to the generated `nova_url_<question>` node, so no export writes a case attachment | proof 4, then 3; manifest; intent (HQ) | fixed; still shown by the controls `case-capture-followup`, `case-capture-multiple-after-3`, `case-capture-multiple-after-13`, `case-extension-registration-after-13`, `case-extension-multiple-after-13`, `case-extension-multiple-repeat-after-13`, `case-extension-query-after-13` and `case-extension-repeat-after-13` |
 | 24 | a Case Management save turns the inert subcase's relationship from extension to child; and the local archive placed a repeat's single subcase block after the item's other children, where HQ's build places it first, so Formplayer listed the item's ids in another order. Step 2 fixed the repeat item's position (finding 37): the block is the item's first child on both paths | proof 4; proof 3 across the two paths | an extension child case; the item's position is fixed and still shown by the control `case-capture-query` |
 | 25 | a Vellum save rewrites a query repeat into model iteration, whose rows are built by setvalues that run as the form loads. Where that breaks is a REFUSED class of the model-iteration entries (`lib/commcare/surface/entries/questions.json`): a repeat nested in another; a query reading an answer still blank where those setvalues run; and a repeat under a group that Core's load has already left not relevant there (its condition reads what an earlier load-time setvalue wrote) and that becomes relevant later: the repeat stays empty. Otherwise a group relevant later costs no rows: `FormDef.initialize` runs the load-time setvalues before it evaluates the form's conditions (`initAllTriggerables`), and a group whose condition nothing has evaluated yet reads as relevant (`XFormParser` leaves it so), so for a query that reads no form answer the repeat keeps its rows after the save, and one under a group never relevant submits none either way (correction 7) | proof 4, then 3; manifest | query repeats in those places, `targeted-query-repeat-places`. The blank-answer manifest entry on `container-nested-query` is fixed at the mutation gate: the typed repeat-row read makes `container-nested-query`'s old repeat-to-group conversion invalid, and its retained control still shows the exact symptom. The other defect 25 entries remain live. |
 | 26 | the form settings save drops a hidden link beside a visible one and clears a navigation fallback its page does not offer, which changes the stack | proof 4, then 2 and 3 | `targeted-form-links-hidden-and-fallback` |
@@ -3801,11 +3798,11 @@ In Core, `CaseCaptureRuntimeTest` (twelve methods) runs `FormParseInit`,
 evaluation and `XFormSerializingVisitor` over both paths' capture forms, with
 only the session and existing case data supplied. User repeats are created
 through the entry controller; query repeats materialize through entry events.
-It checks distinct attachment file names and submission URLs, hidden questions
-omitting both case writes, an active blank URL clearing one property,
+It checks each capture's distinct link to its file and that neither path writes
+a case attachment, hidden questions omitting both case writes, an active blank URL clearing one property,
 untouched neighboring rows keeping their URL, capture fields starting empty on
 followup, and child indices naming the selected parent; the multiple-parent
-document writes shared file names to both ids, and all-blank shared answers
+document writes shared links to both ids, and all-blank shared answers
 omit the whole ordinary update. Two of its methods read the extension
 registration form on both paths, HQ's side regenerated whole for them
 (`registration.whole.hq.xml`): its two extension children and its ordinary

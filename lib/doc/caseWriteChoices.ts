@@ -3,18 +3,14 @@ import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { userFacingErrors } from "@/lib/doc/userFacingErrors";
-import type { CaptureCaseWrite, CaseWrite, Field } from "@/lib/domain";
+import type { CaseWrite, Field } from "@/lib/domain";
 import { USERCASE_CASE_TYPE } from "@/lib/domain";
 
 /**
- * Either destination shape a field's schema may carry.
- *
- * The capture kinds extend the pair with the `mode` naming what reaches
- * the case. Both travel through this helper unchanged — the patch carries
- * whatever the caller built, and the per-kind mutation schema is what
- * decides whether that shape is the one this field takes.
+ * The destination a field's schema carries: one `(caseType, property)`
+ * pair, the same shape on every kind that writes, capture kinds included.
  */
-export type AuthoredCaseWrite = CaseWrite | CaptureCaseWrite;
+export type AuthoredCaseWrite = CaseWrite;
 
 export type CaseWriteChoiceVerdict =
 	| { readonly ok: true }
@@ -23,9 +19,9 @@ export type CaseWriteChoiceVerdict =
 /**
  * The exact complete candidate batch used by the local Saves to chooser.
  *
- * A destination is always one whole pair (or null to clear), plus the mode
- * on the capture kinds. Declaration and field retargeting share the batch,
- * matching the builder mutation hook's declaration chokepoint.
+ * A destination is always one whole pair (or null to clear). Declaration
+ * and field retargeting share the batch, matching the builder mutation
+ * hook's declaration chokepoint.
  */
 export function caseWriteCandidateMutations(
 	doc: BlueprintDoc,

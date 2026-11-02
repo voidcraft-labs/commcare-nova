@@ -901,7 +901,6 @@ it("resolves attachment writes from persisted deployments on the selected server
 									caseWrite: {
 										caseType: "patient",
 										property: "photo_url",
-										mode: "url",
 									},
 								}),
 							],

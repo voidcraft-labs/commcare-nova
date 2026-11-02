@@ -1597,6 +1597,22 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   `entryWriter.ts` and applies the record there (§4.5).
 - **`container-nested-query` holds 28 defect 25 entries and `container-query-conditional-relative` 2**
   (read), where the proof brief's grouping said 27 and 3.
+- **Proof 3's files test reads a control from pull request 2** (unlisted in the plan):
+  `proof/checks/test_proof3_behavior.py::test_a_document_whose_forms_send_files_is_processed_with_them`
+  took an emitted case-extension document exported under `MM_CASE_PROPERTIES`, which no emitted document
+  is once every capture saves a link. Its claim (HQ processes a device's attached files only with the
+  files sent) is held on the retained control `case-extension-registration-after-13`, whose exports are
+  attachment-mode under that flag; the unit observes a control as it does a document
+  (`proof/observe/unit.py`), and its case database is the control's derived one
+  (`proof/observe/casedata.py::document_case_database`).
+- **Two more readers of the attachment mode change in pull request 2** (unlisted in the plan):
+  `proof/hq/test_flag_probe.py::PROBED_FLAGS`, which mirrors
+  `HQ_PRIVATE_FEATURE_FLAG_SYMBOLS`' values, loses `MM_CASE_PROPERTIES` with `case-attachments`; and
+  `proof/native/test_case_emission.py::_check_capture` asserts the picture as an `<update>` beside the
+  scan and no `<attachment>` on either path, where it asserted `//cx:attachment/cx:photo`.
+- **The attachment witness's flag is read from its retained A alone** (`proof/targeted/__tests__/
+  targeted.test.ts`): the migrated spec saves only links, so its derived configurations no longer hold
+  `MM_CASE_PROPERTIES`, and the test asserts that the retained A exists and was published under the flag.
 
 ## What other parts read from this one
 

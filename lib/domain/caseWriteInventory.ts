@@ -386,8 +386,8 @@ export function caseWriteInventoryIssues(
 			if (bucket.kind === "usercase" && writer.repeatUuid !== undefined) {
 				issues.push({ kind: "usercase-writer-in-repeat", writer });
 			}
-			// A capture's answer is a server-minted file name, and in URL
-			// mode the property carries an address built from it. Neither is
+			// A capture's answer is a server-minted file name, and the
+			// property carries an address built from it. Neither is
 			// a case's name or its external id: those two are dedicated
 			// scalar slots CommCare trims and caps at 255, and they are
 			// emitted through their own FormActions members rather than the

@@ -43,7 +43,7 @@ export function extensionCaseFixture(scenario: ExtensionScenario) {
 			kind: "image",
 			id: "episode_photo",
 			label: proseText("Episode photo"),
-			caseWrite: { caseType: "episode", property: "photo", mode: "attachment" },
+			caseWrite: { caseType: "episode", property: "photo" },
 		}),
 	);
 	const doc = buildDoc({

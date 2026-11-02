@@ -43,7 +43,12 @@ it.each(extensionScenarios)(
 			true,
 		);
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
-		const hq = expandDoc(doc);
+		const hq = expandDoc(doc, {
+			attachmentTarget: {
+				origin: "https://www.commcarehq.org",
+				domain: "demo-project",
+			},
+		});
 		const form = hq.modules[0].forms[0];
 		expect(
 			form.actions.subcases.map((s) => [
@@ -173,25 +178,24 @@ it.each(extensionScenarios)(
 				});
 				expect(at(at(block, "update"), "note").attribs).toEqual({});
 				const path = `${prefix}/${container.name}/nova_subcase_${index}/case`;
+				// A capture's write is an update row reading its link sibling;
+				// no block holds an `<attachment>`.
+				expect(block.children.filter(isTag).map((e) => e.name)).not.toContain(
+					"attachment",
+				);
 				if (type === "episode") {
-					expect(at(at(block, "attachment"), "photo").attribs).toEqual({
-						src: "",
-						from: "local",
+					expect(at(at(block, "update"), "photo").attribs).toEqual({});
+					const link =
+						scenario === "multiple-repeat"
+							? "current()/../../../../../../../nova_url_episode_photo"
+							: repeated
+								? "current()/../../../../../nova_url_episode_photo"
+								: "/data/nova_url_episode_photo";
+					expect(bindAt(`${path}/update/photo`)).toEqual({
+						nodeset: `${path}/update/photo`,
+						calculate: link,
+						relevant: `count(${link}) > 0`,
 					});
-					expect(bindAt(`${path}/attachment/photo`).relevant).toBe(
-						scenario === "multiple-repeat"
-							? "count(current()/../../../../../../../episode_photo) = 1"
-							: repeated
-								? "count(current()/../../../../../episode_photo) = 1"
-								: "count(/data/episode_photo) = 1",
-					);
-					expect(bindAt(`${path}/attachment/photo/@src`).calculate).toBe(
-						scenario === "multiple-repeat"
-							? "current()/../../../../../../../../episode_photo"
-							: repeated
-								? "current()/../../../../../../episode_photo"
-								: "/data/episode_photo",
-					);
 				}
 				expect(bindAt(`${path}/create/case_type`).calculate).toBe(`'${type}'`);
 				expect(bindAt(`${path}/create/owner_id`).calculate).toBe(
