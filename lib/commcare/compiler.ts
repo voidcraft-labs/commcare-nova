@@ -42,7 +42,16 @@ import { assertXml } from "./xmlParse";
 
 import AdmZip from "adm-zip";
 import type { Element } from "domhandler";
-import type { FormActions, HqApplication } from "@/lib/commcare";
+import {
+	emptyFormActions,
+	type FormActions,
+	type HqAnyForm,
+	type HqApplication,
+} from "@/lib/commcare";
+import {
+	type FormCaseWirePlan,
+	planFormCaseWire,
+} from "@/lib/commcare/casePlacementPlan";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import { el, text, xel } from "@/lib/commcare/elementBuilders";
 import {
@@ -113,6 +122,7 @@ import { errorToString } from "@/lib/commcare/validator/errors";
 import { validateMediaSuite } from "@/lib/commcare/validator/mediaSuiteOracle";
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
+import { addAdvancedCaseBlocks } from "@/lib/commcare/xform/advancedCaseBlocks";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
 import { stripVellumAttributes } from "@/lib/commcare/xform/deviceForm";
 import { setFormVersion } from "@/lib/commcare/xform/formVersion";
@@ -395,11 +405,17 @@ export function compileCcz(
 	// every form's expanded actions. The expander already built them, so the
 	// context reads them back by uuid instead of deriving a second set — the
 	// entry's datums and the frames that reference them come from one source.
+	// An advanced form has no basic actions: its entry, links and case
+	// blocks read its loads and open actions.
 	const actionsByForm = new Map<Uuid, FormActions>();
 	sortedModuleUuids.forEach((moduleUuid, mIdx) => {
 		orderedFormUuids(doc, moduleUuid).forEach((formUuid, fIdx) => {
-			const actions = hqModules[mIdx]?.forms[fIdx]?.actions;
-			if (actions !== undefined) actionsByForm.set(formUuid, actions);
+			const form: HqAnyForm | undefined = hqModules[mIdx]?.forms[fIdx];
+			if (form !== undefined)
+				actionsByForm.set(
+					formUuid,
+					form.doc_type === "Form" ? form.actions : emptyFormActions(),
+				);
 		});
 	});
 	const linkContext = formLinkProjectionContext(doc, {
@@ -736,16 +752,30 @@ export function compileCcz(
 			// and the form's data node carries the sequence as its version, as
 			// HQ's build stamps its own form version (`FormBase.add_stuff_to_xform`).
 			let xform = attachments[`${uniqueId}.xml`];
+			// An advanced form's blocks are `_create_casexml_advanced`'s, in its
+			// place (`XForm.add_case_and_meta_advanced`).
 			if (xform) {
-				xform = addCaseBlocks(
-					xform,
-					hqForm.actions,
-					caseType || undefined,
-					ownCaseDatumId === undefined
-						? undefined
-						: sessionDataRef(ownCaseDatumId),
-					ownCaseDatum?.maxSelectValue === undefined,
-				);
+				xform =
+					hqForm.doc_type === "AdvancedForm"
+						? addAdvancedCaseBlocks(
+								xform,
+								{ actions: hqForm.actions },
+								{
+									loadDatumIds: advancedLoadDatumIds(
+										planFormCaseWire(doc, formUuid),
+										entrySessionDatums(doc, linkContext, moduleUuid, formUuid),
+									),
+								},
+							)
+						: addCaseBlocks(
+								xform,
+								hqForm.actions,
+								caseType || undefined,
+								ownCaseDatumId === undefined
+									? undefined
+									: sessionDataRef(ownCaseDatumId),
+								ownCaseDatum?.maxSelectValue === undefined,
+							);
 			}
 			if (xform) {
 				xform = setFormVersion(
@@ -853,7 +883,7 @@ export function compileCcz(
 				projectedSessionDatums,
 				caseListFilter: mod.caseListConfig?.filter,
 				additionalInstances: commandInstances.declarations(),
-				actions: hqForm.actions,
+				...(hqForm.doc_type === "Form" && { actions: hqForm.actions }),
 				excludedOwnerIds,
 				expressions,
 				lookupNaming,
@@ -1347,4 +1377,26 @@ function packageCcz(
 		zip.addFile(entry.path, entry.bytes);
 	}
 	return zip.toBuffer();
+}
+
+/**
+ * The session datum each load of an advanced form reads its case id from,
+ * by tag, after HQ's child-module alignment: the id the form's entry gives
+ * the load's datum (`EntriesHelper.get_datum_meta_assertions_advanced`,
+ * which `_create_casexml_advanced` reads as `adjusted_datums`).
+ */
+function advancedLoadDatumIds(
+	plan: FormCaseWirePlan,
+	entryDatums: readonly SessionDatum[],
+): ReadonlyMap<string, string> {
+	const ids = new Map<string, string>();
+	if (plan.kind !== "advanced") return ids;
+	for (const load of plan.loads) {
+		// The last datum of the tag, as HQ's dict over the entry's datums
+		// keeps the last: a root menu's datums copied ahead of the form's own
+		// may carry a tag of the root form's loads.
+		const datum = entryDatums.findLast((d) => d.advancedLoadTag === load.tag);
+		if (datum !== undefined) ids.set(load.tag, datum.id);
+	}
+	return ids;
 }

@@ -29,6 +29,7 @@ import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
+	type CaseOperation,
 	declaresAndroid,
 	NEW_APP_SETTINGS,
 	proseText,
@@ -64,11 +65,18 @@ import {
 	requiredPlanPrivileges,
 } from "../planPrivileges";
 import { runValidation } from "../validator/runner";
+import { advancedFixture } from "./advancedPlacementFixture";
 import { assertGenerated, manifestFor } from "./compilerEvidence";
 import { connectWireFixtures } from "./connectWireFixtures";
 import { extensionCaseFixture } from "./extensionCaseFixture";
 import { clinicNames } from "./instanceReadFixture";
-import { childCreate, own, placementFixture, read } from "./placementFixture";
+import {
+	childCreate,
+	OP,
+	own,
+	placementFixture,
+	read,
+} from "./placementFixture";
 import { suiteDocArbitrary } from "./suiteDocArbitrary";
 import { blueprintDocArbitrary } from "./xformDocArbitrary";
 import { readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
@@ -184,10 +192,14 @@ function markers(hq: HqApplication): {
 	if (hq.cloudcare_enabled === true) privileges.add("cloudcare");
 	for (const module of hq.modules) {
 		for (const form of module.forms) {
-			if (Object.keys(form.actions.usercase_update.update).length > 0) {
+			if (
+				form.doc_type === "Form" &&
+				Object.keys(form.actions.usercase_update.update).length > 0
+			) {
 				privileges.add("user_case");
 			}
-			if (form.actions.subcases.length > 0) privileges.add("child_cases");
+			if (form.doc_type === "Form" && form.actions.subcases.length > 0)
+				privileges.add("child_cases");
 			if (form.post_form_workflow === "form") {
 				privileges.add("form_link_workflow");
 			}
@@ -331,7 +343,10 @@ function holdsWire(doc: BlueprintDoc): void {
 						module.search_config.properties.length > 0 ||
 						module.search_config.default_properties.length > 0
 							? module.forms
-									.filter((form) => form.requires === "case")
+									.filter(
+										(form) =>
+											form.doc_type === "Form" && form.requires === "case",
+									)
 									.map((form) => form.unique_id)
 							: [],
 					)
@@ -605,13 +620,58 @@ describe("each privilege's reasons", () => {
 	});
 
 	it("names each form that writes a child case and each that opens another form", () => {
-		const doc = extensionCaseFixture("registration");
-		expect(reasonsOf(doc, "child_cases")).toEqual([
+		// The follow-up's visit is a basic subcase; its extension children are
+		// Save to Case blocks, which ask for Save to Case alone.
+		expect(reasonsOf(extensionCaseFixture("followup"), "child_cases")).toEqual([
 			"Record care creates or updates a child case.",
 		]);
+		// The registration's link carries its new episode, so its menu is an
+		// advanced menu: HQ's build checks no plan for an advanced form's
+		// children (`helpers/validators.py::ApplicationValidator._check_subscription`).
+		const doc = extensionCaseFixture("registration");
+		expect(reasonsOf(doc, "child_cases")).toBeUndefined();
+		expect(reasonsOf(doc, "save_to_case")).toBeUndefined();
 		expect(reasonsOf(doc, "form_link_workflow")).toEqual([
 			"Record care opens another form after it is submitted.",
 		]);
+	});
+
+	it("asks Save to Case of an advanced form whose plan holds a block, and the worker's record of its worker's load", () => {
+		const { doc } = advancedFixture({
+			formType: "followup",
+			operations: () => [
+				{
+					uuid: OP("own"),
+					id: "household",
+					action: "own",
+				} as CaseOperation,
+				{
+					uuid: OP("worker"),
+					id: "worker",
+					action: "update",
+					caseType: "commcare-user",
+					target: { kind: "worker-record" },
+					writes: [{ property: "last", value: read("name") }],
+				} as CaseOperation,
+				// A write under a condition no load can carry takes a block.
+				{
+					uuid: OP("other"),
+					id: "other",
+					action: "update",
+					caseType: "household",
+					target: { kind: "session" },
+					condition: read("age"),
+					writes: [{ property: "seen", value: read("name") }],
+				} as CaseOperation,
+			],
+		});
+		expect(reasonsOf(doc, "save_to_case")).toEqual([
+			"Under test writes its case changes as Save to Case blocks.",
+		]);
+		expect(reasonsOf(doc, "user_case")).toEqual([
+			"Under test saves worker information.",
+		]);
+		expect(reasonsOf(doc, "child_cases")).toBeUndefined();
 	});
 
 	it("names a form whose close is placed as Save to Case, and not one whose close HQ's close action states", () => {

@@ -83,6 +83,9 @@ def _vitest(name, test_file, variable):
 FAMILIES = {
     family.name: family
     for family in [
+        # Nova's export of each form proof/hq/fixtures/advanced-rule-shapes.json holds, which
+        # proof/hq/test_advanced_rules.py builds beside HQ's own models.
+        _script("advanced-rules", "emit-advanced-rule-evidence.ts"),
         _script("arithmetic", "emit-arithmetic-evidence.ts"),
         _script("case", "emit-case-evidence.ts"),
         _script("case-choice", "emit-case-choice-evidence.ts"),
@@ -123,6 +126,8 @@ FAMILIES = {
 # Each Core class and the one family it reads. A class runs after its
 # family's producer and HQ step (steps.STEPS, where the family has one).
 CORE_CLASSES = {
+    # targeted-advanced-module's advanced forms, from their suite sessions, on HQ's build and the local injection.
+    "AdvancedFormRuntimeTest": "case",
     "ArithmeticRuntimeTest": "arithmetic",
     "CaseCaptureRuntimeTest": "case",
     "CaseChoiceRuntimeTest": "case-choice",

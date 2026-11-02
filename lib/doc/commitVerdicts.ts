@@ -60,6 +60,7 @@ import {
 export { formLogicFinding } from "@/lib/commcare/validator/formLogicFindings";
 export { lookupTypeIndex } from "@/lib/commcare/validator/lookupTypeContext";
 
+import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import {
 	CASE_LIST_ORDER_RULES,
 	MODULE_RULES,
@@ -760,6 +761,26 @@ export function mutationCommitVerdictWithPrevalidation(
 }
 
 /**
+ * Whether some menu the two documents share is emitted as another kind in
+ * `nextDoc`, ordinary or advanced. A menu's kind decides where each of its
+ * forms keeps its case changes and the session values every link into it
+ * reads, so a batch that changes one takes the whole-document gate whatever
+ * its footprint (`incrementalValidationScope.ts`).
+ */
+function menuKindsChanged(
+	prevDoc: BlueprintDoc,
+	nextDoc: BlueprintDoc,
+): boolean {
+	if (prevDoc === nextDoc) return false;
+	return nextDoc.moduleOrder.some(
+		(moduleUuid) =>
+			Object.hasOwn(prevDoc.modules, moduleUuid) &&
+			emittedModuleKind(prevDoc, moduleUuid) !==
+				emittedModuleKind(nextDoc, moduleUuid),
+	);
+}
+
+/**
  * `mutationCommitVerdictWithPrevalidation` over a candidate the caller has
  * already prepared from `prevDoc` (the identity-move planner prepares one),
  * so the batch is never applied twice.
@@ -788,11 +809,15 @@ export function preparedCommitVerdictWithPrevalidation(
 			prepared,
 		};
 	}
-	const validationScope = incrementalValidationScope(
+	const footprint = incrementalValidationScope(
 		prevDoc,
 		admitted,
 		prepared.nextDoc,
 	);
+	const validationScope =
+		footprint !== undefined && menuKindsChanged(prevDoc, prepared.nextDoc)
+			? undefined
+			: footprint;
 	return evaluatePreparedMutationCandidate(prepared, lookupContext, {
 		...(validationScope !== undefined && { validationScope }),
 	});

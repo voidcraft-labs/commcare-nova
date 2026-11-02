@@ -1815,6 +1815,34 @@ written here in the pull request that holds it.
   `catalog.postgres.test.ts` over an App Test namespace decoy that precedes the live row in a compacted
   heap.
 
+**Pull request 7's gated runs.** Pull request 7 (advanced modules and extension child cases) records
+part 02's claims C1 to C5 and Nova defects N1 and N2 in the bullets above: C1 is "A parent selection in
+an advanced module lists other children", C2 "The research's advanced refusals miss two shapes", C3
+"HQ owns an extension-only advanced open action by `-`", C4 "HQ's third CommTrack trigger is
+unreachable from a Nova export", C5 "HQ's advanced page tags each new action with the module's case
+type", N1 "A root question named like a block HQ's build appends collides with it" and N2 "A worker
+property whose slug starts with `_` may not be writable by a basic form". Four of the plan's runs
+settle what it leaves open, each recorded here from the records of the pull request's first push of
+the lane, which stand as its evidence:
+
+- **G2, HQ keeps Nova's advanced JSON.** Proof 4 (HQ's editors) over every document holding an
+  advanced form (`targeted-advanced-module`, `targeted-extension-carried`,
+  `targeted-advanced-child-module`, `targeted-advanced-held-kind`, `case-extension-registration`),
+  through HQ's advanced case management, module settings and form settings pages.
+  Outcome: recorded from the first push.
+- **G3, a question named like the block HQ's build appends** (N1). The bar, proof 3 and a
+  `CaseOperationRuntimeTest` scenario over `targeted-root-case-block-names`; until it is recorded,
+  `lib/commcare/advancedPlacement.ts::appendedNameTaken` answers `false`.
+  Outcome: recorded from the first push.
+- **G4, a worker property whose slug starts with `_`** (N2). The bar and proof 3 over
+  `targeted-worker-underscore-write`; until it is recorded,
+  `lib/commcare/advancedPlacement.ts::workerPropertyNameRefused` answers `false`.
+  Outcome: recorded from the first push.
+- **G6, the owner of an extension-only open action** (C3). `AdvancedFormRuntimeTest` and proof 3's
+  case blocks over `targeted-advanced-module`; until it is recorded, such a create's owner is the
+  generated Hidden Value `nova_owner_<operation id>`.
+  Outcome: recorded from the first push.
+
 **Facts of the lane the stack keeps.**
 
 - **A register entry is keyed by its document and its path, so the stack keeps an order.** Defect 23's

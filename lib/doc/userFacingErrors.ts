@@ -1246,6 +1246,16 @@ const USER_MESSAGE_BY_CODE: Record<
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries a case its destination no longer asks for. Remove that value, or choose a destination that needs it.`,
 	FORM_LINK_DATUM_TARGET_COLLISION: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries more than one value for the same selected case. You can keep one carried value for that case.`,
+	// The reason and remedy clauses are the rule's own
+	// (`validator/rules/advancedModule.ts::newCaseDatumCauseWords`).
+	FORM_LINK_NEEDS_NEW_CASE_DATUM: (e) => {
+		const menuName = e.details?.menuName;
+		const instead =
+			menuName === undefined
+				? "You can send it to the home screen"
+				: `You can send it to the ${q(menuName)} menu, where workers choose the case`;
+		return `After ${q(formName(e))}, the link to ${q(det(e, "targetName", "its destination"))} can't open the new ${det(e, "caseType", "")} case, because ${det(e, "reason", "CommCare HQ can't hand that case on")}. ${instead}, or ${det(e, "remedy", "send it somewhere else")}.`;
+	},
 	FORM_LINK_SELECTION_CARDINALITY: (e) =>
 		`${q(formName(e))} can't carry its complete case selection straight into that form. Send people to the destination's form list so they can choose again, or give both forms the same case selection and limit.`,
 	FORM_LINK_SELECTION_CASE_TYPE_CHANGED: (e) =>
@@ -1452,6 +1462,8 @@ const USER_MESSAGE_BY_CODE: Record<
 	// (`validator/rules/casePlacement.ts`).
 	HELD_PLACEMENT_INEXPRESSIBLE: (e) =>
 		`CommCare HQ keeps ${det(e, "subjectWords", "a case change")} where your last publish put it, and this change can't keep it there.${e.details?.sentence ? ` ${e.details.sentence}` : ""} Make the change again to see where it moves and confirm it.`,
+	CASE_PLACEMENT_KIND: (e) =>
+		`CommCare HQ keeps ${det(e, "subjectWords", "a case change")} in ${det(e, "placementWords", "a place")}, which a form in ${det(e, "menuWords", "this menu")} can't use. Make the change again to see where it moves and confirm it.`,
 	CASE_PLACEMENT_SHARED: (e) =>
 		`Two case changes in “${formName(e)}” are kept in the same place in CommCare HQ: ${det(e, "first", "one case change")} and ${det(e, "second", "another")}. Removing one of them and adding it again gives it a place of its own.`,
 	HELD_BLOCK_PATH_TAKEN: (e) =>

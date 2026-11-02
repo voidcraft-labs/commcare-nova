@@ -57,10 +57,21 @@ no reader reads, and a move scoped to a document that is no witness.
 
 The corpus holds each shape a reader or a check reads, so a fixture change
 cannot leave one with nothing of that shape to read: some document holds each
-query-repeat placement, model iteration and the count placement. The
-plausible failure: a document that held the only count-placement repeat
-rewritten to read no answer, so the native family and the editor saves never
-meet that placement again. The observation is the XForms the corpus sends HQ.
+query-repeat placement, model iteration and the count placement, and some
+advanced module holds a load and an open action. The plausible failure: a
+document that held the only count-placement repeat rewritten to read no
+answer, or the only advanced module's carried create rewritten so no link
+carries it, so the native family and the editor saves never meet that shape
+again. The observation is the app the corpus sends HQ, its JSON and its
+XForms.
+
+The corpus holds the documents its sources name: its fixed floor (the
+producers', workforce, expander and targeted documents, those Nova admits)
+counts what step 5's pull request 7 leaves it, 383 documents, 415 with the
+default fuzz sample of 32. The plausible failure: a source that silently
+stops emitting a document (a maker dropped from ``TARGETED_DOCUMENTS``, a
+refusal by the gate the emission records instead of failing), which every
+other test would pass by reading less.
 
 The accepted case is a real corpus document copied as it was emitted; each
 refusal changes one thing in a copy of it.
@@ -659,14 +670,18 @@ VELLUM = "http://commcarehq.org/xforms/vellum"
 COUNT_PLACEMENT_IDS = "nova_query_ids_"
 
 
-def _sent_forms(document):
-    """Each XForm the content of the document's first publish carries (``_attachments``), parsed."""
+def _sent_app(document):
+    """The app the content of the document's first publish carries, or None where it sends none."""
     from proof.hq.operations import upload_field
 
     export = next(iter(document.exports.values()), None)
     if export is None or export.content is None:
-        return
-    app = json.loads(upload_field(export.content.upload(), "app_file"))
+        return None
+    return json.loads(upload_field(export.content.upload(), "app_file"))
+
+
+def _sent_forms(app):
+    """Each XForm the app carries (``_attachments``), parsed."""
     for name, source in sorted((app.get("_attachments") or {}).items()):
         if isinstance(source, dict):  # a Couch attachment stub carries its data inline
             source = source.get("data")
@@ -674,18 +689,35 @@ def _sent_forms(document):
             yield etree.fromstring(source.encode("utf-8"), etree.XMLParser(resolve_entities=False, no_network=True))
 
 
-def _query_repeat_placements(form):
-    """The query-repeat placements a form's data holds: model iteration where a node is HQ's form builder's Repeat
-    with its ``ids`` (``vellum:role="Repeat"``), the count placement where a wrapper holds its ids node."""
-    data = next(iter(form.iterfind("{*}head/{*}model/{*}instance/*")), None)
+def _query_repeat_placements(app):
+    """The query-repeat placements the app's forms' data holds: model iteration where a node is HQ's form builder's
+    Repeat with its ``ids`` (``vellum:role="Repeat"``), the count placement where a wrapper holds its ids node."""
     found = set()
-    for node in () if data is None else data.iter():
-        if not isinstance(node.tag, str):
+    for form in _sent_forms(app):
+        data = next(iter(form.iterfind("{*}head/{*}model/{*}instance/*")), None)
+        for node in () if data is None else data.iter():
+            if not isinstance(node.tag, str):
+                continue
+            if node.get(f"{{{VELLUM}}}role") == "Repeat" and node.get("ids") is not None:
+                found.add("query repeat in model iteration")
+            if etree.QName(node).localname.startswith(COUNT_PLACEMENT_IDS):
+                found.add("query repeat in the count placement")
+    return found
+
+
+def _advanced_actions(app):
+    """The advanced actions the app's modules hold: a load (``load_update_cases``) and an open action
+    (``open_cases``) of a form of an ``AdvancedModule`` (HQ's ``AdvancedFormActions``)."""
+    found = set()
+    for module in app.get("modules") or ():
+        if module.get("doc_type") != "AdvancedModule":
             continue
-        if node.get(f"{{{VELLUM}}}role") == "Repeat" and node.get("ids") is not None:
-            found.add("query repeat in model iteration")
-        if etree.QName(node).localname.startswith(COUNT_PLACEMENT_IDS):
-            found.add("query repeat in the count placement")
+        for form in module.get("forms") or ():
+            actions = form.get("actions") or {}
+            if actions.get("load_update_cases"):
+                found.add("an advanced module's load")
+            if actions.get("open_cases"):
+                found.add("an advanced module's open action")
     return found
 
 
@@ -694,6 +726,8 @@ def _query_repeat_placements(form):
 CORPUS_SHAPES = {
     "query repeat in model iteration": _query_repeat_placements,
     "query repeat in the count placement": _query_repeat_placements,
+    "an advanced module's load": _advanced_actions,
+    "an advanced module's open action": _advanced_actions,
 }
 
 
@@ -705,13 +739,33 @@ def test_the_corpus_holds_each_search_workflow_and_each_placement():
     found = set()
     readers = set(CORPUS_SHAPES.values())
     for document in cases.load_corpus().emitted:
-        for form in _sent_forms(document):
-            for read in readers:
-                found |= read(form) & wanted
+        app = _sent_app(document)
+        if app is None:
+            continue
+        for read in readers:
+            found |= read(app) & wanted
         if found == wanted:
             break
     missing = sorted(wanted - found)
     assert not missing, (
         f"No document the corpus emitted holds {', '.join(missing)}, so nothing in the lane reads that shape. Give"
         " a targeted document the shape (proof/targeted/), or keep it in the document that last held it."
+    )
+
+
+# The documents the corpus's fixed floor emits: its producers', workforce, expander and targeted documents that
+# Nova admits. Every pull request that adds or removes a document writes the count its sources then give.
+FIXED_DOCUMENTS = 383
+
+
+def test_the_corpus_emits_every_document_its_sources_name():
+    """Contract: the corpus emits its fixed floor whole, beside the fuzz sample it was asked for, so the count is
+    the floor plus the sample's size (415 with the default sample of 32). Catches a source that silently stops
+    emitting a document, which every other test would pass by reading less."""
+    corpus = cases.load_corpus()
+    emitted = len(corpus.emitted)
+    assert emitted - int(corpus.sample) == FIXED_DOCUMENTS, (
+        f"The corpus emitted {emitted} documents beside a fuzz sample of {corpus.sample}, so its fixed floor holds"
+        f" {emitted - int(corpus.sample)}, not the {FIXED_DOCUMENTS} its sources name. Find the document a source"
+        " stopped emitting, or write the count a change of the sources gives."
     )

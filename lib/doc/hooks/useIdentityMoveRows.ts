@@ -11,6 +11,7 @@ import { type BlueprintDoc, placementLabelWords } from "@/lib/domain";
 import { deepEqual } from "../deepEqual";
 import {
 	identityMoveReasonSentence,
+	identityMoveRenamesChosenCases,
 	identitySubjectName,
 } from "../identityMoveCopy";
 import type { IdentityMove } from "../identityMoves";
@@ -47,13 +48,9 @@ function identityMoveRowTitle(doc: BlueprintDoc, move: IdentityMove): string {
 		case "module-kind": {
 			const kind =
 				move.to === "advanced-menu" ? "an advanced menu" : "an ordinary menu";
-			const module = Object.hasOwn(doc.modules, move.subject.moduleUuid)
-				? doc.modules[move.subject.moduleUuid]
-				: undefined;
-			const parentCase =
-				module?.parentCaseModuleUuid !== undefined
-					? ", and its forms read the cases chosen through its parent case under new names"
-					: "";
+			const parentCase = identityMoveRenamesChosenCases(move)
+				? ", and its forms read the cases chosen through its parent case under new names"
+				: "";
 			return `${name}: becomes ${kind} in CommCare HQ, so every form in it keeps its case changes in a new place${parentCase}`;
 		}
 		default: {

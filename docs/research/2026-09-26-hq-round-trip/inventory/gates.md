@@ -10,7 +10,7 @@ A summary of the gates behind every row in the other inventory files; these rows
 
 | Toggle (slug) [tag] | Gate · content | Web Apps / Android | Preflight / refusal |
 |---|---|---|---|
-| APP_BUILDER_ADVANCED (`advanced-app-builder`) [frozen] | TARGET-OWNED · HELD-NEW (Module types AdvancedModule, Advanced form actions, Shadow forms) | n/a | none: it gates only creating advanced modules and shadow forms in HQ |
+| APP_BUILDER_ADVANCED (`advanced-app-builder`) [frozen] | TARGET-OWNED · HELD (Module types AdvancedModule, the Advanced form actions Nova places), HELD-NEW (the other Advanced form actions, Shadow forms) | n/a | none: it gates only creating advanced modules and shadow forms in HQ |
 | APP_BUILDER_SHADOW_MODULES (`shadow-app-builder`) [frozen] | TARGET-OWNED · HELD-NEW (Module types mirror) | n/a | none: it gates only creating shadow menus in HQ |
 | BIOMETRIC_INTEGRATION [frozen] | TARGET-OWNED · HELD-NEW (Case list callout, as an alternative to CASE_LIST_LOOKUP; Android app callouts need only their privileges) | n/a | precondition: CASE_LIST_LOOKUP or BIOMETRIC_INTEGRATION |
 | BULK_UPDATE_MULTIMEDIA_PATHS [frozen] | INERT · no content (a path editor) | n/a | none |

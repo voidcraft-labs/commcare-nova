@@ -1,8 +1,8 @@
 // lib/doc/placementHolds.ts
 //
 // The held placements of a document, as every reader of them names them: a
-// case operation's `placement`, a form's `ownClosePlacement`, and a query
-// repeat's `placement`. `holdPlacements` is the one mutation that writes
+// case operation's `placement`, a form's `ownClosePlacement`, a query
+// repeat's `placement`, and a menu's `heldKind`. `holdPlacements` is the one mutation that writes
 // them (`mutations/placements.ts`), and who may change one is decided over
 // two documents and the recordings: an editor's change is admitted where the
 // batch leaves the earlier hold unable to express its target (a move), or
@@ -12,7 +12,8 @@
 //
 // Whether a hold can express its target is each owner's predicate: Case
 // Management and Save to Case placements are `lib/commcare/placement.ts`'s,
-// a query repeat's is `lib/domain/queryRepeatPlacement.ts`'s. This is one of
+// a query repeat's is `lib/domain/queryRepeatPlacement.ts`'s, a menu's held
+// advanced kind is `lib/domain/advancedModule.ts`'s. This is one of
 // the allowlisted `lib/doc` consumers of `lib/commcare` in `biome.json`.
 
 import { produce } from "immer";
@@ -31,6 +32,7 @@ import {
 	placementTargetKey,
 } from "@/lib/doc/types";
 import { type BlueprintDoc, ownRecordValue, type Uuid } from "@/lib/domain";
+import { heldKindExpresses } from "@/lib/domain/advancedModule";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import { formOfField } from "@/lib/domain/fieldForm";
 import { queryRepeatPlacementExpresses } from "@/lib/domain/queryRepeatPlacement";
@@ -46,7 +48,8 @@ export type PlacementTarget =
 			readonly operationUuid: Uuid;
 	  }
 	| { readonly target: "own-close"; readonly formUuid: Uuid }
-	| { readonly target: "query-repeat"; readonly fieldUuid: Uuid };
+	| { readonly target: "query-repeat"; readonly fieldUuid: Uuid }
+	| { readonly target: "module-kind"; readonly moduleUuid: Uuid };
 
 /** A `PlacementHoldEntry` that holds a placement rather than clearing one. */
 export type PlacementHold = PlacementHoldEntry & {
@@ -64,7 +67,9 @@ export const NO_RECORDED_HOLDS: RecordedPlacementHolds = new Map();
 
 /**
  * The finding codes that mean a held placement no longer expresses its
- * target: an operation's or an own close's, a query repeat's, and two case
+ * target: an operation's, an own close's or a menu's held kind
+ * (`HELD_PLACEMENT_INEXPRESSIBLE`), a held case change in a form of the
+ * other menu kind (`CASE_PLACEMENT_KIND`), a query repeat's, and two case
  * changes of one form held in one place. The last is what an edit's move
  * meets where a publish recorded another change in the place the move
  * takes, which the move planner leaves free only of the holds it can see;
@@ -75,6 +80,7 @@ export const NO_RECORDED_HOLDS: RecordedPlacementHolds = new Map();
  */
 export const PLACEMENT_CONFLICT_CODES: ReadonlySet<string> = new Set([
 	"HELD_PLACEMENT_INEXPRESSIBLE",
+	"CASE_PLACEMENT_KIND",
 	"CASE_PLACEMENT_SHARED",
 	"QUERY_REPEAT_MODEL_ITERATION_SHAPE",
 ]);
@@ -92,6 +98,8 @@ export function placementTargetOf(entry: PlacementTarget): PlacementTarget {
 			return { target: "own-close", formUuid: entry.formUuid };
 		case "query-repeat":
 			return { target: "query-repeat", fieldUuid: entry.fieldUuid };
+		case "module-kind":
+			return { target: "module-kind", moduleUuid: entry.moduleUuid };
 	}
 }
 
@@ -125,6 +133,14 @@ export function placementHoldEntry(
 					{ target: "query-repeat" }
 				>["placement"],
 			};
+		case "module-kind":
+			return {
+				...target,
+				placement: placement as Extract<
+					PlacementHoldEntry,
+					{ target: "module-kind" }
+				>["placement"],
+			};
 	}
 }
 
@@ -152,6 +168,8 @@ export function placementTargetExists(
 			return ownRecordValue(doc.forms, target.formUuid) !== undefined;
 		case "query-repeat":
 			return queryRepeatField(doc, target.fieldUuid) !== undefined;
+		case "module-kind":
+			return ownRecordValue(doc.modules, target.moduleUuid) !== undefined;
 	}
 }
 
@@ -174,6 +192,8 @@ export function heldPlacementOf(
 			);
 		case "query-repeat":
 			return queryRepeatField(doc, target.fieldUuid)?.placement ?? null;
+		case "module-kind":
+			return ownRecordValue(doc.modules, target.moduleUuid)?.heldKind ?? null;
 	}
 }
 
@@ -184,9 +204,9 @@ const holdsByDoc = new WeakMap<
 
 /**
  * Every held slot of the document, keyed by target key, in document order:
- * modules in `moduleOrder`, their forms in `formOrder`, and for each form its
- * operations in array order, its own close, then its query repeats in field
- * order. Memoized per document object.
+ * modules in `moduleOrder`, each module's kind, then its forms in
+ * `formOrder`, and for each form its operations in array order, its own
+ * close, then its query repeats in field order. Memoized per document object.
  */
 export function readPlacementHolds(
 	doc: BlueprintDoc,
@@ -197,6 +217,9 @@ export function readPlacementHolds(
 	const add = (hold: PlacementHold) =>
 		holds.set(placementTargetKey(hold), hold);
 	for (const moduleUuid of doc.moduleOrder) {
+		const heldKind = ownRecordValue(doc.modules, moduleUuid)?.heldKind;
+		if (heldKind !== undefined)
+			add({ target: "module-kind", moduleUuid, placement: heldKind });
 		for (const formUuid of orderedFormUuids(doc, moduleUuid)) {
 			const form = ownRecordValue(doc.forms, formUuid);
 			if (form === undefined) continue;
@@ -277,6 +300,8 @@ export function holdExpresses(
 				entry.placement,
 			);
 		}
+		case "module-kind":
+			return heldKindExpresses(doc, entry.moduleUuid);
 	}
 }
 

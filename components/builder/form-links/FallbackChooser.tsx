@@ -50,7 +50,7 @@ import {
 } from "./afterSubmitCopy";
 import { LinkTargetPickerContent } from "./LinkTargetPicker";
 import { linkLead } from "./linkSentence";
-import { retargetLink, seedOtherwiseLink } from "./seeds";
+import { retargetLink, seedOtherwiseLink, seedTarget } from "./seeds";
 import { useLinkSentenceContext } from "./useLinkSentenceContext";
 
 const DESTINATION_ICON = {
@@ -263,6 +263,16 @@ export function FallbackChooser({
 							formUuid={formUuid}
 							editing={currentElse?.uuid}
 							current={currentElse?.target}
+							refusalOf={(target) =>
+								currentElse === undefined
+									? view.newCaseRefusal(
+											seedOtherwiseLink(seedTarget(view, target)),
+										)
+									: view.newCaseRefusal(
+											retargetLink(currentElse, seedTarget(view, target)),
+											currentElse,
+										)
+							}
 							onChoose={chooseTarget}
 						/>
 						<Button

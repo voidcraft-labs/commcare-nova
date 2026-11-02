@@ -65,6 +65,81 @@ export interface FormActions {
 	load_from_form: PreloadAction;
 }
 
+// ── Advanced form actions ────────────────────────────────────────────
+//
+// HQ's `models/form_actions.py` at the pin: `AdvancedFormActions`,
+// `LoadUpdateAction`, `AdvancedOpenCaseAction`, `CaseIndex`, `AutoSelectCase`
+// and `ConditionalCaseUpdate`. Each interface lists every key Nova writes, at
+// the value it writes; a slot Nova never varies is typed as that value.
+
+/** HQ's `ConditionalCaseUpdate`: the question a property takes its value from. */
+export interface ConditionalCaseUpdate {
+	question_path: string;
+	update_mode: "always" | "edit";
+}
+
+/**
+ * HQ's `CaseIndex`. `relationship` is a `choices=` slot (`child`,
+ * `extension`, `question`); Nova writes the first two, and no
+ * `relationship_question`, so that slot is its default `""`.
+ */
+export interface CaseIndex {
+	doc_type: "CaseIndex";
+	/** The tag of the action whose case this one indexes; `""` where a load indexes nothing. */
+	tag: string;
+	/** The index's name; HQ's default `"parent"` where `tag` is `""`. */
+	reference_id: string;
+	relationship: "child" | "extension";
+	relationship_question: "";
+}
+
+/** HQ's `AutoSelectCase`, in the one mode Nova writes: the worker's own record. */
+export interface AutoSelectCase {
+	doc_type: "AutoSelectCase";
+	mode: "usercase";
+	value_source: "";
+	value_key: "";
+}
+
+/** HQ's `LoadUpdateAction`: a case the form loads, and what it writes to it. */
+export interface LoadUpdateAction {
+	doc_type: "LoadUpdateAction";
+	case_type: string;
+	case_tag: string;
+	/** The `unique_id` of the module whose case list chooses the case; `null` for the worker's own record. */
+	details_module: string | null;
+	case_properties: Record<string, ConditionalCaseUpdate>;
+	/** Always empty: a preload is a question's default in Nova. */
+	preload: Record<string, never>;
+	close_condition: FormActionCondition;
+	case_index: CaseIndex;
+	auto_select: AutoSelectCase | null;
+	load_case_from_fixture: null;
+	show_product_stock: false;
+	product_program: "";
+}
+
+/** HQ's `AdvancedOpenCaseAction`: a case the form creates. */
+export interface AdvancedOpenCaseAction {
+	doc_type: "AdvancedOpenCaseAction";
+	case_type: string;
+	case_tag: string;
+	name_update: ConditionalCaseUpdate;
+	case_properties: Record<string, ConditionalCaseUpdate>;
+	/** The path of the repeat the create runs once per row of, or `""`. */
+	repeat_context: string;
+	case_indices: CaseIndex[];
+	open_condition: FormActionCondition;
+	close_condition: FormActionCondition;
+}
+
+/** HQ's `AdvancedFormActions`. */
+export interface AdvancedFormActions {
+	doc_type: "AdvancedFormActions";
+	load_update_cases: LoadUpdateAction[];
+	open_cases: AdvancedOpenCaseAction[];
+}
+
 /**
  * One entry of a `DetailColumn.enum` lookup table. CCHQ's
  * `MappingItem` carries `(key, {lang: label})`; the per-language
@@ -505,17 +580,14 @@ export type HqFormLink<XPath = string> =
 			datums: HqFormLinkDatum<XPath>[];
 	  };
 
-export interface HqForm<XPath = string, LinkXPath = XPath> {
+/** The keys a basic and an advanced form share (HQ's `FormBase` and its mixins). */
+interface HqFormBase<XPath, LinkXPath> {
 	session_endpoint_id?: string;
 	respect_relevancy?: boolean;
-	doc_type: "Form";
-	form_type: string;
 	unique_id: string;
 	name: LocalizedString;
 	xmlns: string;
-	requires: string;
 	version: null;
-	actions: FormActions;
 	case_references_data: CaseReferencesData;
 	form_filter: XPath | null;
 	post_form_workflow: string;
@@ -535,17 +607,37 @@ export interface HqForm<XPath = string, LinkXPath = XPath> {
 	comment: string;
 }
 
-export interface HqModule<XPath = string, LinkXPath = XPath> {
+/** A form of a basic menu: HQ's `Form`. */
+export interface HqForm<XPath = string, LinkXPath = XPath>
+	extends HqFormBase<XPath, LinkXPath> {
+	doc_type: "Form";
+	form_type: "module_form";
+	requires: string;
+	actions: FormActions;
+}
+
+/**
+ * A form of an advanced menu: HQ's `AdvancedForm`. It has no `requires`,
+ * which `AdvancedForm` computes from its loads, and no `schedule`, which Nova
+ * never turns on.
+ */
+export interface HqAdvancedForm<XPath = string, LinkXPath = XPath>
+	extends HqFormBase<XPath, LinkXPath> {
+	doc_type: "AdvancedForm";
+	form_type: "advanced_form";
+	actions: AdvancedFormActions;
+	arbitrary_datums: [];
+}
+
+/** The keys a basic and an advanced module share (HQ's `ModuleBase` and its mixins). */
+interface HqModuleBase<XPath> {
 	session_endpoint_id?: string;
 	case_list_session_endpoint_id?: string;
-	doc_type: "Module";
-	module_type: string;
 	unique_id: string;
 	name: LocalizedString;
 	case_type: string;
 	put_in_root: boolean;
 	root_module_id: string | null;
-	forms: HqForm<XPath, LinkXPath>[];
 	case_details: DetailPair<XPath>;
 	case_list: {
 		doc_type: "CaseList";
@@ -569,20 +661,53 @@ export interface HqModule<XPath = string, LinkXPath = XPath> {
 		relevancy_expression?: XPath;
 	};
 	search_config: CaseSearchConfig<XPath>;
-	display_style: string;
 	media_image: Record<string, string>;
 	media_audio: Record<string, string>;
 	custom_icons: unknown[];
 	is_training_module: boolean;
 	module_filter: XPath | null;
 	auto_select_case: boolean;
+	comment: string;
+}
+
+/** A basic menu: HQ's `Module`. */
+export interface HqModule<XPath = string, LinkXPath = XPath>
+	extends HqModuleBase<XPath> {
+	doc_type: "Module";
+	module_type: "basic";
+	forms: HqForm<XPath, LinkXPath>[];
+	display_style: string;
 	parent_select: {
 		active: boolean;
 		relationship: string;
 		module_id: string | null;
 	};
-	comment: string;
 }
+
+/**
+ * An advanced menu: HQ's `AdvancedModule`. It holds no `parent_select` and no
+ * `display_style`, which HQ's `AdvancedModule` does not read, and none of its
+ * scheduling or case list optimization keys, which Nova never turns on.
+ * `product_details` is HQ's default for a new advanced menu
+ * (`models/modules.py::AdvancedModule.new_module`), which only CommTrack reads.
+ */
+export interface HqAdvancedModule<XPath = string, LinkXPath = XPath>
+	extends HqModuleBase<XPath> {
+	doc_type: "AdvancedModule";
+	module_type: "advanced";
+	forms: HqAdvancedForm<XPath, LinkXPath>[];
+	product_details: DetailPair<XPath>;
+}
+
+/** Either kind of menu Nova writes. */
+export type HqAnyModule<XPath = string, LinkXPath = XPath> =
+	| HqModule<XPath, LinkXPath>
+	| HqAdvancedModule<XPath, LinkXPath>;
+
+/** Either kind of form Nova writes. */
+export type HqAnyForm<XPath = string, LinkXPath = XPath> =
+	| HqForm<XPath, LinkXPath>
+	| HqAdvancedForm<XPath, LinkXPath>;
 
 /**
  * CommCare HQ's complete profile bag on an existing app source.
@@ -672,6 +797,6 @@ export interface HqApplication<XPath = string, LinkXPath = XPath> {
 	 * carries the target's other slugs beside them.
 	 */
 	add_ons?: Record<string, boolean>;
-	modules: HqModule<XPath, LinkXPath>[];
+	modules: (HqModule<XPath, LinkXPath> | HqAdvancedModule<XPath, LinkXPath>)[];
 	_attachments: Record<string, string>;
 }

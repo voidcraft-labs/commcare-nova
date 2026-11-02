@@ -17,13 +17,54 @@ import { usercaseWriteFixture } from "../../../lib/commcare/__tests__/usercaseWr
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
 import { runValidation } from "../../../lib/commcare/validator/runner";
-import { toPersistableDoc } from "../../../lib/doc/fieldParent";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "../../../lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
-import { blueprintDocSchema } from "../../../lib/domain";
+import { type BlueprintDoc, blueprintDocSchema } from "../../../lib/domain";
 
 import { operationRelevanceDoc } from "../../../lib/preview/engine/__tests__/fixtures/submissionProgram";
+import {
+	advancedModule,
+	rootCaseBlockNames,
+} from "../../targeted/documents/advancedModules";
 import { caseOrderDocument, caseOrderScenarios } from "./caseOrderScenarios";
 import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
+
+/** The worker the native runs sign in as (`SuiteFormRun.WORKER`), whose own case the usercase datum finds. */
+const WORKER = "worker-id";
+
+/**
+ * The cases a run opens a document's forms over (`SuiteFormRun`): one case of each declared type, indexed under
+ * `parent` to the one case of its parent type with the type's relationship, and the worker's own case.
+ */
+function seededCases(doc: BlueprintDoc) {
+	return [
+		...(doc.caseTypes ?? []).map((type) => ({
+			id: `${type.name}-1`,
+			type: type.name,
+			name: `${type.name} one`,
+			indices:
+				type.parent_type === undefined
+					? []
+					: [
+							{
+								name: "parent",
+								type: type.parent_type,
+								target: `${type.parent_type}-1`,
+								relationship: type.relationship ?? "child",
+							},
+						],
+		})),
+		{
+			id: "worker-case",
+			type: "commcare-user",
+			name: "worker",
+			properties: { hq_user_id: WORKER },
+		},
+	];
+}
 
 const output = process.argv[2];
 if (!output)
@@ -86,4 +127,47 @@ for (const [scenario, doc, moduleIndex = 0] of [
 		resolve(output, `${scenario}.xml`),
 		zip.readAsText(`modules-${moduleIndex}/forms-0.xml`),
 	);
+	if ((extensionScenarios as readonly string[]).includes(scenario))
+		writeFileSync(
+			resolve(output, `${scenario}.cases.json`),
+			JSON.stringify(seededCases(doc)),
+		);
+}
+
+/*
+ * The targeted documents the case family's Core classes open whole: every form of each (`<name>.m<i>f<j>.xml`),
+ * its suite and its HQ import body, which HQ's step builds again (`proof/native/steps/case_emission.py`).
+ * `targeted-advanced-module` is `AdvancedFormRuntimeTest`'s; `targeted-root-case-block-names` the
+ * `CaseOperationRuntimeTest` scenario of part 02's G3.
+ */
+for (const [name, document] of [
+	["advanced-module", advancedModule()],
+	["root-case-block-names", rootCaseBlockNames()],
+] as const) {
+	const doc = hydratePersistedBlueprint(document.doc);
+	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+	if (findings.length) throw new Error(JSON.stringify(findings));
+	const hq = expandDoc(doc);
+	const zip = new AdmZip(
+		compileCcz(hq, doc.appName, doc, {
+			runtimeTarget: NATIVE_RUNTIME_TARGET,
+		}),
+	);
+	writeFileSync(resolve(output, `${name}.json`), JSON.stringify(hq));
+	writeFileSync(
+		resolve(output, `${name}.suite.xml`),
+		zip.readAsText("suite.xml"),
+	);
+	writeFileSync(
+		resolve(output, `${name}.cases.json`),
+		JSON.stringify(seededCases(doc)),
+	);
+	hq.modules.forEach((module, moduleIndex) => {
+		module.forms.forEach((_, formIndex) => {
+			writeFileSync(
+				resolve(output, `${name}.m${moduleIndex}f${formIndex}.xml`),
+				zip.readAsText(`modules-${moduleIndex}/forms-${formIndex}.xml`),
+			);
+		});
+	});
 }

@@ -1,4 +1,9 @@
 import {
+	advancedEntryActions,
+	advancedLoadChain,
+	menuEmittedAdvanced,
+} from "./advancedEntryDatums";
+import {
 	registrationMintsOwnCaseId,
 	rootBasicSubcaseCreates,
 } from "./basicCaseSlots";
@@ -199,6 +204,10 @@ function suppliedAtEntry(
 	const add = (ref: DatumRef, scalar = true): void => {
 		refs.set(datumRefKey(ref), { ref, scalar });
 	};
+	if (menuEmittedAdvanced(doc, entry.module)) {
+		const advanced = suppliedAtAdvancedEntry(doc, entry, visiting, prepared);
+		if (advanced !== undefined) return advanced;
+	}
 	const selected = selectionModules(doc, entry, prepared);
 	const alignment = rootSelectionAlignment(doc, entry, prepared);
 	for (const module of selected) {
@@ -271,6 +280,81 @@ function suppliedAtEntry(
 	};
 }
 
+/**
+ * The entry of a menu emitted advanced, as HQ's build writes it
+ * (`entries.py::EntriesHelper.configure_entry_advanced_form`, part 02
+ * §13.2): each chain load supplies its list menu's selected case (and,
+ * after root alignment, the root's), the worker's load the worker's record,
+ * the registration's open action `new-case` and every other open action
+ * outside a repeat `new-child-case` of its type
+ * (`advancedEntryDatums.ts::advancedEntryActions`). A form entry is aligned
+ * with its root menu, whose worker's record and grouped-tile parents it
+ * holds as placeholders; it writes no query and no grouped-tile companion of
+ * its own. A form-less menu's case list is one selection over every open
+ * case of its type, aligned with nothing
+ * (`formLinkProjection.ts::caseListSessionDatums`).
+ *
+ * `undefined` where a prepared structure changes the form's type: the
+ * advanced plan reads the saved form, so the entry is read as basic until
+ * the change is saved.
+ */
+function suppliedAtAdvancedEntry(
+	doc: BlueprintDoc,
+	entry: DatumEntry,
+	visiting: ReadonlySet<Uuid>,
+	prepared?: FormStructure,
+): EntryDatumSupplies | undefined {
+	const refs = new Map<string, { ref: DatumRef; scalar: boolean }>();
+	const add = (ref: DatumRef): void => {
+		refs.set(datumRefKey(ref), { ref, scalar: true });
+	};
+	if (entry.kind === "browse") {
+		const mod = doc.modules[entry.module];
+		if (mod?.caseListOnly !== true || !mod.caseType) return undefined;
+		add({ kind: "selected-case", module: entry.module });
+		return { refs: [...refs.values()] };
+	}
+	const saved = doc.forms[entry.form];
+	if (
+		saved === undefined ||
+		(prepared?.formUuid === entry.form && prepared.type !== saved.type)
+	)
+		return undefined;
+	const alignment = rootSelectionAlignment(doc, entry, prepared);
+	for (const { moduleUuid } of advancedLoadChain(doc, entry.form)) {
+		add({ kind: "selected-case", module: moduleUuid });
+		const match = alignment.matches.find(
+			(pair) => pair.targetModuleUuid === moduleUuid,
+		);
+		if (match !== undefined)
+			add({ kind: "selected-case", module: match.sourceModuleUuid });
+	}
+	if (alignment.parentEntry !== undefined) {
+		const parent = suppliedAtEntry(
+			doc,
+			alignment.parentEntry,
+			new Set([...visiting, entry.module]),
+		);
+		for (const supplied of parent.refs)
+			if (
+				supplied.ref.kind === "worker-record" ||
+				supplied.ref.kind === "tile-group-parents"
+			)
+				refs.set(datumRefKey(supplied.ref), supplied);
+	}
+	const actions = advancedEntryActions(doc, entry.form);
+	if (actions.workerLoad) add({ kind: "worker-record" });
+	for (const open of actions.opens) {
+		if (open.repeat !== undefined) continue;
+		add(
+			open.own
+				? { kind: "new-case" }
+				: { kind: "new-child-case", caseType: open.caseType },
+		);
+	}
+	return { refs: [...refs.values()] };
+}
+
 /** A module target contributes its command only. Each ancestor contributes
  * the selections common to every real form entry. Case-loading forms share
  * the same selection chain; a create or survey entry has none, so it ends
@@ -328,14 +412,14 @@ export function formLinkTargetSupplies(
  * an unaligned one that collides with a root datum is renamed by its case
  * type. A root datum other than a selection never collides with one.
  */
-interface EntrySelection {
+export interface EntrySelection {
 	readonly module: Uuid;
 	readonly refs: readonly DatumRef[];
 	readonly scalar: boolean;
 	readonly key: string;
 }
 
-function entrySelections(
+export function entrySelections(
 	doc: BlueprintDoc,
 	entry: DatumEntry,
 	visiting: ReadonlySet<Uuid> = new Set(),

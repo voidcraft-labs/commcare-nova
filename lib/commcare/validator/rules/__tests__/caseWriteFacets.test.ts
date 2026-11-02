@@ -2,7 +2,8 @@
  * A write's `via` and `onlyIfChanged` at the commit gate, and the worker's
  * record as a target. Both facets are Case Management's update rows: only
  * the own arm of a follow-up or close form holds them, while Case
- * Management saves it. A save to the case above on a new case would be
+ * Management saves it, as the basic own slot or an advanced form's own
+ * load. A save to the case above on a new case would be
  * built with an empty id (HQ's key reads an index the new case does not
  * have while the form is open), and a Save to Case block has neither
  * setting, so it would save every answer every time. A failure here is a
@@ -70,6 +71,22 @@ function fixture(...args: Parameters<typeof placementFixture>) {
 	return built;
 }
 
+/** `built` with its menu held advanced, so its form's own case takes the
+ *  own load where a load can express it. */
+function advanced<T extends ReturnType<typeof fixture>>(built: T): T {
+	const module = built.doc.modules[built.moduleUuid];
+	if (module !== undefined)
+		built.doc.modules[built.moduleUuid] = { ...module, heldKind: "advanced" };
+	return built;
+}
+
+/** A write the own load can't take, since its value is no bare question
+ *  read, so the own arm takes Save to Case. */
+const computed: CaseOperationWrite = {
+	property: "age",
+	value: concat(read("age"), term(literal("x"))),
+};
+
 function sessionUpdate(
 	writes: CaseOperationWrite[],
 	extra: Partial<CaseOperation> = {},
@@ -105,6 +122,25 @@ describe("CASE_WRITE_VIA_INVALID", () => {
 			operations: () => [own({ writes: [viaWrite()] })],
 		});
 		expect(findings(doc, "CASE_WRITE_VIA_INVALID")).toEqual([]);
+	});
+
+	it("admits it on an advanced form's own load", () => {
+		const { doc } = advanced(
+			fixture("followup", {
+				operations: () => [own({ writes: [viaWrite()] })],
+			}),
+		);
+		expect(findings(doc, "CASE_WRITE_VIA_INVALID")).toEqual([]);
+	});
+
+	it("refuses it where an advanced form's own case takes Save to Case", () => {
+		const { doc } = advanced(
+			fixture("followup", {
+				operations: () => [own({ writes: [viaWrite(), computed] })],
+			}),
+		);
+		const [finding] = findings(doc, "CASE_WRITE_VIA_INVALID");
+		expect(finding?.details?.reason).toBe("placement");
 	});
 
 	it("refuses it on a case the form creates", () => {
@@ -216,6 +252,32 @@ describe("CASE_WRITE_ONLY_IF_CHANGED_INVALID", () => {
 			operations: () => [own({ writes: [changed()] })],
 		});
 		expect(findings(doc, "CASE_WRITE_ONLY_IF_CHANGED_INVALID")).toEqual([]);
+	});
+
+	it("admits it on an advanced form's own load", () => {
+		const { doc } = advanced(
+			fixture("followup", {
+				operations: () => [own({ writes: [changed()] })],
+			}),
+		);
+		expect(findings(doc, "CASE_WRITE_ONLY_IF_CHANGED_INVALID")).toEqual([]);
+	});
+
+	it("refuses it where an advanced form's own case takes Save to Case", () => {
+		const { doc } = advanced(
+			fixture("followup", {
+				operations: () => [
+					own({
+						writes: [
+							changed(),
+							{ property: "status", value: concat(read("name")) },
+						],
+					}),
+				],
+			}),
+		);
+		const [finding] = findings(doc, "CASE_WRITE_ONLY_IF_CHANGED_INVALID");
+		expect(finding?.details?.reason).toBe("placement");
 	});
 
 	it("refuses it on a case the form creates", () => {

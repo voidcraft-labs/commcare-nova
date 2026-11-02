@@ -28,6 +28,7 @@ import {
 	type OwnCaseOperation,
 	type TargetedCaseOperation,
 	USERCASE_CASE_TYPE,
+	type Uuid,
 } from "@/lib/domain";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
@@ -3135,6 +3136,91 @@ describe("the form's own case", () => {
 			caseId: taken,
 		});
 		expect((await patientRow(store, taken))?.case_name).toBe("Already here");
+	});
+
+	it("creates every case the entry gives a datum under its own minted id, an advanced open action's extension included", async () => {
+		// An advanced registration: its own case and two visits made as its
+		// extensions, each an open action outside a repeat with a datum of its
+		// own (`new-child-case:visit`, then `new-child-case:visit:1`), and a
+		// third visit no datum names.
+		const store = makeStore();
+		const entryKey = "entry-open-actions";
+		const visit = (uuid: Uuid, id: string, name: string) =>
+			envOp(
+				operation({
+					uuid,
+					id,
+					action: "create",
+					caseType: "visit",
+					target: { kind: "new" },
+					name: term(literal(name)),
+					links: [
+						{
+							identifier: "host",
+							targetType: "patient",
+							target: { kind: "op", opUuid: OWN_UUID },
+							relationship: "extension",
+						},
+					],
+				}),
+			);
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: { kind: "registration" },
+			operations: {
+				...ownProgram("registration", [
+					ownOp({ name: term(literal("Amina")) }),
+					visit(OP_A, "first_visit", "First visit"),
+					visit(OP_B, "second_visit", "Second visit"),
+					visit(OP_C, "unnamed_visit", "Unnamed visit"),
+				]),
+				entryCaseKeys: new Map([
+					[OWN_UUID, "new-case"],
+					[OP_A, "new-child-case:visit"],
+					[OP_B, "new-child-case:visit:1"],
+				]),
+			},
+			submissionReceipt: {
+				entryKey,
+				formUuid: FORM_UUID,
+				expectedAppMutationSeq: 0,
+				blueprintDigest: "0".repeat(64),
+				requestDigest: `${entryKey}-request`,
+			},
+		});
+
+		const household = entryDatumCaseId(APP_ID, entryKey, "new-case");
+		const first = entryDatumCaseId(APP_ID, entryKey, "new-child-case:visit");
+		const second = entryDatumCaseId(APP_ID, entryKey, "new-child-case:visit:1");
+		const ids = result.operations.map((record) => record.caseId);
+		expect(ids.slice(0, 3)).toEqual([household, first, second]);
+		// The create no datum names keeps a fresh id of its own.
+		expect(ids[3]).toEqual(expect.any(String));
+		expect(new Set(ids).size).toBe(4);
+
+		const visits = await store.query({
+			reading: SEARCH_READING,
+			appId: APP_ID,
+			caseType: "visit",
+		});
+		const byId = new Map(visits.map((row) => [row.case_id, row]));
+		expect(byId.get(first)?.case_name).toBe("First visit");
+		expect(byId.get(second)?.case_name).toBe("Second visit");
+		// Preview owns each carried extension by the worker, as the device's
+		// `nova_owner_<op>` node does.
+		expect(byId.get(first)?.owner_id).toBe(ACTOR);
+		expect(byId.get(second)?.owner_id).toBe(ACTOR);
+		const edges = await dbHandle.pool.query(
+			`SELECT case_id, ancestor_id, relationship FROM case_indices WHERE identifier = 'host' AND case_id = ANY($1) ORDER BY case_id`,
+			[[first, second]],
+		);
+		expect(edges.rows).toEqual(
+			[first, second].sort().map((caseId) => ({
+				case_id: caseId,
+				ancestor_id: household,
+				relationship: "extension",
+			})),
+		);
 	});
 
 	it("closes the case a registration creates when its close condition holds", async () => {

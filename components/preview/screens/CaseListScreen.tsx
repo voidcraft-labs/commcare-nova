@@ -115,7 +115,10 @@ import {
 	caseListStep,
 	resultsConstraintContext,
 } from "@/lib/preview/caseListPhase";
-import { caseSelectionRowAction } from "@/lib/preview/caseSelectionNavigation";
+import {
+	caseSelectionRowAction,
+	parentCaseConstraint as selectedParentConstraint,
+} from "@/lib/preview/caseSelectionNavigation";
 import {
 	type GroupedTileProjection,
 	splitTileGridByGroupHeader,
@@ -989,15 +992,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const selectedParentCases = menuCaseContext?.parentCase;
 	const parentCaseConstraint = useMemo(
 		() =>
-			selectedParentCases === undefined
-				? undefined
-				: {
-						caseType: selectedParentCases.caseType,
-						caseIds: selectedParentCases.cases.map(
-							(selectedCase) => selectedCase.caseId,
-						),
-					},
-		[selectedParentCases],
+			selectedParentConstraint(menuSource.doc, moduleUuid, selectedParentCases),
+		[menuSource.doc, moduleUuid, selectedParentCases],
 	);
 	/* After the no-matches form registers a case, Results shows exactly that
 	 * case: the wire's return frame re-keys the inline search to the new

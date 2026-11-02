@@ -28,9 +28,12 @@ import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 
 import type { HqApplication } from "@/lib/commcare";
 import {
+	advancedFormShell,
+	advancedModuleShell,
 	applicationShell,
 	DERIVED_WIRE_IDENTITY,
 	detailPair,
+	emptyAdvancedFormActions,
 	formShell,
 	moduleShell,
 	type WireIdentity,
@@ -51,7 +54,6 @@ import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { buildNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
-import { hqCaseActions } from "@/lib/commcare/subcaseWire";
 import { EMPTY_CASE_LIST_TEXT } from "@/lib/commcare/suite/case-list/detailTexts";
 import {
 	NEVER_RELEVANT,
@@ -74,6 +76,7 @@ import {
 	projectedModulePreorder,
 	type Uuid,
 } from "@/lib/domain";
+import { type FormCaseWirePlan, planFormCaseWire } from "./casePlacementPlan";
 import { buildConnectSlugMap } from "./connectSlugs";
 import {
 	caseListFormLabelUnit,
@@ -93,10 +96,13 @@ import {
 } from "./formLinkProjection";
 import { emptyShortListColumns, projectCaseListForHq } from "./hqJson/caseList";
 import {
+	type HqAdvancedFormTree,
 	type HqFormLinkTree,
+	type HqFormTree,
 	hqXPath,
 	serializeHqApplication,
 } from "./hqJson/xpath";
+import { emittedModuleKind } from "./moduleKind";
 import { buildXFormSource } from "./xform/builder";
 
 /**
@@ -281,6 +287,9 @@ export function expandDoc(
 		// home; the link projection gates the same way.
 		const caseType = moduleCaseTypeForActions(doc, moduleUuid);
 		const hasCases = caseType !== "";
+		// Every form of a menu emitted advanced is an `AdvancedForm`
+		// (`moduleKind.ts::emittedModuleKind`).
+		const advanced = emittedModuleKind(doc, moduleUuid) === "advanced";
 
 		const forms = formUuids.map((formUuid) => {
 			const form = doc.forms[formUuid];
@@ -300,7 +309,11 @@ export function expandDoc(
 				formUuid,
 			);
 			const ownCaseDatumId = ownCaseDatum?.id;
-			const formActions = linkContext.formActions(formUuid);
+			// The form's case changes on the wire, the same plan the link
+			// projection reads (`casePlacementPlan.ts::planFormCaseWire`).
+			const caseWire = planFormCaseWire(doc, formUuid, {
+				attachmentTarget: opts.attachmentTarget ?? null,
+			});
 			// An entry that selects several cases has no one case for HQ's
 			// basic actions; the source works on each through the
 			// selected-entities instance.
@@ -364,21 +377,53 @@ export function expandDoc(
 							toHqFormLink(link, moduleUniqueIdOf, formUniqueIdOf),
 						);
 
-			const formShellObj = formShell(
-				formUniqueId,
-				localization.textMap(makeTranslationUnitId("form", formUuid, "name")),
-				xmlns,
-				CASE_LOADING_FORM_TYPES.has(form.type) ? "case" : "none",
-				hqCaseActions(formActions),
-				// Raw `mod.caseType` for the same reason as `buildXFormSource`'s
-				// `moduleCaseType` above: the depth map must match the deep
-				// validator's accept map.
-				buildCaseReferencesLoad(doc, formUuid, effectiveConnect, mod.caseType),
-				source.caseSaveReferences,
-				projectedLinks === undefined ? workflow : "form",
-				projectedLinks?.fallback.kind === "guarded" ? workflow : null,
-				hqFormLinks,
+			const formName = localization.textMap(
+				makeTranslationUnitId("form", formUuid, "name"),
 			);
+			// Raw `mod.caseType` for the same reason as `buildXFormSource`'s
+			// `moduleCaseType` above: the depth map must match the deep
+			// validator's accept map.
+			const caseRefsLoad = buildCaseReferencesLoad(
+				doc,
+				formUuid,
+				effectiveConnect,
+				mod.caseType,
+			);
+			const postFormWorkflow = projectedLinks === undefined ? workflow : "form";
+			const postFormWorkflowFallback =
+				projectedLinks?.fallback.kind === "guarded" ? workflow : null;
+			const formShellObj: HqFormTree | HqAdvancedFormTree = advanced
+				? advancedFormShell(
+						formUniqueId,
+						formName,
+						xmlns,
+						advancedActions(caseWire, form.type, formUuid),
+						caseRefsLoad,
+						source.caseSaveReferences,
+						postFormWorkflow,
+						postFormWorkflowFallback,
+						hqFormLinks,
+					)
+				: formShell(
+						formUniqueId,
+						formName,
+						xmlns,
+						CASE_LOADING_FORM_TYPES.has(form.type) ? "case" : "none",
+						basicActions(caseWire, formUuid),
+						caseRefsLoad,
+						source.caseSaveReferences,
+						postFormWorkflow,
+						postFormWorkflowFallback,
+						hqFormLinks,
+					);
+			// Whether the form's entry asks for a case first: a basic form's
+			// `requires`, and for an advanced form whether its plan holds a
+			// load that is not the worker's (`AdvancedForm.requires`).
+			const requiresCase =
+				formShellObj.doc_type === "Form"
+					? formShellObj.requires === "case"
+					: caseWire.kind === "advanced" &&
+						caseWire.loads.some((load) => !load.worker);
 			formShellObj.session_endpoint_id = form.entryPoint?.id ?? "";
 			formShellObj.respect_relevancy =
 				form.entryPoint?.ignoreDisplayConditions !== true;
@@ -398,10 +443,7 @@ export function expandDoc(
 			formShellObj.form_filter =
 				formFilter === undefined
 					? null
-					: hqXPath(
-							formFilter,
-							formShellObj.requires === "case" ? "case" : "no-case",
-						);
+					: hqXPath(formFilter, requiresCase ? "case" : "no-case");
 
 			// Stamp the form's menu-command media (icon + audio label) onto
 			// the shell. CCHQ reads these `media_image` / `media_audio` dicts
@@ -457,18 +499,32 @@ export function expandDoc(
 		// case list settings. `caseType` above, the gate, decides everything
 		// built from the type. The hidden menu of a no-matches form holds its
 		// host's type.
-		const shell = moduleShell(
-			moduleUniqueIds[mIdx],
-			localization.textMap(
-				synthetic === undefined
-					? makeTranslationUnitId("module", moduleUuid, "name")
-					: makeTranslationUnitId("form", synthetic.formUuid, "name"),
-			),
-			mod.caseType ?? "",
-			forms,
-			caseDetails,
-			localization.languages,
+		const moduleName = localization.textMap(
+			synthetic === undefined
+				? makeTranslationUnitId("module", moduleUuid, "name")
+				: makeTranslationUnitId("form", synthetic.formUuid, "name"),
 		);
+		const shell = advanced
+			? advancedModuleShell(
+					moduleUniqueIds[mIdx],
+					moduleName,
+					mod.caseType ?? "",
+					forms.filter(
+						(form): form is HqAdvancedFormTree =>
+							form.doc_type === "AdvancedForm",
+					),
+					caseDetails,
+					localization.defaultLanguage,
+					localization.languages,
+				)
+			: moduleShell(
+					moduleUniqueIds[mIdx],
+					moduleName,
+					mod.caseType ?? "",
+					forms.filter((form): form is HqFormTree => form.doc_type === "Form"),
+					caseDetails,
+					localization.languages,
+				);
 		shell.session_endpoint_id = mod.entryPoint?.id ?? "";
 		shell.case_list_session_endpoint_id = mod.caseListEntryPoint?.id ?? "";
 		const rootModuleUuid = moduleParent(doc, moduleUuid);
@@ -566,7 +622,9 @@ export function expandDoc(
 			shell.case_list.media_audio = caseListMedia.media_audio;
 		}
 
-		if (mod.parentCaseModuleUuid !== undefined) {
+		// An advanced menu holds no `parent_select`: its forms load the
+		// parent's case through their own loads (`advancedSelections.ts`).
+		if (shell.doc_type === "Module" && mod.parentCaseModuleUuid !== undefined) {
 			const parentId = moduleUniqueIdOf.get(mod.parentCaseModuleUuid);
 			if (parentId === undefined)
 				throw new Error(`Missing parent selector for module ${moduleUuid}.`);
@@ -605,6 +663,31 @@ export function expandDoc(
 		modules: printedModules,
 		_attachments: printedAttachments,
 	};
+}
+
+/** A basic form's actions, from its plan. */
+function basicActions(caseWire: FormCaseWirePlan, formUuid: Uuid) {
+	if (caseWire.kind === "basic") return caseWire.actions;
+	throw new Error(
+		`Nova planned form ${formUuid} as an advanced form, and its menu is emitted as a basic menu. A form's plan and its menu's kind are read from one answer (moduleKind.ts::emittedModuleKind), so they must agree.`,
+	);
+}
+
+/**
+ * An advanced form's actions, from its plan. A survey changes no case, so
+ * in an advanced menu it is an `AdvancedForm` with no load and no open
+ * action.
+ */
+function advancedActions(
+	caseWire: FormCaseWirePlan,
+	formType: BlueprintDoc["forms"][Uuid]["type"],
+	formUuid: Uuid,
+) {
+	if (caseWire.kind === "advanced") return caseWire.actions;
+	if (formType === "survey") return emptyAdvancedFormActions();
+	throw new Error(
+		`Nova planned form ${formUuid} as a basic form, and its menu is emitted as an advanced menu. A form's plan and its menu's kind are read from one answer (moduleKind.ts::emittedModuleKind), so they must agree.`,
+	);
 }
 
 /**

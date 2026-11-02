@@ -419,6 +419,63 @@ describe("each rule refuses a planted fault the real inputs lack", () => {
 		});
 });
 
+/**
+ * The entries an advanced module holds (step 5's pull request 7): the module,
+ * its forms and the loads and open actions Nova places, every one of which
+ * runs alike in Web Apps and on Android. So no feature row and no ambient
+ * entry stands for them, and an author meets no platform choice in a menu
+ * Nova sends as advanced. The plausible failure: an advanced reading changed
+ * to differ by platform (on a pin's review) and given a row, which would put
+ * a platform refusal on a kind no author chooses.
+ */
+const ADVANCED_ENTRIES = [
+	"menus-and-case-lists/advancedmodule",
+	"forms-and-case-writes/advancedform",
+	"forms-and-case-writes/load-update-cases-loadupdateaction",
+	"forms-and-case-writes/loadupdateaction-case-tag-without",
+	"forms-and-case-writes/loadupdateaction-case-type",
+	"forms-and-case-writes/loadupdateaction-details-module",
+	"forms-and-case-writes/loadupdateaction-case-properties",
+	"forms-and-case-writes/loadupdateaction-close-condition-on-the-form-s-own-selection",
+	"forms-and-case-writes/loadupdateaction-close-condition-on-any-other-selection",
+	"forms-and-case-writes/loadupdateaction-case-index-tag-reference-id-relationship",
+	"forms-and-case-writes/auto-select-mode-usercase",
+	"forms-and-case-writes/open-cases-advancedopencaseaction-the-one-open-action-outside",
+	"forms-and-case-writes/open-cases-advancedopencaseaction-any-other",
+	"forms-and-case-writes/advancedopencaseaction-name-update",
+	"forms-and-case-writes/advancedopencaseaction-case-properties-keys-without",
+	"forms-and-case-writes/advancedopencaseaction-close-condition",
+	"forms-and-case-writes/advancedopencaseaction-repeat-context-equal-to-the-name-question",
+	"forms-and-case-writes/advancedopencaseaction-open-condition",
+	"forms-and-case-writes/advancedopencaseaction-case-indices-child-extension-one-or-many",
+	"forms-and-case-writes/an-advanced-open-action-indexed-to-an-open-action-that-has-a-equal",
+] as const;
+
+describe("the advanced module's entries need no platform row", () => {
+	const entries = byId(MANIFEST);
+	const named = new Set([
+		...Object.values(REAL.entries).flat(),
+		...Object.keys(REAL.ambient),
+	]);
+
+	it("holds each as running in Web Apps and on Android", () => {
+		for (const id of ADVANCED_ENTRIES) {
+			const entry = entries.get(id);
+			expect([id, entry?.disposition]).toEqual([id, "HELD"]);
+			const readings = entry === undefined ? undefined : readingsOf(entry);
+			expect([
+				id,
+				readings?.webApps.reading,
+				readings?.android.reading,
+			]).toEqual([id, "runs", "runs"]);
+		}
+	});
+
+	it("names none of them in a feature row or as ambient", () => {
+		expect(ADVANCED_ENTRIES.filter((id) => named.has(id))).toEqual([]);
+	});
+});
+
 describe("the table's own contract", () => {
 	const rows = PLATFORM_FEATURE_IDS.map(
 		(id) => [id, PLATFORM_FEATURES[id]] as const,

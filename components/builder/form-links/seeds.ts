@@ -29,6 +29,7 @@ import type {
 	FormLinkCarryVerdict,
 	FormLinkRequiredDatum,
 } from "@/lib/doc/formLinkReview";
+import type { FormLinksView } from "@/lib/doc/hooks/useFormLinks";
 import type { FormLink, FormLinkDatum, FormLinkTarget } from "@/lib/domain";
 
 /** The condition a fresh conditional link carries until the author replaces it. */
@@ -65,6 +66,18 @@ interface SeedTarget {
 	readonly target: FormLinkTarget;
 	readonly carry: FormLinkCarryVerdict;
 	readonly required: readonly FormLinkRequiredDatum[];
+}
+
+/** What a seed reads about `target` from this form's links. */
+export function seedTarget(
+	view: Pick<FormLinksView, "carryVerdict" | "requiredDatums">,
+	target: FormLinkTarget,
+): SeedTarget {
+	return {
+		target,
+		carry: view.carryVerdict(target),
+		required: view.requiredDatums(target),
+	};
 }
 
 /** A complete conditional link to `target`, never firing until edited. */

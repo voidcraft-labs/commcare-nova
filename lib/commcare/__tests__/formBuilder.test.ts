@@ -202,7 +202,10 @@ describe("the case-write projection", () => {
 				}),
 			);
 			const before = structuredClone(doc);
-			const { actions } = planFormCaseWire(doc, FORM);
+			const plan = planFormCaseWire(doc, FORM);
+			if (plan.kind !== "basic")
+				throw new Error("The registration's menu is a basic module.");
+			const { actions } = plan;
 			const scope = nested ? "/data/details" : "/data";
 			expect(actions.open_case.name_update.question_path).toBe(
 				"/data/nova_trimmed_patient_name",

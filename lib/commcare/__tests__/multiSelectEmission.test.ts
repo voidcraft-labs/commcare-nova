@@ -18,6 +18,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema, type Form, proseText } from "@/lib/domain";
 import { eq, formField, literal, term } from "@/lib/domain/expression";
+import { basicForm } from "./hqBasicShape";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { xpathEvidence } from "./xpathEvidence";
 
@@ -133,7 +134,7 @@ function artifacts(doc: ReturnType<typeof buildDoc>, published = true) {
 		doc,
 		published ? { attachmentTarget: target } : undefined,
 	);
-	const form = hq.modules[0].forms[0];
+	const form = basicForm(hq, 0, 0);
 	const source = hq._attachments[`${form.unique_id}.xml`];
 	if (typeof source !== "string") throw new Error("Missing form source");
 	const zip = new AdmZip(
@@ -474,7 +475,7 @@ it("closes every selected case on a condition the Case Management tab cannot sta
 		literal("it's done"),
 	);
 	const output = artifacts(doc);
-	expect(output.hq.modules[0].forms[0].actions.close_case.condition.type).toBe(
+	expect(basicForm(output.hq, 0, 0).actions.close_case.condition.type).toBe(
 		"never",
 	);
 	for (const form of output.forms) {

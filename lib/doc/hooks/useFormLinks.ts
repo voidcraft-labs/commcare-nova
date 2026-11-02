@@ -104,6 +104,16 @@ export interface FormLinksView {
 	readonly removalPlan: (uuid: Uuid) => FormLinkCommitPlan;
 	/** The fallback plan, for the confirm copy. */
 	readonly fallbackPlan: (next: FallbackChoice) => FormLinkCommitPlan;
+	/**
+	 * The builder's sentence for `FORM_LINK_NEEDS_NEW_CASE_DATUM` when the
+	 * gate would refuse adding `next` (no `base`) or replacing `base` with
+	 * it because the link can't open a case this form creates; `undefined`
+	 * when it wouldn't. A destination picker shows it before the choice.
+	 */
+	readonly newCaseRefusal: (
+		next: FormLink,
+		base?: FormLink,
+	) => string | undefined;
 	readonly add: (link: FormLink, after?: Uuid | null) => FormLinkWriteOutcome;
 	readonly update: (next: FormLink, base: FormLink) => FormLinkWriteOutcome;
 	readonly remove: (uuid: Uuid) => CommitOutcome | undefined;
@@ -167,6 +177,35 @@ export function useFormLinks(formUuid: Uuid): FormLinksView {
 	const fallbackPlan = useCallback(
 		(next: FallbackChoice) => planSetFallback(doc, formUuid, next),
 		[doc, formUuid],
+	);
+
+	/* Only a link to a form can carry a new case, and only from a form that
+	 * creates one: a registration's own case or a create. A menu is the
+	 * rule's own remedy, so elsewhere it never fires and no review runs. */
+	const newCaseRefusal = useCallback(
+		(next: FormLink, base?: FormLink): string | undefined => {
+			const current = docApi.getState();
+			const form = current.forms[formUuid];
+			if (
+				next.target.type !== "form" ||
+				form === undefined ||
+				(form.type !== "registration" &&
+					!(form.caseOperations ?? []).some((op) => op.action === "create"))
+			)
+				return undefined;
+			const planned =
+				base === undefined
+					? planFormLinkAdd(current, formUuid, next)
+					: planFormLinkUpdate(current, formUuid, next, base);
+			if (!planned.ok || planned.mutations.length === 0) return undefined;
+			const reviewed = mutations.inline.reviewMany([...planned.mutations]);
+			if (reviewed.ok) return undefined;
+			const index = (reviewed.findings ?? []).findIndex(
+				(finding) => finding.code === "FORM_LINK_NEEDS_NEW_CASE_DATUM",
+			);
+			return index < 0 ? undefined : reviewed.messages[index];
+		},
+		[docApi, formUuid, mutations],
 	);
 
 	/* Inline, not toasting: a refusal belongs beside the list it is about,
@@ -287,6 +326,7 @@ export function useFormLinks(formUuid: Uuid): FormLinksView {
 			addChoices,
 			removalPlan,
 			fallbackPlan,
+			newCaseRefusal,
 			add,
 			update,
 			remove,
@@ -305,6 +345,7 @@ export function useFormLinks(formUuid: Uuid): FormLinksView {
 			addChoices,
 			removalPlan,
 			fallbackPlan,
+			newCaseRefusal,
 			add,
 			update,
 			remove,

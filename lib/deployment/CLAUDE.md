@@ -666,16 +666,20 @@ holds nothing of the publish but an empty app.
 
 ## Placements
 
-Where CommCare HQ keeps a case change (a Case Management slot or a Save to
-Case block) and a query repeat's rows is where its answers sit in every
-project space the app is published to, so once a publish has sent one, every
-later publish keeps it there. The document holds that place (`holdPlacements`,
+Where CommCare HQ keeps a case change (a Case Management slot, an advanced
+form's load or open action, or a Save to Case block) and a query repeat's rows
+is where its answers sit in every project space the app is published to, and
+whether a menu is an advanced menu decides where its forms' case blocks and
+chosen cases sit, so once a publish has sent one, every later publish keeps it
+there. The document holds that place (`holdPlacements`,
 `lib/doc/placementHolds.ts`), and a publish is what records it.
 
 **Which placements a publish records.**
 `lib/commcare/placementHolds.ts::placementsToHold(doc)` is every placement the
 emission derives and the document does not hold yet, in document order: each
-case operation the plan places unheld, a form's own close where it has a Save
+menu emitted advanced whose kind is not held yet (`Module.heldKind`, from
+`lib/commcare/moduleKind.ts::emittedModuleKind`), each case operation the plan
+places unheld, a form's own close where it has a Save
 to Case block of its own, and each query repeat with no placement. Holding
 what the emission already derives changes no byte it sends
 (`lib/commcare/__tests__/heldPlacementEmission.test.ts`).
@@ -714,8 +718,9 @@ CommCare HQ nothing. The `save-to-case` offer moves every case change held in
 a Save to Case block to the Case Management slot the planner gives it once its
 hold is cleared, all of them or none: it is `null` where none is held there,
 where one such change is not held (an unheld change already takes the
-simplest place), where one would still take a Save to Case block, or where the
-result would put a new case of its module's own type in a basic subcase. Its
+simplest place), where one would still take a Save to Case block, where the
+result would change a menu's kind, or where it would put a new case of its
+module's own type in a basic subcase. Its
 holds are those moves followed by every hold the move planner
 (`withIdentityMoves`) appends for them, each stated in words
 (`describeCaseChange`), and its digest is the canonical JSON digest of the

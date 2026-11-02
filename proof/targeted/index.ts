@@ -9,6 +9,13 @@
  */
 
 import type { CorpusDocument } from "../corpus/documents";
+import {
+	advancedChildModule,
+	advancedHeldKind,
+	advancedModule,
+	extensionCarried,
+	rootCaseBlockNames,
+} from "./documents/advancedModules";
 import { attributeDisplayCondition } from "./documents/attributeDisplayCondition";
 import { blankLabels } from "./documents/blankLabels";
 import { captureWidgets } from "./documents/captureWidgets";
@@ -179,6 +186,11 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	repeatCountWhole,
 	caseWritesOneConcept,
 	heldPlacement,
+	advancedModule,
+	extensionCarried,
+	advancedChildModule,
+	advancedHeldKind,
+	rootCaseBlockNames,
 ];
 
 /** Every targeted document, in a fixed order. */

@@ -352,6 +352,22 @@ children, root blocks, and preorder. The blueprint validator rejects a missing
 or non-root parent and any order that is not that projection, so every consumer
 can read the same flat sequence without repairing it.
 
+Whether a menu is emitted advanced is
+`lib/commcare/moduleKind.ts::emittedModuleKind(doc, moduleUuid)`, which reads
+the domain's answer, `advancedEntryDatums.ts::menuEmittedAdvanced` (with the
+carried creates, the load chain and the advanced entry's supplies beside it,
+because `entryDatumSupplies` reads them too), and
+`Module.heldKind` holds the kind a publish carried; `advancedKindBlockers`
+names what keeps a menu basic, `heldKindExpresses` whether a held kind can
+still express its menu, and `advancedChainIndex` the index name of each load
+in the menu's parent chain. The three live in `advancedModule.ts`, because the
+builder and the commit gate read them: a blocker is a menu that lets a worker
+choose several cases, one whose forms read its search, one whose case list
+menu item is narrowed, or a parent chain whose pair of case types the app
+links under more than one index name. `heldKind` is a hold like a placement:
+only `holdPlacements` writes it, and a batch that leaves a held kind unable to
+express its menu is refused unless it also clears the hold.
+
 Modules and forms each carry an optional typed `displayCondition: Expression`.
 Each also carries an optional `hiddenFromMenu: true`, the one way to say an item
 is not on the menu; `displayCondition` then holds the rest, the condition that

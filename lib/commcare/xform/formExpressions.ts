@@ -37,6 +37,10 @@ export interface FormExpressionEmission {
 	readonly form: FormStructure;
 	readonly projection: FormNodeProjection;
 	readonly counts: RepeatCountCarrierPlan;
+	/** The id each session value the form reads prints as, from the entry
+	 *  that opens it; the bindings of every slot the form's own emitters
+	 *  lower outside `lower` carry it too. */
+	readonly datumId: WireTermBindings["datumId"];
 	context(slot: SlotContextRef): ExpressionContext;
 	lower(
 		expression: Expression,
@@ -109,6 +113,7 @@ export function formExpressionEmission(
 			referencedCountResults(expressionDoc, formUuid),
 			expressionFacts(expressionDoc),
 		),
+		datumId: bindings.datumId,
 		context,
 		lower,
 		prose: (reference, slot) =>

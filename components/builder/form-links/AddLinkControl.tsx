@@ -26,6 +26,7 @@ import type { FormLinkTarget } from "@/lib/domain";
 import { POPOVER_ROW_CLS } from "@/lib/styles";
 import { LinkTargetPickerContent } from "./LinkTargetPicker";
 import { otherwiseUnavailableReason } from "./refusalCopy";
+import { seedConditionalLink, seedOtherwiseLink, seedTarget } from "./seeds";
 
 export type LinkKind = "conditional" | "otherwise";
 
@@ -77,6 +78,13 @@ export function AddLinkControl({
 						<LinkTargetPickerContent
 							formUuid={formUuid}
 							editing={undefined}
+							refusalOf={(target) =>
+								view.newCaseRefusal(
+									intent === "conditional"
+										? seedConditionalLink(seedTarget(view, target))
+										: seedOtherwiseLink(seedTarget(view, target)),
+								)
+							}
 							onChoose={(target) => {
 								onAdd(intent, target);
 								setIntent(null);

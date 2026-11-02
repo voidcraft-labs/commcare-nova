@@ -3,12 +3,22 @@
  * form's case changes in CommCare HQ (`CaseOperation.placement`,
  * `Form.ownClosePlacement`). A hold is an identity no author chooses, so each
  * rule refuses a document that would move or duplicate one without saying
- * so. All three are soundness, located at the form.
+ * so. All four are soundness, located at the form, but for a menu's held
+ * kind, located at the menu.
  *
  * - `HELD_PLACEMENT_INEXPRESSIBLE`: a hold the document no longer lets its
  *   subject keep (`placement.ts::planPlacements(...).inexpressible`). The
  *   plan still places the subject, so every emitter stays total; the batch
- *   that strands a hold commits only with the hold's move beside it.
+ *   that strands a hold commits only with the hold's move beside it. Its
+ *   `module-kind` subject is a menu CommCare HQ holds as an advanced menu
+ *   that a blocker now keeps from being one (`Module.heldKind`).
+ * - `CASE_PLACEMENT_KIND`: a held case action (`advanced`) in a form of a
+ *   menu emitted as an ordinary menu, or a held Case Management slot in a
+ *   form of an advanced menu (`moduleKind.ts::emittedModuleKind`). HQ
+ *   reads a basic form's `FormActions` and an advanced form's
+ *   `AdvancedFormActions` (`models/forms.py::Form.actions`,
+ *   `AdvancedForm.actions`), so neither kind of form holds the other's
+ *   place. Like the hold above, the plan places the change as if unheld.
  * - `CASE_PLACEMENT_SHARED`: two subjects of one form holding one place,
  *   except a close holding the basic place of the create it closes, which
  *   is HQ's own `close_condition` on that subcase.
@@ -34,11 +44,18 @@ import {
 	type CaseOperation,
 	type CasePlacement,
 	formConnectIds,
+	type Module,
 	orderedCaseOperations,
 	placementIneligibilitySentence,
 	type Uuid,
 } from "@/lib/domain";
+import { advancedKindBlockers } from "@/lib/domain/advancedModule";
 import { suffixUntilFree } from "@/lib/domain/idSlug";
+import {
+	advancedKindBlockerSentence,
+	placementLabel,
+	placementLabelWords,
+} from "@/lib/domain/placementCopy";
 import {
 	editorSafeQuestionId,
 	RESERVED_CONNECT_BLOCK_IDS,
@@ -67,6 +84,14 @@ export function heldPlacementInexpressibleMessage(
 	reasonSentence: string,
 ): string {
 	return `CommCare HQ keeps ${subjectWords} where your last publish put it, and this change can't keep it there. ${reasonSentence} Make the change again to see where it moves and confirm it.`;
+}
+
+export function casePlacementKindMessage(
+	subjectWords: string,
+	placementWords: string,
+	menuWords: string,
+): string {
+	return `CommCare HQ keeps ${subjectWords} in ${placementWords}, which a form in ${menuWords} can't use. Make the change again to see where it moves and confirm it.`;
 }
 
 export function casePlacementSharedMessage(
@@ -144,6 +169,18 @@ function placementError(
 	);
 }
 
+/** The form kind a hold's first reason says the form now is: a hold whose
+ *  menu kind changed under it (`module-advanced`, `module-basic`) is the
+ *  kind rule's, every other the inexpressibility rule's. */
+function changedFormKind(
+	hold: InexpressibleHold,
+): "basic" | "advanced" | undefined {
+	const first = hold.reasons[0].reason;
+	if (first === "module-advanced") return "advanced";
+	if (first === "module-basic") return "basic";
+	return undefined;
+}
+
 function inexpressibleFindings(
 	ctx: PlacementRuleContext,
 	inexpressible: readonly InexpressibleHold[],
@@ -155,6 +192,27 @@ function inexpressibleFindings(
 				? ctx.operations.find((op) => op.uuid === subject.operationUuid)
 				: undefined;
 		const subjectWords = heldSubjectWords(hold.subject, operation);
+		const moduleKind = changedFormKind(hold);
+		if (moduleKind !== undefined) {
+			const placementWords = placementLabelWords(placementLabel(hold.held));
+			const menuWords = placementLabelWords(
+				moduleKind === "advanced" ? "advanced-menu" : "ordinary-menu",
+			);
+			return placementError(
+				ctx,
+				"CASE_PLACEMENT_KIND",
+				casePlacementKindMessage(subjectWords, placementWords, menuWords),
+				operation,
+				{
+					subject: JSON.stringify(hold.subject),
+					held: JSON.stringify(hold.held),
+					moduleKind,
+					subjectWords,
+					placementWords,
+					menuWords,
+				},
+			);
+		}
 		const sentence = placementIneligibilitySentence(hold.reasons[0].reason);
 		return placementError(
 			ctx,
@@ -385,6 +443,47 @@ function blockPathFindings(
 		}
 	}
 	return errors;
+}
+
+/** How the finding names a menu whose advanced kind is held. */
+export function heldModuleKindSubjectWords(moduleName: string): string {
+	return `the menu “${moduleName}” as an advanced menu`;
+}
+
+/**
+ * The `module-kind` subject of `HELD_PLACEMENT_INEXPRESSIBLE`, a module
+ * rule located at the menu: CommCare HQ holds the menu as an advanced
+ * menu (`Module.heldKind`) and something now keeps it from being one
+ * (`lib/domain/advancedModule.ts::advancedKindBlockers`). The reason
+ * sentence is the first blocker's, the one its `module-kind` move states.
+ */
+export function heldModuleKindInexpressible(
+	mod: Module,
+	moduleUuid: Uuid,
+	doc: BlueprintDoc,
+): ValidationError[] {
+	if (mod.heldKind !== "advanced") return [];
+	const blockers = advancedKindBlockers(doc, moduleUuid);
+	const first = blockers[0];
+	if (first === undefined) return [];
+	const subjectWords = heldModuleKindSubjectWords(mod.name);
+	const sentence = advancedKindBlockerSentence(first.kind);
+	return [
+		validationError(
+			"HELD_PLACEMENT_INEXPRESSIBLE",
+			"module",
+			heldPlacementInexpressibleMessage(subjectWords, sentence),
+			{ moduleUuid, moduleName: mod.name },
+			{
+				subject: JSON.stringify({ kind: "module-kind", moduleUuid }),
+				held: JSON.stringify("advanced"),
+				reasons: JSON.stringify(blockers.map((blocker) => blocker.kind)),
+				reason: first.kind,
+				subjectWords,
+				sentence,
+			},
+		),
+	];
 }
 
 /** Every held-placement finding of `formUuid`. A form that holds no

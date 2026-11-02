@@ -1014,20 +1014,9 @@ Pure, and memoized per document object (documents are replaced, never changed in
    takes an index in `0 … k-1`. Held indices keep theirs; the remaining indices go to the
    remaining subcases, row subcases included, lowest first in array order. A held index of `k` or
    more, or one another held subcase also claims, fails `subcase-index`. Emission writes
-   `subcases` in index order (part 02's `planFormCaseWire`).
-   **From pull request 4 to pull request 6, the field-written extension create.** A `create` whose
-   only link is one `extension` link to the own case and whose `name` is a bare question read (the
-   shape `planFieldCaseWrite` and `operationsFromFieldWrites` write for a field whose "Saves to"
-   names a child type the catalog declares `extension`) keeps today's emission (part 02 §14.4): it
-   takes an index in this step's sequence, counted among its repeat's subcases for the nesting rule
-   as HQ counts the inert action (`count_subcases_per_repeat_context` counts every subcase), and its
-   placement is `{save-to-case, repeat: <its forEach>, path: ["nova_subcases",
-   "nova_subcase_<n>"]}`, `n` that index, where part 02's plan writes the active block beside the
-   inert `OpenSubCaseAction`. So every byte of a field-written extension child is unchanged by pull
-   requests 4 to 6, and defect 24's entries stay live until pull request 7 removes this branch: from
-   then an extension create is placed as any `create` (Save to Case in `nova_operations`, or an
-   advanced open action where it is carried), and the basic subcases after it renumber (part 02
-   §14.3, the cutover's M2).
+   `subcases` in index order (part 02's `planFormCaseWire`). An extension create is placed as any
+   `create` (Save to Case in `nova_operations`, or an advanced open action where it is carried),
+   and takes no index here (part 02 §14.3, the cutover's M2).
 5. **Save to Case paths.** A held path is written verbatim. An unheld block takes the names today's
    allocator gives it (`planGeneratedNodes`: the scope's `nova_operations` group, its condition
    group or keyed row, and the block named by the operation's `id`), after the allocator has

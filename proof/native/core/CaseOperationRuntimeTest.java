@@ -804,4 +804,84 @@ public class CaseOperationRuntimeTest {
             assertThrows(InvalidStructureException.class, run::apply);
         }
     }
+
+    /** The first form of the case family's document {@code name}, opened from its suite on this path. */
+    private SuiteFormRun suiteRun(String name, int module, int index) throws Exception {
+        org.json.JSONObject form = AdvancedFormRuntimeTest.app(name).getJSONArray("modules").getJSONObject(module)
+            .getJSONArray("forms").getJSONObject(index);
+        String file = name + (name.startsWith("root-") ? ".m" + module + "f" + index : "") + (hq ? ".hq.xml" : ".xml");
+        return new SuiteFormRun("case", name, hq, file, form.getString("xmlns")).fill();
+    }
+    /** The cases the submission made that index {@code parent} under {@code relationship}, by their types. */
+    private static java.util.List<String> indexedTo(SuiteFormRun run, String parent, String relationship) {
+        java.util.List<String> types = new java.util.ArrayList<>();
+        for (Case record : run.records()) {
+            for (CaseIndex index : record.getIndices()) {
+                if (parent.equals(index.getTarget()) && relationship.equals(index.getRelationship())) types.add(record.getTypeId());
+            }
+        }
+        java.util.Collections.sort(types);
+        return types;
+    }
+    /**
+     * An extension link on a create operation of a follow-up form (the case family's extension {@code followup}:
+     * an episode and a consent extending the loaded patient, each a Save to Case block, beside a basic visit child):
+     * Core's case parser stores each extension link as an index whose relationship is {@code extension}, and the
+     * child's as {@code child}. Catches an extension link written as a child index.
+     */
+    @Test public void anExtensionLinkOnACreatedOperationAtTheRootIsAnExtensionIndex() throws Exception {
+        SuiteFormRun run = suiteRun("followup", 0, 0);
+        String patient = run.datum("case_id");
+        assertNotNull(patient);
+        run.apply();
+        assertEquals(Arrays.asList("consent", "episode"), indexedTo(run, patient, CaseIndex.RELATIONSHIP_EXTENSION));
+        assertEquals(Arrays.asList("visit"), indexedTo(run, patient, CaseIndex.RELATIONSHIP_CHILD));
+    }
+    /** The same links in each row of a repeat of a registration (the case family's extension {@code repeat}): every
+     * row's episode and consent extend the patient the form registers. */
+    @Test public void anExtensionLinkOnACreatedOperationInARepeatIsAnExtensionIndexInEveryRow() throws Exception {
+        SuiteFormRun run = suiteRun("repeat", 0, 0);
+        String patient = run.datum("case_id_new_patient_0");
+        assertNotNull(patient);
+        int rows = (int)run.count("/data/records");
+        assertEquals(SuiteFormRun.ROWS, rows);
+        run.apply();
+        java.util.List<String> extensions = new java.util.ArrayList<>();
+        java.util.List<String> children = new java.util.ArrayList<>();
+        for (int row = 0; row < rows; row++) { extensions.add("consent"); extensions.add("episode"); children.add("visit"); }
+        java.util.Collections.sort(extensions);
+        assertEquals(extensions, indexedTo(run, patient, CaseIndex.RELATIONSHIP_EXTENSION));
+        assertEquals(children, indexedTo(run, patient, CaseIndex.RELATIONSHIP_CHILD));
+    }
+    /**
+     * Part 02's G3, on targeted-root-case-block-names: a root question named as the element HQ's build appends for
+     * a basic child case ({@code subcase_0}) or for the worker's update ({@code commcare_usercase}). On HQ's build
+     * and on the local injection, each form keeps the question's answer as the one element of its name, holding no
+     * case block, and the case write HQ's element carries still lands: the member is made under the household the
+     * registration creates, and the worker's own case takes the visit's place. Catches a case write lost to, or an
+     * answer overwritten by, a question named like the block HQ appends.
+     */
+    @Test public void aRootQuestionNamedLikeTheBlockHqAppendsKeepsItsAnswerAndItsCaseWrite() throws Exception {
+        SuiteFormRun register = suiteRun("root-case-block-names", 0, 0);
+        String household = register.datum("case_id_new_household_0");
+        assertNotNull(household);
+        String notes = register.value("/data/subcase_0");
+        String member = register.value("/data/member_name");
+        assertEquals(1.0, register.count("/data/subcase_0"), 0);
+        assertEquals(0.0, register.count("/data/subcase_0/*"), 0);
+        assertFalse(notes.isEmpty());
+        register.apply();
+        assertEquals(Arrays.asList("member"), indexedTo(register, household, CaseIndex.RELATIONSHIP_CHILD));
+        boolean named = false;
+        for (Case record : register.records()) named |= "member".equals(record.getTypeId()) && member.equals(record.getName());
+        assertTrue("The registration made no member named " + member, named);
+
+        SuiteFormRun check = suiteRun("root-case-block-names", 0, 1);
+        String place = check.value("/data/place");
+        assertEquals(1.0, check.count("/data/commcare_usercase"), 0);
+        assertEquals(0.0, check.count("/data/commcare_usercase/*"), 0);
+        assertFalse(check.value("/data/commcare_usercase").isEmpty());
+        check.apply();
+        assertEquals(place, check.record("worker-case").getPropertyString("last_place"));
+    }
 }

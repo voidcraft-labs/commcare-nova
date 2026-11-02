@@ -1,15 +1,30 @@
 import {
 	type CasePlacementEntry,
-	type CasePlacementHome,
 	formCasePlacementView,
 } from "@/lib/doc/casePlacements";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { BlueprintDoc, CasePlacement, Uuid } from "@/lib/domain";
 
-/** Where CommCare HQ keeps a case change, in the words a read gives it. */
-export type CasePlacementWords = "case management" | "save to case";
+/** Where CommCare HQ keeps a case change, in the words a read gives it: a
+ *  basic form's Case Management, an advanced form's case actions, or a Save
+ *  to Case block. */
+export type CasePlacementWords =
+	| "case management"
+	| "case actions"
+	| "save to case";
 
-function placementWords(home: CasePlacementHome): CasePlacementWords {
-	return home === "save-to-case" ? "save to case" : "case management";
+function placementWords(placement: CasePlacement): CasePlacementWords {
+	switch (placement.kind) {
+		case "basic":
+			return "case management";
+		case "advanced":
+			return "case actions";
+		case "save-to-case":
+			return "save to case";
+		default: {
+			const _exhaustive: never = placement;
+			return _exhaustive;
+		}
+	}
 }
 
 /** Where CommCare HQ keeps each of a form's case changes, by operation
@@ -25,11 +40,11 @@ export function formCasePlacementWords(
 	const view = formCasePlacementView(doc, formUuid);
 	const operations: Record<Uuid, CasePlacementWords> = {};
 	for (const { operationUuid, entry } of view.operations)
-		operations[operationUuid] = placementWords(entry.home);
+		operations[operationUuid] = placementWords(entry.placement);
 	return {
 		operations,
 		...(view.ownClose !== undefined && {
-			ownClose: placementWords(view.ownClose.home),
+			ownClose: placementWords(view.ownClose.placement),
 		}),
 	};
 }
@@ -43,7 +58,7 @@ export interface CasePlacementRead {
 
 function placementRead(entry: CasePlacementEntry): CasePlacementRead {
 	return {
-		placement: placementWords(entry.home),
+		placement: placementWords(entry.placement),
 		...(entry.held && { placementKept: true as const }),
 	};
 }

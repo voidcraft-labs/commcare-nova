@@ -1492,6 +1492,24 @@ function chosenCaseAdmission(
 	datum: DatumRef,
 	ctx: ExpressionContext,
 ): CheckError | undefined {
+	// A case change's target, or a link's, may name a case the form's entry
+	// chose (an advanced form's chain load is that session value), read as
+	// the form reads any session value: supplied by its entry as one case.
+	if (
+		ctx.slot.slot === "case_operation_target_expression" ||
+		ctx.slot.slot === "case_operation_link_target_expression"
+	)
+		return datum.kind === "selected-case" &&
+			ctx.supplies.refs.some(
+				(supply) =>
+					supply.scalar && datumRefKey(supply.ref) === datumRefKey(datum),
+			)
+			? undefined
+			: refusal(
+					"datum-not-supplied",
+					"This entry has not supplied the selected session value.",
+					datum.kind,
+				);
 	const carrier = chosenCaseCarrier(ctx);
 	if (carrier === undefined)
 		return ctx.slot.slot === "module_display_condition"

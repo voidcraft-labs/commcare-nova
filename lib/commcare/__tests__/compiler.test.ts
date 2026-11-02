@@ -25,6 +25,7 @@ import {
 	temporalSearchFixture,
 	temporalSearchScenarios,
 } from "./compilerNavigationFixture";
+import { basicForm } from "./hqBasicShape";
 import { localizationWireFixture } from "./localizationWireFixture";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
@@ -324,7 +325,7 @@ describe("CCZ compiler integration", () => {
 				.map((instance) => instance.attributes.id)
 				.sort(),
 		).toEqual(["casedb", "commcaresession"]);
-		expect(hq.modules[0].forms[0].requires).toBe("case");
+		expect(basicForm(hq, 0, 0).requires).toBe("case");
 	});
 
 	it("keeps owner availability on the ordinary list when Search is disabled", () => {
@@ -408,8 +409,8 @@ describe("CCZ compiler integration", () => {
 		).toEqual(["external_id"]);
 		// The external id is an ordinary update row, read from the question's
 		// trimmed sibling, as HQ's Case Management tab writes it.
-		expect(hq.modules[0].forms[1].actions.open_case.external_id).toBeNull();
-		expect(hq.modules[0].forms[1].actions.update_case.update).toEqual({
+		expect(basicForm(hq, 0, 1).actions.open_case.external_id).toBeNull();
+		expect(basicForm(hq, 0, 1).actions.update_case.update).toEqual({
 			external_id: {
 				question_path: "/data/nova_trimmed_external",
 				update_mode: "always",

@@ -3,15 +3,19 @@ import { describe, expect, it } from "vitest";
 import type { HqApplication } from "@/lib/commcare";
 import { addOnsNeededBy } from "../addOns";
 import {
+	type HqAdvancedModuleTree,
 	type HqFormTree,
 	type HqModuleTree,
 	hqXPath,
 	serializeHqApplication,
 } from "../hqJson/xpath";
 import {
+	advancedFormShell,
+	advancedModuleShell,
 	applicationShell,
 	detailColumn,
 	detailPair,
+	emptyAdvancedFormActions,
 	emptyFormActions,
 	formShell,
 	ifCondition,
@@ -163,5 +167,81 @@ describe("addOnsNeededBy", () => {
 		];
 		for (const [slug, emitted] of cases)
 			expect(addOnsNeededBy(emitted), slug).toEqual([slug]);
+	});
+});
+
+/** An app of one advanced menu holding one advanced form with no load or create. */
+function advancedApp(
+	edit: (module: HqAdvancedModuleTree) => void = () => {},
+): HqApplication {
+	const module = advancedModuleShell(
+		"m0",
+		"Visits",
+		"visit",
+		[
+			advancedFormShell(
+				"f0",
+				"Follow up",
+				"http://openrosa.org/formdesigner/add-ons-advanced",
+				emptyAdvancedFormActions(),
+				{},
+				{},
+				"default",
+				null,
+				[],
+			),
+		],
+		detailPair([detailColumn("name", "Name")]),
+		"en",
+		["en"],
+	);
+	edit(module);
+	return serializeHqApplication(
+		applicationShell(
+			"Clinic",
+			[module],
+			{ "f0.xml": PLAIN_FORM },
+			{ cloudcareEnabled: true },
+		),
+	);
+}
+
+describe("addOnsNeededBy over an advanced menu", () => {
+	it("needs Child Cases and conditional actions for an advanced form whatever it holds, and nothing for the default product list", () => {
+		// HQ's `subcases` and `_uses_conditional_form_actions` predicates hold
+		// for every form that is not a `module_form`; the product list's one
+		// column is `plain`.
+		expect(addOnsNeededBy(advancedApp())).toEqual([
+			"conditional_form_actions",
+			"subcases",
+		]);
+	});
+
+	it("needs the case list menu item where the advanced menu shows its case list", () => {
+		expect(
+			addOnsNeededBy(
+				advancedApp((module) => {
+					module.case_list.show = true;
+				}),
+			),
+		).toEqual(["case_list_menu_item", "conditional_form_actions", "subcases"]);
+	});
+
+	it("reads the product list's formats for enum images, and only the case details for calculated columns", () => {
+		const imageColumn = {
+			...detailColumn("status", "Status"),
+			format: "enum-image" as "plain",
+		};
+		const calculated = detailColumn(
+			hqXPath(w.context([w.step("status")])),
+			"Status",
+		);
+		expect(
+			addOnsNeededBy(
+				advancedApp((module) => {
+					module.product_details = detailPair([imageColumn, calculated]);
+				}),
+			),
+		).toEqual(["conditional_form_actions", "enum_image", "subcases"]);
 	});
 });

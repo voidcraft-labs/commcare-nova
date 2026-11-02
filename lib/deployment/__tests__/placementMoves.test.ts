@@ -16,6 +16,13 @@
 
 import { describe, expect, it } from "vitest";
 import {
+	advancedFixture,
+	HOUSEHOLDS,
+	UNDER_TEST,
+	VISIT_REVIEW,
+	VISITS,
+} from "@/lib/commcare/__tests__/advancedPlacementFixture";
+import {
 	childCreate,
 	OP,
 	OWN,
@@ -23,6 +30,7 @@ import {
 	placementFixture,
 	read,
 } from "@/lib/commcare/__tests__/placementFixture";
+import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import { placementCandidates, planPlacements } from "@/lib/commcare/placement";
 import { placementsToHold } from "@/lib/commcare/placementHolds";
 import { sameTypeBasicChildCases } from "@/lib/commcare/sameTypeChildCases";
@@ -122,6 +130,78 @@ describe("placementsToHold", () => {
 
 	it("holds nothing where everything is held", () => {
 		expect(placementsToHold(held(OWN_SLOT, SUBCASE_0).doc)).toEqual([]);
+	});
+
+	it("holds a module made advanced, before its forms' case actions", () => {
+		// A household registration creates a visit extending the household
+		// and hands it to the visit's review: a basic form gives that visit
+		// no session value, so Households is emitted advanced.
+		const carried = (heldKind: boolean) =>
+			advancedFixture({
+				formType: "registration",
+				heldKind,
+				operations: () => [
+					{
+						uuid: OP("own"),
+						id: "own_case",
+						action: "own",
+						name: read("name"),
+					} as CaseOperation,
+					{
+						uuid: OP("visit"),
+						id: "visit",
+						action: "create",
+						caseType: "visit",
+						target: { kind: "new" },
+						name: read("name"),
+						links: [
+							{
+								identifier: "host",
+								targetType: "household",
+								target: { kind: "op", opUuid: OP("own") },
+								relationship: "extension",
+							},
+						],
+					} as CaseOperation,
+				],
+				form: {
+					formLinks: [
+						{
+							uuid: OP("link"),
+							target: {
+								type: "form",
+								moduleUuid: VISITS,
+								formUuid: VISIT_REVIEW,
+							},
+						},
+					],
+				},
+			}).doc;
+		const holds = placementsToHold(carried(false));
+		expect(holds[0]).toEqual({
+			target: "module-kind",
+			moduleUuid: HOUSEHOLDS,
+			placement: "advanced",
+		});
+		expect(holds.filter((hold) => hold.target === "module-kind")).toHaveLength(
+			1,
+		);
+		expect(
+			holds.flatMap((hold) =>
+				hold.target === "case-operation" && hold.formUuid === UNDER_TEST
+					? [[hold.operationUuid, hold.placement.kind]]
+					: [],
+			),
+		).toEqual([
+			[OP("own"), "advanced"],
+			[OP("visit"), "advanced"],
+		]);
+		// A menu whose kind is held already holds no second kind.
+		expect(
+			placementsToHold(carried(true)).filter(
+				(hold) => hold.target === "module-kind",
+			),
+		).toEqual([]);
 	});
 });
 
@@ -240,6 +320,66 @@ describe("the save-to-case offer", () => {
 			{ operationUuid: OP("twin"), caseType: "patient" },
 		]);
 		expect(placementMoveOffer(withTwin.doc, "save-to-case")).toBeNull();
+	});
+
+	it("moves a block to an open action of a menu held advanced, and keeps the menu advanced", () => {
+		// Households is held advanced. Its registration's visit, extending the
+		// household, is held in a Save to Case block; cleared, the visit takes
+		// an open action, and the menu stays advanced, so the offer moves it.
+		const registration = (visitAt?: CasePlacement) =>
+			advancedFixture({
+				formType: "registration",
+				heldKind: true,
+				operations: () => [
+					{
+						uuid: OP("own"),
+						id: "own_case",
+						action: "own",
+						name: read("name"),
+					} as CaseOperation,
+					{
+						uuid: OP("visit"),
+						id: "visit",
+						action: "create",
+						caseType: "visit",
+						target: { kind: "new" },
+						name: read("name"),
+						links: [
+							{
+								identifier: "host",
+								targetType: "household",
+								target: { kind: "op", opUuid: OP("own") },
+								relationship: "extension",
+							},
+						],
+						...(visitAt !== undefined && { placement: visitAt }),
+					} as CaseOperation,
+				],
+			}).doc;
+		const unheld = registration();
+		const block = placementCandidates(unheld, UNDER_TEST, {
+			kind: "operation",
+			operationUuid: OP("visit"),
+		}).find((candidate) => candidate.kind === "save-to-case");
+		if (block === undefined)
+			throw new Error(
+				"The planner offers every operation a Save to Case block.",
+			);
+		const doc = registration(block);
+		expect(emittedModuleKind(doc, HOUSEHOLDS)).toBe("advanced");
+		const openAction = planPlacements(unheld, UNDER_TEST).placements.get(
+			OP("visit"),
+		)?.placement;
+		expect(openAction?.kind).toBe("advanced");
+		const offer = placementMoveOffer(doc, "save-to-case");
+		expect(offer?.holds).toEqual([
+			{
+				target: "case-operation",
+				formUuid: UNDER_TEST,
+				operationUuid: OP("visit"),
+				placement: openAction,
+			},
+		]);
 	});
 
 	it("keeps its digest under an edit that moves nothing, and changes it with what moves", () => {

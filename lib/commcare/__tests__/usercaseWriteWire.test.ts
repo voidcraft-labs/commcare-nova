@@ -12,6 +12,7 @@ import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
+import { basicForm } from "./hqBasicShape";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { usercaseWriteFixture } from "./usercaseWriteFixture";
 import { xpathEvidence } from "./xpathEvidence";
@@ -38,7 +39,7 @@ function exported(doc: BlueprintDoc) {
 	);
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	const hq = expandDoc(doc);
-	const form = hq.modules[0].forms[0];
+	const form = basicForm(hq, 0, 0);
 	const zip = new AdmZip(
 		compileCcz(hq, doc.appName, doc, { runtimeTarget: TEST_RUNTIME_TARGET }),
 	);

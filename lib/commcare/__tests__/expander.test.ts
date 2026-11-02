@@ -59,6 +59,7 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import { connectWireFixtures } from "./connectWireFixtures";
 import { captureExpanderEvidence } from "./expanderEvidence";
+import { basicForm, basicModule } from "./hqBasicShape";
 import { noMatchesDoc } from "./noMatchesWireFixture";
 import { xpathContains, xpathEvidence } from "./xpathEvidence";
 
@@ -325,9 +326,10 @@ describe("a survey menu's case type", () => {
 		expect(untyped.case_type).toBe("");
 		// The gate still decides what is built from the type: no form action,
 		// no case reference, and the search config stays at the shell defaults.
-		expect(typed.forms[0].requires).toBe("none");
-		expect(typed.forms[0].actions.update_case.condition.type).toBe("never");
-		expect(typed.forms[0].actions.open_case.condition.type).toBe("never");
+		const typedForm = basicForm(hq, 0, 0);
+		expect(typedForm.requires).toBe("none");
+		expect(typedForm.actions.update_case.condition.type).toBe("never");
+		expect(typedForm.actions.open_case.condition.type).toBe("never");
 		expect(typed.search_config.properties).toEqual([]);
 	});
 
@@ -545,7 +547,7 @@ describe("expandDoc", () => {
 
 	it("wires registration form actions correctly", () => {
 		const hq = expandDoc(registrationDoc);
-		const actions = hq.modules[0].forms[0].actions;
+		const actions = basicForm(hq, 0, 0).actions;
 
 		expect(actions.open_case.condition.type).toBe("always");
 		expect(actions.open_case.name_update.question_path).toBe(
@@ -556,7 +558,7 @@ describe("expandDoc", () => {
 
 	it("wires followup update actions correctly, and no preload action", () => {
 		const hq = expandDoc(followupDoc);
-		const actions = hq.modules[0].forms[0].actions;
+		const actions = basicForm(hq, 0, 0).actions;
 
 		expect(actions.open_case.condition.type).toBe("never");
 		// A question opens on its case's value through its own default.
@@ -715,17 +717,15 @@ describe("expandDoc", () => {
 		});
 		const hq = expandDoc(doc);
 		/* Conditional close form → "if" condition */
-		expect(hq.modules[0].forms[0].actions.close_case.condition.type).toBe("if");
-		expect(hq.modules[0].forms[0].actions.close_case.condition.answer).toBe(
-			"yes",
-		);
+		expect(basicForm(hq, 0, 0).actions.close_case.condition.type).toBe("if");
+		expect(basicForm(hq, 0, 0).actions.close_case.condition.answer).toBe("yes");
 		/* Unconditional close form → "always" condition */
-		expect(hq.modules[0].forms[1].actions.close_case.condition.type).toBe(
+		expect(basicForm(hq, 0, 1).actions.close_case.condition.type).toBe(
 			"always",
 		);
 		/* Close forms require a case datum (requires: "case") */
-		expect(hq.modules[0].forms[0].requires).toBe("case");
-		expect(hq.modules[0].forms[1].requires).toBe("case");
+		expect(basicForm(hq, 0, 0).requires).toBe("case");
+		expect(basicForm(hq, 0, 1).requires).toBe("case");
 	});
 });
 
@@ -3087,7 +3087,7 @@ describe("expansion with complete fields", () => {
 			],
 		});
 		const hq = expandDoc(doc);
-		const actions = hq.modules[0].forms[0].actions;
+		const actions = basicForm(hq, 0, 0).actions;
 		expect(actions.open_case.condition.type).toBe("always");
 		expect(actions.open_case.name_update.question_path).toBe(
 			"/data/nova_trimmed_case_name",
@@ -3398,8 +3398,10 @@ describe("case_list_only expansion", () => {
 		});
 		doc.modules[doc.moduleOrder[1]].parentCaseModuleUuid = doc.moduleOrder[0];
 		const hq = expandDoc(doc);
-		expect(hq.modules[1].parent_select.active).toBe(true);
-		expect(hq.modules[1].parent_select.module_id).toBe(hq.modules[0].unique_id);
+		expect(basicModule(hq, 1).parent_select.active).toBe(true);
+		expect(basicModule(hq, 1).parent_select.module_id).toBe(
+			hq.modules[0].unique_id,
+		);
 	});
 });
 

@@ -2246,6 +2246,417 @@ def not_name_question_repeat(use, manifest):
     return False
 
 
+# An advanced form's actions (``models/form_actions.py::AdvancedFormActions``): its loads
+# (``LoadUpdateAction``) and its open actions (``AdvancedOpenCaseAction``), each in its list's order.
+ADVANCED_ACTIONS = ("LoadUpdateAction", "AdvancedOpenCaseAction")
+# The tag format the advanced Case Management page accepts (``advanced/actions.js::actionBase.validate``), with
+# JavaScript's ``\w``, which is ASCII.
+EDITOR_TAG = re.compile(r"^[a-zA-Z][\w_-]*(/[a-zA-Z][\w_-]*)*$", re.ASCII)
+
+
+def _advanced_lists(form):
+    """A form's loads and open actions, or two empty lists for a form that holds neither."""
+    actions = _actions(form)
+    loads = [action for action in actions.get("load_update_cases") or [] if isinstance(action, dict)]
+    opens = [action for action in actions.get("open_cases") or [] if isinstance(action, dict)]
+    return loads, opens
+
+
+def _is_load(action, loads):
+    return any(action is load for load in loads)
+
+
+def _auto_selected(load):
+    """Whether a load selects its case itself (``LoadUpdateAction.auto_select``, which HQ wraps as ``None`` where
+    it is absent): the advanced editor checks no tag of such a load (``actions.js``, its ``validate``)."""
+    return isinstance(load.get("auto_select"), dict)
+
+
+def _from_fixture(load):
+    """Whether a load chooses its case from a lookup table (``load_case_from_fixture``), whose editor accepts a
+    blank tag (``actions.js::loadCaseFromFixture.validate``)."""
+    return isinstance(load.get("load_case_from_fixture"), dict)
+
+
+def _indices(action, loads):
+    """An action's indices as HQ reads them: a load's one ``case_index`` where its tag is set
+    (``LoadUpdateAction.case_indices``), an open action's ``case_indices``."""
+    if _is_load(action, loads):
+        index = action.get("case_index")
+        return [index] if isinstance(index, dict) and index.get("tag") else []
+    return [index for index in action.get("case_indices") or [] if isinstance(index, dict)]
+
+
+def _verdict(verdicts):
+    """True where any verdict is, else None where any is, else False."""
+    verdicts = list(verdicts)
+    return True if True in verdicts else None if None in verdicts else False
+
+
+def _advanced_reader(test):
+    """A reader of an advanced form's actions: ``test(at, form, loads, opens, action, index)`` for the action a
+    use sits in (and the index, where it sits in one, else None), or for each of the form's actions where the use
+    sits on the form or its action lists as a whole. A use of no advanced form is in no such class."""
+
+    def reader(use, manifest):
+        at, form = _form(use)
+        if form is None:
+            return None
+        loads, opens = _advanced_lists(form)
+        held = at.nearest(*ADVANCED_ACTIONS)
+        index = at.nearest("CaseIndex") if held is not None else None
+        actions = [held] if held is not None else [*loads, *opens]
+        return _verdict(test(at, form, loads, opens, action, index) for action in actions)
+
+    return reader
+
+
+def _tag_checked(action, loads):
+    """Whether the advanced editor checks an action's tag: every open action, and a load that neither selects its
+    case itself nor chooses it from a lookup table (None: that load's editor checks a tag only where one is set)."""
+    if not _is_load(action, loads):
+        return True
+    if _auto_selected(action):
+        return False
+    return None if _from_fixture(action) else True
+
+
+def _tag_with_slash(at, form, loads, opens, action, index):
+    return "/" in (action.get("case_tag") or "")
+
+
+tag_with_slash = _advanced_reader(_tag_with_slash)
+tag_with_slash.__doc__ = """``forms-and-case-writes/a-load-or-open-action-s-case-tag-containing-which-the-advanced``:
+a load's or open action's ``case_tag`` holding ``/``, which the editor's tag format accepts and which HQ builds into
+an element name (``xform.py::_make_elem``) and a session datum id ``case_id_<a>/<b>``."""
+
+
+def _blank_tag(at, form, loads, opens, action, index):
+    checked, blank = _tag_checked(action, loads), not action.get("case_tag")
+    if checked is None:
+        return None if blank else False
+    return checked and blank
+
+
+blank_tag = _advanced_reader(_blank_tag)
+blank_tag.__doc__ = """``forms-and-case-writes/case-tag-blank-on-a-non-auto-select-action``: a blank ``case_tag``
+on an action whose tag the advanced editor checks, which it marks "Case Tag required"
+(``advanced/actions.js::actionBase.validate``); a lookup-table load's editor checks no blank tag, so its blank tag
+is left open."""
+
+
+def _tag_failing_editor_check(at, form, loads, opens, action, index):
+    tag = action.get("case_tag")
+    if not tag or _tag_checked(action, loads) is not True:
+        return False
+    if not EDITOR_TAG.match(tag):
+        return True
+    return sum(1 for other in [*opens, *loads] if other.get("case_tag") == tag) > 1
+
+
+tag_failing_editor_check = _advanced_reader(_tag_failing_editor_check)
+tag_failing_editor_check.__doc__ = """``forms-and-case-writes/case-tag-of-a-non-auto-select-action-failing-actions-js``:
+a non-blank tag on an action whose tag the advanced editor checks, outside its format (letters, digits, ``_`` and
+``-``, after a letter, in ``/``-separated parts) or held by another of the form's actions (``getCaseTags('all')``:
+its loads and open actions alike), each an error the page marks (``advanced/actions.js::actionBase.validate``). A
+blank tag is ``blank-tag``'s."""
+
+
+def _slash_property_on_indexed_load(at, form, loads, opens, action, index):
+    if not _is_load(action, loads) or not _indices(action, loads):
+        return False
+    written = [key for key in (action.get("case_properties") or {})]
+    preloaded = [value for value in (action.get("preload") or {}).values() if isinstance(value, str)]
+    return any("/" in name for name in (*written, *preloaded))
+
+
+slash_property_on_indexed_load = _advanced_reader(_slash_property_on_indexed_load)
+slash_property_on_indexed_load.__doc__ = """
+``forms-and-case-writes/loadupdateaction-preload-or-case-properties-property-with-on-a``:
+a load with a ``case_index`` whose ``case_properties`` key or ``preload`` property (a preload maps a question
+path to a property) holds ``/``, which HQ's validator checks as a child case's name
+(``AdvancedFormValidator.check_actions``) and the editor refuses ("Parent property references not allowed for
+subcases", ``advanced/case_properties.js``)."""
+
+
+def _index_on_auto_select_or_first_load(at, form, loads, opens, action, index):
+    if not _is_load(action, loads) or not _indices(action, loads):
+        return False
+    return _auto_selected(action) or action is loads[0]
+
+
+index_on_auto_select_or_first_load = _advanced_reader(_index_on_auto_select_or_first_load)
+index_on_auto_select_or_first_load.__doc__ = """
+``forms-and-case-writes/loadupdateaction-case-index-on-an-auto-selected-load-or-on-the``:
+a load's ``case_index`` on a load that selects its case itself or on the form's first load, where the editor
+offers no "This case is a subcase of the previous case" (``case_config_advanced.html``)."""
+
+
+def _tag_names_other_than_previous_load(at, form, loads, opens, action, index):
+    if not _is_load(action, loads) or not _indices(action, loads):
+        return False
+    position = next(i for i, load in enumerate(loads) if load is action)
+    previous = loads[position - 1].get("case_tag") if position > 0 else None
+    return action["case_index"].get("tag") != previous
+
+
+tag_names_other_than_previous_load = _advanced_reader(_tag_names_other_than_previous_load)
+tag_names_other_than_previous_load.__doc__ = """
+``forms-and-case-writes/loadupdateaction-case-index-tag-naming-a-load-other-than-the-one``:
+a load's ``case_index.tag`` other than the tag of the load just before it in ``load_update_cases``, the only
+action the editor links a load to (``advanced/actions.js``, the load's ``subcase`` write)."""
+
+
+def _open_action_slash_key(at, form, loads, opens, action, index):
+    if _is_load(action, loads):
+        return False
+    return any("/" in key for key in action.get("case_properties") or {})
+
+
+open_action_slash_key = _advanced_reader(_open_action_slash_key)
+open_action_slash_key.__doc__ = """``forms-and-case-writes/advancedopencaseaction-case-properties-key-with-parent-p``:
+an open action's ``case_properties`` key holding ``/``."""
+
+
+def _shared_block_in_repeat(at, form, loads, opens, action, index):
+    if _is_load(action, loads) or not action.get("repeat_context"):
+        return False
+    sharing = [other for other in opens if other.get("repeat_context") == action["repeat_context"]]
+    indexed = [other for other in sharing if _indices(other, loads)]
+    return len(sharing) > 1 and len(indexed) < 2
+
+
+shared_block_in_repeat = _advanced_reader(_shared_block_in_repeat)
+shared_block_in_repeat.__doc__ = """
+``forms-and-case-writes/two-or-more-open-actions-whose-repeat-context-is-one-repeat``:
+an open action in a repeat that another open action shares, where fewer than two of the repeat's open actions
+carry ``case_indices``: HQ nests each block under ``case_<tag>`` only where the repeat holds two indexed open
+actions (``xform.py::_create_casexml_advanced``, ``get_action_path``;
+``AdvancedFormActions.count_subcases_per_repeat_context``), so otherwise their blocks share one path."""
+
+
+def _innermost_repeat(xform, path):
+    return max(
+        (repeat for repeat in xform.repeat_paths if path == repeat or path.startswith(f"{repeat}/")),
+        key=len,
+        default="",
+    )
+
+
+def _open_action_not_name_question_repeat(at, form, loads, opens, action, index):
+    if _is_load(action, loads):
+        return False
+    name = action.get("name_update")
+    path = name.get("question_path") if isinstance(name, dict) else None
+    if not path:
+        return False
+    xform = at.app.xform(form)
+    if xform is None:
+        return None
+    return (action.get("repeat_context") or "") != _innermost_repeat(xform, path)
+
+
+open_action_not_name_question_repeat = _advanced_reader(_open_action_not_name_question_repeat)
+open_action_not_name_question_repeat.__doc__ = """
+``forms-and-case-writes/advancedopencaseaction-repeat-context-other-than-the-name``:
+an open action whose ``repeat_context`` is not its name question's innermost repeat, which the advanced save writes
+from the name question (``advanced/actions.js``, ``openCaseAction.unwrap``; ``advanced/case_config_ui.js``,
+``get_repeat_context``), read in the form's XForm."""
+
+
+def _index_tags(action, loads, index):
+    """The tags of the action's indices a use reads: the one it sits in, else every one."""
+    return [index.get("tag")] if index is not None else [each.get("tag") for each in _indices(action, loads)]
+
+
+def _tag_names_own_or_later_open_action(at, form, loads, opens, action, index):
+    if _is_load(action, loads):
+        return False
+    position = next(i for i, other in enumerate(opens) if other is action)
+    later = {other.get("case_tag") for other in opens[position:] if other.get("case_tag")}
+    return any(tag in later for tag in _index_tags(action, loads, index))
+
+
+tag_names_own_or_later_open_action = _advanced_reader(_tag_names_own_or_later_open_action)
+tag_names_own_or_later_open_action.__doc__ = """
+``forms-and-case-writes/advancedopencaseaction-case-indices-naming-its-own-or-a-later``:
+an open action's index whose tag is its own or a later open action's, which the parent select never lists
+(``advanced/case_config_ui.js::getCaseTags('subcase')``: the loads, and the open actions before it)."""
+
+
+def _relationship_question_in_repeat(at, form, loads, opens, action, index):
+    indices = [index] if index is not None else _indices(action, loads)
+    paths = [each.get("relationship_question") for each in indices if each.get("relationship_question")]
+    if not paths:
+        return False
+    xform = at.app.xform(form)
+    if xform is None:
+        return None
+    return any(xform.in_repeat(path) for path in paths)
+
+
+relationship_question_in_repeat = _advanced_reader(_relationship_question_in_repeat)
+relationship_question_in_repeat.__doc__ = """``forms-and-case-writes/caseindex-relationship-question-inside-a-repeat``:
+an index's ``relationship_question`` inside a repeat, which the editor's question picker leaves out
+(``case_config_advanced.html``, ``getQuestions('all', false, false)``), read in the form's XForm."""
+
+
+def _question_relationship_to_open_action(at, form, loads, opens, action, index):
+    if _is_load(action, loads):
+        return False
+    opened = {other.get("case_tag") for other in opens if other.get("case_tag")}
+    indices = [index] if index is not None else _indices(action, loads)
+    return any(each.get("relationship") == "question" and each.get("tag") in opened for each in indices)
+
+
+question_relationship_to_open_action = _advanced_reader(_question_relationship_to_open_action)
+question_relationship_to_open_action.__doc__ = """
+``forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-an``:
+an open action's index whose ``relationship`` is ``question`` and whose tag names an open action: HQ writes its
+relationship and owner binds on the parent's block (``xform.py::_create_casexml_advanced``)."""
+
+
+def _question_relationship_after_open_action_index(at, form, loads, opens, action, index):
+    if _is_load(action, loads):
+        return False
+    opened = {other.get("case_tag") for other in opens if other.get("case_tag")}
+    loaded = {load.get("case_tag") for load in loads if load.get("case_tag")}
+    indices = _indices(action, loads)
+    for position, each in enumerate(indices):
+        if index is not None and each is not index:
+            continue
+        if each.get("relationship") != "question" or each.get("tag") not in loaded:
+            continue
+        if any(earlier.get("tag") in opened for earlier in indices[:position]):
+            return True
+    return False
+
+
+question_relationship_after_open_action_index = _advanced_reader(_question_relationship_after_open_action_index)
+question_relationship_after_open_action_index.__doc__ = """
+``forms-and-case-writes/caseindex-relationship-question-on-an-index-to-a-load-that``:
+an open action's index to a load whose ``relationship`` is ``question``, after an index of the same open action to
+an open action: resolving that parent first replaces the child's path, so HQ writes this index's relationship and
+owner binds on the parent's block (``xform.py::_create_casexml_advanced``)."""
+
+
+def _outside_parent_repeat(at, form, loads, opens, action, index):
+    if _is_load(action, loads):
+        return False
+    contexts = {other.get("case_tag"): other.get("repeat_context") or "" for other in opens if other.get("case_tag")}
+    child = action.get("repeat_context") or ""
+    for tag in _index_tags(action, loads, index):
+        parent = contexts.get(tag)
+        if parent and child != parent and not child.startswith(f"{parent}/"):
+            return True
+    return False
+
+
+outside_parent_repeat = _advanced_reader(_outside_parent_repeat)
+outside_parent_repeat.__doc__ = """
+``forms-and-case-writes/an-advanced-open-action-indexed-to-an-open-action-that-has-a-neither``:
+an open action indexed to an open action in a repeat, whose own ``repeat_context`` is neither that repeat nor a
+path inside it (HQ's own check, ``AdvancedFormValidator.check_actions``, compares text prefixes, so ``/data/rep2``
+passes it beside ``/data/rep``; the class reads paths by their steps)."""
+
+
+def _root_selection_datums(app, root):
+    """The datums of the first form of a child menu's root, as HQ aligns the child's datums to them
+    (``suite_xml/sections/entries.py::EntriesHelper._get_first_forms_datums``): each ``(id, case type, whether
+    it asks for a selection)``, or None where the root holds a shape this does not follow (a mirror menu, a
+    parent selection or a several-case list before the form, a lookup-table load, CommCare Supply's product)."""
+    forms = _forms(root)
+    if not forms:
+        return []
+    if root.get("doc_type") not in ("Module", "AdvancedModule"):
+        return None
+    form = forms[0]
+    if form.get("doc_type") == "AdvancedForm":
+        loads, opens = _advanced_lists(form)
+        datums = []
+        for load in loads:
+            if _from_fixture(load) or load.get("show_product_stock"):
+                return None
+            auto = _auto_selected(load) and (load["auto_select"].get("mode") or None)
+            datums.append((f"case_id_{load.get('case_tag')}", None if auto else load.get("case_type"), not auto))
+        for position, action in enumerate(opens):
+            if not action.get("repeat_context"):
+                datums.append((f"case_id_new_{action.get('case_type')}_{position}", action.get("case_type"), False))
+        return datums
+    if form.get("doc_type") != "Form":
+        return None
+    datums = []
+    if _requires(form) == "case":
+        if (root.get("parent_select") or {}).get("active"):
+            return None
+        if ((root.get("case_details") or {}).get("short") or {}).get("multi_select"):
+            return None
+        datums.append(("case_id", root.get("case_type"), True))
+    actions = _actions(form)
+    opens_case = _active(actions.get("open_case"))
+    if opens_case:
+        datums.append((f"case_id_new_{root.get('case_type')}_0", root.get("case_type"), False))
+    for position, subcase in enumerate(_subcases(form)):
+        if _active(subcase) and not subcase.get("repeat_context"):
+            number = position + 1 if opens_case else position
+            datums.append((f"case_id_new_{subcase.get('case_type')}_{number}", subcase.get("case_type"), False))
+    return datums
+
+
+def _aligned_load_datums(app, module, loads):
+    """Each load's datum id in a form of ``module`` once HQ aligns it to its root's first form
+    (``entries.py::EntriesHelper.add_parent_datums``), by the load's identity, or None where the root's datums
+    are not followed here (``_root_selection_datums``). A datum whose id a root datum holds is renamed
+    ``<id>_<case type>``; then each root datum that asks for a selection takes the child's next datum where both
+    load one case type, and that datum takes the root's id."""
+    root = app.root(module)
+    if root is None:
+        return {id(load): f"case_id_{load.get('case_tag')}" for load in loads}
+    parents = _root_selection_datums(app, root)
+    if parents is None:
+        return None
+    datums = []
+    for load in loads:
+        if _from_fixture(load) or load.get("show_product_stock"):
+            return None
+        auto = _auto_selected(load) and (load["auto_select"].get("mode") or None)
+        datums.append({"id": f"case_id_{load.get('case_tag')}", "type": None if auto else load.get("case_type")})
+    by_id = {datum["id"]: datum for datum in datums}
+    remaining = list(datums)
+    for parent_id, parent_type, selects in parents:
+        if parent_id in by_id:
+            renamed = by_id[parent_id]
+            renamed["id"] = f"{renamed['id']}_{renamed['type']}"
+        if not selects:
+            continue
+        if remaining and remaining[0]["type"] is not None and remaining[0]["type"] == parent_type:
+            remaining.pop(0)["id"] = parent_id
+    return {id(load): datum["id"] for load, datum in zip(loads, datums, strict=True)}
+
+
+def _load_with_renamed_datum(at, form, loads, opens, action, index):
+    if _is_load(action, loads):
+        return False
+    by_tag = {load.get("case_tag"): load for load in loads if load.get("case_tag")}
+    named = [by_tag[tag] for tag in _index_tags(action, loads, index) if tag in by_tag]
+    if not named:
+        return False
+    module = at.app.module_of(form)
+    if module is None:
+        return None
+    aligned = _aligned_load_datums(at.app, module, loads)
+    if aligned is None:
+        return None
+    return any(aligned[id(load)] != f"case_id_{load.get('case_tag')}" for load in named)
+
+
+load_with_renamed_datum = _advanced_reader(_load_with_renamed_datum)
+load_with_renamed_datum.__doc__ = """
+``forms-and-case-writes/an-advanced-open-action-s-index-to-a-load-whose-datum-hq-renames``:
+an open action's index to a load whose datum HQ renames in a child menu (``entries.py::add_parent_datums``),
+while the index reads ``case_id_<tag>`` (``xform.py::_create_casexml_advanced``), which the entry then never sets."""
+
+
 def update_never_followup_alone(use, manifest):
     """``forms-and-case-writes/update-case-condition-never-on-a-follow-up-with-no-other-active``:
     ``update_case.condition: never`` on a follow-up whose ``Form.active_actions`` hold nothing else, outside
@@ -5986,6 +6397,37 @@ VALUE_CLASSES = {
     "forms-and-case-writes/subcases-relationship-extension": extension,
     "forms-and-case-writes/subcases-repeat-context-other-than-the-name-question-s-innermost": (
         not_name_question_repeat
+    ),
+    "forms-and-case-writes/a-load-or-open-action-s-case-tag-containing-which-the-advanced": tag_with_slash,
+    "forms-and-case-writes/case-tag-blank-on-a-non-auto-select-action": blank_tag,
+    "forms-and-case-writes/case-tag-of-a-non-auto-select-action-failing-actions-js": tag_failing_editor_check,
+    "forms-and-case-writes/loadupdateaction-preload-or-case-properties-property-with-on-a": (
+        slash_property_on_indexed_load
+    ),
+    "forms-and-case-writes/loadupdateaction-case-index-on-an-auto-selected-load-or-on-the": (
+        index_on_auto_select_or_first_load
+    ),
+    "forms-and-case-writes/loadupdateaction-case-index-tag-naming-a-load-other-than-the-one": (
+        tag_names_other_than_previous_load
+    ),
+    "forms-and-case-writes/advancedopencaseaction-case-properties-key-with-parent-p": open_action_slash_key,
+    "forms-and-case-writes/two-or-more-open-actions-whose-repeat-context-is-one-repeat": shared_block_in_repeat,
+    "forms-and-case-writes/advancedopencaseaction-repeat-context-other-than-the-name": (
+        open_action_not_name_question_repeat
+    ),
+    "forms-and-case-writes/advancedopencaseaction-case-indices-naming-its-own-or-a-later": (
+        tag_names_own_or_later_open_action
+    ),
+    "forms-and-case-writes/an-advanced-open-action-s-index-to-a-load-whose-datum-hq-renames": load_with_renamed_datum,
+    "forms-and-case-writes/caseindex-relationship-question-inside-a-repeat": relationship_question_in_repeat,
+    "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-an": (
+        question_relationship_to_open_action
+    ),
+    "forms-and-case-writes/caseindex-relationship-question-on-an-index-to-a-load-that": (
+        question_relationship_after_open_action_index
+    ),
+    "forms-and-case-writes/an-advanced-open-action-indexed-to-an-open-action-that-has-a-neither": (
+        outside_parent_repeat
     ),
     "forms-and-case-writes/update-case-condition-never-on-a-follow-up-with-no-other-active": (
         update_never_followup_alone

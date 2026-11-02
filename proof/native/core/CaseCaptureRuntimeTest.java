@@ -200,16 +200,17 @@ public class CaseCaptureRuntimeTest {
     }
     /**
      * The case family's extension registration form: two extension children and an ordinary child of the case
-     * the form registers. Each names that case as its parent, the extension children through the session's
-     * datum for the new case (the id the form's own create block carries), on Nova's form and on HQ's whole
-     * regeneration of it, where HQ's own blocks for the extension children are inactive.
+     * the form registers. Its link carries the new episode, so its menu is advanced and each create an open action
+     * (part 02 of the step 5 plan); each names that case as its parent through the session's datum for the new
+     * patient (the id the patient's own open action carries in {@code case_open_patient_0}), on Nova's form and on
+     * HQ's whole regeneration of it.
      */
     private static void checkExtensionParents(boolean hq) throws Exception {
-        FormParseInit parsed = new FormParseInit("/case/registration" + (hq ? ".whole.hq.xml" : ".xml"));
+        FormParseInit parsed = new FormParseInit("/case/registration" + (hq ? ".hq.xml" : ".xml"));
         FormDef form = parsed.getFormDef();
         form.initialize(true, environment());
         enter(parsed, "registration");
-        assertEquals("new-patient-id", eval(form, "string(/data/case/@case_id)"));
+        assertEquals("new-patient-id", eval(form, "string(/data/case_open_patient_0/case/@case_id)"));
         String namespace = "http://commcarehq.org/case/transaction/v2";
         org.w3c.dom.NodeList parents = submission(form).getElementsByTagNameNS(namespace, "parent");
         assertEquals(3, parents.getLength());

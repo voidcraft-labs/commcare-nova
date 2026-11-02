@@ -1485,7 +1485,15 @@ rail**: the detail owns the condition and the carried values (all-or-nothing,
 one row per required datum, hinted "Give the case id the destination should
 open"); the rail owns the destination (`LinkTargetPicker`, every row offered
 with the target planner's verdict — self, cycle with its named chain, gone),
-the kind, and removal (confirmed inline, naming a pinned fallback).
+the kind, and removal (confirmed inline, naming a pinned fallback). A form the
+planner admits but the link could not open with a case this form creates is
+disabled before **Add link** or the retarget with
+`FORM_LINK_NEEDS_NEW_CASE_DATUM`'s builder sentence, which names what keeps
+the menu ordinary (`useFormLinks().newCaseRefusal`, which reviews the exact
+add or retarget batch through the inline flavor's gate; the picker's
+`refusalOf`). Every other place the finding arises (a condition or carried
+value saved on the canvas, a setting whose change blocks the advanced menu)
+shows it through the inline or announcing flavor its edit already uses.
 
 ## Predicate / expression card editor (shared)
 

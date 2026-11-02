@@ -6,6 +6,7 @@
 // total over its union, so a reason, a placement arm or a label without
 // copy fails to compile.
 
+import type { AdvancedKindBlocker } from "./advancedModule";
 import type { CasePlacement, PlacementIneligibilityReason } from "./placements";
 
 /**
@@ -55,6 +56,8 @@ export function placementLabel(placement: CasePlacement): PlacementLabel {
 	switch (placement.kind) {
 		case "basic":
 			return "case-management";
+		case "advanced":
+			return "case-actions";
 		case "save-to-case":
 			return "save-to-case";
 		default: {
@@ -114,7 +117,7 @@ export function placementIneligibilitySentence(
 		case "condition-not-a-choice":
 			return "Its condition now compares a select with a value that isn't one of its choices.";
 		case "case-changed-before-create":
-			return "Another case change now updates or closes the case it creates, and Case Management would create that case only after it.";
+			return "Another case change now updates or closes the case it creates, and CommCare HQ would create that case only after that change.";
 		case "subcase-index":
 			return "A new case before it was removed or moved, so its place in Case Management's list of new cases changed.";
 		case "subcase-nesting":
@@ -129,8 +132,60 @@ export function placementIneligibilitySentence(
 			return "Its condition, or the answer its case id comes from, changed, which changes where Save to Case keeps it.";
 		case "no-close":
 			return "This form no longer closes its case.";
+		case "value-not-a-question":
+			return "One of its values no longer comes straight from one question where it runs, which case actions can't save.";
+		case "condition-not-stateable":
+			return "Its condition is now more than case actions can state, which is one question compared with a value that holds no apostrophe.";
+		case "via-on-indexed-load":
+			return "One of its saves now goes to a case above it, which case actions can't do for a case chosen under its parent case.";
+		case "owner":
+			return "Its owner now comes from something other than one question's answer, which case actions can't save.";
+		case "retype":
+			return "It now changes the case's type, which case actions can't do.";
+		case "link-target":
+			return "It now links to a case that case actions can't link it to, since they link only a new case, and only to a case the form loads or creates before it.";
+		case "link-renamed-load":
+			return "It now links to a case chosen in the menu above, which case actions name differently there and can't link to.";
+		case "repeat-shared":
+			return "Its repeat now creates another case through case actions, which keep two new cases in one repeat apart only when both link to another case.";
+		case "type-not-a-menu":
+			return "Its case type is no longer one a menu of this app uses, and case actions create only cases of a menu's type.";
+		case "keyed":
+			return "Its case id now comes from an answer, and case actions give every new case a new id.";
+		case "appended-name-taken":
+			return "A question in the form now has the name CommCare HQ gives the place this change is saved.";
+		case "worker-property-name":
+			return "One of the worker properties it saves now has a name case actions can't save, which starts with a letter and holds only letters, digits, underscores and hyphens.";
+		case "carried-create":
+			return "An after-submit link now hands the case it creates to another form, which needs that case's id when the form opens.";
 		default: {
 			const _exhaustive: never = reason;
+			return _exhaustive;
+		}
+	}
+}
+
+/**
+ * Why a menu CommCare HQ holds as an advanced menu can no longer be one, in
+ * one sentence: the reason of its `module-kind` move and of the gate's
+ * `HELD_PLACEMENT_INEXPRESSIBLE` finding for it, the first blocker's kind.
+ * `forms-read-search` is worded for the blocker as it reads today, a menu
+ * that opens on its Search screen.
+ */
+export function advancedKindBlockerSentence(
+	blocker: AdvancedKindBlocker["kind"],
+): string {
+	switch (blocker) {
+		case "several-cases":
+			return "It now lets workers choose several cases, which an advanced menu can't do.";
+		case "forms-read-search":
+			return "It now opens on its Search screen with its forms reading the search, which an advanced menu can't do.";
+		case "case-list-menu-item-narrowed":
+			return "Its case list in the menu now has a filter or a parent case, which an advanced menu would leave out.";
+		case "chain-index":
+			return "Its cases now link to their parent case under more than one name.";
+		default: {
+			const _exhaustive: never = blocker;
 			return _exhaustive;
 		}
 	}
@@ -147,6 +202,8 @@ function placementPlaceLine(placement: CasePlacement): string {
 	switch (placement.kind) {
 		case "basic":
 			return "CommCare HQ keeps this in the form's Case Management settings.";
+		case "advanced":
+			return "CommCare HQ keeps this in the form's case actions.";
 		case "save-to-case":
 			return "CommCare HQ keeps this in a Save to Case block in the form, which needs Save to Case in the project space's plan.";
 		default: {

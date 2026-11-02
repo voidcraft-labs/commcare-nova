@@ -492,6 +492,9 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 		caseSearchConfig: true,
 		icon: true,
 		audioLabel: true,
+		// Whether CommCare HQ holds the menu as an advanced module is held by
+		// `holdPlacements` alone; no module patch writes it.
+		heldKind: true,
 	})
 	.extend({
 		/** Whole config snapshots have granular owners. These null-only slots are
@@ -533,6 +536,16 @@ function formHoldsPlacement(form: {
 
 const HELD_FORM_PLACEMENT_MESSAGE =
 	"A new form can't hold where a published app keeps its case changes, since no edit chooses that. Leave out `ownClosePlacement` and each case change's `placement`, and the form takes the placements its shape gives.";
+
+/**
+ * `addModule`'s module: any module, holding no kind. Whether CommCare HQ
+ * holds a menu as an advanced module is recorded by a publish, never chosen,
+ * so a new module starts unheld.
+ */
+const addModuleModuleSchema = moduleSchema.refine(
+	(module) => module.heldKind === undefined,
+	"A new menu can't hold how a published app keeps it in CommCare HQ, since no edit chooses that. Leave out `heldKind`, and the menu takes the kind its forms give it.",
+);
 
 /** `addForm`'s form: any form, holding no placement. */
 const addFormFormSchema = formSchema.refine(
@@ -693,7 +706,7 @@ const updateFieldArms = fieldKinds.map(
 ) as [UpdateFieldArm, ...UpdateFieldArm[]];
 
 const finalMutationFamily = {
-	module: moduleSchema,
+	module: addModuleModuleSchema,
 	moduleUpdatePatch: canonicalModuleUpdatePatchSchema,
 	caseSearchConfig: caseSearchConfigSchema,
 	caseSearchConfigPatch: canonicalCaseSearchConfigPatchSchema,
@@ -755,8 +768,8 @@ function reportImmutableCaseOperationIdentity(
 /**
  * Reports an update that carries a held placement: an operation's
  * `placement` in an added operation or an operation patch, the form's
- * `ownClosePlacement` in the form patch, or a query repeat's `placement` in a
- * field patch.
+ * `ownClosePlacement` in the form patch, a query repeat's `placement` in a
+ * field patch, or a menu's `heldKind` in a module patch.
  *
  * Every payload schema omits those slots, so strict parsing refuses them on
  * its own. As with the operation uuid above, this supplies the sentence: the
@@ -778,6 +791,20 @@ function reportHeldPlacementInPayload(
 			path: ["patch", "placement"],
 			message:
 				"This field update also sets where a published query repeat's rows come from. No edit chooses that, so leave `placement` out of the patch.",
+		});
+		return;
+	}
+	if (
+		isPlainRecord(value) &&
+		value.kind === "updateModule" &&
+		isPlainRecord(value.patch) &&
+		Object.hasOwn(value.patch, "heldKind")
+	) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["patch", "heldKind"],
+			message:
+				"This menu update also sets how a published app keeps the menu in CommCare HQ. No edit chooses that, so leave `heldKind` out of the patch.",
 		});
 		return;
 	}
@@ -861,7 +888,8 @@ function prevalidateRawMutationInput<Schema extends z.ZodType>(
 // Where a published app keeps a change in CommCare HQ is no author's choice,
 // so every other payload omits the held slots (`HELD_FIELD_KEYS`, the
 // operation arms without `placement`, `updateForm.patch` without
-// `ownClosePlacement`). `holdPlacements` is the one mutation that writes them.
+// `ownClosePlacement`, `addModule` and `updateModule.patch` without
+// `heldKind`). `holdPlacements` is the one mutation that writes them.
 
 /** One held placement, set or cleared. `null` clears the target's held slot. */
 export const placementHoldSchema = z.discriminatedUnion("target", [
@@ -881,12 +909,17 @@ export const placementHoldSchema = z.discriminatedUnion("target", [
 		fieldUuid: uuidSchema,
 		placement: queryRepeatPlacementSchema.nullable(),
 	}),
+	z.strictObject({
+		target: z.literal("module-kind"),
+		moduleUuid: uuidSchema,
+		placement: z.literal("advanced").nullable(),
+	}),
 ]);
 export type PlacementHoldEntry = z.infer<typeof placementHoldSchema>;
 
 /**
  * A target's key: `case-operation:<form>:<operation>`, `own-close:<form>`,
- * `query-repeat:<field>`. `lib/doc/placementHolds.ts` re-exports it with the
+ * `query-repeat:<field>`, `module-kind:<module>`. `lib/doc/placementHolds.ts` re-exports it with the
  * rest of the target vocabulary; it lives here because the mutation's own
  * schema reads it.
  */
@@ -898,7 +931,8 @@ export function placementTargetKey(
 				readonly operationUuid: string;
 		  }
 		| { readonly target: "own-close"; readonly formUuid: string }
-		| { readonly target: "query-repeat"; readonly fieldUuid: string },
+		| { readonly target: "query-repeat"; readonly fieldUuid: string }
+		| { readonly target: "module-kind"; readonly moduleUuid: string },
 ): string {
 	switch (target.target) {
 		case "case-operation":
@@ -907,6 +941,8 @@ export function placementTargetKey(
 			return `own-close:${target.formUuid}`;
 		case "query-repeat":
 			return `query-repeat:${target.fieldUuid}`;
+		case "module-kind":
+			return `module-kind:${target.moduleUuid}`;
 	}
 }
 
@@ -924,7 +960,7 @@ export const holdPlacementsMutationSchema = z
 					code: "custom",
 					path: ["holds", index],
 					message:
-						"This change holds one placement twice. Name each case change, own close or query repeat once, with the placement it keeps.",
+						"This change holds one placement twice. Name each case change, own close, query repeat or menu once, with the placement it keeps.",
 				});
 			}
 			seen.add(key);

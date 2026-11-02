@@ -1,0 +1,1990 @@
+{
+	"about": "Each eligibility clause of Nova's advanced actions (lib/commcare/advancedPlacement.ts) as a pair of forms that differ in that clause alone: `refused` holds the shape Nova keeps from an advanced action (its change takes Save to Case), `accepted` the twin it places on one; every twin is a document Nova's commit gate admits. `unreachable` names each clause whose refused shape no admitted document holds, and the code the gate refuses it with. Written by lib/commcare/__tests__/advancedPlacement.test.ts; read by proof/hq/test_advanced_rules.py.",
+	"fixture": "lib/commcare/__tests__/advancedPlacementFixture.ts",
+	"questions": {
+		"2bc336ef-388f-562b-a363-73759cab869f": "/data/name",
+		"37b3f167-9210-5773-a7db-fc29464c87b7": "/data/age",
+		"81ffd79e-863d-5fea-a3cd-f4f892026f6e": "/data/status",
+		"17283840-7880-51c4-aa5d-fb72c85f0b90": "/data/note",
+		"e2ae3bcf-d949-5a63-a9ff-d729de917a9f": "/data/owner_q",
+		"c4c1db31-6bc5-5ebd-a62f-42fb56482e01": "/data/kids",
+		"385c9ca6-f402-5012-a19c-604c08f6ad36": "/data/kids/kid_name",
+		"8a87955c-42d7-5ec8-ad53-0e56ac95400c": "/data/kids/kid_age",
+		"b85946ba-6240-55fe-a623-9400e035e78a": "/data/pets",
+		"e54d8795-b221-58d9-a567-317fcce78b65": "/data/pets/pet_name"
+	},
+	"menus": {
+		"46d4738b-e5c5-5af7-a060-66d5b8a561fb": {
+			"name": "Households",
+			"caseType": "household"
+		},
+		"4d95aa10-ddef-54e4-a25d-086a09164800": {
+			"name": "Members",
+			"caseType": "member"
+		},
+		"9477683d-afca-5359-a681-9073e712328d": {
+			"name": "Visits",
+			"caseType": "visit"
+		}
+	},
+	"rows": [
+		{
+			"clause": "scope",
+			"action": "load",
+			"source": "corehq/apps/app_manager/models/form_actions.py::LoadUpdateAction",
+			"subject": "b7ad41d0-02b6-5b3c-a661-cb2a2227e380",
+			"refused": {
+				"formType": "followup",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own"
+					},
+					{
+						"uuid": "b7ad41d0-02b6-5b3c-a661-cb2a2227e380",
+						"id": "u",
+						"action": "update",
+						"caseType": "household",
+						"target": {
+							"kind": "session"
+						},
+						"writes": [
+							{
+								"property": "age",
+								"value": {
+									"kind": "term",
+									"term": {
+										"kind": "field",
+										"uuid": "37b3f167-9210-5773-a7db-fc29464c87b7"
+									}
+								}
+							}
+						],
+						"forEach": {
+							"repeat": "c4c1db31-6bc5-5ebd-a62f-42fb56482e01"
+						}
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"repeat": "c4c1db31-6bc5-5ebd-a62f-42fb56482e01",
+					"path": [
+						"nova_operations",
+						"u"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "followup",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own"
+					},
+					{
+						"uuid": "b7ad41d0-02b6-5b3c-a661-cb2a2227e380",
+						"id": "u",
+						"action": "update",
+						"caseType": "household",
+						"target": {
+							"kind": "session"
+						},
+						"writes": [
+							{
+								"property": "age",
+								"value": {
+									"kind": "term",
+									"term": {
+										"kind": "field",
+										"uuid": "37b3f167-9210-5773-a7db-fc29464c87b7"
+									}
+								}
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "load_household0"
+				}
+			}
+		},
+		{
+			"clause": "value-not-a-question",
+			"action": "load",
+			"source": "corehq/apps/app_manager/helpers/validators.py::IndexedFormBaseValidator.check_paths",
+			"subject": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+			"refused": {
+				"formType": "followup",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"writes": [
+							{
+								"property": "remark",
+								"value": {
+									"kind": "concat",
+									"parts": [
+										{
+											"kind": "term",
+											"term": {
+												"kind": "field",
+												"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+											}
+										}
+									]
+								}
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"own_case"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "followup",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"writes": [
+							{
+								"property": "remark",
+								"value": {
+									"kind": "term",
+									"term": {
+										"kind": "field",
+										"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+									}
+								}
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "load_household0"
+				}
+			}
+		},
+		{
+			"clause": "write-condition",
+			"action": "load",
+			"source": "corehq/apps/app_manager/models/form_actions.py::ConditionalCaseUpdate",
+			"subject": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+			"refused": {
+				"formType": "followup",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"writes": [
+							{
+								"property": "age",
+								"value": {
+									"kind": "term",
+									"term": {
+										"kind": "field",
+										"uuid": "37b3f167-9210-5773-a7db-fc29464c87b7"
+									}
+								},
+								"condition": {
+									"kind": "eq",
+									"left": {
+										"kind": "term",
+										"term": {
+											"kind": "field",
+											"uuid": "81ffd79e-863d-5fea-a3cd-f4f892026f6e"
+										}
+									},
+									"right": {
+										"kind": "term",
+										"term": {
+											"kind": "choice",
+											"field": "81ffd79e-863d-5fea-a3cd-f4f892026f6e",
+											"options": [
+												"cd60b8a0-6f40-571c-a7e3-d92a6a677cb0"
+											]
+										}
+									}
+								}
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"own_case"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "followup",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"writes": [
+							{
+								"property": "age",
+								"value": {
+									"kind": "term",
+									"term": {
+										"kind": "field",
+										"uuid": "37b3f167-9210-5773-a7db-fc29464c87b7"
+									}
+								}
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "load_household0"
+				}
+			}
+		},
+		{
+			"clause": "condition-not-stateable",
+			"action": "load",
+			"source": "corehq/apps/app_manager/xform.py::XForm.action_relevance",
+			"subject": "adad3212-f0b6-5ee6-a061-dae838280622",
+			"refused": {
+				"formType": "followup",
+				"menu": "members",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own"
+					},
+					{
+						"uuid": "adad3212-f0b6-5ee6-a061-dae838280622",
+						"id": "c",
+						"action": "close",
+						"caseType": "household",
+						"target": {
+							"kind": "expression",
+							"expr": {
+								"kind": "term",
+								"term": {
+									"kind": "session-datum",
+									"datum": {
+										"kind": "selected-case",
+										"module": "46d4738b-e5c5-5af7-a060-66d5b8a561fb"
+									}
+								}
+							}
+						},
+						"condition": {
+							"kind": "eq",
+							"left": {
+								"kind": "term",
+								"term": {
+									"kind": "field",
+									"uuid": "37b3f167-9210-5773-a7db-fc29464c87b7"
+								}
+							},
+							"right": {
+								"kind": "term",
+								"term": {
+									"kind": "literal",
+									"value": 3
+								}
+							}
+						}
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"nova_condition_c",
+						"c"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "followup",
+				"menu": "members",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own"
+					},
+					{
+						"uuid": "adad3212-f0b6-5ee6-a061-dae838280622",
+						"id": "c",
+						"action": "close",
+						"caseType": "household",
+						"target": {
+							"kind": "expression",
+							"expr": {
+								"kind": "term",
+								"term": {
+									"kind": "session-datum",
+									"datum": {
+										"kind": "selected-case",
+										"module": "46d4738b-e5c5-5af7-a060-66d5b8a561fb"
+									}
+								}
+							}
+						},
+						"condition": {
+							"kind": "eq",
+							"left": {
+								"kind": "term",
+								"term": {
+									"kind": "field",
+									"uuid": "81ffd79e-863d-5fea-a3cd-f4f892026f6e"
+								}
+							},
+							"right": {
+								"kind": "term",
+								"term": {
+									"kind": "choice",
+									"field": "81ffd79e-863d-5fea-a3cd-f4f892026f6e",
+									"options": [
+										"cd60b8a0-6f40-571c-a7e3-d92a6a677cb0"
+									]
+								}
+							}
+						}
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "load_household0"
+				}
+			}
+		},
+		{
+			"clause": "owner",
+			"action": "load",
+			"source": "corehq/apps/app_manager/helpers/validators.py::IndexedFormBaseValidator.check_paths",
+			"subject": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+			"refused": {
+				"formType": "followup",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"owner": {
+							"kind": "acting-user"
+						}
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"own_case"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "followup",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"owner": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "e2ae3bcf-d949-5a63-a9ff-d729de917a9f"
+							}
+						}
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "load_household0"
+				}
+			}
+		},
+		{
+			"clause": "retype",
+			"action": "load",
+			"source": "corehq/apps/app_manager/static/app_manager/json/case-reserved-words.json",
+			"subject": "b7ad41d0-02b6-5b3c-a661-cb2a2227e380",
+			"refused": {
+				"formType": "followup",
+				"menu": "members",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own"
+					},
+					{
+						"uuid": "b7ad41d0-02b6-5b3c-a661-cb2a2227e380",
+						"id": "u",
+						"action": "update",
+						"caseType": "household",
+						"target": {
+							"kind": "expression",
+							"expr": {
+								"kind": "term",
+								"term": {
+									"kind": "session-datum",
+									"datum": {
+										"kind": "selected-case",
+										"module": "46d4738b-e5c5-5af7-a060-66d5b8a561fb"
+									}
+								}
+							}
+						},
+						"writes": [
+							{
+								"property": "age",
+								"value": {
+									"kind": "term",
+									"term": {
+										"kind": "field",
+										"uuid": "37b3f167-9210-5773-a7db-fc29464c87b7"
+									}
+								}
+							}
+						],
+						"retype": "visit"
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"u"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "followup",
+				"menu": "members",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own"
+					},
+					{
+						"uuid": "b7ad41d0-02b6-5b3c-a661-cb2a2227e380",
+						"id": "u",
+						"action": "update",
+						"caseType": "household",
+						"target": {
+							"kind": "expression",
+							"expr": {
+								"kind": "term",
+								"term": {
+									"kind": "session-datum",
+									"datum": {
+										"kind": "selected-case",
+										"module": "46d4738b-e5c5-5af7-a060-66d5b8a561fb"
+									}
+								}
+							}
+						},
+						"writes": [
+							{
+								"property": "age",
+								"value": {
+									"kind": "term",
+									"term": {
+										"kind": "field",
+										"uuid": "37b3f167-9210-5773-a7db-fc29464c87b7"
+									}
+								}
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "load_household0"
+				}
+			}
+		},
+		{
+			"clause": "link-target",
+			"action": "load",
+			"source": "corehq/apps/app_manager/models/form_actions.py::LoadUpdateAction.case_index",
+			"subject": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+			"refused": {
+				"formType": "followup",
+				"menu": "members",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"links": [
+							{
+								"identifier": "host",
+								"targetType": "household",
+								"target": {
+									"kind": "expression",
+									"expr": {
+										"kind": "term",
+										"term": {
+											"kind": "session-datum",
+											"datum": {
+												"kind": "selected-case",
+												"module": "46d4738b-e5c5-5af7-a060-66d5b8a561fb"
+											}
+										}
+									}
+								},
+								"relationship": "extension"
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"own_case"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "followup",
+				"menu": "members",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own"
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "load_member1"
+				}
+			}
+		},
+		{
+			"clause": "keyed",
+			"action": "open",
+			"source": "corehq/apps/app_manager/xform.py::XForm._create_casexml_advanced",
+			"subject": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+			"refused": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new",
+							"idFrom": "2bc336ef-388f-562b-a363-73759cab869f"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"nova_keyed_kid",
+						"kid"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "open_member_1"
+				}
+			}
+		},
+		{
+			"clause": "value-not-a-question",
+			"action": "open",
+			"source": "corehq/apps/app_manager/helpers/validators.py::IndexedFormBaseValidator.check_paths",
+			"subject": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+			"refused": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "concat",
+							"parts": [
+								{
+									"kind": "term",
+									"term": {
+										"kind": "field",
+										"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+									}
+								}
+							]
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"kid"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "open_member_1"
+				}
+			}
+		},
+		{
+			"clause": "name-repeat",
+			"action": "open",
+			"source": "corehq/apps/app_manager/static/app_manager/js/forms/advanced/actions.js::repeat_context",
+			"subject": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+			"refused": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						],
+						"forEach": {
+							"repeat": "c4c1db31-6bc5-5ebd-a62f-42fb56482e01"
+						}
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"repeat": "c4c1db31-6bc5-5ebd-a62f-42fb56482e01",
+					"path": [
+						"nova_operations",
+						"kid"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "385c9ca6-f402-5012-a19c-604c08f6ad36"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						],
+						"forEach": {
+							"repeat": "c4c1db31-6bc5-5ebd-a62f-42fb56482e01"
+						}
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "open_member_1",
+					"row": true
+				}
+			}
+		},
+		{
+			"clause": "write-condition",
+			"action": "open",
+			"source": "corehq/apps/app_manager/models/form_actions.py::ConditionalCaseUpdate",
+			"subject": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+			"refused": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						],
+						"writes": [
+							{
+								"property": "age",
+								"value": {
+									"kind": "term",
+									"term": {
+										"kind": "field",
+										"uuid": "37b3f167-9210-5773-a7db-fc29464c87b7"
+									}
+								},
+								"condition": {
+									"kind": "eq",
+									"left": {
+										"kind": "term",
+										"term": {
+											"kind": "field",
+											"uuid": "81ffd79e-863d-5fea-a3cd-f4f892026f6e"
+										}
+									},
+									"right": {
+										"kind": "term",
+										"term": {
+											"kind": "choice",
+											"field": "81ffd79e-863d-5fea-a3cd-f4f892026f6e",
+											"options": [
+												"cd60b8a0-6f40-571c-a7e3-d92a6a677cb0"
+											]
+										}
+									}
+								}
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"kid"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						],
+						"writes": [
+							{
+								"property": "age",
+								"value": {
+									"kind": "term",
+									"term": {
+										"kind": "field",
+										"uuid": "37b3f167-9210-5773-a7db-fc29464c87b7"
+									}
+								}
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "open_member_1"
+				}
+			}
+		},
+		{
+			"clause": "condition-not-stateable",
+			"action": "open",
+			"source": "corehq/apps/app_manager/xform.py::XForm.action_relevance",
+			"subject": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+			"refused": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						],
+						"condition": {
+							"kind": "eq",
+							"left": {
+								"kind": "term",
+								"term": {
+									"kind": "field",
+									"uuid": "37b3f167-9210-5773-a7db-fc29464c87b7"
+								}
+							},
+							"right": {
+								"kind": "term",
+								"term": {
+									"kind": "literal",
+									"value": 3
+								}
+							}
+						}
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"kid"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						],
+						"condition": {
+							"kind": "eq",
+							"left": {
+								"kind": "term",
+								"term": {
+									"kind": "field",
+									"uuid": "81ffd79e-863d-5fea-a3cd-f4f892026f6e"
+								}
+							},
+							"right": {
+								"kind": "term",
+								"term": {
+									"kind": "choice",
+									"field": "81ffd79e-863d-5fea-a3cd-f4f892026f6e",
+									"options": [
+										"cd60b8a0-6f40-571c-a7e3-d92a6a677cb0"
+									]
+								}
+							}
+						}
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "open_member_1"
+				}
+			}
+		},
+		{
+			"clause": "owner",
+			"action": "open",
+			"source": "corehq/apps/app_manager/xform.py::autoset_owner_id_for_advanced_action",
+			"subject": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+			"refused": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						],
+						"owner": {
+							"kind": "concat",
+							"parts": [
+								{
+									"kind": "term",
+									"term": {
+										"kind": "field",
+										"uuid": "e2ae3bcf-d949-5a63-a9ff-d729de917a9f"
+									}
+								}
+							]
+						}
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"kid"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						],
+						"owner": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "e2ae3bcf-d949-5a63-a9ff-d729de917a9f"
+							}
+						}
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "open_member_1"
+				}
+			}
+		},
+		{
+			"clause": "link-target",
+			"action": "open",
+			"source": "corehq/apps/app_manager/helpers/validators.py::AdvancedFormValidator.check_actions",
+			"subject": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+			"refused": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": null,
+								"relationship": "child"
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"kid"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "open_member_1"
+				}
+			}
+		},
+		{
+			"clause": "link-renamed-load",
+			"action": "open",
+			"source": "corehq/apps/app_manager/xform.py::XForm._create_casexml_advanced",
+			"subject": "1ea1795c-6447-59f0-a08b-14b66d901bcc",
+			"refused": {
+				"formType": "followup",
+				"menu": "members",
+				"nested": true,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own"
+					},
+					{
+						"uuid": "1ea1795c-6447-59f0-a08b-14b66d901bcc",
+						"id": "visit",
+						"action": "create",
+						"caseType": "visit",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "expression",
+									"expr": {
+										"kind": "term",
+										"term": {
+											"kind": "session-datum",
+											"datum": {
+												"kind": "selected-case",
+												"module": "46d4738b-e5c5-5af7-a060-66d5b8a561fb"
+											}
+										}
+									}
+								},
+								"relationship": "child"
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"visit"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "followup",
+				"menu": "members",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own"
+					},
+					{
+						"uuid": "1ea1795c-6447-59f0-a08b-14b66d901bcc",
+						"id": "visit",
+						"action": "create",
+						"caseType": "visit",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "expression",
+									"expr": {
+										"kind": "term",
+										"term": {
+											"kind": "session-datum",
+											"datum": {
+												"kind": "selected-case",
+												"module": "46d4738b-e5c5-5af7-a060-66d5b8a561fb"
+											}
+										}
+									}
+								},
+								"relationship": "child"
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "open_visit_0"
+				}
+			}
+		},
+		{
+			"clause": "repeat-shared",
+			"action": "open",
+			"source": "corehq/apps/app_manager/xform.py::get_action_path",
+			"subject": "13d0d13e-dae7-5492-aba7-0f9873ecff4e",
+			"refused": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "385c9ca6-f402-5012-a19c-604c08f6ad36"
+							}
+						},
+						"links": [],
+						"forEach": {
+							"repeat": "c4c1db31-6bc5-5ebd-a62f-42fb56482e01"
+						}
+					},
+					{
+						"uuid": "13d0d13e-dae7-5492-aba7-0f9873ecff4e",
+						"id": "pet",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "385c9ca6-f402-5012-a19c-604c08f6ad36"
+							}
+						},
+						"links": [],
+						"forEach": {
+							"repeat": "c4c1db31-6bc5-5ebd-a62f-42fb56482e01"
+						}
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"repeat": "c4c1db31-6bc5-5ebd-a62f-42fb56482e01",
+					"path": [
+						"nova_operations",
+						"pet"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "385c9ca6-f402-5012-a19c-604c08f6ad36"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						],
+						"forEach": {
+							"repeat": "c4c1db31-6bc5-5ebd-a62f-42fb56482e01"
+						}
+					},
+					{
+						"uuid": "13d0d13e-dae7-5492-aba7-0f9873ecff4e",
+						"id": "pet",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "385c9ca6-f402-5012-a19c-604c08f6ad36"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						],
+						"forEach": {
+							"repeat": "c4c1db31-6bc5-5ebd-a62f-42fb56482e01"
+						}
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "open_member_2"
+				}
+			}
+		},
+		{
+			"clause": "type-not-a-menu",
+			"action": "open",
+			"source": "corehq/apps/app_manager/xform.py::check_case_type",
+			"subject": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+			"refused": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "pet",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": []
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"kid"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "visit",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": []
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "open_visit_1"
+				}
+			}
+		},
+		{
+			"clause": "case-changed-before-create",
+			"action": "open",
+			"source": "corehq/apps/app_manager/xform.py::XForm._create_casexml_advanced",
+			"subject": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+			"refused": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						]
+					},
+					{
+						"uuid": "5af0f338-a0b0-57f4-ac88-5ad657e325e8",
+						"id": "fix",
+						"action": "update",
+						"caseType": "member",
+						"target": {
+							"kind": "op",
+							"opUuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37"
+						},
+						"writes": [
+							{
+								"property": "age",
+								"value": {
+									"kind": "term",
+									"term": {
+										"kind": "field",
+										"uuid": "37b3f167-9210-5773-a7db-fc29464c87b7"
+									}
+								}
+							}
+						]
+					}
+				],
+				"placement": {
+					"kind": "save-to-case",
+					"path": [
+						"nova_operations",
+						"kid"
+					]
+				}
+			},
+			"accepted": {
+				"formType": "registration",
+				"menu": "households",
+				"nested": false,
+				"operations": [
+					{
+						"uuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f",
+						"id": "own_case",
+						"action": "own",
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						}
+					},
+					{
+						"uuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37",
+						"id": "kid",
+						"action": "create",
+						"caseType": "member",
+						"target": {
+							"kind": "new"
+						},
+						"name": {
+							"kind": "term",
+							"term": {
+								"kind": "field",
+								"uuid": "2bc336ef-388f-562b-a363-73759cab869f"
+							}
+						},
+						"links": [
+							{
+								"identifier": "parent",
+								"targetType": "household",
+								"target": {
+									"kind": "op",
+									"opUuid": "4d22207f-8b1d-52cb-ad6d-d14d6a62a46f"
+								},
+								"relationship": "child"
+							}
+						]
+					},
+					{
+						"uuid": "d6c11731-3d96-5aed-ad48-3a8777b85ea1",
+						"id": "done",
+						"action": "close",
+						"caseType": "member",
+						"target": {
+							"kind": "op",
+							"opUuid": "277d1b27-eca3-5e83-a2d6-f80d050e7f37"
+						}
+					}
+				],
+				"placement": {
+					"kind": "advanced",
+					"tag": "open_member_1"
+				}
+			}
+		}
+	],
+	"unreachable": [
+		{
+			"clause": "via-on-indexed-load",
+			"action": "load",
+			"source": "corehq/apps/app_manager/helpers/validators.py::IndexedFormBaseValidator.check_case_properties",
+			"refusedBy": "CASE_WRITE_VIA_INVALID",
+			"why": "The clause gives the own arm Save to Case, where a save to the case above has no spelling, so the gate refuses the write (reason `placement`)."
+		}
+	]
+}

@@ -9,7 +9,10 @@ import {
 	caseCreateNameMissingMessage,
 	ownCaseOperationFindings,
 } from "@/lib/commcare/ownCaseOperationFindings";
-import { placementIneligibility } from "@/lib/commcare/placement";
+import {
+	placementIneligibility,
+	planPlacements,
+} from "@/lib/commcare/placement";
 import {
 	findOnDeviceDateAddIssue,
 	type OnDeviceDateAddIssue,
@@ -86,6 +89,11 @@ import {
 	caseOperationNameSentence,
 	freeCaseOperationName,
 } from "@/lib/domain/questionId";
+import {
+	entryDatumIdResolver,
+	entryDatumIds,
+	formLinkProjectionContext,
+} from "../../formLinkProjection";
 import { type ValidationError, validationError } from "../errors";
 import {
 	checkErrorDetails,
@@ -828,12 +836,18 @@ function validateWorkerRecordProperty(
 	);
 }
 
-/** Whether the basic own slot can hold the form's own arm, and if not the
- * first reason it can't. */
+/** Where the form's own arm takes Save to Case, the first reason the basic
+ * own slot can't hold it; `undefined` where Case Management holds it, as
+ * the basic own slot or an advanced form's own load. */
 function ownSlotRefusal(
 	ctx: OperationRuleContext,
 	operation: CaseOperation,
 ): { readonly ineligibility: string; readonly sentence: string } | undefined {
+	const planned = planPlacements(ctx.doc, ctx.formUuid).placements.get(
+		operation.uuid,
+	);
+	if (planned !== undefined && planned.placement.kind !== "save-to-case")
+		return undefined;
 	const first = placementIneligibility(
 		ctx.doc,
 		ctx.formUuid,
@@ -1420,6 +1434,30 @@ function validatePredicateSlot(
 		validateExpressionSlot(ctx, operation, predicate, slot, errors);
 }
 
+/** The id each session value a form's case changes read prints as, from
+ * the entry that opens the form, resolved once per rule pass. */
+const datumIdsByContext = new WeakMap<
+	OperationRuleContext,
+	ReturnType<typeof entryDatumIdResolver>
+>();
+function operationDatumId(
+	ctx: OperationRuleContext,
+): ReturnType<typeof entryDatumIdResolver> {
+	let resolver = datumIdsByContext.get(ctx);
+	if (resolver === undefined) {
+		resolver = entryDatumIdResolver(
+			entryDatumIds(
+				ctx.doc,
+				formLinkProjectionContext(ctx.doc, { entryMetadataOnly: true }),
+				ctx.moduleUuid,
+				ctx.formUuid,
+			),
+		);
+		datumIdsByContext.set(ctx, resolver);
+	}
+	return resolver;
+}
+
 /**
  * Typed target compatibility is decided before emission. The remaining dry
  * run is a totality backstop for context-free emitter guards (match functions,
@@ -1458,6 +1496,7 @@ function validateOnDeviceExpression(
 						}),
 					}),
 			bindings: {
+				datumId: (ref) => operationDatumId(ctx)(ref),
 				formFields: identityBindings(typeContext.form?.fields.keys() ?? []),
 				operationIds: identityBindings(typeContext.profile.operationIds),
 				lookup: {

@@ -1212,8 +1212,8 @@ export function mutationTargetsInvalid(
 			case "renameCaseProperties":
 				break;
 			case "holdPlacements": {
-				// A hold names an operation of its form, a form's own close, or a
-				// query repeat, each as the batch has left it so far; one
+				// A hold names an operation of its form, a form's own close, a
+				// query repeat, or a menu, each as the batch has left it so far; one
 				// mutation holds a target once, so no entry overwrites another
 				// unseen. A later mutation may hold it again: private work
 				// concatenates its steps, and a later step can take back a move
@@ -1224,7 +1224,9 @@ export function mutationTargetsInvalid(
 					const key = placementTargetKey(hold);
 					if (heldTargets.has(key)) return true;
 					heldTargets.add(key);
-					if (hold.target === "query-repeat") {
+					if (hold.target === "module-kind") {
+						if (!modules.has(hold.moduleUuid)) return true;
+					} else if (hold.target === "query-repeat") {
 						if (
 							!fields.has(hold.fieldUuid) ||
 							fieldKinds.get(hold.fieldUuid) !== "repeat"

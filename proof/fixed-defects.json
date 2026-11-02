@@ -8980,5 +8980,248 @@
 		"artifact": "*app.json",
 		"path": "/schema:PreloadAction.preload/refused/load-changes-values",
 		"control": "targeted-load-time-values"
+	},
+	{
+		"id": "d24-inert-subcase-app-schema-form-actions-extension",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "manifest",
+		"artifact": "*app.json",
+		"path": "/schema:Form.actions/refused/extension",
+		"control": "case-extension-registration-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-app-schema-form-actions-subcase-never",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "manifest",
+		"artifact": "*app.json",
+		"path": "/schema:Form.actions/refused/subcase-never",
+		"control": "case-extension-registration-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-app-schema-formactions-subcases-extension",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "manifest",
+		"artifact": "*app.json",
+		"path": "/schema:FormActions.subcases/refused/extension",
+		"control": "case-extension-registration-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-app-schema-formactions-subcases-subcase-never",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "manifest",
+		"artifact": "*app.json",
+		"path": "/schema:FormActions.subcases/refused/subcase-never",
+		"control": "case-extension-registration-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-app-schema-opensubcaseaction-condition-subcase-never",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "manifest",
+		"artifact": "*app.json",
+		"path": "/schema:OpenSubCaseAction.condition/refused/subcase-never",
+		"control": "case-extension-registration-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-app-schema-opensubcaseaction-relationship-extension",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "manifest",
+		"artifact": "*app.json",
+		"path": "/schema:OpenSubCaseAction.relationship/refused/extension",
+		"control": "case-extension-registration-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-trace-case",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/submission/data/*/case[*]",
+		"control": "case-extension-repeat-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-trace-item-case",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/submission/data/*/item[@id=*]/case[*]",
+		"control": "case-extension-query-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-trace-item-subcase",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/submission/data/*/item[@id=*]/subcase_*[*]",
+		"control": "case-extension-query-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-trace-subcase-c90a",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/submission/data/*/subcase_*[*]",
+		"control": "case-extension-repeat-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-trace-subcase-50ea",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/submission/data/subcase_*[*]",
+		"control": "case-extension-registration-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-app-subcases-relationship",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof4",
+		"artifact": "app.json@case management@*",
+		"path": "/modules/*/forms/*/actions/subcases/*/relationship",
+		"control": "case-extension-registration-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-item-id-case",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/case[*]",
+		"control": "case-extension-query-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-item-id-subcase",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/*/item[@id=*]/subcase_*[*]",
+		"control": "case-extension-query-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-output-data-subcase",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/response/instanceXml/output/data/subcase_*[*]",
+		"control": "case-extension-registration-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-submissions-subcase",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/subcase_*[*]",
+		"kind": "removed",
+		"control": "case-extension-registration-after-59"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-submissions-case-unpaired",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/case[*]",
+		"kind": "added",
+		"control": "case-extension-repeat-after-59"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-submissions-subcase-unpaired",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/subcase_*[*]",
+		"kind": "removed",
+		"control": "case-extension-repeat-after-59"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-submissions-item-case-unpaired",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/item[@id=*]/case[*]",
+		"kind": "added",
+		"control": "case-extension-query-after-59"
+	},
+	{
+		"id": "d24-inert-subcase-formplayer-local-ccz-submissions-item-subcase-unpaired",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "formplayer@local.ccz",
+		"path": "/runs/*/steps/*/submissions/*/instance/data/*/item[@id=*]/subcase_*[*]",
+		"kind": "removed",
+		"control": "case-extension-query-after-59"
+	},
+	{
+		"id": "d24-inert-subcase-blocks-item-case-added",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "case_blocks@local.ccz",
+		"path": "/runs/*/blocks/*/*~1item~1case",
+		"kind": "added",
+		"control": "case-extension-query-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-blocks-item-subcase-case-removed",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "case_blocks@local.ccz",
+		"path": "/runs/*/blocks/*/*~1item~1subcase_*~1case",
+		"kind": "removed",
+		"control": "case-extension-query-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-blocks-cases",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "case_blocks@local.ccz",
+		"path": "/runs/*/cases/*",
+		"control": "case-extension-query-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-blocks-case-added",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "case_blocks@local.ccz",
+		"path": "/runs/*/blocks/*/*~1case",
+		"kind": "added",
+		"control": "case-extension-repeat-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-blocks-subcase-case-removed",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "case_blocks@local.ccz",
+		"path": "/runs/*/blocks/*/*~1subcase_*~1case",
+		"kind": "removed",
+		"control": "case-extension-repeat-after-13"
+	},
+	{
+		"id": "d24-inert-subcase-trace-casedb-case",
+		"defect": 24,
+		"part": "inert subcase",
+		"check": "proof3",
+		"artifact": "trace@local.ccz",
+		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]",
+		"control": "case-extension-repeat-after-13"
 	}
 ]

@@ -6,8 +6,18 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { projectAuthoringRead } from "@/lib/agent/authoring/output";
+import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
-import { formCasePlacementView } from "@/lib/doc/casePlacements";
+import {
+	HOUSEHOLD_VISIT,
+	HOUSEHOLDS,
+	kindFixture,
+	publishedAdvanced,
+} from "@/lib/doc/__tests__/moduleKindMoveFixture";
+import {
+	type CasePlacementEntry,
+	formCasePlacementView,
+} from "@/lib/doc/casePlacements";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
 	caseOperationSchema,
@@ -144,6 +154,18 @@ function ownOf(doc: BlueprintDoc, formUuid: Uuid): Uuid {
 	const own = doc.forms[formUuid].caseOperations?.[0];
 	if (own?.action !== "own") throw new Error("fixture own case");
 	return own.uuid;
+}
+
+/** The words a read gives the place `formCasePlacementView` names. */
+function wordsOf(entry: CasePlacementEntry): string {
+	switch (entry.placement.kind) {
+		case "basic":
+			return "case management";
+		case "advanced":
+			return "case actions";
+		case "save-to-case":
+			return "save to case";
+	}
 }
 
 /** An authored getCaseOperations read's changes, each with the placement
@@ -975,10 +997,33 @@ describe("this form's own case on the case change tools", () => {
 		expect(operations[0]?.placement).toBe("case management");
 		const view = formCasePlacementView(h.currentDoc(), formUuid);
 		expect(operations.map(({ placement }) => placement)).toEqual(
-			view.operations.map(({ entry }) =>
-				entry.home === "save-to-case" ? "save to case" : "case management",
-			),
+			view.operations.map(({ entry }) => wordsOf(entry)),
 		);
 		expect(authored).not.toHaveProperty("placements");
+	});
+
+	it("reads a change an advanced menu's form keeps in case actions", async () => {
+		// Households as a publish recorded it advanced: its forms' changes are
+		// held where an advanced form keeps them.
+		const doc = expectAdmittedDoc(publishedAdvanced(kindFixture(), HOUSEHOLDS));
+		expect(emittedModuleKind(doc, HOUSEHOLDS)).toBe("advanced");
+		const h = makeToolWorkspaceHarness(doc);
+		const read = await h.runTool(getCaseOperationsTool, {
+			moduleUuid: HOUSEHOLDS,
+			formUuid: HOUSEHOLD_VISIT,
+		});
+		const operations = readOperations(
+			projectAuthoringRead({
+				toolName: "getCaseOperations",
+				data: read.data,
+				doc: h.currentDoc(),
+			}),
+		);
+		expect(operations[0]?.operation).toMatchObject({ action: "own" });
+		expect(operations[0]?.placement).toBe("case actions");
+		const view = formCasePlacementView(h.currentDoc(), HOUSEHOLD_VISIT);
+		expect(operations.map(({ placement }) => placement)).toEqual(
+			view.operations.map(({ entry }) => wordsOf(entry)),
+		);
 	});
 });

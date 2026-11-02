@@ -58,6 +58,7 @@ import {
 	type LookupTypeIndex,
 	semanticCheckErrors,
 } from "../lookupTypeContext";
+import { formLinkNeedsNewCaseDatum } from "./advancedModule";
 import { searchNoMatchesEntry } from "./case-search/searchNoMatches";
 import { validateCaseOperations } from "./caseOperations";
 import { validateCaseOptionsSources } from "./caseOptionsSource";
@@ -780,12 +781,34 @@ function formLinkValidation(
 		projectionContextFor(doc),
 		ctx.formUuid,
 	);
+	// A destination's selection of a new case this form creates and cannot
+	// hand on is `FORM_LINK_NEEDS_NEW_CASE_DATUM`'s, which names why; this
+	// rule names every other datum the link leaves unsatisfied.
+	const refusedNewCases = new Map<string, Set<string>>();
+	for (const finding of formLinkNeedsNewCaseDatum(
+		doc,
+		ctx.formUuid,
+		ctx.moduleUuid,
+	)) {
+		const linkUuid = finding.details?.linkUuid;
+		const caseType = finding.details?.caseType;
+		if (linkUuid === undefined || caseType === undefined) continue;
+		const types = refusedNewCases.get(linkUuid) ?? new Set<string>();
+		types.add(caseType);
+		refusedNewCases.set(linkUuid, types);
+	}
 	for (const link of projected?.links ?? []) {
 		const index = links.findIndex((candidate) => candidate.uuid === link.uuid);
 		const authored = links[index];
 		if (authored === undefined) continue;
 		const { label, details } = formLinkLabel(doc, authored, index);
-		const unsatisfied = [...link.unmatched, ...link.missing];
+		const refused = refusedNewCases.get(link.uuid);
+		const unsatisfied = [...link.unmatched, ...link.missing].filter(
+			(datum) =>
+				refused === undefined ||
+				datum.caseType === undefined ||
+				!refused.has(datum.caseType),
+		);
 		if (unsatisfied.length > 0) {
 			const datumIds = unsatisfied.map((datum) => datum.id).join(", ");
 			errors.push(
@@ -1083,6 +1106,7 @@ export function runFormRules(
 		...validateCaseOperations(doc, formUuid, moduleUuid, lookupTables),
 	);
 	errors.push(...validateCasePlacements(doc, formUuid, moduleUuid));
+	errors.push(...formLinkNeedsNewCaseDatum(doc, formUuid, moduleUuid));
 	errors.push(
 		...casePropertyNameFormBuilderCannotKeep(
 			doc,

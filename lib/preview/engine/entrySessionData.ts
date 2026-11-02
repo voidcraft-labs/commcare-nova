@@ -33,6 +33,7 @@ import {
 import {
 	entryDatumCaseId,
 	entryDatumCaseKey,
+	entryNewCaseKeyNumbering,
 } from "@/lib/domain/entryCaseIdentity";
 import type { DatumRef } from "@/lib/domain/expression/types";
 import type {
@@ -125,6 +126,7 @@ export function entrySessionData(
 	const values = new Map<string, SessionDatumValue>();
 	const selectedCases: Record<string, readonly string[]> = {};
 	let newCaseId: string | undefined;
+	const newCaseKey = entryNewCaseKeyNumbering();
 	const hold = (id: string, value: SessionDatumValue) => {
 		data[id] = value.value;
 		values.set(id, value);
@@ -196,17 +198,13 @@ export function entrySessionData(
 			continue;
 		}
 		// A `uuid()` datum: the case this entry creates, or one no case names.
+		// Numbered before the app check, so every datum keeps its key.
+		const key =
+			ref?.kind === "new-case" || ref?.kind === "new-child-case"
+				? newCaseKey(ref)
+				: entryDatumCaseKey(undefined, datum.id);
 		if (args.appId === undefined) continue;
-		const value = entryDatumCaseId(
-			args.appId,
-			args.entryKey,
-			entryDatumCaseKey(
-				ref?.kind === "new-case" || ref?.kind === "new-child-case"
-					? ref
-					: undefined,
-				datum.id,
-			),
-		);
+		const value = entryDatumCaseId(args.appId, args.entryKey, key);
 		if (ref?.kind === "new-case") newCaseId = value;
 		hold(datum.id, { value });
 	}
@@ -362,27 +360,26 @@ export function afterSubmitSessionDatums(
 }
 
 /**
- * The keys of the cases a form's entry names (`new-case`,
- * `new-child-case:<type>`): the cases its submission creates with the ids the
- * entry minted. The server derives them from the committed document, never
- * from the client.
+ * The keys of the cases a form's entry names, in entry order (`new-case`,
+ * `new-child-case:<type>`, and `new-child-case:<type>:<i>` for a later case
+ * of a type, `entryNewCaseKeyNumbering`): the cases its submission creates
+ * with the ids the entry minted. The server derives them from the committed
+ * document, never from the client.
  */
 export function entryCreatedCaseKeys(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-): ReadonlySet<string> {
+): readonly string[] {
 	const ctx = formLinkProjectionContext(doc, { entryMetadataOnly: true });
 	const moduleUuid = owningModuleOf(ctx, formUuid);
-	if (moduleUuid === undefined) return new Set();
-	return new Set(
-		entryDatumIds(doc, ctx, moduleUuid, formUuid).flatMap((row) =>
-			row.refs.flatMap((ref) =>
-				ref.kind === "new-case" || ref.kind === "new-child-case"
-					? [entryDatumCaseKey(ref, row.id)]
-					: [],
-			),
-		),
-	);
+	if (moduleUuid === undefined) return [];
+	const newCaseKey = entryNewCaseKeyNumbering();
+	return entryDatumIds(doc, ctx, moduleUuid, formUuid).flatMap((row) => {
+		const ref = row.refs[0];
+		return ref?.kind === "new-case" || ref?.kind === "new-child-case"
+			? [newCaseKey(ref)]
+			: [];
+	});
 }
 
 /** Evaluate one datum function as Core does when the session reaches it: in

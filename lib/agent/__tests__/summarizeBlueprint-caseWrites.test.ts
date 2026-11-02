@@ -8,11 +8,20 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
+	carryVisit,
+	HOUSEHOLDS,
+	kindFixture,
+	publishedAdvanced,
+	publishedBasic,
+} from "@/lib/doc/__tests__/moduleKindMoveFixture";
+import {
 	FOLLOWUP,
 	holdPlanned,
 	holdVisits,
 	moveFixture,
+	verdict,
 } from "@/lib/doc/__tests__/placementMoveFixture";
+import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { summarizeBlueprint } from "../summarizeBlueprint";
 import { expectAdmittedDoc } from "./admittedFixture";
@@ -175,5 +184,44 @@ describe("summarizeBlueprint — what a published app keeps", () => {
 		expect(
 			visits(summarizeBlueprint(expectAdmittedDoc(moveFixture()))),
 		).toMatch(/\[rows set when opened\]$/);
+	});
+});
+
+describe("summarizeBlueprint — how CommCare HQ receives a menu", () => {
+	/** The header line of the module named `name`. */
+	function moduleHeader(doc: BlueprintDoc, name: string): string {
+		const header = summarizeBlueprint(doc)
+			.split("\n")
+			.find((line) => line.includes(`- Module "${name}"`));
+		if (header === undefined) throw new Error(`Missing module ${name}.`);
+		return header;
+	}
+
+	/** `doc` after the household visit creates a visit and carries it to
+	 *  the visit's review, through the real commit gate. */
+	function carried(doc: BlueprintDoc): BlueprintDoc {
+		const result = verdict(doc, carryVisit());
+		if (!result.ok) throw new Error("The carried create was refused.");
+		return result.nextDoc;
+	}
+
+	it("marks a menu a carried create makes advanced", () => {
+		const doc = carried(kindFixture());
+		expect(moduleHeader(doc, "Households")).toMatch(/ \[advanced\]/);
+		// The review's menu carries nothing and stays ordinary.
+		expect(moduleHeader(doc, "Visits")).not.toContain("[advanced");
+	});
+
+	it("marks a menu a published app keeps advanced as kept", () => {
+		const doc = expectAdmittedDoc(publishedAdvanced(kindFixture(), HOUSEHOLDS));
+		expect(moduleHeader(doc, "Households")).toContain(" [advanced, kept]");
+	});
+
+	it("marks no ordinary menu, published or not", () => {
+		for (const doc of [
+			expectAdmittedDoc(kindFixture()),
+			expectAdmittedDoc(publishedBasic(kindFixture(), HOUSEHOLDS)),
+		])
+			expect(moduleHeader(doc, "Households")).not.toContain("[advanced");
 	});
 });

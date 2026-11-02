@@ -7,8 +7,8 @@
  * workspaces.
  *
  * `withIdentityMoves` hands the candidate an edit produces to each move
- * source in order (case operations and own closes, then query repeats) and
- * appends one `holdPlacements` carrying every entry they return, so the
+ * source in order (menu kinds, then case operations and own closes, then
+ * query repeats) and appends one `holdPlacements` carrying every entry they return, so the
  * commit gate and the commit kernel's placement rule see one batch that
  * moves exactly the holds it strands. `identityMovesBetween` states every
  * move between two documents, so a redo that re-applies a recorded move
@@ -18,7 +18,8 @@
  *
  * One of the allowlisted `lib/doc` consumers of `lib/commcare` in
  * `biome.json`: whether a held case placement still expresses its change is
- * `lib/commcare/placement.ts`'s answer.
+ * `lib/commcare/placement.ts`'s answer, and whether a menu is emitted
+ * advanced is `lib/commcare/moduleKind.ts`'s.
  */
 
 import { produce } from "immer";
@@ -33,6 +34,12 @@ import {
 	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
 import { documentHoldsIdentity } from "@/lib/doc/heldIdentity";
+import {
+	carriedCreateKindMoves,
+	type ModuleKindMoveReason,
+	moduleKindMove,
+	planModuleKindMoves,
+} from "@/lib/doc/moduleKindMoves";
 import {
 	type AdmittedMutationBatch,
 	admitMutationBatch,
@@ -55,6 +62,7 @@ import { planOperationPlacementMoves } from "@/lib/doc/placementMoves";
 import { planQueryRepeatPlacementMoves } from "@/lib/doc/queryRepeatPlacement";
 import type { Mutation, PlacementHoldEntry } from "@/lib/doc/types";
 import {
+	advancedKindBlockers,
 	type BlueprintDoc,
 	type CasePlacement,
 	type PlacementIneligibility,
@@ -90,14 +98,22 @@ export type IdentityMoveSubject =
 	| { readonly kind: "module-kind"; readonly moduleUuid: Uuid };
 
 /** Why a held identity can no longer stay where it is, in its owner's own
- *  reason ids: the first condition a case placement fails, or the first
- *  thing model iteration cannot run for a query repeat. */
+ *  reason ids: the first condition a case placement fails, the first thing
+ *  model iteration cannot run for a query repeat, or why a menu's kind
+ *  moves. */
 export type IdentityMoveReason =
 	| {
 			readonly source: "case-placement";
 			readonly reason: PlacementIneligibility;
 	  }
-	| { readonly source: "query-repeat"; readonly reason: QueryRepeatNeed };
+	| { readonly source: "query-repeat"; readonly reason: QueryRepeatNeed }
+	| {
+			readonly source: "module-kind";
+			readonly reason: ModuleKindMoveReason;
+			/** The menu selects a parent case, so once its kind moves its
+			 *  forms read the cases chosen through it under new names. */
+			readonly chosenCasesRenamed: boolean;
+	  };
 
 export interface IdentityMove {
 	readonly subject: IdentityMoveSubject;
@@ -191,18 +207,18 @@ export function withIdentityMoves(
 	if (preparedCandidateHasAdmissionIssue(prepared))
 		return { batch, moves: [], prepared };
 	const recorded = options.recorded ?? NO_RECORDED_HOLDS;
-	const operations = planOperationPlacementMoves(prepared.nextDoc);
-	const afterOperations =
-		operations.holds.length === 0
-			? prepared.nextDoc
-			: produce(prepared.nextDoc, (draft) => {
-					applyHoldPlacements(draft, {
-						kind: "holdPlacements",
-						holds: [...operations.holds],
-					});
-				});
+	// A menu's kind decides which placements its forms can keep, so the
+	// kind's entries are applied before the case changes are planned.
+	const kinds = planModuleKindMoves(doc, prepared.nextDoc);
+	const afterKinds = withHolds(prepared.nextDoc, kinds.holds);
+	const operations = planOperationPlacementMoves(afterKinds);
+	const afterOperations = withHolds(afterKinds, operations.holds);
 	const repeats = planQueryRepeatPlacementMoves(afterOperations);
-	const holds: PlacementHoldEntry[] = [...operations.holds, ...repeats.holds];
+	const holds: PlacementHoldEntry[] = [
+		...kinds.holds,
+		...operations.holds,
+		...repeats.holds,
+	];
 	if (holds.length === 0)
 		return {
 			batch,
@@ -221,10 +237,21 @@ export function withIdentityMoves(
 	return {
 		batch: planned,
 		moves: preparedCandidateHasAdmissionIssue(final)
-			? [...operations.moves, ...repeats.moves]
+			? [...kinds.moves, ...operations.moves, ...repeats.moves]
 			: identityMovesBetween(doc, final.nextDoc, { recorded }),
 		prepared: final,
 	};
+}
+
+/** `doc` with `holds` applied; `doc` itself where there are none. */
+function withHolds(
+	doc: BlueprintDoc,
+	holds: readonly PlacementHoldEntry[],
+): BlueprintDoc {
+	if (holds.length === 0) return doc;
+	return produce(doc, (draft) => {
+		applyHoldPlacements(draft, { kind: "holdPlacements", holds: [...holds] });
+	});
 }
 
 /**
@@ -359,12 +386,14 @@ function withoutHoldsFor(
 
 /**
  * Every held identity `after` keeps in another place than `before` does,
- * with the reason the earlier place no longer expresses it, in `before`'s
- * document order. A hold change is a move where the earlier hold cannot
- * express its target in `after`. A target `after` no longer holds is no
- * move (its data left with it), nor is an own close whose form stopped
- * closing its case, a first hold, or a change back to the hold the target's
- * latest recording wrote.
+ * with the reason the earlier place no longer expresses it: first each
+ * published ordinary menu a carried create turns advanced (a kind change
+ * with no hold of its own), then the hold changes in `before`'s document
+ * order. A hold change is a move where the earlier hold cannot express its
+ * target in `after`. A target `after` no longer holds is no move (its data
+ * left with it), nor is an own close whose form stopped closing its case, a
+ * first hold, or a change back to the hold the target's latest recording
+ * wrote.
  */
 export function identityMovesBetween(
 	before: BlueprintDoc,
@@ -372,7 +401,7 @@ export function identityMovesBetween(
 	options: Pick<IdentityMoveOptions, "recorded"> = {},
 ): readonly IdentityMove[] {
 	const recorded = options.recorded ?? NO_RECORDED_HOLDS;
-	const moves: IdentityMove[] = [];
+	const moves: IdentityMove[] = [...carriedCreateKindMoves(before, after)];
 	for (const change of placementHoldChanges(before, after)) {
 		if (change.from === null || holdChangeRestores(change, recorded)) continue;
 		const move = moveOfChange(after, change);
@@ -450,6 +479,13 @@ function moveOfChange(
 				to: "rows-follow-query",
 				reason: { source: "query-repeat", reason: need },
 			};
+		}
+		case "module-kind": {
+			// A held advanced kind moves only where a blocker keeps the menu
+			// from staying advanced; the blockers do not read the hold.
+			const [blocker] = advancedKindBlockers(after, target.moduleUuid);
+			if (blocker === undefined) return;
+			return moduleKindMove(after, target.moduleUuid, "basic", blocker.kind);
 		}
 	}
 }

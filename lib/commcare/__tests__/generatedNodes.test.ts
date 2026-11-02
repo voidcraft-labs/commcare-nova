@@ -23,6 +23,7 @@ import {
 import { eq, formField, literal, term } from "@/lib/domain/expression/builders";
 import { FormPath } from "../xform/formPath";
 import { emissionFixtures } from "./emissionFixtures";
+import { basicForm } from "./hqBasicShape";
 
 function collisionDoc(): { doc: BlueprintDoc; formUuid: Uuid } {
 	const doc = buildDoc({
@@ -260,7 +261,7 @@ it("names the URL and datetime siblings in the form's actions as its XForm write
 			domain: "demo-project",
 		},
 	});
-	const form = hq.modules[0].forms[0];
+	const form = basicForm(hq, 0, 0);
 	const source = hq._attachments[`${form.unique_id}.xml`];
 	if (typeof source !== "string") throw new Error("Missing source XForm");
 	const data = (
@@ -275,7 +276,8 @@ it("names the URL and datetime siblings in the form's actions as its XForm write
 	const dataNames = new Set(
 		data?.children.filter(isTag).map((element) => element.name),
 	);
-	const update = form.actions.update_case.update;
+	const actions = form.actions;
+	const update = actions.update_case.update;
 	expect(update.photo_url.question_path).toBe("/data/nova_url_photo_1");
 	expect(update.seen_at.question_path).toBe("/data/nova_datetime_when_1");
 	expect(dataNames.has("nova_url_photo_1")).toBe(true);

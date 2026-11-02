@@ -1,7 +1,10 @@
 import * as fc from "fast-check";
 import { expect, it } from "vitest";
+import { planFormCaseWire } from "@/lib/commcare/casePlacementPlan";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import type { Uuid } from "@/lib/domain";
+import { advancedDocArbitrary, CARRIED_CREATE } from "./advancedDocArbitrary";
 import { assertGenerated, checkCompilerEvidence } from "./compilerEvidence";
 import {
 	blueprintDocArbitrary,
@@ -60,4 +63,30 @@ it("admits a typed session read only of a datum the form's entry supplies", {
 	);
 	expect(census.declared).toBeGreaterThan(10);
 	expect(census.refused).toBeGreaterThan(10);
+});
+
+// The advanced arm: a form whose carried create is an open action has its
+// source and its local case blocks checked by the XForm oracle (in
+// `compileCcz`) and its session reads by the binding oracle.
+it("compiles advanced forms whose carried create is an open action", {
+	timeout: 60_000,
+}, () => {
+	const census = { total: 0, openAction: 0 };
+	assertGenerated(
+		fc.property(advancedDocArbitrary, (doc) => {
+			checkCompilerEvidence(doc);
+			census.total++;
+			const opens = Object.keys(doc.forms).some((formUuid) => {
+				const plan = planFormCaseWire(doc, formUuid as Uuid);
+				return (
+					plan.kind === "advanced" &&
+					plan.datums.some((datum) => datum.operationUuid === CARRIED_CREATE)
+				);
+			});
+			if (opens) census.openAction++;
+		}),
+		{ seed: 20261103, numRuns: 60 },
+	);
+	expect(census.total).toBe(60);
+	expect(census.openAction / census.total).toBeGreaterThan(0.5);
 });

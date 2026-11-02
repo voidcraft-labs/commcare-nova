@@ -51,7 +51,7 @@ Search-first workflows begin with Search. ${platformSentence("search-first")} A 
 
 After-submit navigation happens after answers leave form scope. Save a needed answer before using it in a later route. An entry point is a durable external address for a destination; changing that address can break distributed links. Generating an HQ link requires a verified deployment. Opening it can claim cases, so it is not a harmless verification probe.
 
-Some edits change where CommCare HQ keeps a published app's answers: a case change kept in a new place, or a query repeat whose rows start following its query. A result lists each such move in identityMoves with a sentence; tell the person before you save the work, because CommCare HQ's exports show those answers under new columns after the next publish. saveWork lists them again.`,
+Some edits change where CommCare HQ keeps a published app's answers: a case change kept in a new place, a query repeat whose rows start following its query, or a menu becoming advanced or ordinary. A result lists each such move in identityMoves with a sentence; tell the person before you save the work, because CommCare HQ's exports show those answers under new columns after the next publish. saveWork lists them again.`,
 	fields,
 	forms:
 		() => `Form wording is Markdown. {{name}} inserts an answer; {{#case/property}} inserts a saved value. Worker values use {{#user/property}}. Bare hashtags in wording stay literal; expression slots use #form/name or #case/property without braces. Names bind to identities, so renames keep references intact. Escape a literal opening brace or backslash with a backslash.

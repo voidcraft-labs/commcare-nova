@@ -746,7 +746,29 @@ describe("the procedure", () => {
 		).toEqual(SUBCASE_0);
 	});
 
-	it("keeps a field-written extension child at nova_subcases, counted in its repeat", () => {
+	it("places a field-written extension child like any create: Save to Case, with the children after it renumbered", () => {
+		const { placements } = planned("followup", {
+			operations: (t) => [
+				own(),
+				childCreate("ext", t, { links: [ownCaseLink(t, "extension")] }),
+				childCreate("kid", t, { repeat: "kids" }),
+				childCreate("pet", t, { repeat: "kids" }),
+			],
+		});
+		expect(placements.get(OP("ext"))).toEqual({
+			placement: { kind: "save-to-case", path: ["nova_operations", "ext"] },
+			held: false,
+		});
+		// The extension child counts in no repeat and takes no index.
+		expect(placements.get(OP("kid"))?.placement).toEqual(SUBCASE_0);
+		expect(placements.get(OP("pet"))?.placement).toEqual({
+			kind: "basic",
+			slot: "subcase",
+			index: 1,
+		});
+	});
+
+	it("keeps an extension child in a repeat out of its repeat's subcase count", () => {
 		const { placements } = planned("followup", {
 			operations: (t) => [
 				own(),
@@ -757,14 +779,11 @@ describe("the procedure", () => {
 				}),
 			],
 		});
-		expect(placements.get(OP("kid"))?.placement).toEqual(SUBCASE_0);
-		expect(placements.get(OP("ext"))).toEqual({
-			placement: {
-				kind: "save-to-case",
-				repeat: U("kids"),
-				path: ["nova_subcases", "nova_subcase_1"],
-			},
-			held: false,
+		expect(placements.get(OP("kid"))?.placement).toEqual(SUBCASE_ROW);
+		expect(placements.get(OP("ext"))?.placement).toEqual({
+			kind: "save-to-case",
+			repeat: U("kids"),
+			path: ["nova_operations", "ext"],
 		});
 	});
 

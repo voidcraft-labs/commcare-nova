@@ -2,11 +2,17 @@
  * Held placements at the commit gate. A published app keeps each held case
  * change where its hold says, so a document that would move one without the
  * move being stated (`HELD_PLACEMENT_INEXPRESSIBLE`), keep two changes in
- * one place (`CASE_PLACEMENT_SHARED`), or write an authored node under a
- * held block's name (`HELD_BLOCK_PATH_TAKEN`) is refused. A failure here is
+ * one place (`CASE_PLACEMENT_SHARED`), write an authored node under a
+ * held block's name (`HELD_BLOCK_PATH_TAKEN`), keep a held change in a form
+ * of the other menu kind (`CASE_PLACEMENT_KIND`), or keep a menu as an
+ * advanced menu something now keeps from being one is refused. A failure here is
  * a publish that would silently move data a project space already holds.
  */
 import { describe, expect, it } from "vitest";
+import {
+	advancedFixture,
+	HOUSEHOLDS,
+} from "@/lib/commcare/__tests__/advancedPlacementFixture";
 import {
 	childCreate,
 	OP,
@@ -15,6 +21,7 @@ import {
 	read,
 	U,
 } from "@/lib/commcare/__tests__/placementFixture";
+import { planPlacements } from "@/lib/commcare/placement";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type {
@@ -233,5 +240,122 @@ describe("HELD_BLOCK_PATH_TAKEN", () => {
 			],
 		});
 		expect(findings(doc, "HELD_BLOCK_PATH_TAKEN")).toEqual([]);
+	});
+});
+
+/** The form's own case in the advanced fixture, holding `placement`. */
+const advancedOwn = (placement?: CasePlacement): CaseOperation =>
+	({
+		uuid: OP("own"),
+		id: "own_case",
+		action: "own",
+		...(placement !== undefined && { placement }),
+	}) as CaseOperation;
+
+/** Where the advanced fixture's form keeps its own case as an advanced
+ *  form: its load, by the tag the plan gives it. */
+function ownLoad(): CasePlacement {
+	const { doc, formUuid } = advancedFixture({
+		formType: "followup",
+		operations: () => [advancedOwn()],
+	});
+	const placement = planPlacements(doc, formUuid).placements.get(
+		OP("own"),
+	)?.placement;
+	if (placement?.kind !== "advanced")
+		throw new Error("The advanced form keeps its own case in no load.");
+	return placement;
+}
+
+describe("CASE_PLACEMENT_KIND", () => {
+	it("refuses a held case action in a form of an ordinary menu", () => {
+		const load = ownLoad();
+		const { doc } = advancedFixture({
+			formType: "followup",
+			heldKind: false,
+			operations: () => [advancedOwn(load)],
+		});
+		const [finding, ...more] = findings(doc, "CASE_PLACEMENT_KIND");
+		expect(more).toEqual([]);
+		expect(finding?.message).toBe(
+			"CommCare HQ keeps “this form's case” in case actions, which a form in an ordinary menu can't use. Make the change again to see where it moves and confirm it.",
+		);
+		expect(finding?.details?.moduleKind).toBe("basic");
+		expect(JSON.parse(finding?.details?.held ?? "")).toEqual(load);
+		expect(finding && userFacingError(finding)).toBe(finding?.message);
+		// The kind rule names the move; the inexpressibility rule does not
+		// say it again.
+		expect(findings(doc, "HELD_PLACEMENT_INEXPRESSIBLE")).toEqual([]);
+
+		const twin = advancedFixture({
+			formType: "followup",
+			operations: () => [advancedOwn(load)],
+		}).doc;
+		expect(findings(twin, "CASE_PLACEMENT_KIND")).toEqual([]);
+	});
+
+	it("refuses a held Case Management slot in a form of an advanced menu", () => {
+		const slot: CasePlacement = { kind: "basic", slot: "own" };
+		const { doc } = advancedFixture({
+			formType: "followup",
+			operations: () => [advancedOwn(slot)],
+		});
+		const [finding, ...more] = findings(doc, "CASE_PLACEMENT_KIND");
+		expect(more).toEqual([]);
+		expect(finding?.message).toBe(
+			"CommCare HQ keeps “this form's case” in Case Management, which a form in an advanced menu can't use. Make the change again to see where it moves and confirm it.",
+		);
+		expect(finding?.details?.moduleKind).toBe("advanced");
+		expect(finding && userFacingError(finding)).toBe(finding?.message);
+		expect(findings(doc, "HELD_PLACEMENT_INEXPRESSIBLE")).toEqual([]);
+
+		const twin = advancedFixture({
+			formType: "followup",
+			heldKind: false,
+			operations: () => [advancedOwn(slot)],
+		}).doc;
+		expect(findings(twin, "CASE_PLACEMENT_KIND")).toEqual([]);
+	});
+});
+
+describe("HELD_PLACEMENT_INEXPRESSIBLE for a menu's held kind", () => {
+	const searchFirst = (doc: BlueprintDoc) => {
+		doc.modules[HOUSEHOLDS] = {
+			...doc.modules[HOUSEHOLDS],
+			caseSearchConfig: { searchFirst: true },
+		};
+	};
+
+	it("refuses a held advanced menu a blocker keeps from being one", () => {
+		const { doc } = advancedFixture({
+			formType: "followup",
+			operations: () => [advancedOwn()],
+			configure: searchFirst,
+		});
+		const [finding, ...more] = findings(doc, "HELD_PLACEMENT_INEXPRESSIBLE");
+		expect(more).toEqual([]);
+		expect(finding?.message).toBe(
+			"CommCare HQ keeps the menu “Households” as an advanced menu where your last publish put it, and this change can't keep it there. It now opens on its Search screen with its forms reading the search, which an advanced menu can't do. Make the change again to see where it moves and confirm it.",
+		);
+		expect(finding?.location).toEqual({
+			moduleUuid: HOUSEHOLDS,
+			moduleName: "Households",
+		});
+		expect(JSON.parse(finding?.details?.subject ?? "")).toEqual({
+			kind: "module-kind",
+			moduleUuid: HOUSEHOLDS,
+		});
+		expect(JSON.parse(finding?.details?.reasons ?? "")).toEqual([
+			"forms-read-search",
+		]);
+		expect(finding && userFacingError(finding)).toBe(finding?.message);
+	});
+
+	it("admits a held advanced menu nothing keeps from being one", () => {
+		const { doc } = advancedFixture({
+			formType: "followup",
+			operations: () => [advancedOwn()],
+		});
+		expect(findings(doc, "HELD_PLACEMENT_INEXPRESSIBLE")).toEqual([]);
 	});
 });

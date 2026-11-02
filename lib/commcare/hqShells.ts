@@ -2,6 +2,8 @@
 
 import { CASE_SEARCH_BUTTON_LABEL } from "@/lib/domain";
 import {
+	type HqAdvancedFormTree,
+	type HqAdvancedModuleTree,
 	type HqApplicationTree,
 	type HqFormLinkTree,
 	type HqFormTree,
@@ -10,6 +12,8 @@ import {
 	hqXPath,
 } from "./hqJson/xpath";
 import type {
+	AdvancedFormActions,
+	CaseIndex,
 	CaseSearchConfig,
 	DetailBase,
 	DetailColumn,
@@ -99,6 +103,30 @@ export function emptyFormActions(): FormActions {
 			preload: {},
 			condition: neverCondition(),
 		},
+	};
+}
+
+/** An advanced form's actions before any load or create is added. */
+export function emptyAdvancedFormActions(): AdvancedFormActions {
+	return {
+		doc_type: "AdvancedFormActions",
+		load_update_cases: [],
+		open_cases: [],
+	};
+}
+
+/**
+ * The `case_index` of a load that indexes no other case: HQ's `CaseIndex`
+ * defaults (`models/form_actions.py::CaseIndex`), with `relationship_question`
+ * written empty as HQ's default writes it.
+ */
+export function noCaseIndex(): CaseIndex {
+	return {
+		doc_type: "CaseIndex",
+		tag: "",
+		reference_id: "parent",
+		relationship: "child",
+		relationship_question: "",
 	};
 }
 
@@ -252,7 +280,7 @@ export function detailPair(
 
 export function applicationShell(
 	appName: string,
-	modules: HqModuleTree[],
+	modules: (HqModuleTree | HqAdvancedModuleTree)[],
 	attachments: Record<string, string>,
 	options: {
 		/** Where the app runs, on the wire: `declaresWebApps(doc)`. */
@@ -335,6 +363,39 @@ export function applicationShell(
 	};
 }
 
+/** The keys a basic and an advanced form write after their actions, in order. */
+function formTail(
+	caseRefsLoad: Record<string, string[]>,
+	caseRefsSave: Record<string, HqCaseSaveReference>,
+	postFormWorkflow: string,
+	postFormWorkflowFallback: string | null,
+	formLinks: HqFormLinkTree[],
+) {
+	return {
+		case_references_data: {
+			load: caseRefsLoad,
+			save: caseRefsSave,
+			doc_type: "CaseReferences" as const,
+		},
+		form_filter: null,
+		post_form_workflow: postFormWorkflow,
+		post_form_workflow_fallback: postFormWorkflowFallback,
+		media_image: {},
+		media_audio: {},
+		custom_icons: [],
+		custom_assertions: [],
+		custom_instances: [],
+		form_links: formLinks,
+		comment: "",
+	};
+}
+
+function localizedName(
+	name: string | Record<string, string>,
+): Record<string, string> {
+	return typeof name === "string" ? { en: name } : name;
+}
+
 export function formShell(
 	uniqueId: string,
 	name: string | Record<string, string>,
@@ -351,26 +412,99 @@ export function formShell(
 		doc_type: "Form",
 		form_type: "module_form",
 		unique_id: uniqueId,
-		name: typeof name === "string" ? { en: name } : name,
+		name: localizedName(name),
 		xmlns,
 		requires,
 		version: null,
 		actions,
-		case_references_data: {
-			load: caseRefsLoad,
-			save: caseRefsSave,
-			doc_type: "CaseReferences",
+		...formTail(
+			caseRefsLoad,
+			caseRefsSave,
+			postFormWorkflow,
+			postFormWorkflowFallback,
+			formLinks,
+		),
+	};
+}
+
+/**
+ * An advanced menu's form: HQ's `AdvancedForm`, with every key a basic form
+ * writes but `requires`, which `AdvancedForm` computes from its loads, and
+ * with no `schedule`, which Nova never turns on. `arbitrary_datums` is empty.
+ */
+export function advancedFormShell(
+	uniqueId: string,
+	name: string | Record<string, string>,
+	xmlns: string,
+	actions: AdvancedFormActions,
+	caseRefsLoad: Record<string, string[]>,
+	caseRefsSave: Record<string, HqCaseSaveReference>,
+	postFormWorkflow: string,
+	postFormWorkflowFallback: string | null,
+	formLinks: HqFormLinkTree[],
+): HqAdvancedFormTree {
+	return {
+		doc_type: "AdvancedForm",
+		form_type: "advanced_form",
+		unique_id: uniqueId,
+		name: localizedName(name),
+		xmlns,
+		version: null,
+		actions,
+		arbitrary_datums: [],
+		...formTail(
+			caseRefsLoad,
+			caseRefsSave,
+			postFormWorkflow,
+			postFormWorkflowFallback,
+			formLinks,
+		),
+	};
+}
+
+/** The identity keys every menu writes first, after its kind. */
+function moduleHead(
+	uniqueId: string,
+	name: string | Record<string, string>,
+	caseType: string,
+) {
+	return {
+		unique_id: uniqueId,
+		name: localizedName(name),
+		case_type: caseType,
+		put_in_root: false,
+		root_module_id: null,
+	};
+}
+
+/** A menu's case list menu item, off, and its case list registration form, none. */
+function moduleCaseList() {
+	return {
+		case_list: {
+			doc_type: "CaseList" as const,
+			show: false,
+			label: {},
+			media_image: {},
+			media_audio: {},
+			custom_icons: [],
 		},
-		form_filter: null,
-		post_form_workflow: postFormWorkflow,
-		post_form_workflow_fallback: postFormWorkflowFallback,
+		case_list_form: {
+			doc_type: "CaseListForm" as const,
+			form_id: null,
+			label: {},
+		},
+	};
+}
+
+/** A menu's media and its flags, the keys every menu writes after its search. */
+function moduleMediaAndFlags() {
+	return {
 		media_image: {},
 		media_audio: {},
 		custom_icons: [],
-		custom_assertions: [],
-		custom_instances: [],
-		form_links: formLinks,
-		comment: "",
+		is_training_module: false,
+		module_filter: null,
+		auto_select_case: false,
 	};
 }
 
@@ -382,34 +516,65 @@ export function moduleShell(
 	caseDetails: DetailPair<HqXPath>,
 	languages: readonly string[],
 ): HqModuleTree {
+	const { media_image, ...flags } = moduleMediaAndFlags();
 	return {
 		doc_type: "Module",
 		module_type: "basic",
-		unique_id: uniqueId,
-		name: typeof name === "string" ? { en: name } : name,
-		case_type: caseType,
-		put_in_root: false,
-		root_module_id: null,
+		...moduleHead(uniqueId, name, caseType),
 		forms,
 		case_details: caseDetails,
-		case_list: {
-			doc_type: "CaseList",
-			show: false,
-			label: {},
-			media_image: {},
-			media_audio: {},
-			custom_icons: [],
-		},
-		case_list_form: { doc_type: "CaseListForm", form_id: null, label: {} },
+		...moduleCaseList(),
 		search_config: caseSearchConfigShell(languages),
 		display_style: "list",
-		media_image: {},
-		media_audio: {},
-		custom_icons: [],
-		is_training_module: false,
-		module_filter: null,
-		auto_select_case: false,
+		media_image,
+		...flags,
 		parent_select: { active: false, relationship: "parent", module_id: null },
+		comment: "",
+	};
+}
+
+/**
+ * The product list HQ gives every new advanced menu
+ * (`models/modules.py::AdvancedModule.new_module`): one plain `name` column
+ * over the product, headed "Product" in the app's default language, and an
+ * empty long detail. Only CommTrack reads it.
+ */
+function defaultProductDetails(
+	productHeaderLanguage: string,
+): DetailPair<HqXPath> {
+	return detailPair([
+		{
+			...detailColumn("name", { [productHeaderLanguage]: "Product" }),
+			model: "product",
+		},
+	]);
+}
+
+/**
+ * An advanced menu: HQ's `AdvancedModule`, with the keys a basic menu writes
+ * in the same order, `product_details` after its case details, and no
+ * `display_style` or `parent_select`, which `AdvancedModule` does not read.
+ * `productHeaderLanguage` is the wire code of the app's default language.
+ */
+export function advancedModuleShell(
+	uniqueId: string,
+	name: string | Record<string, string>,
+	caseType: string,
+	forms: HqAdvancedFormTree[],
+	caseDetails: DetailPair<HqXPath>,
+	productHeaderLanguage: string,
+	languages: readonly string[],
+): HqAdvancedModuleTree {
+	return {
+		doc_type: "AdvancedModule",
+		module_type: "advanced",
+		...moduleHead(uniqueId, name, caseType),
+		forms,
+		case_details: caseDetails,
+		product_details: defaultProductDetails(productHeaderLanguage),
+		...moduleCaseList(),
+		search_config: caseSearchConfigShell(languages),
+		...moduleMediaAndFlags(),
 		comment: "",
 	};
 }

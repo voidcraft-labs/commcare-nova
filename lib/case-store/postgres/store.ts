@@ -802,7 +802,11 @@ export class PostgresCaseStore implements CaseStore {
 	/**
 	 * Compile the running menu's selected-parent set into one structural
 	 * constraint shared by row reads and counts. The child population is the
-	 * union of direct non-extension children of every selected parent.
+	 * union of direct children of every selected parent: through any
+	 * non-extension index when `parentCases.index` is absent (HQ's
+	 * `EntriesHelper.get_parent_filter`), through the index of exactly that
+	 * identifier, whatever its relationship, when it is present
+	 * (`EntriesHelper.get_parent_filter_by_ref_id`).
 	 *
 	 * The parent ids arrive from client runtime state, so membership alone is
 	 * not enough: the first scalar subquery proves the COMPLETE ordered set
@@ -819,13 +823,14 @@ export class PostgresCaseStore implements CaseStore {
 			parentCases.caseType.trim().length === 0 ||
 			parentCases.caseIds.length > 100 ||
 			parentCases.caseIds.some((caseId) => caseId.trim().length === 0) ||
-			new Set(parentCases.caseIds).size !== parentCases.caseIds.length
+			new Set(parentCases.caseIds).size !== parentCases.caseIds.length ||
+			(parentCases.index !== undefined && parentCases.index.trim().length === 0)
 		) {
 			throw new Error(
 				compilerBugMessage({
 					where: "case-store.PostgresCaseStore.selectedParentCasesPredicate",
 					invariant:
-						"a selected-parent constraint had a blank type or id, duplicate id, or more than 100 cases",
+						"a selected-parent constraint had a blank type, id or index identifier, a duplicate id, or more than 100 cases",
 					detail:
 						"Running parent selection is an ordered unique set with a hard 100-case ceiling. Validate the plain-JSON selection at the request boundary before using it as a case-store constraint.",
 				}),
@@ -837,6 +842,10 @@ export class PostgresCaseStore implements CaseStore {
 		const parentIds = sql.join(
 			parentCases.caseIds.map((caseId) => sql`${caseId}`),
 		);
+		const linkingIndex =
+			parentCases.index === undefined
+				? sql`selected_parent_index.relationship <> 'extension'`
+				: sql`selected_parent_index.identifier = ${parentCases.index}`;
 		return sql<boolean>`(
 			(
 				select count(*)
@@ -852,7 +861,7 @@ export class PostgresCaseStore implements CaseStore {
 				where selected_parent_index.case_id = c.case_id
 					and selected_parent_index.ancestor_id in (${parentIds})
 					and selected_parent_index.depth = 1
-					and selected_parent_index.relationship <> 'extension'
+					and ${linkingIndex}
 			)
 		)`;
 	}

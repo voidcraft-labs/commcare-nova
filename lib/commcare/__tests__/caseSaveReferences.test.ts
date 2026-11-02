@@ -16,6 +16,7 @@ import {
 	caseOperationFixture,
 	type OperationScenario,
 } from "./caseOperationFixture";
+import { allForms } from "./hqBasicShape";
 
 const CASE_XMLNS = "http://commcarehq.org/case/transaction/v2";
 
@@ -23,9 +24,9 @@ const CASE_XMLNS = "http://commcarehq.org/case/transaction/v2";
  * the function derives from that form's stored source. */
 function emitted(doc: BlueprintDoc) {
 	const hq = expandDoc(doc);
-	const forms = hq.modules
-		.flatMap((module) => module.forms)
-		.filter((form) => Object.keys(form.case_references_data.save).length > 0);
+	const forms = allForms(hq).filter(
+		(form) => Object.keys(form.case_references_data.save).length > 0,
+	);
 	expect(forms).toHaveLength(1);
 	const [form] = forms;
 	const source = hq._attachments[`${form.unique_id}.xml`];

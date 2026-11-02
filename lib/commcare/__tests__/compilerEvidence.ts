@@ -117,6 +117,7 @@ export function checkCompilerEvidence(doc: BlueprintDoc): void {
 	 * slot (`placement.ts::sameTypeExclusions`), so HQ's
 	 * `DONT_INDEX_SAME_CASETYPE` never applies to a Nova app. */
 	for (const module of hq.modules) {
+		if (module.doc_type !== "Module") continue;
 		for (const form of module.forms) {
 			expect(
 				form.actions.subcases.filter(

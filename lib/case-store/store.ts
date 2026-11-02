@@ -292,12 +292,22 @@ export interface SearchPopulation {
  * Ordered parent cases selected by a containing menu. The order is retained at
  * the runtime boundary even though relationship membership is a set query.
  * One item is the ordinary parent-first flow; several items produce the union
- * of direct non-extension children. The store re-proves every id belongs to
- * this app, Project, and case type before admitting any child row.
+ * of the selected parents' direct children. The store re-proves every id
+ * belongs to this app, Project, and case type before admitting any child row.
  */
 export interface SelectedParentCases {
 	readonly caseType: string;
 	readonly caseIds: readonly string[];
+	/**
+	 * The case index identifier the child names its parent under. Absent, a
+	 * child is any case linked to a selected parent through a direct index
+	 * that is not an extension, whatever its identifier: the wire's
+	 * `[index/*[not(@relationship='extension')]=<parent>]`. Present, a child is
+	 * a case whose index of exactly this identifier names a selected parent,
+	 * whatever that index's relationship: the wire's `[index/<identifier>=<parent>]`,
+	 * which is how a chain reads an extension case beneath its host.
+	 */
+	readonly index?: string;
 }
 
 /**
@@ -343,9 +353,10 @@ export interface QueryArgs {
 	caseIds?: readonly string[];
 	/**
 	 * Restrict a nested-menu read to cases directly linked to any selected
-	 * parent through a non-extension case index. This is runtime selection state,
-	 * not authored predicate data: XPath node-set equality gives the wire the
-	 * same union semantics without naming one index identifier.
+	 * parent: through a non-extension case index when `parentCases.index` is
+	 * absent, through the index of that identifier when it is present. This is
+	 * runtime selection state, not authored predicate data: XPath node-set
+	 * equality gives the wire the same union semantics.
 	 */
 	parentCases?: SelectedParentCases;
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>;

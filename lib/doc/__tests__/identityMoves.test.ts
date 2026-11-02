@@ -26,6 +26,14 @@ import type { Mutation, PlacementHoldEntry } from "@/lib/doc/types";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { concat, literal, term } from "@/lib/domain/expression/builders";
 import {
+	CHECK_IN,
+	DIRECTORY,
+	kindFixture,
+	MEMBERS,
+	memberUnderTwoNames,
+	publishedAdvanced,
+} from "./moduleKindMoveFixture";
+import {
 	DISCHARGE,
 	FOLLOWUP,
 	holdPlanned,
@@ -232,6 +240,61 @@ describe("withIdentityMoves", () => {
 		const redo = withIdentityMoves(after.nextDoc, forward.batch, { recorded });
 		expect(redo.batch).toBe(forward.batch);
 		expect(redo.moves).toEqual(forward.moves);
+	});
+
+	it("states the move of a menu's kind, with its forms' case changes, where the menu selects a parent case", () => {
+		const doc = publishedAdvanced(kindFixture(), MEMBERS);
+		const edit = memberUnderTwoNames;
+		expect(refusalCodes(doc, edit)).toContain("HELD_PLACEMENT_INEXPRESSIBLE");
+		const plan = withIdentityMoves(doc, edit);
+		expect(plan.moves[0]).toEqual({
+			subject: { kind: "module-kind", moduleUuid: MEMBERS },
+			from: "advanced-menu",
+			to: "ordinary-menu",
+			reason: {
+				source: "module-kind",
+				reason: "chain-index",
+				chosenCasesRenamed: true,
+			},
+		});
+		expect(plan.moves.slice(1).map((move) => move.subject)).toEqual([
+			{
+				kind: "case-operation",
+				formUuid: CHECK_IN,
+				operationUuid: operationOf(doc, CHECK_IN, isOwn).uuid,
+			},
+		]);
+		// One appended `holdPlacements`, the menu's entry first.
+		expect(plan.batch.slice(0, edit.length)).toEqual(edit);
+		expect(plan.batch.slice(edit.length).map((m) => m.kind)).toEqual([
+			"holdPlacements",
+		]);
+		expect(holdEntries(plan.batch).map((entry) => entry.target)).toEqual([
+			"module-kind",
+			"case-operation",
+		]);
+		const result = verdict(doc, plan.batch);
+		expect(result.ok ? [] : result.findings.map((f) => f.message)).toEqual([]);
+		expect(plan.prepared?.mutations).toEqual(plan.batch);
+		if (!result.ok) return;
+		// A redo of the recorded move states it again, from the hold change.
+		expect(identityMovesBetween(doc, result.nextDoc)).toEqual(plan.moves);
+		const redo = withIdentityMoves(doc, plan.batch, {
+			recorded: recordedOf(doc),
+		});
+		expect(redo.batch).toBe(plan.batch);
+		expect(redo.moves).toEqual(plan.moves);
+	});
+
+	it("counts a menu's held kind as a held identity", () => {
+		const doc = kindFixture();
+		expect(documentHoldsIdentity(doc)).toBe(false);
+		const held = kindFixture();
+		held.modules[DIRECTORY] = {
+			...held.modules[DIRECTORY],
+			heldKind: "advanced",
+		};
+		expect(documentHoldsIdentity(held)).toBe(true);
 	});
 
 	function holdEntriesOf(recorded: Map<string, PlacementHold>) {

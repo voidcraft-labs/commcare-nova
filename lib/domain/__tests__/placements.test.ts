@@ -11,6 +11,7 @@ import {
 	placementLine,
 } from "@/lib/domain/placementCopy";
 import {
+	ADVANCED_INELIGIBILITY_REASONS,
 	casePlacementSchema,
 	ownClosePlacementSchema,
 	PLACEMENT_INELIGIBILITY_REASONS,
@@ -64,11 +65,23 @@ describe("casePlacementSchema", () => {
 		}
 	});
 
-	it("holds no advanced arm yet", () => {
-		expect(
-			casePlacementSchema.safeParse({ kind: "advanced", tag: "load_visit" })
-				.success,
-		).toBe(false);
+	it("parses an advanced action's tag, and its row only as true", () => {
+		for (const placement of [
+			{ kind: "advanced", tag: "load_visit0" },
+			{ kind: "advanced", tag: "open_visit_1", row: true },
+		]) {
+			expect(casePlacementSchema.safeParse(placement).success).toBe(true);
+		}
+		for (const placement of [
+			{ kind: "advanced", tag: "load/visit" },
+			{ kind: "advanced", tag: "0_visit" },
+			{ kind: "advanced", tag: "" },
+			{ kind: "advanced" },
+			{ kind: "advanced", tag: "open_visit_0", row: false },
+			{ kind: "advanced", tag: "open_visit_0", slot: "own" },
+		]) {
+			expect(casePlacementSchema.safeParse(placement).success).toBe(false);
+		}
 	});
 });
 
@@ -101,9 +114,21 @@ describe("placement copy", () => {
 		for (const sentence of sentences) expect(sentence).toMatch(/\.$/);
 	});
 
-	it("tells Case Management from Save to Case", () => {
+	it("gives every advanced reason a sentence of the shared tuple", () => {
+		for (const reason of ADVANCED_INELIGIBILITY_REASONS) {
+			expect(PLACEMENT_INELIGIBILITY_REASONS).toContain(reason);
+		}
+		expect(placementIneligibilitySentence("carried-create")).toBe(
+			"An after-submit link now hands the case it creates to another form, which needs that case's id when the form opens.",
+		);
+	});
+
+	it("tells Case Management, case actions and Save to Case apart", () => {
 		expect(placementLine({ kind: "basic", slot: "subcase-row" })).toBe(
 			"CommCare HQ keeps this in the form's Case Management settings.",
+		);
+		expect(placementLine({ kind: "advanced", tag: "open_visit_0" })).toBe(
+			"CommCare HQ keeps this in the form's case actions.",
 		);
 		expect(placementLine({ kind: "save-to-case", path: ["save_visit"] })).toBe(
 			"CommCare HQ keeps this in a Save to Case block in the form, which needs Save to Case in the project space's plan.",

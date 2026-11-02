@@ -1,25 +1,34 @@
 """HQ's case lowering of Nova's case exports (``case`` and ``relation-instance`` families).
 
 HQ imports each export (``Application.from_source``) and builds its case
-blocks with its own classes: ``XForm._create_casexml`` for the extension
-scenarios, ``XForm._add_usercase`` and the worker datum and assertion
-builders for the worker scenarios, and ``XForm.add_case_and_meta`` with
-``strip_vellum_ns_attributes`` for the capture and operation forms Core then
-executes, and for the extension registration form as well, which Core also
-runs. Each regenerated form is written beside its input as
-``<scenario>.hq.xml`` (the whole extension registration form as
-``registration.whole.hq.xml``), the form that saves only a changed answer
-under ``SAVE_ONLY_EDITED_FORM_FIELDS``; for the ``case`` family, what its HQ check
-compares is returned, and for ``relation-instance``, whose forms only Core
-reads, the names of the forms written.
+blocks with its own classes, writing each regenerated form beside its input
+as ``<scenario>.hq.xml``: the whole form its build writes before rendering
+(``XForm.add_case_and_meta`` for a basic form, ``add_case_and_meta_advanced``
+for an advanced one, then ``strip_vellum_ns_attributes``) for the extension
+scenarios, the capture and operation forms and every form of the targeted
+documents the family emits whole (``<name>.m<i>f<j>.hq.xml``), which Core then
+runs; ``XForm._create_casexml`` and ``_add_usercase`` for the worker
+scenarios, with the worker datum and assertion builders. The forms Core opens
+from their suites also get HQ's suite (``<name>.hq-suite.xml``). The form
+that saves only a changed answer is built under
+``SAVE_ONLY_EDITED_FORM_FIELDS``. For the ``case`` family, what its HQ checks
+compare is returned (``test_case_emission.py``, ``test_advanced_emission.py``),
+and for ``relation-instance``, whose forms only Core reads, the names of the
+forms written.
 """
 
 from lxml import etree
 
-from proof.native.hq_support import import_source, native_check, regenerate_form, sha256
+from proof.native.hq_support import hand_assembled_suite, import_source, native_check, regenerate_form, sha256
 
 DOMAIN = "nova-case-evidence"
 EXTENSION_SCENARIOS = ["registration", "followup", "repeat", "query", "multiple", "multiple-repeat"]
+# The extension scenarios Core opens from their suites (``CaseOperationRuntimeTest``), HQ's beside Nova's.
+SUITE_RUN_SCENARIOS = ["followup", "repeat"]
+# The targeted documents the family emits whole (``proof/native/producers/emit-case-evidence.ts``).
+WHOLE_DOCUMENTS = ["advanced-module", "root-case-block-names"]
+# What HQ answers an advanced document's build on: Save to Case blocks, child cases and the worker's record.
+WHOLE_PRIVILEGES = {"VELLUM_SAVE_TO_CASE", "CHILD_CASES", "USERCASE"}
 WORKER_SCENARIOS = ["worker-survey", "worker-followup"]
 CAPTURE_SCENARIOS = ["registration", "followup", "repeat", "query", "multiple"]
 OPERATION_SCENARIOS = [
@@ -51,7 +60,15 @@ NATIVE_FILES = [
     "corehq/apps/app_manager/models/form_actions.py",
     "corehq/apps/app_manager/suite_xml/sections/entries.py",
     "corehq/apps/app_manager/suite_xml/post_process/workflow.py",
+    "corehq/apps/app_manager/helpers/validators.py",
 ]
+
+
+def _suite_datum_ids(suite_xml, xmlns):
+    """The ids of the datums a suite's entry for the form ``xmlns`` works out (``function``), in order."""
+    suite = etree.fromstring(suite_xml)
+    (entry,) = suite.xpath("entry[form=$xmlns]", xmlns=xmlns)
+    return [datum.get("id") for datum in entry.xpath("session/datum[@function]")]
 
 
 def _extension(exports, scenario):
@@ -74,16 +91,15 @@ def _extension(exports, scenario):
         owner_values = preload_tree.xpath(
             '//x:model/x:setvalue[@ref="/data/episode_note"]/@value', namespaces=NAMESPACES
         )
-    xform = XForm(form.source, domain=DOMAIN)
-    xform._create_casexml(form)
-    native_xml = etree.tostring(xform.xml)
+    # The whole form HQ's build writes, its meta block among it, which Core also runs (``CaseCaptureRuntimeTest``,
+    # ``CaseOperationRuntimeTest``), and HQ's suite for the forms Core opens from it.
+    native_xml = regenerate_form(form, DOMAIN)
     (exports / f"{scenario}.hq.xml").write_bytes(native_xml)
+    if scenario in SUITE_RUN_SCENARIOS:
+        (exports / f"{scenario}.hq-suite.xml").write_bytes(hand_assembled_suite(app))
     datums = EntriesHelper.get_new_case_id_datums_meta(form)
     matched_id = None
     if scenario == "registration":
-        # The whole form HQ's build writes, its meta block among it, for Core to run
-        # (``CaseCaptureRuntimeTest``): ``_create_casexml`` alone writes no meta block.
-        (exports / f"{scenario}.whole.hq.xml").write_bytes(regenerate_form(form, DOMAIN))
         source = []
         for meta in datums:
             datum = workflow_meta_from_session_datum(meta.datum, None)
@@ -100,7 +116,66 @@ def _extension(exports, scenario):
         "ownerPreloadValues": owner_values,
         "datumIds": [meta.datum.id for meta in datums],
         "datumFunctions": [str(meta.datum.function) for meta in datums],
+        "localDatumIds": _suite_datum_ids((exports / f"{scenario}.suite.xml").read_bytes(), form.xmlns),
         "linkSourceId": matched_id,
+    }
+
+
+def _datum(datum):
+    """A session datum HQ's entry builds, as the suite writes it: its id, nodeset and function."""
+    nodeset, function = getattr(datum, "nodeset", None), getattr(datum, "function", None)
+    return {
+        "id": datum.id,
+        "nodeset": None if nodeset is None else str(nodeset),
+        "function": None if function is None else str(function),
+    }
+
+
+def _whole(exports, name):
+    """Every form of the targeted document ``name`` as HQ's build writes it (``<name>.m<i>f<j>.hq.xml``) and HQ's
+    suite for it (``<name>.hq-suite.xml``), for the Core classes that open each form from its suite; and, for each
+    advanced form, what ``test_advanced_emission.py`` holds to the local archive: HQ's advanced case blocks alone
+    (``XForm._create_casexml_advanced``), its datums and assertions (``get_datum_meta_assertions_advanced`` with the
+    new-case datums ``configure_entry_advanced_form`` adds) and ``validate_app``'s errors."""
+    from corehq.apps.app_manager.suite_xml.sections.entries import EntriesHelper
+    from corehq.apps.app_manager.xform import XForm
+
+    from proof.hq.seams import build_seams
+
+    raw = (exports / f"{name}.json").read_bytes()
+    app = import_source(raw, DOMAIN)
+    app._id = f"{DOMAIN}-{name}"
+    (exports / f"{name}.hq-suite.xml").write_bytes(hand_assembled_suite(app))
+    helper = EntriesHelper(app)
+    forms = []
+    for module_index, module in enumerate(app.get_modules()):
+        for form_index, form in enumerate(module.get_forms()):
+            stem = f"{name}.m{module_index}f{form_index}"
+            (exports / f"{stem}.hq.xml").write_bytes(regenerate_form(form, DOMAIN))
+            if form.form_type != "advanced_form":
+                continue
+            blocks = XForm(form.source, domain=DOMAIN)
+            blocks._create_casexml_advanced(form)
+            datums, assertions = helper.get_datum_meta_assertions_advanced(module, form)
+            datums = [*datums, *EntriesHelper.get_new_case_id_datums_meta(form)]
+            forms.append(
+                {
+                    "form": stem,
+                    "xmlns": form.xmlns,
+                    "native": etree.tostring(blocks.xml),
+                    "local": (exports / f"{stem}.xml").read_bytes(),
+                    "datums": [_datum(meta.datum) for meta in datums],
+                    "assertions": [str(assertion.test) for assertion in assertions],
+                }
+            )
+    with build_seams():
+        errors = list(app.validate_app())
+    return {
+        "name": name,
+        "inputSha256": sha256(raw),
+        "suite": (exports / f"{name}.suite.xml").read_bytes(),
+        "forms": forms,
+        "validationErrors": errors,
     }
 
 
@@ -161,7 +236,10 @@ def cases(session):
     # USERCASE privilege (app_manager/util.py::domain_has_usercase_access).
     with native_check(DOMAIN, privileges={"USERCASE"}):
         workers = [_worker(exports, scenario) for scenario in WORKER_SCENARIOS]
+    with native_check(DOMAIN, privileges=WHOLE_PRIVILEGES):
+        wholes = [_whole(exports, name) for name in WHOLE_DOCUMENTS]
     return {
+        "wholes": wholes,
         "extensions": extensions,
         "workers": workers,
         "captures": captures,

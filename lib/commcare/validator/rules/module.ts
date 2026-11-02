@@ -52,6 +52,7 @@ import {
 } from "./case-search/searchFirst";
 import { searchNoMatchesFormUnique } from "./case-search/searchNoMatches";
 import { searchRelatedCalculationCompatibility } from "./case-search/searchRelatedCalculationCompatibility";
+import { heldModuleKindInexpressible } from "./casePlacement";
 import { moduleDisplayCondition } from "./displayConditions";
 import { hiddenMenuEntryPoints } from "./hiddenFromMenu";
 import { imageMapValueUnique } from "./media/imageMapValueUnique";
@@ -310,6 +311,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	caseTypeTooLong,
 	missingCaseListColumns,
 	multiSelectTopology,
+	heldModuleKindInexpressible,
 	moduleDisplayCondition,
 	hiddenMenuEntryPoints,
 	// Case-list-config rules (sit at module scope; the cross-form

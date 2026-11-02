@@ -551,15 +551,14 @@ export interface SubcaseContext {
 
 /**
  * Every condition of the basic subcase slot but the index and the nesting,
- * which read the form's other subcases. `relationship` is the link a basic
- * subcase writes: `child` for HQ's own subcase, `extension` for the
- * field-written extension child kept as today's inert subcase.
+ * which read the form's other subcases. A basic subcase writes one `child`
+ * index named `parent`: HQ's basic build ignores
+ * `OpenSubCaseAction.relationship` (`xform.py::XForm._create_casexml`).
  */
 export function subcaseReasons(
 	f: CaseSlotFacts,
 	operation: CaseOperation,
 	context: SubcaseContext,
-	relationship: "child" | "extension",
 ): PlacementIneligibility[] {
 	if (operation.action !== "create") return [SUBJECT_CANNOT_HOLD];
 	const repeat = operation.forEach?.repeat;
@@ -573,7 +572,7 @@ export function subcaseReasons(
 		links.length !== 1 ||
 		link === undefined ||
 		link.identifier !== "parent" ||
-		link.relationship !== relationship ||
+		link.relationship !== "child" ||
 		!targetsOwnCase(f, link.target)
 	)
 		reasons.push({ reason: "subcase-link" });
@@ -610,24 +609,21 @@ export function subcaseReasons(
 }
 
 /**
- * The relationship of the child `planFieldCaseWrite` writes for a field:
- * one link to the own case and a name read bare. Until advanced modules are
- * emitted an extension child, and any such child of a several-case form,
- * keeps today's wire: HQ's subcase, which writes nothing, beside an active
- * Save to Case block (part 02 §14.4, part 01 departure 27).
+ * Whether `operation` is the child `planFieldCaseWrite` writes for a field:
+ * one `child` link to the own case and a name read bare. In a several-case
+ * form such a child keeps its wire: HQ's subcase, which HQ's build skips
+ * there, beside an active Save to Case block per selected case (part 01
+ * departure 27).
  */
-export function fieldWrittenRelationship(
-	operation: CaseOperation,
-): "child" | "extension" | undefined {
+function isFieldWrittenChild(operation: CaseOperation): boolean {
 	const links = operation.links ?? [];
-	const relationship = links[0]?.relationship;
-	return operation.action === "create" &&
+	return (
+		operation.action === "create" &&
 		links.length === 1 &&
-		(relationship === "child" || relationship === "extension") &&
+		links[0]?.relationship === "child" &&
 		operation.name !== undefined &&
 		bareRead(operation.name) !== undefined
-		? relationship
-		: undefined;
+	);
 }
 
 // ── Save to Case blocks of the own arm and the creates ──────────────────
@@ -715,11 +711,8 @@ export interface PlannedBasicSubcase {
 	readonly index: number;
 	/** Written at its repeat row's own `case`: the repeat holds no other. */
 	readonly row: boolean;
-	/** The subcase's link is `extension`, which HQ's basic build ignores. */
-	readonly extension: boolean;
-	/** A field-written child kept as HQ's subcase, which writes nothing (an
-	 *  extension's, condition `never`; any subcase of a several-case form,
-	 *  which HQ's build skips), beside an active Save to Case block. */
+	/** A field-written child of a several-case form kept as HQ's subcase,
+	 *  which HQ's build skips there, beside an active Save to Case block. */
 	readonly inSource: boolean;
 }
 
@@ -745,6 +738,13 @@ export interface BasicCaseSlotOptions {
 	/** Plans this operation in a basic slot where it is eligible, whatever
 	 *  the exclusions say. */
 	readonly forceBasic?: Uuid;
+	/**
+	 * The creates an after-submit link carries into another form
+	 * (`lib/commcare/formLinkProjection.ts::linkCarriedCreates`, which the
+	 * domain cannot read). A Save to Case block gives a case no session
+	 * value, so a held block no longer expresses one of these.
+	 */
+	readonly carried?: ReadonlySet<Uuid>;
 }
 
 /**
@@ -770,7 +770,7 @@ export function moduleCaseTypeForActions(
  * Case. No eligibility condition: a held one is kept, and
  * `placementIneligibility` never names it.
  */
-function sameTypeExclusions(f: CaseSlotFacts): ReadonlySet<Uuid> {
+export function sameTypeExclusions(f: CaseSlotFacts): ReadonlySet<Uuid> {
 	const moduleType =
 		f.moduleUuid === undefined
 			? ""
@@ -802,7 +802,8 @@ export function basicCaseSlots(
 	options: BasicCaseSlotOptions = {},
 ): BasicCaseSlots {
 	const extra = [...(options.exclude ?? [])].sort();
-	const key = `${formUuid}\u0000${extra.join(",")}\u0000${options.forceBasic ?? ""}`;
+	const carried = options.carried ?? new Set<Uuid>();
+	const key = `${formUuid}\u0000${extra.join(",")}\u0000${options.forceBasic ?? ""}\u0000${[...carried].sort().join(",")}`;
 	let byKey = slotPlans.get(doc);
 	if (byKey === undefined) {
 		byKey = new Map();
@@ -823,7 +824,7 @@ export function basicCaseSlots(
 			own = eligible
 				? { kind: "basic", held: true }
 				: { kind: "save-to-case", held: false };
-		else if (keepsHeldSaveToCase(f, op, op.placement))
+		else if (!carried.has(op.uuid) && keepsHeldSaveToCase(f, op, op.placement))
 			own = { kind: "save-to-case", held: true };
 		else
 			own =
@@ -841,7 +842,6 @@ export function basicCaseSlots(
 		| {
 				readonly kind: "basic";
 				readonly held?: CasePlacement;
-				readonly extension: boolean;
 				readonly inSource: boolean;
 		  }
 		| { readonly kind: "save-to-case"; readonly held: boolean };
@@ -850,36 +850,26 @@ export function basicCaseSlots(
 		if (held?.kind === "basic") {
 			if (
 				(held.slot === "subcase" || held.slot === "subcase-row") &&
-				subcaseReasons(f, op, context, "child").length === 0
+				subcaseReasons(f, op, context).length === 0
 			)
-				return { kind: "basic", held, extension: false, inSource: false };
-		} else if (keepsHeldSaveToCase(f, op, held))
+				return { kind: "basic", held, inSource: false };
+		} else if (!carried.has(op.uuid) && keepsHeldSaveToCase(f, op, held))
 			return { kind: "save-to-case", held: true };
 		if (excluded(op.uuid)) return { kind: "save-to-case", held: false };
-		if (subcaseReasons(f, op, context, "child").length === 0)
-			return { kind: "basic", extension: false, inSource: false };
-		// A field-written child HQ's build would not write keeps today's
-		// wire (part 01 §12.3 step 4, departure 27): its subcase stays in
-		// `subcases` and its create is a block in the source. The inert
-		// subcase carries no close, so nothing shares its place.
-		const relationship = fieldWrittenRelationship(op);
-		if (relationship !== undefined) {
-			const reasons = subcaseReasons(
-				f,
-				op,
-				{ ownBasic, sharers: new Map() },
-				relationship,
-			).filter((r) => r.reason !== "several-cases");
-			if (
-				reasons.length === 0 &&
-				(relationship === "extension" || f.severalCases)
+		if (subcaseReasons(f, op, context).length === 0)
+			return { kind: "basic", inSource: false };
+		// A field-written child of a several-case form keeps its wire (part
+		// 01 departure 27): its subcase stays in `subcases` and its create is
+		// a block in the source. The inert subcase carries no close, so
+		// nothing shares its place.
+		if (
+			f.severalCases &&
+			isFieldWrittenChild(op) &&
+			subcaseReasons(f, op, { ownBasic, sharers: new Map() }).every(
+				(r) => r.reason === "several-cases",
 			)
-				return {
-					kind: "basic",
-					extension: relationship === "extension",
-					inSource: true,
-				};
-		}
+		)
+			return { kind: "basic", inSource: true };
 		return { kind: "save-to-case", held: false };
 	};
 	let choices = new Map<Uuid, CreateChoice>();
@@ -956,7 +946,6 @@ export function basicCaseSlots(
 					operationUuid: op.uuid,
 					index: indexOf.get(op.uuid) ?? 0,
 					row: isRow(op),
-					extension: choice.extension,
 					inSource: choice.inSource,
 				};
 			})
@@ -1006,7 +995,7 @@ export function registrationMintsOwnCaseId(
  * The case types of the children a form creates outside a repeat that its
  * entry gives a session value, in `subcases` index order: CommCare HQ's
  * basic subcases at the form root (`subcase_<i>`, each given its id datum),
- * the inert subcase of a field-written extension child included.
+ * the inert subcase of a several-case form's field-written child included.
  */
 export function rootBasicSubcaseCreates(
 	doc: BlueprintDoc,
@@ -1022,4 +1011,17 @@ export function rootBasicSubcaseCreates(
 			? []
 			: [{ operationUuid: op.uuid, caseType: op.caseType }];
 	});
+}
+
+/**
+ * Whether the held Save to Case block of the own arm or a create still
+ * expresses it (`lib/commcare/placement.ts::saveToCaseReasons` for these two
+ * subjects). The advanced procedure keeps such a block before it tries an
+ * open action (`advancedEntryDatums.ts::advancedEntryActions`).
+ */
+export function heldOwnOrCreateBlockExpresses(
+	f: CaseSlotFacts,
+	operation: CaseOperation,
+): boolean {
+	return keepsHeldSaveToCase(f, operation, operation.placement);
 }

@@ -1,5 +1,7 @@
 import * as fc from "fast-check";
 import { expect, it } from "vitest";
+import { emittedModuleKind } from "@/lib/commcare/moduleKind";
+import { advancedDocArbitrary } from "./advancedDocArbitrary";
 import { assertGenerated, checkCompilerEvidence } from "./compilerEvidence";
 import {
 	hasCaseSearch,
@@ -56,4 +58,27 @@ it("compiles 400 workflow samples with valid schema, HQ import, bindings, and ar
 	expect(census.activeCaseAction / census.total).toBeGreaterThan(0.6);
 	expect(census.media / census.total).toBeGreaterThan(0.3);
 	expect(census.suiteMedia / census.total).toBeGreaterThan(0.3);
+});
+
+// The advanced arm: a carried create makes its menu advanced, and the HQ
+// import, the local suite's entries and every binding still check clean.
+it("compiles workflow samples whose after-submit link carries a create, with an advanced menu", {
+	timeout: 60_000,
+}, () => {
+	const census = { total: 0, advanced: 0 };
+	assertGenerated(
+		fc.property(advancedDocArbitrary, (doc) => {
+			checkCompilerEvidence(doc);
+			census.total++;
+			if (
+				doc.moduleOrder.some(
+					(moduleUuid) => emittedModuleKind(doc, moduleUuid) === "advanced",
+				)
+			)
+				census.advanced++;
+		}),
+		{ seed: 20261102, numRuns: 60 },
+	);
+	expect(census.total).toBe(60);
+	expect(census.advanced / census.total).toBeGreaterThan(0.5);
 });

@@ -1611,6 +1611,36 @@ by its spec, laid on as the recording that wrote them would
 placement rule as an editor's save; a written edit that moves a hold is the
 corpus's `holdPlacements` batch. The intent check holds Core to Weigh's block
 writing the computed weight with its unit. It needs no control.
+Five documents (`proof/targeted/documents/advancedModules.ts`), each declared
+for both platforms and each needing no control, hold what CommCare HQ receives
+as an advanced module, which Nova emits where a create of a menu's form is
+carried by an after-submit link into a form of the new case's type, or where a
+publish recorded the kind (`lib/commcare/moduleKind.ts`), and defect 24's fix.
+`targeted-advanced-module` holds households and patients chosen under their
+household, the Patients menu made advanced by a carried extension create: a
+registration of the patient (its own open action, under an open and a close
+condition) creating an `episode` extending it, carried into "Review episode";
+a follow-up loading the household and the patient (a load indexed to the one
+before it), writing three answers, closing the household on its load, writing
+the worker's record through the worker's load, and creating two indexed visit
+cases in each row of one repeat, the second linked to the first; and a close
+form. Its advanced forms are what `AdvancedFormRuntimeTest` and
+`proof/native/test_advanced_emission.py` run ("The families").
+`targeted-extension-carried` holds a menu whose registration creates a
+referral extending the client, carried by its link (an advanced open action
+whose datum `case_id_new_<type>_<i>` the link matches), beside a basic menu
+whose extension create no link carries (a Save to Case block in
+`nova_operations` with a `uuid()` id). `targeted-advanced-child-module` holds a
+basic case-selecting root menu with an advanced child menu of its type, whose
+loads HQ aligns to the root's datums (`add_parent_datums`), and a create
+linked to the aligned load, which takes a Save to Case block
+(`link-renamed-load`). `targeted-advanced-held-kind` holds a menu advanced by
+a carried create, whose first publish records the kind; its D′ removes the
+link, and the held kind keeps the menu advanced, so proof 1 sees no move.
+`targeted-root-case-block-names` holds a root question `subcase_0` beside a
+basic child create at the root, and a root question `commcare_usercase` in a
+form writing the worker's record, the names HQ's build gives the blocks it
+appends (part 02's G3), which `CaseOperationRuntimeTest` also opens.
 The eight migration witnesses (`proof/targeted/documents/migrations.ts`, each
 spec marked `migrationWitness: true`, so its source is
 `targeted-migration:<rows>`) are small apps, one per step 5 migration that
@@ -3031,7 +3061,7 @@ commit gate, which refuses a datum the form's entry does not supply
 | 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`). Fixed in step 4: Nova's publish asks a person to confirm the setting is off for an app that declares Android and holds such a form (`form-entry-sync-off`), and an app for Web Apps only publishes with it on | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | fixed; still shown by the controls `targeted-sync-on-form-entry`, `targeted-list-first-web-apps`, `case-list-inline` and `search-multiple` |
 | 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | any list-first menu in a project space that searches; `targeted-list-first-web-apps`, `targeted-list-first-places` (the location question's runs and viewports) |
 | 23 | a Vellum save drops the Save to Case attachment. Fixed in step 5: a capture saves only a link to its file, written to the generated `nova_url_<question>` node, so no export writes a case attachment | proof 4, then 3; manifest; intent (HQ) | fixed; still shown by the controls `case-capture-followup`, `case-capture-multiple-after-3`, `case-capture-multiple-after-13`, `case-extension-registration-after-13`, `case-extension-multiple-after-13`, `case-extension-multiple-repeat-after-13`, `case-extension-query-after-13` and `case-extension-repeat-after-13` |
-| 24 | a Case Management save turns the inert subcase's relationship from extension to child; and the local archive placed a repeat's single subcase block after the item's other children, where HQ's build places it first, so Formplayer listed the item's ids in another order. Step 2 fixed the repeat item's position (finding 37): the block is the item's first child on both paths | proof 4; proof 3 across the two paths | an extension child case; the item's position is fixed and still shown by the control `case-capture-query` |
+| 24 | a Case Management save turns the inert subcase's relationship from extension to child; and the local archive placed a repeat's single subcase block after the item's other children, where HQ's build places it first, so Formplayer listed the item's ids in another order. Step 2 fixed the repeat item's position (finding 37): the block is the item's first child on both paths. Fixed in step 5: no export writes the inert subcase. An extension child case is a create operation with an extension link, at the placement Nova plans for it: a Save to Case block whose case id is `uuid()`, or, where an after-submit link carries the new case, an advanced open action whose index carries `relationship="extension"`, which makes its menu an advanced module (`lib/commcare/moduleKind.ts`) | proof 4; proof 3 across the two paths; manifest | fixed; still shown by the controls `case-extension-registration-after-13`, `case-extension-registration-after-59`, `case-extension-repeat-after-13`, `case-extension-repeat-after-59`, `case-extension-query-after-13` and `case-extension-query-after-59`, the item's position by `case-capture-query`; `targeted-advanced-module` and `targeted-extension-carried` hold the fix |
 | 25 | a Vellum save rewrites a query repeat into model iteration, whose rows are built by setvalues that run as the form loads. Where that breaks is a REFUSED class of the model-iteration entries (`lib/commcare/surface/entries/questions.json`): a repeat nested in another; a query reading an answer still blank where those setvalues run; and a repeat under a group that Core's load has already left not relevant there (its condition reads what an earlier load-time setvalue wrote) and that becomes relevant later: the repeat stays empty. Otherwise a group relevant later costs no rows: `FormDef.initialize` runs the load-time setvalues before it evaluates the form's conditions (`initAllTriggerables`), and a group whose condition nothing has evaluated yet reads as relevant (`XFormParser` leaves it so), so for a query that reads no form answer the repeat keeps its rows after the save, and one under a group never relevant submits none either way (correction 7). Fixed in step 5: a query repeat takes its placement from what its form holds (`lib/domain/queryRepeatPlacement.ts`). It is model iteration in the form builder's own spelling, which a save keeps, only where nothing model iteration cannot run holds it (a repeat nested in another, a query reading a form answer, an enclosing group whose condition can change while the form is filled in); anywhere else it is the count placement, Nova's `nova_query_ids_<repeat>` node and a live count the save leaves alone | proof 4, then 3; manifest | fixed; still shown by the controls `container-query-conditional-after-13`, `container-nested-query`, `case-operation-query`, `container-query-conditional`, `container-query-conditional-parent` and `targeted-query-repeat-places`; `targeted-query-repeat-placements` holds each placement |
 | 26 | the form settings save drops a hidden link beside a visible one and clears a navigation fallback its page does not offer, which changes the stack | proof 4, then 2 and 3 | `targeted-form-links-hidden-and-fallback` |
 | 26, a link's case value | a form link that names its target's case by a value no case holds makes the target write to a case no form created; HQ makes that case without a create block and notes the soft assertion `corehq/form_processor/casedb_base.py::get_case_from_case_update` answering the device's requests | proof 3 and proof 4 (Android's soft assertions) | `expander-form-links-emission-forwards-literal-condition-47c96355-0` |
@@ -3840,18 +3870,26 @@ count, condition on, test for and read the absence of related cases.
 
 HQ's basic case builder ignores `OpenSubCaseAction.relationship`
 (`xform.py::XForm._create_casexml` calls `add_index_ref` without it, so every
-index is `child`), and HQ allocates new-case datums for subcase actions whose
-condition is `never`. Nova therefore carries the extension transaction in the
-source XForm, keeps the action as navigation metadata with its condition
-`never`, and HQ gives the redundant generated case `relevant="false()"`. The
-local CCZ omits that inactive transaction; both paths use the same generated
-case id, and repeats generate ids per iteration.
+index is `child`), so an extension child case is never a basic subcase: it is
+a create operation with an extension link, a Save to Case block whose case id
+is `uuid()` (a repeat's per row), or, where an after-submit link carries the
+new case, an advanced open action whose index HQ's advanced builder writes
+with its relationship (`xform.py::XForm._create_casexml_advanced`), which makes
+the registration extension scenario's menu an advanced module. No path writes
+an inert subcase beside it. The producer also emits two targeted documents
+whole, every form of each (`<name>.m<i>f<j>.xml`), its suite and its HQ import
+body: `targeted-advanced-module` and `targeted-root-case-block-names`, with
+the cases a run seeds (`<name>.cases.json`, one of each type under its parent
+and the worker's own case), as it does for the extension scenarios.
 
-The HQ checks run `Application.from_source`, `XForm._create_casexml`,
+The HQ checks run `Application.from_source`, HQ's whole regeneration of each
+form (`add_case_and_meta`, or `add_case_and_meta_advanced` for an advanced
+form, then `strip_vellum_ns_attributes`),
 `EntriesHelper.get_new_case_id_datums_meta` and HQ's navigation matcher, and
-assert both extension indices with their attributes, every inactive native
-case path, the complete create-datum list and the registration link match; a
-separate `add_case_preloads` call checks the owner preload. The worker
+assert both extension indices with their attributes on both paths, no inactive
+transaction on either, the create-datum list the local suite works out and the
+registration link match; a separate `add_case_preloads` call checks the owner
+preload. The worker
 scenarios run with HQ's `USERCASE` privilege and add `XForm._add_usercase`,
 `EntriesHelper.get_extra_case_id_datums` and `add_usercase_id_assertion`:
 every worker-case bind equals the CCZ's, and the datum and assertion join the
@@ -3875,9 +3913,9 @@ untouched neighboring rows keeping their URL, capture fields starting empty on
 followup, and child indices naming the selected parent; the multiple-parent
 document writes shared links to both ids, and all-blank shared answers
 omit the whole ordinary update. Two of its methods read the extension
-registration form on both paths, HQ's side regenerated whole for them
-(`registration.whole.hq.xml`): its two extension children and its ordinary
-child each name the case the form registers. `CaseOperationRuntimeTest` (19
+registration form, an advanced form, on both paths, HQ's side regenerated
+whole: its two extension children and its ordinary child each name the case
+the form registers. `CaseOperationRuntimeTest` (22
 methods, each on both paths) seeds native `Case` records in Core's indexed in-memory storage, reads
 them through `CaseInstanceTreeElement`, finalizes with `postProcessInstance`
 and applies the submission through `XmlFormRecordProcessor` and
@@ -3925,6 +3963,47 @@ with zero and two matching children, plus unrelated and wrong-type rows, and
 keeps the pre-fix form from Nova `bffd10f7`
 (`core/resources/relation-instance/before-related-count-instance.xml`), which
 must fail initialization on its missing `casedb` declaration.
+
+Three of `CaseOperationRuntimeTest`'s methods open a form from its suite entry,
+Nova's local suite on one path and HQ's suite on the other
+(`SuiteFormRun.java`: each case a datum asks for chosen from its list, each
+value it works out computed by Core's session, every question answered as form
+entry answers it, two rows in each repeat): an extension link on a create
+operation, at a follow-up's root and in each row of a registration's repeat,
+is stored by `CaseXmlParser` as an index whose relationship is `extension`,
+beside the basic child's `child` index; and, on `targeted-root-case-block-names`
+(part 02's G3), a root question named `subcase_0` or `commcare_usercase`, as
+HQ's build names the block it appends for a basic child or the worker's
+update, keeps its answer as the one element of its name, and the child case
+and the worker's update still land. `AdvancedFormRuntimeTest` opens each
+advanced form of `targeted-advanced-module` the same way on both paths and
+holds the stored cases to the form's own advanced actions in the HQ import
+body: each load updates the case its datum names and closes it where its close
+condition holds (the household), the worker's load updates the worker's own
+case, and each open action creates its case where its open condition holds,
+named and written from its questions, with each index naming its tag's case
+under the relationship it states, once per row in a repeat (two indexed visits
+in one repeat, the second linked to the first); a case created as an
+extension is owned by the worker (part 02's G6, outcome A). It first holds that
+the document holds each of those shapes. `proof/native/test_advanced_emission.py`
+holds HQ's side of the same forms: `XForm._create_casexml_advanced` over the
+source gives the local form's case blocks element for element, with the binds
+and setvalues on them, `EntriesHelper.get_datum_meta_assertions_advanced` and
+the new-case datums after it give the local suite entry's datums and
+assertions in order, and `validate_app` reports no error.
+
+`proof/hq/test_advanced_rules.py` reads the `advanced-rules` family
+(`proof/native/producers/emit-advanced-rule-evidence.ts`): Nova's HQ import
+body of each form `proof/hq/fixtures/advanced-rule-shapes.json` holds, the
+refused and accepted twins of each eligibility clause of an advanced action
+(`lib/commcare/advancedPlacement.ts`), which the producer builds again on
+their fixture and refuses unless Nova's commit gate admits them. HQ validates
+both twins with no error, the refused twin's change is the Save to Case block
+the fixture names and the accepted twin's the action it names; then the shape
+Nova avoids is built from the accepted export with HQ's own models and HQ
+treats it as the clause's row says (a `validate_app` error, a build that
+raises, two blocks at one path, a renamed datum, a slot HQ's model lacks, a
+value class the manifest check holds, or a runtime behavior).
 
 None of this sends a submission or applies a server case transaction: Core's
 in-memory storage applies records as the parser visits them, so it does not

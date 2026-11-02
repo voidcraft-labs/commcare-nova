@@ -58,6 +58,7 @@ import {
 	unavailableUses,
 	writerOffersPreload,
 } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/expression/builders";
 import {
 	type FormStructure,
 	formStructure,
@@ -692,9 +693,6 @@ function fixtureProse(value: FixtureProse): ProseTemplate {
  * mutates in place and returns the doc for inline wrapping.
  */
 export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
-	// Cache structural facts only on this call-local identity. Fixture callers may
-	// deliberately mutate the returned document after assembly.
-	const parsingDoc = { ...doc };
 	const owners: ExpressionCarrierRef[] = [
 		...Object.values(doc.fields).map(({ uuid }) => ({
 			entity: "field" as const,
@@ -719,7 +717,41 @@ export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
 	}
 	const resolved = new Map<string, Expression>();
 	const resolving = new Set<string>();
-	const structures = new Map<Uuid, FormStructure>();
+	// The document each slot is parsed against. A form's entry supplies read
+	// the form's after-submit links (which creates a link carries makes the
+	// menu advanced), so a link slot not yet resolved is no text there: its
+	// condition is absent and a datum value reads nothing, as a link being
+	// added is absent from the document it is parsed against. Each resolved
+	// link slot takes its place in a fresh call-local copy, so no answer the
+	// domain memoized per document reads a slot that has since changed.
+	// Fixture callers may deliberately mutate the returned document after
+	// assembly, so nothing is cached on `doc` itself.
+	const linkSlotsAsResolved = (): BlueprintDoc => {
+		const forms = { ...doc.forms };
+		const snapshot: BlueprintDoc = { ...doc, forms };
+		for (const [formUuid, form] of Object.entries(doc.forms) as [
+			Uuid,
+			Form,
+		][]) {
+			if (form.formLinks === undefined) continue;
+			forms[formUuid] = structuredClone(form);
+			rewriteExpressionSlotValues(
+				snapshot,
+				{ entity: "form", uuid: formUuid },
+				(value, ref) => {
+					if (typeof value !== "string" || !isFormLinkSlot(ref)) return value;
+					const known = resolved.get(expressionSlotKey(ref));
+					if (known !== undefined) return known;
+					return ref.slot === "form_link_condition"
+						? undefined
+						: term(literal(""));
+				},
+			);
+		}
+		return snapshot;
+	};
+	let parsingDoc = linkSlotsAsResolved();
+	let structures = new Map<Uuid, FormStructure>();
 	const read = (ref: ExpressionSlotRef): Expression | undefined => {
 		const key = expressionSlotKey(ref);
 		const source = pending.get(key);
@@ -758,11 +790,24 @@ export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
 			resolving.delete(key);
 		}
 	};
-	for (const formUuid of Object.keys(doc.forms) as Uuid[]) {
-		if (moduleUuidOfForm(parsingDoc, formUuid) === undefined) continue;
-		const base = formStructure(parsingDoc, formUuid);
-		if (base !== undefined)
-			structures.set(formUuid, { ...base, expressionAt: read });
+	const structuresOf = (on: BlueprintDoc): Map<Uuid, FormStructure> => {
+		const built = new Map<Uuid, FormStructure>();
+		for (const formUuid of Object.keys(on.forms) as Uuid[]) {
+			if (moduleUuidOfForm(on, formUuid) === undefined) continue;
+			const base = formStructure(on, formUuid);
+			if (base !== undefined)
+				built.set(formUuid, { ...base, expressionAt: read });
+		}
+		return built;
+	};
+	structures = structuresOf(parsingDoc);
+	// The link slots first, in document order, each against the links
+	// resolved before it.
+	for (const { ref } of pending.values()) {
+		if (!isFormLinkSlot(ref) || resolved.has(expressionSlotKey(ref))) continue;
+		read(ref);
+		parsingDoc = linkSlotsAsResolved();
+		structures = structuresOf(parsingDoc);
 	}
 	for (const { ref } of pending.values()) read(ref);
 	for (const owner of owners)
@@ -770,6 +815,13 @@ export function resolveDocExpressions(doc: BlueprintDoc): BlueprintDoc {
 			typeof value === "string" ? resolved.get(expressionSlotKey(ref)) : value,
 		);
 	return doc;
+}
+
+function isFormLinkSlot(ref: ExpressionSlotRef): boolean {
+	return (
+		ref.entity === "form" &&
+		(ref.slot === "form_link_condition" || ref.slot === "form_link_datum_xpath")
+	);
 }
 
 /**

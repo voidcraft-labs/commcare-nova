@@ -16,6 +16,17 @@
  * inferred facts. A batch therefore keeps its footprint only while
  * `inferenceFingerprint` is the same before and after it; any change to an
  * inferred fact takes the absolute gate.
+ *
+ * A menu's kind, ordinary or advanced, is document-wide in the same way: it
+ * decides where every form of the menu keeps its case changes and the
+ * session values every link into the menu reads. The commit gate takes the
+ * absolute gate for any batch whose candidate emits some menu as another
+ * kind (`commitVerdicts.ts`, through `lib/commcare/moduleKind.ts`), whatever
+ * edit did it. Which creates a form's links carry also decides the session
+ * values that form's entry gives, which links from other forms read, so an
+ * edit that can change them takes it here: a held kind, a form's links, and
+ * in a form with links an operation added, removed or reordered, or an
+ * operation's links, repeat and target.
  */
 
 import { formHoldsPlacement } from "@/lib/doc/heldIdentity";
@@ -171,6 +182,30 @@ function addModuleSearchReaders(
 	addFormLinkSources(doc, scope);
 }
 
+/** Whether an edit of an existing case operation can change which creates
+ *  its form's links carry: a create's place among the form's new cases (a
+ *  reorder), its links, its repeat, or its target (a key in `idFrom`). */
+function changesCarriedCreates(
+	patch: Extract<Mutation, { kind: "updateForm" }>["caseOperationPatch"],
+): boolean {
+	if (patch === undefined) return false;
+	switch (patch.operation) {
+		case "move":
+		case "add-link":
+		case "update-link":
+		case "remove-link":
+		case "move-link":
+			return true;
+		case "update":
+			return (
+				Object.hasOwn(patch.patch, "forEach") ||
+				Object.hasOwn(patch.patch, "target")
+			);
+		default:
+			return false;
+	}
+}
+
 /** Return the exact validator footprint for a conservatively safe batch.
  * `doc` is the valid snapshot the batch applies to and `nextDoc` the
  * candidate it produces. */
@@ -305,6 +340,19 @@ function mutationFootprint(
 				) {
 					return undefined;
 				}
+				/* Which creates a form's links carry decides where the form keeps
+				 * them and the session values its entry gives them, which links
+				 * from other forms read: in a form with links, an operation
+				 * added, removed, reordered, or given other links, another
+				 * repeat or another target. */
+				if (
+					(doc.forms[mutation.uuid]?.formLinks?.length ?? 0) > 0 &&
+					(mutation.caseOperationChange !== undefined ||
+						(mutation.caseOperationPatch !== undefined &&
+							changesCarriedCreates(mutation.caseOperationPatch)))
+				) {
+					return undefined;
+				}
 				const moduleUuid = owningModule(doc, mutation.uuid);
 				if (moduleUuid === undefined) return undefined;
 				/* A case change, or the form's open or close condition, decides
@@ -333,17 +381,22 @@ function mutationFootprint(
 				scope.formUuids.add(mutation.uuid);
 				break;
 			}
+			/* A form's links decide which of its creates they carry, and so its
+			 * menu's kind (`lib/commcare/moduleKind.ts`), which moves every form
+			 * of the menu and every link into it. */
 			case "addFormLink":
 			case "updateFormLink":
 			case "removeFormLink":
 			case "moveFormLink":
-				scope.formUuids.add(mutation.formUuid);
-				break;
+				return undefined;
 			/* A held placement decides where its form's case changes are
 			 * placed, which reads the whole form and its module (part 01
 			 * §13.3), so the module of each target's form re-runs. */
 			case "holdPlacements":
 				for (const hold of mutation.holds) {
+					/* A menu's held kind decides its kind, which moves every form
+					 * of it and every link into it. */
+					if (hold.target === "module-kind") return undefined;
 					const formUuid =
 						hold.target === "query-repeat"
 							? findContainingForm(doc, hold.fieldUuid)

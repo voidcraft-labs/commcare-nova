@@ -8,13 +8,16 @@
 
 import { type Element, isTag } from "domhandler";
 import type {
+	AdvancedFormActions,
+	CaseIndex,
+	ConditionalCaseUpdate,
 	Detail,
 	DetailColumn,
 	FormActionCondition,
 	FormActions,
+	HqAnyForm,
+	HqAnyModule,
 	HqApplication,
-	HqForm,
-	HqModule,
 	OpenSubCaseAction,
 } from "@/lib/commcare";
 import { CASE_SEARCH_BUTTON_LABEL } from "@/lib/domain";
@@ -85,6 +88,45 @@ const VALID_SUBCASE_RELATIONSHIPS: ReadonlySet<string> = new Set([
 	"child",
 	"extension",
 ]);
+
+/**
+ * `CaseIndex.relationship = StringProperty(choices=['child', 'extension',
+ * 'question'])` (`models/form_actions.py::CaseIndex`). Nova's `CaseIndex`
+ * type admits only the first two, since Nova names no question for
+ * `question` to read the relationship from.
+ */
+const VALID_CASE_INDEX_RELATIONSHIPS: ReadonlySet<string> = new Set([
+	"child",
+	"extension",
+	"question",
+]);
+
+/**
+ * `AutoSelectCase.mode = StringProperty(choices=[...])`
+ * (`models/form_actions.py::AutoSelectCase`, the `AUTO_SELECT_*` constants of
+ * `const.py`): `user`, `fixture`, `case`, `usercase` and `raw`.
+ */
+const VALID_AUTO_SELECT_MODES: ReadonlySet<string> = new Set([
+	"user",
+	"fixture",
+	"case",
+	"usercase",
+	"raw",
+]);
+
+/** Each form `doc_type` Nova writes, with the `form_type` it carries and the module that holds it. */
+const FORM_KINDS: Readonly<
+	Record<string, { formType: string; moduleDocType: string }>
+> = {
+	Form: { formType: "module_form", moduleDocType: "Module" },
+	AdvancedForm: { formType: "advanced_form", moduleDocType: "AdvancedModule" },
+};
+
+/** Each module `doc_type` Nova writes, with its `module_type`. */
+const MODULE_TYPES: Readonly<Record<string, string>> = {
+	Module: "basic",
+	AdvancedModule: "advanced",
+};
 
 /** `Detail.display = StringProperty(choices=['short','long'])`. */
 const VALID_DETAIL_DISPLAYS: ReadonlySet<string> = new Set(["short", "long"]);
@@ -244,7 +286,9 @@ function checkFormActions(
  * `ConditionalCaseUpdate.update_mode`'s choice list.
  */
 function checkUpdateModes(
-	update: Record<string, { question_path: string; update_mode: string }>,
+	update:
+		| Record<string, { question_path: string; update_mode: string }>
+		| Record<string, ConditionalCaseUpdate>,
 	where: string,
 	formName: string,
 	errors: ValidationError[],
@@ -311,6 +355,69 @@ function checkSubcase(
 	);
 }
 
+/**
+ * Validate an advanced form's `AdvancedFormActions`: every load's and every
+ * create's conditions and `update_mode`s, each `CaseIndex.relationship`, and
+ * each load's `auto_select.mode`.
+ */
+function checkAdvancedFormActions(
+	actions: AdvancedFormActions,
+	formName: string,
+	errors: ValidationError[],
+): void {
+	for (const load of actions.load_update_cases) {
+		const where = `load of the "${load.case_type}" case "${load.case_tag}"`;
+		checkCondition(load.close_condition, `${where} close`, formName, errors);
+		checkUpdateModes(load.case_properties, where, formName, errors);
+		if (load.case_index.tag !== "") {
+			checkCaseIndex(load.case_index, where, formName, errors);
+		}
+		const mode: string | undefined = load.auto_select?.mode;
+		if (mode !== undefined && !VALID_AUTO_SELECT_MODES.has(mode)) {
+			errors.push(
+				validationError(
+					"HQJSON_BAD_AUTO_SELECT_MODE",
+					"form",
+					`"${formName}" has a ${where} that chooses its case automatically in mode "${mode}", but CommCare HQ only accepts ${[...VALID_AUTO_SELECT_MODES].map((m) => `"${m}"`).join(", ")} there and rejects the whole app at import otherwise. Look at how the worker's own record is loaded. This is a bug in the app generator.`,
+					{ formName },
+				),
+			);
+		}
+	}
+	for (const open of actions.open_cases) {
+		const where = `create of the "${open.case_type}" case "${open.case_tag}"`;
+		checkCondition(open.open_condition, `${where} open`, formName, errors);
+		checkCondition(open.close_condition, `${where} close`, formName, errors);
+		checkUpdateModes(
+			{ name: open.name_update },
+			`${where} name`,
+			formName,
+			errors,
+		);
+		checkUpdateModes(open.case_properties, where, formName, errors);
+		for (const index of open.case_indices) {
+			checkCaseIndex(index, where, formName, errors);
+		}
+	}
+}
+
+function checkCaseIndex(
+	index: CaseIndex,
+	where: string,
+	formName: string,
+	errors: ValidationError[],
+): void {
+	if (VALID_CASE_INDEX_RELATIONSHIPS.has(index.relationship)) return;
+	errors.push(
+		validationError(
+			"HQJSON_BAD_SUBCASE_RELATIONSHIP",
+			"form",
+			`"${formName}" has a ${where} whose link "${index.reference_id}" has relationship "${index.relationship}", but CommCare HQ only accepts "child", "extension" or "question" there and rejects the whole app at import otherwise. This is a bug in the app generator.`,
+			{ formName },
+		),
+	);
+}
+
 // ── Form checks ────────────────────────────────────────────────────────
 
 /**
@@ -328,7 +435,7 @@ function checkSubcase(
  */
 interface HqIdentityTable {
 	readonly moduleIds: ReadonlySet<string>;
-	readonly modulesById: ReadonlyMap<string, HqModule>;
+	readonly modulesById: ReadonlyMap<string, HqAnyModule>;
 	readonly formIds: ReadonlySet<string>;
 	/** Each module's form unique ids: HQ resolves a link's `form_id` INSIDE
 	 *  `form_module_id` (`get_module_by_unique_id(...).get_form_by_unique_id`),
@@ -348,7 +455,7 @@ interface HqIdentityTable {
  * the only thing pinning its value.
  */
 function checkFormLinks(
-	form: HqForm,
+	form: HqAnyForm,
 	formName: string,
 	ids: HqIdentityTable,
 	loc: ValidationLocation,
@@ -485,7 +592,8 @@ function checkFormLinks(
 }
 
 function checkForm(
-	form: HqForm,
+	form: HqAnyForm,
+	moduleDocType: string,
 	ids: HqIdentityTable,
 	errors: ValidationError[],
 ): void {
@@ -518,8 +626,40 @@ function checkForm(
 		);
 	}
 
-	// `Form.requires = StringProperty(choices=["case","referral","none"])`.
-	if (!VALID_FORM_REQUIRES.has(form.requires)) {
+	// A form's kind agrees with its `form_type` and with the module holding it:
+	// a basic `Module` wraps every form as `Form`
+	// (`Module.forms = SchemaListProperty(Form)`), so an `AdvancedForm` there
+	// would lose its actions, and HQ's add-ons and build read `form_type`.
+	const kind = FORM_KINDS[form.doc_type];
+	if (
+		kind !== undefined &&
+		(form.form_type !== kind.formType ||
+			(Object.hasOwn(MODULE_TYPES, moduleDocType) &&
+				moduleDocType !== kind.moduleDocType))
+	) {
+		errors.push(
+			validationError(
+				"HQJSON_BAD_FORM_DOC_TYPE",
+				"form",
+				`"${formName}" is a ${form.doc_type} with form_type="${form.form_type}" in a ${moduleDocType}, where a ${form.doc_type} has form_type="${kind.formType}" and sits in a ${kind.moduleDocType}. Look at which shell built this form. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	}
+
+	if (form.doc_type === "AdvancedForm") {
+		if (Object.hasOwn(form, "requires") || Object.hasOwn(form, "schedule")) {
+			errors.push(
+				validationError(
+					"HQJSON_UNWRITTEN_KEY",
+					"form",
+					`"${formName}" is an advanced form that carries requires or schedule. CommCare HQ computes an advanced form's requires from its loads and no Nova form has a schedule, so neither is written. Look at the advanced form shell. This is a bug in the app generator.`,
+					loc,
+				),
+			);
+		}
+	} else if (!VALID_FORM_REQUIRES.has(form.requires)) {
+		// `Form.requires = StringProperty(choices=["case","referral","none"])`.
 		errors.push(
 			validationError(
 				"HQJSON_BAD_FORM_REQUIRES",
@@ -554,7 +694,11 @@ function checkForm(
 	}
 
 	checkFormLinks(form, formName, ids, loc, errors);
-	checkFormActions(form.actions, formName, errors);
+	if (form.doc_type === "AdvancedForm") {
+		checkAdvancedFormActions(form.actions, formName, errors);
+	} else {
+		checkFormActions(form.actions, formName, errors);
+	}
 }
 
 // ── Detail checks ──────────────────────────────────────────────────────
@@ -818,7 +962,7 @@ function checkNavMediaDict(
  * and each lookup prompt's sort.
  */
 function checkModule(
-	module: HqModule,
+	module: HqAnyModule,
 	langs: readonly string[],
 	ids: HqIdentityTable,
 	errors: ValidationError[],
@@ -832,6 +976,18 @@ function checkModule(
 				"HQJSON_BAD_MODULE_DOC_TYPE",
 				"module",
 				`Module "${moduleName}" has doc_type="${module.doc_type}", but CommCare's importer dispatches on this value and only recognizes Module / AdvancedModule / ReportModule / ShadowModule, rejecting the whole app otherwise. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	}
+
+	const moduleType = MODULE_TYPES[module.doc_type];
+	if (moduleType !== undefined && module.module_type !== moduleType) {
+		errors.push(
+			validationError(
+				"HQJSON_BAD_MODULE_DOC_TYPE",
+				"module",
+				`Module "${moduleName}" is a ${module.doc_type} with module_type="${module.module_type}", where a ${module.doc_type} has module_type="${moduleType}". Look at which shell built this module. This is a bug in the app generator.`,
 				loc,
 			),
 		);
@@ -851,22 +1007,45 @@ function checkModule(
 		}
 	}
 
-	const parentSelectId = module.parent_select.module_id;
-	if (
-		module.parent_select.active
-			? parentSelectId === null ||
-				!ids.moduleIds.has(parentSelectId) ||
-				parentSelectId === module.unique_id
-			: parentSelectId !== null
-	) {
-		errors.push(
-			validationError(
-				"HQJSON_BAD_PARENT_SELECT_MODULE_ID",
-				"module",
-				`Module "${moduleName}" has an inconsistent parent_select module_id. An active selector must name a distinct module in this app; an inactive selector must name none. This is a bug in the app generator.`,
-				loc,
-			),
-		);
+	if (module.doc_type === "AdvancedModule") {
+		for (const key of [
+			"parent_select",
+			"display_style",
+			"has_schedule",
+			"schedule_phases",
+			"show_case_list_optimization_options",
+		]) {
+			if (!Object.hasOwn(module, key)) continue;
+			errors.push(
+				validationError(
+					"HQJSON_UNWRITTEN_KEY",
+					"module",
+					`Module "${moduleName}" is an advanced menu that carries ${key}, which CommCare HQ's advanced menu does not read or which Nova never turns on. Look at the advanced module shell. This is a bug in the app generator.`,
+					loc,
+				),
+			);
+		}
+		checkDetail(module.product_details.short, moduleName, errors);
+		checkDetail(module.product_details.long, moduleName, errors);
+	}
+	if (module.doc_type === "Module") {
+		const { active, module_id: parentSelectId } = module.parent_select;
+		if (
+			active
+				? parentSelectId === null ||
+					!ids.moduleIds.has(parentSelectId) ||
+					parentSelectId === module.unique_id
+				: parentSelectId !== null
+		) {
+			errors.push(
+				validationError(
+					"HQJSON_BAD_PARENT_SELECT_MODULE_ID",
+					"module",
+					`Module "${moduleName}" has an inconsistent parent_select module_id. An active selector must name a distinct module in this app; an inactive selector must name none. This is a bug in the app generator.`,
+					loc,
+				),
+			);
+		}
 	}
 
 	checkDetail(module.case_details.short, moduleName, errors);
@@ -906,8 +1085,9 @@ function checkModule(
 		errors,
 	);
 
-	for (const form of module.forms) {
-		checkForm(form, ids, errors);
+	const forms: readonly HqAnyForm[] = module.forms;
+	for (const form of forms) {
+		checkForm(form, module.doc_type, ids, errors);
 	}
 }
 
@@ -927,7 +1107,7 @@ const CASE_LIST_FORM_WORKFLOWS: ReadonlySet<string> = new Set([
  * `expandDoc` bug.
  */
 function checkCaseListForm(
-	module: HqModule,
+	module: HqAnyModule,
 	moduleName: string,
 	ids: HqIdentityTable,
 	loc: ValidationLocation,
@@ -968,7 +1148,7 @@ function checkCaseListForm(
  * missing a language is one that save rewrites.
  */
 function checkSearchLabels(
-	module: HqModule,
+	module: HqAnyModule,
 	moduleName: string,
 	langs: readonly string[],
 	loc: ValidationLocation,
@@ -997,7 +1177,7 @@ function checkSearchLabels(
  * `models/case_search.py::CaseSearch.search_button_label`).
  */
 function checkSearchButtonLabel(
-	module: HqModule,
+	module: HqAnyModule,
 	moduleName: string,
 	loc: ValidationLocation,
 	errors: ValidationError[],
@@ -1029,7 +1209,7 @@ function checkSearchButtonLabel(
  * `_get_itemset`).
  */
 function checkSearchItemsets(
-	module: HqModule,
+	module: HqAnyModule,
 	moduleName: string,
 	loc: ValidationLocation,
 	errors: ValidationError[],
