@@ -518,7 +518,11 @@ describe("the corpus emitter", () => {
 		expect(await readdir(out)).toEqual([]);
 	});
 
-	it("writes a targeted document with its own files and no edit, and changes no other document's batch by adding one", async () => {
+	it("writes a targeted document with its own files and no edit, and changes no other document's batch by adding one", {
+		// Another emission of every fixed document, capturing each publish:
+		// about a second alone, past five while the suite shares the cores.
+		timeout: 60_000,
+	}, async () => {
 		const targeted = lookupReservedTags();
 		const out = join(root, "with-targeted");
 		const withTargeted = await emit(out, [...fixed, targeted], []);
@@ -551,7 +555,10 @@ describe("the corpus emitter", () => {
 		}
 	});
 
-	it("writes a targeted document's written edit, its HQ-side saves and its project settings where the lane reads them", async () => {
+	it("writes a targeted document's written edit, its HQ-side saves and its project settings where the lane reads them", {
+		// Another emission of every fixed document, as the test above.
+		timeout: 60_000,
+	}, async () => {
 		const saving = hqSideState();
 		const syncing = syncOnFormEntryWebApps();
 		const out = join(root, "with-hq-side");
