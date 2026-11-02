@@ -2100,6 +2100,8 @@ def _advanced_actions():
         ),
         "forms-and-case-writes/case-tag-of-a-non-auto-select-action-failing-actions-js": (
             refused("app", _advanced_app([_load("0patient")]), load_tag, f"{loads}/0/case_tag"),
+            # JavaScript's ``$`` matches no trailing newline, so the editor refuses this tag.
+            refused("app", _advanced_app([_load("patient\n")]), load_tag, f"{loads}/0/case_tag"),
             # One tag on a load and an open action: the open action's is the second the page counts.
             refused("app", _advanced_app([household], [_open("load_household_0")]), open_tag, f"{opens}/0/case_tag"),
             accepted("app", _advanced_app([{**worker, "case_tag": "0user"}]), load_tag, f"{loads}/0/case_tag"),

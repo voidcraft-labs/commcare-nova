@@ -3974,8 +3974,9 @@ is stored by `CaseXmlParser` as an index whose relationship is `extension`,
 beside the basic child's `child` index; and, on `targeted-root-case-block-names`
 (part 02's G3), a root question named `subcase_0` or `commcare_usercase`, as
 HQ's build names the block it appends for a basic child or the worker's
-update, keeps its answer as the one element of its name, and the child case
-and the worker's update still land. `AdvancedFormRuntimeTest` opens each
+update, keeps its answer in an element of its name with no case block, beside
+the element of that name HQ's build and the local injection append for the
+block, and the child case and the worker's update still land. `AdvancedFormRuntimeTest` opens each
 advanced form of `targeted-advanced-module` the same way on both paths and
 holds the stored cases to the form's own advanced actions in the HQ import
 body: each load updates the case its datum names and closes it where its close

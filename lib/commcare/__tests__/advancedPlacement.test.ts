@@ -14,6 +14,7 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import type { HqAdvancedForm, HqForm } from "@/lib/commcare";
 import {
 	type AdvancedIneligibility,
 	loadIneligibility,
@@ -27,6 +28,10 @@ import {
 	planPlacements,
 } from "@/lib/commcare/placement";
 import { runValidation } from "@/lib/commcare/validator/runner";
+import {
+	derivedUniqueId,
+	targetWireIdentity,
+} from "@/lib/commcare/wireIdentity";
 import { collectFieldLocations } from "@/lib/commcare/xform/caseOps";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { CaseOperation, CaseOperationLink, Uuid } from "@/lib/domain";
@@ -569,6 +574,55 @@ describe("the advanced procedure", () => {
 			kind: "advanced",
 			tag: "autoload_commcare_user2",
 		});
+	});
+
+	it("names each load's list menu by the id the export gives that menu", () => {
+		const { doc, formUuid } = advancedFixture(
+			followup(
+				[
+					own({ writes: [{ property: "age", value: read("age") }] }),
+					update("household", {
+						kind: "expression",
+						expr: chosen(HOUSEHOLDS),
+					}),
+				],
+				{ menu: "members" },
+			),
+		);
+		const householdsId = "a".repeat(32);
+		const membersId = "b".repeat(32);
+		const hq = expandDoc(doc, {
+			identity: targetWireIdentity([
+				{
+					entityKind: "module",
+					novaEntityUuid: HOUSEHOLDS,
+					uniqueId: householdsId,
+					xmlns: null,
+				},
+				{
+					entityKind: "module",
+					novaEntityUuid: MEMBERS,
+					uniqueId: membersId,
+					xmlns: null,
+				},
+			]),
+		});
+		const moduleIds = hq.modules.map((module) => module.unique_id);
+		expect(moduleIds).toContain(householdsId);
+		expect(moduleIds).toContain(membersId);
+		const forms: readonly (HqForm | HqAdvancedForm)[] = hq.modules.flatMap(
+			(module): readonly (HqForm | HqAdvancedForm)[] => module.forms,
+		);
+		const form = forms.find(
+			(candidate) => candidate.unique_id === derivedUniqueId(formUuid),
+		);
+		expect(form?.doc_type).toBe("AdvancedForm");
+		const loads =
+			form?.doc_type === "AdvancedForm" ? form.actions.load_update_cases : [];
+		expect(loads.map((load) => load.details_module)).toEqual([
+			householdsId,
+			membersId,
+		]);
 	});
 
 	it("puts a registration's own case first among the open actions, and shares a close with the open action it closes", () => {

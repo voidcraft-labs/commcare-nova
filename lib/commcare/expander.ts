@@ -311,8 +311,11 @@ export function expandDoc(
 			const ownCaseDatumId = ownCaseDatum?.id;
 			// The form's case changes on the wire, the same plan the link
 			// projection reads (`casePlacementPlan.ts::planFormCaseWire`).
+			// The export's identity names a load's list menu the way the
+			// modules array does.
 			const caseWire = planFormCaseWire(doc, formUuid, {
 				attachmentTarget: opts.attachmentTarget ?? null,
+				identity,
 			});
 			// An entry that selects several cases has no one case for HQ's
 			// basic actions; the source works on each through the

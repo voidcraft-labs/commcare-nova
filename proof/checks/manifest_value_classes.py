@@ -2250,8 +2250,9 @@ def not_name_question_repeat(use, manifest):
 # (``LoadUpdateAction``) and its open actions (``AdvancedOpenCaseAction``), each in its list's order.
 ADVANCED_ACTIONS = ("LoadUpdateAction", "AdvancedOpenCaseAction")
 # The tag format the advanced Case Management page accepts (``advanced/actions.js::actionBase.validate``), with
-# JavaScript's ``\w``, which is ASCII.
-EDITOR_TAG = re.compile(r"^[a-zA-Z][\w_-]*(/[a-zA-Z][\w_-]*)*$", re.ASCII)
+# JavaScript's ``\w``, which is ASCII. It is matched whole (``fullmatch``): Python's ``$`` also matches before a
+# trailing newline, which JavaScript's does not.
+EDITOR_TAG = re.compile(r"[a-zA-Z][\w_-]*(/[a-zA-Z][\w_-]*)*", re.ASCII)
 
 
 def _advanced_lists(form):
@@ -2349,7 +2350,7 @@ def _tag_failing_editor_check(at, form, loads, opens, action, index):
     tag = action.get("case_tag")
     if not tag or _tag_checked(action, loads) is not True:
         return False
-    if not EDITOR_TAG.match(tag):
+    if not EDITOR_TAG.fullmatch(tag):
         return True
     return sum(1 for other in [*opens, *loads] if other.get("case_tag") == tag) > 1
 
