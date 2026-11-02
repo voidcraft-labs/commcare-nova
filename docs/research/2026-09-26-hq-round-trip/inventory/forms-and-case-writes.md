@@ -173,7 +173,7 @@ HQ renders these into the XForm at build (`xform.py::XForm._create_casexml`); th
 | `subcases[].repeat_context` other than the name question's innermost repeat | **REFUSED**: not HQ-editable: the Case Management save recomputes it from the name question (`case_config_ui.js`, `get_repeat_context`) | — | — |
 | `subcases[].case_properties`, `name_update` | **HELD**: writes to the child | RUNS / RUNS | as keys |
 | subcase type not any module's case type (and not `commcare-user` where the project has usercase access) | **REFUSED**: not HQ-buildable: "Case type … does not exist" | — | — |
-| subcase of the module's own case type, in a project space with DONT_INDEX_SAME_CASETYPE on | **REFUSED**: retiring (DONT_INDEX_SAME_CASETYPE): HQ drops the parent index at build there (`xform.py`); import from and publish to such a project space both refuse it | — | — |
+| subcase of the module's own case type, in a project space with DONT_INDEX_SAME_CASETYPE on | **REFUSED**: retiring (DONT_INDEX_SAME_CASETYPE): HQ drops the parent index at build there (`xform.py`); import from and publish to such a project space both refuse it; publish refuses it with the offered move to Save to Case (`same-type-child-links`) | — | — |
 | `update_multi`, `name_update_multi` | **INERT**: UI-only shapes, never stored | n/a | omit |
 
 ### Case-property typing (across writers; derived, since HQ apps carry no property types)

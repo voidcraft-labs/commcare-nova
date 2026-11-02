@@ -21,7 +21,8 @@ export type ProjectSpaceCapabilityId =
 	| "multi-select-case-lists"
 	| "related-case-search"
 	| "case-tiles"
-	| "save-only-edited-answers";
+	| "save-only-edited-answers"
+	| "same-type-child-links";
 
 export type ProjectSpaceAdvisoryId = "large-search-performance";
 
@@ -91,6 +92,12 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		label: "Save only answers that changed",
 		description:
 			"Lets a form save an answer to a case only when the worker changed it.",
+	},
+	"same-type-child-links": {
+		id: "same-type-child-links",
+		label: "Links between cases of the same type",
+		description:
+			"Keeps the link from a new case to the case of the same type it was made from.",
 	},
 };
 
@@ -412,6 +419,7 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"related-case-search",
 	"case-tiles",
 	"save-only-edited-answers",
+	"same-type-child-links",
 ]);
 const ADVISORY_IDS = new Set<ProjectSpaceAdvisoryId>([
 	"large-search-performance",

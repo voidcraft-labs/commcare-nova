@@ -787,16 +787,13 @@ describe("the procedure", () => {
 		});
 	});
 
-	it("sends an unheld create of the menu's own case type to Save to Case, which it never reports", () => {
+	it("places an unheld create of the menu's own case type in a basic subcase slot, as any child", () => {
 		const sameType = (t: Form["type"]) =>
 			({ ...childCreate("twin", t), caseType: "patient" }) as CaseOperation;
 		const { doc, formUuid, placements } = planned("followup", {
 			operations: (t) => [own(), sameType(t)],
 		});
-		expect(placements.get(OP("twin"))?.placement).toEqual({
-			kind: "save-to-case",
-			path: ["nova_operations", "twin"],
-		});
+		expect(placements.get(OP("twin"))?.placement).toEqual(SUBCASE_0);
 		expect(
 			placementIneligibility(
 				doc,
@@ -805,6 +802,16 @@ describe("the procedure", () => {
 				SUBCASE_0,
 			),
 		).toEqual([]);
+		// The pair: an offer that keeps it out of the basic slot still can.
+		expect(
+			planPlacements(doc, formUuid, {
+				excludeBasic: new Set([OP("twin")]),
+			}).placements.get(OP("twin"))?.placement,
+		).toEqual({ kind: "save-to-case", path: ["nova_operations", "twin"] });
+		const registers = planned("registration", {
+			operations: (t) => [own({ name: read("name") }), sameType(t)],
+		});
+		expect(registers.placements.get(OP("twin"))?.placement.kind).toBe("basic");
 	});
 
 	it("reads a create's link, not its type's catalog parent", () => {

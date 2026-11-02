@@ -28,24 +28,33 @@ import {
 	retainedBodyJson,
 	retainedPublishRead,
 } from "@/__tests__/helpers/retainedHqReads";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { connectWireFixtures } from "@/lib/commcare/__tests__/connectWireFixtures";
+import { childCreate, own } from "@/lib/commcare/__tests__/placementFixture";
 import { decrypt } from "@/lib/commcare/encryption";
 import { locationOwnerFixture } from "@/lib/commcare/locations/__tests__/locationOwnerFixture";
+import { HQ_PRIVATE_FEATURE_FLAG_SYMBOLS } from "@/lib/commcare/projectSpaceCompatibility";
+import { sameTypeBasicChildCases } from "@/lib/commcare/sameTypeChildCases";
+import { domainFeatureFlag } from "@/lib/commcare/surface/gates";
+import { SUPPLY_POINT_SESSION_TEXT } from "@/lib/commcare/xform/supplyPointText";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { commitAppProjectMoveInTransaction } from "@/lib/db/apps";
 import {
 	asUuid,
 	type BlueprintDoc,
+	type CaseOperation,
 	declaresWebApps,
 	type MediaAssetId,
 	type OrganizationLevel,
+	proseText,
 } from "@/lib/domain";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
 import { createLocation } from "@/lib/organization/service";
+import { movedToSaveToCaseSentence } from "@/lib/publish/placementMoves";
 import {
+	COMMTRACK_OFF,
 	CONNECT_FORWARDER,
 	FLAT_LOCATION_FIXTURE,
 	FORM_ENTRY_SYNC_OFF,
@@ -59,6 +68,7 @@ import {
 import { downloadAssetBytes } from "@/lib/storage/media";
 import { confirmationKeyOf } from "../confirmations";
 import { DeploymentError } from "../errors";
+import { placementMoveOffer, placementMoveOfferView } from "../placementMoves";
 import { narrowingTo } from "../platformNarrowing";
 import { HQ_CHANGED_DURING_PUSH_MESSAGE } from "../remoteChanges";
 import {
@@ -66,7 +76,7 @@ import {
 	projectSpaceConfirmations,
 	publishAppToHq,
 } from "../service";
-import { readDeployment } from "../store";
+import { readDeployment, withdrawDeploymentConfirmation } from "../store";
 import type { DeploymentConfirmationKey } from "../types";
 import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 
@@ -829,6 +839,7 @@ describe("the pre-publish check's confirmations", () => {
 			flat_location_fixture: null,
 			connect_forwarder: null,
 			form_entry_sync_off: null,
+			commtrack_off: null,
 			placement_moves: null,
 		});
 	});
@@ -951,6 +962,338 @@ describe("sync on form entry", () => {
 				confirmed_by: ACTOR,
 			},
 		]);
+	});
+});
+
+// ── CommCare Supply ─────────────────────────────────────────────────────
+
+/** A survey whose label holds the text HQ reads as the session's supply point. */
+function supplyDocument(): BlueprintDoc {
+	return buildDoc({
+		appName: "Supplies",
+		modules: [
+			{
+				name: "Visits",
+				forms: [
+					{
+						name: "Stock count",
+						type: "survey",
+						fields: [
+							f({ kind: "text", id: "count" }),
+							f({
+								kind: "label",
+								id: "note",
+								label: proseText(`Your place is ${SUPPLY_POINT_SESSION_TEXT}`),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+const COMMTRACK_OFF_KEY: DeploymentConfirmationKey = { kind: "commtrack-off" };
+
+describe("CommCare Supply turned off", () => {
+	it("asks commtrack-off, stores it once a publish passes, and withdraws it", async () => {
+		const doc = await seed(supplyDocument());
+		await withHttpPeer(async (peer) => {
+			expect(refusal(await publish(doc)).confirmationsNeeded).toEqual([
+				{
+					kind: "commtrack-off",
+					subject: "commtrack-off",
+					label: COMMTRACK_OFF.label,
+					plans: "",
+					consequence: COMMTRACK_OFF.consequence,
+					reasons: [
+						"Stock count holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.",
+					],
+					whereMissing: COMMTRACK_OFF.whereMissing,
+				},
+			]);
+			expect(
+				(await projectSpaceConfirmations(SCOPE, doc, TARGET)).commtrack_off,
+			).toMatchObject({
+				label: COMMTRACK_OFF.label,
+				where_missing: COMMTRACK_OFF.whereMissing,
+				state: "needs_confirmation",
+			});
+			expect(allRequests(peer)).toEqual([]);
+			expect(await confirmationRows()).toEqual([]);
+
+			await firstPublishConfirming(peer, doc, [COMMTRACK_OFF_KEY]);
+		});
+		expect(await confirmationRows()).toEqual([
+			{ kind: "plan-feature", subject: "web-apps", confirmed_by: ACTOR },
+			{ kind: "commtrack-off", subject: "commtrack-off", confirmed_by: ACTOR },
+		]);
+		expect(
+			(await projectSpaceConfirmations(SCOPE, doc, TARGET)).commtrack_off,
+		).toMatchObject({ state: "confirmed" });
+
+		const withdrawn = await withdrawDeploymentConfirmation(
+			SCOPE,
+			TARGET,
+			COMMTRACK_OFF_KEY,
+		);
+		expect(withdrawn.confirmations.map((item) => item.kind)).toEqual([
+			"plan-feature",
+		]);
+		expect(await confirmationRows()).toEqual([
+			{ kind: "plan-feature", subject: "web-apps", confirmed_by: ACTOR },
+		]);
+		expect(
+			(await projectSpaceConfirmations(SCOPE, doc, TARGET)).commtrack_off,
+		).toMatchObject({ state: "needs_confirmation" });
+		/* The next publish asks again, before any request. */
+		await withHttpPeer(async (peer) => {
+			const asked = refusal(await publish(doc));
+			expect(asked.failure.code).toBe("hq_confirmation_needed");
+			expect(asked.confirmationsNeeded.map((need) => need.kind)).toEqual([
+				"commtrack-off",
+			]);
+			expect(allRequests(peer)).toEqual([]);
+		});
+	});
+});
+
+// ── Links between cases of the same type ────────────────────────────────
+
+const PATIENT_NAME = "fld-name";
+
+/**
+ * A follow-up of the Patients menu that makes a new patient case linked to
+ * the patient it works on: a case of its menu's own type, which takes a
+ * basic subcase slot unless something holds it elsewhere.
+ */
+function sameTypeDocument(): BlueprintDoc {
+	return buildDoc(
+		{
+			appName: "Referrals",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "case_name", label: "Name" }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: "refer",
+							name: "Refer",
+							type: "followup",
+							fields: [f({ kind: "text", id: "name", uuid: PATIENT_NAME })],
+						},
+					],
+				},
+			],
+		},
+		(doc) => {
+			const formUuid = testUuid("refer");
+			doc.forms[formUuid] = {
+				...doc.forms[formUuid],
+				caseOperations: [
+					own(),
+					{
+						...childCreate("twin", "followup"),
+						caseType: "patient",
+					} as CaseOperation,
+				],
+			};
+		},
+	);
+}
+
+/** The slug HQ's feature-flag filter matches for the flag that drops same-type links. */
+const SAME_TYPE_FLAG = domainFeatureFlag(
+	HQ_PRIVATE_FEATURE_FLAG_SYMBOLS["same-type-links-dropped"],
+).slug;
+const VISIBLE = {
+	meta: { total_count: 1 },
+	objects: [{ domain_name: "clinic", project_name: "Clinic" }],
+};
+
+/**
+ * The compatibility reads a publish of the same-type app makes: the
+ * unfiltered list, which holds the target, then the flag's filtered list,
+ * answered `flag` (listed: on; empty: off; 500: unreadable).
+ */
+function sameTypeFlag(peer: MockAgent, flag: "on" | "off" | "unreadable") {
+	request(peer, PROJECT_SPACES).reply(200, VISIBLE);
+	const filtered = request(
+		peer,
+		`${PROJECT_SPACES}&feature_flag=${SAME_TYPE_FLAG}`,
+	);
+	if (flag === "unreadable") filtered.reply(500, "Server error");
+	else
+		filtered.reply(
+			200,
+			flag === "on" ? VISIBLE : { meta: { total_count: 0 }, objects: [] },
+		);
+}
+
+/** Every confirmation the same-type app needs, read from the refusal that asks for them. */
+async function sameTypeConfirmations(
+	doc: BlueprintDoc,
+): Promise<DeploymentConfirmationKey[]> {
+	const asked = refusal(await publish(doc));
+	expect(asked.failure.code).toBe("hq_confirmation_needed");
+	return asked.confirmationsNeeded.map((need) => confirmationKeyOf(need));
+}
+
+/** The same-type capability as the refusal's report holds it. */
+function sameTypeCapability(outcome: PublishOutcome) {
+	return outcome.projectSpaceCompatibility?.required_capabilities.find(
+		(capability) => capability.id === "same-type-child-links",
+	);
+}
+
+describe("links between cases of the same type", () => {
+	it("refuses a same-type basic child where the flag is on, with the offer", async () => {
+		const doc = await seed(sameTypeDocument());
+		const offer = placementMoveOffer(doc, "same-type-child-links");
+		if (offer === null) throw new Error("Expected a same-type offer.");
+		await withHttpPeer(async (peer) => {
+			const confirm = await sameTypeConfirmations(doc);
+			sameTypeFlag(peer, "on");
+			const outcome = await publish(doc, confirm);
+			expect(refusal(outcome)).toMatchObject({
+				phase: "preflight",
+				failure: { code: "project_space_incompatible" },
+				placementMoves: placementMoveOfferView(offer),
+			});
+			expect(refusal(outcome).placementMoves?.moves).toEqual([
+				{
+					form: "Refer",
+					change: "makes a new patient case",
+					sentence: movedToSaveToCaseSentence(
+						"Refer",
+						"makes a new patient case",
+					),
+				},
+			]);
+			expect(sameTypeCapability(outcome)?.state).toBe("missing");
+			expect(outcome.deployment).toBeNull();
+			expect(requests(peer)).toEqual([]);
+		});
+		expect(await confirmationRows()).toEqual([]);
+	});
+
+	it("passes where it is off", async () => {
+		const doc = await seed(sameTypeDocument());
+		await withHttpPeer(async (peer) => {
+			const confirm = await sameTypeConfirmations(doc);
+			sameTypeFlag(peer, "off");
+			const outcome = await firstPublishConfirming(peer, doc, confirm);
+			expect(sameTypeCapability(outcome)?.state).toBe("available");
+		});
+	});
+
+	it("offers the move where the list cannot be read", async () => {
+		const doc = await seed(sameTypeDocument());
+		const offer = placementMoveOffer(doc, "same-type-child-links");
+		if (offer === null) throw new Error("Expected a same-type offer.");
+		await withHttpPeer(async (peer) => {
+			const confirm = await sameTypeConfirmations(doc);
+			sameTypeFlag(peer, "unreadable");
+			const outcome = await publish(doc, confirm);
+			expect(refusal(outcome)).toMatchObject({
+				failure: { code: "project_space_incompatible" },
+				placementMoves: placementMoveOfferView(offer),
+			});
+			expect(sameTypeCapability(outcome)?.state).toBe("unverified");
+			expect(requests(peer)).toEqual([]);
+		});
+	});
+
+	it("an accepted same-type offer records, then asks Save to Case where it is not confirmed", async () => {
+		const doc = await seed(sameTypeDocument());
+		const reloadHead = reloadHeadFor(APP, ACTOR);
+		await withHttpPeer(async (peer) => {
+			const confirm = await sameTypeConfirmations(doc);
+			sameTypeFlag(peer, "on");
+			const offered = refusal(await publish(doc, confirm)).placementMoves;
+			if (offered === null) throw new Error("Expected the offer.");
+			const before = allRequests(peer).length;
+
+			const accepting = await publishAppToHq({
+				scope: SCOPE,
+				...TARGET,
+				doc,
+				compiledAtSeq: 0,
+				reloadHead,
+				appName: doc.appName,
+				confirm: [WEB_APPS, ...confirm],
+				acceptPlacementMoves: {
+					reason: offered.reason,
+					digest: offered.digest,
+				},
+			});
+			const asked = refusal(accepting);
+			expect(asked.failure.code).toBe("hq_confirmation_needed");
+			expect(
+				asked.confirmationsNeeded.map(({ kind, subject }) => ({
+					kind,
+					subject,
+				})),
+			).toContainEqual({
+				kind: "plan-feature",
+				subject: "advanced-case-actions",
+			});
+			/* Moving the case back would make it a same-type basic child again,
+			 * so Save to Case is asked with no move offered in its place. */
+			expect(asked.placementMoves).toBeNull();
+			expect(accepting.placements).toEqual({
+				recorded: offered.moves.length,
+				moved: offered.moves.length,
+			});
+			/* Accepting asked CommCare HQ nothing. */
+			expect(allRequests(peer).length).toBe(before);
+
+			const head = await reloadHead();
+			expect(head.seq).toBeGreaterThan(0);
+			expect(sameTypeBasicChildCases(head.doc)).toEqual([]);
+			/* The same acceptance again finds nothing left to move and goes on. */
+			expect(placementMoveOffer(head.doc, "same-type-child-links")).toBeNull();
+
+			/* Confirmed, the app lands where the flag is on: no case of its
+			 * menu's own type stands in a basic subcase, so nothing asks the
+			 * flag. */
+			accepted(peer, 201);
+			serve(peer, "source-shell");
+			accepted(peer, 200);
+			serve(peer, "source-live");
+			const outcome = await publishAppToHq({
+				scope: SCOPE,
+				...TARGET,
+				doc: head.doc,
+				compiledAtSeq: head.seq,
+				reloadHead,
+				appName: head.doc.appName,
+				confirm: [
+					WEB_APPS,
+					...asked.confirmationsNeeded.map((need) => confirmationKeyOf(need)),
+				],
+				acceptPlacementMoves: {
+					reason: offered.reason,
+					digest: offered.digest,
+				},
+			});
+			landed(outcome);
+			expect(sameTypeCapability(outcome)).toBeUndefined();
+		});
+		expect(await confirmationRows()).toContainEqual({
+			kind: "plan-feature",
+			subject: "advanced-case-actions",
+			confirmed_by: ACTOR,
+		});
 	});
 });
 

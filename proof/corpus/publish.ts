@@ -110,6 +110,10 @@ import {
 	uploadLookupTableWorkbook,
 } from "@/lib/commcare/hq/lookupTables";
 import {
+	type LookupWireNaming,
+	lookupWireNaming,
+} from "@/lib/commcare/lookup/naming";
+import {
 	type AssetManifest,
 	type ResolvedMediaAsset,
 	wirePathFor,
@@ -447,28 +451,39 @@ function verdictFlags(
 }
 
 /**
- * Whether Nova's publish asks the person to confirm sync on form entry is off
- * for `doc` (`form-entry-sync-off`), from the same needs the publish reads.
+ * What a capture's publish calls the tables `doc` reads on the wire: the
+ * naming the export boundary derives from the definitions of the Project
+ * data `source` carries (`lookupFixtureData` read through `lookupWireNaming`),
+ * or `undefined` for a document that reads no table.
  */
-function asksFormEntrySyncOff(doc: BlueprintDoc): boolean {
-	return requiredConfirmations(
-		doc,
-		capturePushes(doc),
-		CAPTURE_ATTACHMENT_TARGET,
-	).some((need) => need.kind === "form-entry-sync-off");
+function captureLookupNaming(
+	doc: BlueprintDoc,
+	source: Pick<PublishDocument, "id" | "lookup">,
+): LookupWireNaming | undefined {
+	const { tableIds } = extractLookupReferenceTargets(doc);
+	return tableIds.length === 0
+		? undefined
+		: lookupWireNaming(lookupFixtureData(source, tableIds).definitions);
 }
 
 /**
- * Whether Nova's publish asks the person to confirm the project space has
- * CommCare Supply off for `doc` (`commtrack-off`), from the same needs the
- * publish reads.
+ * The kinds of project space setting Nova's publish asks the person to
+ * confirm for `doc` (`form-entry-sync-off`, `commtrack-off` and the rest),
+ * from the same needs the publish reads, under the lookup naming of the
+ * Project data `source` carries.
  */
-function asksCommtrackOff(doc: BlueprintDoc): boolean {
-	return requiredConfirmations(
-		doc,
-		capturePushes(doc),
-		CAPTURE_ATTACHMENT_TARGET,
-	).some((need) => need.kind === "commtrack-off");
+function confirmationKinds(
+	doc: BlueprintDoc,
+	source: Pick<PublishDocument, "id" | "lookup">,
+): ReadonlySet<string> {
+	return new Set(
+		requiredConfirmations(
+			doc,
+			capturePushes(doc),
+			CAPTURE_ATTACHMENT_TARGET,
+			captureLookupNaming(doc, source),
+		).map((need) => need.kind),
+	);
 }
 
 /** The symbols of the flags a probe plan needs off, sorted. */
@@ -478,8 +493,17 @@ function flagsOffSymbols(
 	return [...new Set(verdictFlags(flags).map((flag) => flag.symbol))].sort();
 }
 
-export function novaPublishVerdict(doc: BlueprintDoc): NovaPublishVerdict {
+/**
+ * Nova's verdict for `doc`, published with the Project data `source` carries:
+ * the document itself, or the one whose lookup data an edit of it publishes
+ * beside.
+ */
+export function novaPublishVerdict(
+	doc: BlueprintDoc,
+	source: Pick<PublishDocument, "id" | "lookup">,
+): NovaPublishVerdict {
 	const plan = projectSpaceCompatibilityProbePlan(doc);
+	const confirmations = confirmationKinds(doc, source);
 	const capabilities = plan.capabilities.map((item) => {
 		const off = flagsOffSymbols(item.featureFlagsOff);
 		return {
@@ -507,10 +531,10 @@ export function novaPublishVerdict(doc: BlueprintDoc): NovaPublishVerdict {
 			caseSearchEnabled: capabilities.some((item) =>
 				item.runtimeProbes.includes("case-search"),
 			),
-			...(asksFormEntrySyncOff(doc) && {
+			...(confirmations.has("form-entry-sync-off") && {
 				syncCasesOnFormEntry: false as const,
 			}),
-			...(asksCommtrackOff(doc) && {
+			...(confirmations.has("commtrack-off") && {
 				commtrackEnabled: false as const,
 			}),
 			...(flagsOff.length > 0 && { flagsOff }),
@@ -564,7 +588,7 @@ function compareIds(left: string, right: string): number {
 }
 
 /** The Project the document's stored state belongs to. */
-function projectOf(source: PublishDocument): string {
+function projectOf(source: Pick<PublishDocument, "lookup">): string {
 	return source.lookup?.projectId ?? PROOF_PROJECT;
 }
 
@@ -575,7 +599,7 @@ function projectOf(source: PublishDocument): string {
  * the reader's Project clock does.
  */
 function lookupFixtureData(
-	source: PublishDocument,
+	source: Pick<PublishDocument, "id" | "lookup">,
 	tableIds: readonly LookupTableId[],
 ): LookupFixtureDataSnapshot {
 	if (tableIds.length > 0 && source.lookup === undefined) {
@@ -2468,6 +2492,7 @@ export async function importFile(
 		assets,
 		lookupWorkbook,
 		attachmentTarget: prepared.attachmentTarget,
+		lookupNaming: prepared.lookupNaming,
 	});
 	return atInstant(CCZ_CLOCK, () =>
 		buildHqJsonExportArchive(
@@ -2513,5 +2538,6 @@ export function documentVerdict(source: PublishDocument): NovaPublishVerdict {
 			doc: source.doc,
 			...(source.lookup !== undefined && { lookup: source.lookup }),
 		}),
+		source,
 	);
 }

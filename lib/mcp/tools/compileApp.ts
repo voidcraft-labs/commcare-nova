@@ -240,6 +240,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							assets,
 							lookupWorkbook,
 							attachmentTarget,
+							lookupNaming,
 						});
 						/* base64 inside a `{ format: "zip", ... }` wrapper: MCP
 						 * text content is UTF-8 only, and the wrapper tells the

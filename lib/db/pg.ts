@@ -687,7 +687,7 @@ export interface AppDeploymentIdentitiesTable {
 export interface AppDeploymentConfirmationsTable {
 	id: DefaultedUuidV7Column<string>;
 	deployment_id: string;
-	/** 'plan-feature' | 'flat-location-fixture' | 'connect-forwarder' | 'form-entry-sync-off'. */
+	/** 'plan-feature' | 'flat-location-fixture' | 'connect-forwarder' | 'form-entry-sync-off' | 'commtrack-off'. */
 	kind: string;
 	subject: string;
 	confirmed_by: string;

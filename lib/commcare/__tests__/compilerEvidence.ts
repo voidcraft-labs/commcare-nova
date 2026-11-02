@@ -113,19 +113,6 @@ export function checkCompilerEvidence(doc: BlueprintDoc): void {
 	 * reaches HQ through its own uploader. */
 	expect(hq).not.toHaveProperty("build_spec");
 	expect(hq).not.toHaveProperty("logo_refs");
-	/* A child case of its own menu's case type is placed in no basic subcase
-	 * slot (`placement.ts::sameTypeExclusions`), so HQ's
-	 * `DONT_INDEX_SAME_CASETYPE` never applies to a Nova app. */
-	for (const module of hq.modules) {
-		if (module.doc_type !== "Module") continue;
-		for (const form of module.forms) {
-			expect(
-				form.actions.subcases.filter(
-					(subcase) => subcase.case_type === module.case_type,
-				),
-			).toEqual([]);
-		}
-	}
 	expect(checkCaseReferences(hq)).toEqual([]);
 	const sources = Object.entries(hq._attachments).filter(([path]) =>
 		path.endsWith(".xml"),

@@ -4,6 +4,7 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	type Automation,
 	automationMessageText,
+	type CaseOperation,
 	type CaseOperationWrite,
 	type Column,
 	type Field,
@@ -28,8 +29,10 @@ import {
 	projectSpaceCompatibilityForTarget,
 	projectSpaceCompatibilityProbePlan,
 	requiredProjectSpaceCapabilities,
+	sameTypeChildReasons,
 } from "../projectSpaceCompatibility";
 import { domainFeatureFlag } from "../surface/gates";
+import { childCreate, own, placementFixture, read } from "./placementFixture";
 
 // These tests project authored feature facts over a whole document; target
 // support is supplied by probes.
@@ -858,5 +861,69 @@ describe("public report state and decoding boundaries", () => {
 					encodeURIComponent(JSON.stringify(value)),
 				),
 			).toBeUndefined();
+	});
+});
+
+/* A basic child of its own menu's case type keeps its parent link only where
+ * the project space leaves HQ's same-type flag off, so the plan asks for that
+ * flag off and names each such child for the person. */
+describe("Links between cases of the same type", () => {
+	const twin = (formType: Parameters<typeof childCreate>[1]): CaseOperation =>
+		({
+			...childCreate("twin", formType),
+			caseType: "patient",
+		}) as CaseOperation;
+
+	it("names a registration's and a follow-up's same-type child", () => {
+		const registers = placementFixture("registration", {
+			operations: (t) => [own({ name: read("name") }), twin(t)],
+		});
+		expect(sameTypeChildReasons(registers.doc)).toEqual([
+			"Under test makes a patient case linked to the patient case it registers.",
+		]);
+		const worksOn = placementFixture("followup", {
+			operations: (t) => [own(), twin(t)],
+		});
+		expect(sameTypeChildReasons(worksOn.doc)).toEqual([
+			"Under test makes a patient case linked to the patient case it works on.",
+		]);
+	});
+
+	it("plans the capability with the flag it needs off", () => {
+		const { doc } = placementFixture("followup", {
+			operations: (t) => [own(), twin(t)],
+		});
+		const plans = projectSpaceCompatibilityProbePlan(doc).capabilities.filter(
+			(plan) => plan.capability.id === "same-type-child-links",
+		);
+		expect(plans).toEqual([
+			{
+				capability: expect.objectContaining({
+					id: "same-type-child-links",
+					reasons: [
+						"Under test makes a patient case linked to the patient case it works on.",
+					],
+				}),
+				featureFlags: [],
+				featureFlagsOff: [
+					{
+						id: "same-type-links-dropped",
+						slug: domainFeatureFlag("DONT_INDEX_SAME_CASETYPE").slug,
+						namespace: "domain",
+					},
+				],
+				runtimeProbes: [],
+			},
+		]);
+	});
+
+	it("asks nothing for a child of another type", () => {
+		const { doc } = placementFixture("followup", {
+			operations: (t) => [own(), childCreate("kid", t)],
+		});
+		expect(sameTypeChildReasons(doc)).toEqual([]);
+		expect(
+			requiredProjectSpaceCapabilities(doc).map((use) => use.id),
+		).not.toContain("same-type-child-links");
 	});
 });

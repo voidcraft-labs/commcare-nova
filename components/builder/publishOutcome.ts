@@ -36,9 +36,12 @@ import type {
 import {
 	type AcceptPlacementMoves,
 	type PlacementMoveOfferView,
+	SAME_TYPE_CHILD_LINKS_OFFER_HEADING,
 	SAVE_TO_CASE_OFFER_HEADING,
+	sameTypeChildLinksOfferBody,
 	saveToCaseOfferBody,
 } from "@/lib/publish/placementMoves";
+import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import type { WebAppsChange } from "@/lib/publish/webApps";
 
 /** The logo a landed publish offers for a person to add in CommCare HQ. */
@@ -271,12 +274,15 @@ export function publishOutcome(
 }
 
 /**
- * The words of an offer to move case changes, for the reasons the dialog
- * offers: a heading and a body above the move sentences. Null for a reason
- * this dialog has no words for, which it then does not offer.
+ * The words of an offer to move case changes: a heading and a body above the
+ * move sentences. The `same-type-child-links` body says what the refusal's
+ * compatibility report found for that capability, so it needs the report; a
+ * report that holds the capability neither missing nor unverified gives it
+ * nothing true to say, and the dialog then does not offer it.
  */
 export function placementOfferCopy(
 	offer: PlacementMoveOfferView,
+	report: ProjectSpaceCompatibilityReport | undefined,
 ): { readonly heading: string; readonly body: string } | null {
 	switch (offer.reason) {
 		case "save-to-case":
@@ -284,8 +290,17 @@ export function placementOfferCopy(
 				heading: SAVE_TO_CASE_OFFER_HEADING,
 				body: saveToCaseOfferBody(offer.asksChildCases),
 			};
-		case "same-type-child-links":
-			return null;
+		case "same-type-child-links": {
+			const state = report?.required_capabilities.find(
+				(capability) => capability.id === "same-type-child-links",
+			)?.state;
+			return state === "missing" || state === "unverified"
+				? {
+						heading: SAME_TYPE_CHILD_LINKS_OFFER_HEADING,
+						body: sameTypeChildLinksOfferBody(state),
+					}
+				: null;
+		}
 	}
 }
 

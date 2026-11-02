@@ -62,3 +62,26 @@ export function emittedModuleKind(
 ): EmittedModuleKind {
 	return menuEmittedAdvanced(doc, moduleUuid) ? "advanced" : "basic";
 }
+
+/**
+ * Every module, in `doc.moduleOrder`, that the emitter writes advanced and
+ * whose case list is its own menu item (`case_list.show`). Where the project
+ * space has CommCare Supply on, HQ's build gives that item a `product_id`
+ * datum after its case datum (`suite_xml/sections/entries.py::
+ * EntriesHelper.entry_for_module`, the `AdvancedModule` branch under
+ * `self.app.commtrack_enabled`).
+ *
+ * The item is read through `Module.caseListOnly`, the one shape that writes
+ * `case_list.show` (`expander.ts::expandDoc`), and a module holding it has no
+ * forms; so a module returned here is a formless one whose kind is held
+ * advanced (`Module.heldKind`).
+ */
+export function advancedModulesWithCaseListMenuItem(
+	doc: BlueprintDoc,
+): readonly Uuid[] {
+	return doc.moduleOrder.filter(
+		(moduleUuid) =>
+			doc.modules[moduleUuid]?.caseListOnly === true &&
+			emittedModuleKind(doc, moduleUuid) === "advanced",
+	);
+}

@@ -50,6 +50,7 @@ from __future__ import annotations
 import json
 import shutil
 import zipfile
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -913,6 +914,30 @@ def test_d_primes_verdict_requiring_commcare_supply_off_is_read(tmp_path):
     assert proof5._edit_lacks(document, supply_on) == ["CommCare Supply off"]
     path.write_text(json.dumps({"minimumConfiguration": minimum}), encoding="utf-8")
     assert proof5._edit_lacks(document, supply_on) == []
+
+
+def test_d_primes_verdict_requiring_a_flag_off_is_read(tmp_path):
+    """D''s verdict listing a flag in ``flagsOff`` names it for a configuration that holds it, so D' is rightly
+    unpublished there; a configuration without it, or a verdict saying nothing of it, requires nothing."""
+    flag_on = corpus.Configuration(
+        name="minimum",
+        flags=("DONT_INDEX_SAME_CASETYPE",),
+        named_privileges=(),
+        commcare_version="2.57.0",
+        commtrack=False,
+        sync_cases_on_form_entry=False,
+        case_search_enabled=False,
+    )
+    document = SimpleNamespace(edit=SimpleNamespace(root=tmp_path))
+    minimum = {"flags": [], "caseSearchEnabled": False}
+    path = tmp_path / "verdict.json"
+    path.write_text(
+        json.dumps({"minimumConfiguration": {**minimum, "flagsOff": ["DONT_INDEX_SAME_CASETYPE"]}}), encoding="utf-8"
+    )
+    assert proof5._edit_lacks(document, flag_on) == ["DONT_INDEX_SAME_CASETYPE off"]
+    assert proof5._edit_lacks(document, replace(flag_on, flags=())) == []
+    path.write_text(json.dumps({"minimumConfiguration": minimum}), encoding="utf-8")
+    assert proof5._edit_lacks(document, flag_on) == []
 
 
 LOCAL_FORM = (

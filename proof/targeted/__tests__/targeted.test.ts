@@ -121,7 +121,10 @@ describe("the targeted documents", () => {
 
 /** The configurations the corpus writes for a document no A is retained for (`../../corpus/entryWriter.ts`). */
 function derivedConfigurations(document: CorpusDocument) {
-	const verdict = novaPublishVerdict(hydratePersistedBlueprint(document.doc));
+	const verdict = novaPublishVerdict(
+		hydratePersistedBlueprint(document.doc),
+		document,
+	);
 	const least = minimumConfiguration([verdict]);
 	return documentConfigurations({
 		flags: least.flags,
@@ -155,6 +158,7 @@ describe("the migration witnesses", () => {
 		for (const document of witnesses) {
 			const verdict = novaPublishVerdict(
 				hydratePersistedBlueprint(document.doc),
+				document,
 			).minimumConfiguration;
 			const retained = await retainedMigrationA(document.id);
 			const configurations =
@@ -777,7 +781,10 @@ describe("the case-writes document", () => {
 
 	it("is published only where HQ compares a changed answer, and its edit renames the choice its close condition holds", () => {
 		const document = made();
-		const verdict = novaPublishVerdict(hydratePersistedBlueprint(document.doc));
+		const verdict = novaPublishVerdict(
+			hydratePersistedBlueprint(document.doc),
+			document,
+		);
 		expect(minimumConfiguration([verdict]).flags).toContain(
 			"SAVE_ONLY_EDITED_FORM_FIELDS",
 		);
@@ -822,16 +829,16 @@ describe("the documents whose publish needs a setting off", () => {
 			slot: "subcase",
 		});
 		expect(placed(doc, sibling, "sibling")?.kind).toBe("save-to-case");
-		expect(novaPublishVerdict(doc).minimumConfiguration.flagsOff).toEqual([
-			"DONT_INDEX_SAME_CASETYPE",
-		]);
+		expect(
+			novaPublishVerdict(doc, document).minimumConfiguration.flagsOff,
+		).toEqual(["DONT_INDEX_SAME_CASETYPE"]);
 		const next = document.edit?.nextDoc;
 		if (next === undefined) throw new Error("The document writes its edit.");
 		const edited = hydratePersistedBlueprint(next);
 		expect(placed(edited, twin, "twin")?.kind).toBe("save-to-case");
-		expect(novaPublishVerdict(edited).minimumConfiguration).not.toHaveProperty(
-			"flagsOff",
-		);
+		expect(
+			novaPublishVerdict(edited, document).minimumConfiguration,
+		).not.toHaveProperty("flagsOff");
 	});
 
 	it("moves, in targeted-same-type-child's edit over D as first published, the create to the Save to Case block the offer names", () => {
@@ -868,13 +875,16 @@ describe("the documents whose publish needs a setting off", () => {
 			placementMoveOffer(edit.nextDoc, "same-type-child-links"),
 		).toBeNull();
 		expect(
-			novaPublishVerdict(edit.nextDoc).minimumConfiguration,
+			novaPublishVerdict(edit.nextDoc, document).minimumConfiguration,
 		).not.toHaveProperty("flagsOff");
 	});
 
 	it("admits targeted-supply-point-text, whose verdict needs CommCare Supply off", () => {
 		const document = supplyPointText();
-		const verdict = novaPublishVerdict(hydratePersistedBlueprint(document.doc));
+		const verdict = novaPublishVerdict(
+			hydratePersistedBlueprint(document.doc),
+			document,
+		);
 		expect(verdict.minimumConfiguration.commtrackEnabled).toBe(false);
 		expect(verdict.minimumConfiguration).not.toHaveProperty("flagsOff");
 		expect(document.edit).toBeUndefined();

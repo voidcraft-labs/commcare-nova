@@ -18,6 +18,7 @@ import {
 	distanceSearchSetupStep,
 	distanceSearchSetupSummary,
 } from "./distanceSearchSetup";
+import { namesInWords } from "./planFeatures";
 import {
 	PROJECT_SPACE_COMPATIBILITY_DOCS_URL,
 	PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL,
@@ -29,12 +30,14 @@ export type ManualImportStepKind =
 	| "commcare-version"
 	| "media"
 	| "capabilities"
+	| "same-type-child-links"
 	| "plan-features"
 	| "logo"
 	| "web-apps"
 	| "flat-location-fixture"
 	| "connect-forwarding"
 	| "form-entry-sync-off"
+	| "commtrack-off"
 	| "distance-search";
 
 const STEP_KINDS: ReadonlySet<string> = new Set<ManualImportStepKind>([
@@ -43,12 +46,14 @@ const STEP_KINDS: ReadonlySet<string> = new Set<ManualImportStepKind>([
 	"commcare-version",
 	"media",
 	"capabilities",
+	"same-type-child-links",
 	"plan-features",
 	"logo",
 	"web-apps",
 	"flat-location-fixture",
 	"connect-forwarding",
 	"form-entry-sync-off",
+	"commtrack-off",
 	"distance-search",
 ]);
 
@@ -88,6 +93,13 @@ export interface ManualImportGuideInput {
 	readonly sendsToConnect: boolean;
 	/** Whether publish would ask that sync on form entry is off (`formEntrySyncReasons` names a form). */
 	readonly formEntrySync: boolean;
+	/** Whether publish would ask that CommCare Supply is off (`commtrackReasons` names a menu or a form). */
+	readonly commtrack: boolean;
+	/**
+	 * The name of each form that makes a case linked to a case of its own
+	 * type (`sameTypeBasicChildCases`), in document order; empty for none.
+	 */
+	readonly sameTypeChildLinks: readonly string[];
 	/** Each case property a search measures distance on; empty for none. */
 	readonly distanceSearches: readonly DistanceSearchSetupProperty[];
 }
@@ -212,6 +224,24 @@ function capabilitiesStep(
 }
 
 /**
+ * HQ's build drops a basic form's link from a new case to a case of the
+ * same type in a project space with an old feature flag on
+ * (`app_manager/xform.py::XForm._create_casexml`). The import file has no
+ * target to check, and only Dimagi can turn that flag off, so this step
+ * stands apart from the capabilities step, whose features Dimagi turns on.
+ */
+function sameTypeChildLinksStep(forms: readonly string[]): ManualImportStep {
+	return {
+		kind: "same-type-child-links",
+		title: "Links between cases of the same type",
+		lines: [
+			`${namesInWords(forms)} make a case linked to a case of the same type. A few older project spaces drop that link, and there those forms lose it.`,
+			`It helps to ask Dimagi Support whether this project space keeps it: ${PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL}.`,
+		],
+	};
+}
+
+/**
  * The plan features the app needs, which the import file cannot check: no
  * API key reads a project space's plan, so the person looks for each one on
  * the project space's subscription page.
@@ -308,6 +338,23 @@ function formEntrySyncStep(): ManualImportStep {
 	};
 }
 
+/**
+ * Where the project space has CommCare Supply on, HQ's build adds a product
+ * to choose and a supply point datum this app doesn't have
+ * (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`), and no
+ * API key reads the setting.
+ */
+function commtrackStep(): ManualImportStep {
+	return {
+		kind: "commtrack-off",
+		title: "CommCare Supply",
+		lines: [
+			"CommCare HQ adds steps this app doesn't have where the project space has CommCare Supply on.",
+			`It helps to check with Dimagi Support that it's off: ${PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL}. It's off unless Dimagi turned it on.`,
+		],
+	};
+}
+
 /** Each property a search measures distance on needs the GPS type in HQ's Data Dictionary. */
 function distanceSearchStep(
 	properties: readonly DistanceSearchSetupProperty[],
@@ -345,6 +392,9 @@ export function manualImportGuide(
 		...(input.capabilities.length > 0
 			? [capabilitiesStep(input.capabilities)]
 			: []),
+		...(input.sameTypeChildLinks.length > 0
+			? [sameTypeChildLinksStep(input.sameTypeChildLinks)]
+			: []),
 		...(input.planFeatures.length > 0
 			? [planFeaturesStep(input.planFeatures)]
 			: []),
@@ -353,6 +403,7 @@ export function manualImportGuide(
 		...(input.readsLocations ? [flatLocationFixtureStep()] : []),
 		...(input.sendsToConnect ? [connectForwardingStep()] : []),
 		...(input.formEntrySync ? [formEntrySyncStep()] : []),
+		...(input.commtrack ? [commtrackStep()] : []),
 		...(input.distanceSearches.length > 0
 			? [distanceSearchStep(input.distanceSearches)]
 			: []),

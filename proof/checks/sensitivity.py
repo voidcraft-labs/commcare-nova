@@ -121,8 +121,9 @@ def accepts(verdict, configuration):
 
     ``verdict`` is the document's ``verdict.json``: its ``minimumConfiguration`` names the flags Nova's
     publish requires, whether it requires case search, where Nova's publish requires sync cases on form
-    entry off, ``syncCasesOnFormEntry: false``, and where it requires CommCare Supply off,
-    ``commtrackEnabled: false``; a verdict without one of those keys requires nothing of it.
+    entry off, ``syncCasesOnFormEntry: false``, where it requires CommCare Supply off,
+    ``commtrackEnabled: false``, and the flags it requires off, ``flagsOff``; a verdict without one of
+    those keys requires nothing of it.
     """
     return not verdict_lacks(verdict, configuration, "The document's verdict")
 

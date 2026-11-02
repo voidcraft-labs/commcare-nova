@@ -1028,6 +1028,53 @@ describe("the lines about what the next publish checks", () => {
 		);
 	});
 
+	it("names CommCare Supply after Sync Cases On Form Entry, and says HQ adds steps while it's on", () => {
+		expect(
+			renderNoticeEntry(
+				deployment("next-publish-asks-more", {
+					settings: "commtrack-off",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"The next publish to field-ops asks you to confirm what the project space has: CommCare Supply turned off. CommCare HQ adds steps to this app where field-ops has CommCare Supply on, so Nova asks whether it's off.",
+		);
+		expect(
+			renderNoticeEntry(
+				deployment("next-publish-asks-more", {
+					settings: "commtrack-off,form-entry-sync-off",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"The next publish to field-ops asks you to confirm what the project space has: Sync Cases On Form Entry turned off and CommCare Supply turned off. Android phones can't open this app's forms that work on a case chosen in a menu with Search while field-ops' Sync Cases On Form Entry is on, so Nova asks whether it's off. CommCare HQ adds steps to this app where field-ops has CommCare Supply on, so Nova asks whether it's off.",
+		);
+	});
+
+	it("says the project space has to keep a same-type case link, after every setting", () => {
+		expect(
+			renderNoticeEntry(
+				deployment("next-publish-asks-more", {
+					capabilities: "same-type-child-links",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"The next publish to field-ops asks you to confirm what the project space has: Links between cases of the same type. field-ops has to keep the link from a new case to the case of the same type it was made from, so Nova checks that before the next publish there.",
+		);
+		expect(
+			renderNoticeEntry(
+				deployment("next-publish-asks-more", {
+					settings: "form-entry-sync-off,commtrack-off",
+					capabilities: "case-search,same-type-child-links",
+				}),
+				PRESENT,
+			).text,
+		).toBe(
+			"The next publish to field-ops asks you to confirm what the project space has: Sync Cases On Form Entry turned off, CommCare Supply turned off, Case search and Links between cases of the same type. Android phones can't open this app's forms that work on a case chosen in a menu with Search while field-ops' Sync Cases On Form Entry is on, so Nova asks whether it's off. CommCare HQ adds steps to this app where field-ops has CommCare Supply on, so Nova asks whether it's off. field-ops has to keep the link from a new case to the case of the same type it was made from, so Nova checks that before the next publish there.",
+		);
+	});
+
 	it("leaves out an id Nova no longer knows", () => {
 		expect(
 			renderNoticeEntry(

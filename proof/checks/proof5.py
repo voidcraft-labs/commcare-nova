@@ -1164,7 +1164,8 @@ def _edit_lacks(document, configuration):
 
     Read from ``edit/verdict.json`` by ``corpus.lacking``, which reads every verdict beside an export
     (``corpus.Document._publishable``): the flags it names, whether case search must be on, whether sync cases
-    on form entry must be off, and whether CommCare Supply must be off (``commtrackEnabled``).
+    on form entry must be off, whether CommCare Supply must be off (``commtrackEnabled``), and the flags that
+    must be off (``flagsOff``).
     """
     return corpus.lacking(configuration, document.edit.root / "verdict.json")
 

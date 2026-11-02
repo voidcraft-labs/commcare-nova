@@ -522,9 +522,11 @@ export async function writeEntry(
 	await rm(root, { recursive: true, force: true });
 	await mkdir(root, { recursive: true });
 
-	const verdict = novaPublishVerdict(entry.doc);
+	const verdict = novaPublishVerdict(entry.doc, publish);
 	const editVerdict =
-		edit === undefined ? undefined : novaPublishVerdict(edit.nextDoc);
+		edit === undefined
+			? undefined
+			: novaPublishVerdict(edit.nextDoc, edit.publish);
 	const least = minimumConfiguration(
 		editVerdict === undefined ? [verdict] : [verdict, editVerdict],
 	);

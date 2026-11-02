@@ -17,6 +17,7 @@ import { narrowingTo } from "@/lib/deployment/platformNarrowing";
 import { foldDeploymentAttempt } from "@/lib/deployment/store";
 import { plainColumn } from "@/lib/domain";
 import {
+	COMMTRACK_OFF,
 	CONNECT_FORWARDER,
 	FLAT_LOCATION_FIXTURE,
 	PLAN_FEATURES,
@@ -180,6 +181,7 @@ function webAppsToConfirm() {
 		flat_location_fixture: null,
 		connect_forwarder: null,
 		form_entry_sync_off: null,
+		commtrack_off: null,
 		placement_moves: null,
 	};
 }
@@ -598,6 +600,75 @@ it("asks about the flat location list for an app whose form sets an owner from a
 				],
 				where_missing: FLAT_LOCATION_FIXTURE.whereMissing,
 				state: "needs_confirmation",
+			});
+		});
+	});
+});
+
+it("asks about CommCare Supply for a form holding the session's supply point text, and reads a confirmation on record as confirmed", async () => {
+	await h.seedAppWithBlueprint(
+		buildDoc({
+			appName: "Stock",
+			modules: [
+				{
+					name: "Stock",
+					forms: [
+						{
+							name: "Stock count",
+							type: "survey",
+							fields: [
+								{
+									id: "note",
+									kind: "label",
+									label:
+										"Your place is instance('commcaresession')/session/data/supply_point_id",
+								},
+							],
+						},
+					],
+				},
+			],
+		}),
+		{ id: APP, owner: "creator", projectId: PROJECT },
+	);
+	await h.seedProjectMember(ACTOR, PROJECT, "viewer");
+	await h.seedProjectMember("confirmer", PROJECT, "editor");
+	await settings();
+	const asked = {
+		label: COMMTRACK_OFF.label,
+		consequence: COMMTRACK_OFF.consequence,
+		reasons: [
+			"Stock count holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.",
+		],
+		where_missing: COMMTRACK_OFF.whereMissing,
+	};
+	await withHttpPeer(async () => {
+		await asUser(async (client) => {
+			expect((await payload(client)).commtrack_off).toEqual({
+				...asked,
+				state: "needs_confirmation",
+			});
+		});
+	});
+	await foldDeploymentAttempt(
+		{
+			appId: APP,
+			projectId: PROJECT,
+			role: "editor",
+			actorUserId: "confirmer",
+		},
+		{ server: "india", domain: "clinic" },
+		"preflight",
+		{ status: "succeeded", at: "2026-11-01T00:00:00.000Z" },
+		{ ensure: true, confirmations: [{ kind: "commtrack-off" }] },
+	);
+	await withHttpPeer(async () => {
+		await asUser(async (client) => {
+			expect((await payload(client)).commtrack_off).toEqual({
+				...asked,
+				state: "confirmed",
+				confirmed_by: "confirmer",
+				confirmed_at: expect.any(String),
 			});
 		});
 	});

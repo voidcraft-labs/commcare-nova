@@ -325,8 +325,9 @@ export interface DeploymentAttemptRefusal {
 	 * The case changes Nova can move so this project space can take the app,
 	 * which a person may accept by naming its reason and digest back. Non-null
 	 * only on `hq_confirmation_needed` asking for Save to Case where such a
-	 * move exists, and on `hq_placement_moves_changed`, where it is the offer
-	 * as it stands now.
+	 * move exists, on `project_space_incompatible` whose report holds links
+	 * between cases of the same type missing or unverified, and on
+	 * `hq_placement_moves_changed`, where it is the offer as it stands now.
 	 */
 	readonly placementMoves: PlacementMoveOfferView | null;
 }
@@ -339,7 +340,8 @@ export type DeploymentConfirmationKey =
 	| { readonly kind: "plan-feature"; readonly subject: PlanFeatureId }
 	| { readonly kind: "flat-location-fixture" }
 	| { readonly kind: "connect-forwarder" }
-	| { readonly kind: "form-entry-sync-off" };
+	| { readonly kind: "form-entry-sync-off" }
+	| { readonly kind: "commtrack-off" };
 
 /**
  * One thing a publish asks a person to confirm, with the words to ask it in:
@@ -790,6 +792,7 @@ export const deploymentConfirmationKeySchema = z.discriminatedUnion("kind", [
 	z.strictObject({ kind: z.literal("flat-location-fixture") }),
 	z.strictObject({ kind: z.literal("connect-forwarder") }),
 	z.strictObject({ kind: z.literal("form-entry-sync-off") }),
+	z.strictObject({ kind: z.literal("commtrack-off") }),
 ]);
 
 /** Withdraw one confirmation from the deployment on one target. */

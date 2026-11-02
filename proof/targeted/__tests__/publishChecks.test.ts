@@ -242,7 +242,7 @@ describe("a basic child case of its own menu's case type", () => {
 		// The flag is no project-space setting a person confirms: the probe
 		// reads it, and the publish asks only for the plan's features.
 		expect(
-			requiredConfirmations(doc, NO_PUSHES, null)
+			requiredConfirmations(doc, NO_PUSHES, null, undefined)
 				.map((need) => need.kind)
 				.filter((kind) => kind !== "plan-feature"),
 		).toEqual([]);
@@ -424,7 +424,7 @@ describe("defect 20's product_id datum", () => {
 	}
 
 	const commtrackNeeds = (doc: BlueprintDoc) =>
-		requiredConfirmations(doc, NO_PUSHES, null).filter(
+		requiredConfirmations(doc, NO_PUSHES, null, undefined).filter(
 			(need) => need.kind === "commtrack-off",
 		);
 

@@ -233,7 +233,9 @@ def lacking(configuration, verdict_path):
     ``syncCasesOnFormEntry`` is ``false`` (Nova's publish requires the
     setting off) and the configuration has it on, and ``CommCare Supply off``
     when its ``commtrackEnabled`` is ``false`` and the configuration has it
-    on; a verdict without one of those keys requires nothing of it.
+    on, and ``<flag> off`` for each flag its ``flagsOff`` names that the
+    configuration holds; a verdict without one of those keys requires
+    nothing of it.
     """
     return verdict_lacks(_read_json(verdict_path), configuration, verdict_path)
 
@@ -263,6 +265,15 @@ def verdict_lacks(verdict, configuration, where):
             f"{where} holds commtrackEnabled {commtrack!r}; a verdict requires CommCare Supply off (false) or says"
             " nothing of it."
         )
+    off = minimum.get("flagsOff", [])
+    if (
+        not isinstance(off, list)
+        or not all(isinstance(flag, str) for flag in off)
+        or ("flagsOff" in minimum and not off)
+    ):
+        raise CorpusLayoutError(
+            f"{where} holds flagsOff {off!r}; a verdict lists the flags it requires off, or says nothing."
+        )
     missing = sorted(set(minimum["flags"]) - set(configuration.flags))
     if minimum["caseSearchEnabled"] and not configuration.case_search_enabled:
         missing.append("case search")
@@ -270,6 +281,7 @@ def verdict_lacks(verdict, configuration, where):
         missing.append("sync cases on form entry off")
     if commtrack is False and configuration.commtrack:
         missing.append("CommCare Supply off")
+    missing.extend(f"{flag} off" for flag in sorted(set(off) & set(configuration.flags)))
     return missing
 
 
@@ -517,8 +529,9 @@ class Document:
         ``proof/corpus/publish.ts``'s verdict) names what Nova's publish
         requires: ``minimumConfiguration`` with its ``flags`` and
         ``caseSearchEnabled``, ``syncCasesOnFormEntry: false`` where it
-        requires sync cases on form entry off, and ``commtrackEnabled: false``
-        where it requires CommCare Supply off (``lacking``).
+        requires sync cases on form entry off, ``commtrackEnabled: false``
+        where it requires CommCare Supply off, and ``flagsOff`` naming the
+        flags it requires off (``lacking``).
         """
         missing = lacking(configuration, path)
         if missing:

@@ -24,6 +24,7 @@ import {
 } from "@/lib/lookup/constants";
 import { REEXPORT_AS } from "@/lib/media/platformPlayback";
 import {
+	COMMTRACK_OFF,
 	FORM_ENTRY_SYNC_OFF,
 	isPlanFeatureId,
 	PLAN_FEATURE_IDS,
@@ -1317,8 +1318,8 @@ export const MIGRATION_NOTICE_COPY = {
 		]);
 	},
 	/* `detail.planFeatures` holds the plan feature ids, `detail.settings`
-	 * `flat-location-fixture`, `connect-forwarder` and `form-entry-sync-off`
-	 * where each is asked,
+	 * `flat-location-fixture`, `connect-forwarder`, `form-entry-sync-off` and
+	 * `commtrack-off` where each is asked,
 	 * and `detail.capabilities` the capability ids the probe newly checks,
 	 * each comma-joined and absent where empty. Each is named in today's
 	 * words, in the order every surface lists them; an id Nova no longer
@@ -1332,6 +1333,7 @@ export const MIGRATION_NOTICE_COPY = {
 		const fixture = settings.includes("flat-location-fixture");
 		const forwarder = settings.includes("connect-forwarder");
 		const formEntrySync = settings.includes("form-entry-sync-off");
+		const commtrack = settings.includes("commtrack-off");
 		const capabilities = detailIds(entry.detail?.capabilities).filter(
 			isCapabilityId,
 		);
@@ -1342,6 +1344,7 @@ export const MIGRATION_NOTICE_COPY = {
 			...(fixture ? ["the flat location list"] : []),
 			...(forwarder ? ["a Connect forwarder"] : []),
 			...(formEntrySync ? [FORM_ENTRY_SYNC_OFF.label] : []),
+			...(commtrack ? [COMMTRACK_OFF.label] : []),
 			...capabilities.map((id) => PROJECT_SPACE_CAPABILITIES[id].label),
 		];
 		const sentences = [
@@ -1361,6 +1364,16 @@ export const MIGRATION_NOTICE_COPY = {
 			...(formEntrySync
 				? [
 						`Android phones can't open this app's forms that work on a case chosen in a menu with Search while ${possessive(space)} Sync Cases On Form Entry is on, so Nova asks whether it's off.`,
+					]
+				: []),
+			...(commtrack
+				? [
+						`CommCare HQ adds steps to this app where ${space} has CommCare Supply on, so Nova asks whether it's off.`,
+					]
+				: []),
+			...(capabilities.includes("same-type-child-links")
+				? [
+						`${space} has to keep the link from a new case to the case of the same type it was made from, so Nova checks that before the next publish there.`,
 					]
 				: []),
 		];

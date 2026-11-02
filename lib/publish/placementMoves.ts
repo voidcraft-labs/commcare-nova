@@ -65,12 +65,39 @@ export function saveToCaseOfferBody(asksChildCases: boolean): string {
 		: body;
 }
 
+/** The heading of the `same-type-child-links` offer. */
+export const SAME_TYPE_CHILD_LINKS_OFFER_HEADING =
+	"Save these new cases with Save to Case";
+
+/**
+ * The body of the `same-type-child-links` offer, by what the compatibility
+ * check found: the project space drops the link (`missing`), or Nova could
+ * not tell (`unverified`). Either way a Save to Case block keeps it.
+ */
+export function sameTypeChildLinksOfferBody(
+	state: "missing" | "unverified",
+): string {
+	const found =
+		state === "missing"
+			? "This project space drops the link from a new case to the case of the same type it was made from."
+			: "Nova couldn't check whether this project space keeps the link from a new case to the case of the same type it was made from.";
+	return `${found} Save to Case blocks keep that link everywhere. Moving these changes where CommCare HQ keeps their answers in every project space this app is published to, and the project space's plan then needs Save to Case.`;
+}
+
 /** A move the `save-to-case` offer makes: out of a Save to Case block. */
 export function movedToCaseManagementSentence(
 	form: string,
 	change: string,
 ): string {
 	return `In ${form}, the change that ${change} moves from a Save to Case block to Case Management.`;
+}
+
+/** A move the `same-type-child-links` offer makes: into a Save to Case block. */
+export function movedToSaveToCaseSentence(
+	form: string,
+	change: string,
+): string {
+	return `In ${form}, the change that ${change} moves from Case Management to a Save to Case block.`;
 }
 
 /** A move another move of the same offer forces. */

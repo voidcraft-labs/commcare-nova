@@ -342,6 +342,7 @@ function requestKey(
 		case "flat-location-fixture":
 		case "connect-forwarder":
 		case "form-entry-sync-off":
+		case "commtrack-off":
 			return { kind };
 	}
 }
@@ -358,7 +359,7 @@ export function sameConfirmationKey(
 	);
 }
 
-/** Every surface's order: the plan features as `PLAN_FEATURES` lists them, then the flat location list, the Connect forwarder and sync on form entry. */
+/** Every surface's order: the plan features as `PLAN_FEATURES` lists them, then the flat location list, the Connect forwarder, sync on form entry and CommCare Supply. */
 function requestOrder(key: DeploymentConfirmationKey): number {
 	switch (key.kind) {
 		case "plan-feature":
@@ -369,6 +370,8 @@ function requestOrder(key: DeploymentConfirmationKey): number {
 			return PLAN_FEATURE_IDS.length + 1;
 		case "form-entry-sync-off":
 			return PLAN_FEATURE_IDS.length + 2;
+		case "commtrack-off":
+			return PLAN_FEATURE_IDS.length + 3;
 	}
 }
 
@@ -443,6 +446,13 @@ export function confirmationRequests(
 				fromCheck(checks.form_entry_sync_off, ""),
 			);
 		}
+		if (checks.commtrack_off?.state === "needs_confirmation") {
+			add(
+				"commtrack-off",
+				"commtrack-off",
+				fromCheck(checks.commtrack_off, ""),
+			);
+		}
 	}
 	return requests.sort((a, b) => requestOrder(a.key) - requestOrder(b.key));
 }
@@ -505,6 +515,10 @@ export function withLandedConfirmations(
 						"form-entry-sync-off",
 						"form-entry-sync-off",
 					),
+		commtrack_off:
+			checks.commtrack_off === null
+				? null
+				: answer(checks.commtrack_off, "commtrack-off", "commtrack-off"),
 		/* The offer stands only while Save to Case still needs confirming,
 		 * as `confirmations.ts::confirmationChecks` reports it. */
 		placement_moves: planFeatures.some(

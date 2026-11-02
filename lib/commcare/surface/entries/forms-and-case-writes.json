@@ -4410,7 +4410,7 @@
 		],
 		"valueClass": "own-case-type-where-same-type-unindexed",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: retiring (DONT_INDEX_SAME_CASETYPE): HQ drops the parent index at build there (`xform.py`); import from and publish to such a project space both refuse it",
+		"dispositionCell": "**REFUSED**: retiring (DONT_INDEX_SAME_CASETYPE): HQ drops the parent index at build there (`xform.py`); import from and publish to such a project space both refuse it; publish refuses it with the offered move to Save to Case (`same-type-child-links`)",
 		"reasons": [
 			{
 				"kind": "retiring",

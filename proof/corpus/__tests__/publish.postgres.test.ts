@@ -742,6 +742,7 @@ it("captures what Nova sends and downloads for Search, lookup data, media and an
 	const document = await seedSearchLookupMedia();
 	const verdict = novaPublishVerdict(
 		(await loadAppBlueprint(APP, ACTOR, "view")).doc,
+		document,
 	);
 	const everything = EVERYTHING;
 	const capture = sentSteps(

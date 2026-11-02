@@ -10,6 +10,7 @@ import type { DeploymentConfirmation } from "@/lib/deployment/types";
 import { asUuid } from "@/lib/domain/uuid";
 import type { AppDeploymentNoticeEntry } from "@/lib/notices/migrationNotice";
 import {
+	COMMTRACK_OFF,
 	CONNECT_FORWARDER,
 	FLAT_LOCATION_FIXTURE,
 	FORM_ENTRY_SYNC_OFF,
@@ -550,6 +551,7 @@ describe("what a publish asks a person to confirm", () => {
 				flat_location_fixture: { ...FIXTURE, state: "needs_confirmation" },
 				connect_forwarder: null,
 				form_entry_sync_off: null,
+				commtrack_off: null,
 				placement_moves: null,
 			},
 			[],
@@ -573,6 +575,7 @@ describe("what a publish asks a person to confirm", () => {
 				flat_location_fixture: null,
 				connect_forwarder: null,
 				form_entry_sync_off: null,
+				commtrack_off: null,
 				placement_moves: null,
 			},
 			[
@@ -603,6 +606,7 @@ describe("what a publish asks a person to confirm", () => {
 				flat_location_fixture: null,
 				connect_forwarder: null,
 				form_entry_sync_off: { ...SYNC, state: "needs_confirmation" },
+				commtrack_off: null,
 				placement_moves: null,
 			},
 			[
@@ -635,6 +639,7 @@ describe("what a publish asks a person to confirm", () => {
 				flat_location_fixture: null,
 				connect_forwarder: null,
 				form_entry_sync_off: { ...SYNC, state: "needs_confirmation" },
+				commtrack_off: null,
 				placement_moves: null,
 			},
 			[
@@ -651,6 +656,59 @@ describe("what a publish asks a person to confirm", () => {
 			confirmed_by: "Ada",
 		});
 		expect(confirmationRequests(landed, [])).toStrictEqual([]);
+	});
+
+	it("asks whether CommCare Supply is off after sync on form entry, and not again once a landed publish stored it", () => {
+		const SUPPLY = {
+			label: COMMTRACK_OFF.label,
+			consequence: COMMTRACK_OFF.consequence,
+			reasons: [
+				"Visits shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.",
+			],
+			where_missing: COMMTRACK_OFF.whereMissing,
+			whereMissing: COMMTRACK_OFF.whereMissing,
+		};
+		const checked = {
+			plan_features: [{ ...WORKER, state: "needs_confirmation" as const }],
+			flat_location_fixture: null,
+			connect_forwarder: null,
+			form_entry_sync_off: { ...SYNC, state: "needs_confirmation" as const },
+			commtrack_off: { ...SUPPLY, state: "needs_confirmation" as const },
+			placement_moves: null,
+		};
+		const requests = confirmationRequests(checked, []);
+		expect(requests.map((request) => request.key)).toStrictEqual([
+			{ kind: "plan-feature", subject: "worker-records" },
+			{ kind: "form-entry-sync-off" },
+			{ kind: "commtrack-off" },
+		]);
+		expect(requests[2]).toMatchObject({
+			kind: "commtrack-off",
+			label: COMMTRACK_OFF.label,
+			plans: "",
+			consequence: COMMTRACK_OFF.consequence,
+			reasons: SUPPLY.reasons,
+			whereMissing: COMMTRACK_OFF.whereMissing,
+		});
+		const landed = withLandedConfirmations(checked, [
+			{
+				kind: "commtrack-off",
+				subject: "commtrack-off",
+				confirmedByName: "Ada",
+				confirmedAt: "2026-11-10T00:00:00Z",
+			},
+		]);
+		expect(landed.commtrack_off).toMatchObject({
+			state: "confirmed",
+			confirmed_by: "Ada",
+			confirmed_at: "2026-11-10T00:00:00Z",
+		});
+		expect(
+			confirmationRequests(landed, []).map((request) => request.key),
+		).toStrictEqual([
+			{ kind: "plan-feature", subject: "worker-records" },
+			{ kind: "form-entry-sync-off" },
+		]);
 	});
 
 	it("holds the publish until every request is ticked", () => {
@@ -689,6 +747,7 @@ describe("what a publish asks a person to confirm", () => {
 			},
 			connect_forwarder: null,
 			form_entry_sync_off: null,
+			commtrack_off: null,
 			placement_moves: null,
 		};
 		const live: DeploymentConfirmation[] = [
@@ -748,6 +807,7 @@ describe("the confirmations a card lists", () => {
 	it("names each by the row that asked for it, in every surface's order", () => {
 		expect(
 			liveConfirmationRows([
+				confirmed("commtrack-off", "commtrack-off"),
 				confirmed("form-entry-sync-off", "form-entry-sync-off"),
 				confirmed("connect-forwarder", "connect-forwarder"),
 				confirmed("plan-feature", "data-forwarding"),
@@ -758,6 +818,7 @@ describe("the confirmations a card lists", () => {
 			PROJECT_SPACE_SETTINGS["flat-location-fixture"].label,
 			PROJECT_SPACE_SETTINGS["connect-forwarder"].label,
 			PROJECT_SPACE_SETTINGS["form-entry-sync-off"].label,
+			PROJECT_SPACE_SETTINGS["commtrack-off"].label,
 		]);
 	});
 

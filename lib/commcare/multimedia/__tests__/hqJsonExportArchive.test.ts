@@ -57,6 +57,7 @@ function importFile(
 			assets,
 			lookupWorkbook,
 			attachmentTarget: null,
+			lookupNaming: undefined,
 		}),
 	);
 	return buildHqJsonExportArchive(
@@ -161,6 +162,7 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 					assets: NO_MEDIA,
 					lookupWorkbook: undefined,
 					attachmentTarget: null,
+					lookupNaming: undefined,
 				}),
 			),
 		);
@@ -243,6 +245,7 @@ describe("the logo in the HQ import file", () => {
 				assets,
 				lookupWorkbook: undefined,
 				attachmentTarget: null,
+				lookupNaming: undefined,
 			}),
 		);
 		const archive = buildHqJsonExportArchive(

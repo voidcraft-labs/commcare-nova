@@ -1271,7 +1271,7 @@
 		"platforms": "n/a",
 		"preflight": {
 			"kind": "refusal",
-			"cell": "flag probe; refuse same-type basic child cases"
+			"cell": "flag probe; refuse same-type basic child cases and offer Save to Case"
 		},
 		"effects": [],
 		"source": {
@@ -2526,7 +2526,7 @@
 		"class": {
 			"kind": "publish-check"
 		},
-		"content": "at import and publish of an app with an advanced module whose case list menu item is on, or with a form whose source contains the text `instance('commcaresession')/session/data/supply_point_id` (HQ's substring test, `entries.py::entry_for_module`)",
+		"content": "at publish of an app with an advanced module whose case list menu item is on, or with a form whose source text, decoded, holds `instance('commcaresession')/session/data/supply_point_id` (HQ's substring test, `entries.py::entry_for_module`); import asks the same from step 6",
 		"contentEntries": [
 			"menus-and-case-lists/module-case-list-show-true-on-an-advancedmodule",
 			"menus-and-case-lists/advancedmodule-product-details-equal-to-the-default-single-name",

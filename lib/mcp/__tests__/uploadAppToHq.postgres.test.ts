@@ -53,6 +53,7 @@ import {
 	setLocationArchived,
 } from "@/lib/organization/service";
 import {
+	COMMTRACK_OFF,
 	FORM_ENTRY_SYNC_OFF,
 	formEntrySyncWhereMissing,
 	LOGO_UPLOAD_STEP_TEXT,
@@ -118,6 +119,7 @@ const CONFIRM_ALL = {
 	confirm_flat_location_fixture: true,
 	confirm_connect_forwarder: true,
 	confirm_form_entry_sync_off: true,
+	confirm_commtrack_off: true,
 };
 function call(client: Client, extra: Record<string, unknown> = {}) {
 	return client.callTool({
@@ -1236,6 +1238,68 @@ it("names sync on form entry structurally for an app with a menu with Search who
 		expect(requests(peer)).toEqual([]);
 	});
 	expect(await snapshot()).toEqual({ deployments: [], resources: [] });
+});
+
+it("names CommCare Supply structurally for a form holding the session's supply point text, and keeps confirm_commtrack_off once the upload goes ahead", async () => {
+	await seed(
+		buildDoc({
+			appName: "Stock",
+			modules: [
+				{
+					name: "Stock",
+					forms: [
+						{
+							name: "Stock count",
+							type: "survey",
+							fields: [
+								{
+									id: "note",
+									kind: "label",
+									label:
+										"Your place is instance('commcaresession')/session/data/supply_point_id",
+								},
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
+	await withHttpPeer(async (peer) => {
+		await asUser(async (client) => {
+			const refused = body(
+				await call(client, { confirm_commtrack_off: false }),
+				true,
+			);
+			expect(refused.error_type).toBe("hq_confirmation_needed");
+			expect(refused.confirmations_needed).toEqual([
+				{
+					kind: "commtrack-off",
+					subject: "commtrack-off",
+					label: COMMTRACK_OFF.label,
+					plans: "",
+					consequence: COMMTRACK_OFF.consequence,
+					reasons: [
+						"Stock count holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.",
+					],
+					where_missing: COMMTRACK_OFF.whereMissing,
+				},
+			]);
+		});
+		expect(requests(peer)).toEqual([]);
+
+		shellCreated(peer);
+		imported(peer);
+		await asUser(async (client) => {
+			expect(body(await call(client))).toMatchObject({
+				stage: "upload_complete",
+			});
+		});
+	});
+	const kept = await state();
+	expect(
+		kept?.confirmations.map(({ kind, subject }) => ({ kind, subject })),
+	).toContainEqual({ kind: "commtrack-off", subject: "commtrack-off" });
 });
 
 /** HQ's retained read, with the app's Web App setting as a case names it. */

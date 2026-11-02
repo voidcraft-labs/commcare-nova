@@ -1967,6 +1967,50 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   episode and basic blocks becoming `case_open_<tag>` blocks with their case updates and questions,
   as the module turns advanced (M3's cause, `module-made-advanced`). Enroll is a registration, so its
   datums are new-case datums its entry already held, and none of them moves.
+- **The same-type value class reads the configurations an app JSON was sent under** (pull request 8, §7.2).
+  No reader of `proof/checks/manifest_value_classes.py` saw a configuration: a reader takes `(use,
+  manifest)`, and `proof/checks/manifest_usage.py::export_uses` reads each distinct app file once, however
+  many configurations sent it. The smallest thread: `export_uses` collects, per `(artifact, blob)`, the
+  configurations whose uploads sent it, and `app_json_uses` hands them to `App(…, configurations)`;
+  `own_case_type_where_same_type_unindexed` answers True where any of them holds `DONT_INDEX_SAME_CASETYPE`,
+  False where none does, and None only where a reading names no configuration (a pure test's app given
+  none). The class leaves `UNSETTLED`, which is empty now.
+- **Defect 20's `product_id` row in "Claims held outside a document's checks" names
+  `publishChecks.test.ts`** (pull request 8): part 03 §17 moves that bullet from `unproducedInputs.test.ts`,
+  and its old text (no export reaches an advanced module) no longer holds once pull request 7 emits them;
+  the row now says HQ adds the datum to an advanced menu's case list menu item only with CommCare Supply on
+  (`entries.py::EntriesHelper.entry_for_module`) and that Nova asks `commtrack-off` for one. The README's
+  "12, same-type child" row moves from that table into "The defect rows", shown by configuration
+  sensitivity alone: the register holds no entry for it, and a verdict's `flagsOff` keeps the flag out of
+  every checked configuration, so the manifest check never meets the class on a corpus export.
+- **The project-space list test runs for `DONT_INDEX_SAME_CASETYPE` beside `CASE_SEARCH_ADVANCED`** (G3):
+  `proof/hq/test_flag_probe.py`'s list test, which read one flag, is parametrized over the two, and the
+  flag joins `PROBED_FLAGS`, so the user-alone test holds it too (a `StaticToggle` of
+  `NAMESPACE_DOMAIN`, `corehq/toggles/__init__.py:1626`; the filter takes any slug
+  `toggles.all_toggle_slugs()` holds, `api/resources/v0_5.py::UserDomainsResource.get_object_list`).
+- **`proof/editors/conftest.py::DOCUMENTS` names `targeted-supply-point-text`** (unlisted in the plan's
+  files): the package's one corpus read refuses a document it does not name.
+- **`targeted-same-type-child`'s D′ is an editor's edit, not the offer's holds** (pull request 8). A D′ of
+  `holdPlacements` alone is refused when the document is made: `proof/targeted/build.ts::plannedEdit` and
+  `proof/corpus/editBatches.ts::writtenEditOverRecord` check D′ with `placementChangeRefusal(…, "autosave")`
+  (`lib/db/placementAuthority.ts`), which admits a held-placement change only from a publish placement or a
+  migration. D′ gives Add twin's write the condition Add sibling's carries, the planner moves the create, and
+  `targeted.test.ts` holds that it lands on exactly the Save to Case block
+  `placementMoveOffer(D, "same-type-child-links")` names, after which no offer remains and D′'s verdict has no
+  `flagsOff`.
+- **`minimumConfiguration(verdicts)` throws where one verdict needs a flag on that another lists in
+  `flagsOff`**, and `entryWriter.ts` refuses any configuration that turns such a flag on: R8's rule that no
+  checked configuration turns on a flag a verdict needs off, enforced where configurations are made.
+  `proof/corpus/__tests__/emitCorpus.test.ts` (unlisted) holds the refusal and moved its CommCare Supply case
+  to `targeted-supply-point-text`, since it imported the removed stub.
+- **`targeted-supply-point-text`'s calculate literal is evidence of no reason**: Nova's printers cut a literal
+  after `instance(` (part 03's departure), so only its labels hold the text, and the editors test's evidence
+  of which text nodes and attributes hold it after a save decides G2 over the labels.
+- **The corpus is 417 documents at pull request 8, not 418**: pull request 7's head emits 415 (part 02's G4
+  outcome B, as row 7 allows), and this pull request adds the two targeted documents. The no-Docker emission
+  at base and head gives the same stop and census but the targeted count (81 to 83); no existing document's
+  bytes, verdict or inputs move with the same-type lift, and only `targeted-same-type-child`'s verdict holds
+  `flagsOff` (`DONT_INDEX_SAME_CASETYPE`), only `targeted-supply-point-text`'s `commtrackEnabled: false`.
 
 ## What other parts read from this one
 

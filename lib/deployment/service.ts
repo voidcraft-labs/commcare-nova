@@ -23,6 +23,10 @@ import {
 	readHqLookupTableRows,
 	uploadLookupTableWorkbook,
 } from "@/lib/commcare/hq/lookupTables";
+import {
+	type LookupWireNaming,
+	lookupWireNaming,
+} from "@/lib/commcare/lookup/naming";
 import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip";
 import { bulkUploadAssets } from "@/lib/commcare/multimedia/hqJsonExportArchive";
 import { placementsToHold } from "@/lib/commcare/placementHolds";
@@ -44,6 +48,7 @@ import type { StoredLocation } from "@/lib/organization/types";
 import type {
 	AcceptPlacementMoves,
 	PlacementMoveOfferView,
+	PlacementOfferReason,
 } from "@/lib/publish/placementMoves";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import type { WebAppsChange } from "@/lib/publish/webApps";
@@ -517,9 +522,12 @@ export async function artifactLocations(
  * The pre-publish check reads this so the dialog and MCP show the rows
  * before the first press instead of after a refusal. It asks CommCare HQ
  * nothing, and reads the needs through the helper the `plan-features` edge
- * reads (`preflight.ts::publishConfirmationNeeds`). Each row is about one
- * project space, so with none chosen there is nothing to ask and the app's
- * organization is not read.
+ * reads (`preflight.ts::publishConfirmationNeeds`), under the naming of the
+ * Project's current definitions of the tables the app reads, as the export
+ * boundary names them for the publish (`lookupWireNaming` of the same
+ * definitions, without their rows). Each row is about one project space, so
+ * with none chosen there is nothing to ask and neither the app's
+ * organization nor its tables are read.
  */
 export async function projectSpaceConfirmations(
 	scope: DeploymentScope,
@@ -527,7 +535,12 @@ export async function projectSpaceConfirmations(
 	target: DeploymentTargetKey | null,
 ): Promise<ProjectSpaceConfirmationChecks> {
 	if (target === null) return confirmationChecks([], [], null);
-	const { needed } = await publishConfirmationNeeds(scope, doc, target);
+	const { needed } = await publishConfirmationNeeds(
+		scope,
+		doc,
+		target,
+		await projectLookupNaming(scope, doc),
+	);
 	const deployment = await readDeployment(scope, target);
 	return confirmationChecks(
 		needed,
@@ -536,10 +549,72 @@ export async function projectSpaceConfirmations(
 	);
 }
 
+/**
+ * What the tables `doc` reads are called on the wire, from the Project's
+ * definitions in one snapshot, or `undefined` for an app that reads no
+ * table, as `boundaryValidation.ts::prepareWithRegistry` names them.
+ */
+async function projectLookupNaming(
+	scope: DeploymentScope,
+	doc: BlueprintDoc,
+): Promise<LookupWireNaming | undefined> {
+	const { tableIds } = extractLookupReferenceTargets(doc);
+	if (tableIds.length === 0) return undefined;
+	const snapshot = await getLookupDefinitions(
+		{
+			projectId: scope.projectId,
+			actorId: scope.actorUserId,
+			role: scope.role,
+		},
+		tableIds,
+	);
+	return lookupWireNaming(snapshot.definitions);
+}
+
 /** The document's `save-to-case` move offer as a person sees it, or `null`. */
 function saveToCaseOfferView(doc: BlueprintDoc): PlacementMoveOfferView | null {
-	const offer = placementMoveOffer(doc, "save-to-case");
+	return offerView(doc, "save-to-case");
+}
+
+/** The document's move offer for `reason` as a person sees it, or `null`. */
+function offerView(
+	doc: BlueprintDoc,
+	reason: PlacementOfferReason,
+): PlacementMoveOfferView | null {
+	const offer = placementMoveOffer(doc, reason);
 	return offer === null ? null : placementMoveOfferView(offer);
+}
+
+/**
+ * The move a preflight refusal offers, or `null`. Where the plan may lack
+ * Save to Case (`hq_confirmation_needed` with that need), the case changes
+ * Nova can keep in Case Management instead, which a person may accept in
+ * place of the confirmation. Where the project space may drop the link
+ * between cases of the same type (`project_space_incompatible` with
+ * `same-type-child-links` missing or unverified), the same-type children
+ * moved to Save to Case blocks, which keep that link whatever the project
+ * space says.
+ */
+function refusalPlacementMoves(
+	doc: BlueprintDoc,
+	code: DeploymentFailure["code"],
+	confirmationsNeeded: readonly DeploymentConfirmationNeeded[],
+	compatibility: ProjectSpaceCompatibilityReport | null,
+): PlacementMoveOfferView | null {
+	if (code === "hq_confirmation_needed") {
+		return asksSaveToCase(confirmationsNeeded)
+			? offerView(doc, "save-to-case")
+			: null;
+	}
+	if (code === "project_space_incompatible") {
+		const sameType = compatibility?.required_capabilities.find(
+			(capability) => capability.id === "same-type-child-links",
+		);
+		return sameType?.state === "missing" || sameType?.state === "unverified"
+			? offerView(doc, "same-type-child-links")
+			: null;
+	}
+	return null;
 }
 
 /**
@@ -712,14 +787,12 @@ export async function publishAppToHq(
 				remoteChanges: run.remoteChanges ?? [],
 				confirmationsNeeded,
 				webAppsChange: run.webAppsChange ?? null,
-				/* Where the plan may lack Save to Case, the case changes Nova
-				 * can keep in Case Management instead, which a person may
-				 * accept in place of the confirmation. */
-				placementMoves:
-					run.outcome.failure.code === "hq_confirmation_needed" &&
-					asksSaveToCase(confirmationsNeeded)
-						? saveToCaseOfferView(doc)
-						: null,
+				placementMoves: refusalPlacementMoves(
+					doc,
+					run.outcome.failure.code,
+					confirmationsNeeded,
+					run.projectSpaceCompatibility,
+				),
 			});
 		}
 

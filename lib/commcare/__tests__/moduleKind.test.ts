@@ -6,8 +6,11 @@
  * blocker is shown with a twin that differs only in it.
  */
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedKindReasons,
+	advancedModulesWithCaseListMenuItem,
 	emittedModuleKind,
 } from "@/lib/commcare/moduleKind";
 import type {
@@ -281,5 +284,72 @@ describe("emittedModuleKind", () => {
 		].reverse();
 		expect(householdsFirst).toEqual(["advanced", "advanced"]);
 		expect(visitsFirst).toEqual(householdsFirst);
+	});
+});
+
+describe("advancedModulesWithCaseListMenuItem", () => {
+	const BROWSE = testUuid("kind-browse");
+	/** Households whose only content is its case list as a menu item, beside
+	 *  a menu with a form. */
+	const browseDoc = (held: boolean): BlueprintDoc =>
+		buildDoc(
+			{
+				caseTypes: [
+					{
+						name: "household",
+						properties: [{ name: "case_name", label: "Name" }],
+					},
+				],
+				modules: [
+					{
+						uuid: "kind-browse",
+						name: "Households",
+						caseType: "household",
+						caseListOnly: true,
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+					},
+					{
+						name: "Visits",
+						caseType: "household",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [f({ kind: "text", id: "remark" })],
+							},
+						],
+					},
+				],
+			},
+			(doc) => {
+				if (held)
+					doc.modules[BROWSE] = {
+						...doc.modules[BROWSE],
+						heldKind: "advanced",
+					};
+			},
+		);
+
+	it("returns a menu whose kind is held advanced and whose case list menu item is its only content", () => {
+		const doc = browseDoc(true);
+		expect(emittedModuleKind(doc, BROWSE)).toBe("advanced");
+		expect(advancedModulesWithCaseListMenuItem(doc)).toEqual([BROWSE]);
+	});
+
+	it("returns nothing for the same menu without the hold", () => {
+		const doc = browseDoc(false);
+		expect(emittedModuleKind(doc, BROWSE)).toBe("basic");
+		expect(advancedModulesWithCaseListMenuItem(doc)).toEqual([]);
+	});
+
+	it("returns nothing for an advanced menu with forms and no menu item", () => {
+		const doc = advancedFixture({ formType: "followup" }).doc;
+		expect(emittedModuleKind(doc, HOUSEHOLDS)).toBe("advanced");
+		expect(advancedModulesWithCaseListMenuItem(doc)).toEqual([]);
 	});
 });

@@ -25,6 +25,7 @@ import type { HqApplication } from "@/lib/commcare/types";
 import { derivedUniqueId } from "@/lib/commcare/wireIdentity";
 import type { AttachmentUrlTarget } from "@/lib/commcare/xform/captureUrlNode";
 import { parser } from "@/lib/commcare/xpath/parser";
+import { requiredConfirmations } from "@/lib/deployment/confirmations";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
@@ -55,6 +56,7 @@ import { formsReadingLocationsFixture } from "../locations/readsLocationsFixture
 import planPrivilegePlans from "../planPrivilegePlans.json";
 import {
 	CURRENT_PLANS,
+	commtrackReasons,
 	flatLocationFixtureReasons,
 	formEntrySyncReasons,
 	formsUsingWorkerRecord,
@@ -65,9 +67,15 @@ import {
 	requiredPlanPrivileges,
 } from "../planPrivileges";
 import { runValidation } from "../validator/runner";
+import { SUPPLY_POINT_SESSION_TEXT } from "../xform/supplyPointText";
 import { advancedFixture } from "./advancedPlacementFixture";
 import { assertGenerated, manifestFor } from "./compilerEvidence";
 import { connectWireFixtures } from "./connectWireFixtures";
+import {
+	csqlFunctionFixture,
+	functionLookupContext,
+	functionLookupNaming,
+} from "./csqlFunctionFixture";
 import { extensionCaseFixture } from "./extensionCaseFixture";
 import { clinicNames } from "./instanceReadFixture";
 import {
@@ -942,5 +950,178 @@ describe("a Connect app", () => {
 
 	it("asks nothing of an app with no Connect block", () => {
 		expect(reasonsOf(fixture("absent"), "data_forwarding")).toBeUndefined();
+	});
+});
+
+describe("CommCare Supply", () => {
+	const BROWSE = testUuid("supply-browse");
+	const columns = () =>
+		caseListConfig([{ field: "case_name", header: "Name" }]);
+	/** A household app: Households holds its case list as its menu item and
+	 *  nothing else, its kind held advanced where `held` says, and Visits
+	 *  holds a survey with the fields given. */
+	const supplyDoc = (options: {
+		readonly held?: boolean;
+		readonly menuItem?: boolean;
+		readonly fields?: readonly FieldSpec[];
+	}): BlueprintDoc =>
+		buildDoc(
+			{
+				appName: "Supplies",
+				caseTypes: [
+					{
+						name: "household",
+						properties: [{ name: "case_name", label: proseText("Name") }],
+					},
+				],
+				modules: [
+					...(options.menuItem === false
+						? []
+						: [
+								{
+									uuid: "supply-browse",
+									name: "Households",
+									caseType: "household",
+									caseListOnly: true,
+									caseListConfig: columns(),
+								},
+							]),
+					{
+						name: "Visits",
+						forms: [
+							{
+								name: "Stock count",
+								type: "survey" as const,
+								fields: [
+									f({ kind: "text", id: "count" }),
+									...(options.fields ?? []),
+								],
+							},
+						],
+					},
+				],
+			},
+			(doc) => {
+				if (options.held === true && doc.modules[BROWSE] !== undefined)
+					doc.modules[BROWSE] = {
+						...doc.modules[BROWSE],
+						heldKind: "advanced",
+					};
+			},
+		);
+	const menuReason =
+		"Households shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.";
+	const formReason =
+		"Stock count holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.";
+
+	it("names an advanced menu whose case list is its own menu item", () => {
+		const doc = supplyDoc({ held: true });
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(commtrackReasons(doc, undefined)).toEqual([menuReason]);
+	});
+
+	it("names no menu whose kind is not held advanced, nor an app without the menu item", () => {
+		expect(commtrackReasons(supplyDoc({}), undefined)).toEqual([]);
+		expect(commtrackReasons(supplyDoc({ menuItem: false }), undefined)).toEqual(
+			[],
+		);
+	});
+
+	it("names a form whose label holds the text", () => {
+		const doc = supplyDoc({
+			fields: [
+				f({
+					kind: "label",
+					id: "note",
+					label: proseText(`Your place is ${SUPPLY_POINT_SESSION_TEXT}`),
+				}),
+			],
+		});
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(commtrackReasons(doc, undefined)).toEqual([formReason]);
+	});
+
+	it("names no form for a calculated value's literal holding the text, which the source writes split at its instance call", () => {
+		/* The XForm printer cuts a literal after every `instance(` it holds
+		 * (`xpath/wire/serialize.ts::literalPieces`), so the value is
+		 * `concat('instance', "('commcaresession')…")` and no stretch of the
+		 * source, before or after a form-builder save, holds the text. */
+		const doc = supplyDoc({
+			held: true,
+			fields: [
+				f({
+					kind: "hidden",
+					id: "place",
+					calculate: term(literal(SUPPLY_POINT_SESSION_TEXT)),
+				}),
+			],
+		});
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const source = Object.values(
+			expandDoc(doc, { attachmentTarget: null })._attachments,
+		).find((xml) => xml.includes("/data/place"));
+		expect(source).toContain(
+			"concat(&apos;instance&apos;, &quot;(&apos;commcaresession&apos;)/session/data/supply_point_id&quot;)",
+		);
+		expect(commtrackReasons(doc, undefined)).toEqual([menuReason]);
+	});
+
+	it("names the menu before the form, in document order", () => {
+		const doc = supplyDoc({
+			held: true,
+			fields: [
+				f({
+					kind: "label",
+					id: "note",
+					label: proseText(SUPPLY_POINT_SESSION_TEXT),
+				}),
+			],
+		});
+		expect(commtrackReasons(doc, undefined)).toEqual([menuReason, formReason]);
+	});
+
+	it("reads the emission under the Project's lookup naming, whose column types lower a table's value compared with a date", () => {
+		/* The Search filter compares a case's date with a table's value read
+		 * as a date, which lowers by that column's type
+		 * (`xpath/wire/instant.ts`); only the Project's definitions carry it. */
+		/* A copy, since the fixture's own validation keeps derivations of
+		 * the document it returns. */
+		const doc = structuredClone(csqlFunctionFixture());
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		const note = testUuid("supply-lookup-note");
+		doc.fields[note] = {
+			kind: "label",
+			uuid: note,
+			id: "note",
+			label: proseText(SUPPLY_POINT_SESSION_TEXT),
+		};
+		doc.fieldOrder[formUuid] = [...(doc.fieldOrder[formUuid] ?? []), note];
+		rebuildFieldParent(doc);
+		expect(runValidation(doc, functionLookupContext)).toEqual([]);
+		const reason = `${doc.forms[formUuid].name} holds the text instance('commcaresession')/session/data/supply_point_id, which CommCare HQ reads as the session's supply point.`;
+		expect(commtrackReasons(doc, functionLookupNaming)).toEqual([reason]);
+		expect(
+			requiredConfirmations(
+				doc,
+				{ lookupTables: true, places: false },
+				null,
+				functionLookupNaming,
+			).find((need) => need.kind === "commtrack-off")?.reasons,
+		).toEqual([reason]);
+	});
+
+	it("names no form whose label holds a near miss", () => {
+		const doc = supplyDoc({
+			fields: [
+				f({
+					kind: "label",
+					id: "note",
+					label: proseText(
+						"Your place is instance('commcaresession')/session/data/supply_point",
+					),
+				}),
+			],
+		});
+		expect(commtrackReasons(doc, undefined)).toEqual([]);
 	});
 });

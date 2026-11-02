@@ -58,7 +58,6 @@ import {
 	type PlannedBasicSubcase,
 	type StatedCondition,
 	SUBJECT_CANNOT_HOLD,
-	sameTypeExclusions,
 	sharingCloses,
 	stateCondition,
 	subcaseReasons,
@@ -156,9 +155,7 @@ export interface PlanPlacementsOptions {
 	 *  what a basic form would give without asking itself. Absent: the
 	 *  kind its menu is emitted as. */
 	readonly moduleKind?: "basic" | "advanced";
-	/** Operations kept out of every basic slot and every advanced action,
-	 *  besides the unheld creates of the menu's own case type, which always
-	 *  are. */
+	/** Operations kept out of every basic slot and every advanced action. */
 	readonly excludeBasic?: ReadonlySet<Uuid>;
 }
 
@@ -586,7 +583,7 @@ function advancedRowNames(f: CaseSlotFacts, repeat: Uuid): ReadonlySet<string> {
 function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 	const nodes = planGeneratedNodes(f.doc, f.formUuid);
 	const chain = advancedLoadChain(f.doc, f.formUuid);
-	const excluded = new Set([...options.exclude, ...sameTypeExclusions(f)]);
+	const excluded = options.exclude;
 	const sharers = sharingCloses(f);
 	const sharedBy = new Map<Uuid, Uuid>();
 	for (const [createUuid, close] of sharers)

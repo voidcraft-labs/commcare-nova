@@ -440,6 +440,28 @@ def test_a_verdict_requiring_commcare_supply_off_refuses_the_flip_into_it():
         sensitivity.accepts({"minimumConfiguration": {**minimum, "commtrackEnabled": True}}, plain)
 
 
+def test_a_verdict_requiring_a_flag_off_refuses_the_flip_that_turns_it_on():
+    """A verdict listing a flag in ``flagsOff`` refuses the flip that turns that flag on and accepts every other; the
+    same verdict without the key accepts it. The plausible failure: a flip into a project space with
+    ``DONT_INDEX_SAME_CASETYPE`` on, where Nova's publish refuses a same-type child link, is accepted, and its
+    differences reach the register though no publish reaches there."""
+    plain = Configuration(flags={"SYNC_SEARCH_CASE_CLAIM"}, case_search_enabled=True)
+    reads = ({"DONT_INDEX_SAME_CASETYPE", "SESSION_ENDPOINTS"}, {sensitivity.COMMTRACK: 1})
+    minimum = {"flags": ["SYNC_SEARCH_CASE_CLAIM"], "caseSearchEnabled": True}
+    requiring_off = {"minimumConfiguration": {**minimum, "flagsOff": ["DONT_INDEX_SAME_CASETYPE"]}}
+    gate = observe.flag_gate("DONT_INDEX_SAME_CASETYPE")
+    off = {flip.gate: flip for flip in sensitivity.flips(plain, *reads, requiring_off)}
+    assert not off[gate].accepted and "DONT_INDEX_SAME_CASETYPE" in off[gate].configuration.flags
+    assert all(flip.accepted for name, flip in off.items() if name != gate)
+    silent = {flip.gate: flip for flip in sensitivity.flips(plain, *reads, {"minimumConfiguration": minimum})}
+    assert all(flip.accepted for flip in silent.values())
+    # The verdict is read as corpus.lacking reads it: a flagsOff that lists nothing, or lists other than flag names,
+    # is refused rather than read as requiring nothing.
+    for malformed in ([], "DONT_INDEX_SAME_CASETYPE", [True]):
+        with pytest.raises(CorpusLayoutError, match="flagsOff"):
+            sensitivity.accepts({"minimumConfiguration": {**minimum, "flagsOff": malformed}}, plain)
+
+
 def test_a_flip_is_refused_exactly_where_nova_publish_would_refuse_the_configuration():
     verdict = {"minimumConfiguration": {"flags": ["SYNC_SEARCH_CASE_CLAIM"], "caseSearchEnabled": True}}
     plain = Configuration(flags={"SYNC_SEARCH_CASE_CLAIM"}, case_search_enabled=True)
