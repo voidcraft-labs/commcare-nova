@@ -1536,7 +1536,7 @@
 		],
 		"valueClass": "count-from-integer-hidden-value",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `repeat` `count_bound` naming the hidden value directly (Nova writes a `nova_count_<repeat>` copy of it today: defect 30)",
+		"dispositionCell": "**HELD**: `repeat` `count_bound` naming the hidden value directly",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1598,13 +1598,8 @@
 		],
 		"valueClass": "count-from-integer-choice-select",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `repeat` `count_bound` naming the question directly; widen: Nova's types read such a question as an integer (defect 30), where it refuses a direct count on any question but an integer one today (`REPEAT_COUNT_TYPE`, `lib/commcare/validator/rules/field.ts`), and Core parses the chosen value as it parses an integer answer (executed)",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "Nova's types read such a question as an integer (defect 30), where it refuses a direct count on any question but an integer one today (`REPEAT_COUNT_TYPE`, `lib/commcare/validator/rules/field.ts`), and Core parses the chosen value as it parses an integer answer (executed)"
-			}
-		],
+		"dispositionCell": "**HELD**: `repeat` `count_bound` naming the question directly (`REPEAT_COUNT_TYPE` admits a single select whose inline choices are whole numbers)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1814,8 +1809,8 @@
 			}
 		},
 		"emission": {
-			"cell": "Vellum's canonical shape: `@count` setvalue (`xforms-ready`/`jr-insert`), absolute `@current_index`, relevance on `…/item` (Nova's live `@count`, wrapper relevance and relative `@current_index`, `count(../item)`, are save-breaking today: a save makes the index absolute, `modeliteration.js`, which breaks a nested query repeat)",
-			"markers": ["save-breaking"]
+			"cell": "Vellum's canonical shape: `@ids` and `@count` setvalues at `xforms-ready`, `@index` and `@id` at `jr-insert`, absolute `@current_index`, the condition on `…/item`, only where model iteration runs: a query repeat in no other repeat, whose query reads no form answer, under no group whose condition can change during entry",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -1823,7 +1818,7 @@
 		"id": "questions/count-repeat-whose-count-and-row-ids-come-from-one-query-a",
 		"area": "questions",
 		"section": "Question types",
-		"item": "Count repeat whose count and row ids come from one query: a hidden value `nova_query_count_<repeat id>` holding the query's count, `jr:count` naming it, and in each row a hidden value `nova_query_id_<repeat id>` holding the id of the query's result at the row's position",
+		"item": "Count repeat whose count and row ids come from one query: a hidden value `nova_query_ids_<repeat id>` holding the query's ids, inside the query's own group, the rows staying `item`, a hidden value `nova_query_count_<repeat id>` holding the query's count, `jr:count` naming it, and in each row a hidden value `nova_query_id_<repeat id>` holding the id of the query's result at the row's position",
 		"surfaceKeys": [
 			"mug:Repeat",
 			"jr-control:repeat",
@@ -1837,8 +1832,9 @@
 			"xform:model/instance//*@jr:template"
 		],
 		"valueClass": "query-count-repeat",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `repeat` `query_bound` in its count-repeat placement (the reader recognizes exactly this shape, by those names and calculates, as one query repeat)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `repeat` `query_bound` in its count placement (the wrapper group, `nova_query_ids_`, `nova_query_count_`, `nova_query_id_`, the guard condition on `item`, and the position and index nodes only when read)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1850,7 +1846,7 @@
 			}
 		},
 		"emission": {
-			"cell": "that shape, for a query repeat nested in another, under an ancestor whose relevance reads form answers, or whose query reads a form answer",
+			"cell": "that shape (the wrapper group, `nova_query_ids_`, `nova_query_count_`, `nova_query_id_`, the guard condition on `item`, and the position and index nodes only when read), for a query repeat nested in another, whose query reads a form answer, or under a group whose condition can change during entry",
 			"markers": []
 		},
 		"gates": []
@@ -1863,7 +1859,7 @@
 		"surfaceKeys": ["vellum-markup:model/instance//*@vellum:role"],
 		"valueClass": "model-iteration-under-late-relevance",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: broken at runtime: Vellum's `@count` setvalue reads its `@ids` blank there, so the repeat is empty (`count=\"0\"`) on that opening, and it stays empty after the ancestor becomes relevant (executed; where the ancestor is relevant there, the rows are built)",
+		"dispositionCell": "**REFUSED**: broken at runtime: Vellum's `@count` setvalue reads its `@ids` blank there, so the repeat is empty (`count=\"0\"`) on that opening, and it stays empty after the ancestor becomes relevant (executed; where the ancestor is relevant there, the rows are built); Nova writes the count placement there",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1888,7 +1884,7 @@
 		"surfaceKeys": ["vellum-markup:model/instance//*@vellum:role"],
 		"valueClass": "model-iteration-reading-a-blank-answer",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: broken at runtime: Vellum's setvalues evaluate the query once, when the form loads or the parent row is added, while that answer is still blank, so the rows never reflect it (executed)",
+		"dispositionCell": "**REFUSED**: broken at runtime: Vellum's setvalues evaluate the query once, when the form loads or the parent row is added, while that answer is still blank, so the rows never reflect it (executed); Nova writes the count placement there",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",
@@ -1913,7 +1909,7 @@
 		"surfaceKeys": ["vellum-markup:model/instance//*@vellum:role"],
 		"valueClass": "model-iteration-nested",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: broken at runtime: Vellum's canonical absolute `@current_index` counts the inner rows of every outer row, so once an earlier outer row has inner rows, form entry throws (`XPathException: … element 2 of a list with only 1`) or first gives rows the wrong case ids (executed, with a model-iteration, a counted and a user-added outer repeat)",
+		"dispositionCell": "**REFUSED**: broken at runtime: Vellum's canonical absolute `@current_index` counts the inner rows of every outer row, so once an earlier outer row has inner rows, form entry throws (`XPathException: … element 2 of a list with only 1`) or first gives rows the wrong case ids (executed, with a model-iteration, a counted and a user-added outer repeat); Nova writes the count placement there",
 		"reasons": [
 			{
 				"kind": "broken-at-runtime",

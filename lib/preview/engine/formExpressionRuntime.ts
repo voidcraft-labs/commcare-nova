@@ -41,8 +41,12 @@ import type { ProseReferencePart } from "@/lib/domain/prose";
 import type { PreviewLookupData } from "./lookupEvaluation";
 
 /** The current Preview instance stores query rows directly beneath their
- * authored repeat name. Keep that physical projection private to this runtime;
- * native emission and admission always use the complete form-node graph. */
+ * authored repeat name, `@id` and `@index` on each row and `@ids`, `@count`
+ * and `@current_index` on the wrapper, in both placements: it projects the
+ * authoring surface, which spells model iteration and the count placement
+ * alike. Keep that physical projection private to this runtime; native
+ * emission and admission always use the complete form-node graph on the wire
+ * surface. */
 export function previewFormNodeProjection(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -50,7 +54,7 @@ export function previewFormNodeProjection(
 	const form = formStructure(doc, formUuid);
 	if (form === undefined)
 		throw new Error(`Form ${formUuid} has no expression structure.`);
-	const native = formNodeProjection(doc, form);
+	const native = formNodeProjection(doc, form, { surface: "authoring" });
 	const path = (node: FormNodeRef) =>
 		native.graph.path(node)?.filter((part, index, parts) => {
 			const next = parts[index + 1];

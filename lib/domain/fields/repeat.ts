@@ -22,12 +22,16 @@
 //    `#form/desired_count`). The count is read live during entry. Increasing it adds
 //    rows; decreasing it retains created rows, answers, and case operations. `jr:noAddRemove="true()"` suppresses Add/Remove.
 //
-// 3. **`query_bound`** — iterates over case-database query results.
-//    `data_source.ids_query` is an XPath that resolves to a list of
-//    case ids; the wire emitter generates `<setvalue>` setup elements
-//    when the enclosing instance initializes to seed each instance's id,
-//    plus auto-derives `jr:count` as `<repeat-path>/@count`. Each new
-//    enclosing repeat instance initializes its own query snapshot.
+// 3. **`query_bound`** — one row per case id `data_source.ids_query`
+//    finds. The repeat has a placement (`queryRepeatPlacement.ts`), held
+//    in `placement` once a publish carries it or a migration records it,
+//    and otherwise the effective one: model iteration, Vellum's shape,
+//    whose rows are the records found when the form opens, only where the
+//    repeat is in no repeat, its query reads no answer and no group around
+//    it shows on a condition that can change during entry; otherwise the
+//    count placement, whose rows follow the query as the form is filled
+//    in, each row keeping its place, and a row past the end of the result
+//    is not relevant. Text spells both placements alike.
 //
 // ## Empty-label repeats are valid (all modes)
 //
@@ -42,6 +46,7 @@
 import tablerRepeat from "@iconify-icons/tabler/repeat";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
+import { queryRepeatPlacementSchema } from "../queryRepeatPlacement";
 import { containerFieldBase, formLogicSchema } from "./base";
 
 /**
@@ -93,11 +98,11 @@ export const countBoundRepeatSchema = repeatBase.extend({
 });
 
 /**
- * Query-bound repeat (Vellum's "model iteration"). The runtime resolves
- * `data_source.ids_query` when its enclosing instance initializes to case ids,
- * materializes one instance per id, and seeds each instance's nested
- * `@id` via setvalue elements emitted by the XForm builder. Used for
- * patterns like "for each open service case, render a row".
+ * Query-bound repeat: one row per case id `data_source.ids_query` finds,
+ * each row carrying its id. Used for patterns like "for each open service
+ * case, render a row". Its rows are set when the form opens (model
+ * iteration) or follow the query as answers change (the count placement);
+ * `queryRepeatPlacement.ts::effectiveQueryRepeatPlacement` says which.
  */
 export const queryBoundRepeatSchema = repeatBase.extend({
 	repeat_mode: z.literal("query_bound"),
@@ -105,6 +110,11 @@ export const queryBoundRepeatSchema = repeatBase.extend({
 		/** XPath returning a space-separated list of case ids to iterate. */
 		ids_query: formLogicSchema,
 	}),
+	/** Held once a publish first carries the repeat (`publish-placement`) or
+	 *  a migration records it. Absent: every export takes the effective
+	 *  placement (`effectiveQueryRepeatPlacement`). An identity no author
+	 *  chooses: no edit carries it (`HELD_FIELD_KEYS`). */
+	placement: queryRepeatPlacementSchema.optional(),
 });
 
 /**
@@ -137,6 +147,6 @@ export const repeatFieldMetadata: FieldKindMetadata<"repeat"> = {
 	isContainer: true,
 	carriesValidation: false,
 	saDocs:
-		'Repeats its child fields N times. Pick a `repeat_mode`: "user_controlled" for forms where the end user adds entries (e.g. household members). Set repeat_mode and nothing else; "count_bound" for a live count from an integer question or expression (set repeat_count); "query_bound" to iterate over case-database query results (set data_source.ids_query). Increasing a count_bound count adds rows; decreasing it keeps created rows and their answers and case operations in the submission. query_bound snapshots its query when the enclosing instance initializes; changing dependencies does not rebuild those rows. A new enclosing repeat instance initializes its own query snapshot.',
+		'Repeats its child fields N times. Pick a `repeat_mode`: "user_controlled" for forms where the end user adds entries (e.g. household members). Set repeat_mode and nothing else; "count_bound" for a live count from a whole-number question or expression (set repeat_count); "query_bound" to iterate over case-database query results (set data_source.ids_query). Increasing a count_bound count adds rows; decreasing it keeps created rows and their answers and case operations in the submission. query_bound rows are set when the form opens or follow the query as answers change; the fields guide says which.',
 	convertTargets: ["group"],
 };

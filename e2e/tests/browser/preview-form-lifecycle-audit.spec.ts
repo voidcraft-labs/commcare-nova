@@ -442,8 +442,12 @@ test("page entry initializes dependent repeat rows and Back preserves their answ
 		await page.getByRole("button", { name: "Back", exact: true }).click();
 		await area.fill("north");
 		await page.getByRole("button", { name: "Next", exact: true }).click();
-		await expect(notes).toHaveCount(1);
-		await expect(notes).toHaveValue("retained");
+		/* The nested query reads the area, so its rows follow it: the north
+		 * area's two assets have their rows, the first keeps its answer at its
+		 * place, and the new row starts from its own id. */
+		await expect(notes).toHaveCount(2);
+		await expect(notes.nth(0)).toHaveValue("retained");
+		await expect(notes.nth(1)).toHaveValue("tap");
 	} finally {
 		try {
 			if (!page.isClosed())

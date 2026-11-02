@@ -50,6 +50,27 @@ export interface FieldState {
 	 *  the new entry its cast turns away (`answerCast.ts`). Only set on
 	 *  `repeat` kinds, until an insert of the repeat succeeds. */
 	insertRefusal?: SetvalueRefusalDetails;
+	/** A query repeat's own condition evaluated at each of its rows, by row
+	 *  index. Only set on query repeats that have a condition; a row whose
+	 *  entry is `false` is not relevant, with everything inside it. */
+	rowConditions?: readonly boolean[];
+	/** How many records a count-placement query repeat's current result
+	 *  holds. A row at or past it is not relevant and keeps its answers.
+	 *  Only set on query repeats whose rows follow their query. */
+	queryResultCount?: number;
+}
+
+/** Whether one row of a repeat takes part in the form, as its container's
+ *  state says: its query repeat's condition holds there and it is within
+ *  the current result. */
+export function repeatRowRelevantInState(
+	state: Pick<FieldState, "rowConditions" | "queryResultCount">,
+	index: number,
+): boolean {
+	return (
+		state.rowConditions?.[index] !== false &&
+		(state.queryResultCount === undefined || index < state.queryResultCount)
+	);
 }
 
 /** Value-equality over the ordered choice list of two states. */

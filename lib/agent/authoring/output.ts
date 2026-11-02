@@ -508,6 +508,9 @@ export function projectAuthoringRead(args: {
 			delete result.repeat_mode;
 			delete result.repeat_count;
 			delete result.data_source;
+			// A held placement is an identity no author chooses: the read
+			// states it as `rows`, from `effectiveFieldBehavior`.
+			delete result.placement;
 		}
 		if (result.optionsSource !== undefined) {
 			const options = record.parse(result.optionsSource);

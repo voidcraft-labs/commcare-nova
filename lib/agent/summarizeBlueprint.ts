@@ -41,6 +41,7 @@ import {
 	userTypesOf,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
+import { queryRepeatRows } from "./authoring/fieldBehavior";
 import { unwrittenPropertiesReminder } from "./systemReminder";
 import {
 	ADVANCED_SLOT_NAMES,
@@ -75,6 +76,12 @@ function summarizeField(
 	}
 	const write = fieldCaseWrite(field);
 	if (write) pieces[0] += ` → ${write.caseType}.${write.property}`;
+	const rows = queryRepeatRows(doc, field);
+	if (rows !== undefined)
+		pieces[0] +=
+			rows === "set-when-opened"
+				? " [rows set when opened]"
+				: " [rows follow query]";
 	if (isContainer(field)) {
 		const children = orderedFieldUuids(doc, uuid);
 		const childLines = children

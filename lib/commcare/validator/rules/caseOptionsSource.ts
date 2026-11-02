@@ -107,7 +107,7 @@ export function validateCaseOptionsSources(
 								instanceScope: "xform",
 							},
 						},
-						formNodeProjection(doc, context.form),
+						formNodeProjection(doc, context.form, { surface: "wire" }),
 					);
 				} catch (error) {
 					finding(

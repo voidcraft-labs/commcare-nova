@@ -28,6 +28,7 @@ import {
 	caseListConfig,
 	type FieldSpec,
 } from "../../__tests__/docHelpers";
+import type { ValidationError } from "../validator/errors";
 import { runValidation } from "../validator/runner";
 import { parseFormExpression } from "../xpath/expressionAst";
 
@@ -1598,27 +1599,71 @@ describe("Connect participant admission", () => {
 });
 
 describe("count source admission", () => {
-	it.each(["int", "decimal", "text"] as const)(
-		"requires an integer direct source: %s",
-		(kind) => {
-			const fields: FieldSpec[] = [
-				{ id: "size", kind },
-				{
-					id: "rows",
-					kind: "repeat",
-					repeat_mode: "count_bound",
-					repeat_count: "#form/size",
-					children: [{ id: "note", kind: "text" }],
-				},
-			];
-			const errors = runValidation(survey(fields), LOOKUP_CONTEXT_UNAVAILABLE);
-			expect(errors.filter((e) => e.code === "REPEAT_COUNT_TYPE")).toHaveLength(
-				kind === "int" ? 0 : 1,
-			);
-			fields[1] = { ...fields[1], repeat_count: "int(number(#form/size))" };
-			expect(runValidation(survey(fields), LOOKUP_CONTEXT_UNAVAILABLE)).toEqual(
-				[],
-			);
+	const countFields = (kind: FieldSpec["kind"], count: string): FieldSpec[] => [
+		{ id: "size", kind },
+		{
+			id: "rows",
+			kind: "repeat",
+			repeat_mode: "count_bound",
+			repeat_count: count,
+			children: [{ id: "note", kind: "text" }],
+		},
+	];
+	const countFindings = (kind: FieldSpec["kind"], count: string) =>
+		runValidation(
+			survey(countFields(kind, count)),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		).filter((e) => e.code === "REPEAT_COUNT_TYPE");
+
+	it.each([
+		{ kind: "decimal", words: "a decimal number" },
+		{ kind: "text", words: "text" },
+	] as const)(
+		"refuses a $kind count, read directly or through number()",
+		({ kind, words }) => {
+			for (const [count, countWords] of [
+				["#form/size", words],
+				["../size", words],
+				// number() of any value is a decimal number to the checker.
+				["number(#form/size)", "a decimal number"],
+			]) {
+				const errors = countFindings(kind, count);
+				expect(errors).toHaveLength(1);
+				expect(errors[0]?.location).toMatchObject({
+					fieldId: "rows",
+					field: "repeat_count",
+				});
+				expect(userFacingError(errors[0] as ValidationError)).toBe(
+					`The count for "rows" can be ${countWords}, and a repeat needs a whole number of rows. CommCare stops the form at a count that isn't whole. You can wrap the count in int(...) to keep its whole part.`,
+				);
+			}
 		},
 	);
+
+	it.each(["decimal", "text"] as const)(
+		"admits a %s count wrapped in int()",
+		(kind) => {
+			expect(
+				runValidation(
+					survey(countFields(kind, "int(number(#form/size))")),
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				),
+			).toEqual([]);
+		},
+	);
+
+	it("admits an integer count read directly, relatively or through number()", () => {
+		for (const count of [
+			"#form/size",
+			"number(#form/size)",
+			"../size",
+			"#form/size + 1",
+		])
+			expect(
+				runValidation(
+					survey(countFields("int", count)),
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				),
+			).toEqual([]);
+	});
 });

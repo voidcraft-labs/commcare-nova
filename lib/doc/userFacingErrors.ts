@@ -61,6 +61,8 @@ import {
 } from "@/lib/domain/entryPoints";
 import {
 	dayOnlyRefusalCopy,
+	repeatCountTypeWords,
+	type ScalarType,
 	UNREADABLE_DATETIME_NEXT,
 } from "@/lib/domain/expression/typeChecker";
 import {
@@ -1371,8 +1373,20 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} has a calculated value, but only hidden fields can. On a visible field, whatever someone types gets ignored. Move it to a hidden field, or drop the calculation.`,
 	VALIDATION_ON_NON_INPUT_KIND: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} can't have a validation rule, only fields people answer can. Remove it, or change the field's type.`,
-	REPEAT_COUNT_TYPE: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} needs an integer question for its count. Choose an integer question, or use an explicit numeric expression such as int(number(...)).`,
+	REPEAT_COUNT_TYPE: (e) => {
+		/* The finding's sentences (`formLogicFindings.ts::repeatCountFinding`),
+		 * from the details it carries. */
+		const repeat = q(fieldName(e));
+		const select = q(det(e, "select", "a single-answer question"));
+		switch (e.details?.reason) {
+			case "count-choice-not-whole":
+				return `${repeat} counts its rows from ${select}, and the choice ${q(det(e, "value", ""))} isn't a whole number, so CommCare would stop the form when a worker picks it. You can give that choice a whole-number value, or wrap the count in int(...).`;
+			case "count-choices-unknown":
+				return `${repeat} counts its rows from ${select}, whose choices come from ${e.details?.source === "lookup" ? "a data table" : "the worker's cases"}, so Nova can't tell that each one is a whole number. You can wrap the count in int(...) to keep its whole part.`;
+			default:
+				return `The count for ${repeat} can be ${repeatCountTypeWords(e.details?.countType as ScalarType | undefined)}, and a repeat needs a whole number of rows. CommCare stops the form at a count that isn't whole. You can wrap the count in int(...) to keep its whole part.`;
+		}
+	},
 	EMPTY_REPEAT_COUNT: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} repeats a set number of times, but you haven't said how many. Set the count.`,
 	EMPTY_IDS_QUERY: (e) =>

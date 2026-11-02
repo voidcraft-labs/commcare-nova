@@ -55,6 +55,13 @@ A would be the current code's, so proof 1 compares nothing a migration
 moves), a retained A left behind its witness, a file kept beside the set that
 no reader reads, and a move scoped to a document that is no witness.
 
+The corpus holds each shape a reader or a check reads, so a fixture change
+cannot leave one with nothing of that shape to read: some document holds each
+query-repeat placement, model iteration and the count placement. The
+plausible failure: a document that held the only count-placement repeat
+rewritten to read no answer, so the native family and the editor saves never
+meet that placement again. The observation is the XForms the corpus sends HQ.
+
 The accepted case is a real corpus document copied as it was emitted; each
 refusal changes one thing in a copy of it.
 """
@@ -67,6 +74,7 @@ import shutil
 import zipfile
 
 import pytest
+from lxml import etree
 
 from proof.checks import cases, configurations, controls, corpus, registers
 from proof.hq.configuration import DEFAULT_COMMCARE_VERSION
@@ -643,3 +651,67 @@ def test_a_retained_a_with_a_stray_file_a_missing_content_or_no_directory_fails_
     other = _emitted_witness(tmp_path / "other", source="targeted:5, a migration")
     with pytest.raises(controls.ControlsError, match="is no migration witness of .*Retain a fixed entry's pre-fix"):
         controls.retain_migration_a(other, migrations)
+
+
+VELLUM = "http://commcarehq.org/xforms/vellum"
+# The count placement's wrapper holds its query's ids in a node of this name, then the repeat's id
+# (lib/commcare/xform/queryRepeatNames.ts::queryRepeatBaseNames).
+COUNT_PLACEMENT_IDS = "nova_query_ids_"
+
+
+def _sent_forms(document):
+    """Each XForm the content of the document's first publish carries (``_attachments``), parsed."""
+    from proof.hq.operations import upload_field
+
+    export = next(iter(document.exports.values()), None)
+    if export is None or export.content is None:
+        return
+    app = json.loads(upload_field(export.content.upload(), "app_file"))
+    for name, source in sorted((app.get("_attachments") or {}).items()):
+        if isinstance(source, dict):  # a Couch attachment stub carries its data inline
+            source = source.get("data")
+        if name.endswith(".xml") and isinstance(source, str) and source:
+            yield etree.fromstring(source.encode("utf-8"), etree.XMLParser(resolve_entities=False, no_network=True))
+
+
+def _query_repeat_placements(form):
+    """The query-repeat placements a form's data holds: model iteration where a node is HQ's form builder's Repeat
+    with its ``ids`` (``vellum:role="Repeat"``), the count placement where a wrapper holds its ids node."""
+    data = next(iter(form.iterfind("{*}head/{*}model/{*}instance/*")), None)
+    found = set()
+    for node in () if data is None else data.iter():
+        if not isinstance(node.tag, str):
+            continue
+        if node.get(f"{{{VELLUM}}}role") == "Repeat" and node.get("ids") is not None:
+            found.add("query repeat in model iteration")
+        if etree.QName(node).localname.startswith(COUNT_PLACEMENT_IDS):
+            found.add("query repeat in the count placement")
+    return found
+
+
+# Each shape some emitted document must hold, and what reads it of a document's sent XForms. Each later shape a
+# step adds a reader for joins this table.
+CORPUS_SHAPES = {
+    "query repeat in model iteration": _query_repeat_placements,
+    "query repeat in the count placement": _query_repeat_placements,
+}
+
+
+def test_the_corpus_holds_each_search_workflow_and_each_placement():
+    """Contract: some emitted document holds each shape of ``CORPUS_SHAPES``, so no reader or check is left with
+    nothing of a shape to read. Catches a fixture change that takes the last document of a shape out of the corpus,
+    which every check would then pass by reading nothing."""
+    wanted = set(CORPUS_SHAPES)
+    found = set()
+    readers = set(CORPUS_SHAPES.values())
+    for document in cases.load_corpus().emitted:
+        for form in _sent_forms(document):
+            for read in readers:
+                found |= read(form) & wanted
+        if found == wanted:
+            break
+    missing = sorted(wanted - found)
+    assert not missing, (
+        f"No document the corpus emitted holds {', '.join(missing)}, so nothing in the lane reads that shape. Give"
+        " a targeted document the shape (proof/targeted/), or keep it in the document that last held it."
+    )

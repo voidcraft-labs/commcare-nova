@@ -6,8 +6,31 @@ import {
 } from "@/lib/domain/expression/formNodes";
 import type { FormStructure } from "@/lib/domain/expression/formStructure";
 import type { FormNodeRef } from "@/lib/domain/expression/types";
+import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
+import type { Uuid } from "@/lib/domain/uuid";
 import { FormPath } from "../xform/formPath";
+import {
+	planQueryRepeatNames,
+	type QueryRepeatNames,
+} from "../xform/queryRepeatNames";
 import { planRepeatCountNames } from "../xform/repeatCountNames";
+
+/**
+ * Which names a projection gives a query repeat's generated nodes.
+ *
+ * - `authoring` spells both placements alike, model iteration's names
+ *   (`@ids`, `@count`, `@current_index`, `item/@id`, `item/@index`), so
+ *   parsing, printing and Preview never depend on a placement.
+ * - `wire` names the nodes the export writes: model iteration's attributes,
+ *   or, for a repeat in the count placement, the elements Nova generates
+ *   (`nova_query_ids_<id>` and its siblings in the wrapper,
+ *   `nova_query_id_<id>` and `nova_query_index_<id>` in the row).
+ */
+export type FormNodeSurface = "authoring" | "wire";
+
+export interface FormNodeProjectionOptions {
+	readonly surface: FormNodeSurface;
+}
 
 export interface FormNodeProjection {
 	readonly graph: FormNodeGraph;
@@ -15,15 +38,32 @@ export interface FormNodeProjection {
 	path(node: FormNodeRef): FormPath | undefined;
 }
 
-/** The only projection of the finite form graph to physical XForm names.
- * The migration may supply an old physical projection to parsing, but ordinary
- * editing and emission always use this canonical one. */
+/** The only projection of the finite form graph to physical XForm names, on
+ * the surface the caller names. The migration may supply an old physical
+ * projection to parsing, but ordinary editing and emission always use this
+ * canonical one. The graph's coordinates are the same on both surfaces; only
+ * the names of a count-placement query repeat's generated nodes differ. */
 export function formNodeProjection(
 	_doc: BlueprintDoc,
 	form: FormStructure,
+	{ surface }: FormNodeProjectionOptions,
 ): FormNodeProjection {
 	const graph = formNodeGraph(form);
 	let countNames: ReturnType<typeof planRepeatCountNames> | undefined;
+	/** The count placement's names for this repeat on the wire surface, or
+	 * undefined where model iteration's names stand. The authoring surface
+	 * asks neither the placement nor the reservation. */
+	const countPlacementNames = (repeat: Uuid): QueryRepeatNames | undefined => {
+		if (surface === "authoring") return undefined;
+		if (effectiveQueryRepeatPlacement(form, repeat) !== "count")
+			return undefined;
+		const names = planQueryRepeatNames(form).get(repeat);
+		if (names === undefined)
+			throw new Error(
+				`Nova reserved no generated names for the query repeat ${repeat}, which the form's structure holds. The reservation walks every query repeat of the form.`,
+			);
+		return names;
+	};
 	const blockStep = (
 		block: { readonly id: string } | undefined,
 	): FormNodeStep | undefined =>
@@ -45,14 +85,28 @@ export function formNodeProjection(
 							: field.id,
 				};
 			}
-			case "repeat-row":
+			case "repeat-row": {
+				const names = countPlacementNames(node.repeat);
+				if (names !== undefined)
+					return { name: node.attribute === "id" ? names.id : names.index };
 				return { name: node.attribute, attribute: true };
-			case "repeat":
+			}
+			case "repeat": {
 				if (node.role === "count-result") {
 					countNames ??= planRepeatCountNames(form);
 					const name = countNames.get(node.repeat);
 					return name === undefined ? undefined : { name };
 				}
+				const names = countPlacementNames(node.repeat);
+				if (names !== undefined)
+					return {
+						name:
+							node.role === "query-ids"
+								? names.ids
+								: node.role === "query-count"
+									? names.count
+									: names.position,
+					};
 				return {
 					name:
 						node.role === "query-ids"
@@ -62,6 +116,7 @@ export function formNodeProjection(
 								: "current_index",
 					attribute: true,
 				};
+			}
 			case "connect-learn":
 				return node.role === "block"
 					? blockStep(form.connect.learn_module)

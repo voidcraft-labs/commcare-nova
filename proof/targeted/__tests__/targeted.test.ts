@@ -34,12 +34,24 @@
  * once it captures. The observations are the witnesses' sources and Nova's
  * publish verdict of each, held to the configurations of its retained A, or,
  * before its A is retained, to the configurations the corpus derives for it.
+ *
+ * A query repeat's held placement is written in a document as a migration
+ * writes it for a published app, which no editor's mutation does: the
+ * document is made without it and the hold laid on what the gate committed,
+ * which the gate admits whole. The plausible failures: a hold the corpus
+ * drops (the witness would republish a placement its A never had), an edit
+ * that changes a hold (no editor's edit can), and a witness whose repeats
+ * take another placement than the one it witnesses. The observations are the
+ * documents made, a refused edit, and each repeat's effective placement in
+ * the two placement witnesses.
  */
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { proseText } from "@/lib/domain";
+import { proseText, type Uuid } from "@/lib/domain";
+import { formStructure } from "@/lib/domain/expression/formStructure";
+import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import {
 	type CorpusConfiguration,
 	documentConfigurations,
@@ -339,5 +351,121 @@ describe("a targeted document", () => {
 		expect(() => targetedDocument({ ...spec, edit: undefined })).toThrow(
 			/edit commands without the document/,
 		);
+	});
+});
+
+/** Each query repeat of `document`'s one form by id: the placement it holds and
+ * the one it takes. */
+function placementsOf(document: CorpusDocument) {
+	const doc = hydratePersistedBlueprint(document.doc);
+	const [formUuid] = Object.keys(doc.forms) as Uuid[];
+	const form =
+		formUuid === undefined ? undefined : formStructure(doc, formUuid);
+	if (form === undefined) throw new Error(`${document.id} holds no form.`);
+	const placements: Record<string, { held?: string; taken: string }> = {};
+	for (const field of Object.values(doc.fields)) {
+		if (field.kind !== "repeat" || field.repeat_mode !== "query_bound")
+			continue;
+		placements[field.id] = {
+			...(field.placement !== undefined && { held: field.placement }),
+			taken: effectiveQueryRepeatPlacement(form, field.uuid),
+		};
+	}
+	return placements;
+}
+
+describe("a query repeat's held placement", () => {
+	const byId = (id: string) => {
+		const found = targetedDocuments().find((document) => document.id === id);
+		if (found === undefined) throw new Error(`No targeted document ${id}.`);
+		return found;
+	};
+
+	it("is kept in the migration witness as the cutover writes it, beside repeats that hold none", () => {
+		expect(placementsOf(byId("targeted-migration-query-repeats"))).toEqual({
+			visits: { held: "model-iteration", taken: "model-iteration" },
+			members: { taken: "count" },
+			later: { taken: "count" },
+		});
+	});
+
+	it("leaves every repeat of the placements witness to its shape: model iteration at the root over no answer, the count placement otherwise", () => {
+		expect(placementsOf(byId("targeted-query-repeat-placements"))).toEqual({
+			visits: { taken: "model-iteration" },
+			stock: { taken: "count" },
+			readings: { taken: "count" },
+			children: { taken: "count" },
+		});
+	});
+
+	const id = "targeted-held";
+	const uuid = (name: string) => targetedUuid(id, name);
+	const held = (placement?: "model-iteration" | "count") =>
+		buildDoc({
+			appId: id,
+			appName: "Held",
+			modules: [
+				{
+					uuid: uuid("module"),
+					name: "Survey",
+					forms: [
+						{
+							uuid: uuid("form"),
+							name: "Survey",
+							type: "survey",
+							fields: [
+								f({
+									kind: "repeat",
+									uuid: uuid("rows"),
+									id: "rows",
+									label: proseText("Rows"),
+									repeat_mode: "query_bound",
+									data_source: { ids_query: "'a b'" },
+									...(placement !== undefined && { placement }),
+									children: [
+										f({
+											kind: "text",
+											uuid: uuid("note"),
+											id: "note",
+											label: proseText("Note"),
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+
+	it("is carried into the document made, and an edit that changes it is refused", () => {
+		const doc = held("model-iteration");
+		const made = targetedDocument({
+			id,
+			rows: [],
+			doc,
+			expected: { intent: [] },
+		});
+		expect(made.doc.fields[uuid("rows")]).toMatchObject({
+			placement: "model-iteration",
+		});
+		// An edit that keeps the hold and renames the app is an editor's edit.
+		const renamed = { ...doc, appName: "Held again" };
+		expect(
+			targetedDocument({
+				id,
+				rows: [],
+				doc,
+				expected: { intent: [] },
+				edit: renamed,
+			}).edit?.nextDoc.fields[uuid("rows")],
+		).toMatchObject({ placement: "model-iteration" });
+		for (const edit of [held("count"), held()]) {
+			expect(() =>
+				targetedDocument({ id, rows: [], doc, expected: { intent: [] }, edit }),
+			).toThrow(
+				`The edit of the targeted document ${id} changes a query repeat's held placement, which no editor's edit writes; hold the same placements in both documents.`,
+			);
+		}
 	});
 });

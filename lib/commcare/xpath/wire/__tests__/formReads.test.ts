@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, parseFixtureExpression } from "@/lib/__tests__/docHelpers";
 import { slotContext } from "@/lib/domain/expression/context";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import type {
@@ -8,6 +8,10 @@ import type {
 	FieldExpressionSlotRef,
 	SlotContextRef,
 } from "@/lib/domain/expression/types";
+import {
+	effectiveQueryRepeatPlacement,
+	queryRepeatPlacementNeeds,
+} from "@/lib/domain/queryRepeatPlacement";
 import { formNodeProjection } from "../../formNodeProjection";
 import { w } from "../builders";
 import { formReads } from "../formReads";
@@ -88,7 +92,7 @@ function fixture() {
 	});
 	const form = formStructure(doc, FORM);
 	if (form === undefined) throw new Error("The form fixture is incomplete.");
-	const projection = formNodeProjection(doc, form);
+	const projection = formNodeProjection(doc, form, { surface: "wire" });
 	return {
 		doc,
 		projection,
@@ -153,6 +157,7 @@ describe("form reads use native identity coordinates", () => {
 
 	it("distinguishes the query wrapper from its item rows", () => {
 		const { lower } = fixture();
+		// A query repeat's condition evaluates at its row.
 		const slot = { entity: "field", uuid: OUTER, slot: "relevant" } as const;
 		expect(
 			lower(
@@ -167,7 +172,7 @@ describe("form reads use native identity coordinates", () => {
 				},
 				slot,
 			),
-		).toEqual(w.context([w.self()]));
+		).toEqual(w.context([w.parent()]));
 		expect(
 			lower(
 				{
@@ -176,7 +181,7 @@ describe("form reads use native identity coordinates", () => {
 				},
 				slot,
 			),
-		).toEqual(w.context([w.step("item")]));
+		).toEqual(w.context([w.self()]));
 	});
 
 	it("re-enters every filtered ancestor instead of skipping a shared prefix", () => {
@@ -460,7 +465,7 @@ describe("a form read inside a secondary instance's row predicate", () => {
 		});
 		const form = formStructure(doc, ROW_FORM);
 		if (form === undefined) throw new Error("The form fixture is incomplete.");
-		const projection = formNodeProjection(doc, form);
+		const projection = formNodeProjection(doc, form, { surface: "wire" });
 		const lower = (
 			expression: Expression,
 			slot: SlotContextRef = {
@@ -594,4 +599,242 @@ describe("a form read inside a secondary instance's row predicate", () => {
 			"count(instance('casedb')/casedb/case[@case_type = 'visit'][dose = current()/../../limit])",
 		);
 	});
+});
+
+/**
+ * A query repeat's generated identities on the two surfaces. Authoring text
+ * spells both placements as model iteration does, so an author's
+ * `current()/../@id` never changes with a placement; the wire names the
+ * nodes the export writes, which in the count placement are elements Nova
+ * generates. Plausible failures: a parse that binds differently in the count
+ * placement, a wire print that keeps an attribute the count placement does
+ * not write, or an authoring print that follows the wire.
+ */
+describe("a query repeat's identities on each surface", () => {
+	const PLACED_FORM = testUuid("placement-form");
+	const VISITS = testUuid("placement-visits");
+	const VISIT_NOTE = testUuid("placement-visit-note");
+	const ROUNDS = testUuid("placement-rounds");
+	const TASKS = testUuid("placement-tasks");
+	const TASK_NOTE = testUuid("placement-task-note");
+	const HELD = testUuid("placement-held");
+	const HELD_NOTE = testUuid("placement-held-note");
+	const literalQuery = {
+		ids_query: {
+			kind: "term",
+			term: { kind: "literal", value: "a b" },
+		} as Expression,
+	};
+
+	/** A model-iteration repeat at the root (`visits`), a count-placement one
+	 * nested in a repeat (`tasks`, whose row holds an authored question named
+	 * like its generated id node), and a root repeat that holds the count
+	 * placement though the rule would give it model iteration (`held`). */
+	function placementFixture() {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							uuid: PLACED_FORM,
+							name: "Rounds",
+							type: "survey",
+							fields: [
+								{
+									kind: "repeat",
+									id: "visits",
+									uuid: VISITS,
+									repeat_mode: "query_bound",
+									data_source: literalQuery,
+									children: [
+										{
+											kind: "hidden",
+											id: "visit_note",
+											uuid: VISIT_NOTE,
+											calculate: number(0),
+										},
+									],
+								},
+								{
+									kind: "repeat",
+									id: "rounds",
+									uuid: ROUNDS,
+									children: [
+										{
+											kind: "repeat",
+											id: "tasks",
+											uuid: TASKS,
+											repeat_mode: "query_bound",
+											data_source: literalQuery,
+											children: [
+												{ kind: "text", id: "nova_query_id_tasks" },
+												{
+													kind: "hidden",
+													id: "task_note",
+													uuid: TASK_NOTE,
+													calculate: number(0),
+												},
+											],
+										},
+									],
+								},
+								{
+									kind: "repeat",
+									id: "held",
+									uuid: HELD,
+									repeat_mode: "query_bound",
+									data_source: literalQuery,
+									children: [
+										{
+											kind: "hidden",
+											id: "held_note",
+											uuid: HELD_NOTE,
+											calculate: number(0),
+										},
+									],
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+		// A held placement is set directly, as a document that a publish has
+		// carried holds it; no edit writes it.
+		doc.fields[HELD] = { ...doc.fields[HELD], placement: "count" } as never;
+		const form = formStructure(doc, PLACED_FORM);
+		if (form === undefined) throw new Error("The form fixture is incomplete.");
+		return { doc, form };
+	}
+
+	const identities = (repeat: string) =>
+		({
+			ids: { kind: "repeat", repeat, role: "query-ids" },
+			count: { kind: "repeat", repeat, role: "query-count" },
+			position: { kind: "repeat", repeat, role: "query-position" },
+			id: { kind: "repeat-row", repeat, attribute: "id" },
+			index: { kind: "repeat-row", repeat, attribute: "index" },
+		}) as const;
+	const paths = (
+		projection: ReturnType<typeof formNodeProjection>,
+		repeat: string,
+	) =>
+		Object.fromEntries(
+			Object.entries(identities(repeat)).map(([name, node]) => [
+				name,
+				projection.path(node as never)?.toXPath(),
+			]),
+		);
+	const modelIterationNames = (wrapper: string) => ({
+		ids: `${wrapper}/@ids`,
+		count: `${wrapper}/@count`,
+		position: `${wrapper}/@current_index`,
+		id: `${wrapper}/item/@id`,
+		index: `${wrapper}/item/@index`,
+	});
+
+	it("reads each repeat's placement from the rule or its hold", () => {
+		const { form } = placementFixture();
+		expect(effectiveQueryRepeatPlacement(form, VISITS)).toBe("model-iteration");
+		expect(effectiveQueryRepeatPlacement(form, TASKS)).toBe("count");
+		expect(queryRepeatPlacementNeeds(form, HELD)).toEqual([]);
+		expect(effectiveQueryRepeatPlacement(form, HELD)).toBe("count");
+	});
+
+	it("spells every identity as model iteration does on the authoring surface, in both placements", () => {
+		const { doc, form } = placementFixture();
+		const authoring = formNodeProjection(doc, form, { surface: "authoring" });
+		expect(paths(authoring, VISITS)).toEqual(
+			modelIterationNames("/data/visits"),
+		);
+		expect(paths(authoring, TASKS)).toEqual(
+			modelIterationNames("/data/rounds/tasks"),
+		);
+		expect(paths(authoring, HELD)).toEqual(modelIterationNames("/data/held"));
+	});
+
+	it("names model iteration's attributes and the count placement's generated elements on the wire", () => {
+		const { doc, form } = placementFixture();
+		const wire = formNodeProjection(doc, form, { surface: "wire" });
+		expect(paths(wire, VISITS)).toEqual(modelIterationNames("/data/visits"));
+		// The authored `nova_query_id_tasks` in the row moves the generated id
+		// node to its first suffix; the wrapper's names take none.
+		expect(paths(wire, TASKS)).toEqual({
+			ids: "/data/rounds/tasks/nova_query_ids_tasks",
+			count: "/data/rounds/tasks/nova_query_count_tasks",
+			position: "/data/rounds/tasks/nova_query_position_tasks",
+			id: "/data/rounds/tasks/item/nova_query_id_tasks_1",
+			index: "/data/rounds/tasks/item/nova_query_index_tasks",
+		});
+		expect(paths(wire, HELD)).toEqual({
+			ids: "/data/held/nova_query_ids_held",
+			count: "/data/held/nova_query_count_held",
+			position: "/data/held/nova_query_position_held",
+			id: "/data/held/item/nova_query_id_held",
+			index: "/data/held/item/nova_query_index_held",
+		});
+	});
+
+	it("keeps the wrapper and row paths on both surfaces", () => {
+		const { doc, form } = placementFixture();
+		for (const surface of ["authoring", "wire"] as const) {
+			const projection = formNodeProjection(doc, form, { surface });
+			expect(
+				projection
+					.path({ kind: "field", uuid: TASKS, role: "query-wrapper" })
+					?.toXPath(),
+			).toBe("/data/rounds/tasks");
+			expect(projection.path({ kind: "field", uuid: TASKS })?.toXPath()).toBe(
+				"/data/rounds/tasks/item",
+			);
+		}
+	});
+
+	it.each([
+		["model iteration", VISITS, VISIT_NOTE, "current()/../@id"],
+		[
+			"the count placement",
+			TASKS,
+			TASK_NOTE,
+			"current()/../nova_query_id_tasks_1",
+		],
+		[
+			"a held count placement",
+			HELD,
+			HELD_NOTE,
+			"current()/../nova_query_id_held",
+		],
+	])(
+		"binds current()/../@id to the row's id in %s, and prints the node the wire writes",
+		(_, repeat, note, printed) => {
+			const { doc, form } = placementFixture();
+			const slot = {
+				entity: "field",
+				uuid: note,
+				slot: "calculate",
+			} as const;
+			const parsed = parseFixtureExpression(doc, slot, "current()/../@id");
+			expect(parsed).toEqual({
+				kind: "term",
+				term: {
+					kind: "repeat-row",
+					repeat,
+					attribute: "id",
+					spelling: "current",
+				},
+			});
+			const types = slotContext(doc, slot, new Map());
+			if (types === undefined)
+				throw new Error("The form fixture slot is missing.");
+			const wire = toWire(parsed, {
+				target: "xform",
+				types,
+				form: formNodeProjection(doc, form, { surface: "wire" }),
+			});
+			expect(
+				serializeWire(wire, { target: "xform", constraint: false }).text,
+			).toBe(printed);
+		},
+	);
 });

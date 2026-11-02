@@ -669,6 +669,22 @@ function partialOf<
 }
 
 /**
+ * Stored field keys that hold an identity no author chooses: a query
+ * repeat's `placement`. No edit carries one: `fieldPatchSchemaByKind`
+ * omits them from `updateField`'s patch, and `addField`'s payload refuses a
+ * field holding one. An `updateField` that leaves them out keeps a held
+ * value, and a mode change away from `query_bound` drops it with its variant
+ * (`pickFieldKeysForKind`).
+ */
+export const HELD_FIELD_KEYS = ["placement"] as const;
+export type HeldFieldKey = (typeof HELD_FIELD_KEYS)[number];
+
+/** Whether a field-shaped value holds a key in {@link HELD_FIELD_KEYS}. */
+export function fieldHoldsHeldKey(field: object): boolean {
+	return HELD_FIELD_KEYS.some((key) => Object.hasOwn(field, key));
+}
+
+/**
  * Per-kind partial-patch schemas, keyed by `FieldKind`.
  *
  * Each entry validates the `patch` slot of a kind-discriminated
@@ -685,6 +701,7 @@ function partialOf<
  * `repeat_mode`; we union the three variants' partial shapes so a
  * patch can carry any mode-specific key (`repeat_count`,
  * `data_source`) alongside the optional `repeat_mode` discriminator.
+ * The query-bound partial omits `HELD_FIELD_KEYS`.
  * The reducer merges the patch onto the existing repeat field and
  * lets the full `fieldSchema.safeParse` enforce mode-vs-keys
  * coherence (a patch that switches mode without supplying the new
@@ -715,7 +732,7 @@ export const fieldPatchSchemaByKind = {
 	repeat: z.union([
 		partialOf(userControlledRepeatSchema),
 		partialOf(countBoundRepeatSchema),
-		partialOf(queryBoundRepeatSchema),
+		partialOf(queryBoundRepeatSchema.omit({ placement: true })),
 	]),
 } as const satisfies { [K in FieldKind]: z.ZodType };
 
@@ -736,13 +753,14 @@ export const fieldPatchSchemaByKind = {
  * a generic field whose kind is narrowed downstream.
  */
 export type FieldPatchFor<K extends FieldKind> = {
-	[P in keyof Omit<
-		Extract<Field, { kind: K }>,
-		"uuid" | "kind"
-	>]?: undefined extends Omit<Extract<Field, { kind: K }>, "uuid" | "kind">[P]
-		? Omit<Extract<Field, { kind: K }>, "uuid" | "kind">[P] | null
-		: Omit<Extract<Field, { kind: K }>, "uuid" | "kind">[P];
+	[P in keyof PatchableField<K>]?: undefined extends PatchableField<K>[P]
+		? PatchableField<K>[P] | null
+		: PatchableField<K>[P];
 };
+type PatchableField<K extends FieldKind> = Omit<
+	Extract<Field, { kind: K }>,
+	"uuid" | "kind" | HeldFieldKey
+>;
 
 export type { SelectOption } from "./base";
 // Re-export the shared option shape (used by single_select + multi_select,

@@ -958,14 +958,64 @@ describe("live repeat cardinality feedback", () => {
 				},
 			],
 		});
+		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
+			errors.some(
 				(error) =>
 					error.code === "CYCLE" &&
 					error.message.includes("depends on rows it creates"),
 			),
 		).toBe(true);
+		// The count is whole: number() of a calculated count is an integer.
+		expect(errors.map((error) => error.code)).not.toContain(
+			"REPEAT_COUNT_TYPE",
+		);
 	});
+
+	/** A survey whose count repeat counts by `count` over a text answer. */
+	const countOverText = (count: string) =>
+		buildDoc({
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({ id: "target", kind: "text" }),
+								f({
+									id: "rows",
+									kind: "repeat",
+									repeat_mode: "count_bound",
+									repeat_count: count,
+									children: [f({ id: "answer", kind: "text" })],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+	it.each(["number(../target)", "number(#form/target)"])(
+		"refuses %s over a text answer as a count that isn't whole",
+		(count) => {
+			const errors = runValidation(
+				countOverText(count),
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(errors.map((error) => error.code)).toEqual(["REPEAT_COUNT_TYPE"]);
+			expect(errors[0]?.details).toMatchObject({
+				reason: "whole-number-count",
+				countType: "decimal",
+			});
+			expect(errors[0]?.location).toMatchObject({
+				fieldId: "rows",
+				field: "repeat_count",
+			});
+			assertAdmitted(countOverText(`int(${count})`));
+		},
+	);
 
 	it("admits a count initialized once from the still-empty repeat", () => {
 		const doc = buildDoc({
@@ -1081,5 +1131,9 @@ describe("live repeat cardinality feedback", () => {
 					error.message.includes("depends on rows it creates"),
 			),
 		).toBe(true);
+		// Every count here is whole; the loop is the only refusal.
+		expect(errors.map((error) => error.code)).not.toContain(
+			"REPEAT_COUNT_TYPE",
+		);
 	});
 });

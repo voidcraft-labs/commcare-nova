@@ -10,6 +10,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import {
+	expressionFacts,
 	referencedCountResults,
 	slotContext,
 } from "@/lib/domain/expression/context";
@@ -20,6 +21,7 @@ import type {
 	FormNodeRef,
 } from "@/lib/domain/expression/types";
 import { expressionAt } from "@/lib/domain/expressionSource";
+import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
 import { planRepeatCountCarriers } from "@/lib/domain/repeatCount";
 import type { FieldTreeNode } from "./fieldTree";
@@ -635,10 +637,11 @@ export class TriggerDag {
 	): void {
 		const form = formStructure(doc, formUuid);
 		if (form === undefined) return;
-		const projection = formNodeProjection(doc, form);
+		const projection = formNodeProjection(doc, form, { surface: "wire" });
 		const counts = planRepeatCountCarriers(
 			form,
 			referencedCountResults(doc, formUuid),
+			expressionFacts(doc),
 		);
 		// Candidate documents can still contain invalid field names. Cycle
 		// diagnostics need labels for their identities, not executable FormPaths;
@@ -711,6 +714,52 @@ export class TriggerDag {
 				if (position !== undefined) {
 					ensure(position);
 					this.addEdge(rowPath, position);
+				}
+				// The count placement computes its result with calculates: the
+				// ids from the query, the count from the ids, each row's id from
+				// both, and each row's relevance guard from the count. A query
+				// that reads answers inside its own rows therefore closes a
+				// loop through the guard's cascade. Model iteration sets its
+				// result once, at `xforms-ready`, and has none of these edges.
+				if (effectiveQueryRepeatPlacement(form, uuid) === "count") {
+					const query = form.expressionAt({
+						entity: "field",
+						uuid,
+						slot: "ids_query",
+					});
+					const rowId = pathOf({
+						kind: "repeat-row",
+						repeat: uuid,
+						attribute: "id",
+					});
+					if (ids !== undefined) {
+						ensure(ids);
+						if (query !== undefined)
+							for (const dependency of formReadPaths(query, projection, pathOf))
+								this.addEdge(dependency, ids);
+						if (rowId !== undefined) this.addEdge(ids, rowId);
+					}
+					if (rowId !== undefined) ensure(rowId);
+					if (count !== undefined) {
+						ensure(rowPath);
+						this.addEdge(count, rowPath);
+						if (rowId !== undefined) this.addEdge(count, rowId);
+						const descend = (node: FormNodeRef): void => {
+							for (const child of projection.graph.children(node)) {
+								const descendant = pathOf(child);
+								if (descendant !== undefined) {
+									this.addEdge(rowPath, descendant);
+									cascadeEdges.set(`${rowPath}\u0000${descendant}`, {
+										container: rowPath,
+										containerKind: "repeat",
+										descendant,
+									});
+								}
+								descend(child);
+							}
+						};
+						descend(row);
+					}
 				}
 			}
 			if (

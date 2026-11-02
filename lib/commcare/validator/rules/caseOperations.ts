@@ -867,7 +867,11 @@ function validateOnDeviceExpression(
 			types: typeContext,
 			...(typeContext.form === undefined
 				? {}
-				: { form: formNodeProjection(ctx.doc, typeContext.form) }),
+				: {
+						form: formNodeProjection(ctx.doc, typeContext.form, {
+							surface: "wire",
+						}),
+					}),
 			bindings: {
 				formFields: identityBindings(typeContext.form?.fields.keys() ?? []),
 				operationIds: identityBindings(typeContext.profile.operationIds),

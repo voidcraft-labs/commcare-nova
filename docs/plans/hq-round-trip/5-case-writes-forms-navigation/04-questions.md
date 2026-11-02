@@ -1630,6 +1630,13 @@ Each departs from the research, the outline or a brief, with its reason.
 - **The outline's "integer type added to Nova's expression types"** exists since step 3; step 5 adds
   the expectation (§2.1).
 - **An integer select read is admitted in any spelling** (§2.3).
+- **A literal `2.0` is admitted, not refused** (§2.7, §9): the form parser stores a number literal
+  as its value (`lib/commcare/xpath/formSyntax.ts`, `Number(text)`), so `2.0` is the stored number
+  `2`, typed `int` (`ruleSets.ts::literalType`) and printed `2`, which `Integer.parseInt` reads.
+  `repeatCountExpectation.test.ts` holds it admitted.
+- **The checker's finding carries its details on `CheckError.repeatCount`** (`type`, `select` uuid,
+  `selectId`, `value`, `source`), and `typeChecker.ts::repeatCountTypeWords` holds §2.5's words, so
+  the validator's message reads them rather than a second table.
 - **A new group takes `fieldList` when its label has text and it holds no user repeat:** the
   questions brief's unlabelled arm and the authoring brief's missing user-repeat arm are both
   dropped (§3.6).
@@ -1637,6 +1644,92 @@ Each departs from the research, the outline or a brief, with its reason.
 - **`plain-text` is a feature, not ambient** (§4.6), and **Preview renders no author HTML**, with no
   `dompurify` dependency (§4.7).
 - **A row keeps its position, not its record,** when the result reorders (§1.5; finding 8).
+- **`addField`'s payload refusal lives in `lib/doc/types.ts`** (pull request 3), which part 10 §2
+  does not list: `addField`'s `field` is `addFieldFieldSchema`, `fieldSchema` refined to refuse an
+  own key of `HELD_FIELD_KEYS` (`lib/domain/fields/index.ts::fieldHoldsHeldKey`). A refinement, not
+  an omitted variant, keeps the `Mutation` type's `field: Field`, so every planner that re-adds a
+  stored field (`diffDocsToMutations`, the scaffolds) still type-checks, and the refusal is the
+  envelope's at runtime. `addField` is the one mutation arm that embeds a field. The type-level
+  `FieldPatchFor` omits `HELD_FIELD_KEYS` beside the runtime patch schema.
+- **`placement` is classified `config` in `lib/domain/referenceSlots.ts::NON_REFERENCE_FIELD_PATHS`**
+  (pull request 3), which part 10 §2 does not list: the schema-key audit
+  (`lib/domain/__tests__/referenceSlots.test.ts`) refuses an unclassified stored key.
+- **The needs are ordered nearest first with the query's own need first** (§1.3): the query is the
+  repeat's own slot, then the nearest repeat and the nearest changing group around it in the order
+  they enclose it. So the rule's first need, which pull request 5's finding reports, is the query's
+  where its query reads an answer.
+- **A model-iteration repeat writes no `vellum:jr__count`** (pull request 3), where §1.4's body
+  row and §8.1's "Vellum dual-attribute pattern" sentence write `vellum:jr__count="#form/r/@count"`.
+  The form builder's own fixture writes `jr:count="/data/group/@count"` and no shadow
+  (`Vellum/tests/static/modeliteration/case-list-iteration-with-questions.xml`): `util.writeHashtags`
+  writes a `vellum:` attribute only where `toHashtag` differs from the XPath, and `toHashtag`
+  (`src/xpath.js`) reads `invertedHashtagMap`, which holds mug paths alone (`form.js::_fixMugState`),
+  so `/data/r/@count` has none. The serializer already withholds a shadow for a hashtag path with an
+  attribute step (`xpath/wire/serialize.ts::shadowEligibility`). `lib/commcare/CLAUDE.md` says so
+  in the sentence §8.1 gives it. The same fixture writes `vellum:calculate="count(#form/group/item)"`
+  on the `@current_index` bind, which §1.4's row and Nova's rule that generated calculations request
+  no shadow leave out; G1 decides that piece (its outcome B).
+- **Preview's row relevance lives on the repeat's own state** (pull request 3), in
+  `lib/preview/engine/types.ts` and `lib/preview/engine/formPresentation.ts`, which part 10 §2 does
+  not list. The engine's store holds one state per container and none per row, so §1.8's per-row
+  condition and the count placement's result are `FieldState.rowConditions` and
+  `FieldState.queryResultCount` on the query repeat, read by `effectivelyVisiblePaths`,
+  `computeOperationAnswers`, the attachment and invalid-answer walks, and
+  `formPresentation.ts::visibleRepeatInstances` through `repeatRowRelevantInState`, so the running
+  form hides a row past the end as the engine does. Without the presentation filter the builder
+  would draw a row the submission leaves out.
+- **`lib/preview/app-tests/CLAUDE.md` moves in pull request 3** (its version 18 sentence), which
+  part 10 §2's pull request 3 list leaves out and §7.9 marks 3: the sentence is true when
+  `RUNTIME_VERSION` becomes 18.
+- **Two Preview tests change their expectation, not only their fixture** (pull request 3):
+  `formEngine.test.ts`'s "captures query membership at its action" and "captures nested membership
+  on page entry" read answers (or sit in a repeat), so their repeats now take the count placement
+  and follow the query; they are renamed and assert the rows the query gives, with the answered row
+  kept. Four more tests outside part 10 §2's list pinned the snapshot for a query that reads an
+  answer and now assert that the rows follow it, a row past the end leaving the form with its
+  answer kept: `lib/agent/authoring/__tests__/repeatContext.test.ts` (renamed, and it now turns
+  the zone back to show the row's answer return), `lib/preview/engine/__tests__/evaluateForm.test.ts`'s
+  continued entry (renamed), `lib/preview/app-tests/__tests__/journey.postgres.test.ts`'s section
+  pages and `e2e/tests/browser/preview-form-lifecycle-audit.spec.ts`'s page entry, the last two over
+  `sectionEntryDoc`, whose nested query now gives the north area's second row on return.
+- **The form-node projection's re-pointing reaches a wire test fixture** (pull request 3):
+  `formNodeProjection` now takes the surface it projects for (§1.6), and
+  `lib/commcare/xpath/wire/__tests__/instantFixture.ts`, which part 10 §2 does not list among "every
+  caller part 04 §1.6 names", builds its projection as the XForm emitter does, so it passes
+  `{ surface: "wire" }`. Without it the fixture would print the authoring surface's paths where the
+  wire tests compare emitted ones.
+- **`saDocs` says "the fields guide says which"** (pull request 3), part 07 §4.6's row, where §8.4
+  says "the repeat description says which". The sentence is itself the repeat's description, so
+  pointing at the repeat description would point the model at the sentence it is reading; the
+  fields guide (`lib/agent/authoring/reference.ts`) is where §1.6's rule is written for the SA.
+- **The two witnesses' identity moves are written after the push** (pull request 3):
+  `proof/identity-moves.json` gains no entry for `targeted-migration-query-repeats` or
+  `targeted-migration-repeat-counts` before the lane has run. `proof/CLAUDE.md` ("A republish after
+  a migration is observed on its witness") has a move written from its witness's proof 1 evidence and
+  never by hand, so each is written from the first lane's proof 1 records of the two witnesses, in a
+  commit of this pull request after its first push.
+- **The suite generator takes the fuzz mapping too** (pull request 3):
+  `lib/commcare/__tests__/suiteDocArbitrary.ts::lowerToDoc` applies
+  `xformDocArbitrary.ts::mappedAsTheCutoverMaps` before `declaredForContent`, beside the XForm and
+  expression generators part 10 §2 lists, since the suite oracle's draws hold repeats and counts too
+  and part 08 §4.3 maps every generator's draw.
+- **`planRepeatCountWraps` takes the lookup definitions beside the document** (pull request 3):
+  `planRepeatCountWraps(doc, lookupTables = new Map())`, where §2 names `(doc)`. The planner asks
+  the gate's own checker which counts it refuses, and a count reading a data table's column types
+  only with that table's definitions, so a caller holding a lookup context (the cutover) passes
+  `lookupTypeIndex(context)`; the fuzz mapping's draws read no table and pass none.
+- **The manifest cells spell out the shape** (pull request 3): the `questions` entries' cells in
+  `lib/commcare/surface/entries/questions.json` and the inventory say what the shape is (for
+  example, a `repeat` `count_bound` naming the question directly) where §5 cites this part's
+  sections, since pull request 16 removes the plan files and a cell must still read. Wording only;
+  every disposition is §5's.
+- **One count source changes, and no other** (pull request 3): part 08 §4.2 has every count source
+  the checker no longer admits write `int(…)` around its count. The only such source is
+  `lib/preview/engine/__tests__/fixtures/sectionEntry.ts` (`container-live-count-entry`'s
+  `computed`, §6.1): with it rewritten, every other document of the 406 the corpus held at the base
+  is admitted at the head with no `REPEAT_COUNT_TYPE` finding, so `proof/corpus/producers.ts` and
+  `lib/commcare/__tests__/compilerEvidence.ts` are untouched. The corpus at the head holds 408
+  documents, the base's and the two targeted documents of §9.
 
 ## What other parts read from this one
 

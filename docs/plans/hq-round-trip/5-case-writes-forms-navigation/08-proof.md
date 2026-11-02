@@ -1624,6 +1624,56 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   expected move, `form:0.0` `/questions/*` added at `/questions/~1data~1nova_url_photo` (the answer leaf
   for `photo`'s link value). No case-write or case-block difference was reported. That one move is
   written for defect 23, scoped to the witness.
+- **G2's two new container scenarios are native inputs, not corpus documents** (pull request 3):
+  `proof/native/producers/emit-container-evidence.ts` builds `query-follows` (a registration whose
+  `members` query reads the form's `order` answer, a member case per row) and `query-nested-gated` (a
+  `sites` query under a group shown on `show`, each site's `plots` query reading its record) inline,
+  admitted by Nova's validator, after every corpus scenario so no corpus document's minted identities
+  move. §6.1 adds no producer document in pull request 3, and the corpus side of the same shapes is
+  `targeted-query-repeat-placements` (§4.2). The rest of G2 reads corpus documents: `query` (model
+  iteration at the root), `init-add` (a nested count placement shrinking within its outer row).
+  `README.md`'s "Every admitted document a producer emits is a corpus document too" gains these two
+  as exceptions when the README rows land.
+- **The count scenarios run in the `expression` family, on the local form only** (pull request 3):
+  `RepeatCountRuntimeTest` reads `expression/repeat-counts/counts.xml` from
+  `emit-expression-evidence.ts`. That family has no HQ step. The HQ-regenerated path of a direct Hidden
+  Value count is `container-hidden-count`, which `ContainerRuntimeTest` already runs on both paths. The
+  retained control of the fractional count is rebuilt in the class from the same bytes: the
+  `nova_count_by_int` carrier (`xsd:int`) given the form's `half` calculate, Nova's print of the
+  unwrapped decimal. The same pattern is used for `RowPredicateCurrentRuntimeTest`'s bare print.
+- **`ContainerRuntimeTest.hiddenCalculationCountTypes` now expects a fractional `desired` to stop the
+  form** (pull request 3): `container-hidden-count`'s count names `desired` directly, so a calculate of
+  `2.7` swapped in by hand is `DecimalData`, which `IntegerData.cast` refuses
+  (`Recalculate.java::wrapData`, `FormDef.java::canCreateRepeat`). Before this, the carrier truncated it
+  to 2. Nova's validator refuses that count (`REPEAT_COUNT_TYPE`), so no admitted document reaches it.
+- **A targeted document's held query-repeat placement is laid on after the gate** (pull request 3,
+  `proof/targeted/build.ts`): §5.2 has the query-repeats witness hold `visits`' `placement` "in the
+  spec's document", but from pull request 3 `addField` refuses a field holding `placement`
+  (`lib/doc/types.ts::addFieldFieldSchema`, `HELD_FIELD_KEYS`) and no mutation writes one until pull
+  request 5's `holdPlacements`, so the diff planner cannot make that document. `planned` now plans the
+  document without its holds, lays each hold on the committed document as the cutover writes it, and
+  has the gate admit the result whole (an empty batch over it), and `targetedDocument` refuses an edit
+  that changes a hold. Pull request 5 may replace the laying-on with `holdPlacements` in the planned
+  batch; the documents do not change.
+- **`targeted-query-repeat-placements`' fourth intent is read through relevance** (pull request 3):
+  Core's evaluate returns no submission, so "only the relevant rows and their case blocks are
+  submitted" is held as Core reads a row past the result: its answer reads blank
+  (`XPathPathExpr.getRefValue` returns no value for a node that is not relevant, which
+  `TreeElement.isRelevant` inherits from the row, and `DataModelSerializer` leaves out of the
+  submission), while the row keeps its place (`count(/data/stock/item)` stays 3). The case block
+  inside the row is not relevant with it; the readers' walks see the submissions themselves.
+- **The whole-number mapping wraps nothing at the corpus's seed** (pull request 3, read, not
+  assumed): over the default sample (24 suite and XForm draws and 8 expression draws at seed
+  20260930), `planRepeatCountWraps` is called 40 times by `mappedAsTheCutoverMaps` and returns no
+  mutation in any, so every fuzz document's bytes are unchanged by §4.3's item and the sample's
+  draws are the base's. The mapping still runs on every draw, so a later seed or size that draws a
+  count the checker refuses is wrapped as the cutover wraps it. Read by a throwaway Vitest probe that
+  wrapped the planner's module and counted its results; nothing of it is committed.
+- **No count source but `sectionEntry.ts` needs `int(…)`** (pull request 3): §4.2's pull request 3
+  row allows for every count source the checker no longer admits. Only
+  `container-live-count-entry`'s `computed` is one; every other base document is admitted at the head
+  as it was, so the corpus holds 408 documents (406 and the two targeted documents of §5.1), and the
+  producers and `compilerEvidence.ts` are unchanged.
 
 ## What other parts read from this one
 

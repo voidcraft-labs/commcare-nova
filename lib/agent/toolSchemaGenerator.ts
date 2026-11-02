@@ -118,8 +118,9 @@ const FIELD_DOCS = {
 	caseWrite:
 		"Save this answer to a record property. The module's type writes its primary record; another type creates a child. Child creation needs a name writer. A capture saves a link to its file. Use recordName for the primary record's name.",
 	repeat_mode:
-		"Worker-added rows, rows counted from an integer question or expression, or rows from a record query. Counts grow live during entry; decreasing a count retains created rows, answers, and case operations. A query is captured at form load or when its enclosing repeat row is created.",
-	repeat_count: "Row count for a count-bound repeat.",
+		"Worker-added rows, a number of rows from a whole-number question or expression, or one row per case a query finds. Counts grow live during entry; lowering a count keeps created rows, answers and case operations. A query's rows are set when the form opens where it reads no answer, sits in no other repeat and no group around it shows on a condition that can change during entry; otherwise its rows follow the query as answers change, each row keeping its place.",
+	repeat_count:
+		"Row count for a count-bound repeat: a whole number, from an integer question, a single choice whose values are whole numbers, a hidden value calculated as a whole number, or a formula such as int(#form/size div 2).",
 	ids_query:
 		"Query returning record IDs. In a hidden field directly inside each row, current()/../@id reads that row’s retained record ID.",
 } as const satisfies Record<string, string>;
@@ -281,14 +282,14 @@ function repeatConfigDiscriminated() {
 					count: formLogicSchema.describe(FIELD_DOCS.repeat_count),
 				})
 				.describe(
-					"The count is live: increasing it adds rows; decreasing it retains created rows and their submitted answers and case operations. A direct count needs an integer question; other sources need an explicit numeric expression. Use user_controlled for rows the worker adds freely.",
+					"The count must be a whole number: an integer question, a single choice whose values are whole numbers, a hidden value whose calculation is a whole number, or an expression wrapped in int(...). The count is live: raising it adds rows; lowering it keeps the rows already made, with their answers and case operations. Use user_controlled for rows the worker adds freely.",
 				),
 			z
 				.object({
 					mode: z.literal("query_bound"),
 					ids_query: formLogicSchema.describe(FIELD_DOCS.ids_query),
 				})
-				.describe("Iterate case-database query results — provide `ids_query`."),
+				.describe("One row per case the query finds; provide ids_query."),
 		])
 		.describe(FIELD_DOCS.repeat_mode);
 }

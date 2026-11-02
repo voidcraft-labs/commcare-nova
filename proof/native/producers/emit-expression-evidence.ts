@@ -235,7 +235,7 @@ function loweredText(
 		toWire(comparison, {
 			target: "xform",
 			types,
-			form: formNodeProjection(doc, structure),
+			form: formNodeProjection(doc, structure, { surface: "wire" }),
 		}),
 		{ target: "xform", constraint: false },
 	).text;
@@ -494,6 +494,86 @@ function compiledForm(doc: BlueprintDoc, module: number, form: number) {
 			...ROW_PREDICATE_ROWS,
 		})}\n`,
 	);
+}
+
+// RepeatCountRuntimeTest counts rows in Core from the three whole-number
+// counts Nova admits beside an int question (part 04 §2.3, §2.4): a Hidden
+// Value calculating an integer and an integer single select, each named
+// directly by `jr:count`, and `int(...)` over a decimal, which keeps its
+// `nova_count_` node. The form's `half` is the same decimal unwrapped, which
+// the class writes into that node to rebuild the fractional count Nova wrote
+// before (its retained control).
+{
+	const directory = resolve(output, "repeat-counts");
+	mkdirSync(directory, { recursive: true });
+	const counted = (id: string, count: string) =>
+		f({
+			kind: "repeat",
+			id,
+			label: proseText(id),
+			repeat_mode: "count_bound",
+			repeat_count: count,
+			children: [f({ kind: "text", id: "note", label: proseText("Note") })],
+		});
+	const doc = admitted(
+		"repeat count form",
+		buildDoc({
+			appName: "Repeat counts",
+			modules: [
+				{
+					name: "Counts",
+					forms: [
+						{
+							name: "Counts",
+							type: "survey",
+							fields: [
+								f({ kind: "int", id: "n", label: proseText("How many") }),
+								f({
+									kind: "decimal",
+									id: "weight",
+									label: proseText("Weight"),
+								}),
+								f({
+									kind: "single_select",
+									id: "pick",
+									label: proseText("Pick"),
+									options: [
+										{ value: "1", label: "One" },
+										{ value: "2", label: "Two" },
+										{ value: "3", label: "Three" },
+									],
+								}),
+								f({ kind: "hidden", id: "planned", calculate: "#form/n + 1" }),
+								f({
+									kind: "hidden",
+									id: "half",
+									calculate: "#form/weight div 2",
+								}),
+								counted("by_hidden", "#form/planned"),
+								counted("by_int", "int(#form/weight div 2)"),
+								counted("by_select", "#form/pick"),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
+	const form = compiledForm(doc, 0, 0);
+	// The shapes the class reads: two direct counts, one carrier, and the
+	// decimal it rebuilds the control from.
+	for (const shape of [
+		'jr:count="/data/planned"',
+		'jr:count="/data/pick"',
+		'jr:count="/data/nova_count_by_int"',
+		'nodeset="/data/nova_count_by_int"',
+		'nodeset="/data/half"',
+	])
+		if (!form.includes(shape))
+			throw new Error(
+				`The repeat count form holds no ${shape}, so Nova no longer writes the count the Core run reads.`,
+			);
+	writeFileSync(resolve(directory, "counts.xml"), form);
 }
 
 // HQ replaces shortcuts without parsing literals and scans for instance calls

@@ -6,6 +6,7 @@
 import { type Element, isTag } from "domhandler";
 import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
@@ -273,4 +274,139 @@ it("names the URL and datetime siblings in the form's actions as its XForm write
 	expect(update.seen_at.question_path).toBe("/data/nova_datetime_when_1");
 	expect(dataNames.has("nova_url_photo_1")).toBe(true);
 	expect(dataNames.has("nova_datetime_when_1")).toBe(true);
+});
+
+/**
+ * A query repeat's five generated names are reserved from the form's
+ * structure, in both placements and whether or not an expression reads the
+ * node: the wrapper's three in the wrapper's namespace, whose only authored
+ * name is `item`, and the row's two in the row's, before any node an
+ * authored child of the row owns. Plausible failures: a name that moves when
+ * an expression starts reading the node, a row name taken by a generated
+ * node of a row child, or a wrapper name suffixed for a name that lives in
+ * another element.
+ */
+describe("query repeat names", () => {
+	const NESTED = testUuid("query-names-nested");
+	const ROOT = testUuid("query-names-root");
+	const readPosition = {
+		kind: "term",
+		term: {
+			kind: "form-node",
+			node: { kind: "repeat", repeat: NESTED, role: "query-position" },
+			spelling: "relative",
+		},
+	} as const;
+	function queryDoc(readsPosition: boolean) {
+		const doc = buildDoc({
+			appName: "Query names",
+			modules: [
+				{
+					name: "Visits",
+					forms: [
+						{
+							name: "Rounds",
+							type: "survey",
+							fields: [
+								f({
+									uuid: ROOT,
+									kind: "repeat",
+									id: "visits",
+									repeat_mode: "query_bound",
+									data_source: { ids_query: "'a b'" },
+									children: [f({ kind: "text", id: "note" })],
+								}),
+								// A sibling of the wrapper, in the form root's namespace.
+								f({ kind: "text", id: "nova_query_ids_tasks" }),
+								f({
+									kind: "repeat",
+									id: "rounds",
+									children: [
+										f({
+											uuid: NESTED,
+											kind: "repeat",
+											id: "tasks",
+											repeat_mode: "query_bound",
+											data_source: { ids_query: "'a b'" },
+											children: [
+												f({ kind: "text", id: "nova_query_id_tasks" }),
+												f({ kind: "text", id: "nova_query_index_tasks" }),
+												f({ kind: "text", id: "answer" }),
+												...(readsPosition
+													? [
+															f({
+																kind: "hidden",
+																id: "position",
+																calculate: readPosition,
+															}),
+														]
+													: []),
+											],
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		return { doc, formUuid: doc.formOrder[doc.moduleOrder[0]][0] };
+	}
+	const queryNames = (plan: GeneratedNodePlan, repeat: Uuid) => ({
+		ids: plan.queryIds(repeat),
+		count: plan.queryCount(repeat),
+		position: plan.queryPosition(repeat),
+		id: plan.queryId(repeat),
+		index: plan.queryIndex(repeat),
+	});
+
+	it("suffixes a row name an authored child of the row holds, and no wrapper name", () => {
+		const { doc, formUuid } = queryDoc(false);
+		expect(queryNames(planGeneratedNodes(doc, formUuid), NESTED)).toEqual({
+			ids: "nova_query_ids_tasks",
+			count: "nova_query_count_tasks",
+			position: "nova_query_position_tasks",
+			id: "nova_query_id_tasks_1",
+			index: "nova_query_index_tasks_1",
+		});
+	});
+
+	it("reserves the names of a model-iteration repeat too", () => {
+		const { doc, formUuid } = queryDoc(false);
+		expect(queryNames(planGeneratedNodes(doc, formUuid), ROOT)).toEqual({
+			ids: "nova_query_ids_visits",
+			count: "nova_query_count_visits",
+			position: "nova_query_position_visits",
+			id: "nova_query_id_visits",
+			index: "nova_query_index_visits",
+		});
+	});
+
+	it("names the same nodes whether or not an expression reads them", () => {
+		const unread = queryDoc(false);
+		const read = queryDoc(true);
+		for (const repeat of [ROOT, NESTED])
+			expect(
+				queryNames(planGeneratedNodes(read.doc, read.formUuid), repeat),
+			).toEqual(
+				queryNames(planGeneratedNodes(unread.doc, unread.formUuid), repeat),
+			);
+	});
+
+	it("lists every query name among the plan's nodes, owned by its repeat", () => {
+		const { doc, formUuid } = queryDoc(false);
+		const purposes = planGeneratedNodes(doc, formUuid)
+			.nodes.filter((node) => node.owner === NESTED)
+			.map((node) => node.purpose);
+		expect(purposes.sort()).toEqual(
+			[
+				"query-count",
+				"query-id",
+				"query-ids",
+				"query-index",
+				"query-position",
+			].sort(),
+		);
+	});
 });

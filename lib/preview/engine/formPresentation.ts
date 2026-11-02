@@ -8,7 +8,7 @@ import type {
 } from "@/lib/domain";
 import { runtimeMessage } from "../runtimeMessages";
 import type { FieldTreeNode } from "./fieldTree";
-import type { FieldState } from "./types";
+import { type FieldState, repeatRowRelevantInState } from "./types";
 
 /** Runtime state is path keyed in the engine and UUID/path keyed in React.
  * Keep that storage distinction outside the worker's presentation rules. */
@@ -107,17 +107,19 @@ export function visibleRepeatInstances(
 ): number[] {
 	const { field, children = [] } = node;
 	if (field.kind !== "repeat") return [];
-	const count = source.stateAt(field, path).repeatCount ?? 0;
+	const state = source.stateAt(field, path);
+	const count = state.repeatCount ?? 0;
 	return Array.from({ length: count }, (_, index) => index).filter(
 		(index) =>
-			field.repeat_mode === "user_controlled" ||
-			children.some((child) =>
-				fieldHasWorkerPresentation(
-					child,
-					`${path}[${index}]/${child.field.id}`,
-					source,
-				),
-			),
+			repeatRowRelevantInState(state, index) &&
+			(field.repeat_mode === "user_controlled" ||
+				children.some((child) =>
+					fieldHasWorkerPresentation(
+						child,
+						`${path}[${index}]/${child.field.id}`,
+						source,
+					),
+				)),
 	);
 }
 

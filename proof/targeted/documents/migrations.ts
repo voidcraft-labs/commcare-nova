@@ -34,8 +34,11 @@
  *   a case-list-only menu of the child cases, which every created case type
  *   has.
  * - `targeted-migration-query-repeats` (defect 25): a query repeat over the
- *   case list at the root, one in a user repeat whose query reads the row's
- *   answer, and one under a group whose relevance reads an answer.
+ *   case list at the root, holding model iteration as the cutover writes it
+ *   for the published app; one in a user repeat whose query reads the row's
+ *   answer; and one under a group whose relevance reads an answer. The last
+ *   two hold nothing and take the count placement, which the next publish
+ *   records.
  * - `targeted-migration-form-links` (defect 26): a survey with two
  *   conditional links and an unconditional last one; a survey with a
  *   conditional link and a stored after-submit; and a follow-up in a root
@@ -44,7 +47,8 @@
  *   groups, one holding a user repeat; a writer of the form's own case with
  *   an authored default; a later Hidden Value whose default reads it.
  * - `targeted-migration-repeat-counts` (defect 30): a repeat counted by a
- *   Hidden Value calculating 2, and one counted by a decimal expression.
+ *   Hidden Value calculating 2, which its count now names directly, and one
+ *   counted by a decimal expression, which the migration wraps in `int(…)`.
  *
  * Fixed values: each witness's symptom is HQ's read of its A and proof 1
  * between A and B, which no value check reads, so each carries the check of
@@ -721,6 +725,9 @@ export function migrationQueryRepeats() {
 								data_source: {
 									ids_query: "instance('casedb')/casedb/case/@case_id",
 								},
+								// The hold the cutover writes for a published app
+								// whose repeat ran as model iteration.
+								placement: "model-iteration",
 								children: [
 									f({
 										kind: "text",
@@ -1114,7 +1121,7 @@ export function migrationRepeatCounts() {
 								id: "portions",
 								label: proseText("Portions"),
 								repeat_mode: "count_bound",
-								repeat_count: "#form/weight div 2",
+								repeat_count: "int(#form/weight div 2)",
 								children: [row("portion", "Portion")],
 							}),
 						],

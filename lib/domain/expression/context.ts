@@ -655,9 +655,8 @@ export function slotContext(
 				))
 		)
 			return undefined;
+		// A query repeat's `relevant` evaluates at its row, in both placements.
 		sourceNode = { kind: "field", uuid: slot.uuid };
-		if (slot.slot === "relevant" && field.repeatMode === "query_bound")
-			sourceNode = { kind: "field", uuid: slot.uuid, role: "query-wrapper" };
 		if (slot.slot === "repeat_count")
 			sourceNode = { kind: "repeat", repeat: slot.uuid, role: "count-result" };
 		if (slot.slot === "ids_query")
@@ -672,7 +671,9 @@ export function slotContext(
 				: // A query-bound repeat's ids query is the node-set of its rows.
 					slot.slot === "ids_query"
 					? { kind: "value", many: true }
-					: { kind: "value" },
+					: slot.slot === "repeat_count"
+						? { kind: "repeat-count" }
+						: { kind: "value" },
 			{ searchInputs: form.searchInputs },
 		);
 		if (slot.slot === "lookup_options_source") {

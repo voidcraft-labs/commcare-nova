@@ -4491,6 +4491,64 @@ describe("FormEngine", () => {
 			},
 		);
 
+		it("reads a direct integer single select by the lexical rule", () => {
+			const engine = new FormEngine(
+				dTree([
+					{
+						id: "pick",
+						kind: "single_select",
+						label: proseText("How many"),
+						optionsSource: inlineOptions("count-pick", [
+							["+2", "Two"],
+							["007", "Seven"],
+						]),
+					},
+					{
+						id: "members",
+						kind: "repeat",
+						repeat_mode: "count_bound",
+						repeat_count: "#form/pick",
+						children: [{ id: "note", kind: "text" }],
+					},
+				]),
+			);
+			expect(engine.getRepeatCount("/data/members")).toBe(0);
+			engine.setValue("/data/pick", "+2");
+			expect(engine.getRepeatCount("/data/members")).toBe(2);
+			engine.setValue("/data/pick", "007");
+			expect(engine.getRepeatCount("/data/members")).toBe(7);
+		});
+
+		it("reads a direct Hidden Value calculated as a whole number by the lexical rule", () => {
+			// Named directly, the node's text is cast as `IntegerData.cast`
+			// casts it, which refuses a number outside Java's int. Through the
+			// `xsd:int` carrier, Java's narrowing would clamp it to no rows.
+			const input = dTree([
+				{ id: "n", kind: "hidden", calculate: "-2147483647 - 2" },
+				{
+					id: "members",
+					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: "#form/n",
+					children: [{ id: "note", kind: "text" }],
+				},
+			]);
+			expect(() => new FormEngine(input)).toThrow(/A direct repeat count/);
+			const counted = new FormEngine(
+				dTree([
+					{ id: "n", kind: "hidden", calculate: "1 + 2" },
+					{
+						id: "members",
+						kind: "repeat",
+						repeat_mode: "count_bound",
+						repeat_count: "#form/n",
+						children: [{ id: "note", kind: "text" }],
+					},
+				]),
+			);
+			expect(counted.getRepeatCount("/data/members")).toBe(3);
+		});
+
 		it("rejects a non-integer string stored through a hoisted xsd:int node", async () => {
 			const input = dTree([
 				{
@@ -4526,7 +4584,7 @@ describe("FormEngine", () => {
 		});
 
 		it.each(["earlier", "later", "standalone", "triggered"] as const)(
-			"captures query membership at its action, with %s initialization",
+			"follows a query that reads an answer, with %s initialization",
 			async (ordering) => {
 				const zone: DField = {
 					id: "zone",
@@ -4562,8 +4620,10 @@ describe("FormEngine", () => {
 								]
 							: [zone, rows],
 				);
-				const count =
-					ordering === "earlier" || ordering === "triggered" ? 2 : 0;
+				// The query reads an answer, so the repeat takes the count
+				// placement and its rows follow the query whatever order the
+				// form initializes in.
+				const count = 2;
 				for (const stagedAsync of [false, true]) {
 					const engine = new FormEngine(
 						input,
@@ -5948,7 +6008,7 @@ describe("section entry initializes later rows", () => {
 	);
 
 	it.each([false, true])(
-		"captures nested membership on page entry and retains it on return (worker: %s)",
+		"inserts nested rows on page entry and follows the query on return (worker: %s)",
 		async (stagedAsync) => {
 			const input = dTree([
 				{
@@ -6054,10 +6114,16 @@ describe("section entry initializes later rows", () => {
 					engine.setValue("/data/first/zone", "north");
 					engine.enterSection(second.uuid);
 				}
-				expect(engine.getRepeatCount("/data/second/rounds[0]/assets")).toBe(1);
+				// A nested query repeat takes the count placement: the row the
+				// worker answered keeps its answer and the query's second
+				// record adds a row whose starting value reads its own id.
+				expect(engine.getRepeatCount("/data/second/rounds[0]/assets")).toBe(2);
 				expect(
 					engine.getState("/data/second/rounds[0]/assets[0]/note").value,
 				).toBe("retained");
+				expect(
+					engine.getState("/data/second/rounds[0]/assets[1]/note").value,
+				).toBe("tap");
 			} finally {
 				worker.runtime.dispose();
 			}

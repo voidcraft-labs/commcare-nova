@@ -14,7 +14,10 @@ export type Expectation =
 	| {
 			readonly kind: "assignment";
 			readonly destinations: readonly CasePropertyDataType[];
-	  };
+	  }
+	/** A repeat's count: a whole number, `int` or a read of a single select
+	 * whose inline choices are whole numbers (`typeChecker.ts::repeatCountErrors`). */
+	| { readonly kind: "repeat-count" };
 export interface SlotProfile {
 	readonly ruleSet: RuleSet;
 	readonly targets: ReadonlySet<ExpressionTarget>;

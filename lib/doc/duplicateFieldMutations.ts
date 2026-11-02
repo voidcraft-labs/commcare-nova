@@ -16,6 +16,7 @@ import { walkExpressionTerms } from "@/lib/domain/expression/walk";
  */
 
 import { dedupeSiblingId, findFieldParent } from "@/lib/doc/mutations/helpers";
+import { HELD_FIELD_KEYS, type HeldFieldKey } from "@/lib/domain/fields";
 import { asUuid, type BlueprintDoc, type Mutation, type Uuid } from "./types";
 
 /** One field's clone, in the order the adds must land. */
@@ -52,6 +53,10 @@ export function duplicateFieldMutations(
 		const cloneUuid = asUuid(crypto.randomUUID());
 		const copy = structuredClone(field);
 		copy.uuid = cloneUuid;
+		// A held identity belongs to the source the publish carried; the
+		// clone is new and starts unheld (`HELD_FIELD_KEYS`).
+		for (const key of HELD_FIELD_KEYS)
+			delete (copy as Partial<Record<HeldFieldKey, unknown>>)[key];
 		clonedIds.set(sourceUuid, cloneUuid);
 		cloned.push({ parentUuid: intoParent, field: copy });
 		for (const childUuid of doc.fieldOrder[sourceUuid] ?? []) {

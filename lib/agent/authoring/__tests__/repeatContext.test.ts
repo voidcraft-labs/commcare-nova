@@ -7,7 +7,7 @@ import { evaluationScenarioCases } from "@/lib/preview/engine/evaluationScenario
 import { previewAsMe } from "@/lib/preview/engine/identity";
 
 it.each([false, true])(
-	"authors retained query-row identities without rebuilding membership after answers change (default: %s)",
+	"follows a query that reads an answer, keeping each row's place and its answers (default: %s)",
 	async (useDefault) => {
 		const h = makeAuthoringHarness(
 			{},
@@ -108,30 +108,66 @@ it.each([false, true])(
 				},
 			],
 		});
-		const result = await evaluateForm(
-			doc,
-			{
-				formUuid,
-				answers: [
-					{ path: "zone", value: "south" },
-					{ path: "assets[1]/note", value: "Working" },
-				],
-			},
-			{
-				device: webAppsDevice(),
-				identity,
-				cases,
-				lookup: {
-					projectRevision: "0",
-					definitions: [],
-					rowsByTable: new Map(),
+		const evaluate = (zones: string[]) =>
+			evaluateForm(
+				doc,
+				{
+					formUuid,
+					answers: [
+						{ path: "assets[1]/note", value: "Working" },
+						...zones.map((value) => ({ path: "zone", value })),
+					],
 				},
-			},
-		);
-		expect(result.valid).toBe(true);
-		expect(result.fields).toEqual(
+				{
+					device: webAppsDevice(),
+					identity,
+					cases,
+					lookup: {
+						projectRevision: "0",
+						definitions: [],
+						rowsByTable: new Map(),
+					},
+				},
+			);
+		/* The query reads an answer, so its rows follow it (the count
+		 * placement): the south zone keeps the rows already made, and a row
+		 * past the end of the new result leaves the form with its answer kept. */
+		const shrunk = await evaluate(["south"]);
+		expect(shrunk.valid).toBe(true);
+		expect(shrunk.fields).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ path: "zone", value: "south" }),
+				expect.objectContaining({ path: "assets", repeatCount: 2 }),
+				expect.objectContaining({
+					path: "assets[1]/note",
+					participates: false,
+					retainedValue: "Working",
+				}),
+				...(useDefault
+					? [
+							expect.objectContaining({
+								path: "assets[0]/row_id",
+								value: "tank",
+							}),
+							expect.objectContaining({
+								path: "assets[0]/asset_name",
+								value: "Tank",
+							}),
+						]
+					: [
+							expect.objectContaining({
+								path: "assets[0]/row_id",
+								participates: false,
+							}),
+						]),
+			]),
+		);
+		/* Back in the north zone the rows hold the result again, and the
+		 * second row's answer is where it was. */
+		const restored = await evaluate(["south", "north"]);
+		expect(restored.valid).toBe(true);
+		expect(restored.fields).toEqual(
+			expect.arrayContaining([
 				expect.objectContaining({ path: "assets", repeatCount: 2 }),
 				expect.objectContaining({ path: "assets[0]/row_id", value: "pump" }),
 				expect.objectContaining({

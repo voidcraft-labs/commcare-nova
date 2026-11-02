@@ -22,7 +22,8 @@
  *   followed by its repeat's own name, the rule every count node follows.
  * - **Scope.** One namespace per parent element. A question's generated
  *   siblings share the namespace of the question's container (a query
- *   repeat's `item` is its own). Every name inside the `nova_operations`
+ *   repeat's `item` is its own, and so is its wrapper, whose only authored
+ *   name is `item`). Every name inside the `nova_operations`
  *   groups of one authored scope shares one namespace, including names nested
  *   in condition groups and keyed repeats, so adding or removing a condition
  *   never renames a node; the selected-cases group of that scope shares it.
@@ -32,17 +33,24 @@
  *   operation of that scope.
  * - **Suffix.** A base that is taken becomes `<base>_<n>` for the smallest
  *   `n >= 1` not taken.
- * - **Order**, each allocation joining the taken set: questions in field
- *   order, and for one question its constraint counts by ordinal, its
- *   constraint message, its url, its datetime, its trimmed value, then (a
- *   repeat) its count;
- *   then the scope's containers `nova_operations`, `nova_subcases`,
+ * - **Order**, each allocation joining the taken set: in a query repeat's
+ *   wrapper, `nova_query_ids_`, `nova_query_count_`, `nova_query_position_`;
+ *   in its row, `nova_query_id_` and `nova_query_index_`, before any node an
+ *   authored child of the row owns; then questions in field order, and for
+ *   one question its constraint counts by ordinal, its constraint message,
+ *   its url, its datetime, its trimmed value, then (a count repeat) its
+ *   count; then the scope's containers `nova_operations`, `nova_subcases`,
  *   `nova_selected_cases`. Inside an operations namespace: operations in
  *   their authored order, each `nova_count_nova_keyed_`, then `nova_keyed_`,
  *   then `nova_condition_`, then guards in the order `type`, `retype`,
  *   `text`; then `nova_condition_update_selected_cases`,
  *   `nova_update_selected_cases`, `nova_subcase_<n>` ascending,
  *   `nova_close_selected_cases`, `nova_condition_close` and `nova_close`.
+ *
+ * A query repeat's five names and a count repeat's count are reserved from
+ * the form's structure alone (`queryRepeatNames.ts`, `repeatCountNames.ts`),
+ * whatever the repeat's placement and whether or not an expression reads the
+ * node, so no generated name depends on what an expression reads.
  *
  * A generated name moves only when its owner is renamed or an authored
  * sibling equal to it appears or disappears, both edits to the same form.
@@ -72,8 +80,10 @@ import { planConstraintCollections } from "./constraintCollections";
 import { constraintMessageNeedsProtection } from "./constraintMessage";
 import { descendFormPathIntoField, FormPath } from "./formPath";
 import { Namespace } from "./namespace";
+import { planQueryRepeatNames } from "./queryRepeatNames";
 import { planRepeatCountNames } from "./repeatCountNames";
 
+export { queryRepeatBaseNames } from "./queryRepeatNames";
 export { repeatCountBaseName } from "./repeatCountNames";
 
 /** The guards an operation's block may carry, in the order they stand. */
@@ -88,6 +98,11 @@ export type GeneratedNodePurpose =
 	| "datetime"
 	| "trimmed"
 	| "count"
+	| "query-ids"
+	| "query-count"
+	| "query-position"
+	| "query-id"
+	| "query-index"
 	| "keyed-count"
 	| "keyed"
 	| "condition"
@@ -119,6 +134,17 @@ export interface GeneratedNodePlan {
 	 * carrier plan determines whether its physical node is needed.
 	 */
 	count(repeatUuid: Uuid): string;
+	/** A query repeat's wrapper child holding its query's ids (the count
+	 * placement's `@ids`). Reserved in both placements. */
+	queryIds(repeatUuid: Uuid): string;
+	/** A query repeat's wrapper child holding how many ids its query found. */
+	queryCount(repeatUuid: Uuid): string;
+	/** A query repeat's wrapper child holding how many rows it holds. */
+	queryPosition(repeatUuid: Uuid): string;
+	/** A query repeat's row child holding the row's record id. */
+	queryId(repeatUuid: Uuid): string;
+	/** A query repeat's row child holding the row's 0-based position. */
+	queryIndex(repeatUuid: Uuid): string;
 	/** The operations group of an authored scope, the form root or a repeat. */
 	operations(scope: FormPath): string;
 	/** The extension-subcase group of an authored scope. */
@@ -255,6 +281,7 @@ function allocateGeneratedNodes(
 			`Nova could not resolve the structure of form ${formUuid} while naming its generated nodes.`,
 		);
 	const countNames = planRepeatCountNames(structure);
+	const queryNames = planQueryRepeatNames(structure);
 	const nodes: GeneratedNode[] = [];
 	const byOwner = new Map<string, string>();
 	const ownerKey = (purpose: GeneratedNodePurpose, owner: Uuid, part = "") =>
@@ -267,6 +294,27 @@ function allocateGeneratedNodes(
 	): void => {
 		byOwner.set(ownerKey(purpose, owner, part), name);
 		nodes.push({ purpose, name, owner });
+	};
+	const reservedQueryNames = (repeatUuid: Uuid) => {
+		const reserved = queryNames.get(repeatUuid);
+		if (reserved === undefined)
+			throw new Error(
+				`Nova reserved no generated names for the query repeat ${repeatUuid} in form ${formUuid}. The reservation and the plan of generated nodes walk the same fields, so they must agree.`,
+			);
+		return reserved;
+	};
+	/** Take a reserved name in its scope; the scope must still hold it free. */
+	const takeReserved = (
+		scope: Namespace,
+		purpose: GeneratedNodePurpose,
+		owner: Uuid,
+		name: string,
+	): void => {
+		if (scope.allocate(name) !== name)
+			throw new Error(
+				`The reserved ${purpose} name ${name} is already in use in form ${formUuid}. The reservation must take every name before anything else of its scope.`,
+			);
+		record(purpose, owner, name);
 	};
 
 	let localization: ReturnType<typeof commCareLocalization> | undefined;
@@ -297,6 +345,12 @@ function allocateGeneratedNodes(
 			...(root ? formConnectIds(doc, formUuid) : []),
 		]);
 		fieldScopes.set(parentPath.toXPath(), scope);
+		const parent = doc.fields[parentUuid];
+		if (parent?.kind === "repeat" && parent.repeat_mode === "query_bound") {
+			const reserved = reservedQueryNames(parentUuid);
+			takeReserved(scope, "query-id", parentUuid, reserved.id);
+			takeReserved(scope, "query-index", parentUuid, reserved.index);
+		}
 		for (const field of children) {
 			const path = parentPath.child(field.id);
 			const expression = expressionSlotValue(doc, {
@@ -346,6 +400,13 @@ function allocateGeneratedNodes(
 						`The reserved repeat count name ${name} is already in use.`,
 					);
 				record("count", field.uuid, name);
+			}
+			if (field.kind === "repeat" && field.repeat_mode === "query_bound") {
+				const reserved = reservedQueryNames(field.uuid);
+				const wrapper = new Namespace(["item"]);
+				takeReserved(wrapper, "query-ids", field.uuid, reserved.ids);
+				takeReserved(wrapper, "query-count", field.uuid, reserved.count);
+				takeReserved(wrapper, "query-position", field.uuid, reserved.position);
 			}
 		}
 		for (const field of children) {
@@ -486,6 +547,11 @@ function allocateGeneratedNodes(
 		datetime: (fieldUuid) => lookup("datetime", fieldUuid),
 		trimmed: (fieldUuid) => lookup("trimmed", fieldUuid),
 		count: (repeatUuid) => lookup("count", repeatUuid),
+		queryIds: (repeatUuid) => lookup("query-ids", repeatUuid),
+		queryCount: (repeatUuid) => lookup("query-count", repeatUuid),
+		queryPosition: (repeatUuid) => lookup("query-position", repeatUuid),
+		queryId: (repeatUuid) => lookup("query-id", repeatUuid),
+		queryIndex: (repeatUuid) => lookup("query-index", repeatUuid),
 		operations: (scope) => container(scope).operations,
 		subcases: (scope) => container(scope).subcases,
 		selectedCases: (scope) => container(scope).selectedCases,

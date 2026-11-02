@@ -113,6 +113,7 @@ import {
 	fieldSpecArb,
 	hasFormItextMedia,
 	IdMinter,
+	mappedAsTheCutoverMaps,
 	pickSiblingId,
 	resolveArbitraryDocument,
 } from "./xformDocArbitrary";
@@ -970,28 +971,31 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	// App-level logo (web-apps banner) — minted only when the spec asks for it.
 	const logo = spec.hasLogo ? asMediaAssetId(minter.uuid("logo")) : undefined;
 
-	// The declaration is mapped after the draw, with no further random call:
-	// the platforms the drawn content runs on, with each date-and-time
-	// question split where that is the only way it runs anywhere
-	// (`declaredForContent`).
+	// The cutover's mappings and the declaration are applied after the draw,
+	// with no further random call: each step 5 shape as the cutover maps a
+	// stored app (`mappedAsTheCutoverMaps`), then the platforms the drawn
+	// content runs on, with each date-and-time question split where that is
+	// the only way it runs anywhere (`declaredForContent`).
 	return declaredForContent(
-		orderRulesTheGateAdmits(
-			resolveArbitraryDocument({
-				appId: "suite-fuzz-app",
-				appName: "Suite Fuzz App",
-				connectType: null,
-				appSettings: { ...NEW_APP_SETTINGS },
-				caseTypes,
-				modules,
-				forms,
-				fields,
-				moduleOrder,
-				formOrder,
-				fieldOrder,
-				// Expression resolution binds against the completed ancestry.
-				fieldParent: {},
-				...(logo ? { logo } : {}),
-			}),
+		mappedAsTheCutoverMaps(
+			orderRulesTheGateAdmits(
+				resolveArbitraryDocument({
+					appId: "suite-fuzz-app",
+					appName: "Suite Fuzz App",
+					connectType: null,
+					appSettings: { ...NEW_APP_SETTINGS },
+					caseTypes,
+					modules,
+					forms,
+					fields,
+					moduleOrder,
+					formOrder,
+					fieldOrder,
+					// Expression resolution binds against the completed ancestry.
+					fieldParent: {},
+					...(logo ? { logo } : {}),
+				}),
+			),
 		),
 	);
 }

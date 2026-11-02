@@ -1305,6 +1305,8 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	id: "declaration",
 	kind: "discriminator",
 	repeat_mode: "discriminator",
+	// A query repeat's held placement: a closed enum, naming nothing.
+	placement: "config",
 	label_media: "media",
 	help_media: "media",
 	"optionsSource.kind": "discriminator",
