@@ -108,8 +108,19 @@ export const updateCasePropertyTool = {
 			// by a partial edit. The workspace still owns whole-app admission.
 			const property = casePropertySchema.parse(merged);
 			// Validate retained authored settings too, including options against
-			// the property's stored type. Form rules live on their own questions.
-			casePropertyInputSchema.parse(property);
+			// the property's type: its stored type, or where it stores none, the
+			// type its writers give it (a select question's answer saved to it).
+			// Form rules live on their own questions.
+			const effectiveType = effectiveCaseTypes(ctx.snapshot.doc)
+				.find((type) => type.name === input.caseType)
+				?.properties.find(
+					(candidate) => candidate.name === input.property,
+				)?.data_type;
+			casePropertyInputSchema.parse({
+				...property,
+				...(property.data_type === undefined &&
+					effectiveType !== undefined && { data_type: effectiveType }),
+			});
 			if (deepEqual(current, property))
 				return {
 					kind: "mutate" as const,

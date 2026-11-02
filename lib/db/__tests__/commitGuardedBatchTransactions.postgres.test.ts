@@ -41,6 +41,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
 import { parseFormExpressionForSlot } from "@/lib/doc/expressionText";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { planFieldRemoval } from "@/lib/doc/fieldRemovalMutations";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -1248,12 +1249,15 @@ describe("commitGuardedBatch (Postgres)", () => {
 			},
 		];
 		// The condition was valid in the author's document. A committed removal
+		// (the question and the write of its answer, as the builder plans it)
 		// leaves its UUID reference dangling when the writer reads the fresh doc.
+		const removal = planFieldRemoval(doc, villageUuid(doc));
+		if (!removal.ok) throw new Error(removal.message);
 		await commitGuardedBatch({
 			appId,
 			expectedProjectId: PROJECT,
 			batchId: crypto.randomUUID(),
-			mutations: [{ kind: "removeField", uuid: villageUuid(doc) }],
+			mutations: removal.mutations,
 			actorUserId: OWNER,
 			kind: "autosave",
 		});

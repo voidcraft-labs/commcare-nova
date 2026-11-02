@@ -105,7 +105,11 @@ test("a case-data refresh retires Submit without blaming answers or replaying th
 		expect(submissions[0]?.[0]).toMatchObject({
 			kind: "registration",
 			entryKey: entry,
-			primary: { caseName: "Retained answer" },
+			operationAnswers: {
+				root: expect.arrayContaining([
+					expect.objectContaining({ value: "Retained answer" }),
+				]),
+			},
 		});
 	} finally {
 		refresh.resolve();
@@ -174,10 +178,14 @@ test("Submit commits the coordinate and clock currently being edited", async ({
 			"Transport unavailable. Try again.",
 		);
 		expect(submissions).toHaveLength(1);
+		// The answers the form's own case reads, each as the control commits it.
 		expect(submissions[0]?.[0]).toMatchObject({
 			kind: "registration",
-			primary: {
-				properties: { place: "40.0 -74.0 0.0 0.0", clock: "14:30:00.000Z" },
+			operationAnswers: {
+				root: expect.arrayContaining([
+					expect.objectContaining({ value: "40.0 -74.0 0.0 0.0" }),
+					expect.objectContaining({ value: "14:30:00.000Z" }),
+				]),
 			},
 		});
 		await clock.fill("3:45 PM");
@@ -185,8 +193,11 @@ test("Submit commits the coordinate and clock currently being edited", async ({
 		await expect.poll(() => submissions.length).toBe(2);
 		expect(submissions[1]?.[0]).toMatchObject({
 			kind: "registration",
-			primary: {
-				properties: { place: "40.0 -74.0 0.0 0.0", clock: "15:45:00.000Z" },
+			operationAnswers: {
+				root: expect.arrayContaining([
+					expect.objectContaining({ value: "40.0 -74.0 0.0 0.0" }),
+					expect.objectContaining({ value: "15:45:00.000Z" }),
+				]),
 			},
 		});
 	} finally {

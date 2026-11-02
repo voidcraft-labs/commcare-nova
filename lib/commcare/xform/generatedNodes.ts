@@ -86,6 +86,7 @@ import {
 	orderedCaseOperations,
 	type Uuid,
 } from "@/lib/domain";
+import { isKeyedRootCreate } from "@/lib/domain/basicCaseSlots";
 import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import { fieldValueType } from "@/lib/domain/fieldValueType";
@@ -226,19 +227,7 @@ export function operationGuardKinds(operation: CaseOperation): GuardKind[] {
 	return kinds;
 }
 
-/**
- * A create at the form root whose id is built from an answer. Its block sits
- * in a one-row repeat, the one place HQ's form builder keeps a create's id as
- * a live bind.
- */
-export function isKeyedRootCreate(operation: CaseOperation): boolean {
-	return (
-		operation.action === "create" &&
-		operation.forEach === undefined &&
-		operation.target.kind === "new" &&
-		operation.target.idFrom !== undefined
-	);
-}
+export { isKeyedRootCreate } from "@/lib/domain/basicCaseSlots";
 
 /**
  * The trimmed sibling of the question at `path`, which every write of a case

@@ -1159,7 +1159,9 @@ const USER_MESSAGE_BY_CODE: Record<
 	SEARCH_NO_MATCHES_ENTRY_REQUIRES_SEARCH_FIRST: (e) =>
 		`${q(formName(e))} opens when a search finds nothing, but ${q(modName(e))} doesn't open on Search. Turn Search first on for the module, or make this a menu form again.`,
 	SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION: (e) =>
-		`${q(formName(e))} opens when a search finds nothing, so it needs to register a new case. Make it a registration form, or make it a menu form again.`,
+		det(e, "reason", "") === "own-case-save-to-case"
+			? `${q(formName(e))} opens when a search finds nothing, so CommCare needs Case Management to register its new case, but the form saves that case through Save to Case. You can change the form's case so Case Management can hold it, or make this a menu form again.`
+			: `${q(formName(e))} opens when a search finds nothing, so it needs to register a new case. Make it a registration form, or make it a menu form again.`,
 	SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION: (e) =>
 		`${q(formName(e))} opens when a search finds nothing. It can return to Results or First menu, but can't have after-submit links, a display condition, or be taken off the menu. Clear those settings, or make it a menu form again.`,
 	SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN: (e) =>
@@ -1267,6 +1269,8 @@ const USER_MESSAGE_BY_CODE: Record<
 				? `${subject} reads what the worker typed into a case list's search box, but ${form} opens after ${caseLists} case lists, so CommCare can't tell which search it means. You can read it in a form that opens after one case list.`
 				: `${subject} reads what the worker typed into a case list's search box, but ${form} doesn't open after a case list. You can read a question or a case property instead.`;
 		}
+		if (det(e, "reason", "") === "own-case-save-to-case")
+			return `${subject} reads the case ${form} creates, which the form saves through Save to Case, so CommCare keeps no session value with that case's id. You can let Case Management hold the form's case, or read ${alternative} instead.`;
 		if (det(e, "reason", "") === "target-not-requested")
 			return `${subject} carries a selected record the destination no longer asks for. You can remove that carried value or choose another destination.`;
 		const menu = q(det(e, "datumModuleName", "that menu"));
@@ -1283,9 +1287,9 @@ const USER_MESSAGE_BY_CODE: Record<
 			case "selected-case":
 				return `${subject} reads the case chosen in ${q(det(e, "datumModuleName", "that menu"))}, but ${form} no longer opens with that choice, so CommCare can't open the form. You can choose the case before this form, or read ${alternative} instead.`;
 			case "new-case":
-				return `${subject} reads the id of the case ${form} registers, but the form no longer registers one. You can read ${alternative} instead.`;
+				return `${subject} reads the id of the case ${form} registers, but CommCare no longer keeps that id in a session value: the form registers no case, or saves it through Save to Case. You can read ${alternative} instead.`;
 			case "new-child-case":
-				return `${subject} reads the id of a new ${det(e, "datumCaseType", "child")} case, but this form no longer creates one shared case outside a repeat. You can read ${alternative} instead.`;
+				return `${subject} reads the id of a new ${det(e, "datumCaseType", "child")} case, but this form no longer creates one through Case Management outside a repeat, so CommCare keeps no session value with its id. You can read ${alternative} instead.`;
 			case "worker-record":
 				return `${subject} reads the id of the worker's own record, but ${form} no longer saves to it. You can read #user/ values instead.`;
 			case "tile-group-parents":

@@ -1718,10 +1718,16 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   by `test_case_emission.py::_check_edited`), rather than an edit of
   `lib/commcare/__tests__/caseOperationFixture.ts`.
 - **`proof/checks/intent.py` classifies a write by what Case Management can state**
-  (`_case_management_holds`): it cannot run Nova's planner, so the own case, the worker's record and
-  a parent-linked child of a Case Management own case with bare answers and no write condition are
-  Case Management's, a several-case menu's own case is Save to Case's, and a `via` write is no custom
-  property of either case.
+  (`_case_management_holds`): it cannot run Nova's planner, so it restates `placement.ts`'s slot rules
+  in Python. The own case is Case Management's only with no link, no write condition, every value one
+  question's answer as it is (a field read with no filter and no role, or a capture's link) from a
+  question in no repeat, and on a registration an open and a close condition Case Management states
+  and no change of the new case before its create; the worker's record takes its one slot by the same
+  value rules; a child is Case Management's only as a `parent` child of a Case Management own case of a
+  menu's case type other than the menu's own, named from its own repeat, under a condition Case
+  Management states and changed by no later operation but the close that shares its slot. A held
+  Save to Case block is Save to Case's, a several-case menu's own case is Save to Case's, and a `via`
+  write is no custom property of either case.
 - **`proof/corpus/footprint.ts` gains an `ownCaseType` derivation**: the own arm stores no case type,
   so a module retype changes its registration, follow-up and close forms' wire with no field edit.
 - **Two corpus fixtures change content to meet the own-case rules**: `case-operation-retype`'s close

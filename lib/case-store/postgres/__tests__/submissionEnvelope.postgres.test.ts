@@ -910,7 +910,9 @@ describe("ordered selected-case batches", () => {
 					{
 						formFields: [
 							["11111111-1111-4111-8111-111111111111", " \t\n"],
-							["22222222-2222-4222-8222-222222222222", "\u0000 \r"],
+							// A control character Java's trim removes (no form answer
+							// holds U+0000, which XML cannot carry).
+							["22222222-2222-4222-8222-222222222222", "\u0001 \r"],
 							["33333333-3333-4333-8333-333333333333", []],
 						],
 					},

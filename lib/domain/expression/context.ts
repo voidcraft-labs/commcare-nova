@@ -1,3 +1,4 @@
+import { registrationMintsOwnCaseId } from "../basicCaseSlots";
 import type { BlueprintDoc, CaseType } from "../blueprint";
 import type { CasePropertyDataType } from "../casePropertyTypes";
 import {
@@ -133,6 +134,12 @@ export interface FormExpressionFacts extends FormStructure {
 		}
 	>;
 	readonly readableCaseTypes: ReadonlyMap<string, ReadonlySet<string>>;
+	/** False on a registration whose entry gives the case it creates no
+	 * session value (its change is a Save to Case block,
+	 * `basicCaseSlots.ts::registrationMintsOwnCaseId`): no read of that case
+	 * or the cases above it has an id to start from. True on every other
+	 * form. */
+	readonly ownCaseIdMinted: boolean;
 	readonly searchInputs: readonly SearchInputDecl[];
 	readonly noMatchesForm: boolean;
 	/** Whether the form's module opens on its search, so its forms open
@@ -507,6 +514,10 @@ function buildFormFacts(
 			module?.caseType,
 			structure.type,
 		),
+		ownCaseIdMinted:
+			structure.type !== "registration" ||
+			doc.forms[structure.formUuid]?.type !== "registration" ||
+			registrationMintsOwnCaseId(doc, structure.formUuid),
 	};
 }
 export function formExpressionFacts(

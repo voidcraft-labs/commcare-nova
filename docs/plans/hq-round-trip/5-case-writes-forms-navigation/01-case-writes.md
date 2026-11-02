@@ -2166,8 +2166,10 @@ From the research, the outline and the owner brief, each with its reason.
     allocates the datum), and its placement is `{save-to-case, repeat: <its forEach>, path:
     [nova_selected_cases, item, nova_operations, nova_subcase_<n>]}`, the source-lowered block
     `main` writes in the selected-case row (`lib/commcare/placement.ts::PlannedBasicSubcase.inSource`).
-    Pull request 7 removes it with the extension branch. Until then a form link may name that
-    datum, which no selected case's child holds, as it could on `main`.
+    Pull request 7 removes it with the extension branch. Until then the entry still supplies no
+    such datum to a form link (`lib/domain/entryDatumSupplies.ts` adds a root child's datum only
+    on a registration or a one-case menu), so a link that reads it is refused as
+    `SESSION_DATUM_NOT_SUPPLIED`, as on `main`.
 28. **`lib/domain/caseWriteViews.ts` reads the reference index through a domain-side query**
     (§16 has the view find its forms through the index, which on `main` is queried only from
     `lib/doc/referenceIndex.ts::referencingCarrierUuids`): `lib/domain` may not import
@@ -2270,6 +2272,43 @@ From the research, the outline and the owner brief, each with its reason.
     and leaves such a write out of the program (`caseDataBindingHelpers.ts::buildCaseOperationProgramFromDoc`).
     No byte of `main` moves: `main` wrote neither the own arm nor the worker-record update in Save to
     Case. A name, whose text guard refuses a blank, keeps its row.
+41. **A registration whose own arm takes Save to Case supplies no `new-case` session value.** §5.1
+    says the `new-case` read keeps reading the same id, and §5.3 rule 4 that an index names
+    `case_id_new_<type>_0`; HQ gives that datum only where `open_case` is active
+    (`suite_xml/sections/entries.py::EntriesHelper.get_new_case_id_datums_meta`), which is where the
+    own arm takes the basic slot. Where it takes Save to Case (an open condition Case Management can't
+    state, a computed name, a link, a change before the create, a hold), the entry has no such datum,
+    so the checker refuses a read of the case the form creates or the cases above it
+    (`SESSION_DATUM_NOT_SUPPLIED`, reason `own-case-save-to-case`, in form logic and after-submit
+    links alike), a `session-datum {new-case}` read is refused by the supplies, and a held own close
+    block reads the own block's id (`caseOps.ts::ownCreateIdAt`). Printing the block's id instead was
+    not chosen: a form-logic read would need a `current()` path from every slot that reads it, which
+    `formCasePropertyRead` has no target path for, and a session-scope read after the form closes has
+    no block to read. A form a search with no matches offers must take the basic slot
+    (`SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION`, reason `own-case-save-to-case`): HQ's build admits a
+    case-list form only with `open_case` active (`models/forms.py::FormBase.is_registration_form`,
+    `helpers/validators.py::ModuleBaseValidator.validate_case_list_form`), and its return frame reads
+    that datum.
+42. **The slot eligibility of the own arm and the creates lives in `lib/domain/basicCaseSlots.ts`.**
+    `newChildCaseTypes` approximated which creates take a basic subcase slot and disagreed with
+    `placement.ts` (a create's own condition, the own arm's slot, a name in a repeat, a label value, a
+    later change, a stale hold), so the checker admitted `new-child-case` reads the wire never
+    supplies. The eligibility conditions, the held slots and the subcase index choice moved into the
+    domain (`basicCaseSlots`), which `placement.ts::planPlacements`, `entryDatumSupplies`
+    (`registrationMintsOwnCaseId`, `rootBasicSubcaseCreates`) and Preview's named creates
+    (`caseDataBindingHelpers.ts::entryNamedCreates`) all read; `placement.ts` keeps the worker's record,
+    the closes and every Save to Case path. `saveToCaseBlockShape` reads the own arm's and a create's
+    shape from the domain (`ownOrCreateBlockShape`) and `moduleCaseTypeForActions` is the domain's. No
+    corpus byte moved.
+43. **A new catalog entry a question's answer creates takes the question kind's type, as `main`'s
+    did.** `main`'s `ensureCatalogProperty` stamped `caseDataTypeForFieldKind` onto the entry a field's
+    "Saves to" added; the case-operation catalog chokepoint (`scaffolds.ts::catalogMutationsForOperations`)
+    declared the property with no `data_type`. The case list emitters read the effective catalog and
+    the translation inventory reads the stored one, so a select's saved property took no choice list
+    (`updateCaseProperty` refused it as text) and the labels the case list shows were missing from the
+    inventory. The chokepoint now stamps the type of a write whose value is a question's answer as it
+    is, and `updateCaseProperty` checks a choice list against the effective type where the entry
+    stores none. No corpus byte moved.
 
 ## 28. Files by pull request
 

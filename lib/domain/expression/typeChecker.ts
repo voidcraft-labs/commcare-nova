@@ -2888,6 +2888,17 @@ function inferTerm(
 		}
 		case "form-case": {
 			if (
+				"form" in ctx &&
+				ctx.form?.type === "registration" &&
+				!ctx.form.ownCaseIdMinted &&
+				ctx.form.readableCaseTypes.get(term.caseType)?.has(term.property)
+			)
+				return fail(
+					"datum-not-supplied",
+					"This form saves the case it creates through Save to Case, so CommCare keeps no session value with that case's id for this read. You can let Case Management hold the form's case, or remove this read.",
+					"own-case-save-to-case",
+				);
+			if (
 				!("form" in ctx) ||
 				!ctx.form?.readableCaseTypes.get(term.caseType)?.has(term.property)
 			)

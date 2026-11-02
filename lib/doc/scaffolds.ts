@@ -23,6 +23,8 @@ import {
 	CASE_SCALAR_PROPERTY_NAMES,
 	type CaseListConfig,
 	type CaseOperation,
+	caseDataTypeForFieldKind,
+	caseWriteValueField,
 	type Expression,
 	type Form,
 	type FormType,
@@ -253,12 +255,23 @@ export function catalogMutationsForOperations(
 			const properties = declared.get(destination.caseType) as Set<string>;
 			if (properties.has(write.property)) continue;
 			properties.add(write.property);
+			// A question's answer saved as it is seeds the new entry's type
+			// from the question's kind, as a field's "Saves to" always has: a
+			// select's choices then belong to a select property.
+			const source = caseWriteValueField(write.value);
+			const field =
+				source === undefined || source.link
+					? undefined
+					: doc.fields[source.field];
+			const dataType =
+				field === undefined ? undefined : caseDataTypeForFieldKind(field.kind);
 			mutations.push({
 				kind: "addCaseProperty",
 				caseType: destination.caseType,
 				property: {
 					name: write.property,
 					label: proseText(humanizeId(write.property)),
+					...(dataType !== undefined && { data_type: dataType }),
 				},
 			});
 		}

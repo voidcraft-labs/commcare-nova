@@ -1,12 +1,11 @@
+import {
+	registrationMintsOwnCaseId,
+	rootBasicSubcaseCreates,
+} from "./basicCaseSlots";
 import type { BlueprintDoc } from "./blueprint";
-import { caseWriteValueField } from "./caseWriteViews";
 import type { FormStructure } from "./expression/formStructure";
 import { type DatumRef, datumRefKey } from "./expression/types";
-import {
-	CASE_LOADING_FORM_TYPES,
-	type Form,
-	type FormLinkTarget,
-} from "./forms";
+import { CASE_LOADING_FORM_TYPES, type FormLinkTarget } from "./forms";
 import { menuFormUuidsOf, moduleIsCaseFirst } from "./menuForms";
 import { moduleParent } from "./moduleHierarchy";
 import {
@@ -229,27 +228,28 @@ function suppliedAtEntry(
 		const form =
 			prepared?.formUuid === entry.form ? prepared : doc.forms[entry.form];
 		if (form === undefined) return EMPTY_SUPPLIES;
-		if (form.type === "registration" && mod.caseType !== undefined)
-			add({ kind: "new-case" });
 		// A prepared structure carries no case operations: what a form saves
 		// is its saved operations, which the commit gate checks again over
-		// the committed document.
+		// the committed document. The case a registration creates, and each
+		// child it creates at the root, has a session value only where its
+		// change takes a slot of Case Management (`basicCaseSlots.ts`).
 		const saved = doc.forms[entry.form];
+		if (
+			form.type === "registration" &&
+			mod.caseType !== undefined &&
+			(saved === undefined ||
+				saved.type !== "registration" ||
+				registrationMintsOwnCaseId(doc, entry.form))
+		)
+			add({ kind: "new-case" });
 		if (saved !== undefined) {
 			if (savesToWorkerRecord(saved)) add({ kind: "worker-record" });
 			if (
-				form.type === "registration" ||
-				caseSelectionCardinality(mod) === "single"
+				mod.caseType !== undefined &&
+				(form.type === "registration" ||
+					caseSelectionCardinality(mod) === "single")
 			)
-				for (const caseType of newChildCaseTypes(
-					saved,
-					mod.caseType,
-					new Set(
-						Object.values(doc.modules).flatMap((module) =>
-							module.caseType === undefined ? [] : [module.caseType],
-						),
-					),
-				))
+				for (const { caseType } of rootBasicSubcaseCreates(doc, entry.form))
 					add({ kind: "new-child-case", caseType });
 		}
 		if (
@@ -491,64 +491,4 @@ export function entryDatumSupplies(
 	}
 	byPoint.set(key, result);
 	return result;
-}
-
-/**
- * The case types of the children a form creates outside a repeat whose case
- * id the entry carries in a session value, in operation order: CommCare HQ's
- * basic subcases at the form root (`subcase_<i>`, each given its id datum).
- * A create is one where its placement is held there, or, with no held
- * placement, where it has that shape: a new case not keyed by an answer, one
- * `parent` link to the form's own case, a case type some menu lists and the
- * form's own case does not, and a name, an owner and writes that each save
- * one question's answer as it is, with no write condition. The link may be
- * an extension: such a create keeps HQ's inert basic subcase beside its Save
- * to Case block (`lib/commcare/placement.ts::isFieldWrittenExtension`), and
- * HQ gives that subcase its id datum too. A same-type child takes a Save to
- * Case block, which no session value names.
- */
-function newChildCaseTypes(
-	form: Pick<Form, "type" | "caseOperations">,
-	moduleCaseType: string | undefined,
-	menuCaseTypes: ReadonlySet<string>,
-): string[] {
-	const operations = form.caseOperations ?? [];
-	const own = operations.find((operation) => operation.action === "own");
-	if (moduleCaseType === undefined || own === undefined) return [];
-	const types: string[] = [];
-	for (const operation of operations) {
-		if (operation.action !== "create" || operation.forEach !== undefined)
-			continue;
-		const held = operation.placement;
-		if (held !== undefined) {
-			if (held.kind === "basic" && held.slot === "subcase")
-				types.push(operation.caseType);
-			continue;
-		}
-		const link = operation.links?.[0];
-		const toOwnCase =
-			link?.target?.kind === "session"
-				? form.type !== "registration"
-				: link?.target?.kind === "op" && link.target.opUuid === own.uuid;
-		if (
-			operation.target.kind !== "new" ||
-			operation.target.idFrom !== undefined ||
-			operation.links?.length !== 1 ||
-			link?.identifier !== "parent" ||
-			!toOwnCase ||
-			operation.caseType === moduleCaseType ||
-			!menuCaseTypes.has(operation.caseType) ||
-			caseWriteValueField(operation.name) === undefined ||
-			(operation.owner !== undefined &&
-				caseWriteValueField(operation.owner) === undefined) ||
-			(operation.writes ?? []).some(
-				(write) =>
-					write.condition !== undefined ||
-					caseWriteValueField(write.value) === undefined,
-			)
-		)
-			continue;
-		types.push(operation.caseType);
-	}
-	return types;
 }

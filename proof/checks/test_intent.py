@@ -127,6 +127,8 @@ def _document():
                 "caseType": "patient",
                 "caseListConfig": {"selection": {"kind": "multiple", "maximum": 10}},
             },
+            # A menu of visits, so a visit is a case type Case Management offers a child of.
+            "m-visits": {"uuid": "m-visits", "id": "visits", "name": "Visits", "caseType": "visit"},
         },
         "forms": {
             "form-register": {
@@ -433,6 +435,150 @@ def test_the_expected_data_dictionary_follows_the_slots_hqs_refresh_reads():
         "patient": {"age", "height"},
         "commcare-user": {"visits", "steps"},
     }
+
+
+def _registration_then_save_to_case(own=None, *, form=None, others=()):
+    """A Patients menu whose registration saves ``age`` to its own case (``own`` overrides the own arm), then a
+    follow-up that saves ``weight`` to the patient through Save to Case (a value no question gives as it is)."""
+    fields = dict(
+        [
+            _field("f-name", "text", "name"),
+            _field("f-age", "int", "age"),
+            _field("f-flag", "hidden", "flag"),
+            _field("f-repeat", "repeat", "rows"),
+            _field("f-row-age", "int", "row_age"),
+            _field("f-weight", "int", "weight"),
+        ]
+    )
+    own_arm = {
+        "uuid": "op-own",
+        "id": "patient",
+        "action": "own",
+        "name": _answer("f-name"),
+        "writes": [{"property": "age", "value": _answer("f-age")}],
+        **(own or {}),
+    }
+    doc = {
+        "appName": "Clinic",
+        "modules": {"m": {"uuid": "m", "id": "patients", "name": "Patients", "caseType": "patient"}},
+        "forms": {
+            "form-register": {
+                "uuid": "form-register",
+                "type": "registration",
+                **(form or {}),
+                "caseOperations": [own_arm, *others],
+            },
+            "form-weigh": {
+                "uuid": "form-weigh",
+                "type": "followup",
+                "caseOperations": [
+                    {
+                        "uuid": "op-weigh",
+                        "id": "patient",
+                        "action": "own",
+                        "writes": [
+                            {
+                                "property": "weight",
+                                "value": {
+                                    "kind": "concat",
+                                    "parts": [_answer("f-weight"), _answer("f-weight")],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+        "fields": fields,
+        "formOrder": {"m": ["form-register", "form-weigh"]},
+        "fieldOrder": {
+            "form-register": ["f-name", "f-age", "f-flag", "f-repeat"],
+            "f-repeat": ["f-row-age"],
+            "form-weigh": ["f-weight"],
+        },
+    }
+    read = intent.document_intent(
+        {"doc": doc, "wire": {"modules": [{"uuid": "m", "forms": list(doc["formOrder"]["m"])}]}}
+    )
+    return intent.expected_dictionary(read, SAVE_TO_CASE)
+
+
+@pytest.mark.parametrize(
+    "own, form, others",
+    [
+        # An open condition Case Management cannot state (a comparison of a number).
+        (
+            None,
+            {
+                "openCondition": {
+                    "kind": "gt",
+                    "left": _answer("f-age"),
+                    "right": {"kind": "term", "term": {"kind": "literal", "value": 5}},
+                }
+            },
+            (),
+        ),
+        # A link on the form's own case.
+        (
+            {
+                "links": [
+                    {
+                        "identifier": "host",
+                        "targetType": "patient",
+                        "target": {"kind": "session"},
+                        "relationship": "extension",
+                    }
+                ]
+            },
+            None,
+            (),
+        ),
+        # A value read from a question in a repeat.
+        ({"writes": [{"property": "age", "value": _answer("f-row-age")}]}, None, ()),
+        # A filtered read, and a read in a role.
+        (
+            {
+                "writes": [
+                    {
+                        "property": "age",
+                        "value": {"kind": "term", "term": {"kind": "field", "uuid": "f-age", "role": "current"}},
+                    }
+                ]
+            },
+            None,
+            (),
+        ),
+        # An update of the new case standing before its create.
+        (
+            None,
+            None,
+            (
+                {
+                    "uuid": "op-touch",
+                    "id": "touch",
+                    "action": "update",
+                    "caseType": "patient",
+                    "target": {"kind": "op", "opUuid": "op-own"},
+                    "writes": [],
+                },
+            ),
+        ),
+        # A held Save to Case block.
+        ({"placement": {"kind": "save-to-case", "path": ["nova_operations", "patient"]}}, None, ()),
+    ],
+)
+def test_a_registration_case_management_cannot_state_is_saved_where_save_to_case_merges(own, form, others):
+    """HQ's refresh merges each form's Save to Case over the last one's (``dict.update``), so a registration whose
+    own case takes Save to Case keeps no row a later form's Save to Case replaces: the intent restates what
+    ``lib/commcare/placement.ts`` puts in Save to Case, and expects no unconditional row for it."""
+    assert _registration_then_save_to_case(own, form=form, others=others) == {"patient": {"weight"}}
+
+
+def test_a_registration_case_management_states_keeps_its_row_beside_a_later_save_to_case():
+    """The counterpart: a registration that saves an answer as it is, under a condition Case Management states,
+    is Case Management's, whose update HQ's refresh adds whatever Save to Case holds."""
+    stated = {"openCondition": _answer("f-flag")}
+    assert _registration_then_save_to_case(form=stated) == {"patient": {"age", "weight"}}
 
 
 SUITE_PRIVILEGES = frozenset({"CLOUDCARE", "USERCASE", "VELLUM_SAVE_TO_CASE"})

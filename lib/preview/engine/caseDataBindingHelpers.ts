@@ -100,6 +100,7 @@ import {
 	TIME_SINCE_UNIT_DAYS,
 	type Uuid,
 } from "@/lib/domain";
+import { rootBasicSubcaseCreates } from "@/lib/domain/basicCaseSlots";
 import {
 	CAPTURE_EXTENSIONS_BY_KIND,
 	captureContentType,
@@ -2046,13 +2047,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 	for (const [field, value] of Object.entries(session.context)) {
 		if (value !== undefined) sessionContext.set(field, value);
 	}
-	const entryCaseKeys = entryNamedCreates(
-		doc,
-		formUuid,
-		form.type,
-		operations,
-		own?.uuid,
-	);
+	const entryCaseKeys = entryNamedCreates(doc, formUuid, form.type, own?.uuid);
 	return {
 		...ordinaryStructure,
 		program: {
@@ -2179,14 +2174,14 @@ function viaDestinationTypes(
  * The creates the committed entry's session names, by operation uuid, with
  * the key of the datum holding each one's id (`entryCreatedCaseKeys`): a
  * registration's own case (`new-case`), and for each `new-child-case:<type>`
- * the first create of that type at the form's root that names no key of its
- * own and links its `parent` to the form's own case.
+ * the first basic subcase of that type at the form's root
+ * (`lib/domain/basicCaseSlots.ts::rootBasicSubcaseCreates`), the create the
+ * wire's datum of that type names.
  */
 function entryNamedCreates(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	formType: FormType,
-	operations: readonly CaseOperation[],
 	ownUuid: Uuid | undefined,
 ): ReadonlyMap<Uuid, string> {
 	const keys = entryCreatedCaseKeys(doc, formUuid);
@@ -2195,26 +2190,14 @@ function entryNamedCreates(
 	if (formType === "registration" && keys.has("new-case"))
 		named.set(ownUuid, "new-case");
 	const taken = new Set<string>();
-	for (const operation of operations) {
-		if (
-			operation.action !== "create" ||
-			operation.forEach !== undefined ||
-			operation.target.kind !== "new" ||
-			operation.target.idFrom !== undefined
-		)
-			continue;
-		const key = `new-child-case:${operation.caseType}`;
+	for (const { operationUuid, caseType } of rootBasicSubcaseCreates(
+		doc,
+		formUuid,
+	)) {
+		const key = `new-child-case:${caseType}`;
 		if (!keys.has(key) || taken.has(key)) continue;
-		const link = operation.links?.[0];
-		const toOwnCase =
-			operation.links?.length === 1 &&
-			link?.identifier === "parent" &&
-			(link.target?.kind === "session"
-				? formType !== "registration"
-				: link?.target?.kind === "op" && link.target.opUuid === ownUuid);
-		if (!toOwnCase) continue;
 		taken.add(key);
-		named.set(operation.uuid, key);
+		named.set(operationUuid, key);
 	}
 	return named;
 }

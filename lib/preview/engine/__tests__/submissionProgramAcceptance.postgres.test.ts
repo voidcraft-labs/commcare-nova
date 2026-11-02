@@ -26,9 +26,9 @@ import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
 	eq,
 	formField,
-	isIn,
 	literal,
 	matchNone,
+	or,
 	tableColumn,
 	tableLookup,
 	term,
@@ -388,10 +388,9 @@ describe("engine → builder → executor acceptance", () => {
 						...draft.forms[formUuid],
 						// Create the case on consent; close it again at once when
 						// the answer also says to close it.
-						openCondition: isIn(
-							formField(consent.uuid),
-							literal("yes"),
-							literal("yes and close"),
+						openCondition: or(
+							eq(formField(consent.uuid), literal("yes")),
+							eq(formField(consent.uuid), literal("yes and close")),
 						),
 						closeCondition: eq(
 							formField(consent.uuid),

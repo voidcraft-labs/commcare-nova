@@ -10,7 +10,14 @@ import {
 } from "@/lib/case-store";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { commitAppProjectMove } from "@/lib/db/apps";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import type { Mutation } from "@/lib/doc/types";
 import { USERCASE_CASE_TYPE } from "@/lib/domain";
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
@@ -58,28 +65,30 @@ async function create(projectId = PROJECT) {
 	);
 	const field = Object.values(birth.blueprint.fields)[0];
 	if (field.kind !== "text") throw new Error("Expected canonical text starter");
+	// The worker property, then the question's "Saves to" the worker's record,
+	// planned as the builder plans it: an update of the worker's record.
+	const property: Mutation = {
+		kind: "addUserProperty",
+		property: { uuid: PROPERTY, slug: "visits", label: "Visits" },
+	};
+	const withProperty = mutationCommitVerdict(
+		hydratePersistedBlueprint(birth.blueprint),
+		[property],
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!withProperty.ok) throw new Error("The worker property was refused.");
+	const write = planFieldCaseWrite(withProperty.nextDoc, field.uuid, {
+		caseType: USERCASE_CASE_TYPE,
+		property: "visits",
+	});
+	if (!write.ok) throw new Error(write.message);
 	const edited = await applyBlueprintChangeProposal({
 		appId: birth.appId,
 		userId: ACTOR,
 		expectedProjectId: projectId,
 		batchId: crypto.randomUUID(),
 		kind: "autosave",
-		guard: {
-			mutations: [
-				{
-					kind: "addUserProperty",
-					property: { uuid: PROPERTY, slug: "visits", label: "Visits" },
-				},
-				{
-					kind: "updateField",
-					uuid: field.uuid,
-					targetKind: "text",
-					patch: {
-						caseWrite: { caseType: USERCASE_CASE_TYPE, property: "visits" },
-					},
-				},
-			],
-		},
+		guard: { mutations: [property, ...write.mutations] },
 	});
 	return {
 		appId: birth.appId,

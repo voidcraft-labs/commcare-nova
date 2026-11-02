@@ -146,8 +146,13 @@ describe("scalar destinations and the authored property catalog", () => {
 	it("registers a custom destination and preserves it after the writer is cleared", () => {
 		const start = base();
 		const doc = commit(start, saveTo(start, FIELD, "favorite_color"));
+		// The new entry takes the text question's type.
 		expect(doc.caseTypes?.[0].properties).toEqual([
-			{ name: "favorite_color", label: proseText("Favorite color") },
+			{
+				name: "favorite_color",
+				label: proseText("Favorite color"),
+				data_type: "text",
+			},
 		]);
 		const cleared = commit(doc, saveTo(doc, FIELD, null));
 		expect(savesTo(cleared, FIELD)).toEqual([]);

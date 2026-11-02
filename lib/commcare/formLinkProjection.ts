@@ -1,4 +1,5 @@
 import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
+import { moduleCaseTypeForActions as domainModuleCaseTypeForActions } from "@/lib/domain/basicCaseSlots";
 /**
  * After-submit links: the ONE projection both wire paths and the validator
  * read.
@@ -265,18 +266,7 @@ export interface HqSelectionBoundMismatch {
  * `buildFormActions` on this and the compiler gates the entry's case datum
  * on it, so the projection must read the same answer.
  */
-export function moduleCaseTypeForActions(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
-): string {
-	const mod = doc.modules[moduleUuid];
-	if (mod === undefined || !mod.caseType) return "";
-	const formUuids = doc.formOrder[moduleUuid] ?? [];
-	const hasCases =
-		mod.caseListOnly === true ||
-		formUuids.some((formUuid) => doc.forms[formUuid]?.type !== "survey");
-	return hasCases ? mod.caseType : "";
-}
+export const moduleCaseTypeForActions = domainModuleCaseTypeForActions;
 
 export function formLinkProjectionContext(
 	doc: BlueprintDoc,

@@ -11,7 +11,9 @@
  *     module that opens on Search.
  *   - `SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION`: CommCare HQ's build
  *     validator admits only a registration form of the module's case type
- *     as a case-list form (`ModuleBaseValidator.validate_case_list_form`).
+ *     as a case-list form (`ModuleBaseValidator.validate_case_list_form`),
+ *     one whose `open_case` action is active (`FormBase.is_registration_form`),
+ *     so its own arm takes Case Management's slot.
  *   - `SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION`: after submit is Results
  *     or explicit `firstMenu`, and the form is never on a menu, so
  *     after-submit links, another after-submit choice, a display condition
@@ -34,6 +36,7 @@ import {
 	moduleOpensOnSearch,
 	type Uuid,
 } from "@/lib/domain";
+import { registrationMintsOwnCaseId } from "@/lib/domain/basicCaseSlots";
 import { type ValidationError, validationError } from "../../errors";
 
 export function searchNoMatchesEntry(
@@ -68,6 +71,24 @@ export function searchNoMatchesEntry(
 				"form",
 				`Form "${form.name}" opens after a search finds no matches, so it must register a new "${mod.caseType ?? ""}" case, but it is a ${form.type} form. Make it a registration form, or clear the form's entry.`,
 				loc,
+			),
+		);
+	}
+	// HQ's build admits a case-list form only where its `open_case` action is
+	// active (`FormBase.is_registration_form`), which is where the own arm
+	// takes the basic slot; the return frame also reads the entry's
+	// new-case datum, which HQ gives only that action.
+	else if (
+		mod.caseType !== undefined &&
+		!registrationMintsOwnCaseId(doc, formUuid)
+	) {
+		errors.push(
+			validationError(
+				"SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION",
+				"form",
+				`Form "${form.name}" opens after a search finds no matches, so CommCare HQ needs Case Management to register its new "${mod.caseType}" case, but the form saves that case through Save to Case. Change the form's case so Case Management can hold it, or clear the form's entry.`,
+				loc,
+				{ reason: "own-case-save-to-case" },
 			),
 		);
 	}

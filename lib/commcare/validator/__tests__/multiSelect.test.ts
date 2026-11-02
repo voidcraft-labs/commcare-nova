@@ -183,7 +183,16 @@ function linkExpressionDoc(options: {
 						name: "Create visits",
 						type: "followup",
 						postSubmit: "app_home",
-						fields: [f({ kind: "text", id: "visit_name" })],
+						fields: [
+							f({
+								kind: "text",
+								id: "visit_name",
+								caseWrite: {
+									caseType: "visit",
+									property: "case_name",
+								},
+							}),
+						],
 						formLinks: [
 							{
 								...(options.condition !== undefined && {
@@ -717,6 +726,42 @@ describe("multi-select absolute validation", () => {
 		delete doc.forms[SOURCE_FORM].formLinks;
 		expectAdmittedDoc(doc);
 	});
+
+	it.each([
+		{
+			surface: "condition",
+			options: {
+				condition: neq(
+					{
+						kind: "session-datum",
+						datum: { kind: "new-child-case", caseType: "visit" },
+					},
+					literal(""),
+				),
+			},
+		},
+		{
+			surface: "carried value",
+			options: {
+				datumXpath: term({
+					kind: "session-datum",
+					datum: { kind: "new-child-case", caseType: "visit" },
+				}),
+			},
+		},
+	])(
+		"refuses a link $surface that reads the one new child a form makes per selected parent",
+		({ options }) => {
+			// The form makes a visit under each selected patient, so its entry
+			// supplies no one new visit for a link to read.
+			expect(codes(linkExpressionDoc({}))).not.toContain(
+				"SESSION_DATUM_NOT_SUPPLIED",
+			);
+			expect(codes(linkExpressionDoc(options))).toContain(
+				"SESSION_DATUM_NOT_SUPPLIED",
+			);
+		},
+	);
 
 	it.each([
 		"count(instance('commcaresession')/session/data/*) > 0",

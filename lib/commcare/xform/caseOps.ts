@@ -41,7 +41,6 @@ import {
 	planBasicSubcases,
 	planPlacements,
 } from "@/lib/commcare/placement";
-import { newCaseIdDatumId } from "@/lib/commcare/session";
 import { USERCASE_ID_FUNCTION } from "@/lib/commcare/usercaseWire";
 import {
 	type AttachmentUrlTarget,
@@ -75,6 +74,11 @@ import {
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
+import {
+	caseSlotFacts,
+	ownOrCreateBlockShape,
+	type SaveToCaseBlockSegment,
+} from "@/lib/domain/basicCaseSlots";
 import type {
 	Expression,
 	FormExpressionSlotRef,
@@ -108,7 +112,6 @@ import { FormPath, originalContextWirePath } from "./formPath";
 import {
 	type GeneratedNodePlan,
 	type GuardKind,
-	isKeyedRootCreate,
 	operationGuardKinds,
 	trimmedValuePath,
 	writesFixedTextColumn,
@@ -357,13 +360,7 @@ export function formEmitsSaveToCase(
  * answer, the group carrying the condition of a conditional update or
  * close, and the block itself.
  */
-export type SaveToCaseBlockSegment =
-	| "selected-cases"
-	| "selected-case"
-	| "operations"
-	| "keyed"
-	| "condition"
-	| "block";
+export type { SaveToCaseBlockSegment } from "@/lib/domain/basicCaseSlots";
 
 /**
  * The elements a Save to Case block for `subject` stands under, in order,
@@ -400,29 +397,25 @@ export function saveToCaseBlockShape(
 		throw new Error(
 			`Nova was asked for the Save to Case block of case change ${subject.operationUuid}, which form ${formUuid} does not hold.`,
 		);
-	if (operation.action === "own")
-		return severalCases
-			? ["selected-cases", "selected-case", "operations", "condition", "block"]
-			: ["operations", "block"];
+	if (operation.action === "own" || operation.action === "create")
+		return ownOrCreateBlockShape(caseSlotFacts(doc, formUuid), operation);
 	const inherited = caseOperationConditionalGuardUuids(
 		doc,
 		formUuid,
 		operations,
 	).get(operation.uuid);
 	const conditional =
-		operation.action !== "create" &&
-		(operation.condition !== undefined ||
-			[...(inherited ?? [])].some(
-				(uuid) =>
-					operations.find((candidate) => candidate.uuid === uuid)?.condition !==
-					undefined,
-			));
+		operation.condition !== undefined ||
+		[...(inherited ?? [])].some(
+			(uuid) =>
+				operations.find((candidate) => candidate.uuid === uuid)?.condition !==
+				undefined,
+		);
 	return [
 		...(severalCases && caseOperationRunsPerSelectedCase(operation)
 			? (["selected-cases", "selected-case"] as const)
 			: []),
 		"operations",
-		...(isKeyedRootCreate(operation) ? (["keyed"] as const) : []),
 		...(conditional ? (["condition"] as const) : []),
 		"block",
 	];
@@ -827,6 +820,28 @@ export function buildCaseOperations(
 	const operationByUuid = new Map(
 		operations.map((operation) => [operation.uuid, operation]),
 	);
+	const ownOperation = operations.find(
+		(operation) => operation.action === "own",
+	);
+	/** The id of the case a registration creates, read at `targetPath`: the
+	 *  session datum its entry mints where Case Management creates it, else
+	 *  its own Save to Case block's id, which stands before every reader. */
+	const ownCreateIdAt = (targetPath: FormPath): WireExpr => {
+		const minted =
+			ownOperation === undefined
+				? undefined
+				: basicCreateIds.get(ownOperation.uuid);
+		if (minted !== undefined) return minted;
+		const block =
+			ownOperation === undefined
+				? undefined
+				: priorCreates.get(ownOperation.uuid);
+		if (block === undefined)
+			throw new Error(
+				`Nova was asked for the id of the case registration form ${formUuid} creates, which neither Case Management nor a Save to Case block creates.`,
+			);
+		return originalContextWirePath(targetPath, block.casePath.attr("case_id"));
+	};
 	const inheritedGuardUuids = caseOperationConditionalGuardUuids(
 		doc,
 		formUuid,
@@ -2076,10 +2091,8 @@ export function buildCaseOperations(
 								: registration
 									? // The form's own new case: the datum its entry mints
 										// the id into, which HQ's build also sets the create
-										// block's id from.
-										sessionDatum(
-											newCaseIdDatumId(registrationCaseType(moduleCaseType)),
-										)
+										// block's id from, or its own block's id.
+										ownCreateIdAt(indexPath.child(indexId))
 									: selectedCaseIdRef,
 					},
 				},
@@ -2176,9 +2189,7 @@ export function buildCaseOperations(
 						xpath: {
 							nodeset: casePath.attr("case_id").toWire(),
 							calculate: registration
-								? sessionDatum(
-										newCaseIdDatumId(registrationCaseType(moduleCaseType)),
-									)
+								? ownCreateIdAt(casePath.attr("case_id"))
 								: selectedCaseIdRef,
 						},
 					},
