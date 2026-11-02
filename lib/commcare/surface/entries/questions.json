@@ -1245,7 +1245,7 @@
 		],
 		"valueClass": "unlabelled-group",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `group` with no label (Nova emits an unlabelled group without `field-list` today, `lib/commcare/xform/builder.ts`)",
+		"dispositionCell": "**HELD**: a `group` with no label and without `fieldList`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
