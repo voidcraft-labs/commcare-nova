@@ -13,8 +13,11 @@
 // `@count` or a relative `@current_index` (which a save rewrites), its
 // condition on the wrapper (which a save drops); a count-placement row that
 // stays relevant past the end of the result; a generated bind asking for a
-// `vellum:calculate`; the position or index node written when nothing reads
-// it, or missing when something does; a generated name that ignores an
+// `vellum:calculate`; the position node written when nothing reads it, or
+// missing when something does; a row id calculated from `position(..)`,
+// which Core cannot evaluate in a row that is not relevant, or a row id
+// set only by calculation, which a default reading it at insertion misses;
+// a generated name that ignores an
 // authored sibling; a nested count placement whose paths leave the outer row;
 // a direct count copied through a carrier, or a carrier dropped.
 
@@ -222,7 +225,7 @@ describe("a query repeat in the count placement", () => {
 			]),
 		);
 
-	it("holds its ids and count in the wrapper and its id in each row, before the authored children", () => {
+	it("holds its ids and count in the wrapper and its id and index in each row, before the authored children", () => {
 		const form = countPlacement();
 		const wrapper = child(form.data, "r");
 		expect(wrapper.attribs).toEqual({});
@@ -233,12 +236,30 @@ describe("a query repeat in the count placement", () => {
 		]);
 		const row = child(wrapper, "item");
 		expect(row.attribs).toEqual({ "jr:template": "" });
-		expect(names(row)).toEqual(["nova_query_id_r", "answer"]);
-		// The count placement fills its nodes by calculation alone.
-		expect(form.setvalues).toEqual([]);
+		expect(names(row)).toEqual([
+			"nova_query_id_r",
+			"nova_query_index_r",
+			"answer",
+		]);
+		// A row's id and index are set when the row is made, before any
+		// calculate runs, so a default reading the row's id finds it; the id
+		// is written first, in data-tree order.
+		expect(form.setvalues.map((e) => e.attribs)).toEqual([
+			{
+				event: "jr-insert",
+				ref: "/data/r/item/nova_query_id_r",
+				value:
+					"if(position(..) < ../../nova_query_count_r, selected-at(../../nova_query_ids_r, position(..)), '')",
+			},
+			{
+				event: "jr-insert",
+				ref: "/data/r/item/nova_query_index_r",
+				value: "position(..)",
+			},
+		]);
 	});
 
-	it("calculates the ids from the query, the count as a whole number, and each row's id by its position", () => {
+	it("calculates the ids from the query, the count as a whole number, and each row's id by its stored index", () => {
 		const form = countPlacement();
 		expect(form.bind("/data/r/nova_query_ids_r")).toEqual({
 			nodeset: "/data/r/nova_query_ids_r",
@@ -251,11 +272,18 @@ describe("a query repeat in the count placement", () => {
 			"vellum:nodeset": "#form/r/nova_query_count_r",
 			calculate: "count-selected(../nova_query_ids_r)",
 		});
+		// No calculate reads `position(..)`: in a row that is not relevant Core
+		// finds no node for `..` and throws, where the stored index reads blank.
 		expect(form.bind("/data/r/item/nova_query_id_r")).toEqual({
 			nodeset: "/data/r/item/nova_query_id_r",
 			"vellum:nodeset": "#form/r/item/nova_query_id_r",
 			calculate:
-				"if(position(..) < ../../nova_query_count_r, selected-at(../../nova_query_ids_r, position(..)), '')",
+				"if(../nova_query_index_r < ../../nova_query_count_r, selected-at(../../nova_query_ids_r, ../nova_query_index_r), '')",
+		});
+		expect(form.bind("/data/r/item/nova_query_index_r")).toEqual({
+			type: "xsd:int",
+			nodeset: "/data/r/item/nova_query_index_r",
+			"vellum:nodeset": "#form/r/item/nova_query_index_r",
 		});
 		for (const bind of form.binds.filter((e) =>
 			e.attribs.nodeset.includes("nova_query_"),
@@ -305,12 +333,12 @@ describe("a query repeat in the count placement", () => {
 		expect((outer.parent as Element).name).toBe("h:body");
 	});
 
-	it("writes the position and index nodes only while an expression reads them", () => {
+	it("writes the position node only while an expression reads it, and the index always", () => {
 		const unread = countPlacement();
 		expect(names(child(unread.data, "r"))).not.toContain(
 			"nova_query_position_r",
 		);
-		expect(names(child(child(unread.data, "r"), "item"))).not.toContain(
+		expect(names(child(child(unread.data, "r"), "item"))).toContain(
 			"nova_query_index_r",
 		);
 		const read = countPlacement([
@@ -340,11 +368,6 @@ describe("a query repeat in the count placement", () => {
 			nodeset: "/data/r/nova_query_position_r",
 			"vellum:nodeset": "#form/r/nova_query_position_r",
 			calculate: "count(../item)",
-		});
-		expect(read.bind("/data/r/item/nova_query_index_r")).toEqual({
-			nodeset: "/data/r/item/nova_query_index_r",
-			"vellum:nodeset": "#form/r/item/nova_query_index_r",
-			calculate: "position(..)",
 		});
 		expect(read.bind("/data/r/item/ordinal").calculate).toBe(
 			"current()/../nova_query_index_r",
@@ -377,7 +400,7 @@ describe("a query repeat in the count placement", () => {
 			"current()/../nova_query_index_r_1",
 		);
 		expect(form.bind("/data/r/item/nova_query_id_r_1").calculate).toBe(
-			"if(position(..) < ../../nova_query_count_r, selected-at(../../nova_query_ids_r, position(..)), '')",
+			"if(../nova_query_index_r_1 < ../../nova_query_count_r, selected-at(../../nova_query_ids_r, ../nova_query_index_r_1), '')",
 		);
 	});
 
@@ -402,6 +425,11 @@ describe("a query repeat in the count placement", () => {
 			"nova_query_count_inner",
 			"item",
 		]);
+		expect(names(child(inner, "item"))).toEqual([
+			"nova_query_id_inner",
+			"nova_query_index_inner",
+			"answer",
+		]);
 		expect(form.bind("/data/outer/item/inner/nova_query_ids_inner")).toEqual({
 			nodeset: "/data/outer/item/inner/nova_query_ids_inner",
 			"vellum:nodeset": "#form/outer/item/inner/nova_query_ids_inner",
@@ -410,7 +438,7 @@ describe("a query repeat in the count placement", () => {
 		expect(
 			form.bind("/data/outer/item/inner/item/nova_query_id_inner").calculate,
 		).toBe(
-			"if(position(..) < ../../nova_query_count_inner, selected-at(../../nova_query_ids_inner, position(..)), '')",
+			"if(../nova_query_index_inner < ../../nova_query_count_inner, selected-at(../../nova_query_ids_inner, ../nova_query_index_inner), '')",
 		);
 		const [outerRepeat, innerRepeat] = form.repeats;
 		// An absolute count inside a repeat resolves within the current outer
@@ -421,14 +449,16 @@ describe("a query repeat in the count placement", () => {
 		const wrapperGroup = innerRepeat.parent?.parent as Element;
 		expect(wrapperGroup.attribs).toEqual({ ref: "/data/outer/item/inner" });
 		expect(wrapperGroup.parent).toBe(outerRepeat);
-		// The outer model iteration seeds at form start; the inner one has no
-		// setvalue at all.
+		// The outer model iteration seeds at form start; each inner row sets
+		// its id and index when it is made.
 		expect(form.setvalues.map((e) => [e.attribs.event, e.attribs.ref])).toEqual(
 			[
 				["xforms-ready", "/data/outer/@ids"],
 				["xforms-ready", "/data/outer/@count"],
 				["jr-insert", "/data/outer/item/@index"],
 				["jr-insert", "/data/outer/item/@id"],
+				["jr-insert", "/data/outer/item/inner/item/nova_query_id_inner"],
+				["jr-insert", "/data/outer/item/inner/item/nova_query_index_inner"],
 			],
 		);
 	});
@@ -486,6 +516,7 @@ describe("a query repeat in the count placement", () => {
 		expect(names(child(child(form.data, "members"), "item"))).toEqual([
 			"case",
 			"nova_query_id_members",
+			"nova_query_index_members",
 			"case_name",
 			"nova_trimmed_case_name",
 		]);

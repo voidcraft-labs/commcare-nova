@@ -55,8 +55,23 @@ public class ContainerRuntimeTest {
    if(event==FormEntryController.EVENT_PROMPT_NEW_REPEAT&&user&&!created){controller.newRepeat();created=true;}
   }
  }
+ /** The first node `path` names, relevant or not: an evaluated nodeset leaves out every node that is not relevant
+  * (`XPathLazyNodeset.performEvaluation`), and a row past the end of a query's result is one, while
+  * `EvaluationContext.expandReference` keeps it. */
  private static org.javarosa.core.model.instance.TreeReference ref(FormDef form,String path)throws Exception {
-  return ((org.javarosa.xpath.XPathNodeset)org.javarosa.xpath.XPathParseTool.parseXPath(path).eval(form.getMainInstance(),form.getEvaluationContext())).getRefAt(0);
+  java.util.Vector<org.javarosa.core.model.instance.TreeReference> refs=held(form,path);
+  assertFalse(path+" names no node",refs.isEmpty());
+  return refs.elementAt(0);
+ }
+ /** Every node `path` names, relevant or not (`ref`). */
+ private static java.util.Vector<org.javarosa.core.model.instance.TreeReference> held(FormDef form,String path)throws Exception {
+  return form.getEvaluationContext().expandReference(((org.javarosa.xpath.expr.XPathPathExpr)org.javarosa.xpath.XPathParseTool.parseXPath(path)).getReference());
+ }
+ /** The value the instance holds at `path`, which an XPath read gives as blank where the node is not relevant
+  * (`XPathPathExpr.getRefValue`). */
+ private static String stored(FormDef form,String path)throws Exception {
+  org.javarosa.core.model.data.IAnswerData value=form.getMainInstance().resolveReference(ref(form,path)).getValue();
+  return value==null?"":value.uncast().getString();
  }
  private static void answer(FormDef form,String path,String value)throws Exception {form.setValue(new StringData(value),ref(form,path));}
  private static int confirm(FormParseInit parsed,String path,String value)throws Exception {
@@ -346,8 +361,12 @@ public class ContainerRuntimeTest {
   assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(second[0].getIndex(),new StringData("retained")));
   assertEquals(FormEntryController.ANSWER_OK,controller.answerQuestion(first[0].getIndex(),new StringData("north")));
   controller.jumpToIndex(secondPage);
+  // The nested query reads the area, so its rows follow it (part 04 §1.5): the north area's two assets have their
+  // rows, the first keeps its answer at its place, and the new row's default reads its own id, set when the row is
+  // made, before any calculate runs (`FormDef.createNewRepeat`). Preview's journey and browser tests hold the same.
   second=controller.getQuestionPrompts();
-  assertEquals(1,second.length);assertEquals("retained",second[0].getAnswerText());
+  assertEquals(2,second.length);
+  assertEquals("retained",second[0].getAnswerText());assertEquals("tap",second[1].getAnswerText());
  }
  /** `container-hidden-count`'s `jr:count` names the Hidden Value `desired` directly, since its calculate is an
   * integer (part 04 §2.4), so Core reads the Hidden Value's own data: an integral result is `IntegerData` whatever
@@ -380,9 +399,10 @@ public class ContainerRuntimeTest {
 
  // Part 04's gated run G2: Core's reading of a query repeat in each placement. A query repeat whose rows can
  // follow an answer is written in the count placement (part 04 §1.5): `nova_query_ids_<r>` and
- // `nova_query_count_<r>` in the wrapper, each row's id calculated as
- // `if(position(..) < ../../nova_query_count_<r>, selected-at(../../nova_query_ids_<r>, position(..)), '')`, and
- // the row relevant only while `position() < ../nova_query_count_<r>`. One that cannot is written in model
+ // `nova_query_count_<r>` in the wrapper, each row's 0-based place `nova_query_index_<r>` set from `position(..)`
+ // when the row is made, its id set then too and calculated as
+ // `if(../nova_query_index_<r> < ../../nova_query_count_<r>, selected-at(../../nova_query_ids_<r>, ../nova_query_index_<r>), '')`,
+ // and the row relevant only while `position() < ../nova_query_count_<r>`. One that cannot is written in model
  // iteration, HQ's form builder's own spelling (part 04 §1.4).
 
  /** Each row of `generic` the entry steps onto, keyed by its repeat multiplicities, with `expression` read at the
@@ -437,13 +457,14 @@ public class ContainerRuntimeTest {
  }
 
  /** `container-query-follows`: the `members` query reads the form's `order` answer, and each row creates a member
-  * case. Rows are made up to the count, and `position(..)` reads each new row's 0-based place on its first
-  * evaluation, so the row's id, index and the rows made so far hold at once. Then, with an answer at each place:
+  * case. Rows are made up to the count, and each new row's 0-based place is stored as it is made, so the row's id,
+  * index and the rows made so far hold at once. Then, with an answer at each place:
   * a shrink of the result hides the rows past its end and leaves them, their answers and their case blocks out of
   * the submission without removing them; growth back shows them again with their answers; and a reorder moves the
   * ids by position while each answer stays at its position (part 04 §1.5, the notice `repeat-rows-follow-query`).
   * Catches a row id read against the template before the row exists (G2's outcome B1), a guard that hides
-  * nothing or submits hidden rows (B2), and ids that keep the record a row was made for (C). */
+  * nothing or submits hidden rows (B2), ids that keep the record a row was made for (C), and a row id that cannot
+  * be calculated once its row is hidden (`position(..)` there names no node and throws). */
  @Test public void queryRowsFollowTheResultAndAnswersKeepTheirPosition()throws Exception {
   for(boolean source:new boolean[]{false,true}){
    FormParseInit parsed=load("query-follows",source);FormDef form=parsed.getFormDef();
@@ -456,7 +477,10 @@ public class ContainerRuntimeTest {
    assertEquals(java.util.Map.of("0","1","1","2","2","3"),enterReading(parsed,rows,"string(made)"));
    assertEquals(3.0,eval(form,"count("+rows+")"));
    assertEquals("a b c",eval(form,"join(' ', "+rows+"/record)"));
-   assertEquals("3 3 3",eval(form,"join(' ', "+rows+"/made)"));
+   // Each row keeps the rows made as of its own making: a new row recounts the position node, and Core narrows the
+   // calculates that read it to the row that changed (`FormDef.evaluateTriggerable`, `Triggerable.narrowContextBy`),
+   // as it does for model iteration's `@current_index`.
+   assertEquals("1 2 3",eval(form,"join(' ', "+rows+"/made)"));
    answer(form,"/data/case_name","Home");
    String[] places={"first","second","third"},names={"Ama","Kofi","Esi"};
    for(int row=1;row<=3;row++){answer(form,rows+"["+row+"]/note",places[row-1]);answer(form,rows+"["+row+"]/case_name",names[row-1]);}
@@ -465,11 +489,14 @@ public class ContainerRuntimeTest {
    for(String place:places)assertTrue(place,xml.contains(place));
 
    answer(form,"/data/order","short");enter(parsed,false);
-   assertEquals("lowering the count removes no row",3.0,eval(form,"count("+rows+")"));
+   // Lowering the count removes no row; an XPath count reads only the relevant ones.
+   assertEquals("lowering the count removes no row",3,held(form,rows).size());
+   assertEquals(1.0,eval(form,"count("+rows+")"));
    assertTrue(relevant(form,rows+"[1]"));assertFalse(relevant(form,rows+"[2]"));assertFalse(relevant(form,rows+"[3]"));
    assertEquals("a",eval(form,"string("+rows+"[1]/record)"));
    assertEquals("",eval(form,"string("+rows+"[2]/nova_query_id_members)"));
-   assertEquals("an answer past the end stays in the form","third",eval(form,"string("+rows+"[3]/note)"));
+   assertEquals("an answer past the end stays in the form","third",stored(form,rows+"[3]/note"));
+   assertEquals("and reads blank while its row is hidden","",eval(form,"string("+rows+"[3]/note)"));
    xml=submission(form);
    assertEquals("the household and the one member still in the result",2,caseCreates(xml));
    assertTrue(xml.contains("first"));assertFalse(xml.contains("second"));assertFalse(xml.contains("third"));
@@ -528,7 +555,9 @@ public class ContainerRuntimeTest {
    assertEquals("pump tap",eval(form,"join(' ', "+assets+"/row_id)"));
    answer(form,assets+"[1]/note","pump checked");answer(form,assets+"[2]/note","tap checked");
    answer(form,"/data/visits[1]/zone","south");enter(parsed,false);
-   assertEquals(2.0,eval(form,"count("+assets+")"));
+   assertEquals(2,held(form,assets).size());
+   assertEquals(1.0,eval(form,"count("+assets+")"));
+   assertEquals("tap checked",stored(form,assets+"[2]/note"));
    assertEquals("tank",eval(form,"string("+assets+"[1]/row_id)"));
    assertEquals("pump checked",eval(form,"string("+assets+"[1]/note)"));
    assertFalse(relevant(form,assets+"[2]"));

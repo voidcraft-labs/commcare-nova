@@ -88,6 +88,10 @@ import {
 	type InstanceRoot,
 } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
+import {
+	type CountPlacementRowNames,
+	countPlacementRowPieces,
+} from "./countPlacementRow";
 import { datetimeCaseValueExpression } from "./datetimeCaseValue";
 import { appendChildren, prependChildren } from "./domSplice";
 import type { FormExpressionEmission } from "./formExpressions";
@@ -365,12 +369,8 @@ export function formEmitsSaveToCase(
 }
 
 /** The generated nodes of a selected-cases iteration in the count placement:
- * the wrapper's ids and count, and each row's id. */
-interface SelectedCountPlacement {
-	readonly ids: string;
-	readonly count: string;
-	readonly id: string;
-}
+ * the wrapper's ids and count, and each row's id and index. */
+type SelectedCountPlacement = CountPlacementRowNames;
 
 /** The count placement's names for the selected-cases iteration named
  * `name`, spelled as a query repeat's (`queryRepeatNames.ts`). Nothing
@@ -381,6 +381,7 @@ function selectedCountPlacementNames(name: string): SelectedCountPlacement {
 		ids: `nova_query_ids_${name}`,
 		count: `nova_query_count_${name}`,
 		id: `nova_query_id_${name}`,
+		index: `nova_query_index_${name}`,
 	};
 }
 
@@ -1646,6 +1647,7 @@ export function buildCaseOperations(
 				selectedCasesInstanceId,
 				context,
 				binds,
+				setvalues,
 				dataChildren,
 				bodyChildren,
 			);
@@ -1767,15 +1769,17 @@ export function buildCaseOperations(
  *
  *   <nova_selected_cases>
  *     <nova_query_ids_nova_selected_cases/> <nova_query_count_nova_selected_cases/>
- *     <item jr:template=""> <nova_query_id_nova_selected_cases/> <nova_operations>…</nova_operations> </item>
+ *     <item jr:template="">
+ *       <nova_query_id_nova_selected_cases/> <nova_query_index_nova_selected_cases/> <nova_operations>…</nova_operations>
+ *     </item>
  *   </nova_selected_cases>
  *
  * Model iteration cannot stand there: its `@current_index` counts the rows of
  * every outer row, so a second outer row reads an index past its own ids
  * (`questions/model-iteration-repeat-nested-in-another-repeat-of-any-kind`).
  * Here every read is relative to the outer row: the ids and count are
- * calculates in the wrapper, each row's id is the selection's member at the
- * row's 0-based place (`position(..)`), and a row past the end is not
+ * calculates in the wrapper, each row's index and id are the count
+ * placement's (`countPlacementRow.ts`), and a row past the end is not
  * relevant (`position()`, which names no trigger, so the row's condition is
  * not its own trigger: `XPathConditional.java::getExprsTriggersAccumulator`).
  */
@@ -1793,6 +1797,7 @@ function emitSelectedCountPlacement(
 	selectedCasesInstanceId: string,
 	context: WireElementContext,
 	binds: Element[],
+	setvalues: Element[],
 	dataChildren: CaseOperationDataChild[],
 	bodyChildren: CaseOperationBodyChild[],
 ): void {
@@ -1815,7 +1820,6 @@ function emitSelectedCountPlacement(
 			},
 			context,
 		);
-	const rowPosition = w.call("position", [w.context([w.parent()])]);
 	const guard = w.lt(
 		w.call("position"),
 		w.context([w.parent(), w.step(names.count)]),
@@ -1839,28 +1843,21 @@ function emitSelectedCountPlacement(
 			},
 			context,
 		),
-		generatedBind(
-			scope.idPath,
-			w.call("if", [
-				w.lt(
-					rowPosition,
-					w.context([w.parent(), w.parent(), w.step(names.count)]),
-				),
-				w.call("selected-at", [
-					w.context([w.parent(), w.parent(), w.step(names.ids)]),
-					rowPosition,
-				]),
-				w.str(""),
-			]),
-		),
 	);
+	const row = countPlacementRowPieces(scope.itemPath, names, context);
+	binds.push(...row.binds);
+	setvalues.push(...row.setvalues);
 	dataChildren.push({
 		parentPath: scope.authoredParentPath,
 		placement: "append",
 		element: el(scope.name, {}, [
 			el(names.ids, {}),
 			el(names.count, {}),
-			el("item", { "jr:template": "" }, [el(names.id, {}), operationsData]),
+			el("item", { "jr:template": "" }, [
+				el(names.id, {}),
+				el(names.index, {}),
+				operationsData,
+			]),
 		]),
 	});
 	bodyChildren.push({

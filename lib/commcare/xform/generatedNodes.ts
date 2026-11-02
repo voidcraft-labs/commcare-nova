@@ -49,7 +49,8 @@
  *
  * A selected-cases repeat inside an authored repeat takes the count
  * placement, its nodes `nova_query_ids_`, `nova_query_count_` (the wrapper)
- * and `nova_query_id_` (the row) followed by the repeat's own name
+ * and `nova_query_id_`, `nova_query_index_` (the row) followed by the
+ * repeat's own name
  * (`caseOps.ts::selectedCountPlacementNames`): nothing authored shares
  * either namespace, so they need no allocation.
  *

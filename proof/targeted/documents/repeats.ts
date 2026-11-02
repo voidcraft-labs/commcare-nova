@@ -406,9 +406,12 @@ export function queryRepeatPlacements() {
 				pointer: `/answers/${index}/result`,
 				value: "ok",
 			})),
-			// The third row keeps its place and is no longer relevant, so its
-			// answer reads blank and is not submitted.
-			...["3", "k1", "5", "", "1", "r3"].map((value, index) => ({
+			// The rows past the result stay in the form and are no longer
+			// relevant: a count reads only the relevant row (Core's nodesets
+			// leave out a node that is not relevant,
+			// `XPathLazyNodeset.performEvaluation`), and the third row's answer
+			// reads blank and is not submitted.
+			...["1", "k1", "5", "", "1", "r3"].map((value, index) => ({
 				pointer: `/values/${index}/value`,
 				value,
 			})),

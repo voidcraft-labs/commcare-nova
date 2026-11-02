@@ -1660,8 +1660,11 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   submitted" is held as Core reads a row past the result: its answer reads blank
   (`XPathPathExpr.getRefValue` returns no value for a node that is not relevant, which
   `TreeElement.isRelevant` inherits from the row, and `DataModelSerializer` leaves out of the
-  submission), while the row keeps its place (`count(/data/stock/item)` stays 3). The case block
-  inside the row is not relevant with it; the readers' walks see the submissions themselves.
+  submission). The row keeps its place, which an XPath count does not show: Core's nodesets leave
+  out a node that is not relevant (`XPathLazyNodeset.performEvaluation`), so
+  `count(/data/stock/item)` reads 1 once the result shrinks to one, and `ContainerRuntimeTest` holds
+  the kept rows through the instance itself. The case block inside the row is not relevant with it;
+  the readers' walks see the submissions themselves.
 - **The whole-number mapping wraps nothing at the corpus's seed** (pull request 3, read, not
   assumed): over the default sample (24 suite and XForm draws and 8 expression draws at seed
   20260930), `planRepeatCountWraps` is called 40 times by `mappedAsTheCutoverMaps` and returns no
@@ -1686,8 +1689,9 @@ underscore worker property and the extension open action's owner (part 02's G2, 
 - **Two identity moves, written from proof 1's evidence** in pull request 3's first run: defect 25 on
   `targeted-migration-query-repeats` and defect 30 on `targeted-migration-repeat-counts`, each
   `form:0.0` `/questions/*` (the query repeats' generated nodes added and the old count node removed).
-  The guard's respelling (part 04's departures) changes a bind's expression, not the form's questions,
-  so the query-repeats evidence stands.
+  The guard's respelling changes a bind's expression, not the form's questions, so the query-repeats
+  evidence stands. The index node now written in every count-placement row (part 04's departures) is
+  one more generated node added under `/questions/*` on `form:0.0`, inside the same move.
 
 ## What other parts read from this one
 

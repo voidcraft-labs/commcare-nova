@@ -1833,7 +1833,7 @@
 		],
 		"valueClass": "query-count-repeat",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `repeat` `query_bound` in its count placement (the wrapper group, `nova_query_ids_`, `nova_query_count_`, `nova_query_id_`, the guard condition on `item`, and the position and index nodes only when read)",
+		"dispositionCell": "**HELD**: `repeat` `query_bound` in its count placement (the wrapper group, `nova_query_ids_`, `nova_query_count_`, `nova_query_id_` and `nova_query_index_` set when the row is made, the guard condition on `item`, and the position node only when read)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1846,7 +1846,7 @@
 			}
 		},
 		"emission": {
-			"cell": "that shape (the wrapper group, `nova_query_ids_`, `nova_query_count_`, `nova_query_id_`, the guard condition on `item`, and the position and index nodes only when read), for a query repeat nested in another, whose query reads a form answer, or under a group whose condition can change during entry",
+			"cell": "that shape (the wrapper group, `nova_query_ids_`, `nova_query_count_`, `nova_query_id_` and `nova_query_index_` set when the row is made, the guard condition on `item`, and the position node only when read), for a query repeat nested in another, whose query reads a form answer, or under a group whose condition can change during entry",
 			"markers": []
 		},
 		"gates": []

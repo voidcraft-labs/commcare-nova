@@ -443,6 +443,7 @@ it("writes a selection inside a repeat in the count placement", () => {
 	expect(item.attribs).toEqual({ "jr:template": "" });
 	expect(item.children.filter(isTag).map((e) => e.name)).toEqual([
 		"nova_query_id_nova_selected_cases",
+		"nova_query_index_nova_selected_cases",
 		"nova_operations",
 	]);
 	const wrapper = "/data/records/nova_selected_cases";
@@ -461,15 +462,28 @@ it("writes a selection inside a repeat in the count placement", () => {
 	expect(
 		bindAt(`${wrapper}/item/nova_query_id_nova_selected_cases`).calculate,
 	).toBe(
-		"if(position(..) < ../../nova_query_count_nova_selected_cases, selected-at(../../nova_query_ids_nova_selected_cases, position(..)), '')",
+		"if(../nova_query_index_nova_selected_cases < ../../nova_query_count_nova_selected_cases, selected-at(../../nova_query_ids_nova_selected_cases, ../nova_query_index_nova_selected_cases), '')",
 	);
+	// Only the row's id and index are set, when the row is made.
 	expect(
 		model.children
 			.filter(isTag)
 			.filter(
 				(e) => e.name === "setvalue" && e.attribs.ref?.startsWith(wrapper),
-			),
-	).toEqual([]);
+			)
+			.map((e) => [e.attribs.event, e.attribs.ref, e.attribs.value]),
+	).toEqual([
+		[
+			"jr-insert",
+			`${wrapper}/item/nova_query_id_nova_selected_cases`,
+			"if(position(..) < ../../nova_query_count_nova_selected_cases, selected-at(../../nova_query_ids_nova_selected_cases, position(..)), '')",
+		],
+		[
+			"jr-insert",
+			`${wrapper}/item/nova_query_index_nova_selected_cases`,
+			"position(..)",
+		],
+	]);
 	const repeat = one(
 		findAll(
 			(e) => e.name === "repeat" && e.attribs.nodeset === `${wrapper}/item`,

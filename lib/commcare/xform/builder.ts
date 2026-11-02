@@ -131,6 +131,7 @@ import { casePropertyStep } from "../xpath/wire/rowScope";
 import type { WireExpr } from "../xpath/wire/tree";
 import { fieldBindType } from "./bindType";
 import { protectConstraintMessage } from "./constraintMessage";
+import { countPlacementRowPieces } from "./countPlacementRow";
 import {
 	datetimeCaseValueCalculate,
 	datetimeCaseValuePath,
@@ -591,20 +592,19 @@ function inDataTreeOrder(
 		.map(({ setvalue }) => setvalue);
 }
 
-/** The query repeats of one form whose position node (`query-position`) or
- * row index (`repeat-row` `index`) some expression reads. */
+/** The query repeats of one form whose position node (`query-position`)
+ * some expression reads. */
 interface QueryRepeatNodeReads {
 	readonly positions: ReadonlySet<Uuid>;
-	readonly indices: ReadonlySet<Uuid>;
 }
 
 const queryRepeatReads = new WeakMap<FormStructure, QueryRepeatNodeReads>();
 
 /**
- * Which query repeats have their position or row index read, over every
- * stored expression of the form and its fields, as `referencedCountResults`
- * finds the read counts. The count placement writes those two nodes only
- * while one is read; every other node of a query repeat is always written.
+ * Which query repeats have their position read, over every stored
+ * expression of the form and its fields, as `referencedCountResults` finds
+ * the read counts. The count placement writes the position node only while
+ * it is read; every other node of a query repeat is always written.
  * `doc` holds the same form and fields `form` was built from
  * (`formExpressionEmission` refuses any other).
  */
@@ -615,12 +615,9 @@ function queryRepeatNodeReads(
 	const cached = queryRepeatReads.get(form);
 	if (cached !== undefined) return cached;
 	const positions = new Set<Uuid>();
-	const indices = new Set<Uuid>();
 	const note = (node: FormNodeRef): void => {
 		if (node.kind === "repeat" && node.role === "query-position")
 			positions.add(node.repeat);
-		else if (node.kind === "repeat-row" && node.attribute === "index")
-			indices.add(node.repeat);
 	};
 	const visit = (expression: Expression): void =>
 		walkExpressionTerms(expression, (term) => {
@@ -646,7 +643,7 @@ function queryRepeatNodeReads(
 	for (const uuid of form.fields.keys())
 		for (const value of expressionSlotValues(doc, { entity: "field", uuid }))
 			visit(value.expression);
-	const reads = { positions, indices };
+	const reads = { positions };
 	queryRepeatReads.set(form, reads);
 	return reads;
 }
@@ -2039,7 +2036,8 @@ interface QueryRepeatEmission {
 	readonly data: Element;
 	/** The repeat's own binds, in data-tree order, its condition's among them. */
 	readonly binds: readonly Element[];
-	/** The setvalues that fill its nodes (model iteration only). */
+	/** The setvalues that fill its nodes: model iteration's four, or the
+	 *  count placement's row id and index at `jr-insert`. */
 	readonly setvalues: readonly Element[];
 	/** The node `jr:count` names. */
 	readonly countPath: FormPath;
@@ -2078,18 +2076,18 @@ type QueryBoundRepeat = Extract<Field, { repeat_mode: "query_bound" }>;
  *
  *   <r>
  *     <nova_query_ids_r/> <nova_query_count_r/> [<nova_query_position_r/>]
- *     <item jr:template=""> <nova_query_id_r/> [<nova_query_index_r/>] …</item>
+ *     <item jr:template=""> <nova_query_id_r/> <nova_query_index_r/> …</item>
  *   </r>
  *
  * The ids node holds the query, a child of the wrapper as `@ids` is, so a
  * relative read prints as in model iteration and the query runs once per
- * change. Each row's id is the result's member at the row's position
- * (`position(..)`, the 0-based multiplicity of the row,
- * `XPathPositionFunc.java::evalBody`), blank past the end, and a row past the
- * end is not relevant: hidden, and left out of the submission with the case
- * blocks inside it (`FormDef.isRepeatRelevant`). The position and index nodes
- * are written only while an expression reads them. No generated bind carries
- * `vellum:calculate`, and each carries `vellum:nodeset`.
+ * change. Each row's index is its 0-based place, stored when the row is
+ * made, and its id is the result's member at that place, blank past the end
+ * (`countPlacementRow.ts`). A row past the end is not relevant: hidden, and
+ * left out of the submission with the case blocks inside it
+ * (`FormDef.isRepeatRelevant`). The position node is written only while an
+ * expression reads it. No generated bind carries `vellum:calculate`, and
+ * each carries `vellum:nodeset`.
  */
 function buildQueryRepeat(
 	doc: BlueprintDoc,
@@ -2146,9 +2144,7 @@ function buildQueryRepeat(
 			? generatedNodes.queryPosition(field.uuid)
 			: undefined;
 		const idName = generatedNodes.queryId(field.uuid);
-		const indexName = reads.indices.has(field.uuid)
-			? generatedNodes.queryIndex(field.uuid)
-			: undefined;
+		const indexName = generatedNodes.queryIndex(field.uuid);
 		const generatedBind = (
 			path: FormPath,
 			calculate: WireExpr,
@@ -2166,9 +2162,6 @@ function buildQueryRepeat(
 				},
 				context,
 			);
-		const rowPosition = w.call("position", [w.context([w.parent()])]);
-		const countFromRow = w.context([w.parent(), w.parent(), w.step(countName)]);
-		const idsFromRow = w.context([w.parent(), w.parent(), w.step(idsName)]);
 		// A row past the end of the current result is not relevant. The row's
 		// own place is read as `position()`, with no argument: Core counts every
 		// path an expression names as a trigger of its target
@@ -2203,17 +2196,13 @@ function buildQueryRepeat(
 			rowConditionBind(
 				condition === undefined ? guard : w.and(condition, guard),
 			),
-			generatedBind(
-				rowPath.child(idName),
-				w.call("if", [
-					w.lt(rowPosition, countFromRow),
-					w.call("selected-at", [idsFromRow, rowPosition]),
-					w.str(""),
-				]),
-			),
 		);
-		if (indexName !== undefined)
-			binds.push(generatedBind(rowPath.child(indexName), rowPosition));
+		const row = countPlacementRowPieces(
+			rowPath,
+			{ ids: idsName, count: countName, id: idName, index: indexName },
+			context,
+		);
+		binds.push(...row.binds);
 		return {
 			data: el(field.id, {}, [
 				el(idsName, {}),
@@ -2221,12 +2210,12 @@ function buildQueryRepeat(
 				...(positionName === undefined ? [] : [el(positionName, {})]),
 				el("item", { "jr:template": "" }, [
 					el(idName, {}),
-					...(indexName === undefined ? [] : [el(indexName, {})]),
+					el(indexName, {}),
 					...childData,
 				]),
 			]),
 			binds,
-			setvalues: [],
+			setvalues: row.setvalues,
 			countPath: nodePath.child(countName),
 			wrapperGroup: true,
 		};

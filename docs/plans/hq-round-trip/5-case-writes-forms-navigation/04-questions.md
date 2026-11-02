@@ -263,7 +263,7 @@ For `r` whose effective placement is `"count"`:
   [<nova_query_position_r/>]          only while an expression reads query-position
   <item jr:template="">
     <nova_query_id_r/>
-    [<nova_query_index_r/>]           only while an expression reads the row's index
+    <nova_query_index_r/>
     …authored children…
   </item>
 </r>
@@ -273,10 +273,10 @@ For `r` whose effective placement is `"count"`:
 |---|---|
 | `nova_query_ids_r` | `<bind nodeset="/data/r/nova_query_ids_r" vellum:nodeset="#form/r/nova_query_ids_r" calculate="join(' ', <query>)"/>`, the query printed from this node, a child of the wrapper as `@ids` is, so a relative read prints as in model iteration |
 | `nova_query_count_r` | `<bind … type="xsd:int" calculate="count-selected(../nova_query_ids_r)"/>` |
-| `nova_query_id_r` | `<bind nodeset="/data/r/item/nova_query_id_r" … calculate="if(position(..) &lt; ../../nova_query_count_r, selected-at(../../nova_query_ids_r, position(..)), '')"/>` |
+| `nova_query_id_r` | `<bind nodeset="/data/r/item/nova_query_id_r" … calculate="if(../nova_query_index_r &lt; ../../nova_query_count_r, selected-at(../../nova_query_ids_r, ../nova_query_index_r), '')"/>`, and `<setvalue event="jr-insert" ref="/data/r/item/nova_query_id_r" value="if(position(..) &lt; ../../nova_query_count_r, selected-at(../../nova_query_ids_r, position(..)), '')"/>`, so a default reading the row's id finds it when the row is made (Departures) |
 | the row's condition | `<bind vellum:nodeset="#form/r/item" nodeset="/data/r/item" relevant="(<authored>) and position() &lt; ../nova_query_count_r" vellum:relevant="…"/>`; with no authored condition, the guard alone. The row's place is `position()` with no argument, never `position(.)`, which names the row and makes the bind its own trigger (Departures). The bind is built as today's container bind is, `relevant` and `vellum:relevant` from one wire tree |
 | `nova_query_position_r` (read only) | `<bind … calculate="count(../item)"/>`, model iteration's `@current_index` after insertion |
-| `nova_query_index_r` (read only) | `<bind … calculate="position(..)"/>`, equal to model iteration's 0-based `@index` |
+| `nova_query_index_r` | `<bind … type="xsd:int"/>` and `<setvalue event="jr-insert" ref="/data/r/item/nova_query_index_r" value="position(..)"/>`, equal to model iteration's 0-based `@index`, always written: no calculate reads `position(..)`, which finds no node once the row is not relevant (Departures) |
 | body | `<group ref="/data/r"><group>[<label/>]<repeat nodeset="/data/r/item" vellum:nodeset="#form/r/item" jr:count="/data/r/nova_query_count_r" vellum:jr__count="#form/r/nova_query_count_r" jr:noAddRemove="true()">…</repeat></group></group>` |
 
 - The outer group has no label, no appearance and no bind. HQ's form builder reads it as a plain
@@ -942,7 +942,7 @@ choices, are part 07's (decision 2 of step 5's decisions; pull requests 12 and 1
 
 | Entry | Today | From step 5 | Pull request |
 |---|---|---|---|
-| `questions/count-repeat-whose-count-and-row-ids-come-from-one-query-a` | HELD-NEW | HELD (RUNS / RUNS). `item` gains "a hidden value `nova_query_ids_<repeat id>` holding the query's ids, inside the query's own group, the rows staying `item`"; `dispositionCell` "**HELD**: `repeat` `query_bound` in its count placement (§1.5's shape: the wrapper group, `nova_query_ids_`, `nova_query_count_`, `nova_query_id_`, the guard condition on `item`, and the position and index nodes only when read)"; `emission.cell` the same shape, "for a query repeat nested in another, whose query reads a form answer, or under a group whose condition can change during entry" | 3 |
+| `questions/count-repeat-whose-count-and-row-ids-come-from-one-query-a` | HELD-NEW | HELD (RUNS / RUNS). `item` gains "a hidden value `nova_query_ids_<repeat id>` holding the query's ids, inside the query's own group, the rows staying `item`"; `dispositionCell` "**HELD**: `repeat` `query_bound` in its count placement (§1.5's shape: the wrapper group, `nova_query_ids_`, `nova_query_count_`, `nova_query_id_` and `nova_query_index_` set when the row is made, the guard condition on `item`, and the position node only when read)"; `emission.cell` the same shape, "for a query repeat nested in another, whose query reads a form answer, or under a group whose condition can change during entry" | 3 |
 | `questions/repeat-model-iteration-vellum-role-repeat-ids-count-current` | HELD, marker `save-breaking` | HELD, no marker; `emission.cell` "Vellum's canonical shape: `@ids` and `@count` setvalues at `xforms-ready`, `@index` and `@id` at `jr-insert`, absolute `@current_index`, the condition on `…/item`, only where §1.3's rule gives model iteration" | 3 |
 | `questions/jr-count-naming-a-hidden-value-whose-calculate-is-an-integer-in` | HELD, cell names the copy | HELD; `dispositionCell` without "(Nova writes a `nova_count_<repeat>` copy of it today: defect 30)" | 3 |
 | `questions/jr-count-naming-a-single-select-question-whose-every-choice` | HELD, `slotChanges` widen | HELD, `slotChanges` `[]`, `dispositionCell` "**HELD**: `repeat` `count_bound` naming the question directly (`REPEAT_COUNT_TYPE` admits a single select whose inline choices are whole numbers)" | 3 |
@@ -1105,8 +1105,8 @@ calling them:
   opens, only where the repeat is in no repeat, its query reads no answer and no group around it
   shows on a condition that can change during entry; otherwise the count placement: the wrapper
   `r` holds `nova_query_ids_r` and `nova_query_count_r` and the `item` rows, each row holds
-  `nova_query_id_r`, and a row past the end of the result is not relevant. The position and index
-  nodes are written only when read. Text spells both placements as model iteration does
+  `nova_query_id_r` and `nova_query_index_r`, set when the row is made, and a row past the end of
+  the result is not relevant. The position node is written only when read. Text spells both placements as model iteration does
   (`formNodeProjection`'s `authoring` surface)."
 - "Vellum dual-attribute pattern": "Query-repeat shadow behavior is unchanged." becomes "A
   model-iteration repeat writes `vellum:nodeset` and `vellum:jr__count` as the form builder does;
@@ -1285,7 +1285,7 @@ part's class functions.
   model iteration's four setvalues in order with their events, its `@current_index` bind first and
   absolute, no `@count` bind, the condition on `item`, the repeat's shadows; the count placement's
   data order, binds, guard condition with and without an authored one, the outer group with no
-  label, the position and index nodes only while read, a collision suffix on each name; a nested
+  label, the position node only while read and the index always, a collision suffix on each name; a nested
   count placement's paths per outer row; direct counts for the three kinds. The bytes are held by
   independent consumers, the native family (G2) and the lane's editor saves (G1); this test holds
   the decisions.
@@ -1659,10 +1659,48 @@ Each departs from the research, the outline or a brief, with its reason.
   reads the 0-based multiplicity of the reference the condition evaluates at, the same number
   `position(.)` read, and names no trigger. A new row's condition still runs when the row is made,
   since `FormDef.java::createNewRepeat` runs `initTriggerablesRootedBy`, whose root admits the row
-  itself (`isParentOf(target, false)`), and `isRepeatRelevant` evaluates it at the row. The row id's
-  `position(..)` stays: it names the row from a child, an edge from the row to `nova_query_id_r`, not
-  a loop. The form builder's own fixtures read `position()` bare
+  itself (`isParentOf(target, false)`), and `isRepeatRelevant` evaluates it at the row. The form
+  builder's own fixtures read `position()` bare
   (`Vellum/tests/static/modeliteration/fixture-iteration-no-ids.xml`).
+- **A row's index is stored when the row is made, and its id is set then too** (pull request 3),
+  where §1.5's rows first calculated the id from `position(..)` and wrote the index only when read.
+  This is G2's outcome B1, for a cause the outcome did not name, read from Core's run at pull request
+  3's second head. Three readings decided it:
+  - Core drops a node that is not relevant from every nodeset
+    (`commcare-core XPathLazyNodeset.java::performEvaluation`). So in a row past the end of the
+    result, `position(..)` finds no node, and `XPathPositionFunc.java::evalBody` throws "Unable to
+    evaluate `position` on …, which is empty". The id calculate ran there on every change to the
+    result, so `ContainerRuntimeTest` threw on the first shrink, and the shrunk-rows intent of
+    `targeted-query-repeat-placements` read its answer as unconvertible.
+  - Core runs every `jr-insert` setvalue before any calculate (`FormDef.java::createNewRepeat`). So
+    an authored default reading the row's id (`sectionEntry.ts`'s `note`) read a blank id, and
+    `laterFieldListInsertsRowsAfterEarlierAnswers` saw no answer.
+  - A row is never moved or removed (`jr:noAddRemove`), so its place is fixed when it is made.
+
+  The index node `nova_query_index_r` is therefore written always: typed `xsd:int`, with a
+  `jr-insert` setvalue `position(..)`, read while the new row is relevant. The id is calculated
+  from the stored index, which reads blank in a hidden row (`XPathPathExpr.java::getRefValue`) and
+  gives a blank id. The id is also set at `jr-insert` from `position(..)`. Setvalues are written in
+  data-tree order, so the id's runs before the index's and before every authored default in the row.
+  A row still follows the result by its position, and its answers keep that position. The pieces
+  live in `xform/countPlacementRow.ts`, which both count placements share. The guard keeps
+  `position()`: the row's own condition evaluates at the row, where the row is the context and no
+  nodeset is read.
+  `laterFieldListInsertsRowsAfterEarlierAnswers` also expects what Preview's journey and browser
+  tests already expect over `sectionEntryDoc`: back on the page, the north area's two rows, the
+  first keeping its answer and the second's default reading its own id. It expected the one row
+  model iteration kept before the nested query took the count placement.
+- **A row past the result is not counted by XPath** (pull request 3): `count(/data/r/item)` reads
+  the relevant rows only (`XPathLazyNodeset.java::performEvaluation`). The rows stay in the form, so
+  `ContainerRuntimeTest` holds the rows kept and the hidden answer kept through
+  `EvaluationContext.expandReference` and the instance's own value. The shrunk-rows intent expects a
+  count of 1, and §1.5's "lowering the count removes no row" is what the instance holds.
+- **A calculate in a row that reads the rows made so far keeps the count as of its own row's making**
+  (pull request 3, `query-position`): a new row recounts `nova_query_position_r`, and Core
+  re-evaluates the calculates that read it only in the row that changed (`FormDef.java::
+  evaluateTriggerable`, `Triggerable.java::narrowContextBy`), as it does for model iteration's
+  `@current_index`. `ContainerRuntimeTest` expects `1 2 3` for three rows' `made`, where it first
+  expected `3 3 3`.
 - **A several-case form's selected-cases iteration inside a repeat takes the count placement**
   (pull request 3), which no section of this part planned. `xform/caseOps.ts::buildCaseOperations`
   wrote the `nova_selected_cases` iteration as model iteration wherever a session-targeted operation
@@ -1676,7 +1714,8 @@ Each departs from the research, the outline or a brief, with its reason.
   fixed the manifest check reported it there. Inside a repeat the iteration now writes the count
   placement's shape (`caseOps.ts::emitSelectedCountPlacement`): `nova_query_ids_nova_selected_cases`
   calculated from the selection, `nova_query_count_nova_selected_cases` as `count-selected` of it, the
-  row id `item/nova_query_id_nova_selected_cases` from `position(..)`, the guard `position() <
+  row id and index `item/nova_query_id_nova_selected_cases` and `item/nova_query_index_nova_selected_cases`
+  as a query repeat's row writes them (`countPlacementRow.ts`), the guard `position() <
   ../nova_query_count_nova_selected_cases`, and the outer `<group ref>`. The names follow the query
   repeat's spelling with the iteration's own name, and nothing authored shares either namespace. Every
   operation bind that read the row's `@id` reads that node. At the form root the iteration stays model
