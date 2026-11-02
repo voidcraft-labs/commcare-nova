@@ -47,6 +47,16 @@ import {
 	ownCaseUuidFor,
 	removeOwnWrite,
 } from "./ownCaseFixture";
+import {
+	DISCHARGE,
+	FOLLOWUP,
+	holdPlanned,
+	holdVisits,
+	U as MOVE_U,
+	moveFixture,
+	PATIENTS,
+	PATIENTS_NAMED,
+} from "./placementMoveFixture";
 
 /** `buildDoc`, with the own case every case form holds first. */
 function buildDoc(
@@ -1398,5 +1408,111 @@ describe("scoped commits under document-wide inference", () => {
 			});
 			expect(expectCommitParity(doc, mutations).ok).toBe(true);
 		}
+	});
+});
+
+describe("scoped commits over held placements", () => {
+	/** The identity-move fixture as a publish holds it: every case change of
+	 *  its follow-up and close forms, and the follow-up's query repeat. */
+	function held() {
+		const doc = holdVisits(moveFixture(), "model-iteration");
+		for (const form of [FOLLOWUP, DISCHARGE]) holdPlanned(doc, form);
+		return doc;
+	}
+	const wholeModule = (doc: ReturnType<typeof moveFixture>) => ({
+		moduleUuids: new Set([PATIENTS]),
+		formUuids: new Set(doc.formOrder[PATIENTS]),
+	});
+	const remarkHint: Mutation = {
+		kind: "updateField",
+		uuid: MOVE_U("remark"),
+		targetKind: "text",
+		patch: { hint: proseText("Anything else") },
+	};
+
+	it("takes the whole module of each target's form for a hold", () => {
+		const doc = held();
+		const ownUuid = doc.forms[FOLLOWUP].caseOperations?.[0]?.uuid;
+		if (ownUuid === undefined) throw new Error("The follow-up has its case.");
+		for (const hold of [
+			{
+				target: "case-operation",
+				formUuid: FOLLOWUP,
+				operationUuid: ownUuid,
+				placement: {
+					kind: "save-to-case",
+					path: ["nova_operations", "patient"],
+				},
+			},
+			{ target: "own-close", formUuid: DISCHARGE, placement: null },
+			{
+				target: "query-repeat",
+				fieldUuid: MOVE_U("visits"),
+				placement: "count",
+			},
+		] as const)
+			expect(
+				incrementalValidationScope(doc, [
+					{ kind: "holdPlacements", holds: [hold] } as Mutation,
+				]),
+			).toEqual(wholeModule(doc));
+	});
+
+	it("takes the whole module for a field edit in a form that holds a placement, and the form alone where none is held", () => {
+		const doc = held();
+		expect(incrementalValidationScope(doc, [remarkHint])).toEqual(
+			wholeModule(doc),
+		);
+		expect(incrementalValidationScope(moveFixture(), [remarkHint])).toEqual({
+			formUuids: new Set([FOLLOWUP]),
+		});
+	});
+
+	it("keeps the whole-module scope for a selection change and the absolute gate for a case type change", () => {
+		const doc = held();
+		const selection = incrementalValidationScope(doc, [
+			{
+				kind: "setCaseListMeta",
+				uuid: PATIENTS,
+				patch: { selection: { kind: "multiple", maximum: 5 } },
+			},
+		]);
+		expect(selection?.moduleUuids?.has(PATIENTS)).toBe(true);
+		for (const formUuid of doc.formOrder[PATIENTS] ?? [])
+			expect(selection?.formUuids?.has(formUuid)).toBe(true);
+		expect(
+			incrementalValidationScope(doc, [
+				{ kind: "updateModule", uuid: PATIENTS, patch: { caseType: "kid" } },
+			]),
+		).toBeUndefined();
+	});
+
+	it("refuses a field edit that strands a hold exactly as the absolute gate does, and admits it with the move", () => {
+		const doc = held();
+		const strand: Mutation = {
+			kind: "updateField",
+			uuid: MOVE_U("visits"),
+			targetKind: "repeat",
+			patch: { data_source: { ids_query: PATIENTS_NAMED } },
+		} as Mutation;
+		const refused = expectCommitParity(doc, [strand]);
+		expect(refused.ok ? [] : refused.findings.map((f) => f.code)).toContain(
+			"QUERY_REPEAT_MODEL_ITERATION_SHAPE",
+		);
+		expect(
+			expectCommitParity(doc, [
+				strand,
+				{
+					kind: "holdPlacements",
+					holds: [
+						{
+							target: "query-repeat",
+							fieldUuid: MOVE_U("visits"),
+							placement: "count",
+						},
+					],
+				},
+			]).ok,
+		).toBe(true);
 	});
 });

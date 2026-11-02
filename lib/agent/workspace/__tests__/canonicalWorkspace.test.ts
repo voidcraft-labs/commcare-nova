@@ -13,9 +13,17 @@ import {
 	makeToolWorkspaceHarness,
 } from "@/lib/agent/__tests__/fixtures";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
+import {
+	FOLLOWUP,
+	holdVisits,
+	moveFixture,
+	PATIENTS_NAMED,
+	U,
+} from "@/lib/doc/__tests__/placementMoveFixture";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { replaceFieldOptionsSourceMutation } from "@/lib/doc/lookupOptionsSourceMutations";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
+import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type LookupTableId,
@@ -23,7 +31,7 @@ import {
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { parseLookupRevision } from "@/lib/lookup/schema";
-import type { ToolInvocationContext } from "../types";
+import type { ToolInvocationContext, WorkspaceMutationOutcome } from "../types";
 
 function renameBatch(name: string): Mutation[] {
 	return [{ kind: "setAppName", name }];
@@ -352,5 +360,111 @@ describe("CanonicalMutationWorkspace — lookup context", () => {
 		expect(lookupDefinitions).toHaveBeenCalledTimes(1);
 		expect(lookupDefinitions).toHaveBeenCalledWith([TABLE_A, TABLE_B]);
 		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("CanonicalMutationWorkspace — identity moves", () => {
+	/** The follow-up's query repeat, published with its rows set when the
+	 *  form opens; a query that reads an answer strands that hold. */
+	const VISITS = U("visits");
+	const strandVisits: Mutation = {
+		kind: "updateField",
+		uuid: VISITS,
+		targetKind: "repeat",
+		patch: { data_source: { ids_query: PATIENTS_NAMED } },
+	} as Mutation;
+	const published = () => holdVisits(moveFixture(), "model-iteration");
+	const mutate = (mutations: readonly Mutation[]) => ({
+		kind: "mutate" as const,
+		mutations,
+		result: { ok: true },
+	});
+
+	it("a canonical applyBatch returns the moves and the tool result carries them", async () => {
+		const h = makeToolWorkspaceHarness(published());
+		const outcomes: WorkspaceMutationOutcome[] = [];
+		const result = await h.workspace.invoke({
+			toolName: "editField",
+			execute: async (ctx) => {
+				const applied = await ctx.applyBatch({ mutations: [strandVisits] });
+				outcomes.push(applied);
+				if (!applied.ok) throw new Error(applied.error);
+				return mutate(applied.mutations);
+			},
+		});
+		const [outcome] = outcomes;
+		if (outcome === undefined || !outcome.ok)
+			throw new Error("The batch was applied.");
+		const subject = {
+			kind: "query-repeat",
+			formUuid: FOLLOWUP,
+			fieldUuid: VISITS,
+		};
+		expect(outcome.identityMoves.map((move) => move.subject)).toEqual([
+			subject,
+		]);
+		expect(result.result).toEqual({
+			ok: true,
+			identityMoves: outcome.identityMoves,
+		});
+		// The committed batch carries the hold change, so the commit kernel
+		// sees the move made by the batch that needs it.
+		expect(outcome.mutations.at(-1)?.kind).toBe("holdPlacements");
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		const visits = h.currentDoc().fields[VISITS];
+		expect(
+			visits?.kind === "repeat" &&
+				visits.repeat_mode === "query_bound" &&
+				visits.placement,
+		).toBe("count");
+	});
+
+	it("applyStages puts the hold change in the last stage", async () => {
+		const h = makeToolWorkspaceHarness(published());
+		const result = await h.workspace.invoke({
+			toolName: "editField",
+			execute: async (ctx) => {
+				const outcome = await ctx.applyStages({
+					stages: [
+						{ stage: "rename", mutations: renameBatch("Visits") },
+						{ stage: "query", mutations: [strandVisits] },
+					],
+				});
+				if (!outcome.ok) throw new Error(outcome.error);
+				return mutate(outcome.mutations);
+			},
+		});
+		expect(result.result).toMatchObject({
+			identityMoves: [{ subject: { kind: "query-repeat" } }],
+		});
+		const stages: AdmittedMutationStages | undefined =
+			h.recordMutationStages.mock.calls[0]?.[1];
+		if (stages === undefined) throw new Error("The stages were not saved.");
+		expect(stages.slices.map((slice) => slice.stage)).toEqual([
+			"rename",
+			"query",
+		]);
+		expect(stages.slices.at(-1)?.end).toBe(stages.batch.length);
+		expect(stages.batch.map((mutation) => mutation.kind)).toEqual([
+			"setAppName",
+			"updateField",
+			"holdPlacements",
+		]);
+	});
+
+	it("leaves a result alone where nothing moves", async () => {
+		const h = makeToolWorkspaceHarness(published());
+		const result = await h.workspace.invoke({
+			toolName: "updateApp",
+			execute: async (ctx) => {
+				const outcome = await ctx.applyBatch({
+					mutations: renameBatch("Clinic"),
+				});
+				if (!outcome.ok) throw new Error(outcome.error);
+				expect(outcome.identityMoves).toEqual([]);
+				return mutate(outcome.mutations);
+			},
+		});
+		expect(result.result).toEqual({ ok: true });
 	});
 });

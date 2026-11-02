@@ -17,6 +17,17 @@ import { literal, term, today } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 import { datetimeSplitOriginal } from "./datetimeSplitFixture";
+import {
+	COMPUTED_REMARK,
+	commitWithMoves,
+	FOLLOWUP,
+	heldStore,
+	holdEntries,
+	ownHold,
+	read,
+	recordCurrentHolds,
+	setRemark,
+} from "./heldHistoryFixture";
 
 // ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -871,5 +882,96 @@ describe("undo of a conversion to a hidden value", () => {
 		expect(persistedSnapshot(store.getState())).not.toEqual(before);
 		store.getState().undo();
 		expect(persistedSnapshot(store.getState())).toEqual(before);
+	});
+});
+
+describe("history steps over held placements", () => {
+	it("keeps the undo's restore of the recorded hold, and the redo replays the recorded step", () => {
+		const store = heldStore();
+		const published = ownHold(store.getState());
+		commitWithMoves(store, [setRemark(store.getState(), COMPUTED_REMARK)]);
+		const moved = toPersistableDoc(store.getState());
+		const forward = store.getState().peekCommandBatches().at(-1);
+
+		const step = store.getState().historyStepBatch("undo");
+		expect(step?.droppedHoldChange).toBe(false);
+		expect(holdEntries(step?.batch ?? [])).toEqual([
+			expect.objectContaining({ placement: published }),
+		]);
+		if (step === undefined) return;
+		expect(store.getState().applyHistoryStep("undo", step.batch)).toEqual({
+			restoredHold: true,
+			droppedHoldChange: false,
+		});
+		expect(ownHold(store.getState())).toEqual(published);
+		// The step applied the recorded batch, so the redo is the recorded
+		// forward.
+		expect(store.getState().redoBatch()).toEqual(forward);
+
+		const redo = store.getState().historyStepBatch("redo");
+		if (redo === undefined) throw new Error("The undo is redoable.");
+		store.getState().applyHistoryStep("redo", redo.batch);
+		expect(toPersistableDoc(store.getState())).toEqual(moved);
+	});
+
+	it("drops a hold change a later publish replaced, keeps the content, and records the inverse of what it applied", () => {
+		const store = heldStore();
+		commitWithMoves(store, [setRemark(store.getState(), COMPUTED_REMARK)]);
+		const moved = toPersistableDoc(store.getState());
+		const movedHold = ownHold(store.getState());
+		recordCurrentHolds(store);
+
+		const step = store.getState().historyStepBatch("undo");
+		if (step === undefined) throw new Error("The move is undoable.");
+		expect(step.droppedHoldChange).toBe(true);
+		expect(holdEntries(step.batch)).toEqual([]);
+		expect(store.getState().applyHistoryStep("undo", step.batch)).toEqual({
+			restoredHold: false,
+			droppedHoldChange: true,
+		});
+		// The content is back, and the answers stay where the publish put them.
+		expect(
+			store
+				.getState()
+				.forms[FOLLOWUP].caseOperations?.find((op) => op.action === "own")
+				?.writes?.find((write) => write.property === "remark")?.value,
+		).toEqual(read("remark"));
+		expect(ownHold(store.getState())).toEqual(movedHold);
+
+		// The redo replays exactly what the undo took back: the content alone.
+		const redo = store.getState().historyStepBatch("redo");
+		if (redo === undefined) throw new Error("The undo is redoable.");
+		expect(holdEntries(redo.batch)).toEqual([]);
+		expect(redo.droppedHoldChange).toBe(false);
+		store.getState().applyHistoryStep("redo", redo.batch);
+		expect(toPersistableDoc(store.getState())).toEqual(moved);
+		// And its undo is the batch the first undo applied.
+		expect(store.getState().undoBatch()).toEqual(step.batch);
+	});
+
+	it("applies nothing when that history is empty", () => {
+		const store = heldStore();
+		expect(store.getState().historyStepBatch("undo")).toBeUndefined();
+		expect(
+			store.getState().applyHistoryStep("redo", admitMutationBatch([])),
+		).toBeUndefined();
+	});
+
+	it("keeps the recorded holds out of the document a reseed overlays", () => {
+		const store = heldStore();
+		const recorded = store.getState().recordedHolds;
+		expect(recorded.size).toBeGreaterThan(0);
+		store.getState().beginRemoteApply();
+		try {
+			store
+				.getState()
+				.commitDoc(toPersistableDoc(store.getState()) as BlueprintDoc);
+		} finally {
+			store.getState().endRemoteApply();
+		}
+		expect(store.getState().recordedHolds).toBe(recorded);
+		expect(Object.keys(toPersistableDoc(store.getState()))).not.toContain(
+			"recordedHolds",
+		);
 	});
 });

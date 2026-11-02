@@ -23,9 +23,11 @@ import {
 } from "@/lib/doc/provider";
 import { selectionAfterFieldDeletion } from "@/lib/routing/deletionSelection";
 import { findFieldElement, flashUndoHighlight } from "@/lib/routing/domQueries";
-import { runHistoryStep } from "@/lib/routing/historyStep";
+import { historyStepHoldNote, runHistoryStep } from "@/lib/routing/historyStep";
 import { readBuilderLocation, useSelect } from "@/lib/routing/hooks";
 import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
+import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
+import { pendingIdentityMoveSlot } from "@/lib/session/store";
 
 /**
  * Undo / redo with scroll + flash affordance. Both actions are no-ops when the
@@ -60,6 +62,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 	const projectToast = useProjectToast();
 	const canEdit = useContext(BlueprintEditableContext);
 	const lookupCommitState = useLookupCommitState();
+	const session = useOptionalBuilderSessionApi();
 
 	return useMemo(() => {
 		function run(action: "undo" | "redo"): void {
@@ -69,7 +72,13 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 			const result = runHistoryStep(
 				state,
 				action,
-				{ canEdit, lookupCommitState },
+				{
+					canEdit,
+					lookupCommitState,
+					...(session !== null && {
+						identityMoves: pendingIdentityMoveSlot(session),
+					}),
+				},
 				flushSync,
 			);
 			if (result.kind === "refused") {
@@ -80,6 +89,9 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 				);
 			}
 			if (result.kind !== "applied") return;
+			const holdNote = historyStepHoldNote(action, result);
+			if (holdNote !== undefined)
+				projectToast("info", holdNote.title, holdNote.message);
 
 			const selectedUuid = loc.kind === "form" ? loc.selectedUuid : undefined;
 			if (!selectedUuid) return;
@@ -123,6 +135,7 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 		projectToast,
 		canEdit,
 		lookupCommitState,
+		session,
 	]);
 }
 

@@ -164,6 +164,9 @@ from both live and resumed model context and from MCP results. Do not append
 instructions to continue after every success. Saved values set aside by a
 migration travel as `dataReview`; automation writes report remaining setup,
 while `getAutomations` supplies a full guide on request.
+Every mutating result carries `identityMoves` when its staged batch moves where
+CommCare HQ keeps published answers, and `saveWork` repeats every move of the
+work it saves. No tool asks a confirmation for a move.
 
 Domain behavior remains with its owning planners and shared tools: case-list
 selection and search, no-matches registration, form links, automations, media,

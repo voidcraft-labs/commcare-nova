@@ -14,7 +14,9 @@
  * `(app_id, batch_id)` dedup latch, the expected-Project check, fresh Project
  * membership reauthorization, the exact chat-holder compare, strict fresh
  * app/entity assembly, the organization-revision fence, stale-target
- * rejection, one candidate preparation on the fresh doc, lookup target union
+ * rejection, one candidate preparation on the fresh doc, the held-placement
+ * rule over the fresh and candidate docs (`placementAuthority.ts`, reading the
+ * recordings it needs under the app lock), lookup target union
  * locks + fresh lookup verdict, the absolute whole-document gate, exact media
  * reference admission, organization cross-store commit integrity, the
  * `beforeWrite` hook seam (case-store Phase A and future server-owned
@@ -76,6 +78,7 @@ import {
 	type AdmittedMutationBatch,
 	encodeAdmittedMutationEnvelope,
 } from "../doc/mutationAdmission";
+import { NO_RECORDED_HOLDS } from "../doc/placementHolds";
 import { buildReferenceIndex } from "../doc/referenceIndex";
 import type {
 	BlueprintDoc,
@@ -128,6 +131,11 @@ import {
 	notifyAppStream,
 	withAppTx,
 } from "./pg";
+import {
+	placementChangeRefusal,
+	placementChangesToJustify,
+} from "./placementAuthority";
+import { readRecordedPlacementHolds } from "./placementRecords";
 import { projectRoleForInTransaction } from "./projectMembership";
 import {
 	type ExactRunHolderIdentity,
@@ -1025,6 +1033,28 @@ export async function commitCanonicalBatch(
 			);
 		}
 		const prepared = prepareMutationCandidate(freshDoc, mutations);
+		// Who may change a held placement is decided over the two documents
+		// and the recordings, read under the app lock so no recording lands
+		// between the read and the write. An edit that changes no hold, and
+		// every move, reads nothing.
+		const toJustify = placementChangesToJustify(
+			freshDoc,
+			prepared.nextDoc,
+			kind,
+		);
+		const recordedHolds =
+			toJustify.length === 0
+				? NO_RECORDED_HOLDS
+				: await readRecordedPlacementHolds(tx, appId, toJustify);
+		const placementRefusal = placementChangeRefusal(
+			freshDoc,
+			prepared.nextDoc,
+			kind,
+			recordedHolds,
+		);
+		if (placementRefusal !== null) {
+			throw new BlueprintCommitRejectedError(placementRefusal);
+		}
 		const previousTargets = extractLookupReferenceTargets(freshDoc);
 		const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
 		const lookupTargets = unionLookupReferenceTargetSets(

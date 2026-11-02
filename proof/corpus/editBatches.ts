@@ -10,6 +10,11 @@
  *   admits it against D, under D's own lookup context, so D′ is exactly the
  *   document the gate validated (`verdict.nextDoc`) and the batch is exactly
  *   the canonical one it admitted (`verdict.mutations`);
+ * - the commit kernel's placement rule
+ *   (`lib/db/placementAuthority.ts::placementChangeRefusal`) admits it as an
+ *   editor's (`autosave`) batch from D to D′, with D's own holds standing as
+ *   the latest recording, so it changes a held placement only by a move its
+ *   edit needs or a restore of the recorded hold;
  * - D′ differs from D (a batch that leaves D as it was is a publish with no
  *   edit, which the harness already makes); and
  * - D′ passes the checks Nova's direct HQ upload applies beyond the commit
@@ -37,6 +42,7 @@ import {
 import { evaluateBoundary } from "@/lib/commcare/validator/gate";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
+import { placementChangeRefusal } from "@/lib/db/placementAuthority";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	hydratePersistedBlueprint,
@@ -47,6 +53,7 @@ import {
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
+import { readPlacementHolds } from "@/lib/doc/placementHolds";
 import {
 	ensureReferenceIndex,
 	planReferenceIndexMaintenance,
@@ -429,6 +436,19 @@ function judge(
 			codes: [...new Set(verdict.findings.map((f) => f.code))],
 		};
 	}
+	// What an editor's save meets on the server: D's holds are what its
+	// latest recording wrote, so a batch may move a hold its edit strands or
+	// restore one, and nothing else.
+	if (
+		placementChangeRefusal(
+			doc,
+			verdict.nextDoc,
+			"autosave",
+			readPlacementHolds(doc),
+		) !== null
+	) {
+		return { ok: false, codes: ["kernel:placement-change"] };
+	}
 	if (isDeepStrictEqual(storedJson(verdict.nextDoc), prepared.stored)) {
 		return { ok: false, codes: ["no-op"] };
 	}
@@ -449,9 +469,9 @@ function judge(
 
 /**
  * Judge one batch against a corpus document exactly as the generator keeps
- * one: the commit gate under the document's lookup context, the refusal of a
- * batch that changes nothing, then the publish checks on the document it
- * admits.
+ * one: the commit gate under the document's lookup context, the commit
+ * kernel's placement rule, the refusal of a batch that changes nothing, then
+ * the publish checks on the document it admits.
  */
 export function admitEditBatch(
 	input: EditCorpusDocument,
@@ -544,7 +564,11 @@ function readersOf(
  * as the batch the edit generator would have kept for it: the mutations
  * Nova's commit gate admitted from `doc` to `nextDoc`, each one's kind, what
  * each touches, and whether anything reads what they touch. The batch's
- * first mutation's kind stands as the kind it was drawn for.
+ * first mutation's kind stands as the kind it was drawn for, except in a
+ * batch that moves a held placement: an editor's batch carries a
+ * `holdPlacements` only after the edit that needs it
+ * (`lib/doc/identityMoves.ts::withIdentityMoves`), never first, and the move
+ * is what such a written edit is for, so `holdPlacements` stands.
  */
 export function writtenEditBatch(
 	documentId: string,
@@ -560,10 +584,11 @@ export function writtenEditBatch(
 		);
 	}
 	const touched = touchedEntities(doc, mutations);
+	const movesHold = mutations.some((m) => m.kind === "holdPlacements");
 	return {
 		documentId,
 		seed,
-		intendedKind: first.kind,
+		intendedKind: movesHold ? "holdPlacements" : first.kind,
 		mutations,
 		nextDoc,
 		kinds: mutations.map((mutation) => mutation.kind),

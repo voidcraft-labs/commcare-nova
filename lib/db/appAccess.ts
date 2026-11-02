@@ -15,10 +15,16 @@
 import type { Transaction } from "kysely";
 import { getAuthDb } from "@/lib/auth/db";
 import { type AppCapability, roleAllowsApp } from "@/lib/auth/projectRoles";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import {
+	type PlacementHold,
+	readPlacementHolds,
+} from "@/lib/doc/placementHolds";
 import { loadApp, loadAppInTransaction, loadAppProjectId } from "./apps";
 import { safePersistedSequence } from "./persistedJson";
 import type { AppDatabase } from "./pg";
 import { withAppTx } from "./pg";
+import { readRecordedPlacementHolds } from "./placementRecords";
 import {
 	projectRoleFor,
 	projectRoleForInTransaction,
@@ -81,6 +87,13 @@ export interface TransactionalAppScope extends ProjectAccess {
 export interface AuthorizedAppSnapshot extends AppAccess {
 	readonly canEdit: boolean;
 	readonly baseSeq: number;
+	/**
+	 * The hold each held target's latest recording wrote, for every target
+	 * the returned blueprint holds, in document order. A target no recording
+	 * holds is absent. The builder's history restores a hold only to what
+	 * this says a recording wrote, as the commit kernel does.
+	 */
+	readonly recordedHolds: readonly PlacementHold[];
 }
 
 /** Throws unless `userId` holds `required` on `projectId`. */
@@ -180,7 +193,32 @@ export async function resolveAuthorizedAppSnapshot(
 		) {
 			throw new Error("Authorized app snapshot lock invariant was violated.");
 		}
-		return { app, ...scope };
+		return {
+			app,
+			...scope,
+			recordedHolds: await recordedHoldsOf(tx, appId, app),
+		};
+	});
+}
+
+/**
+ * The recorded hold of every target `app`'s blueprint holds, in document
+ * order, read on the snapshot's transaction. An app holding nothing reads
+ * nothing more.
+ */
+async function recordedHoldsOf(
+	tx: Transaction<AppDatabase>,
+	appId: string,
+	app: AppDoc,
+): Promise<readonly PlacementHold[]> {
+	const held = readPlacementHolds(hydratePersistedBlueprint(app.blueprint));
+	if (held.size === 0) return [];
+	const recorded = await readRecordedPlacementHolds(tx, appId, [
+		...held.keys(),
+	]);
+	return [...held.keys()].flatMap((key) => {
+		const hold = recorded.get(key);
+		return hold === undefined ? [] : [hold];
 	});
 }
 

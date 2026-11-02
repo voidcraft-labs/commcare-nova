@@ -1,6 +1,8 @@
 import { afterEach, assert, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { IDENTITY_MOVE_PENDING_MESSAGE } from "@/lib/doc/builderWriteAdmission";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	type AddCommitOutcome,
 	createBlueprintMutations,
@@ -10,13 +12,26 @@ import {
 	type BlueprintDocStoreApi,
 	createBlueprintDocStore,
 } from "@/lib/doc/store";
-import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import { type Automation, fieldCaseWriteViews, uuidSchema } from "@/lib/domain";
 import { eq, formField, literal, term } from "@/lib/domain/expression/builders";
 import type { Choice } from "@/lib/domain/expression/types";
 import { printProseTemplate, proseText } from "@/lib/domain/prose";
+import { runHistoryStep } from "@/lib/routing/historyStep";
+import {
+	createBuilderSessionStore,
+	pendingIdentityMoveSlot,
+} from "@/lib/session/store";
 import { toastStore } from "@/lib/ui/toastStore";
 import { assertAdmittedDoc } from "./admittedDoc";
+import {
+	COMPUTED_REMARK,
+	FOLLOWUP,
+	heldStore,
+	ownHold,
+	read,
+	setRemark,
+} from "./heldHistoryFixture";
 
 // Exercise the production Builder command owner directly. React supplies its
 // context and memo lifetime separately; no render is needed to run commands.
@@ -1919,5 +1934,124 @@ describe("Builder field commands carry the case writes their fields hold", () =>
 		// And a follow-up gains one again.
 		expect(mutations.updateForm(CHECK, { type: "followup" }).ok).toBe(true);
 		expect(ownOf()).toHaveLength(1);
+	});
+});
+
+describe("Builder commands that move a held identity", () => {
+	function heldSetup() {
+		const store = heldStore();
+		const session = createBuilderSessionStore();
+		const mutations = createBlueprintMutations(store, {
+			canEdit: true,
+			authoringLanguage: null,
+			lookupCommitState: {
+				kind: "unmanaged",
+				lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
+			},
+			identityMoves: pendingIdentityMoveSlot(session),
+		});
+		return { store, session, mutations };
+	}
+
+	it("commits nothing for a dispatch with moves, and waits for the dialog", () => {
+		const { store, session, mutations } = heldSetup();
+		const before = store.getState();
+		const edit = setRemark(before, COMPUTED_REMARK);
+		expect(mutations.commitMany([edit])).toEqual({
+			ok: false,
+			messages: [],
+			deferred: true,
+		});
+		expect(store.getState()).toBe(before);
+		expect(before.peekCommandBatches()).toEqual([]);
+		expect(before.canUndo).toBe(false);
+		expect(toastStore.toasts).toEqual([]);
+		const pending = session.getState().pendingIdentityMove;
+		expect(pending?.origin).toBe("edit");
+		expect(pending?.batch[0]).toEqual(edit);
+		expect(pending?.batch.at(-1)?.kind).toBe("holdPlacements");
+		expect(pending?.moves.map((move) => move.subject.kind)).toEqual([
+			"case-operation",
+		]);
+	});
+
+	it("refuses a second dispatch while one waits, and commits the stated batch as one undo step", () => {
+		const { store, session, mutations } = heldSetup();
+		const published = ownHold(store.getState());
+		mutations.commitMany([setRemark(store.getState(), COMPUTED_REMARK)]);
+		const pending = session.getState().pendingIdentityMove;
+		if (pending === null) throw new Error("The move waits.");
+
+		const waiting = store.getState();
+		expect(
+			mutations.inline.commitMany([setRemark(waiting, read("age"))]),
+		).toEqual({ ok: false, messages: [IDENTITY_MOVE_PENDING_MESSAGE] });
+		expect(store.getState()).toBe(waiting);
+
+		expect(mutations.commitStated(pending.batch)).toEqual({ ok: true });
+		expect(session.getState().pendingIdentityMove).toBeNull();
+		expect(store.getState().peekCommandBatches()).toEqual([pending.batch]);
+		expect(ownHold(store.getState())).not.toEqual(published);
+		expect(store.getState().canUndo).toBe(true);
+		store.getState().undo();
+		expect(ownHold(store.getState())).toEqual(published);
+		expect(store.getState().canUndo).toBe(false);
+	});
+
+	it("commits a stated redo as that history step", () => {
+		const { store, session, mutations } = heldSetup();
+		mutations.commitMany([setRemark(store.getState(), COMPUTED_REMARK)]);
+		const edit = session.getState().pendingIdentityMove;
+		if (edit === null) throw new Error("The move waits.");
+		mutations.commitStated(edit.batch);
+		const moved = toPersistableDoc(store.getState());
+		const slot = pendingIdentityMoveSlot(session);
+		const access = {
+			canEdit: true,
+			lookupCommitState: {
+				kind: "unmanaged",
+				lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
+			},
+			identityMoves: slot,
+		} as const;
+		expect(runHistoryStep(store.getState(), "undo", access).kind).toBe(
+			"applied",
+		);
+		expect(runHistoryStep(store.getState(), "redo", access).kind).toBe(
+			"deferred",
+		);
+		const redo = session.getState().pendingIdentityMove;
+		if (redo === null) throw new Error("The redo waits.");
+		expect(mutations.commitStated(redo.batch, redo.origin)).toEqual({
+			ok: true,
+		});
+		expect(session.getState().pendingIdentityMove).toBeNull();
+		expect(toPersistableDoc(store.getState())).toEqual(moved);
+		expect([store.getState().canUndo, store.getState().canRedo]).toEqual([
+			true,
+			false,
+		]);
+	});
+
+	it("commits a dispatch without moves as before, and a review names the moves without committing", () => {
+		const { store, session, mutations } = heldSetup();
+		const before = store.getState();
+		const reviewed = mutations.reviewMany([setRemark(before, COMPUTED_REMARK)]);
+		expect(reviewed).toMatchObject({
+			ok: true,
+			identityMoves: [expect.objectContaining({ from: "case-management" })],
+		});
+		expect(store.getState()).toBe(before);
+		expect(session.getState().pendingIdentityMove).toBeNull();
+
+		const hint: Mutation = {
+			kind: "updateField",
+			uuid: before.fieldOrder[FOLLOWUP][0],
+			targetKind: before.fields[before.fieldOrder[FOLLOWUP][0]].kind,
+			patch: { hint: proseText("In years") },
+		} as Mutation;
+		expect(mutations.commitMany([hint])).toEqual({ ok: true });
+		expect(session.getState().pendingIdentityMove).toBeNull();
+		expect(store.getState().peekCommandBatches()).toEqual([[hint]]);
 	});
 });

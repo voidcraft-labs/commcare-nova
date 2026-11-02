@@ -905,3 +905,129 @@ describe("the procedure", () => {
 		]);
 	});
 });
+
+describe("holds the document no longer expresses", () => {
+	const own0: PlacementSubject = { kind: "operation", operationUuid: OWN };
+
+	it("lists a held own slot a calculated value strands, and plans it as if unheld", () => {
+		const { doc, formUuid } = placementFixture("followup", {
+			operations: () => [
+				own({
+					placement: OWN_SLOT,
+					writes: [write("age", concat(read("age"), term(literal("!"))))],
+				}),
+			],
+		});
+		const plan = planPlacements(doc, formUuid);
+		expect(plan.inexpressible).toEqual([
+			{
+				subject: own0,
+				held: OWN_SLOT,
+				reasons: [{ reason: "value-computed" }],
+			},
+		]);
+		expect(plan.placements.get(OWN)).toEqual({
+			placement: { kind: "save-to-case", path: ["nova_operations", "patient"] },
+			held: false,
+		});
+	});
+
+	it("lists a held index past the form's subcases", () => {
+		const held: CasePlacement = { kind: "basic", slot: "subcase", index: 2 };
+		const { doc, formUuid } = placementFixture("followup", {
+			operations: (t) => [
+				own(),
+				childCreate("a", t),
+				childCreate("b", t, { placement: held }),
+			],
+		});
+		expect(planPlacements(doc, formUuid).inexpressible).toEqual([
+			{
+				subject: { kind: "operation", operationUuid: OP("b") },
+				held,
+				reasons: [{ reason: "subcase-index" }],
+			},
+		]);
+	});
+
+	it("lists a held own close on a form that no longer closes its case", () => {
+		const { doc, formUuid } = placementFixture("followup", {
+			operations: () => [own()],
+			form: {
+				ownClosePlacement: {
+					kind: "save-to-case",
+					path: ["nova_operations", "nova_close"],
+				},
+			},
+		});
+		const plan = planPlacements(doc, formUuid);
+		expect(plan.inexpressible).toEqual([
+			{
+				subject: { kind: "own-close" },
+				held: { kind: "save-to-case", path: ["nova_operations", "nova_close"] },
+				reasons: [{ reason: "no-close" }],
+			},
+		]);
+		expect(plan.placements.has("own-close")).toBe(false);
+	});
+
+	it("lists nothing for holds that still express their subjects", () => {
+		const shut = (placement?: CasePlacement): CaseOperation =>
+			({
+				uuid: OP("shut"),
+				id: "shut",
+				action: "close",
+				caseType: "kid",
+				target: { kind: "op", opUuid: OP("kid") },
+				condition: read("flag"),
+				...(placement !== undefined && { placement }),
+			}) as CaseOperation;
+		const { doc, formUuid } = placementFixture("followup", {
+			operations: (t) => [
+				own({ placement: OWN_SLOT, writes: [write("age", read("age"))] }),
+				childCreate("kid", t, { placement: SUBCASE_0 }),
+				shut(SUBCASE_0),
+			],
+		});
+		const plan = planPlacements(doc, formUuid);
+		expect(plan.inexpressible).toEqual([]);
+		expect(plan.placements.get(OP("shut"))).toEqual({
+			placement: SUBCASE_0,
+			held: true,
+			sharesWith: OP("kid"),
+		});
+		expect(planPlacements(doc, formUuid)).toBe(plan);
+	});
+
+	it("lists a close holding a subcase place it no longer shares, and the create its block would now precede", () => {
+		const { doc, formUuid } = placementFixture("followup", {
+			operations: (t) => [
+				own(),
+				childCreate("kid", t, { placement: SUBCASE_0 }),
+				{
+					uuid: OP("shut"),
+					id: "shut",
+					action: "close",
+					caseType: "kid",
+					target: { kind: "op", opUuid: OP("kid") },
+					condition: read("name"),
+					placement: SUBCASE_0,
+				} as CaseOperation,
+			],
+		});
+		expect(planPlacements(doc, formUuid).inexpressible).toEqual([
+			{
+				subject: { kind: "operation", operationUuid: OP("kid") },
+				held: SUBCASE_0,
+				reasons: [{ reason: "case-changed-before-create" }],
+			},
+			{
+				subject: { kind: "operation", operationUuid: OP("shut") },
+				held: SUBCASE_0,
+				reasons: [
+					{ reason: "condition-question-kind", condition: "operation" },
+				],
+			},
+		]);
+	});
+});

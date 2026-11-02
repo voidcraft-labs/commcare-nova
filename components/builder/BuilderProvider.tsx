@@ -42,6 +42,7 @@ import type { BuilderNotices } from "@/components/builder/notices/appNoticeModel
 import { ProjectDataWorkspaceProvider } from "@/components/builder/project-data/ProjectDataWorkspaceLazyProvider";
 import { PresenceProvider } from "@/lib/collab/PresenceProvider";
 import { ReconcilerProvider } from "@/lib/collab/ReconcilerProvider";
+import type { PlacementHold } from "@/lib/doc/placementHolds";
 import {
 	BlueprintDocContext,
 	BlueprintDocProvider,
@@ -66,6 +67,9 @@ export interface InitialBuilderAccess {
 	readonly role: string;
 	readonly canEdit: boolean;
 	readonly baseSeq: number;
+	/** The hold each target's latest recording wrote, read in the same
+	 *  transaction (`AppReadSnapshot.recordedHolds`). A new build has none. */
+	readonly recordedHolds?: readonly PlacementHold[];
 }
 
 // ── Provider ────────────────────────────────────────────────────────────
@@ -226,6 +230,7 @@ function BuilderProviderInner({
 					<ReconcilerProvider
 						appId={buildId === "new" ? undefined : buildId}
 						baseSeq={initialAccess?.baseSeq ?? 0}
+						recordedHolds={initialAccess?.recordedHolds}
 						userId={userId ?? ""}
 					>
 						{/* The presence layer rides the reconciler's single

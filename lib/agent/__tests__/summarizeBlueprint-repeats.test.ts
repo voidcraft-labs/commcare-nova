@@ -113,10 +113,14 @@ it("reads a held placement as its rows and never as the stored placement", async
 	if (field?.kind !== "repeat" || field.repeat_mode !== "query_bound")
 		throw new Error("The fixture's query repeat is missing.");
 	held.fields[openVisits] = { ...field, placement: "count" };
-	expect(repeatLine(held, "open_visits")).toMatch(/\[rows follow query\]$/);
+	expect(repeatLine(held, "open_visits")).toMatch(
+		/\[rows follow query, kept\]$/,
+	);
 	const read = await makeAuthoringHarness({}, held).call("getField", {
 		fieldUuid: openVisits,
 	});
-	expect(read).toMatchObject({ field: { rows: "follow-query" } });
+	expect(read).toMatchObject({
+		field: { rows: "follow-query", rowsKept: true },
+	});
 	expect(read).not.toMatchObject({ field: { placement: expect.anything() } });
 });

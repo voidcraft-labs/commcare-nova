@@ -18,7 +18,11 @@ import {
 	getCaseStorePool,
 } from "@/lib/case-store/postgres/connection";
 import { commitThreadInputPause } from "@/lib/chat/threadInputRounds";
-import { createExplicitBlankApp } from "@/lib/db/appGenesis";
+import {
+	createExplicitBlankApp,
+	prepareGenesisCandidate,
+	writePreparedGenesisInTransaction,
+} from "@/lib/db/appGenesis";
 import {
 	appendSyntheticBatch,
 	claimAndReserveRun,
@@ -27,12 +31,15 @@ import {
 } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
 import { createReadyAsset } from "@/lib/db/mediaAssets";
+import { withAppTx } from "@/lib/db/pg";
 import {
 	loadThread,
 	persistResponseSnapshot,
 	upsertThreadTurn,
 } from "@/lib/db/threads";
+import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import {
 	asUuid,
 	type BlueprintDoc,
@@ -125,6 +132,11 @@ import { SMOKE_TEXT } from "./smokeText";
 /** One context per seed process, one actor/Project universe per scenario. */
 /** One form taking part in Connect Learn, in an app that runs on Android
  *  only, as every Connect app does. */
+export const IDENTITY_MOVES_SEED = {
+	appName: "Smoke — Identity moves",
+	formName: "Follow-up visit",
+} as const;
+
 export const CONNECT_LEARN_SEED = {
 	appName: "Smoke — Connect Learn",
 	moduleName: "Training",
@@ -684,6 +696,90 @@ export async function createSmokeBuilders(
 
 	/** Install one fixture blueprint into a fresh app and materialize its
 	 * case schema, as live case data requires before any row lands. */
+	/**
+	 * A follow-up form whose own case change a publish recorded in the form's
+	 * Case Management settings. The held place is in the app's first revision,
+	 * so the fold baseline that revision writes is the latest recording of it,
+	 * as a published app's recordings are. Its one write saves the `village`
+	 * answer as it is; a calculation over that answer is something Case
+	 * Management can't save, which moves the change.
+	 */
+	async function seedIdentityMoves() {
+		const appId = randomUUID();
+		const doc = buildDoc({
+			appName: IDENTITY_MOVES_SEED.appName,
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: "Name" },
+						{ name: "village", label: "Village" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: IDENTITY_MOVES_SEED.formName,
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "village",
+									label: proseText("Village"),
+									caseWrite: { caseType: "patient", property: "village" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		doc.appId = appId;
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid =
+			moduleUuid === undefined ? undefined : doc.formOrder[moduleUuid]?.[0];
+		const own =
+			formUuid === undefined
+				? undefined
+				: doc.forms[formUuid]?.caseOperations?.find(
+						(operation) => operation.action === "own",
+					);
+		if (moduleUuid === undefined || formUuid === undefined || own === undefined)
+			throw new Error(
+				"The identity-moves fixture needs a follow-up form with its own case.",
+			);
+		own.placement = { kind: "basic", slot: "own" };
+		const candidate = prepareGenesisCandidate({
+			appId,
+			projectId: seedProjectId,
+			mutations: diffDocsToMutations(emptyBlueprintDoc(appId), doc),
+		});
+		await withAppTx((tx) =>
+			writePreparedGenesisInTransaction(tx, {
+				candidate,
+				actorUserId: SEED.userId,
+				runId: randomUUID(),
+				status: "complete",
+			}),
+		);
+		return {
+			appId,
+			route: buildUrl(`/build/${appId}`, {
+				kind: "form-operations",
+				moduleUuid,
+				formUuid,
+				operationUuid: own.uuid,
+			}),
+		};
+	}
+
 	async function seedRuntimeApp(
 		name: string,
 		build: (appId: string) => BlueprintDoc,
@@ -1765,6 +1861,9 @@ export async function createSmokeBuilders(
 
 		"react-profile": async () => {
 			return { reactProfile: await seedReactProfile() };
+		},
+		"identity-moves": async () => {
+			return { identityMoves: await seedIdentityMoves() };
 		},
 		"connect-learn": async () => {
 			const appId = await seedRuntimeApp(

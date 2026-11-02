@@ -77,6 +77,7 @@ import {
 	fieldPlacementVerdict,
 	formIsSectioned,
 } from "@/lib/doc/formSectionVerdicts";
+import { withIdentityMoves } from "@/lib/doc/identityMoves";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
 import {
 	addLanguageMutation,
@@ -91,6 +92,7 @@ import {
 	removeLocationPropertyMutations,
 	removeOrganizationLevelPlan,
 } from "@/lib/doc/organizationMutations";
+import { readPlacementHolds } from "@/lib/doc/placementHolds";
 import { referencingCarrierUuids } from "@/lib/doc/referenceIndex";
 import {
 	caseListModuleMutations,
@@ -1749,6 +1751,64 @@ const setFormMedia: KindGenerator = (ctx) =>
 		},
 	);
 
+// ── Held placements ──────────────────────────────────────────────────
+
+/** Every case change the document holds in a slot of Case Management. */
+function basicOperationHolds(doc: BlueprintDoc) {
+	return [...readPlacementHolds(doc).values()].flatMap((hold) =>
+		hold.target === "case-operation" && hold.placement.kind === "basic"
+			? [hold]
+			: [],
+	);
+}
+
+/**
+ * A document holding a case change in a slot of Case Management. No editor
+ * gives birth to one: a hold is written by a publish's recording, and the
+ * commit kernel refuses an editor's batch that gains one
+ * (`lib/db/placementAuthority.ts::placementChangeRefusal`), so a document
+ * that holds none proposes nothing.
+ */
+const HELD_PLACEMENT_HOST: Host = {
+	holds: (doc) => basicOperationHolds(doc).length > 0,
+	birth: () => [],
+};
+
+/**
+ * A move of a held placement, as an editor's batch carries it: an edit that
+ * leaves a case change held in a slot of Case Management unable to stay
+ * there (a write of a computed value, which the slot cannot hold), planned
+ * through `lib/doc/identityMoves.ts::withIdentityMoves` over the holds the
+ * document's latest recording wrote, so the batch carries the
+ * `holdPlacements` the move needs. An edit the planner moves nothing for is
+ * no candidate of this kind.
+ */
+const holdPlacements: KindGenerator = (ctx) => {
+	const { doc } = ctx;
+	const recorded = readPlacementHolds(doc);
+	return forTargets(ctx, basicOperationHolds(doc), (hold) => {
+		const operation = doc.forms[hold.formUuid]?.caseOperations?.find(
+			(op) => op.uuid === hold.operationUuid,
+		);
+		if (operation === undefined) return undefined;
+		const edit = updateCaseOperationMutations(doc, hold.formUuid, {
+			...structuredClone(operation),
+			writes: [
+				...(operation.writes ?? []),
+				{
+					property: ctx.mint.name("edit_note"),
+					value: term(literal("edited")),
+				},
+			],
+		});
+		if (edit.length === 0) return refusal("case-operation");
+		const plan = withIdentityMoves(doc, edit, { recorded });
+		return plan.batch.some((mutation) => mutation.kind === "holdPlacements")
+			? batch(plan.batch)
+			: refusal("no-move");
+	});
+};
+
 // ── Fields and options ───────────────────────────────────────────────
 
 const addField: KindGenerator = (ctx) => {
@@ -2829,6 +2889,7 @@ export const EDIT_KIND_GENERATORS = {
 	setFieldMedia: hosted(FORM_HOST, hosted(LABEL_MEDIA_HOST, setFieldMedia)),
 	setModuleMedia,
 	setFormMedia: hosted(FORM_HOST, setFormMedia),
+	holdPlacements: hosted(HELD_PLACEMENT_HOST, holdPlacements),
 } satisfies Record<Mutation["kind"], KindGenerator>;
 
 /** Every mutation kind, in the registry's order. */

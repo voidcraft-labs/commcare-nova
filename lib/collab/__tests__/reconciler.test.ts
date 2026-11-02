@@ -38,6 +38,12 @@ import {
 	admitMutationBatch,
 } from "@/lib/doc/mutationAdmission";
 import {
+	NO_RECORDED_HOLDS,
+	type PlacementHold,
+	placementTargetKey,
+	type RecordedPlacementHolds,
+} from "@/lib/doc/placementHolds";
+import {
 	type BlueprintDocStoreApi,
 	createBlueprintDocStore,
 	isDocDataKey,
@@ -270,6 +276,7 @@ interface Harness {
 		projectId?: string;
 		role?: string;
 		canEdit?: boolean;
+		recordedHolds?: RecordedPlacementHolds;
 	}>;
 	reloadCalls: number;
 	resubscribeCursors: number[];
@@ -285,6 +292,7 @@ interface Harness {
 		projectId?: string;
 		role?: string;
 		canEdit?: boolean;
+		recordedHolds?: RecordedPlacementHolds;
 	}) => Promise<void>;
 	failReload: (err?: Error) => Promise<void>;
 	/** Number of manual reload GETs currently awaiting resolution. */
@@ -306,6 +314,7 @@ function makeHarness(init: {
 	baseSeq: number;
 	baseDoc: BlueprintDoc;
 	userId: string;
+	recordedHolds?: RecordedPlacementHolds;
 }): Harness {
 	assertAdmittedDoc(init.baseDoc);
 	const docStore = createBlueprintDocStore();
@@ -371,6 +380,7 @@ function makeHarness(init: {
 				projectId: next.projectId ?? "project-1",
 				role: next.role ?? "editor",
 				canEdit: next.canEdit ?? true,
+				recordedHolds: next.recordedHolds ?? NO_RECORDED_HOLDS,
 			});
 		},
 		canEdit: () => sessionApi.getState().canEdit,
@@ -442,6 +452,7 @@ function makeHarness(init: {
 				projectId: doc.projectId ?? "project-1",
 				role: doc.role ?? "editor",
 				canEdit: doc.canEdit ?? true,
+				recordedHolds: doc.recordedHolds ?? NO_RECORDED_HOLDS,
 			});
 			await flush();
 		},
@@ -481,6 +492,7 @@ function harness(init: {
 	baseSeq: number;
 	baseDoc: BlueprintDoc;
 	userId: string;
+	recordedHolds?: RecordedPlacementHolds;
 }): Harness {
 	const h = makeHarness(init);
 	liveHarnesses.add(h);
@@ -2920,6 +2932,115 @@ describe("reconciler", () => {
 			const displayed = h.docStore.getState();
 			expect(fieldLabel(displayed, F_A)).toBe("LA");
 			expect(fieldLabel(displayed, F_B)).toBe("PB");
+		});
+	});
+
+	// ── Recorded holds ──────────────────────────────────────────────────
+	describe("recorded holds", () => {
+		const OWN_CLOSE: PlacementHold = {
+			target: "own-close",
+			formUuid: FORM,
+			placement: { kind: "save-to-case", path: ["close_case"] },
+		};
+		const OPERATION: PlacementHold = {
+			target: "case-operation",
+			formUuid: FORM,
+			operationUuid: testUuid("operation-recorded"),
+			placement: { kind: "basic", slot: "own" },
+		};
+		const QUERY_REPEAT: PlacementHold = {
+			target: "query-repeat",
+			fieldUuid: F_A,
+			placement: "model-iteration",
+		};
+		function record(...holds: PlacementHold[]): RecordedPlacementHolds {
+			return new Map(holds.map((hold) => [placementTargetKey(hold), hold]));
+		}
+
+		it("hands the first read's record to the store beside confirmedDoc", () => {
+			const recorded = record(OWN_CLOSE, OPERATION);
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 2,
+				baseDoc: makeDoc(),
+				userId: "u1",
+				recordedHolds: recorded,
+			});
+			expect(h.reconciler.getSnapshot().recordedHolds).toBe(recorded);
+			expect(h.docStore.getState().recordedHolds).toEqual(recorded);
+		});
+
+		it("a reload replaces the record whole and hands the new one to the store", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 2,
+				baseDoc: makeDoc(),
+				userId: "u1",
+				recordedHolds: record(OWN_CLOSE, OPERATION),
+			});
+			const reloaded = record(QUERY_REPEAT);
+			h.reloadQueue.push({
+				blueprint: makeDoc("Reloaded"),
+				seq: 5,
+				recordedHolds: reloaded,
+			});
+			h.reconciler.onReloadEvent();
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(h.reconciler.getSnapshot().baseSeq).toBe(5);
+			// Nothing of the earlier record survives: a target the reload no
+			// longer names has no recording the tab may restore to.
+			expect(h.reconciler.getSnapshot().recordedHolds).toBe(reloaded);
+			expect(h.docStore.getState().recordedHolds).toEqual(reloaded);
+			expect(
+				h.docStore.getState().recordedHolds.has(placementTargetKey(OWN_CLOSE)),
+			).toBe(false);
+		});
+
+		it("a reload that reads no recording leaves the store an empty record", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 2,
+				baseDoc: makeDoc(),
+				userId: "u1",
+				recordedHolds: record(OWN_CLOSE),
+			});
+			h.reloadQueue.push({ blueprint: makeDoc(), seq: 3 });
+			h.reconciler.onReloadEvent();
+			await Promise.resolve();
+			await Promise.resolve();
+			await Promise.resolve();
+			expect(h.reconciler.getSnapshot().baseSeq).toBe(3);
+			expect(h.docStore.getState().recordedHolds.size).toBe(0);
+		});
+
+		it("a reload that fails keeps the record it had", async () => {
+			const recorded = record(OPERATION);
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 2,
+				baseDoc: makeDoc(),
+				userId: "u1",
+				recordedHolds: recorded,
+			});
+			h.enableManualReload();
+			h.reconciler.onReloadEvent();
+			await Promise.resolve();
+			await h.failReload();
+			expect(h.reconciler.getSnapshot().recordedHolds).toBe(recorded);
+			expect(h.docStore.getState().recordedHolds).toEqual(recorded);
+		});
+
+		it("an app made this session starts with no record", () => {
+			const h = harness({ baseSeq: 0, baseDoc: makeDoc(), userId: "u1" });
+			h.reconciler.activate({
+				appId: "app-new",
+				baseSeq: 1,
+				baseDoc: h.docStore.getState(),
+			});
+			expect(h.reconciler.getSnapshot().recordedHolds.size).toBe(0);
+			expect(h.docStore.getState().recordedHolds.size).toBe(0);
 		});
 	});
 });

@@ -10,6 +10,7 @@
  */
 
 import { z } from "zod";
+import { identityMoveReportSchema } from "@/lib/doc/identityMoves";
 
 export const SHA256_HEX_PATTERN = /^[a-f0-9]{64}$/;
 const sha256HexSchema = z.string().regex(SHA256_HEX_PATTERN);
@@ -76,6 +77,10 @@ export const stageRequestReceiptSchema = z
 		mutationDigest: sha256HexSchema.optional(),
 		diagnostics: changeSetDiagnosticsSummarySchema.optional(),
 		replayResult: mutationReplayResultSchema.optional(),
+		/** The identity moves a staged step states, each with its sentence:
+		 * staged only, absent when the step moves nothing. A recovered
+		 * request returns the moves its first answer gave. */
+		identityMoves: z.array(identityMoveReportSchema).min(1).optional(),
 		error: z
 			.strictObject({
 				code: stageErrorCodeSchema,
@@ -92,6 +97,16 @@ export const stageRequestReceiptSchema = z
 				code: "custom",
 				path: ["replayResult"],
 				message: "An accepted request must retain its tool result.",
+			});
+		}
+		if (
+			receipt.disposition !== "staged" &&
+			receipt.identityMoves !== undefined
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["identityMoves"],
+				message: "Only a staged step can move a held identity.",
 			});
 		}
 		if (receipt.disposition === "staged") {

@@ -451,6 +451,7 @@ function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 		case "updateFormLink":
 		case "removeFormLink":
 		case "moveFormLink":
+		case "holdPlacements":
 			return [];
 		default:
 			return assertNever(mutation, "identitiesClaimedBy");

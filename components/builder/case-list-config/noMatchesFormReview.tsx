@@ -13,6 +13,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { IdentityMoveReviewNote } from "@/components/builder/shared/IdentityMoveList";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -26,6 +27,7 @@ import {
 } from "@/components/shadcn/alert-dialog";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import type { IdentityMove } from "@/lib/doc/identityMoves";
 import {
 	noMatchesFormEntryMutations,
 	noMatchesRegistrationFormMutations,
@@ -68,6 +70,9 @@ export interface NoMatchesFormReview {
 	readonly firstMenuAfterSubmit: boolean;
 	/** The gate's refusals for the exact batch; empty when it would commit. */
 	readonly blockers: readonly string[];
+	/** Where the batch moves answers a published app keeps; the review lists
+	 *  them and commits through `commitStated`. */
+	readonly identityMoves: readonly IdentityMove[];
 }
 
 interface PlannedChoice {
@@ -152,6 +157,7 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 			choice: NoMatchesFormChoice,
 			planned: PlannedChoice,
 			blockers: readonly string[],
+			identityMoves: readonly IdentityMove[] = [],
 		): NoMatchesFormReview => {
 			if (moduleUuid === undefined) throw new Error("module required");
 			const mod = doc.modules[moduleUuid];
@@ -188,6 +194,7 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 				hostKeepsMenuForms: menuForms.length > 0,
 				firstMenuAfterSubmit,
 				blockers,
+				identityMoves,
 			};
 		},
 		[moduleUuid],
@@ -203,7 +210,13 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 			if (planned === null) return;
 			const reviewed = inline.reviewMany([...planned.mutations]);
 			setReview(
-				describe(doc, choice, planned, reviewed.ok ? [] : reviewed.messages),
+				describe(
+					doc,
+					choice,
+					planned,
+					reviewed.ok ? [] : reviewed.messages,
+					reviewed.ok ? (reviewed.identityMoves ?? []) : [],
+				),
 			);
 		},
 		[describe, docApi, inline, moduleUuid],
@@ -225,7 +238,17 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 			);
 			return;
 		}
-		const outcome = inline.commitMany(planned.mutations);
+		/* Moves this review listed commit as stated. A move the review did not
+		 * list (the document moved under it) waits in the builder's
+		 * identity-move dialog instead, which a refusal with no message means. */
+		const outcome =
+			review.identityMoves.length > 0
+				? inline.commitStated(planned.mutations)
+				: inline.commitMany(planned.mutations);
+		if (!outcome.ok && outcome.messages.length === 0) {
+			setReview(null);
+			return;
+		}
 		if (!outcome.ok) {
 			// The document moved under the review: show the fresh refusals.
 			setReview(describe(doc, review.choice, planned, outcome.messages));
@@ -337,6 +360,9 @@ export function NoMatchesFormReviewDialog({
 										: `${review.defaultsCleared} fields lose the starting values they read from the search. The fields stay.`}
 								</p>
 							)}
+							{review.identityMoves.length > 0 && (
+								<IdentityMoveReviewNote moves={review.identityMoves} />
+							)}
 							<p className="text-nova-text-muted">You can undo this.</p>
 						</div>
 					) : (
@@ -361,6 +387,9 @@ export function NoMatchesFormReviewDialog({
 									The form starts with a field for each search field, filled in
 									from the answer, and a name for the new case.
 								</p>
+							)}
+							{review.identityMoves.length > 0 && (
+								<IdentityMoveReviewNote moves={review.identityMoves} />
 							)}
 						</div>
 					)}

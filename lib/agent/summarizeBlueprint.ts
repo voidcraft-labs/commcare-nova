@@ -43,7 +43,11 @@ import {
 	userTypesOf,
 } from "@/lib/domain";
 import { projectProseTemplate } from "@/lib/domain/prose";
-import { queryRepeatRows } from "./authoring/fieldBehavior";
+import { formCasePlacementReads } from "./authoring/casePlacementWords";
+import {
+	queryRepeatRows,
+	queryRepeatRowsKept,
+} from "./authoring/fieldBehavior";
 import { unwrittenPropertiesReminder } from "./systemReminder";
 import {
 	ADVANCED_SLOT_NAMES,
@@ -81,10 +85,7 @@ function summarizeField(
 		pieces[0] += ` → ${view.caseType}.${view.property}`;
 	const rows = queryRepeatRows(doc, field);
 	if (rows !== undefined)
-		pieces[0] +=
-			rows === "set-when-opened"
-				? " [rows set when opened]"
-				: " [rows follow query]";
+		pieces[0] += ` [rows ${rows === "set-when-opened" ? "set when opened" : "follow query"}${queryRepeatRowsKept(field) ? ", kept" : ""}]`;
 	if (isContainer(field)) {
 		const children = orderedFieldUuids(doc, uuid);
 		const childLines = children
@@ -135,6 +136,15 @@ function summarizeForm(doc: BlueprintDoc, formUuid: Uuid): string {
 		extras.push(
 			`    close when: ${formConditionText(doc, formUuid, "form_close_condition", form.closeCondition)}`,
 		);
+	// A published app keeps this form's own case where it recorded it.
+	const own = form.caseOperations?.find(
+		(operation) => operation.action === "own",
+	);
+	if (own?.placement !== undefined) {
+		const kept = formCasePlacementReads(doc, formUuid).operations[own.uuid];
+		if (kept !== undefined)
+			extras.push(`    own case kept in ${kept.placement}`);
+	}
 	const topLevelFields = orderedFieldUuids(doc, formUuid);
 	const fieldSummary =
 		topLevelFields.length > 0

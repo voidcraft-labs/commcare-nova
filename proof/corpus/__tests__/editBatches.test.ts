@@ -94,6 +94,7 @@ import {
 	type BlueprintDoc,
 	blueprintDocSchema,
 	effectiveAppLocalization,
+	type Form,
 	MAX_MEDIA_EXPORT_ASSETS,
 	type PersistableDoc,
 	proseText,
@@ -101,6 +102,7 @@ import {
 import { collectAssetRefs } from "@/lib/domain/mediaRefs";
 import type { AssetMimeType } from "@/lib/domain/multimedia";
 import { classifyStoredMediaBytes } from "@/lib/media/validate";
+import { heldPlacement } from "../../targeted/documents/heldPlacement";
 import { lookupContextOf } from "../documents";
 import {
 	admitEditBatch,
@@ -115,6 +117,7 @@ import {
 	hydrateAdmittedDocument,
 	MEDIA_MIME,
 	publishFindings,
+	writtenEditBatch,
 } from "../editBatches";
 import { Minter, Rng, uuidTokensOf } from "../editContext";
 import { type Candidate, EDIT_KIND_GENERATORS } from "../editKinds";
@@ -135,6 +138,13 @@ const PUBLISH_REFUSED_NESTED = new Set(["same-smaller", "parent-multiple"]);
 
 function stored(id: string, doc: BlueprintDoc): EditCorpusDocument {
 	return { id, doc: toPersistableDoc(doc) };
+}
+
+/** `targeted-held-placement`'s D: Update's own case held in Case
+ *  Management's slot, Weigh's in its Save to Case block. */
+function heldPlacementInput(): EditCorpusDocument {
+	const { id, doc } = heldPlacement();
+	return { id, doc };
 }
 
 function fixedDocuments(): EditCorpusDocument[] {
@@ -222,6 +232,9 @@ function fixedDocuments(): EditCorpusDocument[] {
 			stored(workforceDocumentId(baseId), workforceDocument(base)),
 		);
 	}
+	// The one document whose D holds placements, as a published app's does:
+	// the only host of a move of a held placement.
+	documents.push(heldPlacementInput());
 	for (const reversed of [false, true]) {
 		const fixture = lookupAppFixture(reversed);
 		documents.push({
@@ -499,6 +512,104 @@ describe("turning Connect on", () => {
 		expect(refused.ok).toBe(false);
 		if (!refused.ok)
 			expect(refused.codes).toContain("PLATFORM_FEATURE_UNAVAILABLE");
+	});
+});
+
+/**
+ * Contract: a corpus edit that changes a held placement is one an editor can
+ * commit: the move its own change needs, planned as an editor's batch plans
+ * it, and nothing the commit kernel's placement rule refuses. The plausible
+ * failures: a generator whose batch strands a hold without its move (the
+ * gate refuses it), a kept batch that records a hold where none needs moving
+ * (the commit gate alone admits it, and only the kernel's rule refuses it),
+ * and a written edit that moves a hold landing as another kind, so the kind
+ * would never land on the corpus.
+ */
+describe("a held placement", () => {
+	const input = heldPlacementInput();
+	const doc = () => hydrateAdmittedDocument(input);
+	const formNamed = (name: string) => {
+		const form = Object.values(doc().forms).find((f) => f.name === name);
+		if (form === undefined) throw new Error(`No form ${name}.`);
+		return form;
+	};
+	const ownOf = (form: Form | undefined) => {
+		const own = form?.caseOperations?.[0];
+		if (own?.action !== "own") throw new Error("The form holds its own case.");
+		return own;
+	};
+
+	it("moves a held placement as an editor's batch moves it, and refuses one that records a hold", () => {
+		const update = formNamed("Update");
+		const weigh = formNamed("Weigh");
+		const [first] = EDIT_KIND_GENERATORS.holdPlacements({
+			doc: doc(),
+			known: uuidTokensOf(input.doc),
+			rng: new Rng(`holds\u0000${input.id}`),
+			mint: new Minter(`holds\u0000${input.id}`, SEED),
+		});
+		if (first === undefined || !("mutations" in first))
+			throw new Error("Expected the generator to propose a batch.");
+		const moved = admitEditBatch(input, first.mutations);
+		expect(moved.ok).toBe(true);
+		if (!moved.ok) return;
+		// The move rides last, as the identity-move planner appends it, and
+		// takes Update's own case to its Save to Case block.
+		expect(moved.mutations.at(-1)).toEqual({
+			kind: "holdPlacements",
+			holds: [
+				{
+					target: "case-operation",
+					formUuid: update.uuid,
+					operationUuid: ownOf(update).uuid,
+					placement: {
+						kind: "save-to-case",
+						path: ["nova_operations", "patient"],
+					},
+				},
+			],
+		});
+		expect(ownOf(moved.nextDoc.forms[weigh.uuid])).toEqual(ownOf(weigh));
+
+		// Recording Update's Save to Case block with no change that needs it:
+		// the commit gate admits it, and the kernel's rule refuses it.
+		const recorded: Mutation[] = [
+			{
+				kind: "holdPlacements",
+				holds: [
+					{
+						target: "case-operation",
+						formUuid: update.uuid,
+						operationUuid: ownOf(update).uuid,
+						placement: {
+							kind: "save-to-case",
+							path: ["nova_operations", "patient"],
+						},
+					},
+				],
+			},
+		];
+		expect(
+			mutationCommitVerdict(doc(), recorded, LOOKUP_CONTEXT_UNAVAILABLE).ok,
+		).toBe(true);
+		expect(admitEditBatch(input, recorded)).toEqual({
+			ok: false,
+			codes: ["kernel:placement-change"],
+		});
+
+		// The written edit of `targeted-held-placement` stands for the move.
+		const { edit } = heldPlacement();
+		if (edit === undefined) throw new Error("The document writes its edit.");
+		expect(
+			writtenEditBatch(
+				input.id,
+				SEED,
+				doc(),
+				edit.mutations,
+				hydratePersistedBlueprint(edit.nextDoc),
+			).intendedKind,
+		).toBe("holdPlacements");
+		expect(edit.mutations[0]?.kind).toBe("updateForm");
 	});
 });
 

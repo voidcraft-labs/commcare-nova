@@ -12,7 +12,8 @@
 //
 // Under it is where CommCare HQ keeps the close: the own close's block
 // when it has one, else the own case's place
-// (`lib/doc/casePlacements.ts::formCasePlacementView`).
+// (`lib/doc/casePlacements.ts::formCasePlacementView`), with the held
+// suffix where the published app already keeps it there.
 
 "use client";
 
@@ -35,7 +36,7 @@ import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
-import type { Expression } from "@/lib/domain";
+import { type Expression, placementLine } from "@/lib/domain";
 import {
 	checkExpression,
 	compatibleTypesFor,
@@ -96,7 +97,12 @@ function CloseCaseRow({
 	const { inline } = useBlueprintMutations();
 	const [rejection, setRejection] = useState<string | null>(null);
 	const placements = useCasePlacements(formUuid);
-	const placementLine = (placements.ownClose ?? placements.own)?.line;
+	/* A held place, one the published app keeps, says so after its line. */
+	const placement = placements.ownClose ?? placements.own;
+	const placementWords =
+		placement === undefined
+			? undefined
+			: placementLine(placement.placement, placement.held);
 
 	const choose = (choice: (typeof CLOSE_CHOICES)[number]["value"]) => {
 		if (!canEdit) return;
@@ -138,9 +144,9 @@ function CloseCaseRow({
 					onAbandon={onSettled}
 				/>
 			)}
-			{placementLine !== undefined && (
+			{placementWords !== undefined && (
 				<p className="text-xs leading-relaxed text-nova-text-muted">
-					{placementLine}
+					{placementWords}
 				</p>
 			)}
 			<RejectionInline message={rejection} />

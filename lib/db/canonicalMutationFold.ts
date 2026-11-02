@@ -72,6 +72,23 @@ function requireNonblankProjectId(value: string, context: string): string {
 	return value;
 }
 
+/**
+ * One fold baseline's `snapshot`, read from its exact `::text` carrier through
+ * the persisted-JSON parser and the strict document schema, then hydrated.
+ */
+export function parseFoldBaselineSnapshot(
+	snapshotText: string,
+): ReturnType<typeof hydratePersistedBlueprint> {
+	return hydratePersistedBlueprint(
+		blueprintDocSchema.parse(
+			parsePersistedJsonText(
+				snapshotText,
+				"app_change_fold_baselines.snapshot",
+			),
+		),
+	);
+}
+
 interface FoldSuffixCoreResult {
 	readonly folded: ReturnType<typeof hydratePersistedBlueprint>;
 	readonly foldedProjectId: string;
@@ -94,13 +111,7 @@ function foldSuffixCore(input: {
 	readonly targetSeqContext: string;
 	readonly suffix: readonly CanonicalAppChangeSuffixRow[];
 }): FoldSuffixCoreResult {
-	const parsedBaseline = blueprintDocSchema.parse(
-		parsePersistedJsonText(
-			input.baselineSnapshotText,
-			"app_change_fold_baselines.snapshot",
-		),
-	);
-	let folded = hydratePersistedBlueprint(parsedBaseline);
+	let folded = parseFoldBaselineSnapshot(input.baselineSnapshotText);
 	let foldedProjectId = requireNonblankProjectId(
 		input.baselineProjectId,
 		"app_change_fold_baselines.project_id",

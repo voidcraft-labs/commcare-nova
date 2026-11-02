@@ -22,6 +22,7 @@ import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
+import type { PendingIdentityMove } from "@/lib/doc/pendingIdentityMove";
 import { docHasData } from "@/lib/doc/predicates";
 import { BlueprintEditableContext } from "@/lib/doc/provider";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
@@ -950,6 +951,19 @@ export function useRequestPublishDialog(): (request: {
 /** Consume (or abandon) the pending Publish dialog open request. */
 export function useClearPublishDialogRequest(): () => void {
 	return useBuilderSession((s) => s.clearPublishDialogRequest);
+}
+
+// ── Identity-move dialog ──────────────────────────────────────────────────
+
+/** The admitted batch that moves a held identity, waiting in the builder's
+ *  identity-move dialog, or null. */
+export function usePendingIdentityMove(): PendingIdentityMove | null {
+	return useBuilderSession((s) => s.pendingIdentityMove);
+}
+
+/** Drop the waiting batch without committing it. */
+export function useClearPendingIdentityMove(): () => void {
+	return useBuilderSession((s) => s.clearPendingIdentityMove);
 }
 
 /** The verified endpoint launch, scoped to one running destination. */

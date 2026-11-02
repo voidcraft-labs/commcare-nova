@@ -1283,9 +1283,17 @@ a publish and confirms nothing about it.
 Every document but a targeted one carries one edit batch
 (`proof/corpus/editBatches.ts`), drawn from one mutation kind the reducer
 defines, targeting the document's own entities, and kept only when Nova's real
-commit gate admits it, D′ differs from D, and Nova's publish accepts D′. The
-fixed documents' batches are balanced so every kind lands on one of them, and
-the emission fails, naming the kind, when one lands on none. Each batch's
+commit gate admits it, the commit kernel's placement rule admits it as an
+editor's save over D's holds as the latest recording
+(`lib/db/placementAuthority.ts::placementChangeRefusal`), D′ differs from D,
+and Nova's publish accepts D′. The fixed documents' batches are balanced so
+every kind lands on one of them, a targeted document's written edit counting
+as one, and the emission fails, naming the kind, when one lands on none. The
+kind `holdPlacements` is an edit that strands a hold in Case Management's
+slot, planned with its move by `lib/doc/identityMoves.ts::withIdentityMoves`
+as an editor's batch is; no editor gives birth to a hold, so it lands where D
+holds one, `targeted-held-placement`'s written edit, which stands for the
+kind because it moves a hold. Each batch's
 footprint (`proof/corpus/footprint.ts`) is what proof 5 holds everything
 outside of.
 
@@ -1314,7 +1322,12 @@ the hand-fixed values the intent check holds Core to (`expected.json`,
 `proof/targeted/expected.ts`, with the restores they read,
 `proof/targeted/restore.ts`), and no edit batch but the one it writes: where
 its symptom shows on Nova's publish of an edit, it writes D′ too, which Nova's
-planner makes from D as one batch and Nova's gate admits over D. Adding one
+planner makes from D as one batch and Nova's gate admits over D. A D that
+holds placements has them laid on as the recording that wrote them would; the
+edit's content is planned with those holds as they are, the moves it needs are
+appended by `lib/doc/identityMoves.ts::withIdentityMoves`, and the commit
+kernel's placement rule must admit the batch as an editor's save, so a D′
+holding any other placement stops the corpus by name. Adding one
 changes no other document. Where its symptom needs it, it names what a person
 saves in HQ over A (`hqSide`, written as `hq-side.json`) and project
 settings every configuration holds (`projectSettings`).
@@ -1583,6 +1596,21 @@ weight writer opens with the read of the patient's weight, the form builder's
 own default at the question's place, so the note's later default reads the
 case's weight, and its export holds no `case_preload`; its retained control
 still shows the class. Neither needs a control.
+`targeted-held-placement`, declared for both platforms, holds case changes
+where a publish put them, as a published app's document does: a follow-up
+"Update" whose own case is held in Case Management's slot, and a follow-up
+"Weigh" whose own case is held in its Save to Case block because it writes a
+computed value. Its D′ adds to Update a computed write, which the slot cannot
+hold, and removes Weigh's: the edit's batch carries the move of Update's own
+case to its block, planned by `lib/doc/identityMoves.ts::withIdentityMoves`
+as every editor's batch is, so proof 1 holds the move inside the edit's
+footprint and proof 5 nothing moved outside it, and Weigh keeps its block
+though Case Management could now hold its change. Its D's holds are written
+by its spec, laid on as the recording that wrote them would
+(`proof/targeted/build.ts`), and its edit is admitted by the commit kernel's
+placement rule as an editor's save; a written edit that moves a hold is the
+corpus's `holdPlacements` batch. The intent check holds Core to Weigh's block
+writing the computed weight with its unit. It needs no control.
 The eight migration witnesses (`proof/targeted/documents/migrations.ts`, each
 spec marked `migrationWitness: true`, so its source is
 `targeted-migration:<rows>`) are small apps, one per step 5 migration that

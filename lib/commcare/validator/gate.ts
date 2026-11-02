@@ -353,6 +353,12 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_OPERATION_SESSION_UNAVAILABLE: "soundness",
 	CASE_OPERATION_LINK_INVALID: "soundness",
 	CASE_OPERATION_RETYPE_UNSAFE: "soundness",
+	// A published app keeps a case change at a held place, which this
+	// document would move without stating it, share with another change,
+	// or name an authored node over.
+	HELD_PLACEMENT_INEXPRESSIBLE: "soundness",
+	CASE_PLACEMENT_SHARED: "soundness",
+	HELD_BLOCK_PATH_TAKEN: "soundness",
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_DEFAULT_NOT_AN_OPTION: "soundness",
 	SELECT_NO_OPTIONS: "shape",
@@ -380,6 +386,9 @@ export const VALIDITY_CLASS_BY_CODE = {
 	REPEAT_COUNT_TYPE: "soundness",
 	EMPTY_REPEAT_COUNT: "soundness",
 	EMPTY_IDS_QUERY: "soundness",
+	// A held model iteration over a repeat whose rows it can no longer set
+	// right when the form opens.
+	QUERY_REPEAT_MODEL_ITERATION_SHAPE: "soundness",
 	LOOKUP_SELECT_FILTER_TERM_NOT_ALLOWED: "soundness",
 	LOOKUP_SELECT_FILTER_FIELD_NOT_EARLIER: "soundness",
 	LOOKUP_SELECT_FILTER_FIELD_REPEAT_SCOPE: "soundness",

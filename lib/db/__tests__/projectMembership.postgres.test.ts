@@ -15,10 +15,12 @@ import { type Kysely, sql } from "kysely";
 import { Client } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { writeHqRoundTripHorizon } from "@/lib/agent/change-set/__tests__/foldHorizonFixture";
 import {
 	up as installAuthMemberSerialization,
 	down as removeAuthMemberSerialization,
 } from "@/lib/auth/migrations/20260722070000_auth_member_serialization";
+import type { CasePlacement } from "@/lib/domain";
 import {
 	type AppAccessError,
 	resolveAppScopeInTransaction,
@@ -26,6 +28,7 @@ import {
 } from "../appAccess";
 import { loadAppInTransaction } from "../apps";
 import { CommitReauthError, RunHolderLostError } from "../commitGuard";
+import { __setAppDbForTests } from "../pg";
 import { projectRoleForInTransaction } from "../projectMembership";
 import {
 	lockProjectMembershipGateShared,
@@ -34,6 +37,13 @@ import {
 } from "../projectMembershipGate";
 import { commitGuardedBatchProposal as commitGuardedBatch } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
+import {
+	appendChangeRow,
+	heldPlacementApp,
+	holdOperation,
+	holdPlacements,
+	operationHold,
+} from "./heldPlacementApp";
 
 const h = setupAppStateTestDb("project_membership_tx_");
 
@@ -226,6 +236,69 @@ describe("Project membership advisory gate", () => {
 			name: "AppAccessError",
 			reason: "insufficient_role",
 		} satisfies Partial<AppAccessError>);
+	});
+
+	it("the snapshot carries the recorded hold of every held target, and reads no fold baseline for an app that holds nothing", async () => {
+		const statements: string[] = [];
+		const logged = h.db().withPlugin({
+			transformQuery(args) {
+				statements.push(JSON.stringify(args.node));
+				return args.node;
+			},
+			async transformResult(args) {
+				return args.result;
+			},
+		});
+		const readsRecordings = () =>
+			statements.some(
+				(statement) =>
+					statement.includes('"app_change_fold_baselines"') ||
+					statement.includes('"app_changes"'),
+			);
+
+		const unheld = heldPlacementApp();
+		const unheldId = await h.seedAppWithBlueprint(unheld.doc, {
+			owner: USER,
+			projectId: PROJECT,
+		});
+		const held = heldPlacementApp((app) => {
+			holdOperation(app, app.own.uuid, app.ownSaveToCase);
+			holdOperation(app, app.kid.uuid, app.kidSaveToCase);
+		});
+		const heldId = await h.seedAppWithBlueprint(held.doc, {
+			owner: USER,
+			projectId: PROJECT,
+		});
+		await writeHqRoundTripHorizon(h.db(), heldId, "Held placements");
+		const kidRecorded: CasePlacement = {
+			kind: "save-to-case",
+			path: ["nova_operations", "kid_recorded"],
+		};
+		await appendChangeRow(h.db(), heldId, "blueprint-migration", [
+			holdPlacements(operationHold(held, held.kid.uuid, kidRecorded)),
+		]);
+
+		__setAppDbForTests(logged);
+		try {
+			const nothing = await resolveAuthorizedAppSnapshot(
+				unheldId,
+				USER,
+				"view",
+			);
+			expect(nothing.recordedHolds).toEqual([]);
+			expect(readsRecordings()).toBe(false);
+
+			const snapshot = await resolveAuthorizedAppSnapshot(heldId, USER, "view");
+			// Document order: the own case, then the kid; the own case from the
+			// baseline snapshot, the kid from the newer recording row.
+			expect(snapshot.recordedHolds).toEqual([
+				operationHold(held, held.own.uuid, held.ownSaveToCase),
+				operationHold(held, held.kid.uuid, kidRecorded),
+			]);
+			expect(readsRecordings()).toBe(true);
+		} finally {
+			__setAppDbForTests(h.db());
+		}
 	});
 
 	it("waits for an app writer and returns only its post-commit snapshot", async () => {

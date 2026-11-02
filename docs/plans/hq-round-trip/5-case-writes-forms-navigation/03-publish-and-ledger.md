@@ -340,8 +340,8 @@ export type RecordedPlacementHolds = ReadonlyMap<string, PlacementHold>;
 
 `PlacementHold` (a `PlacementHoldEntry` whose `placement` is not `null`) is declared here and re-exported
 by `lib/commcare/placementHolds.ts` (section 5.1). `lib/doc/placementHolds.ts` reads part 01's
-`lib/commcare/placement.ts`, so it joins `biome.json`'s allowlist for `lib/commcare` in pull request 5,
-beside `lib/db/placementAuthority.ts`.
+`lib/commcare/placement.ts`, so it joins `biome.json`'s allowlist for `lib/commcare` in pull request 5.
+`lib/db/placementAuthority.ts` reads only `lib/doc/placementHolds` and `lib/domain`, so it needs no entry.
 
 Document order is `doc.moduleOrder`, then each module's `kind` slot, then its forms in `formOrder`, then
 each form's operations in array order, its own close, then its query repeats in field order.
@@ -2196,6 +2196,46 @@ From the outline (`5-case-writes-forms-navigation.md` at `2f985ed6`), the resear
   `FeatureRelease` the probe asks would read off in the harness while production reads it on.
 - **`linkWriteDestinations` lists each destination once** and reads the operation's case type as
   `retype ?? operationCaseType`, as `lib/domain/caseWriteViews.ts` does.
+
+From pull request 5's implementation:
+
+- **`placementTargetKey` lives in `lib/doc/types.ts`** and `lib/doc/placementHolds.ts` re-exports it: the
+  mutation's own `superRefine` reads it, and `placementHolds.ts` imports `commitVerdicts.ts`, which imports
+  `types.ts`, so declaring it in `placementHolds.ts` would make `types.ts` part of an import cycle.
+- **The kernel rule's per-change decision is exported from `lib/doc/placementHolds.ts`**
+  (`placementHoldChanges` for rules 2 and 3, `holdChangeMoves` for arm (a), `holdChangeRestores` for arm (b),
+  `holdChangeAdmitted`), so `lib/db/placementAuthority.ts` and `admittedHoldChanges` read one answer. Arm (b)
+  admits only a held value: where no recording names a target, clearing its hold is no restore (the rule's
+  literal reading, "`next` holds exactly the hold `recorded` gives").
+- **`admittedHoldChanges` judges each entry on the candidate of the batch as kept**, and judges again after
+  any drop, so every entry it keeps is admitted over the document the returned batch makes; a batch target
+  admission refuses with its content is returned whole for the gate to refuse.
+- **Target admission also refuses one target held by two `holdPlacements` of one batch** (part 01 §13.1's
+  "two entries for one target in a batch"), beside the schema's refusal within one mutation.
+- **`updateField` naming `placement` gets a sentence** in `types.ts::reportHeldPlacementInPayload`, as the
+  form and operation payloads already did, instead of Zod's "Unrecognized key".
+- **No form or operation duplicate planner exists at the base**: the only duplicate is
+  `duplicateFieldMutations`, so section 2.4's test covers a duplicated field; a form or an operation is new
+  only through `addForm` and `caseOperationChange` add, whose payloads the same test refuses with a hold.
+- **`holdPlacements` takes no reference-index carriers, claims no identity, moves no sequence, and leaves
+  Preview's case-write projection alone** (`store.ts::affectsCaseWriteProjection` answers `false`): a hold
+  changes where HQ keeps a write, not what is written.
+- **`biome.json`'s `lib/commcare` allowlist gains only `lib/doc/placementMoves.ts`, `lib/doc/identityMoves.ts`
+  and `lib/doc/placementHolds.ts`.** `lib/db/placementAuthority.ts` reads only `lib/doc/placementHolds` and
+  `lib/domain`, and `lib/doc/queryRepeatPlacement.ts` only `lib/doc` and `lib/domain`, so neither is listed
+  and the emission boundary stays as narrow as the code needs (part 10 §2 named `placementAuthority.ts`).
+- **In pull request 5 a recording is a `blueprint-migration` row or the greatest fold baseline's snapshot.**
+  The `publish-placement` kind lands in pull request 6 (`lib/db/types.ts`'s kind set at the base has no such
+  kind), so `lib/db/placementAuthority.ts::PLACEMENT_RECORDING_KINDS` is `["blueprint-migration"]` and
+  `placementRecords.ts::readRecordedPlacementHolds` reads those rows above the greatest fold baseline and that
+  baseline's snapshot; pull request 6 adds `publish-placement` to the list. Section 19's pull request 5
+  sentences were written to match: `lib/db/CLAUDE.md`'s rule reads "a migration may change any hold" and names
+  "the latest `blueprint-migration` row that names it, else the greatest fold baseline's snapshot", and
+  `lib/doc/CLAUDE.md`'s `holdPlacements` sentence names no `publish-placement`. Pull request 6 restores the
+  publish arm in both, beside its kind-set sentences.
+- **`lib/doc/CLAUDE.md`'s `holdPlacements` sentence omits "a module's `heldKind`"**: `Module.heldKind` and
+  its target land with part 02 in pull request 7 (`lib/doc/placementHolds.ts::PlacementTarget` holds the case
+  operation, the own close and the query repeat only), so pull request 7 adds the menu to the sentence.
 
 ---
 

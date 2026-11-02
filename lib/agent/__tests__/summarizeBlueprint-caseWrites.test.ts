@@ -7,6 +7,12 @@
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	FOLLOWUP,
+	holdPlanned,
+	holdVisits,
+	moveFixture,
+} from "@/lib/doc/__tests__/placementMoveFixture";
 import { proseText } from "@/lib/domain/prose";
 import { summarizeBlueprint } from "../summarizeBlueprint";
 import { expectAdmittedDoc } from "./admittedFixture";
@@ -132,5 +138,42 @@ describe("summarizeBlueprint — case writes", () => {
 					line.includes("- outcome ") && line.endsWith("→ loan.outcome"),
 			),
 		).toBe(true);
+	});
+});
+
+describe("summarizeBlueprint — what a published app keeps", () => {
+	/** The follow-up visit as a publish recorded it: its own case kept where
+	 *  the placement planner put it, and its query repeat's rows set when the
+	 *  form opens. */
+	function published() {
+		// A new document object: the fixture holds placements by changing the
+		// document it planned them over, and the plans are memoized per
+		// document.
+		return expectAdmittedDoc({
+			...holdVisits(holdPlanned(moveFixture(), FOLLOWUP), "model-iteration"),
+		});
+	}
+
+	it("says where a form's held own case is kept", () => {
+		const followUp = formLines(
+			summarizeBlueprint(published()),
+			"Follow-up visit",
+		);
+		expect(followUp).toContain("    own case kept in case management");
+		const unheld = summarizeBlueprint(expectAdmittedDoc(moveFixture()));
+		expect(unheld).not.toContain("own case kept in");
+	});
+
+	it("marks a held query repeat's rows as kept", () => {
+		const visits = (summary: string) =>
+			formLines(summary, "Follow-up visit").find((line) =>
+				line.includes("- visits "),
+			);
+		expect(visits(summarizeBlueprint(published()))).toMatch(
+			/\[rows set when opened, kept\]$/,
+		);
+		expect(
+			visits(summarizeBlueprint(expectAdmittedDoc(moveFixture()))),
+		).toMatch(/\[rows set when opened\]$/);
 	});
 });

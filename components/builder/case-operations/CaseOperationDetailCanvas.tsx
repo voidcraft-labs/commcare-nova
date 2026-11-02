@@ -233,7 +233,13 @@ export function CaseOperationDetailCanvas({
 	const commit = (next: CaseOperation): boolean => {
 		if (!operationCanEdit) return false;
 		const outcome = view.update(next);
-		setRefusal(outcome.ok ? undefined : outcome.messages.join(" "));
+		/* A change that moves where CommCare HQ keeps published answers waits
+		 * in the identity-move dialog: no message, and nothing refused. */
+		setRefusal(
+			outcome.ok || outcome.messages.length === 0
+				? undefined
+				: outcome.messages.join(" "),
+		);
 		return outcome.ok;
 	};
 	const runtimeTargetExpression = own

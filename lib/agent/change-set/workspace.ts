@@ -2,7 +2,9 @@
  * input, appends its canonical mutations, and saves the exact result with the
  * workspace revision in one transaction. Retrying a request returns its receipt.
  * Candidates may have validation findings while they are being built; only the
- * separate checkpoint commit can publish a complete valid app.
+ * separate checkpoint commit can publish a complete valid app. Each staged
+ * edit is planned for identity moves first (`stagedIdentityMoves.ts`), and
+ * its receipt keeps the moves it stated.
  */
 
 import { ZodError } from "zod";
@@ -10,6 +12,10 @@ import { AuthoringInputError } from "@/lib/agent/authoring/errors";
 import { prepareAuthoringInput } from "@/lib/agent/authoring/input";
 import { projectAuthoringReadInContext } from "@/lib/agent/authoring/output";
 import { authoringToolSchema } from "@/lib/agent/authoring/toolSchema";
+import {
+	identityMoveReports,
+	plannedStageSlices,
+} from "@/lib/agent/workspace/identityMoveResults";
 import type {
 	ConversionImpactFn,
 	ToolInvocationContext,
@@ -29,6 +35,11 @@ import {
 	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	type IdentityMove,
+	type IdentityMoveReport,
+	identityMovesBetween,
+} from "@/lib/doc/identityMoves";
 import {
 	extractLookupReferenceTargets,
 	LOOKUP_CONTEXT_UNAVAILABLE,
@@ -69,6 +80,7 @@ import {
 	mutationReplayResultSchema,
 	type StageRequestReceipt,
 } from "./schemas";
+import { planStagedIdentityMoves } from "./stagedIdentityMoves";
 import {
 	authorizeChangeSet,
 	lookupStageRequest,
@@ -234,6 +246,18 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 	/** The change set's authority row as this workspace last observed it. */
 	current(): DesignChangeSet {
 		return this.changeSet;
+	}
+
+	/**
+	 * Every held identity saving this work moves: the moves between the saved
+	 * document the work began from and the private candidate it would commit,
+	 * each with its sentence. A move a later step took back is no move.
+	 */
+	savedIdentityMoves(): readonly IdentityMoveReport[] {
+		return identityMoveReports(
+			this.overlayDoc,
+			identityMovesBetween(this.baseDoc, this.overlayDoc),
+		);
 	}
 
 	/**
@@ -541,10 +565,24 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		const hostLookupDefinitions = this.host.lookupDefinitions;
 		const hostLookupCatalog = this.host.lookupCatalog;
 
-		const stage = async (staged: {
+		const stage = async (admitted: {
 			readonly mutations: AdmittedMutationBatch;
 			readonly slices: readonly AdmittedMutationStageSlice[];
 		}): Promise<WorkspaceMutationOutcome> => {
+			const planned = planStagedIdentityMoves(
+				this.baseDoc,
+				snapshot.doc,
+				admitted.mutations,
+			);
+			const staged = {
+				mutations: planned.batch,
+				slices: plannedStageSlices(
+					admitted.mutations,
+					admitted.slices,
+					planned.batch,
+				),
+				moves: planned.moves,
+			};
 			const outcome = await this.applyStagedBatch({
 				toolName: args.toolName,
 				requestId: args.requestId,
@@ -555,7 +593,12 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			});
 			if (outcome.kind === "prepared") {
 				state.pending = outcome.persist;
-				return { ok: true, newDoc: outcome.doc, mutations: staged.mutations };
+				return {
+					ok: true,
+					newDoc: outcome.doc,
+					mutations: staged.mutations,
+					identityMoves: outcome.identityMoves,
+				};
 			}
 			if (outcome.kind === "rejected-receipt") {
 				state.receipt = outcome.receipt;
@@ -772,10 +815,12 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		readonly deadlineAt?: number;
 		readonly mutations: AdmittedMutationBatch;
 		readonly slices: readonly AdmittedMutationStageSlice[];
+		readonly moves: readonly IdentityMove[];
 	}): Promise<
 		| {
 				kind: "prepared";
 				doc: BlueprintDoc;
+				identityMoves: readonly IdentityMoveReport[];
 				persist: (result: MutationReplayResult) => Promise<StageRequestReceipt>;
 		  }
 		| {
@@ -923,9 +968,11 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			previousFingerprints: this.lastSummaryFingerprints,
 		});
 		const summary = summarizeDiagnostics(diagnostics);
+		const identityMoves = identityMoveReports(prepared.nextDoc, args.moves);
 		return {
 			kind: "prepared",
 			doc: prepared.nextDoc,
+			identityMoves,
 			persist: async (replayResult) => {
 				const { replayed, receipt } = await stageChangeSetRequest({
 					changeSetId: this.changeSet.id,
@@ -944,6 +991,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 						exclusiveKind: exclusive,
 						diagnostics: summary,
 						replayResult,
+						identityMoves,
 					},
 				});
 				if (replayed) {

@@ -435,7 +435,7 @@ const readProjectors: {
 				const placement = uuid === undefined ? undefined : placements[uuid];
 				return placement === undefined
 					? operation
-					: { ...operation, placement };
+					: { ...operation, ...placement };
 			}),
 	}),
 	getTranslatableContent(data, { doc, scope }) {
@@ -562,7 +562,8 @@ export function projectAuthoringRead(args: {
 			delete result.repeat_count;
 			delete result.data_source;
 			// A held placement is an identity no author chooses: the read
-			// states it as `rows`, from `effectiveFieldBehavior`.
+			// states it as `rows`, with `rowsKept` where it is held, from
+			// `effectiveFieldBehavior`.
 			delete result.placement;
 		}
 		if (result.optionsSource !== undefined) {

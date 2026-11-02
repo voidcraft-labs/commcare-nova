@@ -21,12 +21,17 @@
  *
  * A held placement (a query repeat's `placement`, `HELD_FIELD_KEYS`; a case
  * operation's `placement`; a form's `ownClosePlacement`) is no editor's
- * choice, and no mutation an editor sends writes one: a publish records it,
- * or a migration writes it for an app already published. A document written
- * with one (a migration witness, holding what the cutover writes for its
- * published app) is planned without it, and every hold is then laid on the
- * committed document as the migration writes it, which the gate must admit
- * whole. An edit never changes a hold.
+ * choice: a publish records it, or a migration writes it for an app already
+ * published. A document written with one (a migration witness, holding what
+ * the cutover writes for its published app, or a document whose D stands
+ * for a published app) is planned without it, and every hold is then laid on
+ * the committed document as the recording writes it, which the gate must
+ * admit whole. An edit changes a hold only as an editor's edit does: the
+ * written edit's content is planned with D's holds left as they are, the
+ * moves it needs are planned by `lib/doc/identityMoves.ts::withIdentityMoves`
+ * over D's holds as the latest recording, and the commit kernel's rule
+ * (`lib/db/placementAuthority.ts::placementChangeRefusal`) must admit the
+ * result as an editor's save. D′ written with any other hold is refused.
  *
  * Every identity a document holds is named from the document's id
  * (`targetedUuid`), never drawn from `buildDoc`'s counter, so a targeted
@@ -35,8 +40,11 @@
 
 import { isDeepStrictEqual } from "node:util";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { placementChangeRefusal } from "@/lib/db/placementAuthority";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import { withIdentityMoves } from "@/lib/doc/identityMoves";
+import { readPlacementHolds } from "@/lib/doc/placementHolds";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -275,6 +283,58 @@ function planned(
 }
 
 /**
+ * D′ as an editor makes it from D: the content of the edit (Nova's diff
+ * planner from D to D′ with D's holds, or the commands written for it), the
+ * moves that content needs appended by `withIdentityMoves` over D's holds as
+ * the latest recording, admitted by Nova's commit gate over D and by the
+ * commit kernel's placement rule as an editor's save. Throws, naming what
+ * refused it, when either refuses the batch or it commits anything but
+ * `to`, a D′ that holds a placement no move of the edit gives included.
+ */
+function plannedEdit(
+	subject: string,
+	from: BlueprintDoc,
+	to: BlueprintDoc,
+	lookup: LookupFixtureDataSnapshot | undefined,
+	authored?: readonly Mutation[],
+): { readonly mutations: Mutation[]; readonly committed: PersistableDoc } {
+	const recorded = readPlacementHolds(from);
+	const content =
+		authored ??
+		diffDocsToMutations(from, withPlacements(to, heldPlacements(from)));
+	const { batch } = withIdentityMoves(from, content, { recorded });
+	const verdict = mutationCommitVerdict(from, batch, lookupContextOf(lookup));
+	if (!verdict.ok) {
+		throw new Error(
+			`Nova's commit gate refused ${subject} (${verdict.findings
+				.map((finding) => `${finding.code}: ${finding.message}`)
+				.join(
+					"; ",
+				)}), so it is not a document an editor could make; change what it holds.`,
+		);
+	}
+	const refusal = placementChangeRefusal(
+		from,
+		verdict.nextDoc,
+		"autosave",
+		recorded,
+	);
+	if (refusal !== null) {
+		throw new Error(
+			`The commit kernel refused ${subject} as an editor's save ("${refusal}"); an edit changes a held placement only by a move its own change needs.`,
+		);
+	}
+	const committed = storedDocument(verdict.nextDoc);
+	const written = storedDocument(to);
+	if (!isDeepStrictEqual(committed, written)) {
+		throw new Error(
+			`Nova's planner and gate made ${subject} differ from the document written, first at ${firstDifference(written, committed)}; write the document as Nova stores it, each held placement where the moves the edit needs put it.`,
+		);
+	}
+	return { mutations: [...verdict.mutations], committed };
+}
+
+/**
  * The targeted document `spec` describes, made from the empty document by
  * Nova's planner and admitted by Nova's commit gate, with its edit where it
  * writes D′. Throws, naming what refused it, when the gate refuses a batch
@@ -292,18 +352,10 @@ export function targetedDocument(spec: TargetedSpec): CorpusDocument {
 		spec.doc,
 		spec.lookup,
 	);
-	if (
-		spec.edit !== undefined &&
-		!isDeepStrictEqual(heldPlacements(spec.doc), heldPlacements(spec.edit))
-	) {
-		throw new Error(
-			`The edit of the targeted document ${spec.id} changes a held placement, which no editor's edit writes; hold the same placements in both documents.`,
-		);
-	}
 	const edit =
 		spec.edit === undefined
 			? undefined
-			: planned(
+			: plannedEdit(
 					`the edit of the targeted document ${spec.id}`,
 					spec.doc,
 					spec.edit,

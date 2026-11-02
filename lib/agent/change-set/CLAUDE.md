@@ -69,6 +69,11 @@ appending a stage. An identity removed by an earlier private edit stays reserved
 until that batch commits; a replacement needs a new identity. Staging, reopening, and
 checkpoint commits reduce the same combined batch, including translation cleanup.
 This matches both first-save and later-checkpoint admission.
+`applyBatch` and `applyStages` run `withIdentityMoves` before the verdict
+(`stagedIdentityMoves.ts`) and report the moves; the change set persists them
+in the stage receipt, so a recovered request answers with them. A step whose
+content lets the saved document's hold express its target again puts that
+hold back, so the save carries only the moves the kernel admits.
 Admission errors reject before appending a stage;
 validator findings may remain private for repair. A rejected publication leaves
 the candidate available. Any intervening canonical sequence refuses the save

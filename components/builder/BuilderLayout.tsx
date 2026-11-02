@@ -19,6 +19,8 @@
  * - ChatContainer: useChat lifecycle, stream effects
  * - GenerationProgress: generation stage/error/status
  * - StructureSidebar: fully propless
+ * - IdentityMoveDialog: the one dialog a change that moves where CommCare
+ *   HQ keeps published answers waits in
  *
  * BuilderLayout subscribes to one store field: `phase`. All other store
  * subscriptions live in the child components listed above. This means
@@ -42,6 +44,7 @@ import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceP
 import { CommCareConnectionProvider } from "@/components/builder/CommCareConnectionContext";
 import { CaseTargetDraftProvider } from "@/components/builder/case-operations/CaseTargetDraftContext";
 import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollRegistryContext";
+import { IdentityMoveDialog } from "@/components/builder/shared/IdentityMoveDialog";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { Spinner } from "@/components/shadcn/spinner";
 import type { CommCareSettingsPublic } from "@/lib/db/settings";
@@ -415,6 +418,10 @@ export const BuilderLayout = memo(function BuilderLayout({
 								initialDesignSession={initialDesignSession}
 							/>
 						</BuilderAccessGate>
+						{/* One per builder: an edit, undo or redo that moves where
+						    CommCare HQ keeps published answers waits here for the
+						    person before it commits. */}
+						<IdentityMoveDialog />
 					</div>
 				</CaseTargetDraftProvider>
 			</BuilderReferenceProvider>

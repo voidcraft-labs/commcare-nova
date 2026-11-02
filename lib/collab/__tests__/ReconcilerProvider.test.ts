@@ -17,9 +17,13 @@ import {
 	type ReconcilerBrowserEffects,
 } from "@/lib/collab/ReconcilerProvider";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import {
+	type PlacementHold,
+	placementTargetKey,
+} from "@/lib/doc/placementHolds";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { blueprintDocSchema } from "@/lib/domain";
+import { asUuid, blueprintDocSchema } from "@/lib/domain";
 import type { LookupManifest } from "@/lib/lookup/types";
 import { createBuilderSessionStore } from "@/lib/session/store";
 
@@ -216,6 +220,7 @@ describe("ReconcilerProvider EventSource ownership", () => {
 					canEdit: true,
 					blueprint: persistedDoc,
 					baseSeq: 0,
+					recordedHolds: [],
 				}),
 			})),
 		);
@@ -276,6 +281,72 @@ describe("ReconcilerProvider EventSource ownership", () => {
 
 		runtime.suspend();
 		expect(destinationStream.readyState).toBe(FakeEventSource.CLOSED);
+	});
+
+	it("hands the store the first read's recorded holds, then each reload's in place of them", async () => {
+		vi.stubGlobal("EventSource", FakeEventSource);
+		const docStore = createBlueprintDocStore();
+		const persistedDoc = toPersistableDoc(emptyDoc());
+		docStore.getState().load(persistedDoc);
+		docStore.getState().startTracking();
+		const sessionStore = createBuilderSessionStore({
+			appId: "app-1",
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		const firstRead: PlacementHold = {
+			target: "own-close",
+			formUuid: asUuid("01890f45-0000-7000-8000-0000000000a1"),
+			placement: { kind: "save-to-case", path: ["close_case"] },
+		};
+		const reloadRead: PlacementHold = {
+			target: "query-repeat",
+			fieldUuid: asUuid("01890f45-0000-7000-8000-0000000000b1"),
+			placement: "count",
+		};
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () =>
+				Response.json({
+					projectId: "project-source",
+					role: "editor",
+					canEdit: true,
+					blueprint: persistedDoc,
+					baseSeq: 3,
+					recordedHolds: [reloadRead],
+				}),
+			),
+		);
+
+		const runtime = createReconcilerRuntime(
+			docStore,
+			sessionStore,
+			{
+				appId: "app-1",
+				baseSeq: 0,
+				recordedHolds: [firstRead],
+				userId: "self",
+			},
+			() => {},
+		);
+		expect(docStore.getState().recordedHolds).toEqual(
+			new Map([[placementTargetKey(firstRead), firstRead]]),
+		);
+
+		runtime.start();
+		FakeEventSource.instances[0].emit("reload");
+		await vi.waitFor(() =>
+			expect(runtime.reconciler.getSnapshot()).toMatchObject({
+				reloadInFlight: false,
+				reloadPending: false,
+				baseSeq: 3,
+			}),
+		);
+		const replaced = new Map([[placementTargetKey(reloadRead), reloadRead]]);
+		expect(docStore.getState().recordedHolds).toEqual(replaced);
+		expect(runtime.reconciler.getSnapshot().recordedHolds).toEqual(replaced);
+		runtime.suspend();
 	});
 
 	it.each([
@@ -377,6 +448,7 @@ describe("ReconcilerProvider EventSource ownership", () => {
 					canEdit: true,
 					blueprint: persistedDoc,
 					baseSeq: 0,
+					recordedHolds: [],
 				}),
 			);
 			await vi.waitFor(() => expect(FakeEventSource.instances).toHaveLength(2));
@@ -413,6 +485,7 @@ describe("ReconcilerProvider EventSource ownership", () => {
 								canEdit: true,
 								blueprint: persistedDoc,
 								baseSeq: 0,
+								recordedHolds: [],
 							}),
 				),
 			);
@@ -489,6 +562,7 @@ describe("ReconcilerProvider EventSource ownership", () => {
 						userPropertyOrder: [propertyUuid],
 					},
 					baseSeq: 14,
+					recordedHolds: [],
 				}),
 			),
 		);
@@ -786,6 +860,7 @@ describe("ReconcilerProvider EventSource ownership", () => {
 				canEdit: true,
 				blueprint: persistedDoc,
 				baseSeq: 0,
+				recordedHolds: [],
 			}),
 		});
 		await vi.waitFor(() => expect(FakeEventSource.instances).toHaveLength(2));
@@ -1101,6 +1176,7 @@ describe("native fetch cancellation and resumable state", () => {
 							canEdit: false,
 							blueprint: { ...persistedDoc, appName: "Peer" },
 							baseSeq: 22,
+							recordedHolds: [],
 						}),
 					);
 				},
@@ -1256,6 +1332,7 @@ describe("HTTP outcomes cannot retire unrelated state", () => {
 							canEdit: true,
 							blueprint: persistedDoc,
 							baseSeq: 22,
+							recordedHolds: [],
 						}),
 					),
 		);

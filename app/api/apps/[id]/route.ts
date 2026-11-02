@@ -63,6 +63,7 @@ export async function GET(
 				canEdit: snapshot.canEdit,
 				blueprint: app.blueprint,
 				baseSeq: snapshot.baseSeq,
+				recordedHolds: snapshot.recordedHolds,
 			}),
 			{ headers: { "Cache-Control": "private, no-store" } },
 		);

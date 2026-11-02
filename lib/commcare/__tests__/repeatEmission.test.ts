@@ -10,8 +10,8 @@
 // decisions those runs check.
 //
 // Plausible failures: a model-iteration repeat written with Nova's live
-// `@count` or a relative `@current_index` (which a save rewrites), its
-// condition on the wrapper (which a save drops); a count-placement row that
+// `@count` or a relative `@current_index` (which a save rewrites), or a bind
+// on its wrapper (which a save drops); a count-placement row that
 // stays relevant past the end of the result; a generated bind asking for a
 // `vellum:calculate`; the position node written when nothing reads it, or
 // missing when something does; a row id calculated from `position(..)`,
@@ -118,19 +118,12 @@ const queryRepeat = (
 	} as FieldSpec);
 
 describe("a query repeat in model iteration", () => {
-	// A query reading no answer, at the root, under no changing group. Its
-	// condition would give it the count placement
-	// (`lib/domain/queryRepeatPlacement.ts`), so it holds model iteration, as a
-	// publish records it.
-	const form = source(
-		survey([
-			text("show"),
-			queryRepeat("r", "'a b'", [text("answer")], {
-				relevant: "#form/show = 'yes'",
-				placement: "model-iteration",
-			}),
-		]),
-	);
+	// A query reading no answer, at the root, with no condition of its own and
+	// under no changing group: the placement planner gives it model iteration
+	// (`lib/domain/queryRepeatPlacement.ts`). A held model iteration with a
+	// condition is refused (`QUERY_REPEAT_MODEL_ITERATION_SHAPE`, reason
+	// `row-condition`), so no admitted document writes one.
+	const form = source(survey([queryRepeat("r", "'a b'", [text("answer")])]));
 	const wrapper = child(form.data, "r");
 
 	it("writes HQ's form builder's data shape", () => {
@@ -149,7 +142,7 @@ describe("a query repeat in model iteration", () => {
 		expect(names(child(wrapper, "item"))).toEqual(["answer"]);
 	});
 
-	it("binds @current_index first, absolute, writes no @count bind, and puts the condition on the row", () => {
+	it("binds @current_index first, absolute, and writes no @count bind and no bind on the wrapper", () => {
 		const own = form.binds
 			.map((e) => e.attribs)
 			.filter((attribs) => attribs.nodeset.startsWith("/data/r"));
@@ -158,10 +151,9 @@ describe("a query repeat in model iteration", () => {
 			calculate: "count(/data/r/item)",
 		});
 		expect(own[1]).toEqual({
-			"vellum:nodeset": "#form/r/item",
-			nodeset: "/data/r/item",
-			relevant: "/data/show = 'yes'",
-			"vellum:relevant": "#form/show = 'yes'",
+			"vellum:nodeset": "#form/r/item/answer",
+			nodeset: "/data/r/item/answer",
+			type: "xsd:string",
 		});
 		expect(own.map((attribs) => attribs.nodeset)).not.toContain(
 			"/data/r/@count",

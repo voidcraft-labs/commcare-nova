@@ -1,5 +1,9 @@
 import type { LookupCommitState } from "./lookupCommitContext";
 
+/** The refusal of a write while a change waits in the identity-move dialog. */
+export const IDENTITY_MOVE_PENDING_MESSAGE =
+	"A change is waiting in the open dialog. You can make it or cancel it, then go on.";
+
 /** The outcome of {@link builderWriteAdmission}: admitted, or refused with the
  *  builder's concise person-to-person lines, ready for the error toast or an
  *  inline `CommitOutcome`. */
@@ -25,6 +29,12 @@ export type BuilderWriteAdmission =
  *   not commit blind either — its edit may be the one that introduces the
  *   first reference.
  *
+ * - A change waiting in the identity-move dialog
+ *   (`pendingIdentityMove.ts`): a second batch would be planned over a
+ *   document the first has not changed yet, so it waits until the person
+ *   makes the first change or cancels it. The dialog's own commit
+ *   (`commitStated`) does not pass `identityMovePending`.
+ *
  * `unmanaged` (no catalog provider mounted) and `ready` both admit; the verdict
  * that follows runs under `lookupCommitState.lookupContext`. Pure of React so
  * it is exercised as a state model.
@@ -32,6 +42,7 @@ export type BuilderWriteAdmission =
 export function builderWriteAdmission(args: {
 	readonly canEdit: boolean;
 	readonly lookupCommitState: LookupCommitState;
+	readonly identityMovePending?: boolean;
 }): BuilderWriteAdmission {
 	if (!args.canEdit) {
 		return {
@@ -40,6 +51,9 @@ export function builderWriteAdmission(args: {
 				"You have view-only access to this app. Ask a Project admin for edit access to make changes.",
 			],
 		};
+	}
+	if (args.identityMovePending === true) {
+		return { ok: false, messages: [IDENTITY_MOVE_PENDING_MESSAGE] };
 	}
 	switch (args.lookupCommitState.kind) {
 		case "loading":
