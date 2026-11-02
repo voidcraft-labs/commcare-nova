@@ -1642,6 +1642,30 @@ writing the worker's record, the names HQ's build would give the blocks it
 appends for those Case Management slots (part 02's G3, outcome A); neither slot
 is eligible, so each change takes Save to Case, which `CaseOperationRuntimeTest`
 also opens.
+`targeted-same-type-child` holds defect 12's same-type row: a basic menu of
+patients whose "Add twin" follow-up creates a patient linked to the patient
+it works on, in a basic subcase slot. HQ's build writes that link only where
+the project space leaves `DONT_INDEX_SAME_CASETYPE` off
+(`xform.py::XForm._create_casexml`), so Nova's publish checks
+`same-type-child-links` and the form's verdict lists the flag in `flagsOff`.
+Beside it, "Add sibling" carries a write condition, so a Save to Case block is
+its simplest placement: the accepted counterpart, whose link the flag leaves
+alone. Its written D′ gives Add twin the same condition, which moves the
+create to the Save to Case block the `same-type-child-links` offer names
+(`lib/deployment/placementMoves.ts::placementMoveOffer`), and D′'s verdict no
+longer needs the flag off. Configuration sensitivity builds the flag's flip,
+which Nova's publish refuses, and holds its differences to the gate's effects.
+`targeted-supply-point-text` is a survey in English and French that puts
+`instance('commcaresession')/session/data/supply_point_id` in a text
+question's label in both languages and, as a string literal, in a hidden
+value's calculate. HQ's build gives an entry a `supply_point_id` datum where
+the form's source holds that text and CommCare Supply is on
+(`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`). Nova's
+export writes the apostrophes as `&apos;` and a save in HQ's form builder
+writes them plainly, so the publish asks the person to confirm CommCare Supply
+is off (`commtrack-off`) and the verdict holds
+`minimumConfiguration.commtrackEnabled: false`. Proof 4's form builder saves
+and `proof/editors/test_commtrack_supply_point_text.py` read it.
 The eight migration witnesses (`proof/targeted/documents/migrations.ts`, each
 spec marked `migrationWitness: true`, so its source is
 `targeted-migration:<rows>`) are small apps, one per step 5 migration that
