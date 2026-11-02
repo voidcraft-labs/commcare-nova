@@ -1613,6 +1613,17 @@ underscore worker property and the extension open action's owner (part 02's G2, 
 - **The attachment witness's flag is read from its retained A alone** (`proof/targeted/__tests__/
   targeted.test.ts`): the migrated spec saves only links, so its derived configurations no longer hold
   `MM_CASE_PROPERTIES`, and the test asserts that the retained A exists and was published under the flag.
+- **The extension fixtures' episode photo is held as a link in the native case evidence** (pull request
+  2): `proof/native/producers/emit-case-evidence.ts` gives the extension scenarios the capture
+  scenarios' link target, without which `formActions.ts::caseUpdateQuestionPath` writes no update for
+  the photo and the native extension proof would hold no capture write. `_check_extension` holds one
+  `<update>` photo in the episode's active block and no `<attachment>` on both forms; HQ's regenerated
+  form also carries the photo in the inert subcase block it disables (`relevant="false()"`), which runs
+  nothing, so that block is not counted.
+- **G6 at pull request 2 is outcome A**: proof 1 on `targeted-migration-attachment` showed exactly the
+  expected move, `form:0.0` `/questions/*` added at `/questions/~1data~1nova_url_photo` (the answer leaf
+  for `photo`'s link value). No case-write or case-block difference was reported. That one move is
+  written for defect 23, scoped to the witness.
 
 ## What other parts read from this one
 

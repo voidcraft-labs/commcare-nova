@@ -123,6 +123,13 @@ def _expected_datum_ids(scenario):
     ]
 
 
+def _block_path(node):
+    """The data path of the case block holding ``node``, as a bind's nodeset names it."""
+    (block,) = node.xpath("ancestor::cx:case[1]", namespaces=NAMESPACES)
+    steps = [etree.QName(element).localname for element in block.iterancestors()]
+    return "/" + "/".join([*steps[: steps.index("instance")][::-1], "case"])
+
+
 def _check_extension(record):
     scenario = record["scenario"]
     if scenario == "followup":
@@ -133,11 +140,17 @@ def _check_extension(record):
     local_indexes = local.xpath('//cx:index/*[@relationship="extension"]', namespaces=NAMESPACES)
     assert len(indexes) == len(local_indexes) == 2, scenario
     assert [dict(node.attrib) for node in indexes] == [dict(node.attrib) for node in local_indexes], scenario
-    # The episode's photo saves a link to its file: one update in the episode's block, never an attachment.
+    disabled = tree.xpath('//x:model/x:bind[@relevant="false()"]/@nodeset', namespaces=NAMESPACES)
+    # The episode's photo saves a link to its file: one update in the episode's active block, never an
+    # attachment. HQ's form also carries the photo in the inert block it disables, which runs nothing.
     for form in (tree, local):
         assert form.xpath("//cx:attachment", namespaces=NAMESPACES) == [], scenario
-        assert len(form.xpath("//cx:update/cx:photo", namespaces=NAMESPACES)) == 1, scenario
-    disabled = tree.xpath('//x:model/x:bind[@relevant="false()"]/@nodeset', namespaces=NAMESPACES)
+        photos = [
+            photo
+            for photo in form.xpath("//cx:update/cx:photo", namespaces=NAMESPACES)
+            if _block_path(photo) not in disabled
+        ]
+        assert len(photos) == 1, scenario
     prefix = "/data/records/item" if scenario == "query" else "/data/records" if scenario == "repeat" else "/data"
     expected_disabled = (
         [] if scenario in ("multiple", "multiple-repeat") else [f"{prefix}/subcase_0/case", f"{prefix}/subcase_2/case"]
