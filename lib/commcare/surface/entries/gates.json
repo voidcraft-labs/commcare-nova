@@ -1273,7 +1273,16 @@
 			"kind": "refusal",
 			"cell": "flag probe; refuse same-type basic child cases and offer Save to Case"
 		},
-		"effects": [],
+		"effects": [
+			{
+				"artifact": "form:*",
+				"path": "/html/head[*]/model[*]/bind[@nodeset=/data/subcase_*/case/index/*]"
+			},
+			{
+				"artifact": "form:*",
+				"path": "/html/head[*]/model[*]/instance[*]/data[*]/subcase_*[*]/case[*]/index[*]"
+			}
+		],
 		"source": {
 			"kind": "row",
 			"table": "app-building-toggles",

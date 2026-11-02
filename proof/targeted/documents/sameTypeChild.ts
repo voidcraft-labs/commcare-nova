@@ -39,7 +39,7 @@ import {
 } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
-import { answerHeld } from "./echo";
+import { answerHeld, type HeldSession } from "./echo";
 
 const ID = "targeted-same-type-child";
 export const sameTypeChildUuid = (name: string) => targetedUuid(ID, name);
@@ -175,9 +175,13 @@ export function sameTypeChildApp(edited: boolean): BlueprintDoc {
 }
 
 export function sameTypeChild() {
-	const session = (command: string) => ({
+	const session = (
+		command: string,
+		data?: Readonly<Record<string, string>>,
+	): HeldSession => ({
 		command,
 		caseId: "targeted-amina",
+		...(data !== undefined && { data }),
 	});
 	return targetedDocument({
 		id: ID,
@@ -192,7 +196,9 @@ export function sameTypeChild() {
 					"/data/name",
 					"Bola",
 					"local",
-					session("m0-f0"),
+					// D's entry gives the basic subcase's new id the datum
+					// `case_id_new_patient_0`, which its case block reads.
+					session("m0-f0", { case_id_new_patient_0: "targeted-new-patient" }),
 				),
 				answerHeld(
 					"sibling-name",
