@@ -1811,6 +1811,48 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   which the held arm of `QUERY_REPEAT_MODEL_ITERATION_SHAPE` (reason `row-condition`, part 04 §1.7)
   now refuses, so the document failed its own admission. The repeat carries no condition and takes
   model iteration from the planner; the test holds the wrapper's binds without a row condition.
+- **The record moves ahead of edit planning, the capture stays where it runs** (pull request 6).
+  §1.3 and §4.5 move the first publish's capture ahead of edit planning. The capture runs in the
+  writer processes after planning, and the record is a pure function of D
+  (`editBatches.ts::firstPublishRecord` over `placementsToHold`), so `emitCorpus.ts` applies it to D
+  through the commit gate before `editBatchCorpus` plans D′, and `entryWriter.ts` hands the capture
+  D as authored, sends the held D as the republish, and stops the emission where the capture's
+  `placements` differ from the record applied.
+- **The first publish's content and the republish are not byte-equal, so §4.5's test compares
+  other pairs** (pull request 6). The content import that fills the shell carries the app's
+  `profile`, and an update over A projects it over HQ's read of the source
+  (`lib/commcare/targetOverlay.ts`), whatever the document holds: over `targeted-held-placement`'s
+  D the two bodies differ at the `profile` key alone.
+  `publish.test.ts`'s "records each operation's placement at the first publish and changes no byte of
+  the update it sends again" holds instead that the record names a basic slot and a Save to Case
+  block, that it is the record the emitter applies (`editBatches.ts::afterFirstPublish`), that the
+  republish of the held D is byte-equal to an update of D as authored over the same A, and that a
+  first publish of the held D records nothing and sends the same content. Over the whole emission,
+  every captured body under `export/`, every `local.ccz` and every `import-file.zip` of D is the same
+  byte for byte at pull request 5's head and with the record applied (290 documents' `document.json`
+  moved).
+- **Every corpus edit is planned with its moves** (pull request 6). §4.4 has the `holdPlacements`
+  generator alone call `withIdentityMoves`; part 03 §17 says "an edit the holds cannot express is
+  planned with its moves by `withIdentityMoves`, as an author's would be". `editBatches.ts::judge`
+  now appends the moves to every candidate before the commit gate, as every editor's dispatch does,
+  so a generated edit over a held D moves the hold it strands rather than being refused. A targeted
+  document's written edit was planned over D as its spec wrote it (`proof/targeted/build.ts`), so
+  where the first publish records placements the emitter makes it again over the held D
+  (`editBatches.ts::writtenEditOverRecord`: the written batch, the moves, the gate and the kernel's
+  rule), and `targeted-held-placement`'s spec writes no hold: its holds and its move come from the
+  record (`proof/targeted/__tests__/heldPlacement.test.ts`). The migration witnesses keep their spec
+  holds (the cutover's, A's placements) and carry no edit.
+- **`holdPlacements` hosts are the documents whose record holds a Case Management slot** (pull
+  request 6). §4.4 says every document whose first publish records a placement is a host; the
+  generator moves a basic hold (a computed write strands it), so a document whose record holds only
+  Save to Case blocks or query-repeat placements proposes nothing. At the default seed the kind lands
+  on five fixed documents (two producers, two expander documents and `targeted-held-placement`), and
+  `footprint.test.ts` names no unlanded kind.
+- **The capture keeps its sequence numbers** (pull request 6). Production's record advances the
+  app's `mutation_seq` before the publish sends; the capture keeps the sequence numbers the corpus
+  gives D (1) and D′ (2), which a `.ccz` stamps into its profile, so the record moves no archive
+  byte and every document's D and D′ stay comparable across the record. `RepublishCapture` carries
+  `placements` too: a migration witness's first Nova publish is its republish over the retained A.
 
 ## What other parts read from this one
 

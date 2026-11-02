@@ -28,6 +28,11 @@ target, that deployment's ids and the reached target's `emptyCaseListText` and
 `earlierHqApps` required), so no archive is compiled without one; change what
 an archive holds there.
 
+A download records nothing: the HQ import file and the `.ccz` emit each case
+change's effective placement, held or else the simplest, and write no
+`publish-placement` change. Only `publishAppToHq` records placements
+(`lib/deployment/CLAUDE.md` § Placements).
+
 The boundary structurally extracts the complete lookup target set and reads
 one snapshot even when that set is empty, on every mode:
 `getLookupFixtureData` — definitions plus every referenced table's complete

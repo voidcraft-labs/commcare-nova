@@ -23,6 +23,31 @@ describe("browser mutation-frame admission", () => {
 		},
 	);
 
+	it("admits a publish-placement frame", () => {
+		const holds = {
+			kind: "holdPlacements",
+			holds: [
+				{
+					target: "query-repeat",
+					fieldUuid: "00000000-0000-4000-8000-000000000001",
+					placement: "count",
+				},
+			],
+		};
+		const frame = parseMutationFrame(
+			JSON.stringify({
+				...ordinary,
+				kind: "publish-placement",
+				mutations: [holds],
+			}),
+		);
+		expect(frame).toMatchObject({
+			seq: 2,
+			kind: "publish-placement",
+			mutations: [holds],
+		});
+	});
+
 	it.each(["blueprint-migration", "fold-baseline", "project-move"] as const)(
 		"rejects the server-only %s kind",
 		(kind) => {

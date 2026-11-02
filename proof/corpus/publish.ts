@@ -214,8 +214,12 @@ import {
 import { classifyStoredMediaBytes } from "@/lib/media/validate";
 import { renderManualImportGuide } from "@/lib/publish/manualImportGuide";
 import { CORPUS_COMMCARE_VERSION } from "./configurations";
-import type { HqSideSaves } from "./documents";
-import { hydrateAdmittedDocument } from "./editBatches";
+import { type HqSideSaves, storedDocument } from "./documents";
+import {
+	firstPublishRecord,
+	hydrateAdmittedDocument,
+	recordedDocument,
+} from "./editBatches";
 import {
 	type EntropyOperation,
 	OPERATION_ORDINALS,
@@ -1806,8 +1810,11 @@ export interface RetainedPublish {
 
 export interface PublishInput {
 	/**
-	 * The document the first publish sends; with `retainedA`, the migrated
-	 * document, which the capture publishes only as the updates name it.
+	 * The document as stored before the first publish, which records its
+	 * placements (`PublishCapture.placements`) and sends the document they
+	 * leave; with `retainedA`, the migrated document, which the capture
+	 * publishes only as the updates name it, each update naming the document
+	 * with its placements recorded.
 	 */
 	readonly create: PublishDocument;
 	/**
@@ -1869,9 +1876,14 @@ export type PublishCapture =
 			readonly create: Extract<FirstPublishOutcome, { status: "sent" }>;
 			readonly updates: Readonly<Record<string, StepOutcome>>;
 			/**
-			 * The `holdPlacements` mutations of the `publish-placement` change the
-			 * first publish wrote, which the corpus applies to D. No publish the
-			 * capture makes writes the kind, so the list is empty.
+			 * The mutations of the `publish-placement` change the first publish
+			 * committed before it sent anything: one `holdPlacements` carrying
+			 * every placement the emission of `create`'s document derives and the
+			 * document does not hold yet (`./editBatches.ts::firstPublishRecord`),
+			 * or none where it holds them all. The publish sent the document with
+			 * them applied, which is D as stored after it; the corpus applies the
+			 * same record to D before it plans D′, and an update over A names that
+			 * document.
 			 */
 			readonly placements: readonly Mutation[];
 	  };
@@ -1880,6 +1892,14 @@ export type PublishCapture =
 export interface RepublishCapture {
 	readonly status: "republished";
 	readonly updates: Readonly<Record<string, StepOutcome>>;
+	/**
+	 * The mutations of the `publish-placement` change Nova's first publish of
+	 * the migrated document records over the retained A, as
+	 * `PublishCapture.placements` is for a first publish: the placements its
+	 * emission derives that neither the migration nor an earlier recording
+	 * holds.
+	 */
+	readonly placements: readonly Mutation[];
 }
 
 /**
@@ -2058,11 +2078,33 @@ export async function capturePublish(
 		server: PROOF_SERVER,
 		domain: configuration.domain,
 	});
-	const create = await prepareDocument(
+	/* Preflight reads D as stored before this publish; the placements it
+	 * records are committed before anything is sent, and the document they
+	 * leave is what the publish sends (`publishAppToHq`). */
+	const unrecorded = await prepareDocument(
 		input.create,
 		"hq-upload",
 		attachmentTarget,
 	);
+	const placements = firstPublishRecord(unrecorded.export.doc);
+	const create =
+		placements.length === 0
+			? unrecorded
+			: await prepareDocument(
+					{
+						...input.create,
+						doc: storedDocument(
+							recordedDocument(
+								input.create.id,
+								unrecorded.export.doc,
+								placements,
+								input.create.lookup,
+							),
+						),
+					},
+					"hq-upload",
+					attachmentTarget,
+				);
 	const updates = await Promise.all(
 		input.updates.map(async (update) => ({
 			update,
@@ -2218,12 +2260,13 @@ export async function capturePublish(
 				}
 			}
 			assertModeled(peer);
-			if (created === null) return { status: "republished", updates: outcomes };
+			if (created === null)
+				return { status: "republished", updates: outcomes, placements };
 			return {
 				status: "sent",
 				create: created,
 				updates: outcomes,
-				placements: [],
+				placements,
 			};
 		},
 	);

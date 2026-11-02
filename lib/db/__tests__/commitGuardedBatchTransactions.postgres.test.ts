@@ -57,6 +57,7 @@ import {
 	updateLocation,
 } from "@/lib/organization/service";
 import { migrateLegacyAuthoring } from "@/scripts/lib/migrateAuthoring";
+import type { Unadmitted } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const {
@@ -66,9 +67,7 @@ const {
 	loadApp,
 } = await import("../apps");
 const commitGuardedBatch = (
-	args: Omit<Parameters<typeof commitGuardedBatchOpaque>[0], "mutations"> & {
-		mutations: unknown;
-	},
+	args: Unadmitted<Parameters<typeof commitGuardedBatchOpaque>[0]>,
 ) =>
 	commitGuardedBatchOpaque({
 		...args,
@@ -76,10 +75,7 @@ const commitGuardedBatch = (
 	});
 const commitGuardedBatchInTransaction = (
 	tx: Parameters<typeof commitGuardedBatchInTransactionOpaque>[0],
-	args: Omit<
-		Parameters<typeof commitGuardedBatchInTransactionOpaque>[1],
-		"mutations"
-	> & { mutations: unknown },
+	args: Unadmitted<Parameters<typeof commitGuardedBatchInTransactionOpaque>[1]>,
 ) =>
 	commitGuardedBatchInTransactionOpaque(tx, {
 		...args,

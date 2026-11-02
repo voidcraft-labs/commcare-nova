@@ -18,6 +18,7 @@ import {
 	admittedHoldChanges,
 	holdExpresses,
 	NO_RECORDED_HOLDS,
+	PLACEMENT_CONFLICT_CODES,
 	type PlacementHold,
 	placementHoldChanges,
 	placementTargetKey,
@@ -46,6 +47,7 @@ import {
 	update,
 	VISITS,
 } from "./placementHoldFixture";
+import { refusalCodes, republishedRegistration } from "./placementMoveFixture";
 
 function operation(doc: BlueprintDoc, formUuid: Uuid, uuid: Uuid) {
 	const found = doc.forms[formUuid].caseOperations?.find(
@@ -355,5 +357,19 @@ describe("admittedHoldChanges", () => {
 		expect(placementHoldChanges(doc, next).map((c) => c.key)).toEqual([
 			`case-operation:${formUuid}:${UPDATE}`,
 		]);
+	});
+});
+
+describe("PLACEMENT_CONFLICT_CODES", () => {
+	it("holds every code a publish's recording turns a stale edit's hold change into", () => {
+		const { tab, unpublished, head, undo } = republishedRegistration();
+		// The undo is admitted over the tab's document, and over the head
+		// before the publish recorded the third kid's place.
+		expect(refusalCodes(tab, undo)).toEqual([]);
+		expect(refusalCodes(unpublished, undo)).toEqual([]);
+		// The recording takes the place the undo gives the second kid back.
+		const codes = refusalCodes(head, undo);
+		expect(codes).toContain("CASE_PLACEMENT_SHARED");
+		for (const code of codes) expect(PLACEMENT_CONFLICT_CODES).toContain(code);
 	});
 });

@@ -9,8 +9,13 @@ import { planDatetimeSplits } from "@/lib/doc/datetimeSplit";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import { placementTargetKey } from "@/lib/doc/placementHolds";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
+import type {
+	BlueprintDoc,
+	Mutation,
+	PlacementHoldEntry,
+} from "@/lib/doc/types";
 import { blueprintDocSchema } from "@/lib/domain";
 import { APP_GENESIS_FALLBACK_NAME } from "@/lib/domain/blueprint";
 import { literal, term, today } from "@/lib/domain/expression/builders";
@@ -24,10 +29,12 @@ import {
 	heldStore,
 	holdEntries,
 	ownHold,
+	ownOf,
 	read,
 	recordCurrentHolds,
 	setRemark,
 } from "./heldHistoryFixture";
+import { DISCHARGE } from "./placementMoveFixture";
 
 // ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -973,5 +980,66 @@ describe("history steps over held placements", () => {
 		expect(Object.keys(toPersistableDoc(store.getState()))).not.toContain(
 			"recordedHolds",
 		);
+	});
+});
+
+describe("the recorded holds a folded publish advances", () => {
+	it("sets each recorded hold, forgets each cleared one, and keeps the rest", () => {
+		const store = heldStore();
+		const before = store.getState().recordedHolds;
+		const ownKey = placementTargetKey({
+			target: "case-operation",
+			formUuid: FOLLOWUP,
+			operationUuid: ownOf(store.getState()),
+		});
+		const closeKey = placementTargetKey({
+			target: "own-close",
+			formUuid: DISCHARGE,
+		});
+		expect(before.has(ownKey)).toBe(true);
+		expect(before.has(closeKey)).toBe(true);
+		const moved: PlacementHoldEntry = {
+			target: "case-operation",
+			formUuid: FOLLOWUP,
+			operationUuid: ownOf(store.getState()),
+			placement: {
+				kind: "save-to-case",
+				path: ["nova_operations", "nova_own"],
+			},
+		};
+		store
+			.getState()
+			.recordPlacementHolds([
+				moved,
+				{ target: "own-close", formUuid: DISCHARGE, placement: null },
+			]);
+		const after = store.getState().recordedHolds;
+		expect(after.get(ownKey)).toEqual(moved);
+		expect(after.has(closeKey)).toBe(false);
+		for (const [key, hold] of before)
+			if (key !== ownKey && key !== closeKey)
+				expect(after.get(key)).toEqual(hold);
+		expect(after.size).toBe(before.size - 1);
+		// The record the store held before is a value, never changed in place.
+		expect(before.get(ownKey)).not.toEqual(moved);
+		// A recording of nothing leaves the record as it is.
+		store.getState().recordPlacementHolds([]);
+		expect(store.getState().recordedHolds).toBe(after);
+	});
+});
+
+describe("the queued commands a placement conflict hands back", () => {
+	it("are the queue's mutations in the order they were made, and stay queued", () => {
+		const store = heldStore();
+		const first = setRemark(store.getState(), read("age"));
+		apply(store, [first]);
+		const second = setRemark(store.getState(), read("status"));
+		apply(store, [second]);
+		const queued = store.getState().peekCommandBatches();
+		expect(queued).toHaveLength(2);
+		expect(store.getState().queuedCommandMutations()).toEqual(queued.flat());
+		expect(store.getState().peekCommandBatches()).toHaveLength(2);
+		store.getState().discardUncommittedCommandState();
+		expect(store.getState().queuedCommandMutations()).toEqual([]);
 	});
 });

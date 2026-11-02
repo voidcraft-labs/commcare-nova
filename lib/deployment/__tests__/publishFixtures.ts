@@ -1,14 +1,36 @@
 /**
  * Apps Nova's publish tests send to CommCare HQ, shared so that the proof
  * harness's capture of a publish (`proof/corpus/publish.ts`) and the real
- * `publishAppToHq` are compared on the same app. Neither test file imports
- * the other; both build their documents here.
+ * `publishAppToHq` are compared on the same app, and the head read every
+ * publish caller hands it. Neither test file imports the other; both build
+ * their documents here.
  */
 
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, MediaAssetId } from "@/lib/domain";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import type { BlueprintDoc, MediaAssetId, PersistableDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
+
+/**
+ * The `reloadHead` a publish caller hands `publishAppToHq`: the app row read
+ * again under an `edit` check, as the upload route reads it. The access
+ * module is loaded on the first read, so the proof capture, which builds its
+ * documents here and reads no database, never loads it.
+ */
+export function reloadHeadFor(
+	appId: string,
+	userId: string,
+): () => Promise<{ readonly doc: BlueprintDoc; readonly seq: number }> {
+	return async () => {
+		const { resolveAppAccess } = await import("@/lib/db/appAccess");
+		const { app } = await resolveAppAccess(appId, userId, "edit");
+		return {
+			doc: hydratePersistedBlueprint(app.blueprint as PersistableDoc),
+			seq: app.mutation_seq,
+		};
+	};
+}
 
 /** One survey with one text question: the app every publish path sends first. */
 export function clinicVisitsDocument(): BlueprintDoc {

@@ -12,12 +12,14 @@ import {
 	documentHoldsIdentity,
 	identityMoveReportSchema,
 	identityMovesBetween,
+	planConflictReplay,
 	withIdentityMoves,
 } from "@/lib/doc/identityMoves";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import {
 	admittedHoldChanges,
 	type PlacementHold,
+	placementTargetKey,
 	readPlacementHolds,
 } from "@/lib/doc/placementHolds";
 import type { Mutation, PlacementHoldEntry } from "@/lib/doc/types";
@@ -39,6 +41,7 @@ import {
 	REGISTRATION,
 	read,
 	refusalCodes,
+	republishedRegistration,
 	U,
 	verdict,
 	withSecondKid,
@@ -368,6 +371,126 @@ describe("admittedHoldChanges, as a history step calls it", () => {
 		const kept = admittedHoldChanges(moved.nextDoc, inverse, republished);
 		expect(holdEntries(kept)).toEqual([]);
 		expect(kept).toEqual([inverse[0]]);
+	});
+});
+
+describe("planConflictReplay", () => {
+	const hintEdit: Mutation = {
+		kind: "updateField",
+		uuid: U("remark"),
+		targetKind: "text",
+		patch: { hint: { parts: [{ kind: "text", text: "Anything else" }] } },
+	} as Mutation;
+
+	it("plans edits composed before a publish recorded its holds as one batch with their moves", () => {
+		// The tab composed two edits over a document that held nothing.
+		const stale = moveFixture();
+		const first = [setRemark(stale, computed)];
+		const second = [setQuery(PATIENTS_NAMED)];
+		expect(refusalCodes(stale, first)).toEqual([]);
+		expect(refusalCodes(stale, [...first, ...second])).toEqual([]);
+		// A publish recorded every place; the head refuses the edits as they
+		// were made.
+		const head = published();
+		const recorded = recordedOf(head);
+		expect(refusalCodes(head, [...first, ...second])).toEqual(
+			expect.arrayContaining([
+				"HELD_PLACEMENT_INEXPRESSIBLE",
+				"QUERY_REPEAT_MODEL_ITERATION_SHAPE",
+			]),
+		);
+		const plan = planConflictReplay(head, [first, second], recorded);
+		expect(plan.moves.map((move) => move.subject)).toEqual([
+			{
+				kind: "case-operation",
+				formUuid: FOLLOWUP,
+				operationUuid: ownOf(head, FOLLOWUP),
+			},
+			{ kind: "query-repeat", formUuid: FOLLOWUP, fieldUuid: VISITS },
+		]);
+		expect(plan.batch.slice(0, 2)).toEqual([...first, ...second]);
+		expect(plan.batch.slice(2).map((m) => m.kind)).toEqual(["holdPlacements"]);
+		const result = verdict(head, plan.batch);
+		expect(result.ok ? [] : result.findings.map((f) => f.message)).toEqual([]);
+	});
+
+	it("drops a hold change the kernel would refuse and keeps the content beside it", () => {
+		const head = published();
+		const recorded = recordedOf(head);
+		// A move to Save to Case, planned where the own case's change could no
+		// longer stay; on the head nothing strands it.
+		const [stranded] = holdEntries(
+			withIdentityMoves(head, [setRemark(head, computed)]).batch,
+		);
+		const plan = planConflictReplay(
+			head,
+			[[hintEdit, holds(stranded)]],
+			recorded,
+		);
+		expect(plan.batch).toEqual([hintEdit]);
+		expect(plan.moves).toEqual([]);
+		expect(verdict(head, plan.batch).ok).toBe(true);
+	});
+
+	it("returns no move for a replay whose content strands no hold", () => {
+		const head = published();
+		const plan = planConflictReplay(head, [[hintEdit], []], recordedOf(head));
+		expect(plan.batch).toEqual([hintEdit]);
+		expect(plan.moves).toEqual([]);
+	});
+
+	it("keeps the later of two holds the replay gives one target", () => {
+		const base = published();
+		const recorded = recordedOf(base);
+		const forward = withIdentityMoves(base, [setRemark(base, computed)]);
+		const moved = verdict(base, forward.batch);
+		if (!moved.ok) throw new Error("The move commits.");
+		const [movedHold] = holdEntries(forward.batch);
+		const restore: PlacementHoldEntry = {
+			...movedHold,
+			placement: { kind: "basic", slot: "own" },
+		} as PlacementHoldEntry;
+		// The earlier batch puts the recorded hold back, and the later one
+		// takes the target to where it already is: together they change
+		// nothing.
+		const plan = planConflictReplay(
+			moved.nextDoc,
+			[[holds(restore)], [holds(movedHold)]],
+			recorded,
+		);
+		expect(plan.batch).toEqual([]);
+		expect(plan.moves).toEqual([]);
+	});
+
+	it("plans a stale move again where a publish recorded another change in its place", () => {
+		const { head, undo, first, firstHold, second } = republishedRegistration();
+		if (firstHold === undefined) throw new Error("The first kid was held.");
+		// The kernel reads the first kid's recorded hold from the recording
+		// that last held it, before the tab removed it.
+		const recorded = recordedOf(head);
+		const firstRecorded: PlacementHold = {
+			target: "case-operation",
+			formUuid: REGISTRATION,
+			operationUuid: first,
+			placement: firstHold,
+		};
+		recorded.set(placementTargetKey(firstRecorded), firstRecorded);
+		// Kept as made, the undo's move of the second kid lands on the third
+		// kid's recorded place.
+		expect(
+			refusalCodes(
+				head,
+				admittedHoldChanges(head, admitMutationBatch(undo), recorded),
+			),
+		).toContain("CASE_PLACEMENT_SHARED");
+		const plan = planConflictReplay(head, [undo], recorded);
+		const result = verdict(head, plan.batch);
+		expect(result.ok ? [] : result.findings.map((f) => f.message)).toEqual([]);
+		// The second kid's move is planned over the head, around the third
+		// kid's recorded place, and stated.
+		expect(plan.moves.map((move) => move.subject)).toEqual([
+			{ kind: "case-operation", formUuid: REGISTRATION, operationUuid: second },
+		]);
 	});
 });
 

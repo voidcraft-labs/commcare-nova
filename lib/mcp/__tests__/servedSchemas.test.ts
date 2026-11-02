@@ -166,3 +166,46 @@ it("rejects malformed work IDs in lifecycle and shared schemas", () => {
 		);
 	}
 });
+
+/** A served tool by name, or a failure naming it. */
+function served(name: string) {
+	const tool = listed.find((entry) => entry.name === name);
+	if (!tool) throw new Error(`${name} is missing from tools/list`);
+	return tool;
+}
+
+it("serves accept_placement_moves as exactly a reason and a 64-hex digest", () => {
+	const properties = (served("upload_app_to_hq").inputSchema as Json)
+		.properties;
+	if (!object(properties) || !object(properties.accept_placement_moves))
+		throw new Error("upload_app_to_hq serves no accept_placement_moves");
+	const accept = properties.accept_placement_moves;
+	expect(accept.description).toBe(
+		"Send only after a refusal returned placement_moves, with its reason and digest, once the user agreed to move those case changes.",
+	);
+	const validate = new Ajv2020({
+		strict: false,
+		validateFormats: false,
+	}).compile(accept);
+	const digest = "ab".repeat(32);
+	expect(validate({ reason: "save-to-case", digest })).toBe(true);
+	expect(validate({ reason: "same-type-child-links", digest })).toBe(true);
+	expect(validate({ reason: "save-to-case", digest: "AB".repeat(32) })).toBe(
+		false,
+	);
+	expect(validate({ reason: "save-to-case", digest: "ab" })).toBe(false);
+	expect(validate({ reason: "somewhere-else", digest })).toBe(false);
+	expect(validate({ reason: "save-to-case" })).toBe(false);
+	expect(
+		validate({ reason: "save-to-case", digest, moves: ["In Visit"] }),
+	).toBe(false);
+});
+
+it("tells a client what an upload records and what a move offer asks of the user", () => {
+	expect(served("upload_app_to_hq").description).toContain(
+		"The first upload of a case change records where CommCare HQ keeps it, which changes the saved app (`placements.recorded`); work begun with `begin_work` before then has to begin again. If a refusal carries `placement_moves`, show the user each move's `sentence`, and send `accept_placement_moves` with its `reason` and `digest` only when the user agrees: the move changes where CommCare HQ keeps those answers in every project space the app is published to. `hq_placement_moves_changed` means the offer changed since; show the new one. `app_changed_while_publishing` means the app kept changing while Nova prepared the upload; upload again.",
+	);
+	expect(served("check_project_space_compatibility").description).toContain(
+		"`placement_moves`, where present, lists the case changes Nova can move so the app doesn't need Save to Case.",
+	);
+});

@@ -11,6 +11,10 @@
 
 import { z } from "zod";
 import {
+	COLLABORATION_FRAME_KINDS,
+	type CollaborationFrameKind,
+} from "@/lib/db/types";
+import {
 	type AdmittedMutationBatch,
 	admitMutationBatch,
 	encodeAdmittedMutationEnvelope,
@@ -21,9 +25,9 @@ const mutationFrameEnvelopeSchema = z.strictObject({
 	seq: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
 	batchId: z.string().min(1),
 	actorId: z.string().min(1),
-	/** Present on a chat-SA frame; absent on an autosave/MCP frame. */
+	/** Present on a chat-SA frame; absent on every other frame. */
 	runId: z.string().min(1).optional(),
-	kind: z.enum(["autosave", "mcp", "chat"]),
+	kind: z.enum(COLLABORATION_FRAME_KINDS),
 	mutations: z.unknown(),
 });
 
@@ -32,7 +36,7 @@ export interface MutationFrame {
 	readonly batchId: string;
 	readonly actorId: string;
 	readonly runId?: string;
-	readonly kind: "autosave" | "mcp" | "chat";
+	readonly kind: CollaborationFrameKind;
 	readonly mutations: AdmittedMutationBatch;
 }
 

@@ -23,6 +23,7 @@ import {
 import {
 	createReconciler,
 	type MutationFrame,
+	type PlacementConflictReplay,
 	type PutOutcome,
 	type Reconciler,
 	type ReconcilerDeps,
@@ -52,6 +53,7 @@ import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	type Automation,
 	automationMessageText,
+	type CasePlacement,
 	fieldCaseWriteViews,
 	proseTemplateText,
 } from "@/lib/domain";
@@ -282,6 +284,8 @@ interface Harness {
 	resubscribeCursors: number[];
 	/** Every structured `onSaveError` failure the reconciler reported. */
 	saveErrors: ReconcilerObservedFailure[];
+	/** Every replay the reconciler handed to `onPlacementConflict`. */
+	placementReplays: PlacementConflictReplay[];
 	/** MANUAL reload mode: when enabled, `reload()` returns a pending promise the
 	 *  test resolves with `resolveReload` / `failReload` — so a frame/dispose can
 	 *  land WHILE the reload GET is in flight. */
@@ -342,6 +346,7 @@ function makeHarness(init: {
 	const reloadQueue: Harness["reloadQueue"] = [];
 	const resubscribeCursors: number[] = [];
 	const saveErrors: ReconcilerObservedFailure[] = [];
+	const placementReplays: PlacementConflictReplay[] = [];
 	const state = { reloadCalls: 0, manual: false };
 	/** Manual-mode reload resolvers/rejecters, FIFO. */
 	const reloadResolvers: Array<{
@@ -401,6 +406,7 @@ function makeHarness(init: {
 			};
 		},
 		onSaveError: (failure) => saveErrors.push(failure),
+		onPlacementConflict: (replay) => placementReplays.push(replay),
 	};
 
 	const reconciler = createReconciler(docStore, seededInit, deps);
@@ -439,6 +445,7 @@ function makeHarness(init: {
 		},
 		resubscribeCursors,
 		saveErrors,
+		placementReplays,
 		enableManualReload: () => {
 			state.manual = true;
 		},
@@ -811,7 +818,11 @@ describe("reconciler", () => {
 			h.reconciler.dispatchHumanBatch();
 			h.reloadQueue.push({ blueprint: base, seq: 1 });
 
-			await h.resolvePut(0, { ok: false, kind: "commitRejected" });
+			await h.resolvePut(0, {
+				ok: false,
+				kind: "commitRejected",
+				reason: null,
+			});
 
 			await expect(renameWatch.promise).resolves.toEqual({
 				kind: "conflict",
@@ -898,7 +909,11 @@ describe("reconciler", () => {
 			expect(h.docStore.getState().peekCommandBatches()).toHaveLength(1);
 			h.reloadQueue.push({ blueprint: base, seq: 1 });
 
-			await h.resolvePut(0, { ok: false, kind: "commitRejected" });
+			await h.resolvePut(0, {
+				ok: false,
+				kind: "commitRejected",
+				reason: null,
+			});
 
 			expect(h.puts).toHaveLength(1);
 			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(0);
@@ -935,7 +950,11 @@ describe("reconciler", () => {
 			]);
 			h.reloadQueue.push({ blueprint: base, seq: 1 });
 
-			await h.resolvePut(0, { ok: false, kind: "commitRejected" });
+			await h.resolvePut(0, {
+				ok: false,
+				kind: "commitRejected",
+				reason: null,
+			});
 
 			expect(h.puts).toHaveLength(1);
 			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(0);
@@ -1464,7 +1483,11 @@ describe("reconciler", () => {
 
 			// The reload the 409 triggers returns fresh state at seq 3.
 			h.reloadQueue.push({ blueprint: makeDoc("ServerWins"), seq: 3 });
-			await h.resolvePut(0, { ok: false, kind: "commitRejected" });
+			await h.resolvePut(0, {
+				ok: false,
+				kind: "commitRejected",
+				reason: null,
+			});
 			// Let the deferred reload run.
 			await Promise.resolve();
 			await Promise.resolve();
@@ -1477,6 +1500,127 @@ describe("reconciler", () => {
 			// Confirmed is the server's version; no extra PUT was issued.
 			expect(snap.confirmedDoc.appName).toBe("ServerWins");
 			expect(h.puts).toHaveLength(1); // only the original, never re-sent
+		});
+
+		/** Two human batches sent (the second waits behind the first's PUT)
+		 *  and a third still queued in the store. */
+		function threeEdits(h: Harness, signals: SaveSignal[]): void {
+			const observe = (signal: SaveSignal) => signals.push(signal);
+			applyLocal(h, [{ kind: "setAppName", name: "One" }]);
+			h.reconciler.dispatchHumanBatch(observe);
+			applyLocal(h, [{ kind: "setAppName", name: "Two" }]);
+			h.reconciler.dispatchHumanBatch(observe);
+			applyLocal(h, [{ kind: "setAppName", name: "Three" }]);
+			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(2);
+			expect(h.docStore.getState().peekCommandBatches()).toHaveLength(1);
+		}
+
+		it("a placement-recorded 409 hands the rejected human batches and queued commands to onPlacementConflict after the reload", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 2,
+				baseDoc: makeDoc("Base"),
+				userId: "u1",
+			});
+			const signals: SaveSignal[] = [];
+			threeEdits(h, signals);
+			h.enableManualReload();
+			await h.resolvePut(0, {
+				ok: false,
+				kind: "commitRejected",
+				reason: "placement-recorded",
+			});
+			expect(signals).toContainEqual({
+				kind: "conflict",
+				cause: "placement-recorded",
+			});
+			// The queue and the local history go at once, as for any rejection;
+			// the replay waits for the reload.
+			expect(h.docStore.getState().peekCommandBatches()).toHaveLength(0);
+			expect(h.docStore.getState().canUndo).toBe(false);
+			expect(h.placementReplays).toHaveLength(0);
+			expect(h.pendingReloads()).toBe(1);
+
+			await h.resolveReload({ blueprint: makeDoc("Published"), seq: 3 });
+
+			const snap = h.reconciler.getSnapshot();
+			expect(snap.baseSeq).toBe(3);
+			expect(snap.sentPending).toHaveLength(0);
+			expect(h.docStore.getState().appName).toBe("Published");
+			expect(h.puts).toHaveLength(1);
+			expect(h.placementReplays).toHaveLength(1);
+			expect(
+				h.placementReplays[0]?.map((batch) =>
+					batch.map((mutation) => ({ ...mutation })),
+				),
+			).toEqual([
+				[{ kind: "setAppName", name: "One" }],
+				[{ kind: "setAppName", name: "Two" }],
+				[{ kind: "setAppName", name: "Three" }],
+			]);
+
+			// Handed once: a later reload offers nothing again.
+			h.reconciler.onReloadEvent();
+			await h.resolveReload({ blueprint: makeDoc("Published"), seq: 3 });
+			expect(h.placementReplays).toHaveLength(1);
+		});
+
+		it("drops the replay when the reload ends view-only", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 2,
+				baseDoc: makeDoc("Base"),
+				userId: "u1",
+			});
+			threeEdits(h, []);
+			h.enableManualReload();
+			await h.resolvePut(0, {
+				ok: false,
+				kind: "commitRejected",
+				reason: "placement-recorded",
+			});
+			await h.resolveReload({
+				blueprint: makeDoc("Published"),
+				seq: 3,
+				role: "viewer",
+				canEdit: false,
+			});
+			expect(h.sessionApi.getState().canEdit).toBe(false);
+			expect(h.placementReplays).toHaveLength(0);
+
+			// Edit access coming back later does not revive the dropped edits.
+			h.reconciler.onReloadEvent();
+			await h.resolveReload({ blueprint: makeDoc("Published"), seq: 3 });
+			expect(h.sessionApi.getState().canEdit).toBe(true);
+			expect(h.placementReplays).toHaveLength(0);
+		});
+
+		it("any other 409 behaves as before", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 2,
+				baseDoc: makeDoc("Base"),
+				userId: "u1",
+			});
+			const signals: SaveSignal[] = [];
+			threeEdits(h, signals);
+			h.enableManualReload();
+			await h.resolvePut(0, {
+				ok: false,
+				kind: "commitRejected",
+				reason: null,
+			});
+			const conflicts = signals.filter((signal) => signal.kind === "conflict");
+			expect(conflicts).toEqual([{ kind: "conflict" }]);
+			expect(h.docStore.getState().peekCommandBatches()).toHaveLength(0);
+
+			await h.resolveReload({ blueprint: makeDoc("ServerWins"), seq: 3 });
+			const snap = h.reconciler.getSnapshot();
+			expect(snap.baseSeq).toBe(3);
+			expect(snap.sentPending).toHaveLength(0);
+			expect(h.docStore.getState().appName).toBe("ServerWins");
+			expect(h.puts).toHaveLength(1);
+			expect(h.placementReplays).toHaveLength(0);
 		});
 	});
 
@@ -1899,7 +2043,11 @@ describe("reconciler", () => {
 			// A local edit that will 409 (its batchId must be dropped on reload).
 			applyLocal(h, [{ kind: "setAppName", name: "Conflicting" }]);
 			const rejected = h.reconciler.dispatchHumanBatch();
-			await h.resolvePut(0, { ok: false, kind: "commitRejected" });
+			await h.resolvePut(0, {
+				ok: false,
+				kind: "commitRejected",
+				reason: null,
+			});
 			// The 409 kicked off a reload (manual — pending).
 			expect(h.pendingReloads()).toBe(1);
 			expect(h.reconciler.getSnapshot().reloadInFlight).toBe(true);
@@ -2546,7 +2694,11 @@ describe("reconciler", () => {
 
 			// The retry 409s → rejectedBatchId = A and the reload starts. Fire the
 			// already-armed tick while that GET is pending: it must not re-send A.
-			await h.resolvePut(1, { ok: false, kind: "commitRejected" });
+			await h.resolvePut(1, {
+				ok: false,
+				kind: "commitRejected",
+				reason: null,
+			});
 			expect(h.pendingReloads()).toBe(1);
 			await h.runScheduledRetry();
 			expect(h.puts).toHaveLength(2);
@@ -2937,10 +3089,14 @@ describe("reconciler", () => {
 
 	// ── Recorded holds ──────────────────────────────────────────────────
 	describe("recorded holds", () => {
+		const OWN_CLOSE_PLACEMENT = {
+			kind: "save-to-case",
+			path: ["close_case"],
+		} as const satisfies CasePlacement;
 		const OWN_CLOSE: PlacementHold = {
 			target: "own-close",
 			formUuid: FORM,
-			placement: { kind: "save-to-case", path: ["close_case"] },
+			placement: OWN_CLOSE_PLACEMENT,
 		};
 		const OPERATION: PlacementHold = {
 			target: "case-operation",
@@ -2970,7 +3126,22 @@ describe("reconciler", () => {
 			expect(h.docStore.getState().recordedHolds).toEqual(recorded);
 		});
 
-		it("a reload replaces the record whole and hands the new one to the store", async () => {
+		/** `makeDoc(appName)` with its form's own close held as `OWN_CLOSE`. */
+		function holdingOwnClose(appName: string): BlueprintDoc {
+			const doc = makeDoc(appName);
+			const form = doc.forms[FORM];
+			if (form === undefined) throw new Error("makeDoc holds no form");
+			doc.forms[FORM] = {
+				...form,
+				ownClosePlacement: {
+					...OWN_CLOSE_PLACEMENT,
+					path: [...OWN_CLOSE_PLACEMENT.path],
+				},
+			};
+			return doc;
+		}
+
+		it("a reload replaces the record of every target its document holds, keeps the rest, and hands it to the store", async () => {
 			const h = harness({
 				appId: "app-1",
 				baseSeq: 2,
@@ -2978,27 +3149,27 @@ describe("reconciler", () => {
 				userId: "u1",
 				recordedHolds: record(OWN_CLOSE, OPERATION),
 			});
-			const reloaded = record(QUERY_REPEAT);
 			h.reloadQueue.push({
-				blueprint: makeDoc("Reloaded"),
+				blueprint: holdingOwnClose("Reloaded"),
 				seq: 5,
-				recordedHolds: reloaded,
+				recordedHolds: record(QUERY_REPEAT),
 			});
 			h.reconciler.onReloadEvent();
 			await Promise.resolve();
 			await Promise.resolve();
 			await Promise.resolve();
 			expect(h.reconciler.getSnapshot().baseSeq).toBe(5);
-			// Nothing of the earlier record survives: a target the reload no
-			// longer names has no recording the tab may restore to.
-			expect(h.reconciler.getSnapshot().recordedHolds).toBe(reloaded);
-			expect(h.docStore.getState().recordedHolds).toEqual(reloaded);
-			expect(
-				h.docStore.getState().recordedHolds.has(placementTargetKey(OWN_CLOSE)),
-			).toBe(false);
+			// The own close is held by the reloaded document, and the reload read
+			// no recording of it, so the tab may no longer restore it. The
+			// operation is held by no document the reload read: a replayed edit
+			// that re-creates it restores the hold its recording wrote, as the
+			// commit kernel admits.
+			const expected = record(OPERATION, QUERY_REPEAT);
+			expect(h.reconciler.getSnapshot().recordedHolds).toEqual(expected);
+			expect(h.docStore.getState().recordedHolds).toEqual(expected);
 		});
 
-		it("a reload that reads no recording leaves the store an empty record", async () => {
+		it("a reload that reads no recording of a target its document holds drops that target's record", async () => {
 			const h = harness({
 				appId: "app-1",
 				baseSeq: 2,
@@ -3006,7 +3177,7 @@ describe("reconciler", () => {
 				userId: "u1",
 				recordedHolds: record(OWN_CLOSE),
 			});
-			h.reloadQueue.push({ blueprint: makeDoc(), seq: 3 });
+			h.reloadQueue.push({ blueprint: holdingOwnClose("App"), seq: 3 });
 			h.reconciler.onReloadEvent();
 			await Promise.resolve();
 			await Promise.resolve();
@@ -3030,6 +3201,102 @@ describe("reconciler", () => {
 			await h.failReload();
 			expect(h.reconciler.getSnapshot().recordedHolds).toBe(recorded);
 			expect(h.docStore.getState().recordedHolds).toEqual(recorded);
+		});
+
+		/** A publish's recording of `holds`, as the stream delivers it. */
+		function publishFrame(
+			seq: number,
+			actorId: string,
+			holds: Mutation & { kind: "holdPlacements" },
+		): MutationFrame {
+			return {
+				seq,
+				batchId: `publish-${seq}`,
+				actorId,
+				kind: "publish-placement",
+				mutations: admitMutationBatch([holds]),
+			};
+		}
+
+		it("folds a publish-placement frame from the tab's own user as remote, re-folding pending work and keeping undo", async () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 3,
+				baseDoc: makeDoc(),
+				userId: "u1",
+			});
+			// One edit sent and awaiting its echo, one still queued.
+			applyLocal(h, [
+				{
+					kind: "updateField",
+					uuid: F_A,
+					targetKind: "text",
+					patch: { label: proseText("A2") },
+				},
+			]);
+			h.reconciler.dispatchHumanBatch();
+			await h.resolvePut(0, { ok: true, seq: 5 });
+			applyLocal(h, [
+				{
+					kind: "updateField",
+					uuid: F_B,
+					targetKind: "text",
+					patch: { label: proseText("B2") },
+				},
+			]);
+			expect(h.docStore.getState().canUndo).toBe(true);
+
+			// The publish ran in this very tab, so the frame carries this user.
+			h.reconciler.onFrame(
+				publishFrame(4, "u1", { kind: "holdPlacements", holds: [OWN_CLOSE] }),
+			);
+
+			const snap = h.reconciler.getSnapshot();
+			expect(snap.baseSeq).toBe(4);
+			expect(snap.confirmedDoc.forms[FORM]?.ownClosePlacement).toEqual(
+				OWN_CLOSE.placement,
+			);
+			expect(snap.sentPending).toHaveLength(1);
+			expect(h.reloadCalls).toBe(0);
+			const displayed = h.docStore.getState();
+			expect(displayed.forms[FORM]?.ownClosePlacement).toEqual(
+				OWN_CLOSE.placement,
+			);
+			expect(fieldLabel(displayed, F_A)).toBe("A2");
+			expect(fieldLabel(displayed, F_B)).toBe("B2");
+			expect(displayed.peekCommandBatches()).toHaveLength(1);
+
+			// Both undo steps survive the fold, and undoing leaves the hold.
+			expect(displayed.canUndo).toBe(true);
+			h.docStore.getState().undo();
+			expect(fieldLabel(h.docStore.getState(), F_B)).toBe("B");
+			h.docStore.getState().undo();
+			expect(fieldLabel(h.docStore.getState(), F_A)).toBe("A");
+			expect(h.docStore.getState().forms[FORM]?.ownClosePlacement).toEqual(
+				OWN_CLOSE.placement,
+			);
+		});
+
+		it("a publish-placement frame sets its holds into the recorded holds", () => {
+			const h = harness({
+				appId: "app-1",
+				baseSeq: 3,
+				baseDoc: makeDoc(),
+				userId: "u1",
+				recordedHolds: record(OPERATION, QUERY_REPEAT),
+			});
+			h.reconciler.onFrame(
+				publishFrame(4, "u2", {
+					kind: "holdPlacements",
+					holds: [
+						OWN_CLOSE,
+						{ target: "query-repeat", fieldUuid: F_A, placement: null },
+					],
+				}),
+			);
+			const expected = record(OPERATION, OWN_CLOSE);
+			expect(h.reconciler.getSnapshot().recordedHolds).toEqual(expected);
+			expect(h.docStore.getState().recordedHolds).toEqual(expected);
 		});
 
 		it("an app made this session starts with no record", () => {

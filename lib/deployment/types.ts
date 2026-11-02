@@ -18,6 +18,7 @@ import {
 	type CommCareServer,
 } from "@/lib/commcare/servers";
 import type { WireIdentityOverride } from "@/lib/commcare/wireIdentity";
+import type { PlacementMoveOfferView } from "@/lib/publish/placementMoves";
 import {
 	PLAN_FEATURE_IDS,
 	type PlanFeatureId,
@@ -231,6 +232,18 @@ export const DEPLOYMENT_FAILURE_CODES = [
 	 * app was made, and the person's plan answer is withdrawn.
 	 */
 	"hq_plan_lacks_web_apps",
+	/**
+	 * The app changed three times while Nova recorded where CommCare HQ keeps
+	 * its case changes, each time after preflight had read it. Nothing was
+	 * sent; a person publishes again once the edits settle.
+	 */
+	"app_changed_while_publishing",
+	/**
+	 * The case changes a person agreed to move are no longer the ones Nova
+	 * would move, because the app changed since the offer. Nothing was moved
+	 * or sent; the refusal carries the offer as it stands now.
+	 */
+	"hq_placement_moves_changed",
 	/** The released build did not serve the profile a device installs from. */
 	"build_not_installable",
 ] as const;
@@ -308,6 +321,14 @@ export interface DeploymentAttemptRefusal {
 	readonly confirmationsNeeded: readonly DeploymentConfirmationNeeded[];
 	/** Non-null exactly for `hq_web_apps_change`. */
 	readonly webAppsChange: WebAppsChange | null;
+	/**
+	 * The case changes Nova can move so this project space can take the app,
+	 * which a person may accept by naming its reason and digest back. Non-null
+	 * only on `hq_confirmation_needed` asking for Save to Case where such a
+	 * move exists, and on `hq_placement_moves_changed`, where it is the offer
+	 * as it stands now.
+	 */
+	readonly placementMoves: PlacementMoveOfferView | null;
 }
 
 /**
@@ -836,4 +857,10 @@ export function isDeploymentServer(value: string): value is CommCareServer {
  */
 export function deploymentServerLabel(server: CommCareServer): string {
 	return COMMCARE_SERVERS[server].label;
+}
+
+/** What a publish recorded of where CommCare HQ keeps its case changes. */
+export interface PublishPlacements {
+	readonly recorded: number;
+	readonly moved: number;
 }

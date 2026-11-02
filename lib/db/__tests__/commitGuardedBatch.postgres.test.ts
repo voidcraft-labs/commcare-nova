@@ -381,7 +381,9 @@ describe("commitGuardedBatch — held placements", () => {
 		const seq = await readSeq(appId);
 		const changes = await changeCount(appId);
 		await expect(autosave(appId, mutations)).rejects.toEqual(
-			new BlueprintCommitRejectedError(PLACEMENT_CHANGE_REFUSAL),
+			new BlueprintCommitRejectedError(PLACEMENT_CHANGE_REFUSAL, {
+				placementRule: true,
+			}),
 		);
 		expect(await readSeq(appId)).toBe(seq);
 		expect(await changeCount(appId)).toBe(changes);

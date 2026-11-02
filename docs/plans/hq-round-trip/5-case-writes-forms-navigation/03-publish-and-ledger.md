@@ -2237,6 +2237,198 @@ From pull request 5's implementation:
   its target land with part 02 in pull request 7 (`lib/doc/placementHolds.ts::PlacementTarget` holds the case
   operation, the own close and the query repeat only), so pull request 7 adds the menu to the sentence.
 
+From pull request 6's implementation:
+
+- **`PLACEMENT_CONFLICT_CODES` also holds `CASE_PLACEMENT_SHARED`** (section 2.2 names
+  `HELD_PLACEMENT_INEXPRESSIBLE` and `QUERY_REPEAT_MODEL_ITERATION_SHAPE`; part 07 §2.6 reads "its part 01
+  siblings"). A publish's recording alone turns a stale edit's hold change into it:
+  `lib/doc/__tests__/placementHolds.test.ts` ("PLACEMENT_CONFLICT_CODES") restores two held subcases (the
+  undo of removing the first) over a head where a publish recorded a peer's new child at the second place,
+  the first free one on the head it published. The gate refuses that with `HELD_PLACEMENT_INEXPRESSIBLE` and
+  `CASE_PLACEMENT_SHARED` together (`lib/commcare/placement.ts::placementIneligibility`'s claimed subcase
+  index, `lib/commcare/validator/rules/casePlacement.ts::sharedFindings`), and admits it over the same head
+  before the recording. Without the second code the route's "every code" test fails and the edit is lost to
+  today's toast. `HELD_BLOCK_PATH_TAKEN` stays out: a publish can raise it too (a stale edit adds a question
+  named as a segment the publish then records; `xform/generatedNodes.ts::planGeneratedNodes` steps an unheld
+  name around an authored one but never moves a held segment, `casePlacement.ts::blockPathFindings`), but it
+  names an authored name, which only a rename resolves. No move does, so `withIdentityMoves` plans none,
+  and the `placement-recorded` lead ("your change now moves them") would be false. It keeps today's
+  conflict.
+- **The tab advances its recorded holds through `lib/doc/store.ts::recordPlacementHolds(holds)`** (section
+  6.1's "sets each into the tab's recorded holds"): an entry holding a placement becomes its target's
+  recorded hold and a clearing entry removes the target from the record, so the merge has one home and the
+  reconciler hands it the frame's entries. `queuedCommandMutations()` returns the queue's mutations
+  flattened in the order they were made, without clearing it. Both are tested in
+  `lib/doc/__tests__/store.test.ts`.
+- **The decoy test rewrites the public function's catalog tuple to put the decoy first.** Section 20 has the
+  test create the decoy and run `VACUUM FULL pg_proc` "so a by-name catalog scan would meet the decoy first",
+  but the decoy is created after the template's migrations, so its `pg_proc` tuple lies after the public
+  function's, and `VACUUM FULL` keeps live tuples in heap order. So
+  `lib/case-store/migrations/__tests__/publishPlacementKind.postgres.test.ts` runs `VACUUM FULL pg_proc`, then
+  `ALTER FUNCTION public.nova_admit_app_change_insert() SET search_path = pg_catalog` (the setting it already
+  holds), whose new tuple version lands after every packed tuple; it turns off index, index-only and bitmap
+  scans, puts `nova_app_test_decoy` first on the search path, and checks the order a sequential scan meets
+  before and after `up`, failing as a harness defect where the decoy is not first. Not yet run: it needs the
+  Docker Postgres, so its first run is CI's.
+- **The kernel's publish-placement shape check runs before the candidate is prepared**, not between
+  `prepareMutationCandidate` and the placement rule as section 3's listing places it: a batch the invariant
+  refuses is never reduced, and the check is still before the placement rule. The head fence runs right after
+  the latch read and before the dedup return, so a retried batch at a moved head throws `AppHeadMovedError`
+  rather than answering with a head the record was not made at; `recordPublishPlacements` mints a batch id per
+  attempt, so no caller retries one.
+- **`lib/db/__tests__/admittedWriterTestHelpers.ts::CommitGuardedBatchProposalArgs` omits `mutations` from
+  each arm of the request**: `CanonicalCommitRequest` is now a union, and `Omit` over a union keeps only the
+  keys common to both arms, which no arm accepts back. `heldPlacementApp.ts::appendChangeRow` takes
+  `publish-placement` too, as a raw recording row with no run.
+- **`placementsToHold` records no hold for a field-written child kept as HQ's inert subcase** (section 5.1;
+  part 02 section 14.4's interim, an extension child or a child of a several-case form, where
+  `lib/domain/basicCaseSlots.ts::PlannedBasicSubcase.inSource` holds). Its placement reads
+  `{save-to-case, path: ["nova_subcases", "nova_subcase_<n>"]}` while the create also keeps its `subcases`
+  entry, and no one hold expresses both: holding that path makes `basicCaseSlots` keep the held block and
+  take the create out of `subcases`, which renumbers every later subcase and changes the HQ body
+  (`heldPlacementEmission.test.ts` failed on `case-extension-registration` before the exclusion). Section
+  5.1 already says no publish runs on that interim, since pull request 7 removes it in the same deploy.
+- **`heldPlacementEmission.test.ts` holds the invariant over two corpora**, the xform fuzz arbitrary and
+  `lib/commcare/__tests__/emissionFixtures.ts`. The fuzz arbitrary places every case change in a Case
+  Management slot and draws no Save to Case placement (60 runs: own slots, subcase rows and query repeats
+  only), so section 5.1's property that `planPlacements` returns the exact Save to Case path the emitter
+  writes is proven over the admitted emission fixtures, whose case operation, capture and extension
+  documents give derived Save to Case paths and own closes in blocks of their own. It holds there with no
+  change to `placement.ts`. The test copies each fixture document first:
+  `noMatchesWireFixture("multiple-home")` edits its document after `admitNoMatchesDoc` has read it, so the
+  per-document plan memos it hands over describe a single-case menu.
+- **`publishedCaseBlocks` follows HQ's `_create_casexml` for the own block, not section 11's shorter
+  sentence.** HQ writes the own `case` block wherever an action of the form is active, the form requires or
+  opens a case, and default case management is on (`bind_case_id` makes the block non-empty), so a
+  follow-up whose only active action is a subcase or the worker's record has one too; subcases, an update and
+  a close are read only under default case management, which a menu that selects several cases turns off
+  unless the form opens a case. `properties` holds HQ's own keys (`name` for the case's name, `external_id`)
+  and HQ's question paths as stored; block paths and `repeatContext` are relative data paths. A form whose
+  blocks hang on what the source does not say is left out: a data registry case load
+  (`supports_data_registry` is a project-space privilege), an advanced form under an enabled visit schedule,
+  a shadow form, and two forms sharing an `xmlns`.
+- **Advanced blocks are proven over HQ's own advanced fixtures only**: no retained HQ read holds an advanced
+  form with actions (`proof/hq-reads/hq-built` holds two with none, which the test reads as writing no
+  block). `lib/commcare/hq/__tests__/fixtures/` holds HQ's app sources, stored XForms and the XForms its build
+  makes of them at the `commcare-hq` pin, and the test requires every block the reader finds to stand in
+  HQ's build at its path. `biome.json` excludes that folder, so the copies stay HQ's bytes.
+- **An offer's holds are `holdPlacements` entries, not only `PlacementHold`s, and `recordPublishPlacements`
+  takes entries** (sections 5.2, 7.1). An own close is in `S` where it has a Save to Case block of its own,
+  and `ownClosePlacementSchema` holds only a Save to Case block: in Case Management the close shares the own
+  case's block (`PlannedPlacement.sharesWith`) and has no slot to hold, so moving it clears its hold. The
+  offer's entry for it is `{ target: "own-close", formUuid, placement: null }`, and the digest's third
+  element is `null` there. Every hold `placementsToHold` returns still holds a value.
+- **The `save-to-case` offer has no module-kind clause** (section 7.2, rule 3). `emittedModuleKind` lands with
+  part 02's advanced modules in pull request 7, and until then every module is basic, so no move can change
+  a module's kind. Pull request 7 adds the clause with the function.
+- **`placementMoveOffer(doc, "same-type-child-links")` is `null` in pull request 6.** The parameter keeps the
+  whole `PlacementOfferReason` so `acceptPlacementMovesSchema` stays total over both reasons; an acceptance
+  naming the same-type reason meets a `null` offer and goes on, as a retry does. Pull request 8 gives the arm
+  its offer.
+- **An offer is `null` where a forced move is not a case change in Case Management.** Section 7.1 lists every
+  hold `withIdentityMoves` appends as a move; where one would be a query repeat's (no case change to name) or a
+  Save to Case block (the publish would still need Save to Case), the offer is `null`, as rule 3's all or
+  nothing reads.
+- **`saveToCaseWhereMissing(false, forms)` agrees with one form** ("Visit makes case changes only Save to Case
+  can hold"), and names the forms through `placementMoves.ts::saveToCaseFormNames`, the forms
+  `planPrivileges.ts`'s `save_to_case` rule asks about (a Save to Case placement whose block the source
+  writes). `confirmationChecks` takes the offer as a third argument and sets `placement_moves` only while the
+  Save to Case row needs confirming, so the pre-publish check and the refusal read one rule
+  (`confirmations.ts::asksSaveToCase`).
+- **Root `CLAUDE.md`'s mental model 3 names no advanced menu yet** (10-stack-contracts section 7.2): pull
+  request 6 records case changes and query repeats only, and pull request 7 adds "and which menus it holds as
+  advanced" with the module-kind hold. The `lib/deployment` map row reads the same way.
+- **`publishFixtures.ts::reloadHeadFor` loads `lib/db/appAccess` on its first call**, so
+  `proof/hq/publishCaptureDocuments.ts`, which builds its documents from the same file and reads no database,
+  never loads the database modules.
+- **`PLACEMENT_CONFLICT_CODES` was already at the base**: pull request 5 put it in
+  `lib/doc/placementHolds.ts` with `HELD_PLACEMENT_INEXPRESSIBLE` and `QUERY_REPEAT_MODEL_ITERATION_SHAPE`
+  (at `7b7ba964`), with `setRecordedPlacementHolds`, `appPlacements`, `effectiveQueryRepeatPlacement` and
+  `sameTypeBasicChildCases`. Pull request 6 adds no second set: the PUT route
+  (`app/api/apps/[id]/route.ts`) reads that one, and the only change to it is the sibling decision in the
+  first entry of this list (`CASE_PLACEMENT_SHARED` in, `HELD_BLOCK_PATH_TAKEN` out).
+- **The proof lane's capture computes its record rather than reading one a writer committed.** In Nova the
+  record is what `recordPublishPlacements` commits after preflight (section 5.4), but
+  `proof/corpus/publish.ts::capturePublish` rebuilds the publish against the HQ peer rather than calling
+  `publishAppToHq`, and writes no `app_changes` row. So it computes section 17's `placementsToHold(D)` as
+  `proof/corpus/editBatches.ts::firstPublishRecord(D)` (one `holdPlacements`, or none), prepares D as stored
+  before the publish, applies the record through Nova's commit gate (`recordedDocument`, the whole gate
+  rather than section 17's reducer alone, so a record the gate would refuse stops the capture), prepares and
+  sends the document that leaves, and returns the record as `PublishCapture.placements` (and
+  `RepublishCapture.placements` over a retained A). `proof/corpus/emitCorpus.ts` applies the same pure
+  record to D before it plans D′ (`afterFirstPublish`), so the capture and the emitter cannot read two
+  records.
+- **The footprint test's `holdPlacements` exemption is gone.** At the base no producer or workforce document
+  held a placement, so `proof/corpus/__tests__/footprint.test.ts` expected the census to miss
+  `holdPlacements` and left it to `targeted-held-placement`. Each fixed document is now edited as stored
+  after its first publish (`editBatches.ts::afterFirstPublish`), which holds the Case Management slots its
+  case changes take, so the kind's generator has a move to make: the census expects no missing kind, and the
+  workforce-free census expects only the five removal kinds.
+- **The multiplayer scenario holds Grace's save on its way rather than taking her tab offline** (section 20
+  names `context.setOffline(true)`). An offline save is a network failure, which the reconciler reports
+  (`lib/collab/reconciler.ts`'s `onSaveError` on an `autosave-put` network failure, sent by
+  `ReconcilerProvider.tsx` through `lib/clientErrorReporter.ts::reportClientError`), and the strict error
+  guard fails any page that attempts a client report (`e2e/lib/errorGuard.ts`). So
+  `e2e/tests/multiplayer/multiplayer.spec.ts` routes her first save after the edit and lets it go only after
+  the publish recorded and Ada undid: the edit is composed before the record and reaches the server after it,
+  the race of section 6.2, with no report. Her stream stays up, so her tab folds the record before its save
+  is refused, as a tab that reconnects first does.
+- **The scenario records the placements in a child process.** `recordPublishPlacements` is server-only
+  (`lib/deployment/placements.ts` imports `server-only`, whose default export throws outside the
+  `react-server` condition), and Playwright loads specs under plain Node. `e2e/lib/recordPublishPlacements.ts`
+  runs under `tsx --conditions=react-server`, as `e2e/seed.ts` does: it reads the head under an `edit` check,
+  as the upload route's `reloadHead` does, takes `placementsToHold` of it and records at that head. It
+  refuses without `NOVA_DB_LOCAL_URL`.
+- **The multiplayer scenario signs in with the seeded session cookies, not `GET /api/dev/login`.** The suite
+  runs the production build, where that route 404s (`app/api/dev/login/route.ts` outside
+  `NODE_ENV=development`), and every multiplayer scenario opens its members from the storage states
+  `e2e/lib/multiplayerSeed.ts` writes (`e2e/CLAUDE.md`). That seed gains the scenario's case app in each
+  scenario's Project: a follow-up form whose one write saves `village` as it is, its own case change unheld.
+- **The publishing component test's offer is the refusal's body**, as every refusal in
+  `e2e/tests/browser/publishing.spec.ts` is: the peer starts no Nova server, so the offer is built from
+  `lib/publish/placementMoves.ts`'s sentences for one held Save to Case create a basic slot expresses, and
+  `lib/deployment/__tests__/placementMoves.test.ts` holds its derivation. The spec's other refusals gain
+  `placementMoves: null`, which `DeploymentAttemptRefusal` now requires.
+- **The builder registers its replay through the reconciler's context**, not as a prop of
+  `ReconcilerProvider`: `BuilderProvider` mounts the provider above `BuilderLayout`, and the handler needs hooks
+  inside that subtree, so `lib/collab/context.ts` gains an optional `registerPlacementConflictHandler` (latest
+  registration wins; its cleanup clears only its own), which `ReconcilerProvider` always supplies and a leaf
+  `BuilderLayout` renders registers.
+- **MCP serves the offer in one shape on both tools.** `check_project_space_compatibility` returns
+  `placement_moves` as `upload_app_to_hq`'s refusal does, `{reason, digest, moves: [{form, change, sentence}]}`,
+  so what a client sees in the check is what `accept_placement_moves` answers; the browser route keeps the raw
+  view the dialog reads. `app_not_ready` is built as an `invalid_input` answer carrying `placements` rather than
+  thrown, because a publish can record holds before a later stop; the gates before the publish carry
+  `placements {0, 0}` and `placement_moves: null`.
+- **The pre-publish check's offer stands only while Save to Case needs confirming, on every surface.**
+  `components/builder/app-setup/publishingSectionModel.ts::withLandedConfirmations` drops `placement_moves`
+  once the landed publish recorded the Save to Case confirmation, as `confirmations.ts::confirmationChecks`
+  does, and `PublishPanel` reads the check's `placement_moves`. `PublishPlacements` lives in
+  `lib/deployment/types.ts`, so the client's `publishOutcome.ts` reads it without naming the server-only
+  `service.ts`.
+- **The commit request's test helpers distribute over its arms.** `admittedWriterTestHelpers.ts::Unadmitted`
+  omits `mutations` from each arm separately, and the three Postgres suites that wrapped `commitGuardedBatch`
+  with an inline `Omit` read it, because an `Omit` over the union merges the two arms' `kind`.
+- **A reload keeps what the tab knew of a target its document no longer holds.** Section 6.3 has the
+  reconciler replace the recorded holds whole on every reload, on the reading that a history step restores
+  only what the session changed. A placement conflict's replay (pull request 6) outlives the reload that
+  clears history: an undo that re-creates a held change the session removed earlier, turned away by a
+  publish's recording, is handed back over a document that no longer holds the change, so the reload reads
+  no recording of it and `planConflictReplay` dropped the restore the commit kernel admits, giving the
+  re-created change a newly planned place with no stated move. `lib/collab/reconciler.ts::reloadedRecordedHolds`
+  replaces what the tab knew of every target the reloaded document holds and keeps the rest, because a
+  publish and a migration record only targets their document holds, so the latest recording of a target the
+  document does not hold is still the one the tab read. A fold baseline written since then answers for every
+  target its snapshot does not hold; a restore planned from a kept entry there is refused by the kernel,
+  which reads the baseline, rather than placed silently. The snapshot read is unchanged: an app that holds
+  nothing still reads nothing more. `lib/collab/__tests__/reconciler.test.ts` holds both halves.
+- **The no-matches fixture makes a new document for each edit.** `noMatchesWireFixture`'s `home` and
+  `multiple-home` scenarios edited the document `noMatchesDoc` had already planned, and every plan is memoized
+  per document object, so an in-process reader of `emissionFixtures()` was handed plans of the document before
+  the edit. Each edit now spreads a new document; the corpus emitted with `--jobs 2` before and after the
+  change is identical byte for byte (410 documents), and `heldPlacementEmission.test.ts` reads the fixture's
+  document without a copy.
+
 ---
 
 ## Executed during planning

@@ -6,7 +6,7 @@ import type { Client } from "@modelcontextprotocol/client";
 import AdmZip from "adm-zip";
 import { sql } from "kysely";
 import type { MockAgent } from "undici";
-import { beforeEach, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 import {
 	readHttpRequestBody,
@@ -24,13 +24,20 @@ import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { nestedMenuWireFixture } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
 import { decrypt } from "@/lib/commcare/encryption";
+import { commitGuardedBatchProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import {
+	heldPlacementApp,
+	holdOperation,
+} from "@/lib/db/__tests__/heldPlacementApp";
+import {
 	clinicVisitsDocument as document,
+	reloadHeadFor,
 	TARGET_OWNED_PROFILE,
 	TARGET_PROFILE_WITH_DERIVED_KEY,
 } from "@/lib/deployment/__tests__/publishFixtures";
 import { APP_PREVIEW_NOTE } from "@/lib/deployment/remoteChanges";
+import { activeRemoteApp } from "@/lib/deployment/resources";
 import { publishAppToHq, refreshDeployment } from "@/lib/deployment/service";
 import { readDeployment } from "@/lib/deployment/store";
 import {
@@ -118,6 +125,11 @@ function call(client: Client, extra: Record<string, unknown> = {}) {
 		arguments: { app_id: APP, ...CONFIRM_ALL, ...extra },
 	});
 }
+/** What a refusal that recorded nothing and offers no move says of placements. */
+const NOTHING_RECORDED = {
+	placement_moves: null,
+	placements: { recorded: 0, moved: 0 },
+};
 function body(result: Awaited<ReturnType<typeof call>>, error = false) {
 	if (error) expect(result.isError, JSON.stringify(result)).toBe(true);
 	else expect(result.isError, JSON.stringify(result)).not.toBe(true);
@@ -1153,6 +1165,7 @@ it("names what a person has to confirm structurally, and sends nothing until the
 						where_missing: null,
 					},
 				],
+				...NOTHING_RECORDED,
 			});
 		});
 		expect(requests(peer)).toEqual([]);
@@ -1255,6 +1268,7 @@ it("answers hq_web_apps_change structurally and lands with confirm_web_apps", as
 				}),
 				app_id: APP,
 				web_apps_change: { from: false, to: true, changed_in_hq: true },
+				...NOTHING_RECORDED,
 			});
 
 			webAppsSource(peer, false);
@@ -1284,6 +1298,7 @@ it("answers hq_plan_lacks_web_apps with its message and keeps the empty app", as
 					features: [],
 				}),
 				app_id: APP,
+				...NOTHING_RECORDED,
 			});
 		});
 		expect(requests(peer)).toEqual([
@@ -2105,6 +2120,7 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 			...TARGET,
 			doc,
 			compiledAtSeq: app.mutation_seq,
+			reloadHead: reloadHeadFor(APP, ACTOR),
 			appName: app.app_name,
 			adoptResourceIds: [],
 		});
@@ -2178,6 +2194,7 @@ it("asks before recreating a table deleted in CommCare HQ, then records it as No
 						baseline_known: true,
 					},
 				],
+				...NOTHING_RECORDED,
 			});
 			expect(await snapshot()).toEqual(before);
 			const shown = refusal.remote_changes[0].observed_digest;
@@ -2335,3 +2352,191 @@ it("lists a change to the app in CommCare HQ, refuses a discard of a state it ha
 		]);
 	});
 });
+
+/*
+ * Where CommCare HQ keeps a case change is recorded by the first upload that
+ * sends it. The plausible failures: an answer that leaves out what the call
+ * recorded, so a client keeps work begun before the saved app changed; an
+ * offer served with a wire path or a key the browser's dialog reads; an
+ * accepted offer that does not reach the publish, or a stale one that moves
+ * anything; and a head re-read that skips the caller's edit check, or one
+ * that never happens, so a moved head refuses instead of publishing.
+ */
+describe("the placements an upload records", () => {
+	/** Every plan feature but Save to Case, which a move offer can answer. */
+	const BUT_SAVE_TO_CASE = PLAN_FEATURE_IDS.filter(
+		(id) => id !== "advanced-case-actions",
+	);
+	const MOVE_OWN =
+		"In Visit, the change that saves to this form's patient case moves from a Save to Case block to Case Management.";
+	const MOVE_KID =
+		"In Visit, the change that makes a new kid case moves from a Save to Case block to Case Management.";
+
+	async function changeKinds(): Promise<string[]> {
+		const rows = await h
+			.db()
+			.selectFrom("app_changes")
+			.select("kind")
+			.where("app_id", "=", APP)
+			.orderBy("seq")
+			.execute();
+		return rows.map((row) => row.kind);
+	}
+
+	/** An editor's save, as an open tab's autosave commits it. */
+	function rename(name: string) {
+		return commitGuardedBatchProposal({
+			appId: APP,
+			expectedProjectId: PROJECT,
+			batchId: crypto.randomUUID(),
+			mutations: [{ kind: "setAppName", name }],
+			actorUserId: ACTOR,
+			kind: "autosave",
+		});
+	}
+
+	/**
+	 * The project-space read every preflight makes before the publish records
+	 * anything, answered after someone saved the app, `times` times.
+	 */
+	function savedDuringPreflight(peer: MockAgent, times: number) {
+		let saves = 0;
+		request(peer, "/api/user_domains/v1/?limit=100")
+			.reply(async () => {
+				saves += 1;
+				await rename(`Renamed ${saves}`);
+				return { statusCode: 503, data: "" };
+			})
+			.times(times);
+	}
+
+	it("offers its Save to Case moves by form and sentence, refuses a stale digest with the offer as it stands, and records the accepted moves before sending", async () => {
+		const app = heldPlacementApp((a) => {
+			holdOperation(a, a.own.uuid, a.ownSaveToCase);
+			holdOperation(a, a.kid.uuid, a.kidSaveToCase);
+		});
+		await seed(app.doc);
+		await withHttpPeer(async (peer) => {
+			await asUser(async (client) => {
+				const asked = body(
+					await call(client, { confirm_plan_features: BUT_SAVE_TO_CASE }),
+					true,
+				);
+				expect(asked.error_type).toBe("hq_confirmation_needed");
+				expect(asked.placements).toEqual({ recorded: 0, moved: 0 });
+				expect(asked.placement_moves).toEqual({
+					reason: "save-to-case",
+					digest: expect.stringMatching(/^[0-9a-f]{64}$/),
+					moves: [
+						{
+							form: "Visit",
+							change: "saves to this form's patient case",
+							sentence: MOVE_OWN,
+						},
+						{
+							form: "Visit",
+							change: "makes a new kid case",
+							sentence: MOVE_KID,
+						},
+					],
+				});
+
+				const stale = body(
+					await call(client, {
+						confirm_plan_features: BUT_SAVE_TO_CASE,
+						accept_placement_moves: {
+							reason: "save-to-case",
+							digest: "0".repeat(64),
+						},
+					}),
+					true,
+				);
+				expect(stale).toEqual({
+					error_type: "hq_placement_moves_changed",
+					message:
+						"The case changes Nova offered to move have changed since you agreed, so nothing was moved or sent. Here's what would move now.",
+					app_id: APP,
+					placement_moves: asked.placement_moves,
+					placements: { recorded: 0, moved: 0 },
+				});
+				expect(requests(peer)).toEqual([]);
+				expect(await changeKinds()).toEqual([]);
+
+				shellCreated(peer);
+				imported(peer);
+				const landed = body(
+					await call(client, {
+						confirm_plan_features: BUT_SAVE_TO_CASE,
+						accept_placement_moves: {
+							reason: "save-to-case",
+							digest: asked.placement_moves.digest,
+						},
+					}),
+				);
+				expect(landed).toMatchObject({
+					stage: "upload_complete",
+					placements: { recorded: 2, moved: 2 },
+				});
+				expect(Object.hasOwn(landed, "placement_moves")).toBe(false);
+			});
+			expect(requests(peer)).toEqual([
+				PROJECT_SPACES,
+				`POST ${HOST}${IMPORT}`,
+				`GET ${HOST}${SOURCE}`,
+				`POST ${HOST}${IMPORT}`,
+				`GET ${HOST}${SOURCE}`,
+			]);
+		});
+		expect(await changeKinds()).toEqual(["publish-placement"]);
+		const { doc } = await loadAppBlueprint(APP, ACTOR, "edit");
+		expect(
+			doc.forms[app.formUuid].caseOperations?.map((op) => op.placement),
+		).toEqual([app.ownBasic, { kind: "basic", slot: "subcase", index: 0 }]);
+	});
+
+	it("reads the head again where it moved, and records and sends the placements of the head it read", async () => {
+		await seed(heldPlacementApp().doc);
+		await withHttpPeer(async (peer) => {
+			savedDuringPreflight(peer, 1);
+			shellCreated(peer);
+			imported(peer);
+			await asUser(async (client) => {
+				expect(body(await call(client))).toMatchObject({
+					stage: "upload_complete",
+					placements: { recorded: 2, moved: 0 },
+				});
+			});
+		});
+		expect(await changeKinds()).toEqual(["autosave", "publish-placement"]);
+		expect(activeRemoteApp((await state()) ?? fail())).toMatchObject({
+			pushedRevision: 2,
+		});
+	});
+
+	it("answers app_changed_while_publishing where the app keeps changing, with nothing sent or recorded", async () => {
+		await seed(heldPlacementApp().doc);
+		await withHttpPeer(async (peer) => {
+			savedDuringPreflight(peer, 3);
+			await asUser(async (client) => {
+				expect(body(await call(client), true)).toEqual({
+					error_type: "app_changed_while_publishing",
+					message:
+						"This app kept changing while Nova got it ready to publish, so nothing was sent. Publish again once the edits settle.",
+					app_id: APP,
+					...NOTHING_RECORDED,
+				});
+			});
+			expect(requests(peer)).toEqual([
+				PROJECT_SPACES,
+				PROJECT_SPACES,
+				PROJECT_SPACES,
+			]);
+		});
+		expect(await changeKinds()).toEqual(["autosave", "autosave", "autosave"]);
+		expect(await state()).toBeNull();
+	});
+});
+
+function fail(): never {
+	throw new Error("Expected a value");
+}

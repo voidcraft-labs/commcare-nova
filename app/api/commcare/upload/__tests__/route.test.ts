@@ -660,3 +660,102 @@ it("refuses inaccessible apps before credentials or publishing", async () => {
 	expect(getCommCareSettings).not.toHaveBeenCalled();
 	expect(publishAppToHq).not.toHaveBeenCalled();
 });
+
+it("reads acceptPlacementMoves as a reason and digest or absent, refuses anything else with 400, and hands it to the publish", async () => {
+	const accepted = { reason: "save-to-case", digest: "ab".repeat(32) };
+	for (const acceptPlacementMoves of [accepted, undefined, null]) {
+		await read(
+			await POST(
+				req({
+					domain: DOMAIN,
+					appName: "App",
+					appId: "app-1",
+					acceptPlacementMoves,
+				}),
+			),
+		);
+	}
+	expect(
+		vi
+			.mocked(publishAppToHq)
+			.mock.calls.map((call) => call[0].acceptPlacementMoves),
+	).toEqual([accepted, undefined, undefined]);
+	for (const acceptPlacementMoves of [
+		"save-to-case",
+		{ reason: "save-to-case" },
+		{ reason: "save-to-case", digest: "AB".repeat(32) },
+		{ reason: "elsewhere", digest: "ab".repeat(32) },
+		{ ...accepted, moves: [] },
+	]) {
+		const { status, body } = await read(
+			await POST(
+				req({
+					domain: DOMAIN,
+					appName: "App",
+					appId: "app-1",
+					acceptPlacementMoves,
+				}),
+			),
+		);
+		expect(status).toBe(400);
+		expect(body).toMatchObject({
+			error:
+				"The move to accept has to name the reason and digest the publish offered.",
+		});
+	}
+	expect(publishAppToHq).toHaveBeenCalledTimes(3);
+});
+
+it("reads the head again under an edit check, and answers with the placements the attempt recorded", async () => {
+	vi.mocked(publishAppToHq).mockImplementationOnce(async (input) => {
+		vi.mocked(resolveAppAccess).mockResolvedValueOnce({
+			app: { blueprint: uploadBlueprint(), mutation_seq: 9 },
+			projectId: "proj-1",
+			role: "owner",
+			actorUserId: "u1",
+		} as never);
+		const head = await input.reloadHead();
+		expect(head.seq).toBe(9);
+		expect(head.doc.appName).toBe(input.doc.appName);
+		return {
+			landed: false,
+			refusal: {
+				phase: "preflight",
+				failure: {
+					code: "app_changed_while_publishing",
+					message: "kept changing",
+					details: [],
+				},
+				resourceConflicts: [],
+				remoteChanges: [],
+				confirmationsNeeded: [],
+				webAppsChange: null,
+				placementMoves: null,
+			},
+			deployment: null,
+			checks: [],
+			artifact: {
+				server: "production",
+				domain: DOMAIN,
+				hqAppId: null,
+				sections: [],
+			},
+			warnings: [],
+			projectSpaceCompatibility: null,
+			hqAppUrl: null,
+			placements: { recorded: 0, moved: 0 },
+		} as never;
+	});
+	const { status, body } = await read(
+		await POST(req({ domain: DOMAIN, appName: "App", appId: "app-1" })),
+	);
+	expect(status).toBe(200);
+	expect(body).toMatchObject({
+		success: false,
+		placements: { recorded: 0, moved: 0 },
+	});
+	expect(vi.mocked(resolveAppAccess).mock.calls).toEqual([
+		["app-1", "u1", "edit"],
+		["app-1", "u1", "edit"],
+	]);
+});

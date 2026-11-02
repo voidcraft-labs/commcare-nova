@@ -76,6 +76,7 @@ beforeEach(() => {
 		flat_location_fixture: null,
 		connect_forwarder: null,
 		form_entry_sync_off: null,
+		placement_moves: null,
 	});
 	vi.mocked(requireSession).mockResolvedValue({ user: { id: "u1" } } as never);
 	vi.mocked(resolveAppAccess).mockResolvedValue({
@@ -115,8 +116,37 @@ describe("POST /api/commcare/project-space-compatibility", () => {
 			flat_location_fixture: null,
 			connect_forwarder: null,
 			form_entry_sync_off: null,
+			placement_moves: null,
 		});
 		expect(vi.mocked(projectSpaceConfirmations).mock.calls[0]?.[2]).toBeNull();
+	});
+
+	it("hands the dialog the move offer as the check states it", async () => {
+		const offer = {
+			reason: "save-to-case" as const,
+			digest: "ab".repeat(32),
+			moves: [
+				{
+					form: "Visit",
+					change: "makes a new kid case",
+					sentence:
+						"In Visit, the change that makes a new kid case moves from a Save to Case block to Case Management.",
+				},
+			],
+			asksChildCases: true,
+		};
+		vi.mocked(projectSpaceConfirmations).mockResolvedValueOnce({
+			plan_features: [],
+			flat_location_fixture: null,
+			connect_forwarder: null,
+			form_entry_sync_off: null,
+			placement_moves: offer,
+		});
+		const response = await POST(request({ appId: "app-1" }));
+		expect(response.status).toBe(200);
+		expect(
+			((await response.json()) as { placement_moves: unknown }).placement_moves,
+		).toEqual(offer);
 	});
 
 	it("blocks a selected project space when required app support is missing", async () => {

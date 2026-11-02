@@ -38,10 +38,22 @@ import { compileCcz } from "@/lib/commcare/compiler";
 import { decrypt } from "@/lib/commcare/encryption";
 import { APP_SHELL_KEYS, expandDoc } from "@/lib/commcare/expander";
 import { derivedFormXmlns, derivedUniqueId } from "@/lib/commcare/wireIdentity";
+import { commitGuardedBatchProposal } from "@/lib/db/__tests__/admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import {
+	addKid,
+	heldPlacementApp,
+	holdOperation,
+	holdPlacements,
+	operationHold,
+	removeKid,
+} from "@/lib/db/__tests__/heldPlacementApp";
+import { readPlacementHolds } from "@/lib/doc/placementHolds";
+import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
 	type BlueprintDoc,
+	type CasePlacement,
 	type OrganizationLevel,
 } from "@/lib/domain";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
@@ -63,13 +75,15 @@ import {
 } from "../remoteChanges";
 import { activeRemoteApp } from "../resources";
 import {
+	type PublishInput,
 	type PublishOutcome,
+	projectSpaceConfirmations,
 	publishAppToHq,
 	setupArtifactFor,
 } from "../service";
 import { applyDeploymentObservation, readDeployment } from "../store";
 import type { DeploymentConfirmationKey, RemoteChangeDiscard } from "../types";
-import { clinicVisitsDocument } from "./publishFixtures";
+import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
@@ -152,6 +166,7 @@ function publish(
 		...TARGET,
 		doc,
 		compiledAtSeq: 0,
+		reloadHead: reloadHeadFor(APP, ACTOR),
 		appName: doc.appName,
 		confirm: CONFIRM_ALL,
 		...(discardRemoteChanges && { discardRemoteChanges }),
@@ -1871,6 +1886,426 @@ describe("the deployment facts a download reads", () => {
 			expect(after.restoreUrl).toContain("/phone/restore/replacement-app/");
 			expect(after.uniqueId).toBe(before.uniqueId);
 		});
+	});
+});
+
+// ── Where CommCare HQ keeps each case change ─────────────────────────────
+
+describe("the placements a publish records", () => {
+	const reloadHead = reloadHeadFor(APP, ACTOR);
+	/** Every confirmation but Save to Case, which a move offer can answer. */
+	const CONFIRM_BUT_SAVE_TO_CASE = CONFIRM_ALL.filter(
+		(key) =>
+			!(key.kind === "plan-feature" && key.subject === "advanced-case-actions"),
+	);
+
+	/** A publish of the app's head as it stands, as the routes read it. */
+	async function publishHead(
+		extra: Partial<
+			Pick<
+				PublishInput,
+				"acceptPlacementMoves" | "confirm" | "reloadHead" | "onUploadStarted"
+			>
+		> & { readonly head?: { doc: BlueprintDoc; seq: number } } = {},
+	): Promise<PublishOutcome> {
+		const { head = await reloadHead(), ...rest } = extra;
+		return publishAppToHq({
+			scope: SCOPE,
+			...TARGET,
+			doc: head.doc,
+			compiledAtSeq: head.seq,
+			reloadHead,
+			appName: head.doc.appName,
+			confirm: CONFIRM_ALL,
+			...rest,
+		});
+	}
+
+	function edit(mutations: readonly Mutation[]) {
+		return commitGuardedBatchProposal({
+			appId: APP,
+			expectedProjectId: PROJECT,
+			batchId: crypto.randomUUID(),
+			mutations,
+			actorUserId: ACTOR,
+			kind: "autosave",
+		});
+	}
+
+	async function changeKinds(): Promise<{ seq: number; kind: string }[]> {
+		const rows = await h
+			.db()
+			.selectFrom("app_changes")
+			.select(["seq", "kind"])
+			.where("app_id", "=", APP)
+			.orderBy("seq")
+			.execute();
+		return rows.map((row) => ({ seq: Number(row.seq), kind: row.kind }));
+	}
+
+	async function holdsNow() {
+		const { doc } = await reloadHead();
+		return [...readPlacementHolds(doc).values()];
+	}
+
+	/** The shell read, set below CommCare 2.57. */
+	function shellBelowFloor(peer: MockAgent) {
+		const answer = retainedPublishRead("source-shell");
+		const source = retainedBodyJson(answer);
+		source.build_spec = {
+			...(source.build_spec as Record<string, unknown>),
+			version: "2.53.0",
+		};
+		replyRetained(request(peer, SOURCE), {
+			...answer,
+			body: JSON.stringify(source),
+		});
+	}
+
+	/** A first publish's requests: the shell, its read, the fill, its read. */
+	function firstPublishAnswers(peer: MockAgent) {
+		accepted(peer, 201);
+		serve(peer, SOURCE, "source-shell");
+		accepted(peer, 200);
+		serve(peer, SOURCE, "source-after-create-then-update");
+	}
+	const FIRST_PUBLISH = [
+		`POST ${IMPORT}`,
+		`GET ${SOURCE}`,
+		`POST ${IMPORT}`,
+		`GET ${SOURCE}`,
+	];
+
+	it("a first publish records its placements before the shell create, with nothing sent at the record", async () => {
+		const app = heldPlacementApp();
+		await seed(app.doc);
+		await withHttpPeer(async (peer) => {
+			let sentAtUploadStart: string[] | null = null;
+			let changesAtCreate: { seq: number; kind: string }[] | null = null;
+			request(peer, IMPORT, "POST").reply(async () => {
+				changesAtCreate = await changeKinds();
+				return {
+					statusCode: 201,
+					data: JSON.stringify({ success: true, app_id: HQ_APP, version: 1 }),
+				};
+			});
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+
+			const outcome = await publishHead({
+				onUploadStarted: () => {
+					sentAtUploadStart = requests(peer);
+				},
+			});
+			expect(outcome).toMatchObject({
+				landed: true,
+				placements: { recorded: 2, moved: 0 },
+			});
+			expect(requests(peer)).toEqual(FIRST_PUBLISH);
+			// The record had landed when the shell was made, and nothing had
+			// been sent once it had.
+			expect(changesAtCreate).toEqual([{ seq: 1, kind: "publish-placement" }]);
+			expect(sentAtUploadStart).toEqual([]);
+		});
+		expect(await holdsNow()).toEqual([
+			operationHold(app, app.own.uuid, app.ownBasic),
+			operationHold(app, app.kid.uuid, {
+				kind: "basic",
+				slot: "subcase",
+				index: 0,
+			}),
+		]);
+	});
+
+	it("pushed_revision and the manifest's sequence are the record's", async () => {
+		await seed(heldPlacementApp().doc);
+		await withHttpPeer(async (peer) => {
+			firstPublishAnswers(peer);
+			expect((await publishHead()).landed).toBe(true);
+		});
+		expect(activeRemoteApp((await state()) ?? fail())).toMatchObject({
+			pushedRevision: 1,
+		});
+		const row = await h
+			.db()
+			.selectFrom("app_deployments")
+			.select("entry_point_manifest")
+			.executeTakeFirstOrThrow();
+		expect(row.entry_point_manifest).toMatchObject({ sourceSequence: 1 });
+	});
+
+	it("an autosave restoring the hold the publish recorded is admitted after the publish", async () => {
+		const app = heldPlacementApp();
+		await seed(app.doc);
+		await withHttpPeer(async (peer) => {
+			firstPublishAnswers(peer);
+			expect((await publishHead()).landed).toBe(true);
+		});
+		const recorded: CasePlacement = {
+			kind: "basic",
+			slot: "subcase",
+			index: 0,
+		};
+		await edit([removeKid(app)]);
+		await edit([
+			addKid(app),
+			holdPlacements(operationHold(app, app.kid.uuid, recorded)),
+		]);
+		expect(await holdsNow()).toContainEqual(
+			operationHold(app, app.kid.uuid, recorded),
+		);
+		expect((await changeKinds()).map((change) => change.kind)).toEqual([
+			"publish-placement",
+			"autosave",
+			"autosave",
+		]);
+	});
+
+	it("a head moved once reads the head again, preflights and sends", async () => {
+		const app = heldPlacementApp();
+		await seed(app.doc);
+		const emitted = await reloadHead();
+		await edit([{ kind: "setAppName", name: "Renamed" }]);
+		let reloads = 0;
+		await withHttpPeer(async (peer) => {
+			firstPublishAnswers(peer);
+			const outcome = await publishHead({
+				head: emitted,
+				reloadHead: async () => {
+					reloads += 1;
+					return reloadHead();
+				},
+			});
+			expect(outcome).toMatchObject({
+				landed: true,
+				placements: { recorded: 2, moved: 0 },
+			});
+			expect(requests(peer)).toEqual(FIRST_PUBLISH);
+		});
+		expect(reloads).toBe(1);
+		expect(await changeKinds()).toEqual([
+			{ seq: 1, kind: "autosave" },
+			{ seq: 2, kind: "publish-placement" },
+		]);
+		expect(activeRemoteApp((await state()) ?? fail())).toMatchObject({
+			pushedRevision: 2,
+		});
+	});
+
+	it("a head moved three times refuses app_changed_while_publishing with nothing sent", async () => {
+		const app = heldPlacementApp();
+		await seed(app.doc);
+		const emitted = await reloadHead();
+		await edit([{ kind: "setAppName", name: "Renamed once" }]);
+		let reloads = 0;
+		await withHttpPeer(async (peer) => {
+			const outcome = await publishHead({
+				head: emitted,
+				/* Someone saves again each time the publish reads the head. */
+				reloadHead: async () => {
+					reloads += 1;
+					const head = await reloadHead();
+					await edit([{ kind: "setAppName", name: `Renamed ${reloads}` }]);
+					return head;
+				},
+			});
+			expect(refusal(outcome)).toEqual({
+				phase: "preflight",
+				failure: {
+					code: "app_changed_while_publishing",
+					message:
+						"This app kept changing while Nova got it ready to publish, so nothing was sent. Publish again once the edits settle.",
+					details: [],
+				},
+				resourceConflicts: [],
+				remoteChanges: [],
+				confirmationsNeeded: [],
+				webAppsChange: null,
+				placementMoves: null,
+			});
+			expect(outcome).toMatchObject({
+				deployment: null,
+				placements: { recorded: 0, moved: 0 },
+			});
+			expect(requests(peer)).toEqual([]);
+		});
+		expect(reloads).toBe(2);
+		expect((await changeKinds()).map((change) => change.kind)).toEqual([
+			"autosave",
+			"autosave",
+			"autosave",
+		]);
+		expect(await holdsNow()).toEqual([]);
+		expect(await state()).toBeNull();
+	});
+
+	it("a version-floor stop keeps the holds", async () => {
+		const app = heldPlacementApp();
+		await seed(app.doc);
+		await withHttpPeer(async (peer) => {
+			accepted(peer, 201);
+			shellBelowFloor(peer);
+			const outcome = await publishHead();
+			expect(refusal(outcome)).toMatchObject({
+				phase: "resources",
+				failure: { code: "hq_app_version_below_floor" },
+			});
+			expect(outcome.placements).toEqual({ recorded: 2, moved: 0 });
+		});
+		expect(await changeKinds()).toEqual([
+			{ seq: 1, kind: "publish-placement" },
+		]);
+		expect(await holdsNow()).toHaveLength(2);
+	});
+
+	/** The app with its own case and its kid both held in Save to Case blocks. */
+	function savedToCase() {
+		return heldPlacementApp((a) => {
+			holdOperation(a, a.own.uuid, a.ownSaveToCase);
+			holdOperation(a, a.kid.uuid, a.kidSaveToCase);
+		});
+	}
+
+	it("an accepted Save to Case offer records, drops the need and lands in one request", async () => {
+		const app = savedToCase();
+		await seed(app.doc);
+		await withHttpPeer(async (peer) => {
+			const asked = refusal(
+				await publishHead({ confirm: CONFIRM_BUT_SAVE_TO_CASE }),
+			);
+			expect(asked.failure.code).toBe("hq_confirmation_needed");
+			expect(asked.confirmationsNeeded).toEqual([
+				expect.objectContaining({
+					kind: "plan-feature",
+					subject: "advanced-case-actions",
+					whereMissing:
+						"Where the plan doesn't include it, Nova can move these case changes to CommCare HQ's Case Management settings, which every plan keeps. Choose that when you publish.",
+				}),
+			]);
+			const offer = asked.placementMoves ?? fail();
+			expect(offer).toMatchObject({
+				reason: "save-to-case",
+				asksChildCases: true,
+				moves: [
+					{
+						form: "Visit",
+						change: "saves to this form's patient case",
+						sentence:
+							"In Visit, the change that saves to this form's patient case moves from a Save to Case block to Case Management.",
+					},
+					{
+						form: "Visit",
+						change: "makes a new kid case",
+						sentence:
+							"In Visit, the change that makes a new kid case moves from a Save to Case block to Case Management.",
+					},
+				],
+			});
+			const { doc } = await reloadHead();
+			expect(
+				(await projectSpaceConfirmations(SCOPE, doc, TARGET)).placement_moves,
+			).toEqual(offer);
+			expect(requests(peer)).toEqual([]);
+
+			firstPublishAnswers(peer);
+			const outcome = await publishHead({
+				confirm: CONFIRM_BUT_SAVE_TO_CASE,
+				acceptPlacementMoves: { reason: offer.reason, digest: offer.digest },
+			});
+			expect(outcome).toMatchObject({
+				landed: true,
+				placements: { recorded: 2, moved: 2 },
+			});
+			expect(requests(peer)).toEqual(FIRST_PUBLISH);
+		});
+		expect(await holdsNow()).toEqual([
+			operationHold(app, app.own.uuid, app.ownBasic),
+			operationHold(app, app.kid.uuid, {
+				kind: "basic",
+				slot: "subcase",
+				index: 0,
+			}),
+		]);
+		expect((await state())?.confirmations ?? fail()).not.toContainEqual(
+			expect.objectContaining({ subject: "advanced-case-actions" }),
+		);
+	});
+
+	it("a stale digest refuses hq_placement_moves_changed with the current offer", async () => {
+		const app = savedToCase();
+		await seed(app.doc);
+		await withHttpPeer(async (peer) => {
+			const shown =
+				refusal(await publishHead({ confirm: CONFIRM_BUT_SAVE_TO_CASE }))
+					.placementMoves ?? fail();
+			await edit([removeKid(app)]);
+
+			const outcome = await publishHead({
+				confirm: CONFIRM_BUT_SAVE_TO_CASE,
+				acceptPlacementMoves: { reason: shown.reason, digest: shown.digest },
+			});
+			const sentence =
+				"In Visit, the change that saves to this form's patient case moves from a Save to Case block to Case Management.";
+			expect(refusal(outcome)).toMatchObject({
+				phase: "preflight",
+				failure: {
+					code: "hq_placement_moves_changed",
+					message:
+						"The case changes Nova offered to move have changed since you agreed, so nothing was moved or sent. Here's what would move now.",
+					details: [sentence],
+				},
+				placementMoves: {
+					reason: "save-to-case",
+					moves: [{ sentence }],
+					asksChildCases: false,
+				},
+			});
+			expect(refusal(outcome).placementMoves?.digest).not.toBe(shown.digest);
+			expect(outcome.placements).toEqual({ recorded: 0, moved: 0 });
+			expect(requests(peer)).toEqual([]);
+		});
+		expect((await changeKinds()).map((change) => change.kind)).toEqual([
+			"autosave",
+		]);
+		expect(await holdsNow()).toEqual([
+			operationHold(app, app.own.uuid, app.ownSaveToCase),
+		]);
+	});
+
+	it("a retry naming an offer already recorded goes on", async () => {
+		const app = savedToCase();
+		await seed(app.doc);
+		await withHttpPeer(async (peer) => {
+			const offer =
+				refusal(await publishHead({ confirm: CONFIRM_BUT_SAVE_TO_CASE }))
+					.placementMoves ?? fail();
+			const accept = { reason: offer.reason, digest: offer.digest };
+
+			accepted(peer, 201);
+			shellBelowFloor(peer);
+			const stopped = await publishHead({
+				confirm: CONFIRM_BUT_SAVE_TO_CASE,
+				acceptPlacementMoves: accept,
+			});
+			expect(refusal(stopped).failure.code).toBe("hq_app_version_below_floor");
+			expect(stopped.placements).toEqual({ recorded: 2, moved: 2 });
+
+			serve(peer, SOURCE, "source-shell");
+			accepted(peer, 200);
+			serve(peer, SOURCE, "source-after-create-then-update");
+			const retried = await publishHead({
+				confirm: CONFIRM_BUT_SAVE_TO_CASE,
+				acceptPlacementMoves: accept,
+			});
+			expect(retried).toMatchObject({
+				landed: true,
+				placements: { recorded: 0, moved: 0 },
+			});
+		});
+		expect(await changeKinds()).toEqual([
+			{ seq: 1, kind: "publish-placement" },
+		]);
 	});
 });
 

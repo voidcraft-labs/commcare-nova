@@ -235,6 +235,14 @@ export function useAutoSave(): SaveState {
 					inFlightRef.current = false;
 					lastErroredRef.current = false;
 					setState(IDLE_STATE);
+					/* A publish recorded where CommCare HQ keeps an answer the edit
+					 * moves: the reconciler hands the edits to the builder after the
+					 * reload, and the builder says what happened, so this hook shows
+					 * nothing for it. */
+					if (signal.cause === "placement-recorded") {
+						startCooldown();
+						return;
+					}
 					projectToast(
 						"warning",
 						"App reloaded",

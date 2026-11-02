@@ -1,5 +1,7 @@
+import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { promisify } from "node:util";
 import {
 	type Browser,
 	type BrowserContext,
@@ -72,6 +74,15 @@ interface MultiplayerManifest {
 	moduleTwoUuid: string;
 	moduleTwoName: string;
 	fieldFourUuid: string;
+	/** The case app of the publish-placement scenario (`multiplayerSeed.ts`). */
+	placement: {
+		appId: string;
+		moduleUuid: string;
+		moduleName: string;
+		formUuid: string;
+		operationUuid: string;
+		operationPath: string;
+	};
 	userA: { id: string; email: string; name: string };
 	userB: { id: string; email: string; name: string };
 	userC: { id: string; email: string; name: string };
@@ -89,6 +100,10 @@ interface MultiplayerManifest {
 let mp: MultiplayerManifest;
 
 const SHOTS_DIR = path.join(process.cwd(), "e2e", "multiplayer-screenshots");
+
+const execFileAsync = promisify(execFile);
+/** The start of the result line `e2e/lib/recordPublishPlacements.ts` prints. */
+const RECORDED_PLACEMENTS_PREFIX = "recorded placements: ";
 
 /** A guarded builder page for one seeded user, landed on `subPath` of the app. */
 interface UserPage {
@@ -124,12 +139,17 @@ const TILE_WIDTH = 1280;
 /** Open a builder page for one seeded user, guarded, at a specific app screen.
  *  In watch mode the window tiles to `slot` — the two-user tests default to
  *  half-screens (Ada left, everyone else right); the four-user tests pass
- *  explicit quadrants. */
+ *  explicit quadrants. `options.appId` opens another app of the scenario's
+ *  Project; `options.beforeOpen` runs on the page before it first loads. */
 async function openMember(
 	browser: Browser,
 	storageState: string,
 	subPath: string,
 	slot?: TileSlot,
+	options: {
+		readonly appId?: string;
+		readonly beforeOpen?: (page: Page) => Promise<void>;
+	} = {},
 ): Promise<UserPage> {
 	const context = await createSmokeContext(browser, {
 		storageState,
@@ -168,7 +188,8 @@ async function openMember(
 		}
 	};
 	ownedContexts.set(context, close);
-	await openBuilder(page, `/build/${mp.appId}${subPath}`);
+	await options.beforeOpen?.(page);
+	await openBuilder(page, `/build/${options.appId ?? mp.appId}${subPath}`);
 	return { page, context, close };
 }
 
@@ -234,6 +255,112 @@ function fieldIdInput(page: Page) {
 /** Follow-a-peer roster avatar in the header (PresenceRoster). */
 function followButton(page: Page, peerName: string) {
 	return page.getByRole("button", { name: `Follow ${peerName}` });
+}
+
+/**
+ * Before the page first loads, note the `kind` of every `mutation` frame the
+ * page's app stream delivers, in order. The app's own listener is untouched:
+ * this listener is one more on the same `EventSource`.
+ */
+async function observeMutationFrameKinds(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		const kinds: string[] = [];
+		Reflect.set(window, "__mpMutationFrameKinds", kinds);
+		const NativeEventSource = window.EventSource;
+		class ObservedEventSource extends NativeEventSource {
+			constructor(url: string | URL, init?: EventSourceInit) {
+				super(url, init);
+				this.addEventListener("mutation", (event) => {
+					try {
+						kinds.push(String(JSON.parse((event as MessageEvent).data).kind));
+					} catch {
+						kinds.push("unreadable");
+					}
+				});
+			}
+		}
+		window.EventSource = ObservedEventSource;
+	});
+}
+
+/** The frame kinds `observeMutationFrameKinds` has noted on this document. */
+async function mutationFrameKinds(page: Page): Promise<readonly string[]> {
+	return page.evaluate(
+		() =>
+			(Reflect.get(window, "__mpMutationFrameKinds") as string[] | undefined) ??
+			[],
+	);
+}
+
+/**
+ * Record a publish's placements in `appId` as `userId` publishing it, through
+ * `recordPublishPlacements`, in a child process that may load the server-only
+ * writer (`e2e/lib/recordPublishPlacements.ts`).
+ */
+async function recordPublishPlacementsFor(
+	appId: string,
+	userId: string,
+): Promise<{ seq: number; count: number }> {
+	const { stdout } = await execFileAsync(
+		path.join(process.cwd(), "node_modules", ".bin", "tsx"),
+		[
+			"--conditions=react-server",
+			path.join("e2e", "lib", "recordPublishPlacements.ts"),
+			appId,
+			userId,
+		],
+		{ cwd: process.cwd(), env: process.env, timeout: 60_000 },
+	);
+	const line = stdout
+		.split("\n")
+		.find((entry) => entry.startsWith(RECORDED_PLACEMENTS_PREFIX));
+	if (line === undefined)
+		throw new Error(
+			`Recording the publish's placements printed no result. It printed:\n${stdout}`,
+		);
+	return JSON.parse(line.slice(RECORDED_PLACEMENTS_PREFIX.length));
+}
+
+/** What the saved app holds of the publish-placement scenario's case app. */
+async function appSnapshot(
+	context: BrowserContext,
+	app: MultiplayerManifest["placement"],
+): Promise<{
+	moduleName: string | undefined;
+	ownPlacement: unknown;
+}> {
+	const response = await context.request.get(`/api/apps/${app.appId}`);
+	expect(response.ok()).toBe(true);
+	const snapshot = (await response.json()) as {
+		blueprint: {
+			modules: Record<string, { name: string }>;
+			forms: Record<
+				string,
+				{
+					caseOperations?: {
+						uuid: string;
+						placement?: unknown;
+					}[];
+				}
+			>;
+		};
+	};
+	return {
+		moduleName: snapshot.blueprint.modules[app.moduleUuid]?.name,
+		ownPlacement: snapshot.blueprint.forms[app.formUuid]?.caseOperations?.find(
+			(operation) => operation.uuid === app.operationUuid,
+		)?.placement,
+	};
+}
+
+/** Where the saved app holds the form's own case change, if it holds one. */
+async function ownPlacement(
+	context: BrowserContext,
+	app: MultiplayerManifest["placement"],
+): Promise<{ kind: string; slot?: string } | undefined> {
+	return (await appSnapshot(context, app)).ownPlacement as
+		| { kind: string; slot?: string }
+		| undefined;
 }
 
 // Run one crowd at a time to bound local browser memory. Unlike serial mode,
@@ -629,6 +756,232 @@ test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
 			});
 		} finally {
 			await closePages([ada, grace]);
+		}
+	});
+
+	test("a publish's placements fold into open tabs and offer a stranded edit again", async ({
+		browser,
+	}) => {
+		// The case app's follow-up form has one own case change no publish has
+		// recorded: Case Management saves it in the form's own slot. Ada makes
+		// an edit she will undo later; Grace's edit turns the saved answer into
+		// a calculation, which that slot can't save, and stays on its way while
+		// a publish records the app's placements. Ada's tab folds the record as
+		// a frame and keeps her undo. Grace's save meets the record, and her tab
+		// offers the edit again with the move it now makes.
+		test.setTimeout(180_000);
+		const app = mp.placement;
+		const appPath = `/api/apps/${app.appId}`;
+		const ada = await openMember(
+			browser,
+			mp.stateFileA,
+			`/${app.moduleUuid}`,
+			undefined,
+			{ appId: app.appId, beforeOpen: observeMutationFrameKinds },
+		);
+		const grace = await openMember(
+			browser,
+			mp.stateFileB,
+			app.operationPath,
+			undefined,
+			{ appId: app.appId },
+		);
+		// Grace's first save once `holdArmed` is set waits here, on its way to
+		// the server, until the test lets it go. Holding it, not taking her tab
+		// offline, keeps the failed save the reconciler would report out of the
+		// strict error guard.
+		let releaseSave = () => {};
+		const saveReleased = new Promise<void>((resolve) => {
+			releaseSave = resolve;
+		});
+		let holdArmed = false;
+		let heldSave: Promise<void> | undefined;
+		try {
+			await grace.page.route(`**${appPath}`, async (route) => {
+				if (!holdArmed || route.request().method() !== "PUT")
+					return route.fallback();
+				holdArmed = false;
+				const held = (async () => {
+					await saveReleased;
+					await route.fallback();
+				})();
+				heldSave = held;
+				await held;
+			});
+
+			// Ada's earlier step: a module rename, saved before the publish.
+			await expect(titleInput(ada.page)).toHaveValue(app.moduleName, {
+				timeout: 20_000,
+			});
+			const renamed = `${app.moduleName} (before the publish)`;
+			const renameSaved = ada.page.waitForResponse(
+				(response) =>
+					response.request().method() === "PUT" &&
+					new URL(response.url()).pathname === appPath,
+			);
+			await titleInput(ada.page).click();
+			await titleInput(ada.page).fill(renamed);
+			await titleInput(ada.page).press("Enter");
+			expect((await renameSaved).ok()).toBe(true);
+
+			// Grace turns the saved answer into a calculation. No publish holds
+			// the change yet, so nothing asks her: the edit applies, and its save
+			// is held on its way.
+			const main = grace.page.locator("main");
+			const write = main
+				.locator("div")
+				.filter({
+					has: grace.page.getByRole("button", {
+						name: "Stop saving village",
+					}),
+				})
+				.filter({
+					has: grace.page.getByRole("button", { name: /^Value source:/ }),
+				})
+				.last();
+			const combineText = write.getByText("Combine text", { exact: true });
+			await expect(
+				write.getByRole("button", { name: /^Value source:/ }),
+			).toBeVisible({ timeout: 20_000 });
+			await expect(combineText).toHaveCount(0);
+			holdArmed = true;
+			await write.getByRole("button", { name: /^Value source:/ }).click();
+			await grace.page.getByRole("menuitem", { name: /^Combine text/ }).click();
+			await expect(combineText).toBeVisible();
+			await expect.poll(() => heldSave !== undefined).toBe(true);
+
+			// A publish records where CommCare HQ keeps the app's case changes,
+			// through the one writer a publish uses.
+			const adaReads: string[] = [];
+			ada.page.on("request", (request) => {
+				if (
+					request.method() === "GET" &&
+					new URL(request.url()).pathname === appPath
+				)
+					adaReads.push(request.url());
+			});
+			await ada.page.evaluate(() => {
+				Reflect.set(window, "__mpSameDocument", true);
+			});
+			const recorded = await recordPublishPlacementsFor(app.appId, mp.userA.id);
+			expect(recorded.count).toBeGreaterThan(0);
+			await expect
+				.poll(async () => (await ownPlacement(ada.context, app)) ?? null)
+				.toEqual({ kind: "basic", slot: "own" });
+
+			// Ada's tab folds the record as a frame, with no reload of either
+			// kind, and her earlier step is still hers to undo.
+			await expect
+				.poll(() => mutationFrameKinds(ada.page), { timeout: 30_000 })
+				.toContain("publish-placement");
+			expect(adaReads).toEqual([]);
+			expect(
+				await ada.page.evaluate(() => Reflect.get(window, "__mpSameDocument")),
+			).toBe(true);
+			const undoSaved = ada.page.waitForResponse(
+				(response) =>
+					response.request().method() === "PUT" &&
+					new URL(response.url()).pathname === appPath,
+			);
+			const adaUndo = ada.page.getByRole("button", {
+				name: "Undo",
+				exact: true,
+			});
+			await expect(adaUndo).toBeEnabled();
+			await adaUndo.click();
+			await expect(titleInput(ada.page)).toHaveValue(app.moduleName);
+			expect((await undoSaved).ok()).toBe(true);
+			await expect
+				.poll(async () => (await appSnapshot(ada.context, app)).moduleName)
+				.toBe(app.moduleName);
+			expect(await ownPlacement(ada.context, app)).toEqual({
+				kind: "basic",
+				slot: "own",
+			});
+			expect(adaReads).toEqual([]);
+			await ada.page.screenshot({
+				path: path.join(SHOTS_DIR, "10-publish-placements-ada-folds.png"),
+			});
+
+			// Grace's save goes on and meets the record. Her tab reloads and
+			// offers the edit again, saying the publish is why it now moves
+			// those answers.
+			const dialog = grace.page.getByRole("dialog", {
+				name: "This changes where CommCare HQ keeps some answers",
+			});
+			const refused = grace.page.waitForResponse(
+				(response) =>
+					response.request().method() === "PUT" &&
+					new URL(response.url()).pathname === appPath,
+			);
+			releaseSave();
+			const refusal = await refused;
+			expect(refusal.status()).toBe(409);
+			expect(await refusal.json()).toMatchObject({
+				type: "commit_rejected",
+				reason: "placement-recorded",
+			});
+			await expect(dialog).toBeVisible({ timeout: 30_000 });
+			await expect(dialog).toContainText(
+				"A publish just recorded where CommCare HQ keeps these answers, so your change now moves them.",
+			);
+			await expect(dialog).toContainText(
+				"from Case Management to Save to Case",
+			);
+			await expect(
+				dialog.getByRole("button", { name: "Leave it", exact: true }),
+			).toBeVisible();
+			await grace.page.screenshot({
+				path: path.join(SHOTS_DIR, "11-publish-placements-grace-offered.png"),
+			});
+
+			const moveSaved = grace.page.waitForResponse(
+				(response) =>
+					response.request().method() === "PUT" &&
+					new URL(response.url()).pathname === appPath,
+			);
+			await dialog
+				.getByRole("button", { name: "Make the change", exact: true })
+				.click();
+			await expect(dialog).toBeHidden();
+			const moved = await moveSaved;
+			expect(moved.ok()).toBe(true);
+			expect(moved.request().postData() ?? "").toContain(
+				'"kind":"holdPlacements"',
+			);
+			await expect(combineText).toBeVisible();
+			await expect
+				.poll(async () => (await ownPlacement(grace.context, app))?.kind)
+				.toBe("save-to-case");
+
+			// Undoing the edit puts the change back where the publish recorded it.
+			const restored = grace.page.waitForResponse(
+				(response) =>
+					response.request().method() === "PUT" &&
+					new URL(response.url()).pathname === appPath,
+			);
+			await grace.page
+				.getByRole("button", { name: "Undo", exact: true })
+				.click();
+			expect((await restored).ok()).toBe(true);
+			await expect(dialog).toBeHidden();
+			await expect(combineText).toHaveCount(0);
+			await expect(
+				grace.page.getByRole("status").filter({
+					hasText:
+						"These answers are back where your published app keeps them.",
+				}),
+			).toBeVisible();
+			await expect
+				.poll(async () => (await ownPlacement(grace.context, app)) ?? null)
+				.toEqual({ kind: "basic", slot: "own" });
+		} finally {
+			releaseSave();
+			try {
+				await heldSave;
+			} finally {
+				await closePages([ada, grace]);
+			}
 		}
 	});
 

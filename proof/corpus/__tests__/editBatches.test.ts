@@ -106,6 +106,7 @@ import { heldPlacement } from "../../targeted/documents/heldPlacement";
 import { lookupContextOf } from "../documents";
 import {
 	admitEditBatch,
+	afterFirstPublish,
 	censusFloorFailures,
 	type EditBatchOutcome,
 	type EditCensus,
@@ -118,6 +119,7 @@ import {
 	MEDIA_MIME,
 	publishFindings,
 	writtenEditBatch,
+	writtenEditOverRecord,
 } from "../editBatches";
 import { Minter, Rng, uuidTokensOf } from "../editContext";
 import { type Candidate, EDIT_KIND_GENERATORS } from "../editKinds";
@@ -140,11 +142,15 @@ function stored(id: string, doc: BlueprintDoc): EditCorpusDocument {
 	return { id, doc: toPersistableDoc(doc) };
 }
 
-/** `targeted-held-placement`'s D: Update's own case held in Case
- *  Management's slot, Weigh's in its Save to Case block. */
+/** `targeted-held-placement`'s D as its first publish stores it: Update's
+ *  own case held in Case Management's slot, Weigh's in its Save to Case
+ *  block. */
 function heldPlacementInput(): EditCorpusDocument {
 	const { id, doc } = heldPlacement();
-	return { id, doc };
+	return {
+		id,
+		doc: afterFirstPublish(id, hydratePersistedBlueprint(doc), undefined).doc,
+	};
 }
 
 function fixedDocuments(): EditCorpusDocument[] {
@@ -597,19 +603,21 @@ describe("a held placement", () => {
 			codes: ["kernel:placement-change"],
 		});
 
-		// The written edit of `targeted-held-placement` stands for the move.
+		// The written edit of `targeted-held-placement`, made again over the
+		// held D as the emitter makes it, stands for the move.
 		const { edit } = heldPlacement();
 		if (edit === undefined) throw new Error("The document writes its edit.");
+		const over = writtenEditOverRecord(
+			input.id,
+			doc(),
+			edit.mutations,
+			undefined,
+		);
 		expect(
-			writtenEditBatch(
-				input.id,
-				SEED,
-				doc(),
-				edit.mutations,
-				hydratePersistedBlueprint(edit.nextDoc),
-			).intendedKind,
+			writtenEditBatch(input.id, SEED, doc(), over.mutations, over.nextDoc)
+				.intendedKind,
 		).toBe("holdPlacements");
-		expect(edit.mutations[0]?.kind).toBe("updateForm");
+		expect(over.mutations[0]?.kind).toBe("updateForm");
 	});
 });
 

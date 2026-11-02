@@ -52,6 +52,17 @@
  * The remaining un-acked batches + `humanUncommitted` re-fold onto the reloaded
  * `confirmedDoc`, the undo stack clears, and the stream resubscribes at `M`.
  *
+ * ## The placement conflict
+ *
+ * A `publish-placement` frame is remote like a peer's change; its entries
+ * also replace the recorded holds of their targets. An edit composed before
+ * such a recording can meet a 409 whose `reason` is `placement-recorded`. It
+ * is dropped and reloaded like any rejected edit, but its mutations, and the
+ * queued commands behind it, are kept as the replay and handed to
+ * `onPlacementConflict` once the reload ends with the person still an
+ * editor. The builder offers them again, with their moves, over the
+ * reloaded document; nothing applies without the person.
+ *
  * ## Testability
  *
  * The reconciler is a headless state machine: every side effect (the PUT, the
@@ -77,11 +88,13 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import {
 	NO_RECORDED_HOLDS,
+	type PlacementHold,
 	type RecordedPlacementHolds,
+	readPlacementHolds,
 } from "@/lib/doc/placementHolds";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import { type BlueprintDocStoreApi, isDocDataKey } from "@/lib/doc/store";
-import type { BlueprintDoc } from "@/lib/doc/types";
+import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import type { PersistableDoc } from "@/lib/domain";
 import type { MutationFrame } from "./mutationFrame";
 
@@ -136,8 +149,15 @@ interface HumanSaveBarrierState {
 export type PutOutcome =
 	| { ok: true; seq: number }
 	/** The delta is semantically invalid against the fresh server doc. This is
-	 *  the ONLY outcome that drops its batch after the authoritative reload. */
-	| { ok: false; kind: "commitRejected" }
+	 *  the ONLY outcome that drops its batch after the authoritative reload.
+	 *  `reason` is `placement-recorded` when every finding is a held placement
+	 *  a publish recorded under the edit; the dropped edits are then offered
+	 *  again. */
+	| {
+			ok: false;
+			kind: "commitRejected";
+			reason: "placement-recorded" | null;
+	  }
 	/** The app moved Projects while this request was in flight. */
 	| { ok: false; kind: "scopeChanged" }
 	| { ok: false; kind: "reauth" }
@@ -220,7 +240,9 @@ export class ReconcilerReloadError extends Error {
 export type SaveSignal =
 	| { kind: "saving" }
 	| { kind: "saved" }
-	| { kind: "conflict" }
+	/** `cause: "placement-recorded"`: the builder is handed the edits after
+	 *  the reload and says what happened itself. */
+	| { kind: "conflict"; cause?: "placement-recorded" }
 	/** A reversible access/scope transition. Autosave releases its in-flight
 	 *  indicator while the batch remains preserved for the atomic GET. */
 	| { kind: "accessChanged" }
@@ -263,6 +285,11 @@ export type HumanSaveBarrierOutcome =
 
 /** Observe the lifecycle of one dispatched human batch (save indicator). */
 export type SaveObserver = (signal: SaveSignal) => void;
+
+/** The edits a `placement-recorded` 409 dropped, in the order they were
+ *  made: one array per rejected human batch, from the rejected one on, then
+ *  the commands still queued in the store as one more array. */
+export type PlacementConflictReplay = readonly (readonly Mutation[])[];
 
 /** Authorization tuple returned in the same transaction as a blueprint. */
 export interface AuthorizedAccessSnapshot {
@@ -308,6 +335,9 @@ export interface ReconcilerDeps {
 	scheduleRetry: (attempt: number, run: () => void) => () => void;
 	/** Announce a terminal 409 to the user ("this app changed…"). */
 	onConflictReload?: () => void;
+	/** Hand a `placement-recorded` 409's dropped edits to the builder, once,
+	 *  after the reload it started ends with the person still an editor. */
+	onPlacementConflict?: (replay: PlacementConflictReplay) => void;
 	/** Pause editing and synchronously reset Project-scoped client state. Must
 	 *  be idempotent while one serialized reload is already pending/in flight. */
 	/** Return `false` when any tenant cache failed to clear; the reconciler then
@@ -513,6 +543,29 @@ function normalizeConfirmed(doc: BlueprintDoc): BlueprintDoc {
 	return clean as unknown as BlueprintDoc;
 }
 
+/**
+ * The recorded holds a reload leaves the tab: `read`, the recordings the
+ * reload read for every target `doc` holds, in place of what `known` said of
+ * those targets, and `known`'s entry for every other target. The reload reads
+ * only the targets its document holds, and a publish or a migration records
+ * holds only for targets its document holds, so a target the document no
+ * longer holds keeps the hold its latest recording wrote. A fold baseline
+ * written since `known` was read is the one exception: it answers for every
+ * target its snapshot does not hold, and a restore planned from a kept entry
+ * is refused by the commit kernel, which reads the baseline.
+ */
+function reloadedRecordedHolds(
+	known: RecordedPlacementHolds,
+	doc: BlueprintDoc,
+	read: RecordedPlacementHolds,
+): RecordedPlacementHolds {
+	const held = readPlacementHolds(doc);
+	const next = new Map<string, PlacementHold>();
+	for (const [key, hold] of known) if (!held.has(key)) next.set(key, hold);
+	for (const [key, hold] of read) next.set(key, hold);
+	return next;
+}
+
 export function createReconciler(
 	docStore: BlueprintDocStoreApi,
 	init: ReconcilerInit,
@@ -575,6 +628,10 @@ export function createReconciler(
 	 *  this segment and every later unacknowledged human segment as one causal
 	 *  suffix; successors are never reinterpreted without their predecessor. */
 	let rejectedCausalBatchId: string | undefined;
+	/** The edits a `placement-recorded` 409 dropped, held until the reload it
+	 *  started ends: an editor snapshot hands them to `onPlacementConflict`,
+	 *  a view-only snapshot or a revocation drops them. */
+	let pendingPlacementReplay: PlacementConflictReplay | undefined;
 	/** The active retry-loop canceller, if the loop is scheduled. */
 	let cancelRetry: (() => void) | undefined;
 	let retryAttempt = 0;
@@ -1030,13 +1087,29 @@ export function createReconciler(
 			// would reinterpret the user's work, regardless of mutation kind.
 			// The serialized reload removes the already-sent human suffix; the
 			// store drops still-queued commands and local history now. Chat /
-			// authoritative segments are preserved. There is no fallback draft
-			// or partial rebase.
+			// authoritative segments are preserved. Nothing is rebased: the one
+			// exception is a `placement-recorded` refusal, whose dropped edits
+			// are kept as a replay the builder offers again, re-planned over the
+			// reloaded document, once the reload ends with the person still an
+			// editor. Nothing of the replay applies without the person.
 			rejectedBatchId = batch.batchId;
 			rejectedCausalBatchId = batch.batchId;
 			const rejectedIndex = sentPending.findIndex(
 				(pending) => pending.batchId === batch.batchId,
 			);
+			if (outcome.reason === "placement-recorded") {
+				const replay: (readonly Mutation[])[] = [];
+				for (
+					let index = rejectedIndex;
+					index >= 0 && index < sentPending.length;
+					index += 1
+				) {
+					const rejected = sentPending[index];
+					if (rejected?.source === "human") replay.push(rejected.mutations);
+				}
+				replay.push(docStore.getState().queuedCommandMutations());
+				pendingPlacementReplay = replay;
+			}
 			for (let index = rejectedIndex; index < sentPending.length; index += 1) {
 				const rejected = sentPending[index];
 				if (rejected?.source === "human") {
@@ -1047,7 +1120,11 @@ export function createReconciler(
 				settleWatch(watch, { kind: "conflict" });
 			}
 			docStore.getState().discardUncommittedCommandState();
-			batch.observe?.({ kind: "conflict" });
+			batch.observe?.(
+				outcome.reason === "placement-recorded"
+					? { kind: "conflict", cause: "placement-recorded" }
+					: { kind: "conflict" },
+			);
 			deps.onConflictReload?.();
 			requestReload();
 			return;
@@ -1296,7 +1373,21 @@ export function createReconciler(
 			applyBatch(draft, frame.mutations);
 		});
 		setCanonicalRevision(frame.seq);
+		if (frame.kind === "publish-placement") recordFrameHolds(frame);
 		refoldDisplayed(humanBatches, frame.mutations);
+	}
+
+	/** A `publish-placement` frame's entries are recordings: each becomes its
+	 *  target's recorded hold (or, clearing one, leaves the target recorded by
+	 *  nothing), and every other target keeps its record. The store applies
+	 *  the entries, so the reconciler's record and the store's stay one value. */
+	function recordFrameHolds(frame: MutationFrame): void {
+		const entries = frame.mutations.flatMap((mutation) =>
+			mutation.kind === "holdPlacements" ? mutation.holds : [],
+		);
+		if (entries.length === 0) return;
+		docStore.getState().recordPlacementHolds(entries);
+		recordedHolds = docStore.getState().recordedHolds;
 	}
 
 	function dropBatch(batchId: string): void {
@@ -1437,9 +1528,18 @@ export function createReconciler(
 		// mid-chat-run (the agent bracket is open then).
 		confirmedDoc = hydrateConfirmed(reloaded.blueprint);
 		setCanonicalRevision(M);
-		// The record is replaced whole: the reload read every recording the
-		// fresh document's holds answer to, in the same transaction.
-		setRecordedHolds(reloaded.recordedHolds);
+		// The reload read every recording the fresh document's holds answer
+		// to, in the same transaction, and those replace what the tab knew of
+		// them. A target the fresh document does not hold keeps what the tab
+		// knew: a change removed earlier in the session that a replayed edit
+		// re-creates is restored to its recorded hold, as the kernel admits.
+		setRecordedHolds(
+			reloadedRecordedHolds(
+				recordedHolds,
+				confirmedDoc,
+				reloaded.recordedHolds,
+			),
+		);
 		reseedConfirmed(captureHuman, /* clearUndo */ true);
 		reloadInFlight = false;
 		// A frame arrived DURING the GET (it re-armed `reloadPending` rather than
@@ -1471,6 +1571,14 @@ export function createReconciler(
 		 * that remaining delta now instead of waiting for another keystroke. */
 		if (reloaded.canEdit && humanUncommitted().length > 0) {
 			dispatchHumanBatch();
+		}
+		/* A placement conflict's replay belongs to the snapshot its reload
+		 * lands: an editor is offered the edits again over this document, and a
+		 * person who can only view now has nothing to make them with. */
+		const replay = pendingPlacementReplay;
+		pendingPlacementReplay = undefined;
+		if (replay !== undefined && reloaded.canEdit) {
+			deps.onPlacementConflict?.(replay);
 		}
 	}
 
@@ -1521,6 +1629,7 @@ export function createReconciler(
 		if (revoked) return;
 		revoked = true;
 		reloadPending = false;
+		pendingPlacementReplay = undefined;
 		cancelRetry?.();
 		cancelRetry = undefined;
 		settleAllHumanBatchWatches({ kind: "accessChanged" });
@@ -1690,6 +1799,7 @@ export function createReconciler(
 		disposed = true;
 		revisionListeners.clear();
 		reloadPending = false;
+		pendingPlacementReplay = undefined;
 		cancelRetry?.();
 		cancelRetry = undefined;
 		settleAllHumanBatchWatches({ kind: "cancelled" });

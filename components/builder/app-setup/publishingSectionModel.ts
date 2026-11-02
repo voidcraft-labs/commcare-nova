@@ -476,10 +476,11 @@ export function withLandedConfirmations(
 					confirmed_at: held.confirmedAt,
 				};
 	};
+	const planFeatures = checks.plan_features.map((feature) =>
+		answer(feature, "plan-feature", feature.id),
+	);
 	return {
-		plan_features: checks.plan_features.map((feature) =>
-			answer(feature, "plan-feature", feature.id),
-		),
+		plan_features: planFeatures,
 		flat_location_fixture:
 			checks.flat_location_fixture === null
 				? null
@@ -504,6 +505,15 @@ export function withLandedConfirmations(
 						"form-entry-sync-off",
 						"form-entry-sync-off",
 					),
+		/* The offer stands only while Save to Case still needs confirming,
+		 * as `confirmations.ts::confirmationChecks` reports it. */
+		placement_moves: planFeatures.some(
+			(feature) =>
+				feature.id === "advanced-case-actions" &&
+				feature.state === "needs_confirmation",
+		)
+			? checks.placement_moves
+			: null,
 	};
 }
 

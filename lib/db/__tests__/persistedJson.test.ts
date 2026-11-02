@@ -187,6 +187,61 @@ describe("durable app-change envelope admission", () => {
 		},
 	);
 
+	const placementHolds = {
+		kind: "holdPlacements",
+		holds: [
+			{
+				target: "query-repeat",
+				fieldUuid: "00000000-0000-4000-8000-000000000001",
+				placement: "count",
+			},
+		],
+	};
+
+	it("parses a publish-placement row", () => {
+		expect(
+			parsePersistedAppChangeEnvelope({
+				...ordinary,
+				kind: "publish-placement",
+				mutationsText: JSON.stringify([placementHolds]),
+			}),
+		).toMatchObject({
+			seq: 2,
+			kind: "publish-placement",
+			mutations: [placementHolds],
+		});
+	});
+
+	it("refuses one holding another mutation or a run", () => {
+		const refusal =
+			"app_changes row of kind publish-placement holds something other than placement holds";
+		expect(() =>
+			parsePersistedAppChangeEnvelope({
+				...ordinary,
+				kind: "publish-placement",
+				mutationsText: JSON.stringify([
+					placementHolds,
+					{ kind: "setAppName", name: "Changed" },
+				]),
+			}),
+		).toThrow(refusal);
+		expect(() =>
+			parsePersistedAppChangeEnvelope({
+				...ordinary,
+				kind: "publish-placement",
+				runId: "run-1",
+				mutationsText: JSON.stringify([placementHolds]),
+			}),
+		).toThrow(refusal);
+		expect(() =>
+			parsePersistedAppChangeEnvelope({
+				...ordinary,
+				kind: "publish-placement",
+				mutationsText: "[]",
+			}),
+		).toThrow(/must carry mutations/);
+	});
+
 	it("admits only the fold-baseline empty non-scope arm", () => {
 		expect(
 			parsePersistedAppChangeEnvelope({

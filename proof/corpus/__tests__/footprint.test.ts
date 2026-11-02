@@ -10,12 +10,15 @@
  * floor also holds the expander and targeted documents, which do not build
  * in this process.
  *
+ * Each document is edited as the emitter edits it: as stored after its
+ * first publish, which holds the placements that publish records
+ * (`../editBatches.ts::afterFirstPublish`), so `holdPlacements` has the
+ * holds the documents' own first publishes recorded to move.
+ *
  * Every kind lands. Contract: the corpus draws every mutation kind the
  * reducer defines, and the lane's emission stops, naming the kind, when one
  * lands on no fixed document (`../emitCorpus.ts`, `requireEveryKind`), a
- * targeted document's written edit counting as one. `holdPlacements` lands
- * only that way, through `targeted-held-placement`, since no document built
- * here holds a placement. The
+ * targeted document's written edit counting as one. The
  * plausible failure is a producer fixture, a workforce entity or an
  * edit-kind generator changing so that some kind has nothing to edit, or
  * only refusals, on every fixed document; the lane would stop at emission,
@@ -161,6 +164,7 @@ import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import { DEFAULT_CORPUS_SEED } from "../defaults";
 import type { CorpusDocument } from "../documents";
 import {
+	afterFirstPublish,
 	censusFloorFailures,
 	type EditBatchOutcome,
 	type EditCensus,
@@ -403,6 +407,16 @@ function fixedEditCorpus(documents: readonly CorpusDocument[]): {
 	);
 }
 
+/** The document as stored after its first publish, as the emitter edits it. */
+function firstPublished(document: CorpusDocument): CorpusDocument {
+	const { doc } = afterFirstPublish(
+		document.id,
+		hydratePersistedBlueprint(blueprintDocSchema.parse(document.doc)),
+		document.lookup,
+	);
+	return { ...document, doc };
+}
+
 let producers: CorpusDocument[] = [];
 
 beforeAll(() => {
@@ -419,32 +433,35 @@ describe("the corpus's fixed sources", () => {
 
 	// One edit-batch corpus over about 160 documents, which every test here reads.
 	beforeAll(() => {
-		publishable = producers.filter(
-			(document) =>
-				publishFindings(
-					hydratePersistedBlueprint(blueprintDocSchema.parse(document.doc)),
-					document.lookup,
-				).length === 0,
-		);
-		fixed = [...publishable, ...workforceDocuments(producers)];
+		publishable = producers
+			.filter(
+				(document) =>
+					publishFindings(
+						hydratePersistedBlueprint(blueprintDocSchema.parse(document.doc)),
+						document.lookup,
+					).length === 0,
+			)
+			.map(firstPublished);
+		fixed = [
+			...publishable,
+			...workforceDocuments(producers).map(firstPublished),
+		];
 		({ outcomes, census } = fixedEditCorpus(fixed));
 	});
 
-	// `holdPlacements` lands on no producer or workforce document: none holds
-	// a placement, so the kind's generator has nothing to move. The lane lands
-	// it through `targeted-held-placement`'s written edit, a targeted document
-	// that does not build in this process; `editBatches.test.ts` holds that
-	// edit to the kind and the generator to the move on that document's D.
-	it("give every mutation kind the reducer defines a batch, but the hold the targeted document lands", () => {
+	// `holdPlacements` lands here too: the producers' first publishes record
+	// the placements their case changes take, so a case change held in Case
+	// Management's slot has a move to make.
+	it("give every mutation kind the reducer defines a batch", () => {
 		expect(
 			censusFloorFailures(census).map((failure) => failure.kind),
 			`Kinds no fixed document carries a batch of:\n${formatCensus(census)}`,
-		).toEqual(["holdPlacements"]);
+		).toEqual([]);
 	});
 
 	// A second edit-batch corpus over about 150 documents: a few seconds on
 	// a laptop, and CI runners are slower.
-	it("give no batch to exactly the five removal kinds whose only targets the workforce documents hold, without those documents, beside the hold", {
+	it("give no batch to exactly the five removal kinds whose only targets the workforce documents hold, without those documents", {
 		timeout: 30_000,
 	}, () => {
 		const without = fixedEditCorpus(publishable);
@@ -453,7 +470,6 @@ describe("the corpus's fixed sources", () => {
 				.map((failure) => failure.kind)
 				.sort(),
 		).toEqual([
-			"holdPlacements",
 			"removeAutomation",
 			"removeLocationProperty",
 			"removePersona",

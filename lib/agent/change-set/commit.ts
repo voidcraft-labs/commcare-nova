@@ -41,7 +41,7 @@ import {
 	parsePersistedMutationBatchText,
 } from "@/lib/db/persistedJson";
 import { type AppDatabase, getAppDb, withAppTx } from "@/lib/db/pg";
-import type { ClientAppChangeKind } from "@/lib/db/types";
+import type { EditorAppChangeKind } from "@/lib/db/types";
 import { encodeAdmittedMutationEnvelope } from "@/lib/doc/mutationAdmission";
 import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { canonicalJsonDigest } from "./digest";
@@ -86,7 +86,7 @@ export interface CommitDesignChangeSetArgs {
 	readonly actorUserId: string;
 	readonly runId: string;
 	readonly chatRunHolder?: ChatRunHolderCapability;
-	readonly kind: ClientAppChangeKind;
+	readonly kind: EditorAppChangeKind;
 	readonly expectedRevision: number;
 	/** Absolute run wall-clock deadline; direct callers omit it. */
 	readonly deadlineAt?: number;

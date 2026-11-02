@@ -98,6 +98,7 @@ import {
 	executeCanonicalCommitSidecars,
 } from "./canonicalCommitSidecars";
 import {
+	AppHeadMovedError,
 	AppProjectChangedError,
 	appChangeFingerprintMatches,
 	BlueprintCommitRejectedError,
@@ -147,7 +148,7 @@ import { editLeaseDeadlineMs, runLeaseState } from "./runLiveness";
 import {
 	type AppDoc,
 	type BlueprintMutationAppChangeKind,
-	type ClientAppChangeKind,
+	type EditorAppChangeKind,
 	parsePersistedAppLifecycleStatus,
 } from "./types";
 import { hasUnfinishedMaterializedDesignInTransaction } from "./unfinishedMaterializedDesign";
@@ -753,8 +754,8 @@ export async function writeCommittedBatch(
 
 // ── The kernel entry ───────────────────────────────────────────────
 
-/** Arguments for {@link commitCanonicalBatch}. */
-export interface CanonicalCommitRequest {
+/** Every field of a {@link CanonicalCommitRequest} but its kind. */
+interface CanonicalCommitBase {
 	readonly appId: string;
 	/** Client-minted idempotency key; a re-commit of the same id is a no-op. */
 	readonly batchId: string;
@@ -768,7 +769,6 @@ export interface CanonicalCommitRequest {
 	readonly mutations: AdmittedMutationBatch;
 	/** The acting user — reauth + attribution key, never the tenant. */
 	readonly actorUserId: string;
-	readonly kind: ClientAppChangeKind;
 	/**
 	 * Project captured with the caller's admitted blueprint/scope snapshot. A
 	 * move before this commit rejects so stale work reloads instead of silently
@@ -783,6 +783,21 @@ export interface CanonicalCommitRequest {
 	 */
 	readonly expectedOrganizationRevision?: OrganizationRevision;
 }
+
+/**
+ * Arguments for {@link commitCanonicalBatch}: an editor's own batch, or the
+ * placements a publish records, which commit only while the app's head is
+ * still the `expectedHeadSeq` the publish emitted from.
+ */
+export type CanonicalCommitRequest =
+	| (CanonicalCommitBase & {
+			readonly kind: EditorAppChangeKind;
+			readonly expectedHeadSeq?: never;
+	  })
+	| (CanonicalCommitBase & {
+			readonly kind: "publish-placement";
+			readonly expectedHeadSeq: number;
+	  });
 
 /** Outcome of {@link commitCanonicalBatch}. */
 export interface CanonicalCommitReceipt {
@@ -849,11 +864,13 @@ export function isUniqueViolation(err: unknown): boolean {
 
 /**
  * The unified guarded blueprint commit — the read-evaluate-write every
- * interactive mutation path (chat, MCP, auto-save) shares. Synthetic repairs
- * and the atomic cross-Project move use the parallel locked protocols in
- * `apps.ts`.
+ * interactive mutation path (chat, MCP, auto-save) shares, and the one a
+ * publish records its placements through. Synthetic repairs and the atomic
+ * cross-Project move use the parallel locked protocols in `apps.ts`.
  *
  * One transaction: lock the app row (the per-app serialization point); a
+ * `publish-placement` batch whose expected head is not the locked row's
+ * throws {@link AppHeadMovedError}, writing nothing; a
  * dedup hit on `(app_id, batch_id)` returns the recorded seq + the current
  * committed doc, writing nothing; lock + reauthorize the actor's exact Project
  * membership against the fresh row (a concurrent MOVE rejects retryably);
@@ -937,6 +954,17 @@ export async function commitCanonicalBatch(
 							{ mutations, actorUserId, kind, runId },
 						);
 			if (!matches) throw new MutationBatchIdCollisionError();
+		}
+		// A publish records the placements it emitted from one head; at any
+		// other head they may no longer be the ones its emission derives.
+		if (args.kind === "publish-placement") {
+			const headSeq = safePersistedSequence(
+				fresh.mutation_seq,
+				`apps.mutation_seq for app ${appId}`,
+			);
+			if (headSeq !== args.expectedHeadSeq) {
+				throw new AppHeadMovedError(args.expectedHeadSeq, headSeq);
+			}
 		}
 		// Reject a caller admitted against an older Project placement. Explicit
 		// rename Phase A shares this transaction, so no case/schema write can
@@ -1032,6 +1060,16 @@ export async function commitCanonicalBatch(
 					"version, then redo that change.",
 			);
 		}
+		// Only `recordPublishPlacements` writes the kind, and it holds nothing
+		// but placement holds: anything else is a broken caller, not a refusal.
+		if (
+			kind === "publish-placement" &&
+			mutations.some((mutation) => mutation.kind !== "holdPlacements")
+		) {
+			throw new Error(
+				"[commitCanonicalBatch] a publish-placement batch holds only holdPlacements",
+			);
+		}
 		const prepared = prepareMutationCandidate(freshDoc, mutations);
 		// Who may change a held placement is decided over the two documents
 		// and the recordings, read under the app lock so no recording lands
@@ -1053,7 +1091,9 @@ export async function commitCanonicalBatch(
 			recordedHolds,
 		);
 		if (placementRefusal !== null) {
-			throw new BlueprintCommitRejectedError(placementRefusal);
+			throw new BlueprintCommitRejectedError(placementRefusal, {
+				placementRule: true,
+			});
 		}
 		const previousTargets = extractLookupReferenceTargets(freshDoc);
 		const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
@@ -1070,6 +1110,7 @@ export async function commitCanonicalBatch(
 		if (!verdict.ok) {
 			throw new BlueprintCommitRejectedError(
 				describeCommitFindings(verdict.findings),
+				{ findingCodes: verdict.findings.map((finding) => finding.code) },
 			);
 		}
 		const seq = nextPersistedSequence(

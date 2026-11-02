@@ -68,7 +68,7 @@ import {
 } from "../service";
 import { readDeployment } from "../store";
 import type { DeploymentConfirmationKey } from "../types";
-import { clinicVisitsDocument } from "./publishFixtures";
+import { clinicVisitsDocument, reloadHeadFor } from "./publishFixtures";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
 vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
@@ -169,6 +169,7 @@ function publish(
 		...TARGET,
 		doc,
 		compiledAtSeq: 0,
+		reloadHead: reloadHeadFor(APP, ACTOR),
 		appName: doc.appName,
 		confirm: [...withWebApps, ...confirm],
 		...(options.confirmWebApps !== undefined && {
@@ -828,6 +829,7 @@ describe("the pre-publish check's confirmations", () => {
 			flat_location_fixture: null,
 			connect_forwarder: null,
 			form_entry_sync_off: null,
+			placement_moves: null,
 		});
 	});
 
@@ -1391,6 +1393,7 @@ describe("logos", () => {
 					...TARGET,
 					doc: { ...doc, logo: moved },
 					compiledAtSeq: 0,
+					reloadHead: reloadHeadFor(APP, ACTOR),
 					appName: doc.appName,
 					confirm: [],
 				}),

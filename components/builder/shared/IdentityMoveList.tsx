@@ -14,6 +14,10 @@ import type { IdentityMoveOrigin } from "@/lib/doc/pendingIdentityMove";
 
 /** What the change does to the answers' place, said for how it was made. */
 export function identityMoveLead(origin: IdentityMoveOrigin): string {
+	/* An edit a publish overtook: the publish recorded the place the edit
+	 * now moves, so the lead says that rather than what the edit does. */
+	if (origin === "conflict")
+		return "A publish just recorded where CommCare HQ keeps these answers, so your change now moves them.";
 	const change =
 		origin === "undo"
 			? "Undoing this"

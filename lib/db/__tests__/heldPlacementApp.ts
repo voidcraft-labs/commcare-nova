@@ -194,13 +194,18 @@ export function addKid(app: HeldPlacementApp): Mutation {
 /**
  * One `app_changes` row of `kind` holding `mutations`, at the app's next
  * sequence, with the head advanced to it, written as a raw row: a recording a
- * migration or an editor wrote, read by `readRecordedPlacementHolds` alone.
+ * publish or a migration wrote, or an editor's row, read by `readRecordedPlacementHolds` alone.
  * Returns its sequence.
  */
 export async function appendChangeRow(
 	db: Kysely<AppDatabase>,
 	appId: string,
-	kind: "blueprint-migration" | "autosave" | "mcp" | "chat",
+	kind:
+		| "publish-placement"
+		| "blueprint-migration"
+		| "autosave"
+		| "mcp"
+		| "chat",
 	mutations: readonly Mutation[],
 ): Promise<number> {
 	return db.transaction().execute(async (tx) => {

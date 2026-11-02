@@ -103,7 +103,7 @@ function judge(
 	const next = prepareMutationCandidate(prev, admitted).nextDoc;
 	const refusal = placementChangeRefusal(prev, next, kind, recorded);
 	const toJustify = placementChangesToJustify(prev, next, kind);
-	if (kind !== "blueprint-migration") {
+	if (kind !== "blueprint-migration" && kind !== "publish-placement") {
 		const kept = admittedHoldChanges(prev, admitted, recorded);
 		const keptNext = prepareMutationCandidate(prev, kept).nextDoc;
 		expect(placementChangeRefusal(prev, keptNext, kind, recorded)).toBeNull();
@@ -163,6 +163,15 @@ describe("placementChangeRefusal", () => {
 		expect(judge(doc, batch, NO_RECORDED_HOLDS, "autosave").refusal).toBe(
 			PLACEMENT_CHANGE_REFUSAL,
 		);
+	});
+
+	it("admits any change under publish-placement", () => {
+		const { doc, formUuid } = holdFixture();
+		const batch = [hold(operationHold(formUuid, UPDATE, RECORDED))];
+		expect(judge(doc, batch, NO_RECORDED_HOLDS, "publish-placement")).toEqual({
+			refusal: null,
+			toJustify: [],
+		});
 	});
 
 	it("skips a target removed with its owner", () => {

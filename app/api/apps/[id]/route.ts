@@ -34,7 +34,20 @@ import {
 	admitMutationBatch,
 	MutationWireCanonicalityError,
 } from "@/lib/doc/mutationAdmission";
+import { PLACEMENT_CONFLICT_CODES } from "@/lib/doc/placementHolds";
 import { log } from "@/lib/logger";
+
+/** Whether a refusal is the race a publish's recording wins: the kernel's
+ *  placement rule, or a gate refusal whose every finding is a held placement
+ *  that no longer expresses its change. Any other finding beside one of
+ *  those is a conflict the person resolves as any other. */
+function placementRecordedRefusal(err: BlueprintCommitRejectedError): boolean {
+	return (
+		err.placementRule ||
+		(err.findingCodes.length > 0 &&
+			err.findingCodes.every((code) => PLACEMENT_CONFLICT_CODES.has(code)))
+	);
+}
 
 export async function GET(
 	req: Request,
@@ -209,11 +222,20 @@ export async function PUT(
 			/* The delta is invalid against the fresh server doc: a genuine
 			 * fresh-doc commit-gate rejection (often, but not exclusively, an edit
 			 * colliding with a collaborator's change). Return the typed 409 with its
-			 * person-to-person message; the reconciler drops only this rejected batch
-			 * while its authoritative reload preserves later pending work. */
+			 * person-to-person message; the reconciler drops this batch and every
+			 * later unsaved edit authored over it, then reloads. `reason:
+			 * "placement-recorded"` says a publish recorded where CommCare HQ keeps
+			 * an answer the edit moves, so the builder offers the dropped edits
+			 * again with their moves. */
 			log.warn(`[apps] save rejected (409): ${err.message}`);
 			return Response.json(
-				{ error: err.message, type: "commit_rejected" },
+				placementRecordedRefusal(err)
+					? {
+							error: err.message,
+							type: "commit_rejected",
+							reason: "placement-recorded",
+						}
+					: { error: err.message, type: "commit_rejected" },
 				{ status: 409 },
 			);
 		}

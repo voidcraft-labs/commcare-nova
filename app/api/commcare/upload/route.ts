@@ -41,6 +41,13 @@
  * setting a person agreed to write, which is the value the app's
  * declaration writes. It answers that publish alone and is never
  * remembered.
+ *
+ * `acceptPlacementMoves` answers a refusal whose `refusal.placementMoves`
+ * offered to move case changes: the offer's reason and digest, once a person
+ * agreed. It answers that publish alone. A publish records where CommCare HQ
+ * keeps each case change it sends for the first time, which changes the
+ * saved app, so every answer carries `placements`: how many this attempt
+ * recorded and how many of them an accepted offer moved.
  */
 
 import { type NextRequest, NextResponse } from "next/server";
@@ -68,6 +75,10 @@ import {
 } from "@/lib/deployment/types";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
+import {
+	type AcceptPlacementMoves,
+	acceptPlacementMovesSchema,
+} from "@/lib/publish/placementMoves";
 
 /**
  * Read the explicit adoption list off the request.
@@ -174,6 +185,26 @@ function readConfirmWebApps(value: unknown): boolean | undefined {
 	);
 }
 
+/**
+ * The move offer the person accepted, named by the reason and digest a
+ * refusal offered. Absent or null accepts nothing; anything else is a client
+ * bug, and reading it as "accept nothing" would answer with the very offer
+ * the person just accepted.
+ */
+function readAcceptPlacementMoves(
+	value: unknown,
+): AcceptPlacementMoves | undefined {
+	if (value === undefined || value === null) return undefined;
+	const accepted = acceptPlacementMovesSchema.safeParse(value);
+	if (!accepted.success) {
+		throw new ApiError(
+			"The move to accept has to name the reason and digest the publish offered.",
+			400,
+		);
+	}
+	return accepted.data;
+}
+
 export async function POST(req: NextRequest) {
 	try {
 		const session = await requireSession(req);
@@ -187,6 +218,7 @@ export async function POST(req: NextRequest) {
 			discard_remote_changes?: unknown;
 			confirm?: unknown;
 			confirmWebApps?: unknown;
+			acceptPlacementMoves?: unknown;
 		} | null;
 
 		if (!body) throw new ApiError("App data is required", 400);
@@ -219,6 +251,10 @@ export async function POST(req: NextRequest) {
 		const confirm = readConfirmations(body.confirm);
 		/* The person's answer to the Web Apps question, for this publish alone. */
 		const confirmWebApps = readConfirmWebApps(body.confirmWebApps);
+		/* The move offer the person accepted, for this publish alone. */
+		const acceptPlacementMoves = readAcceptPlacementMoves(
+			body.acceptPlacementMoves,
+		);
 
 		/* Publishing to CommCare HQ requires edit, not view: a viewer can't
 		 * push a shared app out of the Project. An `AppAccessError` maps to
@@ -247,10 +283,22 @@ export async function POST(req: NextRequest) {
 			actorUserId: session.user.id,
 		};
 		const doc = hydratePersistedBlueprint(app.blueprint as PersistableDoc);
+		const appId = body.appId;
 		const outcome = await publishAppToHq({
 			scope,
 			doc,
 			compiledAtSeq: app.mutation_seq,
+			/* The head again, under the same edit check, where the app moved
+			 * while the publish recorded its placements. A lost edit role
+			 * throws `AppAccessError`, answered as the first read's is. */
+			reloadHead: async () => {
+				const fresh = await resolveAppAccess(appId, session.user.id, "edit");
+				return {
+					doc: hydratePersistedBlueprint(fresh.app.blueprint as PersistableDoc),
+					seq: fresh.app.mutation_seq,
+				};
+			},
+			...(acceptPlacementMoves !== undefined && { acceptPlacementMoves }),
 			appName: body.appName.trim(),
 			server: settings.server,
 			domain: body.domain.trim(),
@@ -312,6 +360,10 @@ export async function POST(req: NextRequest) {
 				 * carry it: a refusal against an already-live deployment
 				 * deliberately writes nothing durable. */
 				refusal: outcome.refusal,
+				/* What this attempt recorded of where CommCare HQ keeps the
+				 * app's case changes, landed or refused: a stop after the
+				 * record keeps the holds. */
+				placements: outcome.placements,
 				preflight: outcome.checks,
 				setup_artifact: outcome.artifact,
 				warnings: outcome.warnings,

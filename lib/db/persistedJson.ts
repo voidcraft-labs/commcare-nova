@@ -366,9 +366,10 @@ function isAppChangeKind(value: unknown): value is AppChangeKind {
  * Strict server authority for one durable `app_changes` envelope.
  *
  * This is deliberately separate from the browser mutation-frame grammar:
- * browser reconciliation knows only autosave/MCP/chat, while this parser
- * admits all six durable kinds and enforces their exact empty-batch and
- * Project-scope arms before a stream cursor or canonical fold may advance.
+ * browser reconciliation folds only autosave/MCP/chat/publish-placement, while
+ * this parser admits all seven durable kinds and enforces their exact
+ * empty-batch, placement-holds-only and Project-scope arms before a stream
+ * cursor or canonical fold may advance.
  */
 export function parsePersistedAppChangeEnvelope(
 	value: unknown,
@@ -456,6 +457,15 @@ export function parsePersistedAppChangeEnvelope(
 	}
 	if (mutations.length === 0) {
 		throw new Error(`${context} ${row.kind} must carry mutations.`);
+	}
+	if (
+		row.kind === "publish-placement" &&
+		(row.runId !== null ||
+			mutations.some((mutation) => mutation.kind !== "holdPlacements"))
+	) {
+		throw new Error(
+			`${context} of kind publish-placement holds something other than placement holds`,
+		);
 	}
 	return {
 		...base,

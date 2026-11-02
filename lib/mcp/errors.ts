@@ -174,6 +174,14 @@ export type HqToolErrorType =
  *     no Web Apps. Only the empty app was made, and Nova withdrew the
  *     `web-apps` plan feature's confirmation; the caller sends it again
  *     only once the user says the plan now includes it.
+ *   - `app_changed_while_publishing` — the app kept changing while Nova
+ *     recorded where CommCare HQ keeps its case changes, three times after
+ *     the publish's checks had read it. Nothing was sent; calling again
+ *     once the edits settle is the way past it.
+ *   - `hq_placement_moves_changed` — the case changes the caller accepted
+ *     moving in `accept_placement_moves` are no longer the ones Nova would
+ *     move, because the app changed since the offer. Nothing was moved or
+ *     sent; the payload's `placement_moves` is the offer as it stands now.
  */
 export type UploadErrorType =
 	| HqToolErrorType
@@ -187,7 +195,9 @@ export type UploadErrorType =
 	| "hq_confirmation_needed"
 	| "hq_web_apps_change"
 	| "hq_app_version_below_floor"
-	| "hq_plan_lacks_web_apps";
+	| "hq_plan_lacks_web_apps"
+	| "app_changed_while_publishing"
+	| "hq_placement_moves_changed";
 
 /**
  * Closed union of every `error_type` string an MCP tool response can

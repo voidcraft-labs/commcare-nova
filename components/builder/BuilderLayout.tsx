@@ -21,6 +21,8 @@
  * - StructureSidebar: fully propless
  * - IdentityMoveDialog: the one dialog a change that moves where CommCare
  *   HQ keeps published answers waits in
+ * - PlacementConflictReplayRegistration: hands the reconciler the handler
+ *   that offers again the edits a publish's placements overtook
  *
  * BuilderLayout subscribes to one store field: `phase`. All other store
  * subscriptions live in the child components listed above. This means
@@ -44,6 +46,7 @@ import { BuilderReferenceProvider } from "@/components/builder/BuilderReferenceP
 import { CommCareConnectionProvider } from "@/components/builder/CommCareConnectionContext";
 import { CaseTargetDraftProvider } from "@/components/builder/case-operations/CaseTargetDraftContext";
 import { useRegisterScrollCallback } from "@/components/builder/contexts/ScrollRegistryContext";
+import { useRegisterPlacementConflictReplay } from "@/components/builder/placementConflictReplay";
 import { IdentityMoveDialog } from "@/components/builder/shared/IdentityMoveDialog";
 import { useBuilderShortcuts } from "@/components/builder/useBuilderShortcuts";
 import { Spinner } from "@/components/shadcn/spinner";
@@ -422,9 +425,20 @@ export const BuilderLayout = memo(function BuilderLayout({
 						    CommCare HQ keeps published answers waits here for the
 						    person before it commits. */}
 						<IdentityMoveDialog />
+						<PlacementConflictReplayRegistration />
 					</div>
 				</CaseTargetDraftProvider>
 			</BuilderReferenceProvider>
 		</CommCareConnectionProvider>
 	);
 });
+
+/**
+ * Registers the placement-conflict handler with the reconciler. A leaf of
+ * its own, so the lookup-catalog and access reads it needs re-render only
+ * it, never the layout.
+ */
+function PlacementConflictReplayRegistration() {
+	useRegisterPlacementConflictReplay();
+	return null;
+}

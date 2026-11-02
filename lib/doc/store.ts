@@ -77,13 +77,19 @@ import {
 	admittedHoldChanges,
 	holdChangeRestores,
 	NO_RECORDED_HOLDS,
+	type PlacementHold,
 	placementHoldChanges,
 	placementHoldEntry,
 	placementTargetKey,
 	type RecordedPlacementHolds,
 } from "@/lib/doc/placementHolds";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
-import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
+import type {
+	BlueprintDoc,
+	Mutation,
+	MutationResult,
+	PlacementHoldEntry,
+} from "@/lib/doc/types";
 import { recordFromEntries } from "@/lib/domain";
 import {
 	APP_GENESIS_FALLBACK_NAME,
@@ -146,6 +152,10 @@ export type BlueprintDocState = BlueprintDoc & {
 	/** The queue without clearing it — for deciding whether there is anything
 	 *  to save. */
 	peekCommandBatches: () => readonly AdmittedMutationBatch[];
+	/** The queue's mutations in the order they were made, without clearing
+	 *  it: what a placement conflict hands back to be offered again, read
+	 *  before `discardUncommittedCommandState` drops the queue. */
+	queuedCommandMutations: () => readonly Mutation[];
 	/**
 	 * Drop commands that have not left the store and clear local undo/redo.
 	 *
@@ -252,6 +262,14 @@ export type BlueprintDocState = BlueprintDoc & {
 	recordedHolds: RecordedPlacementHolds;
 	/** Replace `recordedHolds` whole. */
 	setRecordedPlacementHolds: (holds: RecordedPlacementHolds) => void;
+	/**
+	 * Advance `recordedHolds` by one recording's entries, as a folded
+	 * `publish-placement` frame carries them: an entry that holds a
+	 * placement becomes its target's recorded hold, and an entry that clears
+	 * one leaves its target recorded by nothing. Every other target keeps its
+	 * recorded hold.
+	 */
+	recordPlacementHolds: (holds: readonly PlacementHoldEntry[]) => void;
 	/** Drop both histories — a new baseline (a reload, a `data-done` reseed) has
 	 *  nothing the author can take back. */
 	clearHistory: () => void;
@@ -1045,6 +1063,19 @@ export function createBlueprintDocStore() {
 						store.setState({ recordedHolds: new Map(holds) });
 					},
 
+					recordPlacementHolds: (
+						holds: readonly PlacementHoldEntry[],
+					): void => {
+						if (holds.length === 0) return;
+						const next = new Map(store.getState().recordedHolds);
+						for (const hold of holds) {
+							const key = placementTargetKey(hold);
+							if (hold.placement === null) next.delete(key);
+							else next.set(key, hold as PlacementHold);
+						}
+						store.setState({ recordedHolds: next });
+					},
+
 					clearHistory,
 
 					takeCommandBatches: (): readonly AdmittedMutationBatch[] => {
@@ -1055,6 +1086,9 @@ export function createBlueprintDocStore() {
 
 					peekCommandBatches: (): readonly AdmittedMutationBatch[] =>
 						Object.freeze([...pendingCommandBatches]),
+
+					queuedCommandMutations: (): readonly Mutation[] =>
+						Object.freeze(pendingCommandBatches.flat()),
 
 					discardUncommittedCommandState: (): void => {
 						pendingCommandBatches = [];

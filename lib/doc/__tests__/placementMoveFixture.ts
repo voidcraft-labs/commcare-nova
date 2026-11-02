@@ -12,6 +12,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { planPlacements } from "@/lib/commcare/placement";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { withIdentityMoves } from "@/lib/doc/identityMoves";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { Mutation, PlacementHoldEntry } from "@/lib/doc/types";
 import {
@@ -287,4 +288,101 @@ export function refusalCodes(
 ): string[] {
 	const result = verdict(doc, batch);
 	return result.ok ? [] : result.findings.map((finding) => finding.code);
+}
+
+export const THIRD_KID = testUuid("move-op-third-kid");
+
+/**
+ * The registration creates two kids, held at the first and second subcase
+ * places. The tab removes the first (the second moves to the first place)
+ * and then takes the removal back, restoring both holds. Meanwhile a peer
+ * adds a third kid and a publish records it at the second place, the
+ * first free one on the head it published.
+ */
+export function republishedRegistration() {
+	const base = holdPlanned(withSecondKid(moveFixture()), REGISTRATION);
+	const [first, second] = (
+		base.forms[REGISTRATION].caseOperations ?? []
+	).filter(isCreate);
+	const removed = verdict(
+		base,
+		withIdentityMoves(base, [
+			{
+				kind: "updateForm",
+				uuid: REGISTRATION,
+				patch: {},
+				caseOperationChange: { operation: "remove", uuid: first.uuid },
+			} as Mutation,
+		]).batch,
+	);
+	if (!removed.ok) throw new Error("The removal commits.");
+	const { placement: firstHold, ...firstUnheld } = first;
+	const undo: Mutation[] = [
+		{
+			kind: "updateForm",
+			uuid: REGISTRATION,
+			patch: {},
+			caseOperationChange: { operation: "add", value: firstUnheld },
+		} as Mutation,
+		{
+			kind: "updateForm",
+			uuid: REGISTRATION,
+			patch: {},
+			caseOperationPatch: {
+				operation: "move",
+				uuid: first.uuid,
+				after: operationOf(base, REGISTRATION, isOwn).uuid,
+			},
+		} as Mutation,
+		holds(
+			{
+				target: "case-operation",
+				formUuid: REGISTRATION,
+				operationUuid: first.uuid,
+				placement: firstHold ?? null,
+			},
+			{
+				target: "case-operation",
+				formUuid: REGISTRATION,
+				operationUuid: second.uuid,
+				placement: second.placement ?? null,
+			},
+		),
+	];
+	const third = {
+		...firstUnheld,
+		uuid: THIRD_KID,
+		id: "third_kid",
+	} as CaseOperation;
+	const peer = verdict(removed.nextDoc, [
+		{
+			kind: "updateForm",
+			uuid: REGISTRATION,
+			patch: {},
+			caseOperationChange: { operation: "add", value: third },
+		} as Mutation,
+	]);
+	if (!peer.ok) throw new Error("The peer's kid commits.");
+	const planned = planPlacements(peer.nextDoc, REGISTRATION).placements.get(
+		THIRD_KID,
+	)?.placement;
+	if (planned === undefined) throw new Error("The third kid has a place.");
+	const published = verdict(peer.nextDoc, [
+		holds({
+			target: "case-operation",
+			formUuid: REGISTRATION,
+			operationUuid: THIRD_KID,
+			placement: planned,
+		}),
+	]);
+	if (!published.ok) throw new Error("The publish's record commits.");
+	return {
+		tab: removed.nextDoc,
+		unpublished: peer.nextDoc,
+		head: published.nextDoc,
+		undo,
+		first: first.uuid,
+		firstHold,
+		second: second.uuid,
+	};
 }

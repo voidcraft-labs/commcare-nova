@@ -1,13 +1,15 @@
 // components/builder/shared/IdentityMoveDialog.tsx
 //
-// The builder's one identity-move dialog. A builder edit, undo or redo whose
-// admitted batch moves where CommCare HQ keeps answers a published app
-// already keeps does not commit: it waits in the session store's
-// `pendingIdentityMove`, and this dialog states each move before anything
+// The builder's one identity-move dialog. A builder edit, undo or redo, or
+// the replay of edits a publish overtook, whose admitted batch moves where
+// CommCare HQ keeps answers a published app already keeps does not commit:
+// it waits in the session store's `pendingIdentityMove`, and this dialog
+// states each move before anything
 // changes. Make the change commits the waiting batch through `commitStated`
-// (as that history step for an undo or a redo); Cancel drops it, so nothing
-// reaches the document or the reconciler. While it waits, every other
-// builder write is refused (`builderWriteAdmission`).
+// (as that history step for an undo or a redo, and as one new edit for the
+// replay of edits a publish overtook); Cancel, or Leave it for that replay,
+// drops it, so nothing reaches the document or the reconciler. While it
+// waits, every other builder write is refused (`builderWriteAdmission`).
 
 "use client";
 
@@ -77,7 +79,7 @@ function IdentityMoveDialogContent({
 			</DialogBody>
 			<DialogFooter className="flex-col-reverse sm:flex-row">
 				<Button type="button" variant="outline" onClick={onCancel}>
-					Cancel
+					{pending.origin === "conflict" ? "Leave it" : "Cancel"}
 				</Button>
 				<Button
 					type="button"
