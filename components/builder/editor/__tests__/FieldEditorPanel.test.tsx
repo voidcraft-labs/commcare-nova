@@ -134,7 +134,7 @@ function defaultValuePlacement<F extends Field>(
 
 describe("FieldEditorPanel section visibility", () => {
 	it("text field exposes Data + Logic + Appearance sections", () => {
-		// Every section card mounts: text has caseWrite (data), required
+		// Every section card mounts: text has Saves to (data), required
 		// + relevant + validate (logic, all addable), and hint (ui, addable).
 		expect(panelSections(textField())).toEqual({
 			data: true,
@@ -155,29 +155,25 @@ describe("FieldEditorPanel section visibility", () => {
 });
 
 describe("the default value entry", () => {
-	const writer = textField({
-		caseWrite: { caseType: "patient", property: "phone" },
+	it("is an addable pill on any context while the field holds no default", () => {
+		for (const context of [
+			ONE_CASE_FOLLOWUP,
+			NO_CONTEXT,
+			SEVERAL_CASE_FOLLOWUP,
+		]) {
+			expect(defaultValuePlacement(textField(), context)).toBe("pill");
+		}
 	});
 
-	it("is an active row, never a pill, on a writer the form opens with the case's value", () => {
-		expect(defaultValuePlacement(writer, ONE_CASE_FOLLOWUP)).toBe("row");
-	});
-
-	it("is an addable pill without a form location", () => {
-		expect(defaultValuePlacement(writer, NO_CONTEXT)).toBe("pill");
-	});
-
-	it("is an addable pill on a several-case form", () => {
-		expect(defaultValuePlacement(writer, SEVERAL_CASE_FOLLOWUP)).toBe("pill");
-	});
-
-	it("is an addable pill on a followup writer to a child type", () => {
-		expect(
-			defaultValuePlacement(
-				textField({ caseWrite: { caseType: "visit", property: "notes" } }),
-				ONE_CASE_FOLLOWUP,
-			),
-		).toBe("pill");
+	it("is an active row when the field opens with its case's current value", () => {
+		// The preload is the starting value itself, shown as any default.
+		const preloaded = textField({
+			default_value: {
+				kind: "term",
+				term: { kind: "form-case", caseType: "patient", property: "phone" },
+			},
+		});
+		expect(defaultValuePlacement(preloaded, ONE_CASE_FOLLOWUP)).toBe("row");
 	});
 
 	it("does not exist on the capture kinds", () => {
@@ -187,7 +183,6 @@ describe("the default value entry", () => {
 				uuid: FIELD_UUID,
 				id: "capture",
 				label: proseText("Capture"),
-				caseWrite: { caseType: "patient", property: "photo" },
 			} as Field;
 			expect(defaultValuePlacement(field, ONE_CASE_FOLLOWUP)).toBe("absent");
 		}

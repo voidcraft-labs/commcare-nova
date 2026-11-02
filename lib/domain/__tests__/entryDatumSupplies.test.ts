@@ -11,6 +11,7 @@ import {
 	reads,
 } from "../expression/__tests__/instanceReadsFixture";
 import { formStructure } from "../expression/formStructure";
+import { type CaseOperation, caseOperationSchema } from "../forms";
 import type { Uuid } from "../uuid";
 import { chosen, chosenCaseDoc } from "./chosenCaseFixture";
 
@@ -164,48 +165,105 @@ describe("entry datums at their evaluation points", () => {
 		).toEqual([]);
 	});
 
-	it("supplies a child-case identity only for an actual non-repeat writer", () => {
-		const doc = buildDoc({
-			caseTypes: [
-				{ name: "patient", properties: [] },
-				{ name: "visit", parent_type: "patient", properties: [] },
-				{ name: "sample", parent_type: "patient", properties: [] },
-			],
-			modules: [
-				{
-					uuid: ROOT,
-					name: "Patients",
-					caseType: "patient",
-					forms: [
-						{
-							uuid: ROOT_FORM,
-							name: "Visit",
-							type: "followup",
-							fields: [
-								f({
-									id: "visit_name",
-									kind: "text",
-									label: "Visit",
-									caseWrite: { caseType: "visit", property: "case_name" },
-								}),
-								f({
-									id: "samples",
-									kind: "repeat",
-									children: [
-										f({
-											id: "sample_name",
-											kind: "text",
-											label: "Sample",
-											caseWrite: { caseType: "sample", property: "case_name" },
-										}),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
+	it("supplies a child-case identity for each basic child the form creates outside a repeat", () => {
+		const OWN = testUuid("datum-own");
+		const VISIT_NAME = testUuid("datum-visit-name");
+		const SAMPLES = testUuid("datum-samples");
+		const SAMPLE_NAME = testUuid("datum-sample-name");
+		const NOTE_NAME = testUuid("datum-note-name");
+		const read = (uuid: Uuid) => ({
+			kind: "term" as const,
+			term: { kind: "field" as const, uuid },
 		});
+		const toOwnCase = (targetType: string) => [
+			{
+				identifier: "parent",
+				targetType,
+				target: { kind: "session" as const },
+				relationship: "child" as const,
+			},
+		];
+		const create = (
+			id: string,
+			caseType: string,
+			name: Uuid,
+			extra: Partial<CaseOperation> = {},
+		): CaseOperation =>
+			caseOperationSchema.parse({
+				uuid: testUuid(`datum-op-${id}`),
+				id,
+				action: "create",
+				caseType,
+				target: { kind: "new" },
+				name: read(name),
+				links: toOwnCase("patient"),
+				...extra,
+			}) as CaseOperation;
+		const doc = buildDoc(
+			{
+				caseTypes: [
+					{ name: "patient", properties: [] },
+					{ name: "visit", parent_type: "patient", properties: [] },
+					{ name: "sample", parent_type: "patient", properties: [] },
+					{ name: "note", parent_type: "patient", properties: [] },
+				],
+				modules: [
+					{
+						uuid: ROOT,
+						name: "Patients",
+						caseType: "patient",
+						forms: [
+							{
+								uuid: ROOT_FORM,
+								name: "Visit",
+								type: "followup",
+								fields: [
+									f({ id: "visit_name", uuid: VISIT_NAME, kind: "text" }),
+									f({ id: "note_name", uuid: NOTE_NAME, kind: "text" }),
+									f({
+										id: "samples",
+										uuid: SAMPLES,
+										kind: "repeat",
+										children: [
+											f({ id: "sample_name", uuid: SAMPLE_NAME, kind: "text" }),
+										],
+									}),
+								],
+							},
+						],
+					},
+					// A child's case type is one some menu lists, or HQ's Case
+					// Management keeps it nowhere.
+					{ name: "Visits", caseType: "visit", caseListOnly: true },
+					{ name: "Samples", caseType: "sample", caseListOnly: true },
+				],
+			},
+			(built) => {
+				const form = built.forms[ROOT_FORM];
+				if (form === undefined) throw new Error("The fixture form is missing.");
+				form.caseOperations = [
+					caseOperationSchema.parse({
+						uuid: OWN,
+						id: "patient",
+						action: "own",
+					}) as CaseOperation,
+					create("visit", "visit", VISIT_NAME),
+					// Per row of a repeat: HQ gives it no session value.
+					create("sample", "sample", SAMPLE_NAME, {
+						forEach: { repeat: SAMPLES },
+					}),
+					// A type no menu lists takes a Save to Case block.
+					create("note", "note", NOTE_NAME),
+					// A computed name takes a Save to Case block too.
+					create("computed_visit", "visit", VISIT_NAME, {
+						name: {
+							kind: "concat",
+							parts: [read(VISIT_NAME), read(NOTE_NAME)],
+						},
+					}),
+				] as typeof form.caseOperations;
+			},
+		);
 		expect(
 			entryDatumSupplies(doc, { kind: "form", module: ROOT, form: ROOT_FORM })
 				.refs,

@@ -4,8 +4,9 @@
  * mutation.
  *
  * A field's semantic ID is its XForm XML element name and the handle sibling
- * XPath references resolve against. Its case-storage destination is the
- * independent `caseWrite` pair. Field IDs therefore carry only form-path
+ * XPath references resolve against. Where its answer is saved is the
+ * writes of the form's case operations that read it, never its id. Field IDs
+ * therefore carry only form-path
  * constraints: Nova's question-id grammar (HQ's form builder's, without the
  * hyphen: `lib/domain/questionId.ts::QUESTION_ID_PATTERN`), the names no
  * form may hold (`meta`, `case`, `registration` and `script` in any case;

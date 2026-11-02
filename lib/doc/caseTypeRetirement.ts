@@ -24,7 +24,8 @@
  *
  * "References" are the slots that NAME the case type:
  *   - another case-type record declaring it as `parent_type`;
- *   - a field's `caseWrite.caseType` (the field writes to it);
+ *   - a case operation's type, retype, link target type, or a write's
+ *     `via` step that names it as the type it passes through;
  *   - an automation's target or related case-type references;
  *   - a typed `case-ref` atom in a prose slot or an explicitly named case
  *     identity in an Expression slot (the reference-slot registry enumerates them);
@@ -58,7 +59,6 @@ import {
 	MODULE_REFERENCE_SLOTS,
 	ownRecordValue,
 	type ProseTemplate,
-	readSlotStrings,
 	readSlotValues,
 	searchInputDefault,
 	searchInputOptions,
@@ -78,7 +78,7 @@ import { walkExpression } from "@/lib/domain/expression/walk";
 
 /** A blocked retirement's reference site, rendered for TWO audiences:
  *  `verbose` keeps the canonical machine-facing spelling the SA self-corrects
- *  on (`caseWrite.caseType`, the literal `#<type>/…` hashtag);
+ *  on (the literal `#<type>/…` hashtag);
  *  `concise` is the jargon-free line the builder toast shows. Equal for
  *  sites that never carried wire vocabulary (the case type name itself is
  *  a user concept). */
@@ -278,9 +278,9 @@ function userBlockedRetirementMessage(
  *
  * The carriers come from ONE reference-index lookup on the case type's
  * name — never a doc walk. The index's `t:` bucket holds exactly the
- * type-NAMING reference classes this planner adjudicates (a field's
- * `caseWrite.caseType`, typed expression/prose case atoms, AST origin types and
- * relation-walk hints) and deliberately excludes contextual shapes that follow
+ * type-NAMING reference classes this planner adjudicates (case operations'
+ * types, typed expression/prose case atoms, AST origin types and
+ * relation-walk hints, a write's `via` among them) and deliberately excludes contextual shapes that follow
  * a module's current type (column `field`s, simple search-input properties). The
  * per-entity collectors below then re-derive each carrier's
  * person-readable descriptions by walking only the named carrier's typed
@@ -479,17 +479,6 @@ function collectFieldReferences(
 	const repeatMode = field.kind === "repeat" ? field.repeat_mode : undefined;
 	for (const slot of fieldReferenceSlotsFor(field.kind, repeatMode)) {
 		switch (slot.kind) {
-			case "case-type-ref": {
-				for (const entry of readSlotStrings(field, slot.path)) {
-					if (entry.text === caseType) {
-						out.push({
-							verbose: `field "${field.id}" in ${where} saves to it (caseWrite.caseType)`,
-							concise: `field "${field.id}" in ${where} saves to it`,
-						});
-					}
-				}
-				break;
-			}
 			case "expression": {
 				// Identity leaves name their case type directly — a leaf walk,
 				// never a re-parse.
@@ -531,11 +520,12 @@ function collectFieldReferences(
 					});
 				}
 				break;
+			case "case-type-ref":
 			case "entity-uuid":
 			case "case-property-ref":
 			case "relation-path":
 			case "datum-ref":
-				// No field slot carries these kinds today — kept explicit so
+				// No field slot carries these kinds — kept explicit so
 				// the registry's kind union stays exhaustively handled here,
 				// the same contract the rename rewriters hold.
 				break;
@@ -645,6 +635,14 @@ function collectFormSlotReferences(
 					break;
 				}
 			}
+		}
+		for (const write of operation.writes ?? []) {
+			if (write.via?.some((step) => step.throughCaseType === caseType))
+				out.push(
+					sameRef(
+						`${operationLabel} in ${where} saves "${write.property}" through a "${caseType}" case`,
+					),
+				);
 		}
 		for (const link of operation.links ?? []) {
 			if (link.targetType === caseType) {
@@ -918,6 +916,7 @@ function termRefsCaseType(term: Term, caseType: string): boolean {
 		case "session-user-property":
 		case "session-context":
 		case "field":
+		case "capture-link":
 		case "table-column":
 		case "fixed-location":
 		case "choice":

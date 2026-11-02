@@ -1,7 +1,12 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	moveCaseOperationAfterMutation,
+	moveCaseOperationMutation,
+	removeCaseOperationMutation,
+} from "@/lib/doc/caseOperationMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -264,5 +269,490 @@ describe("first case-operation collection member", () => {
 			{ property: "note", value },
 		]);
 		expect(next.forms[F("a1")].caseOperations?.[0].links).toEqual([link]);
+	});
+});
+
+// ── The form's own case and its open and close conditions ────────────
+
+const CM = testUuid("forms-case-module");
+const REG = testUuid("forms-case-registration");
+const FUP = testUuid("forms-case-followup");
+const CLS = testUuid("forms-case-close");
+const REG_NAME = testUuid("forms-case-reg-name");
+const REG_NICK = testUuid("forms-case-reg-nick");
+const FUP_NOTE = testUuid("forms-case-fup-note");
+const CLS_NOTE = testUuid("forms-case-cls-note");
+const OWN_REG = testUuid("forms-own-registration");
+const OWN_FUP = testUuid("forms-own-followup");
+const OWN_CLS = testUuid("forms-own-close");
+const FUP_UPDATE = testUuid("forms-followup-update");
+
+const answerOf = (uuid: typeof REG_NAME) => ({
+	kind: "term" as const,
+	term: { kind: "field" as const, uuid },
+});
+const literalValue = (value: string) => ({
+	kind: "term" as const,
+	term: { kind: "literal" as const, value },
+});
+const answered = (uuid: typeof REG_NAME, value: string) => ({
+	kind: "eq" as const,
+	left: answerOf(uuid),
+	right: literalValue(value),
+});
+
+function caseFixture(): BlueprintDoc {
+	const doc = buildDoc(
+		{
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "note", label: "Note", data_type: "text" }],
+				},
+			],
+			modules: [
+				{
+					uuid: CM,
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: REG,
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									uuid: REG_NAME,
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+								}),
+								f({
+									uuid: REG_NICK,
+									kind: "text",
+									id: "nickname",
+									label: "Nickname",
+								}),
+							],
+						},
+						{
+							uuid: FUP,
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({ uuid: FUP_NOTE, kind: "text", id: "note", label: "Note" }),
+							],
+						},
+						{
+							uuid: CLS,
+							name: "Discharge",
+							type: "close",
+							fields: [
+								f({ uuid: CLS_NOTE, kind: "text", id: "note", label: "Note" }),
+							],
+						},
+					],
+				},
+			],
+		},
+		(draft) => {
+			draft.forms[REG].caseOperations = [
+				{
+					uuid: OWN_REG,
+					id: "patient",
+					action: "own",
+					name: answerOf(REG_NAME),
+				},
+			];
+			draft.forms[FUP].caseOperations = [
+				{ uuid: OWN_FUP, id: "patient", action: "own" },
+				{
+					uuid: FUP_UPDATE,
+					id: "visit_note",
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+					writes: [{ property: "note", value: answerOf(FUP_NOTE) }],
+				},
+			];
+			draft.forms[CLS].caseOperations = [
+				{ uuid: OWN_CLS, id: "patient", action: "own" },
+			];
+		},
+	);
+	assertAdmittedDoc(doc);
+	return doc;
+}
+
+function reduce(doc: BlueprintDoc, mutations: readonly Mutation[]) {
+	const parsed = mutations.map((mutation) =>
+		mutationSchema.parse(JSON.parse(JSON.stringify(mutation))),
+	);
+	return produce(doc, (draft) => {
+		applyMutations(draft, parsed);
+	});
+}
+
+describe("open and close conditions", () => {
+	it("sets and clears a registration's open and close conditions", () => {
+		const before = caseFixture();
+		const set = commit(before, [
+			{
+				kind: "updateForm",
+				uuid: REG,
+				patch: {
+					openCondition: answered(REG_NICK, "yes"),
+					closeCondition: answered(REG_NICK, "gone"),
+				},
+			},
+		]);
+		expect(set.forms[REG].openCondition).toEqual(answered(REG_NICK, "yes"));
+		expect(set.forms[REG].closeCondition).toEqual(answered(REG_NICK, "gone"));
+		const cleared = commit(set, [
+			{
+				kind: "updateForm",
+				uuid: REG,
+				patch: { openCondition: null, closeCondition: null },
+			},
+		]);
+		expect(cleared.forms[REG]).not.toHaveProperty("openCondition");
+		expect(cleared.forms[REG]).not.toHaveProperty("closeCondition");
+	});
+
+	it("sets and clears a close form's close condition", () => {
+		const set = commit(caseFixture(), [
+			{
+				kind: "updateForm",
+				uuid: CLS,
+				patch: { closeCondition: answered(CLS_NOTE, "done") },
+			},
+		]);
+		expect(set.forms[CLS].closeCondition).toEqual(answered(CLS_NOTE, "done"));
+		const cleared = commit(set, [
+			{ kind: "updateForm", uuid: CLS, patch: { closeCondition: null } },
+		]);
+		expect(cleared.forms[CLS]).not.toHaveProperty("closeCondition");
+	});
+
+	it("stores every time as absent for an open condition and a close form's close condition, and keeps a registration's", () => {
+		const next = reduce(caseFixture(), [
+			{
+				kind: "updateForm",
+				uuid: REG,
+				patch: {
+					openCondition: { kind: "match-all" },
+					closeCondition: { kind: "match-all" },
+				},
+			},
+			{
+				kind: "updateForm",
+				uuid: CLS,
+				patch: { closeCondition: { kind: "match-all" } },
+			},
+		]);
+		expect(next.forms[REG]).not.toHaveProperty("openCondition");
+		// On a registration, absent is "never close", so "close every time"
+		// keeps its spelling.
+		expect(next.forms[REG].closeCondition).toEqual({ kind: "match-all" });
+		expect(next.forms[CLS]).not.toHaveProperty("closeCondition");
+	});
+
+	it("drops a registration's every-time close when the same patch makes it a close form", () => {
+		const next = reduce(caseFixture(), [
+			{
+				kind: "updateForm",
+				uuid: REG,
+				patch: { type: "close", closeCondition: { kind: "match-all" } },
+			},
+		]);
+		expect(next.forms[REG]).not.toHaveProperty("closeCondition");
+	});
+});
+
+describe("the form's own case", () => {
+	it("lands an added own case first, ahead of the changes already there", () => {
+		const own = {
+			uuid: testUuid("forms-own-new"),
+			id: "patient",
+			action: "own" as const,
+		};
+		const next = reduce(caseFixture(), [
+			{
+				kind: "updateForm",
+				uuid: FUP,
+				patch: {},
+				caseOperationChange: { operation: "remove", uuid: OWN_FUP },
+			},
+			{
+				kind: "updateForm",
+				uuid: FUP,
+				patch: {},
+				caseOperationChange: { operation: "add", value: own },
+			},
+		]);
+		expect(
+			next.forms[FUP].caseOperations?.map((operation) => operation.uuid),
+		).toEqual([own.uuid, FUP_UPDATE]);
+	});
+
+	it("adds the own case with the form type that needs it", () => {
+		const before = commit(caseFixture(), [
+			{
+				kind: "updateForm",
+				uuid: FUP,
+				patch: {},
+				caseOperationChange: { operation: "remove", uuid: FUP_UPDATE },
+			},
+		]);
+		const survey = commit(before, [
+			{ kind: "updateForm", uuid: FUP, patch: { type: "survey" } },
+			{
+				kind: "updateForm",
+				uuid: FUP,
+				patch: {},
+				caseOperationChange: { operation: "remove", uuid: OWN_FUP },
+			},
+		]);
+		expect(survey.forms[FUP]).not.toHaveProperty("caseOperations");
+		const own = {
+			uuid: testUuid("forms-own-again"),
+			id: "patient",
+			action: "own" as const,
+		};
+		const back = commit(survey, [
+			{ kind: "updateForm", uuid: FUP, patch: { type: "followup" } },
+			{
+				kind: "updateForm",
+				uuid: FUP,
+				patch: {},
+				caseOperationChange: { operation: "add", value: own },
+			},
+		]);
+		expect(back.forms[FUP].caseOperations).toEqual([own]);
+	});
+
+	it("patches the own case's name and owner, and clears the owner", () => {
+		const renamed = commit(caseFixture(), [
+			{
+				kind: "updateForm",
+				uuid: REG,
+				patch: {},
+				caseOperationPatch: {
+					operation: "update",
+					uuid: OWN_REG,
+					targetAction: "own",
+					patch: { name: answerOf(REG_NICK), owner: literalValue("owner-id") },
+				},
+			},
+		]);
+		expect(renamed.forms[REG].caseOperations?.[0]).toEqual({
+			uuid: OWN_REG,
+			id: "patient",
+			action: "own",
+			name: answerOf(REG_NICK),
+			owner: literalValue("owner-id"),
+		});
+		const unowned = commit(renamed, [
+			{
+				kind: "updateForm",
+				uuid: REG,
+				patch: {},
+				caseOperationPatch: {
+					operation: "update",
+					uuid: OWN_REG,
+					targetAction: "own",
+					patch: { owner: null },
+				},
+			},
+		]);
+		expect(unowned.forms[REG].caseOperations?.[0]).not.toHaveProperty("owner");
+	});
+
+	it("keys a write by its property and the indices it walks", () => {
+		const viaParent = [{ identifier: "parent" }] as [{ identifier: string }];
+		const next = reduce(caseFixture(), [
+			{
+				kind: "updateForm",
+				uuid: FUP,
+				patch: {},
+				caseOperationPatch: {
+					operation: "add-write",
+					uuid: OWN_FUP,
+					value: { property: "note", value: answerOf(FUP_NOTE) },
+				},
+			},
+			{
+				kind: "updateForm",
+				uuid: FUP,
+				patch: {},
+				caseOperationPatch: {
+					operation: "add-write",
+					uuid: OWN_FUP,
+					value: {
+						property: "note",
+						value: answerOf(FUP_NOTE),
+						via: viaParent,
+					},
+					after: null,
+				},
+			},
+			{
+				kind: "updateForm",
+				uuid: FUP,
+				patch: {},
+				caseOperationPatch: {
+					operation: "update-write",
+					uuid: OWN_FUP,
+					key: { property: "note" },
+					patch: { onlyIfChanged: true },
+				},
+			},
+			{
+				kind: "updateForm",
+				uuid: FUP,
+				patch: {},
+				caseOperationPatch: {
+					operation: "move-write",
+					uuid: OWN_FUP,
+					key: { property: "note", via: viaParent },
+					after: { property: "note" },
+				},
+			},
+		]);
+		expect(next.forms[FUP].caseOperations?.[0].writes).toEqual([
+			{ property: "note", value: answerOf(FUP_NOTE), onlyIfChanged: true },
+			{ property: "note", value: answerOf(FUP_NOTE), via: viaParent },
+		]);
+		const removed = reduce(next, [
+			{
+				kind: "updateForm",
+				uuid: FUP,
+				patch: {},
+				caseOperationPatch: {
+					operation: "remove-write",
+					uuid: OWN_FUP,
+					key: { property: "note", via: viaParent },
+				},
+			},
+		]);
+		expect(removed.forms[FUP].caseOperations?.[0].writes).toEqual([
+			{ property: "note", value: answerOf(FUP_NOTE), onlyIfChanged: true },
+		]);
+	});
+
+	it("refuses to remove the own case, to move it, or to move another change above it", () => {
+		const doc = caseFixture();
+		expect(removeCaseOperationMutation(doc, FUP, OWN_FUP)).toEqual({
+			ok: false,
+			reason: "own-case",
+			message: "This form's own case goes only with its form's type.",
+			dependentUuids: [],
+		});
+		const ownFirst = {
+			ok: false,
+			reason: "own-first",
+			message: "This form's case is always the first change.",
+			dependentUuids: [],
+		};
+		expect(moveCaseOperationMutation(doc, FUP, OWN_FUP, 1)).toEqual(ownFirst);
+		expect(moveCaseOperationMutation(doc, FUP, FUP_UPDATE, 0)).toEqual(
+			ownFirst,
+		);
+		expect(
+			moveCaseOperationAfterMutation(doc, FUP, OWN_FUP, FUP_UPDATE),
+		).toEqual(ownFirst);
+		expect(moveCaseOperationAfterMutation(doc, FUP, FUP_UPDATE, null)).toEqual(
+			ownFirst,
+		);
+		// The other change stays where it is behind the own case.
+		expect(
+			moveCaseOperationAfterMutation(doc, FUP, FUP_UPDATE, OWN_FUP),
+		).toEqual({
+			ok: true,
+			mutations: [],
+		});
+	});
+});
+
+describe("held placements are written by no edit", () => {
+	const held = { kind: "save-to-case", path: ["nova_operations", "patient"] };
+	const refusals = (value: unknown) => {
+		const parsed = mutationSchema.safeParse(value);
+		expect(parsed.success).toBe(false);
+		return parsed.success
+			? []
+			: parsed.error.issues.map((issue) => issue.message);
+	};
+
+	it("refuses an added case change that carries a placement", () => {
+		expect(
+			refusals({
+				kind: "updateForm",
+				uuid: FUP,
+				patch: {},
+				caseOperationChange: {
+					operation: "add",
+					value: {
+						uuid: testUuid("forms-held-add"),
+						id: "patient",
+						action: "own",
+						placement: { kind: "basic", slot: "own" },
+					},
+				},
+			}),
+		).toContain(
+			"A new case change can't hold where a published app keeps it, since no edit chooses that. Leave out `placement`, and the change takes the placement its shape gives.",
+		);
+	});
+
+	it("refuses an operation update patch that carries a placement", () => {
+		expect(
+			refusals({
+				kind: "updateForm",
+				uuid: FUP,
+				patch: {},
+				caseOperationPatch: {
+					operation: "update",
+					uuid: FUP_UPDATE,
+					targetAction: "update",
+					patch: { placement: held },
+				},
+			}),
+		).toContain(
+			"This update also sets where a published app keeps the case change. No edit chooses that, so leave `placement` out of the patch.",
+		);
+	});
+
+	it("refuses a form patch that carries the own close's placement", () => {
+		expect(
+			refusals({
+				kind: "updateForm",
+				uuid: CLS,
+				patch: { ownClosePlacement: held },
+			}),
+		).toContain(
+			"This form update also sets where a published app keeps the form's own close. No edit chooses that, so leave `ownClosePlacement` out of the patch.",
+		);
+	});
+
+	it("refuses a new form that holds a placement, so a duplicate starts unheld", () => {
+		expect(
+			refusals({
+				kind: "addForm",
+				moduleUuid: CM,
+				form: {
+					uuid: testUuid("forms-held-form"),
+					id: "copy",
+					name: "Copy",
+					type: "close",
+					ownClosePlacement: held,
+				},
+			}),
+		).toContain(
+			"A new form can't hold where a published app keeps its case changes, since no edit chooses that. Leave out `ownClosePlacement` and each case change's `placement`, and the form takes the placements its shape gives.",
+		);
 	});
 });

@@ -21,6 +21,7 @@ import {
 	caseTypeCatalogMutations,
 	caseTypeClearPatch,
 	caseTypeSetPatch,
+	catalogMutationsForOperations,
 	declareCaseTypeMutations,
 	formScaffoldMutations,
 	surveyModuleMutations,
@@ -184,6 +185,56 @@ describe("caseOperationCatalogMutations", () => {
 			true,
 		);
 		assertAdmittedDoc(result.nextDoc);
+	});
+});
+
+describe("catalogMutationsForOperations", () => {
+	it("declares an own case's writes on its module's type, and a via write on the case it reaches", () => {
+		const doc = {
+			...baseDoc(),
+			caseTypes: [
+				{ name: "household", properties: [] },
+				{
+					name: "patient",
+					parent_type: "household",
+					relationship: "child" as const,
+					properties: [],
+				},
+			],
+		};
+		const own: CaseOperation = {
+			uuid: Q("own-catalog"),
+			id: "patient",
+			action: "own",
+			writes: [
+				{ property: "age", value: term(literal("4")) },
+				{
+					property: "region",
+					value: term(literal("north")),
+					via: [{ identifier: "parent" }],
+				},
+			],
+		};
+		expect(caseOperationCatalogMutations(doc, own, "patient")).toEqual([
+			{
+				kind: "addCaseProperty",
+				caseType: "patient",
+				property: { name: "age", label: proseText("Age") },
+			},
+			{
+				kind: "addCaseProperty",
+				caseType: "household",
+				property: { name: "region", label: proseText("Region") },
+			},
+		]);
+		// An own case whose module has no case type declares nothing.
+		expect(caseOperationCatalogMutations(doc, own)).toEqual([]);
+		expect(
+			catalogMutationsForOperations(doc, [
+				{ operation: own, ownCaseType: "patient" },
+				{ operation: own, ownCaseType: "patient" },
+			]),
+		).toHaveLength(2);
 	});
 });
 
@@ -352,6 +403,56 @@ describe("formScaffoldMutations", () => {
 		const fieldUuids = verdict.nextDoc.fieldOrder[scaffold.formUuid] ?? [];
 		expect(fieldUuids).toHaveLength(1);
 		expect(verdict.nextDoc.fields[fieldUuids[0]]?.id).toBe("case_name");
+		// The question saves nowhere itself: the form's own case, first in its
+		// operations, names the new case with a bare read of it.
+		expect(verdict.nextDoc.fields[fieldUuids[0]]).not.toHaveProperty(
+			"caseWrite",
+		);
+		expect(verdict.nextDoc.forms[scaffold.formUuid]?.caseOperations).toEqual([
+			{
+				uuid: expect.any(String),
+				id: "patient",
+				action: "own",
+				name: { kind: "term", term: { kind: "field", uuid: fieldUuids[0] } },
+			},
+		]);
+	});
+
+	it.each(["followup", "close"] as const)(
+		"a %s form is born with its own case first, writing nothing",
+		(type) => {
+			const base = baseDoc();
+			const cl = caseListModuleMutations(base, { caseType: "patient" });
+			const doc = mutationCommitVerdict(
+				base,
+				cl.mutations,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).nextDoc;
+			const scaffold = formScaffoldMutations(doc, cl.moduleUuid, type);
+			if (!scaffold) throw new Error(`expected a ${type}-form scaffold`);
+			const verdict = mutationCommitVerdict(
+				doc,
+				scaffold.mutations,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(
+				verdict.ok,
+				JSON.stringify(verdict.ok ? [] : verdict.findings),
+			).toBe(true);
+			expect(verdict.nextDoc.forms[scaffold.formUuid]?.caseOperations).toEqual([
+				{ uuid: expect.any(String), id: "patient", action: "own" },
+			]);
+		},
+	);
+
+	it("gives a survey form no own case", () => {
+		const scaffold = formScaffoldMutations(baseDoc(), M("base"), "survey");
+		const addForm = scaffold?.mutations.find(
+			(mutation) => mutation.kind === "addForm",
+		);
+		expect(addForm).toBeDefined();
+		if (addForm?.kind === "addForm")
+			expect(addForm.form).not.toHaveProperty("caseOperations");
 	});
 
 	it("returns null for an unknown module", () => {

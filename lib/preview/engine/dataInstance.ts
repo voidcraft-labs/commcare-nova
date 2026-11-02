@@ -1,9 +1,9 @@
 import {
-	fieldBindType,
+	type fieldBindType,
 	fieldKindBindType,
 } from "@/lib/commcare/xform/bindType";
 import type { XFormDataRootRuntimeAttributes } from "@/lib/commcare/xform/dataRootAttributes";
-import type { CaseType, Field } from "@/lib/domain";
+import type { Field } from "@/lib/domain";
 import { wireTimeOfDay } from "@/lib/domain/temporalValues";
 import type {
 	XPathInstance,
@@ -193,13 +193,14 @@ export class DataInstance {
 	}
 
 	/** Refresh authored topology without resetting live answers or repeat
-	 * counts. `caseTypes` is the effective catalog a Hidden Value's bind type
-	 * reads its destination from. */
+	 * counts. `bindTypeOf` is the bind the XForm emitter writes for a field
+	 * (`bindType.ts::fieldBindType`), whose Hidden Value type reads the
+	 * property the field's answer is saved to. */
 	refreshTemplate(
 		tree: readonly FieldTreeNode[],
-		caseTypes: readonly CaseType[] = [],
+		bindTypeOf: FieldBindTypeOf = kindBindType,
 	): void {
-		this.xpathTemplate = xpathTemplateFromFields(tree, caseTypes);
+		this.xpathTemplate = xpathTemplateFromFields(tree, bindTypeOf);
 		this.queryRepeatPaths = new Set();
 		const walk = (nodes: readonly FieldTreeNode[], prefix: string): void => {
 			for (const node of nodes) {
@@ -234,10 +235,10 @@ export class DataInstance {
 	initFromFields(
 		tree: FieldTreeNode[],
 		prefix = "/data",
-		caseTypes: readonly CaseType[] = [],
+		bindTypeOf: FieldBindTypeOf = kindBindType,
 	): void {
 		if (prefix === "/data") {
-			this.refreshTemplate(tree, caseTypes);
+			this.refreshTemplate(tree, bindTypeOf);
 		}
 		for (const node of tree) {
 			const f = node.field;
@@ -245,12 +246,12 @@ export class DataInstance {
 
 			if (f.kind === "group" || f.kind === "section") {
 				// Groups and sections don't have values — recurse into children
-				if (node.children) this.initFromFields(node.children, path, caseTypes);
+				if (node.children) this.initFromFields(node.children, path, bindTypeOf);
 			} else if (f.kind === "repeat") {
 				// Repeats start with one instance [0]
 				this.counts.set(path, 1);
 				if (node.children)
-					this.initFromFields(node.children, `${path}[0]`, caseTypes);
+					this.initFromFields(node.children, `${path}[0]`, bindTypeOf);
 			} else {
 				// Leaf field — empty string initial value
 				this.set(path, "");
@@ -569,21 +570,28 @@ export class DataInstance {
 	}
 }
 
+/** The bind a field's node takes. */
+export type FieldBindTypeOf = (
+	field: Field,
+) => ReturnType<typeof fieldBindType>;
+
+/** A field's bind with no case write to read: its kind's. */
+function kindBindType(field: Field): ReturnType<typeof fieldBindType> {
+	return fieldKindBindType(field.kind);
+}
+
 function xpathTemplateFromFields(
 	tree: readonly FieldTreeNode[],
-	caseTypes: readonly CaseType[],
+	bindTypeOf: FieldBindTypeOf,
 ): readonly XPathTemplateNode[] {
 	return tree.flatMap((node): XPathTemplateNode[] => {
 		const query =
 			node.field.kind === "repeat" && node.field.repeat_mode === "query_bound";
 		const own: XPathTemplateNode = {
 			name: node.field.id,
-			answerType: coreAnswerType(
-				fieldBindType(node.field, caseTypes),
-				node.field.kind,
-			),
+			answerType: coreAnswerType(bindTypeOf(node.field), node.field.kind),
 			repeat: node.field.kind === "repeat",
-			children: xpathTemplateFromFields(node.children ?? [], caseTypes),
+			children: xpathTemplateFromFields(node.children ?? [], bindTypeOf),
 			...(query ? { attributes: { id: "", index: "" } } : {}),
 		};
 		if (!query) return [own];

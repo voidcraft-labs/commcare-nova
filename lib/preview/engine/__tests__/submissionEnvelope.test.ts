@@ -17,8 +17,6 @@ function committedSurvey(): BuiltSubmissionOperations {
 	return {
 		ordinaryAction: { kind: "none" },
 		ordinaryFormType: "survey",
-		ordinaryChildRelationships: new Map(),
-		usercaseWriteProperties: new Set(),
 		submissionReceipt: {
 			entryKey: protocol.entryKey,
 			formUuid: protocol.formUuid,
@@ -30,40 +28,33 @@ function committedSurvey(): BuiltSubmissionOperations {
 }
 
 describe("submission envelope authority", () => {
-	it("uses the committed action even when the client proposes different destinations", () => {
+	it("uses the committed selection and program, never the client's", () => {
 		const mutation: SubmissionMutation = {
 			...protocol,
-			kind: "registration",
-			primary: { caseType: "other", caseName: "Client", properties: {} },
-			children: [],
+			kind: "followup",
+			caseIds: ["case-1"],
 		};
 		const built: BuiltSubmissionOperations = {
 			...committedSurvey(),
-			ordinaryFormType: "registration",
+			ordinaryFormType: "followup",
 			ordinaryAction: {
-				kind: "registration",
-				primary: { caseType: "patient", caseName: "Accepted", properties: {} },
-				children: [],
+				kind: "followup",
+				caseIds: ["case-1"],
+				caseType: "patient",
+				selection: { kind: "single", maximum: 1 },
 			},
 		};
 
 		const envelope = submissionEnvelopeArgs(mutation, "app-1", built);
 		expect(envelope.ordinary).toBe(built.ordinaryAction);
 		expect(envelope.submissionReceipt).toBe(built.submissionReceipt);
-	});
-
-	it("retains only worker answers the committed form can write, including a cleared answer", () => {
-		const built = committedSurvey();
-		const envelope = submissionEnvelopeArgs(
-			{
-				...protocol,
-				kind: "survey",
-				usercase: { district: "", role: "admin" },
-			},
-			"app-1",
-			{ ...built, usercaseWriteProperties: new Set(["district"]) },
-		);
-		expect(envelope.usercase).toEqual({ properties: { district: "" } });
+		// The worker's record is an operation of the program, never a slot the
+		// client fills.
+		expect(Object.keys(envelope).sort()).toEqual([
+			"appId",
+			"ordinary",
+			"submissionReceipt",
+		]);
 	});
 
 	it("refuses a client form kind that differs from the committed form", () => {
@@ -73,8 +64,6 @@ describe("submission envelope authority", () => {
 					...protocol,
 					kind: "close",
 					caseIds: ["case-1"],
-					patch: { properties: {} },
-					children: [],
 				},
 				"app-1",
 				committedSurvey(),

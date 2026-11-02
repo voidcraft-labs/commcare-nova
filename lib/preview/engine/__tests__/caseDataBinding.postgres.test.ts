@@ -6,8 +6,12 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	buildCaseTypeMap,
+	type CaseOperationProgram,
 	CasePropertiesValidationError,
 	type CaseStore,
+	type EnvelopeCaseOperation,
+	type JsonObject,
+	SubmissionRejectedError,
 } from "@/lib/case-store";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
@@ -114,46 +118,158 @@ const FINAL_SUBMISSION_PROTOCOL = {
 	attachmentRefs: [],
 } as const;
 
-/** Direct CaseStore envelope fixtures. These exercise persistence and rollback,
- * not form-authority derivation. The extension case below feeds the real producer;
- * submissionProgramAcceptance owns the complete committed-document journey. */
+/**
+ * A direct CaseStore envelope fixture: a submission plus the case changes its
+ * form's own case and children make, as literal values. These exercise
+ * persistence and rollback, not form-authority derivation. The extension case
+ * below feeds the real producer; submissionProgramAcceptance owns the
+ * complete committed-document journey.
+ */
+type CaseSubmissionFixture = SubmissionMutation & {
+	/** A registration's own case. */
+	readonly primary?: {
+		readonly caseType: string;
+		readonly caseName?: string;
+		readonly properties: JsonObject;
+	};
+	/** A follow-up or close form's own case: a rename and writes. */
+	readonly patch?: {
+		readonly caseName?: string;
+		readonly properties: JsonObject;
+	};
+	/** The children created under the own case. */
+	readonly children?: ReadonlyArray<{
+		readonly caseType: string;
+		readonly caseName?: string;
+		readonly properties: JsonObject;
+	}>;
+};
+
+const FIXTURE_OWN_UUID = testUuid("case-data-binding-own-case");
+
+function fixtureLiteral(value: JsonObject[string]) {
+	if (
+		typeof value !== "string" &&
+		typeof value !== "number" &&
+		typeof value !== "boolean" &&
+		value !== null
+	)
+		throw new Error("A fixture write saves one scalar value.");
+	return term(literal(value));
+}
+
+/** The fixture's program: its own case first, then each child's create. */
+function fixtureProgram(
+	fixture: CaseSubmissionFixture,
+	blueprint: BlueprintDoc,
+): CaseOperationProgram | undefined {
+	if (fixture.kind === "survey") return undefined;
+	const formType = fixture.kind;
+	const caseType = fixture.primary?.caseType ?? "patient";
+	const writes = (properties: JsonObject) =>
+		Object.entries(properties).map(([property, value]) => ({
+			property,
+			value: fixtureLiteral(value),
+		}));
+	const named = fixture.primary?.caseName ?? fixture.patch?.caseName;
+	const envelope = (operation: EnvelopeCaseOperation["operation"]) => ({
+		operation,
+		guardConditions: [],
+		expressionSnapshotTypes: { links: new Map<number, string>() },
+	});
+	return {
+		formUuid: testUuid(fixture.formUuid),
+		operations: [
+			envelope({
+				uuid: FIXTURE_OWN_UUID,
+				id: caseType,
+				action: "own",
+				...(named === undefined ? {} : { name: term(literal(named)) }),
+				writes: writes(
+					fixture.primary?.properties ?? fixture.patch?.properties ?? {},
+				),
+			}),
+			...(fixture.children ?? []).map((child, index) =>
+				envelope({
+					uuid: testUuid(`case-data-binding-child-${index}`),
+					id: `child_${index}`,
+					action: "create",
+					caseType: child.caseType,
+					target: { kind: "new" },
+					...(child.caseName === undefined
+						? {}
+						: { name: term(literal(child.caseName)) }),
+					writes: writes(child.properties),
+					links: [
+						{
+							identifier: "parent",
+							targetType: caseType,
+							target:
+								formType === "registration"
+									? { kind: "op", opUuid: FIXTURE_OWN_UUID }
+									: { kind: "session" },
+							relationship: "child",
+						},
+					],
+				}),
+			),
+		],
+		ownCase: { caseType, formType },
+		scopes: [{ iterations: [{ formFields: new Map() }] }],
+		...(fixture.kind === "registration"
+			? {}
+			: { sessionCaseIds: fixture.caseIds }),
+		caseTypeSchemas: buildCaseTypeMap(blueprint),
+	};
+}
+
 function submissionEnvelopeArgs(
-	mutation: SubmissionMutation,
+	fixture: CaseSubmissionFixture,
 	appId: string,
+	blueprint: BlueprintDoc,
 	built?: ReturnType<typeof buildCaseOperationProgramFromDoc>,
 ): Parameters<CaseStore["applySubmission"]>[0] {
-	const children =
-		mutation.kind === "survey"
-			? []
-			: mutation.children.map((child) => ({
-					...child,
-					parentRelationship: "child" as const,
-				}));
 	const ordinary =
 		built?.ordinaryAction ??
-		(mutation.kind === "registration"
-			? { kind: "registration" as const, primary: mutation.primary, children }
-			: mutation.kind === "survey"
+		(fixture.kind === "registration"
+			? { kind: "registration" as const }
+			: fixture.kind === "survey"
 				? { kind: "none" as const }
 				: {
-						kind: mutation.kind,
-						caseIds: mutation.caseIds,
+						kind: fixture.kind,
+						caseIds: fixture.caseIds,
 						caseType: "patient",
 						selection: { kind: "single" as const, maximum: 1 as const },
-						patch: mutation.patch,
-						children,
 					});
+	const program =
+		built === undefined ? fixtureProgram(fixture, blueprint) : built.program;
+	const {
+		primary: _primary,
+		patch: _patch,
+		children: _children,
+		...mutation
+	} = fixture;
 	return {
 		appId,
 		ordinary,
+		...(program === undefined ? {} : { operations: program }),
 		submissionReceipt: {
 			entryKey: mutation.entryKey,
 			formUuid: testUuid(mutation.formUuid),
 			expectedAppMutationSeq: 0,
 			blueprintDigest: FINAL_BLUEPRINT_DIGEST,
-			requestDigest: canonicalJsonDigest(mutation),
+			requestDigest: canonicalJsonDigest(fixture),
 		},
 	};
+}
+
+/** The ids of the children a submission's creates made, in order. */
+function createdChildIds(
+	result: Awaited<ReturnType<CaseStore["applySubmission"]>>,
+): string[] {
+	return result.operations
+		.filter((record) => record.action === "create" && record.executed)
+		.map((record) => record.caseId);
 }
 
 function finalSubmissionDoc() {
@@ -289,6 +405,7 @@ describe("a submission made while previewing as a persona", () => {
 					children: [],
 				},
 				APP_ID,
+				blueprint,
 			),
 		);
 
@@ -341,6 +458,7 @@ describe("a submission made while previewing as a persona", () => {
 					children: [],
 				},
 				APP_ID,
+				blueprint,
 			),
 		);
 		const rows = await store.query({
@@ -2563,13 +2681,13 @@ const NAME_COLUMN_UUID = testUuid("50000000-0000-0000-0000-000000000001");
 const NOTE_CALC_COLUMN_UUID = testUuid("50000000-0000-0000-0000-000000000002");
 
 describe("applySubmission — registration", () => {
-	it("lands the primary + child through the envelope and returns the generated ids in input order", async () => {
+	it("lands the own case and a child through the envelope and records each in order", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE, VISIT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
 		await seedSchema(store, blueprint, "visit");
 
-		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
+		const mutation: CaseSubmissionFixture = {
 			kind: "registration",
 			...FINAL_SUBMISSION_PROTOCOL,
 			primary: {
@@ -2587,23 +2705,21 @@ describe("applySubmission — registration", () => {
 		};
 
 		const result = await store.applySubmission(
-			submissionEnvelopeArgs(mutation, APP_ID),
+			submissionEnvelopeArgs(mutation, APP_ID, blueprint),
 		);
 
-		// The primary id the envelope generated surfaces on
-		// `primaryCaseIds[0]`; the child id arrives in input order, and an
-		// ordinary-only submission records no operation effects.
+		// The own case's generated id surfaces on `primaryCaseIds[0]`, and
+		// each change is recorded in the program's order, own case first.
 		expect(result.primaryCaseIds[0]).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
 		);
-		expect(result.createdChildren).toEqual([
-			{
-				authoredChildIndex: 0,
-				parentCaseId: result.primaryCaseIds[0],
-				caseId: expect.any(String),
-			},
+		expect(result.createdChildren).toEqual([]);
+		expect(
+			result.operations.map(({ action, caseId }) => [action, caseId]),
+		).toEqual([
+			["own", result.primaryCaseIds[0]],
+			["create", expect.any(String)],
 		]);
-		expect(result.operations).toEqual([]);
 
 		// Read-back through the store confirms the rows landed open with
 		// the right column values + JSONB document; the visit row's
@@ -2635,7 +2751,7 @@ describe("applySubmission — registration", () => {
 		expect(visits.rows[0]?.parent_case_id).toBe(result.primaryCaseIds[0]);
 	});
 
-	it("derives and persists an ordinary extension host from the committed case catalog", async () => {
+	it("derives and persists a child's extension host from the committed case catalog", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const extensionVisit: CaseType = {
 			...VISIT_CASE_TYPE,
@@ -2699,22 +2815,24 @@ describe("applySubmission — registration", () => {
 		await seedSchema(store, blueprint, "patient");
 		await seedSchema(store, blueprint, "visit");
 
-		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
+		const answers: Record<string, string> = {
+			patient_name: "Alice",
+			age: "30",
+			visit_name: "Hosted visit",
+			visit_notes: "checkup",
+		};
+		const mutation: SubmissionMutation = {
 			kind: "registration",
 			...FINAL_SUBMISSION_PROTOCOL,
-			primary: {
-				caseType: "patient",
-				caseName: "Alice",
-				properties: { age: 30 },
+			operationAnswers: {
+				root: (blueprint.fieldOrder[FINAL_FORM_UUID] ?? []).map(
+					(fieldUuid) => ({
+						fieldUuid,
+						value: answers[blueprint.fields[fieldUuid]?.id ?? ""] ?? "",
+					}),
+				),
+				repeats: [],
 			},
-			children: [
-				{
-					caseType: "visit",
-					caseName: "Hosted visit",
-					properties: { notes: "checkup" },
-				},
-			],
-			ordinaryChildBuckets: [{ caseType: "visit" }],
 		};
 		const projection = validateCaptureSubmissionProjection(mutation);
 		const identity = previewAsMe({ id: OWNER_A });
@@ -2726,12 +2844,17 @@ describe("applySubmission — registration", () => {
 			projection,
 			identity,
 		});
-		expect(built.ordinaryChildRelationships.get("visit")).toBe("extension");
+		// The visit's create links its host as the catalog says it is held.
+		expect(
+			built.program?.operations
+				.flatMap(({ operation }) => operation.links ?? [])
+				.map((link) => link.relationship),
+		).toEqual(["extension"]);
 
 		const result = await store.applySubmission(
-			submissionEnvelopeArgs(mutation, APP_ID, built),
+			submissionEnvelopeArgs(mutation, APP_ID, blueprint, built),
 		);
-		const childCaseId = result.createdChildren[0]?.caseId;
+		const childCaseId = createdChildIds(result)[0];
 		expect(childCaseId).toBeDefined();
 		const edge = await sql<{
 			identifier: string;
@@ -2754,7 +2877,7 @@ describe("applySubmission — registration", () => {
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
 
-		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
+		const mutation: CaseSubmissionFixture = {
 			kind: "registration",
 			...FINAL_SUBMISSION_PROTOCOL,
 			primary: {
@@ -2766,7 +2889,7 @@ describe("applySubmission — registration", () => {
 		};
 
 		const result = await store.applySubmission(
-			submissionEnvelopeArgs(mutation, APP_ID),
+			submissionEnvelopeArgs(mutation, APP_ID, blueprint),
 		);
 		expect(result.createdChildren).toEqual([]);
 
@@ -2787,7 +2910,7 @@ describe("applySubmission — registration", () => {
 		const blueprint = buildBlueprint([FORMATTED_PROPS_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
 
-		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
+		const mutation: CaseSubmissionFixture = {
 			kind: "registration",
 			...FINAL_SUBMISSION_PROTOCOL,
 			primary: {
@@ -2803,7 +2926,7 @@ describe("applySubmission — registration", () => {
 		};
 
 		const result = await store.applySubmission(
-			submissionEnvelopeArgs(mutation, APP_ID),
+			submissionEnvelopeArgs(mutation, APP_ID, blueprint),
 		);
 		expect(result.createdChildren).toEqual([]);
 
@@ -2820,17 +2943,15 @@ describe("applySubmission — registration", () => {
 		expect(patients.rows[0]?.properties).toEqual({});
 	});
 
-	it("rejects with the compiler-bug invariant when the primary carries no caseName, inserting nothing", async () => {
+	it("refuses a registration whose own case has no name, inserting nothing", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
 
-		// `caseName` is `text NOT NULL` at the column; reaching the
-		// envelope without one is an upstream invariant violation. The
-		// engine's walker plucks `case_name` into the slot for every
-		// contentful bucket, so this throw is structural — the envelope's
-		// `requireCaseName` raises it before the primary insert.
-		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
+		// A new case's name is blank without a name; the envelope refuses a
+		// blank name before the first insert, as the device's guard refuses
+		// it.
+		const mutation: CaseSubmissionFixture = {
 			kind: "registration",
 			...FINAL_SUBMISSION_PROTOCOL,
 			primary: {
@@ -2841,8 +2962,10 @@ describe("applySubmission — registration", () => {
 		};
 
 		await expect(
-			store.applySubmission(submissionEnvelopeArgs(mutation, APP_ID)),
-		).rejects.toThrow(/produced no `case_name` value/);
+			store.applySubmission(
+				submissionEnvelopeArgs(mutation, APP_ID, blueprint),
+			),
+		).rejects.toBeInstanceOf(SubmissionRejectedError);
 
 		// The envelope threw before its first insert — nothing landed.
 		const patients = await readCases(store, {
@@ -2854,13 +2977,13 @@ describe("applySubmission — registration", () => {
 		expect(patients.kind).toBe("empty");
 	});
 
-	it("rejects with the compiler-bug invariant when a child carries no caseName, rolling the primary insert back", async () => {
+	it("refuses a child create with no name, rolling the own case's insert back", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE, VISIT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
 		await seedSchema(store, blueprint, "visit");
 
-		const mutation: Extract<SubmissionMutation, { kind: "registration" }> = {
+		const mutation: CaseSubmissionFixture = {
 			kind: "registration",
 			...FINAL_SUBMISSION_PROTOCOL,
 			primary: {
@@ -2877,12 +3000,13 @@ describe("applySubmission — registration", () => {
 		};
 
 		await expect(
-			store.applySubmission(submissionEnvelopeArgs(mutation, APP_ID)),
-		).rejects.toThrow(/produced no `case_name` value/);
+			store.applySubmission(
+				submissionEnvelopeArgs(mutation, APP_ID, blueprint),
+			),
+		).rejects.toBeInstanceOf(SubmissionRejectedError);
 
-		// The primary inserted first, but the child's missing name threw
-		// inside the one envelope transaction, so the whole submission
-		// rolled back — neither row persists.
+		// The child's blank name is refused before any effect, so the whole
+		// submission writes nothing — neither row persists.
 		const patients = await readCases(store, {
 			tileGrouping: "grouped",
 			reading: CASEDB_READING,
@@ -2901,7 +3025,7 @@ describe("applySubmission — registration", () => {
 });
 
 describe("applySubmission — followup", () => {
-	it("merges the patch, writes the caseName, and lands children with their parentCaseId", async () => {
+	it("merges the own case's writes, renames it, and lands a child under it", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE, VISIT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
@@ -2919,7 +3043,7 @@ describe("applySubmission — followup", () => {
 			},
 		});
 
-		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
+		const mutation: CaseSubmissionFixture = {
 			kind: "followup",
 			...FINAL_SUBMISSION_PROTOCOL,
 			caseIds: [ALICE_CASE_ID],
@@ -2934,10 +3058,10 @@ describe("applySubmission — followup", () => {
 		};
 
 		const result = await store.applySubmission(
-			submissionEnvelopeArgs(mutation, APP_ID),
+			submissionEnvelopeArgs(mutation, APP_ID, blueprint),
 		);
 		expect(result.primaryCaseIds).toEqual([ALICE_CASE_ID]);
-		expect(result.createdChildren).toHaveLength(1);
+		expect(createdChildIds(result)).toHaveLength(1);
 
 		// Primary's `age` updated; `name` preserved (JSONB merge, not
 		// replace); the new display name lands on the `case_name` column.
@@ -2962,10 +3086,10 @@ describe("applySubmission — followup", () => {
 		expect(visits.rows[0]?.parent_case_id).toBe(ALICE_CASE_ID);
 	});
 
-	it("rolls the whole envelope back when a child fails validation — the primary update never lands", async () => {
-		// The envelope is ONE Postgres transaction: the followup's
-		// primary update runs first, then each child insert. A child that
-		// fails AJV validation must roll the primary update back with it,
+	it("rolls the whole envelope back when a child fails validation — the own case's update never lands", async () => {
+		// The envelope is ONE Postgres transaction: the own case's update
+		// runs first, then each child insert. A child that fails AJV
+		// validation must roll the own case's update back with it,
 		// so partial success is unobservable — the running-app view
 		// re-queries one settled state on resolve.
 		const store = makeStore(PROJECT_A, OWNER_A);
@@ -2983,7 +3107,7 @@ describe("applySubmission — followup", () => {
 			},
 		});
 
-		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
+		const mutation: CaseSubmissionFixture = {
 			kind: "followup",
 			...FINAL_SUBMISSION_PROTOCOL,
 			caseIds: [ALICE_CASE_ID],
@@ -3000,7 +3124,9 @@ describe("applySubmission — followup", () => {
 		};
 
 		await expect(
-			store.applySubmission(submissionEnvelopeArgs(mutation, APP_ID)),
+			store.applySubmission(
+				submissionEnvelopeArgs(mutation, APP_ID, blueprint),
+			),
 		).rejects.toBeInstanceOf(CasePropertiesValidationError);
 
 		// The primary's `age` update rolled back with the failed child —
@@ -3042,7 +3168,7 @@ describe("applySubmission — close", () => {
 			},
 		});
 
-		const mutation: Extract<SubmissionMutation, { kind: "close" }> = {
+		const mutation: CaseSubmissionFixture = {
 			kind: "close",
 			...FINAL_SUBMISSION_PROTOCOL,
 			caseIds: [ALICE_CASE_ID],
@@ -3057,10 +3183,10 @@ describe("applySubmission — close", () => {
 		};
 
 		const result = await store.applySubmission(
-			submissionEnvelopeArgs(mutation, APP_ID),
+			submissionEnvelopeArgs(mutation, APP_ID, blueprint),
 		);
 		expect(result.primaryCaseIds).toEqual([ALICE_CASE_ID]);
-		expect(result.createdChildren).toHaveLength(1);
+		expect(createdChildIds(result)).toHaveLength(1);
 
 		const patients = await readCases(store, {
 			tileGrouping: "grouped",
@@ -3078,16 +3204,11 @@ describe("applySubmission — close", () => {
 		expect(patients.rows[0]?.status).toBe("closed");
 	});
 
-	it("preserves properties on an empty close patch and commits its child", async () => {
-		// Empty-patch close: a close form whose only effect is the
-		// closure stamp itself (no property writes) skips the primary's
-		// property UPDATE but MUST still land `closed_on` + the built-in
-		// `status = "closed"`. The former helper test spied on
-		// `store.update` to detect the skip; the envelope routes the
-		// primary write through the store's PRIVATE in-transaction update
-		// core (never the public `update()` method), so that spy can no
-		// longer observe it. The observable contract is pinned instead:
-		// properties unchanged (no write ran) and the lifecycle stamped.
+	it("preserves properties when a close form's own case writes nothing, and commits its child", async () => {
+		// A close form whose only effect on its case is the closure stamp
+		// itself (no property writes) writes no property but MUST still
+		// land `closed_on` + the built-in `status = "closed"`: properties
+		// unchanged and the lifecycle stamped.
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE, VISIT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
@@ -3103,7 +3224,7 @@ describe("applySubmission — close", () => {
 			},
 		});
 
-		const mutation: Extract<SubmissionMutation, { kind: "close" }> = {
+		const mutation: CaseSubmissionFixture = {
 			kind: "close",
 			...FINAL_SUBMISSION_PROTOCOL,
 			caseIds: [ALICE_CASE_ID],
@@ -3118,10 +3239,10 @@ describe("applySubmission — close", () => {
 		};
 
 		const result = await store.applySubmission(
-			submissionEnvelopeArgs(mutation, APP_ID),
+			submissionEnvelopeArgs(mutation, APP_ID, blueprint),
 		);
 		expect(result.primaryCaseIds).toEqual([ALICE_CASE_ID]);
-		expect(result.createdChildren).toHaveLength(1);
+		expect(createdChildIds(result)).toHaveLength(1);
 
 		const patients = await readCases(store, {
 			tileGrouping: "grouped",
@@ -3149,7 +3270,7 @@ describe("mapSubmitFormError through Postgres", () => {
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
 
-		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
+		const mutation: CaseSubmissionFixture = {
 			kind: "followup",
 			...FINAL_SUBMISSION_PROTOCOL,
 			caseIds: [ALICE_CASE_ID],
@@ -3158,7 +3279,9 @@ describe("mapSubmitFormError through Postgres", () => {
 		};
 
 		try {
-			await store.applySubmission(submissionEnvelopeArgs(mutation, APP_ID));
+			await store.applySubmission(
+				submissionEnvelopeArgs(mutation, APP_ID, blueprint),
+			);
 			throw new Error("applySubmission should have thrown");
 		} catch (err) {
 			const result = mapSubmitFormError(err);

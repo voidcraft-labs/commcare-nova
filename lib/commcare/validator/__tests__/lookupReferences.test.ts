@@ -28,6 +28,7 @@ import type { LookupRevision, LookupTableDefinition } from "@/lib/lookup/types";
 import { evaluateCommit } from "../gate";
 import { validateLookupReferences } from "../lookupReferences";
 import { runValidation } from "../runner";
+import { ownArms } from "./ownArms";
 
 const tableId = (suffix: string) =>
 	`00000000-0000-7000-8000-${suffix.padStart(12, "0")}` as LookupTableId;
@@ -357,6 +358,7 @@ describe("lookup-aware absolute commit gate", () => {
 			],
 		});
 		doc.forms[formUuid].caseOperations = [
+			...ownArms(doc.forms[formUuid]),
 			{
 				uuid: testUuid("operation-member-identity"),
 				id: "update_patient",

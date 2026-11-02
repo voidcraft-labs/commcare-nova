@@ -1,8 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { caseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
+import {
+	type CaseWriteChoiceVerdict,
+	caseWriteChoiceVerdict,
+} from "@/lib/doc/caseWriteChoices";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { BlueprintDoc, Field } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Field,
+	fieldCaseWriteViewKey,
+	fieldCaseWriteViews,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -83,60 +92,108 @@ function fixture(): { doc: BlueprintDoc; name: Field; notes: Field } {
 	};
 }
 
+/** Commit an admitted verdict's batch through the gate it was judged by. */
+function commit(
+	doc: BlueprintDoc,
+	verdict: CaseWriteChoiceVerdict,
+): BlueprintDoc {
+	if (!verdict.ok) throw new Error(verdict.reason);
+	const committed = mutationCommitVerdict(
+		doc,
+		verdict.mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(committed.ok ? [] : committed.findings).toEqual([]);
+	return committed.nextDoc;
+}
+
+const propertiesOf = (doc: BlueprintDoc, field: Field) =>
+	fieldCaseWriteViews(doc, field.uuid).map((view) => view.property);
+
 describe("caseWriteChoiceVerdict", () => {
-	it("admits a declared property with no field writer", () => {
+	it("admits a declared property no question saves yet, replacing the question's save", () => {
 		const { doc, notes } = fixture();
-		expect(
-			caseWriteChoiceVerdict(
-				doc,
-				notes,
-				{ caseType: "patient", property: "nickname" },
-				LOOKUP_CONTEXT_UNAVAILABLE,
-			),
-		).toEqual({ ok: true });
-	});
-
-	it("admits a new property as one complete pair", () => {
-		const { doc, notes } = fixture();
-		expect(
-			caseWriteChoiceVerdict(
-				doc,
-				notes,
-				{ caseType: "patient", property: "preferred_language" },
-				LOOKUP_CONTEXT_UNAVAILABLE,
-			),
-		).toEqual({ ok: true });
-	});
-
-	it("disables clearing the required registration name writer", () => {
-		const { doc, name } = fixture();
 		const verdict = caseWriteChoiceVerdict(
 			doc,
-			name,
-			null,
+			notes.uuid,
+			{ destination: { caseType: "patient", property: "nickname" } },
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		expect(verdict.ok).toBe(false);
-		if (!verdict.ok) expect(verdict.reason).toMatch(/name|case_name/i);
+		expect(verdict).toMatchObject({ ok: true, notes: [] });
+		expect(propertiesOf(commit(doc, verdict), notes)).toEqual(["nickname"]);
 	});
 
-	it("disables a duplicate writer and a declared type mismatch", () => {
+	it("admits a new property, declaring it in the same batch", () => {
 		const { doc, notes } = fixture();
-		const duplicate = caseWriteChoiceVerdict(
+		const verdict = caseWriteChoiceVerdict(
 			doc,
-			notes,
-			{ caseType: "patient", property: "case_name" },
+			notes.uuid,
+			{ destination: { caseType: "patient", property: "preferred_language" } },
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		expect(duplicate).toMatchObject({
-			ok: false,
-			reason: expect.stringMatching(/more than one field naming/),
-		});
+		const next = commit(doc, verdict);
+		expect(propertiesOf(next, notes)).toEqual(["preferred_language"]);
+		expect(
+			next.caseTypes
+				?.find((caseType) => caseType.name === "patient")
+				?.properties.some((property) => property.name === "preferred_language"),
+		).toBe(true);
+	});
 
+	it("stops every save of a question, and refuses stopping the new case's only name", () => {
+		const { doc, name, notes } = fixture();
+		const stopped = caseWriteChoiceVerdict(
+			doc,
+			notes.uuid,
+			{ destination: null },
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(propertiesOf(commit(doc, stopped), notes)).toEqual([]);
+
+		expect(
+			caseWriteChoiceVerdict(
+				doc,
+				name.uuid,
+				{ destination: null },
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			),
+		).toEqual({
+			ok: false,
+			reason:
+				"A new case needs a name. Choose another question to name it first.",
+		});
+	});
+
+	it("replaces only the row a choice names", () => {
+		const { doc, notes } = fixture();
+		const both = commit(
+			doc,
+			caseWriteChoiceVerdict(
+				doc,
+				notes.uuid,
+				{ destination: { caseType: "patient", property: "nickname" } },
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			),
+		);
+		const [row] = fieldCaseWriteViews(both, notes.uuid);
+		const verdict = caseWriteChoiceVerdict(
+			both,
+			notes.uuid,
+			{
+				destination: { caseType: "patient", property: "notes" },
+				replace: fieldCaseWriteViewKey(row),
+			},
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(propertiesOf(commit(both, verdict), notes)).toEqual(["notes"]);
+	});
+
+	it("disables a property whose declared type the answer doesn't match, in the gate's sentence", () => {
+		const { doc, notes } = fixture();
 		const mismatch = caseWriteChoiceVerdict(
 			doc,
-			notes,
-			{ caseType: "patient", property: "dob" },
+			notes.uuid,
+			{ destination: { caseType: "patient", property: "dob" } },
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(mismatch.ok).toBe(false);

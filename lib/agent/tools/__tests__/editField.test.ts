@@ -18,7 +18,11 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, Field } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Field,
+	fieldCaseWriteViews,
+} from "@/lib/domain";
 import {
 	concat,
 	literal,
@@ -35,6 +39,7 @@ const MOD = testUuid("11111111-1111-1111-1111-111111111111");
 const FORM = testUuid("22222222-2222-2222-2222-222222222222");
 const FIELD = testUuid("33333333-3333-3333-3333-333333333333");
 const COLUMN = testUuid("44444444-4444-4444-8444-444444444444");
+const OWN = testUuid("editField-own-case");
 
 /** Minimal doc with one input (`text`) field that supports `help`. */
 function makeDoc(help?: string): BlueprintDoc {
@@ -216,6 +221,7 @@ describe("editField — rename identifier guard", () => {
 		doc.forms[FORM] = {
 			...doc.forms[FORM],
 			type: "followup",
+			caseOperations: [{ uuid: OWN, id: "household", action: "own" }],
 		};
 		const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 		const result = await h.runTool(editFieldTool, {
@@ -228,22 +234,111 @@ describe("editField — rename identifier guard", () => {
 		});
 
 		if ("error" in result.result) throw new Error(result.result.error);
-		expect(result.mutations).toEqual([
-			{
+		// The id is the question's own slot; where its answer saves is the
+		// form's own case, which takes the answer as its name.
+		expect(result.mutations).toContainEqual(
+			expect.objectContaining({
 				kind: "updateField",
 				uuid: FIELD,
-				targetKind: "text",
-				patch: {
-					id: "household_name",
-					caseWrite: { caseType: "household", property: "case_name" },
-				},
-			},
-		]);
+				patch: expect.objectContaining({ id: "household_name" }),
+			}),
+		);
 		expectAdmittedDoc(h.currentDoc());
 		expect(h.currentDoc().fields[FIELD]).toMatchObject({
 			id: "household_name",
-			caseWrite: { caseType: "household", property: "case_name" },
 		});
+		expect(h.currentDoc().forms[FORM].caseOperations?.[0]).toMatchObject({
+			uuid: OWN,
+			name: { kind: "term", term: { kind: "field", uuid: FIELD } },
+		});
+		expect(fieldCaseWriteViews(h.currentDoc(), FIELD)).toEqual([
+			expect.objectContaining({
+				caseType: "household",
+				property: "case_name",
+				destination: "own",
+			}),
+		]);
+	});
+});
+
+/* --- A question saving to several places ------------------------------ */
+
+describe("editField: caseWrite on a question saving to several places", () => {
+	/** A follow-up whose own case saves the answer to two properties. */
+	function twoPlacesDoc(): BlueprintDoc {
+		const doc = structuredClone(makeDoc());
+		doc.caseTypes = [
+			{
+				name: "household",
+				properties: [
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "head", label: proseText("Head") },
+					{ name: "contact", label: proseText("Contact") },
+					{ name: "other", label: proseText("Other") },
+				],
+			},
+		];
+		doc.modules[MOD] = {
+			...doc.modules[MOD],
+			caseType: "household",
+			caseListConfig: {
+				columns: [
+					{ uuid: COLUMN, kind: "plain", field: "case_name", header: "Name" },
+				],
+				listColumnOrder: [COLUMN],
+				detailColumnOrder: [COLUMN],
+				searchInputs: [],
+			},
+		};
+		const answer = {
+			kind: "term",
+			term: { kind: "field", uuid: FIELD },
+		} as const;
+		doc.forms[FORM] = {
+			...doc.forms[FORM],
+			type: "followup",
+			caseOperations: [
+				{
+					uuid: OWN,
+					id: "household",
+					action: "own",
+					writes: [
+						{ property: "head", value: answer },
+						{ property: "contact", value: answer },
+					],
+				},
+			],
+		};
+		return expectAdmittedDoc(doc);
+	}
+
+	it("refuses one destination for every place and stages nothing", async () => {
+		const doc = twoPlacesDoc();
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: {
+				kind: "text",
+				caseWrite: { caseType: "household", property: "other" },
+			},
+		});
+
+		expect(result.result).toHaveProperty("error");
+		expect(result.mutations).toEqual([]);
+		expect(h.recordMutationStages).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toEqual(doc);
+	});
+
+	it("stops every place with null", async () => {
+		const h = makeToolWorkspaceHarness(twoPlacesDoc());
+		const result = await h.runTool(editFieldTool, {
+			...ADDRESS,
+			updates: { kind: "text", caseWrite: null },
+		});
+
+		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
+		expect(fieldCaseWriteViews(h.currentDoc(), FIELD)).toEqual([]);
 	});
 });
 
@@ -275,7 +370,11 @@ function makeCaptureDoc(): BlueprintDoc {
 			searchInputs: [],
 		},
 	};
-	doc.forms[FORM] = { ...doc.forms[FORM], type: "followup" };
+	doc.forms[FORM] = {
+		...doc.forms[FORM],
+		type: "followup",
+		caseOperations: [{ uuid: OWN, id: "household", action: "own" }],
+	};
 	const photo: Field = {
 		uuid: PHOTO,
 		id: "photo",
@@ -323,9 +422,13 @@ describe("editField: a capture's case write", () => {
 
 		if ("error" in result.result) throw new Error(result.result.error);
 		expectAdmittedDoc(h.currentDoc());
-		expect(h.currentDoc().fields[PHOTO]).toMatchObject({
-			caseWrite: { caseType: "household", property: "photo" },
-		});
+		expect(fieldCaseWriteViews(h.currentDoc(), PHOTO)).toEqual([
+			expect.objectContaining({
+				caseType: "household",
+				property: "photo",
+				link: true,
+			}),
+		]);
 	});
 });
 

@@ -2,10 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createBrowserCaseWriteVerdictWorker } from "@/lib/doc/browserCaseWriteVerdictWorker";
-import {
-	type CaseWriteChoiceVerdict,
-	caseWriteCandidateMutations,
-} from "@/lib/doc/caseWriteChoices";
+import type { CaseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import {
 	CASE_WRITE_VERDICT_WORKER_VERSION,
 	type CaseWriteVerdictCandidate,
@@ -79,6 +76,7 @@ export function useCaseWriteChoiceVerdicts(
 	candidates: readonly CaseWriteVerdictCandidate[],
 	enabled: boolean,
 ): CaseWriteChoiceVerdictResult {
+	const fieldUuid = field.uuid;
 	const [state, setState] = useState<CaseWriteChoiceVerdictState>({
 		verdicts: EMPTY_VERDICTS,
 		evaluating: false,
@@ -194,15 +192,14 @@ export function useCaseWriteChoiceVerdicts(
 					task.finish(undefined, false);
 					return;
 				}
+				// The admitted verdict carries the exact batch the worker
+				// judged; a commit dispatches that batch, so the certificate
+				// names it rather than a batch planned again here.
 				if (verdict.ok) {
 					registerMutationPrevalidation(
 						capturedDoc,
 						capturedLookupContext,
-						caseWriteCandidateMutations(
-							capturedDoc,
-							field,
-							candidate.caseWrite,
-						),
+						verdict.mutations,
 					);
 				}
 				task.finish(verdict, true);
@@ -216,7 +213,7 @@ export function useCaseWriteChoiceVerdicts(
 					version: CASE_WRITE_VERDICT_WORKER_VERSION,
 					requestId,
 					doc: persistableDocFor(capturedDoc),
-					fieldUuid: field.uuid,
+					fieldUuid,
 					lookupContext: capturedLookupContext,
 					candidates: [candidate],
 				});
@@ -225,7 +222,7 @@ export function useCaseWriteChoiceVerdicts(
 			}
 			return promise;
 		},
-		[active, doc, docApi, field, lookupCommitState, state.verdicts],
+		[active, doc, docApi, fieldUuid, lookupCommitState, state.verdicts],
 	);
 
 	/* Worker construction starts its module fetch/evaluation. Begin that work on
@@ -247,7 +244,7 @@ export function useCaseWriteChoiceVerdicts(
 	useEffect(() => {
 		// A same-document route change can reuse this editor for another field.
 		// Its proof belongs to the previous field identity and must be retired.
-		void field.uuid;
+		void fieldUuid;
 		exactTaskRef.current?.finish(undefined, false, true);
 		if (!active || doc === undefined) {
 			setState({ verdicts: EMPTY_VERDICTS, evaluating: false });
@@ -273,7 +270,7 @@ export function useCaseWriteChoiceVerdicts(
 			return;
 		}
 		setState({ verdicts: EMPTY_VERDICTS, evaluating: false });
-	}, [active, candidates, doc, field, lookupCommitState]);
+	}, [active, candidates, doc, fieldUuid, lookupCommitState]);
 
 	useEffect(() => {
 		mountedRef.current = true;

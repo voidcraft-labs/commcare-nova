@@ -20,34 +20,35 @@
 import type { Element } from "domhandler";
 import { findOne } from "domutils";
 import {
+	planFormCaseWire,
+	type SaveToCaseBlock,
+	saveToCaseBlocks,
+} from "@/lib/commcare/casePlacementPlan";
+import {
 	el,
 	type WireElementContext,
 	type WireElementSpec,
 	xel,
 } from "@/lib/commcare/elementBuilders";
-import { buildPrimaryCaseUpdateMap } from "@/lib/commcare/formActions";
-import {
-	type FormLinkProjectionContext,
-	selectedCaseSessionDatum,
-} from "@/lib/commcare/formLinkProjection";
-import { alwaysCondition, ifCondition } from "@/lib/commcare/hqShells";
+import type { FormLinkProjectionContext } from "@/lib/commcare/formLinkProjection";
 import {
 	validatePropertyName,
 	validateXFormPath,
 } from "@/lib/commcare/identifierValidation";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import { newCaseIdDatumId } from "@/lib/commcare/session";
-import { subcaseSessionDatumId } from "@/lib/commcare/subcaseWire";
-import type {
-	FormActionCondition,
-	OpenSubCaseAction,
-	UpdateCaseAction,
-} from "@/lib/commcare/types";
-import { descendFormPathIntoField } from "@/lib/commcare/xform/formPath";
 import {
-	formUpdatesSelectedCasesInSource,
-	subcaseIsWrittenInSource,
-} from "@/lib/commcare/xform/sourceCaseWrites";
+	type PlacementSubject,
+	planBasicSubcases,
+	planPlacements,
+} from "@/lib/commcare/placement";
+import { newCaseIdDatumId } from "@/lib/commcare/session";
+import { USERCASE_ID_FUNCTION } from "@/lib/commcare/usercaseWire";
+import {
+	type AttachmentUrlTarget,
+	captureUrlCalculate,
+	captureUrlNodePath,
+} from "@/lib/commcare/xform/captureUrlNode";
+import { descendFormPathIntoField } from "@/lib/commcare/xform/formPath";
 import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
@@ -57,13 +58,18 @@ import {
 	AUTHORED_CASE_ID_VERSION,
 	authoredCaseIdPrefix,
 	type BlueprintDoc,
+	CASE_LOADING_FORM_TYPES,
 	type CaseOperation,
 	type CaseTarget,
-	closeConditionPlacement,
+	caseOperationRunsPerSelectedCase,
+	caseSelectionCardinality,
+	caseWriteValueField,
 	effectiveCaseTypes,
+	isCaseScalarTextProperty,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
 	MAX_CASE_SCALAR_TEXT_LENGTH,
 	moduleUuidOfForm,
+	operationTarget,
 	orderedCaseOperations,
 	organizationLevelsOf,
 	type Uuid,
@@ -92,7 +98,10 @@ import {
 	type CountPlacementRowNames,
 	countPlacementRowPieces,
 } from "./countPlacementRow";
-import { datetimeCaseValueExpression } from "./datetimeCaseValue";
+import {
+	datetimeCaseValueExpression,
+	datetimeCaseValuePath,
+} from "./datetimeCaseValue";
 import { appendChildren, prependChildren } from "./domSplice";
 import type { FormExpressionEmission } from "./formExpressions";
 import { FormPath, originalContextWirePath } from "./formPath";
@@ -101,6 +110,7 @@ import {
 	type GuardKind,
 	isKeyedRootCreate,
 	operationGuardKinds,
+	trimmedValuePath,
 	writesFixedTextColumn,
 } from "./generatedNodes";
 
@@ -282,90 +292,338 @@ function caseMetaBinds(
 }
 
 /**
- * Where a close form's ordinary close stands in the source, when HQ's
- * singular block cannot carry it: for every selected case of a several-case
- * form, and for a condition HQ's Case Management tab cannot state.
- * `undefined` where the close is HQ's basic action, or the form closes
- * nothing.
+ * The Save to Case blocks the form's source holds: every subject the form's
+ * placements put in Save to Case (`casePlacementPlan.ts::saveToCaseBlocks`,
+ * the list `planFormCaseWire` holds), at its held or allocated path. The one exception is the own case of a
+ * several-case form that saves nothing: its block would carry no row, so the
+ * source holds none, as it holds no shared update without an answer to share.
  */
-function ordinaryCloseInSource(
+export function writtenSaveToCaseBlocks(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	severalCases: boolean,
-): "selected" | "own" | undefined {
-	if (doc.forms[formUuid]?.type !== "close") return undefined;
-	if (severalCases) return "selected";
-	return closeConditionPlacement(doc, formUuid) === "save-to-case"
-		? "own"
-		: undefined;
-}
-
-/**
- * Whether `buildCaseOperations` writes at least one Save to Case block for
- * the form, given what the compiler hands it: whether the entry selects
- * several cases, the form's own update written per selected case, and the
- * form's derived subcases. Every block comes from one of four writers: a
- * case operation, an ordinary close the basic action cannot carry, the
- * several-case update, and a subcase written in the source.
- */
-function writesSaveToCaseBlocks(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	severalCases: boolean,
-	ordinaryPrimaryUpdate: UpdateCaseAction["update"],
-	ordinarySubcases: readonly OpenSubCaseAction[],
-): boolean {
-	return (
-		orderedCaseOperations(doc.forms[formUuid]).length > 0 ||
-		ordinaryCloseInSource(doc, formUuid, severalCases) !== undefined ||
-		Object.keys(ordinaryPrimaryUpdate).length > 0 ||
-		ordinarySubcases.some((subcase) =>
-			subcaseIsWrittenInSource(subcase, severalCases),
+	attachmentTarget: AttachmentUrlTarget | null,
+): readonly SaveToCaseBlock[] {
+	const form = doc.forms[formUuid];
+	return saveToCaseBlocks(doc, formUuid).filter((block) => {
+		if (block.subject.kind !== "operation") return true;
+		const { operationUuid } = block.subject;
+		const operation = orderedCaseOperations(form).find(
+			(candidate) => candidate.uuid === operationUuid,
+		);
+		if (operation?.action !== "own") return true;
+		if (
+			!saveToCaseBlockShape(doc, formUuid, block.subject).includes(
+				"selected-cases",
+			)
 		)
-	);
+			return true;
+		return (
+			sharedOwnRows(doc, formUuid, operation, attachmentTarget).length > 0 ||
+			(operation.links ?? []).length > 0
+		);
+	});
 }
 
 /**
- * Whether the form's source holds a Save to Case block: true exactly when
- * `buildCaseOperations` returns at least one for it, over the same inputs
- * `expander.ts::expandDoc` derives and hands it. HQ's form builder keeps a
- * Save to Case block's case binds only under the plan privilege
- * `save_to_case` (`views/formdesigner.py::_get_vellum_plugins` loads
- * Vellum's `saveToCase` plugin only then), so publish asks for that
- * privilege for each form this answers for (`planPrivileges.ts`).
+ * Whether the form's source holds a Save to Case block: some placement of
+ * the form is `save-to-case` and its block is written
+ * (`writtenSaveToCaseBlocks`). HQ's form builder keeps a Save to Case
+ * block's case binds only under the plan privilege `save_to_case`
+ * (`views/formdesigner.py::_get_vellum_plugins` loads Vellum's `saveToCase`
+ * plugin only then), so publish asks for that privilege for each form this
+ * answers for (`planPrivileges.ts`).
  *
- * `linkContext` is the document's form link context, built with the
- * attachment target the emitter is handed (`expandDoc`'s), since a capture
- * written as a link is a Save to Case write only when there is a link to
- * write. The rest of the question reads only whether the entry selects
- * several cases, which the entry's metadata holds, so a metadata-only
- * context needs no lookup catalog.
+ * `linkContext` carries the attachment target the emitter is handed
+ * (`expandDoc`'s), since a capture saved as a link is a write only where
+ * there is a link to write.
  */
 export function formEmitsSaveToCase(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	linkContext: FormLinkProjectionContext,
+	linkContext: Pick<FormLinkProjectionContext, "attachmentTarget">,
 ): boolean {
-	const moduleUuid = moduleUuidOfForm(doc, formUuid);
-	const mod = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
-	if (moduleUuid === undefined || mod === undefined) return false;
-	const severalCases = formUpdatesSelectedCasesInSource(
-		selectedCaseSessionDatum(doc, linkContext, moduleUuid, formUuid),
+	if (doc.forms[formUuid] === undefined) return false;
+	return (
+		writtenSaveToCaseBlocks(doc, formUuid, linkContext.attachmentTarget)
+			.length > 0
 	);
-	return writesSaveToCaseBlocks(
+}
+
+/**
+ * One element of the path from a Save to Case block's scope (the form root
+ * or its repeat's row) to the block: the selected-cases repeat and its row
+ * where the block runs once per selected case, the scope's
+ * `nova_operations` group, the one-row repeat of a root create keyed by an
+ * answer, the group carrying the condition of a conditional update or
+ * close, and the block itself.
+ */
+export type SaveToCaseBlockSegment =
+	| "selected-cases"
+	| "selected-case"
+	| "operations"
+	| "keyed"
+	| "condition"
+	| "block";
+
+/**
+ * The elements a Save to Case block for `subject` stands under, in order,
+ * as `buildCaseOperations` writes them. A held placement whose path has
+ * another number of segments no longer names where the block now stands.
+ *
+ * An operation of a several-case form that works on the loaded cases runs
+ * once per selected case; a create keyed by an answer at the root stands in
+ * a one-row repeat, the one place HQ's form builder keeps a create's id as a
+ * live bind (`Vellum/src/saveToCase.js`); a conditional update or close
+ * carries its condition on a group, because the builder writes no bind for
+ * a block's own node, and a create carries it on its `case`. The own case of
+ * a several-case form is one shared update, in a group present only while
+ * some answer is. The own close of a several-case form closes every
+ * selected case; any other own close that takes a block of its own is a
+ * close-only block in a condition group.
+ */
+export function saveToCaseBlockShape(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	subject: PlacementSubject,
+): readonly SaveToCaseBlockSegment[] {
+	const form = doc.forms[formUuid];
+	const severalCases = formSelectsSeveralCases(doc, formUuid);
+	if (subject.kind === "own-close")
+		return severalCases
+			? ["selected-cases", "selected-case", "operations", "block"]
+			: ["operations", "condition", "block"];
+	const operations = orderedCaseOperations(form);
+	const operation = operations.find(
+		(candidate) => candidate.uuid === subject.operationUuid,
+	);
+	if (operation === undefined)
+		throw new Error(
+			`Nova was asked for the Save to Case block of case change ${subject.operationUuid}, which form ${formUuid} does not hold.`,
+		);
+	if (operation.action === "own")
+		return severalCases
+			? ["selected-cases", "selected-case", "operations", "condition", "block"]
+			: ["operations", "block"];
+	const inherited = caseOperationConditionalGuardUuids(
 		doc,
 		formUuid,
-		severalCases,
-		severalCases
-			? buildPrimaryCaseUpdateMap(
-					doc,
-					formUuid,
-					mod.caseType,
-					linkContext.attachmentTarget,
-				)
-			: {},
-		linkContext.formActions(formUuid).subcases,
+		operations,
+	).get(operation.uuid);
+	const conditional =
+		operation.action !== "create" &&
+		(operation.condition !== undefined ||
+			[...(inherited ?? [])].some(
+				(uuid) =>
+					operations.find((candidate) => candidate.uuid === uuid)?.condition !==
+					undefined,
+			));
+	return [
+		...(severalCases && caseOperationRunsPerSelectedCase(operation)
+			? (["selected-cases", "selected-case"] as const)
+			: []),
+		"operations",
+		...(isKeyedRootCreate(operation) ? (["keyed"] as const) : []),
+		...(conditional ? (["condition"] as const) : []),
+		"block",
+	];
+}
+
+/** Whether `formUuid` is a follow-up or close form whose menu selects
+ *  several cases. */
+function formSelectsSeveralCases(doc: BlueprintDoc, formUuid: Uuid): boolean {
+	const form = doc.forms[formUuid];
+	const moduleUuid = moduleUuidOfForm(doc, formUuid);
+	const mod = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
+	return (
+		form !== undefined &&
+		CASE_LOADING_FORM_TYPES.has(form.type) &&
+		mod !== undefined &&
+		caseSelectionCardinality(mod) === "multiple"
 	);
+}
+
+/** The element names a block's path gives each of its shape's segments. */
+function blockNames(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	block: SaveToCaseBlock,
+): ReadonlyMap<SaveToCaseBlockSegment, string> {
+	const shape = saveToCaseBlockShape(doc, formUuid, block.subject);
+	if (shape.length !== block.path.length)
+		throw new Error(
+			`The Save to Case path ${block.path.join("/")} of form ${formUuid} has ${block.path.length} elements where its block stands under ${shape.length}. The placement keeps a held path only while its shape matches.`,
+		);
+	return new Map(shape.map((segment, index) => [segment, block.path[index]]));
+}
+
+/** One row of the shared update a several-case form writes to every
+ *  selected case. */
+interface SharedOwnRow {
+	readonly property: string;
+	readonly value: Expression;
+	readonly condition?: Expression;
+	readonly slot: FormExpressionSlotRef;
+}
+
+/**
+ * The rows of the own case's shared update in a several-case form: its
+ * name, its owner and each write, a capture's link withheld where there is
+ * no target to build it against. Rows that read a question bare stand in
+ * the order of the questions they read, the rest after them in the order
+ * the operation holds them.
+ */
+function sharedOwnRows(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	own: CaseOperation,
+	attachmentTarget: AttachmentUrlTarget | null,
+): readonly SharedOwnRow[] {
+	const member = { operationUuid: own.uuid };
+	const rows: SharedOwnRow[] = [
+		...(own.name === undefined
+			? []
+			: [
+					{
+						property: "case_name",
+						value: own.name,
+						slot: {
+							entity: "form",
+							uuid: formUuid,
+							slot: "case_operation_name",
+							member,
+						} as const,
+					},
+				]),
+		...(own.owner === undefined
+			? []
+			: [
+					{
+						property: "owner_id",
+						value: own.owner,
+						slot: {
+							entity: "form",
+							uuid: formUuid,
+							slot: "case_operation_owner",
+							member,
+						} as const,
+					},
+				]),
+		...(own.writes ?? []).map((write) => ({
+			property: write.property,
+			value: write.value,
+			...(write.condition !== undefined && { condition: write.condition }),
+			slot: {
+				entity: "form",
+				uuid: formUuid,
+				slot: "case_operation_write_value",
+				member: { operationUuid: own.uuid, property: write.property },
+			} as const,
+		})),
+	].filter(
+		(row) =>
+			attachmentTarget !== null ||
+			caseWriteValueField(row.value)?.link !== true,
+	);
+	const position = new Map(
+		[...collectFieldLocations(doc, formUuid).keys()].map((uuid, index) => [
+			uuid,
+			index,
+		]),
+	);
+	const rank = (row: SharedOwnRow): number => {
+		const source = caseWriteValueField(row.value);
+		return source === undefined
+			? Number.POSITIVE_INFINITY
+			: (position.get(source.field) ?? Number.POSITIVE_INFINITY);
+	};
+	return rows
+		.map((row, index) => ({ row, index }))
+		.sort((a, b) => rank(a.row) - rank(b.row) || a.index - b.index)
+		.map(({ row }) => row);
+}
+
+/**
+ * The generated sibling a shared row reads for a question it saves as it
+ * is: a capture's link, the trimmed value of a case name or an external id,
+ * or a date and time as text, where the form's plan of generated nodes holds
+ * one. The shared update reads the nodes the basic update reads, as it did
+ * when it was the field writes' projection, so its bytes stay those every
+ * several-case form holds. A row that reads none prints its value.
+ */
+function sharedRowSibling(
+	generatedNodes: GeneratedNodePlan,
+	fields: ReadonlyMap<Uuid, FieldLocation>,
+	row: SharedOwnRow,
+): FormPath | undefined {
+	const source = caseWriteValueField(row.value);
+	if (source === undefined) return undefined;
+	const location = fields.get(source.field);
+	if (location === undefined) return undefined;
+	const holds = (purpose: "url" | "trimmed" | "datetime") =>
+		generatedNodes.nodes.some(
+			(node) => node.purpose === purpose && node.owner === source.field,
+		);
+	if (source.link)
+		return holds("url")
+			? captureUrlNodePath(generatedNodes, source.field, location.path)
+			: undefined;
+	if (isCaseScalarTextProperty(row.property) && holds("trimmed"))
+		return trimmedValuePath(generatedNodes, source.field, location.path);
+	if (holds("datetime"))
+		return datetimeCaseValuePath(generatedNodes, source.field, location.path);
+	return undefined;
+}
+
+/**
+ * The generated siblings the form's case changes read, by data path: each
+ * node a basic action names (`planFormCaseWire`'s `FormActions`) and each a
+ * several-case form's shared update reads. The XForm builder writes a
+ * capture's link node and a date and time's text node only where one of
+ * them reads it.
+ */
+export function caseWriteSiblingPaths(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	generatedNodes: GeneratedNodePlan,
+	attachmentTarget: AttachmentUrlTarget | null,
+): ReadonlySet<string> {
+	const plan = planFormCaseWire(doc, formUuid, { attachmentTarget });
+	const paths = new Set<string>();
+	const { actions } = plan;
+	const named = [
+		actions.open_case.name_update.question_path,
+		...Object.values(actions.update_case.update),
+		...Object.values(actions.usercase_update.update),
+		...actions.subcases.flatMap((subcase) => [
+			subcase.name_update.question_path,
+			...Object.values(subcase.case_properties),
+		]),
+	];
+	for (const entry of named) {
+		const path = typeof entry === "string" ? entry : entry.question_path;
+		if (path) paths.add(path);
+	}
+	const own = orderedCaseOperations(doc.forms[formUuid]).find(
+		(operation) => operation.action === "own",
+	);
+	if (
+		own !== undefined &&
+		writtenSaveToCaseBlocks(doc, formUuid, attachmentTarget).some(
+			(block) =>
+				block.subject.kind === "operation" &&
+				block.subject.operationUuid === own.uuid &&
+				saveToCaseBlockShape(doc, formUuid, block.subject).includes(
+					"selected-cases",
+				),
+		)
+	) {
+		const fields = collectFieldLocations(doc, formUuid);
+		for (const row of sharedOwnRows(doc, formUuid, own, attachmentTarget)) {
+			const sibling = sharedRowSibling(generatedNodes, fields, row);
+			if (sibling !== undefined) paths.add(sibling.toXPath());
+		}
+	}
+	return paths;
 }
 
 /** The generated nodes of a selected-cases iteration in the count placement:
@@ -385,9 +643,17 @@ function selectedCountPlacementNames(name: string): SelectedCountPlacement {
 	};
 }
 
-/** Build every operation block for one form. Pure: returned DOM nodes are
+/** Build every Save to Case block of one form. Pure: returned DOM nodes are
  * orphaned until `attachCaseOperationData` places them in the primary
  * instance tree.
+ *
+ * The blocks are the form's Save to Case placements
+ * (`writtenSaveToCaseBlocks`), each at its held or allocated path, written
+ * in four runs: the operations in array order (the own case's block first
+ * in the root group, as the array holds it), a several-case form's shared
+ * update of every selected case, the extension children a field writes
+ * (in `nova_subcases`, beside HQ's inert subcase), and the own close where
+ * it takes a block of its own.
  *
  * Each block's binds are written in the order HQ's form builder writes a
  * Save to Case block's (`saveToCase.js::getBindList`): a create's id when it
@@ -404,46 +670,32 @@ export function buildCaseOperations(
 	lookupNaming?: LookupWireNaming,
 	selectedCaseIdRef: WireExpr = SESSION_CASE_ID,
 	selectedCasesInstanceId?: string,
-	ordinaryPrimaryUpdate: UpdateCaseAction["update"] = {},
-	ordinarySubcases: readonly OpenSubCaseAction[] = [],
+	attachmentTarget: AttachmentUrlTarget | null = null,
 ): CaseOperationsEmission | null {
 	const form = doc.forms[formUuid];
 	const context: WireElementContext = {
 		mode: { target: "xform", constraint: false },
 		instances,
 	};
+	const written = writtenSaveToCaseBlocks(doc, formUuid, attachmentTarget);
+	if (written.length === 0) return null;
+	const plan = planFormCaseWire(doc, formUuid, { attachmentTarget });
+	const { placements } = planPlacements(doc, formUuid);
+	const basicSubcases = planBasicSubcases(doc, formUuid);
+	const registration = form.type === "registration";
+
 	const operations = orderedCaseOperations(form);
-	const severalCases = selectedCasesInstanceId !== undefined;
-	const ordinaryCloseScope = ordinaryCloseInSource(doc, formUuid, severalCases);
-	const ordinaryClose =
-		ordinaryCloseScope === undefined
-			? undefined
-			: {
-					scope: ordinaryCloseScope,
-					condition: formCloseCondition(doc, formUuid),
-				};
-	if (
-		!writesSaveToCaseBlocks(
-			doc,
-			formUuid,
-			severalCases,
-			ordinaryPrimaryUpdate,
-			ordinarySubcases,
-		)
-	)
-		return null;
+	const blockOf = new Map<Uuid | "own-close", SaveToCaseBlock>();
+	for (const block of written)
+		blockOf.set(
+			block.subject.kind === "own-close"
+				? "own-close"
+				: block.subject.operationUuid,
+			block,
+		);
 
 	const fields = collectFieldLocations(doc, formUuid);
 	const caseTypes = effectiveCaseTypes(doc);
-	const repeats = new Map<Uuid, FormPath>();
-	for (const [uuid, location] of fields) {
-		if (doc.fields[uuid]?.kind === "repeat") {
-			repeats.set(
-				uuid,
-				descendFormPathIntoField(doc.fields[uuid], location.path),
-			);
-		}
-	}
 
 	/** One selected-cases iteration. At the form root it is model iteration
 	 * (`@ids`, `@count`, the row's `@id`); inside a repeat it is the count
@@ -457,12 +709,14 @@ export function buildCaseOperations(
 		readonly countPlacement?: SelectedCountPlacement;
 	}
 	const selectedScopes = new Map<string, SelectedScope>();
-	const selectedScopeAt = (authoredParentPath: FormPath): SelectedScope => {
-		const key = authoredParentPath.toXPath();
+	const selectedScopeAt = (
+		authoredParentPath: FormPath,
+		name: string,
+	): SelectedScope => {
+		const containerPath = authoredParentPath.child(name);
+		const key = containerPath.toXPath();
 		const known = selectedScopes.get(key);
 		if (known !== undefined) return known;
-		const name = generatedNodes.selectedCases(authoredParentPath);
-		const containerPath = authoredParentPath.child(name);
 		const itemPath = containerPath.queryBoundIteration();
 		const countPlacement =
 			authoredParentPath.segments().length === 1
@@ -482,36 +736,35 @@ export function buildCaseOperations(
 		selectedScopes.set(key, scope);
 		return scope;
 	};
+	const newGroup = (parentPath: FormPath, name: string): GeneratedGroup => ({
+		parentPath,
+		name,
+		path: parentPath.child(name),
+		children: [],
+		controls: [],
+	});
 	const operationGroups = new Map<string, GeneratedGroup>();
-	const operationsGroupAt = (parentPath: FormPath): GeneratedGroup => {
-		const key = parentPath.toXPath();
+	const operationsGroupAt = (
+		parentPath: FormPath,
+		name: string,
+	): GeneratedGroup => {
+		const key = parentPath.child(name).toXPath();
 		let group = operationGroups.get(key);
 		if (group === undefined) {
-			const name = generatedNodes.operations(parentPath);
-			group = {
-				parentPath,
-				name,
-				path: parentPath.child(name),
-				children: [],
-				controls: [],
-			};
+			group = newGroup(parentPath, name);
 			operationGroups.set(key, group);
 		}
 		return group;
 	};
 	const subcaseGroups = new Map<string, GeneratedGroup>();
-	const subcasesGroupAt = (parentPath: FormPath): GeneratedGroup => {
-		const key = parentPath.toXPath();
+	const subcasesGroupAt = (
+		parentPath: FormPath,
+		name: string,
+	): GeneratedGroup => {
+		const key = parentPath.child(name).toXPath();
 		let group = subcaseGroups.get(key);
 		if (group === undefined) {
-			const name = generatedNodes.subcases(parentPath);
-			group = {
-				parentPath,
-				name,
-				path: parentPath.child(name),
-				children: [],
-				controls: [],
-			};
+			group = newGroup(parentPath, name);
 			subcaseGroups.set(key, group);
 		}
 		return group;
@@ -532,37 +785,45 @@ export function buildCaseOperations(
 		);
 	};
 
-	const locations = operations.map<OperationLocation>((operation) => {
-		const repeat = operation.forEach?.repeat;
-		const authoredParentPath =
-			repeat === undefined
-				? FormPath.root()
-				: (repeats.get(repeat) ?? FormPath.root());
+	/** Where a block stands: its scope, its selected-cases row, its group,
+	 *  its keyed row and condition group, and its `case`. */
+	interface BlockSite {
+		readonly selected?: SelectedScope;
+		readonly group: GeneratedGroup;
+		readonly keyed?: string;
+		readonly condition?: string;
+		readonly name: string;
+	}
+	const siteOf = (block: SaveToCaseBlock): BlockSite => {
+		const names = blockNames(doc, formUuid, block);
+		const selectedName = names.get("selected-cases");
 		const selected =
-			selectedCasesInstanceId !== undefined &&
-			operation.target.kind === "session"
-				? selectedScopeAt(authoredParentPath)
-				: undefined;
-		const parentPath = selected?.itemPath ?? authoredParentPath;
-		const groupPath = operationsGroupAt(parentPath).path;
-		const blockParentPath = isKeyedRootCreate(operation)
-			? groupPath.child(generatedNodes.keyed(operation.uuid))
-			: groupPath;
+			selectedName === undefined
+				? undefined
+				: selectedScopeAt(block.scope, selectedName);
+		const parentPath = selected?.itemPath ?? block.scope;
+		const operationsName = names.get("operations") as string;
+		const name = names.get("block") as string;
+		const keyed = names.get("keyed");
+		const condition = names.get("condition");
 		return {
-			operation,
-			repeat,
-			authoredParentPath,
-			parentPath,
-			// A conditional update or close stands in its condition group; its
-			// path is settled once the condition is known, below.
-			casePath: blockParentPath.child(operation.id).child("case"),
-			...(selected !== undefined && { selectedCaseIdPath: selected.idPath }),
+			...(selected !== undefined && { selected }),
+			group: operationsGroupAt(parentPath, operationsName),
+			...(keyed !== undefined && { keyed }),
+			...(condition !== undefined && { condition }),
+			name,
 		};
-	});
+	};
 
 	const binds: Element[] = [];
 	const setvalues: Element[] = [];
 	const priorCreates = new Map<Uuid, OperationLocation>();
+	// A create HQ's build writes (the own case of a registration, a basic
+	// subcase outside a repeat) has the session datum its entry mints the id
+	// into, from the moment the form opens.
+	const basicCreateIds = new Map<Uuid, WireExpr>(
+		plan.datums.map((datum) => [datum.operationUuid, sessionDatum(datum.id)]),
+	);
 	const operationByUuid = new Map(
 		operations.map((operation) => [operation.uuid, operation]),
 	);
@@ -578,67 +839,239 @@ export function buildCaseOperations(
 	);
 	const userPropertySlugs = userPropertySlugsByUuid(doc);
 	const organizationLevels = organizationLevelsOf(doc);
+	const ownClose = placements.get("own-close");
 
-	for (const placed of locations) {
-		const { operation, repeat } = placed;
-		const relevancePredicates = [
+	/** Bindings of an expression evaluated at `targetPath`, in `repeat`. */
+	const bindingsAt = (
+		targetPath: FormPath,
+		repeat: Uuid | undefined,
+		selectedCaseRef: WireExpr,
+	): WireTermBindings => ({
+		formFields: bindFieldPaths(fields, repeat, targetPath),
+		operationIds: bindOperationPaths(priorCreates, basicCreateIds, targetPath),
+		rootCaseIdWireExpr: selectedCaseRef,
+		caseProperty: formCasePropertyResolver(moduleCaseType, selectedCaseRef),
+		userPropertySlugs,
+		organizationLevels,
+		...(lookupNaming !== undefined && {
+			lookup: { naming: lookupNaming, instanceScope: "xform" },
+		}),
+	});
+	const printAt = (
+		expression: Expression,
+		slot: FormExpressionSlotRef,
+		bindings: WireTermBindings,
+	): WireExpr =>
+		toWire(expression, {
+			target: "xform",
+			types: expressions.context(slot),
+			form: expressions.projection,
+			bindings,
+		});
+	/** A capture's link, read where the row stands. */
+	const captureLinkAt = (
+		fieldUuid: Uuid,
+		bindings: WireTermBindings,
+	): WireExpr | undefined => {
+		if (attachmentTarget === null) return undefined;
+		const capture = bindings.formFields?.get(fieldUuid);
+		if (capture === undefined)
+			throw new Error(
+				`A case change of form ${formUuid} saves the link of capture ${fieldUuid}, which the form does not hold.`,
+			);
+		return captureUrlCalculate(capture, attachmentTarget);
+	};
+	const closeConditionSlot: FormExpressionSlotRef = {
+		entity: "form",
+		uuid: formUuid,
+		slot: "form_close_condition",
+	};
+	/** The own close's condition, or `undefined` where it closes every time. */
+	const ownCloseCondition = (): Expression | undefined => {
+		const condition = form.closeCondition;
+		return condition === undefined || condition.kind === "match-all"
+			? undefined
+			: condition;
+	};
+
+	// The children a field writes that keep the bytes beside HQ's subcase
+	// (`nova_subcases/nova_subcase_<n>`, or `nova_operations/nova_subcase_<n>`
+	// in a several-case form's selected-case row), so their locations are
+	// known before any operation that names them.
+	const extensionCreates = new Map(
+		basicSubcases
+			.filter((subcase) => subcase.inSource)
+			.map((subcase) => [subcase.operationUuid, subcase]),
+	);
+	/** Where a kept child's block stands: in the scope's `nova_subcases`
+	 *  group, or in a several-case form the selected-case row's operations
+	 *  group, whose site the block's path names. */
+	const keptChildSite = (
+		block: SaveToCaseBlock,
+	): {
+		readonly group: GeneratedGroup;
+		readonly name: string;
+		readonly selected?: SelectedScope;
+	} => {
+		if (
+			saveToCaseBlockShape(doc, formUuid, block.subject).includes(
+				"selected-cases",
+			)
+		) {
+			const site = siteOf(block);
+			return {
+				group: site.group,
+				name: site.name,
+				...(site.selected !== undefined && { selected: site.selected }),
+			};
+		}
+		const [groupName, blockName] = block.path;
+		return {
+			group: subcasesGroupAt(block.scope, groupName),
+			name: blockName ?? "",
+		};
+	};
+	const extensionLocations = new Map<Uuid, OperationLocation>();
+	for (const [uuid] of extensionCreates) {
+		const block = blockOf.get(uuid);
+		const operation = operationByUuid.get(uuid);
+		if (block === undefined || operation === undefined) continue;
+		const site = keptChildSite(block);
+		extensionLocations.set(uuid, {
+			operation,
+			repeat: operation.forEach?.repeat,
+			authoredParentPath: block.scope,
+			parentPath: site.selected?.itemPath ?? block.scope,
+			casePath: site.group.path.child(site.name).child("case"),
+			...(site.selected !== undefined && {
+				selectedCaseIdPath: site.selected.idPath,
+			}),
+		});
+	}
+	const severalOwn = operations.find(
+		(operation) =>
+			operation.action === "own" &&
+			blockOf.has(operation.uuid) &&
+			saveToCaseBlockShape(doc, formUuid, {
+				kind: "operation",
+				operationUuid: operation.uuid,
+			}).includes("selected-cases"),
+	);
+
+	for (const [operationIndex, operation] of operations.entries()) {
+		for (const [uuid, location] of extensionLocations)
+			if (
+				operations.findIndex((candidate) => candidate.uuid === uuid) <
+				operationIndex
+			)
+				priorCreates.set(uuid, location);
+		const block = blockOf.get(operation.uuid);
+		if (
+			block === undefined ||
+			extensionCreates.has(operation.uuid) ||
+			operation === severalOwn
+		)
+			continue;
+		const own = operation.action === "own";
+		const caseType = own
+			? registrationCaseType(moduleCaseType)
+			: operation.caseType;
+		const target = operationTarget(operation, form.type);
+		const create = operation.action === "create" || (own && registration);
+		const repeat = operation.forEach?.repeat;
+		const site = siteOf(block);
+		const { group } = site;
+		const authoredParentPath = block.scope;
+		const blockParentPath =
+			site.keyed === undefined ? group.path : group.path.child(site.keyed);
+
+		const relevancePredicates: {
+			readonly expression: Expression;
+			readonly slot: FormExpressionSlotRef;
+		}[] = [
 			...[...(inheritedGuardUuids.get(operation.uuid) ?? [])].flatMap(
 				(uuid) => {
 					const condition = operationByUuid.get(uuid)?.condition;
 					return condition === undefined
 						? []
-						: [{ expression: condition, operationUuid: uuid }];
+						: [
+								{
+									expression: condition,
+									slot: {
+										entity: "form",
+										uuid: formUuid,
+										slot: "case_operation_condition",
+										member: { operationUuid: uuid },
+									} as const,
+								},
+							];
 				},
 			),
-			...(operation.condition === undefined
-				? []
-				: [{ expression: operation.condition, operationUuid: operation.uuid }]),
+			...(operation.condition !== undefined
+				? [
+						{
+							expression: operation.condition,
+							slot: {
+								entity: "form",
+								uuid: formUuid,
+								slot: "case_operation_condition",
+								member: { operationUuid: operation.uuid },
+							} as const,
+						},
+					]
+				: own &&
+						registration &&
+						form.openCondition !== undefined &&
+						form.openCondition.kind !== "match-all"
+					? [
+							{
+								expression: form.openCondition,
+								slot: {
+									entity: "form",
+									uuid: formUuid,
+									slot: "form_open_condition",
+								} as const,
+							},
+						]
+					: []),
 		];
 		const conditional = relevancePredicates.length > 0;
-		const create = operation.action === "create";
-		const group = operationsGroupAt(placed.parentPath);
-		const conditionPath = conditional
-			? group.path.child(generatedNodes.condition(operation.uuid))
-			: undefined;
-		const location: OperationLocation =
+		// A conditional update or close stands in the condition group its path
+		// names; a conditional create carries its condition on its `case`, and
+		// its guards stand in the group the plan of generated nodes names.
+		const conditionPath =
+			site.condition !== undefined
+				? group.path.child(site.condition)
+				: conditional && create && !own
+					? group.path.child(generatedNodes.condition(operation.uuid))
+					: undefined;
+		const casePath =
 			conditionPath !== undefined && !create
-				? {
-						...placed,
-						casePath: conditionPath.child(operation.id).child("case"),
-					}
-				: placed;
-		const { casePath } = location;
+				? conditionPath.child(site.name).child("case")
+				: blockParentPath.child(site.name).child("case");
+		const location: OperationLocation = {
+			operation,
+			repeat,
+			authoredParentPath,
+			parentPath: site.selected?.itemPath ?? authoredParentPath,
+			casePath,
+			...(site.selected !== undefined && {
+				selectedCaseIdPath: site.selected.idPath,
+			}),
+		};
 		const operationSnapshotTypes = expressionSnapshotTypes.get(operation.uuid);
 		const caseIdPath = casePath.attr("case_id");
 		const selectedCaseRef = (targetPath: FormPath): WireExpr =>
 			location.selectedCaseIdPath === undefined
 				? selectedCaseIdRef
 				: originalContextWirePath(targetPath, location.selectedCaseIdPath);
-		const operationBindings = (targetPath: FormPath): WireTermBindings => ({
-			formFields: bindFieldPaths(fields, repeat, targetPath),
-			operationIds: bindOperationPaths(priorCreates, targetPath),
-			rootCaseIdWireExpr: selectedCaseRef(targetPath),
-			caseProperty: formCasePropertyResolver(
-				moduleCaseType,
-				selectedCaseRef(targetPath),
-			),
-			userPropertySlugs,
-			organizationLevels,
-			...(lookupNaming !== undefined && {
-				lookup: { naming: lookupNaming, instanceScope: "xform" },
-			}),
-		});
+		const operationBindings = (targetPath: FormPath): WireTermBindings =>
+			bindingsAt(targetPath, repeat, selectedCaseRef(targetPath));
 		const emitExpression = (
 			expression: Expression,
 			targetPath: FormPath,
 			slot: FormExpressionSlotRef,
-		): WireExpr =>
-			toWire(expression, {
-				target: "xform",
-				types: expressions.context(slot),
-				form: expressions.projection,
-				bindings: operationBindings(targetPath),
-			});
+		): WireExpr => printAt(expression, slot, operationBindings(targetPath));
 		const ownSlot = (
 			slot:
 				| "case_operation_target_expression"
@@ -660,26 +1093,40 @@ export function buildCaseOperations(
 			);
 		const relevanceAt = (targetPath: FormPath): WireExpr =>
 			w.and(
-				...relevancePredicates.map(({ expression, operationUuid }) =>
-					emitExpression(expression, targetPath, {
-						entity: "form",
-						uuid: formUuid,
-						slot: "case_operation_condition",
-						member: { operationUuid },
-					}),
+				...relevancePredicates.map(({ expression, slot }) =>
+					emitExpression(expression, targetPath, slot),
 				),
 			);
 
-		const writes = operation.writes ?? [];
+		// A rename is the own case's name on a form that loads it.
+		const rename = own
+			? create
+				? undefined
+				: operation.name
+			: operation.rename;
+		const closesHere =
+			operation.action === "close" ||
+			(own &&
+				ownClose?.sharesWith === operation.uuid &&
+				placements.get(operation.uuid)?.placement.kind === "save-to-case");
+		const writes = (operation.writes ?? []).filter((write) => {
+			if (write.via !== undefined)
+				throw new Error(
+					`A Save to Case block of form ${formUuid} reached a write through a case above another. The validator's CASE_WRITE_VIA_INVALID refuses that write outside Case Management.`,
+				);
+			return (
+				attachmentTarget !== null ||
+				caseWriteValueField(write.value)?.link !== true
+			);
+		});
 		const links = operation.links ?? [];
 		const requiredScalarTextPaths: FormPath[] = [];
 		const optionalScalarTextPaths: FormPath[] = [];
 		const updateChildren: Element[] = [];
-		if (operation.rename !== undefined)
-			updateChildren.push(el("case_name", {}));
+		if (rename !== undefined) updateChildren.push(el("case_name", {}));
 		if (operation.retype !== undefined)
 			updateChildren.push(el("case_type", {}));
-		if (operation.action === "update" && operation.owner !== undefined) {
+		if (!create && operation.owner !== undefined) {
 			updateChildren.push(el("owner_id", {}));
 		}
 		for (const write of writes) updateChildren.push(el(write.property, {}));
@@ -696,10 +1143,9 @@ export function buildCaseOperations(
 			);
 		}
 		const needsUpdate =
-			operation.action === "update" ||
-			operation.action === "close" ||
+			!create ||
 			writes.length > 0 ||
-			operation.rename !== undefined ||
+			rename !== undefined ||
 			operation.retype !== undefined;
 		// HQ's parser treats an empty <update/> as absent when the block also has a
 		// close/index action, so an empty node alone cannot normalize its server
@@ -709,10 +1155,10 @@ export function buildCaseOperations(
 		// declared type while classifying every non-create block as update-first.
 		const usesTypeOrderingGuard = !create && updateChildren.length === 0;
 		if (usesTypeOrderingGuard) updateChildren.push(el("case_type", {}));
-		if (needsUpdate || (!create && links.length > 0)) {
+		if (needsUpdate) {
 			caseChildren.push(el("update", {}, updateChildren));
 		}
-		if (operation.action === "close") caseChildren.push(el("close", {}));
+		if (closesHere) caseChildren.push(el("close", {}));
 		if (links.length > 0) {
 			caseChildren.push(
 				el(
@@ -730,30 +1176,24 @@ export function buildCaseOperations(
 
 		const blockBinds: Element[] = [];
 		if (create) {
-			const keyed =
-				operation.target.kind === "new" &&
-				operation.target.idFrom !== undefined;
+			const keyed = target.kind === "new" && target.idFrom !== undefined;
 			const idValue =
-				operation.target.kind === "new" && operation.target.idFrom !== undefined
+				target.kind === "new" && target.idFrom !== undefined
 					? authoredCaseIdCalculation(
 							{
 								appId: doc.appId,
 								formUuid,
 								operationUuid: operation.uuid,
-								caseType: operation.caseType,
+								caseType,
 							},
-							boundFieldPath(
-								fields,
-								operation.target.idFrom,
-								repeat,
-								caseIdPath,
-							),
+							boundFieldPath(fields, target.idFrom, repeat, caseIdPath),
 						)
 					: w.call("uuid");
 			// HQ's form builder keeps a create's id as a bind inside a repeat and
 			// as a load-time setvalue outside one (`saveToCase.js::getSetValues`),
 			// so a root create keyed by an answer stands in its one-row repeat.
-			if (repeat === undefined && !keyed) {
+			// The selected-cases iteration is a repeat too: one create per case.
+			if (repeat === undefined && site.selected === undefined && !keyed) {
 				setvalues.push(
 					xel(
 						"setvalue",
@@ -795,7 +1235,7 @@ export function buildCaseOperations(
 					{
 						xpath: {
 							nodeset: createPath.child("case_type").toWire(),
-							calculate: w.str(operation.caseType),
+							calculate: w.str(caseType),
 						},
 					},
 					context,
@@ -847,9 +1287,9 @@ export function buildCaseOperations(
 			);
 		}
 
-		if (needsUpdate || (!create && links.length > 0)) {
+		if (needsUpdate) {
 			const updatePath = casePath.child("update");
-			if (operation.rename !== undefined) {
+			if (rename !== undefined) {
 				const renamePath = updatePath.child("case_name");
 				requiredScalarTextPaths.push(renamePath);
 				blockBinds.push(
@@ -860,9 +1300,11 @@ export function buildCaseOperations(
 								nodeset: renamePath.toWire(),
 								calculate: caseScalarTextValueCalculation(
 									emitExpression(
-										operation.rename,
+										rename,
 										renamePath,
-										ownSlot("case_operation_rename"),
+										ownSlot(
+											own ? "case_operation_name" : "case_operation_rename",
+										),
 									),
 								),
 							},
@@ -878,14 +1320,14 @@ export function buildCaseOperations(
 						{
 							xpath: {
 								nodeset: updatePath.child("case_type").toWire(),
-								calculate: w.str(operation.retype ?? operation.caseType),
+								calculate: w.str(operation.retype ?? caseType),
 							},
 						},
 						context,
 					),
 				);
 			}
-			if (operation.action === "update" && operation.owner !== undefined) {
+			if (!create && operation.owner !== undefined) {
 				const ownerPath = updatePath.child("owner_id");
 				requiredScalarTextPaths.push(ownerPath);
 				blockBinds.push(
@@ -913,9 +1355,7 @@ export function buildCaseOperations(
 					nodeset: writePath.toWire(),
 				};
 				const destination = caseTypes
-					.find(
-						(type) => type.name === (operation.retype ?? operation.caseType),
-					)
+					.find((type) => type.name === (operation.retype ?? caseType))
 					?.properties.find((property) => property.name === write.property);
 				if (write.condition !== undefined) {
 					attributes.relevant = emitExpression(write.condition, writePath, {
@@ -925,18 +1365,57 @@ export function buildCaseOperations(
 						member: { operationUuid: operation.uuid, property: write.property },
 					});
 				}
-				const emitted = emitExpression(write.value, writePath, {
-					entity: "form",
-					uuid: formUuid,
-					slot: "case_operation_write_value",
-					member: { operationUuid: operation.uuid, property: write.property },
-				});
-				// HQ's form builder writes a row's bind with no `type`, so a
-				// datetime leaf stays untyped and the value carries its own clock.
-				const value =
-					destination?.data_type === "datetime"
-						? datetimeCaseValueExpression(emitted)
-						: emitted;
+				const link = caseWriteValueField(write.value);
+				// A question's answer saved as it is to the form's own case or the
+				// worker's record, on a form that updates it, saves nothing while
+				// the question is not answered, as HQ's basic update writes it
+				// (`xform.py::XFormCaseBlock.add_case_updates`, `count(path) > 0`),
+				// so the write means the same in either place.
+				if (
+					!create &&
+					link !== undefined &&
+					!link.link &&
+					(own || target.kind === "worker-record")
+				) {
+					const answer = emitExpression(write.value, writePath, {
+						entity: "form",
+						uuid: formUuid,
+						slot: "case_operation_write_value",
+						member: {
+							operationUuid: operation.uuid,
+							property: write.property,
+						},
+					});
+					const present = w.gt(w.call("count", [answer]), w.num(0));
+					attributes.relevant =
+						attributes.relevant === undefined
+							? present
+							: w.and(present, attributes.relevant);
+				}
+				let value: WireExpr;
+				if (link?.link === true) {
+					// A capture's link is built over the capture's own node: no
+					// sibling, and no upload question named as a row's source.
+					value =
+						captureLinkAt(link.field, operationBindings(writePath)) ??
+						w.str("");
+				} else {
+					const emitted = emitExpression(write.value, writePath, {
+						entity: "form",
+						uuid: formUuid,
+						slot: "case_operation_write_value",
+						member: {
+							operationUuid: operation.uuid,
+							property: write.property,
+						},
+					});
+					// HQ's form builder writes a row's bind with no `type`, so a
+					// datetime leaf stays untyped and the value carries its own clock.
+					value =
+						destination?.data_type === "datetime"
+							? datetimeCaseValueExpression(emitted)
+							: emitted;
+				}
 				// `external_id` is a fixed text column whatever its declared type,
 				// so its value is normalized and checked by the text guard, which
 				// `operationGuardKinds` gives every operation that writes it.
@@ -947,6 +1426,28 @@ export function buildCaseOperations(
 					attributes.calculate = value;
 				}
 				blockBinds.push(xel("bind", { xpath: attributes }, context));
+			}
+		}
+		if (closesHere && own) {
+			const condition = ownCloseCondition();
+			if (condition !== undefined) {
+				const closePath = casePath.child("close");
+				blockBinds.push(
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: closePath.toWire(),
+								relevant: emitExpression(
+									condition,
+									closePath,
+									closeConditionSlot,
+								),
+							},
+						},
+						context,
+					),
+				);
 			}
 		}
 
@@ -991,8 +1492,8 @@ export function buildCaseOperations(
 									repeat,
 									fields,
 									priorCreates,
+									basicCreateIds,
 									linkExpression,
-
 									linkSnapshotType,
 									selectedCaseRef(linkPath),
 								),
@@ -1003,22 +1504,22 @@ export function buildCaseOperations(
 				);
 				if (link.target.kind === "expression") {
 					const guardIdPath = guardCaseIdPath("type");
-					const target = emitTarget(
+					const linked = emitTarget(
 						link.target,
 						guardIdPath,
 						repeat,
 						fields,
 						priorCreates,
+						basicCreateIds,
 						linkExpression,
-
 						linkSnapshotType,
 						selectedCaseRef(guardIdPath),
 					);
 					const id = originalContextWirePath(guardIdPath, caseIdPath);
 					typeTests.push(
 						w.and(
-							w.gt(w.call("count", [target]), w.num(0)),
-							w.ne(w.call("string", [target]), id),
+							w.gt(w.call("count", [linked]), w.num(0)),
+							w.ne(w.call("string", [linked]), id),
 						),
 					);
 				}
@@ -1034,14 +1535,14 @@ export function buildCaseOperations(
 						xpath: {
 							nodeset: caseIdPath.toWire(),
 							calculate: emitTarget(
-								operation.target,
+								target,
 								caseIdPath,
 								repeat,
 								fields,
 								priorCreates,
+								basicCreateIds,
 								targetExpression,
-
-								operationSnapshotTypes?.target ?? operation.caseType,
+								operationSnapshotTypes?.target ?? caseType,
 								selectedCaseRef(caseIdPath),
 							),
 						},
@@ -1058,7 +1559,7 @@ export function buildCaseOperations(
 		// blocks atomically, so the operation's effect rolls back with it. Every
 		// read of the operation's block goes through `current()`, which HQ's
 		// form builder does not take for an unknown question.
-		const guardType = operation.retype ?? operation.caseType;
+		const guardType = operation.retype ?? caseType;
 		const guards: Element[] = [];
 		const guardBinds: Element[] = [];
 		for (const kind of operationGuardKinds(operation)) {
@@ -1138,18 +1639,13 @@ export function buildCaseOperations(
 		// block. HQ's form builder keeps a create's condition as its Open Case
 		// Condition and no condition on an update's or close's block, and a
 		// guard that ran while its operation did not would fail the submission.
-		const block = saveToCaseBlock(
-			operation.id,
-			operation.caseType,
-			caseChildren,
-		);
-		if (isKeyedRootCreate(operation)) {
+		const caseBlock = saveToCaseBlock(site.name, caseType, caseChildren);
+		if (site.keyed !== undefined) {
 			const countName = generatedNodes.keyedCount(operation.uuid);
-			const keyedName = generatedNodes.keyed(operation.uuid);
 			const countPath = group.path.child(countName);
 			group.children.push(
 				el(countName, {}),
-				el(keyedName, { "jr:template": "" }, [block]),
+				el(site.keyed, { "jr:template": "" }, [caseBlock]),
 			);
 			group.controls.push(
 				el("group", {}, [
@@ -1158,7 +1654,7 @@ export function buildCaseOperations(
 						{
 							attributes: { "jr:noAddRemove": "true()" },
 							xpath: {
-								nodeset: group.path.child(keyedName).toWire(),
+								nodeset: group.path.child(site.keyed).toWire(),
 								"jr:count": countPath.toWire(),
 							},
 						},
@@ -1185,16 +1681,16 @@ export function buildCaseOperations(
 			);
 		if (conditionPath !== undefined && !create) {
 			binds.push(conditionBind(conditionPath), ...blockBinds, ...guardBinds);
-			appendGroup(group, generatedNodes.condition(operation.uuid), [
-				block,
+			appendGroup(group, conditionPath.segments().at(-1)?.name ?? "", [
+				caseBlock,
 				...guards,
 			]);
 		} else {
-			if (!isKeyedRootCreate(operation)) group.children.push(block);
+			if (site.keyed === undefined) group.children.push(caseBlock);
 			binds.push(...blockBinds);
 			if (conditionPath !== undefined && guards.length > 0) {
 				binds.push(conditionBind(conditionPath));
-				appendGroup(group, generatedNodes.condition(operation.uuid), guards);
+				appendGroup(group, conditionPath.segments().at(-1)?.name ?? "", guards);
 			} else {
 				group.children.push(...guards);
 			}
@@ -1202,76 +1698,182 @@ export function buildCaseOperations(
 		}
 		if (create) priorCreates.set(operation.uuid, location);
 	}
+	for (const [uuid, location] of extensionLocations)
+		priorCreates.set(uuid, location);
 
-	// An ordinary Case destination on a several-case form is one shared answer
-	// applied to every selected case. HQ's scalar FormActions projection cannot
-	// express that cardinality, so the source XForm carries one derived
-	// SaveToCase block after all authored operations and before ordinary child
-	// creation/close. No persisted operation is invented in BlueprintDoc. It
-	// stands in a group whose relevance is "some shared answer is present", so
-	// an all-blank form sends no empty update to every selected case.
-	if (
-		selectedCasesInstanceId !== undefined &&
-		Object.keys(ordinaryPrimaryUpdate).length > 0
-	) {
-		const { itemPath, idPath } = selectedScopeAt(FormPath.root());
-		const group = operationsGroupAt(itemPath);
-		const conditionName = generatedNodes.conditionUpdateSelectedCases();
-		const blockName = generatedNodes.updateSelectedCases();
-		const conditionPath = group.path.child(conditionName);
-		const casePath = conditionPath.child(blockName).child("case");
+	// The own case of a several-case form is one shared answer applied to
+	// every selected case: HQ's basic update has one case to write, so the
+	// source carries one block in the selected-case iteration, after the
+	// operations that work on each case. Its group is present only while
+	// some shared answer is, and each row only while its answer is, so a
+	// blank answer leaves every case's value alone.
+	if (severalOwn !== undefined) {
+		const block = blockOf.get(severalOwn.uuid);
+		if (block === undefined)
+			throw new Error(
+				`The own case of form ${formUuid} lost its Save to Case block between two reads of one plan.`,
+			);
+		const site = siteOf(block);
+		const { group } = site;
+		const selected = site.selected;
+		if (selected === undefined || site.condition === undefined)
+			throw new Error(
+				`The shared update of form ${formUuid} reached emission outside the selected-case iteration. Its block shape always holds both.`,
+			);
+		const conditionPath = group.path.child(site.condition);
+		const casePath = conditionPath.child(site.name).child("case");
 		const updatePath = casePath.child("update");
-
-		// Every write is an `<update>` row. A name or an external id reads the
-		// question's trimmed sibling and a capture its link sibling, both of
-		// which `formActions.ts` names, so no row reads an upload question.
-		const writes = Object.entries(ordinaryPrimaryUpdate).map(
-			([formActionsProperty, mapping]) => {
-				const property = validatePropertyName(
-					formActionsProperty === "name" ? "case_name" : formActionsProperty,
-				);
-				const source = FormPath.parse(
-					validateXFormPath(mapping.question_path),
-				).toWire();
-				const present = w.and(
-					w.gt(w.call("count", [source]), w.num(0)),
-					w.ne(w.call("string", [source]), w.str("")),
-				);
-				return { property, source, present };
+		const selectedRef = (targetPath: FormPath) =>
+			originalContextWirePath(targetPath, selected.idPath);
+		const rows = sharedOwnRows(doc, formUuid, severalOwn, attachmentTarget).map(
+			(row) => {
+				const property = validatePropertyName(row.property);
+				const rowPath = updatePath.child(property);
+				const bindings = bindingsAt(rowPath, undefined, selectedRef(rowPath));
+				const sibling = sharedRowSibling(generatedNodes, fields, row);
+				const link = caseWriteValueField(row.value);
+				const bare =
+					sibling !== undefined || (link !== undefined && !link.link);
+				const source =
+					sibling !== undefined
+						? sibling.toWire()
+						: link?.link === true
+							? (captureLinkAt(link.field, bindings) ?? w.str(""))
+							: printAt(row.value, row.slot, bindings);
+				const present = bare
+					? w.and(
+							w.gt(w.call("count", [source]), w.num(0)),
+							w.ne(w.call("string", [source]), w.str("")),
+						)
+					: w.ne(w.call("string", [source]), w.str(""));
+				const relevant =
+					row.condition === undefined
+						? present
+						: w.and(
+								present,
+								printAt(
+									row.condition,
+									{
+										entity: "form",
+										uuid: formUuid,
+										slot: "case_operation_write_condition",
+										member: {
+											operationUuid: severalOwn.uuid,
+											property: row.property,
+										},
+									},
+									bindings,
+								),
+							);
+				return { property, source, present, relevant };
 			},
 		);
-
-		appendGroup(group, conditionName, [
-			saveToCaseBlock(blockName, moduleCaseType, [
+		// The own case's links index each selected case: they stand however
+		// the answers do, so a block with a link is always present.
+		const links = severalOwn.links ?? [];
+		const indexPath = casePath.child("index");
+		appendGroup(group, site.condition, [
+			saveToCaseBlock(site.name, moduleCaseType, [
 				el(
 					"update",
 					{},
-					writes.map((write) => el(write.property, {})),
+					rows.length === 0
+						? [el("case_type", {})]
+						: rows.map((row) => el(row.property, {})),
 				),
+				...(links.length === 0
+					? []
+					: [
+							el(
+								"index",
+								{},
+								links.map((link) =>
+									el(link.identifier, {
+										case_type: link.targetType,
+										relationship: link.relationship,
+									}),
+								),
+							),
+						]),
 			]),
 		]);
-
-		binds.push(
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: conditionPath.toWire(),
-						relevant: w.or(...writes.map((write) => write.present)),
-					},
-				},
-				context,
-			),
-		);
-		for (const write of writes) {
+		if (links.length === 0)
 			binds.push(
 				xel(
 					"bind",
 					{
 						xpath: {
-							nodeset: updatePath.child(write.property).toWire(),
-							calculate: write.source,
-							relevant: write.present,
+							nodeset: conditionPath.toWire(),
+							relevant: w.or(...rows.map((row) => row.present)),
+						},
+					},
+					context,
+				),
+			);
+		if (rows.length === 0)
+			// HQ's parser reads an empty `<update/>` beside an index as absent;
+			// the case's own type, written to itself, keeps the block an update.
+			binds.push(
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: updatePath.child("case_type").toWire(),
+							calculate: w.str(registrationCaseType(moduleCaseType)),
+						},
+					},
+					context,
+				),
+			);
+		for (const link of links) {
+			if (link.target === null) continue;
+			const linkPath = indexPath.child(link.identifier);
+			const bindings = bindingsAt(linkPath, undefined, selectedRef(linkPath));
+			binds.push(
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: linkPath.toWire(),
+							calculate: emitTarget(
+								link.target,
+								linkPath,
+								undefined,
+								fields,
+								priorCreates,
+								basicCreateIds,
+								(expression) =>
+									printAt(
+										expression,
+										{
+											entity: "form",
+											uuid: formUuid,
+											slot: "case_operation_link_target_expression",
+											member: {
+												operationUuid: severalOwn.uuid,
+												identifier: link.identifier,
+											},
+										},
+										bindings,
+									),
+								link.targetType,
+								selectedRef(linkPath),
+							),
+						},
+					},
+					context,
+				),
+			);
+		}
+		for (const row of rows) {
+			binds.push(
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: updatePath.child(row.property).toWire(),
+							calculate: row.source,
+							relevant: row.relevant,
 						},
 					},
 					context,
@@ -1287,7 +1889,7 @@ export function buildCaseOperations(
 						nodeset: casePath.attr("case_id").toWire(),
 						calculate: originalContextWirePath(
 							casePath.attr("case_id"),
-							idPath,
+							selected.idPath,
 						),
 					},
 				},
@@ -1296,33 +1898,29 @@ export function buildCaseOperations(
 		);
 	}
 
-	// A several-case form needs one create per selected parent. Scalar extension
-	// creates also live in source because HQ ignores the basic action's
-	// relationship. Each is a create with no guards, so its condition is its
+	// An extension child a field writes keeps today's wire (part 02 §14.4
+	// of the step plan): HQ's basic build ignores a subcase's relationship,
+	// so HQ's action stays inert and its active create is this block, at
+	// the same index and with the same session datum. Its rows read the
+	// nodes the inert action names; its condition, when it has one, is its
 	// Open Case Condition.
-	for (const [subcaseIndex, subcase] of ordinarySubcases.entries()) {
-		const multiple = selectedCasesInstanceId !== undefined;
-		if (!subcaseIsWrittenInSource(subcase, multiple)) continue;
-		const authoredParentPath = subcase.repeat_context
-			? FormPath.parse(subcase.repeat_context)
-			: FormPath.root();
-		const selected = multiple ? selectedScopeAt(authoredParentPath) : undefined;
-		const group =
-			selected === undefined
-				? subcasesGroupAt(authoredParentPath)
-				: operationsGroupAt(selected.itemPath);
-		const blockName = generatedNodes.subcase(
-			subcaseIndex,
-			selected === undefined ? undefined : authoredParentPath,
-		);
-		const casePath = group.path.child(blockName).child("case");
+	for (const subcase of basicSubcases) {
+		if (!subcase.inSource) continue;
+		const location = extensionLocations.get(subcase.operationUuid);
+		const action = plan.actions.subcases[subcase.index];
+		if (location === undefined || action === undefined) continue;
+		const operation = location.operation;
+		const block = blockOf.get(subcase.operationUuid);
+		if (block === undefined) continue;
+		const { group, name: blockName, selected } = keptChildSite(block);
+		const { casePath } = location;
 		const createPath = casePath.child("create");
 		const updatePath = casePath.child("update");
 		const indexPath = casePath.child("index");
-		const indexId = subcase.reference_id || "parent";
-		const propertyEntries = Object.entries(subcase.case_properties);
+		const indexId = action.reference_id || "parent";
+		const propertyEntries = Object.entries(action.case_properties);
 		group.children.push(
-			saveToCaseBlock(blockName, subcase.case_type, [
+			saveToCaseBlock(blockName ?? "", action.case_type, [
 				el("create", {}, [
 					el("case_type", {}),
 					el("case_name", {}),
@@ -1340,21 +1938,23 @@ export function buildCaseOperations(
 				el("index", {}, [
 					el(indexId, {
 						case_type: moduleCaseType ?? "",
-						relationship: subcase.relationship,
+						relationship: action.relationship,
 					}),
 				]),
-				...(subcase.close_condition.type === "never" ? [] : [el("close", {})]),
 			]),
 		);
-
-		const sourceRef = (raw: string, target: FormPath): WireExpr => {
+		const inRepeat = action.repeat_context !== "";
+		const sourceRef = (raw: string, targetPath: FormPath): WireExpr => {
 			const source = FormPath.parse(validateXFormPath(raw));
-			return subcase.repeat_context
-				? originalContextWirePath(target, source)
+			return inRepeat
+				? originalContextWirePath(targetPath, source)
 				: source.toWire();
 		};
 		const namePath = createPath.child("case_name");
-		if (multiple || subcase.repeat_context) {
+		const datum = plan.datums.find(
+			(candidate) => candidate.operationUuid === subcase.operationUuid,
+		);
+		if (inRepeat || selected !== undefined || datum === undefined) {
 			binds.push(
 				xel(
 					"bind",
@@ -1375,27 +1975,36 @@ export function buildCaseOperations(
 						attributes: { event: "xforms-ready" },
 						xpath: {
 							ref: casePath.attr("case_id").toWire(),
-							value: sessionDatum(
-								subcaseSessionDatumId(
-									subcase,
-									subcaseIndex,
-									form.type === "registration",
-								),
-							),
+							value: sessionDatum(datum.id),
 						},
 					},
 					context,
 				),
 			);
 		}
-		if (subcase.condition.type === "if") {
+		if (operation.condition !== undefined) {
 			binds.push(
 				xel(
 					"bind",
 					{
 						xpath: {
 							nodeset: casePath.toWire(),
-							relevant: formActionConditionExpression(subcase.condition),
+							relevant: printAt(
+								operation.condition,
+								{
+									entity: "form",
+									uuid: formUuid,
+									slot: "case_operation_condition",
+									member: { operationUuid: operation.uuid },
+								},
+								bindingsAt(
+									casePath,
+									location.repeat,
+									selected === undefined
+										? selectedCaseIdRef
+										: originalContextWirePath(casePath, selected.idPath),
+								),
+							),
 						},
 					},
 					context,
@@ -1408,7 +2017,7 @@ export function buildCaseOperations(
 				{
 					xpath: {
 						nodeset: createPath.child("case_type").toWire(),
-						calculate: w.str(subcase.case_type),
+						calculate: w.str(action.case_type),
 					},
 				},
 				context,
@@ -1418,7 +2027,7 @@ export function buildCaseOperations(
 				{
 					xpath: {
 						nodeset: namePath.toWire(),
-						calculate: sourceRef(subcase.name_update.question_path, namePath),
+						calculate: sourceRef(action.name_update.question_path, namePath),
 					},
 				},
 				context,
@@ -1451,20 +2060,6 @@ export function buildCaseOperations(
 				),
 			);
 		}
-		if (subcase.close_condition.type === "if") {
-			binds.push(
-				xel(
-					"bind",
-					{
-						xpath: {
-							nodeset: casePath.child("close").toWire(),
-							relevant: formActionConditionExpression(subcase.close_condition),
-						},
-					},
-					context,
-				),
-			);
-		}
 		binds.push(
 			xel(
 				"bind",
@@ -1473,13 +2068,15 @@ export function buildCaseOperations(
 						nodeset: indexPath.child(indexId).toWire(),
 						calculate:
 							selected !== undefined
-								? originalContextWirePath(
+								? // The selected case of the row the block stands in.
+									originalContextWirePath(
 										indexPath.child(indexId),
 										selected.idPath,
 									)
-								: form.type === "registration"
-									? // The form's own new case: the datum its entry mints the id
-										// into, which HQ's build also sets the create block's id from.
+								: registration
+									? // The form's own new case: the datum its entry mints
+										// the id into, which HQ's build also sets the create
+										// block's id from.
 										sessionDatum(
 											newCaseIdDatumId(registrationCaseType(moduleCaseType)),
 										)
@@ -1492,95 +2089,103 @@ export function buildCaseOperations(
 		);
 	}
 
-	// A close form's ordinary lifecycle effect is also collection-valued. HQ
-	// disables its singular default case-management block for multi-select
-	// forms, so Nova emits the equivalent SaveToCase block inside the same
-	// selected-case model iteration as explicit session-targeted operations.
-	// The block is close-only, matching HQ's `XFormCaseBlock.add_close_block`:
-	// writing the module's original case type here would undo an admitted
-	// session-targeted retype that ran immediately before the ordinary close.
-	if (ordinaryClose?.scope === "selected") {
-		const { itemPath, idPath } = selectedScopeAt(FormPath.root());
-		const group = operationsGroupAt(itemPath);
-		const blockName = generatedNodes.closeSelectedCases();
-		const casePath = group.path.child(blockName).child("case");
-		group.children.push(
-			saveToCaseBlock(blockName, moduleCaseType, [el("close", {})]),
-		);
-		if (ordinaryClose.condition.type === "if") {
+	// The own close in a block of its own: a close-only block of each
+	// selected case in a several-case form, or of the form's own case inside
+	// a group whose relevance is the close condition. A close-only block
+	// writes no case type, which would undo a retype that ran before it
+	// (`XFormCaseBlock.add_close_block` writes none either).
+	const ownCloseBlock = blockOf.get("own-close");
+	if (ownCloseBlock !== undefined) {
+		const site = siteOf(ownCloseBlock);
+		const { group } = site;
+		const condition = ownCloseCondition();
+		if (site.selected !== undefined) {
+			const selected = site.selected;
+			const casePath = group.path.child(site.name).child("case");
+			group.children.push(
+				saveToCaseBlock(site.name, moduleCaseType, [el("close", {})]),
+			);
+			if (condition !== undefined) {
+				const closePath = casePath.child("close");
+				binds.push(
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: closePath.toWire(),
+								relevant: printAt(
+									condition,
+									closeConditionSlot,
+									bindingsAt(
+										closePath,
+										undefined,
+										originalContextWirePath(closePath, selected.idPath),
+									),
+								),
+							},
+						},
+						context,
+					),
+				);
+			}
 			binds.push(
+				...caseMetaBinds(casePath, context),
 				xel(
 					"bind",
 					{
 						xpath: {
-							nodeset: casePath.child("close").toWire(),
-							relevant: formActionConditionExpression(ordinaryClose.condition),
+							nodeset: casePath.attr("case_id").toWire(),
+							calculate: originalContextWirePath(
+								casePath.attr("case_id"),
+								selected.idPath,
+							),
+						},
+					},
+					context,
+				),
+			);
+		} else {
+			const conditionName = site.condition ?? generatedNodes.conditionClose();
+			const conditionPath = group.path.child(conditionName);
+			const casePath = conditionPath.child(site.name).child("case");
+			appendGroup(group, conditionName, [
+				saveToCaseBlock(site.name, moduleCaseType, [el("close", {})]),
+			]);
+			if (condition !== undefined)
+				binds.push(
+					xel(
+						"bind",
+						{
+							xpath: {
+								nodeset: conditionPath.toWire(),
+								relevant: printAt(
+									condition,
+									closeConditionSlot,
+									bindingsAt(conditionPath, undefined, selectedCaseIdRef),
+								),
+							},
+						},
+						context,
+					),
+				);
+			binds.push(
+				...caseMetaBinds(casePath, context),
+				xel(
+					"bind",
+					{
+						xpath: {
+							nodeset: casePath.attr("case_id").toWire(),
+							calculate: registration
+								? sessionDatum(
+										newCaseIdDatumId(registrationCaseType(moduleCaseType)),
+									)
+								: selectedCaseIdRef,
 						},
 					},
 					context,
 				),
 			);
 		}
-		binds.push(
-			...caseMetaBinds(casePath, context),
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: casePath.attr("case_id").toWire(),
-						calculate: originalContextWirePath(
-							casePath.attr("case_id"),
-							idPath,
-						),
-					},
-				},
-				context,
-			),
-		);
-	}
-
-	// A single-select form's close whose condition HQ's Case Management tab
-	// cannot state is a close-only block of the loaded case, inside a group
-	// whose relevance is the condition, so an untaken condition sends no
-	// block. HQ's close action is `never` there (`formActions.ts`), and HQ's
-	// build appends its own primary block after the source's, so the close
-	// runs before the form's own update and the case ends closed with it.
-	if (ordinaryClose?.scope === "own") {
-		const group = operationsGroupAt(FormPath.root());
-		const conditionName = generatedNodes.conditionClose();
-		const blockName = generatedNodes.close();
-		const conditionPath = group.path.child(conditionName);
-		const casePath = conditionPath.child(blockName).child("case");
-		appendGroup(group, conditionName, [
-			saveToCaseBlock(blockName, moduleCaseType, [el("close", {})]),
-		]);
-
-		if (ordinaryClose.condition.type === "if")
-			binds.push(
-				xel(
-					"bind",
-					{
-						xpath: {
-							nodeset: conditionPath.toWire(),
-							relevant: formActionConditionExpression(ordinaryClose.condition),
-						},
-					},
-					context,
-				),
-			);
-		binds.push(
-			...caseMetaBinds(casePath, context),
-			xel(
-				"bind",
-				{
-					xpath: {
-						nodeset: casePath.attr("case_id").toWire(),
-						calculate: selectedCaseIdRef,
-					},
-				},
-				context,
-			),
-		);
 	}
 
 	// Each group is a data element and a `<group ref>` with no label, no
@@ -1628,8 +2233,10 @@ export function buildCaseOperations(
 	}
 
 	for (const scope of selectedScopes.values()) {
-		const group = operationGroups.get(scope.itemPath.toXPath());
-		if (group === undefined) continue;
+		const scopeGroups = [...operationGroups.values()].filter(
+			(group) => group.parentPath.toXPath() === scope.itemPath.toXPath(),
+		);
+		if (scopeGroups.length === 0) continue;
 		const idsPath = scope.containerPath.attr("ids");
 		const countPath = scope.containerPath.attr("count");
 		const currentIndexPath = scope.containerPath.attr("current_index");
@@ -1642,8 +2249,8 @@ export function buildCaseOperations(
 			emitSelectedCountPlacement(
 				scope,
 				scope.countPlacement,
-				groupControl(group),
-				el(group.name, {}, group.children),
+				scopeGroups.map(groupControl),
+				scopeGroups.map((group) => el(group.name, {}, group.children)),
 				selectedCasesInstanceId,
 				context,
 				binds,
@@ -1728,9 +2335,11 @@ export function buildCaseOperations(
 					"vellum:role": "Repeat",
 				},
 				[
-					el("item", { id: "", index: "", "jr:template": "" }, [
-						el(group.name, {}, group.children),
-					]),
+					el(
+						"item",
+						{ id: "", index: "", "jr:template": "" },
+						scopeGroups.map((group) => el(group.name, {}, group.children)),
+					),
 				],
 			),
 		});
@@ -1749,7 +2358,7 @@ export function buildCaseOperations(
 						},
 					},
 					context,
-					[groupControl(group)],
+					scopeGroups.map(groupControl),
 				),
 			]),
 		});
@@ -1792,8 +2401,8 @@ function emitSelectedCountPlacement(
 		readonly idPath: FormPath;
 	},
 	names: SelectedCountPlacement,
-	operationsControl: Element,
-	operationsData: Element,
+	operationsControls: readonly Element[],
+	operationsData: readonly Element[],
 	selectedCasesInstanceId: string,
 	context: WireElementContext,
 	binds: Element[],
@@ -1856,7 +2465,7 @@ function emitSelectedCountPlacement(
 			el("item", { "jr:template": "" }, [
 				el(names.id, {}),
 				el(names.index, {}),
-				operationsData,
+				...operationsData,
 			]),
 		]),
 	});
@@ -1882,7 +2491,7 @@ function emitSelectedCountPlacement(
 							},
 						},
 						context,
-						[operationsControl],
+						[...operationsControls],
 					),
 				]),
 			],
@@ -1958,41 +2567,6 @@ export function attachCaseOperationBody(
 	}
 }
 
-/**
- * A close form's own condition, wherever it is written: `always` for an
- * unconditional close, otherwise the authored question, read by its absolute
- * path, and answer.
- */
-export function formCloseCondition(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-): FormActionCondition {
-	const condition = doc.forms[formUuid]?.closeCondition;
-	if (!condition?.field || !condition.answer) return alwaysCondition();
-	const location = collectFieldLocations(doc, formUuid).get(condition.field);
-	if (location === undefined)
-		throw new Error(
-			`The close condition of form '${formUuid}' reads field '${condition.field}', which the form does not hold. The validator's CLOSE_CONDITION_FIELD_NOT_FOUND refuses that form, so check the document the emitter was given.`,
-		);
-	return ifCondition(
-		location.path.toXPath(),
-		condition.answer,
-		condition.operator ?? "=",
-	);
-}
-
-function formActionConditionExpression(
-	condition: FormActionCondition,
-): WireExpr {
-	const question = FormPath.parse(
-		validateXFormPath(condition.question ?? ""),
-	).toWire();
-	const answer = w.str(condition.answer ?? "");
-	return condition.operator === "selected"
-		? w.call("selected", [question, answer])
-		: w.eq(question, answer);
-}
-
 export function collectFieldLocations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -2049,14 +2623,22 @@ function boundFieldPath(
  * case block for an unknown question. */
 function bindOperationPaths(
 	creates: ReadonlyMap<Uuid, OperationLocation>,
+	basicCreateIds: ReadonlyMap<Uuid, WireExpr>,
 	targetPath: FormPath,
 ): ReadonlyMap<Uuid, WireExpr> {
-	return new Map(
-		[...creates].map(([uuid, producer]) => [
-			uuid,
-			originalContextWirePath(targetPath, producer.casePath.attr("case_id")),
-		]),
-	);
+	return new Map([
+		...basicCreateIds,
+		...[...creates].map(
+			([uuid, producer]) =>
+				[
+					uuid,
+					originalContextWirePath(
+						targetPath,
+						producer.casePath.attr("case_id"),
+					),
+				] as const,
+		),
+	]);
 }
 
 function emitTarget(
@@ -2065,6 +2647,7 @@ function emitTarget(
 	consumerRepeat: Uuid | undefined,
 	fields: ReadonlyMap<Uuid, FieldLocation>,
 	creates: ReadonlyMap<Uuid, OperationLocation>,
+	basicCreateIds: ReadonlyMap<Uuid, WireExpr>,
 	emitExpression: (expression: Expression, targetPath: FormPath) => WireExpr,
 	expectedCaseType: string,
 	selectedCaseIdRef: WireExpr,
@@ -2081,9 +2664,15 @@ function emitTarget(
 
 			return typedRuntimeCaseId(id, expectedCaseType);
 		}
+		case "worker-record":
+			// A Save to Case block reads the worker's record from the case
+			// database: the `usercase_id` datum exists only where HQ's
+			// `usercase_update` action is active (`util.py::actions_use_usercase`).
+			return USERCASE_ID_FUNCTION;
 		case "op": {
 			const producer = creates.get(target.opUuid);
-			if (producer === undefined) return w.str("");
+			if (producer === undefined)
+				return basicCreateIds.get(target.opUuid) ?? w.str("");
 			return originalContextWirePath(
 				targetPath,
 				producer.casePath.attr("case_id"),

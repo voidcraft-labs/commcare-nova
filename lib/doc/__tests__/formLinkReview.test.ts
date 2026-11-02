@@ -4,7 +4,7 @@
  * every `ok` verdict commits, every refusal names a real finding.
  */
 
-import { produce } from "immer";
+import { type Draft, produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
@@ -141,6 +141,21 @@ function fixture(): BlueprintDoc {
 	});
 	assertAdmittedDoc(doc);
 	return doc;
+}
+
+/**
+ * A form that loads several cases reads none of them as one starting value,
+ * so the follow-ups' mood questions no longer open with the case's mood once
+ * their menu chooses several cases.
+ */
+function dropOneCasePreloads(draft: Draft<BlueprintDoc>): void {
+	for (const formUuid of [VISIT, VISIT_AGAIN]) {
+		for (const fieldUuid of draft.fieldOrder[formUuid] ?? []) {
+			const field = draft.fields[fieldUuid];
+			if (field !== undefined && "default_value" in field)
+				delete field.default_value;
+		}
+	}
 }
 
 describe("formLinkMoveVerdicts", () => {
@@ -280,6 +295,7 @@ describe("formLinkTargetVerdict", () => {
 			draft.appSettings.runsOnlyOn = "web-apps";
 			target.selection = { kind: "multiple", maximum: 5 };
 			draft.forms[REGISTER].type = "followup";
+			dropOneCasePreloads(draft);
 		});
 		assertAdmittedDoc(doc);
 		const target: FormLinkTarget = {
@@ -321,6 +337,7 @@ describe("formLinkTargetVerdict", () => {
 			draft.appSettings.runsOnlyOn = "web-apps";
 			target.selection = { kind: "multiple", maximum: 10 };
 			draft.forms[REGISTER].type = "followup";
+			dropOneCasePreloads(draft);
 		});
 		assertAdmittedDoc(doc);
 		const target: FormLinkTarget = {
@@ -375,8 +392,17 @@ describe("formLinkTargetVerdict", () => {
 			draft.appSettings.runsOnlyOn = "web-apps";
 			target.selection = { kind: "multiple", maximum: 10 };
 			draft.forms[REGISTER].type = "followup";
+			dropOneCasePreloads(draft);
 			const visit = draft.forms[VISIT];
+			const own = visit.caseOperations?.find(
+				(operation) => operation.action === "own",
+			);
+			if (own === undefined) throw new Error("fixture");
+			// Visit saves nothing to its own case; it only retypes the case a
+			// runtime expression names.
+			delete own.writes;
 			visit.caseOperations = [
+				own,
 				{
 					uuid: testUuid("retype-selected"),
 					id: "retype_selected",
@@ -389,9 +415,6 @@ describe("formLinkTargetVerdict", () => {
 					retype: "visit",
 				},
 			];
-			const moodUuid = draft.fieldOrder[VISIT]?.[0];
-			const mood = moodUuid === undefined ? undefined : draft.fields[moodUuid];
-			if (mood?.kind === "text") delete mood.caseWrite;
 		});
 
 		assertAdmittedDoc(doc);

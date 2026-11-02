@@ -68,11 +68,7 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc, Mutation, MutationResult } from "@/lib/doc/types";
-import {
-	fieldCaseWrite,
-	recordFromEntries,
-	USERCASE_CASE_TYPE,
-} from "@/lib/domain";
+import { recordFromEntries } from "@/lib/domain";
 import {
 	APP_GENESIS_FALLBACK_NAME,
 	NEW_APP_SETTINGS,
@@ -372,18 +368,22 @@ function affectsCaseWriteProjection(
 		case "updateUserProperty":
 		case "removeUserProperty":
 			return true;
+		/* A Hidden Value's value types what an operation that reads it saves
+		 * (`expression/inference.ts`). Which operations read it is the
+		 * reference index's answer, not this scan's, so any value edit of a
+		 * Hidden Value that still exists counts. */
 		case "updateField":
 			return (
-				Object.hasOwn(mutation.patch, "caseWrite") ||
-				(mutation.targetKind === "hidden" &&
-					current.fields[mutation.uuid] !== undefined &&
-					fieldCaseWrite(current.fields[mutation.uuid]) !== undefined &&
-					(Object.hasOwn(mutation.patch, "calculate") ||
-						Object.hasOwn(mutation.patch, "default_value")))
+				mutation.targetKind === "hidden" &&
+				current.fields[mutation.uuid] !== undefined &&
+				(Object.hasOwn(mutation.patch, "calculate") ||
+					Object.hasOwn(mutation.patch, "default_value"))
 			);
 		case "updateForm":
 			return (
 				Object.hasOwn(mutation.patch, "type") ||
+				Object.hasOwn(mutation.patch, "openCondition") ||
+				Object.hasOwn(mutation.patch, "closeCondition") ||
 				mutation.caseOperationChange !== undefined ||
 				mutation.caseOperationPatch !== undefined
 			);
@@ -609,7 +609,7 @@ export function createBlueprintDocStore() {
 	 * Most inspector edits update a known set of slots on one field. Their
 	 * complete inverse is the prior value of those same slots, so deriving it
 	 * does not require an O(app) document diff. Patches that can delete dependent
-	 * translation entries or add catalog structure deliberately fall back. */
+	 * translation entries deliberately fall back. */
 	function directFieldPatchInverse(
 		before: BlueprintDoc,
 		forward: AdmittedMutationBatch,
@@ -632,29 +632,6 @@ export function createBlueprintDocStore() {
 		for (const key of ["label", "hint", "help", "validate_msg"]) {
 			if (patch[key] === null) return undefined;
 		}
-		const nextWrite = patch.caseWrite;
-		if (
-			Object.hasOwn(patch, "caseWrite") &&
-			nextWrite !== null &&
-			nextWrite !== undefined
-		) {
-			if (typeof nextWrite !== "object") return undefined;
-			const { caseType, property } = nextWrite as {
-				caseType?: unknown;
-				property?: unknown;
-			};
-			if (typeof caseType !== "string" || typeof property !== "string") {
-				return undefined;
-			}
-			const alreadyDeclared =
-				caseType === USERCASE_CASE_TYPE ||
-				(before.caseTypes ?? []).some(
-					(candidate) =>
-						candidate.name === caseType &&
-						candidate.properties.some((entry) => entry.name === property),
-				);
-			if (!alreadyDeclared) return undefined;
-		}
 
 		const previous = field as unknown as Record<string, unknown>;
 		const inversePatch = Object.fromEntries(
@@ -663,9 +640,6 @@ export function createBlueprintDocStore() {
 				Object.hasOwn(previous, key) ? previous[key] : null,
 			]),
 		);
-		if (Object.hasOwn(inversePatch, "caseWrite")) {
-			inversePatch.caseWrite = fieldCaseWrite(field) ?? null;
-		}
 		return admitMutationBatch([
 			{
 				kind: "updateField",

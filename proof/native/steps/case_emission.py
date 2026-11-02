@@ -8,7 +8,8 @@ builders for the worker scenarios, and ``XForm.add_case_and_meta`` with
 executes, and for the extension registration form as well, which Core also
 runs. Each regenerated form is written beside its input as
 ``<scenario>.hq.xml`` (the whole extension registration form as
-``registration.whole.hq.xml``); for the ``case`` family, what its HQ check
+``registration.whole.hq.xml``), the form that saves only a changed answer
+under ``SAVE_ONLY_EDITED_FORM_FIELDS``; for the ``case`` family, what its HQ check
 compares is returned, and for ``relation-instance``, whose forms only Core
 reads, the names of the forms written.
 """
@@ -34,7 +35,11 @@ OPERATION_SCENARIOS = [
     "scalar",
     "relation",
     "nested",
+    "own-links",
 ]
+# Saved only when the answer changed: HQ's build compares the answer with the case only where the project space
+# has SAVE_ONLY_EDITED_FORM_FIELDS (xform.py::XFormCaseBlock.add_case_updates, save_only_if_edited).
+SAVE_ONLY_EDITED_SCENARIOS = ["only-if-changed"]
 RELATION_INSTANCE_SCENARIOS = ["instance-count", "instance-count-condition", "instance-exists", "instance-missing"]
 NAMESPACES = {"x": "http://www.w3.org/2002/xforms", "cx": "http://commcarehq.org/case/transaction/v2"}
 NATIVE_FILES = [
@@ -150,11 +155,19 @@ def cases(session):
             _regenerated(exports, f"operation-{scenario}", 1 if scenario == "nested" else 0)
             for scenario in OPERATION_SCENARIOS
         ]
+    with native_check(DOMAIN, flags={"SAVE_ONLY_EDITED_FORM_FIELDS"}):
+        edited = [_regenerated(exports, f"operation-{scenario}") for scenario in SAVE_ONLY_EDITED_SCENARIOS]
     # A worker-record write needs the usercase, which HQ grants with the
     # USERCASE privilege (app_manager/util.py::domain_has_usercase_access).
     with native_check(DOMAIN, privileges={"USERCASE"}):
         workers = [_worker(exports, scenario) for scenario in WORKER_SCENARIOS]
-    return {"extensions": extensions, "workers": workers, "captures": captures, "operations": operations}
+    return {
+        "extensions": extensions,
+        "workers": workers,
+        "captures": captures,
+        "operations": operations,
+        "edited": edited,
+    }
 
 
 def relation_instances(session):

@@ -7,8 +7,13 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { CaseOperationMoveVerdict } from "@/lib/doc/caseOperationReview";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	type CaseOperationMoveVerdict,
+	caseOperationMoveVerdicts,
+} from "@/lib/doc/caseOperationReview";
 import type { Uuid } from "@/lib/doc/types";
+import { proseText } from "@/lib/domain/prose";
 import { type KeyboardMoveOutcome, planKeyboardMove } from "../keyboardMove";
 
 const A = testUuid("op-a");
@@ -315,5 +320,109 @@ describe("planKeyboardMove", () => {
 				dependsOn: [],
 			}),
 		).toBeUndefined();
+	});
+
+	describe("this form's own case is always the first change", () => {
+		/** A follow-up form whose own case is first and which creates a
+		 *  visit after it: the move planner's own verdicts, not a stand-in. */
+		function ownFirstForm() {
+			const doc = buildDoc({
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [{ name: "nickname", label: proseText("Nickname") }],
+					},
+					{
+						name: "visit",
+						parent_type: "patient",
+						properties: [{ name: "case_name", label: proseText("Name") }],
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "nickname", header: "Nickname" },
+						]),
+						forms: [
+							{
+								name: "Visit",
+								type: "followup",
+								fields: [
+									f({
+										kind: "text",
+										id: "nickname",
+										label: proseText("Nickname"),
+										caseWrite: { caseType: "patient", property: "nickname" },
+									}),
+									f({
+										kind: "text",
+										id: "visit_name",
+										label: proseText("Visit name"),
+										caseWrite: { caseType: "visit", property: "case_name" },
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+			const operations = doc.forms[formUuid].caseOperations ?? [];
+			const order = operations.map((operation) => operation.uuid);
+			const names = new Map(
+				operations.map((operation) => [operation.uuid, operation.id]),
+			);
+			return { doc, formUuid, operations, order, names };
+		}
+
+		it("refuses moving the own case, with reason own-first", () => {
+			const { doc, formUuid, operations, order, names } = ownFirstForm();
+			expect(operations.map((operation) => operation.action)).toEqual([
+				"own",
+				"create",
+			]);
+			const verdicts = caseOperationMoveVerdicts(doc, formUuid, order[0]);
+			expect(verdicts.get(1)).toMatchObject({
+				ok: false,
+				reason: "own-first",
+			});
+			const outcome = planKeyboardMove({
+				order,
+				index: 0,
+				key: "ArrowDown",
+				verdicts,
+				nameOf: (uuid) => names.get(uuid),
+				dependsOn: [],
+			});
+			expect(outcome?.kind).toBe("refused");
+			expect(announcementOf(outcome)).toContain(
+				"This form's case is always the first change.",
+			);
+		});
+
+		it("refuses moving another change above it, with reason own-first", () => {
+			const { doc, formUuid, order, names } = ownFirstForm();
+			const verdicts = caseOperationMoveVerdicts(doc, formUuid, order[1]);
+			expect(verdicts.get(0)).toMatchObject({
+				ok: false,
+				reason: "own-first",
+			});
+			for (const key of ["ArrowUp", "Home"] as const) {
+				const outcome = planKeyboardMove({
+					order,
+					index: 1,
+					key,
+					verdicts,
+					nameOf: (uuid) => names.get(uuid),
+					dependsOn: [],
+				});
+				expect(outcome?.kind).toBe("refused");
+				expect(announcementOf(outcome)).toContain(
+					"This form's case is always the first change.",
+				);
+			}
+		});
 	});
 });

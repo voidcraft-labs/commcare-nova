@@ -4,8 +4,8 @@
  * export of the app as Nova published it before the migration
  * (`proof/migrations/<id>/`) and whose B is Nova's republish of the migrated
  * document over it. Each spec here is the app before the migration, in the
- * shapes `main` stores; the pull request that lands a witness's migration
- * rewrites its spec to what the migration gives the app.
+ * shapes `main` stored, until the pull request that lands the witness's
+ * migration rewrites it to what the migration gives the app.
  *
  * - `targeted-migration-search-workflow` (defects 21 and 29): a list-first
  *   search with a visible input; a search-first module with a visible
@@ -13,16 +13,20 @@
  *   Nova derives as skip to results; a search-first module with a
  *   no-matches registration form; and a case-list-only module. Declared Web
  *   Apps, where search first runs.
- * - `targeted-migration-case-writes` (defect 22): a registration writing its
- *   own case's name and village through field writes, a child at the root
- *   and a child in a repeat; a follow-up with field writes, a write of the
- *   worker's record and operations at the root, in a repeat, keyed by an
- *   answer and under a condition; a follow-up closing its own case through
- *   an operation under a static select's answer, with no writes; a close
- *   form whose close condition is a static select's choice, and one whose
- *   close condition reads a question in a repeat; and a menu selecting
- *   several cases whose form writes to them. Declared Web Apps, where the
- *   menu selecting several cases opens.
+ * - `targeted-migration-case-writes` (defect 22), migrated: a registration
+ *   whose own case saves its name and village, with a child created at the
+ *   root and one in a repeat; a follow-up whose own case saves a note, with
+ *   an update of the worker's record and operations at the root, in a
+ *   repeat, keyed by an answer and under a condition; Discharge, once a
+ *   follow-up closing its own case through an operation under a static
+ *   select's answer with no writes, now a close form whose close condition
+ *   is that answer; a close form whose close condition is a static select's
+ *   choice, and one whose close condition reads a question in a repeat; and
+ *   a menu selecting several cases whose form saves to them. Every case
+ *   change, and each own close kept in a Save to Case block, holds the
+ *   placement its retained A carries, as the cutover writes it for a
+ *   published app. Declared Web Apps, where the menu selecting several cases
+ *   opens.
  * - `targeted-migration-attachment` (defect 23): a follow-up whose image
  *   and file questions each save a link to their file on the case. Its
  *   retained A was published from the image question's attachment-mode
@@ -44,8 +48,10 @@
  *   conditional link and a stored after-submit; and a follow-up in a root
  *   menu linking to its child menu, which HQ does not offer from it.
  * - `targeted-migration-groups-preloads` (defects 27 and 28): two labelled
- *   groups, one holding a user repeat; a writer of the form's own case with
- *   an authored default; a later Hidden Value whose default reads it.
+ *   groups, one holding a user repeat; a writer of the form's own case whose
+ *   authored default gave way to the read of its case's value, migrated, with
+ *   the own case held where A keeps it; a later Hidden Value whose default
+ *   reads it.
  * - `targeted-migration-repeat-counts` (defect 30): a repeat counted by a
  *   Hidden Value calculating 2, which its count now names directly, and one
  *   counted by a decimal expression, which the migration wraps in `int(…)`.
@@ -56,12 +62,20 @@
  * hold the rows their counts and queries give.
  */
 
+import { Immer } from "immer";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { planExplicitPreloads } from "@/lib/doc/explicitPreloads";
+import {
+	type FieldWriteFact,
+	operationsFromFieldWrites,
+} from "@/lib/doc/fieldWriteOperations";
+import { applyMutations } from "@/lib/doc/mutations";
 import {
 	type BlueprintDoc,
 	type CaseOperation,
-	type CaseWrite,
+	type CasePlacement,
 	NEW_APP_SETTINGS,
+	type OwnClosePlacement,
 	plainColumn,
 	proseText,
 	simpleSearchInputDef,
@@ -104,6 +118,90 @@ function caseType(
 /** The witness `spec` describes, marked a migration witness. */
 function witness(spec: Parameters<typeof targetedDocument>[0]) {
 	return targetedDocument({ ...spec, migrationWitness: true });
+}
+
+/** Applies the cutover's planned batches without freezing the document. */
+const MIGRATION = new Immer({ autoFreeze: false });
+
+/**
+ * `doc` with its field writes migrated as the cutover migrates a stored
+ * app's: each case form's own case, its child creates and its update of the
+ * worker's record made from what its questions saved (`writes`, by form, in
+ * data-tree order; classes C1 to C3,
+ * `lib/doc/fieldWriteOperations.ts::operationsFromFieldWrites`), and each
+ * question in `preloaded` opening with its case's value (class C7,
+ * `lib/doc/explicitPreloads.ts::planExplicitPreloads`). `buildDoc` gives every
+ * case form an empty own case of its own; the cutover's, with the identity
+ * the cutover derives, stands in its place.
+ */
+function migrateFieldWrites(
+	doc: BlueprintDoc,
+	writes: ReadonlyMap<Uuid, readonly FieldWriteFact[]>,
+	preloaded: ReadonlyMap<Uuid, readonly Uuid[]>,
+): BlueprintDoc {
+	let migrated = MIGRATION.produce(doc, (draft) => {
+		for (const form of Object.values(draft.forms)) {
+			const operations = (form.caseOperations ?? []).filter(
+				(operation) => operation.action !== "own",
+			);
+			if (operations.length > 0) form.caseOperations = operations;
+			else delete form.caseOperations;
+		}
+	});
+	for (const formUuids of Object.values(doc.formOrder)) {
+		for (const formUuid of formUuids) {
+			const planned = operationsFromFieldWrites(
+				migrated,
+				formUuid,
+				writes.get(formUuid) ?? [],
+			);
+			migrated = MIGRATION.produce(migrated, (draft) => {
+				applyMutations(draft, planned);
+			});
+			const preloads = planExplicitPreloads(
+				migrated,
+				formUuid,
+				preloaded.get(formUuid) ?? [],
+			);
+			migrated = MIGRATION.produce(migrated, (draft) => {
+				applyMutations(draft, preloads);
+			});
+		}
+	}
+	return migrated;
+}
+
+/** A Save to Case block at the form root, at `path`. */
+function saveToCase(path: [string, ...string[]]): OwnClosePlacement {
+	return { kind: "save-to-case", path };
+}
+
+/**
+ * `doc` with each case operation `holds` picks holding its placement, as the
+ * cutover writes the placements a published app's A carries (class C8). Each
+ * pick must find exactly one operation of its form.
+ */
+function heldAt(
+	doc: BlueprintDoc,
+	holds: readonly (readonly [
+		Uuid,
+		(operation: CaseOperation) => boolean,
+		CasePlacement,
+	])[],
+): BlueprintDoc {
+	return MIGRATION.produce(doc, (draft) => {
+		for (const [formUuid, pick, placement] of holds) {
+			const picked = (draft.forms[formUuid]?.caseOperations ?? []).filter(
+				(operation) => pick(operation),
+			);
+			const [one] = picked;
+			if (one === undefined || picked.length !== 1)
+				throw new Error(
+					`The witness ${doc.appId} holds a placement for ${picked.length} case changes of form ${formUuid}; each hold names exactly one.`,
+				);
+			one.placement = placement;
+		}
+	});
 }
 
 export function migrationSearchWorkflow() {
@@ -243,8 +341,11 @@ export function migrationSearchWorkflow() {
 export function migrationCaseWrites() {
 	const id = "targeted-migration-case-writes";
 	const uuid = (name: string) => targetedUuid(id, name);
+	const register = uuid("register");
 	const visit = uuid("visit");
 	const discharge = uuid("discharge");
+	const closeInRepeat = uuid("close-in-repeat");
+	const batchUpdate = uuid("batch-update");
 	const arrivals = uuid("arrivals");
 	const arrivalName = uuid("arrival-name");
 	const referralKey = uuid("referral-key");
@@ -254,13 +355,12 @@ export function migrationCaseWrites() {
 	const workerVisits = uuid("worker-visits");
 	const nameColumn = (key: string) =>
 		plainColumn(uuid(`${key}-name-column`), "case_name", "Name");
-	const text = (key: string, label: string, caseWrite?: CaseWrite) =>
+	const text = (key: string, label: string) =>
 		f({
 			kind: "text",
 			uuid: uuid(key),
 			id: key.replaceAll("-", "_"),
 			label: proseText(label),
-			...(caseWrite !== undefined && { caseWrite }),
 		});
 	const select = (key: string, label: string, values: readonly string[]) =>
 		f({
@@ -270,9 +370,16 @@ export function migrationCaseWrites() {
 			label: proseText(label),
 			options: values.map((value) => ({ value, label: value })),
 		});
-	const household = (property: string): CaseWrite => ({
-		caseType: "household",
+	/** What the question `key` saved before the migration. */
+	const wrote = (
+		key: string,
+		caseType: string,
+		property: string,
+	): FieldWriteFact => ({
+		fieldUuid: uuid(key),
+		caseType,
 		property,
+		capture: false,
 	});
 	const session = { kind: "session" } as const;
 	const toHousehold = [
@@ -327,18 +434,7 @@ export function migrationCaseWrites() {
 			links: toHousehold,
 		},
 	];
-	const dischargeOperations: CaseOperation[] = [
-		{
-			// A close of the form's own case, under a static select's answer and with no writes.
-			uuid: uuid("discharge-household"),
-			id: "discharge_household",
-			action: "close",
-			caseType: "household",
-			target: session,
-			condition: eq(formField(discharged), literal("yes")),
-		},
-	];
-	const doc = buildDoc(
+	const built = buildDoc(
 		{
 			appId: id,
 			appName: "Household visits",
@@ -357,31 +453,19 @@ export function migrationCaseWrites() {
 					caseListConfig: caseListOf([nameColumn("households")]),
 					forms: [
 						{
-							uuid: uuid("register"),
+							uuid: register,
 							name: "Register",
 							type: "registration",
 							fields: [
-								text(
-									"household-name",
-									"Household name",
-									household("case_name"),
-								),
-								text("village", "Village", household("village")),
-								text("head-name", "Head of household", {
-									caseType: "head",
-									property: "case_name",
-								}),
+								text("household-name", "Household name"),
+								text("village", "Village"),
+								text("head-name", "Head of household"),
 								f({
 									kind: "repeat",
 									uuid: uuid("members"),
 									id: "members",
 									label: proseText("Members"),
-									children: [
-										text("member-name", "Member name", {
-											caseType: "member",
-											property: "case_name",
-										}),
-									],
+									children: [text("member-name", "Member name")],
 								}),
 							],
 						},
@@ -398,11 +482,8 @@ export function migrationCaseWrites() {
 							name: "Visit",
 							type: "followup",
 							fields: [
-								text("visit-note", "Visit note", household("last_note")),
-								text("visits-done", "Visits so far", {
-									caseType: USERCASE_CASE_TYPE,
-									property: "visits_done",
-								}),
+								text("visit-note", "Visit note"),
+								text("visits-done", "Visits so far"),
 								f({
 									kind: "repeat",
 									uuid: arrivals,
@@ -416,23 +497,27 @@ export function migrationCaseWrites() {
 							],
 						},
 						{
+							// A follow-up whose only operation closed its own case
+							// under an answer and wrote nothing: a close form whose
+							// close condition is that operation's (class C9).
 							uuid: discharge,
 							name: "Discharge",
-							type: "followup",
+							type: "close",
+							closeCondition: eq(formField(discharged), literal("yes")),
 							fields: [select("discharged", "Discharged?", ["yes", "no"])],
 						},
 						{
 							uuid: uuid("close"),
 							name: "Close",
 							type: "close",
-							closeCondition: { field: "outcome", answer: "moved" },
+							closeCondition: "#form/outcome = 'moved'",
 							fields: [select("outcome", "Outcome", ["stayed", "moved"])],
 						},
 						{
-							uuid: uuid("close-in-repeat"),
+							uuid: closeInRepeat,
 							name: "Close in repeat",
 							type: "close",
-							closeCondition: { field: "departed", answer: "yes" },
+							closeCondition: "count(#form/rounds/departed[. = 'yes']) > 0",
 							fields: [
 								f({
 									kind: "repeat",
@@ -454,10 +539,10 @@ export function migrationCaseWrites() {
 					}),
 					forms: [
 						{
-							uuid: uuid("batch-update"),
+							uuid: batchUpdate,
 							name: "Batch update",
 							type: "followup",
-							fields: [text("batch-village", "Village", household("village"))],
+							fields: [text("batch-village", "Village")],
 						},
 					],
 				},
@@ -482,7 +567,6 @@ export function migrationCaseWrites() {
 		},
 		(built) => {
 			built.forms[visit].caseOperations = visitOperations;
-			built.forms[discharge].caseOperations = dischargeOperations;
 			built.userProperties = {
 				[workerVisits]: {
 					uuid: workerVisits,
@@ -493,6 +577,113 @@ export function migrationCaseWrites() {
 			built.userPropertyOrder = [workerVisits];
 		},
 	);
+	const migrated = migrateFieldWrites(
+		built,
+		new Map([
+			[
+				register,
+				[
+					wrote("household-name", "household", "case_name"),
+					wrote("village", "household", "village"),
+					wrote("head-name", "head", "case_name"),
+					wrote("member-name", "member", "case_name"),
+				],
+			],
+			[
+				visit,
+				[
+					wrote("visit-note", "household", "last_note"),
+					wrote("visits-done", USERCASE_CASE_TYPE, "visits_done"),
+				],
+			],
+			[batchUpdate, [wrote("batch-village", "household", "village")]],
+		]),
+		new Map([[visit, [uuid("visit-note")]]]),
+	);
+	// Every case change held where the published A keeps it (class C8),
+	// read from A's forms (`proof/hq-reads/targeted-migration-case-writes/`).
+	const own = (operation: CaseOperation) => operation.action === "own";
+	const creates = (caseType: string) => (operation: CaseOperation) =>
+		operation.action === "create" && operation.caseType === caseType;
+	const named = (uuid: Uuid) => (operation: CaseOperation) =>
+		operation.uuid === uuid;
+	const doc = heldAt(migrated, [
+		[register, own, { kind: "basic", slot: "own" }],
+		[register, creates("head"), { kind: "basic", slot: "subcase", index: 0 }],
+		[register, creates("member"), { kind: "basic", slot: "subcase-row" }],
+		[visit, own, { kind: "basic", slot: "own" }],
+		[
+			visit,
+			(operation) =>
+				operation.action === "update" &&
+				operation.target?.kind === "worker-record",
+			{ kind: "basic", slot: "usercase" },
+		],
+		[
+			visit,
+			named(uuid("add-referral")),
+			saveToCase([
+				"nova_operations",
+				"nova_keyed_add_referral",
+				"add_referral",
+			]),
+		],
+		[
+			visit,
+			named(uuid("mark-visited")),
+			saveToCase(["nova_operations", "mark_visited"]),
+		],
+		[
+			visit,
+			named(uuid("flag-household")),
+			saveToCase([
+				"nova_operations",
+				"nova_condition_flag_household",
+				"flag_household",
+			]),
+		],
+		[
+			visit,
+			named(uuid("add-arrival")),
+			{
+				kind: "save-to-case",
+				repeat: arrivals,
+				path: ["nova_operations", "add_arrival"],
+			},
+		],
+		[discharge, own, { kind: "basic", slot: "own" }],
+		[uuid("close"), own, { kind: "basic", slot: "own" }],
+		[closeInRepeat, own, { kind: "basic", slot: "own" }],
+		[
+			batchUpdate,
+			own,
+			saveToCase([
+				"nova_selected_cases",
+				"item",
+				"nova_operations",
+				"nova_condition_update_selected_cases",
+				"nova_update_selected_cases",
+			]),
+		],
+	]);
+	// The own close each keeps in a Save to Case block of its own: Discharge's
+	// at the path its removed close operation had.
+	doc.forms[discharge] = {
+		...doc.forms[discharge],
+		ownClosePlacement: saveToCase([
+			"nova_operations",
+			"nova_condition_discharge_household",
+			"discharge_household",
+		]),
+	};
+	doc.forms[closeInRepeat] = {
+		...doc.forms[closeInRepeat],
+		ownClosePlacement: saveToCase([
+			"nova_operations",
+			"nova_condition_close",
+			"nova_close",
+		]),
+	};
 	return witness({
 		id,
 		rows: ["22"],
@@ -966,7 +1157,8 @@ export function migrationGroupsPreloads() {
 	const id = "targeted-migration-groups-preloads";
 	const uuid = (name: string) => targetedUuid(id, name);
 	const check = uuid("check");
-	const doc = buildDoc({
+	const weight = uuid("weight");
+	const built = buildDoc({
 		appId: id,
 		appName: "Household checks",
 		// Declared for Web Apps and Android, as a new app is.
@@ -1036,11 +1228,10 @@ export function migrationGroupsPreloads() {
 							}),
 							f({
 								kind: "decimal",
-								uuid: uuid("weight"),
+								uuid: weight,
 								id: "weight",
 								label: proseText("Weight"),
 								default_value: "60",
-								caseWrite: { caseType: "patient", property: "weight" },
 							}),
 							f({
 								kind: "hidden",
@@ -1054,6 +1245,33 @@ export function migrationGroupsPreloads() {
 			},
 		],
 	});
+	// The weight's authored default gives way to the read of the patient's
+	// weight, which the form opened it with (class C7), and the form's own
+	// case, which saves it, is held where A keeps it (class C8).
+	const migrated = migrateFieldWrites(
+		built,
+		new Map([
+			[
+				check,
+				[
+					{
+						fieldUuid: weight,
+						caseType: "patient",
+						property: "weight",
+						capture: false,
+					},
+				],
+			],
+		]),
+		new Map([[check, [weight]]]),
+	);
+	const doc = heldAt(migrated, [
+		[
+			check,
+			(operation) => operation.action === "own",
+			{ kind: "basic", slot: "own" },
+		],
+	]);
 	return witness({
 		id,
 		rows: ["27", "28"],

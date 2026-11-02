@@ -56,8 +56,6 @@ function submit(workerPlaceIds?: readonly string[]) {
 		entryKey: "11111111-1111-4111-8111-111111111111",
 		attachmentRefs: [],
 		caseIds: ["patient-1"],
-		patch: { properties: {} },
-		children: [],
 		operationAnswers: { root: [], repeats: [] },
 	};
 	const identity: ResolvedPreviewIdentity = {

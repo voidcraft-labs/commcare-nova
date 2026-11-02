@@ -101,7 +101,8 @@ export function operationReadsOutsideRepeat(
  * Every form answer this operation reads, in no particular order.
  *
  * Walks the typed ASTs rather than the object graph, and counts a
- * `new` target's identity key: `idFrom` is a field reference the same
+ * capture's file link as a read of its question, and a `new` target's
+ * identity key: `idFrom` is a field reference the same
  * repeat-correlation rule governs, even though it is not a `field` term.
  */
 export function referencedFieldUuids(
@@ -110,12 +111,13 @@ export function referencedFieldUuids(
 	const found = new Set<Uuid>();
 	const visitTerm = (term: Term) => {
 		if (term.kind === "field") found.add(term.uuid);
+		if (term.kind === "capture-link") found.add(term.field);
 	};
 	const expression = (value: Expression | undefined) => {
 		if (value !== undefined) walkExpressionTerms(value, visitTerm);
 	};
 	const target = (value: CaseOperation["target"] | null) => {
-		if (value === null) return;
+		if (value === null || value === undefined) return;
 		if (value.kind === "expression") expression(value.expr);
 		if (value.kind === "new" && value.idFrom !== undefined) {
 			found.add(value.idFrom);

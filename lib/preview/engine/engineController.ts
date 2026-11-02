@@ -54,7 +54,6 @@ import {
 	type CaptureFieldKind,
 	caseSelectionCardinality,
 	type Field,
-	fieldCaseWrite,
 	isCaptureFieldKind,
 	isContainer,
 	type LanguageTag,
@@ -581,6 +580,31 @@ function activeFormTopologyChanged(
  * shared input, then use the same per-field classifier as the synchronous
  * subscriptions for the one part that can change independently.
  */
+/**
+ * Whether a form's change reaches what its running entry evaluates. Its case
+ * operations do not: the server runs them at submission over the committed
+ * form, and the one thing the entry reads of them, which questions save to
+ * which property, it reads again through `refreshCaseWriteDoc`. Every other
+ * slot of the form counts, compared by identity.
+ */
+function formRuntimeChanged(
+	current: BlueprintDocState["forms"][string] | undefined,
+	previous: BlueprintDocState["forms"][string] | undefined,
+): boolean {
+	if (current === previous) return false;
+	if (current === undefined || previous === undefined) return true;
+	const keys = new Set([...Object.keys(current), ...Object.keys(previous)]);
+	for (const key of keys) {
+		if (key === "caseOperations" || key === "ownClosePlacement") continue;
+		if (
+			(current as Record<string, unknown>)[key] !==
+			(previous as Record<string, unknown>)[key]
+		)
+			return true;
+	}
+	return false;
+}
+
 function activeFormRuntimeChanged(
 	current: BlueprintDocState,
 	previous: BlueprintDocState,
@@ -590,7 +614,7 @@ function activeFormRuntimeChanged(
 ): boolean {
 	if (
 		activeFormTopologyChanged(current, previous, formUuid, trackedUuids) ||
-		current.forms[formUuid] !== previous.forms[formUuid] ||
+		formRuntimeChanged(current.forms[formUuid], previous.forms[formUuid]) ||
 		current.caseTypes !== previous.caseTypes ||
 		current.userProperties !== previous.userProperties ||
 		(presentationLanguage !== null &&
@@ -3448,18 +3472,16 @@ export class EngineController {
 	}
 
 	/**
-	 * Walk the active form's template tree and emit one submission's
-	 * worth of case-store mutations. Pass-through to
-	 * `FormEngine.computeSubmissionMutation`.
+	 * The active form's submission: its answers, attachments and selected
+	 * cases. Pass-through to `FormEngine.computeSubmissionMutation`.
 	 *
 	 * Requires an active engine — call `activateForm` first. Throws if
 	 * the controller has no active engine, and if the active form is
-	 * `followup` or `close` and no `caseId` is supplied. Consumers gate
+	 * `followup` or `close` and no `caseIds` are supplied. Consumers gate
 	 * on `validateAll()` first; the engine assumes a valid form.
 	 */
 	computeSubmissionMutation(args: {
 		caseIds?: readonly string[];
-		viewerTimeZone?: string;
 	}): SubmissionMutation {
 		if (this.rebuilding) throw new Error("Preview is preparing this form.");
 		if (
@@ -3503,8 +3525,14 @@ export class EngineController {
 		}
 	}
 
+	/** Whether submitting the active form now closes its own case
+	 * (`FormEngine.ownCloseHolds`); false with no active engine. */
+	ownCloseHolds(): boolean {
+		return this.engine?.ownCloseHolds() ?? false;
+	}
+
 	async computeSubmissionMutationAsync(
-		args: { caseIds?: readonly string[]; viewerTimeZone?: string },
+		args: { caseIds?: readonly string[] },
 		expectedEntryKey: string,
 		validation?: EngineValidationCompletion,
 	): Promise<EngineSubmissionSnapshot | undefined> {
@@ -3836,14 +3864,6 @@ export class EngineController {
 		const formUuid = this.activeFormUuid;
 		if (formUuid === undefined) return;
 		this.contain("document-update", formUuid, undefined, () => {
-			/* Case-write targets do not participate in expression evaluation, but
-			 * they do determine the exact mutation emitted at submit time. Refresh
-			 * that narrow document surface independently so a combined patch can
-			 * still take its ordinary expression/default handler below. */
-			if (fieldCaseWrite(current) !== fieldCaseWrite(previous)) {
-				const input = this.currentEngineInput();
-				if (input !== undefined) this.engine?.refreshCaseWriteDoc(input);
-			}
 			const changeType = classifyChange(current as Field, previous as Field);
 
 			switch (changeType) {

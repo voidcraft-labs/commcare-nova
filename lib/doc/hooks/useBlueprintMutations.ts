@@ -54,7 +54,9 @@ import { mutationCommitVerdictWithPrevalidation } from "@/lib/doc/commitVerdicts
 import { planDatetimeSplit } from "@/lib/doc/datetimeSplit";
 import { automationChangesForUpdate } from "@/lib/doc/diffDocsToMutations";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
+import { planFieldMoveCaseWrites } from "@/lib/doc/fieldCaseWriteMutations";
 import type { FieldPath } from "@/lib/doc/fieldPath";
+import { planFieldRemoval } from "@/lib/doc/fieldRemovalMutations";
 import { fieldSlotAfter } from "@/lib/doc/fieldSlot";
 import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
 import {
@@ -62,6 +64,10 @@ import {
 	type PreparedFormRecordName,
 } from "@/lib/doc/formRecordName";
 import type { FormSectionPlan } from "@/lib/doc/formSectionMutations";
+import {
+	moduleCaseTypeChangeMutations,
+	planFormTypeChange,
+} from "@/lib/doc/formTypeMutations";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import {
 	planKindConversion,
@@ -98,8 +104,6 @@ import {
 import {
 	caseListModuleMutations,
 	caseTypeCatalogMutations,
-	declareCaseTypeForField,
-	declareCaseTypeMutations,
 	formScaffoldMutations,
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
@@ -414,7 +418,7 @@ export interface BlueprintMutations {
 	setFormRecordName: (
 		uuid: Uuid,
 		value: Expression,
-		prepared?: Pick<PreparedFormRecordName, "fieldUuid" | "fieldId">,
+		prepared?: Pick<PreparedFormRecordName, "slot">,
 	) => CommitOutcome;
 	/**
 	 * Refine the complete configuration of a form that already participates
@@ -645,7 +649,8 @@ export interface BlueprintMutations {
 	/**
 	 * Rename one or more case properties app-wide as one simultaneous,
 	 * batch-exclusive relation. This is the only builder mutation that changes
-	 * property identity; local field edits retarget only their own `caseWrite`.
+	 * property identity; a question's "Saves to" edit retargets only its own
+	 * writes.
 	 */
 	renameCaseProperties: (
 		renames: readonly {
@@ -959,15 +964,9 @@ export function createBlueprintMutations(
 					uuid,
 				} as unknown as Field;
 
-				// Declaration chokepoint: a field writing to a type absent from
-				// the catalog prepends `declareCaseType` (the reducer no longer
-				// auto-creates the type — that kept it from clobbering a
-				// concurrent declaration). A no-op when the type is already
-				// declared or the field writes to no case.
-				const declare = declareCaseTypeForField(doc, entity);
-
+				// A new field saves nowhere: where an answer is saved is the
+				// writes of the form's case operations, planned separately.
 				const applied = guardedApply([
-					...declare,
 					{
 						kind: "addField",
 						parentUuid,
@@ -993,24 +992,7 @@ export function createBlueprintMutations(
 				// in `Mutation` — at the value level the shape is structurally
 				// identical, but TS treats the union arms as distinct types
 				// rather than a parameterized one.
-				// Declaration chokepoint: a patch retargeting the complete
-				// `caseWrite` pair to a type absent from the catalog prepends
-				// `declareCaseType`.
-				const nextCaseWrite = (
-					patch as {
-						caseWrite?: {
-							caseType: string;
-							property: string;
-						} | null;
-					}
-				).caseWrite;
-				const nextType = nextCaseWrite?.caseType;
-				const declare =
-					typeof nextType === "string" && nextType.length > 0
-						? declareCaseTypeMutations(doc, nextType)
-						: [];
 				const planned = withChoicePreservation(doc, [
-					...declare,
 					{
 						kind: "updateField",
 						uuid,
@@ -1032,7 +1014,15 @@ export function createBlueprintMutations(
 					warnUnresolved("removeField", { uuid });
 					return NOOP_REJECTION;
 				}
-				return toOutcome(guardedApply([{ kind: "removeField", uuid }]));
+				// Every write of the removed subtree's answers stops in the same
+				// batch, before the removal.
+				const plan = planFieldRemoval(doc, uuid);
+				if (!plan.ok) {
+					const messages = [plan.message];
+					if (announce) notifyRejectedCommit(messages);
+					return { ok: false, messages };
+				}
+				return toOutcome(guardedApply([...plan.mutations]));
 			},
 
 			renameField(uuid, newId) {
@@ -1053,8 +1043,8 @@ export function createBlueprintMutations(
 
 				// Field ID is an ordinary mutable field slot. Persist exactly
 				// the canonical per-kind update command. UUID identity keeps
-				// references stable, and the independent `caseWrite` binding is
-				// untouched.
+				// references stable, so every write of its answer still reads
+				// it.
 				const applied = guardedApply([
 					{
 						kind: "updateField",
@@ -1098,8 +1088,21 @@ export function createBlueprintMutations(
 					uuid,
 				);
 
+				// A write to a case the form creates in one repeat follows the
+				// move to the create of the field's new repeat; the form's own
+				// case and the worker's record keep theirs, and the gate judges
+				// a write read from inside a repeat.
+				const rehoming = planFieldMoveCaseWrites(doc, uuid, toParentUuid);
+				if (!rehoming.ok) {
+					const messages = [rehoming.message];
+					if (announce) notifyRejectedCommit(messages);
+					return { ok: false, messages };
+				}
 				return toOutcome(
-					guardedApply([{ kind: "moveField", uuid, toParentUuid, after }]),
+					guardedApply([
+						{ kind: "moveField", uuid, toParentUuid, after },
+						...rehoming.mutations,
+					]),
 				);
 			},
 
@@ -1304,8 +1307,19 @@ export function createBlueprintMutations(
 				if (Object.hasOwn(patch, "connect")) {
 					return rejectConnectOwnership();
 				}
-				const { name, ...metadata } = patch;
+				const { name, type, ...metadata } = patch;
 				const mutations: Mutation[] = [];
+				// A form type change carries the form's own case and its open
+				// and close conditions, so it is planned, never patched.
+				if (type !== undefined && type !== null && type !== form.type) {
+					const plan = planFormTypeChange(doc, uuid, type);
+					if (!plan.ok) {
+						const messages = [plan.message];
+						if (announce) notifyRejectedCommit(messages);
+						return { ok: false, messages };
+					}
+					mutations.push(...plan.mutations);
+				}
 				if (name !== undefined && name !== form.name) {
 					mutations.push({
 						kind: "renameForm",
@@ -1450,7 +1464,14 @@ export function createBlueprintMutations(
 				const moduleMutations = modulePatchMutations(doc.modules[uuid], patch);
 				return toOutcome(
 					guardedApply([
-						...caseTypeCatalogMutations(doc, retirement, patch.caseType),
+						...("caseType" in patch
+							? moduleCaseTypeChangeMutations(
+									doc,
+									uuid,
+									retirement,
+									patch.caseType,
+								)
+							: caseTypeCatalogMutations(doc, retirement, patch.caseType)),
 						...moduleMutations,
 					]),
 				);

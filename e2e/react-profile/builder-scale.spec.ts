@@ -370,7 +370,7 @@ test("profiles committing a large Saves to selection", async ({ page }) => {
 	await option.click();
 	await expect(trigger).toHaveAttribute(
 		"aria-label",
-		/Saves to: Profile property 50, #profile_participant\/profile_property_50/i,
+		/Saves to: .*Profile property 50, #profile_participant\/profile_property_50/i,
 	);
 	const wallMs = await page.evaluate(
 		(selectionStarted) => performance.now() - selectionStarted,

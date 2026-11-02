@@ -1,6 +1,8 @@
 // components/builder/case-operations/useOperationSentenceContext.ts
 //
-// The labels a row sentence needs from outside the operation.
+// The labels a row sentence needs from outside the operation: the form's
+// type and its own case type for the form's own case, and the names of the
+// operations, repeats and fields the others point at.
 //
 // References are identity; text is a projection: a `forEach` holds a
 // repeat's uuid and an `op` target holds an operation's, so the words
@@ -28,7 +30,7 @@ import type { ReferenceNamesDoc } from "@/lib/domain/referenceNames";
 export function useOperationSentenceContext(
 	formUuid: Uuid | undefined,
 ): OperationSentenceContext {
-	const { form, fields, fieldOrder, fieldParent, userProperties } =
+	const { form, ownCaseType, fields, fieldOrder, fieldParent, userProperties } =
 		useOperationLabelInputs(formUuid);
 
 	return useMemo(() => {
@@ -58,9 +60,19 @@ export function useOperationSentenceContext(
 			return label.length > 0 ? label : field.id;
 		};
 		return {
+			formType: form?.type,
+			ownCaseType,
 			operationName: (uuid) => operationNames.get(uuid),
 			repeatLabel: labelOf,
 			fieldLabel: labelOf,
 		};
-	}, [form, formUuid, fields, fieldOrder, fieldParent, userProperties]);
+	}, [
+		form,
+		formUuid,
+		ownCaseType,
+		fields,
+		fieldOrder,
+		fieldParent,
+		userProperties,
+	]);
 }

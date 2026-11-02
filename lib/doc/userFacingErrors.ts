@@ -65,6 +65,7 @@ import {
 	type ScalarType,
 	UNREADABLE_DATETIME_NEXT,
 } from "@/lib/domain/expression/typeChecker";
+import { formTypeLabels } from "@/lib/domain/forms";
 import {
 	inPlatform,
 	PLATFORMS,
@@ -120,6 +121,83 @@ const det = (e: ValidationError, key: string, fallback: string): string =>
 /** A sentence's subject placed later in a sentence. */
 const lowerFirst = (subject: string): string =>
 	subject.charAt(0).toLowerCase() + subject.slice(1);
+
+/** The case operation's authored id, or "this case change". */
+const opName = (e: ValidationError): string =>
+	det(e, "operationId", "this case change");
+
+/** The form's type as a sentence names it ("follow-up"). */
+const formTypeWords = (e: ValidationError): string => {
+	const type = e.details?.formType;
+	return type !== undefined && type in formTypeLabels
+		? formTypeLabels[type as keyof typeof formTypeLabels].toLowerCase()
+		: "different";
+};
+
+/** What a worker-record update may not do, as its refusal says it. */
+const WORKER_RECORD_FACET_WORDS: Readonly<Record<string, string>> = {
+	rename: "rename it",
+	owner: "change its owner",
+	retype: "change its type",
+	links: "link it to another case",
+	condition: "run on a condition",
+	forEach: "run for each row of a repeat",
+};
+
+function ownOperationSentence(e: ValidationError): string {
+	switch (det(e, "reason", "")) {
+		case "missing":
+			return `${q(formName(e))} is a ${formTypeWords(e)} form, so it needs a change for its own case, and it has none. Setting the form's type again adds it.`;
+		case "duplicate":
+			return `${q(formName(e))} has two changes for its own case. You can move the saves of one into the other and remove it.`;
+		case "position":
+			return `The change for ${q(formName(e))}'s own case has to come first. You can move the other changes after it.`;
+		default:
+			return det(e, "formType", "") === "survey"
+				? `${q(formName(e))} is a survey, so it has no case of its own to change. You can remove this change or choose another form type.`
+				: `${q(modName(e))} has no case type, so ${q(formName(e))} has no case of its own to change. You can give the menu a case type or remove this change.`;
+	}
+}
+
+function viaSentence(e: ValidationError): string {
+	const property = det(e, "property", "This value");
+	switch (det(e, "reason", "")) {
+		case "new-case":
+			return `${property} is saved to the case above a case this form creates, and that case has no link yet while the form is open. You can save it from a form that opens the existing case.`;
+		case "step":
+			return `CommCare HQ saves to a case above only through a parent or host link, and ${q(det(e, "identifier", "this link"))} is neither.`;
+		case "unresolved":
+			return `${property} is saved through a link that doesn't lead to a case type. You can choose the case above it again.`;
+		case "placement":
+			return [
+				"This form's case is saved through Save to Case, which saves one case per block.",
+				e.details?.placementSentence,
+				`You can save ${property} with a case change that updates that case instead.`,
+			]
+				.filter((part) => part !== undefined && part.length > 0)
+				.join(" ");
+		default:
+			return "Only this form's own case can save to the case above it. You can add a case change that updates that case instead.";
+	}
+}
+
+function onlyIfChangedSentence(e: ValidationError): string {
+	const property = det(e, "property", "this value");
+	switch (det(e, "reason", "")) {
+		case "new-case":
+			return `${property} is saved to a case this form creates, so there's no earlier value to compare with. You can save it every time instead.`;
+		case "placement":
+			return [
+				"This form's case is saved through Save to Case, which can't save only changed answers.",
+				e.details?.placementSentence,
+				`You can save ${property} every time, or change the form so Case Management can hold it.`,
+			]
+				.filter((part) => part !== undefined && part.length > 0)
+				.join(" ");
+		default:
+			return `Only this form's own case can save just the answers that changed. You can save ${property} every time instead.`;
+	}
+}
 
 const QUESTION_ID_PROBLEMS: ReadonlySet<string> = new Set<QuestionIdProblem>([
 	"leading-underscore",
@@ -1100,30 +1178,25 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(formName(e))} is split into sections, but ${looseFieldsPhrase(e)} outside every section. Once a form has sections, every field belongs inside one. Add ${det(e, "looseCount", "") === "1" ? "it" : "them"} to a section, or remove the sections to go back to a single page.`,
 	FORM_SECTION_USER_REPEAT: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} lets people add entries, but it sits inside section ${q(det(e, "sectionTitle", det(e, "sectionId", "")))}, and a section shows on one screen where entries can't be added. Move the repeat out of the sections, or give it a fixed count.`,
-	CASE_WRITE_NO_CASE_ACTION: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} is set to save case data, but this form doesn't create, open, or close a case. Remove that case destination, or move the field to a case form.`,
-	CASE_WRITE_NOT_DIRECT_CHILD: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "caseType", "a case type"))}, but this form can save only to its main case or one of that case's direct children. Choose one of those destinations, or clear the case destination.`,
+	CASE_OWN_OPERATION: (e) => ownOperationSentence(e),
 	CASE_WRITE_DUPLICATE_PROPERTY: (e) =>
-		`In ${q(formName(e))}, several fields save to ${q(det(e, "property", "the same case property"))} in one case action and would overwrite each other. Keep one writer, or point the others somewhere else.`,
+		det(e, "reason", "") === "own-case"
+			? `${q(opName(e))} saves ${det(e, "property", "a property")} to this form's case, which this form's own change already saves. You can save it in one of the two.`
+			: `${q(opName(e))} saves ${det(e, "property", "a property")} twice. You can keep one of them.`,
+	CASE_WRITE_VIA_INVALID: (e) => viaSentence(e),
+	CASE_WRITE_ONLY_IF_CHANGED_INVALID: (e) => onlyIfChangedSentence(e),
 	CASE_CREATE_NAME_MISSING: (e) =>
-		`${q(formName(e))} creates ${q(det(e, "caseType", "case"))} cases, but nothing gives them a name. Add one field whose case destination property is "case_name".`,
-	CASE_CREATE_NAME_DUPLICATE: (e) =>
-		`${q(formName(e))} has more than one field naming the same new ${q(det(e, "caseType", "case"))} case. Keep one "case_name" writer and change or clear the others.`,
-	RESERVED_CASE_PROPERTY: (e) =>
-		`${q(formName(e))} has a field that saves to ${q(det(e, "reservedName", "a reserved name"))}, which is a reserved name. Have it save somewhere else.`,
+		`${q(formName(e))} creates a case, so its case needs a name. You can choose the question that names it.`,
 	CAPTURE_CASE_WRITE_STANDARD_PROPERTY: (e) =>
-		`${q(formName(e))} saves an attachment question to ${q(det(e, "property", "a standard property"))}, which CommCare keeps as the case's own ${det(e, "property", "") === "external_id" ? "external id" : "name"}. Save the attachment to a property of its own instead.`,
+		`${q(opName(e))} in ${q(formName(e))} saves the link to a captured file as the case's ${det(e, "property", "") === "external_id" ? "external id" : "name"}, which CommCare keeps as the case's own value rather than a link. You can save the link to a property of its own instead.`,
 	FORM_TOO_MANY_ATTACHMENTS: (e) =>
 		`${q(formName(e))} asks for ${det(e, "captureCount", "too many")} attachments, and CommCare accepts at most ${MAX_FORM_ATTACHMENTS} per submitted form, a worker who answered them all couldn't submit. Split this into more than one form, or remove some attachment questions.`,
+	OPEN_CONDITION_WRONG_TYPE: (e) =>
+		`Only a registration form creates its case on a condition, and ${q(formName(e))} is a ${formTypeWords(e)} form. You can remove the condition or make it a registration form.`,
 	CLOSE_CONDITION_WRONG_TYPE: (e) =>
-		`${q(formName(e))} has a close condition but isn't a close form. Make it a close form, or drop the condition.`,
+		`Only registration and close forms close their own case, and ${q(formName(e))} is a ${formTypeWords(e)} form. You can remove the close condition or make it a close form.`,
 	CLOSE_FORM_NO_CASE_TYPE: (e) =>
 		`${q(formName(e))} is a close form, but its module has no case type. Give the module a case type, or change the form's type.`,
-	CLOSE_CONDITION_INCOMPLETE: (e) =>
-		`${q(formName(e))}'s close condition needs both a field and an answer. Fill in both, or remove it to always close.`,
-	CLOSE_CONDITION_FIELD_NOT_FOUND: (e) =>
-		`${q(formName(e))}'s close condition points at a field that isn't in the form. Point it at one that is.`,
 	INVALID_POST_SUBMIT: (e) =>
 		`${q(formName(e))}'s After Submit setting isn't one of the options. Pick one.`,
 	POST_SUBMIT_NOT_OFFERED: (e) => postSubmitNotOfferedSentence(e),
@@ -1266,10 +1339,6 @@ const USER_MESSAGE_BY_CODE: Record<
 	},
 	DUPLICATE_FIELD_ID: (e) =>
 		`${q(formName(e))} has two fields with the same ID at the same level. Rename one of them.`,
-	CASE_PROPERTY_BAD_FORMAT: (e) =>
-		`${q(formName(e))} saves to ${q(det(e, "property", "a case property"))}, which isn't a valid name. Use letters, numbers, underscores, or hyphens, starting with a letter.`,
-	CASE_PROPERTY_TOO_LONG: (e) =>
-		`${q(formName(e))} saves to a name that's way too long. Give it a shorter one.`,
 	CASE_OPERATION_DUPLICATE_UUID: () =>
 		"Two case operations have the same identity. Remove one and add it again.",
 	CASE_OPERATION_INVALID_ID: (e) =>
@@ -1304,10 +1373,26 @@ const USER_MESSAGE_BY_CODE: Record<
 			"A value or condition in this case operation doesn't fit where it's used. Review the highlighted operation."
 		);
 	},
-	CASE_OPERATION_TARGET_INVALID: () =>
-		"A case operation can't resolve the case it should work on. Choose a valid target.",
-	CASE_OPERATION_TARGET_TYPE_MISMATCH: () =>
-		"A case operation points to the wrong kind of case. Choose a target with the same case type.",
+	CASE_OPERATION_TARGET_INVALID: (e) => {
+		switch (det(e, "reason", "")) {
+			case "worker-record-type":
+				return "The worker's record is a commcare-user case, so only an update of commcare-user can save to it.";
+			case "worker-record-twice":
+				return `This form already saves to the worker's record in another case change. You can add the saves of ${q(opName(e))} there.`;
+			case "worker-record-facet":
+				return `The worker's record can only be updated, so ${q(opName(e))} can't ${WORKER_RECORD_FACET_WORDS[det(e, "facet", "")] ?? "do that"}.`;
+			default:
+				return "A case operation can't resolve the case it should work on. Choose a valid target.";
+		}
+	},
+	CASE_OPERATION_TARGET_TYPE_MISMATCH: (e) =>
+		det(e, "subject", "") === "own-case"
+			? `Another case change in ${q(formName(e))} changes the type of this form's own case, which this form's own change then saves as its menu's case type. You can change the type in a form of its own.`
+			: "A case operation points to the wrong kind of case. Choose a target with the same case type.",
+	CASE_OPERATION_CLOSES_OWN_CASE: (e) =>
+		det(e, "formType", "") === "close"
+			? `${q(formName(e))} already closes its own case. You can remove ${q(opName(e))}, or set when it closes in the form's settings.`
+			: `${q(opName(e))} closes this form's own case. You can make ${q(formName(e))} a close form, which closes it, and remove this change.`,
 	CASE_OPERATION_REFERENCE_ORDER: () =>
 		"A case operation refers to a case that isn't created yet. Move the create operation before this one.",
 	CASE_OPERATION_EXECUTION_ORDER: () =>
@@ -1327,9 +1412,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	MULTI_SELECT_AUTHORED_KEY_CREATE: (e) =>
 		`The Case change ${q(det(e, "operationId", "that creates a case"))} uses one form answer as the identity for every new case. Under Identity, choose “A distinct case each time.”`,
 	MULTI_SELECT_SESSION_OPERATION_LINK: (e) =>
-		`A connection in the Case change ${q(det(e, "operationId", "in this form"))} points to “The case this form opened,” but that means several cases here. Choose a case made earlier in the form or a case found by a calculation.`,
-	MULTI_SELECT_FANOUT_CHILD_DATUM: (e) =>
-		`${q(formName(e))} creates a separate child case for each selected case, so an after-submit link can't carry or read one child case for the whole selection. Link to the destination module so the next case can be chosen there, or remove the child-case reference from the link.`,
+		`A connection in the Case change ${q(det(e, "operationId", "in this form"))} points to “The case this form opened,” but this change runs once for the form, and that means several cases here. Set its “Which case” to “The case this form opened,” or connect it to a case made earlier in the form or a case found by a calculation.`,
 	MULTI_SELECT_OPERATION_ORDER: (e) =>
 		`In ${q(formName(e))}, a Case change that runs once comes after a change that runs for each selected case. Move every once-per-form change above the selected-case changes.`,
 	CASE_OPERATION_LINK_INVALID: (e) =>
@@ -1339,17 +1422,10 @@ const USER_MESSAGE_BY_CODE: Record<
 		"Changing this case's type would leave required information missing. Add those values or choose another case type.",
 	CASE_HASHTAG_ON_CREATE_FORM: (e) =>
 		`${q(formName(e))} creates a new case but reads from one that doesn't exist yet (${det(e, "hashtag", "a case reference")}). Point it at a form question instead.`,
-	PRIMARY_CASE_FIELD_IN_REPEAT: (e) => {
-		const f = det(e, "fieldId", "a field");
-		return `In ${q(formName(e))}, ${q(f)} is inside a repeating section but saves to the form's main case, which a repeat can't do. Move it out of the repeat, or save it to a child case instead.`;
-	},
 	USERCASE_WRITE_UNDECLARED_PROPERTY: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a worker detail"))} on the worker's own record, but no worker detail by that name exists. Add it under Worker information in App setup, or pick one that's already there.`,
+		`${q(opName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a worker detail"))} on the worker's own record, but no worker detail by that name exists. You can add it under Worker information in App setup, or pick one that's already there.`,
 	USERCASE_WRITE_MANAGED_PROPERTY: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a worker detail"))} on the worker's own record, which Nova keeps in step with the worker's profile, so an answer there would be replaced the next time that worker changes. Save to a worker detail you added under Worker information instead.`,
-	USERCASE_FIELD_IN_REPEAT: (e) =>
-		`In ${q(formName(e))}, ${q(det(e, "fieldId", "a field"))} is inside a repeating section but saves to the worker's own record, which holds one answer rather than one per repeat. Move it out of the repeat.`,
-
+		`${q(opName(e))} in ${q(formName(e))} saves to ${q(det(e, "property", "a worker detail"))} on the worker's own record, which Nova keeps in step with the worker's profile, so a value there would be replaced the next time that worker changes. You can save to a worker detail you added under Worker information instead.`,
 	// ── Field-level ──────────────────────────────────────────────────
 	SELECT_DEFAULT_NOT_AN_OPTION: (e) =>
 		`The starting value for ${q(fieldName(e))} is not one of its choices. Choose an available answer or clear the starting value.`,
@@ -1363,8 +1439,6 @@ const USER_MESSAGE_BY_CODE: Record<
 		`Two choices of ${q(fieldName(e))} in ${q(formName(e))} both store ${q(det(e, "optionValue", ""))}, so a saved answer can't say which was chosen. ${q(det(e, "suggestedValue", "a_new_value"))} is free for the second.`,
 	SELECT_OPTION_LABEL_EMPTY: (e) =>
 		`${e.details?.optionPosition ? `Choice ${e.details.optionPosition}` : "A choice"} on ${q(fieldName(e))} in ${q(formName(e))} has no label in any language and no image, audio or video, so workers would see an empty choice. Give it a label, or attach media to it.`,
-	CASE_WRITE_UNKNOWN_TYPE: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} saves to the ${q(det(e, "caseType", "case type"))} case type, but no case type by that name exists. Add that case type, or point the field at one that does.`,
 	HIDDEN_VALUE_BOTH_SOURCES: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} has both a calculated value and a default. A hidden value takes a calculation or a starting value, and Nova doesn't yet write both on one field. Remove the default, or drop the calculation if you wanted a fixed value.`,
 	REQUIRED_ON_HIDDEN: (e) =>

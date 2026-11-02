@@ -43,7 +43,9 @@ export function arithmeticFixture() {
 			},
 		],
 	});
+	// After the own case `buildDoc` gives the follow-up.
 	doc.forms[formUuid].caseOperations = [
+		...(doc.forms[formUuid].caseOperations ?? []),
 		{
 			uuid: testUuid("arithmetic-operation"),
 			id: "calculate",

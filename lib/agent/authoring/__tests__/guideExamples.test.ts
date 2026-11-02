@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { makeAuthoringHarness } from "@/lib/agent/__tests__/authoringHarness";
 import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
-import type { Platform } from "@/lib/domain";
+import { fieldCaseWriteViews, type Platform } from "@/lib/domain";
 import { webAppsDevice } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import { evaluateForm } from "@/lib/preview/engine/evaluateForm";
 import { evaluationScenarioCases } from "@/lib/preview/engine/evaluationScenario";
@@ -426,10 +426,12 @@ it("joins a date question and a time question into a date and time a case saves,
 	const field = Object.values(h.currentDoc().fields).find(
 		(candidate) => candidate.id === "visited_at",
 	);
-	expect(field).toMatchObject({
-		kind: "hidden",
-		caseWrite: { caseType: "visit", property: "visited_at" },
-	});
+	if (field === undefined) throw new Error("Missing the joined value.");
+	expect(field.kind).toBe("hidden");
+	// Its answer is saved through the form's case changes.
+	expect(fieldCaseWriteViews(h.currentDoc(), field.uuid)).toEqual([
+		expect.objectContaining({ caseType: "visit", property: "visited_at" }),
+	]);
 });
 
 it("counts a repeat by a whole number, wrapping a decimal count in int(...)", async () => {

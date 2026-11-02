@@ -935,10 +935,10 @@ describe("EngineController", () => {
 		});
 
 		it("a converted group→repeat's child value reaches computeSubmissionMutation at the reindexed path", () => {
-			/* A registration form whose primary case type is `patient`. The group
-			 * holds an admitted direct-child bucket; after group→repeat its values
-			 * must survive the re-path so submission materializes that same bucket
-			 * from `/data/container[0]/...`. */
+			/* A registration form whose own case is a `patient`. After
+			 * group→repeat the group's answers must survive the re-path so the
+			 * submission hands them to the case operations as the answers of the
+			 * row at `/data/container[0]/...`. */
 			const patientCaseType: CaseType = {
 				name: "patient",
 				properties: [
@@ -1003,17 +1003,12 @@ describe("EngineController", () => {
 						id: "entry_name",
 						kind: "hidden",
 						calculate: term(literal("Note entry")),
-						caseWrite: {
-							caseType: "note_entry",
-							property: "case_name",
-						},
 					},
 					[noteUuid]: {
 						uuid: noteUuid,
 						id: "note",
 						kind: "text",
 						label: proseText("Note"),
-						caseWrite: { caseType: "note_entry", property: "note" },
 					},
 				},
 				moduleOrder: [moduleUuid],
@@ -1051,20 +1046,23 @@ describe("EngineController", () => {
 				{ kind: "convertField", uuid: groupUuid, toKind: "repeat" },
 			]);
 
-			/* The child value survived the re-path and lands in the canonical
-			 * direct-child bucket for this concrete repeat instance. */
+			/* The child value survived the re-path and reaches the case
+			 * operations as the answer of this concrete repeat row. */
 			const mutation = ctrl.computeSubmissionMutation({});
 			expect(mutation.kind).toBe("registration");
-			if (mutation.kind === "registration") {
-				expect(mutation.primary.caseName).toBe("Alice");
-				expect(mutation.children).toEqual([
-					{
-						caseType: "note_entry",
-						caseName: "Note entry",
-						properties: { note: "in-progress note" },
-					},
-				]);
-			}
+			expect(
+				mutation.operationAnswers?.root.find(
+					(entry) => entry.fieldUuid === nameUuid,
+				)?.value,
+			).toBe("Alice");
+			expect(
+				mutation.operationAnswers?.repeats
+					.find((scope) => scope.repeat === groupUuid)
+					?.iterations.map(
+						(iteration) =>
+							iteration.find((entry) => entry.fieldUuid === noteUuid)?.value,
+					),
+			).toEqual(["in-progress note"]);
 		});
 	});
 
@@ -1907,7 +1905,7 @@ describe("EngineController", () => {
 				...nameField,
 				id: "case_name",
 				caseWrite: { caseType: "medication_order", property: "case_name" },
-			} as Field;
+			} as ControllerFieldSource;
 			doc.fieldOrder[FORM_UUID] = [patientNameUuid, repeatUuid];
 			doc.fieldOrder[repeatUuid] = [nameUuid];
 			doc.forms[FORM_UUID] = {
@@ -1958,13 +1956,15 @@ describe("EngineController", () => {
 			ctrl.setValueAt("/data/orders[1]/case_name", "Aspirin");
 
 			const mutation = ctrl.computeSubmissionMutation({});
-			expect(mutation).toMatchObject({
-				kind: "registration",
-				children: [
-					{ caseType: "medication_order", caseName: "Hydrangea" },
-					{ caseType: "medication_order", caseName: "Aspirin" },
-				],
-			});
+			expect(mutation.kind).toBe("registration");
+			expect(
+				mutation.operationAnswers?.repeats
+					.find((scope) => scope.repeat === repeatUuid)
+					?.iterations.map(
+						(iteration) =>
+							iteration.find((entry) => entry.fieldUuid === nameUuid)?.value,
+					),
+			).toEqual(["Hydrangea", "Aspirin"]);
 		});
 	});
 
@@ -2048,18 +2048,13 @@ describe("EngineController", () => {
 
 			const mutation = ctrl.computeSubmissionMutation({});
 			// The controller injects THIS entry's attachment scope, which is why
-			// the assertion is on the case-bearing slots plus explicit checks
-			// on the required submission protocol rather than whole-object equality.
-			expect(mutation).toMatchObject({
-				kind: "registration",
-				formUuid,
-				primary: {
-					caseType: "patient",
-					caseName: "Alice",
-					properties: { age: 30 },
-				},
-				children: [],
-			});
+			// the assertion is on the answers plus explicit checks on the
+			// required submission protocol rather than whole-object equality.
+			expect(mutation).toMatchObject({ kind: "registration", formUuid });
+			expect(mutation.operationAnswers?.root).toEqual([
+				{ fieldUuid: nameUuid, value: "Alice" },
+				{ fieldUuid: ageUuid, value: "30" },
+			]);
 			// Present because a form is active; empty because nothing was
 			// attached, which is the instruction to discard any staged
 			// attachment for this entry.

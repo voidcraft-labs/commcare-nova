@@ -18,10 +18,10 @@
 // that would make Core's `loadCase` throw:
 //
 // - a close form whose close condition holds (or that has none);
-// - a follow-up whose own case block updates the module's case, which is
-//   the primary `<update>` `lib/commcare/xform/caseBlocks.ts` writes when
-//   the update map has entries;
-// - an authored case operation that updates or closes the session's case.
+// - a follow-up or close form whose own case operation changes the case it
+//   loaded: a rename, an owner, a link, or a write that saves to that case
+//   rather than through an index to a case above it;
+// - another case operation that updates or closes the session's case.
 //
 // An operation on a case the form creates, or on a case an expression names
 // through the worker's data, changes a case the phone resolves against its
@@ -31,70 +31,28 @@
 // so their submission never reaches a case the phone does not hold.
 
 import type { BlueprintDoc } from "@/lib/domain/blueprint";
-import { deriveCaseWriteInventory } from "@/lib/domain/caseWriteInventory";
 import { orderedCaseOperations } from "@/lib/domain/forms";
 import type { Uuid } from "@/lib/domain/uuid";
 
-/** Whether a close form's close condition holds for the submitted answers,
- *  read through `answerOf` (the answer to a question by its uuid): `=`
- *  compares the answer, `selected` looks for it among a multiple choice's
- *  answers, and a close form with no condition always closes. */
-export function closeConditionHolds(
-	doc: Pick<BlueprintDoc, "forms">,
-	formUuid: Uuid,
-	answerOf: (fieldUuid: Uuid) => string,
-): boolean {
-	const condition = doc.forms[formUuid]?.closeCondition;
-	if (condition === undefined) return true;
-	const value = answerOf(condition.field);
-	return condition.operator === "selected"
-		? value.split(/\s+/).includes(condition.answer)
-		: value === condition.answer;
-}
-
 /** Whether submitting the form updates or closes the case the session holds.
- *  `closeHolds` is whether a close form's close condition holds for the
- *  submitted answers (true for a close form with no condition). */
+ *  `closeHolds` is whether the form closes its own case for the submitted
+ *  answers (`FormEngine.ownCloseHolds`). */
 export function formChangesSessionCase(
-	doc: Pick<
-		BlueprintDoc,
-		| "forms"
-		| "formOrder"
-		| "modules"
-		| "fields"
-		| "fieldOrder"
-		| "caseTypes"
-		| "userProperties"
-	>,
+	doc: Pick<BlueprintDoc, "forms">,
 	formUuid: Uuid,
 	closeHolds: boolean,
 ): boolean {
 	const form = doc.forms[formUuid];
 	if (form === undefined) return false;
-	if (form.type === "close" && closeHolds) return true;
-	if (
-		orderedCaseOperations(form).some(
-			(operation) =>
-				(operation.action === "update" || operation.action === "close") &&
-				operation.target.kind === "session",
-		)
-	)
-		return true;
 	if (form.type !== "followup" && form.type !== "close") return false;
-	const moduleUuid = Object.keys(doc.formOrder).find((candidate) =>
-		doc.formOrder[candidate as Uuid]?.includes(formUuid),
-	) as Uuid | undefined;
-	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
-	if (module === undefined) return false;
-	return deriveCaseWriteInventory(
-		doc,
-		formUuid,
-		module,
-		form.type,
-	).buckets.some(
-		(bucket) =>
-			bucket.kind === "primary" &&
-			bucket.action === "update" &&
-			bucket.writers.length > 0,
+	if (form.type === "close" && closeHolds) return true;
+	return orderedCaseOperations(form).some((operation) =>
+		operation.action === "own"
+			? operation.name !== undefined ||
+				operation.owner !== undefined ||
+				(operation.links?.length ?? 0) > 0 ||
+				(operation.writes ?? []).some((write) => write.via === undefined)
+			: (operation.action === "update" || operation.action === "close") &&
+				operation.target.kind === "session",
 	);
 }

@@ -104,10 +104,10 @@ function referenceSlots(
 	uuid: Uuid,
 ): CaseOperationReferenceSlot[] {
 	const slots: CaseOperationReferenceSlot[] = [];
+	const target = operation.target;
 	if (
-		(operation.target.kind === "op" && operation.target.opUuid === uuid) ||
-		(operation.target.kind === "expression" &&
-			expressionReferences(operation.target.expr, uuid))
+		(target?.kind === "op" && target.opUuid === uuid) ||
+		(target?.kind === "expression" && expressionReferences(target.expr, uuid))
 	) {
 		slots.push({ kind: "target" });
 	}
@@ -200,6 +200,13 @@ export type CaseOperationMoveVerdict =
 			readonly reason: "operation-not-found" | "execution-order";
 			/** The operations the refusal is about, in execution order. */
 			readonly blockingUuids: readonly Uuid[];
+	  }
+	| {
+			readonly ok: false;
+			/** The form's own case is always the first change: it cannot
+			 *  move, and nothing moves above it. */
+			readonly reason: "own-first";
+			readonly blockingUuids: readonly Uuid[];
 	  };
 
 /**
@@ -243,7 +250,9 @@ export function caseOperationMoveVerdicts(
 							dependencyKind: plan.dependencyKind,
 							blockingUuids,
 						}
-					: { ok: false, reason: plan.reason, blockingUuids },
+					: plan.reason === "own-first" || plan.reason === "own-case"
+						? { ok: false, reason: "own-first", blockingUuids: [] }
+						: { ok: false, reason: plan.reason, blockingUuids },
 		);
 	}
 	return verdicts;

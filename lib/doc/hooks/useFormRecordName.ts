@@ -1,32 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { projectFormExpression } from "@/lib/doc/expressionText";
 import {
 	formRecordName,
 	prepareFormRecordName,
 } from "@/lib/doc/formRecordName";
 import { lookupExpressionDefinitions } from "@/lib/doc/lookupExpressionContext";
-import { asUuid, type Uuid } from "@/lib/domain";
+import type { Uuid } from "@/lib/domain";
 import { useLookupCommitState } from "../lookupCommitContext";
 import { useBlueprintDoc } from "./useBlueprintDoc";
 
-/** Record-name editing owns its prospective hidden field before parsing. */
+/** The record name's projection in its own slot, the name of the form's
+ *  own case, with the slot an edit parses in. */
 export function useFormRecordName(formUuid: Uuid) {
 	const doc = useBlueprintDoc((current) => current);
 	const { lookupContext } = useLookupCommitState();
-	const [prospectiveUuid, setProspectiveUuid] = useState(() =>
-		asUuid(crypto.randomUUID()),
-	);
-	// A successful edit consumes the reservation. Keep a fresh spare before
-	// a later accepted edit can assign the record name to another answer.
-	// React retries this render before publishing its result to children.
-	const occupied = doc.fields[prospectiveUuid] !== undefined;
-	if (occupied) setProspectiveUuid(asUuid(crypto.randomUUID()));
 	return useMemo(() => {
-		if (occupied) return undefined;
 		const value = formRecordName(doc, formUuid);
-		const prepared = prepareFormRecordName(doc, formUuid, prospectiveUuid);
+		const prepared = prepareFormRecordName(doc, formUuid);
 		if (value === undefined || prepared === undefined) return undefined;
 		const projection = projectFormExpression(
 			doc,
@@ -38,5 +30,5 @@ export function useFormRecordName(formUuid: Uuid) {
 			{ form: prepared.form, layout: true },
 		);
 		return { ...projection, ok: projection.unresolved.length === 0, prepared };
-	}, [doc, formUuid, lookupContext, prospectiveUuid, occupied]);
+	}, [doc, formUuid, lookupContext]);
 }

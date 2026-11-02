@@ -253,14 +253,16 @@ it("binds Connect scoring and record naming from their real pending evaluation n
 	expect(await h.call("getForm", { formUuid: "Visit" })).toMatchObject({
 		form: { connect: { assessment: { user_score: "../../../score" } } },
 	});
+	// The record name is the own case's name, read where the case changes
+	// are made, so it names an answer by its form path.
 	expect(
 		await h.call("updateForm", {
 			formUuid: "Visit",
-			recordName: "concat('Person ', ../score)",
+			recordName: "concat('Person ', #form/score)",
 		}),
 	).toMatchObject({ ok: true });
 	expect(await h.call("getForm", { formUuid: "Visit" })).toMatchObject({
-		recordName: "concat('Person ', ../score)",
+		recordName: "concat('Person ', #form/score)",
 	});
 });
 

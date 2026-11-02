@@ -11,6 +11,8 @@
  * than restating a regex on each authoring surface.
  */
 
+import { suffixUntilFree } from "./idSlug";
+
 export const CASE_OPERATION_IDENTIFIER_REGEX = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export const CASE_OPERATION_PROPERTY_REGEX = /^[A-Za-z][A-Za-z0-9_]*$/;
 
@@ -26,4 +28,21 @@ export function isCaseOperationIdentifier(value: string): boolean {
 
 export function isCaseOperationProperty(value: string): boolean {
 	return CASE_OPERATION_PROPERTY_REGEX.test(value);
+}
+
+/**
+ * The id the form's own case operation is born with: the module's case type
+ * with every character the identifier grammar refuses (a case type may hold
+ * `-`) turned into `_`, suffixed `_2`, `_3`, … past the form's other
+ * operation ids (`idSlug.ts::suffixUntilFree`).
+ */
+export function ownCaseOperationId(
+	caseType: string,
+	takenIds: ReadonlySet<string>,
+): string {
+	const base = caseType.replace(/[^A-Za-z0-9_]/g, "_");
+	return suffixUntilFree(
+		isCaseOperationIdentifier(base) ? base : "case",
+		takenIds,
+	);
 }

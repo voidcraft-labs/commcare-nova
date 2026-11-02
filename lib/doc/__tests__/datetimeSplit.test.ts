@@ -27,6 +27,7 @@ import {
 	type BlueprintDoc,
 	collectTranslationUnits,
 	type Field,
+	fieldCaseWriteViews,
 	makeTranslationUnitId,
 	type TranslationEntry,
 	type Uuid,
@@ -176,9 +177,15 @@ describe("the split of the shared original", () => {
 			uuid: names.seenAt,
 			id: "seen_at",
 			kind: "hidden",
-			caseWrite: { caseType: "visit", property: "seen_at" },
 			calculate: clockKeepingJoin(read(check.dateUuid), read(check.timeUuid)),
 		});
+		// Every write that saves its answer still reads it.
+		expect(
+			fieldCaseWriteViews(after, names.seenAt).map((view) => [
+				view.caseType,
+				view.property,
+			]),
+		).toEqual([["visit", "seen_at"]]);
 	});
 
 	it("starts a preloaded writer's questions from the case, and moves its validation onto the time question", () => {

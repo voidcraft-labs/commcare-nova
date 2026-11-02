@@ -255,14 +255,27 @@ describe("isolated app-test submissions", () => {
 				await store.applySubmission({
 					appId,
 					submissionReceipt: receipt,
-					ordinary: {
-						kind: "registration",
-						primary: {
-							caseType: "equipment",
-							caseName: "Pump",
-							properties: {},
-						},
-						children: [],
+					ordinary: { kind: "registration" },
+					operations: {
+						formUuid: receipt.formUuid,
+						operations: [
+							{
+								operation: {
+									uuid: testUuid("app-test-namespace-own-case"),
+									id: "equipment",
+									action: "own",
+									name: {
+										kind: "term",
+										term: { kind: "literal", value: "Pump" },
+									},
+								},
+								guardConditions: [],
+								expressionSnapshotTypes: { links: new Map() },
+							},
+						],
+						ownCase: { caseType: "equipment", formType: "registration" },
+						scopes: [{ iterations: [{ formFields: new Map() }] }],
+						caseTypeSchemas: new Map(),
 					},
 				});
 				await sql`UPDATE cases SET project_id = 'invalid-project'`.execute(tx);

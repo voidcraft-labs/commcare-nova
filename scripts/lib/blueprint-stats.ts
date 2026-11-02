@@ -6,14 +6,15 @@
  * reused across every per-form metric (kind counts, logic counts, case
  * property count, quality flags) rather than one walk per metric.
  *
- * Field discriminator is `kind`; validation key is `validate`; case
- * linkage is `caseWrite`. Children live in `fieldOrder[parentUuid]`,
- * not on the field itself.
+ * Field discriminator is `kind`; validation key is `validate`; where a
+ * field's answer is saved is its form's case operations, read through
+ * `formCaseWriteViews`. Children live in `fieldOrder[parentUuid]`, not on
+ * the field itself.
  */
 
 import { projectFormExpression } from "../../lib/doc/expressionText";
 import {
-	fieldCaseWrite,
+	formCaseWriteViews,
 	isContainer,
 	projectProseTemplate,
 } from "../../lib/domain";
@@ -69,7 +70,7 @@ export interface FormStats {
 	hasCloseCase: boolean;
 	hasFormLinks: boolean;
 	hasConnect: boolean;
-	/** Number of case properties saved by this form (fields with caseWrite). */
+	/** Number of fields whose answer this form's case operations save. */
 	casePropertyCount: number;
 	/** Number of advanced case operations executed on submission. */
 	caseOperationCount: number;
@@ -257,13 +258,33 @@ function countLogicFromList(doc: BlueprintDoc, fields: Field[]): LogicCounts {
 }
 
 /**
- * Count fields from a pre-collected list that save to a case property
- * (have `caseWrite` set).
+ * Whether any of a form's case operations saves something: an own arm with
+ * a name, an owner, a write or a link, or any other operation.
  */
-function countCasePropertiesFromList(fields: Field[]): number {
+function formSavesToCases(form: Form | undefined): boolean {
+	return (form?.caseOperations ?? []).some(
+		(operation) =>
+			operation.action !== "own" ||
+			operation.name !== undefined ||
+			operation.owner !== undefined ||
+			(operation.writes?.length ?? 0) > 0 ||
+			(operation.links?.length ?? 0) > 0,
+	);
+}
+
+/**
+ * Count the fields from a pre-collected list whose answer one of the form's
+ * case operations saves.
+ */
+function countCasePropertiesFromList(
+	doc: BlueprintDoc,
+	form: Form,
+	fields: Field[],
+): number {
+	const views = formCaseWriteViews(doc, form.uuid);
 	let count = 0;
 	for (const f of fields) {
-		if (fieldCaseWrite(f) !== undefined) count++;
+		if ((views.get(f.uuid)?.length ?? 0) > 0) count++;
 	}
 	return count;
 }
@@ -296,7 +317,7 @@ function analyzeForm(doc: BlueprintDoc, form: Form): FormAnalysis {
 		hasCloseCase: form.type === "close",
 		hasFormLinks: (form.formLinks?.length ?? 0) > 0,
 		hasConnect: form.connect != null,
-		casePropertyCount: countCasePropertiesFromList(fields),
+		casePropertyCount: countCasePropertiesFromList(doc, form, fields),
 		caseOperationCount: form.caseOperations?.length ?? 0,
 	};
 	return { stats, fields };
@@ -565,7 +586,7 @@ function walkForLogic(
  * defaults automatically, so omitting it is correct behavior.
  */
 function checkQuality(
-	_doc: BlueprintDoc,
+	doc: BlueprintDoc,
 	moduleAnalyses: ModuleAnalysis[],
 ): QualityFlag[] {
 	const flags: QualityFlag[] = [];
@@ -583,21 +604,16 @@ function checkQuality(
 			const fields = formFields.get(form.uuid) ?? [];
 
 			if (form.type === "registration") {
-				const hasOwnCaseNameWriter = fields.some((field) => {
-					const write = fieldCaseWrite(field);
-					return (
-						write !== undefined &&
-						write.caseType === mod.caseType &&
-						write.property === "case_name"
-					);
-				});
-				if (!hasOwnCaseNameWriter) {
+				const own = doc.forms[form.uuid]?.caseOperations?.find(
+					(operation) => operation.action === "own",
+				);
+				if (own?.name === undefined) {
 					flags.push({
 						severity: "error",
 						module: mod.name,
 						form: form.name,
 						message:
-							"Registration form has no field writing case_name to its own case type — case will have no name",
+							"Registration form gives its new case no name — case will have no name",
 					});
 				}
 			}
@@ -606,8 +622,7 @@ function checkQuality(
 				mod.caseType &&
 				!mod.caseListOnly &&
 				form.type !== "survey" &&
-				form.casePropertyCount === 0 &&
-				form.caseOperationCount === 0
+				!formSavesToCases(doc.forms[form.uuid])
 			) {
 				flags.push({
 					severity: "warn",

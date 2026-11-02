@@ -18,6 +18,7 @@ import type { BlueprintDoc } from "@/lib/domain";
 import { ifExpr } from "@/lib/domain/expression/builders";
 import { inferExpressionTypes } from "@/lib/domain/expression/inference";
 import { runValidation } from "../runner";
+import { ownArms } from "./ownArms";
 
 const REGISTER = testUuid("writer-agreement-register");
 const FOLLOW_UP = testUuid("writer-agreement-follow-up");
@@ -764,6 +765,7 @@ describe("a date formatted as ISO text", () => {
 				followUp: [visitDateQuestion],
 			});
 			built.forms[CHECK_IN].caseOperations = [
+				...ownArms(built.forms[CHECK_IN]),
 				{
 					uuid: uuid("operation"),
 					id: "mark_visit",
@@ -794,22 +796,22 @@ describe("a date formatted as ISO text", () => {
 	});
 });
 
-describe("a starting value the form's preload overwrites", () => {
-	it("admits a follow-up starting value on its own case's property, beside the same calculation refused", () => {
-		const startingValue = validate(
-			doc({
-				followUp: [visitDateQuestion],
-				checkIn: [hidden("seed", { default_value: "'soon'" }, "visit_date")],
-			}),
-		);
-		expect(startingValue).toEqual([]);
-		const calculated = validate(
-			doc({
-				followUp: [visitDateQuestion],
-				checkIn: [hidden("seed", { calculate: "'soon'" }, "visit_date")],
-			}),
-		).map(({ code }) => code);
-		expect(calculated).toEqual(["HIDDEN_VALUE_WRITER_TYPE_MISMATCH"]);
+describe("a starting value on a follow-up", () => {
+	// A starting value is what the Hidden Value saves: no preload runs after
+	// it, since a preload is itself a starting value that reads the case.
+	it("refuses a starting value that doesn't fit, as the same calculation is", () => {
+		for (const source of [
+			{ default_value: "'soon'" },
+			{ calculate: "'soon'" },
+		]) {
+			const codes = validate(
+				doc({
+					followUp: [visitDateQuestion],
+					checkIn: [hidden("seed", source, "visit_date")],
+				}),
+			).map(({ code }) => code);
+			expect(codes).toEqual(["HIDDEN_VALUE_WRITER_TYPE_MISMATCH"]);
+		}
 	});
 });
 
@@ -879,12 +881,14 @@ describe("a date and time whose clock an earlier Hidden Value dropped", () => {
 			kind: "term",
 			term: { kind: "field", uuid: uuid("stamp") },
 		} as const;
-		const withWrite = (value: "copy" | "now" | "copy-or-text") => {
+		const stampBlank = { kind: "is-blank", left: stampTerm } as const;
+		const withWrite = (value: "bare" | "copy" | "now" | "copy-or-text") => {
 			const built = doc({
 				properties: seenAt,
 				checkIn: [hidden("stamp", { calculate: "now()" })],
 			});
 			built.forms[CHECK_IN].caseOperations = [
+				...ownArms(built.forms[CHECK_IN]),
 				{
 					uuid: uuid("operation"),
 					id: "mark_seen",
@@ -895,30 +899,37 @@ describe("a date and time whose clock an earlier Hidden Value dropped", () => {
 						{
 							property: "seen_at",
 							value:
-								value === "copy"
+								value === "bare"
 									? stampTerm
-									: value === "copy-or-text"
-										? ifExpr(
-												{
-													kind: "is-blank",
-													left: {
-														kind: "term",
-														term: { kind: "field", uuid: uuid("comment") },
+									: value === "copy"
+										? ifExpr(stampBlank, stampTerm, stampTerm)
+										: value === "copy-or-text"
+											? ifExpr(
+													{
+														kind: "is-blank",
+														left: {
+															kind: "term",
+															term: { kind: "field", uuid: uuid("comment") },
+														},
 													},
-												},
-												stampTerm,
-												{
-													kind: "term",
-													term: { kind: "literal", value: "abc" },
-												},
-											)
-										: { kind: "now" },
+													stampTerm,
+													{
+														kind: "term",
+														term: { kind: "literal", value: "abc" },
+													},
+												)
+											: { kind: "now" },
 						},
 					],
 				},
 			];
 			return validate(built);
 		};
+		// Saving the Hidden Value's answer as it is makes it the property's
+		// writer, so it is held as a date and time and keeps its clock.
+		expect(withWrite("bare")).toEqual([]);
+		// Saving a calculation over it does not: the Hidden Value, writing
+		// nothing, holds only its day.
 		expect(withWrite("copy")).toEqual([
 			expect.objectContaining({
 				code: "CASE_OPERATION_EXPRESSION_TYPE",

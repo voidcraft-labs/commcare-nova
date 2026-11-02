@@ -32,7 +32,7 @@
 import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import { caseWriteSchema, formLogicSchema, structuralFieldBase } from "./base";
+import { formLogicSchema, structuralFieldBase } from "./base";
 
 export const hiddenFieldSchema = structuralFieldBase.extend({
 	kind: z.literal("hidden"),
@@ -43,7 +43,6 @@ export const hiddenFieldSchema = structuralFieldBase.extend({
 	calculate: formLogicSchema.optional(),
 	default_value: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),
-	caseWrite: caseWriteSchema.optional(),
 });
 
 export type HiddenField = z.infer<typeof hiddenFieldSchema>;

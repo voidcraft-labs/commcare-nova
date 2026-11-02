@@ -56,6 +56,8 @@ import {
 	assignedLocationUuids,
 	automationsOf,
 	type BlueprintDoc,
+	type CaseOperation,
+	type CaseOperationWrite,
 	casePropertyDeclKey,
 	casePropertyTargetKey,
 	caseTypeTargetKey,
@@ -63,7 +65,6 @@ import {
 	type Field,
 	FORM_REFERENCE_SLOTS,
 	type Form,
-	fieldCaseWrite,
 	fieldReferenceSlotsFor,
 	isOwnRecord,
 	type LocationProperty,
@@ -224,9 +225,6 @@ function unindexCarrier(index: ReferenceIndex, carrier: string): void {
 		delete byCarrier[carrier];
 		if (isEmptyRecord(byCarrier)) delete index.in[target];
 	}
-	if (entry.decl !== undefined) {
-		removeFromBucket(index.decl, entry.decl, carrier);
-	}
 	for (const declaration of entry.decls ?? []) {
 		removeFromBucket(index.decl, declaration, carrier);
 	}
@@ -235,32 +233,36 @@ function unindexCarrier(index: ReferenceIndex, carrier: string): void {
 }
 
 /**
- * Register a field's explicit `(caseWrite.caseType, caseWrite.property)`
- * case-property
- * contribution (`decl`). Runs for EVERY (re-)indexed field BEFORE any
- * edge extraction in the same pass.
+ * The case type one write of `operation` saves to: the operation's
+ * post-retype type (the module's case type for the form's own case), or the
+ * type its `via` reaches through the current catalog. Undefined where
+ * neither resolves; the validator refuses that write.
  */
-function registerFieldDeclarations(
-	index: ReferenceIndex,
+function writeDestinationType(
 	doc: BlueprintDoc,
-	carrier: string,
-): void {
-	const field = ownRecordValue(doc.fields, carrier);
-	if (!field) return;
-	const write = fieldCaseWrite(field);
-	if (write === undefined) return;
-	const entry = ownRecordValue(index.out, carrier) ?? {
-		edges: recordFromEntries([]),
-	};
-	index.out[carrier] = entry;
-	const key = casePropertyDeclKey(write.caseType, write.property);
-	entry.decl = key;
-	addToBucket(index.decl, key, carrier);
+	operation: CaseOperation,
+	write: CaseOperationWrite,
+	moduleCaseType: string | undefined,
+): string | undefined {
+	const operationType =
+		operation.action === "own"
+			? moduleCaseType
+			: (operation.retype ?? operation.caseType);
+	if (operationType === undefined || operationType.length === 0)
+		return undefined;
+	if (write.via === undefined) return operationType;
+	const destination = resolveRelationDestination(
+		{ kind: "ancestor", via: write.via },
+		operationType,
+		doc.caseTypes ?? [],
+	);
+	return destination.ok ? destination.caseType : undefined;
 }
 
-/** Register every property written by a form's case operations. The
- * destination is the operation's post-retype type, matching effective
- * property materialization and the mutation validator. */
+/** Register every property written by a form's case operations, on the
+ * case type each write saves to (`writeDestinationType`), matching
+ * effective property materialization and the mutation validator. Runs for
+ * EVERY (re-)indexed form BEFORE any edge extraction in the same pass. */
 function registerFormDeclarations(
 	index: ReferenceIndex,
 	doc: BlueprintDoc,
@@ -268,12 +270,18 @@ function registerFormDeclarations(
 ): void {
 	const form = ownRecordValue(doc.forms, carrier);
 	if (!form) return;
+	const moduleCaseType = carrierContext(doc, carrier).moduleCaseType;
 	const declarations = new Set<string>();
 	for (const operation of form.caseOperations ?? []) {
-		const caseType = operation.retype ?? operation.caseType;
-		if (caseType.length === 0) continue;
 		for (const write of operation.writes ?? []) {
 			if (write.property.length === 0) continue;
+			const caseType = writeDestinationType(
+				doc,
+				operation,
+				write,
+				moduleCaseType,
+			);
+			if (caseType === undefined) continue;
 			declarations.add(casePropertyDeclKey(caseType, write.property));
 		}
 	}
@@ -355,7 +363,7 @@ function extractCarrierEdges(
 	const form = ownRecordValue(doc.forms, carrier);
 	if (form) {
 		const sink = makeSink(index, carrier, ctx);
-		extractFormEdges(sink, form, ctx);
+		extractFormEdges(sink, doc, form, ctx);
 		for (const { ref, expression } of expressionSlotValues(doc, {
 			entity: "form",
 			uuid: form.uuid,
@@ -637,15 +645,9 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 					);
 				}
 				break;
-			case "case-property-ref": {
-				const write = fieldCaseWrite(field);
-				if (write !== undefined)
-					sink.edge(
-						casePropertyTargetKey(write.caseType, write.property),
-						slot.slot,
-					);
-				break;
-			}
+			// No field slot names a case property: what a field saves to is
+			// its form's case operations, indexed on the form.
+			case "case-property-ref":
 			case "entity-uuid":
 			case "relation-path":
 			case "datum-ref":
@@ -660,6 +662,7 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 
 function extractFormEdges(
 	sink: EdgeSink,
+	doc: BlueprintDoc,
 	form: Form,
 	ctx: CarrierContext,
 ): void {
@@ -696,9 +699,26 @@ function extractFormEdges(
 			case "case-property-ref":
 				for (const value of readSlotStrings(form, slot.path)) {
 					const operation = form.caseOperations?.[value.indices[0] ?? -1];
-					const caseType = operation?.retype ?? operation?.caseType;
-					if (caseType && value.text.length > 0)
+					const write = operation?.writes?.[value.indices[1] ?? -1];
+					if (operation === undefined || write === undefined) continue;
+					// The form's own case takes the module's case type, so a
+					// module retype re-keys its writes.
+					if (operation.action === "own") sink.markCtx();
+					const caseType = writeDestinationType(
+						doc,
+						operation,
+						write,
+						ctx.moduleCaseType,
+					);
+					if (caseType !== undefined && value.text.length > 0)
 						sink.edge(casePropertyTargetKey(caseType, value.text), slot.slot);
+				}
+				break;
+			case "relation-path":
+				for (const value of readSlotValues(form, slot.path)) {
+					const via = value.value as CaseOperationWrite["via"];
+					if (via !== undefined)
+						relationHintEdges(sink, slot.slot, { kind: "ancestor", via });
 				}
 				break;
 			default: {
@@ -832,6 +852,9 @@ function termEdges(
 	switch (term.kind) {
 		case "field":
 			sink.edge(entityTargetKey(term.uuid), slot);
+			return;
+		case "capture-link":
+			sink.edge(entityTargetKey(term.field), slot);
 			return;
 		case "form-node":
 			formNodeEdges(sink, slot, term.node);
@@ -1020,8 +1043,8 @@ function extractProseRefs(
 /**
  * Derive the whole index from the doc alone — the hydration builder
  * AND the oracle the incremental maintenance is fuzz-proven against.
- * Two phases: declarations first (every field's case-property
- * contribution), then edges — same order the maintenance pass keeps,
+ * Two phases: declarations first (every form's case-operation
+ * writes), then edges — same order the maintenance pass keeps,
  * so the two builders settle identical structures.
  */
 export function buildReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
@@ -1038,9 +1061,6 @@ export function buildReferenceIndex(doc: BlueprintDoc): ReferenceIndex {
 	];
 	for (const carrier of carriers) {
 		contexts.set(carrier, carrierContext(doc, carrier));
-	}
-	for (const carrier of Object.keys(doc.fields)) {
-		registerFieldDeclarations(index, doc, carrier);
 	}
 	for (const carrier of Object.keys(doc.forms)) {
 		registerFormDeclarations(index, doc, carrier);
@@ -1157,9 +1177,9 @@ export function referencedUserPropertyUuids(doc: BlueprintDoc): string[] {
 		.map((key) => key.slice(USER_PROPERTY_TARGET_PREFIX.length));
 }
 
-/** Carrier uuids declaring the `(caseType, property)` pair — fields and
- *  forms with operation writers. Consumers that need field peers must narrow
- *  through `doc.fields`; existence checks intentionally count both kinds. */
+/** Form uuids whose case operations write the `(caseType, property)` pair.
+ *  A field writes nothing itself; the fields a form saves to the pair are
+ *  `lib/domain/caseWriteViews.ts::formCaseWriteViews` of each form. */
 export function declarersOf(
 	doc: BlueprintDoc,
 	caseType: string,
@@ -1369,7 +1389,7 @@ export function planReferenceIndexMaintenance(
 			break;
 		case "moveField":
 			// Parent/path changes re-project UUID references at read time. The
-			// carrier is cheap to re-extract and its id/caseWrite stay unchanged.
+			// carrier is cheap to re-extract and its id stays unchanged.
 			carriers.add(mut.uuid);
 			break;
 		case "convertField":
@@ -1473,7 +1493,6 @@ export function applyReferenceIndexMaintenance(
 	}
 	for (const carrier of carriers) unindexCarrier(index, carrier);
 	for (const carrier of carriers) {
-		registerFieldDeclarations(index, doc, carrier);
 		registerFormDeclarations(index, doc, carrier);
 	}
 	for (const carrier of carriers) {

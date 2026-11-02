@@ -112,6 +112,8 @@ function label(
 		}
 		case "expression":
 			return "A case found by a calculation";
+		case "worker-record":
+			return "The worker's record";
 	}
 }
 

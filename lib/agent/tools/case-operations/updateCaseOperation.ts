@@ -1,6 +1,11 @@
 import type { z } from "zod";
 import { planCaseOperationUpdate } from "@/lib/doc/caseOperationMutations";
-import { asUuid, type Uuid, uuidSchema } from "@/lib/domain";
+import {
+	asUuid,
+	type CaseOperation,
+	type Uuid,
+	uuidSchema,
+} from "@/lib/domain";
 import {
 	type OperationSemantics,
 	operationSemantics,
@@ -13,17 +18,19 @@ import {
 } from "../common";
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
-	caseOperationInputSchema,
+	caseOperationUpdateInputSchema,
+	OWN_CASE_OPERATION_REFUSAL,
 	operationAddressSchema,
 	operationByUuid,
 	operationIdRejection,
 	resolveCaseOperationInput,
 	resolveOperationAddress,
+	resolveOwnCaseOperationInput,
 } from "./shared";
 
 export const updateCaseOperationInputSchema = operationAddressSchema.extend({
 	operationUuid: uuidSchema.describe("Stable UUID of the operation to update"),
-	operation: caseOperationInputSchema.describe(
+	operation: caseOperationUpdateInputSchema.describe(
 		"Complete desired operation. Omitted optional facets are cleared; unchanged slots emit no mutation.",
 	),
 });
@@ -44,7 +51,7 @@ export type UpdateCaseOperationResult =
 
 export const updateCaseOperationTool = {
 	description:
-		"Replace one advanced record operation, keeping its identity. Read its current definition before editing.",
+		"Replace one case change, keeping its identity, including this form's own case. Read it with getCaseOperations before editing.",
 	inputSchema: updateCaseOperationInputSchema,
 	async execute(
 		input: UpdateCaseOperationInput,
@@ -74,22 +81,41 @@ export const updateCaseOperationTool = {
 					},
 				};
 			}
-			const formOperations = doc.forms[address.formUuid]?.caseOperations ?? [];
-			const idError = operationIdRejection(
-				formOperations,
-				input.operation.id,
-				existing.uuid,
-			);
-			if (idError !== undefined) {
+			// This form's own case is edited only as itself, and nothing else
+			// becomes it: the form's type alone adds and removes it.
+			if ((existing.action === "own") !== (input.operation.action === "own")) {
 				return {
 					kind: "mutate",
 					mutations: [],
 					result: {
-						error: `Operation "${existing.id}" was not updated: ${idError}`,
+						error: `Operation "${existing.id}" was not updated: ${OWN_CASE_OPERATION_REFUSAL}`,
 					},
 				};
 			}
-			const next = resolveCaseOperationInput(input.operation, existing.uuid);
+			let next: CaseOperation;
+			if (input.operation.action === "own") {
+				if (existing.action !== "own")
+					throw new Error("The own arm check drifted from its operation.");
+				next = resolveOwnCaseOperationInput(input.operation, existing);
+			} else {
+				const formOperations =
+					doc.forms[address.formUuid]?.caseOperations ?? [];
+				const idError = operationIdRejection(
+					formOperations,
+					input.operation.id,
+					existing.uuid,
+				);
+				if (idError !== undefined) {
+					return {
+						kind: "mutate",
+						mutations: [],
+						result: {
+							error: `Operation "${existing.id}" was not updated: ${idError}`,
+						},
+					};
+				}
+				next = resolveCaseOperationInput(input.operation, existing.uuid);
+			}
 			const plan = planCaseOperationUpdate(doc, address.formUuid, next);
 			if (!plan.ok) {
 				return {
@@ -119,14 +145,14 @@ export const updateCaseOperationTool = {
 				result: {
 					ok: true,
 					operationUuid: existing.uuid,
-					operationId: input.operation.id,
+					operationId: next.id,
 					operationSemantics: operationSemantics(
 						commit.newDoc,
 						address.formUuid,
 					),
 					summary: {
 						location: doc.forms[address.formUuid]?.name ?? input.formUuid,
-						subject: input.operation.id,
+						subject: next.id,
 					},
 				},
 			};

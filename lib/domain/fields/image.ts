@@ -2,9 +2,9 @@
 //
 // Image capture field. Emits `<upload mediatype="image/*">` over a
 // `binary` bind. Cannot be calculated or validated — extends
-// fieldBaseSchema directly rather than inputFieldBaseSchema, and takes
-// the ordinary `caseWriteSchema` destination, whose write saves a link
-// to the captured file on the case, nothing else.
+// fieldBaseSchema directly rather than inputFieldBaseSchema. A case
+// operation saves a link to the captured file through a `capture-link`
+// write value, never the file itself.
 //
 // How the worker adds the photo depends on where the app runs. CommCare
 // Web Apps has no camera: `entry_file.html` binds only `accept` on its
@@ -17,19 +17,13 @@
 import tablerPhoto from "@iconify-icons/tabler/photo";
 import { z } from "zod";
 import type { FieldKindMetadata } from "../kinds";
-import {
-	caseWriteSchema,
-	fieldBaseSchema,
-	formLogicSchema,
-	proseTemplateSchema,
-} from "./base";
+import { fieldBaseSchema, formLogicSchema, proseTemplateSchema } from "./base";
 
 export const imageFieldSchema = fieldBaseSchema.extend({
 	kind: z.literal("image"),
 	hint: proseTemplateSchema.optional(),
 	required: formLogicSchema.optional(),
 	relevant: formLogicSchema.optional(),
-	caseWrite: caseWriteSchema.optional(),
 });
 
 export type ImageField = z.infer<typeof imageFieldSchema>;

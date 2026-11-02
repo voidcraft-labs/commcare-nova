@@ -21,12 +21,6 @@ import {
 	isContainer,
 	type Uuid,
 } from "@/lib/domain";
-import { fieldCaseWrite } from "@/lib/domain/caseTypes";
-import {
-	type CaseWriteInventoryIssue,
-	caseWriteInventoryIssues,
-	deriveCaseWriteInventory,
-} from "@/lib/domain/caseWriteInventory";
 import {
 	type LookupTypeIndex,
 	slotContext,
@@ -45,14 +39,14 @@ import {
 	proseReadSlotRef,
 	proseSurfaceReads,
 } from "@/lib/domain/expressionSource";
-import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
 import {
 	type ExpressionCarrierRef,
 	expressionSlotValues,
 } from "@/lib/domain/referenceSlots";
 import { projectFormExpression } from "./expressionText";
-import { descendantFieldUuids, orderedFieldUuids } from "./fieldWalk";
-import { applyMutation } from "./mutations";
+import { planFieldMoveCaseWrites } from "./fieldCaseWriteMutations";
+import { orderedFieldUuids } from "./fieldWalk";
+import { applyMutations } from "./mutations";
 import { referencingCarrierUuids } from "./referenceIndex";
 
 /** The root sections of `formUuid`, in page order. */
@@ -305,101 +299,6 @@ function contextLost(
 	};
 }
 
-const caseWriteIssuesByDoc = new WeakMap<
-	BlueprintDoc,
-	Map<Uuid, ReadonlyMap<string, CaseWriteInventoryIssue>>
->();
-
-/** What a form's case writes refuse, keyed so the same issue matches on
- *  both sides of a move. Memoized per document, so the side before a move is
- *  derived once however many destinations are asked about. */
-function caseWriteIssues(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-): ReadonlyMap<string, CaseWriteInventoryIssue> {
-	let byForm = caseWriteIssuesByDoc.get(doc);
-	if (byForm === undefined) {
-		byForm = new Map();
-		caseWriteIssuesByDoc.set(doc, byForm);
-	}
-	const cached = byForm.get(formUuid);
-	if (cached !== undefined) return cached;
-	const issues = deriveCaseWriteIssues(doc, formUuid);
-	byForm.set(formUuid, issues);
-	return issues;
-}
-
-function deriveCaseWriteIssues(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-): ReadonlyMap<string, CaseWriteInventoryIssue> {
-	const moduleUuid = moduleUuidOfForm(doc, formUuid);
-	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
-	const form = doc.forms[formUuid];
-	const issues = new Map<string, CaseWriteInventoryIssue>();
-	if (module === undefined || form === undefined) return issues;
-	for (const issue of caseWriteInventoryIssues(
-		deriveCaseWriteInventory(doc, formUuid, module, form.type),
-	))
-		issues.set(
-			JSON.stringify([
-				issue.kind,
-				"writer" in issue ? issue.writer.fieldUuid : null,
-				"writer" in issue ? (issue.writer.repeatUuid ?? null) : null,
-				"bucket" in issue ? issue.bucket.caseType : null,
-				"property" in issue ? issue.property : null,
-			]),
-			issue,
-		);
-	return issues;
-}
-
-/** A move that leaves the form's case writes in a state CommCare can't save:
- *  a writer of the form's own case or the worker's record inside a repeat,
- *  or a new case left without its name. Projecting such a candidate's
- *  expressions would ask for case actions it has none of, so this comes
- *  first. */
-function subtreeWritesCase(doc: BlueprintDoc, root: Uuid): boolean {
-	return [root, ...descendantFieldUuids(doc, root)].some((uuid) => {
-		const field = doc.fields[uuid];
-		return field !== undefined && fieldCaseWrite(field) !== undefined;
-	});
-}
-
-function caseWriteRefusal(
-	doc: BlueprintDoc,
-	candidate: BlueprintDoc,
-	formUuid: Uuid,
-	moved: Uuid,
-): FieldPlacementVerdict | undefined {
-	// Only a case writer moving changes the form's case writes.
-	if (!subtreeWritesCase(doc, moved)) return undefined;
-	const before = caseWriteIssues(doc, formUuid);
-	for (const [key, issue] of caseWriteIssues(candidate, formUuid)) {
-		if (before.has(key)) continue;
-		const question = doc.fields[moved]?.id ?? "This question";
-		const lead = `Moving "${question}" here`;
-		const saver =
-			"writer" in issue
-				? (doc.fields[issue.writer.fieldUuid]?.id ?? "a question")
-				: undefined;
-		const entries =
-			"writer" in issue && issue.writer.repeatUuid !== undefined
-				? (candidate.fields[issue.writer.repeatUuid]?.id ?? "the repeat")
-				: "the repeat";
-		const message =
-			issue.kind === "primary-writer-in-repeat"
-				? `${lead} would put "${saver}", which saves to the case this form works on, inside the repeat "${entries}", and a form saves that case once. You can keep it outside the repeat, or save the repeat's answers to new cases instead.`
-				: issue.kind === "usercase-writer-in-repeat"
-					? `${lead} would put "${saver}", which saves to the worker's own record, inside the repeat "${entries}", and a form saves that record once. You can keep it outside the repeat.`
-					: issue.kind === "create-name-missing"
-						? `${lead} would leave the new "${issue.bucket.caseType}" case without the question that names it. You can move the naming question with it, or keep it where it is.`
-						: `${lead} would change which case "${saver ?? question}" saves to, and the form's case writes would no longer fit together. You can keep it where it is.`;
-		return { ok: false, reason: "case-write-placement", message };
-	}
-	return undefined;
-}
-
 /** A new checker finding, in the checker's own sentence after a lead that
  *  names the move and the reader it changes. */
 function newFinding(
@@ -475,25 +374,38 @@ function expressionPlacementVerdict(
 			carriers.add(carrier);
 		}
 	}
+	// The move as every editor batches it: a write of the moved subtree to a
+	// case the form creates in one repeat follows it to the create of its new
+	// repeat. A re-home the planner refuses (a new case left without the
+	// question that names it) is the move's refusal, in the planner's
+	// sentence. Every other case write the move changes reads the moved
+	// answer, and the slot checker judges it with every other reader (a write
+	// of the form's own case reading inside a repeat is its `many-values`).
+	const rehoming = planFieldMoveCaseWrites(doc, uuid, toParentUuid);
+	if (!rehoming.ok)
+		return {
+			ok: false,
+			reason: "case-write-placement",
+			message: rehoming.message,
+		};
+	const rehomed = rehoming.mutations;
 	const candidate = produce(doc, (draft) => {
-		applyMutation(draft, {
-			kind: "moveField",
-			uuid,
-			toParentUuid,
-			after: null,
-		});
+		applyMutations(draft, [
+			{ kind: "moveField", uuid, toParentUuid, after: null },
+			...rehomed,
+		]);
 	});
 	// A move no inferred fact reads the position of keeps the document's
-	// inference, so the candidate's slots skip deriving it again.
-	shareInferenceAcrossMove(doc, candidate, subtree);
+	// inference, so the candidate's slots skip deriving it again. A move
+	// that re-homes writes changes operations too, so its candidate derives
+	// its own.
+	if (rehomed.length === 0) shareInferenceAcrossMove(doc, candidate, subtree);
 	// A structural move changes no external definition, so an empty lookup
 	// index answers the same before and after. A finding it raises is
 	// identical on both sides, and a lookup's own `where` goes unread here;
 	// the commit gate reads it with the real tables.
 	const lookup: LookupTypeIndex = new Map();
-	const verdict =
-		caseWriteRefusal(doc, candidate, home, uuid) ??
-		firstRefusal(doc, candidate, uuid, carriers, lookup);
+	const verdict = firstRefusal(doc, candidate, uuid, carriers, lookup);
 	let byField = expressionPlacements.get(doc);
 	if (byField === undefined) {
 		byField = new Map();

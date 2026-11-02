@@ -1,15 +1,17 @@
 import type {
-	AuthoredCaseWrite,
+	CaseWriteChoice,
 	CaseWriteChoiceVerdict,
 } from "@/lib/doc/caseWriteChoices";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import type { PersistableDoc, Uuid } from "@/lib/domain";
 
-export const CASE_WRITE_VERDICT_WORKER_VERSION = 1 as const;
+/** Version 2: a candidate is a destination (`{caseType, property, via?,
+ *  onlyIfChanged?}` or `null`) with the view row it replaces, and an
+ *  admitted verdict carries the batch it judged. */
+export const CASE_WRITE_VERDICT_WORKER_VERSION = 2 as const;
 
-export interface CaseWriteVerdictCandidate {
+export interface CaseWriteVerdictCandidate extends CaseWriteChoice {
 	readonly key: string;
-	readonly caseWrite: AuthoredCaseWrite | null;
 }
 
 export interface CaseWriteVerdictWorkerRequest {

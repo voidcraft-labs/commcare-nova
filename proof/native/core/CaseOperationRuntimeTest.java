@@ -145,6 +145,12 @@ public class CaseOperationRuntimeTest {
                     TreeElement data = node("data", null);
                     data.addChild(node("case_id", "nested".equals(scenario) ? "household-1" : "patient-1"));
                     if ("nested".equals(scenario)) data.addChild(node("case_id_patient", "patient-1"));
+                    if ("own-links".equals(scenario)) {
+                        // The registration's own case and its basic subcase take their ids from the entry's
+                        // create datums (HQ's Form.session_var_for_action), which the suite's uuid() fills.
+                        data.addChild(node("case_id_new_patient_0", NEW_PATIENT));
+                        data.addChild(node("case_id_new_contact_1", NEW_CONTACT));
+                    }
                     session.addChild(context);
                     session.addChild(data);
                     InstanceUtils.setUpInstanceRoot(session, instance.getInstanceId(), new InstanceBase(instance.getInstanceId()));
@@ -217,8 +223,27 @@ public class CaseOperationRuntimeTest {
             }
             return found;
         }
+        /** The properties the submission's own case block updates, by name, in order. */
+        java.util.List<String> submittedUpdates() throws Exception {
+            javax.xml.parsers.DocumentBuilderFactory factory = javax.xml.parsers.DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(true);
+            org.w3c.dom.Document submitted = factory.newDocumentBuilder().parse(new ByteArrayInputStream(serialized()));
+            java.util.List<String> found = new java.util.ArrayList<>();
+            for (org.w3c.dom.Node block = submitted.getDocumentElement().getFirstChild(); block != null; block = block.getNextSibling()) {
+                if (!"case".equals(block.getLocalName()) || !CASE_NAMESPACE.equals(block.getNamespaceURI())) continue;
+                for (org.w3c.dom.Node part = block.getFirstChild(); part != null; part = part.getNextSibling()) {
+                    if (!"update".equals(part.getLocalName())) continue;
+                    for (org.w3c.dom.Node property = part.getFirstChild(); property != null; property = property.getNextSibling()) {
+                        if (property.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) found.add(property.getLocalName());
+                    }
+                }
+            }
+            return found;
+        }
         Case record(String id) { return sandbox.getCaseStorage().getRecordForValue(Case.INDEX_CASE_ID, id); }
     }
+    private static final String NEW_PATIENT = "patient-new";
+    private static final String NEW_CONTACT = "contact-new";
     private Run run(String scenario) throws Exception { return new Run(scenario, hq); }
     private static final String KEYED_PATIENT = "nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:keyed";
     private static void assertVisit(Run run, String id, String name, boolean tagged) {
@@ -663,6 +688,61 @@ public class CaseOperationRuntimeTest {
         run.apply();
         assertEquals("Matched child", run.record("patient-1").getPropertyString("nickname"));
         assertEquals("Old nickname", run.record("patient-2").getPropertyString("nickname"));
+    }
+    /** Part 01's G1, Core's order across the places a form's case changes take. A registration's own case and a
+     * contact it creates at the form's root are Case Management's, whose blocks HQ's build appends after the form's
+     * questions; two visits with computed names are Save to Case blocks in the root {@code nova_operations} group,
+     * before them, the first indexed to the patient the form creates and the second to the contact. So each index
+     * names a case whose create Core applies later in the same submission, as HQ's own basic subcases already do
+     * to the case the form opens. Core takes the submission, and every case holds its index. */
+    @Test public void aSaveToCaseCreateIndexesACaseALaterCaseManagementBlockCreates() throws Exception {
+        Run run = run("own-links");
+        run.answer("/data/patient_name", "New patient");
+        run.answer("/data/contact_name", "New contact");
+        run.answer("/data/visit_name", "Visit");
+        assertEquals(Arrays.asList("visit_of_patient/case", "nova_guard_visit_of_patient_text/case",
+            "visit_of_contact/case", "nova_guard_visit_of_contact_text/case"), run.submittedOperations());
+        String ofPatient = (String)run.eval("/data/nova_operations/visit_of_patient/case/@case_id");
+        String ofContact = (String)run.eval("/data/nova_operations/visit_of_contact/case/@case_id");
+        assertEquals(NEW_PATIENT, run.eval("/data/nova_operations/visit_of_patient/case/index/parent"));
+        assertEquals(NEW_CONTACT, run.eval("/data/nova_operations/visit_of_contact/case/index/parent"));
+        run.apply();
+        Case patient = run.record(NEW_PATIENT);
+        assertEquals("patient", patient.getTypeId());
+        assertEquals("New patient", patient.getName());
+        Case contact = run.record(NEW_CONTACT);
+        assertEquals("contact", contact.getTypeId());
+        assertEquals(NEW_PATIENT, contact.getIndices().get(0).getTarget());
+        for (String[] visit : new String[][]{{ofPatient, "Visit (patient)", "patient", NEW_PATIENT}, {ofContact, "Visit (contact)", "contact", NEW_CONTACT}}) {
+            Case record = run.record(visit[0]);
+            assertEquals("visit", record.getTypeId());
+            assertEquals(visit[1], record.getName());
+            assertEquals(1, record.getIndices().size());
+            CaseIndex index = record.getIndices().get(0);
+            assertEquals("parent", index.getName());
+            assertEquals(visit[2], index.getTargetType());
+            assertEquals(visit[3], index.getTarget());
+        }
+    }
+    /** A save made only when the answer changed ({@code update_mode: edit}): the nickname, which opens with the
+     * case's nickname, is in the case block only where it differs from the case's value in the case database, as
+     * Nova's local form and HQ's build with {@code SAVE_ONLY_EDITED_FORM_FIELDS} both evaluate it, and the note
+     * beside it is saved every time. */
+    @Test public void aSaveOnlyIfChangedWritesTheAnswerOnlyWhereItDiffersFromTheCase() throws Exception {
+        Run unchanged = run("only-if-changed");
+        assertEquals("Old nickname", unchanged.eval("/data/nickname"));
+        unchanged.answer("/data/note", "Seen");
+        assertEquals(Arrays.asList("note"), unchanged.submittedUpdates());
+        unchanged.apply();
+        assertEquals("Old nickname", unchanged.record("patient-1").getPropertyString("nickname"));
+        assertEquals("Seen", unchanged.record("patient-1").getPropertyString("note"));
+        Run changed = run("only-if-changed");
+        changed.answer("/data/nickname", "New nickname");
+        changed.answer("/data/note", "Seen again");
+        assertEquals(Arrays.asList("nickname", "note"), changed.submittedUpdates());
+        changed.apply();
+        assertEquals("New nickname", changed.record("patient-1").getPropertyString("nickname"));
+        assertEquals("Seen again", changed.record("patient-1").getPropertyString("note"));
     }
     private static final String NAME_QUESTION = "/data/full_name";
     /** The case family's capture follow-up, which renames the selected patient from its question

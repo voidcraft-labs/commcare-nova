@@ -48,8 +48,15 @@
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expandDoc } from "@/lib/commcare/expander";
+import { planPlacements } from "@/lib/commcare/placement";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
-import { proseText, type Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	fieldPreload,
+	proseText,
+	type Uuid,
+} from "@/lib/domain";
 import { formStructure } from "@/lib/domain/expression/formStructure";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import {
@@ -464,8 +471,319 @@ describe("a query repeat's held placement", () => {
 			expect(() =>
 				targetedDocument({ id, rows: [], doc, expected: { intent: [] }, edit }),
 			).toThrow(
-				`The edit of the targeted document ${id} changes a query repeat's held placement, which no editor's edit writes; hold the same placements in both documents.`,
+				`The edit of the targeted document ${id} changes a held placement, which no editor's edit writes; hold the same placements in both documents.`,
 			);
 		}
+	});
+});
+
+/**
+ * A case change's held placement, and the explicit preload.
+ *
+ * Contract: a migration witness holds each case change, and each own close
+ * kept in a Save to Case block, where its retained A keeps it, as the
+ * cutover writes it for a published app, and Nova's placement plan keeps
+ * every hold, so B republishes each change where A has it. The plausible
+ * failure: a hold the corpus drops or the plan cannot express, so B would
+ * move a case change no migration decides (proof 1 would then report a move
+ * with no entry). The observations are the documents made and the plan over
+ * each witness form. Beside them, `targeted-load-time-values`: its weight
+ * writer opens with the read of the patient's weight, and its export holds
+ * no `case_preload`, the plausible failure being a preload written back into
+ * Case Management, where HQ loads it after every other default.
+ */
+describe("a case change's held placement", () => {
+	const byId = (id: string) => {
+		const found = targetedDocuments().find((document) => document.id === id);
+		if (found === undefined) throw new Error(`No targeted document ${id}.`);
+		return hydratePersistedBlueprint(found.doc);
+	};
+	/** Each form's holds, by form name, with what the plan does with each. */
+	const holdsOf = (doc: BlueprintDoc) =>
+		Object.fromEntries(
+			Object.values(doc.forms).flatMap((form) => {
+				const planned = planPlacements(doc, form.uuid).placements;
+				const holds = [
+					...(form.caseOperations ?? []).flatMap((operation) =>
+						operation.placement === undefined
+							? []
+							: [[operation.id, operation.placement, operation.uuid] as const],
+					),
+					...(form.ownClosePlacement === undefined
+						? []
+						: [["own close", form.ownClosePlacement, "own-close"] as const]),
+				];
+				return holds.length === 0
+					? []
+					: [
+							[
+								form.name,
+								Object.fromEntries(
+									holds.map(([name, placement, key]) => [
+										name,
+										{
+											placement,
+											kept:
+												planned.get(key)?.held === true &&
+												JSON.stringify(planned.get(key)?.placement) ===
+													JSON.stringify(placement),
+										},
+									]),
+								),
+							],
+						];
+			}),
+		);
+	const basic = (slot: "own" | "usercase" | "subcase-row") => ({
+		placement: { kind: "basic", slot },
+		kept: true,
+	});
+	const block = (path: string[], repeat?: Uuid) => ({
+		placement: {
+			kind: "save-to-case",
+			...(repeat !== undefined && { repeat }),
+			path,
+		},
+		kept: true,
+	});
+
+	it("is every case change of the case-writes witness at the place its A keeps it, and the plan keeps each", () => {
+		const doc = byId("targeted-migration-case-writes");
+		const arrivals = targetedUuid("targeted-migration-case-writes", "arrivals");
+		expect(holdsOf(doc)).toEqual({
+			Register: {
+				household: basic("own"),
+				head: {
+					placement: { kind: "basic", slot: "subcase", index: 0 },
+					kept: true,
+				},
+				member: basic("subcase-row"),
+			},
+			Visit: {
+				household: basic("own"),
+				add_referral: block([
+					"nova_operations",
+					"nova_keyed_add_referral",
+					"add_referral",
+				]),
+				mark_visited: block(["nova_operations", "mark_visited"]),
+				flag_household: block([
+					"nova_operations",
+					"nova_condition_flag_household",
+					"flag_household",
+				]),
+				commcare_user: basic("usercase"),
+				add_arrival: block(["nova_operations", "add_arrival"], arrivals),
+			},
+			Discharge: {
+				household: basic("own"),
+				"own close": block([
+					"nova_operations",
+					"nova_condition_discharge_household",
+					"discharge_household",
+				]),
+			},
+			Close: { household: basic("own") },
+			"Close in repeat": {
+				household: basic("own"),
+				"own close": block([
+					"nova_operations",
+					"nova_condition_close",
+					"nova_close",
+				]),
+			},
+			"Batch update": {
+				household: block([
+					"nova_selected_cases",
+					"item",
+					"nova_operations",
+					"nova_condition_update_selected_cases",
+					"nova_update_selected_cases",
+				]),
+			},
+		});
+		// Discharge closed its case through an operation; it is a close form now.
+		const discharge = Object.values(doc.forms).find(
+			(form) => form.name === "Discharge",
+		);
+		expect(discharge?.type).toBe("close");
+		expect(
+			(discharge?.caseOperations ?? []).map((operation) => operation.action),
+		).toEqual(["own"]);
+	});
+
+	it("is the own case of the groups-preloads witness, whose weight opens with the patient's weight", () => {
+		const doc = byId("targeted-migration-groups-preloads");
+		expect(holdsOf(doc)).toEqual({ Check: { patient: basic("own") } });
+		const weight =
+			doc.fields[targetedUuid("targeted-migration-groups-preloads", "weight")];
+		expect(weight === undefined ? undefined : fieldPreload(weight)).toEqual({
+			caseType: "patient",
+			property: "weight",
+		});
+	});
+
+	it("leaves the load-time values document's weight opening with the patient's weight, and its export with no case_preload", () => {
+		const doc = byId("targeted-load-time-values");
+		const weight =
+			doc.fields[targetedUuid("targeted-load-time-values", "weight")];
+		expect(weight === undefined ? undefined : fieldPreload(weight)).toEqual({
+			caseType: "patient",
+			property: "weight",
+		});
+		const app = expandDoc(doc) as unknown as {
+			modules: {
+				forms: { actions: { case_preload: { preload: object } } }[];
+			}[];
+		};
+		expect(
+			app.modules.flatMap((module) =>
+				module.forms.map((form) => form.actions.case_preload.preload),
+			),
+		).toEqual([{}]);
+	});
+});
+
+/**
+ * `targeted-case-writes-one-concept` holds each shape of a case change its
+ * manifest entries name, in the place each takes.
+ *
+ * Contract: the registration's own case, its open and close conditions, its
+ * two children and its write of the worker's record are Case Management's,
+ * the follow-up's explicit preload, `via` write and save-only-if-changed
+ * write are its own case's update keys, the computed write alone takes a
+ * Save to Case block, and the document's configurations hold the flag that
+ * makes HQ compare the changed answer. The plausible failure: a shape that
+ * falls to Save to Case or leaves the export (the manifest entries it flips
+ * would then be held by no document), or a configuration without the flag,
+ * where HQ's build saves the answer every time. The observations are the
+ * placement plan, the HQ import body's form actions, and Nova's publish
+ * verdict's minimum configuration.
+ */
+describe("the case-writes document", () => {
+	const made = () => {
+		const found = targetedDocuments().find(
+			(document) => document.id === "targeted-case-writes-one-concept",
+		);
+		if (found === undefined)
+			throw new Error("No targeted document targeted-case-writes-one-concept.");
+		return found;
+	};
+
+	it("keeps every change in Case Management but the computed write, which alone takes Save to Case", () => {
+		const doc = hydratePersistedBlueprint(made().doc);
+		const placed = Object.fromEntries(
+			Object.values(doc.forms).map((form) => [
+				form.name,
+				Object.fromEntries(
+					[...planPlacements(doc, form.uuid).placements].map(
+						([key, planned]) => [
+							key === "own-close"
+								? "own close"
+								: form.caseOperations?.find((op) => op.uuid === key)?.id,
+							planned.placement,
+						],
+					),
+				),
+			]),
+		);
+		const own = { kind: "basic", slot: "own" };
+		expect(placed).toEqual({
+			"Register patient": {
+				patient: own,
+				"own close": own,
+				contact: { kind: "basic", slot: "subcase", index: 0 },
+				dose: { kind: "basic", slot: "subcase-row" },
+				commcare_user: { kind: "basic", slot: "usercase" },
+			},
+			"Check patient": { patient: own },
+			"Score patient": {
+				patient: { kind: "save-to-case", path: ["nova_operations", "patient"] },
+			},
+			Discharge: { patient: own, "own close": own },
+		});
+	});
+
+	it("exports the open and close conditions, the children, the update keys and no case_preload", () => {
+		const app = expandDoc(hydratePersistedBlueprint(made().doc)) as unknown as {
+			modules: {
+				forms: {
+					actions: {
+						open_case: { condition: object };
+						close_case: { condition: object };
+						update_case: { update: Record<string, object> };
+						subcases: {
+							case_type: string;
+							repeat_context: string;
+							condition: object;
+						}[];
+						usercase_update: { update: Record<string, object> };
+						case_preload: { preload: object };
+					};
+				}[];
+			}[];
+		};
+		const [register, check, , discharge] = app.modules[0]?.forms ?? [];
+		const when = (question: string, answer: string) => ({
+			type: "if",
+			question,
+			answer,
+			operator: "=",
+		});
+		expect(register?.actions.open_case.condition).toMatchObject(
+			when("/data/consent", "yes"),
+		);
+		expect(register?.actions.close_case.condition).toMatchObject(
+			when("/data/outcome", "moved"),
+		);
+		expect(
+			register?.actions.subcases.map((subcase) => [
+				subcase.case_type,
+				subcase.repeat_context,
+			]),
+		).toEqual([
+			["contact", ""],
+			["dose", "/data/doses"],
+		]);
+		expect(register?.actions.subcases[1]?.condition).toMatchObject(
+			when("/data/doses/given", "yes"),
+		);
+		expect(Object.keys(register?.actions.usercase_update.update ?? {})).toEqual(
+			["last_village"],
+		);
+		expect(check?.actions.update_case.update).toMatchObject({
+			weight: { question_path: "/data/weight", update_mode: "always" },
+			note: { question_path: "/data/note", update_mode: "always" },
+			"parent/district": {
+				question_path: "/data/district",
+				update_mode: "always",
+			},
+			risk: { question_path: "/data/risk", update_mode: "edit" },
+		});
+		expect(discharge?.actions.close_case.condition).toMatchObject(
+			when("/data/reason", "recovered"),
+		);
+		for (const form of app.modules[0]?.forms ?? [])
+			expect(form.actions.case_preload.preload).toEqual({});
+	});
+
+	it("is published only where HQ compares a changed answer, and its edit renames the choice its close condition holds", () => {
+		const document = made();
+		const verdict = novaPublishVerdict(hydratePersistedBlueprint(document.doc));
+		expect(minimumConfiguration([verdict]).flags).toContain(
+			"SAVE_ONLY_EDITED_FORM_FIELDS",
+		);
+		const outcome = targetedUuid("targeted-case-writes-one-concept", "outcome");
+		const edited = document.edit?.nextDoc.fields[outcome];
+		expect(
+			edited !== undefined && "optionsSource" in edited
+				? edited.optionsSource
+				: undefined,
+		).toMatchObject({
+			options: [{ value: "staying" }, { value: "relocated" }],
+		});
+		expect(document.edit?.mutations.map((mutation) => mutation.kind)).toEqual([
+			"updateOption",
+		]);
 	});
 });

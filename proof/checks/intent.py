@@ -19,8 +19,8 @@ On every corpus document the checks are structural:
   (``''`` where it names none; a synthetic module, which holds a form Nova
   places outside its host, has its host's).
 - **HQ, the case properties it learns**: for each form, the custom
-  properties the document writes per case type (each field's ``caseWrite``
-  and each case operation's ``writes``) are the properties HQ learns the
+  properties the document writes per case type (each case operation's
+  ``writes``, the form's own case's among them) are the properties HQ learns the
   form writes (``FormBase.get_all_case_updates``, kept as the identity
   record's ``case_updates``; ``form:<m>.<f>@<state>``, ``/case_updates/*/*``).
   HQ names an attachment property ``attachment:<name>`` under
@@ -42,8 +42,10 @@ On every corpus document the checks are structural:
     (``domain_has_privilege``), for every form of every menu, merged with
     ``dict.update``, so for each case type only the last form (in app order)
     that writes it there counts. Save to Case is where HQ's editors put what
-    Case Management cannot say: a case operation, and an update of the
-    selected cases in a multi-select menu (HQ builds a form there that opens
+    Case Management cannot state (``_case_management_holds``: a case other
+    than the form's own, the worker's or a child of the form's own case, a
+    value that is no question's answer as it is, a write under a condition),
+    and an update of the selected cases in a multi-select menu (HQ builds a form there that opens
     no case without its case management, ``xform.py::XForm._create_casexml``:
     ``default_case_management = False`` for ``is_multi_select()``, while the
     worker's own case is ``_add_usercase``'s, in any menu);
@@ -52,8 +54,9 @@ On every corpus document the checks are structural:
   A child or extension case a form creates (``actions.subcases``) is a slot
   the refresh never reads, so its writes are not expected there; HQ learns
   them all the same (``get_all_case_updates``, above).
-- **HQ, each attachment path**: each write the document stores as a case
-  attachment (``caseWrite.mode`` ``attachment``) is an ``attachment`` child
+- **HQ, each attachment path**: each write a control retained before step 5
+  stores as a case attachment (its field's ``caseWrite.mode``
+  ``attachment``) is an ``attachment`` child
   of a case block of that type in the form HQ built
   (``xform.py::CaseBlock.add_case_updates``), and HQ builds no attachment the
   document does not store as one (``form:<m>.<f>@<state>``, ``/attachments/*/*``),
@@ -221,8 +224,10 @@ class FormIntent:
     validations: dict = field(default_factory=dict)  # field uuid -> data path below the data root
     form_type: str | None = None
     multiple: bool = False  # the menu HQ holds the form in selects several cases
-    field_writes: dict = field(default_factory=dict)  # case type -> {property: mode}, from fields' caseWrite
-    operation_writes: dict = field(default_factory=dict)  # case type -> {property}, from case operations
+    # case type -> {property: mode}, the writes Case Management states (on a control retained before step 5, its
+    # fields' caseWrite)
+    field_writes: dict = field(default_factory=dict)
+    operation_writes: dict = field(default_factory=dict)  # case type -> {property}, the writes Save to Case holds
 
 
 @dataclass
@@ -395,31 +400,78 @@ def intent_of(document, *, edit=False) -> Intent:
     return document_intent(document.edit_document if edit else document.document)
 
 
+def _bare_answer(value):
+    """Whether an operation's value is one question's answer as it is: a field read or the link to a capture's
+    file, the values HQ's Case Management takes as a question path."""
+    term = value.get("term") if isinstance(value, dict) and value.get("kind") == "term" else None
+    return isinstance(term, dict) and term.get("kind") in ("field", "capture-link")
+
+
+def _case_management_holds(operation, own):
+    """Whether HQ's Case Management can state ``operation``: the form's own case (``own``), the worker's own
+    record, or a child created with one ``parent`` index to the form's own case where Case Management states that
+    case too (``actions.subcases`` beside ``open_case``), each saving questions' answers as they are with no
+    condition on a write. What it cannot state takes a Save to Case block, which is where HQ's editors put it (the
+    module docstring)."""
+    values = [operation.get(slot) for slot in ("name", "owner") if operation.get(slot) is not None]
+    writes = operation.get("writes") or ()
+    if any(write.get("condition") is not None for write in writes):
+        return False
+    if not all(_bare_answer(value) for value in [*values, *(write.get("value") for write in writes)]):
+        return False
+    action = operation.get("action")
+    if action == "own":
+        return True
+    target = operation.get("target") or {}
+    if action == "update":
+        return operation.get("caseType") == USERCASE_TYPE and target.get("kind") == "worker-record"
+    if action != "create" or target.get("idFrom") is not None or own is None or not _case_management_holds(own, own):
+        return False
+    links = operation.get("links") or ()
+    return (
+        len(links) == 1
+        and links[0].get("identifier") == "parent"
+        and (links[0].get("target") or {}).get("kind") in ("op", "session")
+        and ((links[0].get("target") or {}).get("opUuid") in (None, own.get("uuid")))
+    )
+
+
 def _form_intent(doc, uuid, form, module_type, multiple=False):
+    """What one form states: every case change is one of its case operations (``caseOperations``), the form's
+    own case (``own``, of the module's case type) first. A write through an index (``via``) saves to another
+    case, whose key HQ keeps as the path ``parent/<name>``, so it is no custom property of either case here.
+
+    A control retained before step 5 keeps the intent its document stated then, field writes included
+    (``intent_of``), so this reads only a document in the shape its corpus emission wrote."""
     intent = FormIntent(uuid=uuid, module_type=module_type, form_type=form.get("type"), multiple=multiple)
     if form.get("type") == "registration" and module_type:
         intent.creates.add(module_type)
     for field_uuid, item, path in _field_paths(doc, uuid):
-        write = item.get("caseWrite")
-        if isinstance(write, dict) and write.get("caseType") and write.get("property"):
-            mode = write.get("mode") or "value"
-            if _custom(write["property"]):
-                intent.writes.setdefault(write["caseType"], {})[write["property"]] = mode
-                intent.field_writes.setdefault(write["caseType"], {})[write["property"]] = mode
-            if write["caseType"] not in (module_type, USERCASE_TYPE):
-                # Naming a type other than the module's own creates a child case of it (lib/domain/CLAUDE.md,
-                # case writes); the worker's own case is only ever updated.
-                intent.creates.add(write["caseType"])
         if item.get("validate") is not None:
             intent.validations[field_uuid] = path
-    for operation in form.get("caseOperations") or ():
-        case_type = operation.get("caseType")
-        if operation.get("action") == "create" and case_type:
+    operations = form.get("caseOperations") or ()
+    own_case = next((operation for operation in operations if operation.get("action") == "own"), None)
+    for operation in operations:
+        own = operation.get("action") == "own"
+        case_type = module_type if own else operation.get("caseType")
+        if not case_type:
+            continue
+        if operation.get("action") == "create":
             intent.creates.add(case_type)
+        # A several-case menu's own case is saved per selected case in a Save to Case block: HQ builds no case
+        # management there (xform.py::XForm._create_casexml, default_case_management = False).
+        managed = _case_management_holds(operation, own_case) and not (
+            own and multiple and form.get("type") != "registration"
+        )
         for write in operation.get("writes") or ():
-            if case_type and _custom(write.get("property")):
-                intent.writes.setdefault(case_type, {})[write["property"]] = "value"
-                intent.operation_writes.setdefault(case_type, set()).add(write["property"])
+            prop = write.get("property")
+            if write.get("via") or not _custom(prop):
+                continue
+            intent.writes.setdefault(case_type, {})[prop] = "value"
+            if managed:
+                intent.field_writes.setdefault(case_type, {})[prop] = "value"
+            else:
+                intent.operation_writes.setdefault(case_type, set()).add(prop)
     return intent
 
 

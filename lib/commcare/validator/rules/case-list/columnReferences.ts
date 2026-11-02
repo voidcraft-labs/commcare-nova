@@ -2,9 +2,9 @@
  * Rule: every saved non-calculated column on
  * `caseListConfig.columns` carries a `field` that resolves to a property the
  * module's case type admits
- * — declared on `ct.properties[]`, written by a form field via
- * `caseWrite.caseType === mod.caseType`, or part of CommCare's standard
- * set (`case_name`, `date_opened`, …).
+ * — declared on `ct.properties[]`, written to that case type by a case
+ * operation, or part of CommCare's standard set (`case_name`,
+ * `date_opened`, …).
  *
  * `caseListConfig` carries one columns array — display + sort + calc +
  * visibility, all together. Calculated columns are the lone arm

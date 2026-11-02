@@ -211,11 +211,7 @@ describe("schemaHealingCaseStore adapter", () => {
 		);
 		const envelope: Parameters<CaseStore["applySubmission"]>[0] = {
 			appId: "app-1",
-			ordinary: {
-				kind: "registration",
-				primary: { caseType: "patient", caseName: "Ada", properties: {} },
-				children: [],
-			},
+			ordinary: { kind: "registration" },
 			submissionReceipt: {
 				entryKey: "10000000-0000-4000-8000-000000000002",
 				formUuid: testUuid("10000000-0000-4000-8000-000000000001"),

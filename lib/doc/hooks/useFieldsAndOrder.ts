@@ -2,9 +2,8 @@
  * Named hook — return the field entity map + fieldOrder map as a
  * shallow-stable pair.
  *
- * Primary consumer is CloseConditionSection's recursive id lookup: the
- * editor walks a subtree (`fieldOrder` for descendants) and resolves
- * each descendant's id via `fields[uuid].id`. Both slices are needed
+ * Its consumers walk a subtree (`fieldOrder` for descendants) and resolve
+ * each descendant through `fields[uuid]`. Both slices are needed
  * simultaneously — an inline pair selector would allocate a new object
  * each store tick and re-render on every unrelated doc change.
  *

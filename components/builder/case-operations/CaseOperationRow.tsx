@@ -13,12 +13,14 @@
 // The reorder handle carries the keyboard alternative to dragging, and
 // its accessible name states the position, the total, and the keys, a
 // keyboard author needs to know where they are in a twenty-change list
-// before they know what moving does.
+// before they know what moving does. The form's own case has no handle:
+// it is always the first change, so there is nowhere to move it.
 
 "use client";
 
 import { Icon } from "@iconify/react/offline";
 import tablerArrowsSplit from "@iconify-icons/tabler/arrows-split";
+import tablerBriefcase from "@iconify-icons/tabler/briefcase";
 import tablerCirclePlus from "@iconify-icons/tabler/circle-plus";
 import tablerCircleX from "@iconify-icons/tabler/circle-x";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
@@ -35,6 +37,7 @@ import {
 } from "./operationSentence";
 
 const ACTION_ICON = {
+	own: tablerBriefcase,
 	create: tablerCirclePlus,
 	update: tablerPencil,
 	close: tablerCircleX,

@@ -68,17 +68,33 @@ export function useModuleCaseType(moduleUuid: Uuid): string | undefined {
 	return useBlueprintDoc((state) => state.modules[moduleUuid]?.caseType);
 }
 
+function moduleCaseTypeOfForm(
+	state: Pick<BlueprintDoc, "formOrder" | "modules">,
+	formUuid: Uuid,
+): string | undefined {
+	for (const [moduleUuid, formUuids] of Object.entries(state.formOrder)) {
+		if (formUuids.includes(formUuid))
+			return state.modules[moduleUuid]?.caseType;
+	}
+	return undefined;
+}
+
 const NO_FIELDS: BlueprintDoc["fields"] = {};
 const NO_FIELD_ORDER: BlueprintDoc["fieldOrder"] = {};
 const NO_FIELD_PARENT: BlueprintDoc["fieldParent"] = {};
 
 /** UUID label projection needs field and worker identities only while a form
- * exists. The persistent rail's idle call must not subscribe to field edits. */
+ * exists. The persistent rail's idle call must not subscribe to field edits.
+ * `ownCaseType` is the case type of the form's own case: its module's. */
 export function useOperationLabelInputs(formUuid: Uuid | undefined) {
 	return useBlueprintDocShallow((state) => {
 		const form = formUuid === undefined ? undefined : state.forms[formUuid];
 		return {
 			form,
+			ownCaseType:
+				form === undefined || formUuid === undefined
+					? undefined
+					: moduleCaseTypeOfForm(state, formUuid),
 			fields: form === undefined ? NO_FIELDS : state.fields,
 			fieldOrder: form === undefined ? NO_FIELD_ORDER : state.fieldOrder,
 			fieldParent: form === undefined ? NO_FIELD_PARENT : state.fieldParent,

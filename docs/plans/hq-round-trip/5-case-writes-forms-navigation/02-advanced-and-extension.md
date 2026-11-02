@@ -1755,6 +1755,21 @@ From the research, the outline and the wire brief:
 - **The advanced menu item is admitted only where it lists what the module's list lists** (section
   17), where the brief admitted it everywhere with a statement of the difference.
 
+- **`OpenSubCaseAction.reference_id` stays `""`** (section 3.2 writes `"parent"`): HQ reads both as
+  `parent` (`xform.py::XForm._create_casexml`, `subcase.reference_id or 'parent'`;
+  `models/form_actions.py::OpenSubCaseAction` defaults to `'parent'`), and `""` keeps every app's HQ
+  JSON bytes (`lib/commcare/casePlacementPlan.ts`).
+- **A several-case form's own-arm block keeps `main`'s path and meaning**: five segments
+  (`nova_selected_cases`, `item`, `nova_operations`, `nova_condition_update_selected_cases`,
+  `nova_update_selected_cases`, from `placement.ts::derivedSaveToCase`), each row present only while
+  its answer is, so the cutover can hold the path part 09 §8.2 names for it.
+- **Basic subcase indices follow the operation array**, whose order rule puts root creates before
+  repeat creates, so a form that met a repeat child before a root child in question order renumbers
+  its `subcase_<i>` blocks and `case_id_new_<type>_<i>` datums; the cutover holds placements for
+  published apps (part 09 C8).
+- **`planFormCaseWire(doc, formUuid, options?: {attachmentTarget})`** (section 3.1 has no options): a
+  basic link write is withheld without a deployment target (part 01 §10.1), so the plan needs it.
+
 ---
 
 ## 28. Executed during planning

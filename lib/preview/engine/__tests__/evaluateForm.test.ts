@@ -7,7 +7,7 @@ import {
 } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
-import { simpleSearchInputDef } from "@/lib/domain";
+import { type BlueprintDoc, simpleSearchInputDef } from "@/lib/domain";
 import { evaluationScenarioCases } from "@/lib/preview/engine/evaluationScenario";
 import {
 	evaluateForm,
@@ -18,6 +18,29 @@ import { previewAsMe } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
 import { createEvaluationApp } from "./evaluationFixture";
 import { webAppsDevice } from "./fixtures/previewDevices";
+
+/** The root answer a proposed submission carries for the question `id`. */
+function answerOf(
+	doc: BlueprintDoc,
+	submission:
+		| {
+				readonly operationAnswers?: {
+					readonly root: ReadonlyArray<{
+						readonly fieldUuid: string;
+						readonly value: string | readonly string[];
+					}>;
+				};
+		  }
+		| undefined,
+	id: string,
+): string | readonly string[] | undefined {
+	const field = Object.values(doc.fields).find(
+		(candidate) => candidate.id === id,
+	);
+	return submission?.operationAnswers?.root.find(
+		(entry) => entry.fieldUuid === field?.uuid,
+	)?.value;
+}
 
 it("observes repeat headings and unnamed questions in the resolved worker language", async () => {
 	const doc = await createEvaluationApp(
@@ -317,10 +340,9 @@ it("evaluates worker-only validation, branch state and a proposed named record w
 			expect.objectContaining({ path: "guardian", visible: false }),
 		]),
 	);
-	expect(adult.submission).toMatchObject({
-		kind: "registration",
-		primary: { caseName: "Ada" },
-	});
+	expect(adult.submission).toMatchObject({ kind: "registration" });
+	// The answer that names the new case reaches the case changes.
+	expect(answerOf(doc, adult.submission, "name")).toBe("Ada");
 	expect(doc).toEqual(before);
 	await expect(
 		evaluateForm(
@@ -856,13 +878,9 @@ it("uses location-picker coordinates and separates malformed test answers from a
 		interaction: "location-picker",
 		value: "12.3456789 -45.1234567 0.0 0.0",
 	});
-	expect(picked.submission).toMatchObject({
-		primary: {
-			properties: {
-				location: "12.3456789 -45.1234567 0.0 0.0",
-			},
-		},
-	});
+	expect(answerOf(doc, picked.submission, "location")).toBe(
+		"12.3456789 -45.1234567 0.0 0.0",
+	);
 	for (const answer of [
 		{ path: "location", value: "12.3 -45.1" },
 		{ path: "location", value: "12  34 0 0" },

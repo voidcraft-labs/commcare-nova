@@ -2,17 +2,13 @@ import { type Draft, isDraft, original } from "immer";
 import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
-	CASE_SCALAR_PROPERTY_NAMES,
-	caseDataTypeForFieldKind,
 	type Field,
-	fieldCaseWrite,
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldSchema,
 	isContainer,
 	isRepresentableConversion,
 	pickFieldKeysForKind,
-	proseText,
 	reconcileFieldForKind,
 } from "@/lib/domain";
 import {
@@ -75,9 +71,6 @@ export function applyFieldMutation(
 			if (isContainer(field)) {
 				draft.fieldOrder[field.uuid] ??= [];
 			}
-			// A landed case-property writer declares its property — sync
-			// the catalog (see `ensureCatalogProperty`).
-			ensureCatalogProperty(draft as unknown as BlueprintDoc, field);
 			return;
 		}
 		case "updateField": {
@@ -135,7 +128,7 @@ export function applyFieldMutation(
 			}
 			// Zod returns a deep clone. Restore every unpatched slot from the
 			// already-valid previous field so Immer's structural-sharing contract
-			// remains precise: an update to caseWrite must not make calculate,
+			// remains precise: an update to one slot must not make calculate,
 			// label, options, or any other untouched nested value look edited to
 			// per-field subscribers. Destination-mode filtering above still wins:
 			// keys that disappeared from the parsed result are never restored.
@@ -159,10 +152,6 @@ export function applyFieldMutation(
 			// simultaneous case-property relation to every batch-start carrier;
 			// this scalar install must never launch a second sequential cascade.
 			draft.fields[mut.uuid] = nextField;
-
-			// Every landed non-empty writer pair is registered. Clears and
-			// retargets deliberately never prune the old catalog entry.
-			ensureCatalogProperty(draft as unknown as BlueprintDoc, nextField);
 			return;
 		}
 		case "removeField": {
@@ -338,11 +327,6 @@ export function applyFieldMutation(
 				return;
 			}
 			draft.fields[mut.uuid] = reconciled;
-			// The destination kind may derive a different catalog
-			// `data_type` for a surviving `caseWrite` binding; a
-			// pair already declared is left untouched (declared wins —
-			// the kind/declaration agreement rule owns mismatches).
-			ensureCatalogProperty(draft as unknown as BlueprintDoc, reconciled);
 			return;
 		}
 		case "setFieldMedia": {
@@ -457,60 +441,4 @@ function applyOptionMutation(
 			return;
 		}
 	}
-}
-
-/**
- * Catalog sync at source: register a field's explicit
- * `(caseWrite.caseType, caseWrite.property)` pair in the case-type catalog iff
- * absent.
- *
- * The catalog (`doc.caseTypes[].properties`) is the authoritative
- * admission set for `#<type>/<prop>` references — the deep validator,
- * inline linter, chip hydrator, and autocomplete all read it via
- * `reachableCaseTypes`. A field that writes to a case property IS a
- * declaration of that property, so every reducer arm that lands a
- * field with (or changes a field to have) a non-empty
- * `caseWrite` calls this — `addField`, `updateField`, and `convertField`.
- * Reducer-side so server, client, and event-log
- * replay derive byte-identical catalogs from the same mutation.
- *
- * Admission rules, matching the validator's model:
- *   - A declared entry is never touched — no duplicate, no
- *     `data_type` / `label` overwrite. Writer/declaration mismatches
- *     stay visible to the `FIELD_KIND_PROPERTY_TYPE_MISMATCH` rule.
- *   - An absent case TYPE is NOT created here — declaration is an explicit
- *     act (the authoring chokepoint prepends a `declareCaseType` for any
- *     `caseWrite`-setting surface). A field left writing to an
- *     undeclared type is what the
- *     commit gate's `CASE_WRITE_UNKNOWN_TYPE` rejects — keeping the
- *     creation explicit is what lets two members concurrently add different
- *     properties to one type and merge (a reducer that re-minted the type on
- *     every writer would clobber a concurrent declaration). Ancestry
- *     (`parent_type` / `relationship`) is likewise a declaration-level act
- *     (`setCaseTypeMeta`) — never invented here.
- *   - New entries carry the kind-derived `data_type` from the locked
- *     domain table (`caseDataTypeForFieldKind`); kinds that don't pin
- *     a value type (`hidden`) yield an untyped entry, read as `text`
- *     everywhere via the `effectiveDataType` convention. `label`
- *     defaults to the property name, the same shape `augmentCaseType`
- *     gives writer-derived entries.
- *   - Removal/clear never prunes — declared properties outlive their
- *     writers by design.
- */
-function ensureCatalogProperty(doc: BlueprintDoc, field: Field): void {
-	const write = fieldCaseWrite(field);
-	if (write === undefined) return;
-	// Fixed case-row scalars are implicit on every case type. A writer never
-	// synthesizes their optional catalog metadata/order entries.
-	if (CASE_SCALAR_PROPERTY_NAMES.has(write.property)) return;
-	// Append only to an EXISTING declared type — never create the type here.
-	const ct = doc.caseTypes?.find((c) => c.name === write.caseType);
-	if (!ct) return;
-	if (ct.properties.some((p) => p.name === write.property)) return;
-	const dataType = caseDataTypeForFieldKind(field.kind);
-	ct.properties.push({
-		name: write.property,
-		label: proseText(write.property),
-		...(dataType !== undefined && { data_type: dataType }),
-	});
 }

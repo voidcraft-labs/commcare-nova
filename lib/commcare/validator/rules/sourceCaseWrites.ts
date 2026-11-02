@@ -17,7 +17,11 @@
 
 import type { FormLinkProjectionContext } from "@/lib/commcare/formLinkProjection";
 import { sourceBlockCaseWrites } from "@/lib/commcare/xform/sourceCaseWrites";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	isCaseOperationIdentifier,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	sourceWritePropertyProblem,
 	sourceWritePropertySentence,
@@ -33,6 +37,15 @@ export function casePropertyNameFormBuilderCannotKeep(
 	const form = doc.forms[formUuid];
 	const mod = doc.modules[moduleUuid];
 	if (form === undefined || mod === undefined) return [];
+	// Each block is named by its operation's id; an id no element can carry
+	// is `CASE_OPERATION_INVALID_ID`'s finding, and the form has no source to
+	// read until it is fixed.
+	if (
+		!(form.caseOperations ?? []).every((operation) =>
+			isCaseOperationIdentifier(operation.id),
+		)
+	)
+		return [];
 	const errors: ValidationError[] = [];
 	for (const write of sourceBlockCaseWrites(
 		doc,

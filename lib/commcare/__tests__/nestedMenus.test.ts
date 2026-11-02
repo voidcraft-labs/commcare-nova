@@ -465,7 +465,9 @@ describe("ordinary nested-menu wire projection", () => {
 	});
 
 	it("declares each selected-entities source where its values are read", () => {
-		const doc = followupNestedDoc({ parentSelect: true });
+		// A copy: the emitters' plans are made once per document object, and
+		// this test edits the document it builds.
+		const doc = structuredClone(followupNestedDoc({ parentSelect: true }));
 		const { root, child, childForm } = nestSecondModule(doc);
 		if (childForm === undefined) throw new Error("missing child form");
 		const rootConfig = doc.modules[root].caseListConfig;
@@ -481,7 +483,21 @@ describe("ordinary nested-menu wire projection", () => {
 		const sharedAnswer = doc.fields[doc.fieldOrder[childForm][0]];
 		if (sharedAnswer?.kind !== "hidden")
 			throw new Error("Missing shared answer");
-		sharedAnswer.caseWrite = { caseType: "guppy", property: "care_status" };
+		// The form's own guppy case saves the shared answer.
+		const own = doc.forms[childForm]?.caseOperations?.find(
+			(operation) => operation.action === "own",
+		);
+		if (own === undefined) throw new Error("Missing the form's own case");
+		own.writes = [
+			...(own.writes ?? []),
+			{
+				property: "care_status",
+				value: {
+					kind: "term",
+					term: { kind: "field", uuid: sharedAnswer.uuid },
+				},
+			},
+		];
 
 		admitNestedDoc(doc);
 		const datums = entrySessionDatums(

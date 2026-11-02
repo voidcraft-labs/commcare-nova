@@ -14,7 +14,6 @@ import {
 } from "../configureCaseSelection";
 import {
 	BASE_COLUMN,
-	FIELD_A,
 	FORM_A,
 	MOD_A,
 	makeCaseListDoc,
@@ -32,9 +31,12 @@ function completedResult(
 
 function followupDoc() {
 	const doc = makeCaseListDoc();
-	const registrationField = doc.fields[FIELD_A];
-	if (registrationField.kind !== "text") throw new Error("fixture field");
-	const { caseWrite: _registrationWrite, ...field } = registrationField;
+	// The follow-up keeps its own case and saves no answer to it.
+	const own = doc.forms[FORM_A].caseOperations?.find(
+		(operation) => operation.action === "own",
+	);
+	if (own === undefined) throw new Error("fixture own case");
+	const { name: _registrationName, ...ownWithoutName } = own;
 	return {
 		...doc,
 		// These cases turn on several-case selection, which runs in Web Apps
@@ -46,9 +48,9 @@ function followupDoc() {
 				...doc.forms[FORM_A],
 				name: "Review Patient",
 				type: "followup" as const,
+				caseOperations: [ownWithoutName],
 			},
 		},
-		fields: { ...doc.fields, [FIELD_A]: field },
 	};
 }
 
@@ -112,6 +114,13 @@ function linkedFollowupDoc(args?: {
 				id: "review_patient",
 				name: "Review patient",
 				type: "followup",
+				caseOperations: [
+					{
+						uuid: testUuid("case-selection-tool-target-own"),
+						id: "patient",
+						action: "own",
+					},
+				],
 			},
 		},
 		fields: {
@@ -232,12 +241,14 @@ describe("configureCaseSelection", () => {
 			caseListConfig: _caseListConfig,
 			...surveyModule
 		} = doc.modules[MOD_A];
+		// A survey holds no case of its own.
+		const { caseOperations: _own, ...surveyForm } = doc.forms[FORM_A];
 		const h = makeCaseListFixture({
 			...doc,
 			modules: { ...doc.modules, [MOD_A]: surveyModule },
 			forms: {
 				...doc.forms,
-				[FORM_A]: { ...doc.forms[FORM_A], type: "survey" },
+				[FORM_A]: { ...surveyForm, type: "survey" },
 			},
 		});
 		const before = structuredClone(h.currentDoc());

@@ -8,7 +8,9 @@
  * (`applyDefaults`) → uuid mint → domain `Field` assembly
  * (`flatFieldToField`) → the shared identifier verdict
  * (`lib/doc/identifierVerdicts.ts` — XML-name legality and sibling
- * uniqueness against the doc AND this batch's earlier items). Parent
+ * uniqueness against the doc AND this batch's earlier items). Each item's
+ * `caseWrite` is then planned into the form's case operations through
+ * `planFieldCaseWrite`, over the document the batch's fields produce. Parent
  * resolution covers containers minted earlier in the same batch (`mintedByBareId`)
  * before falling back to the doc-wide lookup, so a group + its children
  * compose in one call.
@@ -23,15 +25,14 @@
  * a partial batch would leave it guessing which fields landed.
  */
 
+import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { fieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
-import { declareCaseTypeMutations } from "@/lib/doc/scaffolds";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc, Field, Uuid } from "@/lib/domain";
 import {
 	asUuid,
-	fieldCaseWrite,
 	findAuthoredBlueprintIdentity,
 	isContainer,
 } from "@/lib/domain";
@@ -42,6 +43,7 @@ import {
 	prepareFlatFieldIdentities,
 	stripEmpty,
 } from "../../contentProcessing";
+import { applyToDoc } from "../common";
 
 export interface FieldAssemblyArgs {
 	/** The doc the batch will apply to — parent lookups + sibling scans. */
@@ -79,34 +81,15 @@ export type FieldAssemblyResult =
 			mutations: Mutation[];
 			/** Every created identity, in input order. */
 			created: CreatedFieldIdentity[];
+			/** What planning each item's `caseWrite` said about it, such as a
+			 *  starting value read from the case (`planFieldCaseWrite`). */
+			notes: Array<{ uuid: Uuid; id: string; note: string }>;
 	  }
 	| {
 			ok: false;
 			/** Every item field assembly or identifier admission refused. */
 			rejected: Array<{ id: string; reason: string }>;
 	  };
-
-/**
- * Convert a creation tool's exact UUID-addressed `close_condition` input to
- * the stored shape. Returns `undefined` for an absent/null input.
- */
-export function resolveCloseCondition(
-	input:
-		| {
-				fieldUuid: Uuid | string;
-				answer: string;
-				operator?: "=" | "selected" | null;
-		  }
-		| null
-		| undefined,
-): { field: Uuid; answer: string; operator?: "=" | "selected" } | undefined {
-	if (input == null) return undefined;
-	return {
-		field: asUuid(input.fieldUuid),
-		answer: input.answer,
-		...(input.operator && { operator: input.operator }),
-	};
-}
 
 export function assembleFieldMutations(
 	args: FieldAssemblyArgs,
@@ -323,23 +306,43 @@ export function assembleFieldMutations(
 		if (after !== undefined) mut.after = after;
 		lastPlacedByParent.set(mut.parentUuid, asUuid(mut.field.uuid));
 	}
-	// Declaration chokepoint: a field writing to a type absent from the catalog
-	// declares it (granular `declareCaseType`) — the reducer no longer
-	// auto-creates the type. Declare each absent type ONCE, BEFORE the adds, so
-	// every addField's catalog sync can append its property to the now-declared
-	// type. No-op when every written type is already declared.
-	const declared = new Set<string>();
-	const declarations: Mutation[] = [];
-	for (const mut of mutations) {
-		if (mut.kind !== "addField") continue;
-		const write = fieldCaseWrite(mut.field);
-		if (write === undefined || declared.has(write.caseType)) continue;
-		declared.add(write.caseType);
-		declarations.push(...declareCaseTypeMutations(doc, write.caseType));
+	// A field holds no destination: each item's `caseWrite` is planned into
+	// the form's case operations once every field of the batch exists, by
+	// the one "Saves to" planner, which also declares the case types and
+	// properties its writes need. A child case is created with its name, so
+	// the writes of `case_name` are planned first.
+	const writes = assigned.flatMap(({ raw, uuid }) =>
+		raw.caseWrite == null
+			? []
+			: [{ uuid, id: raw.id, caseWrite: raw.caseWrite }],
+	);
+	writes.sort(
+		(a, b) =>
+			Number(b.caseWrite.property === "case_name") -
+			Number(a.caseWrite.property === "case_name"),
+	);
+	const writeMutations: Mutation[] = [];
+	const notes: Array<{ uuid: Uuid; id: string; note: string }> = [];
+	let candidate = writes.length === 0 ? doc : applyToDoc(doc, mutations);
+	for (const write of writes) {
+		const plan = planFieldCaseWrite(candidate, write.uuid, {
+			caseType: write.caseWrite.caseType,
+			property: write.caseWrite.property,
+		});
+		if (!plan.ok) {
+			rejected.push({ id: write.id, reason: plan.message });
+			continue;
+		}
+		writeMutations.push(...plan.mutations);
+		candidate = applyToDoc(candidate, plan.mutations);
+		for (const note of plan.notes)
+			notes.push({ uuid: write.uuid, id: write.id, note });
 	}
+	if (rejected.length > 0) return { ok: false, rejected };
 	return {
 		ok: true,
-		mutations: [...declarations, ...mutations],
+		mutations: [...mutations, ...writeMutations],
+		notes,
 		created: mutations
 			.filter(
 				(mut): mut is Extract<Mutation, { kind: "addField" }> =>

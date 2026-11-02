@@ -11,7 +11,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
-import { blueprintDocSchema, fieldCaseWrite } from "@/lib/domain";
+import { blueprintDocSchema } from "@/lib/domain";
 import { APP_GENESIS_FALLBACK_NAME } from "@/lib/domain/blueprint";
 import { literal, term, today } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
@@ -73,6 +73,62 @@ function makeCatalogDoc(): BlueprintDoc {
 	};
 }
 
+const CASE_WRITE_OWN = testUuid("case-write-own");
+
+/** The own case's write of `property`, saving the answer `fieldUuid`. */
+function ownWriteOf(fieldUuid: string, property: string) {
+	return {
+		property,
+		value: {
+			kind: "term" as const,
+			term: { kind: "field" as const, uuid: testUuid(fieldUuid) },
+		},
+	};
+}
+
+/** The own case's property writes, in order. */
+function ownWrittenProperties(
+	doc: Pick<BlueprintDoc, "forms">,
+	formUuid: string,
+) {
+	return (
+		doc.forms[formUuid]?.caseOperations?.[0]?.writes?.map(
+			(write) => write.property,
+		) ?? []
+	);
+}
+
+/** Replace the own case's write of `from` with one of `to`. */
+function retargetOwnWrite(
+	formUuid: string,
+	fieldUuid: string,
+	from: string,
+	to: string,
+): Mutation[] {
+	return [
+		{
+			kind: "updateForm",
+			uuid: testUuid(formUuid),
+			patch: {},
+			caseOperationPatch: {
+				operation: "remove-write",
+				uuid: CASE_WRITE_OWN,
+				key: { property: from },
+			},
+		},
+		{
+			kind: "updateForm",
+			uuid: testUuid(formUuid),
+			patch: {},
+			caseOperationPatch: {
+				operation: "add-write",
+				uuid: CASE_WRITE_OWN,
+				value: ownWriteOf(fieldUuid, to),
+			},
+		},
+	];
+}
+
 function makeCaseWriteDoc(): {
 	doc: BlueprintDoc;
 	fieldUuid: string;
@@ -112,6 +168,14 @@ function makeCaseWriteDoc(): {
 					id: "visit",
 					name: "Visit",
 					type: "followup",
+					caseOperations: [
+						{
+							uuid: CASE_WRITE_OWN,
+							id: "patient",
+							action: "own",
+							writes: [ownWriteOf(fieldUuid, "old_value")],
+						},
+					],
 				},
 			},
 			fields: {
@@ -126,7 +190,6 @@ function makeCaseWriteDoc(): {
 					kind: "text",
 					id: "answer",
 					label: proseText("Answer"),
-					caseWrite: { caseType: "patient", property: "old_value" },
 				},
 			},
 			moduleOrder: [moduleUuid],
@@ -274,16 +337,10 @@ describe("case-write projection watermark", () => {
 		]);
 		expect(store.getState().caseWriteProjectionRevision).toBe(baseline);
 
-		apply(store, [
-			{
-				kind: "updateField",
-				uuid: testUuid(fieldUuid),
-				targetKind: "text",
-				patch: {
-					caseWrite: { caseType: "patient", property: "new_value" },
-				},
-			},
-		]);
+		apply(
+			store,
+			retargetOwnWrite(formUuid, fieldUuid, "old_value", "new_value"),
+		);
 		expect(store.getState().caseWriteProjectionRevision).toBe(baseline + 1);
 
 		apply(store, [
@@ -296,7 +353,7 @@ describe("case-write projection watermark", () => {
 		expect(store.getState().caseWriteProjectionRevision).toBe(baseline + 1);
 	});
 
-	it("ignores hidden expressions on a field that does not write case data", () => {
+	it("advances for a Hidden Value's value, which types what an operation reading it saves", () => {
 		const { doc, fieldUuid } = makeCaseWriteDoc();
 		doc.fields[fieldUuid] = {
 			uuid: testUuid(fieldUuid),
@@ -319,7 +376,7 @@ describe("case-write projection watermark", () => {
 			},
 		]);
 
-		expect(store.getState().caseWriteProjectionRevision).toBe(baseline);
+		expect(store.getState().caseWriteProjectionRevision).toBe(baseline + 1);
 	});
 
 	it("ignores a stale hidden-field update after the displayed field was removed", () => {
@@ -329,7 +386,6 @@ describe("case-write projection watermark", () => {
 			kind: "hidden",
 			id: "answer",
 			calculate: term(literal("initial")),
-			caseWrite: { caseType: "patient", property: "old_value" },
 		};
 		const store = createBlueprintDocStore();
 		assertAdmittedDoc(doc);
@@ -469,55 +525,44 @@ describe("createBlueprintDocStore", () => {
 		expect(store.getState().appName).toBe("After");
 	});
 
-	it("undoes and redoes an existing case destination with the scalar inverse", () => {
-		const { doc, fieldUuid } = makeCaseWriteDoc();
+	it("undoes and redoes a retargeted write of the form's own case", () => {
+		const { doc, fieldUuid, formUuid } = makeCaseWriteDoc();
 		const store = createBlueprintDocStore();
 		assertAdmittedDoc(doc);
 		store.getState().load(toPersistableDoc(doc));
 		store.getState().startTracking();
-		const forward = admitMutationBatch([
-			{
-				kind: "updateField",
-				uuid: testUuid(fieldUuid),
-				targetKind: "text",
-				patch: {
-					caseWrite: { caseType: "patient", property: "new_value" },
-				},
-			},
+		apply(
+			store,
+			admitMutationBatch(
+				retargetOwnWrite(formUuid, fieldUuid, "old_value", "new_value"),
+			),
+		);
+		expect(ownWrittenProperties(store.getState(), formUuid)).toEqual([
+			"new_value",
 		]);
-
-		apply(store, forward);
-		expect(fieldCaseWrite(store.getState().fields[fieldUuid])).toEqual({
-			caseType: "patient",
-			property: "new_value",
-		});
 		store.getState().undo();
-		expect(fieldCaseWrite(store.getState().fields[fieldUuid])).toEqual({
-			caseType: "patient",
-			property: "old_value",
-		});
+		expect(ownWrittenProperties(store.getState(), formUuid)).toEqual([
+			"old_value",
+		]);
 		store.getState().redo();
-		expect(fieldCaseWrite(store.getState().fields[fieldUuid])).toEqual({
-			caseType: "patient",
-			property: "new_value",
-		});
+		expect(ownWrittenProperties(store.getState(), formUuid)).toEqual([
+			"new_value",
+		]);
 	});
 
-	it("uses the complete inverse when a case destination adds catalog structure", () => {
-		const { doc, fieldUuid } = makeCaseWriteDoc();
+	it("undoes a write that declared its property together with the declaration", () => {
+		const { doc, fieldUuid, formUuid } = makeCaseWriteDoc();
 		const store = createBlueprintDocStore();
 		assertAdmittedDoc(doc);
 		store.getState().load(toPersistableDoc(doc));
 		store.getState().startTracking();
 		apply(store, [
 			{
-				kind: "updateField",
-				uuid: testUuid(fieldUuid),
-				targetKind: "text",
-				patch: {
-					caseWrite: { caseType: "patient", property: "brand_new" },
-				},
+				kind: "addCaseProperty",
+				caseType: "patient",
+				property: { name: "brand_new", label: proseText("Brand new") },
 			},
+			...retargetOwnWrite(formUuid, fieldUuid, "old_value", "brand_new"),
 		]);
 		expect(
 			store
@@ -526,10 +571,9 @@ describe("createBlueprintDocStore", () => {
 		).toBe(true);
 
 		store.getState().undo();
-		expect(fieldCaseWrite(store.getState().fields[fieldUuid])).toEqual({
-			caseType: "patient",
-			property: "old_value",
-		});
+		expect(ownWrittenProperties(store.getState(), formUuid)).toEqual([
+			"old_value",
+		]);
 		expect(
 			store
 				.getState()

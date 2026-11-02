@@ -7,7 +7,10 @@
  * - `P`: each `(caseType, property)` type: declared, else the one opinion of
  *   its visible and case-operation writers, else the one agreed opinion of its
  *   Hidden Value writers (`int` and `decimal` agree on `decimal`, `text` and
- *   `single_select` on `text`).
+ *   `single_select` on `text`). A case change's write whose whole value is a
+ *   question's answer, a bare read of it or the `capture-link` of a capture,
+ *   is that question's write: a visible question's kind types the property,
+ *   and a Hidden Value is the typed writer of the first property it saves to.
  * - `O`: each case-operation write's opinion: its destination's type when the
  *   value is write-assignable to it (`ruleSets.ts::isWriteAssignable`), else
  *   the value's type.
@@ -41,9 +44,8 @@ import type {
 	CaseType,
 	PersistableDoc,
 } from "../blueprint";
-import { writerPreloadsFromLoadedCase } from "../casePreload";
 import type { CasePropertyDataType } from "../casePropertyTypes";
-import { caseDataTypeForFieldKind, fieldCaseWrite } from "../caseTypes";
+import { caseDataTypeForFieldKind } from "../caseTypes";
 import { formOfField } from "../fieldForm";
 import type { Field, HiddenField } from "../fields";
 import { fieldValueType } from "../fieldValueType";
@@ -64,6 +66,7 @@ import {
 	untypedExpressionFacts,
 } from "./context";
 import { isIsoDateText } from "./datePattern";
+import { resolveRelationDestination } from "./relationDestination";
 import { isWriteAssignable } from "./ruleSets";
 import {
 	ANY_TYPE,
@@ -110,19 +113,11 @@ export interface HiddenOpinion {
 	readonly outputs: readonly HiddenWriterOutput[];
 	/** The agreed type of its typed outputs, `int` and `decimal` agreeing on
 	 * `decimal` and `text` and `single_select` on `text`; undefined when it
-	 * has none or they disagree. Always
-	 * undefined for a preloaded starting value. */
+	 * has none or they disagree. A starting value that reads the case,
+	 * `#case/<property>`, types as that property, as every read of it does. */
 	readonly opinion: CasePropertyDataType | undefined;
 	/** Its typed outputs name more than one type. */
 	readonly outputsDisagree: boolean;
-	/** A starting value with no calculation, on a form that fills the field
-	 * from the case it writes: the preload's setvalue runs after the
-	 * default's and overwrites it (`xform/builder.ts` writes defaults during
-	 * the field walk, `xform/caseBlocks.ts::addCaseBlocks` appends the
-	 * preloads, and Core fires `xforms-ready` actions in parse order,
-	 * `ActionController.triggerActionsFromEvent`), so it never saves its own
-	 * value and holds no opinion. */
-	readonly preloadedDefault: boolean;
 }
 
 /** Where a property's agreed type comes from. */
@@ -164,8 +159,7 @@ export interface ExpressionInference {
 	/** `C`: Hidden Values whose date and time may hold only its day. */
 	readonly clockLost: ReadonlySet<Uuid>;
 	/** Every concrete opinion of every writer kind, by case type and
-	 * property: visible kinds, case operations, and Hidden Values (preloaded
-	 * starting values excluded). An operation's or a Hidden Value's opinion is
+	 * property: visible kinds, case operations, and Hidden Values. An operation's or a Hidden Value's opinion is
 	 * the property's agreed type where its value is storage-assignable to it,
 	 * so a writer that agrees adds no type. An operation's value that does not
 	 * fit adds its own type; a Hidden Value's adds none, since
@@ -292,7 +286,6 @@ export function shareInferenceAcrossMove(
 		if (
 			field === undefined ||
 			field.kind === "hidden" ||
-			fieldCaseWrite(field) !== undefined ||
 			named.has(uuid) ||
 			named.has(EVERY_FIELD)
 		)
@@ -355,8 +348,8 @@ export function inferenceFingerprint(doc: PersistableDoc): string {
 
 /**
  * Each Hidden Value writer that disagrees with the property it writes, with
- * the outputs that disagree. A preloaded starting value never disagrees, and a
- * property no fact types holds no finding except Hidden-only disagreement.
+ * the outputs that disagree. A property no fact types holds no finding except
+ * Hidden-only disagreement.
  */
 export function hiddenWriterVerdicts(
 	doc: PersistableDoc,
@@ -364,7 +357,6 @@ export function hiddenWriterVerdicts(
 	const inference = inferExpressionTypes(doc);
 	const verdicts: HiddenWriterVerdict[] = [];
 	for (const writer of inference.hiddenOpinions.values()) {
-		if (writer.preloadedDefault) continue;
 		const property = inference.propertyTypes
 			.get(writer.caseType)
 			?.get(writer.property) ?? { type: undefined, origin: undefined };
@@ -496,12 +488,10 @@ interface HiddenWriterSite {
 	readonly form: Uuid | undefined;
 	readonly source: HiddenValueSource | undefined;
 	readonly expression: Expression | undefined;
+	/** The first case write whose whole value reads it (`writerOfValue`). */
 	readonly write:
 		| { readonly caseType: string; readonly property: string }
 		| undefined;
-	/** Its form fills it from the case it writes when the form opens. */
-	readonly preloaded: boolean;
-	readonly preloadedDefault: boolean;
 }
 interface OperationWrite {
 	readonly form: Uuid;
@@ -563,19 +553,95 @@ class Inference {
 	constructor(private readonly doc: BlueprintDoc) {
 		this.untyped = untypedExpressionFacts(doc);
 		const fieldWriters: FieldWriter[] = [];
-		const hiddenSites: HiddenWriterSite[] = [];
-		for (const field of Object.values(doc.fields)) {
-			const write = fieldCaseWrite(field);
-			if (write !== undefined) {
-				fieldWriters.push({
-					field,
-					caseType: write.caseType,
-					property: write.property,
-				});
-				this.written.set(propertyKey(write.caseType, write.property), write);
+		const hiddenWrites = new Map<
+			Uuid,
+			{ readonly caseType: string; readonly property: string }
+		>();
+		const operationWrites: OperationWrite[] = [];
+		for (const [formUuid, form] of Object.entries(doc.forms)) {
+			const moduleUuid = moduleUuidOfForm(doc, formUuid as Uuid);
+			const currentCaseType =
+				moduleUuid === undefined
+					? undefined
+					: doc.modules[moduleUuid]?.caseType;
+			const operationIds = new Set<Uuid>();
+			for (const operation of orderedCaseOperations(form)) {
+				// The form's own change has no stored case type: it changes the
+				// case of the form's module.
+				const operationType =
+					operation.retype ?? operation.caseType ?? currentCaseType;
+				if (operationType === undefined) continue;
+				const writes: {
+					readonly property: string;
+					readonly value: Expression;
+					readonly caseType: string;
+					readonly name: boolean;
+				}[] = [];
+				if ("name" in operation && isExpression(operation.name))
+					writes.push({
+						property: "case_name",
+						value: operation.name,
+						caseType: operationType,
+						name: true,
+					});
+				for (const write of operation.writes ?? []) {
+					if (write.property.length === 0) continue;
+					// A write through `via` lands on the case above, as a `prop`
+					// read's ancestor arm resolves it; an unresolved one has no
+					// destination to type.
+					const destination =
+						write.via === undefined
+							? { ok: true as const, caseType: operationType }
+							: resolveRelationDestination(
+									{ kind: "ancestor", via: write.via },
+									operationType,
+									doc.caseTypes ?? [],
+								);
+					if (!destination.ok) continue;
+					writes.push({
+						property: write.property,
+						value: write.value,
+						caseType: destination.caseType,
+						name: false,
+					});
+				}
+				for (const write of writes) {
+					const key = propertyKey(write.caseType, write.property);
+					const target = {
+						caseType: write.caseType,
+						property: write.property,
+					};
+					const field = writerOfValue(doc, write.value);
+					// A question's whole value saved as is: its kind types the
+					// property. A Hidden Value is the typed writer of the first
+					// property it saves to.
+					if (
+						field !== undefined &&
+						(field.kind !== "hidden" || !hiddenWrites.has(field.uuid))
+					) {
+						if (field.kind === "hidden") hiddenWrites.set(field.uuid, target);
+						fieldWriters.push({ field, ...target });
+						this.written.set(key, target);
+						continue;
+					}
+					if (write.name) continue;
+					operationWrites.push({
+						form: formUuid as Uuid,
+						operation: operation.uuid,
+						...target,
+						value: write.value,
+						currentCaseType,
+						operationIds: new Set(operationIds),
+					});
+					this.written.set(key, target);
+				}
+				if (operation.action === "create") operationIds.add(operation.uuid);
 			}
-			if (field.kind === "hidden") hiddenSites.push(this.hiddenSite(field));
 		}
+		const hiddenSites: HiddenWriterSite[] = [];
+		for (const field of Object.values(doc.fields))
+			if (field.kind === "hidden")
+				hiddenSites.push(this.hiddenSite(field, hiddenWrites.get(field.uuid)));
 		this.fieldWriters = fieldWriters;
 		this.hiddenSites = hiddenSites;
 		const hiddenUuids = new Set(hiddenSites.map((site) => site.field.uuid));
@@ -595,35 +661,6 @@ class Inference {
 				mayReadCatalog(site.expression) ? [site.field.uuid] : [],
 			),
 		);
-		const operationWrites: OperationWrite[] = [];
-		for (const [formUuid, form] of Object.entries(doc.forms)) {
-			const moduleUuid = moduleUuidOfForm(doc, formUuid as Uuid);
-			const currentCaseType =
-				moduleUuid === undefined
-					? undefined
-					: doc.modules[moduleUuid]?.caseType;
-			const operationIds = new Set<Uuid>();
-			for (const operation of orderedCaseOperations(form)) {
-				const caseType = operation.retype ?? operation.caseType;
-				for (const write of operation.writes ?? [])
-					if (write.property.length > 0) {
-						operationWrites.push({
-							form: formUuid as Uuid,
-							operation: operation.uuid,
-							caseType,
-							property: write.property,
-							value: write.value,
-							currentCaseType,
-							operationIds: new Set(operationIds),
-						});
-						this.written.set(propertyKey(caseType, write.property), {
-							caseType,
-							property: write.property,
-						});
-					}
-				if (operation.action === "create") operationIds.add(operation.uuid);
-			}
-		}
 		this.operationWrites = operationWrites;
 	}
 
@@ -697,7 +734,7 @@ class Inference {
 		}
 		const hiddenOpinions = new Map<Uuid, CasePropertyDataType | undefined>();
 		for (const site of this.hiddenSites)
-			if (site.write !== undefined && !site.preloadedDefault)
+			if (site.write !== undefined)
 				hiddenOpinions.set(
 					site.field.uuid,
 					analyses.get(site.field.uuid)?.opinion,
@@ -736,7 +773,11 @@ class Inference {
 		const dateTimeBinds = new Map(
 			this.hiddenSites.map((site) => [
 				site.field.uuid,
-				fieldValueType(site.field, caseTypes) === "datetime",
+				fieldValueType(
+					site.field,
+					caseTypes,
+					site.write === undefined ? [] : [site.write],
+				) === "datetime",
 			]),
 		);
 		// The first pass reads no held class and no lost clock, as every typing
@@ -803,9 +844,8 @@ class Inference {
 						clockLost: lost,
 					}),
 				),
-				opinion: site.preloadedDefault ? undefined : analysis?.opinion,
+				opinion: analysis?.opinion,
 				outputsDisagree: analysis?.outputsDisagree ?? false,
-				preloadedDefault: site.preloadedDefault,
 			});
 		}
 		return {
@@ -842,7 +882,10 @@ class Inference {
 			.join(",");
 	}
 
-	private hiddenSite(field: HiddenField): HiddenWriterSite {
+	private hiddenSite(
+		field: HiddenField,
+		write: HiddenWriterSite["write"],
+	): HiddenWriterSite {
 		const form = formOfField(this.doc, field.uuid);
 		const source: HiddenValueSource | undefined =
 			field.calculate !== undefined
@@ -850,16 +893,6 @@ class Inference {
 				: field.default_value !== undefined
 					? "default_value"
 					: undefined;
-		const write = fieldCaseWrite(field);
-		const moduleUuid =
-			form === undefined ? undefined : moduleUuidOfForm(this.doc, form);
-		const module =
-			moduleUuid === undefined ? undefined : this.doc.modules[moduleUuid];
-		const savedForm = form === undefined ? undefined : this.doc.forms[form];
-		const preloaded =
-			module !== undefined &&
-			savedForm !== undefined &&
-			writerPreloadsFromLoadedCase(field, module, savedForm);
 		return {
 			field,
 			form,
@@ -873,12 +906,7 @@ class Inference {
 					? field.calculate
 					: field.default_value
 				: undefined,
-			write:
-				write === undefined
-					? undefined
-					: { caseType: write.caseType, property: write.property },
-			preloaded,
-			preloadedDefault: source === "default_value" && preloaded,
+			write,
 		};
 	}
 
@@ -1321,11 +1349,8 @@ function heldOf(
 	analysis: HiddenAnalysis | undefined,
 	dateTimeBind: boolean,
 ): ScalarHeld {
-	// A field with no value holds what its form preloads into it, which a
-	// setvalue casts through the bind's answer class like a default
-	// (SetValueAction.processAction); with nothing preloaded it stays blank.
-	if (site.source === undefined)
-		return site.preloaded && dateTimeBind ? "date" : "string";
+	// A field with no value stays blank.
+	if (site.source === undefined) return "string";
 	// SetValueAction casts through the bind's answer class.
 	if (site.source === "default_value") return dateTimeBind ? "date" : "string";
 	// Recalculate.wrapData: the result's own class decides, the bind only
@@ -1410,6 +1435,26 @@ function mayReadCatalog(expression: Expression | undefined): boolean {
 		return Object.values(value).some(visit);
 	};
 	return visit(expression);
+}
+
+/** The question a case write saves as is: its whole value is a read of the
+ * question with no filter and no role, in any spelling, or the
+ * `capture-link` of a capture. */
+function writerOfValue(
+	doc: BlueprintDoc,
+	value: Expression,
+): Field | undefined {
+	if (value.kind !== "term") return undefined;
+	const term = value.term;
+	const uuid =
+		term.kind === "field" &&
+		term.role === undefined &&
+		term.filters === undefined
+			? term.uuid
+			: term.kind === "capture-link"
+				? term.field
+				: undefined;
+	return uuid === undefined ? undefined : doc.fields[uuid];
 }
 
 function readsGeneratedNode(expression: Expression | undefined): boolean {

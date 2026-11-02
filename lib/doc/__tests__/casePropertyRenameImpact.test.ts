@@ -4,7 +4,8 @@ import { casePropertyRenameImpact } from "@/lib/doc/casePropertyRenameImpact";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import { literal, term } from "@/lib/domain/expression/builders";
+import { fieldCaseWriteViews } from "@/lib/domain";
+import { formField, literal, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -13,6 +14,7 @@ const FORM = testUuid("52000000-0000-4000-8000-000000000000");
 const FIELD_A = testUuid("53000000-0000-4000-8000-000000000001");
 const FIELD_B = testUuid("53000000-0000-4000-8000-000000000002");
 const OPERATION = testUuid("54000000-0000-4000-8000-000000000000");
+const OWN = testUuid("54000000-0000-4000-8000-000000000001");
 const COLUMN = testUuid("55000000-0000-4000-8000-000000000000");
 
 function fixture(): BlueprintDoc {
@@ -60,6 +62,15 @@ function fixture(): BlueprintDoc {
 				type: "followup",
 				caseOperations: [
 					{
+						uuid: OWN,
+						id: "patient",
+						action: "own",
+						writes: [
+							{ property: "a", value: term(formField(FIELD_A)) },
+							{ property: "b", value: term(formField(FIELD_B)) },
+						],
+					},
+					{
 						uuid: OPERATION,
 						id: "update_patient",
 						action: "update",
@@ -79,14 +90,12 @@ function fixture(): BlueprintDoc {
 				id: "question_a",
 				kind: "text",
 				label: proseText("A"),
-				caseWrite: { caseType: "patient", property: "a" },
 			},
 			[FIELD_B]: {
 				uuid: FIELD_B,
 				id: "question_b",
 				kind: "text",
 				label: proseText("B"),
-				caseWrite: { caseType: "patient", property: "b" },
 			},
 		},
 		moduleOrder: [MODULE],
@@ -138,15 +147,15 @@ describe("casePropertyRenameImpact", () => {
 		);
 		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 		const next = verdict.nextDoc;
-		expect(next.fields[FIELD_A]).toMatchObject({
-			id: "question_a",
-			caseWrite: { caseType: "patient", property: "b" },
-		});
-		expect(next.fields[FIELD_B]).toMatchObject({
-			id: "question_b",
-			caseWrite: { caseType: "patient", property: "a" },
-		});
-		expect(next.forms[FORM].caseOperations?.[0].writes?.[0].property).toBe("b");
+		expect(next.fields[FIELD_A]).toMatchObject({ id: "question_a" });
+		expect(next.fields[FIELD_B]).toMatchObject({ id: "question_b" });
+		expect(
+			fieldCaseWriteViews(next, FIELD_A).map((view) => view.property),
+		).toEqual(["b"]);
+		expect(
+			fieldCaseWriteViews(next, FIELD_B).map((view) => view.property),
+		).toEqual(["a"]);
+		expect(next.forms[FORM].caseOperations?.[1].writes?.[0].property).toBe("b");
 		expect(next.modules[MODULE].caseListConfig?.columns[0]).toMatchObject({
 			field: "b",
 		});

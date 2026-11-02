@@ -2129,6 +2129,147 @@ From the research, the outline and the owner brief, each with its reason.
     property; and `lib/domain/referenceSlots.ts::NON_REFERENCE_FIELD_PATHS` loses its
     `"caseWrite.mode"` discriminator row, with the capture slot's comment reworded. Each reads a
     member pull request 2 deletes, so it changes with it.
+26. **A child a field writes in a several-case form links `parent` to `session`, and `session`
+    there names the current selected case** (§16.3 gives the planner "the own case" without saying
+    what that is when a menu selects several; pull request 4's rule
+    `MULTI_SELECT_SESSION_OPERATION_LINK` refused every session link in such a form, so
+    `extensionCaseFixture("multiple")`, the `case-extension-multiple*` corpus documents and
+    `proof/native/producers/emit-case-evidence.ts` failed the gate). One predicate,
+    `lib/domain/forms.ts::caseOperationRunsPerSelectedCase`, says which operations run once per
+    selected case: the own arm, an update or close of the loaded case, and a create with a link to
+    it. Inside that iteration `session` is the current selected case, so it is never ambiguous; the
+    rule refuses a session link only on an operation that runs once for the form. The validator's
+    order and case-read rules, `caseOps.ts::saveToCaseBlockShape`, and the case store's
+    `submissionEnvelope.ts` (physical expansion, the batch's session-link refusal, and a per-case
+    create's id visible only to its own selected case) all read that predicate. This keeps `main`'s
+    meaning (`lib/commcare/CLAUDE.md`, "Multi-select case-list emission": one child per selected
+    case, indexed to it, inside the selected-case iteration) and keeps one spelling of "the case
+    this form opened" for a follow-up or close form whatever its menu's selection; linking to the
+    own arm (`op`) in a several-case form only would have given a loading form two spellings of
+    one case, and every reader of `op` targets a second, per-selection correlation. HQ is no help
+    either way: `corehq/apps/app_manager/xform.py::XForm._create_casexml` sets
+    `default_case_management = False` for a multi-select module, so its build writes no basic
+    subcase there (`entries.py::EntriesHelper.get_new_case_id_datums_meta` still allocates the
+    datum), and the per-case child is Nova's Save to Case block alone.
+27. **A child a field writes in a several-case form keeps `main`'s bytes through pull request 6,
+    as an extension child does** (§12.2 sends it to Save to Case through `several-cases`, which
+    would rename its block from `nova_subcase_<n>` to its operation id, add a
+    `nova_guard_<op>_text` block, drop its subcase from `subcases` and its
+    `case_id_new_<type>_<n>` datum, and so move the bytes of `case-extension-multiple` and
+    `case-extension-multiple-repeat`, which §18 and part 10's row 4 forbid). §12.3 step 4's
+    interim branch therefore also holds, in a several-case form, a `create` whose only link is
+    `parent` to the own case (`child` or `extension`) and whose name is a bare question read,
+    where `several-cases` is its only failed subcase condition: it takes an index in step 4's
+    sequence, its subcase stays in `subcases` (relationship and condition as the operation states
+    them for a child, `never` for an extension; HQ's build writes no subcase in a several-case
+    form, `xform.py::XForm._create_casexml`'s `default_case_management`, and its entry still
+    allocates the datum), and its placement is `{save-to-case, repeat: <its forEach>, path:
+    [nova_selected_cases, item, nova_operations, nova_subcase_<n>]}`, the source-lowered block
+    `main` writes in the selected-case row (`lib/commcare/placement.ts::PlannedBasicSubcase.inSource`).
+    Pull request 7 removes it with the extension branch. Until then a form link may name that
+    datum, which no selected case's child holds, as it could on `main`.
+28. **`lib/domain/caseWriteViews.ts` reads the reference index through a domain-side query**
+    (§16 has the view find its forms through the index, which on `main` is queried only from
+    `lib/doc/referenceIndex.ts::referencingCarrierUuids`): `lib/domain` may not import
+    `lib/doc` (`lib/domain/referenceIndex.ts`'s header: the shape is part of `BlueprintDoc`'s
+    type, and `lib/domain` cannot import `lib/doc`). So `lib/domain/referenceIndex.ts` gains
+    `indexedReferencingSlots`, a read of the index data that already rides on `BlueprintDoc`,
+    and `caseWriteViews.ts::fieldCaseWriteViews` keeps the carriers whose name, owner or
+    write-value slot reads the field, falling back to the field's own form when a document
+    carries no index. The index stays built and maintained only by `lib/doc`.
+
+29. **`operationTarget(operation, formType)` takes the form's type** (§3.2 writes
+    `operationTarget(operation)`): the own arm stores no target, and what it targets depends on the
+    form, `{kind: "new"}` on a registration and `{kind: "session"}` otherwise
+    (`lib/domain/forms.ts::operationTarget`). `operationCaseType(doc, formUuid, operation)` reads a
+    structural `{formOrder, modules}` and walks `formOrder` itself, because calling
+    `postSubmit.ts::moduleUuidOfForm` would make an import cycle with `forms.ts`. "Made unique among
+    the form's operation ids" (§3.2) is `caseOperationIdentifiers.ts::ownCaseOperationId`, which maps
+    the `-` a case type admits (`CASE_TYPE_PATTERN`) to `_`, which an operation id requires.
+30. **The worker's record is refused by the schema outside an update** (§3.3 admits it "only as the
+    target of an update", leaving where unsaid): `forms.ts::updateCaseTargetSchema` holds it, and the
+    close and create arms' target schemas do not, so a close or create of the worker's record never
+    parses.
+31. **`capture-link` needs no grammar change.** §3.6 says the authoring grammar gains the call; the
+    grammar's `identChar` already admits `-`, so `capture-link(...)` parses as an `Invoke` as
+    `string-length(...)` does, and only `lib/commcare/xpath/expressionAst.ts` binds it, refusing an
+    argument that names no question with the new parse issue `capture-link-not-a-question`. The
+    checker applies "whole value only" through a flag set at its entry points
+    (`typeChecker.ts::checkExpression`, `typeOf`, the root of `assignmentErrors`), since a cached
+    node cannot tell it is the slot's root; a link over a capture inside a repeat the slot is outside
+    of is `many-values` reason `repeat`, as §17 retires `PRIMARY_CASE_FIELD_IN_REPEAT` into it. The
+    wire printer's arm throws an invariant error (`fromExpression.ts::term`), and every print dry run
+    (`validator/rules/caseOperations.ts::validateExpressionSlot`) skips a whole `capture-link`, which
+    emission writes as the URL node.
+32. **`writerOffersPreload(doc, fieldUuid, property, via?)` and `fieldValueType(field, caseTypes,
+    writes)`.** §11.1's three arguments cannot say "a write of the own arm without `via`", which §24.1
+    tests, so the fourth is `via`; and a Hidden Value's bind type can no longer be read from the field
+    alone, so `fieldValueType` takes the field's write views (the first write whose property has an
+    effective type decides).
+33. **`lib/domain/referenceSlots.ts` gains two slots §4 does not name**, both forced by the
+    registry's audit of the stored shapes: `case_operation_write_via` (a relation path) and
+    `case_operation_placement_repeat` (an entity uuid); a write's slot address includes its `via`,
+    because two writes of one property, one through `via`, are two slots.
+34. **The `new-child-case` session supply is a domain approximation of §12.2's basic subcase row**
+    (`lib/domain/entryDatumSupplies.ts::newChildCaseTypes`): `lib/domain` cannot import
+    `lib/commcare/placement.ts::planPlacements`. It counts an unheld create with no `forEach`, a `new`
+    target with no `idFrom`, one `parent` link to the own case, a type some module lists other than
+    the module's own, bare reads for its values and no condition, plus a field-written extension
+    create while part 02 §14.4's interim inert subcase stands.
+35. **Placement readings §12 leaves open** (`lib/commcare/placement.ts`):
+    - on a registration the basic own slot also needs `closeCondition` stateable (reasons tagged
+      `condition: "close"`), since a close block of its own would stand before the `case` block
+      HQ appends and close a case that does not exist yet (`xform.py::XForm._create_casexml`);
+    - a registration's own close always shares the own arm's place, and a close form's own close
+      takes a block of its own only where it cannot;
+    - a `capture-link` of a capture is admitted in the usercase and subcase slots too, which keep
+      naming the `nova_url_` sibling as `main` does;
+    - a held slot its subject can never take reports `scope`; pull request 5's `holdPlacements`
+      admission refuses such a hold;
+    - a held segment equal to a container's base (`nova_operations`, `nova_subcases`,
+      `nova_selected_cases`) names the scope's one container, and only another owner's base is
+      suffixed, so a held path never renames the shared group;
+    - `nova_url_<q>` and `nova_datetime_<q>` are reserved for every question an operation writes
+      from, whatever the placement, so generated names never depend on placement;
+    - a close holding a Save to Case placement of its own never shares a create's place.
+36. **The scalar text guard reads only basic actions** (`lib/domain/caseScalarTextGuard.ts`, with
+    `placement.ts::placedBasic` passed in by `xform/builder.ts` and `engineInput.ts`): counting
+    every view as §12's basic buckets gave eight unchanged corpus documents a trimmed node and a
+    constraint they did not have.
+37. **Validator readings of §17.** `CASE_PROPERTY_BAD_FORMAT`, `CASE_PROPERTY_TOO_LONG` and
+    `MULTI_SELECT_FANOUT_CHILD_DATUM` retire with the readers they had (a field writer, a fan-out
+    datum); every write's property format and length is `CASE_OPERATION_UNKNOWN_PROPERTY`'s. A
+    write whose value is a question's answer as it is may save to a property the catalog does not
+    declare, as a field write could on `main`; a computed value still needs a declared property.
+    For such a write the field rules alone judge type agreement, so each refusal is said once, at
+    the question. `CASE_OWN_OPERATION`'s statement lives in `lib/commcare/ownCaseOperationFindings.ts`,
+    which `formLinkProjection.ts` and `previousTaskProjection.ts` read too, because importing the
+    rule file would make an import cycle; `previousTaskProjection.ts` reports
+    `CASE_CREATE_NAME_MISSING` for a registration whose own arm has no name instead of throwing in
+    emission. `MULTI_SELECT_OPERATION_ORDER` skips the own arm, whose position decides nothing (§5.3).
+38. **`planFieldCaseWrite` readings §16.3 leaves open** (`lib/doc/fieldCaseWriteMutations.ts`): a new
+    worker-record update is named by its case type made unique (`commcare_user`); a worker-record
+    update left with no writes is removed, as a create is; saving a second value where the case
+    already saves one refuses ("{case} already saves another value to {property}. Stop that save
+    first, or choose another property."), since the reducer would drop it silently; a case
+    destination on a survey refuses in `CASE_WRITE_NO_CASE_ACTION`'s words; a new create is added at
+    the end of its multiplicity scope, which the wire order requires; and no starting value is
+    offered for `owner_id`.
+39. **Preview readings of §19.** A registration whose open condition is false still names the id the
+    entry minted, as the session datum does on a device; every operation naming the own create
+    inherits the open condition as a guard; the own arm is the final consumer of its case's type in
+    the runtime type proof; and `FormEngine.ownCloseHolds` counts a close condition the synchronous
+    evaluator cannot run as holding, so Android's check refuses rather than writes.
+40. **A question's answer saved as it is to the own case of a form that updates it, or to the
+    worker's record, saves nothing while the question is not answered, in every placement.** HQ's
+    basic update guards such a row with `count(path) > 0` (`xform.py::XFormCaseBlock.add_case_updates`),
+    which keeps a hidden question from clearing the stored value, and the Save to Case row §10 writes
+    has no such guard, so the own arm would mean one thing in Case Management and another in Save to
+    Case, against §5.3. `xform/caseOps.ts` gives that row the same relevance, and Preview, which reads
+    no placement (§19), marks a non-relevant answer `absent` (`FormEngine.computeOperationAnswers`)
+    and leaves such a write out of the program (`caseDataBindingHelpers.ts::buildCaseOperationProgramFromDoc`).
+    No byte of `main` moves: `main` wrote neither the own arm nor the worker-record update in Save to
+    Case. A name, whose text guard refuses a blank, keeps its row.
 
 ## 28. Files by pull request
 

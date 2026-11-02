@@ -1,7 +1,8 @@
 /**
- * Rule: every form field with `caseWrite` set writes to a case property whose
- * declared `data_type` matches the field's `kind`.
- * Multiple writers (multiple fields targeting the same `(case_type,
+ * Rule: every form field whose answer a case operation saves (the field's
+ * "Saves to", `lib/domain/caseWriteViews.ts::formCaseWriteViews`) saves to a
+ * case property whose declared `data_type` matches the field's `kind`.
+ * Multiple writers (multiple fields saving to the same `(case_type,
  * property_name)` tuple) must agree on the kind they map to.
  *
  * App-scoped because the multi-writer disagreement check is by
@@ -21,20 +22,19 @@
  * field → `int` property) are explicitly rejected; `hidden` and the
  * capture kinds are skipped, because neither pins a value type from the
  * kind alone. A Hidden Value is a typed writer whose type is inferred from
- * its value, judged by `hiddenValueWriterAgreement.ts`; a capture's value
- * shape follows its destination mode.
+ * its value, judged by `hiddenValueWriterAgreement.ts`; a capture saves a
+ * link to its file, whatever its kind.
  *
- * Container kinds carry no case-write slot. Capture writers do reach the
- * inventory, but their storage mode, not their field kind, determines the
- * value shape, so this rule skips their kind-only comparison.
+ * A name counts as a write of `case_name`; an owner is no property a field
+ * kind types, so the owner slot is outside the rule.
  */
 
 import {
 	type BlueprintDoc,
 	type CasePropertyDataType,
 	caseDataTypeForFieldKind,
-	deriveCaseWriteInventory,
 	type FieldKind,
+	formCaseWriteViews,
 	isWritableStandardCaseProperty,
 	type Uuid,
 } from "@/lib/domain";
@@ -70,7 +70,7 @@ export function fieldKindMatchesPropertyType(
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 
-	// Consume every form's canonical inventory, collecting writers per `(case_type,
+	// Read every form's case-write views, collecting writers per `(case_type,
 	// property_name)` tuple. The fully-qualified key (`caseType::id`)
 	// disambiguates a property name shared between two case types —
 	// `(patient, name)` and `(visit, name)` are independent tuples.
@@ -80,20 +80,25 @@ export function fieldKindMatchesPropertyType(
 		const mod = doc.modules[moduleUuid];
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
-			const inventory = deriveCaseWriteInventory(doc, formUuid, mod, form.type);
-			for (const writer of inventory.writers) {
-				const key = encodeTupleKey(writer.caseType, writer.property);
-				const bucket = writersByTuple.get(key) ?? [];
-				bucket.push({
-					moduleUuid,
-					moduleName: mod.name,
-					formUuid,
-					formName: form.name,
-					fieldUuid: writer.fieldUuid,
-					fieldId: writer.fieldId,
-					kind: writer.fieldKind,
-				});
-				writersByTuple.set(key, bucket);
+			if (form === undefined) continue;
+			for (const [fieldUuid, views] of formCaseWriteViews(doc, formUuid)) {
+				const field = doc.fields[fieldUuid];
+				if (field === undefined) continue;
+				for (const view of views) {
+					if (view.slot === "owner") continue;
+					const key = encodeTupleKey(view.caseType, view.property);
+					const bucket = writersByTuple.get(key) ?? [];
+					bucket.push({
+						moduleUuid,
+						moduleName: mod.name,
+						formUuid,
+						formName: form.name,
+						fieldUuid,
+						fieldId: field.id,
+						kind: field.kind,
+					});
+					writersByTuple.set(key, bucket);
+				}
 			}
 		}
 	}

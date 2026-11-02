@@ -104,7 +104,9 @@ function contextFor(
 			},
 		],
 	});
+	// After the own case `buildDoc` gives the follow-up.
 	doc.forms[FORM].caseOperations = [
+		...(doc.forms[FORM].caseOperations ?? []),
 		{
 			uuid: OPERATION,
 			id: "update_village",

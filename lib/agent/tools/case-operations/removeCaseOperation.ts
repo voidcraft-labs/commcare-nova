@@ -13,6 +13,7 @@ import {
 import type { MutationSuccess } from "../shared/toolCallSummary";
 import {
 	dependentOperationNames,
+	OWN_CASE_OPERATION_REFUSAL,
 	operationAddressSchema,
 	operationByUuid,
 	resolveOperationAddress,
@@ -50,6 +51,8 @@ function removalRefusal(
 	plan: Extract<CaseOperationMutationPlan, { ok: false }>,
 	dependents: string,
 ): string {
+	if (plan.reason === "own-case" || plan.reason === "own-first")
+		return OWN_CASE_OPERATION_REFUSAL;
 	if (plan.reason !== "dependent-reference") {
 		return `Case operation "${operationId}" could not be removed.`;
 	}
@@ -61,7 +64,7 @@ function removalRefusal(
 
 export const removeCaseOperationTool = {
 	description:
-		"Remove an advanced record operation. Refuses while another operation depends on it.",
+		"Remove a case change. Refuses this form's own case and any change another depends on.",
 	inputSchema: removeCaseOperationInputSchema,
 	async execute(
 		input: RemoveCaseOperationInput,
@@ -89,6 +92,13 @@ export const removeCaseOperationTool = {
 					result: {
 						error: `Case operation UUID "${input.operationUuid}" not found in form "${doc.forms[address.formUuid]?.name ?? input.formUuid}".`,
 					},
+				};
+			}
+			if (operation.action === "own") {
+				return {
+					kind: "mutate",
+					mutations: [],
+					result: { error: OWN_CASE_OPERATION_REFUSAL },
 				};
 			}
 			const plan = removeCaseOperationMutation(

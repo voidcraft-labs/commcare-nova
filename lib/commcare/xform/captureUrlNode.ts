@@ -3,11 +3,13 @@
 // The node a capture field's case property actually reads, and the
 // expression that fills it.
 //
-// One home for two callers that must not disagree: the XForm builder
-// emits the node and its bind, and `formActions.ts` names the same node as
-// the case update's question path. If they drifted, the case property
-// would point at a node that does not exist and the write would silently
-// vanish.
+// One home for the callers that must not disagree: the XForm builder
+// emits the node and its bind where a basic action names it, and
+// `casePlacementPlan.ts` names the same node as that action's question
+// path. If they drifted, the case property would point at a node that does
+// not exist and the write would silently vanish. A Save to Case row has no
+// sibling: its calculate is the same address, built over the capture where
+// the row reads it (`xform/caseOps.ts`).
 //
 // The indirection is not a stylistic choice. CommCare HQ decides
 // `<attachment>` versus `<update>` by looking at the question path alone:
@@ -23,7 +25,7 @@
 import type { Uuid } from "@/lib/domain";
 import { w } from "../xpath/wire/builders";
 import type { WireExpr } from "../xpath/wire/tree";
-import type { FormPath } from "./formPath";
+import { FormPath } from "./formPath";
 import type { GeneratedNodePlan } from "./generatedNodes";
 
 /**
@@ -91,7 +93,9 @@ export function captureUrlNodePath(
 }
 
 /**
- * The expression filling that node.
+ * The address of a capture's submitted file: the calculate of the node, and
+ * of a Save to Case row that saves the link. `capture` is the capture's
+ * path, or its read where the row stands (a `current()` path in a repeat).
  *
  * Blank in, blank out. The guard is load-bearing on the HQ path: HQ
  * generates `relevant="count(<question path>) > 0"` for every case update
@@ -101,10 +105,11 @@ export function captureUrlNodePath(
  * blank that keeps the property honest about what the case now holds.
  */
 export function captureUrlCalculate(
-	capturePath: FormPath,
+	capturePath: FormPath | WireExpr,
 	target: AttachmentUrlTarget,
 ): WireExpr {
-	const capture = capturePath.toWire();
+	const capture =
+		capturePath instanceof FormPath ? capturePath.toWire() : capturePath;
 	const prefix = w.str(
 		`${target.origin}/a/${target.domain}${FORM_ATTACHMENT_API_PATH}`,
 	);

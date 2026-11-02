@@ -28,15 +28,23 @@ import {
 	resolveCaseListConfig,
 	resolveDocExpressions,
 } from "@/lib/__tests__/docHelpers";
+import { planExplicitPreloads } from "@/lib/doc/explicitPreloads";
 import { rebuildFieldParent } from "@/lib/doc/fieldParent";
+import {
+	type FieldWriteFact,
+	operationsFromFieldWrites,
+} from "@/lib/doc/fieldWriteOperations";
 import { applyMutations } from "@/lib/doc/mutations";
 import { declaredForContent } from "@/lib/doc/platformDeclaration";
 import { planRepeatCountWraps } from "@/lib/doc/repeatCountWraps";
+import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
+	CASE_LOADING_FORM_TYPES,
 	type CaseType,
 	type ConnectConfig,
 	type ConnectType,
+	caseSelectionCardinality,
 	type Field,
 	type Form,
 	fieldKindCarriesValidation,
@@ -236,7 +244,16 @@ export interface FieldBuildCtx {
 	readonly minter: IdMinter;
 	readonly fields: Record<Uuid, FieldDraft>;
 	readonly fieldOrder: Record<Uuid, Uuid[]>;
+	/** What each drawn question saves, in the shape a field held it before
+	 *  step 5; `mappedAsTheCutoverMaps` turns them into case operations. */
+	readonly caseWrites: DrawnCaseWrites;
 }
+
+/** A drawn question's save, by its uuid: the case type and the property. */
+export type DrawnCaseWrites = Map<
+	Uuid,
+	{ readonly caseType: string; readonly property: string }
+>;
 
 /**
  * Build one field (possibly a container with children) under `parentUuid`,
@@ -499,11 +516,10 @@ function injectSubcaseRepeat(
 	ctx.fields[repeatUuid] = repeatField;
 	ctx.fieldOrder[repeatUuid] = [];
 
-	// The single child field carries the new case_name source for the
-	// derived child-case bucket. `caseWrite.caseType` matches the
-	// childCaseType so deriveCaseConfig groups this field into a
-	// (childCaseType, repeatUuid) bucket — distinct from any other
-	// child-case bucket the doc carries.
+	// The single child field names the new child case: its drawn save names
+	// the childCaseType, so the cutover's mapping makes one create of
+	// (childCaseType, repeatUuid), distinct from any other child the doc
+	// creates.
 	const childFieldUuid = ctx.minter.uuid("fld");
 	ctx.fieldOrder[repeatUuid].push(childFieldUuid);
 	ctx.fields[childFieldUuid] = {
@@ -511,8 +527,11 @@ function injectSubcaseRepeat(
 		kind: "text",
 		id: "case_name",
 		label: proseText("Child name"),
-		caseWrite: { caseType: spec.childCaseType, property: "case_name" },
 	};
+	ctx.caseWrites.set(childFieldUuid, {
+		caseType: spec.childCaseType,
+		property: "case_name",
+	});
 }
 
 // ── Field generation spec (the arbitrary's intermediate shape) ─────
@@ -1060,9 +1079,9 @@ export const FORM_TYPES = [
  *
  * Drawn for ~67% of registration forms (`fc.option`'s `freq: 3` sets
  * `P(nil) = 1/3`, so `P(value) ≈ 2/3`); survey/followup/close skip
- * the injection (deriveCaseConfig only emits subcase actions on forms
- * whose type carries case-management actions, and registration is the
- * canonical "register parent + N children" surface).
+ * the injection (only a form whose type carries case-management actions
+ * has subcase actions, and registration is the canonical "register parent +
+ * N children" surface).
  */
 type SubcaseShapeSpec = {
 	mode: "user_controlled" | "count_bound" | "query_bound";
@@ -1250,6 +1269,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	// matches. The subcase injection at the form level is what brings
 	// them into the doc, not the module declaration.
 	const injectedChildCaseTypes = new Map<string, string>();
+	const caseWrites: DrawnCaseWrites = new Map();
 
 	spec.modules.forEach((modSpec, mIdx) => {
 		const moduleUuid = minter.uuid("mod");
@@ -1311,7 +1331,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 				...(formAudio ? { audioLabel: formAudio } : {}),
 			};
 
-			const ctx: FieldBuildCtx = { minter, fields, fieldOrder };
+			const ctx: FieldBuildCtx = { minter, fields, fieldOrder, caseWrites };
 
 			// Each case-create bucket needs exactly one case_name writer. Inject
 			// it (plus a saved property, for realistic case data) first so every
@@ -1324,8 +1344,11 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					kind: "text",
 					id: "case_name",
 					label: proseText("Case name"),
-					caseWrite: { caseType: modSpec.caseType, property: "case_name" },
 				};
+				caseWrites.set(caseNameUuid, {
+					caseType: modSpec.caseType,
+					property: "case_name",
+				});
 
 				const propUuid = minter.uuid("fld");
 				fieldOrder[formUuid].push(propUuid);
@@ -1336,8 +1359,11 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					// collides with a pool-assigned random root sibling.
 					id: "saved_prop",
 					label: proseText("A saved property"),
-					caseWrite: { caseType: modSpec.caseType, property: "saved_prop" },
 				};
+				caseWrites.set(propUuid, {
+					caseType: modSpec.caseType,
+					property: "saved_prop",
+				});
 			}
 
 			// Random root fields draw ids from the sibling pool. Cousins under
@@ -1345,8 +1371,8 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 			// index, producing the same-id cousin pairs the emitter's path +
 			// itext arithmetic must disambiguate.
 			//
-			// NOTE — case-block injection coverage. Random fields deliberately have
-			// no `caseWrite`: the generator includes capture and structural kinds,
+			// NOTE — case-block injection coverage. Random fields deliberately save
+			// nothing: the generator includes capture and structural kinds,
 			// and assigning arbitrary case destinations would create inadmissible
 			// or duplicate writers unrelated to the path/identity fuzz coverage.
 			// The always-injected `case_name` + `saved_prop` already drive
@@ -1443,6 +1469,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 				fieldParent: {},
 				...(logo ? { logo } : {}),
 			}),
+			caseWrites,
 		),
 	);
 }
@@ -1451,22 +1478,90 @@ const UNFROZEN = new Immer({ autoFreeze: false });
 
 /**
  * A drawn document with each step 5 shape mapped as the cutover maps a
- * stored app, through the planner the cutover calls, so a draw the gate now
+ * stored app, through the planners the cutover calls, so a draw the gate now
  * refuses is admitted without drawing again (`proof/CLAUDE.md`, "An existing
- * fuzz sample keeps its draws"). Today that is one mapping: a count the
- * checker refuses as not a whole number is wrapped in `int(...)`
- * (`planRepeatCountWraps`). A document holding none of the shapes is returned
- * as it came. Every generator calls it before `declaredForContent`. It is a
- * pure function of the drawn document, called inside the arbitrary's `.map`,
- * so it makes no random call; the proof lane's frozen comparison of the
- * sample is what notices a changed draw.
+ * fuzz sample keeps its draws"), in order:
+ *
+ * 1. a count the checker refuses as not a whole number is wrapped in
+ *    `int(...)` (`planRepeatCountWraps`);
+ * 2. what each drawn question saves (`caseWrites`, the facts a draw states in
+ *    the shape a field held them before step 5) becomes its form's case
+ *    operations: the form's own case first, a create per child case and
+ *    repeat, the update of the worker's record
+ *    (`lib/doc/fieldWriteOperations.ts::operationsFromFieldWrites`), whose
+ *    identities are derived from the document, never drawn;
+ * 3. each question of a follow-up or close form of a one-case menu that
+ *    saves to the form's own case opens with that case's value, as the form
+ *    loaded it before (`lib/doc/explicitPreloads.ts::planExplicitPreloads`).
+ *
+ * A document holding none of the shapes is returned as it came. Every
+ * generator calls it before `declaredForContent`. It is a pure function of
+ * the drawn document and its drawn saves, called inside the arbitrary's
+ * `.map`, so it makes no random call; the proof lane's frozen comparison of
+ * the sample is what notices a changed draw.
  */
-export function mappedAsTheCutoverMaps(doc: BlueprintDoc): BlueprintDoc {
-	const wraps = planRepeatCountWraps(doc);
-	if (wraps.length === 0) return doc;
-	return UNFROZEN.produce(doc, (draft) => {
-		applyMutations(draft, wraps);
-	});
+export function mappedAsTheCutoverMaps(
+	doc: BlueprintDoc,
+	caseWrites: ReadonlyMap<
+		Uuid,
+		{ readonly caseType: string; readonly property: string }
+	> = new Map(),
+): BlueprintDoc {
+	let mapped = doc;
+	const apply = (mutations: readonly Mutation[]) => {
+		if (mutations.length === 0) return;
+		mapped = UNFROZEN.produce(mapped, (draft) => {
+			applyMutations(draft, [...mutations]);
+		});
+	};
+	apply(planRepeatCountWraps(mapped));
+	if (caseWrites.size === 0) return mapped;
+	for (const moduleUuid of doc.moduleOrder) {
+		const module = doc.modules[moduleUuid];
+		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+			const facts: FieldWriteFact[] = dataTreeOrder(mapped, formUuid).flatMap(
+				(fieldUuid) => {
+					const write = caseWrites.get(fieldUuid);
+					return write === undefined
+						? []
+						: [{ fieldUuid, ...write, capture: false }];
+				},
+			);
+			if (facts.length === 0) continue;
+			apply(operationsFromFieldWrites(mapped, formUuid, facts));
+			const form = mapped.forms[formUuid];
+			if (
+				form === undefined ||
+				module?.caseType === undefined ||
+				!CASE_LOADING_FORM_TYPES.has(form.type) ||
+				caseSelectionCardinality(module) !== "single"
+			)
+				continue;
+			apply(
+				planExplicitPreloads(
+					mapped,
+					formUuid,
+					facts
+						.filter((fact) => fact.caseType === module.caseType)
+						.map((fact) => fact.fieldUuid),
+				),
+			);
+		}
+	}
+	return mapped;
+}
+
+/** Every field of `formUuid` in data-tree order: each before its children. */
+function dataTreeOrder(doc: BlueprintDoc, formUuid: Uuid): Uuid[] {
+	const order: Uuid[] = [];
+	const walk = (parentUuid: Uuid) => {
+		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
+			order.push(uuid);
+			walk(uuid);
+		}
+	};
+	walk(formUuid);
+	return order;
 }
 
 /**

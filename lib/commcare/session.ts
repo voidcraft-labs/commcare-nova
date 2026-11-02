@@ -45,7 +45,6 @@ import type { ModuleExpressionContexts } from "./expressionContext";
 import type { MatchedChild, ProjectedFormLinks } from "./formLinkProjection";
 import { validateCaseType } from "./identifierValidation";
 import type { LookupWireNaming } from "./lookup/naming";
-import { subcaseSessionDatumId } from "./subcaseWire";
 import {
 	emitExcludedOwnerNodesetFilter,
 	emitNodesetFilter,
@@ -561,11 +560,12 @@ export function newCaseIdDatumId(caseType: string): string {
  *      get their id minted per-iteration via a calculate bind rather
  *      than a session datum — handled by the XForm emitter).
  *
- * Index rule for subcases mirrors CCHQ's
+ * The ids of 2 and 3 are the form's wire plan's (`casePlacementPlan.ts`),
+ * which mirrors CCHQ's
  * `commcare-hq/corehq/apps/app_manager/models.py::Form.session_var_for_action`:
- * the index is the subcase's position in `actions.subcases`, plus 1
- * when the form also has an active `open_case` (so the primary
- * case-create is always `_0`).
+ * a subcase's index is its position in `actions.subcases`, plus 1 when the
+ * form also has an active `open_case` (so the primary case-create is
+ * always `_0`).
  *
  * Filter precedence (case-type / status first, user filter last) matches
  * CCHQ's canonical builder at
@@ -584,12 +584,19 @@ export interface SessionDatumsInput {
 	 */
 	readonly caseListFilter?: Expression;
 	/**
-	 * The form's `FormActions`, post-expansion. `open_case.condition` and
-	 * `subcases` decide which case-create datums are emitted. Omitted, only
-	 * the case-loading datum is emitted — the shape a caller carrying no
-	 * expanded actions gets.
+	 * The form's `FormActions`, post-expansion: an active `usercase_update`
+	 * adds the worker's record datum.
 	 */
 	readonly actions?: FormActions;
+	/**
+	 * The new cases HQ gives a session datum, in entry order
+	 * (`casePlacementPlan.ts::planFormCaseWire`'s `datums`). Omitted, no
+	 * case-create datum is emitted.
+	 */
+	readonly newCases?: readonly {
+		readonly id: string;
+		readonly caseType: string;
+	}[];
 	/**
 	 * The module's owner-availability expression. It narrows every
 	 * case-loading nodeset whether or not the module has an effective remote
@@ -612,6 +619,7 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		caseType,
 		caseListFilter,
 		actions,
+		newCases,
 		excludedOwnerIds,
 		expressions,
 		lookupNaming,
@@ -665,41 +673,17 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		});
 	};
 
-	if (actions) {
-		// (2) Case-create datum for an active `open_case` action. CCHQ
-		// emits this whenever `'open_case' in form.active_actions()`, which
-		// in Nova's FormActions shape is condition.type in {always, if}.
-		const opensCase =
-			actions.open_case.condition.type === "always" ||
-			actions.open_case.condition.type === "if";
-		if (opensCase && caseType) {
-			datums.push({
-				id: newCaseIdDatumId(caseType),
-				function: w.call("uuid"),
-				caseType,
-			});
-		}
-
-		// (3) HQ's get_new_case_id_datums_meta includes every non-repeat
-		// subcase, even condition=never. Extension actions use that metadata
-		// while their active transactions live in the source XForm. Filtering
-		// inactive actions here would strand source ID seeds and form links.
-		//
-		// HQ also emits this scalar `uuid()` datum on a multi-select form even
-		// though Nova's authored XForm creates one child per selected parent with
-		// its own `uuid()` calculate. It therefore remains an inert parity datum:
-		// no case block consumes it, and the absolute multi-select validator
-		// refuses a direct form link that would mistake it for one created child.
-		for (let i = 0; i < actions.subcases.length; i++) {
-			const sc = actions.subcases[i];
-			if (sc.repeat_context) continue;
-			datums.push({
-				id: subcaseSessionDatumId(sc, i, opensCase),
-				function: w.call("uuid"),
-				caseType: sc.case_type,
-			});
-		}
-	}
+	// (2) and (3): the new cases HQ gives a datum, in its order
+	// (`EntriesHelper.get_new_case_id_datums_meta`): the own case where
+	// `open_case` is active, then every basic subcase outside a repeat,
+	// `condition: never` included, which is how an extension child's source
+	// block keeps the id HQ's datum gives it (`casePlacementPlan.ts`).
+	for (const created of newCases ?? [])
+		datums.push({
+			id: created.id,
+			function: w.call("uuid"),
+			caseType: created.caseType,
+		});
 
 	// (4) The grouped-tile companion datum. CCHQ emits it from
 	// `commcare-hq/.../suite_xml/sections/entries.py::EntriesHelper.get_extra_case_id_datums`,

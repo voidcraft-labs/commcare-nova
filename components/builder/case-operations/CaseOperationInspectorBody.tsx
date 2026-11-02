@@ -13,6 +13,12 @@
 // action whose facets would drop authored content: the choice is
 // disabled with its reason or asks first, never dispatched into a
 // rejection.
+//
+// The form's own case offers none of these choices. Its case type is its
+// menu's, the case it acts on follows the form's type, and it comes and
+// goes only with the form's type, so its rail states those facts and
+// offers no action menu and no remove. Its writes are edited on the
+// canvas like any change's.
 
 "use client";
 
@@ -50,9 +56,11 @@ import {
 import type { Uuid } from "@/lib/doc/types";
 import {
 	type CaseOperation,
-	type CaseOperationAction,
 	type CaseTarget,
+	humanizeId,
+	type OwnCaseOperation,
 	RESERVED_CASE_OPERATION_TYPES,
+	type TargetedCaseOperation,
 } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -64,28 +72,31 @@ import {
 	operationReadsOutsideRepeat,
 	repeatFieldDecls,
 } from "./formFieldScope";
-import { caseTypePhrase } from "./operationSentence";
+import { caseTypePhrase, operationSentence } from "./operationSentence";
 import { dependencyLine } from "./refusalCopy";
 import {
 	actionChangeLosses,
 	reshapeForAction,
 	takenOperationIds,
 } from "./seeds";
+import { useOperationSentenceContext } from "./useOperationSentenceContext";
 
-const ACTION_LABEL: Record<CaseOperationAction, string> = {
+type TargetedAction = TargetedCaseOperation["action"];
+
+const ACTION_LABEL: Record<TargetedAction, string> = {
 	create: "Create a case",
 	update: "Update a case",
 	close: "Close a case",
 };
 
-const ACTION_DETAIL: Record<CaseOperationAction, string> = {
+const ACTION_DETAIL: Record<TargetedAction, string> = {
 	create: "Brings a new case into existence",
 	update: "Saves values onto a case that already exists",
 	close: "Finishes a case; it can still save final values",
 };
 
 type ActionChoice =
-	| { readonly next: CaseOperation }
+	| { readonly next: TargetedCaseOperation }
 	| { readonly reason: string };
 
 export function CaseOperationInspectorBody({
@@ -102,7 +113,9 @@ export function CaseOperationInspectorBody({
 	 * is memoized, so depending on the whole object is no longer free-for-all
 	 * recomputation, but it still turns over whenever any of its fifteen
 	 * members does, and a verdict memo has no reason to care about the rest. */
-	const { editVerdict } = view;
+	const { editVerdict, caseTypeOf } = view;
+	const registers =
+		useOperationSentenceContext(formUuid).formType === "registration";
 	const navigate = useNavigate();
 	const canEdit = useCanEdit();
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
@@ -116,7 +129,9 @@ export function CaseOperationInspectorBody({
 	const index = operations.findIndex(
 		(candidate) => candidate.uuid === operationUuid,
 	);
-	const operation = index < 0 ? undefined : operations[index];
+	const found = index < 0 ? undefined : operations[index];
+	const own = found?.action === "own" ? found : undefined;
+	const operation = found?.action === "own" ? undefined : found;
 
 	const sessionUnavailableReason = sessionCaseAvailable
 		? undefined
@@ -130,8 +145,14 @@ export function CaseOperationInspectorBody({
 		[operations, index],
 	);
 	const priorCreates = useMemo(() => {
+		// A registration's own case is the case the form creates, which a
+		// later change names as it names any earlier create's.
 		return precedingOperations
-			.filter((candidate) => candidate.action === "create")
+			.filter(
+				(candidate) =>
+					candidate.action === "create" ||
+					(candidate.action === "own" && registers),
+			)
 			.map((candidate) => ({
 				uuid: candidate.uuid,
 				label: candidate.id,
@@ -140,9 +161,11 @@ export function CaseOperationInspectorBody({
 						precedingOperations,
 						{ kind: "op", opUuid: candidate.uuid },
 						initialSessionCaseType,
-					) ?? candidate.caseType,
+					) ??
+					caseTypeOf(candidate) ??
+					"",
 			}));
-	}, [initialSessionCaseType, precedingOperations]);
+	}, [initialSessionCaseType, precedingOperations, registers, caseTypeOf]);
 
 	const rollingSessionCaseType = useMemo(() => {
 		if (initialSessionCaseType === undefined) return undefined;
@@ -241,7 +264,7 @@ export function CaseOperationInspectorBody({
 					} satisfies ActionChoice,
 				] as const;
 			}),
-		) as Record<CaseOperationAction, ActionChoice>;
+		) as Record<TargetedAction, ActionChoice>;
 	}, [
 		operation,
 		editVerdict,
@@ -268,6 +291,15 @@ export function CaseOperationInspectorBody({
 		[operation, editVerdict],
 	);
 
+	if (own !== undefined) {
+		return (
+			<OwnCaseRail
+				own={own}
+				formUuid={formUuid}
+				caseType={view.caseTypeOf(own)}
+			/>
+		);
+	}
 	if (operation === undefined || actionChoices === undefined) return null;
 
 	const operationCanEdit = canEdit;
@@ -390,8 +422,8 @@ export function CaseOperationInspectorBody({
 										...operation,
 										target:
 											idFrom === undefined
-												? { kind: "new" }
-												: { kind: "new", idFrom },
+												? ({ kind: "new" } as const)
+												: ({ kind: "new", idFrom } as const),
 									})
 								}
 								onChange={(idFrom) =>
@@ -399,8 +431,8 @@ export function CaseOperationInspectorBody({
 										...operation,
 										target:
 											idFrom === undefined
-												? { kind: "new" }
-												: { kind: "new", idFrom },
+												? ({ kind: "new" } as const)
+												: ({ kind: "new", idFrom } as const),
 									})
 								}
 							/>
@@ -467,6 +499,44 @@ export function CaseOperationInspectorBody({
 					/>
 				)}
 			</fieldset>
+		</div>
+	);
+}
+
+/**
+ * The form's own case in the rail: what it is, stated, with nothing to
+ * choose. Its writes are on the canvas beside it.
+ */
+function OwnCaseRail({
+	own,
+	formUuid,
+	caseType,
+}: {
+	readonly own: OwnCaseOperation;
+	readonly formUuid: Uuid;
+	readonly caseType: string | undefined;
+}) {
+	const context = useOperationSentenceContext(formUuid);
+	return (
+		<div className="space-y-5" data-case-operation-inspector={own.uuid}>
+			<Row
+				title="What it does"
+				description="This form's own case is always the first change, and it comes and goes only with the form's type."
+			>
+				<p className="text-[14px] text-nova-text">
+					{operationSentence(own, context).lead}
+				</p>
+			</Row>
+			<Row
+				title="Kind of case"
+				description="The case type of this form's menu."
+			>
+				<p className="text-[14px] text-nova-text">
+					{caseType === undefined
+						? "This form's menu has no case type yet"
+						: humanizeId(caseType)}
+				</p>
+			</Row>
 		</div>
 	);
 }
@@ -552,13 +622,13 @@ function ActionMenu({
 	choices,
 	onChange,
 }: {
-	readonly operation: CaseOperation;
+	readonly operation: TargetedCaseOperation;
 	readonly canEdit: boolean;
-	readonly choices: Readonly<Record<CaseOperationAction, ActionChoice>>;
+	readonly choices: Readonly<Record<TargetedAction, ActionChoice>>;
 	readonly onChange: (operation: CaseOperation) => void;
 }) {
 	const triggerRef = useRef<HTMLButtonElement>(null);
-	const [pending, setPending] = useState<CaseOperationAction | null>(null);
+	const [pending, setPending] = useState<TargetedAction | null>(null);
 	const { triggerRef: confirmTriggerRef, panelRef } = useInlineConfirmFocus(
 		pending !== null,
 	);
@@ -817,7 +887,7 @@ function MultiplicityMenu({
 	wouldStrandReads,
 	onChange,
 }: {
-	readonly operation: CaseOperation;
+	readonly operation: TargetedCaseOperation;
 	readonly repeats: ReturnType<typeof repeatFieldDecls>;
 	readonly canEdit: boolean;
 	readonly choiceVerdict: (

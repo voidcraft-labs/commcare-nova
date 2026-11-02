@@ -17,7 +17,7 @@ import { runValidation } from "@/lib/commcare/validator/runner";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { blueprintDocSchema, type Form, proseText } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/expression";
+import { eq, formField, literal, term } from "@/lib/domain/expression";
 import { TEST_RUNTIME_TARGET } from "./runtimeTargetFixture";
 import { xpathEvidence } from "./xpathEvidence";
 
@@ -117,10 +117,11 @@ function fixture(
 				: []),
 		],
 	});
-	if (operation)
-		(doc.forms[doc.formOrder[doc.moduleOrder[0]][0]] as Form).caseOperations = [
-			operation,
-		];
+	if (operation) {
+		// After the own case `buildDoc` gives the form.
+		const form = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]] as Form;
+		form.caseOperations = [...(form.caseOperations ?? []), operation];
+	}
 	return doc;
 }
 function artifacts(doc: ReturnType<typeof buildDoc>, published = true) {
@@ -367,7 +368,7 @@ for (const published of [true, false]) {
 		}
 	});
 }
-it("allocates each child inside the selected-parent iteration without consuming the scalar HQ datum", () => {
+it("creates one child under each selected case, inside the selected-case iteration", () => {
 	const output = artifacts(
 		fixture(
 			"followup",
@@ -382,6 +383,11 @@ it("allocates each child inside the selected-parent iteration without consuming 
 			"visit",
 		),
 	);
+	// The child a field writes keeps `main`'s bytes until advanced modules
+	// (part 01 departure 27): HQ's subcase stays in `subcases`, so its entry
+	// still allocates the datum, which the form never reads; HQ's build
+	// writes no subcase in a several-case form, and the create is minted per
+	// selected case in the source.
 	const datum = one(
 		child(output.entry, "session")
 			.children.filter(isTag)
@@ -397,24 +403,25 @@ it("allocates each child inside the selected-parent iteration without consuming 
 		expect(form.operations.children.filter(isTag).map((e) => e.name)).toEqual([
 			"nova_subcase_0",
 		]);
+		const block = `${scope}/nova_subcase_0/case`;
 		const transaction = child(child(form.operations, "nova_subcase_0"), "case");
 		expect(child(child(transaction, "index"), "parent").attribs).toEqual({
 			case_type: "patient",
 			relationship: "child",
 		});
-		expect(form.bind(`${scope}/nova_subcase_0/case/@case_id`)).toEqual({
-			nodeset: `${scope}/nova_subcase_0/case/@case_id`,
+		expect(form.bind(`${block}/@case_id`)).toEqual({
+			nodeset: `${block}/@case_id`,
 			calculate: "uuid()",
 		});
-		expect(form.bind(`${scope}/nova_subcase_0/case/index/parent`)).toEqual({
-			nodeset: `${scope}/nova_subcase_0/case/index/parent`,
+		expect(form.bind(`${block}/index/parent`)).toEqual({
+			nodeset: `${block}/index/parent`,
 			calculate: "current()/../../../../../@id",
 		});
 		expect(
 			findAll(
 				(e) =>
 					Object.values(e.attribs).some((value) =>
-						value.includes("session/data/case_id_new_visit_0"),
+						value.includes("session/data/case_id_new_visit"),
 					),
 				form.model.children,
 			),
@@ -462,10 +469,10 @@ it("closes every selected case on a condition the Case Management tab cannot sta
 	const doc = fixture("close", [f({ kind: "text", id: "outcome" })]);
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 	const outcome = doc.fieldOrder[formUuid][0];
-	(doc.forms[formUuid] as Form).closeCondition = {
-		field: outcome,
-		answer: "it's done",
-	};
+	(doc.forms[formUuid] as Form).closeCondition = eq(
+		formField(outcome),
+		literal("it's done"),
+	);
 	const output = artifacts(doc);
 	expect(output.hq.modules[0].forms[0].actions.close_case.condition.type).toBe(
 		"never",

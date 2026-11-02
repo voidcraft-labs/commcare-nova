@@ -16,10 +16,10 @@
 //
 //   - `u:<uuid>` — an entity reference by stable uuid. An expression
 //     slot's form-local leaf (`#form/grp/age`, `/data/age` at the
-//     commit that parsed it) carries the target uuid directly;
-//     form-link targets and close conditions store uuids outright;
-//     prose reference atoms carry the uuid directly. Renames never
-//     re-key these edges — the uuid is stable.
+//     commit that parsed it) and a `capture-link` carry the target uuid
+//     directly; form-link targets store uuids outright; prose reference
+//     atoms carry the uuid directly. Renames never re-key these edges —
+//     the uuid is stable.
 //   - `l:<uuid>` — an app-scoped location-row reference. Location UUIDs are
 //     intentionally outside the Blueprint entity namespace even when the raw
 //     UUID text happens to match an authored entity.
@@ -30,8 +30,8 @@
 //     walk's DESTINATION type, mirroring the rename rewriter's matching rule),
 //     and module config's contextual property slots all land here. A property
 //     rename re-keys exactly these edges.
-//   - `t:<caseType>` — a reference that NAMES a case type: a field's
-//     `caseWrite.caseType`, a module's own `caseType` (slot id
+//   - `t:<caseType>` — a reference that NAMES a case type: a case
+//     operation's stored `caseType`, a module's own `caseType` (slot id
 //     `case_type` — consumers that treat ownership separately filter on the
 //     slot), a typed `case-ref` atom's namespace, a predicate-AST term's origin
 //     type, and relation-walk type hints. Contextual module property slots do
@@ -48,6 +48,7 @@
 // Everything is plain JSON records (no Map/Set): the index is part of
 // the doc store's state, and the undo history records the batch that produced it.
 
+import { ownRecordValue } from "./records";
 import type { Uuid } from "./uuid";
 
 /**
@@ -58,13 +59,10 @@ import type { Uuid } from "./uuid";
 export interface ReferenceCarrierEntry {
 	/** targetKey → slot ids on this carrier referencing it. */
 	edges: Record<string, Record<string, true>>;
-	/** Fields only: the `<caseType>/<property>` pair this field
-	 *  declares via its explicit `caseWrite` destination, mirrored into `decl`. */
-	decl?: string;
-	/** Form case operations may write several `(caseType, property)`
-	 *  pairs. Each pair is mirrored into `decl`, with the form as the
-	 *  declaration carrier, so operation-authored properties participate
-	 *  in the same peer and unwritten-property queries as field writers. */
+	/** Forms only: every `(caseType, property)` pair the form's case
+	 *  operations write, mirrored into `decl` with the form as the
+	 *  declaration carrier. A write through `via` declares on the case
+	 *  type `via` reaches, and the own case's writes on the module's. */
 	decls?: string[];
 	/** Set when extraction consumed the owning module's `caseType` context —
 	 *  the module uuid whose `ctx` bucket lists it. Carriers in that bucket
@@ -85,9 +83,8 @@ export interface ReferenceIndex {
 	/** carrier uuid → its mirror entry (reverse map for un-indexing +
 	 *  the "edges of owner" lookup). */
 	out: Record<string, ReferenceCarrierEntry>;
-	/** `<caseType>/<property>` → declaring carrier uuids (field writers
-	 *  and forms with case-operation writers). The case-property peer
-	 *  lookup. */
+	/** `<caseType>/<property>` → declaring carrier uuids (forms whose
+	 *  case operations write the pair). The case-property peer lookup. */
 	decl: Record<string, Record<string, true>>;
 	/** module uuid → carriers whose extraction read the module's
 	 *  case-type context. */
@@ -136,4 +133,23 @@ export function casePropertyDeclKey(
 	property: string,
 ): string {
 	return `${caseType}/${property}`;
+}
+
+/**
+ * The carriers holding an edge to `targetKey`, each with the slot ids its
+ * edges live on, read from an index the document already carries; undefined
+ * when it carries none. `lib/doc/referenceIndex.ts::referencingSlotsOf`
+ * builds a missing index first, which `lib/domain` cannot: a domain reader
+ * that gets undefined reads the document itself.
+ */
+export function indexedReferencingSlots(
+	index: ReferenceIndex | undefined,
+	targetKey: string,
+): ReadonlyMap<string, readonly string[]> | undefined {
+	if (index === undefined) return undefined;
+	const byCarrier = ownRecordValue(index.in, targetKey);
+	const result = new Map<string, readonly string[]>();
+	for (const [carrier, slots] of Object.entries(byCarrier ?? {}))
+		result.set(carrier, Object.keys(slots));
+	return result;
 }

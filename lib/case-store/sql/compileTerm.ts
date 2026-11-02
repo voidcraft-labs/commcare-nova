@@ -357,6 +357,15 @@ export function compileTerm(
 						"The profiles with a Postgres target (case-list filter, calculated columns, sort keys, Search predicates, operations, excluded owners) keep this read out; it is evaluated only on a device or in Preview's form runtime.",
 				}),
 			);
+		case "capture-link":
+			throw new Error(
+				compilerBugMessage({
+					where: "compileTerm",
+					invariant: "a `capture-link` term reached a server record query",
+					detail:
+						"The checker admits `capture-link` only as the whole value a case change saves, and Preview leaves that save unwritten, so the operation program never carries it.",
+				}),
+			);
 		case "prop":
 			return compilePropertyRef(term, ctx);
 		case "literal":

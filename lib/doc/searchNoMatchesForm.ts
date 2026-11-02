@@ -16,13 +16,13 @@
 // `#search/<name>` and saved to the prompt's property where the prompt has
 // one.
 
+import { produce } from "immer";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
 	type BlueprintDoc,
 	type Field,
 	type FormEntry,
-	fieldCaseWrite,
 	humanizeId,
 	menuFormUuidsOf,
 	moduleOpensOnSearch,
@@ -35,8 +35,10 @@ import { input, term } from "@/lib/domain/expression/builders";
 import type { Expression } from "@/lib/domain/expression/types";
 import { suffixUntilFree } from "@/lib/domain/idSlug";
 import { FORBIDDEN_CASE_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
+import { planFieldCaseWrite } from "./fieldCaseWriteMutations";
+import { applyMutations } from "./mutations";
 import { walkFormFieldUuids } from "./mutations/helpers";
-import { declareCaseTypeForField, formScaffoldMutations } from "./scaffolds";
+import { formScaffoldMutations } from "./scaffolds";
 import {
 	type SearchAnswerFieldDependent,
 	searchAnswerFieldDependents,
@@ -290,18 +292,17 @@ export function noMatchesRegistrationFormMutations(
 		new Set(["case_name"]),
 		new Set(["case_name"]),
 	);
-	for (const field of carried) {
-		mutations.push(...declareCaseTypeForField(doc, field));
-		mutations.push({ kind: "addField", parentUuid: scaffold.formUuid, field });
-	}
+	mutations.push(
+		...searchAnswerFieldMutations(doc, scaffold.formUuid, carried, mutations),
+	);
 	mutations.push(...searchFirstOnMutations(doc, moduleUuid));
 	return { mutations, formUuid: scaffold.formUuid, formName };
 }
 
 /**
  * Append a field per Search prompt of `moduleUuid` that `formUuid` does not
- * carry yet: a prompt whose property one of the form's fields already
- * writes is carried by that field. Empty when every prompt is covered.
+ * carry yet: a prompt whose property the form's own case already saves is
+ * carried by that write. Empty when every prompt is covered.
  */
 export function carrySearchAnswersMutations(
 	doc: BlueprintDoc,
@@ -309,23 +310,68 @@ export function carrySearchAnswersMutations(
 	formUuid: Uuid,
 ): Mutation[] {
 	const occupiedIds = new Set<string>();
-	const occupiedProperties = new Set<string>();
 	for (const fieldUuid of walkFormFieldUuids(doc, formUuid)) {
 		const field = doc.fields[fieldUuid];
-		if (field === undefined) continue;
-		occupiedIds.add(field.id);
-		const write = fieldCaseWrite(field);
-		if (write !== undefined) occupiedProperties.add(write.property);
+		if (field !== undefined) occupiedIds.add(field.id);
 	}
-	return searchAnswerFields(
+	const occupiedProperties = new Set<string>();
+	const own = doc.forms[formUuid]?.caseOperations?.find(
+		(operation) => operation.action === "own",
+	);
+	if (own?.name !== undefined) occupiedProperties.add("case_name");
+	for (const write of own?.writes ?? []) {
+		if (write.via === undefined) occupiedProperties.add(write.property);
+	}
+	return searchAnswerFieldMutations(
 		doc,
-		moduleUuid,
-		occupiedIds,
-		occupiedProperties,
-	).flatMap((field) => [
-		...declareCaseTypeForField(doc, field),
-		{ kind: "addField" as const, parentUuid: formUuid, field },
-	]);
+		formUuid,
+		searchAnswerFields(doc, moduleUuid, occupiedIds, occupiedProperties),
+		[],
+	);
+}
+
+/**
+ * One carried answer: the field seeded from its prompt, and the property of
+ * the form's own case it saves to, when it saves to one.
+ */
+export interface SearchAnswerField {
+	readonly field: Field;
+	readonly savesTo?: { readonly caseType: string; readonly property: string };
+}
+
+/**
+ * The batch that adds each carried answer to `formUuid` and saves it where
+ * it saves, after the `prior` mutations of the same batch. Each write is
+ * planned by the one "Saves to" planner (`planFieldCaseWrite`) over the
+ * document with every earlier mutation applied, so the batch is the one
+ * every editor would build. A write the planner refuses is left out and the
+ * field still carries the answer, saving it nowhere.
+ */
+function searchAnswerFieldMutations(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	answers: readonly SearchAnswerField[],
+	prior: readonly Mutation[],
+): Mutation[] {
+	const mutations: Mutation[] = answers.map(({ field }) => ({
+		kind: "addField",
+		parentUuid: formUuid,
+		field,
+	}));
+	if (answers.every((answer) => answer.savesTo === undefined)) return mutations;
+	let candidate = produce(doc, (draft) => {
+		applyMutations(draft, [...prior, ...mutations]);
+	});
+	for (const { field, savesTo } of answers) {
+		if (savesTo === undefined) continue;
+		const plan = planFieldCaseWrite(candidate, field.uuid, savesTo);
+		if (!plan.ok) continue;
+		mutations.push(...plan.mutations);
+		candidate = produce(candidate, (draft) => {
+			applyMutations(draft, plan.mutations);
+		});
+	}
+	return mutations;
 }
 
 /** Whether a hidden prompt's name can be the case property its value is
@@ -358,11 +404,11 @@ export function searchAnswerFields(
 	moduleUuid: Uuid,
 	occupiedIds: Set<string>,
 	occupiedProperties: Set<string> = new Set(),
-): Field[] {
+): SearchAnswerField[] {
 	const mod = doc.modules[moduleUuid];
 	const caseType = mod?.caseType;
 	const inputs = mod?.caseListConfig?.searchInputs ?? [];
-	const fields: Field[] = [];
+	const fields: SearchAnswerField[] = [];
 	for (const input of inputs) {
 		const property =
 			input.kind === "hidden"
@@ -383,66 +429,53 @@ export function searchAnswerFields(
 			input.label.trim().length > 0 ? input.label : input.name,
 		);
 		const default_value = searchAnswerExpression(input);
-		const caseWrite =
+		const savesTo =
 			property !== undefined && caseType !== undefined
-				? { caseWrite: { caseType, property } }
-				: {};
-		if (input.kind === "hidden") {
-			fields.push({
-				kind: "hidden",
-				uuid,
-				id,
-				default_value,
-				...caseWrite,
-			});
-			continue;
-		}
-		switch (input.type) {
-			case "date":
-				fields.push({
-					kind: "date",
-					uuid,
-					id,
-					label,
-					default_value,
-					...caseWrite,
-				});
-				break;
-			case "select":
-				fields.push({
-					kind: "single_select",
-					uuid,
-					id,
-					label,
-					optionsSource: input.options,
-					default_value,
-					...caseWrite,
-				});
-				break;
-			case "multi-select":
-				fields.push({
-					kind: "multi_select",
-					uuid,
-					id,
-					label,
-					optionsSource: input.options,
-					default_value,
-					...caseWrite,
-				});
-				break;
-			case "text":
-			case "barcode":
-			case "date-range":
-				fields.push({
-					kind: "text",
-					uuid,
-					id,
-					label,
-					default_value,
-					...caseWrite,
-				});
-				break;
-		}
+				? { caseType, property }
+				: undefined;
+		const field = searchAnswerField(input, { uuid, id, label, default_value });
+		fields.push(savesTo === undefined ? { field } : { field, savesTo });
 	}
 	return fields;
+}
+
+/** The field one prompt's answer is carried in, by the prompt's kind. */
+function searchAnswerField(
+	input: SearchInputDef,
+	base: {
+		readonly uuid: Uuid;
+		readonly id: string;
+		readonly label: ReturnType<typeof proseText>;
+		readonly default_value: Expression;
+	},
+): Field {
+	const { uuid, id, label, default_value } = base;
+	if (input.kind === "hidden")
+		return { kind: "hidden", uuid, id, default_value };
+	switch (input.type) {
+		case "date":
+			return { kind: "date", uuid, id, label, default_value };
+		case "select":
+			return {
+				kind: "single_select",
+				uuid,
+				id,
+				label,
+				optionsSource: input.options,
+				default_value,
+			};
+		case "multi-select":
+			return {
+				kind: "multi_select",
+				uuid,
+				id,
+				label,
+				optionsSource: input.options,
+				default_value,
+			};
+		case "text":
+		case "barcode":
+		case "date-range":
+			return { kind: "text", uuid, id, label, default_value };
+	}
 }

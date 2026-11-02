@@ -116,7 +116,11 @@ function collisionDoc(): { doc: BlueprintDoc; formUuid: Uuid } {
 			rename: term(formField(key.uuid)),
 		},
 	];
-	doc.forms[formUuid].caseOperations = operations;
+	// After the own case, which saves the photo's link and the time seen.
+	doc.forms[formUuid].caseOperations = [
+		...(doc.forms[formUuid].caseOperations ?? []),
+		...operations,
+	];
 	return { doc, formUuid };
 }
 
@@ -247,7 +251,9 @@ describe("planGeneratedNodes", () => {
 
 it("names the URL and datetime siblings in the form's actions as its XForm writes them, under a collision", () => {
 	const { doc, formUuid } = collisionDoc();
-	doc.forms[formUuid].caseOperations = undefined;
+	doc.forms[formUuid].caseOperations = doc.forms[
+		formUuid
+	].caseOperations?.filter((operation) => operation.action === "own");
 	const hq = expandDoc(doc, {
 		attachmentTarget: {
 			origin: "https://www.commcarehq.org",

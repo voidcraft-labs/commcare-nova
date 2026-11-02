@@ -152,7 +152,9 @@ describe("case-operation domain vocabulary", () => {
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
+		// The form's own case change stays first.
 		doc.forms[formUuid].caseOperations = [
+			...(doc.forms[formUuid].caseOperations ?? []),
 			{
 				uuid: A,
 				id: "score_patient",
@@ -216,7 +218,9 @@ describe("case-operation domain vocabulary", () => {
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
+		// The form's own case change stays first.
 		doc.forms[formUuid].caseOperations = [
+			...(doc.forms[formUuid].caseOperations ?? []),
 			{
 				uuid: A,
 				id: "create_visit",
@@ -276,7 +280,9 @@ describe("case-operation domain vocabulary", () => {
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
+		// The form's own case change stays first.
 		doc.forms[formUuid].caseOperations = [
+			...(doc.forms[formUuid].caseOperations ?? []),
 			{
 				uuid: A,
 				id: "copy_score",
@@ -345,7 +351,9 @@ describe("case-operation domain vocabulary", () => {
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
+		// The form's own case change stays first.
 		doc.forms[formUuid].caseOperations = [
+			...(doc.forms[formUuid].caseOperations ?? []),
 			{
 				uuid: testUuid("33333333-3333-4333-8333-333333333333"),
 				id: "copy_right_to_left",

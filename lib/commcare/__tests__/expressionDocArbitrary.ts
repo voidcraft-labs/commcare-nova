@@ -7,6 +7,7 @@ import {
 	type BlueprintDoc,
 	calculatedColumn,
 	type Field,
+	fieldCaseWriteViews,
 	fieldKindCarriesValidation,
 	type Uuid,
 } from "@/lib/domain";
@@ -152,14 +153,17 @@ function attachForm(
 		candidates.push({ field, slot: "relevant" });
 		if (fieldKindCarriesValidation(field.kind))
 			candidates.push({ field, slot: "validate" });
-		if (field.kind === "hidden" && field.caseWrite === undefined)
+		// A question that saves to a case keeps its value: a calculation or a
+		// starting value there would change what the case holds.
+		const saves = fieldCaseWriteViews(doc, field.uuid).length > 0;
+		if (field.kind === "hidden" && !saves)
 			candidates.push({ field, slot: "calculate" });
 		if (
 			((valueKind === "text" && field.kind === "text") ||
 				(valueKind === "number" && field.kind === "decimal") ||
 				(valueKind === "date" && field.kind === "date") ||
 				(valueKind === "datetime" && field.kind === "datetime")) &&
-			field.caseWrite === undefined
+			!saves
 		)
 			candidates.push({ field, slot: "default_value" });
 		if (

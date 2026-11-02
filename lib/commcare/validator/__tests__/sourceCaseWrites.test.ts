@@ -21,6 +21,7 @@ import type { BlueprintDoc, CaseOperation } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../runner";
+import { ownArms } from "./ownArms";
 
 const MODULE = testUuid("source-writes-module");
 const FORM = testUuid("source-writes-form");
@@ -141,7 +142,10 @@ function formDoc(shape: Shape): BlueprintDoc {
 		],
 	});
 	if (shape.operations !== undefined) {
-		doc.forms[FORM].caseOperations = [...shape.operations];
+		doc.forms[FORM].caseOperations = [
+			...ownArms(doc.forms[FORM]),
+			...shape.operations,
+		];
 	}
 	return doc;
 }

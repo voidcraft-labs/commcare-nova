@@ -4,19 +4,20 @@ import { makeToolWorkspaceHarness } from "@/lib/agent/__tests__/fixtures";
 import { editFieldTool } from "@/lib/agent/tools/editField";
 import { buildFormActions } from "@/lib/commcare/formActions";
 import { runValidation } from "@/lib/commcare/validator/runner";
-import {
-	caseWriteCandidateMutations,
-	caseWriteChoiceVerdict,
-} from "@/lib/doc/caseWriteChoices";
+import { caseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	blueprintDocSchema,
-	type CaseWrite,
+	type Field,
+	fieldCaseWriteViews,
 	proseText,
+	type Uuid,
 } from "@/lib/domain";
+import { buildEngineInput } from "@/lib/preview/engine/engineInput";
 import { FormEngine } from "@/lib/preview/engine/formEngine";
 
 const ENTRY = "11111111-1111-4111-8111-111111111111";
@@ -39,6 +40,34 @@ function valid(doc: BlueprintDoc) {
 	);
 	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 }
+/** Where a field's answer is saved: the one "Saves to" a choice names. */
+type CaseWrite = { caseType: string; property: string };
+
+/** The batch the one "Saves to" planner gives `field` for `caseWrite`. */
+function saveTo(doc: BlueprintDoc, field: Field, caseWrite: CaseWrite) {
+	const plan = planFieldCaseWrite(doc, field.uuid, caseWrite);
+	if (!plan.ok) throw new Error(plan.message);
+	return plan.mutations;
+}
+
+/** The field's view of the writes that save it, by destination. */
+function savesTo(doc: BlueprintDoc, fieldUuid: Uuid): CaseWrite[] {
+	return fieldCaseWriteViews(doc, fieldUuid).map((view) => ({
+		caseType: view.caseType,
+		property: view.property,
+	}));
+}
+
+/** The planner's verdict of one choice, through the same gate a commit runs. */
+function choiceOk(doc: BlueprintDoc, field: Field, caseWrite: CaseWrite) {
+	return caseWriteChoiceVerdict(
+		doc,
+		field.uuid,
+		{ destination: caseWrite },
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	).ok;
+}
+
 function fixture(
 	options: {
 		survey?: boolean;
@@ -102,17 +131,52 @@ function engine(
 	doc: BlueprintDoc,
 	formUuid: ReturnType<typeof fixture>["formUuid"],
 ) {
-	return new FormEngine(
-		{
-			doc,
-			form: doc.forms[formUuid],
-			formUuid,
-			fields: doc.fields,
-			fieldOrder: doc.fieldOrder,
-			caseTypes: doc.caseTypes ?? [],
-		},
-		doc.modules[doc.moduleOrder[0]].caseType,
+	const input = buildEngineInput(doc, formUuid, null);
+	if (input === undefined) throw new Error("The form is missing.");
+	return new FormEngine(input, doc.modules[doc.moduleOrder[0]].caseType);
+}
+
+/** The root answers a submission carries for its case operations. */
+function rootAnswers(
+	mutation: ReturnType<FormEngine["computeSubmissionMutation"]>,
+): Record<string, string | readonly string[]> {
+	return Object.fromEntries(
+		(mutation.operationAnswers?.root ?? []).map((entry) => [
+			entry.fieldUuid,
+			entry.value,
+		]),
 	);
+}
+
+/**
+ * `next` with every operation uuid it holds beyond `before`'s replaced, in
+ * order, by `reference`'s: a planner mints a new operation's uuid, so two
+ * plans of one edit differ in that uuid alone.
+ */
+function withMintedOperationUuidsOf(
+	next: BlueprintDoc,
+	reference: BlueprintDoc,
+	before: BlueprintDoc,
+): BlueprintDoc {
+	const known = new Set(
+		Object.values(before.forms).flatMap((form) =>
+			(form.caseOperations ?? []).map((operation) => operation.uuid),
+		),
+	);
+	const minted = (doc: BlueprintDoc) =>
+		Object.values(doc.forms).flatMap((form) =>
+			(form.caseOperations ?? [])
+				.map((operation) => operation.uuid)
+				.filter((uuid) => !known.has(uuid)),
+		);
+	const from = minted(next);
+	const to = minted(reference);
+	let text = JSON.stringify(toPersistableDoc(next));
+	from.forEach((uuid, index) => {
+		const replacement = to[index];
+		if (replacement !== undefined) text = text.replaceAll(uuid, replacement);
+	});
+	return JSON.parse(text) as BlueprintDoc;
 }
 
 // This is the shared tool body's admission boundary, used by SA and MCP. It
@@ -140,20 +204,16 @@ it.each([
 			fieldUuid: built.field.uuid,
 			updates: { kind: "text", caseWrite },
 		});
-		const verdict = mutationCommitVerdict(
-			built.doc,
-			caseWriteCandidateMutations(built.doc, built.field, caseWrite),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(verdict.ok).toBe(accepted);
-		expect(
-			caseWriteChoiceVerdict(
-				built.doc,
-				built.field,
-				caseWrite,
-				LOOKUP_CONTEXT_UNAVAILABLE,
-			).ok,
-		).toBe(accepted);
+		const plan = planFieldCaseWrite(built.doc, built.field.uuid, caseWrite);
+		const verdict = plan.ok
+			? mutationCommitVerdict(
+					built.doc,
+					plan.mutations,
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				)
+			: undefined;
+		expect(verdict?.ok === true).toBe(accepted);
+		expect(choiceOk(built.doc, built.field, caseWrite)).toBe(accepted);
 		const harness = makeToolWorkspaceHarness(built.doc);
 		const result = await harness.runTool(editFieldTool, input);
 		expect("error" in result.result).toBe(!accepted);
@@ -162,24 +222,18 @@ it.each([
 			expect(harness.recordMutations).not.toHaveBeenCalled();
 			expect(harness.recordMutationStages).not.toHaveBeenCalled();
 			expect(toPersistableDoc(harness.currentDoc())).toEqual(before);
-			if (verdict.ok) throw new Error("Rejected destination was accepted");
-			expect(verdict.findings.map((finding) => finding.code)).toEqual([
-				options.survey || options.moduleless
-					? "CASE_WRITE_NO_CASE_ACTION"
-					: "CASE_WRITE_NOT_DIRECT_CHILD",
-			]);
 			return;
 		}
+		if (verdict === undefined || !verdict.ok)
+			throw new Error("An accepted destination has a committed batch");
 		const committed = harness.currentDoc();
 		valid(committed);
 		expect(toPersistableDoc(committed)).toEqual(
-			toPersistableDoc(verdict.nextDoc),
+			withMintedOperationUuidsOf(verdict.nextDoc, committed, built.doc),
 		);
-		expect(committed.fields[built.field.uuid]).toMatchObject({
-			id: "answer",
-			caseWrite,
-		});
-		const actions = buildFormActions(committed, built.formUuid, "patient");
+		expect(committed.fields[built.field.uuid]).toMatchObject({ id: "answer" });
+		expect(savesTo(committed, built.field.uuid)).toEqual([caseWrite]);
+		const actions = buildFormActions(committed, built.formUuid);
 		const runtime = engine(committed, built.formUuid);
 		runtime.setValue("/data/answer", "Amina");
 		const mutation = runtime.computeSubmissionMutation({
@@ -196,8 +250,6 @@ it.each([
 				},
 			});
 			expect(actions.subcases).toEqual([]);
-			expect(mutation.patch).toEqual({ caseName: "Amina", properties: {} });
-			expect(mutation.children).toEqual([]);
 		} else {
 			expect(actions.subcases).toHaveLength(1);
 			expect(actions.subcases[0]).toMatchObject({
@@ -207,14 +259,9 @@ it.each([
 					update_mode: "always",
 				},
 			});
-			expect(mutation.patch).toEqual({ properties: {} });
-			expect(mutation.children).toHaveLength(1);
-			expect(mutation.children[0]).toMatchObject({
-				caseType: "child",
-				caseName: "Amina",
-				properties: {},
-			});
 		}
+		// The answer reaches the operation that saves it.
+		expect(rootAnswers(mutation)[built.field.uuid]).toBe("Amina");
 	},
 );
 
@@ -277,21 +324,15 @@ it.each([
 				updates: { kind: "text", caseWrite },
 			}),
 		);
-		expect("error" in result.result).toBe(property !== "external_id");
-		if (property === "external_id") {
+		const saved = property === "external_id" || property === "owner_id";
+		expect("error" in result.result).toBe(!saved);
+		if (saved) {
 			valid(harness.currentDoc());
-			expect(harness.currentDoc().fields[built.field.uuid]).toMatchObject({
+			expect(savesTo(harness.currentDoc(), built.field.uuid)).toEqual([
 				caseWrite,
-			});
+			]);
 		} else {
-			expect(
-				caseWriteChoiceVerdict(
-					built.doc,
-					built.field,
-					caseWrite,
-					LOOKUP_CONTEXT_UNAVAILABLE,
-				).ok,
-			).toBe(false);
+			expect(choiceOk(built.doc, built.field, caseWrite)).toBe(false);
 			expect(harness.recordMutations).not.toHaveBeenCalled();
 			expect(harness.recordMutationStages).not.toHaveBeenCalled();
 			expect(harness.currentDoc()).toBe(built.doc);
@@ -332,14 +373,7 @@ it("refuses a second writer while preserving the first destination", async () =>
 	const first = harness.currentDoc();
 	valid(first);
 	const another = first.fields[first.fieldOrder[built.formUuid][1]];
-	expect(
-		caseWriteChoiceVerdict(
-			first,
-			another,
-			caseWrite,
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		).ok,
-	).toBe(false);
+	expect(choiceOk(first, another, caseWrite)).toBe(false);
 	const calls = harness.recordMutations.mock.calls.length;
 	const stages = harness.recordMutationStages.mock.calls.length;
 	const result = await harness.runTool(
@@ -350,37 +384,22 @@ it("refuses a second writer while preserving the first destination", async () =>
 	expect(harness.currentDoc()).toBe(first);
 	expect(harness.recordMutations).toHaveBeenCalledTimes(calls);
 	expect(harness.recordMutationStages).toHaveBeenCalledTimes(stages);
-	expect(
-		buildFormActions(first, built.formUuid, "patient").update_case.update,
-	).toEqual({ note: { question_path: "/data/answer", update_mode: "always" } });
+	expect(buildFormActions(first, built.formUuid).update_case.update).toEqual({
+		note: { question_path: "/data/answer", update_mode: "always" },
+	});
 });
 
 it.each([
-	{
-		property: "external_id",
-		value: "",
-		patch: { externalId: "", properties: {} },
-	},
-	{
-		property: "external_id",
-		value: "  EXT-1\u001f",
-		patch: { externalId: "EXT-1", properties: {} },
-	},
-	{
-		property: "case_name",
-		value: "\u0000 Alice B. \u001f",
-		patch: { caseName: "Alice B.", properties: {} },
-	},
+	{ property: "external_id", value: "" },
+	{ property: "external_id", value: "  EXT-1\u001f" },
+	{ property: "case_name", value: "\u0000 Alice B. \u001f" },
 ])(
-	"routes an active $property answer to its scalar column",
-	({ property, value, patch }) => {
+	"carries an active $property answer, as written, to the own case's change",
+	({ property, value }) => {
 		const built = fixture();
 		const verdict = mutationCommitVerdict(
 			built.doc,
-			caseWriteCandidateMutations(built.doc, built.field, {
-				caseType: "patient",
-				property,
-			}),
+			saveTo(built.doc, built.field, { caseType: "patient", property }),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(true);
@@ -391,34 +410,35 @@ it.each([
 			entryKey: ENTRY,
 		});
 		if (mutation.kind !== "followup") throw new Error("Expected follow-up");
-		expect(mutation.patch).toEqual(patch);
+		// The submission program trims it, as the device does
+		// (`lib/domain/caseScalarText.ts`); the answer itself is unchanged.
+		expect(rootAnswers(mutation)[built.field.uuid]).toBe(value);
 	},
 );
 
 it.each([
-	{ property: "case_name", value: " \u001f", error: /blank after/ },
-	{ property: "external_id", value: "😀".repeat(128), error: /255 UTF-16/ },
+	{ property: "case_name", value: " \u001f", fits: "Amina" },
+	{ property: "external_id", value: "😀".repeat(128), fits: "😀".repeat(127) },
 ])(
-	"refuses an invalid scalar value for $property",
-	({ property, value, error }) => {
+	"refuses an invalid scalar value for $property at its question",
+	({ property, value, fits }) => {
 		const built = fixture();
 		const verdict = mutationCommitVerdict(
 			built.doc,
-			caseWriteCandidateMutations(built.doc, built.field, {
-				caseType: "patient",
-				property,
-			}),
+			saveTo(built.doc, built.field, { caseType: "patient", property }),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		expect(verdict.ok).toBe(true);
 		const runtime = engine(verdict.nextDoc, built.formUuid);
 		runtime.setValue("/data/answer", value);
-		expect(() =>
-			runtime.computeSubmissionMutation({
-				caseIds: ["patient-1"],
-				entryKey: ENTRY,
-			}),
-		).toThrow(error);
+		// The question refuses it, as the device's constraint does.
+		expect(runtime.validateAll()).toBe(false);
+		expect(runtime.getState("/data/answer")).toMatchObject({
+			valid: false,
+			errorMessage: "Invalid value",
+		});
+		runtime.setValue("/data/answer", fits);
+		expect(runtime.validateAll()).toBe(true);
 	},
 );
 
@@ -440,14 +460,7 @@ it.each(["case_name", "external_id", "photo_url"])(
 		const result = await harness.runTool(editFieldTool, input);
 		const accepted = property === "photo_url";
 		expect("error" in result.result).toBe(!accepted);
-		expect(
-			caseWriteChoiceVerdict(
-				built.doc,
-				built.field,
-				caseWrite,
-				LOOKUP_CONTEXT_UNAVAILABLE,
-			).ok,
-		).toBe(accepted);
+		expect(choiceOk(built.doc, built.field, caseWrite)).toBe(accepted);
 		if (!accepted) {
 			expect(harness.recordMutations).not.toHaveBeenCalled();
 			expect(harness.recordMutationStages).not.toHaveBeenCalled();
@@ -457,17 +470,16 @@ it.each(["case_name", "external_id", "photo_url"])(
 		const doc = harness.currentDoc();
 		valid(doc);
 		expect(
-			buildFormActions(doc, built.formUuid, "patient", TARGET).update_case
-				.update,
+			buildFormActions(doc, built.formUuid, TARGET).update_case.update,
 		).toEqual({
 			photo_url: {
 				question_path: "/data/nova_url_answer",
 				update_mode: "always",
 			},
 		});
-		expect(
-			buildFormActions(doc, built.formUuid, "patient").update_case.update,
-		).toEqual({});
+		expect(buildFormActions(doc, built.formUuid).update_case.update).toEqual(
+			{},
+		);
 		const runtime = engine(doc, built.formUuid);
 		runtime.setValue("/data/answer", "photo.jpg");
 		const mutation = runtime.computeSubmissionMutation({
@@ -475,15 +487,15 @@ it.each(["case_name", "external_id", "photo_url"])(
 			entryKey: ENTRY,
 		});
 		if (mutation.kind !== "followup") throw new Error("Expected follow-up");
-		expect(mutation.patch).toEqual({ properties: {} });
+		expect(rootAnswers(mutation)[built.field.uuid]).toBe("photo.jpg");
 	},
 );
 
-it("preserves an irrelevant external ID, but permits an active answer to clear it", () => {
+it("saves an external ID from a conditional question through the action the wire guards", () => {
 	const built = fixture({ conditional: true });
 	const verdict = mutationCommitVerdict(
 		built.doc,
-		caseWriteCandidateMutations(built.doc, built.field, {
+		saveTo(built.doc, built.field, {
 			caseType: "patient",
 			property: "external_id",
 		}),
@@ -491,22 +503,17 @@ it("preserves an irrelevant external ID, but permits an active answer to clear i
 	);
 	expect(verdict.ok).toBe(true);
 	valid(verdict.nextDoc);
-	const runtime = engine(verdict.nextDoc, built.formUuid);
-	runtime.setValue("/data/another", "yes");
-	runtime.setValue("/data/answer", "remembered");
-	runtime.setValue("/data/another", "no");
-	const submit = () => {
-		const mutation = runtime.computeSubmissionMutation({
-			caseIds: ["patient-1"],
-			entryKey: ENTRY,
-		});
-		if (mutation.kind !== "followup") throw new Error("Expected follow-up");
-		return mutation.patch;
-	};
-	expect(submit()).toEqual({ properties: {} });
-	runtime.setValue("/data/another", "yes");
-	runtime.setValue("/data/answer", "");
-	expect(submit()).toEqual({ externalId: "", properties: {} });
+	// The basic update names the trimmed node, whose update bind carries
+	// `count(<question>) > 0` (`caseBlocks.test.ts`), so a hidden question
+	// leaves the stored value as it was.
+	expect(
+		buildFormActions(verdict.nextDoc, built.formUuid).update_case.update,
+	).toEqual({
+		external_id: {
+			question_path: "/data/nova_trimmed_answer",
+			update_mode: "always",
+		},
+	});
 });
 
 it("materializes independent children in cousin repeats nested inside real query iterations", () => {
@@ -584,7 +591,7 @@ it("materializes independent children in cousin repeats nested inside real query
 	});
 	valid(doc);
 	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
-	const actions = buildFormActions(doc, formUuid, "patient");
+	const actions = buildFormActions(doc, formUuid);
 	expect(
 		actions.subcases.map((subcase) => ({
 			repeat: subcase.repeat_context,
@@ -622,68 +629,60 @@ it("materializes independent children in cousin repeats nested inside real query
 		entryKey: ENTRY,
 	});
 	if (mutation.kind !== "followup") throw new Error("Expected follow-up");
-	expect(mutation.patch).toEqual({ properties: {} });
-	expect(
-		mutation.children.map((child) => ({
-			type: child.caseType,
-			name: child.caseName,
-			external: child.externalId,
-			properties: child.properties,
-		})),
-	).toEqual(
-		answers.map(([, name]) => ({
-			type: "child",
-			name,
-			external: `ID-${name}`,
-			properties: {},
-		})),
+	// Each kids repeat is its own scope: its rows, parent-major, each carry
+	// the name and the external id the child created for that row saves.
+	const kids = Object.values(doc.fields).filter(
+		(field) => field.kind === "repeat" && field.id === "kids",
 	);
+	const namesIn = (repeat: (typeof kids)[number]) => {
+		const childUuids = doc.fieldOrder[repeat.uuid] ?? [];
+		const [nameUuid, externalUuid] = childUuids;
+		const scope = mutation.operationAnswers?.repeats.find(
+			(candidate) => candidate.repeat === repeat.uuid,
+		);
+		return (scope?.iterations ?? []).map((iteration) => {
+			const values = Object.fromEntries(
+				iteration.map((entry) => [entry.fieldUuid, entry.value]),
+			);
+			return {
+				name: values[nameUuid as string],
+				external: values[externalUuid as string],
+			};
+		});
+	};
+	expect(kids.map(namesIn)).toEqual([
+		[
+			{ name: "Amina", external: "  ID-Amina  " },
+			{ name: "Chandra", external: "  ID-Chandra  " },
+		],
+		[
+			{ name: "Bela", external: "  ID-Bela  " },
+			{ name: "Dara", external: "  ID-Dara  " },
+			{ name: "Esi", external: "  ID-Esi  " },
+		],
+	]);
 });
 
-it.each([
-	{
-		fault: "missing destination",
-		code: "CASE_WRITE_UNKNOWN_TYPE",
-		error: /unknown case type 'missing'/,
-	},
-	{
-		fault: "invalid field name",
-		code: "INVALID_FIELD_ID",
-		error: /invalid element name "bad-id"/,
-	},
-] as const)(
-	"fails closed on corrupted persisted state: $fault",
-	({ fault, code, error }) => {
-		const built = fixture();
-		const verdict = mutationCommitVerdict(
-			built.doc,
-			caseWriteCandidateMutations(built.doc, built.field, {
-				caseType: "patient",
-				property: "case_name",
-			}),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(verdict.ok).toBe(true);
-		valid(verdict.nextDoc);
-		const corrupted = structuredClone(verdict.nextDoc);
-		const writer = corrupted.fields[built.field.uuid];
-		if (writer.kind !== "text") throw new Error("Expected text writer");
-		if (fault === "missing destination")
-			writer.caseWrite = { caseType: "missing", property: "case_name" };
-		else writer.id = "bad-id";
-		expect(
-			runValidation(corrupted, LOOKUP_CONTEXT_UNAVAILABLE).map(
-				(finding) => finding.code,
-			),
-		).toEqual([code]);
-		expect(() =>
-			buildFormActions(corrupted, built.formUuid, "patient"),
-		).toThrow(error);
-		expect(() =>
-			engine(corrupted, built.formUuid).computeSubmissionMutation({
-				caseIds: ["patient-1"],
-				entryKey: ENTRY,
-			}),
-		).toThrow(error);
-	},
-);
+it("fails closed on a question id no XML element can carry", () => {
+	const built = fixture();
+	const verdict = mutationCommitVerdict(
+		built.doc,
+		saveTo(built.doc, built.field, {
+			caseType: "patient",
+			property: "case_name",
+		}),
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok).toBe(true);
+	valid(verdict.nextDoc);
+	const corrupted = structuredClone(verdict.nextDoc);
+	corrupted.fields[built.field.uuid].id = "bad-id";
+	expect(
+		runValidation(corrupted, LOOKUP_CONTEXT_UNAVAILABLE).map(
+			(finding) => finding.code,
+		),
+	).toEqual(["INVALID_FIELD_ID"]);
+	expect(() => buildFormActions(corrupted, built.formUuid)).toThrow(
+		/invalid element name "bad-id"/,
+	);
+});

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
+	type ApplySubmissionArgs,
 	CaseNotFoundError,
 	CasePropertiesValidationError,
 	type CasePropertyFailure,
@@ -71,6 +72,7 @@ import {
 } from "../caseDataBindingHelpers";
 import type {
 	SubmissionMutation,
+	SubmissionOperationAnswers,
 	SubmissionWireMutation,
 } from "../caseDataBindingTypes";
 import { previewAsMe } from "../identity";
@@ -346,6 +348,22 @@ function registrationDoc() {
 			],
 		}),
 	);
+}
+
+/** The answers a form's case operations read: every question at the form's
+ * root by its uuid, blank unless `values` names its id. */
+function answersOf(
+	doc: BlueprintDoc,
+	formUuid: string,
+	values: Readonly<Record<string, string>> = {},
+): SubmissionOperationAnswers {
+	return {
+		root: (doc.fieldOrder[formUuid] ?? []).map((fieldUuid) => ({
+			fieldUuid,
+			value: values[doc.fields[fieldUuid]?.id ?? ""] ?? "",
+		})),
+		repeats: [],
+	};
 }
 
 const FINAL_BLUEPRINT_DIGEST = canonicalJsonDigest(
@@ -752,8 +770,9 @@ describe("submitFormAction", () => {
 				kind: "followup",
 				...FINAL_SUBMISSION_PROTOCOL,
 				caseIds: [ALICE_CASE_ID],
-				patch: { properties: { age: 31 } },
-				children: [],
+				operationAnswers: answersOf(committedBlueprint, FINAL_FORM_UUID, {
+					age: "31",
+				}),
 			},
 			APP_ID,
 			canonicalJsonDigest(toPersistableDoc(committedBlueprint)),
@@ -765,10 +784,10 @@ describe("submitFormAction", () => {
 	});
 
 	it("routes a case-bearing submission through applySubmission and maps the envelope result to the matching arm", async () => {
-		// The new wiring: the action projects the mutation via
-		// `submissionEnvelopeArgs` and hands it to `store.applySubmission`,
-		// then maps the `SubmissionEnvelopeResult`'s `primaryCaseIds` +
-		// structured created-child receipt onto the mutation-kind result arm.
+		// The action builds the program from the committed form (its own case
+		// first, the child's create after it), hands it to
+		// `store.applySubmission`, then maps the `SubmissionEnvelopeResult`'s
+		// `primaryCaseIds` onto the mutation-kind result arm.
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -779,13 +798,7 @@ describe("submitFormAction", () => {
 			query: appCaseQuery(),
 			applySubmission: vi.fn().mockImplementationOnce(async (args) => ({
 				primaryCaseIds: [ALICE_CASE_ID],
-				createdChildren: [
-					{
-						authoredChildIndex: 0,
-						parentCaseId: ALICE_CASE_ID,
-						caseId: VISIT_CASE_ID,
-					},
-				],
+				createdChildren: [],
 				operations: [],
 				blueprintDigest: args.submissionReceipt.blueprintDigest,
 				caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
@@ -793,22 +806,22 @@ describe("submitFormAction", () => {
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
+		const answer = (name: string, value: string) => ({
+			fieldUuid: testUuid(`case-bearing.${name}`),
+			value,
+		});
 		const mutation: SubmissionMutation = {
 			kind: "registration",
 			...FINAL_SUBMISSION_PROTOCOL,
-			primary: {
-				caseType: "patient",
-				caseName: "Alice",
-				properties: { age: 30 },
+			operationAnswers: {
+				root: [
+					answer("patient_name", "Alice"),
+					answer("age", "30"),
+					answer("visit_name", "First visit"),
+					answer("visit_notes", "checkup"),
+				],
+				repeats: [],
 			},
-			children: [
-				{
-					caseType: "visit",
-					caseName: "First visit",
-					properties: { notes: "checkup" },
-				},
-			],
-			ordinaryChildBuckets: [{ caseType: "visit" }],
 		};
 		const committedBlueprint = buildDoc({
 			appName: "Case-bearing action",
@@ -837,6 +850,7 @@ describe("submitFormAction", () => {
 							fields: [
 								f({
 									kind: "text",
+									uuid: testUuid("case-bearing.patient_name"),
 									id: "patient_name",
 									caseWrite: {
 										caseType: "patient",
@@ -845,16 +859,19 @@ describe("submitFormAction", () => {
 								}),
 								f({
 									kind: "int",
+									uuid: testUuid("case-bearing.age"),
 									id: "age",
 									caseWrite: { caseType: "patient", property: "age" },
 								}),
 								f({
 									kind: "text",
+									uuid: testUuid("case-bearing.visit_name"),
 									id: "visit_name",
 									caseWrite: { caseType: "visit", property: "case_name" },
 								}),
 								f({
 									kind: "text",
+									uuid: testUuid("case-bearing.visit_notes"),
 									id: "visit_notes",
 									caseWrite: { caseType: "visit", property: "notes" },
 								}),
@@ -882,27 +899,41 @@ describe("submitFormAction", () => {
 		);
 
 		// Independently spell the server-derived envelope; do not call its projector as the oracle.
-		expect(stubStore.applySubmission).toHaveBeenCalledWith({
-			appId: APP_ID,
-			ordinary: {
-				kind: "registration",
-				primary: {
-					caseType: "patient",
-					caseName: "Alice",
-					properties: { age: 30 },
-					// The cases the entry's session named, which take its minted ids.
-					entryCaseKey: "new-case",
-				},
-				children: [
+		const args = stubStore.applySubmission.mock.calls[0]?.[0] as
+			| ApplySubmissionArgs
+			| undefined;
+		const program = args?.operations;
+		expect(program?.operations.map((entry) => entry.operation.action)).toEqual([
+			"own",
+			"create",
+		]);
+		expect(program?.ownCase).toEqual({
+			caseType: "patient",
+			formType: "registration",
+		});
+		// The cases the entry's session names take the ids it minted.
+		expect(
+			program?.operations.map((entry) =>
+				program.entryCaseKeys?.get(entry.operation.uuid),
+			),
+		).toEqual(["new-case", "new-child-case:visit"]);
+		expect(program?.scopes).toEqual([
+			{
+				iterations: [
 					{
-						caseType: "visit",
-						caseName: "First visit",
-						properties: { notes: "checkup" },
-						parentRelationship: "child",
-						entryCaseKey: "new-child-case:visit",
+						formFields: new Map(
+							mutation.operationAnswers?.root.map((entry) => [
+								entry.fieldUuid,
+								entry.value,
+							]),
+						),
 					},
 				],
 			},
+		]);
+		expect(args).toMatchObject({
+			appId: APP_ID,
+			ordinary: { kind: "registration" },
 			submissionReceipt: {
 				entryKey: FINAL_ENTRY_KEY,
 				formUuid: FINAL_FORM_UUID,
@@ -917,14 +948,8 @@ describe("submitFormAction", () => {
 		expect(result).toEqual({
 			kind: "registration",
 			caseId: ALICE_CASE_ID,
-			childCaseIds: [VISIT_CASE_ID],
-			createdChildren: [
-				{
-					authoredChildIndex: 0,
-					parentCaseId: ALICE_CASE_ID,
-					caseId: VISIT_CASE_ID,
-				},
-			],
+			childCaseIds: [],
+			createdChildren: [],
 			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
 		});
 	});
@@ -982,8 +1007,6 @@ describe("submitFormAction", () => {
 			kind: "followup",
 			...FINAL_SUBMISSION_PROTOCOL,
 			caseId: ALICE_CASE_ID,
-			patch: { properties: {} },
-			children: [],
 		};
 		const replayIdentity = previewAsMe({ id: OWNER_A });
 		if (replayIdentity === null) throw new Error("Expected replay identity.");
@@ -1016,9 +1039,12 @@ describe("submitFormAction", () => {
 				caseIds: [ALICE_CASE_ID],
 				caseType: "patient",
 				selection: { kind: "single", maximum: 1 },
-				patch: { properties: {} },
-				children: [],
 			},
+			// The form's own case, which reads no answer.
+			operations: expect.objectContaining({
+				sessionCaseIds: [ALICE_CASE_ID],
+				ownCase: { caseType: "patient", formType: "followup" },
+			}),
 			submissionReceipt: {
 				entryKey: FINAL_ENTRY_KEY,
 				formUuid: FINAL_FORM_UUID,
@@ -1038,8 +1064,6 @@ describe("submitFormAction", () => {
 			kind: "close",
 			...FINAL_SUBMISSION_PROTOCOL,
 			caseId: ALICE_CASE_ID,
-			patch: { properties: {} },
-			children: [],
 		};
 		const replayIdentity = previewAsMe({ id: OWNER_A });
 		if (replayIdentity === null) throw new Error("Expected replay identity.");
@@ -1123,12 +1147,7 @@ describe("submitFormAction", () => {
 		const mutation: SubmissionMutation = {
 			kind: "registration",
 			...FINAL_SUBMISSION_PROTOCOL,
-			primary: {
-				caseType: "patient",
-				caseName: "Alice",
-				properties: {},
-			},
-			children: [],
+			operationAnswers: answersOf(doc, FINAL_FORM_UUID, { name: "Alice" }),
 		};
 
 		const { submitFormAction } = await import("../caseDataBinding");
@@ -1197,12 +1216,7 @@ describe("submitFormAction", () => {
 			{
 				kind: "registration",
 				...FINAL_SUBMISSION_PROTOCOL,
-				primary: {
-					caseType: "patient",
-					caseName: "Alice",
-					properties: {},
-				},
-				children: [],
+				operationAnswers: answersOf(doc, FINAL_FORM_UUID, { name: "Alice" }),
 			},
 			APP_ID,
 			digest,
@@ -1242,12 +1256,6 @@ describe("submitFormAction", () => {
 			{
 				kind: "registration",
 				...FINAL_SUBMISSION_PROTOCOL,
-				primary: {
-					caseType: "patient",
-					caseName: "Alice",
-					properties: {},
-				},
-				children: [],
 			},
 			APP_ID,
 			FINAL_BLUEPRINT_DIGEST,
@@ -1459,7 +1467,7 @@ describe("submitFormAction", () => {
 		).resolves.toMatchObject({
 			kind: "error",
 			message: expect.stringContaining(
-				"missing answers required by its committed case operations",
+				"missing an answer its committed case operations read",
 			),
 		});
 		expect(applySubmission).not.toHaveBeenCalled();
@@ -1888,12 +1896,6 @@ describe("submitFormAction", () => {
 					instancePath: "/data/photo",
 				},
 			],
-			primary: {
-				caseType: "patient",
-				caseName: "Alice",
-				properties: {},
-			},
-			children: [],
 		};
 		const replayIdentity = previewAsMe({ id: OWNER_A });
 		if (replayIdentity === null) throw new Error("Expected replay identity.");
@@ -2062,12 +2064,6 @@ describe("submitFormAction", () => {
 					instancePath: "/data/photo",
 				},
 			],
-			primary: {
-				caseType: "patient",
-				caseName: "Alice",
-				properties: {},
-			},
-			children: [],
 		};
 
 		const { submitFormAction } = await import("../caseDataBinding");

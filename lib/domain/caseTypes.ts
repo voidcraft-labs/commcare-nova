@@ -6,7 +6,7 @@
 
 import type { CaseProperty, CaseType } from "./blueprint";
 import type { CasePropertyDataType } from "./casePropertyTypes";
-import type { CaseWrite, FieldKind } from "./fields";
+import type { FieldKind } from "./fields";
 import type { FormType } from "./forms";
 import { projectProseTemplate } from "./prose";
 import type { ReferenceNamesDoc } from "./referenceNames";
@@ -27,15 +27,13 @@ import {
  * field kind whose semantic data type isn't already covered cascades
  * to this table; no other surface may hold a parallel mapping.
  *
- * Returns `undefined` for kinds that don't pin a value type, whether or
- * not they can write a case. `hidden` writes one, and the type inferred
- * for its value (`expression/inference.ts`) is its opinion of the
- * property's type, held to that property by
- * `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` rather than by this table. The capture kinds write one too, and what
- * lands there depends on the destination's mode rather than the kind, so
- * the kind alone cannot answer. Both stamp an untyped catalog entry, which
- * `effectiveDataType` reads as text. The structural and display kinds
- * return `undefined` because they carry no `caseWrite` slot at all.
+ * Returns `undefined` for kinds that don't pin a value type. A Hidden
+ * Value's answer takes the type inferred for its value
+ * (`expression/inference.ts`), held to a property it is saved to by
+ * `HIDDEN_VALUE_WRITER_TYPE_MISMATCH` rather than by this table. A
+ * capture's answer is a file name, never a case value: an operation saves
+ * a link to the file through the `capture-link` term, which is text. The
+ * structural and display kinds have no answer to save at all.
  * `barcode` and `secret`
  * map to `text` because they're text-shaped at the wire layer despite
  * carrying a separate authoring kind; coercion paths (e.g. `text`
@@ -94,30 +92,6 @@ export function caseDataTypeForFieldKind(
 			return undefined;
 		}
 	}
-}
-
-/**
- * Read a field's explicit case-storage destination in a kind-agnostic way, or
- * `undefined` when the field is not case-bound. `caseWrite` lives on the
- * input-field mixin plus hidden and capture fields, but not structural kinds,
- * so this one structural read avoids a union-wide narrowing cascade at every
- * consumer. Parsed `Field` values always carry the complete strict pair; the
- * runtime checks keep untyped/corrupted boundaries from manufacturing a
- * half-binding.
- */
-export function fieldCaseWrite(field: { kind: string }): CaseWrite | undefined {
-	const value = (field as { caseWrite?: unknown }).caseWrite;
-	if (typeof value !== "object" || value === null) return undefined;
-	const candidate = value as { caseType?: unknown; property?: unknown };
-	if (
-		typeof candidate.caseType !== "string" ||
-		candidate.caseType.length === 0 ||
-		typeof candidate.property !== "string" ||
-		candidate.property.length === 0
-	) {
-		return undefined;
-	}
-	return candidate as CaseWrite;
 }
 
 /**

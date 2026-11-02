@@ -25,11 +25,12 @@ opens a captured file's link, ``proof/views/test_form_attachment.py``).
   compiler refuses that filter without the flag
   (``case_search/filter_dsl.py::_require_related_lookups_flag``) and compiles
   it with it.
-- Each of the ten toggles stored as on for one user alone is in neither
+- Each of the eleven toggles stored as on for one user alone is in neither
   ``toggles_enabled_for_user`` nor ``toggles_dict`` for that user and the
-  project space (``StaticToggle.enabled`` answers false for a namespace the
-  toggle does not declare); stored as on for the project space, all ten
-  are in ``toggles_dict``. Each through HQ's own toggle storage and readers,
+  project space (``StaticToggle.enabled``, and ``PredictablyRandomToggle.enabled``
+  for ``SAVE_ONLY_EDITED_FORM_FIELDS``, a ``FeatureRelease``, answer false for
+  a namespace the toggle does not declare); stored as on for the project
+  space, all eleven are in ``toggles_dict``. Each through HQ's own toggle storage and readers,
   with no seam.
 - HQ's project-space list (``api/resources/v0_5.py::UserDomainsResource``)
   lists the project space for a member and not for another account, with
@@ -66,6 +67,7 @@ PROBED_FLAGS = (
     "CASE_SEARCH_RELATED_LOOKUPS",
     "CASE_LIST_TILE",
     "CASE_LIST_TILE_CUSTOM",
+    "SAVE_ONLY_EDITED_FORM_FIELDS",
 )
 LIST = "/api/user_domains/v1/"
 OTHER = "proof-other@example.com"
@@ -139,13 +141,17 @@ def test_hqs_build_writes_the_parent_select_filter_its_compiler_refuses_without_
 
 
 def test_a_flag_on_for_one_user_alone_is_not_the_project_spaces(hq):
+    """HQ's reader of a ``FeatureRelease`` (``PredictablyRandomToggle.enabled``) answers False whenever
+    ``settings.DISABLE_RANDOM_TOGGLES`` is set, which HQ's ``settings.py`` sets from ``UNIT_TESTING``, as it is under
+    the harness's boot, so the readers run here with it off, as a project space reads them."""
     from corehq import toggles
     from corehq.toggles import NAMESPACE_DOMAIN, toggles_dict, toggles_enabled_for_user
     from corehq.toggles.shortcuts import set_toggle
+    from django.test import override_settings
 
     flags = [getattr(toggles, symbol) for symbol in PROBED_FLAGS]
     assert all(flag.namespaces == [NAMESPACE_DOMAIN] for flag in flags)
-    with hq_state(Configuration()) as state:
+    with override_settings(DISABLE_RANDOM_TOGGLES=False), hq_state(Configuration()) as state:
         # The user namespace is the unnamespaced item, which a toggle of the project space alone refuses in its own
         # set, so the storage is written directly.
         for flag in flags:

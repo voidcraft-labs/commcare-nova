@@ -130,7 +130,12 @@ import { serializeXml } from "@/lib/commcare/serializeXml";
 import { parseXml } from "@/lib/commcare/xmlParse";
 import { caseSearchConfigPatchMutations } from "@/lib/doc/caseSearchConfigPatchMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import {
+	planFieldCaseWrite,
+	planFieldMoveCaseWrites,
+} from "@/lib/doc/fieldCaseWriteMutations";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
+import { planFieldRemoval } from "@/lib/doc/fieldRemovalMutations";
 import {
 	addLanguageMutation,
 	heldLanguageWireCodes,
@@ -160,7 +165,7 @@ import {
 	formatCensus,
 	publishFindings,
 } from "../editBatches";
-import { uuidTokensOf } from "../editContext";
+import { docAfter, uuidTokensOf } from "../editContext";
 import { batchFootprint, type WireModule, wireLayout } from "../footprint";
 import { producerDocuments } from "../producers";
 import { workforceDocuments } from "../workforce";
@@ -877,6 +882,26 @@ describe("the footprint's derivations", () => {
 		}
 		return linkTo(source, moduleNamed(doc, to), target);
 	};
+	/** A plan's batch; a planner's refusal stops the derivation, naming it. */
+	const planned = (
+		plan:
+			| { readonly ok: true; readonly mutations: readonly Mutation[] }
+			| { readonly ok: false; readonly message: string },
+	): Mutation[] => {
+		if (!plan.ok) throw new Error(plan.message);
+		return [...plan.mutations];
+	};
+	/** `add`, then what its question saves, planned by the one "Saves to" planner. */
+	const addWriter = (
+		doc: BlueprintDoc,
+		add: Extract<Mutation, { kind: "addField" }>,
+		destination: { caseType: string; property: string },
+	): Mutation[] => [
+		add,
+		...planned(
+			planFieldCaseWrite(docAfter(doc, [add]), add.field.uuid, destination),
+		),
+	];
 	/** A question on `module`'s form at `index` that writes the worker's flag to the worker's record. */
 	const writeFlagOn =
 		(module: string, index: number) =>
@@ -884,7 +909,8 @@ describe("the footprint's derivations", () => {
 			const form = formsOf(doc, module)[index];
 			if (form === undefined)
 				throw new Error(`${module} has no form ${index}.`);
-			return [
+			return addWriter(
+				doc,
 				{
 					kind: "addField",
 					parentUuid: form,
@@ -893,26 +919,26 @@ describe("the footprint's derivations", () => {
 						id: "worker_flag",
 						kind: "text",
 						label: proseText("Worker flag"),
-						caseWrite: { caseType: "commcare-user", property: "has_flag" },
 					},
 				},
-			];
+				{ caseType: "commcare-user", property: "has_flag" },
+			);
 		};
 	/** The question that names the child case `module`'s first form creates. */
 	const childNamer = (doc: BlueprintDoc, module: string): Uuid => {
 		const [form] = formsOf(doc, module);
-		const namer = Object.values(doc.fields).find(
-			(field) =>
-				"caseWrite" in field &&
-				field.caseWrite?.property === "case_name" &&
-				field.caseWrite.caseType !==
-					doc.modules[moduleNamed(doc, module)]?.caseType &&
-				doc.fieldParent?.[field.uuid] === form,
+		const own = doc.modules[moduleNamed(doc, module)]?.caseType;
+		const create = (
+			form === undefined ? [] : (doc.forms[form]?.caseOperations ?? [])
+		).find(
+			(operation) =>
+				operation.action === "create" && operation.caseType !== own,
 		);
-		if (namer === undefined) {
+		const name = create?.name;
+		if (name?.kind !== "term" || name.term.kind !== "field") {
 			throw new Error(`${module}'s first form names no child case.`);
 		}
-		return namer.uuid;
+		return name.term.uuid;
 	};
 	/** Set a search-first module's first search input's default to the worker's flag. */
 	const flagDefault =
@@ -969,17 +995,6 @@ describe("the footprint's derivations", () => {
 				}),
 			),
 		];
-	};
-	/** The text question that names the case `form` registers. */
-	const caseNamer = (doc: BlueprintDoc, form: Uuid | undefined): Uuid => {
-		const namer = Object.values(doc.fields).find(
-			(field) =>
-				field.kind === "text" &&
-				field.caseWrite?.property === "case_name" &&
-				doc.fieldParent?.[field.uuid] === form,
-		);
-		if (namer === undefined) throw new Error("The form names no case.");
-		return namer.uuid;
 	};
 	const cases: Derivation[] = [
 		// What names a module's case selection: its case-loading forms and those of the modules selecting under it.
@@ -1052,12 +1067,6 @@ describe("the footprint's derivations", () => {
 					kind: "updateModule",
 					uuid: moduleNamed(doc, "Visits"),
 					patch: { caseType: "stop" },
-				},
-				{
-					kind: "updateField",
-					uuid: caseNamer(doc, formOfType(doc, "Visits", "registration")[0]),
-					targetKind: "text",
-					patch: { caseWrite: { caseType: "stop", property: "case_name" } },
 				},
 			],
 			reaches: (doc) => [
@@ -1773,7 +1782,7 @@ describe("the footprint's derivations", () => {
 							label: proseText("Visit note"),
 						},
 					},
-					{ kind: "removeField", uuid: childNamer(doc, "Parents") },
+					...planned(planFieldRemoval(doc, childNamer(doc, "Parents"))),
 				];
 			},
 			reaches: (doc) => [
@@ -1789,24 +1798,25 @@ describe("the footprint's derivations", () => {
 				const [form] = formsOf(doc, "Parents");
 				if (form === undefined) throw new Error("Parents holds no form.");
 				const repeat = asUuid("0198a2c4-5d6e-7f80-8a91-b2c3d4e5f60d");
+				const add: Mutation = {
+					kind: "addField",
+					parentUuid: form,
+					field: {
+						uuid: repeat,
+						id: "fry",
+						kind: "repeat",
+						repeat_mode: "user_controlled",
+						label: proseText("Fry"),
+					},
+				};
+				const namer = childNamer(doc, "Parents");
 				return [
-					{
-						kind: "addField",
-						parentUuid: form,
-						field: {
-							uuid: repeat,
-							id: "fry",
-							kind: "repeat",
-							repeat_mode: "user_controlled",
-							label: proseText("Fry"),
-						},
-					},
-					{
-						kind: "moveField",
-						uuid: childNamer(doc, "Parents"),
-						toParentUuid: repeat,
-						after: null,
-					},
+					add,
+					{ kind: "moveField", uuid: namer, toParentUuid: repeat, after: null },
+					// The child's create moves into the repeat with its name.
+					...planned(
+						planFieldMoveCaseWrites(docAfter(doc, [add]), namer, repeat),
+					),
 				];
 			},
 			reaches: (doc) => [
@@ -1821,7 +1831,8 @@ describe("the footprint's derivations", () => {
 			batch: (doc) => {
 				const [form] = formsOf(doc, "Parents");
 				if (form === undefined) throw new Error("Parents holds no form.");
-				return [
+				return addWriter(
+					doc,
 					{
 						kind: "addField",
 						parentUuid: form,
@@ -1830,10 +1841,10 @@ describe("the footprint's derivations", () => {
 							id: "child_status",
 							kind: "text",
 							label: proseText("Child status"),
-							caseWrite: { caseType: "guppy", property: "care_status" },
 						},
 					},
-				];
+					{ caseType: "guppy", property: "care_status" },
+				);
 			},
 			reaches: (doc) => formsOf(doc, "Parents"),
 			leaves: (doc) => formsOf(doc, "Child care"),

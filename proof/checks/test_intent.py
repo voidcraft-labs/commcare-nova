@@ -94,26 +94,25 @@ def _field(uuid, kind, ident, **extra):
     return uuid, {"uuid": uuid, "kind": kind, "id": ident, **extra}
 
 
+def _answer(uuid):
+    return {"kind": "term", "term": {"kind": "field", "uuid": uuid}}
+
+
 def _document():
-    """A document as Nova persists it: three modules, a form with nested containers, writes and operations."""
+    """A document as Nova persists it: three modules, a form with nested containers and case operations, the form's
+    own case first."""
     fields = dict(
         [
-            _field("f-name", "text", "name", caseWrite={"caseType": "patient", "property": "case_name"}),
+            _field("f-name", "text", "name"),
             _field("f-group", "group", "details"),
-            _field("f-age", "int", "age", caseWrite={"caseType": "patient", "property": "age"}, validate={"parts": []}),
-            _field(
-                "f-photo",
-                "image",
-                "photo",
-                caseWrite={"caseType": "patient", "property": "photo", "mode": "attachment"},
-            ),
+            _field("f-age", "int", "age", validate={"parts": []}),
+            _field("f-photo", "image", "photo"),
             _field("f-repeat", "repeat", "visits", repeat_mode="query_bound"),
-            _field(
-                "f-note", "text", "note", caseWrite={"caseType": "visit", "property": "note"}, validate={"parts": []}
-            ),
+            _field("f-note", "text", "note", validate={"parts": []}),
             _field("f-plain", "text", "plain", validate={"parts": []}),
-            _field("f-mood", "text", "mood", caseWrite={"caseType": "commcare-user", "property": "mood"}),
-            _field("f-weight", "int", "weight", caseWrite={"caseType": "patient", "property": "weight"}),
+            _field("f-mood", "text", "mood"),
+            _field("f-district", "text", "district"),
+            _field("f-weight", "int", "weight"),
         ]
     )
     doc = {
@@ -137,17 +136,71 @@ def _document():
                 "type": "registration",
                 "caseOperations": [
                     {
+                        "uuid": "op-own",
+                        "id": "patient",
+                        "action": "own",
+                        "name": _answer("f-name"),
+                        "writes": [
+                            {"property": "age", "value": _answer("f-age")},
+                            {
+                                "property": "photo",
+                                "value": {"kind": "term", "term": {"kind": "capture-link", "field": "f-photo"}},
+                            },
+                        ],
+                    },
+                    {
                         "uuid": "op",
                         "id": "o",
                         "action": "create",
                         "caseType": "household",
                         "target": {"kind": "new"},
                         "writes": [{"property": "size"}, {"property": "owner_id"}, {"property": "parent/x"}],
-                    }
+                    },
+                    {
+                        "uuid": "op-worker",
+                        "id": "commcare_user",
+                        "action": "update",
+                        "caseType": "commcare-user",
+                        "target": {"kind": "worker-record"},
+                        "writes": [{"property": "mood", "value": _answer("f-mood")}],
+                    },
+                    {
+                        "uuid": "op-visit",
+                        "id": "visit",
+                        "action": "create",
+                        "caseType": "visit",
+                        "target": {"kind": "new"},
+                        "forEach": {"repeat": "f-repeat"},
+                        "links": [
+                            {
+                                "identifier": "parent",
+                                "targetType": "patient",
+                                "target": {"kind": "op", "opUuid": "op-own"},
+                                "relationship": "child",
+                            }
+                        ],
+                        "writes": [{"property": "note", "value": _answer("f-note")}],
+                    },
                 ],
             },
             "form-survey": {"uuid": "form-survey", "id": "s", "name": "S", "type": "survey"},
-            "form-batch": {"uuid": "form-batch", "id": "b", "name": "B", "type": "followup"},
+            "form-batch": {
+                "uuid": "form-batch",
+                "id": "b",
+                "name": "B",
+                "type": "followup",
+                "caseOperations": [
+                    {
+                        "uuid": "op-batch",
+                        "id": "patient",
+                        "action": "own",
+                        "writes": [
+                            {"property": "weight", "value": _answer("f-weight")},
+                            {"property": "district", "value": _answer("f-district"), "via": [{"identifier": "parent"}]},
+                        ],
+                    }
+                ],
+            },
         },
         "fields": fields,
         "formOrder": {"m-patients": ["form-register"], "m-survey": ["form-survey"], "m-batch": ["form-batch"]},
@@ -155,7 +208,7 @@ def _document():
             "form-register": ["f-name", "f-group", "f-plain", "f-mood"],
             "f-group": ["f-age", "f-photo", "f-repeat"],
             "f-repeat": ["f-note"],
-            "form-batch": ["f-weight"],
+            "form-batch": ["f-weight", "f-district"],
         },
     }
     wire = {
@@ -174,22 +227,25 @@ def test_the_intent_is_read_from_the_document_alone():
     assert read.app_name == "Clinic"
     assert [case_type for case_type, _ in read.modules] == ["patient", "", "patient", "patient"]
     register = read.modules[0][1][0]
-    # Standard properties (case_name, owner_id) and another case's (parent/x) are not custom writes.
+    # Standard properties (case_name, owner_id) and another case's (parent/x) are not custom writes; the form's
+    # own case writes its module's type, and a capture's write saves the link to its file, a value.
     assert register.writes == {
-        "patient": {"age": "value", "photo": "attachment"},
+        "patient": {"age": "value", "photo": "value"},
         "visit": {"note": "value"},
         "household": {"size": "value"},
         "commcare-user": {"mood": "value"},
     }
-    # Field writes and case operations are told apart, since HQ keeps them in different slots.
+    # What Case Management states and what Save to Case holds are told apart, since HQ's refresh reads them
+    # in different slots: the own case, the worker's record and a child of the own case saving answers as they
+    # are are Case Management's; a create that is none of them (here with no value a question gives) is not.
     assert register.field_writes == {
-        "patient": {"age": "value", "photo": "attachment"},
+        "patient": {"age": "value", "photo": "value"},
         "visit": {"note": "value"},
         "commcare-user": {"mood": "value"},
     }
     assert register.operation_writes == {"household": {"size"}}
-    # A registration creates its module's type; a write naming another type creates it (but the worker's own
-    # case, which is only ever updated); so does a create operation.
+    # A registration creates its module's type, and each create operation its own; the worker's own case is
+    # only ever updated.
     assert register.creates == {"patient", "visit", "household"}
     # A query-bound repeat's rows are its <item> children.
     assert register.validations == {"f-age": "/details/age", "f-note": "/details/visits/item/note", "f-plain": "/plain"}
@@ -198,11 +254,32 @@ def test_the_intent_is_read_from_the_document_alone():
     # The menu HQ holds a form in selects several cases where the document's module selects several; a
     # synthetic module, holding one form outside its host's case list, selects none.
     assert [forms[0].multiple for _, forms in read.modules] == [False, False, True, False]
+    batch = read.modules[2][1][0]
+    # A several-case menu's own case is saved per selected case in a Save to Case block, and a write through
+    # the parent index saves to another case, under a key HQ keeps as its path.
+    assert (batch.field_writes, batch.operation_writes, batch.writes) == (
+        {},
+        {"patient": {"weight"}},
+        {"patient": {"weight": "value"}},
+    )
     assert intent.written_properties(read) == {
         "patient": {"age", "photo", "weight"},
         "visit": {"note"},
         "household": {"size"},
         "commcare-user": {"mood"},
+    }
+
+    # One value no question gives as it is takes the form's own case out of Case Management: every write of it
+    # is Save to Case, and so is the child linked to it, which Case Management states only beside it.
+    computed = _document()
+    own = computed["doc"]["forms"]["form-register"]["caseOperations"][0]
+    own["writes"].append({"property": "score", "value": {"kind": "arith", "op": "*"}})
+    read = intent.document_intent(computed).modules[0][1][0]
+    assert read.field_writes == {"commcare-user": {"mood": "value"}}
+    assert read.operation_writes == {
+        "household": {"size"},
+        "patient": {"age", "photo", "score"},
+        "visit": {"note"},
     }
 
     broken = _document()

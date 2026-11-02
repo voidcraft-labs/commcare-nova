@@ -1846,6 +1846,11 @@ writer converging exactly the planned differences (G7).
 - **Claims corrected**: the `previous` refusal's HQ function (section 2); the outline's "publish-placement kind
   CHECK" (a trigger function).
 
+- **C6 over a question in a repeat writes `count(<repeat answer>[. = <value>]) > 0`**, not the literal
+  `eq(field, answer)`: the head checker refuses a single-value comparison of a repeat answer in
+  `form_close_condition` (`many-values`), and the existential count is the meaning `main`'s close
+  read had (part 08's case-writes witness holds it).
+
 ## Executed during planning
 
 Light reads on this machine; one production read, approved by the person.

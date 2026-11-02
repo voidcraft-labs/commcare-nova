@@ -178,7 +178,8 @@ export const CASE_SCALAR_PROPERTY_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Standard scalar properties an ordinary form field may write explicitly.
+ * Standard scalar properties a form's case operations may save a question's
+ * answer to.
  *
  * These are authored with their stable Nova names even though neither value
  * belongs in the custom JSON property document. Lowering and persistence route
@@ -190,8 +191,8 @@ export const WRITABLE_STANDARD_CASE_PROPERTIES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Platform-owned or runtime-divergent names that may never use an ordinary
- * field's `caseWrite` destination.
+ * Platform-owned or runtime-divergent names a question's answer may never be
+ * saved to through a form's "Saves to".
  *
  * This is domain admission policy, not a compatibility alias table. The set is
  * deliberately exact: custom properties remain open-ended, while every

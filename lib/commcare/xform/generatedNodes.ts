@@ -30,7 +30,12 @@
  * - **Taken before any allocation.** Every authored name in the scope: every
  *   sibling question id, earlier or later; at the form root, the form's
  *   Connect block ids; in an operations namespace, the id of every case
- *   operation of that scope.
+ *   operation of that scope. And every segment of every held Save to Case
+ *   path of the form (an operation's `placement`, the form's
+ *   `ownClosePlacement`): the first in its scope, the rest in that scope's
+ *   operations namespace. A held segment names its owner's own node and a
+ *   container of that name names the scope's container, so neither moves;
+ *   any other base it takes gets a suffix.
  * - **Suffix.** A base that is taken becomes `<base>_<n>` for the smallest
  *   `n >= 1` not taken.
  * - **Order**, each allocation joining the taken set: in a query repeat's
@@ -73,6 +78,7 @@ import {
 	expressionSlotValue,
 	type Field,
 	fieldKindCarriesValidation,
+	formCaseWriteViews,
 	formConnectIds,
 	isCaptureField,
 	isContainer,
@@ -253,6 +259,55 @@ const UPDATE_SELECTED_CASES = "nova_update_selected_cases";
 const CLOSE_SELECTED_CASES = "nova_close_selected_cases";
 const CLOSE = "nova_close";
 
+/** Who a held path's segments belong to: an operation, or the own close. */
+type HeldOwner = Uuid | typeof OWN_CLOSE;
+const OWN_CLOSE = "own-close";
+
+interface HeldPath {
+	readonly owner: HeldOwner;
+	/** The held `repeat`; absent at the form root. */
+	readonly repeat: Uuid | undefined;
+	readonly segments: readonly [string, ...string[]];
+}
+
+/**
+ * Every held Save to Case path of the form: each operation's held
+ * placement and the form's held own close. A held path is where a
+ * published app keeps a block, so its segments are taken before anything
+ * else is named: the first in its scope (the form root, or the held
+ * repeat's row), the rest in that scope's operations namespace. A hold
+ * that no longer expresses its subject still reserves its path, so no
+ * generated name depends on the placement the plan reads these names for.
+ */
+function heldSaveToCasePaths(form: BlueprintDoc["forms"][Uuid]): {
+	readonly paths: readonly HeldPath[];
+	firstSegments(repeat: Uuid | undefined): readonly string[];
+} {
+	const paths: HeldPath[] = [];
+	for (const operation of orderedCaseOperations(form)) {
+		const placement = operation.placement;
+		if (placement?.kind === "save-to-case")
+			paths.push({
+				owner: operation.uuid,
+				repeat: placement.repeat,
+				segments: placement.path,
+			});
+	}
+	if (form.ownClosePlacement !== undefined)
+		paths.push({
+			owner: OWN_CLOSE,
+			repeat: undefined,
+			segments: form.ownClosePlacement.path,
+		});
+	return {
+		paths,
+		firstSegments: (repeat) =>
+			paths
+				.filter((path) => path.repeat === repeat)
+				.map((path) => path.segments[0]),
+	};
+}
+
 const plans = new WeakMap<BlueprintDoc, Map<Uuid, GeneratedNodePlan>>();
 
 /** The form's plan of generated nodes, made once per document object. */
@@ -338,19 +393,29 @@ function allocateGeneratedNodes(
 	};
 
 	const trimmedFields = caseScalarTextGuards(doc, formUuid);
+	// Each question an operation writes from gets its sibling (`nova_url_`
+	// for a capture's link, `nova_datetime_` for a date and time) whichever
+	// place the write takes, so no generated name depends on the placement
+	// that reads this plan.
+	const writeViews = formCaseWriteViews(doc, formUuid);
+	const held = heldSaveToCasePaths(form);
 
 	// Field namespaces: one per container's child element, in field order.
 	const fieldScopes = new Map<string, Namespace>();
+	const heldContainerScopes = new Map<string, Uuid | undefined>();
 	const repeatScopes = new Map<Uuid, FormPath>();
 	const walk = (parentUuid: Uuid, parentPath: FormPath, root: boolean) => {
 		const children = orderedFieldUuids(doc, parentUuid).flatMap((uuid) => {
 			const field = doc.fields[uuid];
 			return field === undefined ? [] : [field];
 		});
+		const scopeKey: Uuid | undefined = root ? undefined : parentUuid;
 		const scope = new Namespace([
 			...children.map((field) => field.id),
 			...(root ? formConnectIds(doc, formUuid) : []),
+			...held.firstSegments(scopeKey),
 		]);
+		heldContainerScopes.set(parentPath.toXPath(), scopeKey);
 		fieldScopes.set(parentPath.toXPath(), scope);
 		const parent = doc.fields[parentUuid];
 		if (parent?.kind === "repeat" && parent.repeat_mode === "query_bound") {
@@ -378,12 +443,12 @@ function allocateGeneratedNodes(
 					field.uuid,
 					scope.allocate(`nova_constraint_message_${field.id}`),
 				);
-			if (isCaptureField(field) && field.caseWrite !== undefined)
+			const views = writeViews.get(field.uuid) ?? [];
+			if (isCaptureField(field) && views.some((view) => view.link))
 				record("url", field.uuid, scope.allocate(`nova_url_${field.id}`));
 			if (
-				"caseWrite" in field &&
-				field.caseWrite !== undefined &&
-				fieldValueType(field, effectiveCaseTypes(doc)) === "datetime"
+				views.some((view) => !view.link) &&
+				fieldValueType(field, effectiveCaseTypes(doc), views) === "datetime"
 			)
 				record(
 					"datetime",
@@ -435,10 +500,17 @@ function allocateGeneratedNodes(
 	>();
 	for (const scopePath of [FormPath.root(), ...repeatScopes.values()]) {
 		const scope = fieldScopes.get(scopePath.toXPath()) ?? new Namespace([]);
+		// A held path that passes through a container names that container:
+		// the scope's one group of its kind, which unheld blocks share.
+		const heldHere = new Set(
+			held.firstSegments(heldContainerScopes.get(scopePath.toXPath())),
+		);
+		const container = (base: string) =>
+			heldHere.has(base) ? base : scope.allocate(base);
 		containers.set(scopePath.toXPath(), {
-			operations: scope.allocate(OPERATIONS),
-			subcases: scope.allocate(SUBCASES),
-			selectedCases: scope.allocate(SELECTED_CASES),
+			operations: container(OPERATIONS),
+			subcases: container(SUBCASES),
+			selectedCases: container(SELECTED_CASES),
 		});
 	}
 
@@ -452,28 +524,54 @@ function allocateGeneratedNodes(
 				: (repeatScopes.get(repeat) ?? FormPath.root())
 		).toXPath();
 	};
-	const operationScopes = new Map<string, Namespace>();
-	for (const operation of operations) {
-		const key = scopeOf(operation);
-		if (!operationScopes.has(key)) {
-			operationScopes.set(
-				key,
-				new Namespace(
-					operations
-						.filter((candidate) => scopeOf(candidate) === key)
-						.map((candidate) => candidate.id),
-				),
-			);
+	// Every held segment after the first is taken in its scope's operations
+	// namespace before anything is allocated there.
+	const heldRest = new Map<string, Map<string, Set<HeldOwner>>>();
+	for (const path of held.paths) {
+		const scopePath =
+			path.repeat === undefined
+				? FormPath.root()
+				: repeatScopes.get(path.repeat);
+		if (scopePath === undefined) continue;
+		const key = scopePath.toXPath();
+		let names = heldRest.get(key);
+		if (names === undefined) {
+			names = new Map();
+			heldRest.set(key, names);
+		}
+		for (const segment of path.segments.slice(1)) {
+			const owners = names.get(segment) ?? new Set<HeldOwner>();
+			owners.add(path.owner);
+			names.set(segment, owners);
 		}
 	}
+	const operationScopes = new Map<string, Namespace>();
 	const operationNamespace = (scopePath: string): Namespace => {
 		let scope = operationScopes.get(scopePath);
 		if (scope === undefined) {
-			scope = new Namespace([]);
+			scope = new Namespace([
+				...operations
+					.filter((candidate) => scopeOf(candidate) === scopePath)
+					.map((candidate) => candidate.id),
+				...(heldRest.get(scopePath)?.keys() ?? []),
+			]);
 			operationScopes.set(scopePath, scope);
 		}
 		return scope;
 	};
+	for (const operation of operations) operationNamespace(scopeOf(operation));
+	/**
+	 * Allocate `base` for `owner`: a name the owner's own held path holds is
+	 * the owner's, kept as held; any other taken name takes a suffix.
+	 */
+	const allocateFor = (
+		scopePath: string,
+		owner: HeldOwner,
+		base: string,
+	): string =>
+		heldRest.get(scopePath)?.get(base)?.has(owner) === true
+			? base
+			: operationNamespace(scopePath).allocate(base);
 	const operationByUuid = new Map(
 		operations.map((operation) => [operation.uuid, operation]),
 	);
@@ -483,18 +581,20 @@ function allocateGeneratedNodes(
 		operations,
 	);
 	for (const operation of operations) {
-		const scope = operationNamespace(scopeOf(operation));
+		const scopePath = scopeOf(operation);
+		const scope = operationNamespace(scopePath);
+		const allocate = (base: string) =>
+			allocateFor(scopePath, operation.uuid, base);
 		if (isKeyedRootCreate(operation)) {
 			const keyedBase = `nova_keyed_${operation.id}`;
 			// The count node is named for the repeat, whose own name is taken
 			// next; both join the namespace before anything else of the operation.
-			const keyed = scope.peek(keyedBase);
-			record(
-				"keyed-count",
-				operation.uuid,
-				scope.allocate(`nova_count_${keyed}`),
-			);
-			record("keyed", operation.uuid, scope.allocate(keyedBase));
+			const keyed =
+				heldRest.get(scopePath)?.get(keyedBase)?.has(operation.uuid) === true
+					? keyedBase
+					: scope.peek(keyedBase);
+			record("keyed-count", operation.uuid, allocate(`nova_count_${keyed}`));
+			record("keyed", operation.uuid, allocate(keyedBase));
 		}
 		const conditional =
 			operation.condition !== undefined ||
@@ -505,13 +605,13 @@ function allocateGeneratedNodes(
 			record(
 				"condition",
 				operation.uuid,
-				scope.allocate(`nova_condition_${operation.id}`),
+				allocate(`nova_condition_${operation.id}`),
 			);
 		for (const kind of operationGuardKinds(operation))
 			record(
 				"guard",
 				operation.uuid,
-				scope.allocate(`nova_guard_${operation.id}_${kind}`),
+				allocate(`nova_guard_${operation.id}_${kind}`),
 				kind,
 			);
 	}
@@ -521,11 +621,16 @@ function allocateGeneratedNodes(
 		`nova_condition_${UPDATE_SELECTED_CASES.slice("nova_".length)}`,
 	);
 	const updateSelectedCases = rootOperations.allocate(UPDATE_SELECTED_CASES);
-	const closeSelectedCases = rootOperations.peek(CLOSE_SELECTED_CASES);
-	const conditionClose = rootOperations.allocate(
+	const closeSelectedCases =
+		heldRest.get(root)?.get(CLOSE_SELECTED_CASES)?.has(OWN_CLOSE) === true
+			? CLOSE_SELECTED_CASES
+			: rootOperations.peek(CLOSE_SELECTED_CASES);
+	const conditionClose = allocateFor(
+		root,
+		OWN_CLOSE,
 		`nova_condition_${CLOSE.slice("nova_".length)}`,
 	);
-	const close = rootOperations.allocate(CLOSE);
+	const close = allocateFor(root, OWN_CLOSE, CLOSE);
 
 	const lookup = (
 		purpose: GeneratedNodePurpose,

@@ -102,9 +102,24 @@ for (const scenario of caseCaptureScenarios) {
 							}
 						: undefined,
 				);
-			expect(firstForm.actions.case_preload.preload).toEqual(
-				scenario === "followup" ? { "/data/full_name": "name" } : {},
-			);
+			// No preload action: a follow-up's name question opens on the
+			// case's name through its own default, written at its place.
+			expect(firstForm.actions.case_preload.preload).toEqual({});
+			const nameSeeds = (form: { model: Element }) =>
+				form.model.children
+					.filter(isTag)
+					.filter(
+						(e) => e.name === "setvalue" && e.attribs.ref === "/data/full_name",
+					)
+					.map((e) => e.attribs.value);
+			for (const form of [source, device])
+				expect(nameSeeds(form)).toEqual(
+					scenario === "followup"
+						? [
+								"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/case_name",
+							]
+						: [],
+				);
 			for (const form of [source, device]) {
 				const details = child(container(form.data), "details");
 				expect(details.children.filter(isTag).map((e) => e.name)).toEqual(

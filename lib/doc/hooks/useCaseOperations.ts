@@ -28,6 +28,8 @@ import { BlueprintEditableContext } from "@/lib/doc/provider";
 import {
 	type CaseOperation,
 	type CasePropertyDataType,
+	type OwnCaseOperation,
+	operationCaseType,
 	orderedCaseOperations,
 } from "@/lib/domain";
 import {
@@ -57,8 +59,15 @@ import {
 } from "./useBlueprintMutations";
 
 export interface CaseOperationsView {
-	/** Execution order — the order the runtime applies them. */
+	/** Execution order — the order the runtime applies them. The form's own
+	 *  case, when it has one, is always first. */
 	readonly operations: readonly CaseOperation[];
+	/** The form's own case: the case a registration creates, or the one any
+	 *  other case form loaded. */
+	readonly own: OwnCaseOperation | undefined;
+	/** The case type an operation works on: the module's for the own case,
+	 *  else the one it stores. */
+	readonly caseTypeOf: (operation: CaseOperation) => string | undefined;
 	/** Per operation, the operations whose conditions it inherits. */
 	readonly inheritedGuards: ReadonlyMap<Uuid, readonly Uuid[]>;
 	/** Human name for a row, for a sentence or a refusal. */
@@ -114,6 +123,20 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 
 	const operations = useMemo(
 		() => orderedCaseOperations(doc.forms[formUuid] ?? {}),
+		[doc, formUuid],
+	);
+
+	const own = useMemo(
+		() =>
+			operations.find(
+				(operation): operation is OwnCaseOperation =>
+					operation.action === "own",
+			),
+		[operations],
+	);
+
+	const caseTypeOf = useCallback(
+		(operation: CaseOperation) => operationCaseType(doc, formUuid, operation),
 		[doc, formUuid],
 	);
 
@@ -312,6 +335,8 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 	return useMemo(
 		() => ({
 			operations,
+			own,
+			caseTypeOf,
 			inheritedGuards,
 			nameOf,
 			removalBlockers,
@@ -328,6 +353,8 @@ export function useCaseOperations(formUuid: Uuid): CaseOperationsView {
 		}),
 		[
 			operations,
+			own,
+			caseTypeOf,
 			inheritedGuards,
 			nameOf,
 			removalBlockers,

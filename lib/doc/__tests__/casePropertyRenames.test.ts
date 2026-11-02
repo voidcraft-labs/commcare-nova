@@ -10,7 +10,9 @@ import {
 	CasePropertySemanticProvenanceRequiredError,
 	diffDocsToMutations,
 } from "@/lib/doc/diffDocsToMutations";
+import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { planFieldRemoval } from "@/lib/doc/fieldRemovalMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type AdmittedMutationBatch,
@@ -27,9 +29,10 @@ import {
 	casePropertyTargetKey,
 	collectTranslationUnits,
 	emptyCaseListConfig,
+	fieldCaseWriteViews,
 	plainColumn,
 } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/expression/builders";
+import { formField, literal, term } from "@/lib/domain/expression/builders";
 import { proseText } from "@/lib/domain/prose";
 import { assertAdmittedDoc } from "./admittedDoc";
 
@@ -39,6 +42,7 @@ const FIELD_A = testUuid("30000000-0000-4000-8000-000000000001");
 const FIELD_B = testUuid("30000000-0000-4000-8000-000000000002");
 const FIELD_NEW = testUuid("30000000-0000-4000-8000-000000000003");
 const OPERATION = testUuid("40000000-0000-4000-8000-000000000000");
+const OWN = testUuid("40000000-0000-4000-8000-000000000001");
 
 function fixture(): BlueprintDoc {
 	const doc: BlueprintDoc = {
@@ -80,6 +84,15 @@ function fixture(): BlueprintDoc {
 				type: "followup",
 				caseOperations: [
 					{
+						uuid: OWN,
+						id: "patient",
+						action: "own",
+						writes: [
+							{ property: "a", value: term(formField(FIELD_A)) },
+							{ property: "b", value: term(formField(FIELD_B)) },
+						],
+					},
+					{
 						uuid: OPERATION,
 						id: "update_patient",
 						action: "update",
@@ -99,14 +112,12 @@ function fixture(): BlueprintDoc {
 				id: "question_a",
 				kind: "text",
 				label: proseText("A"),
-				caseWrite: { caseType: "patient", property: "a" },
 			},
 			[FIELD_B]: {
 				uuid: FIELD_B,
 				id: "question_b",
 				kind: "text",
 				label: proseText("B"),
-				caseWrite: { caseType: "patient", property: "b" },
 			},
 		},
 		moduleOrder: [MODULE],
@@ -121,10 +132,6 @@ function fixture(): BlueprintDoc {
 function catalogOnlyFixture(): BlueprintDoc {
 	const doc = fixture();
 	delete doc.forms[FORM].caseOperations;
-	const fieldA = doc.fields[FIELD_A];
-	const fieldB = doc.fields[FIELD_B];
-	if ("caseWrite" in fieldA) delete fieldA.caseWrite;
-	if ("caseWrite" in fieldB) delete fieldB.caseWrite;
 	doc.forms[FORM].type = "survey";
 	assertAdmittedDoc(doc);
 	return doc;
@@ -157,14 +164,28 @@ function apply(
 	return verdict.nextDoc;
 }
 
+/** The one property a question's answer is saved to, read from its view. */
 function caseWriteProperty(
 	doc: BlueprintDoc,
 	fieldUuid: typeof FIELD_A | typeof FIELD_B,
 ): string | undefined {
-	const field = doc.fields[fieldUuid];
-	return field !== undefined && "caseWrite" in field
-		? field.caseWrite?.property
-		: undefined;
+	const views = fieldCaseWriteViews(doc, fieldUuid);
+	expect(views.length).toBeLessThanOrEqual(1);
+	return views[0]?.property;
+}
+
+/** The "Saves to" planner's batch, which a test expects to be admitted. */
+function savesTo(
+	doc: BlueprintDoc,
+	fieldUuid: typeof FIELD_A | typeof FIELD_B | typeof FIELD_NEW,
+	property: string,
+): readonly Mutation[] {
+	const plan = planFieldCaseWrite(doc, fieldUuid, {
+		caseType: "patient",
+		property,
+	});
+	if (!plan.ok) throw new Error(plan.message);
+	return plan.mutations;
 }
 
 function expectRoundTrip(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
@@ -342,7 +363,7 @@ describe("explicit app-wide case-property rename", () => {
 		expect(chain.fields[FIELD_B].id).toBe("question_b");
 		expect(caseWriteProperty(chain, FIELD_A)).toBe("b");
 		expect(caseWriteProperty(chain, FIELD_B)).toBe("fresh");
-		expect(chain.forms[FORM].caseOperations?.[0]?.writes?.[0]?.property).toBe(
+		expect(chain.forms[FORM].caseOperations?.[1]?.writes?.[0]?.property).toBe(
 			"b",
 		);
 		expect(
@@ -793,12 +814,43 @@ describe("explicit app-wide case-property rename", () => {
 			]),
 		).toThrow();
 	});
+
+	it("renames the write keys of the own case and the form-case default that reads the property", () => {
+		const start = apply(fixture(), [
+			{
+				kind: "updateField",
+				uuid: FIELD_A,
+				targetKind: "text",
+				patch: {
+					default_value: {
+						kind: "term",
+						term: { kind: "form-case", caseType: "patient", property: "a" },
+					},
+				},
+			},
+		]);
+		const renamed = apply(
+			start,
+			admittedRename({ caseType: "patient", from: "a", to: "fresh" }),
+		);
+		expect(
+			renamed.forms[FORM].caseOperations?.[0]?.writes?.map(
+				(write) => write.property,
+			),
+		).toEqual(["fresh", "b"]);
+		expect(caseWriteProperty(renamed, FIELD_A)).toBe("fresh");
+		const field = renamed.fields[FIELD_A];
+		expect(field.kind === "text" ? field.default_value : undefined).toEqual({
+			kind: "term",
+			term: { kind: "form-case", caseType: "patient", property: "fresh" },
+		});
+	});
 });
 
 describe("endpoint diff keeps local carrier edits local", () => {
 	it("round-trips writer add and removal without manufacturing rename intent", () => {
 		const start = fixture();
-		const withWriter = apply(start, [
+		const withField = apply(start, [
 			{
 				kind: "addField",
 				parentUuid: FORM,
@@ -807,48 +859,65 @@ describe("endpoint diff keeps local carrier edits local", () => {
 					id: "question_fresh",
 					kind: "text",
 					label: proseText("Fresh"),
-					caseWrite: { caseType: "patient", property: "fresh" },
 				},
 			},
 		]);
+		const withWriter = apply(withField, savesTo(withField, FIELD_NEW, "fresh"));
+		expect(
+			fieldCaseWriteViews(withWriter, FIELD_NEW).map((view) => view.property),
+		).toEqual(["fresh"]);
 		expectRoundTrip(start, withWriter);
-		const removed = apply(withWriter, [
-			{ kind: "removeField", uuid: FIELD_NEW },
-		]);
+		const removal = planFieldRemoval(withWriter, FIELD_NEW);
+		if (!removal.ok) throw new Error(removal.message);
+		const removed = apply(withWriter, removal.mutations);
+		expect(
+			removed.forms[FORM].caseOperations?.[0]?.writes?.map(
+				(write) => write.property,
+			),
+		).toEqual(["a", "b"]);
 		expectRoundTrip(withWriter, removed);
 	});
 
-	it("round-trips a local field caseWrite retarget without moving peer carriers", () => {
+	it("round-trips a question's Saves to retarget without moving peer carriers", () => {
 		const start = fixture();
-		const retargeted = apply(start, [
-			{
-				kind: "updateField",
-				uuid: FIELD_A,
-				targetKind: "text",
-				patch: {
-					caseWrite: { caseType: "patient", property: "fresh" },
-				},
-			},
-		]);
+		const retargeted = apply(start, savesTo(start, FIELD_A, "fresh"));
 		const mutations = expectRoundTrip(start, retargeted);
-		expect(mutations).toContainEqual({
-			kind: "updateField",
-			uuid: FIELD_A,
-			targetKind: "text",
-			patch: {
-				caseWrite: { caseType: "patient", property: "fresh" },
-			},
-		});
+		expect(mutations).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					kind: "updateForm",
+					uuid: FORM,
+					caseOperationPatch: expect.objectContaining({
+						operation: "remove-write",
+						uuid: OWN,
+						key: { property: "a" },
+					}),
+				}),
+				expect.objectContaining({
+					kind: "updateForm",
+					uuid: FORM,
+					caseOperationPatch: expect.objectContaining({
+						operation: "add-write",
+						uuid: OWN,
+						value: expect.objectContaining({ property: "fresh" }),
+					}),
+				}),
+			]),
+		);
+		expect(mutations).not.toContainEqual(
+			expect.objectContaining({ kind: "renameCaseProperties" }),
+		);
+		expect(caseWriteProperty(retargeted, FIELD_A)).toBe("fresh");
 		expect(caseWriteProperty(retargeted, FIELD_B)).toBe("b");
 		expect(
-			retargeted.forms[FORM].caseOperations?.[0]?.writes?.[0]?.property,
+			retargeted.forms[FORM].caseOperations?.[1]?.writes?.[0]?.property,
 		).toBe("a");
 	});
 
 	it("round-trips a case-operation write destination edit", () => {
 		const start = fixture();
 		const changed = produce(start, (draft) => {
-			const operation = draft.forms[FORM].caseOperations?.[0];
+			const operation = draft.forms[FORM].caseOperations?.[1];
 			if (operation?.writes?.[0] !== undefined) {
 				operation.writes[0].property = "b";
 			}
@@ -862,7 +931,7 @@ describe("endpoint diff keeps local carrier edits local", () => {
 					caseOperationPatch: {
 						operation: "remove-write",
 						uuid: OPERATION,
-						property: "a",
+						key: { property: "a" },
 					},
 				}),
 				expect.objectContaining({
@@ -1102,29 +1171,23 @@ describe("endpoint ambiguity and exact command provenance", () => {
 
 	it("constructs a local writer-retarget inverse from its exact ordinary command without widening rename authority", () => {
 		const start = fixture();
-		const forward = admitMutationBatch([
-			{
-				kind: "updateField",
-				uuid: FIELD_A,
-				targetKind: "text",
-				patch: {
-					caseWrite: { caseType: "patient", property: "fresh" },
-				},
-			},
-		]);
+		const forward = admitMutationBatch([...savesTo(start, FIELD_A, "fresh")]);
 		const retargeted = apply(start, forward);
 		const inverse = diffDocsToMutations(retargeted, start, {
 			recordedNonRenameForward: forward,
 		});
 
-		expect(inverse).toContainEqual({
-			kind: "updateField",
-			uuid: FIELD_A,
-			targetKind: "text",
-			patch: {
-				caseWrite: { caseType: "patient", property: "a" },
-			},
-		});
+		expect(inverse).toContainEqual(
+			expect.objectContaining({
+				kind: "updateForm",
+				uuid: FORM,
+				caseOperationPatch: expect.objectContaining({
+					operation: "add-write",
+					uuid: OWN,
+					value: expect.objectContaining({ property: "a" }),
+				}),
+			}),
+		);
 		expect(inverse).not.toContainEqual(
 			expect.objectContaining({ kind: "renameCaseProperties" }),
 		);

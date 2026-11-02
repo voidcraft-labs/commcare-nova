@@ -41,7 +41,7 @@ import { mutationCommitVerdict } from "../../../lib/doc/commitVerdicts";
 import { planDatetimeSplits } from "../../../lib/doc/datetimeSplit";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import type { BlueprintDoc, Uuid } from "../../../lib/domain";
-import { fieldCaseWrite, proseText } from "../../../lib/domain";
+import { fieldCaseWriteViews, proseText } from "../../../lib/domain";
 import type { Expression } from "../../../lib/domain/expression";
 import {
 	concat,
@@ -322,10 +322,9 @@ writeFileSync(
 	// The writer is the one split question that writes a case property; the
 	// others only read. Its untyped case value must be in the compiled form,
 	// so a renamed node fails here rather than in the Core run.
-	const writers = plan.splits.filter((split) => {
-		const field = doc.fields[split.fieldUuid];
-		return field !== undefined && fieldCaseWrite(field) !== undefined;
-	});
+	const writers = plan.splits.filter(
+		(split) => fieldCaseWriteViews(doc, split.fieldUuid).length > 0,
+	);
 	if (writers.length !== 1 || writers[0] === undefined)
 		throw new Error(
 			`The shared original's split should hold one question that writes a case property, and it holds ${writers.length}.`,

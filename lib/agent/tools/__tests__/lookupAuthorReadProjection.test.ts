@@ -146,7 +146,13 @@ function lookupDoc() {
 		target: { kind: "expression", expr: lookupExpression },
 		condition: lookupPredicate,
 	};
-	doc.forms[FORM].caseOperations = [operation];
+	// The follow-up's own case stays its first change.
+	doc.forms[FORM].caseOperations = [
+		...(doc.forms[FORM].caseOperations ?? []).filter(
+			(candidate) => candidate.action === "own",
+		),
+		operation,
+	];
 	return expectAdmittedDoc(doc, { kind: "available", ...LOOKUP_CATALOG });
 }
 

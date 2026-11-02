@@ -23,13 +23,8 @@
  * `FieldTreeNode` rose tree built at construction / schema refresh.
  */
 import { createStore, type StoreApi } from "zustand/vanilla";
-import type { JsonObject, JsonValue } from "@/lib/case-store";
 import { caseOptionsNodeset } from "@/lib/commcare/caseOptions";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
-import {
-	assertAndProjectCaseWriteInventory,
-	type ProjectedCaseWriteInventory,
-} from "@/lib/commcare/caseWriteAdmission";
 import { lookupOptionsNodeset } from "@/lib/commcare/lookupOptions";
 import { fieldBindType } from "@/lib/commcare/xform/bindType";
 import {
@@ -46,11 +41,8 @@ import type { WireExpr } from "@/lib/commcare/xpath/wire/tree";
 import type {
 	BlueprintDoc,
 	CaseOptionsSource,
-	CaseProperty,
-	CasePropertyDataType,
 	CaseSelectionCardinality,
 	CaseType,
-	CaseWriteBucket,
 	Field,
 	Form,
 	FormType,
@@ -60,13 +52,11 @@ import type {
 	Uuid,
 } from "@/lib/domain";
 import {
-	type CaseWriteField,
 	type ContainerField,
-	casePropertyDataTypes,
 	caseScalarTextGuardIsChecked,
-	deriveCaseWriteInventory,
+	fieldPreload,
 	fieldProseTemplate,
-	formOpensWithOneCase,
+	formCaseWriteViews,
 	instantDatetimeValue,
 	isCaptureFieldKind,
 	isContainer,
@@ -74,8 +64,6 @@ import {
 	orderedCaseOperations,
 	prepareCaseScalarTextValue,
 	proseSource,
-	storageDatetimeValue,
-	storageTimeValue,
 } from "@/lib/domain";
 import { isMatchAll, isMatchNone } from "@/lib/domain/expression/builders";
 import {
@@ -137,7 +125,6 @@ import {
 import type {
 	SubmissionAnswerEntry,
 	SubmissionAttachmentReference,
-	SubmissionCloseConditionAnswers,
 	SubmissionMutation,
 	SubmissionOperationAnswers,
 } from "./caseDataBindingTypes";
@@ -600,24 +587,14 @@ function scalarTextGuardHolds(
 	return guard === undefined || prepareCaseScalarTextValue(value, guard).ok;
 }
 
-function caseWriteDocOf(
-	input: FormEngineInput,
-): Pick<
-	BlueprintDoc,
-	"fields" | "fieldOrder" | "caseTypes" | "userProperties"
-> {
-	return {
-		fields: input.fields,
-		fieldOrder: input.fieldOrder as BlueprintDoc["fieldOrder"],
-		caseTypes: [...input.caseTypes],
-		// The worker-property catalog is part of the topology, not decoration:
-		// admission checks a usercase writer's destination against it, so an
-		// engine built without it refuses every declared worker property and
-		// the form never opens. `userProperties` is optional on `BlueprintDoc`,
-		// so omitting it here still satisfies the `Pick` — nothing but this
-		// comment and the test beside it keeps it from being dropped again.
-		userProperties: input.userProperties,
-	};
+/**
+ * The document surface a field's case writes are read from: the printable
+ * document, whose form is the input's, so an edit to the form's case
+ * operations is seen as soon as the input is re-supplied
+ * (`refreshCaseWriteDoc`).
+ */
+function caseWriteDocOf(input: FormEngineInput): BlueprintDoc {
+	return printableDocOf(input);
 }
 
 /**
@@ -641,42 +618,6 @@ function retainSelection(
 	return joined === value ? value : joined;
 }
 
-/**
- * Strip every capture writer from an admitted inventory.
- *
- * Every capture's write is a link to the submitted file, and Preview does
- * not write it (`content/docs/attachments.mdx`). Preview's own rule, applied
- * after admission rather than inside it: the document is genuinely valid and
- * the device genuinely writes these properties. What preview lacks is the
- * CommCare HQ submission the link would point at, so it declines to invent
- * one. Keeping this out of
- * `assertAndProjectCaseWriteInventory` matters — that projection is what
- * the wire emitters consume, and they must keep seeing every writer.
- */
-function dropCaptureWriters(
-	projected: ProjectedCaseWriteInventory,
-): ProjectedCaseWriteInventory {
-	const isCapture = (writer: { readonly writer: CaseWriteField }) =>
-		isCaptureFieldKind(writer.writer.fieldKind);
-	if (!projected.buckets.some((bucket) => bucket.writers.some(isCapture))) {
-		return projected;
-	}
-	const writerByUuid = new Map(projected.writerByUuid);
-	for (const bucket of projected.buckets) {
-		for (const writer of bucket.writers) {
-			if (isCapture(writer)) writerByUuid.delete(writer.writer.fieldUuid);
-		}
-	}
-	return {
-		inventory: projected.inventory,
-		buckets: projected.buckets.map((bucket) => ({
-			...bucket,
-			writers: bucket.writers.filter((writer) => !isCapture(writer)),
-		})),
-		writerByUuid,
-	};
-}
-
 export class FormEngine {
 	/** Zustand store holding per-path FieldState. Components subscribe
 	 *  via `useStore(engine.store, s => s[path])` for surgical reactivity. */
@@ -690,11 +631,8 @@ export class FormEngine {
 	private printDoc: BlueprintDoc;
 	private inputFormUuid: Uuid;
 	private expressions: FormExpressionRuntime;
-	/** Exact topology surface consumed by the shared case-write inventory. */
-	private caseWriteDoc: Pick<
-		BlueprintDoc,
-		"fields" | "fieldOrder" | "caseTypes" | "userProperties"
-	>;
+	/** The document a field's case writes and its bind type are read from. */
+	private caseWriteDoc: BlueprintDoc;
 	/** The input's case-scalar guards, by field uuid. */
 	private scalarTextGuards: Readonly<Record<string, CaseScalarTextGuard>>;
 	/** The name the form's XForm gives a count-bound repeat's count node. */
@@ -716,15 +654,6 @@ export class FormEngine {
 	 * initializes each section's rows when it opens, as Formplayer does when
 	 * it walks the whole form. */
 	private allSectionsEntered = false;
-	private moduleCaseType: string | undefined;
-	/** The module case type `caseData` was SUPPLIED under — the type
-	 *  whose entry is the bound row. Stamped only where a fresh
-	 *  (caseData, moduleCaseType) pair arrives together (constructor,
-	 *  `updateSchema`), NOT by `refreshCaseContext`, which re-pairs the
-	 *  existing data with new metadata — so after a mid-preview module
-	 *  retype the mismatch is detectable and preload can't seed fields
-	 *  from an ancestor's row as if it were the bound case. */
-	private caseDataOwnType: string | undefined;
 	/** Several-case forms never choose one selected row as their preload source. */
 	private caseSelectionCardinality: CaseSelectionCardinality;
 	private formType: FormType;
@@ -806,7 +735,9 @@ export class FormEngine {
 
 	constructor(
 		input: FormEngineInput,
-		moduleCaseType?: string,
+		/** The owning module's case type. A case read names its own type, so
+		 *  the engine keeps none beside the case data. */
+		_moduleCaseType?: string,
 		caseData?: CaseDataByType,
 		previewIdentity?: ResolvedPreviewIdentity | null,
 		lookupData?: PreviewLookupData | null,
@@ -825,8 +756,6 @@ export class FormEngine {
 			this.previewIdentity?.usercase,
 			caseDatabase,
 		);
-		this.moduleCaseType = moduleCaseType;
-		this.caseDataOwnType = moduleCaseType;
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.formType = input.form.type;
 		this.formRootAttributes = xformDataRootRuntimeAttributes(
@@ -882,11 +811,7 @@ export class FormEngine {
 		this.presentationLanguage = input.language;
 
 		this.instance = new DataInstance(this.formRootAttributes);
-		this.instance.initFromFields(
-			this.tree,
-			"/data",
-			this.caseWriteDoc.caseTypes ?? [],
-		);
+		this.instance.initFromFields(this.tree, "/data", this.bindTypeOf);
 		this.dag = new TriggerDag();
 
 		this.dag.build(this.tree, this.expressions);
@@ -1545,13 +1470,19 @@ export class FormEngine {
 		);
 	}
 
+	/** The bind the XForm emitter writes for a field: a Hidden Value's
+	 * follows the property its answer is saved to. */
+	private readonly bindTypeOf = (field: Field) =>
+		fieldBindType(
+			field,
+			this.caseWriteDoc.caseTypes ?? [],
+			this.fieldWrites(field),
+		);
+
 	/** The data type Core gives a field's node, from the bind the XForm
 	 * emitter writes for it. */
 	private answerTypeOf(field: Field): CoreAnswerType {
-		return coreAnswerType(
-			fieldBindType(field, this.caseWriteDoc.caseTypes ?? []),
-			field.kind,
-		);
+		return coreAnswerType(this.bindTypeOf(field), field.kind);
 	}
 
 	/**
@@ -1585,7 +1516,9 @@ export class FormEngine {
 	}
 
 	/** A starting value's setvalue: the result shaped as
-	 * `Recalculate.wrapData` shapes it, then cast. */
+	 * `Recalculate.wrapData` shapes it, then cast. A starting value that is
+	 * a preload (`fieldPreload`) names the case and property it read when
+	 * its cast is refused, so the refusal can offer another case. */
 	private startingValueText(
 		field: Field,
 		path: string,
@@ -1597,30 +1530,24 @@ export class FormEngine {
 			repeatPath === undefined
 				? undefined
 				: this.findTreeNode(repeatPath)?.field.uuid;
+		const preload =
+			cause === "starting-value" ? fieldPreload(field) : undefined;
+		const caseId = preload
+			? this.caseData.get(preload.caseType)?.get("case_id")
+			: undefined;
 		return this.castSetvalue(
 			field,
 			path,
 			setvalueText(unpackXPathRuntimeValue(result), this.answerTypeOf(field)),
-			{ cause, ...(repeatUuid === undefined ? {} : { repeatUuid }) },
+			preload === undefined
+				? { cause, ...(repeatUuid === undefined ? {} : { repeatUuid }) }
+				: {
+						cause: "preload",
+						caseType: preload.caseType,
+						property: preload.property,
+						...(caseId === undefined || caseId === "" ? {} : { caseId }),
+					},
 		);
-	}
-
-	/** A preload's setvalue: the selected case's saved value, cast. */
-	private preloadText(
-		field: Field,
-		path: string,
-		property: string,
-		saved: string,
-	): string {
-		const caseId = this.ownCaseData()?.get("case_id");
-		return this.castSetvalue(field, path, saved, {
-			cause: "preload",
-			property,
-			...(this.moduleCaseType === undefined
-				? {}
-				: { caseType: this.moduleCaseType }),
-			...(caseId === undefined || caseId === "" ? {} : { caseId }),
-		});
 	}
 
 	/** Record a refused insert on its repeat's state, for the inline note. */
@@ -1747,7 +1674,11 @@ export class FormEngine {
 		// generic string(Date) deliberately discards its clock instead.
 		if (
 			isXPathDate(value) &&
-			fieldValueType(field, this.caseWriteDoc.caseTypes ?? []) === "datetime"
+			fieldValueType(
+				field,
+				this.caseWriteDoc.caseTypes ?? [],
+				this.fieldWrites(field),
+			) === "datetime"
 		) {
 			return instantDatetimeValue(
 				value.instant(),
@@ -1772,7 +1703,11 @@ export class FormEngine {
 			return Number.isNaN(result) ? undefined : result;
 		}
 		if (!isXPathDate(result)) return undefined;
-		const valueType = fieldValueType(field, this.caseWriteDoc.caseTypes ?? []);
+		const valueType = fieldValueType(
+			field,
+			this.caseWriteDoc.caseTypes ?? [],
+			this.fieldWrites(field),
+		);
 		if (valueType === "datetime") return result;
 		if (valueType === "time") return undefined;
 		// `DateData` rounds its Date when read, and a day `roundDate` refuses
@@ -2550,30 +2485,6 @@ export class FormEngine {
 		]);
 	}
 
-	/**
-	 * Walk the engine's template tree and emit one submission's worth
-	 * of case-store mutations. The walk is structural — it consults the
-	 * `FieldTreeNode` rose-tree the engine already maintains, plus the
-	 * runtime `DataInstance` for per-instance values inside repeats —
-	 * so the materialized paths follow from the tree shape directly
-	 * without parsing the path string. `caseTypes` is call-time
-	 * injected so the engine stays state-pure across the JSONB-coercion
-	 * dimension.
-	 *
-	 * For each leaf field in the shared case-write inventory, an own-type
-	 * destination lands in the primary's `properties`; an exact direct-child
-	 * destination buckets into a child case keyed by `(destination case type,
-	 * repeat-instance-key)`. Repeat regions fan out one bucket per instance
-	 * per destination case type.
-	 *
-	 * Ordinary writes respect effective relevance through containers. Hidden
-	 * calculated fields participate; a non-relevant question does not. Blank
-	 * values use the storage boundary's absent-key representation, not JSON null.
-	 *
-
-	 * Throws when `formType` is `followup` or `close` and no `caseId`
-	 * is supplied — both arms operate on a bound case row.
-	 */
 	/** The one form this engine's input slice is rooted at. */
 	private activeFormUuid(): Uuid {
 		return this.inputFormUuid;
@@ -2650,41 +2561,13 @@ export class FormEngine {
 		return expression !== undefined && isMatchAll(expression);
 	}
 
-	/**
-	 * Derive and admit case writes through the same path-aware inventory used
-	 * by validation and wire emission. Preview never re-interprets field ids as
-	 * case properties and never invents child membership independently.
-	 *
-	 * A capture's link write is dropped, and this is the one place
-	 * Preview deliberately writes LESS than the device. The link a capture
-	 * writes is
-	 * `<origin>/a/<domain>/api/form_attachment/v1/<instance id>/<name>`, and
-	 * a preview submission has no CommCare HQ instance behind any of it: the
-	 * bytes live in Nova's own submission-scoped lane, `meta/instanceID`
-	 * names no form on any project space, and the endpoint would resolve to
-	 * nothing whatever origin preceded it. Writing a plausible-looking
-	 * address would put a broken link in real case data and make an author
-	 * believe the column works. So the property stays unwritten and a column
-	 * over it reads empty — which is the truth about what preview knows.
-	 */
-	private projectedCaseWrites(): ProjectedCaseWriteInventory {
-		const inventory = deriveCaseWriteInventory(
-			this.caseWriteDoc,
-			this.activeFormUuid(),
-			{ caseType: this.moduleCaseType },
-			this.formType,
-		);
-		return dropCaptureWriters(assertAndProjectCaseWriteInventory(inventory));
-	}
-
-	private primaryCaseWritesByField(
-		projected: ProjectedCaseWriteInventory = this.projectedCaseWrites(),
-	): ReadonlyMap<Uuid, CaseWriteField> {
-		const primary = projected.buckets.find(
-			({ bucket }) => bucket.kind === "primary",
-		);
-		return new Map(
-			(primary?.writers ?? []).map(({ writer }) => [writer.fieldUuid, writer]),
+	/** The writes of the form's case operations that save `field`'s answer
+	 * (`lib/domain/caseWriteViews.ts`), which decide a Hidden Value's bind. */
+	private fieldWrites(field: Field) {
+		return (
+			formCaseWriteViews(this.caseWriteDoc, this.inputFormUuid).get(
+				field.uuid,
+			) ?? []
 		);
 	}
 
@@ -2695,8 +2578,9 @@ export class FormEngine {
 	 * repeat's answers for that concrete instance, and the iteration's
 	 * own answers), flattened parent-major in live instance order —
 	 * exactly the completeness the storage executor binds each
-	 * expression with. Non-relevant answers read blank, including inherited
-	 * group relevance; non-relevant repeats contribute no iterations. Hidden
+	 * expression with. Non-relevant answers read blank and are marked
+	 * `absent`, including inherited group relevance; non-relevant repeats
+	 * contribute no iterations. Hidden
 	 * calculated fields still participate. Values are instance strings; multi-select
 	 * answers carry the real token array (the one namespace the SQL
 	 * term compiler admits arrays in). Nested repeats form their OWN
@@ -2736,15 +2620,15 @@ export class FormEngine {
 			field: Field,
 			concretePath: string,
 		): SubmissionAnswerEntry => {
-			const raw = relevant.has(concretePath)
-				? (this.instance.get(concretePath) ?? "")
-				: "";
+			const participates = relevant.has(concretePath);
+			const raw = participates ? (this.instance.get(concretePath) ?? "") : "";
 			return {
 				fieldUuid: field.uuid as string,
 				value:
 					field.kind === "multi_select"
 						? raw.split(/\s+/).filter(Boolean)
 						: raw,
+				...(participates ? {} : { absent: true as const }),
 			};
 		};
 
@@ -2809,40 +2693,6 @@ export class FormEngine {
 				repeat,
 				iterations,
 			})),
-		};
-	}
-
-	/**
-	 * Project only the raw main-instance values the current close condition
-	 * reads. The server reloads the committed form and treats that form as the
-	 * authority for whether a condition exists and what it means; this narrow
-	 * client projection supplies only the submitted answer nodes.
-	 */
-	private computeCloseConditionAnswers():
-		| SubmissionCloseConditionAnswers
-		| undefined {
-		const form = this.printDoc.forms[this.activeFormUuid() as string] as
-			| Form
-			| undefined;
-		const condition = form?.closeCondition;
-		if (condition === undefined) return undefined;
-		const genericPath = this.fieldPathsByUuid().get(condition.field);
-		if (genericPath === undefined) {
-			throw new Error(
-				compilerBugMessage({
-					where: "preview.formEngine.computeCloseConditionAnswers",
-					invariant: `close condition field \`${condition.field}\` has no path in the active form tree`,
-					detail:
-						"The validator requires a close condition to reference one field in its own form. The submission projection must never guess a replacement field or answer.",
-				}),
-			);
-		}
-		const visible = this.effectivelyVisiblePaths(this.store.getState());
-		return {
-			fieldUuid: condition.field,
-			values: this.materializePaths(genericPath)
-				.filter((path) => visible.has(path))
-				.map((path) => this.instance.get(path) ?? ""),
 		};
 	}
 
@@ -2921,58 +2771,6 @@ export class FormEngine {
 	}
 
 	/**
-	 * Answers this form saves to the worker's own record.
-	 *
-	 * Independent of the primary case action, matching the wire: a survey form
-	 * carries these as readily as a followup does, so this runs before the
-	 * form-type switch and rides every submission arm.
-	 *
-	 * Every usercase slot is text (`usercaseCaseType` derives them all that
-	 * way, because HQ stores user data as strings), so a submitted value goes
-	 * across as it was answered rather than through `coerceValueForProperty` —
-	 * there is no declared type to coerce toward.
-	 *
-	 * A blank or hidden answer writes nothing. The emitted bind carries
-	 * `relevant="count(<path>) > 0"` for exactly that reason: a device skips
-	 * the write rather than erasing what is on the record, and Preview has to
-	 * agree or the two disagree the first time a question is conditional.
-	 */
-	private collectUsercaseWrites(): JsonObject | undefined {
-		const projected = this.projectedCaseWrites();
-		const properties: Record<string, string> = {};
-		const states = this.store.getState();
-		const walk = (
-			nodes: FieldTreeNode[],
-			prefix: string,
-			ancestorsVisible: boolean,
-		): void => {
-			for (const node of nodes) {
-				const f = node.field;
-				const fieldPath = `${prefix}/${f.id}`;
-				const effective =
-					ancestorsVisible && states[fieldPath]?.visible !== false;
-				if (f.kind === "repeat") {
-					// Admission refuses a usercase writer inside a repeat, so
-					// there is nothing to collect below one.
-					continue;
-				}
-				if (node.children) {
-					walk(node.children, fieldPath, effective);
-					continue;
-				}
-				const write = projected.writerByUuid.get(f.uuid);
-				if (write === undefined || write.bucket.kind !== "usercase") continue;
-				if (!effective) continue;
-				const raw = this.instance.get(fieldPath);
-				if (typeof raw !== "string" || raw === "") continue;
-				properties[write.writer.property] = raw;
-			}
-		};
-		walk(this.tree, "/data", true);
-		return Object.keys(properties).length > 0 ? properties : undefined;
-	}
-
-	/**
 	 * Classify a capture slot at the instant Submit reaches its form-wide
 	 * attachment barrier.
 	 *
@@ -2996,6 +2794,42 @@ export class FormEngine {
 			: "dormant";
 	}
 
+	/**
+	 * Whether submitting now closes the form's own case: a close form whose
+	 * close condition holds over the current answers, or that has none, and
+	 * a registration whose close condition holds. The condition is form logic
+	 * over the answers, evaluated as the device evaluates the close block's
+	 * relevance. A condition this synchronous evaluator cannot run (one that
+	 * needs the XPath worker) is counted as holding, so a caller refusing a
+	 * close on a case the device lacks refuses rather than writes.
+	 */
+	ownCloseHolds(): boolean {
+		if (this.formType !== "close" && this.formType !== "registration")
+			return false;
+		const source = this.expressions.source({
+			entity: "form",
+			uuid: this.inputFormUuid,
+			slot: "form_close_condition",
+		});
+		if (source === undefined) return this.formType === "close";
+		try {
+			return toBoolean(evaluate(source, this.createEvalContext("/data")));
+		} catch {
+			return true;
+		}
+	}
+
+	/**
+	 * One submission: the form, its entry, the attachment answers it carries,
+	 * the answers its case operations read, and on a follow-up or close form
+	 * the ordered cases it was opened for. Every case change the form makes is
+	 * one of its operations, its own case first; the server builds them from
+	 * the committed form and evaluates each against these answers, so the
+	 * engine sends answers and never a case write.
+	 *
+	 * Throws when the form is a follow-up or close form and no `caseIds` are
+	 * supplied: both operate on a selected case.
+	 */
 	computeSubmissionMutation(args: {
 		caseIds?: readonly string[];
 		/**
@@ -3010,341 +2844,47 @@ export class FormEngine {
 		 * there.
 		 */
 		entryKey: string;
-		/**
-		 * The viewer's IANA timezone — the offset a datetime answer is
-		 * stamped with, standing in for the zone the device would stamp.
-		 * Explicit rather than read from `Intl` here so the engine keeps no
-		 * hidden environment dependency and a test pins a zone instead of
-		 * inheriting the machine's. Absent falls back to UTC, matching
-		 * every other viewer-zone consumer.
-		 */
-		viewerTimeZone?: string;
 	}): SubmissionMutation {
-		const zone = args.viewerTimeZone ?? "UTC";
-		/* The operation identity riding every arm: the submitting form's
-		 * uuid (the authored-key scope half and the server-side program
-		 * builder's doc anchor) plus the collected per-scope answers when
-		 * the form carries case operations. A survey with operations must
-		 * NOT short-circuit — its program still executes. */
 		const operationAnswers = this.computeOperationAnswers();
-		const closeConditionAnswers = this.computeCloseConditionAnswers();
-		const attachmentRefs = this.collectAttachmentReferences();
-		const projectedCaseWrites = this.projectedCaseWrites();
-		const usercaseProperties = this.collectUsercaseWrites();
-		const operationIdentity = {
+		const protocol = {
 			formUuid: this.activeFormUuid() as string,
 			entryKey: args.entryKey,
-			...(usercaseProperties !== undefined && {
-				usercase: usercaseProperties,
-			}),
 			// Always present, even when empty: an empty list is the exact
 			// projection that retires every unreferenced staged attachment for
 			// this entry.
-			attachmentRefs,
-			...(closeConditionAnswers !== undefined && { closeConditionAnswers }),
+			attachmentRefs: this.collectAttachmentReferences(),
 			...(operationAnswers !== undefined && { operationAnswers }),
 		};
-		if (this.formType === "survey") {
-			return { kind: "survey", ...operationIdentity };
-		}
-
-		if (
-			(this.formType === "followup" || this.formType === "close") &&
-			(args.caseIds === undefined || args.caseIds.length === 0)
-		) {
-			throw new Error(
-				compilerBugMessage({
-					where: "preview.formEngine.computeSubmissionMutation",
-					invariant: `form type \`${this.formType}\` requires at least one bound case in \`caseIds\`, but none was supplied`,
-					detail:
-						"Followup and close forms operate on one or more selected case rows; the running-app view carries that ordered selection. Reaching this throw means the consumer invoked the engine method without threading it through the call.",
-				}),
-			);
-		}
-
-		const caseTypeLookup = new Map<string, CaseType>();
-		for (const caseType of this.caseWriteDoc.caseTypes ?? []) {
-			caseTypeLookup.set(caseType.name, caseType);
-		}
-
-		const primaryProperties: JsonObject = {};
-		// Standard writable scalars are plucked into dedicated slots. They
-		// never enter the custom JSON property document.
-		let primaryCaseName: string | undefined;
-		let primaryExternalId: string | undefined;
-		const effectivelyVisible = this.effectivelyVisiblePaths(
-			this.store.getState(),
-		);
-		// Encounter-ordered materializations of canonical child buckets. The
-		// inventory owns action identity; runtime traversal contributes only a
-		// concrete iteration key for a bucket whose repeat UUID already matches.
-		const childBuckets: ChildBucket[] = [];
-		const childBucketIndex = new Map<
-			CaseWriteBucket,
-			Map<string, ChildBucket>
-		>();
-		const requireBucket = (
-			bucket: CaseWriteBucket,
-			repeatInstanceKey: string,
-		): ChildBucket => {
-			let byIteration = childBucketIndex.get(bucket);
-			if (byIteration === undefined) {
-				byIteration = new Map();
-				childBucketIndex.set(bucket, byIteration);
-			}
-			const existing = byIteration.get(repeatInstanceKey);
-			if (existing !== undefined) return existing;
-			const created: ChildBucket = {
-				caseType: bucket.caseType,
-				authoredBucket: {
-					caseType: bucket.caseType,
-					...(bucket.repeatUuid !== undefined && {
-						repeatUuid: bucket.repeatUuid,
-						repeatInstanceKey,
-					}),
-				},
-				properties: {},
-			};
-			byIteration.set(repeatInstanceKey, created);
-			childBuckets.push(created);
-			return created;
-		};
-
-		const walk = (
-			nodes: ReadonlyArray<FieldTreeNode>,
-			pathPrefix: string,
-			activeRepeat:
-				| { readonly uuid: Uuid; readonly instanceKey: string }
-				| undefined,
-		): void => {
-			for (const node of nodes) {
-				const f = node.field;
-				const fieldPath = `${pathPrefix}/${f.id}`;
-
-				if (f.kind === "group" || f.kind === "section") {
-					// Both are DATA groups: writers inside nest under their id.
-					if (node.children) {
-						walk(node.children, fieldPath, activeRepeat);
-					}
-					continue;
-				}
-				if (f.kind === "repeat") {
-					if (!node.children) continue;
-					const instanceCount = this.instance.getRepeatCount(fieldPath);
-					for (let i = 0; i < instanceCount; i++) {
-						const instancePath = `${fieldPath}[${i}]`;
-						walk(node.children, instancePath, {
-							uuid: f.uuid,
-							instanceKey: instancePath,
-						});
-					}
-					continue;
-				}
-
-				const projected = projectedCaseWrites.writerByUuid.get(f.uuid);
-				if (projected === undefined) continue;
-				const { writer, bucket } = projected;
-				// The worker's own record is collected by
-				// `collectUsercaseWrites`, which rides every submission arm
-				// including a survey's. It must not also walk through here: the
-				// usercase is derived from the worker-property catalog rather
-				// than declared, so it is absent from `materializableCaseTypes`
-				// by construction and the property lookup below would report a
-				// missing declaration for a destination that is perfectly
-				// declared. Its slots are all text, so there is nothing to
-				// coerce either.
-				if (bucket.kind === "usercase") continue;
-				if (bucket.repeatUuid !== activeRepeat?.uuid) {
-					throw new Error(
-						compilerBugMessage({
-							where: "preview.formEngine.computeSubmissionMutation",
-							invariant: `canonical case-write bucket repeat \`${bucket.repeatUuid ?? "root"}\` does not match active nearest repeat \`${activeRepeat?.uuid ?? "root"}\` for writer \`${writer.fieldUuid}\``,
-							detail:
-								"Preview materializes the shared inventory bucket; it must never infer a new bucket from a rendered path or case-type name.",
-						}),
-					);
-				}
-
-				const isPrimary = bucket.kind === "primary";
-				const repeatInstanceKey = activeRepeat?.instanceKey ?? "";
-				const raw = this.instance.get(fieldPath);
-				// Relevance controls participation for every ordinary destination.
-				// Retained answers remain in the entry for a later change of mind,
-				// but must not become saved custom properties while excluded.
-				if (raw === undefined || !effectivelyVisible.has(fieldPath)) continue;
-
-				if (
-					writer.property === "case_name" ||
-					writer.property === "external_id"
-				) {
-					// An absent or irrelevant scalar writer means no write. In a
-					// several-case form, a blank PRIMARY answer also means no write:
-					// one shared blank must not erase a value across every selected
-					// case. One-case external-id keeps its explicit-clear behavior.
-					const omitBlankPrimary =
-						isPrimary && this.caseSelectionCardinality === "multiple";
-					const blank =
-						omitBlankPrimary || writer.property === "external_id"
-							? "allow"
-							: "reject";
-					const prepared = prepareCaseScalarTextValue(raw, blank);
-					if (!prepared.ok) {
-						throw new Error(
-							`Case field "${f.id}" cannot write ${writer.property}: the value is ${prepared.reason === "blank" ? "blank after CommCare-compatible boundary control characters are removed" : "longer than 255 UTF-16 code units"}.`,
-						);
-					}
-					if (omitBlankPrimary && prepared.value === "") continue;
-					if (isPrimary) {
-						if (writer.property === "case_name") {
-							primaryCaseName = prepared.value;
-						} else {
-							primaryExternalId = prepared.value;
-						}
-					} else {
-						const child = requireBucket(bucket, repeatInstanceKey);
-						if (writer.property === "case_name") {
-							child.caseName = prepared.value;
-						} else {
-							child.externalId = prepared.value;
-						}
-					}
-					continue;
-				}
-
-				if (raw === "") continue;
-
-				const property = caseTypeLookup
-					.get(writer.caseType)
-					?.properties.find((candidate) => candidate.name === writer.property);
-				if (property === undefined) {
-					throw new Error(
-						compilerBugMessage({
-							where: "preview.formEngine.computeSubmissionMutation",
-							invariant: `materializable case type \`${writer.caseType}\` has no property \`${writer.property}\` for writer \`${writer.fieldUuid}\``,
-							detail:
-								"Engine input must carry materializableCaseTypes(doc), which appends every writer-derived property before Preview coerces a submitted value.",
-						}),
-					);
-				}
-				const coerced = coerceValueForProperty(raw, property, zone);
-
-				if (isPrimary) {
-					primaryProperties[writer.property] = coerced;
-					continue;
-				}
-
-				requireBucket(bucket, repeatInstanceKey).properties[writer.property] =
-					coerced;
-			}
-		};
-
-		walk(this.tree, "/data", undefined);
-
-		// A bucket that received only a `caseName` or `externalId` scalar
-		// write (no custom properties) is still a legitimate child. Buckets
-		// with no scalar or custom-property write are dropped; the walker
-		// only creates buckets when a contributing field lands in them, so
-		// the predicate is defensive against an upstream change to creation.
-		const isContentfulBucket = (b: ChildBucket): boolean =>
-			b.caseName !== undefined ||
-			b.externalId !== undefined ||
-			Object.keys(b.properties).length > 0;
-		const materializedChildBuckets = childBuckets.filter(isContentfulBucket);
-		const ordinaryChildBuckets = materializedChildBuckets.map(
-			(bucket) => bucket.authoredBucket,
-		);
-		const children = materializedChildBuckets.map((bucket) => ({
-			caseType: bucket.caseType,
-			...(bucket.caseName !== undefined ? { caseName: bucket.caseName } : {}),
-			...(bucket.externalId !== undefined
-				? { externalId: bucket.externalId }
-				: {}),
-			properties: bucket.properties,
-		}));
-
 		switch (this.formType) {
-			case "registration": {
-				if (this.moduleCaseType === undefined) {
-					throw new Error(
-						compilerBugMessage({
-							where: "preview.formEngine.computeSubmissionMutation",
-							invariant:
-								"registration form reached the engine method without a `moduleCaseType`",
-							detail:
-								"A registration form creates a case OF the module's case type, so the case-type slot is required to derive the primary insert. The blueprint validator's `NO_CASE_TYPE` rule rejects modules without one upstream.",
-						}),
-					);
-				}
-				return {
-					kind: "registration",
-					...operationIdentity,
-					ordinaryChildBuckets,
-					primary: {
-						caseType: this.moduleCaseType,
-						...(primaryCaseName !== undefined
-							? { caseName: primaryCaseName }
-							: {}),
-						...(primaryExternalId !== undefined
-							? { externalId: primaryExternalId }
-							: {}),
-						properties: primaryProperties,
-					},
-					children,
-				};
-			}
+			case "survey":
+				return { kind: "survey", ...protocol };
+			case "registration":
+				return { kind: "registration", ...protocol };
 			case "followup":
 			case "close": {
-				// Top-of-method guard already rejected an absent/empty selection
-				// for these arms; the assertion here keeps the narrowing honest if
-				// the upstream guard ever regresses.
-				const caseIds = args.caseIds;
-				if (caseIds === undefined || caseIds.length === 0) {
+				if (args.caseIds === undefined || args.caseIds.length === 0) {
 					throw new Error(
 						compilerBugMessage({
 							where: "preview.formEngine.computeSubmissionMutation",
-							invariant:
-								"`caseIds` narrowing failed after the followup/close form-type guard",
+							invariant: `form type \`${this.formType}\` requires at least one bound case in \`caseIds\`, but none was supplied`,
+							detail:
+								"Followup and close forms operate on one or more selected case rows; the running-app view carries that ordered selection. Reaching this throw means the consumer invoked the engine method without threading it through the call.",
 						}),
 					);
 				}
-				const patch = {
-					...(primaryCaseName !== undefined
-						? { caseName: primaryCaseName }
-						: {}),
-					...(primaryExternalId !== undefined
-						? { externalId: primaryExternalId }
-						: {}),
-					properties: primaryProperties,
-				};
-				if (this.formType === "followup") {
-					return {
-						kind: "followup",
-						...operationIdentity,
-						ordinaryChildBuckets,
-						caseIds,
-						patch,
-						children,
-					};
-				}
-				return {
-					kind: "close",
-					...operationIdentity,
-					ordinaryChildBuckets,
-					caseIds,
-					patch,
-					children,
-				};
+				return { kind: this.formType, ...protocol, caseIds: args.caseIds };
 			}
-			default:
-				// `survey` is handled at the top of the method; the form type
-				// enum carries no other arms today. The exhaustive throw guards
-				// against a future arm landing without a case here.
+			default: {
+				const _exhaustive: never = this.formType;
 				throw new Error(
-					compilerBugMessage({
+					unhandledKindMessage({
 						where: "preview.formEngine.computeSubmissionMutation",
-						invariant: `unhandled form type \`${this.formType}\``,
+						family: "FormType",
+						received: _exhaustive,
+						knownKinds: ["survey", "registration", "followup", "close"],
 					}),
 				);
+			}
 		}
 	}
 
@@ -3405,7 +2945,7 @@ export class FormEngine {
 		this.inputFormUuid = input.formUuid;
 		this.expressions = this.expressionRuntime();
 		this.caseWriteDoc = caseWriteDocOf(input);
-		this.instance.refreshTemplate(this.tree, this.caseWriteDoc.caseTypes ?? []);
+		this.instance.refreshTemplate(this.tree, this.bindTypeOf);
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.expressions);
@@ -3879,7 +3419,7 @@ export class FormEngine {
 	refreshCaseContext(
 		input: FormEngineInput,
 		caseData: CaseDataByType,
-		moduleCaseType?: string,
+		_moduleCaseType?: string,
 	): void {
 		this.formRootAttributes = xformDataRootRuntimeAttributes(
 			input.wireName ?? input.form.name,
@@ -3890,68 +3430,18 @@ export class FormEngine {
 		this.inputFormUuid = input.formUuid;
 		this.expressions = this.expressionRuntime();
 		this.caseWriteDoc = caseWriteDocOf(input);
-		this.instance.refreshTemplate(this.tree, this.caseWriteDoc.caseTypes ?? []);
+		this.instance.refreshTemplate(this.tree, this.bindTypeOf);
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 		this.formType = input.form.type;
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.caseData = caseData;
-		this.moduleCaseType = moduleCaseType;
-		// Selected-case reads are compiled from this captured context. Refresh
-		// their evaluator sources before settling the changed preload values.
+		// Selected-case reads are compiled from this captured context. A
+		// preload is a starting value, which runs once when the entry opens,
+		// so the new context reaches the calculations and conditions that read
+		// it and leaves the answers as they are.
 		this.dag.build(this.tree, this.expressions);
-
-		/* Re-preload case data for one-case followup forms. Track which paths changed. */
-		const changedPaths: string[] = [];
-		if (this.shouldPreloadPrimaryCase()) {
-			this.preloadCaseDataTracked(this.tree, changedPaths);
-		}
-
-		/* Re-evaluate changed paths + their cascade */
-		if (changedPaths.length > 0) {
-			this.evaluateChangedPathsInto(changedPaths);
-		}
+		this.evaluatePathsInto(this.getAllPaths());
 		this.adoptScalarTextGuards(input.caseScalarTextGuards ?? {});
-	}
-
-	/** Same as preloadCaseData but tracks which paths actually changed value. */
-	private preloadCaseDataTracked(
-		tree: FieldTreeNode[],
-		changedPaths: string[],
-		writesByField: ReadonlyMap<
-			Uuid,
-			CaseWriteField
-		> = this.primaryCaseWritesByField(),
-		prefix = "/data",
-	): void {
-		const own = this.ownCaseData();
-		if (own === undefined) return;
-		for (const node of tree) {
-			const f = node.field;
-			const path = `${prefix}/${f.id}`;
-			const writer = writesByField.get(f.uuid);
-			if (writer !== undefined && own.has(writer.property)) {
-				const newValue = this.preloadText(
-					f,
-					path,
-					writer.property,
-					own.get(writer.property) ?? "",
-				);
-				const oldValue = this.instance.get(path) ?? "";
-				if (newValue !== oldValue) {
-					this.instance.set(path, newValue);
-					changedPaths.push(path);
-				}
-			}
-			if (node.children) {
-				const childPrefix = f.kind === "repeat" ? `${path}[0]` : path;
-				this.preloadCaseDataTracked(
-					node.children,
-					changedPaths,
-					writesByField,
-					childPrefix,
-				);
-			}
-		}
 	}
 
 	/**
@@ -3961,13 +3451,11 @@ export class FormEngine {
 	 */
 	updateSchema(
 		input: FormEngineInput,
-		moduleCaseType?: string,
+		_moduleCaseType?: string,
 		caseData?: CaseDataByType,
 	): void {
 		const snapshot = this.getValueSnapshot();
 
-		this.moduleCaseType = moduleCaseType;
-		this.caseDataOwnType = moduleCaseType;
 		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.formType = input.form.type;
 		this.formRootAttributes = xformDataRootRuntimeAttributes(
@@ -3983,11 +3471,7 @@ export class FormEngine {
 		this.repeatCountName = repeatCountNameOf(input.repeatCountNames);
 
 		this.instance = new DataInstance(this.formRootAttributes);
-		this.instance.initFromFields(
-			this.tree,
-			"/data",
-			this.caseWriteDoc.caseTypes ?? [],
-		);
+		this.instance.initFromFields(this.tree, "/data", this.bindTypeOf);
 
 		this.dag = new TriggerDag();
 		this.dag.build(this.tree, this.expressions);
@@ -4031,11 +3515,7 @@ export class FormEngine {
 	reset(): void {
 		this.repeatInstanceKeys.clear();
 		this.instance = new DataInstance(this.formRootAttributes);
-		this.instance.initFromFields(
-			this.tree,
-			"/data",
-			this.caseWriteDoc.caseTypes ?? [],
-		);
+		this.instance.initFromFields(this.tree, "/data", this.bindTypeOf);
 
 		this.initializeModel(this.tree);
 
@@ -4901,48 +4381,6 @@ export class FormEngine {
 
 	// ── Private: state initialization ────────────────────────────────
 
-	/**
-	 * Whether the active form may seed its ordinary destinations from one
-	 * bound case. Authored several-case cardinality stays decisive even when
-	 * the runtime selection happens to contain one id.
-	 */
-	private shouldPreloadPrimaryCase(): boolean {
-		return (
-			formOpensWithOneCase(this.formType, this.caseSelectionCardinality) &&
-			this.caseData.size > 0
-		);
-	}
-
-	/** The loaded case's own property map — the entry under the module's
-	 *  case type. Preload reads ONLY this map: ancestor namespaces are
-	 *  read-only reference data (a form never writes an ancestor's
-	 *  properties), so they seed no field values. After a mid-preview
-	 *  module retype (`refreshCaseContext` with a new `moduleCaseType`
-	 *  but the old data), the supplied-under type no longer matches and
-	 *  preload is withheld entirely — the entry under the NEW type would
-	 *  be an ancestor's row, not the bound case, and seeding field
-	 *  values from it would submit the parent's data onto the bound
-	 *  row. The React layer re-resolves and rebuilds the engine with a
-	 *  fresh matched pair moments later. */
-	private ownCaseData(): Map<string, string> | undefined {
-		if (this.moduleCaseType === undefined) return undefined;
-		if (this.moduleCaseType !== this.caseDataOwnType) return undefined;
-		return this.caseData.get(this.moduleCaseType);
-	}
-
-	/**
-	 * The writers this form seeds from the loaded case, keyed by field uuid,
-	 * or `undefined` when it seeds none (a form that does not open one case,
-	 * no case data, or a retyped module whose data no longer matches). One
-	 * map per init/rebuild/reset feeds both the preload and the default pass,
-	 * so the two cannot disagree about which fields the case supplies.
-	 */
-	private seededWriters(): ReadonlyMap<Uuid, CaseWriteField> | undefined {
-		if (!this.shouldPreloadPrimaryCase()) return undefined;
-		if (this.ownCaseData() === undefined) return undefined;
-		return this.primaryCaseWritesByField();
-	}
-
 	/** Build initial FieldState objects into the provided record. */
 	private initStatesInto(
 		states: EngineStoreState,
@@ -5150,29 +4588,6 @@ export class FormEngine {
 			) {
 				const ids = yield* this.readQueryIds(field, path);
 				snapshots.set(path, { count: ids.length, ids });
-			}
-		}
-		if (prefix === "/data") {
-			const seeded = this.seededWriters();
-			const own = this.ownCaseData();
-			for (const { node, path } of fields) {
-				const writer = seeded?.get(node.field.uuid);
-				if (!writer) continue;
-				const previous = this.store.getState()[path];
-				if (healing && (previous?.edited || previous?.touched)) continue;
-				this.instance.set(
-					path,
-					this.preloadText(
-						node.field,
-						path,
-						writer.property,
-						own?.get(writer.property) ?? "",
-					),
-				);
-				yield* this.initializeExpressions(
-					this.dag.getAffectedInitialization([path], this.repeatCounts),
-					calculated,
-				);
 			}
 		}
 		if (insertedPath) {
@@ -6457,47 +5872,6 @@ export class FormEngine {
 
 // ── Submission-mutation helpers ──────────────────────────────────────
 
-/**
- * Per-destination-bucket of field reads. The walker indexes one
- * bucket per `(caseType, repeatInstanceKey)` pair so a registration
- * form whose `child_visit` repeat carries three iterations produces
- * three separate child-case ops, not one merged op. The empty-string
- * `repeatInstanceKey` collapses fields outside any repeat into a
- * single bucket per case type.
- *
- * `caseName` and `externalId` are mutable because admission guarantees at
- * most one writer for each standard scalar per bucket. Both slots stay
- * separate from `properties` because they route to the top-level
- * `cases.case_name` and `cases.external_id` columns, not the JSONB document.
- */
-interface ChildBucket {
-	caseType: string;
-	authoredBucket: {
-		caseType: string;
-		repeatUuid?: string;
-		repeatInstanceKey?: string;
-	};
-	caseName?: string;
-	externalId?: string;
-	properties: JsonObject;
-}
-
-/**
- * Coerce the form engine's string value into the typed JSON value
- * the case-store JSON Schema validator expects. Mirrors
- * `caseTypeToJsonSchema`'s per-`data_type` mapping. Engine input carries the
- * materializable case-type view, so every explicit writer has an entry here;
- * a present property with no pinned `data_type` follows the shared
- * effective-type convention and reads as text. Empty raw values never reach
- * this function.
- *
- * The two temporal arms are the storage boundary: the engine holds what
- * the device's instance holds, and the strict row schema wants more than
- * the wire carries. A time takes the `Z` storage tag; a datetime takes the
- * viewer's own offset, because that is what the device stamps and what the
- * viewer-local `format-date` reads back. `lib/domain/temporalValues.ts`
- * carries the reasoning and the CommCare citations.
- */
 /** The one sentence a clock that isn't a clock gets, wherever it appears. */
 function clockShapeMessage(clock: string, language?: LanguageTag): string {
 	return runtimeMessage(language, "time", { value: clock });
@@ -6554,43 +5928,6 @@ function readNumericAnswer(
 		return { ok: false, error: runtimeMessage(language, "numberTooLarge") };
 	}
 	return { ok: true, value: value === 0 ? 0 : value };
-}
-
-function coerceValueForProperty(
-	raw: string,
-	property: CaseProperty,
-	zone: string,
-): JsonValue {
-	const dataType: CasePropertyDataType = property.data_type ?? "text";
-	switch (dataType) {
-		case "text":
-		case "single_select":
-		case "geopoint":
-		case "date":
-			return raw;
-		case "time":
-			return storageTimeValue(raw);
-		case "datetime":
-			return storageDatetimeValue(raw, zone);
-		case "int":
-		case "decimal": {
-			const parsed = readNumericAnswer(dataType, raw);
-			return parsed.ok ? parsed.value : raw;
-		}
-		case "multi_select":
-			return raw.split(/\s+/).filter((token) => token.length > 0);
-		default: {
-			const _exhaustive: never = dataType;
-			throw new Error(
-				unhandledKindMessage({
-					where: "preview.formEngine.coerceValueForProperty",
-					family: "CasePropertyDataType",
-					received: _exhaustive,
-					knownKinds: [...casePropertyDataTypes],
-				}),
-			);
-		}
-	}
 }
 
 /** A repeat's state carrying exactly the given insert refusal. */

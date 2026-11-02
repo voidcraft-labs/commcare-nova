@@ -7,6 +7,7 @@ import {
 	type FunctionSpec,
 	functionArityIssue,
 } from "../expressionFunctions";
+import { isCaptureFieldKind } from "../fields";
 import type { TranslationUnitId } from "../localization";
 import {
 	expressionLeafFeature,
@@ -91,6 +92,7 @@ import {
 	isRelationPath,
 	type Literal,
 	type Term,
+	type TermOfKind,
 } from "./types";
 
 export type ScalarType = CasePropertyDataType | "boolean" | "_any";
@@ -408,7 +410,7 @@ function withCase(
 
 const cached = new WeakMap<
 	TypingContext,
-	WeakMap<Expression, Map<RecordPosition | undefined, CheckOutcome>>
+	WeakMap<Expression, Map<string | undefined, CheckOutcome>>
 >();
 /** Each node's walk records its children's types by path, so the one
  * consumption rule below reads them without walking a second time. */
@@ -417,10 +419,15 @@ const childTypes = new WeakMap<
 	Map<string, NodeType | undefined>
 >();
 const pathKey = (path: CheckPath): string => JSON.stringify(path);
+/**
+ * `whole` is set only where the node is the slot's whole value (the entry
+ * points below, never a child walk), the one place a `capture-link` stands.
+ */
 function infer(
 	expression: Expression,
 	ctx: TypingContext,
 	position?: RecordPosition,
+	whole = false,
 ): CheckOutcome {
 	let byNode = cached.get(ctx);
 	if (byNode === undefined) {
@@ -432,17 +439,18 @@ function infer(
 		byPosition = new Map();
 		byNode.set(expression, byPosition);
 	}
-	const present = byPosition.get(position);
+	const key = whole ? `whole:${position ?? ""}` : position;
+	const present = byPosition.get(key);
 	if (present !== undefined) return present;
 	const errors: CheckError[] = [];
 	// A calculated generated node can read its own source while a candidate is
 	// being validated. The dependency checker reports the cycle; inference
 	// remains unknown rather than recursively manufacturing a type.
-	byPosition.set(position, { type: undefined, errors: [] });
+	byPosition.set(key, { type: undefined, errors: [] });
 	const refusal = admission(expression, ctx, position);
 	if (refusal !== undefined) {
 		const outcome = { type: undefined, errors: [refusal] };
-		byPosition.set(position, outcome);
+		byPosition.set(key, outcome);
 		return outcome;
 	}
 	if (ctx.ruleSet === "record" && position !== undefined) {
@@ -463,10 +471,10 @@ function infer(
 		expression,
 		ctx,
 		errors,
-		inferNode(expression, ctx, errors, position),
+		inferNode(expression, ctx, errors, position, whole),
 	);
 	const outcome = { type, errors };
-	byPosition.set(position, outcome);
+	byPosition.set(key, outcome);
 	return outcome;
 }
 function inferAt(
@@ -694,7 +702,7 @@ export function typeOf(
 	expression: Expression,
 	ctx: TypingContext,
 ): NodeType | Pick<NodeType, "data" | "caseIdOf"> | undefined {
-	const type = infer(expression, ctx).type;
+	const type = infer(expression, ctx, undefined, true).type;
 	return type === undefined || !("kind" in ctx)
 		? type
 		: {
@@ -711,6 +719,7 @@ export function checkExpression(
 		expression,
 		ctx,
 		expectation.kind === "condition" ? "condition" : "value",
+		true,
 	);
 	const errors = [
 		...outcome.errors,
@@ -748,6 +757,8 @@ export function checkExpression(
 		errors.push(manyValuesError(outcome.type.several, [], ctx));
 	if (expectation.kind === "assignment")
 		assignmentErrors(expression, ctx, expectation.destinations, errors);
+	const capture = captureAnswerRefusal(expression, ctx);
+	if (capture !== undefined) errors.push(capture);
 	if (expectation.kind === "repeat-count") {
 		const refused = repeatCountRefusal(expression, outcome, ctx);
 		if (refused !== undefined) errors.push(refused);
@@ -1153,6 +1164,64 @@ export function windowWidthOffered(ctx: ExpressionContext): boolean {
 	return (
 		ctx.profile.windowWidth &&
 		unavailablePlatform("window-width", ctx.platforms) === undefined
+	);
+}
+
+/**
+ * A `capture-link` stands only as the whole value a case change saves, in a
+ * slot that reads the form's answers (`SlotProfile.captureLinkWholeValue`),
+ * and reads a question that captures a file. Anywhere else it would put a
+ * file's address into a calculation or a condition, where nothing writes it.
+ */
+function captureLinkAdmission(
+	term: TermOfKind<"capture-link">,
+	ctx: ExpressionContext,
+	whole: boolean,
+): CheckError | undefined {
+	if (!whole || !ctx.profile.captureLinkWholeValue || !ctx.profile.formAnswers)
+		return refusal(
+			"arm-unavailable",
+			"capture-link works only as the whole value a case change saves.",
+			"capture-link-slot",
+		);
+	const field = ctx.form?.fields.get(term.field);
+	if (field === undefined)
+		return refusal(
+			"unknown-form-field",
+			"This capture link reads a question that is no longer in this form. You can choose the question that captures the file.",
+		);
+	if (!isCaptureFieldKind(field.kind))
+		return refusal(
+			"arm-unavailable",
+			`capture-link reads a question that captures a file, and ${field.id} doesn't.`,
+			"capture-link-field",
+		);
+	return undefined;
+}
+
+/**
+ * A capture question's answer is the captured file's name, which means
+ * nothing once the form is gone, so a case change saves the link to the file
+ * (`capture-link`) and never the bare answer.
+ */
+function captureAnswerRefusal(
+	expression: Expression,
+	ctx: ExpressionContext,
+): CheckError | undefined {
+	if (
+		!ctx.profile.captureLinkWholeValue ||
+		expression.kind !== "term" ||
+		expression.term.kind !== "field" ||
+		expression.term.role !== undefined ||
+		expression.term.filters !== undefined
+	)
+		return undefined;
+	const field = ctx.form?.fields.get(expression.term.uuid);
+	if (field === undefined || !isCaptureFieldKind(field.kind)) return undefined;
+	return refusal(
+		"expected-value",
+		`A captured file reaches a case as a link to it. You can save capture-link(#form/${field.id}) instead.`,
+		"capture-answer",
 	);
 }
 
@@ -1930,9 +1999,10 @@ function inferNode(
 	ctx: TypingContext,
 	errors: CheckError[],
 	position?: RecordPosition,
+	whole = false,
 ): NodeType | undefined {
 	if (expression.kind === "term")
-		return inferTerm(expression.term, ctx, errors, []);
+		return inferTerm(expression.term, ctx, errors, [], whole);
 	if (isConditionArm(expression)) {
 		if (ctx.ruleSet === "form") {
 			const before = errors.length;
@@ -2757,9 +2827,13 @@ function inferTerm(
 	ctx: TypingContext,
 	errors: CheckError[],
 	path: CheckPath,
+	whole = false,
 ): NodeType | undefined {
 	if ("profile" in ctx) {
-		const unavailable = termAdmission(term, ctx);
+		const unavailable =
+			term.kind === "capture-link"
+				? captureLinkAdmission(term, ctx, whole)
+				: termAdmission(term, ctx);
 		if (unavailable !== undefined) {
 			errors.push({ ...unavailable, path });
 			return undefined;
@@ -2925,7 +2999,7 @@ function inferTerm(
 				)
 					return fail(
 						"unknown-form-field",
-						`Form field '${term.kind === "field" ? term.uuid : "generated"}' is not available in this expression context.`,
+						"This reads a question that isn't available here. You can choose another question, or remove this reference.",
 					);
 				return scalar(ctx.bindings.formFieldTypes.get(term.uuid) ?? "text");
 			}
@@ -2938,7 +3012,7 @@ function inferTerm(
 			if (form === undefined || !formNodeGraph(form).has(node))
 				return fail(
 					"unknown-form-field",
-					`Form field '${term.kind === "field" ? term.uuid : formNodeKey(node)}' is not available in this expression context.`,
+					"This reads a question that isn't available here. You can choose another question, or remove this reference.",
 				);
 			const nodePath = formNodeGraph(form).path(node) ?? [];
 			let previousStep = 0;
@@ -3172,6 +3246,17 @@ function inferTerm(
 					"location-property",
 				);
 			return nodes("text", "string");
+		}
+		case "capture-link": {
+			// The CommCare HQ address of the captured file: one for each answer
+			// of the capture, so a capture in a repeat the slot is outside of
+			// gives one per entry, as a read of its answer does.
+			const link = nodes("text", "string");
+			if (!("profile" in ctx) || ctx.form === undefined) return link;
+			return severalNodes(
+				link,
+				structuralSeveral({ kind: "field", uuid: term.field }, ctx, ctx.form),
+			);
 		}
 		case "fixed-location":
 			return "profile" in ctx && ctx.profile.ownerValues
@@ -3440,7 +3525,7 @@ function assignmentErrors(
 		});
 	assignmentRepresentationErrors(expression, [], "storage", ctx, errors);
 	visitAssignmentOutputs(expression, [], (output, path) => {
-		const node = infer(output, ctx).type;
+		const node = infer(output, ctx, undefined, path.length === 0).type;
 		if (node?.clockLost === true && destinations.includes("datetime"))
 			errors.push({
 				path,

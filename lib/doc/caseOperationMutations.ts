@@ -4,7 +4,9 @@ import {
 	type CaseOperationLink,
 	type CaseOperationWrite,
 	caseOperationSchema,
+	caseWriteKeyOf,
 	type Form,
+	operationCaseType,
 	orderedCaseOperations,
 	type Uuid,
 } from "@/lib/domain";
@@ -13,6 +15,7 @@ import {
 	caseOperationTargetTypeOrderViolations,
 	caseOperationWireOrderViolations,
 } from "./caseOperationOrder";
+import { caseWriteIdOf } from "./caseWriteKeys";
 import { mutationCommitVerdict } from "./commitVerdicts";
 import { deepEqual } from "./deepEqual";
 import {
@@ -53,6 +56,13 @@ const OPERATION_PATCH_KEYS = [
 	"retype",
 ] as const satisfies readonly (keyof CaseOperation)[];
 
+/** An operation as a payload carries it: without its held placement, which
+ *  only `holdPlacements` writes. */
+function withoutPlacement(operation: CaseOperation): StoredCaseOperation {
+	const { placement: _held, ...rest } = operation;
+	return rest as StoredCaseOperation;
+}
+
 function clearable<T>(value: T | undefined): T | null {
 	return value === undefined ? null : structuredClone(value);
 }
@@ -74,6 +84,25 @@ function scalarOperationUpdate(
 	after: StoredCaseOperation,
 ): OperationUpdate {
 	switch (after.action) {
+		case "own": {
+			// The own arm's case type, target, condition and repeat are the
+			// form's; its id names its block and never changes. Only its name
+			// and owner are its own slots.
+			const patch = {
+				...(!deepEqual(before.name, after.name)
+					? { name: clearable(after.name) }
+					: {}),
+				...(!deepEqual(before.owner, after.owner)
+					? { owner: clearable(after.owner) }
+					: {}),
+			};
+			return {
+				operation: "update",
+				uuid: after.uuid,
+				targetAction: "own",
+				patch,
+			};
+		}
 		case "create": {
 			const patch = {
 				...(!deepEqual(before.id, after.id) ? { id: after.id } : {}),
@@ -190,7 +219,7 @@ function moveOperationMutation(
 /**
  * Identity-keyed edits that turn one operation snapshot into another.
  *
- * The operation itself, each write (by property), and each link (by
+ * The operation itself, each write (by its key), and each link (by
  * identifier) are independent merge units. Replaying a stale edit to one slot
  * on a document where a peer changed another therefore composes instead of
  * replacing the peer's whole operation.
@@ -265,12 +294,18 @@ export function caseOperationChangesForUpdate(
 	after: CaseOperation,
 ): Mutation[] {
 	if (before.uuid !== after.uuid) return [];
+	// The own arm is never another action, nor another action the own arm:
+	// the form's type alone adds and removes it.
+	if ((before.action === "own") !== (after.action === "own")) return [];
 	const parsedAfter = caseOperationSchema.safeParse(after);
 	if (!parsedAfter.success) return [];
 
 	const mutations: Mutation[] = [];
 
-	const scalarUpdate = scalarOperationUpdate(before, parsedAfter.data);
+	const scalarUpdate = scalarOperationUpdate(
+		before,
+		withoutPlacement(parsedAfter.data),
+	);
 	if (
 		before.action !== parsedAfter.data.action ||
 		Object.keys(scalarUpdate.patch).length > 0
@@ -279,30 +314,34 @@ export function caseOperationChangesForUpdate(
 	}
 
 	const beforeWrites = new Map(
-		(before.writes ?? []).map((write) => [write.property, write]),
+		(before.writes ?? []).map((write) => [caseWriteIdOf(write), write]),
 	);
 	const afterWrites = new Map(
-		(after.writes ?? []).map((write) => [write.property, write]),
+		(after.writes ?? []).map((write) => [caseWriteIdOf(write), write]),
 	);
-	for (const [property] of beforeWrites) {
-		if (afterWrites.has(property)) continue;
+	const writeKeyAt = (index: number) => {
+		const write = after.writes?.[index];
+		return write === undefined ? undefined : caseWriteKeyOf(write);
+	};
+	for (const [id, write] of beforeWrites) {
+		if (afterWrites.has(id)) continue;
 		mutations.push(
 			operationMutation(formUuid, {
 				operation: "remove-write",
 				uuid: before.uuid,
-				property,
+				key: caseWriteKeyOf(write),
 			}),
 		);
 	}
 	for (const [index, write] of (after.writes ?? []).entries()) {
-		const prior = beforeWrites.get(write.property);
+		const prior = beforeWrites.get(caseWriteIdOf(write));
 		if (prior === undefined) {
 			const predecessor =
 				index === 0
 					? null
 					: index === (after.writes?.length ?? 0) - 1
 						? undefined
-						: after.writes?.[index - 1]?.property;
+						: writeKeyAt(index - 1);
 			mutations.push(
 				operationMutation(formUuid, {
 					operation: "add-write",
@@ -320,45 +359,55 @@ export function caseOperationChangesForUpdate(
 		if (!deepEqual(prior.condition, write.condition)) {
 			writePatch.condition = clearable(write.condition);
 		}
+		if (prior.onlyIfChanged !== write.onlyIfChanged) {
+			writePatch.onlyIfChanged = write.onlyIfChanged ?? null;
+		}
 		if (Object.keys(writePatch).length > 0) {
 			mutations.push(
 				operationMutation(formUuid, {
 					operation: "update-write",
 					uuid: before.uuid,
-					property: write.property,
+					key: caseWriteKeyOf(write),
 					patch: writePatch,
 				}),
 			);
 		}
 	}
-	const desiredWriteOrder = (after.writes ?? []).map((write) => write.property);
+	const desiredWriteOrder = (after.writes ?? []).map(caseWriteIdOf);
 	let intermediateWriteOrder = (before.writes ?? [])
-		.map((write) => write.property)
-		.filter((property) => afterWrites.has(property));
+		.map(caseWriteIdOf)
+		.filter((id) => afterWrites.has(id));
 	for (const [index, write] of (after.writes ?? []).entries()) {
-		if (beforeWrites.has(write.property)) continue;
-		const predecessor =
+		const id = caseWriteIdOf(write);
+		if (beforeWrites.has(id)) continue;
+		const predecessorWrite =
 			index === 0
 				? null
 				: index === (after.writes?.length ?? 0) - 1
 					? undefined
-					: after.writes?.[index - 1]?.property;
+					: after.writes?.[index - 1];
 		intermediateWriteOrder = spliceAfter(
 			intermediateWriteOrder,
-			write.property,
-			predecessor,
+			id,
+			predecessorWrite === null || predecessorWrite === undefined
+				? predecessorWrite
+				: caseWriteIdOf(predecessorWrite),
 		);
 	}
 	for (const move of sequenceMovesTo(
 		intermediateWriteOrder,
 		desiredWriteOrder,
 	)) {
+		const moved = afterWrites.get(move.uuid);
+		if (moved === undefined) continue;
+		const anchor =
+			move.after === null ? undefined : afterWrites.get(move.after);
 		mutations.push(
 			operationMutation(formUuid, {
 				operation: "move-write",
 				uuid: before.uuid,
-				property: move.uuid,
-				after: move.after,
+				key: caseWriteKeyOf(moved),
+				after: anchor === undefined ? null : caseWriteKeyOf(anchor),
 			}),
 		);
 	}
@@ -475,7 +524,21 @@ export type CaseOperationMutationPlan =
 			readonly ok: false;
 			readonly reason: "operation-not-found" | "execution-order";
 			readonly dependentUuids: readonly Uuid[];
+	  }
+	| {
+			readonly ok: false;
+			/** `own-first`: a move of the form's own case, or of another change
+			 *  above it. `own-case`: a removal of the form's own case. */
+			readonly reason: "own-first" | "own-case";
+			readonly message: string;
+			readonly dependentUuids: readonly Uuid[];
 	  };
+
+/** The move refusal for the form's own case, whichever change moves. */
+export const OWN_FIRST_MESSAGE = "This form's case is always the first change.";
+/** The removal refusal for the form's own case. */
+export const OWN_CASE_REMOVAL_MESSAGE =
+	"This form's own case goes only with its form's type.";
 
 export type CaseOperationEditVerdict =
 	| { readonly ok: true }
@@ -524,26 +587,27 @@ function rebaseCaseOperationEdit(
 	}
 
 	const baseWrites = new Map(
-		(base.writes ?? []).map((write) => [write.property, write]),
+		(base.writes ?? []).map((write) => [caseWriteIdOf(write), write]),
 	);
 	const desiredWrites = new Map(
-		(desired.writes ?? []).map((write) => [write.property, write]),
+		(desired.writes ?? []).map((write) => [caseWriteIdOf(write), write]),
 	);
 	const rebasedWrites: CaseOperationWrite[] = structuredClone(
 		current.writes ?? [],
 	);
-	for (const property of baseWrites.keys()) {
-		if (desiredWrites.has(property)) continue;
+	for (const id of baseWrites.keys()) {
+		if (desiredWrites.has(id)) continue;
 		const index = rebasedWrites.findIndex(
-			(write) => write.property === property,
+			(write) => caseWriteIdOf(write) === id,
 		);
 		if (index < 0) return { ok: false };
 		rebasedWrites.splice(index, 1);
 	}
 	for (const [desiredIndex, write] of (desired.writes ?? []).entries()) {
-		const prior = baseWrites.get(write.property);
+		const id = caseWriteIdOf(write);
+		const prior = baseWrites.get(id);
 		const currentIndex = rebasedWrites.findIndex(
-			(candidate) => candidate.property === write.property,
+			(candidate) => caseWriteIdOf(candidate) === id,
 		);
 		if (prior === undefined) {
 			if (currentIndex >= 0) return { ok: false };
@@ -564,13 +628,12 @@ function rebaseCaseOperationEdit(
 			if (write.condition === undefined) delete currentWrite.condition;
 			else currentWrite.condition = structuredClone(write.condition);
 		}
+		if (prior.onlyIfChanged !== write.onlyIfChanged) {
+			if (write.onlyIfChanged === undefined) delete currentWrite.onlyIfChanged;
+			else currentWrite.onlyIfChanged = write.onlyIfChanged;
+		}
 	}
-	applyDesiredOrder(
-		rebasedWrites,
-		base.writes,
-		desired.writes,
-		(write) => write.property,
-	);
+	applyDesiredOrder(rebasedWrites, base.writes, desired.writes, caseWriteIdOf);
 	if (rebasedWrites.length === 0) delete rebased.writes;
 	else rebased.writes = rebasedWrites;
 
@@ -840,16 +903,21 @@ export function addCaseOperationAfterMutations(
 	if (form === undefined) return [];
 	const parsed = caseOperationSchema.safeParse(operation);
 	if (!parsed.success) return [];
-	const value = parsed.data;
+	const value = withoutPlacement(parsed.data);
 	return [
-		...caseOperationCatalogMutations(doc, value),
+		...caseOperationCatalogMutations(
+			doc,
+			value,
+			operationCaseType(doc, formUuid, value),
+		),
 		{
 			kind: "updateForm",
 			uuid: formUuid,
 			patch: {},
 			caseOperationChange: { operation: "add", value },
 		},
-		...(after === undefined
+		// The own arm lands first; nothing places it.
+		...(after === undefined || value.action === "own"
 			? []
 			: [moveOperationMutation(formUuid, operation.uuid, after)]),
 	];
@@ -866,7 +934,11 @@ export function updateCaseOperationMutations(
 	if (existing === undefined) return [];
 	const value = { ...operation };
 	return [
-		...caseOperationCatalogMutations(doc, value),
+		...caseOperationCatalogMutations(
+			doc,
+			value,
+			operationCaseType(doc, formUuid, value),
+		),
 		...caseOperationChangesForUpdate(formUuid, existing, value),
 	];
 }
@@ -882,6 +954,18 @@ export function removeCaseOperationMutation(
 		!(form.caseOperations ?? []).some((op) => op.uuid === uuid)
 	) {
 		return { ok: false, reason: "operation-not-found", dependentUuids: [] };
+	}
+	if (
+		(form.caseOperations ?? []).some(
+			(operation) => operation.uuid === uuid && operation.action === "own",
+		)
+	) {
+		return {
+			ok: false,
+			reason: "own-case",
+			message: OWN_CASE_REMOVAL_MESSAGE,
+			dependentUuids: [],
+		};
 	}
 	const dependentUuids = caseOperationDependents(form, uuid);
 	if (dependentUuids.length > 0) {
@@ -945,6 +1029,18 @@ export function moveCaseOperationMutation(
 	const currentIndex = ordered.findIndex(
 		(candidate) => candidate.uuid === uuid,
 	);
+	// The own arm stays first: it cannot move, and nothing moves above it.
+	if (
+		operation.action === "own" ||
+		(targetIndex === 0 && without[0]?.action === "own")
+	) {
+		return {
+			ok: false,
+			reason: "own-first",
+			message: OWN_FIRST_MESSAGE,
+			dependentUuids: [],
+		};
+	}
 	if (targetIndex === currentIndex) {
 		// An already-placed operation is a true no-op. Apart from pointless multiplayer
 		// traffic, that would create an undo entry for a gesture that changed
@@ -1115,7 +1211,9 @@ function dependencyOrderViolations(form: Form): Uuid[] {
 		for (const dependency of caseOperationDependencyUuids(operation)) {
 			if (!seen.has(dependency)) broken.add(operation.uuid);
 		}
-		if (operation.action === "create") seen.add(operation.uuid);
+		// A registration's own arm creates the case others name as its `op`.
+		if (operation.action === "create" || operation.action === "own")
+			seen.add(operation.uuid);
 	}
 	return [...broken];
 }

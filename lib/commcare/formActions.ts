@@ -1,11 +1,12 @@
 /**
  * HQ `FormActions` + `case_references_data.load` assembly.
  *
- * These are the two pieces of CommCare wire output that translate the
- * derived case config (primary open/update/close/preload + child cases)
- * into the exact shapes the HQ import JSON expects. Every `question_path`
- * value is a `/data/...` path resolved through the doc's field tree so
- * nested groups / repeats produce the correct dotted address.
+ * `buildFormActions` is the basic projection of the form's one wire plan
+ * (`casePlacementPlan.ts::planFormCaseWire`): the own case's open or
+ * update and its close, the worker's record, and each basic subcase, every
+ * `question_path` a `/data/...` path through the form's groups and repeats.
+ * Which case change takes a basic slot is the placement's decision
+ * (`placement.ts::planPlacements`), never this file's.
  *
  * `buildCaseReferencesLoad` is the complement: it walks every field's
  * typed expressions for case and worker-record reads and maps the field's full
@@ -17,421 +18,41 @@
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
-	CASE_LOADING_FORM_TYPES,
-	type CaseSelectionCardinality,
-	caseSelectionCardinality,
-	closeConditionPlacement,
-	deriveCaseWriteInventory,
 	expressionSlotValue,
-	type Field,
-	isCaptureField,
-	isCaseScalarTextProperty,
 	type Uuid,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
-import { effectiveCaseTypes } from "@/lib/domain/effectiveCaseTypes";
 import type { Expression } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
-import { fieldValueType } from "@/lib/domain/fieldValueType";
+import { planFormCaseWire } from "./casePlacementPlan";
 import { caseTypeDepthMap } from "./caseTypeDepths";
-import { assertAndProjectCaseWriteInventory } from "./caseWriteAdmission";
 import {
 	effectiveAssessmentUserScore,
 	effectiveDeliverEntities,
 } from "./connectDefaults";
 import type { ResolvedConnectConfig } from "./connectSlugs";
-import type { DerivedCasePropertyBinding } from "./deriveCaseConfig";
-import { deriveCaseConfig } from "./deriveCaseConfig";
 import { hqLoadReference } from "./hashtags";
-import { alwaysCondition, emptyFormActions, neverCondition } from "./hqShells";
-import type { FormActions, OpenSubCaseAction, UpdateCaseAction } from "./types";
-import {
-	type AttachmentUrlTarget,
-	captureUrlNodePath,
-} from "./xform/captureUrlNode";
-import { formCloseCondition } from "./xform/caseOps";
-import { datetimeCaseValuePath } from "./xform/datetimeCaseValue";
+import type { FormActions } from "./types";
+import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
 import { descendFormPathIntoField, FormPath } from "./xform/formPath";
-import {
-	type GeneratedNodePlan,
-	planGeneratedNodes,
-	trimmedValuePath,
-} from "./xform/generatedNodes";
 
 /**
- * The node one ordinary case update reads, or `null` when this binding has no
- * honest wire spelling against the current target.
+ * HQ's basic `FormActions` for `formUuid`: `planFormCaseWire`'s actions.
  *
- * An ordinary field's answer IS the case value, so the question path is the
- * field's own node. A case name or an external id is the answer trimmed, held
- * by the question's trimmed sibling. A capture's is not the answer either:
- * the answer is a file name, and the property carries an address built from
- * it, which lives on the sibling node `captureUrlNodePath` names. Every
- * sibling name is the form's plan of generated nodes', the one the XForm
- * builder writes them from. A capture's update never names the capture node
- * itself: HQ's build turns an update whose question path is an upload
- * question into an `<attachment>` block rather than an `<update>` child
- * (`corehq/apps/app_manager/xform.py::XFormCaseBlock.add_case_updates`,
- * `::is_attachment`), and case processing applies that block only where the
- * project space has `MM_CASE_PROPERTIES`
- * (`corehq/form_processor/backends/sql/update_strategy.py::SqlCaseUpdateStrategy._apply_attachments_action`).
- * Nova writes no case attachment.
- *
- * With no deployment target there is no origin and no project space to build
- * an address from, so a capture's write is withheld rather than emitted
- * against a guess.
- */
-function caseUpdateQuestionPath(
-	doc: BlueprintDoc,
-	generatedNodes: () => GeneratedNodePlan,
-	binding: DerivedCasePropertyBinding,
-	field: Field,
-	attachmentTarget: AttachmentUrlTarget | null,
-): string | null {
-	if (isCaseScalarTextProperty(binding.property))
-		return trimmedQuestionPath(generatedNodes, binding);
-	if (fieldValueType(field, effectiveCaseTypes(doc)) === "datetime")
-		return datetimeCaseValuePath(
-			generatedNodes(),
-			binding.fieldUuid,
-			binding.path,
-		).toXPath();
-	if (!isCaptureField(field)) return binding.path.toXPath();
-	if (attachmentTarget === null) return null;
-	return captureUrlNodePath(
-		generatedNodes(),
-		binding.fieldUuid,
-		binding.path,
-	).toXPath();
-}
-
-/** The trimmed sibling a case name or an external id action names. */
-function trimmedQuestionPath(
-	generatedNodes: () => GeneratedNodePlan,
-	binding: DerivedCasePropertyBinding,
-): string {
-	return trimmedValuePath(
-		generatedNodes(),
-		binding.fieldUuid,
-		binding.path,
-	).toXPath();
-}
-
-/** The form's plan of generated nodes, read only when a path needs it. */
-function generatedNodesOf(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-): () => GeneratedNodePlan {
-	return () => planGeneratedNodes(doc, formUuid);
-}
-
-function requireBindingField(
-	doc: BlueprintDoc,
-	binding: Pick<DerivedCasePropertyBinding, "fieldUuid">,
-): Field {
-	const field = doc.fields[binding.fieldUuid];
-	if (field === undefined) {
-		throw new Error(
-			`Case binding targets missing field '${binding.fieldUuid}'.`,
-		);
-	}
-	return field;
-}
-
-/** Domain `case_name` projects one-way to HQ FormActions' private `name`. */
-function projectPrimaryUpdateMap(
-	doc: BlueprintDoc,
-	generatedNodes: () => GeneratedNodePlan,
-	bindings: readonly DerivedCasePropertyBinding[] | undefined,
-	attachmentTarget: AttachmentUrlTarget | null,
-): UpdateCaseAction["update"] {
-	const updateMap: UpdateCaseAction["update"] = {};
-	if (!bindings) return updateMap;
-	for (const binding of bindings) {
-		const field = requireBindingField(doc, binding);
-		const questionPath = caseUpdateQuestionPath(
-			doc,
-			generatedNodes,
-			binding,
-			field,
-			attachmentTarget,
-		);
-		if (questionPath === null) continue;
-		const property =
-			binding.property === "case_name" ? "name" : binding.property;
-		updateMap[property] = {
-			question_path: questionPath,
-			update_mode: "always",
-		};
-	}
-	return updateMap;
-}
-
-/**
- * Project the ordinary primary-case writers independently from HQ's action
- * bag. A several-case form cannot expose one scalar `update_case` action, but
- * its XForm still lowers these same identity-backed writers through the
- * selected-case iteration.
- */
-export function buildPrimaryCaseUpdateMap(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-	moduleCaseType: string | undefined,
-	attachmentTarget: AttachmentUrlTarget | null = null,
-): UpdateCaseAction["update"] {
-	const form = doc.forms[formUuid];
-	if (
-		form === undefined ||
-		!CASE_LOADING_FORM_TYPES.has(form.type) ||
-		!moduleCaseType
-	) {
-		return {};
-	}
-	const inventory = deriveCaseWriteInventory(
-		doc,
-		formUuid,
-		{ caseType: moduleCaseType },
-		form.type,
-	);
-	const projectedInventory = assertAndProjectCaseWriteInventory(inventory);
-	const { caseProperties } = deriveCaseConfig(doc, projectedInventory);
-	return projectPrimaryUpdateMap(
-		doc,
-		generatedNodesOf(doc, formUuid),
-		caseProperties,
-		attachmentTarget,
-	);
-}
-
-/**
- * Build HQ's `FormActions` object for `formUuid`.
- *
- * Maps the derived case config (`case_properties`, `case_preload`,
- * `close_condition`, `child_cases`) to HQ's `open_case` / `update_case` /
- * `case_preload` / `close_case` / `subcases` action shapes. The shared
- * admission assertion rejects reserved destinations and media writers before
- * projection; this layer never filters or chooses among them. Every field path
- * is resolved through the form's group/repeat hierarchy so the emitted
- * `question_path` matches the XForm's nested instance nodes.
+ * A capture's link write names its `nova_url_<question>` sibling, never the
+ * capture: HQ's build turns an update whose question path is an upload
+ * question into an `<attachment>` block (`xform.py::XFormCaseBlock.
+ * add_case_updates`, `::is_attachment`). With no `attachmentTarget` there is
+ * no origin and no project space to build the link from, so the plan
+ * withholds that write. Nova never writes `case_preload`: a preload is the
+ * question's default value, written at its place in the source.
  */
 export function buildFormActions(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	moduleCaseType: string | undefined,
 	attachmentTarget: AttachmentUrlTarget | null = null,
-	caseSelection?: CaseSelectionCardinality,
 ): FormActions {
-	const base = emptyFormActions();
-	const form = doc.forms[formUuid];
-	const effectiveCaseSelection =
-		caseSelection ?? caseSelectionForForm(doc, formUuid);
-	const inventory = deriveCaseWriteInventory(
-		doc,
-		formUuid,
-		{ caseType: moduleCaseType },
-		form.type,
-	);
-	const projectedInventory = assertAndProjectCaseWriteInventory(inventory);
-	const generatedNodes = generatedNodesOf(doc, formUuid);
-
-	// The worker's own record is filled in BEFORE the case-type early return,
-	// because it does not depend on one. `usercase_update` is a form action on
-	// any module form in HQ, and a survey form is a module form with no case
-	// type of its own — often the only place a worker-record write makes sense.
-	//
-	// `usercase_preload` stays at `neverCondition()`, and that is a decision
-	// rather than an omission: Nova already reads worker data through the
-	// `#user/` hashtag, which compiles to the very same `casedb` join
-	// (`lib/commcare/hashtags.ts`). A preload action would be a second
-	// representation of one read, and the two could disagree.
-	const usercaseBucket = projectedInventory.buckets.find(
-		(projected) => projected.bucket.kind === "usercase",
-	);
-	if (usercaseBucket !== undefined) {
-		for (const { writer, path } of usercaseBucket.writers) {
-			base.usercase_update.update[writer.property] = {
-				question_path:
-					fieldValueType(
-						requireBindingField(doc, writer),
-						effectiveCaseTypes(doc),
-					) === "datetime"
-						? datetimeCaseValuePath(
-								generatedNodes(),
-								writer.fieldUuid,
-								path,
-							).toXPath()
-						: path.toXPath(),
-				update_mode: "always",
-			};
-		}
-		base.usercase_update.condition = alwaysCondition();
-	}
-
-	if (form.type === "survey" || !moduleCaseType) {
-		return base;
-	}
-
-	const { caseNames, caseProperties, casePreload, childCases } =
-		deriveCaseConfig(doc, projectedInventory);
-
-	if (form.type === "registration") {
-		// Open case + name update. The admission assertion above proves exactly
-		// one name writer; this second boundary assertion refuses to synthesize
-		// or choose a writer if derivation ever drifts from that inventory.
-		base.open_case.condition = alwaysCondition();
-		if (caseNames?.length !== 1) {
-			throw new Error(
-				`Registration form '${form.id}' reached the expander with ${caseNames?.length ?? 0} case-name writers; exactly one is required.`,
-			);
-		}
-		base.open_case.name_update.question_path = trimmedQuestionPath(
-			generatedNodes,
-			caseNames[0],
-		);
-
-		// An external id is an ordinary update row, as HQ's Case Management
-		// tab writes it; `open_case.external_id` stays null. Two writers of one
-		// property, an external id among them, are the inventory's
-		// `duplicate-property` issue: the validator refuses the form
-		// (`caseWriteFindings.ts`) and the admission assertion above throws.
-		const updateMap = projectPrimaryUpdateMap(
-			doc,
-			generatedNodes,
-			caseProperties,
-			attachmentTarget,
-		);
-		if (Object.keys(updateMap).length > 0) base.update_case.update = updateMap;
-	}
-
-	// HQ's Case Management save writes `always` on every form that opens or
-	// requires a case (`case_config_ui.js::HQFormActions.from_case_transaction`),
-	// whatever it writes. HQ then builds a block that touches the selected
-	// case on a follow-up that writes nothing, and no primary block at all in
-	// a multi-select menu.
-	base.update_case.condition = alwaysCondition();
-
-	if (CASE_LOADING_FORM_TYPES.has(form.type)) {
-		const updateMap = projectPrimaryUpdateMap(
-			doc,
-			generatedNodes,
-			caseProperties,
-			attachmentTarget,
-		);
-		if (
-			effectiveCaseSelection === "single" &&
-			Object.keys(updateMap).length > 0
-		) {
-			base.update_case.update = updateMap;
-		}
-
-		// Scalar case values can seed answers. Capture answers name files in
-		// this submission; a stored link is not such a file.
-		if (
-			effectiveCaseSelection === "single" &&
-			casePreload &&
-			casePreload.length > 0
-		) {
-			const preloadMap: Record<string, string> = {};
-			for (const binding of casePreload) {
-				if (isCaptureField(doc.fields[binding.fieldUuid])) continue;
-				preloadMap[binding.path.toXPath()] =
-					binding.property === "case_name" ? "name" : binding.property;
-			}
-			if (Object.keys(preloadMap).length > 0) {
-				base.case_preload.condition = alwaysCondition();
-				base.case_preload.preload = preloadMap;
-			}
-		}
-	}
-
-	// Close-case action (close forms only — form.type IS the signal). A
-	// condition HQ's Case Management tab cannot state is written as a Save to
-	// Case close in the form's source (`xform/caseOps.ts`), so the tab holds
-	// no condition it would rewrite.
-	if (form.type === "close") {
-		base.close_case = {
-			doc_type: "FormAction",
-			condition:
-				closeConditionPlacement(doc, formUuid) === "save-to-case"
-					? neverCondition()
-					: formCloseCondition(doc, formUuid),
-		};
-	}
-
-	// Child / sub-cases (auto-derived from `caseWrite.caseType` pointing at a
-	// different case type).
-	if (childCases && childCases.length > 0) {
-		base.subcases = childCases.map((child): OpenSubCaseAction => {
-			// The child-case bucket must carry a field bound to `case_name`.
-			// The validator rejects a bucket without one, so reaching the
-			// emitter without it means an upstream invariant broke.
-			if (child.caseNames.length !== 1) {
-				throw new Error(
-					`Form '${form.id}' derives a child case of type '${child.caseType}' with ${child.caseNames.length} case-name writers; exactly one is required.`,
-				);
-			}
-			const [childCaseName] = child.caseNames;
-
-			// Each binding already carries the stable source identity and the
-			// resolved path captured in its own bucket, so cousin fields with
-			// equal friendly ids cannot redirect this update.
-			const childProps: Record<
-				string,
-				{ question_path: string; update_mode: string }
-			> = {};
-			for (const binding of child.caseProperties) {
-				const field = requireBindingField(doc, binding);
-				const questionPath = caseUpdateQuestionPath(
-					doc,
-					generatedNodes,
-					binding,
-					field,
-					attachmentTarget,
-				);
-				if (questionPath === null) continue;
-				childProps[binding.property] = {
-					question_path: questionPath,
-					update_mode: "always",
-				};
-			}
-
-			// Subcase wrapper splice target. `child.repeatContext` is the
-			// resolved XPath string already (deriveCaseConfig records the
-			// repeat's path during its walk, including the `/item` step for
-			// `query_bound`). Pass through verbatim — no second resolution,
-			// no cousin-id ambiguity.
-			const repeatContextStr = child.repeatContext ?? "";
-
-			return {
-				doc_type: "OpenSubCaseAction",
-				case_type: child.caseType,
-				name_update: {
-					question_path: trimmedQuestionPath(generatedNodes, childCaseName),
-					update_mode: "always",
-				},
-				reference_id: "",
-				case_properties: childProps,
-				repeat_context: repeatContextStr,
-				relationship: child.relationship,
-				close_condition: neverCondition(),
-				condition: alwaysCondition(),
-			};
-		});
-	}
-
-	return base;
-}
-
-function caseSelectionForForm(
-	doc: BlueprintDoc,
-	formUuid: Uuid,
-): CaseSelectionCardinality {
-	for (const moduleUuid of doc.moduleOrder) {
-		if (!(doc.formOrder[moduleUuid] ?? []).includes(formUuid)) continue;
-		const module = doc.modules[moduleUuid];
-		return module === undefined ? "single" : caseSelectionCardinality(module);
-	}
-	return "single";
+	return planFormCaseWire(doc, formUuid, { attachmentTarget }).actions;
 }
 
 /**

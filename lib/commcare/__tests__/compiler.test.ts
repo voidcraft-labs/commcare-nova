@@ -381,7 +381,7 @@ describe("CCZ compiler integration", () => {
 		);
 	});
 
-	it("places an ordinary registration external ID in update and preloads saved followup values after starting values", () => {
+	it("places an ordinary registration external ID in update and opens a follow-up's writer on the case's value, as its default", () => {
 		const { hq, zip } = exported(compilerNavigationFixture("base"));
 		const registration = model(zip.readAsText("modules-0/forms-1.xml"));
 		const data = onlyXml(
@@ -424,11 +424,6 @@ describe("CCZ compiler integration", () => {
 					value: xpathEvidence(node.attributes.value),
 				})),
 		).toEqual([
-			{
-				ref: "/data/answer",
-				event: "xforms-ready",
-				value: xpathEvidence("'manual-default'"),
-			},
 			{
 				ref: "/data/answer",
 				event: "xforms-ready",

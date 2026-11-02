@@ -128,8 +128,9 @@ export type FieldKind = (typeof fieldKinds)[number];
 /**
  * The capture kinds — every kind whose answer is an attachment rather
  * than a value the worker types. They share one schema shape (label +
- * hint + required + relevant + a `caseWrite` that saves a link to the
- * file; no validation, no default) and one wire shape
+ * hint + required + relevant; no validation, no default; a case
+ * operation saves a link to the file through a `capture-link` write
+ * value) and one wire shape
  * (`<upload mediatype>` over a `binary` bind).
  *
  * This tuple is the single home for "which kinds are captures". The
@@ -256,7 +257,6 @@ export const fieldRegistry: { [K in FieldKind]: FieldKindMetadata<K> } = {
 	section: sectionFieldMetadata,
 };
 
-export { type CaseWrite, caseWriteSchema } from "./base";
 export type { RepeatMode };
 // `RepeatMode` (the three `repeat_mode` discriminator literals) comes
 // from `./repeat`, where the `repeatModes` tuple is declared beside the
@@ -546,8 +546,7 @@ export function convertNeedsOptionSeed(
  * Special cases:
  *   - `single_select` ↔ `multi_select`: `optionsSource` transfers verbatim.
  *   - `text` ↔ `secret` / `barcode`: no options on any — validate /
- *     relevant / required / hint / default_value / caseWrite
- *     carry over (none carries `calculate`; that's a `hidden`-only slot).
+ *     relevant / required / hint / default_value carry over (none carries `calculate`; that's a `hidden`-only slot).
  *   - `text` → `single_select`: the select schemas require `optionsSource`
  *     and the source has none, so the caller supplies it via
  *     `seed.optionsSource` (the `convertField` mutation's payload) — a
@@ -555,16 +554,14 @@ export function convertNeedsOptionSeed(
  *   - `hidden` → a question kind: the destination requires a label the
  *     source lacks, so the caller supplies it via `seed.label`.
  *   - `text` → `hidden`: label / hint / required / validate drop (hidden
- *     declares none of them); id / case binding / relevant /
- *     default_value survive. A result with neither `calculate` nor
+ *     declares none of them); id / relevant / default_value
+ *     survive. A result with neither `calculate` nor
  *     `default_value` is a valid hidden value that stays blank.
  *   - `single_select` → `text`: `optionsSource` drops; everything else carries.
  *   - Capture subkinds (image/audio/video/signature/file): identity +
- *     label + hint + required + relevant carry over, and so does
- *     `caseWrite` — every capture kind declares the same destination
- *     shape, so a conversion among them keeps saving the same link to the
- *     same place. No `validate` (not in capture schemas
- *     today).
+ *     label + hint + required + relevant carry over. The field's uuid
+ *     stays, so a `capture-link` write that names it keeps saving a link
+ *     to the same file. No `validate` (not in capture schemas today).
  *   - `group` ↔ `repeat`: container; only identity + label + relevant
  *     carry over. Children are untouched — they stay in `fieldOrder`
  *     under the same parent uuid, which is still a valid container after

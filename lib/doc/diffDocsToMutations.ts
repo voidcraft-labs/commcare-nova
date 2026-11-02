@@ -45,7 +45,10 @@ import type {
  *   7. Updates — `updateModule` / `updateForm` / `updateField` patches of
  *      ONLY the changed keys (excluding `order`, `caseListConfig`,
  *      `caseSearchConfig`, `options`, and media, each diffed separately).
- *      Field-id and `caseWrite` patches are both UUID-local.
+ *      Field-id patches are UUID-local. A form's case writes, its own case
+ *      included, ride `updateForm` case-operation payloads keyed by
+ *      operation uuid and write key, and its open and close conditions ride
+ *      the ordinary form patch.
  *   8. Media — the dedicated clear-safe kinds (`setFieldMedia` /
  *      `setModuleMedia` / `setFormMedia`).
  *   9. Granular COLLECTIONS — case-list column / search-input / semantic
@@ -391,6 +394,9 @@ const FORM_PATCH_SKIP = new Set<string>([
 	// Links diff granularly (`diffFormLinks`); the form patch never carries
 	// the whole array.
 	"formLinks",
+	// A held placement is written by `holdPlacements` alone, never by a form
+	// patch.
+	"ownClosePlacement",
 ]);
 
 // ── Field media diff ─────────────────────────────────────────────────
@@ -779,8 +785,7 @@ export function diffDocsToMutations(
 
 	// Fields.
 	//
-	// Field ids and `caseWrite` bindings ride their per-kind UUID-local
-	// `updateField` patches. An app-wide property rename was proved and returned
+	// Field ids ride their per-kind UUID-local `updateField` patches. An app-wide property rename was proved and returned
 	// above as the batch-exclusive semantic command; this ordinary path never
 	// guesses migration intent from one field.
 	for (const uuid of fieldDelta.common) {
@@ -1172,14 +1177,16 @@ function diffCaseOperations(
 	// batch's complete final membership by the authoritative conflict guard.
 	for (const [uuid, operation] of after) {
 		if (before.has(uuid)) continue;
+		// A new operation starts unheld: its placement is written by
+		// `holdPlacements` alone.
+		const { placement: _held, ...value } = caseOperationSchema.parse(
+			cloneEntity(operation),
+		);
 		mutations.push({
 			kind: "updateForm",
 			uuid: formUuid,
 			patch: {},
-			caseOperationChange: {
-				operation: "add",
-				value: caseOperationSchema.parse(cloneEntity(operation)),
-			},
+			caseOperationChange: { operation: "add", value },
 		});
 	}
 	for (const [uuid, operation] of after) {
@@ -1190,17 +1197,24 @@ function diffCaseOperations(
 		);
 	}
 	// Reorders last, against the PROJECTED sequence: removes have taken their
-	// operations out and adds have appended theirs, so a move computed against
-	// `prev` would name a position that never exists. Two docs cannot say which
+	// operations out and adds have appended theirs (an added own arm lands
+	// first, as the reducer places it), so a move computed against `prev`
+	// would name a position that never exists. Two docs cannot say which
 	// operation the author dragged, so this derives the moves that reach the
 	// target rather than reproducing a gesture.
+	const added = (next.caseOperations ?? []).filter(
+		(operation) => !before.has(operation.uuid),
+	);
 	const projected = [
+		...added
+			.filter((operation) => operation.action === "own")
+			.map((operation) => operation.uuid),
 		...(prev.caseOperations ?? [])
 			.map((operation) => operation.uuid)
 			.filter((uuid) => after.has(uuid)),
-		...(next.caseOperations ?? [])
-			.map((operation) => operation.uuid)
-			.filter((uuid) => !before.has(uuid)),
+		...added
+			.filter((operation) => operation.action !== "own")
+			.map((operation) => operation.uuid),
 	];
 	for (const move of sequenceMovesTo(
 		projected,
@@ -1218,6 +1232,22 @@ function diffCaseOperations(
 		});
 	}
 	return mutations;
+}
+
+/**
+ * A born form as `addForm` carries it: without a held placement, its own
+ * close's or any operation's. A new form starts unheld; `holdPlacements`
+ * alone writes a hold.
+ */
+function unheldForm(form: Form): Form {
+	const { ownClosePlacement: _held, ...rest } = cloneEntity(form);
+	if (rest.caseOperations === undefined) return rest;
+	return {
+		...rest,
+		caseOperations: rest.caseOperations.map(
+			({ placement: _operationHeld, ...operation }) => operation,
+		),
+	};
 }
 
 // ── Field-patch helpers ──────────────────────────────────────────────
@@ -1530,7 +1560,7 @@ function reconcileFormOrders(
 			adds.push({
 				kind: "addForm",
 				moduleUuid,
-				form: cloneEntity(ownRecordValue(next.forms, uuid) as Form),
+				form: unheldForm(ownRecordValue(next.forms, uuid) as Form),
 				after,
 			});
 			place(uuid, moduleUuid, after);

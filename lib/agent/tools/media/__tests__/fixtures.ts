@@ -3,6 +3,7 @@
  * their native boundary suites. */
 import { vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { lowerFixtureCaseWrites } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
 	type Field,
@@ -158,7 +159,6 @@ export function makeMediaDoc(): BlueprintDoc {
 		id: "patient_name",
 		kind: "text",
 		label: proseText("Patient name"),
-		caseWrite: { caseType: "patient", property: "case_name" },
 	};
 	const selectField: Field = {
 		uuid: SELECT_FIELD,
@@ -214,7 +214,13 @@ export function makeMediaDoc(): BlueprintDoc {
 			[HIDDEN_FIELD]: FORM_A,
 		},
 	};
-	return expectAdmittedDoc(doc);
+	// The text question names the patient: lowered into the own case.
+	return expectAdmittedDoc(
+		lowerFixtureCaseWrites(
+			doc,
+			new Map([[TEXT_FIELD, { caseType: "patient", property: "case_name" }]]),
+		),
+	);
 }
 
 /** Bundle of doc + a canonical workspace over the lightweight chat-surface

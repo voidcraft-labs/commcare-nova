@@ -2,7 +2,12 @@
  * Only the authenticated request session is supplied at its external boundary. */
 import { beforeEach, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { CaseNotFoundError, withProjectContext } from "@/lib/case-store";
+import {
+	buildCaseTypeMap,
+	CaseNotFoundError,
+	type CaseOperationProgram,
+	withProjectContext,
+} from "@/lib/case-store";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { commitAppProjectMove } from "@/lib/db/apps";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
@@ -111,10 +116,34 @@ async function workerSubmissionArgs(app: Awaited<ReturnType<typeof create>>) {
 		.select("mutation_seq")
 		.where("id", "=", app.appId)
 		.executeTakeFirstOrThrow();
+	const formUuid = Object.values(app.doc.forms)[0].uuid;
+	const visits = {
+		kind: "term",
+		term: { kind: "literal", value: "must-not-land" },
+	} as const;
+	const operations: CaseOperationProgram = {
+		formUuid,
+		operations: [
+			{
+				operation: {
+					uuid: testUuid("usercase-identity-worker-record"),
+					id: "worker_record",
+					action: "update",
+					caseType: USERCASE_CASE_TYPE,
+					target: { kind: "worker-record" },
+					writes: [{ property: "visits", value: visits }],
+				},
+				guardConditions: [],
+				expressionSnapshotTypes: { links: new Map() },
+			},
+		],
+		scopes: [{ iterations: [{ formFields: new Map() }] }],
+		caseTypeSchemas: buildCaseTypeMap(app.doc),
+	};
 	return {
 		appId: app.appId,
 		ordinary: { kind: "none" as const },
-		usercase: { properties: { visits: "must-not-land" } },
+		operations,
 		submissionReceipt: {
 			entryKey: crypto.randomUUID(),
 			formUuid: Object.values(app.doc.forms)[0].uuid,

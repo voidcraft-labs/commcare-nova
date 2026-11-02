@@ -107,6 +107,7 @@ import {
 } from "../suite/case-list/orderPlanOptions";
 import {
 	buildField,
+	type DrawnCaseWrites,
 	type FieldBuildCtx,
 	type FieldDraft,
 	type FieldGenSpec,
@@ -678,6 +679,7 @@ const CASE_TYPE_NAMES = ["patient", "household", "visit", "service"] as const;
 /** Lower a `DocGenSpec` into a fully-normalized, schema-valid `BlueprintDoc`. */
 function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 	const minter = new IdMinter();
+	const caseWrites: DrawnCaseWrites = new Map();
 	const modules: Record<Uuid, Module> = {};
 	const forms: Record<Uuid, Form> = {};
 	const fields: Record<Uuid, FieldDraft> = {};
@@ -930,7 +932,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					: {}),
 			};
 
-			const ctx: FieldBuildCtx = { minter, fields, fieldOrder };
+			const ctx: FieldBuildCtx = { minter, fields, fieldOrder, caseWrites };
 
 			if (formSpec.type !== "survey") {
 				const caseNameUuid = minter.uuid("fld");
@@ -940,8 +942,11 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					kind: "text",
 					id: "case_name",
 					label: proseText("Case name"),
-					caseWrite: { caseType: caseTypeName, property: "case_name" },
 				};
+				caseWrites.set(caseNameUuid, {
+					caseType: caseTypeName,
+					property: "case_name",
+				});
 
 				const propUuid = minter.uuid("fld");
 				fieldOrder[formUuid].push(propUuid);
@@ -954,13 +959,16 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					// against it resolve to a real writer.
 					id: "full_name",
 					label: proseText("Full name"),
-					caseWrite: { caseType: caseTypeName, property: "full_name" },
 				};
+				caseWrites.set(propUuid, {
+					caseType: caseTypeName,
+					property: "full_name",
+				});
 			}
 
 			// Random root fields draw ids from the sibling pool — same cousin-
 			// collision coverage the XForm generator relies on. They deliberately
-			// have no `caseWrite`; the fixed fields above own the case output while
+			// save nothing; the fixed fields above own the case output while
 			// these random fields focus on path/identity collision coverage.
 			formSpec.fields.forEach((fieldSpec, i) => {
 				buildField(ctx, formUuid, pickSiblingId(i), fieldSpec);
@@ -996,6 +1004,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					...(logo ? { logo } : {}),
 				}),
 			),
+			caseWrites,
 		),
 	);
 }

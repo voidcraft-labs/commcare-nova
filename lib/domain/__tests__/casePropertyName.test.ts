@@ -3,6 +3,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	caseOperationWriteSchema,
 	casePropertySchema,
+	caseWriteKeySchema,
 	columnSchema,
 	fieldSchema,
 	proseTemplateSchema,
@@ -78,14 +79,11 @@ const carriers = [
 		}),
 	},
 	{
-		name: "field write",
-		schema: fieldSchema,
+		name: "write key",
+		schema: caseWriteKeySchema,
 		input: (property: string) => ({
-			uuid: testUuid("property-field"),
-			kind: "text",
-			id: "friendly_question_id",
-			label: proseText("Value"),
-			caseWrite: { caseType: "patient", property },
+			property,
+			via: [{ identifier: "parent" }],
 		}),
 	},
 ];
@@ -112,46 +110,25 @@ describe("authored case-property names across domain carriers", () => {
 		).toBe(true);
 	});
 
-	it("allows a friendly field id that differs from its canonical case property", () => {
-		expect(
-			fieldSchema.safeParse({
-				uuid: testUuid("independent-field-case-identities"),
-				kind: "text",
-				id: "name",
-				label: proseText("Name"),
-				caseWrite: { caseType: "patient", property: "case_name" },
-			}).success,
-		).toBe(true);
-	});
-
-	it("admits only a complete strict caseWrite pair on eligible fields", () => {
+	it("refuses a case destination on a field, which only a case operation holds", () => {
+		// A field schema that still admitted `caseWrite` would let a second
+		// spelling of a case write reach the document beside the operations.
 		const base = {
-			uuid: testUuid("strict-case-write"),
-			kind: "text",
-			id: "friendly_id",
+			uuid: testUuid("field-without-destination"),
 			label: proseText("Value"),
 		} as const;
-		expect(
-			fieldSchema.safeParse({
-				...base,
-				caseWrite: { caseType: "patient", property: "value" },
-			}).success,
-		).toBe(true);
-		expect(
-			fieldSchema.safeParse({
-				...base,
-				caseWrite: { caseType: "patient" },
-			}).success,
-		).toBe(false);
-		expect(
-			fieldSchema.safeParse({
-				...base,
-				caseWrite: {
-					caseType: "patient",
-					property: "value",
-					legacyProperty: "value",
-				},
-			}).success,
-		).toBe(false);
+		for (const kind of ["text", "hidden", "image"] as const) {
+			const field =
+				kind === "hidden"
+					? { uuid: base.uuid, kind, id: "friendly_id" }
+					: { ...base, kind, id: "friendly_id" };
+			expect(fieldSchema.safeParse(field).success).toBe(true);
+			expect(
+				fieldSchema.safeParse({
+					...field,
+					caseWrite: { caseType: "patient", property: "value" },
+				}).success,
+			).toBe(false);
+		}
 	});
 });

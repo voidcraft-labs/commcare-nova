@@ -219,11 +219,6 @@ export function applyMutations(
 	draft: Draft<BlueprintDoc>,
 	muts: readonly Mutation[],
 ): MutationResult[] {
-	const caseWriteOnlyUpdate =
-		muts.length === 1 &&
-		muts[0]?.kind === "updateField" &&
-		Object.keys(muts[0].patch).length === 1 &&
-		Object.hasOwn(muts[0].patch, "caseWrite");
 	const fieldTopologyChanged = muts.some((mutation) => {
 		switch (mutation.kind) {
 			case "removeModule":
@@ -253,14 +248,9 @@ export function applyMutations(
 	// once after the complete batch: initial localization may contain one entry
 	// mutation per unit per target, so rebuilding the whole inventory after each
 	// one would turn a linear commit into quadratic work.
-	/* A case destination changes no translation-unit ownership or record shape.
-	 * The ordinary maintenance below is O(app) and would only recreate identical
-	 * derived state for this scalar patch. */
-	if (!caseWriteOnlyUpdate) {
-		pruneOrphanTranslationEntries(draft);
-		dematerializeEnglishOnlyLocalization(draft);
-		normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
-	}
+	pruneOrphanTranslationEntries(draft);
+	dematerializeEnglishOnlyLocalization(draft);
+	normalizeBlueprintOwnRecords(draft as unknown as BlueprintDoc);
 	/* Parent relations depend only on the five topology-changing families
 	 * above. Scalar field/form/module edits, media, logic, catalogs, ordering
 	 * outside the field tree, and localization all retain the exact index. */

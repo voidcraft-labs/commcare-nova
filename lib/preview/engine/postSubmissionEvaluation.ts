@@ -12,7 +12,7 @@ import {
 	afterSubmitRoute,
 	afterSubmitTargetVisibility,
 	automaticLinkedCaseCollection,
-	carriedChildCasesFromReceipt,
+	carriedCasesFromPatch,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "../afterSubmitRouting";
@@ -68,6 +68,10 @@ export async function evaluatePostSubmissionSnapshot(
 					reachableCaseTypes(caseType, doc.caseTypes ?? []),
 				)
 			: new Map<string, Map<string, string>>();
+	// A registration whose open condition did not hold names the id its entry
+	// minted and created no case, so none reads back.
+	if (caseData === undefined && form.type === "registration")
+		caseData = new Map<string, Map<string, string>>();
 	if (caseData === undefined)
 		throw new FormEvaluationInputError(
 			"The saved record is unavailable for the next task.",
@@ -81,11 +85,9 @@ export async function evaluatePostSubmissionSnapshot(
 						: undefined,
 				}
 			: {}),
-		childCases: carriedChildCasesFromReceipt({
-			createdChildren: args.result.createdChildren,
-			authoredChildren:
-				"children" in args.mutation ? args.mutation.children : [],
-			parentCaseIds: ids,
+		childCases: carriedCasesFromPatch({
+			caseDatabasePatch: args.result.caseDatabasePatch,
+			primaryCaseIds: ids,
 		}),
 	};
 	const menuSource = { ...doc, doc, caseTypes: doc.caseTypes ?? [] };

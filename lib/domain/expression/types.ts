@@ -321,6 +321,14 @@ export const tableColumnTermSchema = z.strictObject({
 	columnId: lookupColumnIdSchema,
 });
 export type TableColumnTerm = z.infer<typeof tableColumnTermSchema>;
+/** The CommCare HQ address of the file a capture question (image, audio,
+ * video, signature, file) holds. It reads `field`, and the checker admits it
+ * only as the whole value a case change saves. */
+export const captureLinkTermSchema = z.strictObject({
+	kind: z.literal("capture-link"),
+	field: uuidSchema,
+});
+export type CaptureLinkTerm = z.infer<typeof captureLinkTermSchema>;
 export const fixedLocationTermSchema = z.strictObject({
 	kind: z.literal("fixed-location"),
 	locationUuid: uuidSchema,
@@ -403,6 +411,7 @@ export type Term =
 	| SessionUserPropertyRef
 	| SessionContextRef
 	| FormFieldRef
+	| CaptureLinkTerm
 	| FormNodeTerm
 	| TableColumnTerm
 	| FixedLocationTerm
@@ -424,6 +433,7 @@ export const termSchema: z.ZodType<Term> = z.union([
 	sessionUserPropertySchema,
 	sessionContextSchema,
 	formFieldRefSchema,
+	captureLinkTermSchema,
 	formNodeTermSchema,
 	tableColumnTermSchema,
 	fixedLocationTermSchema,
@@ -713,6 +723,7 @@ const TERM_KINDS = new Set<string>([
 	"session-user-property",
 	"session-context",
 	"field",
+	"capture-link",
 	"form-node",
 	"table-column",
 	"fixed-location",
@@ -1064,6 +1075,8 @@ export type FormExpressionSlotRef =
 			readonly uuid: Uuid;
 			readonly slot:
 				| "form_display_condition"
+				| "form_open_condition"
+				| "form_close_condition"
 				| "assessment_user_score"
 				| "deliver_entity_id"
 				| "deliver_entity_name";
@@ -1100,9 +1113,12 @@ export type FormExpressionSlotRef =
 			readonly slot:
 				| "case_operation_write_value"
 				| "case_operation_write_condition";
+			/** A write's key: its property, through `via` when it saves to the
+			 * case above. */
 			readonly member: {
 				readonly operationUuid: Uuid;
 				readonly property: string;
+				readonly via?: readonly [RelationStep, ...RelationStep[]];
 			};
 	  }
 	| {

@@ -3331,9 +3331,9 @@ describe("a Hidden Value read", () => {
 			member: { operationUuid: RULES.operation, property: "seen_at" },
 		};
 		const copy = term({ kind: "field", uuid: RULES.stamp });
-		expect(codes(slotOutcome(write(copy), slot, copy).errors)).toEqual([
-			"expected-value:clock-lost",
-		]);
+		// Saved as it is, the stamp is the write's own question, whose bind
+		// takes the property's date-and-time type and keeps its clock.
+		expect(slotOutcome(write(copy), slot, copy).errors).toEqual([]);
 		expect(slotOutcome(write(now()), slot, now()).errors).toEqual([]);
 		// Core's coalesce returns its first non-empty argument as it held it,
 		// so a lost clock in any argument reaches the result.

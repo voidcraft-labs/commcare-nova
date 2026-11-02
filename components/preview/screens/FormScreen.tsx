@@ -63,7 +63,7 @@ import {
 	afterSubmitTargetVisibility,
 	appHomeLanding,
 	automaticLinkedCaseCollection,
-	carriedChildCasesFromReceipt,
+	carriedCasesFromPatch,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "@/lib/preview/afterSubmitRouting";
@@ -76,10 +76,7 @@ import {
 	pickBlueprintDoc,
 	viewerTimeZone,
 } from "@/lib/preview/engine/caseDataBindingClient";
-import type {
-	SubmissionMutation,
-	SubmissionResult,
-} from "@/lib/preview/engine/caseDataBindingTypes";
+import type { SubmissionResult } from "@/lib/preview/engine/caseDataBindingTypes";
 import {
 	overlayCaseDatabasePatch,
 	submissionWorkerValues,
@@ -149,10 +146,7 @@ import {
 	noMatchesRefusalCopy,
 } from "@/lib/preview/noMatchesForm";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
-import {
-	closeConditionHolds,
-	formChangesSessionCase,
-} from "@/lib/preview/unheldCaseSubmit";
+import { formChangesSessionCase } from "@/lib/preview/unheldCaseSubmit";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
@@ -1297,13 +1291,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 			readonly destination: PostSubmitDestination;
 		};
 		readonly result: SubmissionSuccess;
-		readonly mutation: SubmissionMutation | undefined;
 		readonly isCurrent: () => boolean;
 		readonly settleAttempt: (status: SubmitStatus) => void;
 		/** Announce the landed write to every surface reading case data. */
 		readonly announceWrite: () => void;
 	}): Promise<void> => {
-		const { submitted, result, mutation, isCurrent, settleAttempt } = args;
+		const { submitted, result, isCurrent, settleAttempt } = args;
 		/* Forget page memory only when this completed entry actually leaves.
 		 * The next engine resolves its first visible page from fresh answers;
 		 * choosing a page now would use the submitted entry's conditionality. */
@@ -1476,15 +1469,21 @@ export function FormScreen({ screen }: FormScreenProps) {
 				resultCaseIds[0],
 				chain,
 			);
-			if (readBack === undefined) {
+			/* The patch holds every case the submission touched, so a
+			 * registration's case is missing from it only when the form's open
+			 * condition did not create one. The session still names the id it
+			 * minted, as a device's does, and no case reads back from it. */
+			if (readBack === undefined && result.kind !== "registration") {
 				failAfterSave(
 					"Your answers were saved, but the saved case was not available to choose the next screen. Reload the app and try again.",
 					"source-case-unavailable",
 				);
 				return;
 			}
-			caseData = readBack;
-			boundCaseName = readBack.get(caseType)?.get("case_name");
+			if (readBack !== undefined) {
+				caseData = readBack;
+				boundCaseName = readBack.get(caseType)?.get("case_name");
+			}
 		}
 		try {
 			const doc = submitted.doc;
@@ -1501,24 +1500,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 					moduleIsCaseFirst(doc, moduleUuid),
 				),
 			);
-			const createdChildren =
-				result.kind === "survey" ? [] : result.createdChildren;
-			const children =
-				mutation !== undefined && "children" in mutation
-					? mutation.children
-					: [];
 			const submission: CarriedSubmission = {
 				...(resultCaseIds.length === 1 && { caseId: resultCaseIds[0] }),
-				...(result.kind === "registration" &&
-					mutation?.kind === "registration" &&
-					mutation.primary.caseName !== undefined && {
-						caseName: mutation.primary.caseName,
-					}),
 				...(boundCaseName !== undefined && { caseName: boundCaseName }),
-				childCases: carriedChildCasesFromReceipt({
-					createdChildren,
-					authoredChildren: children,
-					parentCaseIds: resultCaseIds,
+				childCases: carriedCasesFromPatch({
+					caseDatabasePatch,
+					primaryCaseIds: resultCaseIds,
 				}),
 			};
 			const input = {
@@ -2177,7 +2164,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 		/* The mutation that landed, kept beside the result: the after-submit
 		 * links need the case types of the children it created, which the
 		 * result reports only by id. */
-		let landedMutation: SubmissionMutation | undefined;
 		let validation: EngineValidationCompletion | undefined;
 		try {
 			const submitStableAnswers = async (): Promise<
@@ -2203,20 +2189,12 @@ export function FormScreen({ screen }: FormScreenProps) {
 					formChangesSessionCase(
 						submitted.doc,
 						submittedFormUuid,
-						closeConditionHolds(submitted.doc, submittedFormUuid, (uuid) =>
-							String(controller.store.getState()[uuid]?.value ?? ""),
-						),
+						controller.ownCloseHolds(),
 					)
 				)
 					return "not-processed";
 				const submission = await controller.computeSubmissionMutationAsync(
-					{
-						caseIds: submitted.caseIds,
-						/* The zone a datetime answer is stamped with. The device
-						 * stamps its own; in Preview the author's browser stands in
-						 * for it, the same substitution the case-data reads make. */
-						viewerTimeZone: viewerTimeZone(),
-					},
+					{ caseIds: submitted.caseIds },
 					submittedEntryKey,
 					validation,
 				);
@@ -2257,7 +2235,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 				submitted = finalSubmitted;
 				submissionRevisionFinal = true;
 				if (!isCurrent()) return "stale";
-				landedMutation = mutation;
 				/* The persona rides the WRITE, not just the reads. Its uuid is the
 				 * `owner_id` stamped on every case this submission creates, so
 				 * dropping it here would quietly give a persona's work to the
@@ -2364,7 +2341,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 						destination: submitted.destination,
 					},
 					result,
-					mutation: landedMutation,
 					isCurrent,
 					settleAttempt,
 					announceWrite: () => {

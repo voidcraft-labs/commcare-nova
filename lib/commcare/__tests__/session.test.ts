@@ -18,8 +18,8 @@ import {
 } from "@/lib/domain/expression";
 import { chosenCaseId } from "@/lib/domain/expression/chosenCase";
 import type { Expression } from "@/lib/domain/expression/types";
+import { planFormCaseWire } from "../casePlacementPlan";
 import type { MatchedChild, ProjectedFormLinks } from "../formLinkProjection";
-import { alwaysCondition, emptyFormActions } from "../hqShells";
 import { serializeXml } from "../serializeXml";
 import {
 	buildEntryElement,
@@ -37,6 +37,7 @@ import { toWire } from "../xpath/wire/fromExpression";
 import { caseDbInstance, sessionInstance } from "../xpath/wire/instances";
 import { serializeWire } from "../xpath/wire/serialize";
 import type { WireExpr } from "../xpath/wire/tree";
+import { own, placementFixture, read } from "./placementFixture";
 import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
 const base: Omit<EntryDefinitionInput, "expressions"> = {
@@ -133,9 +134,13 @@ function entryXml(options: Partial<EntryDefinitionInput> = {}) {
 }
 
 it("mints a registration datum with the identity in-form reads use", () => {
-	const actions = emptyFormActions();
-	actions.open_case.condition = alwaysCondition();
-	const entry = entryXml({ formType: "registration", actions });
+	const { doc, formUuid } = placementFixture("registration", {
+		operations: () => [own({ name: read("name") })],
+	});
+	const entry = entryXml({
+		formType: "registration",
+		newCases: planFormCaseWire(doc, formUuid).datums,
+	});
 	const datums = onlyXml(xmlChildren(entry, "session")).children;
 	expect(datums.map((datum) => datum.attributes)).toEqual([
 		{ id: newCaseIdDatumId("patient"), function: "uuid()" },

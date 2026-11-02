@@ -58,7 +58,9 @@ export function relationInstanceFixture(scenario: RelationInstanceScenario) {
 		],
 	});
 	const relation = subcasePath("parent", "visit");
+	// After the own case `buildDoc` gives the follow-up.
 	doc.forms[formUuid].caseOperations = [
+		...(doc.forms[formUuid].caseOperations ?? []),
 		{
 			uuid: testUuid("record-visits"),
 			id: "record_visits",

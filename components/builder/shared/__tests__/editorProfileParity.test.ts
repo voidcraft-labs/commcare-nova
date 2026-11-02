@@ -486,8 +486,12 @@ describe("the editor's axes are the slot's profile", () => {
 					"record",
 			).map((ref) => ref.slot),
 		);
-		// The form-logic slots: the text editor's, never the card editor's.
+		// The form-logic slots. A question's are the text editor's; a form's
+		// open and close conditions are the card editor's over the same
+		// form-logic profile (`detail/formSettings/OwnCaseSection.tsx`).
 		const formLogic = new Set<string>([
+			"form_open_condition",
+			"form_close_condition",
 			"relevant",
 			"validate",
 			"calculate",

@@ -2010,9 +2010,9 @@ export class PostgresCaseStore implements CaseStore {
 	async applySubmission(
 		args: ApplySubmissionArgs,
 	): Promise<SubmissionEnvelopeResult> {
-		// One transaction for the WHOLE submission — the ordinary form
-		// action and the advanced operation program land together or not
-		// at all. Every envelope first adjudicates and claims its durable
+		// One transaction for the WHOLE submission — every case change of
+		// the form's operation program, its own case first, lands together
+		// or not at all. Every envelope first adjudicates and claims its durable
 		// entry receipt, even with no attachments. Standard lock order:
 		// authorize → entry receipt → relationship advisory → schema locks in
 		// sorted order for every case type the
@@ -2037,14 +2037,10 @@ export class PostgresCaseStore implements CaseStore {
 			});
 			if (replay !== undefined) return replay;
 			await this.lockRelationshipWrites(trx, args.appId);
-			const validators = await this.lockValidators(
+			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
+			const effects = await executeSubmissionEnvelope(
 				trx,
-				args.appId,
-				submissionCaseTypes(args),
-			);
-			const { usercaseCaseId, ...effects } = await executeSubmissionEnvelope(
-				trx,
-				this.submissionEnvelopeHost(validators),
+				this.submissionEnvelopeHost(),
 				args,
 			);
 			const affectedCaseIds = [
@@ -2053,7 +2049,6 @@ export class PostgresCaseStore implements CaseStore {
 				...effects.operations.flatMap((operation) =>
 					operation.executed ? [operation.caseId] : [],
 				),
-				...(usercaseCaseId === undefined ? [] : [usercaseCaseId]),
 			];
 			const caseDatabasePatch = await this.readCaseDatabasePatchInTransaction(
 				trx,
@@ -2081,9 +2076,7 @@ export class PostgresCaseStore implements CaseStore {
 
 	/** The narrow store internals the envelope executor borrows — see
 	 * `SubmissionEnvelopeHost`. */
-	private submissionEnvelopeHost(
-		validators: ReadonlyMap<string, ValidatorCacheEntry>,
-	): SubmissionEnvelopeHost {
+	private submissionEnvelopeHost(): SubmissionEnvelopeHost {
 		return {
 			projectId: this.requireProjectId(),
 			// The WORKER, not the member: a submission's `acting-user` and its
@@ -2122,105 +2115,8 @@ export class PostgresCaseStore implements CaseStore {
 						: { caseIdTaken: a.caseIdTaken }),
 				}),
 			updateCase: (trx, a) => this.updateInTransaction(trx, a),
-			updateCases: (trx, a) => {
-				const validator = validators.get(a.caseType);
-				if (validator === undefined) {
-					throw new Error(
-						compilerBugMessage({
-							where: "case-store.PostgresCaseStore.submissionEnvelopeHost",
-							invariant: `ordinary selected-case patch names unlocked case type \`${a.caseType}\``,
-							detail:
-								"The submission's sorted schema-lock set includes every followup and close module type before the executor starts. A missing validator means submissionCaseTypes and the ordinary envelope contract diverged.",
-						}),
-					);
-				}
-				return this.updateSharedPatchInTransaction(trx, a, validator);
-			},
 			closeCase: (trx, a) => this.closeCaseInTransaction(trx, a),
 		};
-	}
-
-	/**
-	 * Submission-only batch twin of `updateInTransaction` for one shared
-	 * ordinary patch. Selection authority and rolling type safety have already
-	 * been proved by the envelope; this seam reuses its held schema validator,
-	 * locks every selected row in one query, performs the same declared-key
-	 * shedding + merge + AJV validation in caller order, and writes the prepared
-	 * documents in one statement. The generic `update` path stays single-row.
-	 */
-	private async updateSharedPatchInTransaction(
-		trx: Transaction<Database>,
-		args: {
-			appId: string;
-			caseIds: readonly string[];
-			caseType: string;
-			patch: CaseUpdate;
-		},
-		validator: ValidatorCacheEntry,
-	): Promise<void> {
-		const rows = await trx
-			.selectFrom("cases as c")
-			.select(["c.case_id", "c.case_type", "c.properties"])
-			.where("c.app_id", "=", args.appId)
-			.where("c.case_id", "in", args.caseIds)
-			.where("c.project_id", "=", this.requireProjectId())
-			.forUpdate()
-			.execute();
-		const byId = new Map(rows.map((row) => [row.case_id, row]));
-		const propertyPatch =
-			args.patch.properties === undefined
-				? undefined
-				: parseJsonbInput(args.patch.properties);
-		const prepared = args.caseIds.map((caseId) => {
-			const row = byId.get(caseId);
-			if (row === undefined || row.case_type !== args.caseType) {
-				// The envelope's tenant-bound selection load and rolling type proof
-				// precede every effect under the app relationship lock. Match the
-				// generic update path's non-disclosing failure if that invariant is
-				// ever violated by a future effect kind.
-				throw new CaseNotFoundError(caseId);
-			}
-			if (propertyPatch === undefined) {
-				return { caseId, properties: row.properties };
-			}
-			const inherited: Record<string, unknown> = {};
-			for (const [key, value] of Object.entries(row.properties)) {
-				if (validator.declared.has(key)) inherited[key] = value;
-			}
-			const mergedProperties = { ...inherited, ...propertyPatch };
-			this.assertValidProperties(validator, {
-				appId: args.appId,
-				caseType: args.caseType,
-				properties: mergedProperties,
-			});
-			return { caseId, properties: mergedProperties };
-		});
-		const assignments = [
-			sql`properties = selected_patch.properties`,
-			sql`modified_on = now()`,
-		];
-		if (args.patch.case_name !== undefined) {
-			assignments.push(
-				sql`case_name = ${normalizedCaseScalar("case_name", args.patch.case_name, "reject")}`,
-			);
-		}
-		if (args.patch.external_id !== undefined) {
-			assignments.push(
-				sql`external_id = ${normalizedCaseScalar("external_id", args.patch.external_id, "allow")}`,
-			);
-		}
-		const values = prepared.map(
-			(row) =>
-				sql`(${row.caseId}::text, ${JSON.stringify(row.properties)}::jsonb)`,
-		);
-		await sql`
-			update cases as c
-			set ${sql.join(assignments, sql`, `)}
-			from (values ${sql.join(values, sql`, `)}) as selected_patch(case_id, properties)
-			where c.app_id = ${args.appId}
-				and c.project_id = ${this.requireProjectId()}
-				and c.case_id = selected_patch.case_id
-		`.execute(trx);
 	}
 
 	/**
@@ -5146,33 +5042,33 @@ export class PostgresCaseStore implements CaseStore {
 
 /**
  * Every case type a submission names up front, for the envelope's
- * sorted schema-lock acquisition: the registration primary + children,
- * the followup/close children (and the declared module type when
- * supplied), and each operation's declared type, retype target, and
- * link target types. The followup/close BOUND case's type is
- * deliberately absent — it is discovered inside the update core, which
- * acquires its own schema lock, the same pattern `update` uses.
+ * sorted schema-lock acquisition: the followup/close module type, the own
+ * arm's case type, each operation's declared type, retype target and link
+ * target types, and the type each write through an index reaches. The
+ * followup/close BOUND case's type is deliberately absent — it is
+ * discovered inside the update core, which acquires its own schema lock,
+ * the same pattern `update` uses.
  */
 function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
 	const types = new Set<string>();
 	const ordinary = args.ordinary;
-	if (ordinary.kind === "registration") {
-		types.add(ordinary.primary.caseType);
-		for (const child of ordinary.children) types.add(child.caseType);
-	} else if (ordinary.kind === "followup" || ordinary.kind === "close") {
+	if (ordinary.kind === "followup" || ordinary.kind === "close") {
 		types.add(ordinary.caseType);
-		for (const child of ordinary.children) types.add(child.caseType);
 	}
-	// The worker's own case type takes its schema lock like any other. It is
-	// absent from every `ordinary` arm because it is not one of them.
-	if (args.usercase !== undefined) types.add(USERCASE_CASE_TYPE);
+	const ownCase = args.operations?.ownCase;
+	if (ownCase !== undefined) types.add(ownCase.caseType);
 	for (const entry of args.operations?.operations ?? []) {
-		types.add(entry.operation.caseType);
+		if (entry.operation.caseType !== undefined) {
+			types.add(entry.operation.caseType);
+		}
 		if (entry.operation.retype !== undefined) {
 			types.add(entry.operation.retype);
 		}
 		for (const link of entry.operation.links ?? []) {
 			types.add(link.targetType);
+		}
+		for (const caseType of entry.viaCaseTypes?.values() ?? []) {
+			types.add(caseType);
 		}
 	}
 	return [...types];

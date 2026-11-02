@@ -1223,3 +1223,282 @@ describe("diffDocsToMutations — explicit cases", () => {
 		assertRoundTrip(android, both);
 	});
 });
+
+/* Two admitted endpoints that differ in the form's own case, a keyed write
+ * through `via`, or the open and close conditions diff to the payloads
+ * autosave carries (part 01 §16.1), and the replay through JSON and the gate
+ * lands the target. Catches autosave dropping a keyed write or a condition. */
+describe("diffDocsToMutations — the own case, keyed writes and conditions", () => {
+	const MODULE = testUuid("diff-own-module");
+	const REG = testUuid("diff-own-registration");
+	const FUP = testUuid("diff-own-followup");
+	const CLS = testUuid("diff-own-close");
+	const SURVEY = testUuid("diff-own-survey");
+	const REG_NAME = testUuid("diff-own-reg-name");
+	const REG_FLAG = testUuid("diff-own-reg-flag");
+	const FUP_NOTE = testUuid("diff-own-fup-note");
+	const CLS_NOTE = testUuid("diff-own-cls-note");
+	const SURVEY_Q = testUuid("diff-own-survey-q");
+	const OWN_REG = testUuid("diff-own-arm-registration");
+	const OWN_FUP = testUuid("diff-own-arm-followup");
+	const OWN_CLS = testUuid("diff-own-arm-close");
+	const OWN_SURVEY = testUuid("diff-own-arm-survey");
+	const answerOf = (uuid: Uuid) => ({
+		kind: "term" as const,
+		term: { kind: "field" as const, uuid },
+	});
+	const answered = (uuid: Uuid, value: string) => ({
+		kind: "eq" as const,
+		left: answerOf(uuid),
+		right: { kind: "term" as const, term: { kind: "literal" as const, value } },
+	});
+	const viaParent: [{ identifier: string }] = [{ identifier: "parent" }];
+
+	function ownDoc(): BlueprintDoc {
+		const doc = buildDoc(
+			{
+				appName: "Own cases",
+				caseTypes: [
+					{
+						name: "household",
+						properties: [
+							{ name: "note", label: proseText("Note"), data_type: "text" },
+						],
+					},
+					{
+						name: "patient",
+						parent_type: "household",
+						relationship: "child",
+						properties: [
+							{ name: "note", label: proseText("Note"), data_type: "text" },
+						],
+					},
+				],
+				modules: [
+					{
+						uuid: MODULE,
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: {
+							columns: [
+								plainColumn(testUuid("diff-own-column"), "case_name", "Name"),
+							],
+							searchInputs: [],
+						},
+						forms: [
+							{
+								uuid: REG,
+								name: "Register",
+								type: "registration",
+								fields: [
+									f({ uuid: REG_NAME, kind: "text", id: "case_name" }),
+									f({ uuid: REG_FLAG, kind: "text", id: "flag" }),
+								],
+							},
+							{
+								uuid: FUP,
+								name: "Visit",
+								type: "followup",
+								fields: [f({ uuid: FUP_NOTE, kind: "text", id: "note" })],
+							},
+							{
+								uuid: CLS,
+								name: "Discharge",
+								type: "close",
+								fields: [f({ uuid: CLS_NOTE, kind: "text", id: "note" })],
+							},
+							{
+								uuid: SURVEY,
+								name: "Survey",
+								type: "survey",
+								fields: [f({ uuid: SURVEY_Q, kind: "text", id: "q" })],
+							},
+						],
+					},
+				],
+			},
+			(draft) => {
+				draft.forms[REG].caseOperations = [
+					{
+						uuid: OWN_REG,
+						id: "patient",
+						action: "own",
+						name: answerOf(REG_NAME),
+					},
+				];
+				draft.forms[FUP].caseOperations = [
+					{
+						uuid: OWN_FUP,
+						id: "patient",
+						action: "own",
+						writes: [{ property: "note", value: answerOf(FUP_NOTE) }],
+					},
+				];
+				draft.forms[CLS].caseOperations = [
+					{ uuid: OWN_CLS, id: "patient", action: "own" },
+				];
+			},
+		);
+		assertAdmittedDoc(doc);
+		return doc;
+	}
+
+	it("diffs an own case born with the form's type into the type patch and an own add", () => {
+		const prev = ownDoc();
+		const next = produce(prev, (draft) => {
+			draft.forms[SURVEY].type = "followup";
+			draft.forms[SURVEY].caseOperations = [
+				{ uuid: OWN_SURVEY, id: "patient", action: "own" },
+			];
+		});
+		expect(diffDocsToMutations(prev, next)).toEqual(
+			expect.arrayContaining([
+				{ kind: "updateForm", uuid: SURVEY, patch: { type: "followup" } },
+				{
+					kind: "updateForm",
+					uuid: SURVEY,
+					patch: {},
+					caseOperationChange: {
+						operation: "add",
+						value: { uuid: OWN_SURVEY, id: "patient", action: "own" },
+					},
+				},
+			]),
+		);
+		assertRoundTrip(prev, next);
+		assertRoundTrip(next, prev);
+	});
+
+	it("diffs the own case's name and owner into one own patch", () => {
+		const prev = ownDoc();
+		const next = produce(prev, (draft) => {
+			const own = draft.forms[REG].caseOperations?.[0];
+			if (own?.action !== "own") throw new Error("fixture own case missing");
+			own.name = answerOf(REG_FLAG);
+			own.owner = { kind: "term", term: { kind: "literal", value: "team" } };
+		});
+		expect(diffDocsToMutations(prev, next)).toEqual([
+			{
+				kind: "updateForm",
+				uuid: REG,
+				patch: {},
+				caseOperationPatch: {
+					operation: "update",
+					uuid: OWN_REG,
+					targetAction: "own",
+					patch: {
+						name: answerOf(REG_FLAG),
+						owner: { kind: "term", term: { kind: "literal", value: "team" } },
+					},
+				},
+			},
+		]);
+		assertRoundTrip(prev, next);
+		assertRoundTrip(next, prev);
+	});
+
+	it("diffs a write through via as its own key, beside the write of the same property", () => {
+		const prev = ownDoc();
+		const next = produce(prev, (draft) => {
+			const own = draft.forms[FUP].caseOperations?.[0];
+			if (own === undefined) throw new Error("fixture own case missing");
+			own.writes = [
+				{ property: "note", value: answerOf(FUP_NOTE), via: viaParent },
+				{ property: "note", value: answerOf(FUP_NOTE), onlyIfChanged: true },
+			];
+		});
+		const diff = diffDocsToMutations(prev, next);
+		expect(diff).toEqual(
+			expect.arrayContaining([
+				{
+					kind: "updateForm",
+					uuid: FUP,
+					patch: {},
+					caseOperationPatch: {
+						operation: "add-write",
+						uuid: OWN_FUP,
+						value: {
+							property: "note",
+							value: answerOf(FUP_NOTE),
+							via: viaParent,
+						},
+						after: null,
+					},
+				},
+				{
+					kind: "updateForm",
+					uuid: FUP,
+					patch: {},
+					caseOperationPatch: {
+						operation: "update-write",
+						uuid: OWN_FUP,
+						key: { property: "note" },
+						patch: { onlyIfChanged: true },
+					},
+				},
+			]),
+		);
+		assertRoundTrip(prev, next);
+		assertRoundTrip(next, prev);
+	});
+
+	it("diffs the open and close conditions into the form patch, a clear as null", () => {
+		const prev = ownDoc();
+		const next = produce(prev, (draft) => {
+			draft.forms[REG].openCondition = answered(REG_FLAG, "yes");
+			draft.forms[REG].closeCondition = answered(REG_FLAG, "gone");
+			draft.forms[CLS].closeCondition = answered(CLS_NOTE, "done");
+		});
+		expect(diffDocsToMutations(prev, next)).toEqual(
+			expect.arrayContaining([
+				{
+					kind: "updateForm",
+					uuid: REG,
+					patch: {
+						openCondition: answered(REG_FLAG, "yes"),
+						closeCondition: answered(REG_FLAG, "gone"),
+					},
+				},
+				{
+					kind: "updateForm",
+					uuid: CLS,
+					patch: { closeCondition: answered(CLS_NOTE, "done") },
+				},
+			]),
+		);
+		assertRoundTrip(prev, next);
+		expect(diffDocsToMutations(next, prev)).toEqual(
+			expect.arrayContaining([
+				{
+					kind: "updateForm",
+					uuid: REG,
+					patch: { openCondition: null, closeCondition: null },
+				},
+				{ kind: "updateForm", uuid: CLS, patch: { closeCondition: null } },
+			]),
+		);
+		assertRoundTrip(next, prev);
+	});
+
+	it("carries no held placement in any payload", () => {
+		const prev = ownDoc();
+		const next = produce(prev, (draft) => {
+			draft.forms[SURVEY].type = "close";
+			draft.forms[SURVEY].caseOperations = [
+				{
+					uuid: OWN_SURVEY,
+					id: "patient",
+					action: "own",
+					placement: { kind: "basic", slot: "own" },
+				},
+			];
+			draft.forms[CLS].ownClosePlacement = {
+				kind: "save-to-case",
+				path: ["nova_operations", "patient"],
+			};
+		});
+		const wire = JSON.stringify(diffDocsToMutations(prev, next));
+		expect(wire).not.toContain("placement");
+		expect(wire).not.toContain("ownClosePlacement");
+	});
+});

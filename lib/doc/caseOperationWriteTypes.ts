@@ -25,6 +25,7 @@ import {
 	type BlueprintDoc,
 	type CasePropertyDataType,
 	effectiveCaseTypes,
+	operationCaseType,
 } from "@/lib/domain";
 import { declarersOf } from "./referenceIndex";
 import type { Uuid } from "./types";
@@ -53,8 +54,9 @@ interface CasePropertyLike {
  * The reference index keys a FORM's operation declarations under the form, not
  * under each operation (`registerFormDeclarations`), so `declarersOf` answers
  * "does anything outside this form write it?" and the siblings inside the form
- * have to be read off the form itself. Field writers carry their own uuid, so
- * a field in this same form is already a foreign carrier.
+ * have to be read off the form itself, the own case's change among them, whose
+ * case type is the module's. A write through `via` lands on a case above, so
+ * it is no writer of the operation's own type.
  */
 function operationIsSoleWriter(
 	doc: BlueprintDoc,
@@ -72,8 +74,11 @@ function operationIsSoleWriter(
 	return !(form.caseOperations ?? []).some(
 		(operation) =>
 			operation.uuid !== operationUuid &&
-			(operation.retype ?? operation.caseType) === caseType &&
-			(operation.writes ?? []).some((write) => write.property === property),
+			(operation.retype ?? operationCaseType(doc, formUuid, operation)) ===
+				caseType &&
+			(operation.writes ?? []).some(
+				(write) => write.via === undefined && write.property === property,
+			),
 	);
 }
 

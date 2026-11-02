@@ -81,7 +81,7 @@ export type ValidityClass =
  *
  *   - The completeness rows are the unfinished-content findings
  *     (NO_MODULES, EMPTY_FORM, MISSING_CASE_LIST_COLUMNS,
- *     CASE_CREATE_NAME_MISSING, CASE_CREATE_NAME_DUPLICATE,
+ *     CASE_CREATE_NAME_MISSING,
  *     MISSING_CHILD_CASE_MODULE,
  *     the Connect
  *     participation floor + per-block sub-config family).
@@ -264,18 +264,20 @@ export const VALIDITY_CLASS_BY_CODE = {
 	FORM_SECTION_NOT_TOP_LEVEL: "soundness",
 	FORM_SECTIONS_INCOMPLETE: "soundness",
 	FORM_SECTION_USER_REPEAT: "soundness",
-	CASE_WRITE_NO_CASE_ACTION: "soundness",
-	CASE_WRITE_NOT_DIRECT_CHILD: "soundness",
+	// A form's own case is one operation, first, on exactly the forms that
+	// have one; its effects stand apart from every other operation's.
+	CASE_OWN_OPERATION: "soundness",
 	CASE_WRITE_DUPLICATE_PROPERTY: "soundness",
+	// A save to the case above, or of changed answers only, that the wire
+	// would build empty, write always, or not hold at all.
+	CASE_WRITE_VIA_INVALID: "soundness",
+	CASE_WRITE_ONLY_IF_CHANGED_INVALID: "soundness",
 	CASE_CREATE_NAME_MISSING: "completeness",
-	CASE_CREATE_NAME_DUPLICATE: "soundness",
-	RESERVED_CASE_PROPERTY: "soundness",
 	CAPTURE_CASE_WRITE_STANDARD_PROPERTY: "soundness",
 	FORM_TOO_MANY_ATTACHMENTS: "soundness",
+	OPEN_CONDITION_WRONG_TYPE: "soundness",
 	CLOSE_CONDITION_WRONG_TYPE: "soundness",
 	CLOSE_FORM_NO_CASE_TYPE: "soundness",
-	CLOSE_CONDITION_INCOMPLETE: "soundness",
-	CLOSE_CONDITION_FIELD_NOT_FOUND: "soundness",
 	INVALID_POST_SUBMIT: "shape",
 	POST_SUBMIT_NOT_OFFERED: "soundness",
 	FORM_LINK_EMPTY: "shape",
@@ -295,7 +297,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	FORM_LINK_SEARCH_CASE_UNREPRESENTABLE: "soundness",
 	FORM_LINK_SELECTION_CARDINALITY: "soundness",
 	FORM_LINK_SELECTION_CASE_TYPE_CHANGED: "soundness",
-	MULTI_SELECT_FANOUT_CHILD_DATUM: "soundness",
 	MULTI_SELECT_SHARED_CASE_EXPRESSION: "soundness",
 	MULTI_SELECT_APP_OPERATION_CASE_READ: "soundness",
 	MULTI_SELECT_AUTHORED_KEY_CREATE: "soundness",
@@ -325,16 +326,12 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// Save to Case block writes one of these property names.
 	CASE_PROPERTY_NAME_FORM_BUILDER_CANNOT_KEEP: "soundness",
 	CASE_HASHTAG_ON_CREATE_FORM: "soundness",
-	PRIMARY_CASE_FIELD_IN_REPEAT: "soundness",
 	USERCASE_WRITE_UNDECLARED_PROPERTY: "soundness",
 	USERCASE_WRITE_MANAGED_PROPERTY: "soundness",
-	USERCASE_FIELD_IN_REPEAT: "soundness",
 	DUPLICATE_FIELD_ID: "soundness",
 	// A root field and a Connect block of one form would be two elements of
 	// one name in the form's data root.
 	FIELD_ID_NAMES_CONNECT_BLOCK: "soundness",
-	CASE_PROPERTY_BAD_FORMAT: "soundness",
-	CASE_PROPERTY_TOO_LONG: "soundness",
 	CASE_OPERATION_DUPLICATE_UUID: "soundness",
 	CASE_OPERATION_INVALID_ID: "soundness",
 	CASE_OPERATION_DUPLICATE_ID: "soundness",
@@ -347,6 +344,7 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_OPERATION_EXPRESSION_TYPE: "soundness",
 	CASE_OPERATION_TARGET_INVALID: "soundness",
 	CASE_OPERATION_TARGET_TYPE_MISMATCH: "soundness",
+	CASE_OPERATION_CLOSES_OWN_CASE: "soundness",
 	CASE_OPERATION_REFERENCE_ORDER: "soundness",
 	CASE_OPERATION_EXECUTION_ORDER: "soundness",
 	CASE_OPERATION_REPEAT_INVALID: "soundness",
@@ -372,9 +370,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// builder drops its itext on save and HQ's next build refuses the form,
 	// and an option with no `<label>` is one CommCare refuses to parse.
 	SELECT_OPTION_LABEL_EMPTY: "soundness",
-	// A field still writing to a case type absent from the catalog — reachable
-	// when a peer concurrently retires the type the field was declared against.
-	CASE_WRITE_UNKNOWN_TYPE: "soundness",
 	// Schema-legal (both slots are optional so history hydrates) but
 	// contradictory; `rules/field.ts::hiddenValueBothSources` has the why.
 	HIDDEN_VALUE_BOTH_SOURCES: "soundness",

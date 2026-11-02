@@ -12,7 +12,7 @@ import { possibleFinalSessionCaseTypes } from "@/lib/doc/caseOperationOrder";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
-	type CaseWriteInventory,
+	caseOperationRunsPerSelectedCase,
 	caseSelectionCanFlowBetweenModules,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
@@ -32,11 +32,6 @@ import {
 } from "@/lib/domain/expression/types";
 import { walkExpression } from "@/lib/domain/expression/walk";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
-import {
-	entryDatumIdResolver,
-	entryDatumIds,
-	formLinkProjectionContext,
-} from "../../formLinkProjection";
 import type { ValidationError } from "../errors";
 import { validationError } from "../errors";
 
@@ -62,75 +57,6 @@ function isMultiple(module: Module | undefined): boolean {
 
 function isBatchConsumer(form: Form | undefined): boolean {
 	return form !== undefined && CASE_LOADING_FORM_TYPES.has(form.type);
-}
-
-function fannedChildCaseTypes(
-	inventory: CaseWriteInventory,
-): ReadonlySet<string> {
-	return new Set(
-		inventory.buckets.flatMap((bucket) =>
-			bucket.kind === "child" && bucket.repeatUuid === undefined
-				? [bucket.caseType]
-				: [],
-		),
-	);
-}
-
-/** Refuse the exact scalar child datums HQ allocates for a multi-parent
- * fanout whenever an authored link expression tries to observe one. */
-function fanoutChildDatumExpressionConsumers(
-	doc: BlueprintDoc,
-	form: Form,
-	ctx: MultiSelectFormContext,
-	inventory: CaseWriteInventory,
-): ValidationError[] {
-	const childTypes = fannedChildCaseTypes(inventory);
-	if (childTypes.size === 0) return [];
-	const projection = formLinkProjectionContext(doc, {
-		entryMetadataOnly: true,
-	});
-	const datumId = entryDatumIdResolver(
-		entryDatumIds(doc, projection, ctx.moduleUuid, ctx.formUuid),
-	);
-	const errors: ValidationError[] = [];
-	for (const { ref, expression } of expressionSlotValues(doc, {
-		entity: "form",
-		uuid: form.uuid,
-	})) {
-		if (!("member" in ref) || !("linkUuid" in ref.member)) continue;
-		let childType: string | undefined;
-		walkExpression(expression, {
-			visitTerm(term) {
-				if (
-					term.kind === "session-datum" &&
-					term.datum.kind === "new-child-case" &&
-					childTypes.has(term.datum.caseType)
-				)
-					childType ??= term.datum.caseType;
-			},
-		});
-		if (childType === undefined) continue;
-		const surface =
-			ref.slot === "form_link_condition" ? "condition" : "carried value";
-		const child = { kind: "new-child-case" as const, caseType: childType };
-		const id = datumId(child);
-		errors.push(
-			validationError(
-				"MULTI_SELECT_FANOUT_CHILD_DATUM",
-				"form",
-				`"${form.name}" reads one generated child case in a form-link ${surface}, but this form creates a separate child for every selected parent. There is no single child value to read. Remove that child-case reference from the link.`,
-				formLocation(ctx),
-				{
-					linkUuid: ref.member.linkUuid,
-					surface,
-					access: "exact",
-					datumRef: datumRefKey(child),
-					...(id === undefined ? {} : { datumId: id }),
-				},
-			),
-		);
-	}
-	return errors;
 }
 
 /** A multiple-selection list must lead to at least one form that consumes it. */
@@ -269,7 +195,6 @@ export function multiSelectFormSemantics(
 	form: Form,
 	module: Module,
 	ctx: MultiSelectFormContext,
-	inventory: CaseWriteInventory,
 ): ValidationError[] {
 	if (!isMultiple(module) || !isBatchConsumer(form)) return [];
 
@@ -278,8 +203,12 @@ export function multiSelectFormSemantics(
 	const operations = form.caseOperations ?? [];
 	let enteredSelectedCaseScope = false;
 	for (const operation of operations) {
-		const sessionTargeted = operation.target.kind === "session";
-		if (enteredSelectedCaseScope && !sessionTargeted) {
+		// The form's own case runs once per selected case wherever its block
+		// stands (its effects are independent of every other operation's), so
+		// it opens no selected-case scope the operations after it must follow.
+		if (operation.action === "own") continue;
+		const perSelectedCase = caseOperationRunsPerSelectedCase(operation);
+		if (enteredSelectedCaseScope && !perSelectedCase) {
 			errors.push(
 				validationError(
 					"MULTI_SELECT_OPERATION_ORDER",
@@ -290,7 +219,7 @@ export function multiSelectFormSemantics(
 				),
 			);
 		}
-		enteredSelectedCaseScope ||= sessionTargeted;
+		enteredSelectedCaseScope ||= perSelectedCase;
 
 		if (
 			operation.action === "create" &&
@@ -308,13 +237,18 @@ export function multiSelectFormSemantics(
 			);
 		}
 
+		// A link to the loaded case names the current selected case wherever
+		// its operation runs once per selected case (a create so linked is
+		// made once under each). An operation that runs once for the form has
+		// no one selected case to name.
+		if (perSelectedCase) continue;
 		for (const link of operation.links ?? []) {
 			if (link.target?.kind !== "session") continue;
 			errors.push(
 				validationError(
 					"MULTI_SELECT_SESSION_OPERATION_LINK",
 					"form",
-					`Case operation "${operation.id}" links to "the selected case", but this form has a set of selected cases. Point the link at one explicit operation or expression target instead.`,
+					`Case operation "${operation.id}" runs once for the form but links to "the selected case", and this form has a set of selected cases. Point the link at one explicit operation or expression target, or make the operation work on the selected case.`,
 					loc,
 					{
 						operationUuid: operation.uuid,
@@ -364,9 +298,6 @@ export function multiSelectFormSemantics(
 		}
 	};
 	walkFields(ctx.formUuid);
-	errors.push(
-		...fanoutChildDatumExpressionConsumers(doc, form, ctx, inventory),
-	);
 
 	for (const { ref, expression } of expressionSlotValues(doc, {
 		entity: "form",
@@ -378,12 +309,16 @@ export function multiSelectFormSemantics(
 			const operation = operations.find(
 				(candidate) => candidate.uuid === operationUuid,
 			);
-			if (operation?.target.kind === "session") continue;
+			if (
+				operation !== undefined &&
+				caseOperationRunsPerSelectedCase(operation)
+			)
+				continue;
 			errors.push(
 				validationError(
 					"MULTI_SELECT_APP_OPERATION_CASE_READ",
 					"form",
-					`Case operation "${operation?.id ?? "unknown"}" runs once for the form, so its ${ref.slot.replaceAll("_", " ")} cannot read one selected case from a set. Target the loaded session case to run the operation once per selected case, or remove that case read.`,
+					`Case operation "${operation?.id ?? "unknown"}" runs once for the form, so its ${ref.slot.replaceAll("_", " ")} cannot read one selected case from a set. Target the loaded session case, or link a new case to it, to run the operation once per selected case, or remove that case read.`,
 					loc,
 					{
 						surface: ref.slot,
@@ -420,13 +355,11 @@ export function formLinkSelectionCardinality(
 	form: Form,
 	module: Module,
 	ctx: MultiSelectFormContext,
-	inventory: CaseWriteInventory,
 ): ValidationError[] {
 	if (!isBatchConsumer(form) || form.formLinks === undefined) return [];
 
 	const sourceCardinality = caseSelectionCardinality(module);
 	const sourceMaximum = caseSelectionMaximum(module);
-	const fanoutTypes = fannedChildCaseTypes(inventory);
 	const finalSessionCaseTypes = possibleFinalSessionCaseTypes(
 		doc,
 		ctx.formUuid,
@@ -438,25 +371,6 @@ export function formLinkSelectionCardinality(
 		const targetModule = doc.modules[link.target.moduleUuid];
 		const targetForm = doc.forms[link.target.formUuid];
 		if (targetModule === undefined || !isBatchConsumer(targetForm)) continue;
-		if (
-			targetModule.caseType !== undefined &&
-			fanoutTypes.has(targetModule.caseType)
-		) {
-			errors.push(
-				validationError(
-					"MULTI_SELECT_FANOUT_CHILD_DATUM",
-					"form",
-					`"${form.name}" creates one ${targetModule.caseType} case for every selected ${module.caseType ?? "case"}, so there is no single new case to carry directly into "${targetForm.name}". Link to the destination module instead so the next case can be chosen there.`,
-					loc,
-					{
-						linkUuid: link.uuid,
-						childCaseType: targetModule.caseType,
-					},
-				),
-			);
-			continue;
-		}
-
 		const targetCardinality = caseSelectionCardinality(targetModule);
 		const targetMaximum = caseSelectionMaximum(targetModule);
 		const compatible = formLinkSelectionIsCompatible({

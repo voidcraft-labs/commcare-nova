@@ -2,15 +2,14 @@
 //
 // The atomic submission envelope's public contract — the argument and
 // result shapes `CaseStore.applySubmission` speaks. One envelope is one
-// whole form submission: the ordinary form action (registration primary
-// plus children, followup update plus children, close including final
-// writes) and the advanced case-operation program execute inside ONE
-// Postgres transaction from one pre-submission snapshot, mirroring how
-// formplayer commits a submission's case blocks with the HQ POST as a
-// single transaction. There is no partial success: any failure rolls the
-// entire submission back with a typed error
+// whole form submission: every case change the form makes is an operation
+// of its program, the form's own case first, as the form's array holds it.
+// The program executes inside ONE Postgres transaction from one
+// pre-submission snapshot, mirroring how formplayer commits a submission's
+// case blocks with the HQ POST as a single transaction. There is no partial
+// success: any failure rolls the entire submission back with a typed error
 // (`SubmissionRejectedError` for operation-contract rejections, the
-// existing typed error classes for ordinary-write failures).
+// existing typed error classes for storage failures).
 //
 // The operation program carries AUTHORED expressions, not evaluated
 // values. The executor evaluates every target, condition, and value
@@ -32,56 +31,22 @@ import type {
 } from "@/lib/domain";
 import type { Expression as DomainExpression } from "@/lib/domain/expression/types";
 import type { LookupTableSchemas } from "./sql/compileLookup";
-import type { JsonObject } from "./sql/database";
 import type { DeviceCaseDatabase } from "./store";
 
 /**
- * One case row the ordinary form action creates. `caseName` stays
- * optional in the shape because the walker plucks it from the form's
- * `case_name` leaf — the executor throws the canonical compiler-bug
- * invariant when it is absent, since `cases.case_name` is NOT NULL and
- * a valid blueprint always carries the name leaf.
- */
-export interface SubmissionCaseSeed {
-	readonly caseType: string;
-	readonly caseName?: string;
-	readonly externalId?: string;
-	readonly properties: JsonObject;
-	/** Server-derived from the committed child case type. Present only when
-	 * this seed is linked to an ordinary form's parent case. */
-	readonly parentRelationship?: NonNullable<CaseType["relationship"]>;
-	/**
-	 * Server-derived from the committed entry's session datums: the key of the
-	 * `uuid()` datum that names this case (`new-case`,
-	 * `new-child-case:<type>`), whose id the form read while it ran
-	 * (`lib/domain/entryCaseIdentity.ts`). The case is created with that id.
-	 * Absent for a case no datum names (a repeat's child, a several-case
-	 * form's children), which takes a fresh id.
-	 */
-	readonly entryCaseKey?: string;
-}
-
-/**
- * The ordinary (non-operation) half of a submission — the existing
- * four form types' case effects, executed AFTER the operation program
- * (advanced effects precede the ordinary FormActions block in wire
- * document order, and the executor mirrors that).
+ * What the submission's session holds for its form type: the selected cases a
+ * follow-up or close form acts on, checked against the module's selection
+ * contract before any effect. Every case change, the form's own case
+ * included, is an operation of the program; this arm carries no write.
  *
- *   - `registration` — insert the primary plus every child. Children take the
- *     primary's generated id as `parent_case_id` and never carry their own.
- *   - `followup` / `close` — apply one admitted patch to every bound case
- *     in selection order, insert each child with its pre-bound
- *     `parentCaseId`; `close` stamps the lifecycle transition LAST, after
- *     every property write.
- *   - `none` — a submission with no ordinary case effect (a survey
- *     form, or a future operations-only submission).
+ *   - `registration`: the form creates its own case through the program's own
+ *     arm, and selects none.
+ *   - `followup` / `close`: the ordered selected cases, the selection contract
+ *     they were chosen under, and the module's case type each must hold.
+ *   - `none`: a survey, which selects no case.
  */
 export type OrdinarySubmissionAction =
-	| {
-			readonly kind: "registration";
-			readonly primary: SubmissionCaseSeed;
-			readonly children: ReadonlyArray<SubmissionCaseSeed>;
-	  }
+	| { readonly kind: "registration" }
 	| {
 			readonly kind: "followup" | "close";
 			/** Ordered selected cases. A singular form supplies one id. */
@@ -90,24 +55,8 @@ export type OrdinarySubmissionAction =
 			readonly selection:
 				| { readonly kind: "single"; readonly maximum: 1 }
 				| { readonly kind: "multiple"; readonly maximum: number };
-			/**
-			 * The module case type the form was authored against. When present
-			 * and the action is type-sensitive (a property patch, a name
-			 * write, or a child's parent link), the rolling type proof folds
-			 * the ordinary action as its final implicit step, so an advanced
-			 * retype away from the authored type rejects the envelope — the
-			 * runtime twin of the static analysis's `ordinary` slot. A
-			 * write-free, child-free close stays type-blind either way.
-			 */
+			/** The module case type every selected case must hold. */
 			readonly caseType: string;
-			readonly patch: {
-				readonly caseName?: string;
-				readonly externalId?: string;
-				readonly properties: JsonObject;
-			};
-			/** Concrete authored child/repeat seeds in form order. The executor
-			 * expands each seed over `caseIds` in selected-case order. */
-			readonly children: ReadonlyArray<SubmissionCaseSeed>;
 	  }
 	| { readonly kind: "none" };
 
@@ -184,6 +133,31 @@ export interface EnvelopeCaseOperation {
 		readonly target?: string;
 		readonly links: ReadonlyMap<number, string>;
 	};
+	/**
+	 * For each write with a `via`, keyed by the write's array index, the case
+	 * type the catalog says its index chain reaches. The executor takes that
+	 * type's schema lock before any effect and converts the value to that
+	 * type's declared property.
+	 */
+	readonly viaCaseTypes?: ReadonlyMap<number, string>;
+}
+
+/**
+ * The form's own case, as the program runs it: the module's case type, the
+ * form's type, and the form's own open and close conditions. Present exactly
+ * when `operations` holds the `own` arm.
+ *
+ * On a registration the own arm creates the case when `openCondition` holds
+ * (absent: on every submission), and closes it after its writes when
+ * `closeCondition` is present and holds. On a follow-up it updates the case
+ * the form loaded. On a close form it updates that case and then closes it
+ * when `closeCondition` holds (absent: on every submission).
+ */
+export interface OwnCaseProgram {
+	readonly caseType: string;
+	readonly formType: "registration" | "followup" | "close";
+	readonly openCondition?: DomainExpression;
+	readonly closeCondition?: DomainExpression;
 }
 
 /**
@@ -196,7 +170,23 @@ export interface EnvelopeCaseOperation {
 export interface CaseOperationProgram {
 	/** The authored-key identity scope half the operations share. */
 	readonly formUuid: Uuid;
+	/**
+	 * The form's operations in array order, the own arm first. The array is
+	 * the wire's meaning: the validator keeps every other operation from
+	 * writing, retyping or closing what the own arm writes, so running them in
+	 * this order matches every placement HQ holds them in.
+	 */
 	readonly operations: ReadonlyArray<EnvelopeCaseOperation>;
+	/** The own arm's case type, form type and conditions. */
+	readonly ownCase?: OwnCaseProgram;
+	/**
+	 * Creates the entry's session names, by operation uuid, each with the key
+	 * of the `uuid()` datum that holds its id (`new-case`,
+	 * `new-child-case:<type>`): the form read that id while it ran
+	 * (`lib/domain/entryCaseIdentity.ts`), so the case is created with it.
+	 * Server-derived from the committed entry's datums.
+	 */
+	readonly entryCaseKeys?: ReadonlyMap<Uuid, string>;
 	readonly scopes: ReadonlyArray<OperationScopeIterations>;
 	/** The loaded case a `session` target addresses; absent when the
 	 * form loads none. */
@@ -234,20 +224,6 @@ export interface ApplySubmissionArgs {
 	readonly appId: string;
 	readonly ordinary: OrdinarySubmissionAction;
 	readonly operations?: CaseOperationProgram;
-	/**
-	 * The worker's own record, written in the same transaction.
-	 *
-	 * A SIBLING of `ordinary` rather than part of it, matching the wire: HQ's
-	 * `usercase_update` is a form action independent of `open_case` /
-	 * `update_case` / `close_case`, so a survey form with no ordinary effect at
-	 * all can still carry one — and often that is the whole point of the form.
-	 *
-	 * The row belongs to the submitting worker, so it is addressed by the
-	 * store's own bound owner rather than by an id the caller supplies: a
-	 * submission cannot write another worker's record, and there is no
-	 * parameter through which it could try.
-	 */
-	readonly usercase?: { readonly properties: JsonObject };
 	/**
 	 * Every submission claims this durable entry receipt before an ordinary or
 	 * advanced case effect runs, whether or not the form has attachment
@@ -310,13 +286,14 @@ export interface OperationEffectRecord {
 	readonly executed: boolean;
 }
 
-/** One concrete ordinary child created by the accepted submission.
+/** One concrete child a receipt written before child cases were operations
+ * records.
  *
- * `authoredChildIndex` addresses the child seed in the ordinary submission
- * action. `parentCaseId` names the selected or generated primary case this
- * concrete child was created under. Together they make the child/parent
- * Cartesian product explicit so no consumer has to recover identity from a
- * flat array position. */
+ * `authoredChildIndex` addresses the child seed of that historical ordinary
+ * submission action, and `parentCaseId` the selected or generated primary
+ * case the child was created under. A new submission records each child it
+ * creates as an operation instance (`operations`) and writes none of these;
+ * they stay readable so a historical receipt still replays. */
 export interface CreatedChildCaseReceipt {
 	readonly authoredChildIndex: number;
 	readonly parentCaseId: string;
@@ -324,11 +301,13 @@ export interface CreatedChildCaseReceipt {
 }
 
 export interface SubmissionEnvelopeResult {
-	/** Registration's generated primary, the ordered followup/close selection,
-	 * or an empty collection for `kind: "none"`. */
+	/** The case the registration's own arm created with the id its entry
+	 * minted, the ordered followup/close selection, or an empty collection for
+	 * `kind: "none"` and for a registration whose open condition did not
+	 * hold. */
 	readonly primaryCaseIds: ReadonlyArray<string>;
-	/** One record for every authored-child x parent concrete creation, in
-	 * authored-child-major then parent-selection order. */
+	/** A historical receipt's ordinary children; empty for a new submission,
+	 * whose children are operation instances. */
 	readonly createdChildren: ReadonlyArray<CreatedChildCaseReceipt>;
 	/**
 	 * Flat ids from a durable receipt written before `createdChildren` existed.

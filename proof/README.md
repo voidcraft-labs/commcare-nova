@@ -1140,7 +1140,7 @@ except the Connect fixtures, which take `buildDoc`'s derivation, and the
 workforce documents, which carry their producer base's. The fuzz generators
 draw no declaration: the last step of each generator's `lowerToDoc` maps each
 step 5 shape of the draw as the cutover maps a stored app (whole-number
-counts), then maps the draw through
+counts, field writes into operations, explicit preloads), then maps the draw through
 `lib/doc/platformDeclaration.ts::declaredForContent`, the cutover's own
 planner, with no further random call, so a draw that runs on
 neither platform only because of a date-and-time question
@@ -1565,6 +1565,24 @@ Value calculating `2`, each named by `jr:count` directly with no
 `nova_count_<repeat>` node, and one counted by `int(#form/weight div 2)`,
 which keeps its node, since a count that is an expression needs one; the
 intent check holds the submission's nodes. Neither needs a control.
+`targeted-case-writes-one-concept`, declared for both platforms, holds case
+writes as one concept, every change a form makes to a case one of its case
+operations, the form's own case first: a registration whose own case saves
+three answers, is created under a consent select and closed at once under a
+choice of an outcome select, with a child at the form's root (`subcase_0`), a
+child in each row of a repeat under a select of that row (the row's one
+subcase) and a write of the worker's own record; a follow-up whose own case
+saves the weight, which opens with the patient's weight, a note, which opens
+blank, the household's district through the `parent` index and the risk only
+when the worker changed it (`update_mode: edit`, so its configurations hold
+`SAVE_ONLY_EDITED_FORM_FIELDS`); a follow-up whose computed write alone takes a
+Save to Case block; and a close form whose condition is a choice. Its D′
+renames the outcome choice's value, so proof 5 holds the registration's close
+condition reprinted. `targeted-load-time-values` holds defect 28's fix: its
+weight writer opens with the read of the patient's weight, the form builder's
+own default at the question's place, so the note's later default reads the
+case's weight, and its export holds no `case_preload`; its retained control
+still shows the class. Neither needs a control.
 The eight migration witnesses (`proof/targeted/documents/migrations.ts`, each
 spec marked `migrationWitness: true`, so its source is
 `targeted-migration:<rows>`) are small apps, one per step 5 migration that
@@ -2974,7 +2992,7 @@ commit gate, which refuses a datum the form's entry does not supply
 | 13, `#form/` defaults and block ids | Vellum marks a default that reads `#form/…` and a read of another block's `case/@case_id` as errors. Fixed in step 2: the defaults read `current()/…`, a registration form's read of its own new case id reads the session, and one block reads another's id through `current()`, which the form builder does not check | proof 4 | fixed; the defaults are still shown by the control `targeted-load-time-values`, and the registration read by the control `expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0` |
 | 13, blank translations | the save fills an explicitly empty translation from the default language, so a worker who chose that language is shown the default language's label, hint and help where they were shown nothing (Formplayer's form and the Web Apps client's screens, walked in each language). Fixed in step 2: Nova writes the same fill | proof 4, then 2 | fixed; still shown by the control `localization-optional` |
 | 14, non-writing follow-up | a Case Management save turns `update never` into `always` with a touch block, which HQ applies as an update: the touched case moves after the cases it ties with in HQ's next search, which sorts ties by index order, so a device lists and opens another case; and where a form link gives the form no case id, a device refuses to save it ("The case_id attribute of a <case> wasn't set"). Fixed in step 2: every registration, follow-up and close form writes `update_case` `always`, so a follow-up that writes nothing carries its touch block from Nova's own export and the save changes nothing. A case id a form link forwards that no form created is defect 26's | proof 4, then 3 | fixed; still shown by the controls `case-operation-query`, `targeted-form-links-hidden-and-fallback`, `search-registration-link` and `case-list-inline` |
-| 14, close conditions | the save strips an answer's surrounding quotes, and clears a condition on a question its tab does not offer, after which HQ's build of the saved app fails (correction 6); an answer holding `'` builds unescaped, so Core refuses HQ's build or reads another condition. Fixed in step 2: a condition the tab cannot state is a Save to Case close in the form's source, `nova_close` in the group `nova_condition_close`, with `close_case` `never` (`lib/domain/closeCondition.ts::closeConditionPlacement`) | proof 4, then 2 and 3; the bar (Core's admission of HQ's build); proof 3 across the two paths | fixed; still shown by the controls `targeted-close-conditions`, `targeted-close-condition-unparsable` and, on Formplayer's submit of the local archive, `targeted-close-conditions-after-59`; the two documents hold the fix |
+| 14, close conditions | the save strips an answer's surrounding quotes, and clears a condition on a question its tab does not offer, after which HQ's build of the saved app fails (correction 6); an answer holding `'` builds unescaped, so Core refuses HQ's build or reads another condition. Fixed in step 2: a condition the tab cannot state is a Save to Case close in the form's source, `nova_close` in the group `nova_condition_close`, with `close_case` `never` (`lib/commcare/placement.ts::planPlacements`, the condition Case Management can state) | proof 4, then 2 and 3; the bar (Core's admission of HQ's build); proof 3 across the two paths | fixed; still shown by the controls `targeted-close-conditions`, `targeted-close-condition-unparsable` and, on Formplayer's submit of the local archive, `targeted-close-conditions-after-59`; the two documents hold the fix |
 | 14, multi-select destinations | the form settings save refuses them, and HQ's build refuses the mismatch. Fixed in step 2: a form holds only a destination its menu offers (`POST_SUBMIT_NOT_OFFERED`), with `firstMenu` and `parentMenu` beside the three, and a follow-up in a menu that selects several cases defaults to `module` | proof 4; the bar | fixed; still shown by the controls `targeted-multi-select-destinations` and `case-capture-multiple`; `targeted-multi-select-destinations` holds every destination |
 | 14, search settings | a Case List save resets the search button label and refuses a lookup prompt without a sort; the Case List page refuses to save an input named like a default filter, with an alert (`details/bootstrap3/screen.js::save`), and sends nothing; HQ's search takes an input with a reserved name as configuration or a filter. Fixed in step 2: every search button reads "Search All Cases", the label the save keeps; a lookup prompt's itemset holds a sort, the label column unless another is chosen; and Nova refuses an input named `_xpath_query` or, where it reaches HQ as its own key, a name HQ's search request reads | proof 4, then 3; manifest (the search keys HQ's search reads as its own, and a name a filter and a prompt share) | fixed; still shown by the controls `case-operation-query` and `case-list-match-none` (the label), `prompt-widgets` (the sort), `targeted-search-default-filter-name` and `targeted-search-hq-compile` (the names) |
 | 14, survey menus | the module's case type is `''` where the document holds one. Fixed in step 2: a menu uploads its own case type, and only what is built from the type follows whether the menu holds a case form | intent (HQ) | fixed; still shown by the control `targeted-survey-menu` |
@@ -2990,6 +3008,7 @@ commit gate, which refuses a datum the form's entry does not supply
 | 26 | the form settings save drops a hidden link beside a visible one and clears a navigation fallback its page does not offer, which changes the stack | proof 4, then 2 and 3 | `targeted-form-links-hidden-and-fallback` |
 | 26, a link's case value | a form link that names its target's case by a value no case holds makes the target write to a case no form created; HQ makes that case without a create block and notes the soft assertion `corehq/form_processor/casedb_base.py::get_case_from_case_update` answering the device's requests | proof 3 and proof 4 (Android's soft assertions) | `expander-form-links-emission-forwards-literal-condition-47c96355-0` |
 | 27 | Vellum reports "Repeat Count is required." for a user repeat in a labelled group | proof 4 | `targeted-labelled-group-repeat` |
+| 28 | a question that opens with its case's value was sent as Case Management's `case_preload`, which HQ's build loads after every other load-time `setvalue` (`app_manager/xform.py::XForm.add_case_preloads`), so a default later in the form that read the answer read it blank. Fixed in step 5: a question opens with its case's value only where its default reads it, written as the form builder's own default at the question's place, so no export holds a `case_preload` | manifest | fixed; still shown by the control `targeted-load-time-values`; `targeted-load-time-values` and `targeted-case-writes-one-concept` hold the fix |
 | 30 | Core serializes a second `nova_count_<repeat>` node holding a hidden value's count, truncated where the count is fractional. Fixed in step 5: a repeat's count is a whole number (`REPEAT_COUNT_TYPE` refuses any other), and a count that names an integer question, an integer single select or a Hidden Value calculating an integer is written into `jr:count` directly, so only a count that is an expression keeps its `nova_count_<repeat>` node | intent (Core), over the submission; manifest (a count from a hidden value that is not an integer) | fixed; still shown by the controls `targeted-repeat-count-copy` and `container-live-count-entry`; `targeted-repeat-count-whole` holds each whole count |
 | 56, datetime ordering | an ordering comparison over a date and time is false on a device wherever an operand is held as text, and orders by calendar day where both are typed, while Preview orders by instant. Fixed in step 3: each operand is lowered by its type (`lib/commcare/xpath/wire/instant.ts`), so a device compares instants, as Preview does | intent (Core), on the local export and on A; manifest (the local archive's suite holds a REFUSED `time-operand` use) | fixed; still shown by the controls `targeted-datetime-ordering` and `targeted-datetime-operands` |
 | 57, `case_id` column | a case list column over `case_id` was blank on HQ's build (`detail_screen.py::CASE_PROPERTY_MAP` has no entry for it, and the case database holds the id only as an attribute), and a hidden sort column over `case_id`, `owner_id` or `status` made HQ's Case List page refuse to save. Fixed in step 2: every column over the three is an expression column over the attribute | manifest; proof 3 across the two paths; proof 4 | fixed; still shown by the control `targeted-case-id-column`; `targeted-attribute-columns` holds every column over the three |
@@ -3830,8 +3849,8 @@ document writes shared links to both ids, and all-blank shared answers
 omit the whole ordinary update. Two of its methods read the extension
 registration form on both paths, HQ's side regenerated whole for them
 (`registration.whole.hq.xml`): its two extension children and its ordinary
-child each name the case the form registers. `CaseOperationRuntimeTest` (30
-cases, both paths) seeds native `Case` records in Core's indexed in-memory storage, reads
+child each name the case the form registers. `CaseOperationRuntimeTest` (19
+methods, each on both paths) seeds native `Case` records in Core's indexed in-memory storage, reads
 them through `CaseInstanceTreeElement`, finalizes with `postProcessInstance`
 and applies the submission through `XmlFormRecordProcessor` and
 `CaseXmlParser`. Its assertions inspect the stored cases: generated and
@@ -3846,7 +3865,16 @@ id through `current()`, so each repeat row's blocks name that row's create and
 the keyed root create's block names the row form entry makes in its one-row
 repeat. A failing guard of each kind (a link to a case of another type, a
 retype of a case whose id an answer keyed, a whitespace-only name) leaves its
-update-only block's `case_id` blank, and Core refuses the whole submission. Datetime writes keep the
+update-only block's `case_id` blank, and Core refuses the whole submission.
+Two Save to Case creates in the root operations group, before the Case
+Management blocks HQ's build appends, each index a case one of those later
+blocks creates, the registration's own case and a basic `subcase_0`, and Core
+stores each index (part 01's G1, `operation-own-links`, from
+`proof/native/producers/caseOrderScenarios.ts`); and a save made only when the
+answer changed (`update_mode: edit`, HQ's side built under
+`SAVE_ONLY_EDITED_FORM_FIELDS`) leaves the property out of the case block
+while the answer equals the case's value and writes it once the worker changes
+it (`operation-only-if-changed`). Datetime writes keep the
 instant `now()` gives; active blank answers clear a saved value and excluded
 answers leave it. The sequence form also captures recorded-time text with
 `format-date(now(), '%Y-%m-%d %H:%M:%S %Z')` and formats a typed datetime answer

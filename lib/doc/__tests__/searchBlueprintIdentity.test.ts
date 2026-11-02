@@ -16,6 +16,7 @@ const FORM = asUuid("22222222-2222-4222-8222-222222222222");
 const FIELD = asUuid("33333333-3333-4333-8333-333333333333");
 const COLUMN = asUuid("44444444-4444-4444-8444-444444444444");
 const INPUT = asUuid("55555555-5555-4555-8555-555555555555");
+const OWN = asUuid("66666666-6666-4666-8666-666666666666");
 
 function identityFixture(): BlueprintDoc {
 	const doc: BlueprintDoc = {
@@ -57,6 +58,7 @@ function identityFixture(): BlueprintDoc {
 				id: "target_form",
 				name: "Target form",
 				type: "followup",
+				caseOperations: [{ uuid: OWN, id: "target_case", action: "own" }],
 			},
 		},
 		fields: {
@@ -127,6 +129,41 @@ describe("searchBlueprint identity projection", () => {
 				moduleUuid: MODULE,
 				formUuid: FORM,
 				fieldUuid: FIELD,
+			},
+		]);
+	});
+
+	it("finds a question by where its answer is saved", () => {
+		const doc = identityFixture();
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateForm",
+					uuid: FORM,
+					patch: {},
+					caseOperationPatch: {
+						operation: "add-write",
+						uuid: OWN,
+						value: {
+							property: "target_property",
+							value: { kind: "term", term: { kind: "field", uuid: FIELD } },
+						},
+					},
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		expect(
+			searchBlueprint(verdict.nextDoc, "case/target_prop").map(
+				({ type, field, value }) => ({ type, field, value }),
+			),
+		).toEqual([
+			{
+				type: "field",
+				field: "caseWrite",
+				value: "target_case/target_property",
 			},
 		]);
 	});

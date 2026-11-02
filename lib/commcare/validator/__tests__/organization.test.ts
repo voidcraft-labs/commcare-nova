@@ -12,6 +12,7 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { runValidation } from "../runner";
+import { ownArms } from "./ownArms";
 
 const REGION = testUuid("organization-rule-region");
 const DISTRICT = testUuid("organization-rule-district");
@@ -200,6 +201,7 @@ describe("organization reverse-hop construction bounds", () => {
 		for (const [index, levelUuid] of destinationUuids.entries()) {
 			const formUuid = workflows.formOrder[workflows.moduleOrder[0]][index + 1];
 			workflows.forms[formUuid].caseOperations = [
+				...ownArms(workflows.forms[formUuid]),
 				{
 					uuid: testUuid(`reverse-operation-${index}`),
 					id: `route_${index}`,
@@ -231,7 +233,10 @@ describe("organization reverse-hop construction bounds", () => {
 		const lastFormUuid = value.formOrder[value.moduleOrder[0]].at(-1);
 		if (!lastFormUuid) throw new Error("Missing final routing form");
 		const accepted = structuredClone(value);
-		delete accepted.forms[lastFormUuid].caseOperations;
+		// The last route keeps only its own case.
+		accepted.forms[lastFormUuid].caseOperations = ownArms(
+			accepted.forms[lastFormUuid],
+		);
 		expectAdmittedDoc(accepted);
 		expect(findings(value).map((finding) => finding.code)).toEqual([
 			"ORGANIZATION_REVERSE_OWNER_DESTINATION_LIMIT",

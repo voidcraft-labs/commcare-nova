@@ -198,7 +198,12 @@ export function caseChoiceDoc() {
 	const roster = doc.fields[choiceUuid("roster")];
 	if (roster.kind !== "repeat") throw new Error("Expected the stable roster");
 	delete roster.label;
-	doc.forms[choiceUuid("attendance")].caseOperations = [
+	// The follow-up's own case stays its first change.
+	const attendance = doc.forms[choiceUuid("attendance")];
+	attendance.caseOperations = [
+		...(attendance.caseOperations ?? []).filter(
+			(operation) => operation.action === "own",
+		),
 		{
 			uuid: choiceUuid("operation"),
 			id: "mark_attendance",

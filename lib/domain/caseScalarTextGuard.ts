@@ -10,9 +10,8 @@
 // derivation.
 
 import type { BlueprintDoc } from "./blueprint";
-import { deriveCaseWriteInventory } from "./caseWriteInventory";
+import { formCaseWriteViews } from "./caseWriteViews";
 import { type FieldKind, fieldKindCarriesValidation } from "./fields";
-import { moduleUuidOfForm } from "./postSubmit";
 import type { Uuid } from "./uuid";
 
 /**
@@ -23,13 +22,7 @@ export type CaseScalarTextGuard = "reject" | "allow";
 
 type GuardDoc = Pick<
 	BlueprintDoc,
-	| "forms"
-	| "modules"
-	| "formOrder"
-	| "fields"
-	| "fieldOrder"
-	| "caseTypes"
-	| "userProperties"
+	"forms" | "modules" | "formOrder" | "caseTypes" | "fieldParent" | "refIndex"
 >;
 
 /** A property CommCare keeps in a fixed-width text column, trimmed. */
@@ -57,17 +50,29 @@ interface FormCaseScalarText {
 const derived = new WeakMap<GuardDoc, Map<Uuid, FormCaseScalarText>>();
 
 /**
- * Every question of `formUuid` a case name or an external id reads, mapped to
- * its check. It covers the form's own case (a create, a rename or an update,
- * a several-case update included) and every child case it creates; the
- * worker's own record keeps neither value. A Hidden Value is among them: it
- * takes the trimmed sibling, and no runtime checks a constraint on it.
+ * Which of a form's operations a basic action carries, where the caller knows
+ * (`lib/commcare/placement.ts::placedBasic`). Without it, every save to the
+ * form's own case or to a child case under it counts, the candidates a basic
+ * action may carry, as the generated-node names are reserved.
+ */
+export interface CaseScalarTextOptions {
+	readonly placedBasic?: (operationUuid: Uuid) => boolean;
+}
+
+/**
+ * Every question of `formUuid` a case name or an external id reads through a
+ * basic action, mapped to its check. It covers the form's own case (a create,
+ * a rename or an update, a several-case update included) and every child case
+ * it creates beneath it; the worker's own record keeps neither value. A Hidden
+ * Value is among them: it takes the trimmed sibling, and no runtime checks a
+ * constraint on it.
  */
 export function caseScalarTextGuards(
 	doc: GuardDoc,
 	formUuid: Uuid,
+	options: CaseScalarTextOptions = {},
 ): ReadonlyMap<Uuid, CaseScalarTextGuard> {
-	return formCaseScalarText(doc, formUuid).guards;
+	return formCaseScalarText(doc, formUuid, options).guards;
 }
 
 /**
@@ -78,12 +83,19 @@ export function caseScalarTextGuards(
 export function caseCreateNameFields(
 	doc: GuardDoc,
 	formUuid: Uuid,
+	options: CaseScalarTextOptions = {},
 ): ReadonlySet<Uuid> {
-	return formCaseScalarText(doc, formUuid).createNames;
+	return formCaseScalarText(doc, formUuid, options).createNames;
 }
 
-/** Both sets, derived in one pass once per document object. */
-function formCaseScalarText(doc: GuardDoc, formUuid: Uuid): FormCaseScalarText {
+/** Both sets, derived in one pass; the candidates once per document object. */
+function formCaseScalarText(
+	doc: GuardDoc,
+	formUuid: Uuid,
+	options: CaseScalarTextOptions,
+): FormCaseScalarText {
+	if (options.placedBasic !== undefined)
+		return deriveFormCaseScalarText(doc, formUuid, options.placedBasic);
 	let forms = derived.get(doc);
 	if (forms === undefined) {
 		forms = new Map();
@@ -100,28 +112,39 @@ function formCaseScalarText(doc: GuardDoc, formUuid: Uuid): FormCaseScalarText {
 function deriveFormCaseScalarText(
 	doc: GuardDoc,
 	formUuid: Uuid,
+	placedBasic?: (operationUuid: Uuid) => boolean,
 ): FormCaseScalarText {
 	const guards = new Map<Uuid, CaseScalarTextGuard>();
 	const createNames = new Set<Uuid>();
 	const form = doc.forms[formUuid];
 	if (form === undefined) return { guards, createNames };
-	const moduleUuid = moduleUuidOfForm(doc, formUuid);
-	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
-	const inventory = deriveCaseWriteInventory(
-		doc,
-		formUuid,
-		{ caseType: module?.caseType },
-		form.type,
+	const creates = new Set(
+		(form.caseOperations ?? [])
+			.filter(
+				(operation) =>
+					operation.action === "create" ||
+					(operation.action === "own" && form.type === "registration"),
+			)
+			.map((operation) => operation.uuid),
 	);
-	for (const bucket of inventory.buckets) {
-		if (bucket.kind === "usercase") continue;
-		for (const writer of bucket.writers) {
-			if (!isCaseScalarTextProperty(writer.property)) continue;
-			if (writer.property === "case_name") {
-				guards.set(writer.fieldUuid, "reject");
-				if (bucket.action === "create") createNames.add(writer.fieldUuid);
-			} else if (!guards.has(writer.fieldUuid)) {
-				guards.set(writer.fieldUuid, "allow");
+	for (const [fieldUuid, views] of formCaseWriteViews(doc, formUuid)) {
+		for (const view of views) {
+			// Only a basic action reads the trimmed sibling: the form's own case
+			// and a child case under it. Any other operation is a Save to Case
+			// block, which trims and checks its own values
+			// (`nova_guard_<operation id>_text`). The worker's record keeps
+			// neither value, and a capture's link is refused as either
+			// (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY`).
+			if (view.destination !== "own" && view.destination !== "child") continue;
+			if (placedBasic !== undefined && !placedBasic(view.operationUuid))
+				continue;
+			if (view.link) continue;
+			if (!isCaseScalarTextProperty(view.property)) continue;
+			if (view.property === "case_name") {
+				guards.set(fieldUuid, "reject");
+				if (creates.has(view.operationUuid)) createNames.add(fieldUuid);
+			} else if (!guards.has(fieldUuid)) {
+				guards.set(fieldUuid, "allow");
 			}
 		}
 	}

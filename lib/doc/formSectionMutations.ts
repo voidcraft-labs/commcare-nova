@@ -40,6 +40,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { deepEqual } from "./deepEqual";
+import { planFieldMoveCaseWrites } from "./fieldCaseWriteMutations";
 import { orderedFieldUuids } from "./fieldWalk";
 import {
 	FIELD_PLACEMENT_MESSAGES,
@@ -381,7 +382,7 @@ function planPartition(
 		for (const sectionUuid of currentSections) {
 			mutations.push({ kind: "removeField", uuid: sectionUuid });
 		}
-		return { ok: true, mutations, sectionUuids: [] };
+		return withRehomedWrites(doc, mutations, []);
 	}
 
 	/* The ids the plan's finished root will hold: every kept page keeps
@@ -469,7 +470,45 @@ function planPartition(
 		}
 	}
 
-	return { ok: true, mutations, sectionUuids: finals };
+	return withRehomedWrites(doc, mutations, finals);
+}
+
+/**
+ * The plan with every write its moves re-home inserted after the moves and
+ * before the first section it removes: a question saving to a case the form
+ * creates in a repeat follows its move to the create of its new repeat
+ * (`planFieldMoveCaseWrites`, each planned on the document before the
+ * batch), so the operations are re-homed while every moved field still
+ * stands. The plan asks the planner rather than assume that a page move
+ * keeps every question in its repeat.
+ */
+function withRehomedWrites(
+	doc: BlueprintDoc,
+	mutations: readonly Mutation[],
+	sectionUuids: readonly Uuid[],
+): FormSectionPlan {
+	const rehomed: Mutation[] = [];
+	for (const mutation of mutations) {
+		if (mutation.kind !== "moveField") continue;
+		const plan = planFieldMoveCaseWrites(
+			doc,
+			mutation.uuid,
+			mutation.toParentUuid,
+		);
+		if (!plan.ok) return fail(plan.message);
+		rehomed.push(...plan.mutations);
+	}
+	if (rehomed.length === 0)
+		return { ok: true, mutations: [...mutations], sectionUuids };
+	const firstRemoval = mutations.findIndex(
+		(mutation) => mutation.kind === "removeField",
+	);
+	const at = firstRemoval === -1 ? mutations.length : firstRemoval;
+	return {
+		ok: true,
+		mutations: [...mutations.slice(0, at), ...rehomed, ...mutations.slice(at)],
+		sectionUuids,
+	};
 }
 
 // ── Public planners ────────────────────────────────────────────────

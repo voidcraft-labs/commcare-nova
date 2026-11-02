@@ -143,10 +143,7 @@ describe("hiddenValueModeHint", () => {
 			hiddenValueModeHint("default_value", false, undefined, false),
 		).toContain("first opens");
 	});
-	it("says what each mode means on a preloaded writer", () => {
-		expect(hiddenValueModeHint("calculate", true, undefined, false)).toContain(
-			"replaces this case's current value",
-		);
+	it("says set once carries the case's value when it opens with it", () => {
 		expect(
 			hiddenValueModeHint("default_value", true, undefined, false),
 		).toContain("Opens with this case's current value");

@@ -1883,7 +1883,7 @@ test("case storage describes several-case writes and commits a worker-admitted d
 }) => {
 	await page.goto(`${peer.origin}/?scenario=case-write`);
 	const chooser = page.getByRole("combobox", {
-		name: "Saves to: Phone, #patient/phone",
+		name: "Saves to: This form's case · Phone, #patient/phone",
 		exact: true,
 	});
 	await expect(chooser).toBeVisible();
@@ -1900,7 +1900,7 @@ test("case storage describes several-case writes and commits a worker-admitted d
 	);
 	await expect(
 		page.getByRole("combobox", {
-			name: "Saves to: Email, #patient/email",
+			name: "Saves to: This form's case · Email, #patient/email",
 			exact: true,
 		}),
 	).toBeVisible();
@@ -1920,51 +1920,65 @@ test("the inspector says what a case-bound field does when a one-case form opens
 		name: "Default value",
 		exact: true,
 	});
-	const removeExpression = inspector.getByRole("button", {
-		name: "Remove expression",
-		exact: true,
-	});
 	async function describedText(chooser: Locator) {
 		const described = await chooser.getAttribute("aria-describedby");
 		expect(described).toBeTruthy();
 		return page.locator(`[id="${described}"]`);
 	}
+	const startBlank = inspector.getByRole("button", {
+		name: "Start blank instead",
+		exact: true,
+	});
+	const openWithValue = inspector.getByRole("button", {
+		name: "Open with the case's current value",
+		exact: true,
+	});
+	const caseRead = {
+		kind: "term",
+		term: { kind: "form-case", caseType: "patient", property: "phone" },
+	};
 
-	// An own-type writer opens with the case's value: the destination line
-	// says so, and the default row is a forced read-only row, never a pill or
-	// an editor.
+	// A write to this form's case on a one-case follow-up is born opening
+	// with the case's value: that is its starting value, shown as any
+	// default, and the Saves to row says so and offers to start blank.
 	const phone = inspector.getByRole("combobox", { name: /#patient\/phone$/ });
 	await expect(phone).toBeVisible();
+	await expect(phone).toHaveAccessibleName(
+		"Saves to: This form's case · Phone, #patient/phone",
+	);
 	await expect(await describedText(phone)).toHaveText(
-		"Opens with this case's current value.",
+		"Opens with the case's current value.",
 	);
-	await expect(defaultRow).toContainText(
-		"Opens with this case's current value",
-	);
+	await expect
+		.poll(async () => JSON.parse(await saved.innerText()).default_value)
+		.toEqual(caseRead);
+	await expect(defaultRow).toBeVisible();
 	await expect(defaultPill).toHaveCount(0);
-	await expect(defaultRow.getByRole("button")).toHaveCount(0);
-	await expect(defaultRow.locator(".cm-content")).toHaveCount(0);
 
-	// A stored expression on such a writer is shown read-only as dead, and
-	// removing it is one undoable step.
-	await page.getByRole("button", { name: "Select email", exact: true }).click();
-	await expect(defaultRow.locator(".cm-content")).toContainText("'none'");
-	await expect(defaultRow).toContainText("This expression never runs here");
-	await expect(
-		defaultRow.locator('.cm-content[contenteditable="true"]'),
-	).toHaveCount(0);
-	await removeExpression.click();
+	// Starting blank clears the starting value in one undoable step.
+	await startBlank.click();
 	await expect(saved).not.toContainText('"default_value"');
-	await expect(defaultRow.locator(".cm-content")).toHaveCount(0);
-	await expect(removeExpression).toHaveCount(0);
-	await expect(defaultRow).toContainText(
-		"Opens with this case's current value",
+	await expect(await describedText(phone)).toHaveText(
+		"Starts blank, and saving it blank clears the case's value.",
 	);
+	await expect(defaultPill).toBeVisible();
+	await openWithValue.click();
+	await expect
+		.poll(async () => JSON.parse(await saved.innerText()).default_value)
+		.toEqual(caseRead);
+	await page.getByRole("button", { name: "Undo", exact: true }).click();
+	await expect(saved).not.toContainText('"default_value"');
 	await page.getByRole("button", { name: "Undo", exact: true }).click();
 	await expect
 		.poll(async () => JSON.parse(await saved.innerText()).default_value)
-		.toEqual({ kind: "term", term: { kind: "literal", value: "none" } });
+		.toEqual(caseRead);
+
+	// Another starting value is an ordinary, editable default, and the row
+	// offers no preload line over it.
+	await page.getByRole("button", { name: "Select email", exact: true }).click();
 	await expect(defaultRow.locator(".cm-content")).toContainText("'none'");
+	await expect(startBlank).toHaveCount(0);
+	await expect(openWithValue).toHaveCount(0);
 
 	// A child-type writer creates a case per submission and opens blank, so
 	// its default value is an ordinary addable pill.
@@ -1974,25 +1988,22 @@ test("the inspector says what a case-bound field does when a one-case form opens
 	const visitName = inspector.getByRole("combobox", {
 		name: /#visit\/case_name$/,
 	});
+	await expect(visitName).toHaveAccessibleName(
+		/^Saves to: A new visit · .+, #visit\/case_name$/,
+	);
 	await expect(await describedText(visitName)).toHaveText(
 		"Creates a new Visit case on each submission.",
 	);
 	await expect(defaultPill).toBeVisible();
 	await expect(defaultRow).toHaveCount(0);
 
-	// A hidden calculated writer: the destination line names the calculation,
-	// and the single Value control opens in keep-in-step. Switching to set
-	// once moves the expression across as one write, shown read-only because
-	// the case supplies the value there; one Undo restores both slots.
+	// A hidden calculated writer: the single Value control opens in keep in
+	// step, and switching to set once moves the expression across as one
+	// write, an ordinary editable starting value; one Undo restores both
+	// slots.
 	await page
 		.getByRole("button", { name: "Select last seen", exact: true })
 		.click();
-	const lastSeen = inspector.getByRole("combobox", {
-		name: /#patient\/last_seen$/,
-	});
-	await expect(await describedText(lastSeen)).toHaveText(
-		"The calculation sets this value.",
-	);
 	const modeRow = inspector.locator('[data-field-id="value_mode"]');
 	const keepInStep = modeRow.getByRole("button", {
 		name: "Keep in step",
@@ -2010,24 +2021,6 @@ test("the inspector says what a case-bound field does when a one-case form opens
 	await expect(setOnce).toHaveAttribute("aria-pressed", "true");
 	await expect(saved).toContainText('"default_value"');
 	await expect(saved).not.toContainText('"calculate"');
-	await expect(defaultRow).toContainText(
-		"Opens with this case's current value",
-	);
-	await expect(defaultRow.locator(".cm-content")).toContainText("today()");
-	await expect(
-		defaultRow.locator('.cm-content[contenteditable="true"]'),
-	).toHaveCount(0);
-	await expect(removeExpression).toBeVisible();
-	// Removing the dead expression leaves the writer holding neither slot:
-	// the case's value carries through, and a preloaded writer rests on set
-	// once rather than an empty keep in step.
-	await removeExpression.click();
-	await expect(saved).not.toContainText('"default_value"');
-	await expect(saved).not.toContainText('"calculate"');
-	await expect(setOnce).toHaveAttribute("aria-pressed", "true");
-	await expect(removeExpression).toHaveCount(0);
-	await expect(defaultRow.locator(".cm-content")).toHaveCount(0);
-	await page.getByRole("button", { name: "Undo", exact: true }).click();
 	await expect(defaultRow.locator(".cm-content")).toContainText("today()");
 	await page.getByRole("button", { name: "Undo", exact: true }).click();
 	await expect(keepInStep).toHaveAttribute("aria-pressed", "true");

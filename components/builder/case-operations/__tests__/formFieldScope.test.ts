@@ -7,7 +7,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { formFieldEntriesFor } from "@/lib/doc/formFieldEntries";
 import type { FormFieldEntry } from "@/lib/doc/hooks/useFormFieldEntries";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import type { CaseOperation } from "@/lib/domain";
+import type { TargetedCaseOperation } from "@/lib/domain";
 import { formField, literal, term } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import {
@@ -139,7 +139,7 @@ describe("which answers can key an authored create", () => {
 });
 
 describe("changing multiplicity", () => {
-	const operation: CaseOperation = {
+	const operation: TargetedCaseOperation = {
 		uuid: testUuid("88888888-8888-4888-8888-888888888888"),
 		id: "create_bed",
 		action: "create",
@@ -159,7 +159,7 @@ describe("changing multiplicity", () => {
 	});
 
 	it("counts an identity key as a read, though it is not a field term", () => {
-		const keyed: CaseOperation = {
+		const keyed: TargetedCaseOperation = {
 			...operation,
 			writes: undefined,
 			target: { kind: "new", idFrom: BED_COUNT },

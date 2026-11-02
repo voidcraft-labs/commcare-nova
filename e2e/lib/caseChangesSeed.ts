@@ -118,11 +118,11 @@ export const CASE_CHANGES_ROUTINE = ROUTINE_WRITES.map((write, index) => ({
 }));
 
 /**
- * What the journey reads off every handle and the detail's position: the four
- * dependent changes, the fifteen routine ones, and the table-lookup change
- * the smoke seed always installs last.
+ * What the journey reads off every handle and the detail's position: the
+ * form's own case change, the four dependent changes, the fifteen routine
+ * ones, and the table-lookup change the smoke seed always installs last.
  */
-export const CASE_CHANGES_SEQUENCE_LENGTH = CASE_CHANGES_ROUTINE.length + 5;
+export const CASE_CHANGES_SEQUENCE_LENGTH = CASE_CHANGES_ROUTINE.length + 6;
 
 export const CASE_CHANGES_SEED = {
 	appName: "Smoke — Case changes",
@@ -150,6 +150,7 @@ export const CASE_CHANGES_SEED = {
 		archivedPatient: asUuid("2b3c4d5e-6f7a-478b-839e-1f2a3b4c5d6e"),
 	},
 	operations: {
+		own: asUuid("7e0d1c2b-3a49-4f58-8b6c-5d4e3f2a1b0c"),
 		create: asUuid("3d4e5f6a-7b8c-4d9e-8f0a-1b2c3d4e5f6a"),
 		note: asUuid("4e5f6a7b-8c9d-4e0f-9a1b-2c3d4e5f6a7b"),
 		file: asUuid("5f6a7b8c-9d0e-4f1a-8b2c-3d4e5f6a7b8c"),
@@ -157,6 +158,7 @@ export const CASE_CHANGES_SEED = {
 		retype: asUuid("7b8c9d0e-1f2a-413b-9d4e-5f6a7b8c9d0e"),
 	},
 	ids: {
+		own: "patient",
 		create: "create_referral",
 		note: "note_visit",
 		file: "file_referral",
@@ -363,6 +365,13 @@ function caseOperations(
 	lookupCarrier: CaseChangesLookupCarrier | undefined,
 ): CaseOperation[] {
 	return [
+		// The follow-up's own case change, first as it must be. It saves
+		// nothing here; the changes the journey reorders follow it.
+		{
+			uuid: CASE_CHANGES_SEED.operations.own,
+			id: CASE_CHANGES_SEED.ids.own,
+			action: "own",
+		},
 		{
 			uuid: CASE_CHANGES_SEED.operations.create,
 			id: CASE_CHANGES_SEED.ids.create,

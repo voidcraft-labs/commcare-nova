@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import { blueprintDocSchema, type CasePropertyDataType } from "@/lib/domain";
+import {
+	blueprintDocSchema,
+	type CasePropertyDataType,
+	fieldCaseWriteViews,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
 	admittedCaseListDoc,
@@ -97,9 +101,10 @@ describe("case writer type admission", () => {
 							]
 						: [],
 			});
-			const writer = Object.values(base.fields).find(
-				(field) =>
-					"caseWrite" in field && field.caseWrite?.property === property,
+			const writer = Object.values(base.fields).find((field) =>
+				fieldCaseWriteViews(base, field.uuid).some(
+					(view) => view.property === property,
+				),
 			);
 			if (writer?.kind !== "text") throw new Error("Missing writer");
 			const candidate = checked({
@@ -128,8 +133,10 @@ describe("case writer type admission", () => {
 				{ name: "Followup", type: "followup", fields: [spec("updated")] },
 			],
 		});
-		const writers = Object.values(base.fields).filter(
-			(field) => "caseWrite" in field && field.caseWrite?.property === "weight",
+		const writers = Object.values(base.fields).filter((field) =>
+			fieldCaseWriteViews(base, field.uuid).some(
+				(view) => view.property === "weight",
+			),
 		);
 		const later = writers.find((field) => field.id === "updated");
 		if (later?.kind !== "int") throw new Error("Missing later writer");

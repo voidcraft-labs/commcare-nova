@@ -84,7 +84,6 @@ describe("caseSaveReferences over Nova's emission", () => {
 	it("lists a create's rows, then case_type, case_name and owner_id, and each update, guard and close", () => {
 		expect(scenario("sequence").derived).toEqual({
 			"/data/nova_operations/before_ordinary": ref("patient", [
-				"nickname",
 				"occurred_at",
 				"reference_at",
 			]),
@@ -117,9 +116,11 @@ describe("caseSaveReferences over Nova's emission", () => {
 			(candidate) => (candidate.caseOperations ?? []).length > 0,
 		);
 		if (form === undefined) throw new Error("The fixture has no operations.");
-		const [create, ...rest] = form.caseOperations ?? [];
-		const { owner: _owner, ...unowned } = create;
-		form.caseOperations = [unowned, ...rest];
+		form.caseOperations = (form.caseOperations ?? []).map((operation) => {
+			if (operation.action !== "create") return operation;
+			const { owner: _owner, ...unowned } = operation;
+			return unowned;
+		});
 		expect(
 			emitted(doc).derived[
 				"/data/nova_operations/nova_keyed_create_visit/create_visit"
@@ -130,7 +131,9 @@ describe("caseSaveReferences over Nova's emission", () => {
 	});
 
 	it("keys a close only, a rename and a retype by their condition groups", () => {
-		expect(scenario("retype").derived).toEqual({
+		// The close of a case an expression names: a close of the loaded case
+		// is the form's own close.
+		expect(scenario("expression-retype").derived).toEqual({
 			"/data/nova_operations/nova_condition_promote/promote": ref("patient", [
 				"case_type",
 				"changed_type_at",

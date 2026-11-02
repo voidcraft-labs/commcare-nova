@@ -15,7 +15,7 @@
  * not allowed to do anyway).
  */
 
-import { type BlueprintDoc, isCaptureField } from "@/lib/domain";
+import { type BlueprintDoc, caseWriteValueField } from "@/lib/domain";
 
 export const EXPORT_ADVISORY_HEADER = "X-Nova-Export-Advisories";
 
@@ -40,16 +40,22 @@ export interface ExportAdvisory {
 }
 
 /**
- * The case properties a capture would fill with a link to its file.
+ * The case properties a capture would fill with a link to its file: every
+ * case operation's write whose value is the `capture-link` of a capture.
  *
- * Read off the flat field map rather than walked per form: the advisory is
- * about the whole exported app, and every field in it lives here.
+ * Read off every form's operations rather than per module: the advisory is
+ * about the whole exported app, wherever the link lands.
  */
 function attachmentLinkProperties(doc: BlueprintDoc): readonly string[] {
 	const properties = new Set<string>();
-	for (const field of Object.values(doc.fields)) {
-		if (!isCaptureField(field) || field.caseWrite === undefined) continue;
-		properties.add(field.caseWrite.property);
+	for (const form of Object.values(doc.forms)) {
+		for (const operation of form.caseOperations ?? []) {
+			for (const write of operation.writes ?? []) {
+				if (caseWriteValueField(write.value)?.link === true) {
+					properties.add(write.property);
+				}
+			}
+		}
 	}
 	return [...properties].sort();
 }

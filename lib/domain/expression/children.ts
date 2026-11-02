@@ -257,6 +257,7 @@ export function expressionChildren(
 		case "case-list-search-text":
 		case "selected-cases":
 		case "form-case":
+		case "capture-link":
 		case "input":
 		case "session-user":
 		case "session-user-property":

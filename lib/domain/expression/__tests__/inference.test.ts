@@ -89,18 +89,29 @@ const hidden = (
 			? {}
 			: { caseWrite: { caseType: "patient", property } }),
 	});
-/** The follow-up form's one update operation, with these writes. */
+/**
+ * The follow-up form with one more operation, an update of another patient
+ * with these writes, after its own case's change: the form's own case saves
+ * each property once, so a second writer of one property is another case's.
+ */
 function withFollowUpWrites(
 	built: BlueprintDoc,
 	writes: CaseOperation["writes"],
 ): BlueprintDoc {
 	built.forms[FOLLOW_UP].caseOperations = [
+		...(built.forms[FOLLOW_UP].caseOperations ?? []),
 		{
 			uuid: uuid("operation"),
 			id: "update_patient",
 			action: "update",
 			caseType: "patient",
-			target: { kind: "session" },
+			target: {
+				kind: "expression",
+				expr: {
+					kind: "term",
+					term: { kind: "literal", value: "other-patient" },
+				},
+			},
 			writes,
 		},
 	];
@@ -218,6 +229,8 @@ describe("Hidden Value data types", () => {
 					"seen_at",
 				),
 				hidden("count_copy", { calculate: "1" }, "amount"),
+			],
+			followUp: [
 				f({
 					kind: "decimal",
 					id: "amount",
@@ -242,7 +255,7 @@ describe("Hidden Value data types", () => {
 		const inference = inferExpressionTypes(built);
 		expect(inference.hiddenTypes.get(uuid("stamp"))).toBe("datetime");
 		expect(
-			fieldValueType(built.fields[uuid("stamp")], inference.caseTypes),
+			fieldValueType(built.fields[uuid("stamp")], inference.caseTypes, []),
 		).toBeUndefined();
 	});
 });
@@ -326,7 +339,7 @@ describe("Hidden Value writer opinions", () => {
 		expect(hiddenWriterVerdicts(blank)).toEqual([]);
 	});
 
-	it("gives a preloaded starting value no opinion, since the preload overwrites it", () => {
+	it("types a starting value that reads the case as the property it reads", () => {
 		const date = f({
 			kind: "date",
 			id: "visit",
@@ -336,25 +349,29 @@ describe("Hidden Value writer opinions", () => {
 		const preloaded = doc({
 			register: [date],
 			followUp: [
-				hidden("start", { default_value: "'not-a-date'" }, "visit_date"),
+				hidden("start", { default_value: "#patient/visit_date" }, "visit_date"),
 			],
 		});
 		const inference = inferExpressionTypes(preloaded);
-		expect(inference.hiddenOpinions.get(uuid("start"))).toMatchObject({
-			preloadedDefault: true,
-			opinion: undefined,
-		});
+		expect(inference.hiddenOpinions.get(uuid("start"))?.opinion).toBe("date");
+		expect(inference.hiddenTypes.get(uuid("start"))).toBe("date");
 		expect(inference.writerOpinions.get("patient")?.get("visit_date")).toEqual(
 			new Set(["date"]),
 		);
 		expect(hiddenWriterVerdicts(preloaded)).toEqual([]);
-		const calculated = doc({
-			register: [date],
-			followUp: [hidden("start", { calculate: "'not-a-date'" }, "visit_date")],
-		});
-		expect(hiddenWriterVerdicts(calculated)[0]?.findings).toEqual([
-			{ reason: "type", path: [], type: "text" },
-		]);
+		// Any other starting value is the writer's own, and holds an opinion.
+		for (const value of [
+			{ default_value: "'not-a-date'" },
+			{ calculate: "'not-a-date'" },
+		])
+			expect(
+				hiddenWriterVerdicts(
+					doc({
+						register: [date],
+						followUp: [hidden("start", value, "visit_date")],
+					}),
+				)[0]?.findings,
+			).toEqual([{ reason: "type", path: [], type: "text" }]);
 	});
 });
 
@@ -472,10 +489,8 @@ describe("writer opinions beside a case operation's write", () => {
 
 	it("keeps a Hidden Value's own type where no fact types the property", () => {
 		const raw = doc({
-			followUp: [
-				hidden("first", { calculate: "'abc'" }, "untyped"),
-				hidden("second", { calculate: "today()" }, "untyped"),
-			],
+			register: [hidden("first", { calculate: "'abc'" }, "untyped")],
+			followUp: [hidden("second", { calculate: "today()" }, "untyped")],
 		});
 		expect(
 			inferExpressionTypes(raw).writerOpinions.get("patient")?.get("untyped"),
@@ -519,8 +534,8 @@ describe("clock loss", () => {
 				hidden("first", { calculate: "now()" }),
 				hidden("second", { calculate: "#form/first" }),
 				hidden("saved", { calculate: "#form/second" }, "seen_at"),
-				hidden("direct", { calculate: "now()" }, "seen_at"),
 			],
+			followUp: [hidden("direct", { calculate: "now()" }, "seen_at")],
 			properties: [
 				{
 					name: "seen_at",
@@ -607,15 +622,9 @@ describe("clock loss", () => {
 		expect(inference.hiddenHeld.get(uuid("text_copy"))).toBe("string");
 		expect(inference.clockLost.size).toBe(0);
 	});
-	it("holds a preloaded date and time as a date, so a copy under a text bind loses its clock", () => {
-		const chain: FieldSpec[] = [
-			// No value: the form fills it from the case's date and time.
-			f({
-				uuid: uuid("carried"),
-				kind: "hidden",
-				id: "carried",
-				caseWrite: { caseType: "patient", property: "seen_at" },
-			}),
+	it("holds a starting value read from the case's date and time as a date, so a copy under a text bind loses its clock", () => {
+		const chain = (carried: FieldSpec): FieldSpec[] => [
+			carried,
 			hidden("text_copy", { calculate: "#form/carried" }),
 			hidden("saved", { calculate: "#form/text_copy" }, "checked_at"),
 		];
@@ -623,9 +632,15 @@ describe("clock loss", () => {
 			{ name: "seen_at", label: "Seen", data_type: "datetime" as const },
 			{ name: "checked_at", label: "Checked", data_type: "datetime" as const },
 		];
-		const preloaded = doc({ followUp: chain, properties });
+		const preloaded = doc({
+			// The form opens it showing the case's date and time.
+			followUp: chain(
+				hidden("carried", { default_value: "#patient/seen_at" }, "seen_at"),
+			),
+			properties,
+		});
 		const inference = inferExpressionTypes(preloaded);
-		// SetValueAction casts the preload through DateTimeData.
+		// SetValueAction casts the starting value through DateTimeData.
 		expect(inference.hiddenHeld.get(uuid("carried"))).toBe("date");
 		expect(inference.clockLost.has(uuid("carried"))).toBe(false);
 		expect(inference.clockLost.has(uuid("text_copy"))).toBe(true);
@@ -637,8 +652,18 @@ describe("clock loss", () => {
 		).toEqual([
 			[uuid("saved"), [{ reason: "clock-lost", path: [], type: "datetime" }]],
 		]);
-		// A registration form preloads nothing, so the field stays blank text.
-		const blank = doc({ register: chain, properties });
+		// With no value the field stays blank text.
+		const blank = doc({
+			register: chain(
+				f({
+					uuid: uuid("carried"),
+					kind: "hidden",
+					id: "carried",
+					caseWrite: { caseType: "patient", property: "seen_at" },
+				}),
+			),
+			properties,
+		});
 		expect(inferExpressionTypes(blank).hiddenHeld.get(uuid("carried"))).toBe(
 			"string",
 		);

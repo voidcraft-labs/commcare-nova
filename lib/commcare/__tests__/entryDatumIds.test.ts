@@ -172,8 +172,11 @@ describe("entry datum identities on the emitted session", () => {
 				refs: [{ kind: "new-case" }],
 				scalar: true,
 			},
+			// Basic subcases take their indices in operation order, and a root
+			// create stands before every create in a repeat, so the root member
+			// is subcase 0, after the household's own datum.
 			{
-				id: "case_id_new_member_2",
+				id: "case_id_new_member_1",
 				refs: [{ kind: "new-child-case", caseType: "member" }],
 				scalar: true,
 			},

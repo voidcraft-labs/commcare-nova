@@ -1830,14 +1830,14 @@
 		"class": {
 			"kind": "target-owned"
 		},
-		"content": "HELD-NEW (Basic form actions `update_mode: edit`)",
+		"content": "HELD (Basic form actions `update_mode: edit`)",
 		"contentEntries": [
 			"forms-and-case-writes/conditionalcaseupdate-update-mode-edit"
 		],
 		"platforms": "n/a",
 		"preflight": {
 			"kind": "precondition",
-			"cell": "precondition"
+			"cell": "flag probe; save-only-edited-answers"
 		},
 		"effects": [],
 		"source": {
@@ -2222,14 +2222,14 @@
 		"class": {
 			"kind": "publish-check"
 		},
-		"content": "for an app that shows a link write in a case list or detail",
+		"content": "for an app that shows a link write in a case list or detail, or prints it in a form",
 		"contentEntries": [
 			"forms-and-case-writes/capture-link-write-a-hidden-value-whose-calculate-builds-hq-s"
 		],
 		"platforms": "n/a",
 		"preflight": {
 			"kind": "precondition",
-			"cell": "Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTACHMENT` [GA path], for an app that shows a link write in a case list or detail"
+			"cell": "Publish also checks gates outside the app-building flags above: `VIEW_FORM_ATTACHMENT` [GA path], for an app that shows a link write in a case list or detail, or prints it in a form"
 		},
 		"source": {
 			"kind": "paragraph",

@@ -29,9 +29,14 @@
  *     bounce off the gate with a disagreement message that misreads a
  *     healthy property as broken. The expressible fix is to convert
  *     that peer to text first, then convert the property.
- *   - A case-operation writer also blocks a data-type flip. Its value is an
- *     authored expression, not a field kind the cascade can mechanically
- *     convert; the author must revise/remove the operation explicitly.
+ *   - A property's writers are the writes of the forms' case operations.
+ *     A write whose value is one question's answer is that question's
+ *     "Saves to" view, and its question is a peer. A write whose value is
+ *     an authored expression blocks a data-type flip: it has no field kind
+ *     the cascade can mechanically convert, so the author must revise or
+ *     remove that write explicitly.
+ *   - Converting a written question to a label or a container stops every
+ *     write of it first (`planFieldCaseWrite(…, null)`), in the same batch.
  *   - A flip whose per-row cast can fail (`castCanFail` — time↔date,
  *     time→datetime, anything→int, …) additionally carries a
  *     `dataLossRisk` verdict on the plan. The plan itself never
@@ -70,9 +75,10 @@ import {
 	type Field,
 	type FieldKind,
 	FORM_REFERENCE_SLOTS,
-	fieldCaseWrite,
+	fieldCaseWriteViews,
 	fieldReferenceSlotsFor,
 	getConvertibleTypes,
+	isContainerKindName,
 	MODULE_REFERENCE_SLOTS,
 	rewriteSlotValues,
 	type SelectOptionsSource,
@@ -81,8 +87,10 @@ import { mapExpressionAst } from "@/lib/domain/expression/mapAst";
 import { isExpression } from "@/lib/domain/expression/types";
 import { caseOperationChangesForUpdate } from "./caseOperationMutations";
 import { diffModuleConfigMutations } from "./diffDocsToMutations";
+import { planFieldCaseWrite } from "./fieldCaseWriteMutations";
 import { applyMutations } from "./mutations";
-import { declarersOf, referencingCarrierUuids } from "./referenceIndex";
+import { propertyWrites } from "./propertyWrites";
+import { referencingCarrierUuids } from "./referenceIndex";
 import type { BlueprintDoc, Mutation, Uuid } from "./types";
 
 /** A peer writer field the plan converts alongside the addressed one. */
@@ -144,10 +152,15 @@ export type KindConversionPlanResult =
 /**
  * Build the conversion batch for `field` → `toKind`.
  *
- * `field` is the shape the CALL leaves in place for planning purposes — a
- * caller whose same call retargets or clears `caseWrite` must pass the field
- * with that override applied, or the plan cascades a binding the field is
- * about to leave.
+ * The properties the field saves are its "Saves to" view in `doc`
+ * (`fieldCaseWriteViews`): a caller whose same call changes the field's
+ * writes plans the conversion over the document with those writes applied,
+ * or the plan cascades a property the field is about to leave.
+ *
+ * A label or a container holds no answer, so converting a written question
+ * to one first stops every write of it (`planFieldCaseWrite(…, null)`) in
+ * the same batch; a write the planner cannot stop blocks the conversion
+ * with its operation named.
  *
  * `optionsSource` supplies the complete source for a converted field whose
  * source kind has none (`convertNeedsOptionSeed`). The authoring boundary has
@@ -192,125 +205,161 @@ export function planKindConversion(args: {
 
 	const addressedConvert = convertMutation(field);
 
-	const write = fieldCaseWrite(field);
-	if (write === undefined) {
-		// Not case-bound — a plain single-field conversion.
+	const views = fieldCaseWriteViews(doc, field.uuid);
+	if (views.length === 0) {
+		// Saves to no case: a plain single-field conversion.
 		return { ok: true, mutations: [addressedConvert], peers: [] };
 	}
-	const { caseType, property } = write;
 
-	const fromType = caseDataTypeForFieldKind(field.kind);
-	const toType = caseDataTypeForFieldKind(toKind);
-	const record = doc.caseTypes?.find((ct) => ct.name === caseType);
-	const entry = record?.properties.find((p) => p.name === property);
-
-	// Peer writers of the same (caseType, property) — via the reference
-	// index, never a doc walk. The addressed field itself is excluded.
-	const declarerUuids = declarersOf(doc, caseType, property).filter(
-		(uuid) => uuid !== field.uuid,
-	);
-	const declarers = declarerUuids
-		.map((uuid) => doc.fields[asUuid(uuid)])
-		.filter((f): f is Field => f !== undefined);
-	const operationBlocker = declarerUuids
-		.map((uuid) => doc.forms[asUuid(uuid)])
-		.filter((form) => form !== undefined)
-		.flatMap((form) => form.caseOperations ?? [])
-		.find(
-			(operation) =>
-				(operation.retype ?? operation.caseType) === caseType &&
-				(operation.writes ?? []).some(
-					(operationWrite) => operationWrite.property === property,
-				),
-		);
-
-	const mutations: Mutation[] = [addressedConvert];
-	const peers: KindConversionPeer[] = [];
-	let redeclaredTo: CasePropertyDataType | undefined;
-
-	const isTypeFlip =
-		fromType !== undefined && toType !== undefined && toType !== fromType;
-
-	if (isTypeFlip) {
-		// Operation expressions are first-class writers, but unlike fields they
-		// have no mechanical "convert kind" mutation. A valid doc's operation
-		// writer agrees with the source type today, so the field flip must stop
-		// and ask the author to revise/remove that expression explicitly.
-		if (operationBlocker !== undefined) {
+	if (toKind === "label" || isContainerKindName(toKind)) {
+		const cleared = planFieldCaseWrite(doc, field.uuid, null);
+		if (!cleared.ok) {
+			const view = views[0];
+			const operation = doc.forms[view.formUuid]?.caseOperations?.find(
+				(candidate) => candidate.uuid === view.operationUuid,
+			);
 			return {
 				ok: false,
 				blocker: {
 					carrier: "case-operation",
-					uuid: operationBlocker.uuid,
-					id: operationBlocker.id,
+					uuid: view.operationUuid,
+					id: operation?.id ?? "",
 				},
 			};
 		}
-		// Carry every peer writer of the property's CURRENT type across —
-		// selection is by derived data type, not kind identity, so a
-		// barcode/secret writer on a text property counts (it agrees
-		// today and would disagree after). A peer already deriving the
-		// TARGET type needs nothing.
-		for (const peer of declarers) {
-			if (caseDataTypeForFieldKind(peer.kind) !== fromType) continue;
-			if (!getConvertibleTypes(peer.kind).includes(toKind)) {
+		return {
+			ok: true,
+			mutations: [...cleared.mutations, addressedConvert],
+			peers: [],
+		};
+	}
+
+	const fromType = caseDataTypeForFieldKind(field.kind);
+	const toType = caseDataTypeForFieldKind(toKind);
+	const isTypeFlip =
+		fromType !== undefined && toType !== undefined && toType !== fromType;
+
+	const mutations: Mutation[] = [addressedConvert];
+	const peers: KindConversionPeer[] = [];
+	const converted = new Set<Uuid>([field.uuid]);
+	let redeclaredTo: CasePropertyDataType | undefined;
+	let dataLossRisk: KindConversionPlan["dataLossRisk"];
+
+	// Each property the field's answer is saved to, once. The name and owner
+	// slots save the standard `case_name` and `owner_id`, whose type no field
+	// kind decides, and a file link saves text whatever the capture's kind.
+	const properties = new Map<string, { caseType: string; property: string }>();
+	for (const view of views) {
+		if (view.slot !== "write" || view.link) continue;
+		properties.set(JSON.stringify([view.caseType, view.property]), {
+			caseType: view.caseType,
+			property: view.property,
+		});
+	}
+
+	for (const { caseType, property } of properties.values()) {
+		const record = doc.caseTypes?.find((ct) => ct.name === caseType);
+		const entry = record?.properties.find((p) => p.name === property);
+
+		// Every other write of the same (caseType, property), read from the
+		// forms the reference index names as its declarers.
+		const writes = propertyWrites(doc, caseType, property);
+		const declarers: Field[] = [];
+		for (const write of writes) {
+			if (write.field === undefined || write.field === field.uuid) continue;
+			const peer = doc.fields[write.field];
+			if (peer !== undefined && !declarers.includes(peer)) declarers.push(peer);
+		}
+		const operationBlocker = writes.find(
+			(write) => write.field === undefined,
+		)?.operation;
+
+		if (isTypeFlip) {
+			// A write whose value is an authored expression is a first-class
+			// writer, but unlike a question's answer it has no mechanical
+			// "convert kind" mutation. A valid doc's expression agrees with
+			// the source type today, so the flip stops and asks the author to
+			// revise or remove that write explicitly.
+			if (operationBlocker !== undefined) {
 				return {
 					ok: false,
 					blocker: {
-						carrier: "field",
-						uuid: peer.uuid,
-						id: peer.id,
-						kind: peer.kind,
+						carrier: "case-operation",
+						uuid: operationBlocker.uuid,
+						id: operationBlocker.id,
 					},
 				};
 			}
-			mutations.push(convertMutation(peer));
-			peers.push({ uuid: peer.uuid, id: peer.id });
-		}
-		// A stale declared type is re-declared to match the new writers.
-		if (entry?.data_type !== undefined && entry.data_type !== toType) {
-			mutations.push(
-				redeclareMutation(
-					caseType,
-					entry,
-					toType,
-					declarationOptions(field, toKind, addressedConvert),
-				),
+			// Carry every peer writer of the property's CURRENT type across —
+			// selection is by derived data type, not kind identity, so a
+			// barcode/secret writer on a text property counts (it agrees
+			// today and would disagree after). A peer already deriving the
+			// TARGET type needs nothing.
+			for (const peer of declarers) {
+				if (caseDataTypeForFieldKind(peer.kind) !== fromType) continue;
+				if (!getConvertibleTypes(peer.kind).includes(toKind)) {
+					return {
+						ok: false,
+						blocker: {
+							carrier: "field",
+							uuid: peer.uuid,
+							id: peer.id,
+							kind: peer.kind,
+						},
+					};
+				}
+				if (converted.has(peer.uuid)) continue;
+				converted.add(peer.uuid);
+				mutations.push(convertMutation(peer));
+				peers.push({ uuid: peer.uuid, id: peer.id });
+			}
+			// A stale declared type is re-declared to match the new writers.
+			if (entry?.data_type !== undefined && entry.data_type !== toType) {
+				mutations.push(
+					redeclareMutation(
+						caseType,
+						entry,
+						toType,
+						declarationOptions(field, toKind, addressedConvert),
+					),
+				);
+				redeclaredTo ??= toType;
+			}
+		} else if (toKind === "hidden" && entry !== undefined) {
+			// A Hidden Value has no kind type, so no peer converts. When the
+			// addressed field is the property's LAST kind-typed writer and the
+			// entry is undeclared, pin the entry to the source kind's type: the
+			// new Hidden Value holds no opinion yet, so later inference could
+			// otherwise retype the property under its existing rows. Only
+			// kind-typed declarers count here on purpose. A Hidden Value or
+			// case operation with its own opinion either agrees with the pin
+			// or is refused by the commit gate's writer agreement.
+			const anotherTypedWriterRemains = declarers.some(
+				(f) => caseDataTypeForFieldKind(f.kind) !== undefined,
 			);
-			redeclaredTo = toType;
+			if (
+				entry.data_type === undefined &&
+				fromType !== undefined &&
+				!anotherTypedWriterRemains
+			) {
+				mutations.push(redeclareMutation(caseType, entry, fromType, undefined));
+				redeclaredTo ??= fromType;
+			}
 		}
-	} else if (toKind === "hidden" && entry !== undefined) {
-		// A Hidden Value has no kind type, so no peer converts. When the
-		// addressed field is the property's LAST kind-typed writer and the
-		// entry is undeclared, pin the entry to the source kind's type: the
-		// new Hidden Value holds no opinion yet, so later inference could
-		// otherwise retype the property under its existing rows. Only
-		// kind-typed declarers count here on purpose. A Hidden Value or
-		// case operation with its own opinion either agrees with the pin
-		// or is refused by the commit gate's writer agreement.
-		const anotherTypedWriterRemains = declarers.some(
-			(f) => caseDataTypeForFieldKind(f.kind) !== undefined,
-		);
-		if (
-			entry.data_type === undefined &&
-			fromType !== undefined &&
-			!anotherTypedWriterRemains
-		) {
-			mutations.push(redeclareMutation(caseType, entry, fromType, undefined));
-			redeclaredTo = fromType;
-		}
-	}
 
-	// The consent verdict — pure, from the cast matrix. `castCanFail`
-	// answers false for a same-type conversion (text → barcode) and a
-	// hidden target never derives a type, so only genuine data-type
-	// flips can carry risk.
-	const dataLossRisk =
-		fromType !== undefined &&
-		toType !== undefined &&
-		castCanFail(fromType, toType)
-			? { caseType, property, fromType, toType }
-			: undefined;
+		// The consent verdict — pure, from the cast matrix. `castCanFail`
+		// answers false for a same-type conversion (text → barcode) and a
+		// hidden target never derives a type, so only genuine data-type
+		// flips can carry risk. A field saved to several properties flips
+		// them alike; the first one at risk is the one named.
+		if (
+			dataLossRisk === undefined &&
+			fromType !== undefined &&
+			toType !== undefined &&
+			castCanFail(fromType, toType)
+		)
+			dataLossRisk = { caseType, property, fromType, toType };
+	}
 
 	return {
 		ok: true,

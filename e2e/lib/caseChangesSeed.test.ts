@@ -42,6 +42,7 @@ describe("the case-changes smoke fixture", () => {
 		expect(
 			orderedCaseOperations(doc.forms[formUuid] ?? {}).map((op) => op.id),
 		).toEqual([
+			ids.own,
 			ids.create,
 			ids.retype,
 			ids.note,
@@ -57,7 +58,7 @@ describe("the case-changes smoke fixture", () => {
 		const operationIds = orderedCaseOperations(doc.forms[formUuid] ?? {}).map(
 			(op) => op.id,
 		);
-		expect(operationIds.indexOf(ids.file)).toBe(3);
+		expect(operationIds.indexOf(ids.file)).toBe(4);
 		// Without the carrier the dormant change is absent, so the browser
 		// fixture is one longer than this one.
 		expect(operationIds).toHaveLength(CASE_CHANGES_SEQUENCE_LENGTH - 1);
@@ -122,6 +123,7 @@ describe("the case-changes smoke fixture", () => {
 				(operation) => operation.id,
 			),
 		).toEqual([
+			ids.own,
 			ids.create,
 			ids.retype,
 			ids.note,
@@ -141,7 +143,7 @@ describe("the case-changes smoke fixture", () => {
 			doc,
 			formUuid,
 			operations.file,
-		).get(0);
+		).get(1);
 		expect(verdict).toEqual({
 			ok: false,
 			reason: "dependent-reference",
@@ -155,7 +157,7 @@ describe("the case-changes smoke fixture", () => {
 	it("still allows moving the change nothing depends on", () => {
 		// The journey's second half: the same keyboard path moves what it may.
 		expect(
-			caseOperationMoveVerdicts(doc, formUuid, operations.note).get(0),
+			caseOperationMoveVerdicts(doc, formUuid, operations.note).get(1),
 		).toEqual({ ok: true });
 	});
 });

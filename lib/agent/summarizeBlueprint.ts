@@ -6,6 +6,7 @@
  * domain-vocabulary view of an app.
  */
 
+import { projectFormExpression } from "@/lib/doc/expressionText";
 import {
 	countFieldsUnder,
 	orderedFieldUuids,
@@ -16,6 +17,7 @@ import type {
 	BlueprintDoc,
 	CaseTileLayout,
 	Column,
+	Expression,
 	Module,
 	SearchInputDef,
 	Uuid,
@@ -24,7 +26,7 @@ import {
 	assignedLocationUuids,
 	childModuleUuids,
 	declaredPlatforms,
-	fieldCaseWrite,
+	fieldCaseWriteViews,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
 	moduleSiblingUuids,
@@ -74,8 +76,9 @@ function summarizeField(
 	if ("label" in field && field.label) {
 		pieces[0] += `: "${projectProseTemplate(field.label, doc).text}"`;
 	}
-	const write = fieldCaseWrite(field);
-	if (write) pieces[0] += ` → ${write.caseType}.${write.property}`;
+	// Every place the answer is saved, read off the form's case changes.
+	for (const view of fieldCaseWriteViews(doc, uuid))
+		pieces[0] += ` → ${view.caseType}.${view.property}`;
 	const rows = queryRepeatRows(doc, field);
 	if (rows !== undefined)
 		pieces[0] +=
@@ -90,6 +93,21 @@ function summarizeField(
 		if (childLines.length > 0) pieces.push(childLines.join("\n"));
 	}
 	return pieces.join("\n");
+}
+
+/** A form's open or close condition, printed in its own slot. */
+function formConditionText(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	slot: "form_open_condition" | "form_close_condition",
+	value: Expression,
+): string {
+	return projectFormExpression(
+		doc,
+		{ entity: "form", uuid: formUuid, slot },
+		value,
+		"unavailable",
+	).text;
 }
 
 /** Summarize one form: name, uuid, type, field count, nested field list. */
@@ -107,17 +125,16 @@ function summarizeForm(doc: BlueprintDoc, formUuid: Uuid): string {
 		);
 	}
 	if (form.connect) extras.push("    [Connect enabled]");
-	if (form.closeCondition) {
-		const op =
-			form.closeCondition.operator === "selected" ? "has selected" : "=";
-		// The SA speaks field ids — project the stored uuid through the current
-		// field. Never expose or reinterpret the uuid as a friendly id.
-		const closeFieldId =
-			doc.fields[form.closeCondition.field]?.id ?? "<missing field>";
+	// The conditions print as the form logic `updateForm` accepts, through
+	// the printer, with field names projected from their identities.
+	if (form.type === "registration" && form.openCondition !== undefined)
 		extras.push(
-			`    close_condition: ${closeFieldId} ${op} "${form.closeCondition.answer}"`,
+			`    open when: ${formConditionText(doc, formUuid, "form_open_condition", form.openCondition)}`,
 		);
-	}
+	if (form.closeCondition !== undefined)
+		extras.push(
+			`    close when: ${formConditionText(doc, formUuid, "form_close_condition", form.closeCondition)}`,
+		);
 	const topLevelFields = orderedFieldUuids(doc, formUuid);
 	const fieldSummary =
 		topLevelFields.length > 0

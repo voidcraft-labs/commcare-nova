@@ -12,14 +12,17 @@
  *      seeds only intrinsic field shape (`kind`, canonical `label`, and
  *      choice `options`) wherever the payload left it unset. Form-context
  *      behavior (`hint`, `required`, and `validate`) is authored on the field
- *      itself. Case preload is NOT seeded here — it's emitted structurally at
- *      the wire layer (`xform/caseBlocks.ts`).
+ *      itself. A starting value read from the case is not seeded here either:
+ *      planning the field's `caseWrite` gives a writer of the form's own case
+ *      its `default_value` (`lib/doc/fieldCaseWriteMutations.ts`).
  *   3. **`flatFieldToField`** — both surfaces. Per-kind
  *      `fieldSchema.safeParse` validation + domain `Field` assembly,
  *      returning a tagged success/reason result.
  *
- * Vocabulary is domain-side (`kind`, `validate`, `validate_msg`,
- * `caseWrite`); there is no CommCare → domain translation inside the agent.
+ * Vocabulary is domain-side (`kind`, `validate`, `validate_msg`); there is
+ * no CommCare → domain translation inside the agent. The item's `caseWrite`
+ * is not a field slot: `flatFieldToField` leaves it out, and the assembly
+ * plans it into the form's case operations once the field exists.
  */
 import type { z } from "zod";
 import type {
@@ -186,11 +189,9 @@ export function stripEmpty(q: PreparedFlatField): Partial<PreparedFlatField> & {
  * workflow context and can legitimately differ between registration and
  * later editing forms that write the same property.
  *
- * Case preload is NOT seeded here. A case-loading form's primary properties
- * are read back from the case at the wire layer — `xform/caseBlocks.ts`
- * lowers the derived `case_preload` action into `<setvalue>` reads from
- * `casedb`. Stamping a case-preload `default_value` here was a redundant
- * second channel for the same effect; the structural preload owns it.
+ * A starting value read from the case is NOT seeded here: it is the
+ * field's `default_value`, which `planFieldCaseWrite` gives a new writer of
+ * the form's own case on a form that opens one case.
  */
 /** Select the catalog defaults once, independently of expression decoding and
  * identity allocation. The authoring preparer stages these before parsing. */
@@ -356,7 +357,6 @@ export function flatFieldToField(
 		...(q.default_value !== undefined &&
 			q.default_value !== null && { default_value: q.default_value }),
 		...(q.optionsSource != null && { optionsSource: q.optionsSource }),
-		...(q.caseWrite != null && { caseWrite: q.caseWrite }),
 		// Nested repeat config: the SA's `repeat` is discriminated on `mode`
 		// (`count` exists only on count_bound, `ids_query` only on
 		// query_bound); the domain schema discriminates over `repeat_mode`

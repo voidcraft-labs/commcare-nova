@@ -25,7 +25,6 @@ import {
 	type BlueprintDoc,
 	blueprintTopologyIssues,
 	collectTranslationUnits,
-	deriveCaseWriteInventory,
 	duplicateSelectOptionValues,
 	formLinkAdjacency,
 	formLinkPath,
@@ -386,17 +385,16 @@ function reservedCaseTypeName(doc: BlueprintDoc): ValidationError[] {
 }
 
 /**
- * Every direct-child case type that canonical form inventories actually emit
- * needs a module of its own — a child bucket creates cases, and a created
- * case with no module has no case list to appear in, so it is invisible
- * to every user. Keyed on WRITERS, not on the catalog: a planned record
- * (committed by `generateSchema` ahead of its module) is legal on its
- * own — the finding fires only once a form would create cases nobody can
- * open. This is also what sequences a build: a case type's own module
- * must land before any other module's forms create cases of it. The code
- * consumes emitted buckets rather than interpreting field annotations again:
- * survey/module-less writers are no-action admission failures, and invalid
- * sibling/ancestor/unrelated destinations never become child creates.
+ * Every case type a form creates beneath its own case needs a module of its
+ * own: a created case with no module has no case list to appear in, so it is
+ * invisible to every user. Keyed on the creates, not on the catalog: a planned
+ * record (committed by `generateSchema` ahead of its module) is legal on its
+ * own, and the finding fires only once a form would create cases nobody can
+ * open. This is also what sequences a build: a case type's own module must
+ * land before any other module's forms create cases of it. A create counts
+ * when it is a child of the form's own case: its one link is a `parent` link
+ * to that case (`session` on a loading form, the own arm on a registration),
+ * the shape a field's "Saves to" writes for a child case.
  */
 function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
 	const errors: ValidationError[] = [];
@@ -408,18 +406,27 @@ function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
 
 	const writtenTypes = new Set<string>();
 	for (const moduleUuid of doc.moduleOrder) {
-		const module = doc.modules[moduleUuid];
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
 			if (form === undefined) continue;
-			const inventory = deriveCaseWriteInventory(
-				doc,
-				formUuid,
-				module,
-				form.type,
+			const own = form.caseOperations?.find(
+				(operation) => operation.action === "own",
 			);
-			for (const bucket of inventory.buckets) {
-				if (bucket.kind === "child") writtenTypes.add(bucket.caseType);
+			if (own === undefined) continue;
+			for (const operation of form.caseOperations ?? []) {
+				if (operation.action !== "create") continue;
+				const links = operation.links ?? [];
+				const target = links[0]?.target;
+				const toOwnCase =
+					form.type === "registration"
+						? target?.kind === "op" && target.opUuid === own.uuid
+						: target?.kind === "session";
+				if (
+					links.length === 1 &&
+					links[0]?.identifier === "parent" &&
+					toOwnCase
+				)
+					writtenTypes.add(operation.caseType);
 			}
 		}
 	}

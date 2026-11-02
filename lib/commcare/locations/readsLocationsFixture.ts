@@ -137,6 +137,10 @@ function formReadsLocations(
 				return "reads";
 			continue;
 		}
+		// A capture's link is printed as the capture's address, never as an
+		// expression, and reads no place.
+		if (expression.kind === "term" && expression.term.kind === "capture-link")
+			continue;
 		if (!declaresLocations(expressions.lower(expression, ref), "xform"))
 			continue;
 		if (ref.slot !== "case_operation_owner") return "reads";

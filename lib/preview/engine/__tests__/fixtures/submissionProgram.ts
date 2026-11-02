@@ -13,9 +13,9 @@ import type { SubmissionMutation } from "../../caseDataBindingTypes";
 import { FormEngine, type FormEngineInput } from "../../formEngine";
 
 const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
-/** One followup doc: an external-id writer (ordinary), a free root answer, and
- *  a repeat of visit notes — with `operations` built from the minted
- *  field uuids per test. */
+/** One followup doc: an external-id writer (the form's own case saves it), a
+ *  free root answer, and a repeat of visit notes — with `operations`, which
+ *  follow the own case, built from the minted field uuids per test. */
 export function acceptanceDoc(
 	operationsFor: (uuids: {
 		externalCode: Uuid;
@@ -109,12 +109,18 @@ export function acceptanceDoc(
 		visitNote: byId.get("visit_note") as Uuid,
 	};
 	const form = doc.forms[formUuid];
+	const own = (form.caseOperations ?? []).filter(
+		(operation) => operation.action === "own",
+	);
 	return {
 		doc: {
 			...doc,
 			forms: {
 				...doc.forms,
-				[formUuid]: { ...form, caseOperations: operationsFor(uuids) },
+				[formUuid]: {
+					...form,
+					caseOperations: [...own, ...operationsFor(uuids)],
+				},
 			},
 		},
 		formUuid,
@@ -128,36 +134,49 @@ export function conditionalCloseDoc(): {
 	conditionFieldUuid: Uuid;
 } {
 	const baseList = caseListConfig([{ field: "case_name", header: "Name" }]);
-	const doc = buildDoc({
-		appName: "Conditional batch close",
-		caseTypes: [{ name: "patient", properties: [] }],
-		modules: [
-			{
-				uuid: "60000000-0000-4000-8000-00000000a020",
-				name: "Patients",
-				caseType: "patient",
-				caseListConfig: {
-					...baseList,
-					selection: { kind: "multiple", maximum: 4 },
-				},
-				forms: [
-					{
-						uuid: "60000000-0000-4000-8000-00000000a021",
-						name: "Close patients",
-						type: "close",
-						closeCondition: { field: "close_when", answer: "done" },
-						fields: [
-							f({
-								kind: "text",
-								id: "close_when",
-								label: proseText("Close when"),
-							}),
-						],
+	const doc = buildDoc(
+		{
+			appName: "Conditional batch close",
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					uuid: "60000000-0000-4000-8000-00000000a020",
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: {
+						...baseList,
+						selection: { kind: "multiple", maximum: 4 },
 					},
-				],
-			},
-		],
-	});
+					forms: [
+						{
+							uuid: "60000000-0000-4000-8000-00000000a021",
+							name: "Close patients",
+							type: "close",
+							fields: [
+								f({
+									kind: "text",
+									id: "close_when",
+									label: proseText("Close when"),
+								}),
+							],
+						},
+					],
+				},
+			],
+		},
+		(draft) => {
+			// The form closes its cases when the answer is `done`.
+			const [closeForm] = Object.keys(draft.forms);
+			const closeWhen = Object.values(draft.fields).find(
+				(field) => field.id === "close_when",
+			);
+			if (closeForm === undefined || closeWhen === undefined) return;
+			draft.forms[closeForm] = {
+				...draft.forms[closeForm],
+				closeCondition: eq(formField(closeWhen.uuid), literal("done")),
+			};
+		},
+	);
 	const formUuid = Object.keys(doc.forms)[0] as Uuid;
 	const conditionFieldUuid = Object.values(doc.fields).find(
 		(field) => field.id === "close_when",

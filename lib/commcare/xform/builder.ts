@@ -57,11 +57,7 @@ import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { AssetManifest } from "@/lib/commcare/multimedia/assetWirePath";
 import { itextMediaValues } from "@/lib/commcare/multimedia/itextMedia";
 import { serializeXml } from "@/lib/commcare/serializeXml";
-import type {
-	HqCaseSaveReference,
-	OpenSubCaseAction,
-	UpdateCaseAction,
-} from "@/lib/commcare/types";
+import type { HqCaseSaveReference } from "@/lib/commcare/types";
 import {
 	UPLOAD_APPEARANCE_BY_CAPTURE_KIND,
 	UPLOAD_MEDIATYPE_BY_CAPTURE_KIND,
@@ -78,6 +74,7 @@ import {
 	buildCaseOperations,
 	caseScalarTextValueCalculation,
 	caseScalarTextValueGuard,
+	caseWriteSiblingPaths,
 	collectFieldLocations,
 	type FieldLocation,
 } from "@/lib/commcare/xform/caseOps";
@@ -95,6 +92,7 @@ import {
 	expressionSlotValue,
 	expressionSlotValues,
 	type Field,
+	fieldCaseWriteViews,
 	fieldKindCarriesValidation,
 	isCaptureField,
 	isCaptureFieldKind,
@@ -114,7 +112,6 @@ import type {
 	FormNodeRef,
 } from "@/lib/domain/expression/types";
 import { walkExpressionTerms } from "@/lib/domain/expression/walk";
-import { fieldValueType } from "@/lib/domain/fieldValueType";
 import { formWireName } from "@/lib/domain/formWireName";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { moduleUuidOfForm } from "@/lib/domain/postSubmit";
@@ -125,6 +122,7 @@ import {
 	formLinkProjectionContext,
 } from "../formLinkProjection";
 import { lookupOptionsNodeset } from "../lookupOptions";
+import { placedBasic } from "../placement";
 import { w } from "../xpath/wire/builders";
 import { InstanceSink } from "../xpath/wire/instances";
 import { casePropertyStep } from "../xpath/wire/rowScope";
@@ -525,10 +523,6 @@ export interface BuildXFormOptions {
 	datumId?: (datum: DatumRef) => string | undefined;
 	/** Collection-valued selected-entities instance for a multi-select entry. */
 	selectedCasesInstanceId?: string;
-	/** Ordinary primary writes lowered through the selected-case iteration. */
-	multiSelectPrimaryUpdate?: UpdateCaseAction["update"];
-	/** Ordinary child actions; extensions and several-case creates ride source. */
-	ordinarySubcases?: readonly OpenSubCaseAction[];
 	/**
 	 * Resolved media assets for this emission run. When present, the
 	 * itext entries gain `<value form="image|audio|video">` siblings for
@@ -554,8 +548,8 @@ export interface BuildXFormOptions {
 	 * emission, so a URL-mode capture emits its `<upload>` question and
 	 * nothing else: no address node, no bind, and no case update. There is
 	 * no placeholder origin, because a link that looks deliberate and
-	 * resolves nowhere is worse than an absent one. `buildFormActions`
-	 * drops the same writers from the same input, so the two cannot
+	 * resolves nowhere is worse than an absent one. `planFormCaseWire`
+	 * withholds the same writes from the same input, so the two cannot
 	 * disagree about whether the property is written.
 	 */
 	attachmentTarget?: AttachmentUrlTarget;
@@ -657,6 +651,10 @@ function queryRepeatNodeReads(
 interface FormCaseScalarText {
 	readonly guards: ReadonlyMap<Uuid, CaseScalarTextGuard>;
 	readonly createNames: ReadonlySet<Uuid>;
+	/** The data paths of the generated siblings a case change reads: a
+	 *  capture's link and a date and time's text, each written only where
+	 *  one reads it (`caseOps.ts::caseWriteSiblingPaths`). */
+	readonly siblings: ReadonlySet<string>;
 }
 
 /** A form's source and the `case_references_data.save` map derived from it. */
@@ -863,9 +861,16 @@ export function buildXFormSource(
 	// Every name the form's generated nodes carry, from the one allocator the
 	// case-operation emitter and `formActions.ts` read too.
 	const generatedNodes = planGeneratedNodes(doc, formUuid);
+	const basic = { placedBasic: placedBasic(doc, formUuid) };
 	const caseScalarText: FormCaseScalarText = {
-		guards: caseScalarTextGuards(doc, formUuid),
-		createNames: caseCreateNameFields(doc, formUuid),
+		guards: caseScalarTextGuards(doc, formUuid, basic),
+		createNames: caseCreateNameFields(doc, formUuid, basic),
+		siblings: caseWriteSiblingPaths(
+			doc,
+			formUuid,
+			generatedNodes,
+			opts.attachmentTarget ?? null,
+		),
 	};
 
 	for (const fieldUuid of orderedFieldUuids(doc, formUuid)) {
@@ -915,7 +920,7 @@ export function buildXFormSource(
 		dataElements,
 	);
 
-	// Advanced case operations are authored source, shared by HQ upload and
+	// Save to Case blocks are authored source, shared by HQ upload and
 	// local CCZ compilation. Their data containers splice under `/data` or the
 	// exact referenced repeat template; their model binds/setvalues join the
 	// normal accumulation before instances are materialized.
@@ -929,8 +934,7 @@ export function buildXFormSource(
 		opts.lookupNaming,
 		opts.selectedCaseIdRef,
 		opts.selectedCasesInstanceId,
-		opts.multiSelectPrimaryUpdate,
-		opts.ordinarySubcases,
+		opts.attachmentTarget ?? null,
 	);
 	if (caseOperations !== null) {
 		attachCaseOperationData(dataEl, caseOperations.dataChildren);
@@ -1169,7 +1173,11 @@ function buildFieldParts(
 		"vellum:nodeset": nodePath.toWire("hashtag"),
 		nodeset: nodePath.toWire(),
 	};
-	const bindType = fieldBindType(field, effectiveCaseTypes(doc));
+	const bindType = fieldBindType(
+		field,
+		effectiveCaseTypes(doc),
+		fieldCaseWriteViews(doc, fieldUuid),
+	);
 	if (bindType) bindAttributes.type = bindType;
 	if (required) {
 		// The editor's attribute for a required CONDITION is
@@ -1313,23 +1321,32 @@ function buildFieldParts(
 		),
 	);
 
-	// A capture saving to a case carries a second node beside
+	// A capture whose link a basic action saves carries a second node beside
 	// it, holding the address of the submitted file. The capture question
 	// answers with a server-minted file name; the case property wants
 	// somewhere that file can be opened, and the two are different values.
+	// A Save to Case row builds the same address over the capture itself and
+	// needs no node (`caseOps.ts`).
 	//
 	// The node is a sibling rather than a hoisted form-root node so that a
 	// capture inside a repeat produces one address per iteration, landing in
-	// the same child-create bucket as the capture. It carries no body
+	// the same child-create block as the capture. It carries no body
 	// control: nobody answers it.
 	//
 	// `captureUrlNodePath` reads the form's plan of generated nodes, which
-	// `formActions.ts` reads too to name this exact node as the case update's
-	// question path, so the two halves of the write agree.
+	// `casePlacementPlan.ts` reads too to name this exact node as the
+	// action's question path, so the two halves of the write agree.
+	const holds = (purpose: "url" | "datetime") =>
+		generatedNodes.nodes.some(
+			(node) => node.purpose === purpose && node.owner === fieldUuid,
+		);
 	if (
 		attachmentTarget !== undefined &&
 		isCaptureField(field) &&
-		field.caseWrite !== undefined
+		holds("url") &&
+		caseScalarText.siblings.has(
+			captureUrlNodePath(generatedNodes, fieldUuid, nodePath).toXPath(),
+		)
 	) {
 		const urlPath = captureUrlNodePath(generatedNodes, fieldUuid, nodePath);
 		dataElements.push(el(generatedNodes.url(fieldUuid), {}));
@@ -1349,11 +1366,15 @@ function buildFieldParts(
 		);
 	}
 
-	if (
-		"caseWrite" in field &&
-		field.caseWrite !== undefined &&
-		fieldValueType(field, effectiveCaseTypes(doc)) === "datetime"
-	) {
+	// A date and time a case change reads as text, or that a trimmed sibling
+	// trims, takes its text from a sibling of its own.
+	const datetimeSibling =
+		holds("datetime") &&
+		(scalarGuard !== undefined ||
+			caseScalarText.siblings.has(
+				datetimeCaseValuePath(generatedNodes, fieldUuid, nodePath).toXPath(),
+			));
+	if (datetimeSibling) {
 		dataElements.push(el(generatedNodes.datetime(fieldUuid), {}));
 		binds.push(
 			xel(
@@ -1382,12 +1403,9 @@ function buildFieldParts(
 	// value. Like every generated sibling it leaves with its question, so a
 	// question the worker never reaches leaves the case's value alone.
 	if (scalarGuard !== undefined) {
-		const valuePath =
-			"caseWrite" in field &&
-			field.caseWrite !== undefined &&
-			fieldValueType(field, effectiveCaseTypes(doc)) === "datetime"
-				? datetimeCaseValuePath(generatedNodes, fieldUuid, nodePath)
-				: nodePath;
+		const valuePath = datetimeSibling
+			? datetimeCaseValuePath(generatedNodes, fieldUuid, nodePath)
+			: nodePath;
 		dataElements.push(el(generatedNodes.trimmed(fieldUuid), {}));
 		binds.push(
 			xel(

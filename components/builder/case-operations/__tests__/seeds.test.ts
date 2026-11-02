@@ -25,6 +25,7 @@ import {
 	type CaseOperation,
 	effectiveCaseTypes,
 	isCaseOperationIdentifier,
+	type TargetedCaseOperation,
 	type Uuid,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -109,7 +110,6 @@ describe("case-operation seeds", () => {
 	const seeds: readonly CaseOperationSeedKind[] = [
 		{ kind: "create", caseType: "referral" },
 		{ kind: "update-session", caseType: "patient" },
-		{ kind: "close-session", caseType: "patient" },
 	];
 
 	for (const seed of seeds) {
@@ -123,6 +123,26 @@ describe("case-operation seeds", () => {
 			expect(verdict.ok).toBe(true);
 		});
 	}
+
+	it("a close of the case this form opened is the form's own case, so the gate refuses it with the way forward", () => {
+		// A follow-up form's own case is the case it opened, and a close form
+		// is what closes it, so the add chooser offers this seed disabled with
+		// the gate's sentence.
+		const { doc, formUuid } = caseFirstDoc();
+		expect(
+			caseOperationAddVerdict(
+				doc,
+				formUuid,
+				seedCaseOperation(
+					{ kind: "close-session", caseType: "patient" },
+					new Set(),
+				),
+			),
+		).toMatchObject({
+			ok: false,
+			reason: expect.stringContaining("a close form"),
+		});
+	});
 
 	it("declares a brand-new case type in the same batch", () => {
 		// The create seed may name a type the catalog has never seen; the
@@ -180,7 +200,7 @@ describe("case-operation seeds", () => {
 		},
 	);
 
-	it.each(["update-session", "close-session"] as const)(
+	it.each(["update-session"] as const)(
 		"seeds %s with the session type established by earlier retypes",
 		(kind) => {
 			const doc = buildDoc({
@@ -220,7 +240,11 @@ describe("case-operation seeds", () => {
 				target: { kind: "session" },
 				retype: "visit",
 			};
-			doc.forms[formUuid].caseOperations = [retype];
+			// The form's own case stays first; the retype follows it.
+			doc.forms[formUuid].caseOperations = [
+				...(doc.forms[formUuid].caseOperations ?? []),
+				retype,
+			];
 			const rollingType = caseOperationTargetTypeAfter(
 				[retype],
 				{ kind: "session" },
@@ -412,7 +436,7 @@ describe("changing what a change does", () => {
 				term: { kind: "literal", value: "done" },
 			}),
 		];
-		const held: CaseOperation = {
+		const held: TargetedCaseOperation = {
 			uuid: testUuid("closing-update"),
 			id: "update_patient",
 			action: "update",
@@ -456,7 +480,7 @@ describe("changing what a change does", () => {
 
 	it("still passes the gate after the change of action", () => {
 		const { doc, formUuid } = caseFirstDoc();
-		for (const action of ["update", "close"] as const) {
+		for (const action of ["update"] as const) {
 			const reshaped = reshapeForAction(
 				create,
 				action,

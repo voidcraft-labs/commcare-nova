@@ -217,23 +217,41 @@ describe("effectiveCaseTypes — writer derivation", () => {
 	});
 
 	it("resolves unknown on writer disagreement instead of picking a side", () => {
-		const doc = docWith({
-			candidateOnly: true, // Pre-gate analysis of a structurally valid candidate.
-			fields: [
-				f({
-					kind: "date",
-					id: "date_answer",
-					label: proseText("X"),
-					caseWrite: { caseType: "patient", property: "x" },
-				}),
-				f({
-					kind: "int",
-					id: "int_answer",
-					label: proseText("X"),
-					caseWrite: { caseType: "patient", property: "x" },
-				}),
+		// One form saves a property once, so the two writers are two forms'.
+		const form = (name: string, field: Parameters<typeof f>[0]) => ({
+			name,
+			type: "followup" as const,
+			fields: [f(field)],
+		});
+		const doc = buildDoc({
+			appName: "T",
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						form("Date", {
+							kind: "date",
+							id: "date_answer",
+							label: proseText("X"),
+							caseWrite: { caseType: "patient", property: "x" },
+						}),
+						form("Number", {
+							kind: "int",
+							id: "int_answer",
+							label: proseText("X"),
+							caseWrite: { caseType: "patient", property: "x" },
+						}),
+					],
+				},
 			],
 		});
+		// Pre-gate analysis of a structurally valid candidate.
+		blueprintDocSchema.parse(toPersistableDoc(doc));
 		expect(resolveEffectivePropertyType(doc, "patient", "x")).toBeUndefined();
 	});
 

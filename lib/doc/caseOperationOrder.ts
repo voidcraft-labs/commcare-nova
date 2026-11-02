@@ -1,15 +1,51 @@
-import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	CaseOperation,
+	CaseTarget,
+	TargetedCaseOperation,
+	Uuid,
+} from "@/lib/domain";
 import {
 	AUTHORED_CASE_ID_VERSION,
 	CASE_LOADING_FORM_TYPES,
-	deriveCaseWriteInventory,
 	orderedCaseOperations,
 } from "@/lib/domain";
 import { type Expression, walkExpressionNodes } from "@/lib/domain/expression";
 import { deepEqual } from "./deepEqual";
 import { orderedFieldUuids } from "./fieldWalk";
 
-type KnownTarget = Exclude<CaseOperation["target"], { kind: "new" }>;
+type KnownTarget = Exclude<CaseTarget, { kind: "new" }>;
+
+/**
+ * The operations every order proof walks: the form's create, update and
+ * close operations, without its own arm.
+ *
+ * The own arm stands first in the array, but no order proof reads its
+ * position. Its effects mean the same wherever it runs on the wire, because
+ * no other operation writes what it writes, retypes the case it writes, or
+ * closes it (`CASE_WRITE_DUPLICATE_PROPERTY` reason `own-case`,
+ * `CASE_OPERATION_TARGET_TYPE_MISMATCH`, `CASE_OPERATION_CLOSES_OWN_CASE`).
+ * On a registration it is the create of the form's new case, which the
+ * analyses below register as a fresh identity; on a loading form it is the
+ * final consumer of the loaded case's type.
+ */
+function targetedOperations(
+	operations: readonly CaseOperation[],
+): TargetedCaseOperation[] {
+	return operations.filter(
+		(operation): operation is TargetedCaseOperation =>
+			operation.action !== "own",
+	);
+}
+
+function ownOperationOf(
+	operations: readonly CaseOperation[],
+): Extract<CaseOperation, { action: "own" }> | undefined {
+	return operations.find(
+		(operation): operation is Extract<CaseOperation, { action: "own" }> =>
+			operation.action === "own",
+	);
+}
 
 interface TargetTypeState {
 	readonly target: KnownTarget;
@@ -51,14 +87,14 @@ export function caseOperationDependencyUuids(
 	operation: CaseOperation,
 ): ReadonlySet<Uuid> {
 	const refs = new Set<Uuid>();
-	if (operation.target.kind === "op") refs.add(operation.target.opUuid);
+	if (operation.target?.kind === "op") refs.add(operation.target.opUuid);
 	for (const link of operation.links ?? []) {
 		if (link.target?.kind === "op") refs.add(link.target.opUuid);
 		if (link.target?.kind === "expression") {
 			collectExpressionDependencies(link.target.expr, refs);
 		}
 	}
-	if (operation.target.kind === "expression") {
+	if (operation.target?.kind === "expression") {
 		collectExpressionDependencies(operation.target.expr, refs);
 	}
 	for (const expression of [
@@ -168,12 +204,12 @@ export function caseOperationWireOrderViolationDetails(
 		]),
 	);
 	const repeatedAncestors = repeatedOperationScopeAncestors(doc, formUuid);
-	const createsByUuid = new Map<Uuid, CaseOperation>();
+	const createsByUuid = registrationOwnCreates(doc, formUuid, operations);
 	const repeatedAuthoredCreates: CaseOperation[] = [];
 	let furthestRank = -1;
 	let sawNonCreate = false;
 	const broken: CaseOperationWireOrderViolation[] = [];
-	for (const operation of operations) {
+	for (const operation of targetedOperations(operations)) {
 		const rank = scopeRank.get(operation.forEach?.repeat);
 		if (rank !== undefined) {
 			if (rank < furthestRank) {
@@ -375,7 +411,7 @@ function sessionAliasFactsByOperation(
 	const createsByUuid = new Map<Uuid, CaseOperation>();
 	const representatives: KnownTarget[] = [];
 	const facts = new Map<Uuid, string>();
-	for (const operation of operations) {
+	for (const operation of targetedOperations(operations)) {
 		const target = operation.target;
 		if (operation.action === "create") {
 			createsByUuid.set(operation.uuid, operation);
@@ -440,7 +476,7 @@ export function possibleFinalSessionCaseTypes(
 	);
 	const aliasFacts = sessionAliasFactsByOperation(operations);
 	const conservativeTypes = new Set<string>([initialCaseType]);
-	for (const operation of operations) {
+	for (const operation of targetedOperations(operations)) {
 		if (
 			operation.action !== "create" &&
 			operation.retype !== undefined &&
@@ -458,7 +494,7 @@ export function possibleFinalSessionCaseTypes(
 		},
 	];
 
-	for (const operation of operations) {
+	for (const operation of targetedOperations(operations)) {
 		if (
 			operation.action === "create" ||
 			operation.retype === undefined ||
@@ -570,8 +606,9 @@ function analyzeCaseOperationTargetOrder(
 } {
 	const state: TargetTypeState[] = [];
 	const typeChangingTargets: TypeChangingTargetState[] = [];
-	const createsByUuid = new Map<Uuid, CaseOperation>();
+	const createsByUuid = registrationOwnCreates(doc, formUuid, operations);
 	const moduleCaseType = moduleCaseTypeForForm(doc, formUuid);
+	const formType = doc.forms[formUuid]?.type;
 	if (moduleCaseType !== undefined) {
 		state.push({
 			target: { kind: "session" },
@@ -579,6 +616,20 @@ function analyzeCaseOperationTargetOrder(
 			snapshotCaseType: moduleCaseType,
 			guardUuids: new Set(),
 		});
+		// A registration's own arm creates the form's case. Every other
+		// operation names it as `op` (or `id-of`) of the arm. Its id exists
+		// from the moment the form opens (`case_id_new_<type>_0`), whatever the
+		// form's open condition says, so a consumer inherits no guard from it
+		// (part 01 §5.3, rule 4).
+		const own = ownOperationOf(operations);
+		if (own !== undefined && formType === "registration") {
+			state.push({
+				target: { kind: "op", opUuid: own.uuid },
+				caseType: moduleCaseType,
+				snapshotCaseType: moduleCaseType,
+				guardUuids: new Set(),
+			});
+		}
 	}
 	const violations: CaseOperationTargetTypeOrderViolation[] = [];
 	const guards = new Map<Uuid, ReadonlySet<Uuid>>();
@@ -653,7 +704,7 @@ function analyzeCaseOperationTargetOrder(
 		return known;
 	};
 
-	for (const operation of operations) {
+	for (const operation of targetedOperations(operations)) {
 		const requiredGuards = new Set<Uuid>();
 		let expressionTargetSnapshotType: string | undefined;
 		const expressionLinkSnapshotTypes = new Map<number, string>();
@@ -752,16 +803,16 @@ function analyzeCaseOperationTargetOrder(
 		}
 	}
 
-	// Advanced blocks execute before the form's ordinary primary update and
-	// subcase blocks. Those legacy actions still consume the loaded session
-	// case as the module's declared type: a primary field writes to it, while a
-	// subcase's parent index names that type. Treat that final implicit consumer
-	// as part of the same rolling proof, otherwise an advanced retype can make
-	// the later ordinary block apply patient-shaped wire to a visit case. A
-	// close-only action is deliberately absent here because close is type-blind.
+	// The own arm of a loading form runs after every other operation on the
+	// wire (Case Management's block follows the authored tree), and it writes
+	// the loaded case as the module's declared type. Treat that final consumer
+	// as part of the same rolling proof, otherwise another operation's retype
+	// can make the own arm apply patient-shaped wire to a visit case. An own
+	// arm that only closes is deliberately absent here because close is
+	// type-blind.
 	if (
 		moduleCaseType !== undefined &&
-		ordinaryFormActionsRequireSessionType(doc, formUuid, moduleCaseType)
+		ownOperationRequiresSessionType(doc, formUuid, operations)
 	) {
 		const sessionTarget: KnownTarget = { kind: "session" };
 		for (const change of typeChangingTargets) {
@@ -795,31 +846,45 @@ function analyzeCaseOperationTargetOrder(
 }
 
 /**
- * Whether the ordinary FormActions emitted after advanced operations have a
- * type-sensitive reference to the form's loaded session case.
- *
- * Case-loading forms do so when the canonical inventory contains a primary
- * writer (including `case_name`) or a direct-child create bucket whose parent
- * index points back at the primary case. Preloads run before submission, and
- * an otherwise write-free close action only needs an id, so neither is a final
- * type consumer.
+ * Whether a loading form's own arm has a type-sensitive use of the form's
+ * loaded case: a rename, an owner, a write or a link. An own arm that does
+ * none of these only closes the case, which needs an id and no type.
  */
-export function ordinaryFormActionsRequireSessionType(
+export function ownOperationRequiresSessionType(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-	moduleCaseType: string,
+	operations: readonly CaseOperation[] = orderedCaseOperations(
+		doc.forms[formUuid] ?? {},
+	),
 ): boolean {
 	const form = doc.forms[formUuid];
 	if (form === undefined || !CASE_LOADING_FORM_TYPES.has(form.type)) {
 		return false;
 	}
-	const inventory = deriveCaseWriteInventory(
-		doc,
-		formUuid,
-		{ caseType: moduleCaseType },
-		form.type,
+	const own = ownOperationOf(operations);
+	return (
+		own !== undefined &&
+		(own.name !== undefined ||
+			own.owner !== undefined ||
+			(own.writes?.length ?? 0) > 0 ||
+			(own.links?.length ?? 0) > 0)
 	);
-	return inventory.buckets.some((bucket) => bucket.writers.length > 0);
+}
+
+/**
+ * The creates an order proof starts from: a registration's own arm, which
+ * creates the form's new case under a generated id, keyed by its uuid.
+ */
+function registrationOwnCreates(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operations: readonly CaseOperation[],
+): Map<Uuid, CaseOperation> {
+	const creates = new Map<Uuid, CaseOperation>();
+	if (doc.forms[formUuid]?.type !== "registration") return creates;
+	const own = ownOperationOf(operations);
+	if (own !== undefined) creates.set(own.uuid, own);
+	return creates;
 }
 
 export function sameCaseOperationTargetIdentity(
@@ -841,6 +906,7 @@ export function sameCaseOperationTargetIdentity(
 	}
 	switch (left.kind) {
 		case "session":
+		case "worker-record":
 			return true;
 		case "op":
 			return right.kind === "op" && left.opUuid === right.opUuid;
@@ -878,13 +944,18 @@ function staticExpressionCaseId(target: KnownTarget): string | undefined {
  * cases have distinct operation namespaces; a generated create is also fresh
  * relative to every pre-submission session/expression target. Authored-key
  * creates may be retries of an existing session/expression case, so only their
- * separation from a different operation UUID is provable.
+ * separation from a different operation UUID is provable. The worker's record
+ * is a `commcare-user` case, a type no other target can name (no operation
+ * works on a reserved type, and an expression target is read under its
+ * operation's type), so it is distinct from every other target.
  */
 function caseOperationTargetsProvablyDistinct(
 	left: KnownTarget,
 	right: KnownTarget,
 	createsByUuid: ReadonlyMap<Uuid, CaseOperation>,
 ): boolean {
+	if ((left.kind === "worker-record") !== (right.kind === "worker-record"))
+		return true;
 	const leftOp = exactOperationTargetUuid(left);
 	const rightOp = exactOperationTargetUuid(right);
 	if (leftOp !== undefined && rightOp !== undefined) return leftOp !== rightOp;
@@ -942,7 +1013,11 @@ function authoredCreateCannotEqualExpression(
 	);
 }
 
+/** Whether `operation` creates a case under a fresh generated id: a create
+ *  with no authored key, or a registration's own arm (the only own arm an
+ *  order proof records as a create). */
 function generatedCreate(operation: CaseOperation | undefined): boolean {
+	if (operation?.action === "own") return true;
 	return (
 		operation?.action === "create" &&
 		operation.target.kind === "new" &&

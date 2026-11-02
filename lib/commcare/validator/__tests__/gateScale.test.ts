@@ -33,12 +33,7 @@ function largeDoc(): BlueprintDoc {
 				name: `Form ${m}-${fm}`,
 				type: fm === 0 ? ("registration" as const) : ("followup" as const),
 				fields: [
-					f({
-						kind: "text",
-						id: "case_name",
-						label: proseText("Name"),
-						caseWrite: { caseType, property: "case_name" },
-					}),
+					f({ kind: "text", id: "case_name", label: proseText("Name") }),
 					...Array.from({ length: 20 }, (_, q) =>
 						f({
 							kind: "int",
@@ -46,14 +41,6 @@ function largeDoc(): BlueprintDoc {
 							label: `Question ${q}`,
 							relevant: q > 0 ? `#form/q_${q - 1} > 0` : undefined,
 							required: "true()",
-							...(fm > 0 && q < 3
-								? {
-										caseWrite: {
-											caseType,
-											property: `q_${q}`,
-										},
-									}
-								: {}),
 						}),
 					),
 					f({
@@ -72,7 +59,7 @@ function largeDoc(): BlueprintDoc {
 			})),
 		});
 	}
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Perf Fixture",
 		modules,
 		caseTypes: Array.from({ length: 30 }, (_, m) => ({
@@ -87,6 +74,38 @@ function largeDoc(): BlueprintDoc {
 			],
 		})),
 	});
+	// Each form's own case saves the name question, and on a follow-up the
+	// first three numbers too, written onto the fixture directly.
+	for (const formUuids of Object.values(doc.formOrder)) {
+		for (const formUuid of formUuids) {
+			const form = doc.forms[formUuid];
+			const fieldOf = (id: string) => {
+				const uuid = (doc.fieldOrder[formUuid] ?? []).find(
+					(candidate) => doc.fields[candidate]?.id === id,
+				);
+				if (uuid === undefined) throw new Error(`Missing ${id}`);
+				return term(formField(uuid));
+			};
+			form.caseOperations = (form.caseOperations ?? []).map((operation) =>
+				operation.action === "own"
+					? {
+							...operation,
+							name: fieldOf("case_name"),
+							...(form.type === "followup" && {
+								writes: Array.from({ length: 3 }, (_, q) => ({
+									property: `q_${q}`,
+									value: fieldOf(`q_${q}`),
+								})),
+							}),
+						}
+					: operation,
+			);
+		}
+	}
+	// The writes were made after the reference index was built; leave it to
+	// be built again from the document as it now stands.
+	delete doc.refIndex;
+	return doc;
 }
 
 describe("complete validation of a large app", () => {

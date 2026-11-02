@@ -6,8 +6,9 @@
 // child datum are `uuid()` datums Core values once per entry; the form reads
 // them while it runs and the case block creates the cases with them. Preview
 // mints those ids from the entry key (`lib/domain/entryCaseIdentity.ts`), and
-// the envelope inserts the server-marked seeds (`SubmissionCaseSeed.entryCaseKey`)
-// with the same ids. Every other created case takes a fresh id.
+// the envelope creates the operations the server marked
+// (`CaseOperationProgram.entryCaseKeys`) with the same ids. Every other
+// created case takes a fresh id.
 
 import { type Kysely, sql } from "kysely";
 import { Client } from "pg";
@@ -25,6 +26,8 @@ import type { Database } from "../../sql/database";
 import { buildCaseTypeMap } from "../../store";
 import type {
 	ApplySubmissionArgs,
+	CaseOperationProgram,
+	EnvelopeCaseOperation,
 	SubmissionReceiptClaim,
 } from "../../submission";
 import { PostgresCaseStore } from "../store";
@@ -85,38 +88,110 @@ function receipt(entryKey: string): SubmissionReceiptClaim {
 	};
 }
 
+const OWN = testUuid("entry-ids-own-household");
+const HEAD = testUuid("entry-ids-head-member");
+const VISITORS = testUuid("entry-ids-visitor-members");
+const VISITOR_REPEAT = testUuid("entry-ids-visitor-repeat");
+
+const text = (value: string) =>
+	({ kind: "term", term: { kind: "literal", value } }) as const;
+
+function envOp(
+	operation: EnvelopeCaseOperation["operation"],
+): EnvelopeCaseOperation {
+	return {
+		operation,
+		guardConditions: [],
+		expressionSnapshotTypes: { links: new Map() },
+	};
+}
+
+/** A member created under `parent`, the household the form works on. */
+function memberCreate(
+	uuid: typeof HEAD | typeof VISITORS,
+	name: string,
+	role: string,
+	parent: NonNullable<
+		NonNullable<EnvelopeCaseOperation["operation"]["links"]>[number]["target"]
+	>,
+	forEach?: { repeat: typeof VISITOR_REPEAT },
+): EnvelopeCaseOperation {
+	return envOp({
+		uuid,
+		id: uuid === HEAD ? "head" : "visitor",
+		action: "create",
+		caseType: "member",
+		target: { kind: "new" },
+		name: text(name),
+		writes: [{ property: "role", value: text(role) }],
+		links: [
+			{
+				identifier: "parent",
+				targetType: "household",
+				target: parent,
+				relationship: "child",
+			},
+		],
+		...(forEach === undefined ? {} : { forEach }),
+	});
+}
+
 /** A registration whose session names its household and its one member;
  *  `repeatMembers` more members come from a repeat, which no datum names. */
 function registration(
 	entryKey: string,
 	repeatMembers = 0,
 ): ApplySubmissionArgs {
+	const program: CaseOperationProgram = {
+		formUuid: FORM_UUID,
+		operations: [
+			envOp({
+				uuid: OWN,
+				id: "household",
+				action: "own",
+				name: text("Smiths"),
+				writes: [{ property: "village", value: text("North") }],
+			}),
+			memberCreate(HEAD, "Head", "head", { kind: "op", opUuid: OWN }),
+			memberCreate(
+				VISITORS,
+				"Visitor",
+				"visitor",
+				{ kind: "op", opUuid: OWN },
+				{ repeat: VISITOR_REPEAT },
+			),
+		],
+		ownCase: { caseType: "household", formType: "registration" },
+		entryCaseKeys: new Map([
+			[OWN, "new-case"],
+			[HEAD, "new-child-case:member"],
+		]),
+		scopes: [
+			{ iterations: [{ formFields: new Map() }] },
+			{
+				repeat: VISITOR_REPEAT,
+				iterations: Array.from({ length: repeatMembers }, () => ({
+					formFields: new Map(),
+				})),
+			},
+		],
+		caseTypeSchemas: SCHEMAS,
+	};
 	return {
 		appId: APP_ID,
 		submissionReceipt: receipt(entryKey),
-		ordinary: {
-			kind: "registration",
-			primary: {
-				caseType: "household",
-				caseName: "Smiths",
-				properties: { village: "North" },
-				entryCaseKey: "new-case",
-			},
-			children: [
-				{
-					caseType: "member",
-					caseName: "Head",
-					properties: { role: "head" },
-					entryCaseKey: "new-child-case:member",
-				},
-				...Array.from({ length: repeatMembers }, (_, index) => ({
-					caseType: "member",
-					caseName: `Visitor ${index + 1}`,
-					properties: { role: "visitor" },
-				})),
-			],
-		},
+		ordinary: { kind: "registration" },
+		operations: program,
 	};
+}
+
+/** The member ids a submission's creates made, in physical order. */
+function createdMembers(
+	result: Awaited<ReturnType<PostgresCaseStore["applySubmission"]>>,
+): string[] {
+	return result.operations
+		.filter((record) => record.action === "create" && record.executed)
+		.map((record) => record.caseId);
 }
 
 async function stored(caseType: string) {
@@ -135,7 +210,7 @@ describe("cases an entry names", () => {
 		const household = entryDatumCaseId(APP_ID, "entry-1", "new-case");
 		const head = entryDatumCaseId(APP_ID, "entry-1", "new-child-case:member");
 		expect(result.primaryCaseIds).toEqual([household]);
-		const children = result.createdChildren.map((child) => child.caseId);
+		const children = createdMembers(result);
 		expect(children[0]).toBe(head);
 		// A repeat's members are minted per iteration on a device; no datum
 		// names them, so each takes a fresh id.
@@ -175,18 +250,21 @@ describe("cases an entry names", () => {
 				caseIds: ["household-1"],
 				selection: { kind: "single", maximum: 1 },
 				caseType: "household",
-				patch: { properties: {} },
-				children: [
-					{
-						caseType: "member",
-						caseName: "Newborn",
-						properties: {},
-						entryCaseKey: "new-child-case:member",
-					},
+			},
+			operations: {
+				formUuid: FORM_UUID,
+				operations: [
+					envOp({ uuid: OWN, id: "household", action: "own" }),
+					memberCreate(HEAD, "Newborn", "child", { kind: "session" }),
 				],
+				ownCase: { caseType: "household", formType: "followup" },
+				entryCaseKeys: new Map([[HEAD, "new-child-case:member"]]),
+				scopes: [{ iterations: [{ formFields: new Map() }] }],
+				sessionCaseIds: ["household-1"],
+				caseTypeSchemas: SCHEMAS,
 			},
 		});
-		expect(result.createdChildren.map((child) => child.caseId)).toEqual([
+		expect(createdMembers(result)).toEqual([
 			entryDatumCaseId(APP_ID, "entry-followup", "new-child-case:member"),
 		]);
 	});

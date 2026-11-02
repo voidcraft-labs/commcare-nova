@@ -15,12 +15,6 @@ const captureSubmissionProjectionSchema = z.object({
 			}),
 		)
 		.max(MAX_SUBMITTED_CAPTURE_COUNT),
-	closeConditionAnswers: z
-		.strictObject({
-			fieldUuid: uuidSchema,
-			values: z.array(z.string()),
-		})
-		.optional(),
 });
 
 export type CaptureSubmissionProjection = z.infer<

@@ -189,11 +189,18 @@ function multipleSelectionFixture(links: Spec[] = []): BlueprintDoc {
 		// Choosing several cases runs in Web Apps alone.
 		draft.appSettings.runsOnlyOn = "web-apps";
 		draft.forms[SOURCE].type = "followup";
+		// Neither form saves an answer to its cases, nor opens a question
+		// with one selected case's value.
 		for (const formUuid of [SOURCE, VISIT]) {
+			for (const operation of draft.forms[formUuid]?.caseOperations ?? []) {
+				if (operation.action !== "own") continue;
+				delete operation.name;
+				delete operation.writes;
+			}
 			for (const fieldUuid of draft.fieldOrder[formUuid] ?? []) {
 				const field = draft.fields[fieldUuid];
-				if (field === undefined) continue;
-				if ("caseWrite" in field) delete field.caseWrite;
+				if (field !== undefined && "default_value" in field)
+					delete field.default_value;
 			}
 		}
 	});

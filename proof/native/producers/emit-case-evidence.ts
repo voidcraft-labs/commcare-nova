@@ -22,6 +22,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "../../../lib/doc/lookupReferences";
 import { blueprintDocSchema } from "../../../lib/domain";
 
 import { operationRelevanceDoc } from "../../../lib/preview/engine/__tests__/fixtures/submissionProgram";
+import { caseOrderDocument, caseOrderScenarios } from "./caseOrderScenarios";
 import { NATIVE_RUNTIME_TARGET } from "./runtimeTarget";
 
 const output = process.argv[2];
@@ -49,6 +50,10 @@ for (const [scenario, doc, moduleIndex = 0] of [
 				caseOperationFixture(scenario),
 				scenario === "nested" ? 1 : 0,
 			] as const,
+	),
+	...caseOrderScenarios.map(
+		(scenario) =>
+			[`operation-${scenario}`, caseOrderDocument(scenario)] as const,
 	),
 ]) {
 	blueprintDocSchema.parse(toPersistableDoc(doc));

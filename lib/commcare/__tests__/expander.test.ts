@@ -554,21 +554,20 @@ describe("expandDoc", () => {
 		expect(actions.update_case.update.age.question_path).toBe("/data/age");
 	});
 
-	it("wires followup preload and update actions correctly", () => {
+	it("wires followup update actions correctly, and no preload action", () => {
 		const hq = expandDoc(followupDoc);
 		const actions = hq.modules[0].forms[0].actions;
 
 		expect(actions.open_case.condition.type).toBe("never");
-		expect(actions.case_preload.condition.type).toBe("always");
-		expect(actions.case_preload.preload["/data/total_visits"]).toBe(
-			"total_visits",
-		);
-		// Nested field paths should be resolved
-		expect(actions.case_preload.preload["/data/client_info/full_name"]).toBe(
-			"full_name",
-		);
+		// A question opens on its case's value through its own default.
+		expect(actions.case_preload.condition.type).toBe("never");
+		expect(actions.case_preload.preload).toEqual({});
 		expect(actions.update_case.update.total_visits.question_path).toBe(
 			"/data/total_visits",
+		);
+		// Nested field paths should be resolved
+		expect(actions.update_case.update.full_name.question_path).toBe(
+			"/data/client_info/full_name",
 		);
 	});
 
@@ -680,7 +679,7 @@ describe("expandDoc", () => {
 						{
 							name: "Conditional Close",
 							type: "close",
-							closeCondition: { field: "confirm", answer: "yes" },
+							closeCondition: "#form/confirm = 'yes'",
 							fields: [
 								f({
 									kind: "single_select",
@@ -903,11 +902,7 @@ describe("case_name in case list columns", () => {
 	});
 
 	it("validator allows case_name in case_list_columns", () => {
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "RESERVED_CASE_PROPERTY",
-			),
-		).toBe(false);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 });
 
@@ -918,25 +913,25 @@ describe("registration admission", () => {
 			const doc = structuredClone(registrationDoc);
 			expandDoc(doc);
 			const module = doc.modules[doc.moduleOrder[0]];
-			const field = Object.values(doc.fields).find(
-				(field) => field.id === "case_name",
+			const form = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]];
+			const own = form?.caseOperations?.find(
+				(operation) => operation.action === "own",
 			);
-			if (!field || !("caseWrite" in field) || !field.caseWrite)
-				throw new Error("Missing case-name writer");
+			const write = own?.writes?.[0];
+			if (own?.name === undefined || write === undefined)
+				throw new Error("Missing the registration's own case");
 			if (fault === "case-type") delete module.caseType;
-			else if (fault === "reserved-property") field.caseWrite.property = "name";
-			else delete field.caseWrite;
-			const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-			expect(findings.map((finding) => finding.code)).toEqual(
+			else if (fault === "reserved-property") write.property = "name";
+			else delete own.name;
+			const codes = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+				(finding) => finding.code,
+			);
+			expect(codes).toContain(
 				fault === "case-type"
-					? [
-							"NO_CASE_TYPE",
-							"CASE_WRITE_NO_CASE_ACTION",
-							"CASE_WRITE_NO_CASE_ACTION",
-						]
+					? "NO_CASE_TYPE"
 					: fault === "reserved-property"
-						? ["CASE_CREATE_NAME_MISSING", "RESERVED_CASE_PROPERTY"]
-						: ["CASE_CREATE_NAME_MISSING"],
+						? "CASE_OPERATION_RESERVED_PROPERTY"
+						: "CASE_CREATE_NAME_MISSING",
 			);
 		},
 	);

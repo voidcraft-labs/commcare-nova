@@ -88,6 +88,7 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useField } from "@/lib/doc/hooks/useEntity";
+import { useFieldCaseWrites } from "@/lib/doc/hooks/useFieldCaseWrites";
 import { useCanUndo } from "@/lib/doc/hooks/useUndoRedo";
 import {
 	usePersonas,
@@ -1124,30 +1125,37 @@ const CASE_WRITE_SOURCE = buildDoc({
 		},
 	],
 });
-const caseWriteAdmission = evaluateCommit({
+const caseWriteVerdict = evaluateCommit({
 	nextDoc: structuredClone(CASE_WRITE_SOURCE),
 	lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
 });
-if (!caseWriteAdmission.ok) throw new Error(JSON.stringify(caseWriteAdmission));
+if (!caseWriteVerdict.ok) throw new Error(JSON.stringify(caseWriteVerdict));
 const CASE_WRITE_DOC = toPersistableDoc(CASE_WRITE_SOURCE);
 blueprintDocSchema.parse(CASE_WRITE_DOC);
 function CaseWriteFixtureContent() {
 	const field = useField(OPTIONS_REFERENCE_ID);
-	const mutations = useBlueprintMutations();
+	const views = useFieldCaseWrites(OPTIONS_REFERENCE_ID);
 	if (field?.kind !== "text") throw new Error("Missing case-write field");
+	const saved = views[0];
 	return (
 		<>
+			{/* "Saves to" edits the form's case operations itself and never
+			 * dispatches a field patch, so its entry's change handler is
+			 * never called. */}
 			<CaseWriteEditor
 				field={field}
-				value={field.caseWrite}
+				value={field.uuid}
 				label="Saves to"
-				keyName="caseWrite"
-				onChange={(next) =>
-					mutations.inline.updateField(field.uuid, "text", { caseWrite: next })
-				}
+				keyName="uuid"
+				onChange={() => ({ ok: true })}
 			/>
 			<output aria-label="Saved destination">
-				{JSON.stringify(field.caseWrite)}
+				{saved === undefined
+					? ""
+					: JSON.stringify({
+							caseType: saved.caseType,
+							property: saved.property,
+						})}
 			</output>
 		</>
 	);

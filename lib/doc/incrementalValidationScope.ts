@@ -135,6 +135,17 @@ function addFieldForm(
 	return true;
 }
 
+/** The whole-module scope: the module's rules and every form of it. */
+function addWholeModule(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	scope: MutableScope,
+): void {
+	scope.moduleUuids.add(moduleUuid);
+	for (const formUuid of doc.formOrder[moduleUuid] ?? [])
+		scope.formUuids.add(formUuid);
+}
+
 /** Every form in a module can read its Search: a Search-first module's
  * forms read what the search found, and its no-matches form reads the
  * prompts. A Search edit can withdraw that supply, so each of those forms'
@@ -185,14 +196,6 @@ function mutationFootprint(
 			 * its containing form. Cross-form writer/type/translation and lookup
 			 * constraints are app-wide or lookup rules, which always run. */
 			case "updateField":
-				/* A case destination contributes to the effective case-property
-				 * catalog consumed by case-list rules in any module. Re-run every
-				 * module rule when that destination changes; module scope is
-				 * independent from form scope, so this does not walk their forms. */
-				if (Object.hasOwn(mutation.patch, "caseWrite")) {
-					addAllModuleRules(doc, scope);
-					addCaseOperationForms(doc, scope);
-				}
 				if (!addFieldForm(doc, mutation.uuid, scope)) return undefined;
 				break;
 			case "setFieldMedia":
@@ -280,14 +283,14 @@ function mutationFootprint(
 				scope.formUuids.add(mutation.uuid);
 				break;
 			case "updateForm": {
-				/* Type and case-action changes alter the action inventory consumed by
-				 * links whose findings are anchored on other forms. An entry change
-				 * moves the form on or off the module menu, which the module's
-				 * structural rules and every link targeting the form read. Other
-				 * form settings are confined to this form. */
+				/* A type change moves the form between the case-loading and the
+				 * other forms, which decides whether its module lands on its case
+				 * list (`isCaseFirstModule`), what a child menu selecting through it
+				 * reads, and the action inventory links elsewhere consume. An entry
+				 * change moves the form on or off the module menu, which the
+				 * module's structural rules and every link targeting the form read.
+				 * Both take the whole-document gate. */
 				if (
-					mutation.caseOperationChange !== undefined ||
-					mutation.caseOperationPatch !== undefined ||
 					Object.hasOwn(mutation.patch, "type") ||
 					Object.hasOwn(mutation.patch, "entry")
 				) {
@@ -295,6 +298,29 @@ function mutationFootprint(
 				}
 				const moduleUuid = owningModule(doc, mutation.uuid);
 				if (moduleUuid === undefined) return undefined;
+				/* A case change, or the form's open or close condition, decides
+				 * where its form's case changes are placed, which reads the whole
+				 * form and its module (part 01 §13.3), so the module and every form
+				 * in it re-run. Operation writes declare and type case properties
+				 * that case-list rules in any module and operations in any form
+				 * read, and the action inventory reaches links whose findings sit
+				 * on other forms. Other form settings are confined to this form. */
+				if (
+					mutation.caseOperationChange !== undefined ||
+					mutation.caseOperationPatch !== undefined ||
+					Object.hasOwn(mutation.patch, "openCondition") ||
+					Object.hasOwn(mutation.patch, "closeCondition")
+				) {
+					addWholeModule(doc, moduleUuid, scope);
+					if (
+						mutation.caseOperationChange !== undefined ||
+						mutation.caseOperationPatch !== undefined
+					) {
+						addAllModuleRules(doc, scope);
+						addCaseOperationForms(doc, scope);
+					}
+					addFormLinkSources(doc, scope);
+				}
 				scope.formUuids.add(mutation.uuid);
 				break;
 			}

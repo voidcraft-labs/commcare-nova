@@ -307,7 +307,11 @@ it("keeps identical cousin question IDs in independent repeat case buckets", () 
 		{ id: "case_id_new_household_0", function: "uuid()" },
 	]);
 });
-it("preserves global action indices across root, repeat and root child creates", () => {
+// Basic subcases take their indices in operation order, and every root
+// create stands before the creates of a repeat (`caseOperationOrder.ts`), so
+// a repeat's child is numbered after both root children whatever the
+// question order.
+it("numbers root and repeat child creates in operation order, with the datums HQ gives the root ones", () => {
 	const output = compile(
 		fixture(
 			[
@@ -329,7 +333,7 @@ it("preserves global action indices across root, repeat and root child creates",
 	);
 	for (const [type, index, datum] of [
 		["guardian", 0, "case_id_new_guardian_1"],
-		["consent", 2, "case_id_new_consent_3"],
+		["consent", 1, "case_id_new_consent_2"],
 	] as const) {
 		const path = `/data/subcase_${index}/case`;
 		assertChild(
@@ -367,13 +371,13 @@ it("preserves global action indices across root, repeat and root child creates",
 		"children",
 		"consent",
 		"subcase_0",
-		"subcase_2",
+		"subcase_1",
 		"case",
 		"orx:meta",
 	]);
 	expect(output.datums).toEqual([
 		{ id: "case_id_new_household_0", function: "uuid()" },
 		{ id: "case_id_new_guardian_1", function: "uuid()" },
-		{ id: "case_id_new_consent_3", function: "uuid()" },
+		{ id: "case_id_new_consent_2", function: "uuid()" },
 	]);
 });

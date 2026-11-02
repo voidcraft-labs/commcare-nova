@@ -1,6 +1,7 @@
 /** Shared UUID-addressed vocabulary for case-operation tools. */
 
 import { z } from "zod";
+import { caseWriteKeyId } from "@/lib/doc/caseWriteKeys";
 import {
 	caseOperationIdVerdict,
 	caseOperationLinkIdentifierVerdict,
@@ -13,7 +14,9 @@ import {
 	CASE_OPERATION_PROPERTY_FORMAT_MESSAGE,
 	CASE_OPERATION_PROPERTY_REGEX,
 	type CaseOperation,
+	type CaseWriteVia,
 	caseOperationSchema,
+	type OwnCaseOperation,
 	orderedCaseOperations,
 	RESERVED_CASE_OPERATION_TYPES,
 	type Uuid,
@@ -21,6 +24,10 @@ import {
 } from "@/lib/domain";
 import { conditionSchema, valueSchema } from "@/lib/domain/expression";
 
+export {
+	type CasePlacementWords,
+	formCasePlacementWords,
+} from "../../authoring/casePlacementWords";
 export {
 	formAddressSchema as operationAddressSchema,
 	resolveFormAddress as resolveOperationAddress,
@@ -123,6 +130,28 @@ const linkInputSchema = z.strictObject({
 	relationship: z.enum(["child", "extension"]),
 });
 
+/** Each write saves to its key, its property on the case its `via` walks
+ *  to; two writes of one key in one change save to the same place. */
+function uniqueWriteKeys(
+	writes:
+		| readonly { readonly property: string; readonly via?: CaseWriteVia }[]
+		| undefined,
+	ctx: z.RefinementCtx,
+): void {
+	const seen = new Set<string>();
+	for (const [index, write] of (writes ?? []).entries()) {
+		const id = caseWriteKeyId(write);
+		if (seen.has(id)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["writes", index, "property"],
+				message: `"${write.property}" is saved twice to the same case in this change.`,
+			});
+		}
+		seen.add(id);
+	}
+}
+
 function uniqueMemberNames(
 	items: readonly Record<string, unknown>[] | undefined,
 	key: string,
@@ -160,7 +189,7 @@ const createOperationInputSchema = z
 		links: z.array(linkInputSchema).optional(),
 	})
 	.superRefine((value, ctx) => {
-		uniqueMemberNames(value.writes, "property", ctx);
+		uniqueWriteKeys(value.writes, ctx);
 		uniqueMemberNames(value.links, "identifier", ctx);
 	});
 
@@ -182,7 +211,7 @@ const updateOperationInputSchema = z
 		links: z.array(linkInputSchema).optional(),
 	})
 	.superRefine((value, ctx) => {
-		uniqueMemberNames(value.writes, "property", ctx);
+		uniqueWriteKeys(value.writes, ctx);
 		uniqueMemberNames(value.links, "identifier", ctx);
 	});
 
@@ -200,13 +229,35 @@ const closeOperationInputSchema = z
 		writes: z.array(writeInputSchema).optional(),
 	})
 	.superRefine((value, ctx) => {
-		uniqueMemberNames(value.writes, "property", ctx);
+		uniqueWriteKeys(value.writes, ctx);
 	});
+
+/**
+ * This form's own case. Its case type is the module's, its target follows
+ * the form's type, and whether it runs is the form's open and close
+ * conditions, so it names none of them; only `updateCaseOperation` takes it.
+ */
+export const ownOperationInputSchema = z
+	.strictObject({
+		action: z.literal("own"),
+		name: valueSchema.optional(),
+		owner: valueSchema.optional(),
+		writes: z.array(writeInputSchema).optional(),
+		links: z.array(linkInputSchema).optional(),
+	})
+	.superRefine((value, ctx) => {
+		uniqueWriteKeys(value.writes, ctx);
+		uniqueMemberNames(value.links, "identifier", ctx);
+	})
+	.describe(
+		"This form's own case: what the form's type creates, updates or closes. Its case type is the menu's, and its open and close conditions are updateForm's. name is required on a registration.",
+	);
 
 /**
  * Facet legality is structural at the author boundary: each action has its own
  * closed schema, so a create with a session target or a close with an owner/link
- * cannot be sent by chat or MCP.
+ * cannot be sent by chat or MCP. A new change is never this form's own case,
+ * which comes with the form's type, so the strict union refuses `own` here.
  */
 export const caseOperationInputSchema = z.discriminatedUnion("action", [
 	createOperationInputSchema,
@@ -215,6 +266,40 @@ export const caseOperationInputSchema = z.discriminatedUnion("action", [
 ]);
 
 export type CaseOperationInput = z.infer<typeof caseOperationInputSchema>;
+
+/** The edit of an existing change: one of the three arms, or this form's
+ *  own case. */
+export const caseOperationUpdateInputSchema = z.discriminatedUnion("action", [
+	ownOperationInputSchema,
+	createOperationInputSchema,
+	updateOperationInputSchema,
+	closeOperationInputSchema,
+]);
+
+export type CaseOperationUpdateInput = z.infer<
+	typeof caseOperationUpdateInputSchema
+>;
+
+/** The refusal for adding, removing or moving this form's own case. */
+export const OWN_CASE_OPERATION_REFUSAL =
+	"This form's own case is always its first change, and it goes only with the form's type.";
+
+/** The own case as an edit leaves it: `existing`'s identity with the
+ *  input's slots. */
+export function resolveOwnCaseOperationInput(
+	input: z.infer<typeof ownOperationInputSchema>,
+	existing: OwnCaseOperation,
+): OwnCaseOperation {
+	return caseOperationSchema.parse({
+		uuid: existing.uuid,
+		id: existing.id,
+		action: "own",
+		...(input.name !== undefined && { name: input.name }),
+		...(input.owner !== undefined && { owner: input.owner }),
+		...(input.writes !== undefined && { writes: input.writes }),
+		...(input.links !== undefined && { links: input.links }),
+	}) as OwnCaseOperation;
+}
 
 export function operationByUuid(
 	doc: BlueprintDoc,
@@ -267,11 +352,17 @@ export function resolveCaseOperationInput(
 	}
 }
 
+/** A form's case changes in the order they run, this form's own case
+ *  first. */
 export function projectedCaseOperations(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 ): readonly CaseOperation[] {
-	return orderedCaseOperations(doc.forms[formUuid] ?? {});
+	const operations = orderedCaseOperations(doc.forms[formUuid] ?? {});
+	return [
+		...operations.filter((operation) => operation.action === "own"),
+		...operations.filter((operation) => operation.action !== "own"),
+	];
 }
 
 export function operationIdRejection(

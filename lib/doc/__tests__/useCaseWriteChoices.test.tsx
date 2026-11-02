@@ -4,7 +4,10 @@ import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { caseWriteCandidateMutations } from "@/lib/doc/caseWriteChoices";
+import {
+	type CaseWriteChoiceVerdict,
+	caseWriteChoicePlan,
+} from "@/lib/doc/caseWriteChoices";
 import type {
 	CaseWriteVerdictCandidate,
 	CaseWriteVerdictWorkerRequest,
@@ -51,13 +54,20 @@ vi.mock("@/lib/doc/browserCaseWriteVerdictWorker", () => ({
 const EMPTY_CANDIDATES: readonly CaseWriteVerdictCandidate[] = [];
 const NEW_PROPERTY: CaseWriteVerdictCandidate = {
 	key: "new-property",
-	caseWrite: { caseType: "patient", property: "favorite_color" },
+	destination: { caseType: "patient", property: "favorite_color" },
 };
 
 function setup() {
 	const doc = buildDoc({
 		appName: "Case write choices",
-		caseTypes: [{ name: "patient", properties: [] }],
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "dob", label: proseText("Date of birth"), data_type: "date" },
+				],
+			},
+		],
 		modules: [
 			{
 				name: "Patients",
@@ -139,16 +149,21 @@ describe("useCaseWriteChoiceVerdicts", () => {
 		 * expensive main-thread gate. */
 		rerender({ enabled: false });
 		expect(worker?.terminate).not.toHaveBeenCalled();
+		let verdict: CaseWriteChoiceVerdict | undefined;
 		await act(async () => {
 			respond(worker);
-			await expect(verdictPromise).resolves.toEqual({ ok: true });
+			verdict = (await verdictPromise) as CaseWriteChoiceVerdict | undefined;
 		});
+		expect(verdict).toMatchObject({ ok: true });
+		if (verdict?.ok !== true) throw new Error("Expected an admitted choice");
 
+		// The certificate names the exact batch the worker judged, which is
+		// the batch a commit of this choice dispatches.
 		expect(
 			hasMutationPrevalidation(
 				doc,
 				LOOKUP_CONTEXT_UNAVAILABLE,
-				caseWriteCandidateMutations(doc, field, NEW_PROPERTY.caseWrite),
+				verdict.mutations,
 			),
 		).toBe(true);
 	});
@@ -178,30 +193,28 @@ describe("useCaseWriteChoiceVerdicts", () => {
 		await expect(verdictPromise).resolves.toBeUndefined();
 		expect(worker?.terminate).toHaveBeenCalledOnce();
 	});
-	it("does not certify a rejected duplicate destination", async () => {
+	it("does not certify a destination the gate refuses", async () => {
 		const { doc, field, wrapper } = setup();
 		const { result } = renderHook(
 			() => useCaseWriteChoiceVerdicts(field, EMPTY_CANDIDATES, true),
 			{ wrapper },
 		);
-		const duplicate: CaseWriteVerdictCandidate = {
-			key: "duplicate",
-			caseWrite: { caseType: "patient", property: "case_name" },
+		const mismatch: CaseWriteVerdictCandidate = {
+			key: "mismatch",
+			destination: { caseType: "patient", property: "dob" },
 		};
 		let task!: ReturnType<typeof result.current.ensureVerdict>;
 		act(() => {
-			task = own(result.current.ensureVerdict(duplicate));
+			task = own(result.current.ensureVerdict(mismatch));
 		});
 		await act(async () => {
 			respond(workers[0]);
 			await expect(task).resolves.toMatchObject({ ok: false });
 		});
+		const plan = caseWriteChoicePlan(doc, field.uuid, mismatch);
+		if (!plan.ok) throw new Error(plan.message);
 		expect(
-			hasMutationPrevalidation(
-				doc,
-				LOOKUP_CONTEXT_UNAVAILABLE,
-				caseWriteCandidateMutations(doc, field, duplicate.caseWrite),
-			),
+			hasMutationPrevalidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, plan.mutations),
 		).toBe(false);
 	});
 
@@ -218,7 +231,7 @@ describe("useCaseWriteChoiceVerdicts", () => {
 		});
 		act(() => {
 			next = own(
-				result.current.ensureVerdict({ key: "clear", caseWrite: null }),
+				result.current.ensureVerdict({ key: "clear", destination: null }),
 			);
 		});
 		await expect(first).resolves.toBeUndefined();

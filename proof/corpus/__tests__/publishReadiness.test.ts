@@ -147,7 +147,9 @@ function fixedPlaceOwnerApp(): PublishDocument {
 		moduleUuid === undefined ? undefined : doc.formOrder[moduleUuid]?.[0];
 	const form = formUuid === undefined ? undefined : doc.forms[formUuid];
 	if (form === undefined) throw new Error("The app lost its form.");
+	// After the form's own case, which `buildDoc` gives it.
 	form.caseOperations = [
+		...(form.caseOperations ?? []),
 		{
 			uuid: testUuid("readiness-owner-operation"),
 			id: "set_owner",

@@ -547,7 +547,9 @@ describe("constraint message emission", () => {
 	it.each(["user", "expression", "query", "nested-query"] as const)(
 		"keeps %s repeat owners beside the actual answer scope without count collisions",
 		(scenario) => {
-			const doc = containerWireFixture(scenario);
+			// A copy: the fixture's admission made its plans for the document
+			// object it returned, which this test edits.
+			const doc = structuredClone(containerWireFixture(scenario));
 			for (const field of Object.values(doc.fields))
 				if (field.kind === "text") {
 					field.validate = parseFixtureExpression(

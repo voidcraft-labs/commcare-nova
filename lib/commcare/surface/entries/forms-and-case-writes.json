@@ -49,8 +49,9 @@
 			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "conditional-registration",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.openCondition` (conditional registration)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Form.openCondition` (conditional registration) in a stateable shape",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -85,8 +86,9 @@
 			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "registration-closing-its-case",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Form.closeCondition` on a registration, which closes the case it creates (HQ's Case Management tab offers the close card for every action type, and the build writes `<create>` then `<close/>` in one block, `xform.py::_create_casexml`)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Form.closeCondition` on a registration, which closes the case it creates (HQ's Case Management tab offers the close card for every action type, and the build writes `<create>` then `<close/>` in one block, `xform.py::_create_casexml`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2442,8 +2444,9 @@
 		"section": "Basic form actions",
 		"item": "`ConditionalCaseUpdate.update_mode: edit`",
 		"surfaceKeys": ["schema:ConditionalCaseUpdate.update_mode"],
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the write's `onlyIfChanged`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the write's `onlyIfChanged`, on a write of the form's own case change in the basic own slot",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2747,8 +2750,9 @@
 			"schema:UpdateCaseAction.update"
 		],
 		"valueClass": "ancestor-key-on-loaded-case",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: the write's `via` (ancestor case writes; today only own or direct-child types)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the write's `via`, each step `parent` or `host`, on a write of a follow-up or close form's own case change in the basic own slot",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -2924,8 +2928,9 @@
 			"schema:UpdateCaseAction.update"
 		],
 		"valueClass": "owner-id-key",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: an operation's owner write in the basic update slot (`caseOperations[].owner` holds it today, emitted only as Save to Case; Nova forbids `owner_id` field writes; HQ suppresses owner autoset: `autoset_owner_id_for_open_case`)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: the own case change's `owner` in the basic update slot (HQ suppresses owner autoset: `autoset_owner_id_for_open_case`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3210,8 +3215,9 @@
 			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "close-if-boolean-true",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `closeCondition.operator: isTrue`",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Form.closeCondition` reading one question's answer alone (a select, Hidden Value or label), the stateable shape HQ writes as `boolean_true`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3339,8 +3345,9 @@
 			"schema:PreloadAction.preload"
 		],
 		"valueClass": "writer-without-preload",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: preload as a default value that reads the case, so a writer can have none (Nova preloads every own-type writer implicitly today: defect 28)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a question the form's own case change writes, with no default value that reads the case: a preload is that default (`fieldPreload`), so a writer can have none",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -3386,8 +3393,8 @@
 			}
 		},
 		"emission": {
-			"cell": "Vellum default value `#case/<prop>` in the XForm (for `name`, `#case/case_name`; for `owner_id`, the expanded casedb path ending in `/@owner_id`, since HQ loads those from `case_name` and the `@owner_id` attribute, `XForm.add_case_preloads`), not `case_preload` (no editor writes basic `case_preload`: unproducible)",
-			"markers": ["unproducible"]
+			"cell": "a Vellum default value: `#case/<prop>` in the XForm (for `name`, `#case/case_name`; for `owner_id`, the expanded casedb path ending in `/@owner_id`, since HQ loads those from `case_name` and the `@owner_id` attribute, `XForm.add_case_preloads`); Nova writes no basic `case_preload`",
+			"markers": []
 		},
 		"gates": []
 	},
@@ -3504,7 +3511,7 @@
 			}
 		},
 		"emission": {
-			"cell": "Vellum default value, with the `#case/parent/` or `#case/grandparent/` hashtag only where HQ's parent-type map gives the case type that ancestor, and otherwise the expanded casedb path alone, as for a deeper ancestor (the next row; XPath functions and structure, `#case/parent/<prop>`)",
+			"cell": "an XForm setvalue: the Vellum default value, with the `#case/parent/` or `#case/grandparent/` hashtag only where HQ's parent-type map gives the case type that ancestor, and otherwise the expanded casedb path alone, as for a deeper ancestor (the next row; XPath functions and structure, `#case/parent/<prop>`); Nova writes no basic `case_preload`",
 			"markers": []
 		},
 		"gates": []
@@ -4109,8 +4116,9 @@
 			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "subcase-if",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a child case's condition in its basic subcase placement (the create operation's `condition` holds it today, emitted only as Save to Case, `lib/commcare/xform/caseOps.ts`)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a child create's `condition` in its basic subcase placement (`subcase` at its index, or `subcase-row`)",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -4172,8 +4180,9 @@
 			"schema:FormActionCondition.operator"
 		],
 		"valueClass": "subcase-close",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: a child case's close in its basic subcase placement (a close operation on an earlier create holds it today, emitted only as Save to Case)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a close of an earlier child create, sharing that create's basic subcase placement",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",

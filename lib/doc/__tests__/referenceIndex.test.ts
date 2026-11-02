@@ -123,7 +123,14 @@ function apply(doc: BlueprintDoc, mutations: Mutation[]): BlueprintDoc {
 	});
 }
 
-/** A doc rich in every reference surface kind. */
+const RICH_FORM = testUuid("reference-rich-form");
+const RICH_OWN = testUuid("reference-rich-own");
+const RICH_CASE_NAME = testUuid("reference-rich-case-name");
+const RICH_OUTCOME = testUuid("reference-rich-outcome");
+
+/** A doc rich in every reference surface kind. Its close form renames the
+ * case it loaded from `case_name`, saves the same answer as its nickname,
+ * and closes the case when `outcome` is `done`. */
 function richDoc(): BlueprintDoc {
 	const doc = buildDoc({
 		appName: "Clinic",
@@ -132,6 +139,7 @@ function richDoc(): BlueprintDoc {
 				name: "patient",
 				properties: [
 					{ name: "case_name", label: proseText("Name") },
+					{ name: "nickname", label: proseText("Nickname") },
 					{ name: "age", label: proseText("Age"), data_type: "int" },
 				],
 			},
@@ -149,18 +157,15 @@ function richDoc(): BlueprintDoc {
 				},
 				forms: [
 					{
+						uuid: RICH_FORM,
 						name: "Close visit",
 						type: "close",
-						closeCondition: { field: "outcome", answer: "done" },
 						fields: [
 							f({
 								kind: "text",
 								id: "case_name",
+								uuid: RICH_CASE_NAME,
 								label: proseText("Name"),
-								caseWrite: {
-									caseType: "patient",
-									property: "case_name",
-								},
 							}),
 							f({
 								kind: "group",
@@ -187,7 +192,12 @@ function richDoc(): BlueprintDoc {
 								label: proseText("Ctx"),
 								relevant: "#patient/age > 1",
 							}),
-							f({ kind: "text", id: "outcome", label: proseText("Outcome") }),
+							f({
+								kind: "text",
+								id: "outcome",
+								uuid: RICH_OUTCOME,
+								label: proseText("Outcome"),
+							}),
 						],
 					},
 				],
@@ -204,6 +214,20 @@ function richDoc(): BlueprintDoc {
 			},
 		],
 	});
+	const form = doc.forms[RICH_FORM];
+	if (form === undefined) throw new Error("expected the close form");
+	form.caseOperations = [
+		{
+			uuid: RICH_OWN,
+			id: "patient",
+			action: "own",
+			name: term(formField(RICH_CASE_NAME)),
+			writes: [
+				{ property: "nickname", value: term(formField(RICH_CASE_NAME)) },
+			],
+		},
+	];
+	form.closeCondition = eq(formField(RICH_OUTCOME), literal("done"));
 	const watcher = uuidByFieldId(doc, "watcher");
 	const inner = uuidByFieldId(doc, "inner");
 	const watcherField = doc.fields[watcher];
@@ -348,6 +372,8 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 		const automationUuid = testUuid("reference-index-location-automation");
 		doc.forms[formUuid].caseOperations = [
+			// The form's own case change stays first.
+			...(doc.forms[formUuid].caseOperations ?? []),
 			{
 				uuid: testUuid("66666666-6666-4666-8666-666666666666"),
 				id: "fixed_owner",
@@ -772,13 +798,16 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		).toContain(moduleUuid);
 	});
 
-	it("keys the close condition on the checked field's uuid — cousins can't shake it", () => {
+	it("keys the close condition's read on the checked field's uuid — cousins can't shake it", () => {
 		const doc = richDoc();
-		const formUuid = doc.moduleOrder.flatMap((m) => doc.formOrder[m] ?? [])[0];
+		const formUuid = RICH_FORM;
 		const outcome = uuidByFieldId(doc, "outcome");
 		expect(referencingCarrierUuids(doc, entityTargetKey(outcome))).toEqual([
 			formUuid,
 		]);
+		expect(slotsFor(doc, entityTargetKey(outcome))[formUuid]).toEqual({
+			form_close_condition: true,
+		});
 
 		// The ref names ONE field by uuid — a cousin minting the same id
 		// changes nothing about the edge (the id-stored era dropped it on
@@ -893,10 +922,17 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 });
 
 describe("declarations index", () => {
-	it("lists case-property declarers independently of field-ID changes", () => {
+	it("lists the forms whose operations write a property, independently of field-ID changes", () => {
 		const doc = richDoc();
 		const caseName = uuidByFieldId(doc, "case_name");
-		expect(declarersOf(doc, "patient", "case_name")).toEqual([caseName]);
+		// A form declares the properties its writes save; the own case's
+		// rename is its name, which declares nothing.
+		expect(declarersOf(doc, "patient", "nickname")).toEqual([RICH_FORM]);
+		expect(declarersOf(doc, "patient", "case_name")).toEqual([]);
+		expect(slotsFor(doc, entityTargetKey(caseName))[RICH_FORM]).toEqual({
+			case_operation_name: true,
+			case_operation_write_value: true,
+		});
 
 		const renamed = apply(doc, [
 			{
@@ -906,8 +942,80 @@ describe("declarations index", () => {
 				patch: { id: "full_name" },
 			},
 		]);
-		expect(declarersOf(renamed, "patient", "case_name")).toEqual([caseName]);
+		expect(declarersOf(renamed, "patient", "nickname")).toEqual([RICH_FORM]);
 		expect(declarersOf(renamed, "patient", "full_name")).toEqual([]);
+	});
+
+	it("declares a write through `via` on the case type it reaches, and the own case's on the module's", () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "household",
+					properties: [{ name: "village", label: proseText("Village") }],
+				},
+				{
+					name: "patient",
+					parent_type: "household",
+					properties: [{ name: "phone", label: proseText("Phone") }],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: RICH_FORM,
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "answer", uuid: RICH_OUTCOME })],
+						},
+					],
+				},
+			],
+		});
+		const form = doc.forms[RICH_FORM];
+		if (form === undefined) throw new Error("expected the visit form");
+		form.caseOperations = [
+			{
+				uuid: RICH_OWN,
+				id: "patient",
+				action: "own",
+				writes: [
+					{ property: "phone", value: term(formField(RICH_OUTCOME)) },
+					{
+						property: "village",
+						value: term(formField(RICH_OUTCOME)),
+						via: [{ identifier: "parent" }],
+					},
+				],
+			},
+		];
+		expect(declarersOf(doc, "patient", "phone")).toEqual([RICH_FORM]);
+		expect(declarersOf(doc, "household", "village")).toEqual([RICH_FORM]);
+		expect(declarersOf(doc, "patient", "village")).toEqual([]);
+		expect(
+			referencingCarrierUuids(
+				doc,
+				casePropertyTargetKey("household", "village"),
+			),
+		).toEqual([RICH_FORM]);
+
+		// The own case's writes follow the module's case type.
+		const moduleUuid = doc.moduleOrder[0];
+		const retyped = produce(doc, (draft) => {
+			draft.refIndex = buildReferenceIndex(draft);
+			applyMutations(draft, [
+				{
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: { caseType: "household" },
+				},
+			]);
+		});
+		expect(retyped.refIndex).toEqual(buildReferenceIndex(retyped));
+		expect(declarersOf(retyped, "household", "phone")).toEqual([RICH_FORM]);
+		expect(declarersOf(retyped, "patient", "phone")).toEqual([]);
 	});
 });
 

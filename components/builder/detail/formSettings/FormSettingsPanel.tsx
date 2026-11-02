@@ -8,11 +8,11 @@ import { useForm } from "@/lib/doc/hooks/useEntity";
 import { isNoMatchesForm } from "@/lib/domain";
 import { AfterSubmitSection } from "./AfterSubmitSection";
 import { CaseChangesSection } from "./CaseChangesSection";
-import { CloseConditionSection } from "./CloseConditionSection";
 import { ConnectSection } from "./ConnectSection";
 import { FormAppearanceSection } from "./FormAppearanceSection";
 import { FormEntrySection } from "./FormEntrySection";
 import { NoMatchesAfterSubmitSection } from "./NoMatchesAfterSubmitSection";
+import { OwnCaseSection } from "./OwnCaseSection";
 import { RecordNameSection } from "./RecordNameSection";
 import type { FormSettingsSectionProps } from "./types";
 
@@ -28,7 +28,7 @@ interface FormSettingsPanelProps extends FormSettingsSectionProps {
  * chrome: a labeled header with a dismiss button and a scrollable
  * content region that composes the feature sections in a fixed vertical
  * order. Each section decides whether it renders (close forms only for
- * `CloseConditionSection`, non-null `connectType` for `ConnectSection`,
+ * `OwnCaseSection`, non-null `connectType` for `ConnectSection`,
  * registration forms with somewhere to be offered from for
  * `FormEntrySection`). A no-matches registration form has a restricted after-submit choice
  * and no menu section: it is on no menu, so it takes neither "Show on the
@@ -64,7 +64,7 @@ export function FormSettingsPanel({
 			{/* Content */}
 			<div className="px-3.5 py-3 space-y-3 overflow-y-auto max-h-[480px]">
 				<RecordNameSection moduleUuid={moduleUuid} formUuid={formUuid} />
-				<CloseConditionSection moduleUuid={moduleUuid} formUuid={formUuid} />
+				<OwnCaseSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
 				<FormEntrySection moduleUuid={moduleUuid} formUuid={formUuid} />
 				{!noMatches && (

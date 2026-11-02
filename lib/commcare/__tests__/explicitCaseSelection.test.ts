@@ -76,11 +76,12 @@ describe("explicit parent record selection", () => {
 		doc.modules[CHILD].parentCaseModuleUuid = SECOND;
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const broken = structuredClone(doc);
-		const name = Object.values(broken.fields).find(
-			(field) => field.id === "garden_name",
-		);
-		if (name?.kind !== "text") throw new Error("Missing registration name");
-		delete name.caseWrite;
+		// The registration's own case loses the question that names it.
+		const own = Object.values(broken.forms)
+			.find((form) => form.type === "registration")
+			?.caseOperations?.find((operation) => operation.action === "own");
+		if (own?.name === undefined) throw new Error("Missing registration name");
+		delete own.name;
 		expect(
 			runValidation(broken, LOOKUP_CONTEXT_UNAVAILABLE).map(
 				(finding) => finding.code,

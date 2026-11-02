@@ -47,6 +47,10 @@ export interface SlotProfile {
 	 * (`formplayer/menus/api.js`); a form request carries none, and a fresh
 	 * form's bare read of the absent node throws (`SessionContextRuntimeTest`). */
 	readonly windowWidth: boolean;
+	/** A `capture-link` may stand as the slot's whole value: the value a case
+	 * change saves (`writes[].value`), the one place a captured file reaches a
+	 * case, as the link to it. */
+	readonly captureLinkWholeValue: boolean;
 }
 
 export function slotProfile(
@@ -66,6 +70,7 @@ export function slotProfile(
 			| "here"
 			| "caseListSearchText"
 			| "windowWidth"
+			| "captureLinkWholeValue"
 		>
 	> = {},
 ): SlotProfile {
@@ -83,6 +88,7 @@ export function slotProfile(
 		here: false,
 		caseListSearchText: false,
 		windowWidth: false,
+		captureLinkWholeValue: false,
 		...facts,
 	};
 }

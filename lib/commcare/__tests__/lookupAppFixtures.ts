@@ -167,7 +167,12 @@ export function lookupAppFixture(reversed = false) {
 			},
 		],
 	});
-	doc.forms[doc.formOrder[doc.moduleOrder[0]][0]].caseOperations = [
+	const visit = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]];
+	// The form's own case stays first.
+	visit.caseOperations = [
+		...(visit.caseOperations ?? []).filter(
+			(operation) => operation.action === "own",
+		),
 		{
 			uuid: testUuid("lookup-op"),
 			id: "resolve_region",
