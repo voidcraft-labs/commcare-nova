@@ -211,7 +211,7 @@ moves and MCP's `accept_placement_moves`, the refusal's `placement_moves`, every
 **Part 04, questions (pull requests 3, 5, 9).** A query repeat's `placement?: "model-iteration" |
 "count"`, a stored slot from pull request 3 written by nothing until pull request 5's
 `holdPlacements` (decision R2); `lib/domain/queryRepeatPlacement.ts::queryRepeatPlacementNeeds` (needs
-`nested`, `query-reads-answers`, `ancestor-condition-changes`), `effectiveQueryRepeatPlacement` and
+`nested`, `query-reads-answers`, `row-condition`, `ancestor-condition-changes`), `effectiveQueryRepeatPlacement` and
 `queryRepeatPlacementExpresses`; `QUERY_REPEAT_MODEL_ITERATION_SHAPE` (pull request 5);
 `lib/doc/queryRepeatPlacement.ts::planQueryRepeatPlacementMoves(candidate)` (pull request 5), whose
 move reasons are those needs and whose facts part 04 §1.7 gives; a count placement's rows keep their
@@ -384,6 +384,7 @@ fails to compile (`identityMoveReasonSentence(move)`, a switch over `IdentityMov
 | `case-placement` (part 01) | the `PLACEMENT_INELIGIBILITY_REASONS` (`module-advanced`, `module-basic`, `several-cases`, `value-computed`, `write-condition`, `links`, `condition-apostrophe`, `subcase-index` and the rest of part 01 §12.8) | `placementIneligibilitySentence(reason)`, part 01 §12.8's table, for example `One of its values is now a calculation, which Case Management can't save.` |
 | `query-repeat` (part 04) | `nested` | `It now sits inside “<outer repeat>”.` |
 | | `query-reads-answers` | `Its query now reads an answer.` |
+| | `row-condition` | `It now shows on a condition.` |
 | | `ancestor-condition-changes` | `“<group>” around it now shows on a condition that can change while the form is filled in.` |
 | `module-kind` (part 02) | `several-cases` | `It now lets workers choose several cases, which an advanced menu can't do.` |
 | | `forms-read-search` | `Its forms now read the search, which an advanced menu can't do.` (pull request 7, where the blocker reads today's inline Search first: `It now opens on its Search screen with its forms reading the search, which an advanced menu can't do.`) |
@@ -2405,7 +2406,7 @@ where your published app has it` sits beside part 03's copy; the plugin's senten
 (§6).
 
 **Part 04.** `planQueryRepeatPlacementMoves` returns its needs (`nested`, `query-reads-answers`,
-`ancestor-condition-changes`) as the `query-repeat` source's reasons, worded by §2.3 from part 04
+`row-condition`, `ancestor-condition-changes`) as the `query-repeat` source's reasons, worded by §2.3 from part 04
 §1.7's facts; the dialog row of §2.4 replaces Q-QR-5's builder copy; part 04 §8.4's pull request 3
 text stands, and this part adds in pull request 5 only `Once published, a query repeat keeps that
 choice, and an edit that would change it says so in identityMoves.`; the Rows editor states a row's

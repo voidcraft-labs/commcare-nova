@@ -202,6 +202,7 @@ function readsOfRows(
 	idsQuery: string,
 	device: ReturnType<typeof androidDevice>,
 	relevant?: string,
+	placement?: "model-iteration" | "count",
 ): FormEngine {
 	return new FormEngine(
 		input([
@@ -213,6 +214,7 @@ function readsOfRows(
 				repeat_mode: "query_bound",
 				data_source: { ids_query: idsQuery },
 				...(relevant === undefined ? {} : { relevant }),
+				...(placement === undefined ? {} : { placement }),
 				children: [
 					{
 						id: "note",
@@ -308,19 +310,41 @@ describe.each([
 		expect(value(engine, "/data/notes")).toBe("for a for b kept");
 	});
 
-	it("gives each model-iteration row its id before its starting value, and counts only the rows its condition shows", () => {
-		// Model iteration sets `@index` and then `@id` at `jr-insert`, before
-		// any calculate (`FormDef.java::createNewRepeat`). The condition is on
-		// the row, and a row it hides drops out of every nodeset
+	it("gives each row of a repeat with a condition its own record, and counts only the rows the condition shows", () => {
+		// A repeat with a condition takes the count placement
+		// (`lib/domain/queryRepeatPlacement.ts`, need `row-condition`), whose
+		// rows store their place from `position(..)`. The condition is on the
+		// row, and a row it hides drops out of every nodeset
 		// (`XPathLazyNodeset.java::performEvaluation`).
-		const engine = readsOfRows("'a b c'", device, "current()/@id != 'c'");
+		const engine = readsOfRows("'a b c'", device, "position() != 1");
 		expect(engine.getRepeatCount("/data/members")).toBe(3);
 		expect(value(engine, "/data/members[0]/note")).toBe("for a");
-		expect(value(engine, "/data/members[1]/note")).toBe("for b");
+		expect(value(engine, "/data/members[2]/note")).toBe("for c");
 		expect(value(engine, "/data/rows")).toBe("2");
+		expect(value(engine, "/data/records")).toBe("a c");
+		expect(value(engine, "/data/ordinals")).toBe("0 2");
+	});
+
+	it("gives a held model iteration's row after a hidden one the hidden row's record, as Core does", () => {
+		// Model iteration sets a new row's `@index` from
+		// `int(@current_index)` at `jr-insert`, before `@current_index`
+		// (`count(<rows>)`, the relevant rows only) is calculated again
+		// (`FormDef.java::createNewRepeat`), and HQ's form builder writes that
+		// setvalue on every save. The hidden second row leaves it one short,
+		// so the third row takes index 1 and the record `b`, and `c` is in
+		// no row (`ContainerRuntimeTest.
+		// aHiddenRowShiftsModelIterationsLaterRowsButNotTheCountPlacements`).
+		const engine = readsOfRows(
+			"'a b c'",
+			device,
+			"position() != 1",
+			"model-iteration",
+		);
+		expect(engine.getRepeatCount("/data/members")).toBe(3);
+		expect(value(engine, "/data/members[1]/note")).toBe("for b");
+		expect(value(engine, "/data/members[2]/note")).toBe("for b");
 		expect(value(engine, "/data/records")).toBe("a b");
 		expect(value(engine, "/data/ordinals")).toBe("0 1");
-		expect(value(engine, "/data/notes")).toBe("for a for b");
 	});
 });
 
@@ -365,6 +389,9 @@ describe("a model-iteration query repeat", () => {
 						label: proseText("Asset"),
 						repeat_mode: "query_bound",
 						data_source: { ids_query: "'pump tap'" },
+						// A condition gives the count placement unless a publish
+						// holds model iteration.
+						placement: "model-iteration",
 						relevant: "current()/@id != 'tap'",
 						children: [{ id: "note", kind: "text", label: proseText("Note") }],
 					},

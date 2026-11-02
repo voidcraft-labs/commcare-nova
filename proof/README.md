@@ -3627,8 +3627,9 @@ the proof lane like every other check.
 A native proof stays only where it proves something the checks over the corpus
 (`proof/checks`) do not. Every admitted document a producer emits is a corpus
 document too, but for the two nested-menu shapes Nova's publish refuses
-and the `container` family's two query-repeat scenarios, `query-follows` and
-`query-nested-gated` (`proof/native/producers/emit-container-evidence.ts`),
+and the `container` family's three query-repeat scenarios, `query-follows`,
+`query-nested-gated` and `query-hidden-row`
+(`proof/native/producers/emit-container-evidence.ts`),
 whose forms are inputs to `ContainerRuntimeTest` alone, the corpus holding
 each placement in `targeted-query-repeat-placements`
 (`proof/corpus/producers.ts` builds each from the producer's fixture module,

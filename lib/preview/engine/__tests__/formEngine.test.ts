@@ -47,7 +47,7 @@ import {
 import { formExpressionRuntime } from "../formExpressionRuntime";
 import { previewAsMe } from "../identity";
 import { engineFixtureInput } from "./fixtures/engineInput";
-import { androidDevice } from "./fixtures/previewDevices";
+import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
 const runtimes = new Set<XPathRuntime>();
 function ownedRuntime(options: ConstructorParameters<typeof XPathRuntime>[0]) {
@@ -488,67 +488,82 @@ describe("FormEngine", () => {
 		},
 	);
 
-	it("runs an input's async downstream cascade once and in DAG order", async () => {
-		const key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-		const normalized = "sleep(0, replace(/data/source, '[^a-z]', ''))";
-		const roundTrip = `decrypt-string(encrypt-string(/data/normalized, '${key}', 'AES'), '${key}', 'AES')`;
-		const engine = new FormEngine(
-			dTree([
-				{ id: "source", kind: "text" },
-				{ id: "normalized", kind: "hidden", calculate: normalized },
-				{ id: "round_trip", kind: "hidden", calculate: roundTrip },
-			]),
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			undefined,
-			{ stagedAsync: true },
-		);
-		const calls: string[] = [];
-		const runtime = ownedRuntime({
-			workerFactory: createInProcessXPathWorkerFactory(
-				async (request, tools) => {
-					calls.push(request.source);
-					return evaluateXPathWorkerRequest(request, tools);
-				},
-			),
-		});
-		let revision = 0;
-		const evaluateAsync = (async (
-			source: string,
-			path: string,
-			resultMode: "scalar" | "nodeset-values-or-scalar" = "scalar",
-		) => {
-			const result = await runtime.request({
-				dayNumberEpoch: "device-zone",
-				entryKey: ENTRY_KEY,
-				revision,
-				profile: "form",
-				source,
-				resultMode,
-				instances: engine.workerInstances(path),
+	/* An answer is one request. Android runs what the answer reaches, once.
+	 * Formplayer loads the form session at the start of every request, and
+	 * Core runs every triggerable before the answer's own cascade
+	 * (`FormSession.java` → `FormDef.initialize(false, …)` →
+	 * `initAllTriggerables`, then `FormDef.setValue` → `triggerTriggerables`),
+	 * so on Web Apps each calculation runs in the opening pass and again in
+	 * the cascade. */
+	it.each([
+		["Android", androidDevice(), 1],
+		["Web Apps", webAppsDevice(), 2],
+	] as const)(
+		"runs an input's async downstream cascade in DAG order on %s",
+		async (_platform, device, passes) => {
+			const key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+			const normalized = "sleep(0, replace(/data/source, '[^a-z]', ''))";
+			const roundTrip = `decrypt-string(encrypt-string(/data/normalized, '${key}', 'AES'), '${key}', 'AES')`;
+			const engine = new FormEngine(
+				dTree([
+					{ id: "source", kind: "text" },
+					{ id: "normalized", kind: "hidden", calculate: normalized },
+					{ id: "round_trip", kind: "hidden", calculate: roundTrip },
+				]),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ stagedAsync: true, device },
+			);
+			const calls: string[] = [];
+			const runtime = ownedRuntime({
+				workerFactory: createInProcessXPathWorkerFactory(
+					async (request, tools) => {
+						calls.push(request.source);
+						return evaluateXPathWorkerRequest(request, tools);
+					},
+				),
 			});
-			if (!result.ok) throw new Error(result.error.code);
-			if (result.nodesetValues !== undefined) {
-				return {
-					kind: "nodeset-values" as const,
-					values: result.nodesetValues,
-				};
-			}
-			return deserializeXPathWorkerValue(result.value);
-		}) as FormEngineAsyncEvaluator;
+			let revision = 0;
+			const evaluateAsync = (async (
+				source: string,
+				path: string,
+				resultMode: "scalar" | "nodeset-values-or-scalar" = "scalar",
+			) => {
+				const result = await runtime.request({
+					dayNumberEpoch: "device-zone",
+					entryKey: ENTRY_KEY,
+					revision,
+					profile: "form",
+					source,
+					resultMode,
+					instances: engine.workerInstances(path),
+				});
+				if (!result.ok) throw new Error(result.error.code);
+				if (result.nodesetValues !== undefined) {
+					return {
+						kind: "nodeset-values" as const,
+						values: result.nodesetValues,
+					};
+				}
+				return deserializeXPathWorkerValue(result.value);
+			}) as FormEngineAsyncEvaluator;
 
-		await engine.initializeAsync(evaluateAsync);
-		calls.length = 0;
-		revision += 1;
-		await engine.setValueAsync("/data/source", "a1b2c", evaluateAsync);
+			await engine.initializeAsync(evaluateAsync);
+			calls.length = 0;
+			revision += 1;
+			await engine.setValueAsync("/data/source", "a1b2c", evaluateAsync);
 
-		expect(engine.getState("/data/normalized").value).toBe("abc");
-		expect(engine.getState("/data/round_trip").value).toBe("abc");
-		expect(calls).toEqual([normalized, roundTrip]);
-		runtime.dispose();
-	});
+			expect(engine.getState("/data/normalized").value).toBe("abc");
+			expect(engine.getState("/data/round_trip").value).toBe("abc");
+			expect(calls).toEqual(
+				Array.from({ length: passes }, () => [normalized, roundTrip]).flat(),
+			);
+			runtime.dispose();
+		},
+	);
 
 	it("initializes with field states", () => {
 		const input = dTree([

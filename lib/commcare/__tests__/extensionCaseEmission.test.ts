@@ -476,7 +476,7 @@ it("writes a selection inside a repeat in the count placement", () => {
 		[
 			"jr-insert",
 			`${wrapper}/item/nova_query_id_nova_selected_cases`,
-			"if(position(..) < ../../nova_query_count_nova_selected_cases, selected-at(../../nova_query_ids_nova_selected_cases, position(..)), '')",
+			"if(position(..) < int(../../nova_query_count_nova_selected_cases), selected-at(../../nova_query_ids_nova_selected_cases, position(..)), '')",
 		],
 		[
 			"jr-insert",

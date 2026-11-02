@@ -118,12 +118,16 @@ const queryRepeat = (
 	} as FieldSpec);
 
 describe("a query repeat in model iteration", () => {
-	// A query reading no answer, at the root, under no changing group.
+	// A query reading no answer, at the root, under no changing group. Its
+	// condition would give it the count placement
+	// (`lib/domain/queryRepeatPlacement.ts`), so it holds model iteration, as a
+	// publish records it.
 	const form = source(
 		survey([
 			text("show"),
 			queryRepeat("r", "'a b'", [text("answer")], {
 				relevant: "#form/show = 'yes'",
+				placement: "model-iteration",
 			}),
 		]),
 	);
@@ -249,7 +253,7 @@ describe("a query repeat in the count placement", () => {
 				event: "jr-insert",
 				ref: "/data/r/item/nova_query_id_r",
 				value:
-					"if(position(..) < ../../nova_query_count_r, selected-at(../../nova_query_ids_r, position(..)), '')",
+					"if(position(..) < int(../../nova_query_count_r), selected-at(../../nova_query_ids_r, position(..)), '')",
 			},
 			{
 				event: "jr-insert",

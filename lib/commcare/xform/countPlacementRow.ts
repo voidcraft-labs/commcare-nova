@@ -23,6 +23,11 @@
  * (`FormDef.java::createNewRepeat`), and an authored default that reads the
  * row's id is one of them. Setvalues are written in data-tree order, so the
  * id's comes before the index's and before every authored default in the row.
+ * The setvalue reads the count as `int(..)`: a calculate is evaluated at its
+ * bind's node, whose `xsd:int` count makes its `<` a number on both sides,
+ * while a setvalue's value carries no bind, so the call states its number
+ * where the comparison is written (the count is already a whole number, so
+ * the call changes no value).
  */
 
 import type { Element } from "domhandler";
@@ -55,9 +60,9 @@ export function countPlacementRowPieces(
 	const indexPath = rowPath.child(names.index);
 	const countFromRow = w.context([w.parent(), w.parent(), w.step(names.count)]);
 	const idsFromRow = w.context([w.parent(), w.parent(), w.step(names.ids)]);
-	const idAt = (place: WireExpr): WireExpr =>
+	const idAt = (place: WireExpr, count: WireExpr): WireExpr =>
 		w.call("if", [
-			w.lt(place, countFromRow),
+			w.lt(place, count),
 			w.call("selected-at", [idsFromRow, place]),
 			w.str(""),
 		]);
@@ -80,7 +85,7 @@ export function countPlacementRowPieces(
 					xpath: {
 						nodeset: idPath.toWire(),
 						"vellum:nodeset": idPath.toWire("hashtag"),
-						calculate: idAt(storedIndex),
+						calculate: idAt(storedIndex, countFromRow),
 					},
 				},
 				context,
@@ -98,7 +103,7 @@ export function countPlacementRowPieces(
 			),
 		],
 		setvalues: [
-			setvalue(idPath, idAt(rowPosition)),
+			setvalue(idPath, idAt(rowPosition, w.call("int", [countFromRow]))),
 			setvalue(indexPath, rowPosition),
 		],
 	};

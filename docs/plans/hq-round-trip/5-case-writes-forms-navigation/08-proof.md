@@ -1624,15 +1624,17 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   expected move, `form:0.0` `/questions/*` added at `/questions/~1data~1nova_url_photo` (the answer leaf
   for `photo`'s link value). No case-write or case-block difference was reported. That one move is
   written for defect 23, scoped to the witness.
-- **G2's two new container scenarios are native inputs, not corpus documents** (pull request 3):
+- **G2's new container scenarios are native inputs, not corpus documents** (pull request 3):
   `proof/native/producers/emit-container-evidence.ts` builds `query-follows` (a registration whose
   `members` query reads the form's `order` answer, a member case per row) and `query-nested-gated` (a
-  `sites` query under a group shown on `show`, each site's `plots` query reading its record) inline,
+  `sites` query under a group shown on `show`, each site's `plots` query reading its record) and
+  `query-hidden-row` (a held model iteration and a count placement over `a b c`, each hiding its
+  second row by condition, part 04's Departures) inline,
   admitted by Nova's validator, after every corpus scenario so no corpus document's minted identities
   move. §6.1 adds no producer document in pull request 3, and the corpus side of the same shapes is
   `targeted-query-repeat-placements` (§4.2). The rest of G2 reads corpus documents: `query` (model
   iteration at the root), `init-add` (a nested count placement shrinking within its outer row).
-  `README.md`'s "Every admitted document a producer emits is a corpus document too" gains these two
+  `README.md`'s "Every admitted document a producer emits is a corpus document too" gains these
   as exceptions when the README rows land.
 - **The count scenarios run in the `expression` family, on the local form only** (pull request 3):
   `RepeatCountRuntimeTest` reads `expression/repeat-counts/counts.xml` from

@@ -163,6 +163,38 @@ describe("a query that reads an answer", () => {
 	}
 });
 
+/* Model iteration gives a new row the place `int(@current_index)`, and
+ * `@current_index` is `count(<rows>)`, which counts only the relevant rows
+ * (Core `XPathLazyNodeset.java::performEvaluation`): a row after one the
+ * condition hides would take the hidden row's record. */
+describe("a query repeat with a condition", () => {
+	it("needs the count placement, whatever the condition reads", () => {
+		const result = verdict([
+			queryRepeat(openCases, {
+				relevant: eq(
+					term({ kind: "repeat-row", repeat: REPEAT, attribute: "id" }),
+					literal("b"),
+				),
+			}),
+		]);
+		expect(result.needs).toEqual([{ kind: "row-condition" }]);
+		expect(result.placement).toBe("count");
+		expect(result.expresses("model-iteration")).toBe(false);
+	});
+
+	it("lists the condition after the query's own need", () => {
+		const result = verdict([
+			queryRepeat(term(formField(ANSWER)), {
+				relevant: eq(term(formField(ANSWER)), literal(1)),
+			}),
+		]);
+		expect(result.needs).toEqual([
+			{ kind: "query-reads-answers" },
+			{ kind: "row-condition" },
+		]);
+	});
+});
+
 describe("what surrounds the repeat", () => {
 	it("names the nearest enclosing repeat of any mode", () => {
 		const result = verdict([

@@ -47,8 +47,16 @@ mkdirSync(output, { recursive: true });
  * - `query-nested-gated`: a `sites` query under a group shown only once
  *   `show` is yes, and in each site a `plots` query reading that site's
  *   record (`p1 p2` for `s1`, `p3` for `s2`).
+ * - `query-hidden-row`: two repeats over `a b c` whose condition hides the
+ *   row for `b`. `held` holds model iteration, as a publish records it;
+ *   `counted` takes the placement Nova's rule gives a repeat with a
+ *   condition, the count placement.
  */
-const QUERY_REPEAT_SCENARIOS = ["query-follows", "query-nested-gated"] as const;
+const QUERY_REPEAT_SCENARIOS = [
+	"query-follows",
+	"query-nested-gated",
+	"query-hidden-row",
+] as const;
 type QueryRepeatScenario = (typeof QUERY_REPEAT_SCENARIOS)[number];
 
 const text = (id: string, extra: Partial<FieldSpec> = {}) =>
@@ -64,6 +72,39 @@ const queryRepeat = (id: string, idsQuery: string, children: FieldSpec[]) =>
 	});
 
 function queryRepeatDoc(scenario: QueryRepeatScenario): BlueprintDoc {
+	if (scenario === "query-hidden-row") {
+		const hiding = (id: string, extra: Partial<FieldSpec> = {}) =>
+			f({
+				kind: "repeat",
+				id,
+				label: proseText(id),
+				repeat_mode: "query_bound",
+				data_source: { ids_query: "'a b c'" },
+				relevant: "position() != 1",
+				...extra,
+				children: [
+					f({ kind: "hidden", id: "record", calculate: "current()/../@id" }),
+				],
+			} as FieldSpec);
+		return buildDoc({
+			appName: "Containers query-hidden-row",
+			modules: [
+				{
+					name: "M",
+					forms: [
+						{
+							name: "F",
+							type: "survey",
+							fields: [
+								hiding("held", { placement: "model-iteration" }),
+								hiding("counted"),
+							],
+						},
+					],
+				},
+			],
+		});
+	}
 	if (scenario === "query-follows") {
 		const nameWriter = (caseType: string) =>
 			text("case_name", { caseWrite: { caseType, property: "case_name" } });
@@ -176,6 +217,15 @@ function queryRepeatDoc(scenario: QueryRepeatScenario): BlueprintDoc {
 const COUNT_PLACED: Record<QueryRepeatScenario, readonly string[]> = {
 	"query-follows": ["/data/members"],
 	"query-nested-gated": ["/data/page/sites", "/data/page/sites/item/plots"],
+	"query-hidden-row": ["/data/counted"],
+};
+
+/** The query repeats a scenario holds in model iteration: the setvalue that
+ * gives each row its place from `@current_index`. */
+const MODEL_ITERATED: Record<QueryRepeatScenario, readonly string[]> = {
+	"query-follows": [],
+	"query-nested-gated": [],
+	"query-hidden-row": ["/data/held"],
 };
 
 function admitted(scenario: string, doc: BlueprintDoc): BlueprintDoc {
@@ -250,4 +300,9 @@ for (const scenario of QUERY_REPEAT_SCENARIOS) {
 					`The ${scenario} form holds no bind for ${nodeset}, so Nova did not place ${wrapper} by count and the Core run would read another shape.`,
 				);
 	}
+	for (const wrapper of MODEL_ITERATED[scenario])
+		if (!form.includes(`ref="${wrapper}/item/@index"`))
+			throw new Error(
+				`The ${scenario} form sets no ${wrapper}/item/@index, so Nova did not write ${wrapper} in model iteration and the Core run would read another shape.`,
+			);
 }

@@ -20,6 +20,7 @@ import type {
 	FieldExpressionSlotRef,
 	FormNodeRef,
 } from "@/lib/domain/expression/types";
+import { walkExpressionTerms } from "@/lib/domain/expression/walk";
 import { expressionAt } from "@/lib/domain/expressionSource";
 import { effectiveQueryRepeatPlacement } from "@/lib/domain/queryRepeatPlacement";
 import { expressionSlotValues } from "@/lib/domain/referenceSlots";
@@ -97,7 +98,60 @@ export type RepeatCountResolver = (repeatPath: string) => number;
 export interface ExpressionEvaluationPaths {
 	readonly values: readonly string[];
 	readonly required: readonly string[];
+	/** Paths whose wording, choices and validation run without their
+	 * calculation or condition: Core evaluates those when it shows a question
+	 * (`FormEntryPrompt`, `ItemsetBinding`, `FormDef.evaluateConstraint`),
+	 * never as triggerables, so they read the current instance in every row. */
+	readonly presentation?: readonly string[];
 }
+
+/** One change Core cascades from (`FormDef.java::triggerTriggerables`): every
+ * triggerable the change reaches runs at the instances its own context names
+ * once narrowed to the change (`FormDef.java::evaluateTriggerable`,
+ * `Triggerable.java::narrowContextBy`). */
+export interface CascadeChange {
+	/** The concrete path that changed: an answer, or the place of a removed
+	 * repeat row. A new row runs through the initialization program
+	 * (`getAffectedInitialization`, `getRootedInitialization`). */
+	readonly anchor: string;
+}
+
+interface AnchorStep {
+	readonly name: string;
+	readonly index: number | undefined;
+}
+
+/** A concrete path's steps with each repeat index, `/data/r[2]/x` →
+ * `data`, `r` at 2, `x`. */
+function anchorSteps(path: string): readonly AnchorStep[] {
+	const steps: AnchorStep[] = [];
+	for (const segment of path.split("/")) {
+		if (!segment) continue;
+		const open = segment.indexOf("[");
+		steps.push(
+			open < 0
+				? { name: segment, index: undefined }
+				: {
+						name: segment.slice(0, open),
+						index: Number(segment.slice(open + 1, -1)),
+					},
+		);
+	}
+	return steps;
+}
+
+/** The number of leading steps two index-free paths share. */
+function sharedSteps(left: string, right: string): number {
+	const a = left.split("/").filter(Boolean);
+	const b = right.split("/").filter(Boolean);
+	let shared = 0;
+	while (shared < a.length && shared < b.length && a[shared] === b[shared])
+		shared += 1;
+	return shared;
+}
+
+/** The on-demand expression kinds (`ExpressionEvaluationPaths.presentation`). */
+const ON_DEMAND = new Set<ExpressionType>(["output", "choices", "validation"]);
 
 /** uuid → generic index-free path over a field tree. */
 function collectFieldPaths(
@@ -159,6 +213,20 @@ export class TriggerDag {
 	 *  `registerExpressions` during a runtime build and added to the graph
 	 *  only where they close no loop (`addSettleFreeEdges`). */
 	private settleFreeEdges: Array<[dependency: string, dependent: string]> = [];
+	/** Query repeats, whose condition belongs to each row: a cascade
+	 * narrowed to one row evaluates that row's condition alone. */
+	private queryRepeatPaths = new Set<string>();
+	/** The nodes the engine writes for a query repeat's result
+	 * (`registerQueryWrapper`), each with what it follows. They hold no
+	 * expression, so an initialization reaches past them by these. */
+	private derivedNodes = new Map<string, readonly string[]>();
+	/** Per node, the level from which Core stops narrowing it to a change
+	 * (`Triggerable.stopContextualizingAt`): the first level, shared with the
+	 * node's own path, of a step one of its reads filters
+	 * (`Triggerable.java::widenContextToAndClearPredicates`), lowered to a
+	 * dominating node's (`updateStopContextualizingAtFromDominator`). Level 0
+	 * is `data`. */
+	private narrowStops = new Map<string, number>();
 	private initializationDependencies = new Map<
 		string,
 		{ type: "calculate" | "relevant"; dependencies: readonly string[] }[]
@@ -177,6 +245,9 @@ export class TriggerDag {
 		this.nodes.clear();
 		this.dependedOnBy.clear();
 		this.repeatPaths.clear();
+		this.queryRepeatPaths.clear();
+		this.derivedNodes.clear();
+		this.narrowStops.clear();
 		this.settleFreeEdges = [];
 		this.fieldPaths = collectFieldPaths(tree, prefix);
 		this.collectExpressions(tree, prefix);
@@ -189,6 +260,7 @@ export class TriggerDag {
 		this.detectAndBreakCycles();
 		this.addSettleFreeEdges();
 		this.sortedPaths = this.topologicalSort();
+		this.propagateNarrowStops();
 		this.initializationDependencies.clear();
 		for (const [path, node] of this.nodes) {
 			const expressions = node.expressions.flatMap(({ type, dependencies }) =>
@@ -216,34 +288,336 @@ export class TriggerDag {
 	/** Initialization actions trigger only the dependent calculations and
 	 * relevance bindings. A label or required rule must not trigger an unrelated
 	 * calculation attached to the same question. A relevance change also changes
-	 * reads of its descendants, matching the ordinary cascade topology. */
+	 * reads of its descendants, matching the ordinary cascade topology.
+	 *
+	 * Each changed path is the anchor of its own cascade, as a setvalue's
+	 * target is (`FormDef.java::setValue` → `triggerTriggerables`), and a new
+	 * row's path is the anchor of what the row's making triggers
+	 * (`createNewRepeat`), so a calculation in a row runs only in the row the
+	 * change names, or in every row where the change names none. */
 	getAffectedInitialization(
 		changedPaths: readonly string[],
 		repeatCount: RepeatCountResolver,
 	): InitializationExpression[] {
-		const changed = new Set(changedPaths.map(stripIndices));
+		const changes = changedPaths.map((anchor) => ({
+			steps: anchorSteps(anchor),
+			reached: this.initializationReach(stripIndices(anchor)),
+		}));
 		const result: InitializationExpression[] = [];
+		const seen = new Set<string>();
 		for (const path of this.sortedPaths) {
-			for (const { type, dependencies } of this.initializationDependencies.get(
-				path,
-			) ?? []) {
-				if (!dependencies.some((dependency) => changed.has(dependency)))
-					continue;
-				result.push(
-					...this.materialize(path, repeatCount).map((concrete) => ({
-						path: concrete,
-						type,
-					})),
-				);
-				changed.add(path);
-				if (type === "relevant") {
-					for (const descendant of this.fieldPaths.values()) {
-						if (descendant.startsWith(`${path}/`)) changed.add(descendant);
+			for (const { type } of this.initializationDependencies.get(path) ?? []) {
+				for (const change of changes) {
+					if (!change.reached.get(path)?.has(type)) continue;
+					for (const concrete of this.narrowed(
+						path,
+						repeatCount,
+						change.steps,
+					)) {
+						const key = `${concrete}\u0000${type}`;
+						if (seen.has(key)) continue;
+						seen.add(key);
+						result.push({ path: concrete, type });
 					}
 				}
 			}
 		}
 		return result;
+	}
+
+	/** What a new row roots (`FormDef.java::createNewRepeat` →
+	 * `initTriggerablesRootedBy`): every calculation and condition whose node
+	 * is the row or inside it, and what they reach, in evaluation order, each
+	 * narrowed to the row. */
+	getRootedInitialization(
+		rowPath: string,
+		repeatCount: RepeatCountResolver,
+	): InitializationExpression[] {
+		const root = stripIndices(rowPath);
+		const reached = this.initializationReach(root, [root]);
+		const steps = anchorSteps(rowPath);
+		const result: InitializationExpression[] = [];
+		for (const path of this.sortedPaths)
+			for (const { type } of this.initializationDependencies.get(path) ?? [])
+				if (reached.get(path)?.has(type))
+					for (const concrete of this.narrowed(path, repeatCount, steps))
+						result.push({ path: concrete, type });
+		return result;
+	}
+
+	/** The calculations and conditions a changed index-free path reaches (and,
+	 * for a new row, what the roots hold), by node: every node one of whose
+	 * calculation or condition reads a changed path, until nothing more is
+	 * reached. A condition changes what its descendants read, and so does a
+	 * query repeat's count, which decides which of its rows are relevant. */
+	private initializationReach(
+		changedPath: string,
+		roots: readonly string[] = [],
+	): Map<string, Set<"calculate" | "relevant">> {
+		const changed = new Set([changedPath]);
+		const rooted = (path: string) =>
+			roots.some((root) => path === root || path.startsWith(`${root}/`));
+		if (roots.length > 0)
+			for (const path of [...this.fieldPaths.values(), ...this.nodes.keys()])
+				if (rooted(path)) changed.add(path);
+		const descendantsChanged = (path: string): void => {
+			for (const descendant of this.fieldPaths.values())
+				if (descendant.startsWith(`${path}/`)) changed.add(descendant);
+			for (const attribute of this.rowAttributes(path)) changed.add(attribute);
+		};
+		const reached = new Map<string, Set<"calculate" | "relevant">>();
+		for (let progress = true; progress; ) {
+			progress = false;
+			for (const path of this.sortedPaths) {
+				if (
+					!changed.has(path) &&
+					this.derivedNodes.get(path)?.some((source) => changed.has(source))
+				) {
+					changed.add(path);
+					if (this.queryRepeatPaths.has(path)) descendantsChanged(path);
+					progress = true;
+				}
+				for (const {
+					type,
+					dependencies,
+				} of this.initializationDependencies.get(path) ?? []) {
+					if (reached.get(path)?.has(type)) continue;
+					if (
+						!rooted(path) &&
+						!dependencies.some((dependency) => changed.has(dependency))
+					)
+						continue;
+					const types = reached.get(path) ?? new Set();
+					types.add(type);
+					reached.set(path, types);
+					changed.add(path);
+					if (type === "relevant") descendantsChanged(path);
+					progress = true;
+				}
+			}
+		}
+		return reached;
+	}
+
+	/**
+	 * The work Core runs for each change, in evaluation order: everything the
+	 * change triggers, each node at the instances its context names once
+	 * narrowed to the change's anchor (`FormDef.java::evaluateTriggerables`
+	 * evaluates the whole cascade against the one anchor,
+	 * `evaluateTriggerable` → `Triggerable.java::narrowContextBy`). A node in
+	 * the changed row runs in that row alone, even where it reads the change
+	 * through a total outside the repeat; a node in a repeat the anchor is
+	 * outside of runs in every row. Wording, choices and
+	 * validation the cascade reaches run in every row
+	 * (`ExpressionEvaluationPaths.presentation`).
+	 */
+	getCascadeWork(
+		changes: readonly CascadeChange[],
+		repeatCount: RepeatCountResolver,
+	): ExpressionEvaluationPaths {
+		const cascades = changes.map(({ anchor }) => {
+			const generic = stripIndices(anchor);
+			const visited = new Set<string>();
+			const queue = [generic];
+			// A question's wording can display its own answer without making a
+			// calculation cycle; it refreshes when that answer changes.
+			if (
+				this.nodes
+					.get(generic)
+					?.expressions.some(({ type }) => type === "output")
+			)
+				visited.add(generic);
+			for (let next = queue.shift(); next !== undefined; next = queue.shift())
+				for (const dependent of [
+					...(this.dependedOnBy.get(next) ?? []),
+					...this.rowAttributes(next),
+				])
+					if (!visited.has(dependent)) {
+						visited.add(dependent);
+						queue.push(dependent);
+					}
+			// Required changes metadata, not an answer or its relevance. Core's
+			// Condition.canCascade excludes ACTION_REQUIRE, so these dependents
+			// refresh after the value cascade without becoming new seeds.
+			const changed = new Set([generic, ...visited]);
+			const required = new Set<string>();
+			for (const [path, node] of this.nodes)
+				if (
+					node.expressions.some(
+						({ type, dependencies }) =>
+							type === "required" &&
+							dependencies?.some((dependency) => changed.has(dependency)),
+					)
+				)
+					required.add(path);
+			return { steps: anchorSteps(anchor), visited, required };
+		});
+		const values = new Set<string>();
+		const required = new Set<string>();
+		const presentation = new Set<string>();
+		for (const generic of this.sortedPaths) {
+			const onDemand = this.nodes
+				.get(generic)
+				?.expressions.some(({ type }) => ON_DEMAND.has(type));
+			for (const cascade of cascades) {
+				if (cascade.visited.has(generic)) {
+					for (const concrete of this.narrowed(
+						generic,
+						repeatCount,
+						cascade.steps,
+					))
+						values.add(concrete);
+					if (onDemand)
+						for (const concrete of this.materialize(generic, repeatCount))
+							presentation.add(concrete);
+				}
+				if (cascade.required.has(generic))
+					for (const concrete of this.narrowed(
+						generic,
+						repeatCount,
+						cascade.steps,
+					))
+						required.add(concrete);
+			}
+		}
+		for (const path of values) presentation.delete(path);
+		return {
+			values: [...values],
+			required: [...required],
+			presentation: [...presentation],
+		};
+	}
+
+	/** A query repeat's row attributes, which a change to its rows' relevance
+	 * reaches as it reaches the rows' children
+	 * (`FormDef.java::addChildrenOfElement` cascades to attributes too). They
+	 * are no edges: a condition that reads them would close a loop, which the
+	 * validator refuses (`reportCycles`) and the runtime graph would break. */
+	private rowAttributes(path: string): readonly string[] {
+		return this.queryRepeatPaths.has(path)
+			? [`${path}/@id`, `${path}/@index`]
+			: [];
+	}
+
+	/** What a screen shows of every node, with no calculation or condition run:
+	 * each required condition, and each node's wording, choices and
+	 * validation. The pass after an initialization program, which has already
+	 * run every calculation and condition as Core runs them. */
+	getPresentationWork(
+		repeatCount: RepeatCountResolver,
+	): ExpressionEvaluationPaths {
+		const required: string[] = [];
+		const presentation: string[] = [];
+		for (const generic of this.sortedPaths) {
+			const expressions = this.nodes.get(generic)?.expressions ?? [];
+			const concretes = this.materialize(generic, repeatCount);
+			if (expressions.some(({ type }) => type === "required"))
+				required.push(...concretes);
+			if (expressions.some(({ type }) => ON_DEMAND.has(type)))
+				presentation.push(...concretes);
+		}
+		return { values: [], required, presentation };
+	}
+
+	/** A node's concrete instances once narrowed to an anchor
+	 * (`Triggerable.java::narrowContextBy`): from the root, while the node's
+	 * steps keep the anchor's names, a repeat step takes the anchor's index
+	 * (`TreeReference.java::contextualize`), up to the node's stop level
+	 * (`genericizeAfter`); every repeat step after that expands over all its
+	 * rows. A query repeat's condition belongs to each row, so where the
+	 * anchor names one of its rows the repeat's own node narrows to that row's
+	 * path. */
+	private narrowed(
+		generic: string,
+		repeatCount: RepeatCountResolver,
+		anchor: readonly AnchorStep[],
+	): string[] {
+		const stop = this.narrowStops.get(generic);
+		let concretes = [""];
+		let genericSoFar = "";
+		let level = 0;
+		let following = true;
+		for (const segment of generic.split("/")) {
+			if (!segment) continue;
+			genericSoFar += `/${segment}`;
+			const step = anchor[level];
+			following = following && step?.name === segment;
+			const fixed =
+				following && (stop === undefined || level < stop)
+					? step?.index
+					: undefined;
+			const own = genericSoFar === generic;
+			const expandsHere =
+				this.repeatPaths.has(genericSoFar) &&
+				(!own || (fixed !== undefined && this.queryRepeatPaths.has(generic)));
+			const next: string[] = [];
+			for (const base of concretes) {
+				const path = `${base}/${segment}`;
+				if (!expandsHere) next.push(path);
+				else if (fixed !== undefined) {
+					if (fixed < repeatCount(path)) next.push(`${path}[${fixed}]`);
+				} else {
+					const count = repeatCount(path);
+					for (let i = 0; i < count; i++) next.push(`${path}[${i}]`);
+				}
+			}
+			concretes = next;
+			level += 1;
+		}
+		return concretes;
+	}
+
+	/** Lower each node's stop level to a dominating node's where they share
+	 * at least that many steps (`Triggerable.java::
+	 * updateStopContextualizingAtFromDominator`), which Core applies over every
+	 * ordering edge until the order settles (`FormDef.java::buildRootNodes`). */
+	private propagateNarrowStops(): void {
+		for (let pass = 0; pass <= this.sortedPaths.length; pass++) {
+			let changed = false;
+			for (const [dominator, stop] of [...this.narrowStops]) {
+				for (const dependent of this.dependedOnBy.get(dominator) ?? []) {
+					const current = this.narrowStops.get(dependent);
+					if (
+						(current === undefined || stop < current) &&
+						sharedSteps(dominator, dependent) >= stop
+					) {
+						this.narrowStops.set(dependent, stop);
+						changed = true;
+					}
+				}
+			}
+			if (!changed) return;
+		}
+	}
+
+	/** Lower a node's stop level to the first level of each filtered step one
+	 * of its reads takes through the node's own path
+	 * (`Triggerable.java::widenContextToAndClearPredicates`,
+	 * `smallestIntersectingLevelWithPred`). */
+	private recordFilteredReads(path: string, expression: Expression): void {
+		const runtime = this.runtime;
+		if (runtime === undefined) return;
+		walkExpressionTerms(expression, (term) => {
+			if (
+				(term.kind !== "field" &&
+					term.kind !== "form-node" &&
+					term.kind !== "repeat-row") ||
+				term.filters === undefined
+			)
+				return;
+			for (const filter of term.filters) {
+				const stepPath = runtime.readPath(filter.step);
+				if (
+					stepPath === undefined ||
+					(path !== stepPath && !path.startsWith(`${stepPath}/`))
+				)
+					continue;
+				const level = stepPath.split("/").filter(Boolean).length - 1;
+				const current = this.narrowStops.get(path);
+				if (current === undefined || level < current)
+					this.narrowStops.set(path, level);
+			}
+		});
 	}
 
 	/** Record that `dependent` re-evaluates when `dependency` changes. A
@@ -477,10 +851,38 @@ export class TriggerDag {
 				// Repeat children register index-free — `materialize` expands
 				// them over live instances at query time.
 				this.repeatPaths.add(path);
+				if (f.repeat_mode === "query_bound") this.registerQueryWrapper(path);
 				if (node.children) this.collectExpressions(node.children, path);
 			} else {
 				this.registerExpressions(path, f);
 			}
+		}
+	}
+
+	/** A query repeat's result, as the engine writes it on the wrapper and
+	 * the rows (`FormEngine.materializeQueryResult`): the ids give the count
+	 * and each row's id, the count gives each row's relevance in the count
+	 * placement (its guard), and the rows give the wrapper's
+	 * `@current_index`, which counts the relevant ones. The nodes hold no
+	 * expression of their own; a read of any of them is an edge from it. */
+	private registerQueryWrapper(path: string): void {
+		this.queryRepeatPaths.add(path);
+		const ids = `${path}/@ids`;
+		const count = `${path}/@count`;
+		const position = `${path}/@current_index`;
+		const rowId = `${path}/@id`;
+		for (const node of [path, ids, count, position, rowId])
+			if (!this.nodes.has(node))
+				this.nodes.set(node, { path: node, expressions: [] });
+		const follows: ReadonlyArray<readonly [string, readonly string[]]> = [
+			[count, [ids]],
+			[rowId, [ids, count]],
+			[path, [count]],
+			[position, [path]],
+		];
+		for (const [node, sources] of follows) {
+			this.derivedNodes.set(node, sources);
+			for (const source of sources) this.addEdge(source, node);
 		}
 	}
 
@@ -497,7 +899,12 @@ export class TriggerDag {
 			const ref = { entity: "field", uuid: field.uuid, slot } as const;
 			const expression = expressionAt(runtime.doc, ref);
 			if (expression === undefined) return;
-			const dependencies = formReadPaths(expression, runtime.projection);
+			const dependencies = formReadPaths(
+				expression,
+				runtime.projection,
+				runtime.readPath,
+			);
+			if (edge === "trigger") this.recordFilteredReads(path, expression);
 			expressions.push({
 				type,
 				expr: runtime.lower(expression, ref),
@@ -545,6 +952,7 @@ export class TriggerDag {
 				for (const dependency of formReadPaths(
 					field.optionsSource.filter,
 					runtime.projection,
+					runtime.readPath,
 				))
 					this.addEdge(dependency, path);
 		}
@@ -603,9 +1011,16 @@ export class TriggerDag {
 				field.kind === "group" || field.kind === "repeat"
 					? field.kind
 					: undefined;
+			// A query repeat's row is relevant only within its result in the
+			// count placement (the guard on `item`), so its rows' relevance can
+			// change with no authored condition.
 			const hasRelevant =
-				this.nodes.get(path)?.expressions.some((e) => e.type === "relevant") ??
-				false;
+				(this.nodes.get(path)?.expressions.some((e) => e.type === "relevant") ??
+					false) ||
+				(this.queryRepeatPaths.has(path) &&
+					this.runtime !== undefined &&
+					field.kind === "repeat" &&
+					this.countPlaced(field.uuid));
 			if (containerKind !== undefined && hasRelevant) {
 				const descendants: string[] = [];
 				descendantPaths(node.children, path, descendants);
@@ -624,6 +1039,18 @@ export class TriggerDag {
 				cascadeEdges,
 			);
 		}
+	}
+
+	/** Whether a query repeat takes the count placement in the runtime's
+	 * form. */
+	private countPlaced(uuid: Uuid): boolean {
+		const runtime = this.runtime;
+		if (runtime === undefined) return false;
+		const form = formStructure(runtime.doc, runtime.formUuid);
+		return (
+			form !== undefined &&
+			effectiveQueryRepeatPlacement(form, uuid) === "count"
+		);
 	}
 
 	/** Collect the finite native trigger graph directly from stored identities.
@@ -1009,7 +1436,11 @@ export class TriggerDag {
 			if (!inDegree.has(path)) inDegree.set(path, 0);
 		}
 
-		for (const [, dependents] of this.dependedOnBy) {
+		// An edge from a path with no expression (an answer) orders nothing:
+		// that path is never dequeued, so counting it would leave its
+		// dependents out of the order.
+		for (const [source, dependents] of this.dependedOnBy) {
+			if (!this.nodes.has(source)) continue;
 			for (const dep of dependents) {
 				if (this.nodes.has(dep)) {
 					inDegree.set(dep, (inDegree.get(dep) ?? 0) + 1);

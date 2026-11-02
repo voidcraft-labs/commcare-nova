@@ -46,6 +46,9 @@ function fixture() {
 								id: "outer",
 								uuid: OUTER,
 								repeat_mode: "query_bound",
+								// A condition gives the count placement unless a publish
+								// holds model iteration, whose attributes these reads name.
+								placement: "model-iteration",
 								relevant: truth,
 								data_source: {
 									ids_query: {

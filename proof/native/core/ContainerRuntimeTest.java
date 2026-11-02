@@ -521,6 +521,30 @@ public class ContainerRuntimeTest {
   }
  }
 
+ /** `container-query-hidden-row`: two repeats over `a b c` whose condition `position() != 1` hides the second row.
+  * `held` holds model iteration: a new row takes `@index` from `int(@current_index)` at `jr-insert`
+  * (`FormDef.createNewRepeat` fires `jr-insert` before any calculate), and `@current_index` is
+  * `count(/data/held/item)`, which reads only the relevant rows (`XPathLazyNodeset.performEvaluation`). The hidden
+  * second row leaves it at one, so the third row takes index 1 and the second row's record `b`, and `c` is in no
+  * row. `counted` takes the placement Nova's rule gives a repeat with a condition, the count placement, whose rows
+  * store their place from `position(..)` while the new row is relevant, so each keeps its own record. Catches a rule
+  * that writes a repeat with a condition in model iteration. */
+ @Test public void aHiddenRowShiftsModelIterationsLaterRowsButNotTheCountPlacements()throws Exception {
+  for(boolean source:new boolean[]{false,true}){
+   FormParseInit parsed=load("query-hidden-row",source);FormDef form=parsed.getFormDef();enter(parsed,false);
+   String held="/data/held/item",counted="/data/counted/item";
+   assertEquals(3,held(form,held).size());
+   assertFalse(relevant(form,held+"[2]"));
+   assertEquals("a b b",stored(form,held+"[1]/@id")+" "+stored(form,held+"[2]/@id")+" "+stored(form,held+"[3]/@id"));
+   assertEquals("0 1 1",stored(form,held+"[1]/@index")+" "+stored(form,held+"[2]/@index")+" "+stored(form,held+"[3]/@index"));
+   assertEquals("a b",eval(form,"join(' ', "+held+"/record)"));
+   assertEquals(3,held(form,counted).size());
+   assertFalse(relevant(form,counted+"[2]"));
+   assertEquals("0 1 2",stored(form,counted+"[1]/nova_query_index_counted")+" "+stored(form,counted+"[2]/nova_query_index_counted")+" "+stored(form,counted+"[3]/nova_query_index_counted"));
+   assertEquals("a c",eval(form,"join(' ', "+counted+"/record)"));
+  }
+ }
+
  /** `container-query-nested-gated`: a count-placement `sites` query under a group shown only once `show` is yes,
   * and in each site a count-placement `plots` query reading that site's record. Nothing is made while the group
   * is not relevant; once it is, each site's rows are made with the ids of its own query, read on their first
