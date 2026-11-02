@@ -2294,7 +2294,13 @@ a step clicks what a worker clicks, or reads what the page shows.
   screen it stood on and what the run was doing (`at`: the position of the
   choice it was making, or `form`), which is a stop the walk-stops list
   holds ("Walk stops"). It holds no id Formplayer drew, no time and no path,
-  so the same inputs give the same bytes; `test_observe.py` holds two
+  so the same inputs give the same bytes: an id Formplayer drew that the
+  client names in its route (the one a multi-select list's chosen cases are
+  kept under, and a case the submitted form made, where the form's link
+  leads on to it) is written as its mark (`observe.py::_drawn_selections`),
+  since Core's random source draws a case's id at a request's place among
+  every request Formplayer answered since its last walk, which the earlier
+  runs' requests decide; `test_observe.py` holds two
   observations alike, and they hold alike with Chromium's processor slowed
   eightfold.
 

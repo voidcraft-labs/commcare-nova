@@ -166,6 +166,49 @@ def test_a_raw_walk_replays_generated_selections_without_wildcarding_authored_ca
     assert ["0", expected, "0"] in arrivals
 
 
+def test_a_case_a_submitted_form_made_is_written_as_its_mark_where_the_forms_link_leads_on_to_it():
+    """A form's link to the case it made: Formplayer's answer to the submission names the case's id in its next
+    screen's selections, where the client takes its route from. Core's random source drew that id at a place
+    among Formplayer's requests that the runs before this one decide, so the record holds its mark; the menu
+    index beside it, which the client never sent either, and the case id the client did send, stay as they are."""
+    from proof.webapps.session import FormplayerExchange, Run
+
+    made = "2e0c3097-c5c3-4821-9639-8c71e1b3cd13"
+    chosen = "30ad2fd3-9c4d-4cad-b51f-175c3590006f"
+
+    def exchange(path, sent, answered):
+        return FormplayerExchange(
+            method="POST",
+            path=path,
+            body=json.dumps(sent).encode(),
+            status=200,
+            response=json.dumps(answered).encode(),
+            asked=(),
+        )
+
+    run = Run(
+        outcomes=[],
+        page_errors=[],
+        console_errors=[],
+        dialogs=[],
+        hq=[],
+        formplayer=[
+            exchange("/navigate_menu", {"selections": ["1", chosen]}, {"selections": ["1", chosen]}),
+            exchange("/navigate_menu", {"selections": ["1", chosen, "0"]}, {"selections": ["1", chosen, "0"]}),
+            exchange(
+                "/submit-all", {"answers": {}}, {"status": "success", "nextScreen": {"selections": ["2", made, "0"]}}
+            ),
+        ],
+    )
+    drawn = observe._drawn_selections(run)
+    assert drawn == {made: observe.SELECTION.format(1)}
+    route = {"selections": ["2", made, "0"], "before": ["1", chosen, "0"]}
+    assert observe._marked(route, drawn) == {
+        "selections": ["2", observe.SELECTION.format(1), "0"],
+        "before": ["1", chosen, "0"],
+    }
+
+
 def test_a_language_is_chosen_from_the_menu_and_a_later_page_is_turned_to_on_a_phone():
     """A language choice opens the menu over the app's screens and clicks that language; on a phone a case past
     the fifth of its list is reached by its page's button, and on a desktop by its row alone."""

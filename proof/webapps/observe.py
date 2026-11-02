@@ -655,16 +655,24 @@ def replay(
     return made, kinds
 
 
-# What a record writes for the id Formplayer draws for a multi-select list's chosen cases, which the client then
-# names in its route in place of the cases (Formplayer keeps the cases under that id).
+# What a record writes for an id Formplayer drew that the client then names in its route: the id a multi-select
+# list's chosen cases are kept under (the client names it in place of the cases), or the id of a case the form
+# just submitted made, where the form's link leads on to that case.
 SELECTION = "<selection {}>"
 
 
 def _drawn_selections(run) -> dict[str, str]:
     """Each id Formplayer drew in ``run`` that the client then names in its route, by the mark a record writes
-    for it: a selection that first appears in one of Formplayer's answers, before the client ever sent it (the
-    id ``MultiSelectEntityScreen`` stores a multi-select list's chosen cases under, where the client sent
-    ``use_selected_values``)."""
+    for it: a selection shaped as a drawn id (``proof.formplayer.canonical.is_generated_shape``) that first
+    appears in one of Formplayer's answers, before the client ever sent it. Two answers name such ids: a list's
+    where the client sent ``use_selected_values`` (the id ``MultiSelectEntityScreen`` stores a multi-select
+    list's chosen cases under, from ``UUID.randomUUID``), and a submission's next screen (``SubmitResponseBean``'s
+    ``nextScreen``), where a form's link leads on to a case the form made, whose id the app's ``uuid()`` drew
+    from Core's random source. That source is seeded by a request's place among every request this Formplayer
+    answered since its last walk, so a later run's id moves with how many requests the runs before it made, and
+    only its mark is the same on every run. A menu's index in the same selections is no id, and stays as it is."""
+    from proof.formplayer.canonical import is_generated_shape
+
     drawn: dict[str, str] = {}
     sent_so_far: set[str] = set()
     for exchange in run.formplayer:
@@ -677,9 +685,13 @@ def _drawn_selections(run) -> dict[str, str]:
         sent_so_far.update(str(value) for value in sent.get("selections") or [])
         if not isinstance(answered, dict):
             continue
-        for value in answered.get("selections") or []:
-            if str(value) not in sent_so_far:
-                drawn.setdefault(str(value), SELECTION.format(len(drawn) + 1))
+        screens = (answered, answered.get("nextScreen"))
+        for screen in screens:
+            if not isinstance(screen, dict):
+                continue
+            for value in screen.get("selections") or []:
+                if str(value) not in sent_so_far and is_generated_shape(str(value)):
+                    drawn.setdefault(str(value), SELECTION.format(len(drawn) + 1))
     return drawn
 
 
