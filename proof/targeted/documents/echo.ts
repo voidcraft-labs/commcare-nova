@@ -18,6 +18,8 @@ import type { Expectation } from "../expected";
 export interface HeldSession {
 	readonly command: string;
 	readonly caseId: string;
+	/** Further session values the form reads, beside its case. */
+	readonly data?: Readonly<Record<string, string>>;
 }
 
 export function answerHeld(
@@ -36,7 +38,7 @@ export function answerHeld(
 			...(session !== undefined && {
 				session: {
 					command: session.command,
-					data: { case_id: session.caseId },
+					data: { case_id: session.caseId, ...session.data },
 				},
 			}),
 			answers: [{ path, value }],

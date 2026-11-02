@@ -252,7 +252,7 @@ export async function documentInputs(
 	root: string,
 	id: string,
 	configurations: readonly string[],
-	options: { readonly retainedA?: boolean } = {},
+	options: { readonly migrationWitness?: boolean } = {},
 ): Promise<DocumentInputs> {
 	const edited = existsSync(join(root, "edit", "batch.json"));
 	const privileges: Record<string, InputFile> = {
@@ -280,7 +280,9 @@ export async function documentInputs(
 			a: {
 				...shared,
 				...(await firstPublish(root, exported)),
-				...(options.retainedA === true && {
+				// A witness's A is its first publish or the retained one copied over it,
+				// and the overlay keys each import wrote are part of it.
+				...(options.migrationWitness === true && {
 					"create.ownership": await file(
 						root,
 						`${exported}/create.ownership.json`,
@@ -345,7 +347,7 @@ export async function writeDocumentInputs(
 	root: string,
 	id: string,
 	configurations: readonly string[],
-	options: { readonly retainedA?: boolean } = {},
+	options: { readonly migrationWitness?: boolean } = {},
 ): Promise<string> {
 	const text = jsonText(
 		await documentInputs(root, id, configurations, options),

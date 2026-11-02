@@ -531,11 +531,10 @@ export async function writeEntry(
 	}
 	/* A migration witness with its A retained republishes over that A, under
 	 * the configurations it was published to. */
-	const retained =
+	const witness =
 		document.source.kind === "targeted" &&
-		document.source.migrationWitness === true
-			? await retainedMigrationA(document.id)
-			: undefined;
+		document.source.migrationWitness === true;
+	const retained = witness ? await retainedMigrationA(document.id) : undefined;
 	await writeJson(
 		join(root, "document.json"),
 		documentJson(document.id, document.source, publish, entry.doc),
@@ -687,7 +686,8 @@ export async function writeEntry(
 		);
 		/* The overlay keys each body of the first publish writes, which the
 		 * retained HQ reads copy beside HQ's answers to that publish
-		 * (`proof/hq/test_retained_reads.py`); no observation reads them. */
+		 * (`proof/hq/test_retained_reads.py`), and which a migration witness's
+		 * A is keyed on (`inputs.json`, `proof/observe/unit.py::input_files`). */
 		await writeJson(
 			join(directory, "content.ownership.json"),
 			content.ownership,
@@ -796,7 +796,7 @@ export async function writeEntry(
 		},
 		source: document.source,
 		inputs: await writeDocumentInputs(root, document.id, configurations, {
-			retainedA: retained !== undefined,
+			migrationWitness: witness,
 		}),
 		milliseconds: performance.now() - started,
 	};
