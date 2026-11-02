@@ -532,7 +532,8 @@ public class ContainerRuntimeTest {
   * rows (`XPathLazyNodeset.performEvaluation`), so the second row takes index 0 and the first row's record `a`, the
   * third index 1 and `b`, and `c` is in no row. `counted` takes the placement Nova's rule gives a repeat with a
   * condition, the count placement, whose rows store their place from `position(..)` as they are made, so each keeps
-  * its own record. Catches a rule that writes a repeat with a condition in model iteration. */
+  * its own record. Nova refuses `held`'s shape (`QUERY_REPEAT_MODEL_ITERATION_SHAPE`), and this run is why. Catches a
+  * rule that writes a repeat with a condition in model iteration. */
  @Test public void aRowMadeWhileAnEarlierOneIsHiddenTakesItsRecordInModelIterationButNotTheCountPlacement()throws Exception {
   for(boolean source:new boolean[]{false,true}){
    FormParseInit parsed=load("query-hidden-row",source);FormDef form=parsed.getFormDef();enter(parsed,false);
