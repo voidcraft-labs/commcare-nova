@@ -426,11 +426,14 @@ describe("HQ's reads after its own saves", () => {
 	 * changed, over `navigation-base` (one menu holding `Visit`, then
 	 * `Register`). The app needs no add-on, so its publish carries no
 	 * `add_ons` and owns none, and the Add-ons save, which stores every slug
-	 * as `false`, changes nothing it owns. */
+	 * as `false`, changes nothing it owns. Neither form holds a preload, and
+	 * the Case Management page saves an empty `case_preload` with condition
+	 * `always` over the `never` the publish holds, so a save of either form's
+	 * page changes it. */
 	const SAVES: readonly [string, readonly AppChangePart["kind"][]][] = [
 		["app-settings", []],
 		["ui-translations", []],
-		["case-management-visit", []],
+		["case-management-visit", ["form"]],
 		["case-management-register", ["form"]],
 		["add-ons", []],
 		["menu-settings", ["menu"]],

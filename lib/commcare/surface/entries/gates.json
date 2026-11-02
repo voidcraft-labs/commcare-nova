@@ -1839,7 +1839,12 @@
 			"kind": "precondition",
 			"cell": "flag probe; save-only-edited-answers"
 		},
-		"effects": [],
+		"effects": [
+			{
+				"artifact": "form:*",
+				"path": "/html/head[*]/model[*]/bind[@nodeset=/data/case/update/*]/@relevant"
+			}
+		],
 		"source": {
 			"kind": "row",
 			"table": "app-building-toggles",

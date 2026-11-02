@@ -156,8 +156,9 @@ export function buildFormLinksBlueprint(appId = "test-app"): BlueprintDoc {
 	if (visit === undefined) {
 		throw new Error("formLinksSeed: the Visit form did not build");
 	}
-	/* Attached in its stored shape, as `caseChangesSeed` does: the write is
-	 * what the link's condition reads back once the submission has landed. */
+	/* Attached in its stored shape, as `caseChangesSeed` does: the form's own
+	 * case saves the note, which the link's condition reads back once the
+	 * submission has landed. */
 	return {
 		...doc,
 		forms: {
@@ -167,10 +168,8 @@ export function buildFormLinksBlueprint(appId = "test-app"): BlueprintDoc {
 				caseOperations: [
 					{
 						uuid: FORM_LINKS_SEED.visit.operationUuid,
-						id: "store_note",
-						action: "update",
-						caseType: FORM_LINKS_SEED.caseType,
-						target: { kind: "session" },
+						id: "patient",
+						action: "own",
 						writes: [
 							{
 								property: FORM_LINKS_SEED.property,

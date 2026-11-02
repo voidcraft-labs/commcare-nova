@@ -81,7 +81,9 @@ const expectedOperations: Record<OperationScenario, string[]> = {
 	conditional: sequence,
 	repeat: sequence,
 	query: sequence,
-	retype: ["promote", "rename_promoted"],
+	// The close form's own close, under a text answer Case Management cannot
+	// state, takes a Save to Case block of its own after the retype.
+	retype: ["promote", "rename_promoted", "nova_close"],
 	"expression-retype": transitions,
 	key: ["create_visit"],
 	"key-query": ["create_visit"],
@@ -305,6 +307,17 @@ it.each(operationScenarios)(
 				expect(at("nova_guard_create_visit_text")).toBe(
 					`${base}/nova_condition_create_visit/nova_guard_create_visit_text`,
 				);
+			}
+			if (scenario === "retype") {
+				expect(at("nova_close")).toBe(
+					`${base}/nova_condition_close/nova_close`,
+				);
+				expect(
+					xpathEvidence(bind(`${base}/nova_condition_close`).relevant),
+				).toEqual(xpathEvidence("/data/enabled = 'yes'"));
+				expect(
+					children(caseBlock("nova_close")).map((element) => element.name),
+				).toEqual(["close"]);
 			}
 			if (expectedOperations[scenario] === transitions) {
 				expect(

@@ -3391,7 +3391,9 @@ test.describe("authenticated builder", () => {
 				await editor.press("ControlOrMeta+A");
 				await editor.press("Backspace");
 				await expect(editor).toHaveText("");
-				await page.keyboard.insertText("concat('Patient ', #form/case_name)");
+				// The label question's answer as it is, so Case Management keeps
+				// creating the case a search with no matches registers.
+				await page.keyboard.insertText("#form/patient_label");
 				const saved = page.waitForResponse(
 					(response) =>
 						response.request().method() === "PUT" &&

@@ -574,6 +574,21 @@ def test_effects_are_written_from_every_corpus_documents_flips_and_nothing_else(
     assert again.read_bytes() == written.read_bytes()
 
 
+def test_a_migration_witness_runs_no_sensitivity_and_is_no_gap_in_the_evidence(tmp_path, monkeypatch):
+    """A migration witness runs no sensitivity check (``cases.WITNESS_UNRUN``), so a whole run holds no evidence of
+    it; any other document the run lacks is still a gap."""
+    out = _whole_run(tmp_path, monkeypatch)
+    listed = [{"id": "one"}, {"id": "two"}, {"id": "a-witness", "source": "targeted-migration:22"}]
+    (out / "corpus" / "index.json").write_text(json.dumps({"documents": listed}))
+    written = tmp_path / "written.json"
+    assert sensitivity.main(["effects", *_blocks(out), "--gates", str(_gates(tmp_path)), "--out", str(written)]) == 0
+    listed.append({"id": "three", "source": "targeted:x"})
+    (out / "corpus" / "index.json").write_text(json.dumps({"documents": listed}))
+    refused = tmp_path / "refused.json"
+    assert sensitivity.main(["effects", *_blocks(out), "--gates", str(_gates(tmp_path)), "--out", str(refused)]) == 1
+    assert not refused.exists()
+
+
 @pytest.mark.parametrize("fault", ["a shard missing", "another corpus mixed in", "a shard passed twice"])
 def test_effects_are_not_written_from_evidence_that_is_not_one_whole_run(tmp_path, monkeypatch, capsys, fault):
     out = _whole_run(tmp_path, monkeypatch)

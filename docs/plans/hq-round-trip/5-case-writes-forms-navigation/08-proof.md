@@ -1703,6 +1703,40 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   that could tell the two apart, so the republish drops `update/case_type`, its bind and the
   `case_references_data.save` property. The close stays at its path; G6 writes the move proof 1
   shows.
+- **G6 at pull request 4 is outcome A, with one more class than §5.2 expects.** Proof 1 on pull request
+  4's lane (run 41434261422) showed, on `targeted-migration-case-writes`, Discharge's dropped row
+  (`app.json` `case_references_data/save/*/properties/*`, `form:1.1` `/case_updates/*/*` and
+  `/questions/*`, each written for defect 22) and, on both it and `targeted-migration-groups-preloads`, a
+  `case_references_data/load` entry each preload adds now that it is the question's default (`#case/last_note`,
+  `#case/weight`; written for defect 28). Each move is scoped to its witnesses.
+- **`toggle/SAVE_ONLY_EDITED_FORM_FIELDS`' effects are written at pull request 4** (§16 names no row for
+  it): `targeted-case-writes-one-concept` writes an `onlyIfChanged` row, and HQ reads the flag on every
+  form it builds (`xform.py::XForm.__init__`, `save_only_if_edited`) and drops the comparison from that
+  row's `relevant` when it is off (`XFormCaseBlock.add_case_updates`). The effect,
+  `form:*` `/html/head[*]/model[*]/bind[@nodeset=/data/case/update/*]/@relevant`, is written by
+  `python3 -m proof.checks.sensitivity effects` from that run's blocks. The writer counted the migration
+  witnesses, which run no sensitivity check (`cases.WITNESS_UNRUN`), as a gap in a whole run, and now
+  leaves them out (`sensitivity.py::corpus_documents`).
+- **The rule tests `preload-condition` and `setvalue-order` follow the preload's move into the
+  source.** `case-operation-sequence` holds no `case_preload` now, so `test_preload_condition.py` gives
+  the form a preload as the Case Management page would save one before flipping its condition; and a
+  starting value read from the case is a setvalue of the source that reads a node, so
+  `test_setvalue_order.py` reverses each run of node-free setvalues around it, as the rule sorts them,
+  and moves the formatted clock into that run.
+- **The native proofs follow the own arm.** `emit-arithmetic-evidence.ts` takes the operation that saves
+  the quotient rather than the form's first (now the own arm); `CaseOperationRuntimeTest.sequence` holds
+  `defaulted_at` and `visible_at` to the submission's clock, their `now()` defaults; and the `retype`
+  scenario's close form closes under the promotion's condition (`closeCondition`), which its close of
+  the promoted case carried before C9 made it the form's own close.
+- **The retained `navigation-base` reads are HQ's answers after pull request 4's publish**, copied from
+  that run's blocks. Visit holds no preload now, so a Case Management save of it writes an empty
+  `case_preload` under condition `always` over the publish's `never`, as the save of Register already
+  did; `hqSourceBaseline.test.ts` reads that save as a `form` change like Register's.
+- **The search-first smoke journey names its record from a label question.** A record name of
+  `concat('Patient ', #form/case_name)` is no answer Case Management can state, so the own case would
+  take Save to Case and the form could no longer be the one a search with no matches offers
+  (01, departure 41). The seed carries a Hidden Value holding that `concat`, and the journey authors
+  the name as its bare read.
 - **`targeted-case-writes-one-concept` follows §5.1 where it adds to part 01 §21**: the computed write
   is the own case of a second follow-up ("Score patient", whose own arm alone takes Save to Case),
   and a separate close form ("Discharge") holds a choice close condition. Its no-readers estimate

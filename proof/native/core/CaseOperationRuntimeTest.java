@@ -284,11 +284,9 @@ public class CaseOperationRuntimeTest {
             String moment = run.record("patient-1").getPropertyString(property);
             assertTrue("An ordinary datetime field must retain its clock: " + property + "=" + moment, moment.contains("T"));
             long saved = java.time.OffsetDateTime.parse(moment).toInstant().toEpochMilli();
-            if ("calculated_at".equals(property)) {
-                assertTrue("Saved instant outside submission: " + moment, saved >= started - 1000 && saved <= System.currentTimeMillis() + 1000);
-            } else {
-                assertEquals(java.time.Instant.parse("2026-04-17T11:23:41Z").toEpochMilli(), saved);
-            }
+            // Each opens with now(): a starting value is the question's own default, and none of these reads the
+            // case, so none opens with the patient's saved moment.
+            assertTrue("Saved instant outside submission: " + moment, saved >= started - 1000 && saved <= System.currentTimeMillis() + 1000);
         }
         run.answer("/data/visible_at", "");
         run.apply();

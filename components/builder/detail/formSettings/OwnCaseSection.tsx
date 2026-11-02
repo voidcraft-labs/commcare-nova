@@ -3,7 +3,7 @@
 // This form's case in form settings: on a close form, **Close the case**.
 //
 // `Every time` stores no condition; `When a condition is true` opens the
-// ordinary card editor over the `form_close_condition` slot, whose context
+// condition workbench over the `form_close_condition` slot, whose context
 // is the one the validator checks it with (`useExpressionSlotContext`,
 // `shared/editorAxes.ts`), so a static select's answer is a `choice` card by
 // its label and a choice a condition reads cannot be removed out from under
@@ -25,8 +25,8 @@ import {
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { reseedLiteralForConstraint } from "@/components/builder/shared/cards/reseed";
-import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
+import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import { Button } from "@/components/shadcn/button";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCasePlacements } from "@/lib/doc/hooks/useCasePlacements";
@@ -37,6 +37,7 @@ import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { Expression } from "@/lib/domain";
 import {
+	checkExpression,
 	compatibleTypesFor,
 	eq,
 	formField,
@@ -184,7 +185,6 @@ function CloseConditionEditor({
 		[fieldEntries],
 	);
 	const [draft, setDraft] = useState<Expression | undefined>(undefined);
-	const [draftValid, setDraftValid] = useState(true);
 
 	/* The draft belongs to the awaited condition of this form: a stored
 	 * condition (this commit, or a peer's) supersedes it. */
@@ -227,11 +227,14 @@ function CloseConditionEditor({
 					),
 				));
 	const value = stored ?? seed;
+	// Save condition waits for a condition the checker admits.
+	const draftValid =
+		checkExpression(value, expressionContext).errors.length === 0;
 
 	return (
 		<div className="space-y-2 rounded-lg border border-white/[0.05] bg-white/[0.03] px-2.5 py-2">
 			<fieldset disabled={!canEdit} className="contents">
-				<ExpressionCardEditor
+				<PredicateWorkbench
 					expressionContext={expressionContext}
 					value={value}
 					onChange={(next) => {
@@ -241,7 +244,7 @@ function CloseConditionEditor({
 						}
 						setDraft(next);
 					}}
-					onValidityChange={setDraftValid}
+					rootLabel="when the case closes"
 					caseTypes={caseTypes}
 					currentCaseType={currentCaseType}
 					userProperties={userProperties}

@@ -61,6 +61,7 @@ export const SEARCH_FIRST_SEED = {
 		nameFieldUuid: asUuid("a8c9d0e1-f2a3-4b4c-9d6e-7f8a9b0c1d2e"),
 		nameFieldLabel: "Name",
 		searchTimeFieldUuid: asUuid("a9d0e1f2-a3b4-4c5d-8e7f-8a9b0c1d2e3f"),
+		labelFieldUuid: asUuid("aad0e1f2-a3b4-4c5d-8e7f-8a9b0c1d2e40"),
 	},
 	/** The first patient registered through the worker journey. */
 	unmatchedName: "Zzz",
@@ -159,6 +160,15 @@ export function buildSearchFirstBlueprint(appId = "test-app"): BlueprintDoc {
 								id: "search_time",
 								default_value: term(input(searchInputs.searchTime)),
 							},
+							// The record name the journey authors: a form a search with
+							// no matches offers names its case from a question's answer
+							// as it is, which CommCare HQ's Case Management holds.
+							f({
+								uuid: register.labelFieldUuid,
+								kind: "hidden",
+								id: "patient_label",
+								calculate: "concat('Patient ', #form/case_name)",
+							}),
 						],
 					},
 				],

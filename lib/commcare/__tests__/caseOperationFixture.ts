@@ -366,6 +366,11 @@ export function caseOperationFixture(scenario: OperationScenario) {
 						uuid: FORM,
 						name: "Edit",
 						type: scenario === "retype" ? "close" : "followup",
+						// The close follows the promotion's condition, as the close of
+						// the promoted case did before it was the form's own close.
+						...(scenario === "retype" && {
+							closeCondition: eq(formField(ENABLED), literal("yes")),
+						}),
 						fields: [
 							f({ uuid: ENABLED, kind: "text", id: "enabled" }),
 							f({ uuid: DESTINATION, kind: "text", id: "destination" }),

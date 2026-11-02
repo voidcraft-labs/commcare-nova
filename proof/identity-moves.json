@@ -1,5 +1,23 @@
 [
 	{
+		"defect": 22,
+		"entity": "app.json",
+		"path": "/modules/*/forms/*/case_references_data/save/*/properties/*",
+		"documents": ["targeted-migration-case-writes"]
+	},
+	{
+		"defect": 22,
+		"entity": "form:1.1",
+		"path": "/case_updates/*/*",
+		"documents": ["targeted-migration-case-writes"]
+	},
+	{
+		"defect": 22,
+		"entity": "form:1.1",
+		"path": "/questions/*",
+		"documents": ["targeted-migration-case-writes"]
+	},
+	{
 		"defect": 23,
 		"entity": "form:0.0",
 		"path": "/questions/*",
@@ -10,6 +28,15 @@
 		"entity": "form:0.0",
 		"path": "/questions/*",
 		"documents": ["targeted-migration-query-repeats"]
+	},
+	{
+		"defect": 28,
+		"entity": "app.json",
+		"path": "/modules/*/forms/*/case_references_data/load/*",
+		"documents": [
+			"targeted-migration-case-writes",
+			"targeted-migration-groups-preloads"
+		]
 	},
 	{
 		"defect": 30,
