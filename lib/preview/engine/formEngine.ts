@@ -5383,8 +5383,9 @@ export class FormEngine {
 	 * while the new row is relevant. Model iteration reads
 	 * `int(@current_index)`, the relevant rows before the new one, since the
 	 * setvalue runs before `@current_index` is calculated again
-	 * (`FormDef.java::createNewRepeat`), and a row a condition hid leaves it
-	 * short: the new row then takes that hidden row's place and record. */
+	 * (`FormDef.java::createNewRepeat`), and an earlier row a condition hides
+	 * leaves it short: the new row then takes an earlier row's place and
+	 * record. */
 	private newRowIdentity(
 		field: Field,
 		path: string,
@@ -5547,6 +5548,26 @@ export class FormEngine {
 							inEnteredScope,
 							beforeInsertion,
 						)) || grew;
+				} else if (
+					field.repeat_mode === "query_bound" &&
+					inEnteredScope &&
+					!this.pendingSectionRepeats.has(path)
+				) {
+					// Model iteration's membership is fixed when the form opens,
+					// and its `@count` with it; a row its condition kept from
+					// being made is made once the condition holds at its place
+					// (`rowPromptRelevant`).
+					const written = this.instance.elementAttributesAt(path).ids;
+					const ids =
+						written === undefined ? [] : javaRosaSplitOnSpaces(written);
+					if (ids.length > this.instance.getRepeatCount(path)) {
+						beforeInsertion?.();
+						grew =
+							(yield* this.materializeInitializedRepeat(node, path, {
+								count: ids.length,
+								ids,
+							})) || grew;
+					}
 				} else if (field.repeat_mode === "count_bound") {
 					const count = yield* this.readLiveRepeatCount(field, path);
 					if (!inEnteredScope) {
@@ -5665,6 +5686,10 @@ export class FormEngine {
 			index++
 		) {
 			this.instance.setRepeatCount(path, index + 1);
+			if (!(yield* this.rowPromptRelevant(node.field, path, index))) {
+				this.instance.setRepeatCount(path, index);
+				break;
+			}
 			try {
 				yield* this.initializeScope(
 					node.children ?? [],
@@ -5696,6 +5721,33 @@ export class FormEngine {
 			this.clearInsertRefusal(path);
 		}
 		return this.instance.getRepeatCount(path) > before;
+	}
+
+	/** Whether form entry makes a query repeat's row at `index`. Core's walk
+	 * reaches a row that is not made yet as a prompt for it, and makes it only
+	 * where the repeat's condition holds at that row's place
+	 * (`FormEntryModel.java::isIndexRelevant` → `FormDef.isRepeatRelevant`,
+	 * before `FormEntryController.java::getAdjacentIndex` expands it); one
+	 * that does not hold steps past the repeat (`incrementHelper` exits a
+	 * repeat whose row does not exist), so no later row is made in that walk.
+	 * The row is in the instance, empty, while its condition is read here, as
+	 * the unmade row reads in Core: its own values blank, `position()` its
+	 * place. */
+	private *rowPromptRelevant(
+		field: Field,
+		path: string,
+		index: number,
+	): Generator<InitializationRead, boolean, InitializationValue> {
+		if (field.kind !== "repeat" || field.repeat_mode !== "query_bound")
+			return true;
+		const condition = this.dag
+			.getExpressions(path)
+			.find(({ type }) => type === "relevant")?.expr;
+		if (condition === undefined) return true;
+		const value = yield { source: condition, path: `${path}[${index}]` };
+		if (isAsyncNodesetValues(value))
+			throw new Error("Expected a scalar row condition.");
+		return toBoolean(value);
 	}
 
 	/** A model-iteration query repeat's membership is captured at form start;

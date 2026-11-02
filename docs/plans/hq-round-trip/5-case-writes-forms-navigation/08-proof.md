@@ -1628,8 +1628,8 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   `proof/native/producers/emit-container-evidence.ts` builds `query-follows` (a registration whose
   `members` query reads the form's `order` answer, a member case per row) and `query-nested-gated` (a
   `sites` query under a group shown on `show`, each site's `plots` query reading its record) and
-  `query-hidden-row` (a held model iteration and a count placement over `a b c`, each hiding its
-  second row by condition, part 04's Departures) inline,
+  `query-hidden-row` (a held model iteration and a count placement over `a b c` whose condition
+  hides the first row once the later ones show, part 04's Departures) inline,
   admitted by Nova's validator, after every corpus scenario so no corpus document's minted identities
   move. §6.1 adds no producer document in pull request 3, and the corpus side of the same shapes is
   `targeted-query-repeat-placements` (§4.2). The rest of G2 reads corpus documents: `query` (model

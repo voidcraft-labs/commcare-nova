@@ -47,9 +47,10 @@ mkdirSync(output, { recursive: true });
  * - `query-nested-gated`: a `sites` query under a group shown only once
  *   `show` is yes, and in each site a `plots` query reading that site's
  *   record (`p1 p2` for `s1`, `p3` for `s2`).
- * - `query-hidden-row`: two repeats over `a b c` whose condition hides the
- *   row for `b`. `held` holds model iteration, as a publish records it;
- *   `counted` takes the placement Nova's rule gives a repeat with a
+ * - `query-hidden-row`: two repeats over `a b c` whose condition shows the
+ *   first row on `first` and every later row on `later` (`first` starts
+ *   yes, `later` blank). `held` holds model iteration, as a publish records
+ *   it; `counted` takes the placement Nova's rule gives a repeat with a
  *   condition, the count placement.
  */
 const QUERY_REPEAT_SCENARIOS = [
@@ -80,7 +81,8 @@ function queryRepeatDoc(scenario: QueryRepeatScenario): BlueprintDoc {
 				label: proseText(id),
 				repeat_mode: "query_bound",
 				data_source: { ids_query: "'a b c'" },
-				relevant: "position() != 1",
+				relevant:
+					"if(position() = 0, #form/first = 'yes', #form/later = 'yes')",
 				...extra,
 				children: [
 					f({ kind: "hidden", id: "record", calculate: "current()/../@id" }),
@@ -96,6 +98,8 @@ function queryRepeatDoc(scenario: QueryRepeatScenario): BlueprintDoc {
 							name: "F",
 							type: "survey",
 							fields: [
+								text("first", { default_value: "'yes'" }),
+								text("later"),
 								hiding("held", { placement: "model-iteration" }),
 								hiding("counted"),
 							],

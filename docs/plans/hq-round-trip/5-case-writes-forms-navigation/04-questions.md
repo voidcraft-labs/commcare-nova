@@ -210,8 +210,9 @@ export function queryRepeatPlacementExpresses(
   `today()` nor `now()` counts: model iteration takes the moment the form opens, as Vellum's
   spelling does on HQ.
 - **The repeat's own condition** is a need whatever it reads (Departures): model iteration gives a
-  new row `int(@current_index)`, which counts only the relevant rows, so a row after one the
-  condition hides takes the hidden row's record. It is listed after the query's need.
+  new row `int(@current_index)`, which counts only the relevant rows, so a row made while the
+  condition hides an earlier one takes an earlier row's record. It is listed after the query's
+  need.
 - **Ancestors** are the fields from the repeat's parent up to the form root. A repeat of any mode
   among them is `nested`; a `group` whose `relevant` changes is `ancestor-condition-changes`. A
   section has no condition.
@@ -407,7 +408,7 @@ located at the field, `lib/commcare/validator/rules/field.ts`): a query repeat w
 |---|---|
 | `nested` | `"{repeat}" takes its rows once, when the form opens, as your published app does, and inside "{outer}" that would give its rows the wrong records. You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id, or keep it outside "{outer}".` |
 | `query-reads-answers` | `"{repeat}" takes its rows once, when the form opens, as your published app does, so its query would run before any answer it reads is given. You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id, or have its query read no answers.` |
-| `row-condition` | `"{repeat}" takes its rows once, when the form opens, as your published app does, and a row its condition hides would hand its record to the row after it. You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id, or show every row.` |
+| `row-condition` | `"{repeat}" takes its rows once, when the form opens, as your published app does, and a row made while its condition hides an earlier one would take that row's record. You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id, or show every row.` |
 | `ancestor-condition-changes` | `"{repeat}" takes its rows once, when the form opens, as your published app does, and "{group}" around it shows on a condition that can change while the form is filled in, so its rows could stay empty. You can let its rows follow its query as the form is filled in, which moves where CommCare HQ keeps each row's record id, or show "{group}" on a condition that doesn't change.` |
 
 In ordinary editing an author never meets this finding: the move planner appends the move before
@@ -1721,17 +1722,25 @@ Each departs from the research, the outline or a brief, with its reason.
   own. Read in Core: a new row's `jr-insert` setvalue gives it `@index = int(@current_index)` before
   any calculate runs (`FormDef.java::createNewRepeat`), `@current_index` is `count(/data/r/item)`,
   and that nodeset leaves out every row that is not relevant (`XPathLazyNodeset.java::
-  performEvaluation`). A row the condition hides is recounted out as it is made
-  (`initTriggerablesRootedBy` runs its condition, which triggers `@current_index`), so the next row
-  takes the hidden row's index and record, and the last record is in no row. HQ's form builder
-  writes these setvalues itself on every save (Vellum `src/modeliteration.js::getSetValues`), so
-  model iteration cannot store the row's place another way. `ContainerRuntimeTest.
-  aHiddenRowShiftsModelIterationsLaterRowsButNotTheCountPlacements` holds both on
-  `container-query-hidden-row` (a held model iteration gives `a b b`; the count placement `a b c`),
-  and Preview gives a held model iteration the same index (`FormEngine.newRowIdentity`). A
-  condition that reads the row's own id is refused as a loop (`CYCLE`), so the scenario hides by
-  `position() != 1`. The containers `query-conditional` and `query-conditional-relative` move to the
-  count placement with it.
+  performEvaluation`). So a row made while the condition hides an earlier one takes an earlier
+  row's index and record. A row is made only as form entry reaches it, and only where the condition
+  holds at its place: the walk reaches a row not made yet as a prompt (`FormEntryModel.java::
+  isIndexRelevant` → `FormDef.isRepeatRelevant`, expanded by `FormEntryController.java::
+  getAdjacentIndex`), and at one where the condition does not hold it steps past the repeat
+  (`FormEntryModel.java::incrementHelper` exits a repeat whose row does not exist), so no later row
+  is made until the condition holds there, in either placement. HQ's form builder writes these
+  setvalues itself on every save (Vellum `src/modeliteration.js::getSetValues`), so model iteration
+  cannot store the row's place another way. `ContainerRuntimeTest.
+  aRowMadeWhileAnEarlierOneIsHiddenTakesItsRecordInModelIterationButNotTheCountPlacement` holds
+  both on `container-query-hidden-row`, whose condition shows the first row on `first` and later
+  rows on `later`: the form opens with one row in each repeat, and once the first is hidden and the
+  later ones shown a held model iteration gives `a a b` and the count placement `a b c`. Its first
+  run, which hid the second row by `position() != 1`, found one row where three were expected,
+  which is the stop at the prompt. Preview makes rows the same way (`FormEngine.rowPromptRelevant`,
+  for a held model iteration too) and gives a held model iteration Core's index
+  (`FormEngine.newRowIdentity`). A condition that reads the row's own id is refused as a loop
+  (`CYCLE`). The containers `query-conditional` and `query-conditional-relative` move to the count
+  placement with it.
 - **Preview narrows every cascade as Core does, on both platforms** (pull request 3), which §1.8 did
   not plan. Core evaluates every triggerable a change reaches against that one change
   (`FormDef.java::evaluateTriggerables`), narrowing it to the instances its context names

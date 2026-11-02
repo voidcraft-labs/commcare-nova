@@ -165,8 +165,8 @@ describe("a query that reads an answer", () => {
 
 /* Model iteration gives a new row the place `int(@current_index)`, and
  * `@current_index` is `count(<rows>)`, which counts only the relevant rows
- * (Core `XPathLazyNodeset.java::performEvaluation`): a row after one the
- * condition hides would take the hidden row's record. */
+ * (Core `XPathLazyNodeset.java::performEvaluation`): a row made while the
+ * condition hides an earlier one would take an earlier row's record. */
 describe("a query repeat with a condition", () => {
 	it("needs the count placement, whatever the condition reads", () => {
 		const result = verdict([

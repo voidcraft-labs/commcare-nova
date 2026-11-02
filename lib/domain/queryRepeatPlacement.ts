@@ -13,14 +13,14 @@
 // the query reads changes during entry and the repeat is taken once: the
 // repeat sits in no other repeat, its query reads no answer of the form, and
 // no group around it shows on a condition that can change while the form is
-// filled in. Its rows also keep their own records only while every row is
-// relevant: model iteration gives a new row the place
+// filled in. Its rows also keep their own records only while no row is
+// hidden when a later one is made: model iteration gives a new row the place
 // `int(@current_index)`, and `@current_index` is `count(<rows>)`, which
 // counts only the relevant rows (`XPathLazyNodeset.java::performEvaluation`),
-// so a row after one its own condition hides takes the hidden row's place
-// and record. HQ's form builder writes those setvalues itself on every save
-// (Vellum `src/modeliteration.js::getSetValues`), so a repeat with a
-// condition needs the count placement, whose rows store their place from
+// so a row made while its condition hides an earlier one takes an earlier
+// row's place and record. HQ's form builder writes those setvalues itself on
+// every save (Vellum `src/modeliteration.js::getSetValues`), so a repeat with
+// a condition needs the count placement, whose rows store their place from
 // `position(..)`. Those are the needs below. A held placement (the repeat's stored
 // `placement`) wins over the rule; an unheld repeat takes the rule's answer.
 
@@ -43,7 +43,7 @@ export type QueryRepeatNeed =
 	| { readonly kind: "nested"; readonly repeatUuid: Uuid }
 	/** Its query reads an answer of its own form. */
 	| { readonly kind: "query-reads-answers" }
-	/** It has a condition, which can hide a row before the last. */
+	/** It has a condition, which can hide a row before a later one is made. */
 	| { readonly kind: "row-condition" }
 	/** The nearest group around it whose condition can change during entry. */
 	| { readonly kind: "ancestor-condition-changes"; readonly groupUuid: Uuid };

@@ -521,27 +521,34 @@ public class ContainerRuntimeTest {
   }
  }
 
- /** `container-query-hidden-row`: two repeats over `a b c` whose condition `position() != 1` hides the second row.
-  * `held` holds model iteration: a new row takes `@index` from `int(@current_index)` at `jr-insert`
-  * (`FormDef.createNewRepeat` fires `jr-insert` before any calculate), and `@current_index` is
-  * `count(/data/held/item)`, which reads only the relevant rows (`XPathLazyNodeset.performEvaluation`). The hidden
-  * second row leaves it at one, so the third row takes index 1 and the second row's record `b`, and `c` is in no
-  * row. `counted` takes the placement Nova's rule gives a repeat with a condition, the count placement, whose rows
-  * store their place from `position(..)` while the new row is relevant, so each keeps its own record. Catches a rule
-  * that writes a repeat with a condition in model iteration. */
- @Test public void aHiddenRowShiftsModelIterationsLaterRowsButNotTheCountPlacements()throws Exception {
+ /** `container-query-hidden-row`: two repeats over `a b c` whose condition shows the first row on `first` (yes as the
+  * form opens) and every later row on `later` (blank). Form entry reaches a row that is not made yet as a prompt and
+  * makes it only where the condition holds at its place (`FormEntryModel.isIndexRelevant` → `FormDef.isRepeatRelevant`,
+  * expanded by `FormEntryController.getAdjacentIndex`); one that does not hold steps past the repeat
+  * (`FormEntryModel.incrementHelper` exits a repeat whose row does not exist), so the first walk makes the first row
+  * alone. With `first` no and `later` yes, the next walk makes the other two while the first is hidden. `held` holds
+  * model iteration: a new row takes `@index` from `int(@current_index)` at `jr-insert` (`FormDef.createNewRepeat` fires
+  * `jr-insert` before any calculate), and `@current_index` is `count(/data/held/item)`, which reads only the relevant
+  * rows (`XPathLazyNodeset.performEvaluation`), so the second row takes index 0 and the first row's record `a`, the
+  * third index 1 and `b`, and `c` is in no row. `counted` takes the placement Nova's rule gives a repeat with a
+  * condition, the count placement, whose rows store their place from `position(..)` as they are made, so each keeps
+  * its own record. Catches a rule that writes a repeat with a condition in model iteration. */
+ @Test public void aRowMadeWhileAnEarlierOneIsHiddenTakesItsRecordInModelIterationButNotTheCountPlacement()throws Exception {
   for(boolean source:new boolean[]{false,true}){
    FormParseInit parsed=load("query-hidden-row",source);FormDef form=parsed.getFormDef();enter(parsed,false);
    String held="/data/held/item",counted="/data/counted/item";
+   assertEquals("a row its condition hides at its prompt is not made, nor any after it",1,held(form,held).size());
+   assertEquals(1,held(form,counted).size());
+   answer(form,"/data/first","no");answer(form,"/data/later","yes");enter(parsed,false);
    assertEquals(3,held(form,held).size());
-   assertFalse(relevant(form,held+"[2]"));
-   assertEquals("a b b",stored(form,held+"[1]/@id")+" "+stored(form,held+"[2]/@id")+" "+stored(form,held+"[3]/@id"));
-   assertEquals("0 1 1",stored(form,held+"[1]/@index")+" "+stored(form,held+"[2]/@index")+" "+stored(form,held+"[3]/@index"));
+   assertFalse(relevant(form,held+"[1]"));
+   assertEquals("a a b",stored(form,held+"[1]/@id")+" "+stored(form,held+"[2]/@id")+" "+stored(form,held+"[3]/@id"));
+   assertEquals("0 0 1",stored(form,held+"[1]/@index")+" "+stored(form,held+"[2]/@index")+" "+stored(form,held+"[3]/@index"));
    assertEquals("a b",eval(form,"join(' ', "+held+"/record)"));
    assertEquals(3,held(form,counted).size());
-   assertFalse(relevant(form,counted+"[2]"));
+   assertFalse(relevant(form,counted+"[1]"));
    assertEquals("0 1 2",stored(form,counted+"[1]/nova_query_index_counted")+" "+stored(form,counted+"[2]/nova_query_index_counted")+" "+stored(form,counted+"[3]/nova_query_index_counted"));
-   assertEquals("a c",eval(form,"join(' ', "+counted+"/record)"));
+   assertEquals("b c",eval(form,"join(' ', "+counted+"/record)"));
   }
  }
 

@@ -310,38 +310,53 @@ describe.each([
 		expect(value(engine, "/data/notes")).toBe("for a for b kept");
 	});
 
-	it("gives each row of a repeat with a condition its own record, and counts only the rows the condition shows", () => {
+	/* The condition shows the first row until `order` is `later`, and every
+	 * later row once it is. Form entry makes a row that is not made yet only
+	 * where the condition holds at its place, and steps past the repeat at the
+	 * first one where it does not (`FormEntryModel.java::isIndexRelevant` →
+	 * `FormDef.isRepeatRelevant`, `incrementHelper`), so the form opens with
+	 * the first row alone, and the other two are made once `order` is `later`,
+	 * while the first is hidden. */
+	const LATER_ROWS =
+		"if(position() = 0, #form/order != 'later', #form/order = 'later')";
+
+	it("makes no row past one its condition hides, and gives each row of a repeat with a condition its own record", () => {
 		// A repeat with a condition takes the count placement
 		// (`lib/domain/queryRepeatPlacement.ts`, need `row-condition`), whose
-		// rows store their place from `position(..)`. The condition is on the
-		// row, and a row it hides drops out of every nodeset
+		// rows store their place from `position(..)` as they are made. A row
+		// the condition hides drops out of every nodeset
 		// (`XPathLazyNodeset.java::performEvaluation`).
-		const engine = readsOfRows("'a b c'", device, "position() != 1");
+		const engine = readsOfRows("'a b c'", device, LATER_ROWS);
+		expect(engine.getRepeatCount("/data/members")).toBe(1);
+		expect(value(engine, "/data/records")).toBe("a");
+		engine.setValue("/data/order", "later");
 		expect(engine.getRepeatCount("/data/members")).toBe(3);
-		expect(value(engine, "/data/members[0]/note")).toBe("for a");
+		expect(value(engine, "/data/members[1]/note")).toBe("for b");
 		expect(value(engine, "/data/members[2]/note")).toBe("for c");
 		expect(value(engine, "/data/rows")).toBe("2");
-		expect(value(engine, "/data/records")).toBe("a c");
-		expect(value(engine, "/data/ordinals")).toBe("0 2");
+		expect(value(engine, "/data/records")).toBe("b c");
+		expect(value(engine, "/data/ordinals")).toBe("1 2");
 	});
 
-	it("gives a held model iteration's row after a hidden one the hidden row's record, as Core does", () => {
+	it("gives a held model iteration's row made while an earlier one is hidden that row's record, as Core does", () => {
 		// Model iteration sets a new row's `@index` from
-		// `int(@current_index)` at `jr-insert`, before `@current_index`
-		// (`count(<rows>)`, the relevant rows only) is calculated again
-		// (`FormDef.java::createNewRepeat`), and HQ's form builder writes that
-		// setvalue on every save. The hidden second row leaves it one short,
-		// so the third row takes index 1 and the record `b`, and `c` is in
-		// no row (`ContainerRuntimeTest.
-		// aHiddenRowShiftsModelIterationsLaterRowsButNotTheCountPlacements`).
+		// `int(@current_index)` at `jr-insert`, before any calculate
+		// (`FormDef.java::createNewRepeat`), and `@current_index` counts only
+		// the relevant rows; HQ's form builder writes that setvalue on every
+		// save. With the first row hidden, the second row takes index 0 and the
+		// record `a`, the third index 1 and `b`, and `c` is in no row
+		// (`ContainerRuntimeTest.
+		// aRowMadeWhileAnEarlierOneIsHiddenTakesItsRecordInModelIterationButNotTheCountPlacement`).
 		const engine = readsOfRows(
 			"'a b c'",
 			device,
-			"position() != 1",
+			LATER_ROWS,
 			"model-iteration",
 		);
+		expect(engine.getRepeatCount("/data/members")).toBe(1);
+		engine.setValue("/data/order", "later");
 		expect(engine.getRepeatCount("/data/members")).toBe(3);
-		expect(value(engine, "/data/members[1]/note")).toBe("for b");
+		expect(value(engine, "/data/members[1]/note")).toBe("for a");
 		expect(value(engine, "/data/members[2]/note")).toBe("for b");
 		expect(value(engine, "/data/records")).toBe("a b");
 		expect(value(engine, "/data/ordinals")).toBe("0 1");
