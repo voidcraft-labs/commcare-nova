@@ -1212,8 +1212,9 @@
 			"xform:group@ref"
 		],
 		"valueClass": "labelled-group",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `group.fieldList: false` (Nova emits every labelled group as a field-list today)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a labelled `group` without `fieldList`",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS (one question per screen)",
@@ -1277,7 +1278,7 @@
 		],
 		"valueClass": "labelled-question-list",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: a `section` at the root when every root field is a section and it has no display condition, no label media and no user-added repeat (`lib/domain/fields/section.ts`, `FORM_SECTION_USER_REPEAT`), otherwise a labelled `group`",
+		"dispositionCell": "**HELD**: a `section` at the root when every root field is a section and it has no display condition, no label media and no user-added repeat (`lib/domain/fields/section.ts`, `FORM_SECTION_USER_REPEAT`), otherwise a labelled `group` holding `fieldList`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -1344,8 +1345,9 @@
 			"xform:group@appearance"
 		],
 		"valueClass": "unlabelled-question-list",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `group.fieldList: true` without a label",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: a `group` holding `fieldList` with no label",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "IGNORED (HQ's App Preview reads it in its one-question-per-screen mode, on by default for users outside Dimagi, `preview_app/main.js`) / RUNS",
@@ -1934,7 +1936,7 @@
 		"surfaceKeys": ["xform:repeat"],
 		"valueClass": "user-repeat-in-a-field-list",
 		"disposition": "REFUSED",
-		"dispositionCell": "**REFUSED**: not HQ-editable and broken at runtime: Vellum reports \"Repeat Count is required.\" (for `field-list` exactly; a case variant loads as a plain group), and Android cannot add instances there, reading the host ignoring case (`FormEntryController.isHostWithAppearance`)",
+		"dispositionCell": "**REFUSED**: not HQ-editable and broken at runtime: Vellum reports \"Repeat Count is required.\" (for `field-list` exactly; a case variant loads as a plain group), and Android cannot add instances there, reading the host ignoring case (`FormEntryController.isHostWithAppearance`); `FIELD_LIST_USER_REPEAT` and `FORM_SECTION_USER_REPEAT` refuse it",
 		"reasons": [
 			{
 				"kind": "not-hq-editable",
@@ -7441,17 +7443,18 @@
 		"item": "label with no `markdown` form",
 		"surfaceKeys": ["xform:model/itext/translation/text"],
 		"valueClass": "without-markdown-form",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `ProseTemplate.markdown: false` (Nova writes a markdown copy on every text today, which re-renders plain labels containing `*`, `#`, `1. `)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `plainLabel` on a question, group, repeat or section label",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "RUNS / RUNS (literal)",
+			"cell": "RUNS / RUNS (as written)",
 			"webApps": {
 				"reading": "runs"
 			},
 			"android": {
 				"reading": "runs",
-				"note": "literal"
+				"note": "as written"
 			}
 		},
 		"emission": {
@@ -7842,7 +7845,7 @@
 		],
 		"valueClass": "help",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Field.help` (widen: on image, audio, video, signature and file questions and labels), markdown on (markdown off is HELD-NEW `ProseTemplate.markdown`)",
+		"dispositionCell": "**HELD**: `Field.help` (widen: on image, audio, video, signature and file questions and labels), markdown on (Nova always writes the markdown form, so Android always renders help as markdown)",
 		"slotChanges": [
 			{
 				"direction": "widen",
@@ -8014,7 +8017,7 @@
 		],
 		"valueClass": "choice-label-markdown",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: option `label`, markdown on (markdown off is HELD-NEW `ProseTemplate.markdown`)",
+		"dispositionCell": "**HELD**: option `label`, markdown on (markdown off is `plainLabel`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -8030,6 +8033,39 @@
 		},
 		"emission": {
 			"cell": "item itext",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
+		"id": "questions/choice-label-with-no-markdown-form",
+		"area": "questions",
+		"section": "Itext, markdown and label text",
+		"item": "choice label with no `markdown` form",
+		"surfaceKeys": [
+			"xform:select/item/label",
+			"xform:select/item/label@ref",
+			"xform:select1/item/label",
+			"xform:select1/item/label@ref",
+			"itext-form:android/markdown"
+		],
+		"valueClass": "choice-without-markdown-form",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `plainLabel` on an inline choice",
+		"slotChanges": [],
+		"platforms": {
+			"kind": "each",
+			"cell": "DIFFERENT (the choice still shows as formatted text) / RUNS",
+			"webApps": {
+				"reading": "different",
+				"note": "the choice still shows as formatted text"
+			},
+			"android": {
+				"reading": "runs"
+			}
+		},
+		"emission": {
+			"cell": "item itext without a markdown form",
 			"markers": []
 		},
 		"gates": []
@@ -8136,7 +8172,7 @@
 		],
 		"valueClass": "group-label-text",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: container `label`, markdown on (markdown off is HELD-NEW `ProseTemplate.markdown`)",
+		"dispositionCell": "**HELD**: container `label`, markdown on (markdown off is `plainLabel`)",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -8276,14 +8312,14 @@
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "DIFFERENT (sanitized HTML) / DIFFERENT (literal)",
+			"cell": "DIFFERENT (a tag shows as formatting, sanitized) / RUNS (as written)",
 			"webApps": {
 				"reading": "different",
-				"note": "sanitized HTML"
+				"note": "a tag shows as formatting, sanitized"
 			},
 			"android": {
-				"reading": "different",
-				"note": "literal"
+				"reading": "runs",
+				"note": "as written"
 			}
 		},
 		"emission": {

@@ -169,6 +169,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"audio-question",
 	"video-question",
 	"question-pages",
+	"plain-text",
 	"choice-media",
 	"help-media",
 	"now",
@@ -439,6 +440,15 @@ export const PLATFORM_FEATURES: Readonly<
 		channel: "structure",
 		webApps: { reading: "ignored", note: "the whole form shows on one page" },
 		android: { reading: "runs", note: "each page shows on its own screen" },
+	},
+	"plain-text": {
+		label: "Text shown as typed",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "a tag in the text shows as formatting, and a choice still shows its formatting",
+		},
+		android: { reading: "runs" },
 	},
 	"choice-media": {
 		label: "Pictures and sound on choices",
