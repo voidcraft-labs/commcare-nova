@@ -267,7 +267,7 @@ describe("a query repeat in the count placement", () => {
 		expect(countPlacement().bind("/data/r/item")).toEqual({
 			"vellum:nodeset": "#form/r/item",
 			nodeset: "/data/r/item",
-			relevant: "position(.) < ../nova_query_count_r",
+			relevant: "position() < ../nova_query_count_r",
 		});
 		const conditioned = countPlacement([text("answer")], {
 			relevant: "#form/pick = 'a' or #form/pick = 'b'",
@@ -276,9 +276,9 @@ describe("a query repeat in the count placement", () => {
 			"vellum:nodeset": "#form/r/item",
 			nodeset: "/data/r/item",
 			relevant:
-				"(/data/pick = 'a' or /data/pick = 'b') and position(.) < ../nova_query_count_r",
+				"(/data/pick = 'a' or /data/pick = 'b') and position() < ../nova_query_count_r",
 			"vellum:relevant":
-				"(#form/pick = 'a' or #form/pick = 'b') and position(.) < ../nova_query_count_r",
+				"(#form/pick = 'a' or #form/pick = 'b') and position() < ../nova_query_count_r",
 		});
 		expect(conditioned.binds.map((e) => e.attribs.nodeset)).not.toContain(
 			"/data/r",

@@ -274,7 +274,7 @@ For `r` whose effective placement is `"count"`:
 | `nova_query_ids_r` | `<bind nodeset="/data/r/nova_query_ids_r" vellum:nodeset="#form/r/nova_query_ids_r" calculate="join(' ', <query>)"/>`, the query printed from this node, a child of the wrapper as `@ids` is, so a relative read prints as in model iteration |
 | `nova_query_count_r` | `<bind … type="xsd:int" calculate="count-selected(../nova_query_ids_r)"/>` |
 | `nova_query_id_r` | `<bind nodeset="/data/r/item/nova_query_id_r" … calculate="if(position(..) &lt; ../../nova_query_count_r, selected-at(../../nova_query_ids_r, position(..)), '')"/>` |
-| the row's condition | `<bind vellum:nodeset="#form/r/item" nodeset="/data/r/item" relevant="(<authored>) and position(.) &lt; ../nova_query_count_r" vellum:relevant="…"/>`; with no authored condition, the guard alone. The bind is built as today's container bind is, `relevant` and `vellum:relevant` from one wire tree |
+| the row's condition | `<bind vellum:nodeset="#form/r/item" nodeset="/data/r/item" relevant="(<authored>) and position() &lt; ../nova_query_count_r" vellum:relevant="…"/>`; with no authored condition, the guard alone. The row's place is `position()` with no argument, never `position(.)`, which names the row and makes the bind its own trigger (Departures). The bind is built as today's container bind is, `relevant` and `vellum:relevant` from one wire tree |
 | `nova_query_position_r` (read only) | `<bind … calculate="count(../item)"/>`, model iteration's `@current_index` after insertion |
 | `nova_query_index_r` (read only) | `<bind … calculate="position(..)"/>`, equal to model iteration's 0-based `@index` |
 | body | `<group ref="/data/r"><group>[<label/>]<repeat nodeset="/data/r/item" vellum:nodeset="#form/r/item" jr:count="/data/r/nova_query_count_r" vellum:jr__count="#form/r/nova_query_count_r" jr:noAddRemove="true()">…</repeat></group></group>` |
@@ -1445,7 +1445,7 @@ count the same rows as the old carrier did on whole counts.
 - *Outcome B1:* `position(..)` misreads on a new row's first evaluation (for instance against the
   template): the row's index becomes a `jr-insert` setvalue, `nova_query_index_r` =
   `count(../../item) - 1`, written always, and the row id calculate and the guard read it in place of
-  `position(..)` and `position(.)`; §1.5's table and `repeatEmission.test.ts` change with it, in
+  `position(..)` and `position()`; §1.5's table and `repeatEmission.test.ts` change with it, in
   pull request 3.
 - *Outcome B2:* the guard condition does not hide rows or does not leave them out of the
   submission: rows past the end stay relevant with a blank `nova_query_id_r`, as the research
@@ -1644,6 +1644,45 @@ Each departs from the research, the outline or a brief, with its reason.
 - **`plain-text` is a feature, not ambient** (§4.6), and **Preview renders no author HTML**, with no
   `dompurify` dependency (§4.7).
 - **A row keeps its position, not its record,** when the result reorders (§1.5; finding 8).
+- **The guard reads the row's place as `position()`, not `position(.)`** (pull request 3), where
+  §1.5's row first wrote `position(.)`. Core counts every path an expression names, function
+  arguments included, as a trigger of the bind's target
+  (`commcare-core/src/main/java/org/javarosa/xpath/XPathConditional.java::getExprsTriggersAccumulator`),
+  so `position(.)` on the row's own `relevant` made `/data/r/item` its own trigger, and the parse
+  refused every count-placement form: "Logic is cyclical, referencing itself"
+  (`xform/parse/XFormParser.java::checkDependencyCycles`, message from
+  `core/util/ShortestCycleAlgorithm.java::getCycleErrorMessage`). HQ's build and its validation reach
+  the same parse through Formplayer (`commcare-hq/corehq/apps/app_manager/xform.py::validate_xform`,
+  `formplayer_api/form_validation.py::validate_form`), which refused the A and B forms of every
+  document with a count-placement repeat in the first proof run of pull request 3, and Core's
+  `ContainerRuntimeTest` refused them at load. With no argument, `XPathPositionFunc.java::evalBody`
+  reads the 0-based multiplicity of the reference the condition evaluates at, the same number
+  `position(.)` read, and names no trigger. A new row's condition still runs when the row is made,
+  since `FormDef.java::createNewRepeat` runs `initTriggerablesRootedBy`, whose root admits the row
+  itself (`isParentOf(target, false)`), and `isRepeatRelevant` evaluates it at the row. The row id's
+  `position(..)` stays: it names the row from a child, an edge from the row to `nova_query_id_r`, not
+  a loop. The form builder's own fixtures read `position()` bare
+  (`Vellum/tests/static/modeliteration/fixture-iteration-no-ids.xml`).
+- **A several-case form's selected-cases iteration inside a repeat takes the count placement**
+  (pull request 3), which no section of this part planned. `xform/caseOps.ts::buildCaseOperations`
+  wrote the `nova_selected_cases` iteration as model iteration wherever a session-targeted operation
+  stood, with `jr-insert` setvalues inside a repeat and the absolute
+  `@current_index` = `count(/data/<repeat>/nova_selected_cases/item)`. That is the REFUSED
+  `questions/model-iteration-repeat-nested-in-another-repeat-of-any-kind`, broken at runtime: the
+  absolute count reads the rows of every outer row, so the second outer row's first row gets an
+  index past its own ids. The entry's executed reason records it: entry throws
+  (`XPathException: … element 2 of a list with only 1`) or first gives rows the wrong case ids.
+  Defect 25's class entry had held it on `case-extension-multiple-repeat`, and once the entry was
+  fixed the manifest check reported it there. Inside a repeat the iteration now writes the count
+  placement's shape (`caseOps.ts::emitSelectedCountPlacement`): `nova_query_ids_nova_selected_cases`
+  calculated from the selection, `nova_query_count_nova_selected_cases` as `count-selected` of it, the
+  row id `item/nova_query_id_nova_selected_cases` from `position(..)`, the guard `position() <
+  ../nova_query_count_nova_selected_cases`, and the outer `<group ref>`. The names follow the query
+  repeat's spelling with the iteration's own name, and nothing authored shares either namespace. Every
+  operation bind that read the row's `@id` reads that node. At the form root the iteration stays model
+  iteration, Vellum's spelling. HQ's actions for the form name no path inside the iteration (its
+  inert subcases' `repeat_context` is the authored repeat), so nothing HQ builds reads the moved id.
+  `extensionCaseEmission.test.ts` holds the shape.
 - **`addField`'s payload refusal lives in `lib/doc/types.ts`** (pull request 3), which part 10 §2
   does not list: `addField`'s `field` is `addFieldFieldSchema`, `fieldSchema` refined to refuse an
   own key of `HELD_FIELD_KEYS` (`lib/domain/fields/index.ts::fieldHoldsHeldKey`). A refinement, not

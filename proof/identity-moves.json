@@ -4,5 +4,17 @@
 		"entity": "form:0.0",
 		"path": "/questions/*",
 		"documents": ["targeted-migration-attachment"]
+	},
+	{
+		"defect": 25,
+		"entity": "form:0.0",
+		"path": "/questions/*",
+		"documents": ["targeted-migration-query-repeats"]
+	},
+	{
+		"defect": 30,
+		"entity": "form:0.0",
+		"path": "/questions/*",
+		"documents": ["targeted-migration-repeat-counts"]
 	}
 ]

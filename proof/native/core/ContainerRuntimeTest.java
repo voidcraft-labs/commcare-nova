@@ -382,7 +382,7 @@ public class ContainerRuntimeTest {
  // follow an answer is written in the count placement (part 04 §1.5): `nova_query_ids_<r>` and
  // `nova_query_count_<r>` in the wrapper, each row's id calculated as
  // `if(position(..) < ../../nova_query_count_<r>, selected-at(../../nova_query_ids_<r>, position(..)), '')`, and
- // the row relevant only while `position(.) < ../nova_query_count_<r>`. One that cannot is written in model
+ // the row relevant only while `position() < ../nova_query_count_<r>`. One that cannot is written in model
  // iteration, HQ's form builder's own spelling (part 04 §1.4).
 
  /** Each row of `generic` the entry steps onto, keyed by its repeat multiplicities, with `expression` read at the

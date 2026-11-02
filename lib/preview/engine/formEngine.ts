@@ -5151,7 +5151,7 @@ export class FormEngine {
 
 	/** Whether a row of a count-placement query repeat sits at or past the end
 	 * of the current result. Such a row is not relevant, as the emitted guard
-	 * `position(.) < ../nova_query_count_r` makes it: its answers stay in the
+	 * `position() < ../nova_query_count_r` makes it: its answers stay in the
 	 * form, it is not submitted and it has no case-operation iteration. A row
 	 * of any other repeat is never beyond its result. */
 	queryRowBeyondResult(path: string): boolean {

@@ -1674,6 +1674,20 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   `container-live-count-entry`'s `computed` is one; every other base document is admitted at the head
   as it was, so the corpus holds 408 documents (406 and the two targeted documents of §5.1), and the
   producers and `compilerEvidence.ts` are unchanged.
+- **`case-extension-multiple-repeat` held a second nested model iteration** (pull request 3, from its
+  first proof run): defect 25's class entry `d25-query-repeat-form-vellum-role-model-iteration-nested`
+  (`manifest`, `*form:*`, `/vellum-markup:model~1instance~1~1*@vellum:role/refused/model-iteration-nested`)
+  also held this document, whose several-case form wrote its `nova_selected_cases` iteration as model
+  iteration inside the user repeat `records`. Once the entry moved to the fixed register, the manifest
+  check reported the class back on that document. No live entry takes it (§2.6): part 04's departure
+  writes the selected-cases iteration in the count placement inside any repeat, so the document stops
+  emitting the REFUSED `questions/model-iteration-repeat-nested-in-another-repeat-of-any-kind` as §7.1
+  requires, and no register entry or control changes.
+- **Two identity moves, written from proof 1's evidence** in pull request 3's first run: defect 25 on
+  `targeted-migration-query-repeats` and defect 30 on `targeted-migration-repeat-counts`, each
+  `form:0.0` `/questions/*` (the query repeats' generated nodes added and the old count node removed).
+  The guard's respelling (part 04's departures) changes a bind's expression, not the form's questions,
+  so the query-repeats evidence stands.
 
 ## What other parts read from this one
 

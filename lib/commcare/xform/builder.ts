@@ -2169,9 +2169,19 @@ function buildQueryRepeat(
 		const rowPosition = w.call("position", [w.context([w.parent()])]);
 		const countFromRow = w.context([w.parent(), w.parent(), w.step(countName)]);
 		const idsFromRow = w.context([w.parent(), w.parent(), w.step(idsName)]);
-		// A row past the end of the current result is not relevant.
+		// A row past the end of the current result is not relevant. The row's
+		// own place is read as `position()`, with no argument: Core counts every
+		// path an expression names as a trigger of its target
+		// (`XPathConditional.java::getExprsTriggersAccumulator`), so
+		// `position(.)` in the row's condition names the row itself and its
+		// parse refuses the form as cyclical (`XFormParser.java::
+		// checkDependencyCycles`). With no argument Core reads the 0-based
+		// multiplicity of the row the condition evaluates at
+		// (`XPathPositionFunc.java::evalBody`) and names no trigger; a new row's
+		// condition still runs when the row is made (`FormDef.java::
+		// createNewRepeat`, `initTriggerablesRootedBy`).
 		const guard = w.lt(
-			w.call("position", [w.context([w.self()])]),
+			w.call("position"),
 			w.context([w.parent(), w.step(countName)]),
 		);
 		const binds: Element[] = [

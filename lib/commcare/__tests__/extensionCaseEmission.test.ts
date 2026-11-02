@@ -250,11 +250,15 @@ it.each(extensionScenarios)(
 				// datum its entry mints the id into, the value HQ's build also
 				// gives the form's own create block.
 				expect(bindAt(`${path}/index/parent`).calculate).toBe(
-					multiple
-						? "current()/../../../../../@id"
-						: offset
-							? "instance('commcaresession')/session/data/case_id_new_patient_0"
-							: "instance('commcaresession')/session/data/case_id",
+					// Inside a repeat the selection is the count placement, whose
+					// row id is a child node; at the root it is model iteration.
+					scenario === "multiple-repeat"
+						? "current()/../../../../../nova_query_id_nova_selected_cases"
+						: multiple
+							? "current()/../../../../../@id"
+							: offset
+								? "instance('commcaresession')/session/data/case_id_new_patient_0"
+								: "instance('commcaresession')/session/data/case_id",
 				);
 			}
 		}
@@ -402,4 +406,81 @@ it("writes no required on a Hidden Value that names an extension child", () => {
 			.children.filter(isTag)
 			.map((e) => e.name),
 	).toEqual(["episode_name", "nova_trimmed_episode_name", "nova_subcases"]);
+});
+
+// A several-case form's selection inside a repeat is the count placement, as a
+// query repeat there is: model iteration's absolute `@current_index` counts the
+// rows of every outer row, so a second outer row would read an index past its
+// own ids (`questions/model-iteration-repeat-nested-in-another-repeat-of-any-kind`).
+// Catches a nested selection written as model iteration again, a row id read
+// from `@id`, and a row guard that names the row itself (Core refuses that
+// form as cyclical).
+it("writes a selection inside a repeat in the count placement", () => {
+	const doc = extensionCaseFixture("multiple-repeat");
+	const hq = expandDoc(doc);
+	const form = hq.modules[0].forms[0];
+	const source = hq._attachments[`${form.unique_id}.xml`];
+	if (typeof source !== "string") throw new Error("Missing source form");
+	const tree = xmlTree(source);
+	const html = one(tree.children.filter(isTag));
+	const model = at(at(html, "h:head"), "model");
+	const data = at(
+		one(
+			model.children
+				.filter(isTag)
+				.filter((e) => e.name === "instance" && !e.attribs.src),
+		),
+		"data",
+	);
+	const selection = at(at(data, "records"), "nova_selected_cases");
+	expect(selection.attribs).toEqual({});
+	expect(selection.children.filter(isTag).map((e) => e.name)).toEqual([
+		"nova_query_ids_nova_selected_cases",
+		"nova_query_count_nova_selected_cases",
+		"item",
+	]);
+	const item = at(selection, "item");
+	expect(item.attribs).toEqual({ "jr:template": "" });
+	expect(item.children.filter(isTag).map((e) => e.name)).toEqual([
+		"nova_query_id_nova_selected_cases",
+		"nova_operations",
+	]);
+	const wrapper = "/data/records/nova_selected_cases";
+	const binds = model.children.filter(isTag).filter((e) => e.name === "bind");
+	const bindAt = (path: string) =>
+		one(binds.filter((b) => b.attribs.nodeset === path)).attribs;
+	expect(
+		bindAt(`${wrapper}/nova_query_count_nova_selected_cases`),
+	).toMatchObject({
+		type: "xsd:int",
+		calculate: "count-selected(../nova_query_ids_nova_selected_cases)",
+	});
+	expect(bindAt(`${wrapper}/item`).relevant).toBe(
+		"position() < ../nova_query_count_nova_selected_cases",
+	);
+	expect(
+		bindAt(`${wrapper}/item/nova_query_id_nova_selected_cases`).calculate,
+	).toBe(
+		"if(position(..) < ../../nova_query_count_nova_selected_cases, selected-at(../../nova_query_ids_nova_selected_cases, position(..)), '')",
+	);
+	expect(
+		model.children
+			.filter(isTag)
+			.filter(
+				(e) => e.name === "setvalue" && e.attribs.ref?.startsWith(wrapper),
+			),
+	).toEqual([]);
+	const repeat = one(
+		findAll(
+			(e) => e.name === "repeat" && e.attribs.nodeset === `${wrapper}/item`,
+			html.children,
+		),
+	);
+	expect(repeat.attribs["jr:count"]).toBe(
+		`${wrapper}/nova_query_count_nova_selected_cases`,
+	);
+	expect(repeat.parent && (repeat.parent as Element).parent).toMatchObject({
+		name: "group",
+		attribs: { ref: wrapper },
+	});
 });

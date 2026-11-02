@@ -47,6 +47,12 @@
  *   `nova_update_selected_cases`, `nova_subcase_<n>` ascending,
  *   `nova_close_selected_cases`, `nova_condition_close` and `nova_close`.
  *
+ * A selected-cases repeat inside an authored repeat takes the count
+ * placement, its nodes `nova_query_ids_`, `nova_query_count_` (the wrapper)
+ * and `nova_query_id_` (the row) followed by the repeat's own name
+ * (`caseOps.ts::selectedCountPlacementNames`): nothing authored shares
+ * either namespace, so they need no allocation.
+ *
  * A query repeat's five names and a count repeat's count are reserved from
  * the form's structure alone (`queryRepeatNames.ts`, `repeatCountNames.ts`),
  * whatever the repeat's placement and whether or not an expression reads the
