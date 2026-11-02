@@ -321,8 +321,9 @@ export interface VerdictFlag {
  * What Nova's publish requires of a project space for one document: the
  * capabilities `projectSpaceCompatibilityProbePlan` names, each with the
  * flags and runtime checks the probe makes, and the advisories, which never
- * block a publish. A configuration missing a required flag, or case search
- * where a capability's runtime check needs it, is one Nova refuses. Beside
+ * block a publish. A configuration missing a required flag, holding one a
+ * capability needs off, or without case search where a capability's runtime
+ * check needs it, is one Nova refuses. Beside
  * them, the plan privileges Nova's publish asks the person to confirm
  * (`requiredPlanPrivileges`), which no API key can read and so no
  * configuration Nova refuses.
@@ -331,6 +332,8 @@ export interface NovaPublishVerdict {
 	readonly capabilities: readonly {
 		readonly id: string;
 		readonly flags: readonly VerdictFlag[];
+		/** The flags the capability needs off, by symbol, sorted; absent where none is. */
+		readonly flagsOff?: readonly string[];
 		readonly runtimeProbes: readonly string[];
 	}[];
 	readonly advisories: readonly {
@@ -353,6 +356,11 @@ export interface NovaPublishVerdict {
 		 * absent where it asks nothing, which every retained verdict reads as.
 		 */
 		readonly commtrackEnabled?: false;
+		/**
+		 * The HQ toggles Nova's publish requires off for this document, sorted
+		 * (a capability's `featureFlagsOff`); absent where none is.
+		 */
+		readonly flagsOff?: readonly string[];
 	};
 	/**
 	 * The `corehq/privileges.py` constants of the plan privileges Nova's
@@ -451,26 +459,39 @@ function asksFormEntrySyncOff(doc: BlueprintDoc): boolean {
 }
 
 /**
- * The requirement behind the verdict's `commtrackEnabled`: whether Nova's
- * publish asks the person to confirm the project space has CommCare Supply
- * off for a document (`commtrack-off`). Nova's publish asks it of no
- * document, so the requirement holds for none and the verdict never writes
- * the key. It is a method of this object so a test can stand in a
- * requirement that holds and see where the verdict writes the key.
+ * Whether Nova's publish asks the person to confirm the project space has
+ * CommCare Supply off for `doc` (`commtrack-off`), from the same needs the
+ * publish reads.
  */
-export const commtrackRequirement = {
-	asksCommtrackOff(_doc: BlueprintDoc): boolean {
-		return false;
-	},
-};
+function asksCommtrackOff(doc: BlueprintDoc): boolean {
+	return requiredConfirmations(
+		doc,
+		capturePushes(doc),
+		CAPTURE_ATTACHMENT_TARGET,
+	).some((need) => need.kind === "commtrack-off");
+}
+
+/** The symbols of the flags a probe plan needs off, sorted. */
+function flagsOffSymbols(
+	flags: readonly HqPrivateFeatureFlagRequirement[],
+): string[] {
+	return [...new Set(verdictFlags(flags).map((flag) => flag.symbol))].sort();
+}
 
 export function novaPublishVerdict(doc: BlueprintDoc): NovaPublishVerdict {
 	const plan = projectSpaceCompatibilityProbePlan(doc);
-	const capabilities = plan.capabilities.map((item) => ({
-		id: item.capability.id,
-		flags: verdictFlags(item.featureFlags),
-		runtimeProbes: [...item.runtimeProbes],
-	}));
+	const capabilities = plan.capabilities.map((item) => {
+		const off = flagsOffSymbols(item.featureFlagsOff);
+		return {
+			id: item.capability.id,
+			flags: verdictFlags(item.featureFlags),
+			...(off.length > 0 && { flagsOff: off }),
+			runtimeProbes: [...item.runtimeProbes],
+		};
+	});
+	const flagsOff = [
+		...new Set(capabilities.flatMap((item) => item.flagsOff ?? [])),
+	].sort();
 	return {
 		capabilities,
 		advisories: plan.advisories.map((item) => ({
@@ -489,24 +510,40 @@ export function novaPublishVerdict(doc: BlueprintDoc): NovaPublishVerdict {
 			...(asksFormEntrySyncOff(doc) && {
 				syncCasesOnFormEntry: false as const,
 			}),
-			...(commtrackRequirement.asksCommtrackOff(doc) && {
+			...(asksCommtrackOff(doc) && {
 				commtrackEnabled: false as const,
 			}),
+			...(flagsOff.length > 0 && { flagsOff }),
 		},
 		planPrivileges: planPrivileges(doc),
 	};
 }
 
-/** The least configuration under which Nova publishes every one of `verdicts`. */
+/**
+ * The least configuration under which Nova publishes every one of `verdicts`:
+ * each flag one requires on, and none it requires off. Throws where one
+ * verdict requires on a flag another requires off, since no project space
+ * takes both.
+ */
 export function minimumConfiguration(
 	verdicts: readonly NovaPublishVerdict[],
 	domain = PROOF_DOMAIN,
 ): PublishConfiguration {
+	const flags = [
+		...new Set(verdicts.flatMap((v) => v.minimumConfiguration.flags)),
+	].sort();
+	const off = new Set(
+		verdicts.flatMap((v) => v.minimumConfiguration.flagsOff ?? []),
+	);
+	const both = flags.filter((flag) => off.has(flag));
+	if (both.length > 0) {
+		throw new Error(
+			`Nova's publish requires ${both.join(", ")} on for one of these documents and off for another, so no project space takes them all; publish them to separate project spaces.`,
+		);
+	}
 	return {
 		id: "minimum",
-		flags: [
-			...new Set(verdicts.flatMap((v) => v.minimumConfiguration.flags)),
-		].sort(),
+		flags,
 		caseSearchEnabled: verdicts.some(
 			(v) => v.minimumConfiguration.caseSearchEnabled,
 		),

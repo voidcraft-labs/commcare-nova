@@ -50,6 +50,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { planPlacements } from "@/lib/commcare/placement";
+import { placementMoveOffer } from "@/lib/deployment/placementMoves";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import {
 	type BlueprintDoc,
@@ -64,9 +65,15 @@ import {
 	documentConfigurations,
 } from "../../corpus/configurations";
 import type { CorpusDocument } from "../../corpus/documents";
+import {
+	afterFirstPublish,
+	writtenEditOverRecord,
+} from "../../corpus/editBatches";
 import { retainedMigrationA } from "../../corpus/inputs";
 import { minimumConfiguration, novaPublishVerdict } from "../../corpus/publish";
 import { targetedDocument, targetedUuid } from "../build";
+import { sameTypeChild } from "../documents/sameTypeChild";
+import { supplyPointText } from "../documents/supplyPointText";
 import type { Expected } from "../expected";
 import { TARGETED_DOCUMENTS, targetedDocuments } from "../index";
 
@@ -786,5 +793,90 @@ describe("the case-writes document", () => {
 		expect(document.edit?.mutations.map((mutation) => mutation.kind)).toEqual([
 			"updateOption",
 		]);
+	});
+});
+
+/*
+ * `targeted-same-type-child` and `targeted-supply-point-text`: the two
+ * documents whose verdicts state what a project space must have off. The
+ * plausible failures: a document that no longer holds its shape (the
+ * same-type create planned into Save to Case, the supply-point text spelled
+ * so the check misses it), a verdict that drops the requirement, and an edit
+ * that leaves the same-type create where the flag still matters.
+ */
+describe("the documents whose publish needs a setting off", () => {
+	it("admits targeted-same-type-child, whose D needs DONT_INDEX_SAME_CASETYPE off and whose edit no longer does", () => {
+		const document = sameTypeChild();
+		const doc = hydratePersistedBlueprint(document.doc);
+		const twin = targetedUuid("targeted-same-type-child", "twin-form") as Uuid;
+		const sibling = targetedUuid(
+			"targeted-same-type-child",
+			"sibling-form",
+		) as Uuid;
+		const placed = (of: typeof doc, form: Uuid, operation: string) =>
+			planPlacements(of, form).placements.get(
+				targetedUuid("targeted-same-type-child", operation) as Uuid,
+			)?.placement;
+		expect(placed(doc, twin, "twin")).toMatchObject({
+			kind: "basic",
+			slot: "subcase",
+		});
+		expect(placed(doc, sibling, "sibling")?.kind).toBe("save-to-case");
+		expect(novaPublishVerdict(doc).minimumConfiguration.flagsOff).toEqual([
+			"DONT_INDEX_SAME_CASETYPE",
+		]);
+		const next = document.edit?.nextDoc;
+		if (next === undefined) throw new Error("The document writes its edit.");
+		const edited = hydratePersistedBlueprint(next);
+		expect(placed(edited, twin, "twin")?.kind).toBe("save-to-case");
+		expect(novaPublishVerdict(edited).minimumConfiguration).not.toHaveProperty(
+			"flagsOff",
+		);
+	});
+
+	it("moves, in targeted-same-type-child's edit over D as first published, the create to the Save to Case block the offer names", () => {
+		const document = sameTypeChild();
+		const published = afterFirstPublish(
+			document.id,
+			hydratePersistedBlueprint(document.doc),
+			undefined,
+		);
+		const d = hydratePersistedBlueprint(published.doc);
+		const offer = placementMoveOffer(d, "same-type-child-links");
+		const twin = targetedUuid("targeted-same-type-child", "twin");
+		expect(offer?.holds).toEqual([
+			expect.objectContaining({
+				target: "case-operation",
+				operationUuid: twin,
+				placement: { kind: "save-to-case", path: expect.any(Array) },
+			}),
+		]);
+		const written = document.edit;
+		if (written === undefined) throw new Error("The document writes its edit.");
+		const edit = writtenEditOverRecord(
+			document.id,
+			d,
+			written.mutations,
+			undefined,
+		);
+		expect(edit.mutations.at(-1)?.kind).toBe("holdPlacements");
+		const held = Object.values(edit.nextDoc.forms)
+			.flatMap((form) => form.caseOperations ?? [])
+			.find((operation) => operation.uuid === twin)?.placement;
+		expect(held).toEqual(offer?.holds[0]?.placement);
+		expect(
+			placementMoveOffer(edit.nextDoc, "same-type-child-links"),
+		).toBeNull();
+		expect(
+			novaPublishVerdict(edit.nextDoc).minimumConfiguration,
+		).not.toHaveProperty("flagsOff");
+	});
+
+	it("admits targeted-supply-point-text, whose verdict needs CommCare Supply off", () => {
+		const document = supplyPointText();
+		const verdict = novaPublishVerdict(hydratePersistedBlueprint(document.doc));
+		expect(verdict.minimumConfiguration.commtrackEnabled).toBe(false);
+		expect(verdict.minimumConfiguration).not.toHaveProperty("flagsOff");
+		expect(document.edit).toBeUndefined();
 	});
 });
