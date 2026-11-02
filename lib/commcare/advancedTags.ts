@@ -19,8 +19,11 @@
  * the element `case_<tag>` and Nova's XForm element names hold no `-`; the
  * page's check accepts either. `n` starts at the action's position among
  * the form's loads or open actions and steps up past any tag already taken,
- * and past any tag whose `case_<tag>` element an existing root name holds,
- * so a case block never lands beside a question of its name.
+ * and past any tag whose `case_<tag>` element an existing name holds where
+ * HQ's build appends it (the data root, or an open action's repeat row), so
+ * a case block never lands beside a question of its name: HQ appends it by
+ * name without looking (`xform.py::get_action_path`), and the question's
+ * bind and every read of its path would then reach the block too.
  *
  * A held tag (where a published app keeps the action) is kept as held, and
  * taken before any tag is derived.
@@ -50,6 +53,10 @@ export interface AdvancedTagLoad {
 export interface AdvancedTagOpen {
 	readonly caseType: string;
 	readonly held?: string;
+	/** Where the open action runs in a repeat: every name the repeat's rows
+	 *  hold, beside which HQ's build appends its `case_<tag>` when another
+	 *  open action shares the repeat. */
+	readonly rowNames?: ReadonlySet<string>;
 }
 
 /**
@@ -66,12 +73,15 @@ export function allocateAdvancedTags(input: {
 	const taken = new Set<string>();
 	for (const action of [...input.loads, ...input.opens])
 		if (action.held !== undefined) taken.add(action.held);
-	const free = (tag: string) =>
-		!taken.has(tag) && !input.rootNames.has(advancedCaseBlockName(tag));
+	const free = (tag: string, rowNames: ReadonlySet<string> | undefined) =>
+		!taken.has(tag) &&
+		!input.rootNames.has(advancedCaseBlockName(tag)) &&
+		rowNames?.has(advancedCaseBlockName(tag)) !== true;
 	const derive = (
 		caseType: string,
 		position: number,
 		spell: (type: string, n: number) => string,
+		rowNames?: ReadonlySet<string>,
 	): string => {
 		// A case type is a letter, then letters, digits, `-` and `_`, so every
 		// tag spelled from one passes HQ's check and holds no `/`.
@@ -85,7 +95,7 @@ export function allocateAdvancedTags(input: {
 		// differ only there step `n` apart below, so tags stay distinct.
 		const spelledType = caseType.replaceAll("-", "_");
 		let n = position;
-		while (!free(spell(spelledType, n))) n++;
+		while (!free(spell(spelledType, n), rowNames)) n++;
 		const tag = spell(spelledType, n);
 		taken.add(tag);
 		return tag;
@@ -100,7 +110,12 @@ export function allocateAdvancedTags(input: {
 	const opens = input.opens.map(
 		(open, position) =>
 			open.held ??
-			derive(open.caseType, position, (type, n) => `open_${type}_${n}`),
+			derive(
+				open.caseType,
+				position,
+				(type, n) => `open_${type}_${n}`,
+				open.rowNames,
+			),
 	);
 	return { loads, opens };
 }

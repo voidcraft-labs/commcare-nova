@@ -21,6 +21,7 @@
 
 import type { BlueprintDoc } from "./blueprint";
 import { caseWriteValueField } from "./caseWriteViews";
+import { formConnectIds } from "./connectIds";
 import type { Expression } from "./expression/types";
 import { walkExpressionNodes } from "./expression/walk";
 import { type Field, isCaptureField, isContainer } from "./fields";
@@ -134,6 +135,44 @@ export function caseSlotFacts(
 	};
 	forms.set(formUuid, built);
 	return built;
+}
+
+// ── The names HQ's build appends ────────────────────────────────────────
+
+/** The element HQ's build appends to the data root for the worker's update
+ *  (`xform.py::XForm._add_usercase`). */
+export const USERCASE_BLOCK_NAME = "commcare_usercase";
+
+/** The element HQ's build appends for the basic subcase at `index`, where
+ *  its repeat holds another or it runs in none
+ *  (`models/form_actions.py::OpenSubCaseAction.form_element_name`). */
+export function subcaseBlockName(index: number): string {
+	return `subcase_${index}`;
+}
+
+/**
+ * Whether a name an author gave stands where HQ's build appends the element
+ * `name`: a question, group or repeat directly in the rows of `repeat`, or
+ * at the data root where `repeat` is absent, beside the root's Connect
+ * blocks. HQ's build appends a slot's case block by its name without asking
+ * whether the parent already holds one (`xform.py::XForm._create_casexml`,
+ * its subcase loop, and `_add_usercase`), so the form would hold two
+ * elements of that name: the question's bind would select the block's
+ * element too, and every read of the question's path would meet two nodes,
+ * which Core refuses to read as one value (part 02's G3, N1). A slot whose
+ * name is taken is not eligible (`appended-name-taken`), and its change
+ * takes Save to Case. A held slot keeps its name, and the gate refuses the
+ * author's name instead (`HELD_BLOCK_PATH_TAKEN`), which only renaming
+ * resolves.
+ */
+export function appendedNameTaken(
+	f: CaseSlotFacts,
+	name: string,
+	repeat: Uuid | undefined,
+): boolean {
+	for (const uuid of f.doc.fieldOrder[repeat ?? f.formUuid] ?? [])
+		if (f.doc.fields[uuid]?.id === name) return true;
+	return repeat === undefined && formConnectIds(f.doc, f.formUuid).has(name);
 }
 
 // ── Values and conditions ───────────────────────────────────────────────
@@ -792,9 +831,10 @@ const slotPlans = new WeakMap<BlueprintDoc, Map<string, BasicCaseSlots>>();
 
 /**
  * Which of `formUuid`'s own arm and creates take a basic slot. A held basic
- * slot whose index or nesting no longer holds is chosen as if unheld, which
- * can change how many subcases there are, so the choice runs until it
- * settles.
+ * slot whose index or nesting no longer holds is chosen as if unheld, and an
+ * unheld subcase whose `subcase_<i>` an author's name takes falls to Save to
+ * Case (`appendedNameTaken`); either can change how many subcases there are,
+ * so the choice runs until it settles.
  */
 export function basicCaseSlots(
 	doc: BlueprintDoc,
@@ -838,6 +878,8 @@ export function basicCaseSlots(
 	const context: SubcaseContext = { ownBasic, sharers };
 	const creates = f.operations.filter((op) => op.action === "create");
 	const demoted = new Set<Uuid>();
+	// The unheld creates whose `subcase_<i>` an author's name takes.
+	const nameTaken = new Set<Uuid>();
 	type CreateChoice =
 		| {
 				readonly kind: "basic";
@@ -855,7 +897,8 @@ export function basicCaseSlots(
 				return { kind: "basic", held, inSource: false };
 		} else if (!carried.has(op.uuid) && keepsHeldSaveToCase(f, op, held))
 			return { kind: "save-to-case", held: true };
-		if (excluded(op.uuid)) return { kind: "save-to-case", held: false };
+		if (excluded(op.uuid) || nameTaken.has(op.uuid))
+			return { kind: "save-to-case", held: false };
 		if (subcaseReasons(f, op, context).length === 0)
 			return { kind: "basic", inSource: false };
 		// A field-written child of a several-case form keeps its wire (part
@@ -936,6 +979,25 @@ export function basicCaseSlots(
 			indexOf.set(op.uuid, next);
 			taken.add(next);
 		}
+		// An unheld subcase HQ's build appends as `subcase_<i>` where an
+		// author's name stands takes Save to Case (`appendedNameTaken`), and
+		// the indices are chosen again without it. A held one keeps its index.
+		for (const op of basic) {
+			const choice = choices.get(op.uuid);
+			if (
+				choice?.kind !== "basic" ||
+				choice.held !== undefined ||
+				choice.inSource ||
+				isRow(op)
+			)
+				continue;
+			const index = indexOf.get(op.uuid) ?? 0;
+			if (appendedNameTaken(f, subcaseBlockName(index), op.forEach?.repeat)) {
+				nameTaken.add(op.uuid);
+				changed = true;
+			}
+		}
+		if (changed) continue;
 		subcases = basic
 			.map((op) => {
 				const choice = choices.get(op.uuid) as Extract<

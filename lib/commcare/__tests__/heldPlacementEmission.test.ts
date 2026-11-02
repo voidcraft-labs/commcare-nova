@@ -156,7 +156,11 @@ it("emits the same HQ body and .ccz bytes for an advanced menu with its kind and
 	expect(census.actions).toBeGreaterThan(10);
 });
 
-it("emits the same HQ body and .ccz bytes for every admitted emission fixture with its placements held", () => {
+it("emits the same HQ body and .ccz bytes for every admitted emission fixture with its placements held", {
+	// Two emissions of each of the hundred-odd fixtures: about a second and a
+	// half alone, past five while the suite shares the cores.
+	timeout: 60_000,
+}, () => {
 	const census = { saveToCase: 0, ownClose: 0 };
 	for (const fixture of emissionFixtures()) {
 		const { name, assets, doc } = fixture;

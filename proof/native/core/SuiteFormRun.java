@@ -5,8 +5,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Hashtable;
 import java.util.Map;
+import java.util.Set;
+import org.commcare.cases.instance.CaseInstanceTreeElement;
 import org.commcare.cases.model.Case;
 import org.commcare.cases.model.CaseIndex;
 import org.commcare.core.process.XmlFormRecordProcessor;
@@ -69,6 +72,8 @@ final class SuiteFormRun {
     final FormParseInit parsed;
     final FormDef form;
     final Map<String, Integer> rows = new HashMap<>();
+    /** The ids of the cases {@link #seed} wrote, which the submission did not make. */
+    final Set<String> seeded = new HashSet<>();
     private final TestInstanceInitializer runtime;
 
     SuiteFormRun(String family, String name, boolean hq, String formFile, String xmlns) throws Exception {
@@ -90,6 +95,11 @@ final class SuiteFormRun {
         session.setCommand(command);
         runtime = new TestInstanceInitializer(sandbox) {
             @Override public InstanceRoot generateRoot(ExternalDataInstance instance) {
+                if (CaseInstanceTreeElement.MODEL_NAME.equals(instance.getInstanceId())) {
+                    // A list's index predicate ([index/parent = ...]) reads Core's case-index table.
+                    return new ConcreteInstanceRoot(new CaseInstanceTreeElement(instance.getBase(),
+                        sandbox.getCaseStorage(), new StorageCaseIndexTable(sandbox.getCaseStorage())));
+                }
                 if (!"commcaresession".equals(instance.getInstanceId())) return super.generateRoot(instance);
                 TreeElement root = SessionInstanceBuilder.getSessionInstance(session.getFrame(), "device", "1", 0L,
                     "worker", WORKER, new Hashtable<>(), "400", "en");
@@ -138,6 +148,7 @@ final class SuiteFormRun {
                     record.setIndex(new CaseIndex(index.getString("name"), index.getString("type"), index.getString("target"), index.getString("relationship")));
                 }
                 sandbox.getCaseStorage().write(record);
+                seeded.add(record.getCaseId());
             }
         }
     }
@@ -208,6 +219,13 @@ final class SuiteFormRun {
     }
 
     Case record(String id) { return sandbox.getCaseStorage().getRecordForValue(Case.INDEX_CASE_ID, id); }
+
+    /** The cases the submission made, without the seeded ones. */
+    java.util.List<Case> made() {
+        java.util.List<Case> found = new java.util.ArrayList<>();
+        for (Case record : records()) if (!seeded.contains(record.getCaseId())) found.add(record);
+        return found;
+    }
 
     /** Every case the storage holds, the seeded ones among them. */
     java.util.List<Case> records() {

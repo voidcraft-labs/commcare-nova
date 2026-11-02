@@ -64,6 +64,15 @@ NATIVE_FILES = [
 ]
 
 
+def _suite(app):
+    """HQ's suite for ``app`` as a build writes it: a built app carries its version, which the suite's ``version``
+    states (``SuiteGenerator``'s ``Suite(version=self.app.version)``) and Core's suite parser requires
+    (``SuiteParser.parse`` reads it as a number). An imported app holds none until HQ saves a build of it, so it
+    takes 1, the version Nova's local suite states."""
+    app.version = 1
+    return hand_assembled_suite(app)
+
+
 def _suite_datum_ids(suite_xml, xmlns):
     """The ids of the datums a suite's entry for the form ``xmlns`` works out (``function``), in order."""
     suite = etree.fromstring(suite_xml)
@@ -96,7 +105,7 @@ def _extension(exports, scenario):
     native_xml = regenerate_form(form, DOMAIN)
     (exports / f"{scenario}.hq.xml").write_bytes(native_xml)
     if scenario in SUITE_RUN_SCENARIOS:
-        (exports / f"{scenario}.hq-suite.xml").write_bytes(hand_assembled_suite(app))
+        (exports / f"{scenario}.hq-suite.xml").write_bytes(_suite(app))
     datums = EntriesHelper.get_new_case_id_datums_meta(form)
     matched_id = None
     if scenario == "registration":
@@ -145,7 +154,7 @@ def _whole(exports, name):
     raw = (exports / f"{name}.json").read_bytes()
     app = import_source(raw, DOMAIN)
     app._id = f"{DOMAIN}-{name}"
-    (exports / f"{name}.hq-suite.xml").write_bytes(hand_assembled_suite(app))
+    (exports / f"{name}.hq-suite.xml").write_bytes(_suite(app))
     helper = EntriesHelper(app)
     forms = []
     for module_index, module in enumerate(app.get_modules()):

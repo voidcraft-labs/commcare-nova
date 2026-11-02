@@ -1638,9 +1638,11 @@ linked to the aligned load, which takes a Save to Case block
 a carried create, whose first publish records the kind; its D′ removes the
 link, and the held kind keeps the menu advanced, so proof 1 sees no move.
 `targeted-root-case-block-names` holds a root question `subcase_0` beside a
-basic child create at the root, and a root question `commcare_usercase` in a
-form writing the worker's record, the names HQ's build gives the blocks it
-appends (part 02's G3), which `CaseOperationRuntimeTest` also opens.
+child create at the root, and a root question `commcare_usercase` in a form
+writing the worker's record, the names HQ's build would give the blocks it
+appends for those Case Management slots (part 02's G3, outcome A); neither slot
+is eligible, so each change takes Save to Case, which `CaseOperationRuntimeTest`
+also opens.
 The eight migration witnesses (`proof/targeted/documents/migrations.ts`, each
 spec marked `migrationWitness: true`, so its source is
 `targeted-migration:<rows>`) are small apps, one per step 5 migration that
@@ -3974,9 +3976,9 @@ is stored by `CaseXmlParser` as an index whose relationship is `extension`,
 beside the basic child's `child` index; and, on `targeted-root-case-block-names`
 (part 02's G3), a root question named `subcase_0` or `commcare_usercase`, as
 HQ's build names the block it appends for a basic child or the worker's
-update, keeps its answer in an element of its name with no case block, beside
-the element of that name HQ's build and the local injection append for the
-block, and the child case and the worker's update still land. `AdvancedFormRuntimeTest` opens each
+update, is the one element of its name, holding its answer and no case block,
+and the child case and the worker's update, each in its Save to Case block,
+still land. `AdvancedFormRuntimeTest` opens each
 advanced form of `targeted-advanced-module` the same way on both paths and
 holds the stored cases to the form's own advanced actions in the HQ import
 body: each load updates the case its datum names and closes it where its close

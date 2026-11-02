@@ -925,6 +925,112 @@ describe("the procedure", () => {
 	});
 });
 
+// Part 02's G3 (N1): HQ's build appends `subcase_<i>` and `commcare_usercase`
+// beside a root question of that name, which leaves the form holding the name
+// twice, so a slot whose name a question takes is not eligible.
+describe("a question named like the block HQ's build appends", () => {
+	const subject = (key: string): PlacementSubject => ({
+		kind: "operation",
+		operationUuid: OP(key),
+	});
+
+	it("sends a subcase whose subcase_<i> a root question takes to Save to Case, and renumbers the rest", () => {
+		const { doc, formUuid, placements } = planned("followup", {
+			extraRoot: [{ kind: "text", id: "subcase_0" }],
+			operations: (t) => [
+				own(),
+				childCreate("first", t),
+				childCreate("second", t),
+			],
+		});
+		// `first` would take index 0, whose name the question holds; without
+		// it `second` takes index 0, whose name the question still holds, so
+		// both take Save to Case.
+		expect(placements.get(OP("first"))).toEqual({
+			placement: { kind: "save-to-case", path: ["nova_operations", "first"] },
+			held: false,
+		});
+		expect(placements.get(OP("second"))?.placement.kind).toBe("save-to-case");
+		expect(
+			placementCandidates(doc, formUuid, subject("first")).map((p) => p.kind),
+		).toEqual(["save-to-case"]);
+	});
+
+	it("keeps the subcase whose index a question does not take", () => {
+		const { placements } = planned("followup", {
+			extraRoot: [{ kind: "text", id: "subcase_1" }],
+			operations: (t) => [
+				own(),
+				childCreate("first", t),
+				childCreate("second", t),
+			],
+		});
+		// `second` would take `subcase_1`, so it takes Save to Case and
+		// `first` keeps `subcase_0`.
+		expect(placements.get(OP("first"))?.placement).toEqual(SUBCASE_0);
+		expect(placements.get(OP("second"))?.placement.kind).toBe("save-to-case");
+	});
+
+	it("reads the repeat's rows for two subcases in one repeat, and nothing for a repeat's only subcase", () => {
+		const two = planned("followup", {
+			extraRoot: [{ kind: "text", id: "subcase_1" }],
+			operations: (t) => [
+				own(),
+				childCreate("a", t, { repeat: "kids" }),
+				childCreate("b", t, { repeat: "kids" }),
+			],
+		});
+		// A root `subcase_1` stands beside no block a repeat's subcase writes.
+		expect(two.placements.get(OP("b"))?.placement).toEqual({
+			...SUBCASE_0,
+			index: 1,
+		});
+		const row = planned("followup", {
+			extraRoot: [{ kind: "text", id: "subcase_0" }],
+			operations: (t) => [own(), childCreate("a", t, { repeat: "kids" })],
+		});
+		expect(row.placements.get(OP("a"))?.placement).toEqual(SUBCASE_ROW);
+	});
+
+	it("sends the worker's update to Save to Case where a root question is commcare_usercase", () => {
+		const { doc, formUuid, placements } = planned("followup", {
+			extraRoot: [{ kind: "text", id: "commcare_usercase" }],
+			operations: () => [own(), workerUpdate("w")],
+		});
+		expect(placements.get(OP("w"))?.placement.kind).toBe("save-to-case");
+		expect(
+			placementCandidates(doc, formUuid, subject("w")).map((p) => p.kind),
+		).toEqual(["save-to-case"]);
+		const free = planned("followup", {
+			operations: () => [own(), workerUpdate("w")],
+		});
+		expect(free.placements.get(OP("w"))?.placement).toEqual(USERCASE);
+	});
+
+	it("keeps a held slot where its name is taken, for the gate to refuse the question", () => {
+		const { doc, formUuid, placements } = planned("followup", {
+			extraRoot: [
+				{ kind: "text", id: "subcase_0" },
+				{ kind: "text", id: "commcare_usercase" },
+			],
+			operations: (t) => [
+				own(),
+				workerUpdate("w", { placement: USERCASE }),
+				childCreate("kid", t, { placement: SUBCASE_0 }),
+			],
+		});
+		expect(placements.get(OP("w"))).toEqual({
+			placement: USERCASE,
+			held: true,
+		});
+		expect(placements.get(OP("kid"))).toEqual({
+			placement: SUBCASE_0,
+			held: true,
+		});
+		expect(planPlacements(doc, formUuid).inexpressible).toEqual([]);
+	});
+});
+
 describe("holds the document no longer expresses", () => {
 	const own0: PlacementSubject = { kind: "operation", operationUuid: OWN };
 

@@ -155,7 +155,6 @@ export const ADVANCED_INELIGIBILITY_REASONS = [
 	"repeat-shared",
 	"type-not-a-menu",
 	"keyed",
-	"appended-name-taken",
 	"worker-property-name",
 ] as const satisfies readonly PlacementIneligibilityReason[];
 export type AdvancedIneligibility =

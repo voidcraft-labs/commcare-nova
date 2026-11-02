@@ -934,7 +934,10 @@ open action, stated before it commits, and the publish recorder and the cutover 
 build or Core refuses, or loses a write, when a root question takes the name of a block HQ
 appends), the basic subcase and usercase slots gain the condition "no root question takes the name
 HQ appends for this slot" (`subcase_<i>`, `commcare_usercase`; reason `appended-name-taken`), and
-`HELD_BLOCK_PATH_TAKEN` (§13.2) covers those appended names. Under part 02's G4 outcome A (a basic
+`HELD_BLOCK_PATH_TAKEN` (§13.2) covers those appended names. G3 found outcome A on pull request 7's
+first push: the condition holds for an unheld slot, read where HQ appends it (the form root, or the
+rows of a repeat holding two subcases), and a held slot keeps its name for `HELD_BLOCK_PATH_TAKEN`
+to refuse the question (part 02 §27). Under part 02's G4 outcome A (a basic
 write to a worker property whose name starts with `_` is refused while Save to Case lands), the
 usercase slot gains the condition "no write's property starts with `_`" (reason
 `worker-property-name`). Under their other outcomes neither condition exists.

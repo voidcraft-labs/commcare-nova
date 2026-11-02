@@ -1102,8 +1102,11 @@ manifest check reports `/undecided/`, which the register refuses.
   the flag for Nova's shape) the entry's reason is corrected with that run as evidence, as part 03
   records the claim, and the reader answers not in the class for Nova's shape in any configuration.
 - **Pull request 11, form links**: `failing-link-checks`.
-- The auto-select classes need no reader in step 5: no Nova document emits auto-select but the usercase
-  load.
+- The auto-select classes each have a reader in `proof/checks/manifest_value_classes.py` from pull
+  request 7: Nova emits auto-select only on the worker's load (`usercase`), but every class the
+  manifest names must be read to classify that load, so the readers say not in the class for every
+  other mode (`_auto_select_blank_mode_or_case_type`, `_auto_select_case_not_an_earlier_load` and
+  their peers).
 
 ### 7.3 Gate entries
 
@@ -1862,12 +1865,13 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   a Nova document, G4 has no document to run over, and the clause `worker-property-name` has nothing
   to refuse. The corpus holds 415 documents (a fixed floor of 383 beside the default fuzz sample of
   32), the count §5.1 gives under G4's outcome B, for this other cause.
-- **`targeted-root-case-block-names` witnesses G3's run, not its outcome A** (pull request 7). The
-  placement planner holds `appended-name-taken` back until G3 settles it
-  (`lib/commcare/advancedPlacement.ts::appendedNameTaken`), so the member create takes `subcase_0`
-  beside the question `subcase_0`, and the worker update takes the usercase slot beside the question
-  `commcare_usercase`. The document's first push shows what the collision does, through the bar,
-  proof 3 and Core.
+- **`targeted-root-case-block-names` witnessed G3's run, and now witnesses its outcome A** (pull
+  request 7). On the first push (Actions run 41505876754) the member create took `subcase_0` beside
+  the question `subcase_0`, and the worker update took the usercase slot beside the question
+  `commcare_usercase`; the records found outcome A (part 02 §29, `harness-findings.md`'s N1). From
+  then on neither slot is eligible (`lib/domain/basicCaseSlots.ts::appendedNameTaken`), so both
+  changes take Save to Case beside their questions, and the `CaseOperationRuntimeTest` scenario holds
+  one element of each name, the question's answer in it, and both case writes landing.
 - **`targeted-extension-carried`'s uncarried create stands in a second, basic menu** (pull request
   7). A carried create makes its own menu advanced, where every create is an open action, so the
   uncarried extension create is kept in `nova_operations` with a `uuid()` id only in a basic menu:
@@ -1954,6 +1958,15 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   after the push: expected, the `subcase_<i>` path and session datum of Register's `contact` child that
   moves up to `subcase_0`, and Enrollment's case block paths (`/data/case` to `/data/case_<tag>/case`)
   and datums (`case_id` to `case_id_load_<type><n>`), each scoped to that witness alone.
+  The first push's run (G6, outcome B) showed those and two more, each read against part 09's notice
+  and written as a defect 24 move on the witness alone: Register's episode, held in its Save to Case
+  block, gains that block's text guard (`nova_guard_<operation>_text`, its `case_references_data`
+  save and its questions) and loses `nova_trimmed_episode_name`, since the inert subcase that trimmed
+  its name goes (an added block and a generated node, no published block or answer that moves, so
+  part 09's notice needs no cause for them); and every unit of Enroll moves, its Save to Case
+  episode and basic blocks becoming `case_open_<tag>` blocks with their case updates and questions,
+  as the module turns advanced (M3's cause, `module-made-advanced`). Enroll is a registration, so its
+  datums are new-case datums its entry already held, and none of them moves.
 
 ## What other parts read from this one
 

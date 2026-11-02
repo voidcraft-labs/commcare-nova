@@ -48,6 +48,7 @@ import {
 	opensCase,
 } from "@/lib/domain/advancedEntryDatums";
 import {
+	appendedNameTaken,
 	basicCaseSlots,
 	type CaseSlotFacts,
 	type ConditionScope,
@@ -61,6 +62,7 @@ import {
 	sharingCloses,
 	stateCondition,
 	subcaseReasons,
+	USERCASE_BLOCK_NAME,
 	usercaseSlotReasons,
 } from "@/lib/domain/basicCaseSlots";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -294,9 +296,14 @@ function planCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 						? { placement: op.placement, held: true }
 						: undefined
 					: keepSaveToCase(asSubject(op), op.placement);
+			// An unheld update takes the slot only where no author's name
+			// stands at the `commcare_usercase` HQ's build appends; a held
+			// one keeps it, and the gate refuses the name.
 			const planned =
 				kept ??
-				(!excluded(op.uuid) && eligible
+				(!excluded(op.uuid) &&
+				eligible &&
+				!appendedNameTaken(f, USERCASE_BLOCK_NAME, undefined)
 					? {
 							placement: { kind: "basic", slot: "usercase" } as const,
 							held: false,
@@ -553,6 +560,20 @@ function advancedRootNames(f: CaseSlotFacts): ReadonlySet<string> {
 	return names;
 }
 
+/** Every name the rows of `repeat` hold: its questions' ids and the first
+ *  segment of each Save to Case block held there. */
+function advancedRowNames(f: CaseSlotFacts, repeat: Uuid): ReadonlySet<string> {
+	const names = new Set<string>();
+	for (const uuid of f.doc.fieldOrder[repeat] ?? []) {
+		const field = f.doc.fields[uuid];
+		if (field !== undefined) names.add(field.id);
+	}
+	for (const op of f.operations)
+		if (op.placement?.kind === "save-to-case" && op.placement.repeat === repeat)
+			names.add(op.placement.path[0]);
+	return names;
+}
+
 /**
  * The procedure in a form of an advanced menu. In operation order, each
  * change keeps a held Save to Case block that still expresses it; else, if
@@ -701,6 +722,9 @@ function planAdvancedCore(f: CaseSlotFacts, options: CoreOptions): CorePlan {
 		opens: opens.map((open) => ({
 			caseType: open.caseType,
 			...(open.held !== undefined && { held: open.held }),
+			...(open.repeat !== undefined && {
+				rowNames: advancedRowNames(f, open.repeat),
+			}),
 		})),
 		rootNames: advancedRootNames(f),
 	});
@@ -1297,7 +1321,9 @@ export function placementCandidates(
 	if (
 		isWorkerRecordUpdate(operation) &&
 		f.operations.find(isWorkerRecordUpdate)?.uuid === operation.uuid &&
-		usercaseSlotReasons(f, operation).length === 0
+		usercaseSlotReasons(f, operation).length === 0 &&
+		(planned.placement.kind === "basic" ||
+			!appendedNameTaken(f, USERCASE_BLOCK_NAME, undefined))
 	)
 		basic.push({ kind: "basic", slot: "usercase" });
 	if (operation.action === "create") {

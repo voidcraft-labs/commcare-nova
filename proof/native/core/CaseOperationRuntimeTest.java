@@ -812,10 +812,11 @@ public class CaseOperationRuntimeTest {
         String file = name + (name.startsWith("root-") ? ".m" + module + "f" + index : "") + (hq ? ".hq.xml" : ".xml");
         return new SuiteFormRun("case", name, hq, file, form.getString("xmlns")).fill();
     }
-    /** The cases the submission made that index {@code parent} under {@code relationship}, by their types. */
+    /** The cases the submission made that index {@code parent} under {@code relationship}, by their types; the
+     * seeded cases, which index it too, are not among them. */
     private static java.util.List<String> indexedTo(SuiteFormRun run, String parent, String relationship) {
         java.util.List<String> types = new java.util.ArrayList<>();
-        for (Case record : run.records()) {
+        for (Case record : run.made()) {
             for (CaseIndex index : record.getIndices()) {
                 if (parent.equals(index.getTarget()) && relationship.equals(index.getRelationship())) types.add(record.getTypeId());
             }
@@ -856,26 +857,25 @@ public class CaseOperationRuntimeTest {
     /**
      * Part 02's G3, on targeted-root-case-block-names: a root question named as the element HQ's build appends for
      * a basic child case ({@code subcase_0}) or for the worker's update ({@code commcare_usercase}). HQ's build
-     * appends a new element of that name for the case block beside the question's
-     * ({@code xform.py::XForm._create_casexml}, {@code ::_add_usercase}), and the local injection does the same, so
-     * on both paths each form holds the question's answer in an element of its name with no case block, beside the
-     * element that holds the block, and the case write still lands: the member is made under the household the
-     * registration creates, and the worker's own case takes the visit's place. The elements are told apart by
-     * whether they hold children, never read by the bare name. Catches a case write lost to the question, or an
-     * answer overwritten by the case block.
+     * appends that element beside the question's with no check ({@code xform.py::XForm._create_casexml},
+     * {@code ::_add_usercase}), where the question's bind selected the block too and its path read two nodes
+     * (outcome A, N1), so neither slot is eligible and each change takes Save to Case. On both paths each form
+     * holds one element of the question's name, with no case block in it, and the case write still lands: the
+     * member is made under the household the registration creates, and the worker's own case takes the visit's
+     * place. Catches a slot kept beside the question, a case write lost in the fallback, or an answer the case
+     * block overwrites.
      */
     @Test public void aRootQuestionNamedLikeTheBlockHqAppendsKeepsItsAnswerAndItsCaseWrite() throws Exception {
         SuiteFormRun register = suiteRun("root-case-block-names", 0, 0);
         String household = register.datum("case_id_new_household_0");
         assertNotNull(household);
-        assertEquals(2.0, register.count("/data/subcase_0"), 0);
-        assertEquals(1.0, register.count("/data/subcase_0[not(*)]"), 0);
-        assertEquals(1.0, register.count("/data/subcase_0/case"), 0);
-        String notes = register.value("/data/subcase_0[not(*)]");
+        assertEquals(1.0, register.count("/data/subcase_0"), 0);
+        assertEquals(0.0, register.count("/data/subcase_0/*"), 0);
+        String notes = register.value("/data/subcase_0");
         String member = register.value("/data/member_name");
         assertFalse(notes.isEmpty());
         register.apply();
-        assertEquals(notes, register.value("/data/subcase_0[not(*)]"));
+        assertEquals(notes, register.value("/data/subcase_0"));
         assertEquals(Arrays.asList("member"), indexedTo(register, household, CaseIndex.RELATIONSHIP_CHILD));
         boolean named = false;
         for (Case record : register.records()) named |= "member".equals(record.getTypeId()) && member.equals(record.getName());
@@ -883,10 +883,9 @@ public class CaseOperationRuntimeTest {
 
         SuiteFormRun check = suiteRun("root-case-block-names", 0, 1);
         String place = check.value("/data/place");
-        assertEquals(2.0, check.count("/data/commcare_usercase"), 0);
-        assertEquals(1.0, check.count("/data/commcare_usercase[not(*)]"), 0);
-        assertEquals(1.0, check.count("/data/commcare_usercase/case"), 0);
-        assertFalse(check.value("/data/commcare_usercase[not(*)]").isEmpty());
+        assertEquals(1.0, check.count("/data/commcare_usercase"), 0);
+        assertEquals(0.0, check.count("/data/commcare_usercase/*"), 0);
+        assertFalse(check.value("/data/commcare_usercase").isEmpty());
         check.apply();
         assertEquals(place, check.record("worker-case").getPropertyString("last_place"));
     }

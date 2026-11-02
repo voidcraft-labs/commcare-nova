@@ -130,10 +130,11 @@ const META_TIME_END = FormPath.root().child("meta").child("timeEnd");
 const META_USER_ID = FormPath.root().child("meta").child("userID");
 
 /** The relevance HQ's build writes for an action's condition
- *  (`xform.py::XForm.action_relevance`): `true()` for `always`, the
- *  question's comparison for `if`, `false()` otherwise. */
-function actionRelevance(condition: FormActionCondition): WireExpr {
-	if (condition.type === "always") return w.call("true");
+ *  (`xform.py::XForm.action_relevance`): the question's comparison for
+ *  `if`, `false()` for `never`, and none for `always`, whose `true()`
+ *  `XForm.add_bind` drops. */
+function actionRelevance(condition: FormActionCondition): WireExpr | undefined {
+	if (condition.type === "always") return undefined;
 	if (condition.type !== "if") return w.call("false");
 	const question = FormPath.parse(
 		validateXFormPath(condition.question ?? ""),
@@ -154,16 +155,23 @@ interface Emission {
 	readonly context: WireElementContext;
 }
 
+/** A bind as `XForm.add_bind` writes it: one left with its nodeset alone
+ *  (an `always` relevance, which it drops) is not written. */
 function bind(
 	emission: Emission,
 	nodeset: FormPath,
 	xpath: { calculate?: WireExpr; relevant?: WireExpr },
 	attributes: Record<string, string> = {},
 ): void {
+	const set: { calculate?: WireExpr; relevant?: WireExpr } = {};
+	if (xpath.calculate !== undefined) set.calculate = xpath.calculate;
+	if (xpath.relevant !== undefined) set.relevant = xpath.relevant;
+	if (Object.keys(set).length === 0 && Object.keys(attributes).length === 0)
+		return;
 	emission.binds.push(
 		xel(
 			"bind",
-			{ attributes, xpath: { nodeset: nodeset.toWire(), ...xpath } },
+			{ attributes, xpath: { nodeset: nodeset.toWire(), ...set } },
 			emission.context,
 		),
 	);

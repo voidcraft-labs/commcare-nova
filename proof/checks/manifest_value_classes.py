@@ -2658,6 +2658,121 @@ an open action's index to a load whose datum HQ renames in a child menu (``entri
 while the index reads ``case_id_<tag>`` (``xform.py::_create_casexml_advanced``), which the entry then never sets."""
 
 
+def _auto_select_blank_mode_or_case_type(at, form, loads, opens, action, index):
+    if not _is_load(action, loads) or not _auto_selected(action):
+        return False
+    return not action["auto_select"].get("mode") or not action.get("case_type")
+
+
+auto_select_blank_mode_or_case_type = _advanced_reader(_auto_select_blank_mode_or_case_type)
+auto_select_blank_mode_or_case_type.__doc__ = """
+``forms-and-case-writes/an-auto-select-load-with-a-blank-mode-or-a-blank-case-type``:
+a load that selects its case itself whose ``auto_select.mode`` or ``case_type`` is blank, which the advanced editor
+marks "Autoselect mode required" or "Expected case type required" (``advanced/actions.js``,
+``loadUpdateAction.validate``). A load that does not select its case itself is in no such class."""
+
+
+def _auto_select_case_not_an_earlier_load(at, form, loads, opens, action, index):
+    if not _is_load(action, loads) or not _auto_selected(action):
+        return False
+    if action["auto_select"].get("mode") != "case":
+        return False
+    position = next(i for i, load in enumerate(loads) if load is action)
+    earlier = {load.get("case_tag") for load in loads[:position] if load.get("case_tag")}
+    return action["auto_select"].get("value_source") not in earlier
+
+
+auto_select_case_not_an_earlier_load = _advanced_reader(_auto_select_case_not_an_earlier_load)
+auto_select_case_not_an_earlier_load.__doc__ = """
+``forms-and-case-writes/auto-select-mode-case-naming-itself-a-later-load-or-an-open``:
+an ``auto_select`` in ``case`` mode whose ``value_source`` is not the tag of a load before it, since the source
+select lists only the earlier loads (``advanced/case_config_ui.js::getCaseTags('auto-select')``). Every other
+mode, the worker's ``usercase`` among them, is in no such class."""
+
+
+def _shows_product_stock(load):
+    """Whether a load turns CommCare Supply's product stock on: ``show_product_stock`` true, or a
+    ``product_program`` (``LoadUpdateAction``)."""
+    return bool(load.get("show_product_stock")) or bool(load.get("product_program"))
+
+
+def _commtrack_on(at, form, loads, opens, action, index):
+    return _is_load(action, loads) and _shows_product_stock(action)
+
+
+commtrack_on = _advanced_reader(_commtrack_on)
+commtrack_on.__doc__ = """``forms-and-case-writes/show-product-stock-true-or-a-non-empty-product-program``: a load
+whose ``show_product_stock`` is true or whose ``product_program`` is not blank (``LoadUpdateAction``), CommCare
+Supply's content. HQ's advanced editor writes ``false`` and ``""`` (``advanced/case_config_ui.js``, its new load's
+``show_product_stock`` and ``product_program``), which are no use of the class."""
+
+
+def _shadow_extra_loads(form):
+    """A mirror form's own loads (``ShadowForm.extra_actions.load_update_cases``)."""
+    extra = form.get("extra_actions") or {}
+    return [load for load in extra.get("load_update_cases") or [] if isinstance(load, dict)]
+
+
+def _shadow_loads_read(use):
+    """The mirror form a use sits in and the loads of its ``extra_actions`` the use reads (the one it sits in, else
+    every one): ``(form, loads)``, the form None where the use sits in no mirror form (``ShadowForm``)."""
+    at, form = _form(use)
+    if form is None or form.get("doc_type") != "ShadowForm":
+        return None, ()
+    extra = _shadow_extra_loads(form)
+    held = at.nearest("LoadUpdateAction")
+    if held is not None and any(held is load for load in extra):
+        return form, (held,)
+    return form, tuple(extra)
+
+
+def shadow_commtrack_on(use, manifest):
+    """``forms-and-case-writes/extra-actions-load-update-cases-show-product-stock-true-or-a-non``: a mirror form's
+    own load (``extra_actions``) whose ``show_product_stock`` is true or whose ``product_program`` is not blank,
+    which ``ShadowForm._merge_actions`` writes over the source form's load. A load of any other form is in no such
+    class (``commtrack-on`` reads it)."""
+    if _json(use) is None:
+        return None
+    form, loads = _shadow_loads_read(use)
+    if form is None:
+        return False
+    return any(_shows_product_stock(load) for load in loads)
+
+
+def _reads_through(load, opens):
+    """Whether a source form's XForm reads or writes through a load: its preloads, its ``case_properties``, its
+    close, or an open action's index to its tag (``xform.py::_create_casexml_advanced``)."""
+    tag = load.get("case_tag")
+    if load.get("preload") or load.get("case_properties") or _active({"condition": load.get("close_condition")}):
+        return True
+    return bool(tag) and any(
+        index.get("tag") == tag
+        for action in opens
+        for index in action.get("case_indices") or []
+        if isinstance(index, dict)
+    )
+
+
+def shadow_parent_tag_not_repeated(use, manifest):
+    """``forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent``: a mirror form
+    whose ``extra_actions`` leave out the tag of a source form's load the source XForm reads or writes through
+    (``_reads_through``): ``ShadowForm._merge_actions`` keeps only the loads ``extra_actions`` names, so that tag's
+    datum is gone. A use of any other form is in no such class; a mirror whose source form the app does not hold
+    leaves it open."""
+    at = _json(use)
+    if at is None:
+        return None
+    form, _ = _shadow_loads_read(use)
+    if form is None:
+        return False
+    source = at.app.forms_by_id.get(form.get("shadow_parent_form_id"))
+    if source is None:
+        return None
+    repeated = {load.get("case_tag") for load in _shadow_extra_loads(form)}
+    loads, opens = _advanced_lists(source)
+    return any(load.get("case_tag") not in repeated and _reads_through(load, opens) for load in loads)
+
+
 def update_never_followup_alone(use, manifest):
     """``forms-and-case-writes/update-case-condition-never-on-a-follow-up-with-no-other-active``:
     ``update_case.condition: never`` on a follow-up whose ``Form.active_actions`` hold nothing else, outside
@@ -3152,16 +3267,21 @@ def question_not_offered_by_picker(use, manifest):
     """``forms-and-case-writes/a-case-write-name-or-preload-on-a-question-the-picker-does-not``: a basic
     form's case write, name or preload on a label, or on a repeat question for its own case or the usercase
     (``case_config_utils.js::getQuestions``), or a child case's on a question in another repeat than its own
-    (``case_config_ui.js``: "Inside the wrong repeat!"). Read on the write or preload a use sits on, else on
-    every one of the form's."""
+    (``case_config_ui.js``: "Inside the wrong repeat!"); in an advanced form, a load's write or preload on a
+    repeat question, or an open action's name or write on a question in another repeat than its own
+    (``_advanced_write_not_offered``). Read on the write or preload a use sits on, else on every one of the
+    form's."""
     at, form = _form(use)
     if form is None:
         return None
-    if (form.get("doc_type") or "Form") != "Form":
+    doc_type = form.get("doc_type") or "Form"
+    if doc_type not in ("Form", "AdvancedForm"):
         return None
     xform = at.app.xform(form)
     if xform is None:
         return None
+    if doc_type == "AdvancedForm":
+        return _advanced_write_not_offered(at, form, xform)
     subcase = at.nearest("OpenSubCaseAction")
     written = at.nearest("ConditionalCaseUpdate")
     preload = at.nearest("PreloadAction")
@@ -3183,6 +3303,46 @@ def question_not_offered_by_picker(use, manifest):
     return any(_own_write_not_offered(xform, path) for path in filter(None, own)) or any(
         _child_write_not_offered(xform, each, None) for each in _subcases(form)
     )
+
+
+def _advanced_write_not_offered(at, form, xform):
+    """An advanced form's write or preload a use sits on (else every one of the action it sits in, else of the
+    form's), on a question the advanced picker does not offer. That picker offers labels and, where its action
+    takes repeats, repeat questions (``advanced/case_config_ui.js::getQuestions`` excludes no trigger, and
+    ``case-config:case-properties:question`` passes the action's ``allow.repeats()``): a load takes none
+    (``advanced/actions.js::loadUpdateAction``), so its write or preload on a repeat question is not offered; an
+    open action takes them, and its name or write on a question in another repeat than its own is marked "Inside
+    the wrong repeat!" (``advanced/case_properties.js``)."""
+    loads, opens = _advanced_lists(form)
+    held = at.nearest(*ADVANCED_ACTIONS)
+    written = at.nearest("ConditionalCaseUpdate")
+    for action in [held] if held is not None else [*loads, *opens]:
+        load = _is_load(action, loads)
+        if written is not None:
+            paths = [written.get("question_path")]
+        else:
+            slots = ("case_properties", "preload") if load else ("name_update", "case_properties")
+            if at.owner is action and at.key in slots:
+                slots = (at.key,)
+            paths = [path for slot in slots for path in _advanced_slot_paths(action, slot)]
+        paths = [path for path in paths if path]
+        if load and any(xform.in_repeat(path) for path in paths):
+            return True
+        context = action.get("repeat_context") or ""
+        if not load and any(_innermost_repeat(xform, path) not in ("", context) for path in paths):
+            return True
+    return False
+
+
+def _advanced_slot_paths(action, slot):
+    """The question paths one slot of an advanced action names: a name's, each write's, or each preload's (a
+    preload maps a question path to a property)."""
+    value = action.get(slot)
+    if slot == "name_update":
+        return [value.get("question_path")] if isinstance(value, dict) else []
+    if slot == "preload":
+        return list(value or {})
+    return [update.get("question_path") for update in (value or {}).values() if isinstance(update, dict)]
 
 
 def _own_write_not_offered(xform, path):
@@ -3705,8 +3865,90 @@ def format_reader(slug):
     return reader
 
 
-product = _column_reader(lambda at, column, detail, kind, module: column.get("model") == "product")
-product.__doc__ = """``menus-and-case-lists/model-product``: a column whose ``model`` is ``product``."""
+def _in_product_details(detail, module):
+    """Whether a detail is one of an advanced module's product details (``AdvancedModule.product_details``)."""
+    details = module.get("product_details")
+    return isinstance(details, dict) and any(details.get(name) is detail for name in ("short", "long"))
+
+
+product = _column_reader(
+    lambda at, column, detail, kind, module: (
+        column.get("model") == "product" and not _in_product_details(detail, module)
+    )
+)
+product.__doc__ = """``menus-and-case-lists/model-product``: a case list or case detail column whose ``model`` is
+``product``. A column of an advanced module's product details is in no such class: those details are judged whole,
+equal to the single ``name`` column ``AdvancedModule.new_module`` writes or differing from it
+(``differs_from_the_default``)."""
+
+
+def _json_equal(a, b):
+    """JSON equality as HQ's properties read it: numbers by value, a boolean never a number."""
+    if isinstance(a, bool) or isinstance(b, bool):
+        return isinstance(a, bool) and isinstance(b, bool) and a == b
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return a == b
+    if isinstance(a, dict) and isinstance(b, dict):
+        return a.keys() == b.keys() and all(_json_equal(a[key], b[key]) for key in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_json_equal(x, y) for x, y in zip(a, b, strict=True))
+    return type(a) is type(b) and a == b
+
+
+def _at_schema_defaults(manifest, cls, value, aside):
+    """Whether every key of a schema object but those ``aside`` holds its class's default (the surface's
+    ``schema:<cls>.<key>`` item). A key the class does not declare is the undeclared-key catch-all's, read there."""
+    for key, held in value.items():
+        if key in aside:
+            continue
+        item = manifest.item(f"schema:{cls}.{key}")
+        if item is None or not item.get("declared") or "default" not in item:
+            continue
+        if not _json_equal(held, item["default"]):
+            return False
+    return True
+
+
+# The one product column ``AdvancedModule.new_module`` writes, beside its ``header`` (``Product`` in the app's
+# language).
+DEFAULT_PRODUCT_COLUMN = {"field": "name", "model": "product", "format": "plain"}
+
+
+def differs_from_the_default(use, manifest):
+    """``menus-and-case-lists/advancedmodule-product-details-differing-from-the-default``: an advanced module's
+    ``product_details`` other than the ones ``AdvancedModule.new_module`` writes: a short detail of one plain
+    ``name`` column over the product headed ``Product`` in one language, and a long detail with no column, each
+    detail's other settings at ``Detail``'s defaults (its ``display`` the name ``DetailPair.wrap`` gives it). The
+    column's ``graph_configuration`` is aside, since HQ's build reads it only of a ``graph`` column
+    (``detail_screen.py::Graph``). CommCare Supply builds its product list from them
+    (``AdvancedModule.get_details``)."""
+    at = _json(use)
+    if at is None:
+        return None
+    module = at.nearest(*MODULES)
+    if module is None:
+        return None
+    details = module.get("product_details")
+    if not isinstance(details, dict):
+        return True
+    for name in ("short", "long"):
+        detail = details.get(name)
+        if not isinstance(detail, dict) or detail.get("display") not in (None, name):
+            return True
+        if not _at_schema_defaults(manifest, "Detail", detail, {"columns", "display"}):
+            return True
+    if details["long"].get("columns"):
+        return True
+    columns = details["short"].get("columns") or []
+    if len(columns) != 1 or not isinstance(columns[0], dict):
+        return True
+    (column,) = columns
+    if any(column.get(key) != value for key, value in DEFAULT_PRODUCT_COLUMN.items()):
+        return True
+    if list((column.get("header") or {}).values()) != ["Product"]:
+        return True
+    aside = {*DEFAULT_PRODUCT_COLUMN, "header", "graph_configuration"}
+    return not _at_schema_defaults(manifest, "DetailColumn", column, aside)
 
 
 def _clickable_icon_list_empty(at, column, detail, kind, module):
@@ -6420,6 +6662,17 @@ VALUE_CLASSES = {
         tag_names_own_or_later_open_action
     ),
     "forms-and-case-writes/an-advanced-open-action-s-index-to-a-load-whose-datum-hq-renames": load_with_renamed_datum,
+    "forms-and-case-writes/an-auto-select-load-with-a-blank-mode-or-a-blank-case-type": (
+        auto_select_blank_mode_or_case_type
+    ),
+    "forms-and-case-writes/auto-select-mode-case-naming-itself-a-later-load-or-an-open": (
+        auto_select_case_not_an_earlier_load
+    ),
+    "forms-and-case-writes/show-product-stock-true-or-a-non-empty-product-program": commtrack_on,
+    "forms-and-case-writes/extra-actions-load-update-cases-show-product-stock-true-or-a-non": shadow_commtrack_on,
+    "forms-and-case-writes/a-parent-load-tag-not-repeated-in-extra-actions-where-the-parent": (
+        shadow_parent_tag_not_repeated
+    ),
     "forms-and-case-writes/caseindex-relationship-question-inside-a-repeat": relationship_question_in_repeat,
     "forms-and-case-writes/caseindex-relationship-question-relationship-question-the-index-naming-an": (
         question_relationship_to_open_action
@@ -6503,6 +6756,7 @@ VALUE_CLASSES = {
     "menus-and-case-lists/22-graph": format_reader("graph"),
     "menus-and-case-lists/23-image-cc-case-image": format_reader("image"),
     "menus-and-case-lists/model-product": product,
+    "menus-and-case-lists/advancedmodule-product-details-differing-from-the-default": differs_from_the_default,
     "menus-and-case-lists/16p-clickable-icon-with-an-empty-endpoint-action-id-on-the-case": clickable_icon_list_empty,
     "menus-and-case-lists/16pp-clickable-icon-on-the-case-detail-whatever-its-endpoint": clickable_icon_on_detail,
     "menus-and-case-lists/21p-translatable-enum-key-outside-a-za-z0-9": translatable_enum_key_grammar,

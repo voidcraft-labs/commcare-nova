@@ -197,11 +197,22 @@ def _needs_child_cases(content):
     (``templates/app_manager/partials/forms/case_config.html`` and
     ``static/app_manager/js/forms/case_config_ui.js`` read ``add_ons_privileges.subcases``,
     which ``add_ons.py::get_privileges_dict`` answers from ``_ADD_ONS["subcases"]``, whose
-    privilege is ``child_cases``); a form uses them when that add-on's ``used_in_form`` says so."""
+    privilege is ``child_cases``); a form uses them when that add-on's ``used_in_form`` says so.
+
+    That page is the one ``templates/app_manager/form_view.html`` includes for a form of a module
+    that is not an ``AdvancedModule``; an advanced module's forms get
+    ``partials/forms/case_config_advanced.html``, whose page (``static/app_manager/js/forms/advanced/``)
+    reads no add-on privilege, so ``used_in_form``'s answer for an advanced form, true for every form
+    that is not a ``module_form``, gates nothing there."""
     from corehq.apps.app_manager.add_ons import _ADD_ONS
 
     uses = _ADD_ONS["subcases"].used_in_form
-    return any(uses(form) for form in _forms(content))
+    return any(
+        uses(form)
+        for module in _modules(content)
+        if module.doc_type != "AdvancedModule"
+        for form in module.get_forms()
+    )
 
 
 def _needs_case_sharing(content):

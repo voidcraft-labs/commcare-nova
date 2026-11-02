@@ -232,6 +232,62 @@ describe("HELD_BLOCK_PATH_TAKEN", () => {
 		);
 	});
 
+	// Part 02's G3 (N1): HQ's build appends a held slot's element by name
+	// beside a question of that name, and the plan never moves a held one.
+	it("refuses a question named like the element HQ appends for a held subcase, offering a free name", () => {
+		const { doc } = placementFixture("followup", {
+			extraRoot: [{ kind: "text", id: "subcase_0" }],
+			operations: (t) => [
+				own(),
+				childCreate("kid", t, {
+					placement: { kind: "basic", slot: "subcase", index: 0 },
+				}),
+			],
+		});
+		const [finding, ...more] = findings(doc, "HELD_BLOCK_PATH_TAKEN");
+		expect(more).toEqual([]);
+		expect(finding?.message).toBe(
+			"The name “subcase_0” is where your published app keeps the case change “kid” in CommCare HQ. You can name it “subcase_0_2”.",
+		);
+		expect(finding?.location.fieldId).toBe("subcase_0");
+		expect(finding?.details?.takenBy).toBe("question");
+		expect(finding && userFacingError(finding)).toBe(finding?.message);
+		// Only a rename resolves it: the hold still expresses its change, so
+		// no move is offered.
+		expect(findings(doc, "HELD_PLACEMENT_INEXPRESSIBLE")).toEqual([]);
+	});
+
+	it("refuses a question named like the element HQ appends for the held worker's update", () => {
+		const { doc } = placementFixture("followup", {
+			extraRoot: [{ kind: "text", id: "commcare_usercase" }],
+			operations: () => [
+				own(),
+				{
+					uuid: OP("w"),
+					id: "worker",
+					action: "update",
+					caseType: "commcare-user",
+					target: { kind: "worker-record" },
+					writes: [{ property: "age", value: read("age") }],
+					placement: { kind: "basic", slot: "usercase" },
+				} as CaseOperation,
+			],
+		});
+		const [finding, ...more] = findings(doc, "HELD_BLOCK_PATH_TAKEN");
+		expect(more).toEqual([]);
+		expect(finding?.message).toBe(
+			"The name “commcare_usercase” is where your published app keeps the case change “worker” in CommCare HQ. You can name it “commcare_usercase_2”.",
+		);
+	});
+
+	it("admits a question named like an unheld slot's element, which then takes Save to Case", () => {
+		const { doc } = placementFixture("followup", {
+			extraRoot: [{ kind: "text", id: "subcase_0" }],
+			operations: (t) => [own(), childCreate("kid", t)],
+		});
+		expect(findings(doc, "HELD_BLOCK_PATH_TAKEN")).toEqual([]);
+	});
+
 	it("admits a held block named by its own case change", () => {
 		const { doc } = placementFixture("followup", {
 			operations: () => [
@@ -266,6 +322,28 @@ function ownLoad(): CasePlacement {
 		throw new Error("The advanced form keeps its own case in no load.");
 	return placement;
 }
+
+describe("HELD_BLOCK_PATH_TAKEN for a held case action", () => {
+	it("refuses a root question named like the held load's case_<tag>", () => {
+		const load = ownLoad();
+		if (load.kind !== "advanced") throw new Error("No load.");
+		const { doc, formUuid } = advancedFixture({
+			formType: "followup",
+			operations: () => [advancedOwn(load)],
+		});
+		const [first] = doc.fieldOrder[formUuid] ?? [];
+		const question = first === undefined ? undefined : doc.fields[first];
+		if (question === undefined) throw new Error("The form holds no question.");
+		const name = `case_${load.tag}`;
+		doc.fields[question.uuid] = { ...question, id: name } as typeof question;
+		const [finding, ...more] = findings(doc, "HELD_BLOCK_PATH_TAKEN");
+		expect(more).toEqual([]);
+		expect(finding?.message).toBe(
+			`The name “${name}” is where your published app keeps “this form's case” in CommCare HQ. You can name it “${name}_2”.`,
+		);
+		expect(findings(doc, "HELD_PLACEMENT_INEXPRESSIBLE")).toEqual([]);
+	});
+});
 
 describe("CASE_PLACEMENT_KIND", () => {
 	it("refuses a held case action in a form of an ordinary menu", () => {

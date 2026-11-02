@@ -26,12 +26,14 @@ from proof.rules.conftest import (
     stored_differences,
 )
 
-DOCUMENT = "case-extension-registration"
+DOCUMENT = "nested-menu-registration-children"
+# Its registration, the first form of its second menu, opens its own case and one child at the form's root.
+MODULE, FORM = 1, 0
 
 
 def _if_condition(operator):
     def change(doc):
-        form = doc["modules"][0]["forms"][0]
+        form = doc["modules"][MODULE]["forms"][FORM]
         condition = form["actions"]["open_case"]["condition"]
         question = form["actions"]["open_case"]["name_update"]["question_path"]
         condition.update(type="if", question=question, answer="proof", operator=operator)

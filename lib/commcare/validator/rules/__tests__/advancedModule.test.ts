@@ -538,7 +538,6 @@ describe("the copy of causes no admitted document reaches yet", () => {
 					"link-renamed-load",
 					"repeat-shared",
 					"type-not-a-menu",
-					"appended-name-taken",
 				] as const
 			).map((reason) => ineligible({ kind: "ineligible", reason })),
 		).toEqual([
@@ -558,11 +557,6 @@ describe("the copy of causes no admitted document reaches yet", () => {
 			{
 				reason: "no menu lists visit cases",
 				remedy: "add a menu for visit cases",
-			},
-			{
-				reason:
-					"a question at the top of the form takes the name CommCare HQ gives its case block",
-				remedy: "rename that question",
 			},
 		]);
 	});

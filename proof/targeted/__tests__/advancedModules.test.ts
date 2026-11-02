@@ -187,16 +187,15 @@ describe("targeted-advanced-held-kind", () => {
 describe("targeted-root-case-block-names", () => {
 	const { doc, uuid } = made(rootCaseBlockNames());
 
-	it("puts its child and its worker update in the slots whose names its questions hold", () => {
-		expect(places(doc, uuid("register")).member).toEqual({
+	// Part 02's G3, outcome A: a slot whose element a root question names is
+	// not eligible, so each change takes Save to Case beside the question.
+	it("gives Save to Case to the child and the worker update whose slot names its questions hold", () => {
+		expect(places(doc, uuid("register")).member?.kind).toBe("save-to-case");
+		expect(places(doc, uuid("register")).household).toEqual({
 			kind: "basic",
-			slot: "subcase",
-			index: 0,
+			slot: "own",
 		});
-		expect(places(doc, uuid("check")).commcare_user).toEqual({
-			kind: "basic",
-			slot: "usercase",
-		});
+		expect(places(doc, uuid("check")).commcare_user?.kind).toBe("save-to-case");
 		expect(doc.fields[uuid("subcase-0")]?.id).toBe("subcase_0");
 		expect(doc.fields[uuid("commcare-usercase")]?.id).toBe("commcare_usercase");
 	});

@@ -820,8 +820,13 @@ export function allocateAdvancedTags(input: {
   ids at the root, Nova's generated root names, the root Connect block ids). Rejected: HQ's
   conversion spelling (`load_<type>_0`, `parent`, `models/modules.py::AdvancedModule.add_insert_form`),
   which is not what a person adding actions on the page produces.
-- A held tag whose `case_<tag>` an authored root question takes is part 01's `HELD_BLOCK_PATH_TAKEN`,
-  under gated run G3's outcome A (section 29); the finding offers the next free question id.
+- A derived open action's tag in a repeat also leaves `case_<tag>` distinct from every name the
+  repeat's rows hold, where HQ's build nests the block when another open action shares the repeat
+  (`xform.py::get_action_path`). G3 found outcome A (section 29), so no derived tag ever meets a
+  question of its block's name.
+- A held tag whose `case_<tag>` an authored question takes where HQ appends it is part 01's
+  `HELD_BLOCK_PATH_TAKEN` (gated run G3, outcome A, section 29); the finding offers the next free
+  question id.
 - Tags never hold `/`: case types exclude it (`lib/commcare/identifierValidation.ts::validateCaseType`),
   and the held tag schema is part 01's `lib/domain/placements.ts::advancedTagSchema` (over
   `XML_ELEMENT_NAME_PATTERN`).
@@ -869,7 +874,7 @@ An `own` arm of a follow-up or close form, an `update` or `close` of a chain cas
 | `owner` | an `owner` that is not absent, `acting-user`, `unowned` or a bare question read (a location term) | the key `owner_id` takes one question path |
 | `retype` | a `retype` | `case_type` is a reserved word (`case-reserved-words.json`) |
 | `link-target` | the operation adds or changes a link (a load's one index is its chain's) | `LoadUpdateAction.case_index` is a single index, set by the chain |
-| `appended-name-taken` | under G3 outcome A only: an authored question at the root is named `case_<the load's tag>` | N1 |
+| `appended-name-taken` | never met (G3 found outcome A): a load's derived tag steps around every root name (section 8), and a question that takes a held tag's `case_<tag>` is `HELD_BLOCK_PATH_TAKEN` | N1 |
 | `worker-property-name` | under G4 outcome A only, the worker's load: a property fails `^[a-zA-Z][\w_-]*$` | N2 |
 
 A chain case is updated or closed through its load only where the operation's target is exactly the
@@ -892,7 +897,7 @@ A `create`, or the `own` arm of a registration:
 | `link-renamed-load` | a link names a load whose datum HQ's child-module alignment renames (`add_parent_datums`, section 13.3) | `xform.py::_create_casexml_advanced` reads the unadjusted variable for an index to a load |
 | `repeat-shared` | the create is in a repeat that also holds another create placed as an open action, and fewer than two of them carry indices | `xform.py::get_action_path`, `AdvancedFormActions.count_subcases_per_repeat_context` |
 | `type-not-a-menu` | no module of the app has the create's case type | `xform.py::check_case_type` (`Application.get_case_types`) |
-| `appended-name-taken` | under G3 outcome A only: an authored question at the block's parent is named `case_<the open action's tag>` | N1 |
+| `appended-name-taken` | never met (G3 found outcome A): an open action's derived tag steps around every name at its block's parent (section 8), and a question that takes a held tag's `case_<tag>` is `HELD_BLOCK_PATH_TAKEN` | N1 |
 
 `repeat-shared` is decided over the whole repeat: part 01's procedure, placing creates in operation
 order, keeps an earlier create on its open action and gives a later one Save to Case when the later
@@ -1141,10 +1146,10 @@ it to the home screen" (builder).
 | `link-renamed-load` | `it links to a case this menu shares with the menu above it` | `link it to this form's own case` |
 | `repeat-shared` | `it shares its repeat with another new case that links to nothing` | `link both to a case` |
 | `type-not-a-menu` | `no menu lists ${caseType} cases` | `add a menu for ${caseType} cases` |
-| `appended-name-taken` (G3 outcome A) | `a question at the top of the form takes the name CommCare HQ gives its case block` | `rename that question` |
 
 `keyed` and `via-*` never reach the rule (a keyed create is never carried; a create holds no `via`),
-and `retype` and `worker-property-name` belong to loads.
+`retype` and `worker-property-name` belong to loads, and `appended-name-taken` is no open action's
+clause (G3's outcome A is met by the tag allocator, section 8, and the basic slots, part 01 §12.2).
 
 Every editor meets it at the commit gate: the builder (the link's editor shows the sentence before
 **Add link** or **Save**, through `lib/doc/commitVerdicts.ts`), the SA and MCP (the finding's message
@@ -1848,9 +1853,9 @@ From the code at pull request 7's base:
 - **A held advanced placement's expressibility also reads its tag and row**: a tag another action of
   the form takes, or an action whose tag another change's hold gives, is `scope`; a `row` the
   repeat no longer gives is `repeat-shared`. A carried create's `row: true` is `carried-create`.
-- **`appended-name-taken` and `worker-property-name` are typed hooks** (`advancedPlacement.ts`,
-  `appendedNameTaken`, `workerPropertyNameRefused`), answering `false` until gated runs G3 and G4
-  show outcome A on the lane.
+- **`worker-property-name` is a reason no predicate tries** (`advancedPlacement.ts`'s comment) until
+  gated run G4 shows outcome A on the lane. G3's `appended-name-taken` waited the same way until its
+  run found outcome A (the last bullet of this section).
 - **`placedBasic` covers advanced actions** (`placement.ts`): an advanced action names a case name's
   `nova_trimmed_` sibling as a basic action does (section 9), so the trimmed set reads both.
 - **The rule-shapes fixture holds Nova's documents, not HQ's actions**: each row of
@@ -2042,6 +2047,21 @@ From the code at pull request 7's base:
   builds each avoided shape from the accepted twin's HQ export with the clause changed on the action the
   fixture names, and needs each twin of `advanced-rule-shapes.json` to be a document Nova admits, which
   the producer refuses by name otherwise. Part 08's Departures hold the detail.
+- **G3's outcome A reaches the basic slots alone, so no row joins `advanced-rule-shapes.json`**
+  (pull request 7). The run (section 29; `harness-findings.md`, N1) found the collision, so an unheld
+  basic subcase whose `subcase_<i>` an authored name at its scope takes, and an unheld worker's update
+  beside a root `commcare_usercase`, take Save to Case (`lib/domain/basicCaseSlots.ts::appendedNameTaken`,
+  read by `basicCaseSlots` and `lib/commcare/placement.ts`). An advanced action never meets it: every
+  derived tag already steps around the names where HQ appends its `case_<tag>` (section 8, which the
+  run extends to an open action's repeat rows), so the clause would have no refused twin, and the
+  fixture's rows are advanced actions' twins (`test_advanced_rules.py` asserts the accepted twin's
+  action). The reason leaves `ADVANCED_INELIGIBILITY_REASONS` and section 15's table; it stays in
+  part 01's tuple for the basic slots. A held slot or tag keeps its name, and the gate refuses the
+  question instead (`HELD_BLOCK_PATH_TAKEN`, `validator/rules/casePlacement.ts::appendedNameFindings`):
+  making the hold inexpressible would let an edit's move carry the published block away, where only a
+  rename keeps it. Evidence: `lib/commcare/__tests__/placement.test.ts` ("a question named like the
+  block HQ's build appends"), `validator/rules/__tests__/casePlacement.test.ts`,
+  `advancedTags.test.ts`, and `targeted-root-case-block-names`, which now witnesses the fallback.
 
 ---
 
@@ -2117,6 +2137,8 @@ its validation of the built form), proof 3 (Core's and Formplayer's case blocks)
 - Outcome B, both nodes stay apart and every case write lands: no clause and no rule; N1 is recorded as
   a claim corrected; `allocateAdvancedTags` still steps around root names (it costs nothing and keeps
   HQ's injected names distinct).
+- Run on pull request 7's first push (Actions run 41505876754): outcome A. Section 27 records how it
+  landed, and `harness-findings.md` records N1 with the run's records.
 
 **G4. A worker property whose slug starts with `_`.** Where: pull request 7's lane on its first push
 over `targeted-worker-underscore-write`: the bar (HQ's build of both forms), proof 3 (the worker's case

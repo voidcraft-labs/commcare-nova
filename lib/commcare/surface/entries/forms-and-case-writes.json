@@ -5212,7 +5212,9 @@
 		"item": "`auto_select {mode: usercase}`",
 		"surfaceKeys": [
 			"schema:LoadUpdateAction.auto_select",
-			"schema:AutoSelectCase.mode"
+			"schema:AutoSelectCase.mode",
+			"schema:AutoSelectCase.value_source",
+			"schema:AutoSelectCase.value_key"
 		],
 		"valueClass": "auto-select-usercase",
 		"disposition": "HELD",

@@ -42,10 +42,13 @@
  * - `targeted-root-case-block-names`: a question `subcase_0` at the root of a
  *   form that creates a child case at the root, and a question
  *   `commcare_usercase` at the root of a form that saves to the worker's
- *   record, beside the elements HQ's build appends for that basic subcase
- *   and for the worker's update. Each change takes its Case Management slot,
- *   so HQ's build, Core and Formplayer show what the collision does (part
- *   02's G3).
+ *   record, the names of the elements HQ's build would append for that basic
+ *   subcase and for the worker's update. Part 02's G3 found the collision
+ *   (outcome A, N1): the question's bind selected the appended block too,
+ *   and its path read two nodes. So neither slot is eligible
+ *   (`appended-name-taken`), each change takes Save to Case beside its
+ *   question, and HQ's build, Core and Formplayer show each question
+ *   keeping its answer and each case write landing.
  *
  * Fixed values: each symptom is HQ's build, its editors' saves and Core's
  * case blocks, which no value check reads, so each document carries the
@@ -66,7 +69,25 @@ import {
 } from "@/lib/domain";
 import { formField, term } from "@/lib/domain/expression";
 import { caseListOf, targetedDocument, targetedUuid } from "../build";
-import { answerHeld } from "./echo";
+import { answerHeld, type HeldSession } from "./echo";
+
+/**
+ * The session of a form that creates cases: its command and the id of each
+ * case it creates, under the datum its entry makes for it
+ * (`case_id_new_<type>_<n>`, numbered in the form's create order), which the
+ * form's case blocks read.
+ */
+function newCases(command: string, ...caseTypes: string[]): HeldSession {
+	return {
+		command,
+		data: Object.fromEntries(
+			caseTypes.map((caseType, index) => [
+				`case_id_new_${caseType}_${index}`,
+				`targeted-new-${caseType}`,
+			]),
+		),
+	};
+}
 
 /** A condition written as form text, which `buildDoc` parses in its slot. */
 function condition(text: string): Expression {
@@ -416,6 +437,8 @@ export function advancedModule() {
 					addHousehold,
 					"/data/household_name",
 					"Hill farm",
+					"local",
+					newCases("m0-f0", "household"),
 				),
 			],
 		},
@@ -545,7 +568,14 @@ export function extensionCarried() {
 		doc,
 		expected: {
 			intent: [
-				answerHeld("client-name-held", enroll, "/data/client_name", "Wanjiru"),
+				answerHeld(
+					"client-name-held",
+					enroll,
+					"/data/client_name",
+					"Wanjiru",
+					"local",
+					newCases("m0-f0", "client", "referral"),
+				),
 			],
 		},
 	});
@@ -700,6 +730,8 @@ export function advancedChildModule() {
 					addHousehold,
 					"/data/household_name",
 					"Hill farm",
+					"local",
+					newCases("m0-f1", "household"),
 				),
 			],
 		},
@@ -806,7 +838,14 @@ export function advancedHeldKind() {
 		edit: heldKindApp(false),
 		expected: {
 			intent: [
-				answerHeld("patient-name-held", enroll, "/data/patient_name", "Amina"),
+				answerHeld(
+					"patient-name-held",
+					enroll,
+					"/data/patient_name",
+					"Amina",
+					"local",
+					newCases("m0-f0", "patient", "episode"),
+				),
 			],
 		},
 	});
@@ -828,7 +867,8 @@ export function rootCaseBlockNames() {
 			name: read("household-name"),
 		},
 		{
-			// A child at the root, which HQ's build would write at `subcase_0`.
+			// A child at the root, which HQ's build would write at
+			// `subcase_0`, the question's name, so it takes Save to Case.
 			uuid: uuid("add-member"),
 			id: "member",
 			action: "create",
@@ -847,7 +887,8 @@ export function rootCaseBlockNames() {
 		{ uuid: uuid("check-own"), id: "household", action: "own" },
 		{
 			// The worker's update, which HQ's build would write at
-			// `commcare_usercase`.
+			// `commcare_usercase`, the question's name, so it takes Save to
+			// Case.
 			uuid: uuid("worker-record"),
 			id: "commcare_user",
 			action: "update",
@@ -878,7 +919,7 @@ export function rootCaseBlockNames() {
 							fields: [
 								text("household-name", "Household name"),
 								text("member-name", "Member name"),
-								// The name HQ's build gives the child's block.
+								// The name HQ's build would give the child's block.
 								text("subcase-0", "Notes"),
 							],
 						},
@@ -888,7 +929,7 @@ export function rootCaseBlockNames() {
 							type: "followup",
 							fields: [
 								text("place", "Where was the visit?"),
-								// The name HQ's build gives the worker's block.
+								// The name HQ's build would give the worker's block.
 								text("commcare-usercase", "Notes"),
 							],
 						},
@@ -915,7 +956,18 @@ export function rootCaseBlockNames() {
 		rows: ["names HQ's build appends at a form's root"],
 		doc,
 		expected: {
-			intent: [answerHeld("notes-held", register, "/data/subcase_0", "seen")],
+			intent: [
+				answerHeld(
+					"notes-held",
+					register,
+					"/data/subcase_0",
+					"seen",
+					"local",
+					// The member's Save to Case block mints its own id, so the
+					// entry gives the household alone a session value.
+					newCases("m0-f0", "household"),
+				),
+			],
 		},
 	});
 }

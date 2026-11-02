@@ -73,10 +73,14 @@
  *   that change would run first. A close that shares the open action is its
  *   `close_condition`.
  *
- * Two clauses wait on runs the proof lane makes (part 02 §29) and are not
- * tried: `appended-name-taken` (G3, a root question named like the block HQ
- * appends) and `worker-property-name` (G4, a worker property named outside
- * HQ's grammar).
+ * No action meets the basic slots' `appended-name-taken` (part 02's G3, a
+ * question named like the block HQ's build appends): every derived tag
+ * steps around the names where HQ appends its `case_<tag>`
+ * (`advancedTags.ts::allocateAdvancedTags`), and a question that takes a
+ * held tag's name is refused at the gate (`HELD_BLOCK_PATH_TAKEN`). One
+ * clause waits on a run the proof lane makes (part 02 §29) and is not
+ * tried: `worker-property-name` (G4, a worker property named outside HQ's
+ * grammar).
  *
  * The clauses themselves are the domain's (`lib/domain/advancedEntryDatums.ts`:
  * `advancedLoadOf`, `opensCase`, `loadClause`, `openActionClause`), because

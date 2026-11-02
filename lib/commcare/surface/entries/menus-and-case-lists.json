@@ -1741,6 +1741,29 @@
 		"gates": ["project-space-setting/Domain.commtrack_enabled"]
 	},
 	{
+		"id": "menus-and-case-lists/module-case-list-show-false-on-an-advancedmodule",
+		"area": "menus-and-case-lists",
+		"section": "Module fields",
+		"item": "`Module.case_list.show: false` on an `AdvancedModule`",
+		"surfaceKeys": [
+			"schema:AdvancedModule.case_list",
+			"schema:CaseList",
+			"schema:CaseList.show"
+		],
+		"valueClass": "hidden-on-an-advanced-module",
+		"disposition": "INERT",
+		"dispositionCell": "**INERT**: default: HQ builds the case list menu item only where `case_list.show` is true (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`, `suite_xml/sections/menus.py`)",
+		"platforms": {
+			"kind": "not-applicable",
+			"cell": "n/a"
+		},
+		"emission": {
+			"cell": "`case_list.show: false`",
+			"markers": []
+		},
+		"gates": []
+	},
+	{
 		"id": "menus-and-case-lists/module-case-list-label-lang",
 		"area": "menus-and-case-lists",
 		"section": "Module fields",

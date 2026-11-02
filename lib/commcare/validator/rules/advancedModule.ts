@@ -136,12 +136,6 @@ export function newCaseDatumCauseWords(
 				reason: `no menu lists ${caseType} cases`,
 				remedy: `add a menu for ${caseType} cases`,
 			};
-		case "appended-name-taken":
-			return {
-				reason:
-					"a question at the top of the form takes the name CommCare HQ gives its case block",
-				remedy: "rename that question",
-			};
 		case "case-changed-before-create":
 			return {
 				reason:

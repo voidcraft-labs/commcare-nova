@@ -70,6 +70,21 @@ describe("allocateAdvancedTags", () => {
 		).toEqual({ loads: ["load_patient1"], opens: ["open_visit_1"] });
 	});
 
+	it("steps an open action in a repeat past a name its rows hold, and no other open action", () => {
+		// Two indexed open actions in one repeat nest their blocks at
+		// `case_<tag>` in its rows (`xform.py::get_action_path`).
+		expect(
+			allocateAdvancedTags({
+				loads: [],
+				opens: [
+					{ caseType: "visit", rowNames: new Set(["case_open_visit_0"]) },
+					{ caseType: "visit" },
+				],
+				rootNames: new Set(),
+			}),
+		).toEqual({ loads: [], opens: ["open_visit_1", "open_visit_2"] });
+	});
+
 	it("keeps two derived tags apart where two case types spell one tag", () => {
 		// `load_a1` + `0` and `load_a` + `10` are the same text.
 		const loads = [

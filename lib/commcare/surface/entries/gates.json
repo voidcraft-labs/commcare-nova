@@ -2538,7 +2538,12 @@
 			"kind": "confirmation",
 			"cell": "by asking the person to confirm, that CommTrack is off in the project space (defect 20)"
 		},
-		"effects": [],
+		"effects": [
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/detail[@id=*]"
+			}
+		],
 		"source": {
 			"kind": "paragraph",
 			"paragraph": "publish-checks",

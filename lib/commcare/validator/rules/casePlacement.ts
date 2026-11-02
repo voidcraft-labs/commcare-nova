@@ -23,7 +23,9 @@
  *   except a close holding the basic place of the create it closes, which
  *   is HQ's own `close_condition` on that subcase.
  * - `HELD_BLOCK_PATH_TAKEN`: an authored name equal to a segment of a held
- *   Save to Case path in the namespace that segment stands in. The
+ *   Save to Case path in the namespace that segment stands in, or to the
+ *   element HQ's build appends for a held slot or action (`subcase_<i>`,
+ *   `commcare_usercase`, `case_<tag>`) where it appends it. The
  *   allocator (`xform/generatedNodes.ts::planGeneratedNodes`) steps every
  *   generated name around a taken one but never moves a held segment, and
  *   an authored name is written as it is, so the two would be one element
@@ -34,6 +36,7 @@
  *   one of them and move the published block or the answer.
  */
 
+import { advancedCaseBlockName } from "@/lib/commcare/advancedTags";
 import {
 	type InexpressibleHold,
 	type PlacementSubject,
@@ -50,6 +53,10 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { advancedKindBlockers } from "@/lib/domain/advancedModule";
+import {
+	subcaseBlockName,
+	USERCASE_BLOCK_NAME,
+} from "@/lib/domain/basicCaseSlots";
 import { suffixUntilFree } from "@/lib/domain/idSlug";
 import {
 	advancedKindBlockerSentence,
@@ -445,6 +452,142 @@ function blockPathFindings(
 	return errors;
 }
 
+/**
+ * The element HQ's build appends for a held Case Management slot or case
+ * action, and the repeat whose rows hold it (the data root where absent):
+ * a basic subcase's `subcase_<i>`, the worker's `commcare_usercase`, an
+ * action's `case_<tag>`. A block HQ writes at `case` (the own slot, a
+ * repeat row's only subcase or open action) names nothing a question can
+ * take, since `case` is reserved. A close sharing its create's place is
+ * read at the create.
+ */
+function heldAppendedName(
+	ctx: PlacementRuleContext,
+	hold: Hold,
+): { readonly name: string; readonly repeat: Uuid | undefined } | undefined {
+	const { placement, operation } = hold;
+	const target = operation?.action === "close" ? operation.target : undefined;
+	const created =
+		target?.kind === "op"
+			? ctx.operations.find((op) => op.uuid === target.opUuid)
+			: operation;
+	const repeat =
+		created?.action === "create" ? created.forEach?.repeat : undefined;
+	if (placement.kind === "basic") {
+		if (placement.slot === "subcase")
+			return { name: subcaseBlockName(placement.index), repeat };
+		if (placement.slot === "usercase")
+			return { name: USERCASE_BLOCK_NAME, repeat: undefined };
+		return undefined;
+	}
+	if (placement.kind === "advanced" && placement.row !== true)
+		return { name: advancedCaseBlockName(placement.tag), repeat };
+	return undefined;
+}
+
+/**
+ * `HELD_BLOCK_PATH_TAKEN` over the names HQ's build appends: an authored
+ * question, or at the root a Connect block, named as the element a held
+ * slot or action is written at. HQ's build appends that element without
+ * looking (`xform.py::XForm._create_casexml`, `_add_usercase`,
+ * `get_action_path`), and the planner never moves a held one, so the form
+ * would hold the name twice: the question's bind would select the block
+ * too, and Core reads no single value from its path (part 02's G3, N1).
+ * The suggestion steps around every name of the scope, appended ones
+ * included.
+ */
+function appendedNameFindings(
+	ctx: PlacementRuleContext,
+	holds: readonly Hold[],
+): ValidationError[] {
+	const { doc, formUuid } = ctx;
+	const byScope = new Map<Uuid | undefined, Map<string, Hold>>();
+	for (const hold of holds) {
+		const appended = heldAppendedName(ctx, hold);
+		if (appended === undefined) continue;
+		const names = byScope.get(appended.repeat) ?? new Map<string, Hold>();
+		if (!names.has(appended.name)) names.set(appended.name, hold);
+		byScope.set(appended.repeat, names);
+	}
+	const errors: ValidationError[] = [];
+	for (const [repeat, names] of byScope) {
+		const questions = (doc.fieldOrder[repeat ?? formUuid] ?? []).flatMap(
+			(uuid) => {
+				const field = doc.fields[uuid];
+				return field === undefined ? [] : [field];
+			},
+		);
+		const connectIds =
+			repeat === undefined ? [...formConnectIds(doc, formUuid)] : [];
+		const scopeTaken = new Set<string>([
+			...questions.map((field) => field.id),
+			...connectIds,
+			...names.keys(),
+		]);
+		for (const field of questions) {
+			const hold = names.get(field.id);
+			if (hold === undefined) continue;
+			const subjectWords = heldSubjectWords(hold.subject, hold.operation);
+			const suggestion = suffixUntilFree(
+				editorSafeQuestionId(field.id),
+				scopeTaken,
+			);
+			errors.push(
+				validationError(
+					"HELD_BLOCK_PATH_TAKEN",
+					"form",
+					heldBlockPathTakenMessage(field.id, subjectWords, suggestion),
+					{
+						moduleUuid: ctx.moduleUuid,
+						moduleName: ctx.moduleName,
+						formUuid,
+						formName: ctx.formName,
+						fieldUuid: field.uuid,
+						fieldId: field.id,
+					},
+					{
+						held: JSON.stringify(hold.subject),
+						name: field.id,
+						suggestion,
+						takenBy: "question",
+						subjectWords,
+					},
+				),
+			);
+		}
+		for (const id of connectIds) {
+			const hold = names.get(id);
+			if (hold === undefined) continue;
+			const subjectWords = heldSubjectWords(hold.subject, hold.operation);
+			const suggestion = suffixUntilFree(
+				editorSafeQuestionId(id, RESERVED_CONNECT_BLOCK_IDS),
+				scopeTaken,
+			);
+			errors.push(
+				validationError(
+					"HELD_BLOCK_PATH_TAKEN",
+					"form",
+					heldBlockPathTakenMessage(id, subjectWords, suggestion),
+					{
+						moduleUuid: ctx.moduleUuid,
+						moduleName: ctx.moduleName,
+						formUuid,
+						formName: ctx.formName,
+					},
+					{
+						held: JSON.stringify(hold.subject),
+						name: id,
+						suggestion,
+						takenBy: "connect",
+						subjectWords,
+					},
+				),
+			);
+		}
+	}
+	return errors;
+}
+
 /** How the finding names a menu whose advanced kind is held. */
 export function heldModuleKindSubjectWords(moduleName: string): string {
 	return `the menu “${moduleName}” as an advanced menu`;
@@ -510,5 +653,6 @@ export function validateCasePlacements(
 		...inexpressibleFindings(ctx, planPlacements(doc, formUuid).inexpressible),
 		...sharedFindings(ctx, holds),
 		...blockPathFindings(ctx, holds),
+		...appendedNameFindings(ctx, holds),
 	];
 }

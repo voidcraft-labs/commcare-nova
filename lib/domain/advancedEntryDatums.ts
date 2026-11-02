@@ -237,9 +237,9 @@ function ownerExpressible(
 }
 
 /** The first clause that keeps `operation` from `load`, in the table order
- *  of `lib/commcare/advancedPlacement.ts`. `appended-name-taken` and
- *  `worker-property-name` wait on the proof lane's gated runs and are not
- *  tried. */
+ *  of `lib/commcare/advancedPlacement.ts`. `worker-property-name` waits on
+ *  the proof lane's gated run and is not tried; no load meets
+ *  `appended-name-taken`, since its tag steps around every root name. */
 export function loadClause(
 	f: CaseSlotFacts,
 	operation: CaseOperation,

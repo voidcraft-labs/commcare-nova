@@ -277,7 +277,10 @@ describe("addAdvancedCaseBlocks", () => {
 		expect(binds.get(`${base}/update/notes`)?.relevant).toBe(
 			"count(/data/owner_q) > 0",
 		);
-		expect(binds.get(`${base}/close`)?.relevant).toBe("true()");
+		// HQ's `XForm.add_bind` drops an `always` condition's `true()`, and with
+		// it the bind its nodeset alone would be: the close stands unbound.
+		expect(names(caseEl)).toContain("close");
+		expect(binds.has(`${base}/close`)).toBe(false);
 	});
 
 	it("writes HQ's '-' owner where every index is an extension or the action names owner_id", () => {

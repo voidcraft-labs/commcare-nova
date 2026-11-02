@@ -6,8 +6,6 @@ import java.util.*;
 import org.commcare.cases.model.Case;
 import org.commcare.cases.model.CaseIndex;
 import org.commcare.cases.instance.CaseInstanceTreeElement;
-import org.commcare.cases.query.queryset.DualTableSingleMatchModelQuerySet;
-import org.commcare.modern.engine.cases.CaseIndexTable;
 import org.commcare.core.process.XmlFormRecordProcessor;
 import org.commcare.test.utilities.TestInstanceInitializer;
 import org.commcare.util.mocks.MockDataUtils;
@@ -59,31 +57,8 @@ public class CaseChoiceRuntimeTest {
             form = parsed.getFormDef();
             form.initialize(true, new TestInstanceInitializer(sandbox) {
                 @Override public InstanceRoot generateRoot(ExternalDataInstance instance) {
-                    if ("casedb".equals(instance.getInstanceId())) return new ConcreteInstanceRoot(new CaseInstanceTreeElement(instance.getBase(), sandbox.getCaseStorage(), new CaseIndexTable() {
-                        // Core's stock TestInstanceInitializer supplies no physical
-                        // case-index table. Answer its storage reads from the same
-                        // native Case records; Core still parses, plans and evaluates
-                        // every emitted XPath and processes the submission itself.
-                        public LinkedHashSet<Integer> getCasesMatchingIndex(String name, String value) {
-                            LinkedHashSet<Integer> matches = new LinkedHashSet<>();
-                            for (IStorageIterator it = sandbox.getCaseStorage().iterate(false); it.hasMore();) {
-                                int id = it.nextID();
-                                if (value.equals(sandbox.getCaseStorage().read(id).getMetaData(Case.INDEX_CASE_INDEX_PRE + name))) matches.add(id);
-                            }
-                            return matches;
-                        }
-                        public LinkedHashSet<Integer> getCasesMatchingValueSet(String name, String[] values) {
-                            LinkedHashSet<Integer> matches = new LinkedHashSet<>();
-                            for (String value : values) matches.addAll(getCasesMatchingIndex(name, value));
-                            return matches;
-                        }
-                        public int loadIntoIndexTable(HashMap<String, Vector<Integer>> cache, String name) { throw new AssertionError("Unexpected bulk index read"); }
-                        public DualTableSingleMatchModelQuerySet bulkReadIndexToCaseIdMatch(String name, Collection<Integer> cases) { throw new AssertionError("Unexpected bulk join"); }
-                        public void indexCase(Case record) { throw new AssertionError("Unexpected index write"); }
-                        public void clearCaseIndices(Collection<Integer> ids) { throw new AssertionError("Unexpected index clear"); }
-                        public void delete() { throw new AssertionError("Unexpected index delete"); }
-                        public boolean isStorageExists() { return true; }
-                    }));
+                    if ("casedb".equals(instance.getInstanceId())) return new ConcreteInstanceRoot(new CaseInstanceTreeElement(instance.getBase(), sandbox.getCaseStorage(),
+                        new StorageCaseIndexTable(sandbox.getCaseStorage())));
                     if (!"commcaresession".equals(instance.getInstanceId())) return super.generateRoot(instance);
                     TreeElement session = node("session", null);
                     TreeElement context = node("context", null);
