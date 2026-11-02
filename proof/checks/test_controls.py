@@ -62,15 +62,20 @@ class Retained:
 
 
 def _documents(loaded=None):
-    """An edited corpus document and a targeted one with a local archive, each where the corpus holds one (a
-    corpus of a run's own may hold neither), the run's checked documents first.
+    """An edited corpus document and a targeted one, each with a local archive, which the tests read, and each
+    where the corpus holds one (a corpus of a run's own may hold neither), the run's checked documents first. A
+    document HQ alone reads (a capture's) has no local archive, and a run over documents named by hand may check
+    one first.
 
     Only a document the run checks has a group a queue holds, so a test of it runs in that group; one the run's
     sample or selection leaves out is retained by this package's own items, which the queue accounts for."""
     loaded = cases.load_corpus() if loaded is None else loaded
     checked = {document.id for document in loaded.documents}
     documents = loaded.emitted
-    edited = next((document for document in documents if document.edit is not None and not document.targeted), None)
+    edited = next(
+        (d for d in documents if d.edit is not None and not d.targeted and d.local_ccz is not None),
+        None,
+    )
     targeted = next((d for d in documents if d.targeted and d.local_ccz is not None), None)
     return [
         pytest.param(Retained(d, d.group if d.id in checked else None), id=name)
@@ -84,16 +89,18 @@ def test_a_document_the_run_leaves_out_is_retained_in_this_packages_group():
     module retains is one the run leaves out, and its items run in proof/checks's group, which the queue accounts
     for, never in a document group no queue runs (the gate's "Every block ran exactly once")."""
 
-    def stub(identifier, *, targeted, edit):
+    def stub(identifier, *, targeted, edit, local=True):
         return SimpleNamespace(
             id=identifier,
             group=f"corpus:{identifier}",
             targeted=targeted,
             edit=SimpleNamespace() if edit else None,
-            local_ccz=Path("local.ccz") if targeted else None,
+            local_ccz=Path("local.ccz") if local else None,
         )
 
     named, left_out = stub("named", targeted=True, edit=False), stub("left-out", targeted=False, edit=True)
+    # An edited document with no local archive (a capture, which HQ alone reads) is passed over, checked or not.
+    hq_only = stub("hq-only", targeted=False, edit=True, local=False)
 
     def groups(loaded):
         found = {}
@@ -107,6 +114,8 @@ def test_a_document_the_run_leaves_out_is_retained_in_this_packages_group():
     assert own == "proof/checks"
     selected = SimpleNamespace(documents=(named,), emitted=(named, left_out))
     assert groups(selected) == {"edited": own, "targeted": "corpus:named"}
+    with_hq_only = SimpleNamespace(documents=(hq_only, named), emitted=(hq_only, named, left_out))
+    assert groups(with_hq_only) == {"edited": own, "targeted": "corpus:named"}
     # Where the run checks the edited document too, its items run in its own group, as every check's do.
     whole = SimpleNamespace(documents=(named, left_out), emitted=(named, left_out))
     assert groups(whole) == {"edited": "corpus:left-out", "targeted": "corpus:named"}
