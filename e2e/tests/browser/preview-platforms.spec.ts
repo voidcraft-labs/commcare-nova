@@ -301,6 +301,16 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await openScenario(page, "choice-label-markdown-web-apps");
 		await choiceLabelOf(page);
 	},
+	async "choice-label-plain-web-apps"(page) {
+		await openScenario(page, "choice-label-plain-web-apps");
+		/* The choice holds `plainLabel`, so its item writes no markdown form;
+		 * the Web Apps client formats it all the same. */
+		await expect(
+			page.getByRole("radio", { name: /Plain maybe/ }),
+		).toBeVisible();
+		await expect(page.locator("em", { hasText: /^Plain$/ })).toHaveCount(1);
+		await expect(page.getByText("*Plain* maybe")).toHaveCount(0);
+	},
 	async "group-label-web-apps"(page) {
 		await openScenario(page, "group-label-web-apps");
 		await expect(
@@ -575,7 +585,8 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(header).toHaveText("Visits (1) > Details");
 		await next.click();
 		await expect(prompt).toBeVisible();
-		/* A labeled group inside a repeat is one screen per entry. */
+		/* A group shown on one screen inside a repeat is one screen per
+		 * entry. */
 		await addAnother.click();
 		await expect(header).toHaveText("Visits (2) > Details");
 		await expect(note).toHaveValue("");
@@ -584,7 +595,7 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await prompt
 			.getByRole("button", { name: "Do not add", exact: true })
 			.click();
-		/* A labeled group is one screen of all its questions. */
+		/* A group shown on one screen is one screen of all its questions. */
 		await expect(header).toHaveText("Household");
 		await expect(page.getByRole("textbox", { name: /Adults/ })).toBeVisible();
 		await expect(page.getByRole("textbox", { name: /Children/ })).toBeVisible();
@@ -603,13 +614,21 @@ const PREVIEW_PLATFORM_CHECKS: Readonly<
 		await expect(
 			page.getByRole("textbox", { name: /First extra/ }),
 		).toHaveCount(0);
-		/* A repeat the worker adds to inside a labeled group is part of the
-		 * group's screen: no prompt and no add control. */
+		/* A labeled group without `fieldList` is transparent: the repeat
+		 * the worker adds to inside it pages its entry under the group's
+		 * header line and prompts after it, with no add control. */
 		await next.click();
-		await expect(header).toHaveText("Stock");
+		await expect(header).toHaveText("Stock > Items (1)");
 		await expect(page.getByRole("textbox", { name: /Item/ })).toBeVisible();
 		await expect(page.getByRole("button", { name: /^Add / })).toHaveCount(0);
 		await next.click();
+		const itemsPrompt = page.getByRole("alertdialog", {
+			name: "Add another Items?",
+		});
+		await expect(itemsPrompt).toBeVisible();
+		await itemsPrompt
+			.getByRole("button", { name: "Do not add", exact: true })
+			.click();
 		await expect(page.getByRole("alertdialog")).toHaveCount(0);
 		await expect(page.getByRole("textbox", { name: /Wrap up/ })).toBeVisible();
 		await expect(

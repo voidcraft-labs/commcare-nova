@@ -2,8 +2,8 @@
  * The screen the running form shows on Android, when it pages one screen at
  * a time without sections.
  *
- * Android pages an unsectioned form one screen per labeled group and per
- * question outside one (`lib/preview/platform.ts`, `formScreens`). The
+ * Android pages an unsectioned form one screen per group shown on one screen
+ * (`fieldList`) and per question outside one (`lib/preview/platform.ts`, `formScreens`). The
  * running renderer keeps walking the whole field tree, so repeat entries,
  * capture slots and every engine path keep their usual identities, and this
  * scope decides what each row draws: the screen's own question or group,

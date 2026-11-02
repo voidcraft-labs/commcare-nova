@@ -1939,7 +1939,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 	/* The running form pages on the platform Preview plays
 	 * (`useFormPaging`): Web Apps draws the whole form on one screen, sections
 	 * as titled groups; Android pages a sectioned form one section at a time
-	 * and any other form one labeled group or question at a time. The hook
+	 * and any other form one field-list group or question at a time. The hook
 	 * is inert in edit mode, where the canvas shows every page at once. */
 	const formIsSectioned = usePresentationFormIsSectioned(formUuid);
 	const paging = useFormPaging({

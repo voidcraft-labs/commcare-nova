@@ -89,6 +89,12 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		fixture: "questions",
 		describe: "a choice label renders its markdown",
 	},
+	"choice-label-plain-web-apps": {
+		platform: "web-apps",
+		fixture: "questions",
+		describe:
+			"a choice label written with formatting off still renders its markdown",
+	},
 	"group-label-web-apps": {
 		platform: "web-apps",
 		fixture: "questions",
@@ -165,7 +171,7 @@ export const PREVIEW_PLATFORM_SCENARIOS = {
 		platform: "android",
 		fixture: "screens",
 		describe:
-			"a form without sections pages one question or labeled group per screen, a labeled group in a repeat once per entry and an unlabeled group's questions one by one; Next validates and the last screen reads Finish; the repeat prompt goes back, adds another entry, declines, and reads Do not add, I'm finished when nothing follows; a repeat inside a labeled group offers no prompt and no add control",
+			"a form without sections pages one question or group shown on one screen per screen, such a group in a repeat once per entry and an unlabeled group's questions one by one; Next validates and the last screen reads Finish; the repeat prompt goes back, adds another entry, declines, and reads Do not add, I'm finished when nothing follows; a repeat inside a labeled group without the flag pages its entry and prompts",
 	},
 } as const satisfies Readonly<Record<string, PreviewPlatformScenario>>;
 

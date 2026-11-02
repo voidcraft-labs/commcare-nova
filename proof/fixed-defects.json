@@ -9223,5 +9223,32 @@
 		"artifact": "trace@local.ccz",
 		"path": "/runs/*/trace/*/caseDb/casedb/case[@case_id=*]",
 		"control": "case-extension-repeat-after-13"
+	},
+	{
+		"id": "d27-labelled-group-repeat-form-xform-repeat-user-repeat-in-a-field-list",
+		"defect": 27,
+		"part": "user repeat in a labelled group",
+		"check": "manifest",
+		"artifact": "*form:*",
+		"path": "/xform:repeat/refused/user-repeat-in-a-field-list",
+		"control": "targeted-labelled-group-repeat"
+	},
+	{
+		"id": "d27-labelled-group-repeat-vellum-again-mug-repeat-count-error-repeat-count-required",
+		"defect": 27,
+		"part": "user repeat in a labelled group",
+		"check": "proof4",
+		"artifact": "editor:vellum again@*",
+		"path": "/modules/*/forms/*/questions/*/repeat_count/mug-repeat_count-error/Repeat Count is required.",
+		"control": "targeted-labelled-group-repeat"
+	},
+	{
+		"id": "d27-labelled-group-repeat-vellum-mug-repeat-count-error-repeat-count-required",
+		"defect": 27,
+		"part": "user repeat in a labelled group",
+		"check": "proof4",
+		"artifact": "editor:vellum@*",
+		"path": "/modules/*/forms/*/questions/*/repeat_count/mug-repeat_count-error/Repeat Count is required.",
+		"control": "targeted-labelled-group-repeat"
 	}
 ]

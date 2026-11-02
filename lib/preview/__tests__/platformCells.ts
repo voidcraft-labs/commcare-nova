@@ -208,6 +208,9 @@ export const PLATFORM_CELLS: Readonly<
 	),
 	"questions/question-list-unlabelled-when-every-root-field-is-a-section-and@web-apps":
 		model("form-one-screen-web-apps"),
+	"questions/question-list-unlabelled-anywhere-else@web-apps": model(
+		"form-one-screen-web-apps",
+	),
 
 	// ── Browser ────────────────────────────────────────────────────────
 	"questions/gps-geopoint@web-apps": browser("location-map-web-apps"),
@@ -241,6 +244,9 @@ export const PLATFORM_CELLS: Readonly<
 	"questions/choice-label-text-markdown@android": browser(
 		"choice-label-markdown-android",
 	),
+	"questions/choice-label-with-no-markdown-form@web-apps": browser(
+		"choice-label-plain-web-apps",
+	),
 	"questions/group-repeat-label-text-markdown@web-apps": browser(
 		"group-label-web-apps",
 	),
@@ -264,6 +270,7 @@ export const PLATFORM_CELLS: Readonly<
 		browser("logo-android"),
 
 	// ── Stated ─────────────────────────────────────────────────────────
+	"questions/plain-label-containing-html-text@web-apps": stated("plain-text"),
 	"expressions-and-data/json-property@web-apps": stated("json-property"),
 	"expressions-and-data/json-property@android": stated("json-property"),
 	"expressions-and-data/lower-case@web-apps": stated("case-conversion"),
@@ -345,11 +352,5 @@ export const PLATFORM_CELLS: Readonly<
 		),
 	"questions/h-title-and-data-name-whatever-their-text@web-apps": outside(
 		"A saved form's name on Android's saved list; Preview keeps no saved forms.",
-	),
-	"questions/plain-label-containing-html-text@web-apps": outside(
-		"Nova writes a markdown form for every label, so a label without one never reaches a runtime.",
-	),
-	"questions/plain-label-containing-html-text@android": outside(
-		"Nova writes a markdown form for every label, so a label without one never reaches a runtime.",
 	),
 };

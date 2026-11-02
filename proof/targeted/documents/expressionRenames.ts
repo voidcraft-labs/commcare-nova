@@ -106,6 +106,7 @@ function renameWitness(properties: boolean) {
 										uuid: uuid("details"),
 										id: "details",
 										label: proseText("Details"),
+										fieldList: true,
 										children: [
 											f({
 												kind: "text",

@@ -207,7 +207,7 @@ describe("FormEngine.formScreens", () => {
 	): FormEngine {
 		const built = input(fields);
 		/* A group's label is optional, and the fixture gives every group
-		 * one; an unlabeled group draws no field-list. */
+		 * one; these lose theirs. */
 		for (const path of unlabeled) {
 			const field = built.doc.fields[u(path)];
 			if (field !== undefined && "label" in field) delete field.label;
@@ -245,77 +245,115 @@ describe("FormEngine.formScreens", () => {
 		);
 	});
 
-	it("pages an unsectioned form on Android as Core collects its prompts", () => {
-		const engine = on(
-			androidDevice(),
-			[
-				{ id: "name", kind: "text", label: proseText("Name") },
-				{ id: "secret", kind: "hidden", calculate: "1" },
+	/* Every kind of group a form without sections holds: a field-list group
+	 * with a nested field-list group and a counted repeat inside, a group
+	 * with neither label nor flag, a labelled group without the flag over a
+	 * field-list group, an unlabelled field-list group, and a repeat whose
+	 * entries each hold a field-list group. */
+	const UNSECTIONED: FieldSpec[] = [
+		{ id: "name", kind: "text", label: proseText("Name") },
+		{ id: "secret", kind: "hidden", calculate: "1" },
+		{
+			id: "household",
+			kind: "group",
+			label: proseText("Household"),
+			fieldList: true,
+			children: [
+				{ id: "size", kind: "int", label: proseText("Size") },
 				{
-					id: "household",
+					id: "inner",
 					kind: "group",
-					label: proseText("Household"),
-					children: [
-						{ id: "size", kind: "int", label: proseText("Size") },
-						{
-							id: "inner",
-							kind: "group",
-							label: proseText("Head"),
-							children: [
-								{ id: "head", kind: "text", label: proseText("Head") },
-							],
-						},
-						{
-							id: "members",
-							kind: "repeat",
-							children: [
-								{ id: "member", kind: "text", label: proseText("Member") },
-							],
-						},
-					],
+					label: proseText("Head"),
+					fieldList: true,
+					children: [{ id: "head", kind: "text", label: proseText("Head") }],
 				},
 				{
-					id: "loose",
-					kind: "group",
-					children: [
-						{ id: "phone", kind: "text", label: proseText("Phone") },
-						{
-							id: "skipped",
-							kind: "text",
-							label: proseText("Skipped"),
-							relevant: "/data/name = 'yes'",
-						},
-					],
-				},
-				{
-					id: "visits",
+					id: "members",
 					kind: "repeat",
+					repeat_mode: "count_bound",
+					repeat_count: "1",
 					children: [
-						{
-							id: "visit",
-							kind: "group",
-							label: proseText("Visit"),
-							children: [
-								{ id: "note", kind: "text", label: proseText("Note") },
-							],
-						},
-						{ id: "rating", kind: "int", label: proseText("Rating") },
+						{ id: "member", kind: "text", label: proseText("Member") },
 					],
 				},
 			],
-			["loose"],
-		);
+		},
+		{
+			id: "loose",
+			kind: "group",
+			children: [
+				{ id: "phone", kind: "text", label: proseText("Phone") },
+				{
+					id: "skipped",
+					kind: "text",
+					label: proseText("Skipped"),
+					relevant: "/data/name = 'yes'",
+				},
+			],
+		},
+		{
+			id: "contact",
+			kind: "group",
+			label: proseText("Contact"),
+			children: [
+				{ id: "email", kind: "text", label: proseText("Email") },
+				{ id: "mobile", kind: "text", label: proseText("Mobile") },
+				{
+					id: "address",
+					kind: "group",
+					label: proseText("Address"),
+					fieldList: true,
+					children: [
+						{ id: "street", kind: "text", label: proseText("Street") },
+						{ id: "town", kind: "text", label: proseText("Town") },
+					],
+				},
+			],
+		},
+		{
+			id: "together",
+			kind: "group",
+			fieldList: true,
+			children: [
+				{ id: "first", kind: "text", label: proseText("First") },
+				{ id: "second", kind: "text", label: proseText("Second") },
+			],
+		},
+		{
+			id: "visits",
+			kind: "repeat",
+			children: [
+				{
+					id: "visit",
+					kind: "group",
+					label: proseText("Visit"),
+					fieldList: true,
+					children: [{ id: "note", kind: "text", label: proseText("Note") }],
+				},
+				{ id: "rating", kind: "int", label: proseText("Rating") },
+			],
+		},
+	];
+
+	it("pages an unsectioned form on Android as Core collects its prompts", () => {
+		const engine = on(androidDevice(), UNSECTIONED, ["loose", "together"]);
 		/* The form opens with one entry; add a second. */
 		engine.addRepeat("/data/visits");
-		/* A labeled group, with its nested group and its repeat, is one
-		 * screen and offers no screen of its own to add an entry; an
-		 * unlabeled group's questions are a screen each, an irrelevant one
-		 * skipped; a hidden value is on no screen; a repeat's questions are
-		 * one screen per entry. */
+		/* A group shown on one screen, with its nested field-list group and
+		 * its repeat, is one screen and offers no screen of its own to add an
+		 * entry; a group without the flag is transparent, labelled or not, so
+		 * its questions are a screen each (an irrelevant one skipped) and a
+		 * field-list group inside it is a screen of its own; an unlabelled
+		 * group holding the flag is one screen; a hidden value is on no
+		 * screen; a repeat's questions are one screen per entry. */
 		expect(shown(engine)).toEqual([
 			{ kind: "question", path: "/data/name" },
 			{ kind: "field-list", path: "/data/household" },
 			{ kind: "question", path: "/data/loose/phone" },
+			{ kind: "question", path: "/data/contact/email" },
+			{ kind: "question", path: "/data/contact/mobile" },
+			{ kind: "field-list", path: "/data/contact/address" },
+			{ kind: "field-list", path: "/data/together" },
 			{ kind: "field-list", path: "/data/visits[0]/visit" },
 			{ kind: "question", path: "/data/visits[0]/rating" },
 			{ kind: "field-list", path: "/data/visits[1]/visit" },
@@ -326,6 +364,13 @@ describe("FormEngine.formScreens", () => {
 		expect(
 			engine.formScreens().find(({ path }) => path === "/data/loose/skipped"),
 		).toMatchObject({ hasVisibleQuestions: false });
+	});
+
+	it("keeps the same form one page on Web Apps, field-list groups and all", () => {
+		const engine = on(webAppsDevice(), UNSECTIONED, ["loose", "together"]);
+		expect(
+			engine.formScreens().map(({ kind, path }) => ({ kind, path })),
+		).toEqual([{ kind: "form", path: "/data" }]);
 	});
 });
 
@@ -357,6 +402,8 @@ describe("FormEngine.repeatPromptPoints", () => {
 			repeat_count: "1",
 			children: [{ id: "item", kind: "text", label: proseText("Item") }],
 		},
+		/* Labelled without `fieldList`: transparent to Android's screens, so
+		 * its repeat pages and prompts as one outside any group does. */
 		{
 			id: "household",
 			kind: "group",
@@ -375,11 +422,19 @@ describe("FormEngine.repeatPromptPoints", () => {
 		{ id: "done", kind: "text", label: proseText("Done") },
 	];
 
-	it("places Android's prompt after a user-added repeat's last screen, and none in a labeled group or for a counted repeat", () => {
+	it("places Android's prompt after each user-added repeat's last screen outside a group shown on one screen, and none for a counted repeat", () => {
 		const engine = engineOn(androidDevice(), FIELDS);
 		const screens = engine.formScreens().map(({ path }) => path);
-		const [visits] = engine.repeatPromptPoints();
-		expect(engine.repeatPromptPoints()).toHaveLength(1);
+		const [visits, members] = engine.repeatPromptPoints();
+		expect(engine.repeatPromptPoints()).toHaveLength(2);
+		expect(members).toMatchObject({
+			repeatUuid: u("household.members"),
+			repeatPath: "/data/household/members",
+			visible: true,
+		});
+		expect(screens[members.afterScreen]).toBe(
+			`/data/household/members[${members.entryCount - 1}]/member`,
+		);
 		expect(visits).toMatchObject({
 			repeatUuid: u("visits"),
 			repeatPath: "/data/visits",

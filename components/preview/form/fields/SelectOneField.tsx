@@ -51,6 +51,7 @@ export function SelectOneField({
 		value: string;
 		label: string;
 		media?: SelectOption["media"];
+		plainLabel?: SelectOption["plainLabel"];
 	}> = dynamicChoices
 		? (state.choices ?? [])
 		: field.optionsSource.kind === "inline"
@@ -68,6 +69,10 @@ export function SelectOneField({
 	const rules = usePreviewPlatformRules();
 	const drawChoiceMedia = isEditMode || rules.choiceMedia;
 	const labelRendering = isEditMode ? undefined : rules.labelMarkdown;
+	/* A choice holding `plainLabel` shows as written in edit mode and where
+	 * the platform draws it so (Android); Web Apps formats every choice
+	 * (`rules.plainChoice`). */
+	const plainChoiceAsWritten = isEditMode || rules.plainChoice === "literal";
 
 	if (dynamicChoices && state.choices === undefined) {
 		return <LookupChoicesLoading />;
@@ -118,9 +123,13 @@ export function SelectOneField({
 								)}
 							</div>
 							<span className="preview-markdown text-sm text-nova-text">
-								<PreviewMarkdown inline rendering={labelRendering}>
-									{opt.label}
-								</PreviewMarkdown>
+								{opt.plainLabel === true && plainChoiceAsWritten ? (
+									opt.label
+								) : (
+									<PreviewMarkdown inline rendering={labelRendering}>
+										{opt.label}
+									</PreviewMarkdown>
+								)}
 							</span>
 							{/* Per-option media (the image/audio that makes a visual
 						    choice concrete): compact so a list of options stays

@@ -283,7 +283,7 @@ export interface InvalidFieldTarget {
 /**
  * One screen of the running form: the whole form (Web Apps draws every
  * question on one screen), one section (a sectioned form on Android), one
- * labeled group drawn as a field-list, or one question (an unsectioned form
+ * group shown on one screen (`fieldList`), or one question (an unsectioned form
  * on Android, which pages as Core's `FormEntryController.getQuestionPrompts`
  * collects its prompts).
  */
@@ -311,8 +311,8 @@ export interface FormScreenPage {
  * last screen of a repeat the worker adds to (or where the repeat stands,
  * when it has no entry yet), stepping Next asks whether to add an entry
  * (`FormEntryActivityUIController.java::createRepeatDialog`). Only a
- * user-added repeat outside a labeled group has one: inside a group the
- * screen is a field-list, and Core's `getQuestionPrompts` steps over the
+ * user-added repeat outside a group shown on one screen has one: inside such
+ * a group the screen is a field-list, and Core's `getQuestionPrompts` steps over the
  * new-repeat event while it collects one.
  */
 export interface RepeatPromptPoint {
@@ -532,11 +532,11 @@ function pageUuid(page: FormScreenPage): string {
 }
 
 /** Whether a group draws as a field-list on Android: Nova writes
- *  `appearance="field-list"` on every labeled group and never on an
- *  unlabeled one (`lib/commcare/xform/builder.ts::buildContainer`), the
- *  same transparency the running renderer gives an unlabeled group. */
+ *  `appearance="field-list"` on exactly the groups holding `fieldList`
+ *  (`lib/commcare/xform/builder.ts::buildContainer`), labelled or not. Any
+ *  other group is transparent, its questions paged one per screen. */
 function groupDrawsAsFieldList(field: Field & { kind: "group" }): boolean {
-	return Boolean(field.label);
+	return field.fieldList === true;
 }
 
 /** The engine paths one screen holds: every path for the whole form, else
@@ -2003,10 +2003,11 @@ export class FormEngine {
 	 *   `{ kind: "form", path: "/data" }`, sections included.
 	 * - Android pages as Core's `FormEntryController.getQuestionPrompts`
 	 *   collects prompts, and Nova writes `appearance="field-list"` on every
-	 *   section and every labeled group: a sectioned form is one screen per
-	 *   section; in a form with no sections a labeled group is one screen of
-	 *   every question inside it (nested groups included, and one screen per
-	 *   live entry inside a repeat), an unlabeled group is transparent, and
+	 *   section and every group holding `fieldList`: a sectioned form is one
+	 *   screen per section; in a form with no sections a group shown on one
+	 *   screen is one screen of every question inside it (nested groups
+	 *   included, and one screen per live entry inside a repeat), any other
+	 *   group is transparent, and
 	 *   every other visible, non-hidden question is its own screen in
 	 *   document order, inside every live repeat entry.
 	 */

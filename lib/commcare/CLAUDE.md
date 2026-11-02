@@ -500,7 +500,7 @@ Reference-capable label/hint text is a typed `ProseTemplate`; only explicit refe
 
 ### Markdown itext
 
-All itext entries (labels, hints, option labels) emit both `<value>` and `<value form="markdown">`. Safe for plain text: identical rendering when no markdown syntax is present.
+A question's, group's, repeat's or section's label and an inline choice's label write `<value form="markdown">` in every language unless the field or choice holds `plainLabel`; a hint, a help text and a validation message always write it. No runtime reads a hint's or a validation message's; Android reads a help text's, so Android always renders help as markdown. CommCare holds markdown per text across every language, so the flag is never per language.
 
 `xform/builder.ts::buildLabelNodes` protects decoded whitespace-only runs with
 outputs that carry no Vellum shadow. Core's `XFormParser::getXMLDocument` removes
@@ -825,7 +825,7 @@ Canonical field references carry identities rather than the synthetic `/item` se
 
 ### Sections are data groups that are always field-lists
 
-A `section` field (one page of a form) emits exactly like a group — a DATA group, `<group ref="/data/<id>">` in the body over an instance node of its own — with `appearance="field-list"` ALWAYS, titled or not; a LABELLED group carries the attribute as Nova's default and a transparent (no-label) group never does (`xform/builder.ts::buildContainer`, the one gate). The fixture is Vellum's `tests/static/all_question_types.xml` field-list group, and HQ's `xform.py::_infer_vellum_type` reads that attribute back as `FieldList`. A section has no `relevant` by schema, so it emits no `<bind>`; an untitled one emits no `<label>` and registers no itext. The data-group shape is the only safe one: a ref-less control group binds to its parent (`XFormParser::getAbsRef`), Vellum corrupts it on save, and HQ's App Summary collapses it. The section-level rules (root only, sections only once sectioned, no add-entries repeat below — Core's `getQuestionPrompts` skips `EVENT_PROMPT_NEW_REPEAT` when collecting a field-list page) are the validator's, so the emitter stays total; `__tests__/xformDocArbitrary.ts::sectionRoot` pages roughly one fuzz form in four so every oracle meets the shape.
+A `section` field (one page of a form) emits exactly like a group — a DATA group, `<group ref="/data/<id>">` in the body over an instance node of its own — with `appearance="field-list"` ALWAYS, titled or not; a group carries it exactly when it holds `fieldList`, labelled or not, and the validator refuses a repeat workers add entries to anywhere inside one (`FIELD_LIST_USER_REPEAT`) (`xform/builder.ts::buildContainer`, the one gate). The fixture is Vellum's `tests/static/all_question_types.xml` field-list group, and HQ's `xform.py::_infer_vellum_type` reads that attribute back as `FieldList`. A section has no `relevant` by schema, so it emits no `<bind>`; an untitled one emits no `<label>` and registers no itext. The data-group shape is the only safe one: a ref-less control group binds to its parent (`XFormParser::getAbsRef`), Vellum corrupts it on save, and HQ's App Summary collapses it. The section-level rules (root only, sections only once sectioned, no add-entries repeat below — Core's `getQuestionPrompts` skips `EVENT_PROMPT_NEW_REPEAT` when collecting a field-list page) are the validator's, so the emitter stays total; `__tests__/xformDocArbitrary.ts::sectionRoot` pages roughly one fuzz form in four so every oracle meets the shape.
 
 ### XForm parse-time oracle + fuzzer
 

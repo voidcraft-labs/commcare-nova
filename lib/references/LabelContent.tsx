@@ -2,7 +2,11 @@
  * Render canonical prose templates as Markdown with structural reference chips.
  *
  * Literal text is handed to Markdown unchanged, including hashtag-looking
- * text. Only typed reference parts become chips. The temporary render markers
+ * text. Only typed reference parts become chips. A label whose owner holds
+ * `plainLabel` skips Markdown: its text shows as written, line breaks kept,
+ * with the same chips, which is what Android and the Web Apps client show
+ * for a label with no markdown form. A tag in it stays text: no surface
+ * here renders author HTML. The temporary render markers
  * below exist solely inside this render call; they are never authored, parsed
  * into domain state, or persisted.
  */
@@ -32,6 +36,17 @@ interface LabelContentProps {
 	 *  (`lib/preview/platform.ts`, `labelMarkdown`). Edit mode always shows
 	 *  the default rendering. */
 	rendering?: LabelMarkdownRendering;
+	/** The owner (a question, group, repeat or section) holds `plainLabel`:
+	 *  the text shows as written on every platform and in edit mode. */
+	plainLabel?: boolean;
+}
+
+/** Whether a label's owner (a field, a section or a choice) holds
+ *  `plainLabel`: its text shows as written, with no markdown. */
+export function ownerHoldsPlainLabel(owner: object | undefined): boolean {
+	return (
+		owner !== undefined && "plainLabel" in owner && owner.plainLabel === true
+	);
 }
 
 export function textWithChips(
@@ -156,6 +171,7 @@ export function LabelContent({
 	isEditMode,
 	className,
 	rendering,
+	plainLabel = false,
 }: LabelContentProps) {
 	const provider = useReferenceProvider();
 	const formUuid = useCurrentFormUuid();
@@ -170,6 +186,18 @@ export function LabelContent({
 		[baseOptions, rendered, provider, formUuid],
 	);
 	const wrapperCls = `preview-markdown ${className}`;
+
+	/* The wrapper's `white-space: break-spaces` keeps the written line
+	 * breaks; nothing here parses the text. */
+	if (plainLabel) {
+		return (
+			<div className={wrapperCls}>
+				{!isEditMode && resolvedLabel !== undefined
+					? resolvedLabel
+					: textWithChips(label, provider, formUuid)}
+			</div>
+		);
+	}
 
 	if (!isEditMode && resolvedLabel !== undefined) {
 		return (

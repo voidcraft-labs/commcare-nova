@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { namedFormFixture } from "@/lib/agent/__tests__/namedFormFixture";
+import { assembleFieldMutations } from "@/lib/agent/tools/shared/fieldAssembly";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	asMediaAssetId,
 	type CaseType,
@@ -19,6 +23,7 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import {
 	applyDefaults,
+	type FlatField,
 	flatFieldToField,
 	type PreparedFlatField,
 	prepareFlatFieldIdentities,
@@ -562,5 +567,93 @@ describe("add-path empty normalization", () => {
 			required,
 			default_value,
 		});
+	});
+});
+
+describe("a batch group's one-screen layout", () => {
+	const FORM_NAME = "Household visit";
+	const GROUP = testUuid("batch-group");
+	const MIDDLE = testUuid("batch-middle");
+	const REPEAT = testUuid("batch-repeat");
+
+	function assemble(items: FlatField[]) {
+		const doc = namedFormFixture([
+			{ name: "Visits", forms: [{ name: FORM_NAME, type: "survey" }] },
+		]);
+		const form = Object.values(doc.forms).find(
+			(each) => each.name === FORM_NAME,
+		);
+		if (form === undefined) throw new Error("The fixture form is missing.");
+		const assembly = assembleFieldMutations({
+			doc,
+			formUuid: form.uuid,
+			items,
+		});
+		if (!assembly.ok)
+			throw new Error(
+				`The batch didn't assemble: ${JSON.stringify(assembly.rejected)}`,
+			);
+		const verdict = mutationCommitVerdict(
+			doc,
+			assembly.mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		return verdict.nextDoc;
+	}
+
+	it("gives a labelled group the flag when nothing it holds adds entries", () => {
+		const doc = assemble([
+			{
+				fieldUuid: GROUP,
+				kind: "group",
+				id: "household",
+				label: proseText("Household"),
+			},
+			{
+				fieldUuid: REPEAT,
+				parentUuid: GROUP,
+				kind: "repeat",
+				id: "rounds",
+				label: proseText("Rounds"),
+				repeat: { mode: "count_bound", count: term(literal(2)) },
+			},
+		] as unknown as FlatField[]);
+		expect(doc.fields[GROUP]).toMatchObject({ fieldList: true });
+	});
+
+	it("builds a group holding a repeat workers add entries to, at any depth, without the flag", () => {
+		const doc = assemble([
+			{
+				fieldUuid: GROUP,
+				kind: "group",
+				id: "household",
+				label: proseText("Household"),
+			},
+			{
+				fieldUuid: MIDDLE,
+				parentUuid: GROUP,
+				kind: "group",
+				id: "members_group",
+				label: proseText("Members"),
+			},
+			{
+				fieldUuid: REPEAT,
+				parentUuid: MIDDLE,
+				kind: "repeat",
+				id: "members",
+				label: proseText("Member"),
+				repeat: { mode: "user_controlled" },
+			},
+		] as unknown as FlatField[]);
+		expect(doc.fields[GROUP]).not.toHaveProperty("fieldList");
+		expect(doc.fields[MIDDLE]).not.toHaveProperty("fieldList");
+	});
+
+	it("builds an unlabelled group without the flag", () => {
+		const doc = assemble([
+			{ fieldUuid: GROUP, kind: "group", id: "wrapper" },
+		] as unknown as FlatField[]);
+		expect(doc.fields[GROUP]).not.toHaveProperty("fieldList");
 	});
 });

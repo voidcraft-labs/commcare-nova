@@ -12,7 +12,7 @@ import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryC
 import { announceDatetimeAsTwoQuestions } from "@/components/builder/shared/datetimeSplitNotice";
 import {
 	formSectionsOf,
-	landingSectionOf,
+	landingFieldListOf,
 } from "@/lib/doc/formSectionVerdicts";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
@@ -244,15 +244,15 @@ export function FieldTypePickerPopup({
 			// label mirrors the kind's human-readable name (e.g. "New Text",
 			// "New Single Select") so a freshly-added field is self-describing;
 			// kinds with no label slot ignore it.
-			/* A repeat born on a page must be count-bound (the device can't
-			 * add entries on a page's single screen), so the picker seeds
-			 * the legal variant there instead of offering a guaranteed
-			 * refusal. */
-			const onPage =
+			/* A repeat born on one screen (a page, or a group that shows its
+			 * questions together) must be count-bound, since the device can't
+			 * add entries there, so the picker seeds the legal variant
+			 * instead of offering a guaranteed refusal. */
+			const onOneScreen =
 				docStore !== null &&
-				landingSectionOf(docStore.getState(), parentUuid) !== undefined;
+				landingFieldListOf(docStore.getState(), parentUuid) !== undefined;
 			const newField =
-				kind === "repeat" && onPage
+				kind === "repeat" && onOneScreen
 					? newPageRepeat(newId, `New ${fieldRegistry.repeat.label}`)
 					: NEW_FIELD_BUILDERS[kind](newId, `New ${fieldRegistry[kind].label}`);
 

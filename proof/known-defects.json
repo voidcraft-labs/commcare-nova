@@ -354,36 +354,6 @@
 		"control": "targeted-form-links-hidden-and-fallback"
 	},
 	{
-		"id": "d27-labelled-group-repeat-form-xform-repeat-user-repeat-in-a-field-list",
-		"defect": 27,
-		"part": "user repeat in a labelled group",
-		"check": "manifest",
-		"artifact": "*form:*",
-		"path": "/xform:repeat/refused/user-repeat-in-a-field-list",
-		"document": "targeted-labelled-group-repeat",
-		"control": "targeted-labelled-group-repeat"
-	},
-	{
-		"id": "d27-labelled-group-repeat-vellum-again-mug-repeat-count-error-repeat-count-required",
-		"defect": 27,
-		"part": "user repeat in a labelled group",
-		"check": "proof4",
-		"artifact": "editor:vellum again@*",
-		"path": "/modules/*/forms/*/questions/*/repeat_count/mug-repeat_count-error/Repeat Count is required.",
-		"document": "targeted-labelled-group-repeat",
-		"control": "targeted-labelled-group-repeat"
-	},
-	{
-		"id": "d27-labelled-group-repeat-vellum-mug-repeat-count-error-repeat-count-required",
-		"defect": 27,
-		"part": "user repeat in a labelled group",
-		"check": "proof4",
-		"artifact": "editor:vellum@*",
-		"path": "/modules/*/forms/*/questions/*/repeat_count/mug-repeat_count-error/Repeat Count is required.",
-		"document": "targeted-labelled-group-repeat",
-		"control": "targeted-labelled-group-repeat"
-	},
-	{
 		"id": "d26-form-links-app-form-links-other-module-target",
 		"defect": 26,
 		"part": "hidden links and navigation fallbacks",

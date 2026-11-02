@@ -2,42 +2,43 @@
  * The `question-pages` detector against the XForm builder's field-list rule.
  *
  * Contract: the containers `buildXForm` writes with `appearance="field-list"`
- * (a section always, a group whose label shows in some language, its
- * translation included) are exactly the uses `platformFeatureUses` finds for
+ * (a section always, a group exactly when it holds `fieldList`, labelled or
+ * not) are exactly the uses `platformFeatureUses` finds for
  * `question-pages`, the feature Android pages and Web Apps shows on one
- * screen. A detector that drifts from the builder's rule, including a label
- * that only a translation fills, fails here.
+ * screen. A detector that drifts from the builder's rule, such as one that
+ * still reads a group's label, fails here: the labelled group without the
+ * flag and the unlabelled group with it each separate the two readings.
  */
 
-import { isTag } from "domhandler";
 import { findAll } from "domutils";
-import { parseDocument } from "htmlparser2";
-import { SaxesParser } from "saxes";
 import { expect, it } from "vitest";
 import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
-	makeTranslationUnitId,
 	platformFeatureUses,
 	proseText,
-	type TranslationEntry,
-	type TranslationUnitId,
-	translationUnitsById,
 } from "@/lib/domain";
 import { expandDoc } from "../expander";
+import { parseXml } from "../xmlParse";
 
 const answer = (id: string) => f({ kind: "text", id, label: proseText(id) });
-const group = (id: string, label: string, children: FieldSpec[]) =>
+const group = (
+	id: string,
+	label: string,
+	fieldList: boolean,
+	children: FieldSpec[],
+) =>
 	f({
 		kind: "group",
 		id,
 		uuid: `pages-${id}`,
 		label: proseText(label),
+		...(fieldList && { fieldList: true }),
 		children,
 	});
 
 function pagesDoc(): BlueprintDoc {
-	const doc = buildDoc({
+	return buildDoc({
 		appName: "Pages",
 		modules: [
 			{
@@ -52,7 +53,8 @@ function pagesDoc(): BlueprintDoc {
 								id: "visit",
 								label: proseText("Visit"),
 								children: [
-									group("inner", "Inner", [answer("inner_answer")]),
+									group("nested", "Nested", true, [answer("nested_answer")]),
+									group("inner", "Inner", false, [answer("inner_answer")]),
 									answer("visit_answer"),
 								],
 							}),
@@ -67,42 +69,25 @@ function pagesDoc(): BlueprintDoc {
 						name: "Groups",
 						type: "survey",
 						fields: [
-							group("household", "Household", [answer("household_answer")]),
-							group("plain", "", [answer("plain_answer")]),
-							group("translated", "", [answer("translated_answer")]),
+							group("household", "Household", false, [
+								answer("household_answer"),
+							]),
+							group("unlabelled", "", true, [answer("unlabelled_answer")]),
+							group("plain", "", false, [answer("plain_answer")]),
 						],
 					},
 				],
 			},
 		],
 	});
-	const units = translationUnitsById(doc);
-	const translated = Object.values(doc.fields).find(
-		(field) => field.id === "translated",
-	);
-	if (translated === undefined) throw new Error("No translated group.");
-	const unitId: TranslationUnitId = makeTranslationUnitId(
-		"field",
-		translated.uuid,
-		"label",
-	);
-	const unit = units.get(unitId);
-	if (unit === undefined) throw new Error("The group has no label unit.");
-	const entry: TranslationEntry = {
-		value: proseText("Familia"),
-		sourceFingerprint: unit.sourceFingerprint,
-		origin: "human",
-		review: "reviewed",
-		translatedFrom: "eng",
-	};
-	doc.localization = {
-		sourceLanguage: "eng",
-		defaultLanguage: "eng",
-		languageOrder: ["eng", "spa"],
-		wireCodes: { eng: "en", spa: "es" },
-		translations: { spa: { [unitId]: entry } },
-	};
-	return doc;
+}
+
+/** The last step of each body group's `ref` the form writes as one page. */
+function fieldListGroups(xml: string): (string | undefined)[] {
+	return findAll(
+		(node) => node.name === "group" && node.attribs.appearance === "field-list",
+		parseXml(xml).children,
+	).map((node) => node.attribs.ref?.split("/").at(-1));
 }
 
 it("finds exactly the containers the XForm builder writes as one page", () => {
@@ -111,16 +96,7 @@ it("finds exactly the containers the XForm builder writes as one page", () => {
 		(xml): xml is string => typeof xml === "string",
 	);
 	expect(forms).toHaveLength(2);
-	const written = forms.flatMap((xml) => {
-		new SaxesParser({ xmlns: true }).write(xml).close();
-		return findAll(
-			(node) =>
-				isTag(node) &&
-				node.name === "group" &&
-				node.attribs.appearance === "field-list",
-			parseDocument(xml, { xmlMode: true }).children,
-		).map((node) => node.attribs.ref?.split("/").at(-1));
-	});
+	const written = forms.flatMap(fieldListGroups);
 	const found = platformFeatureUses(doc, {
 		features: new Set(["question-pages"]),
 	}).map((use) =>
@@ -130,6 +106,6 @@ it("finds exactly the containers the XForm builder writes as one page", () => {
 	);
 	expect(found.sort()).toEqual(written.sort());
 	expect(found.sort()).toEqual(
-		["close", "household", "inner", "translated", "visit"].sort(),
+		["close", "nested", "unlabelled", "visit"].sort(),
 	);
 });

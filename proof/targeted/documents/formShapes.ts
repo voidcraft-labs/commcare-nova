@@ -28,8 +28,21 @@
  *   cutover made of one starting `_1st_lesson`, and whose assessment is
  *   `qXMLquiz`. Its control keeps the ids Vellum refuses.
  * - `targeted-labelled-group-repeat` (defect 27): a user repeat inside a
- *   labelled group, which Nova writes as a field list
- *   (`lib/commcare/xform/builder.ts`), where Vellum asks for a repeat count.
+ *   labelled group. The group holds no `fieldList`, since it holds a repeat
+ *   workers add entries to (`FIELD_LIST_USER_REPEAT`), so Nova writes it as a
+ *   plain group whose questions show one per screen
+ *   (`lib/commcare/xform/builder.ts::buildContainer`). Its control keeps the
+ *   field list Nova wrote when a label decided it, where Vellum asks for a
+ *   repeat count, which shows defect 27.
+ * - `targeted-field-list-flags` (step 5's field lists): a group shows its
+ *   questions on one screen exactly when it holds `fieldList`, and its label
+ *   decides nothing of that. It holds a labelled group with the flag, a
+ *   labelled group without it, an unlabelled group with it, a count repeat
+ *   inside a group with it, and a repeat workers add entries to inside a
+ *   group without it. Android pages each as Core pages it: a group with the
+ *   flag is one screen (`FormEntryController.java::getQuestionPrompts`,
+ *   `isHostWithAppearance`), with the count repeat's rows on it, and every
+ *   other question is a screen of its own.
  * - `targeted-reserved-node-names` (finding 43): one form for each of the
  *   questions `q_instance`, `q_bind` and `q_parsererror`, the names Nova
  *   offers for the three it refuses, and `itext` and `label`, XForm markup
@@ -141,6 +154,7 @@ export function invalidQuestionIds() {
 								uuid: uuid("meta-group"),
 								id: "q_meta",
 								label: proseText("More details"),
+								fieldList: true,
 								children: [text("detail", "detail", "Detail")],
 							}),
 							f({
@@ -304,6 +318,115 @@ export function labelledGroupRepeat() {
 		expected: {
 			intent: [
 				answerHeld("address-held", form, "/data/household/address", "Plot 7"),
+			],
+		},
+	});
+}
+
+export function fieldListFlags() {
+	const id = "targeted-field-list-flags";
+	const uuid = (name: string) => targetedUuid(id, name);
+	const form = uuid("form");
+	const text = (name: string, label: string) =>
+		f({
+			kind: "text",
+			uuid: uuid(name),
+			id: name,
+			label: proseText(label),
+		});
+	const doc = buildDoc({
+		appId: id,
+		appName: "Screen layouts",
+		// Declared for Web Apps and Android, as a new app is.
+		appSettings: { ...NEW_APP_SETTINGS },
+		modules: [
+			{
+				uuid: uuid("module"),
+				name: "Visits",
+				forms: [
+					{
+						uuid: form,
+						name: "Visit",
+						type: "survey",
+						fields: [
+							f({
+								kind: "group",
+								uuid: uuid("together"),
+								id: "together",
+								label: proseText("Household"),
+								fieldList: true,
+								children: [
+									text("head", "Head of household"),
+									text("village", "Village"),
+								],
+							}),
+							f({
+								kind: "group",
+								uuid: uuid("apart"),
+								id: "apart",
+								label: proseText("Water"),
+								children: [
+									text("source", "Water source"),
+									text("distance", "Distance"),
+								],
+							}),
+							f({
+								kind: "group",
+								uuid: uuid("unlabelled"),
+								id: "unlabelled",
+								fieldList: true,
+								children: [text("phone", "Phone"), text("email", "Email")],
+							}),
+							f({
+								kind: "group",
+								uuid: uuid("counted"),
+								id: "counted",
+								label: proseText("Children"),
+								fieldList: true,
+								children: [
+									f({
+										kind: "repeat",
+										uuid: uuid("children"),
+										id: "children",
+										label: proseText("Child"),
+										repeat_mode: "count_bound",
+										repeat_count: "2",
+										children: [text("child_name", "Child's name")],
+									}),
+								],
+							}),
+							f({
+								kind: "group",
+								uuid: uuid("added"),
+								id: "added",
+								label: proseText("Members"),
+								children: [
+									f({
+										kind: "repeat",
+										uuid: uuid("members"),
+										id: "members",
+										label: proseText("Member"),
+										repeat_mode: "user_controlled",
+										children: [text("member", "Member's name")],
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	return targetedDocument({
+		id,
+		rows: [
+			"field lists: one screen where a group holds fieldList, whatever its label",
+		],
+		doc,
+		expected: {
+			intent: [
+				answerHeld("head-held", form, "/data/together/head", "Achieng"),
+				answerHeld("source-held", form, "/data/apart/source", "Well", "A"),
 			],
 		},
 	});

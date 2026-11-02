@@ -9,7 +9,10 @@ import type {
 	ProseTemplate,
 } from "@/lib/domain";
 import type { FieldState } from "@/lib/preview/engine/types";
-import { LabelContent } from "@/lib/references/LabelContent";
+import {
+	LabelContent,
+	ownerHoldsPlainLabel,
+} from "@/lib/references/LabelContent";
 import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
 import { FIELD_STYLES } from "../fieldStyles";
 import { TextEditable } from "../TextEditable";
@@ -70,6 +73,7 @@ export function LabelField({
 					resolvedLabel={state.resolvedLabel}
 					isEditMode={isEditMode}
 					rendering={labelRendering}
+					plainLabel={ownerHoldsPlainLabel(field)}
 					className={FIELD_STYLES.label}
 				/>
 			</TextEditable>

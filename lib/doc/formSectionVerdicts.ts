@@ -1,10 +1,13 @@
 // lib/doc/formSectionVerdicts.ts
 //
-// The pure readers and the ONE placement verdict behind form sections.
+// The pure readers and the ONE placement verdict behind form sections and
+// groups shown on one screen.
 //
 // A section is a page of a form, and "a sectioned form" is a closed state
 // the validator holds with three rules (`FORM_SECTION_NOT_TOP_LEVEL`,
-// `FORM_SECTIONS_INCOMPLETE`, `FORM_SECTION_USER_REPEAT`). The drag gate and
+// `FORM_SECTIONS_INCOMPLETE`, `FORM_SECTION_USER_REPEAT`). A group holding
+// `fieldList` is one screen too, so an add-entries repeat is refused under
+// it as under a page. The drag gate and
 // the SA's `add_fields` / `move_field` pre-checks ask `fieldPlacementVerdict`
 // before a batch is built, so those refusals are explained up front in one
 // sentence. The keyboard move and the inspector's move menu build their
@@ -100,10 +103,36 @@ export function landingSectionOf(
 }
 
 /**
+ * The one-screen container `parentUuid` lands in: the nearest section or
+ * group holding `fieldList` at or above it, else `undefined`. Everything
+ * under it shows on that one screen on Android.
+ */
+export function landingFieldListOf(
+	doc: BlueprintDoc,
+	parentUuid: Uuid,
+): Uuid | undefined {
+	let cursor: Uuid | undefined = parentUuid;
+	const seen = new Set<Uuid>();
+	while (cursor !== undefined && !seen.has(cursor)) {
+		seen.add(cursor);
+		const field: Field | undefined = doc.fields[cursor];
+		if (field === undefined) return undefined;
+		if (
+			field.kind === "section" ||
+			(field.kind === "group" && field.fieldList === true)
+		) {
+			return cursor;
+		}
+		cursor = doc.fieldParent[cursor];
+	}
+	return undefined;
+}
+
+/**
  * Whether `fieldUuid` is, or holds at any depth, a repeat the worker grows
- * by hand. That is the one field a section cannot hold: a field-list is one
- * screen, and the CommCare app adds repeat entries only from a screen of
- * its own.
+ * by hand. That is the one field a section or a group shown on one screen
+ * cannot hold: a field-list is one screen, and the CommCare app adds repeat
+ * entries only from a screen of its own.
  */
 export function subtreeHasUserRepeat(
 	doc: BlueprintDoc,
@@ -130,7 +159,8 @@ type SectionPlacementRefusal =
 	| "loose-field-in-sectioned-form"
 	| "section-not-root"
 	| "section-other-form"
-	| "user-repeat-in-section";
+	| "user-repeat-in-section"
+	| "user-repeat-in-field-list";
 
 export type FieldPlacementRefusal =
 	| SectionPlacementRefusal
@@ -149,7 +179,7 @@ export type FieldPlacementVerdict =
 			readonly message: string;
 	  };
 
-/** The four section refusal messages, one home. The expression refusals
+/** The five placement refusal messages, one home. The expression refusals
  *  name the moved question and its reader, so they are composed per move. */
 export const FIELD_PLACEMENT_MESSAGES: Readonly<
 	Record<SectionPlacementRefusal, string>
@@ -162,6 +192,8 @@ export const FIELD_PLACEMENT_MESSAGES: Readonly<
 		"A section belongs to the form it pages. Add a section to that form instead of moving this one.",
 	"user-repeat-in-section":
 		"A section shows on one screen, and the CommCare app can't add repeat entries there. Keep this repeat outside the sections, or give it a fixed count.",
+	"user-repeat-in-field-list":
+		"This group shows its questions on one screen, and the CommCare app can't add repeat entries there. You can let the group show one question per screen, or give this repeat a fixed count.",
 };
 
 const OK: FieldPlacementVerdict = { ok: true };
@@ -231,11 +263,17 @@ function sectionPlacementVerdict(
 			: OK;
 	}
 
-	if (landingSectionOf(doc, toParentUuid) === undefined) return OK;
+	if (landingFieldListOf(doc, toParentUuid) === undefined) return OK;
 	const carriesUserRepeat =
 		args.subtreeHasUserRepeat ??
 		(uuid !== undefined ? subtreeHasUserRepeat(doc, uuid) : false);
-	return carriesUserRepeat ? refuse("user-repeat-in-section") : OK;
+	if (!carriesUserRepeat) return OK;
+	// A one-screen group on a page is still on that page, so a repeat under
+	// both hears the page's sentence, as the gate reports only the page's
+	// finding (`FORM_SECTION_USER_REPEAT`) there.
+	return landingSectionOf(doc, toParentUuid) !== undefined
+		? refuse("user-repeat-in-section")
+		: refuse("user-repeat-in-field-list");
 }
 
 const expressionPlacements = new WeakMap<

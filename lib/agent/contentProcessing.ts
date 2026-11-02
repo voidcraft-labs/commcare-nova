@@ -36,6 +36,7 @@ import {
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldSchema,
+	groupBornFieldList,
 	isProseTemplate,
 	pickFieldKeysForKind,
 	proseTemplateIsEmpty,
@@ -331,7 +332,17 @@ function describeFieldFailure(
 export function flatFieldToField(
 	q: Partial<PreparedFlatField>,
 	uuid: Uuid,
+	/** Whether this batch puts a repeat workers add entries to under the
+	 *  field, at any depth (`batchUserRepeatHolders`). Read for a group. */
+	holdsUserRepeat = false,
 ): FlatFieldResult {
+	const fieldList =
+		q.kind === "group"
+			? groupBornFieldList({
+					label: q.label ?? undefined,
+					holdsUserRepeat,
+				})
+			: undefined;
 	const candidate: Record<string, unknown> = {
 		kind: q.kind,
 		uuid,
@@ -357,6 +368,9 @@ export function flatFieldToField(
 		...(q.default_value !== undefined &&
 			q.default_value !== null && { default_value: q.default_value }),
 		...(q.optionsSource != null && { optionsSource: q.optionsSource }),
+		// A group the batch makes is born by the one birth rule: one screen
+		// when its label has text and nothing under it adds entries.
+		...(fieldList !== undefined && { fieldList }),
 		// Nested repeat config: the SA's `repeat` is discriminated on `mode`
 		// (`count` exists only on count_bound, `ids_query` only on
 		// query_bound); the domain schema discriminates over `repeat_mode`
@@ -394,4 +408,36 @@ export function flatFieldToField(
 		return { ok: false, reason };
 	}
 	return { ok: true, field: result.data };
+}
+
+/**
+ * The fields of one batch that hold, at any depth, a repeat workers add
+ * entries to that the same batch makes. A group the batch makes has no
+ * children but the batch's own, so this is its whole subtree. `parentUuid`
+ * is each item's own container; an item without one sits outside every field
+ * the batch makes.
+ */
+export function batchUserRepeatHolders(
+	items: readonly {
+		readonly uuid: Uuid;
+		readonly parentUuid?: Uuid | null;
+		readonly kind?: unknown;
+		readonly repeat?: { readonly mode?: unknown } | null;
+	}[],
+): Set<Uuid> {
+	const parentOf = new Map<Uuid, Uuid>();
+	for (const item of items) {
+		if (item.parentUuid != null) parentOf.set(item.uuid, item.parentUuid);
+	}
+	const holders = new Set<Uuid>();
+	for (const item of items) {
+		if (item.kind !== "repeat" || item.repeat?.mode !== "user_controlled")
+			continue;
+		let cursor = parentOf.get(item.uuid);
+		while (cursor !== undefined && !holders.has(cursor)) {
+			holders.add(cursor);
+			cursor = parentOf.get(cursor);
+		}
+	}
+	return holders;
 }

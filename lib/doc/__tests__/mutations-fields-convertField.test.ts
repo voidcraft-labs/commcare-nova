@@ -5,7 +5,9 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
+import { createBlueprintDocStore } from "@/lib/doc/store";
 import {
 	type BlueprintDoc,
 	type Mutation,
@@ -180,7 +182,12 @@ describe("admitted field conversion", () => {
 		});
 		expect(repeated.fieldOrder[Q]).toEqual([CHILD]);
 		expect(repeated.fieldParent[CHILD]).toBe(Q);
-		expect(convert(repeated, "group").fields).toEqual(before.fields);
+		// Born a group again, a labelled one holding no add-entries repeat
+		// shows on one screen.
+		expect(convert(repeated, "group").fields).toEqual({
+			...before.fields,
+			[Q]: { ...before.fields[Q], fieldList: true },
+		});
 	});
 	it("removes repeat-specific count settings when becoming a group", () => {
 		const before = fixture({
@@ -202,6 +209,7 @@ describe("admitted field conversion", () => {
 			id: "answer",
 			kind: "group",
 			label: proseText("Answer"),
+			fieldList: true,
 		});
 	});
 	it("refuses converting a query repeat to a group while a nested query reads its row identity", () => {
@@ -436,4 +444,136 @@ describe("admitted field conversion", () => {
 			),
 		).toEqual(toPersistableDoc(before));
 	});
+});
+
+describe("a group's one-screen layout across a conversion", () => {
+	const INNER_REPEAT = testUuid("conversion-inner-repeat");
+	function repeatHolding(inner: "question" | "user-repeat"): BlueprintDoc {
+		return fixture({
+			id: "answer",
+			kind: "repeat",
+			repeat_mode: "count_bound",
+			repeat_count: "2",
+			children: [
+				inner === "question"
+					? f({
+							uuid: CHILD,
+							id: "child",
+							kind: "text",
+							label: proseText("Child"),
+						})
+					: f({
+							uuid: INNER_REPEAT,
+							id: "visits",
+							kind: "repeat",
+							label: proseText("Visits"),
+							repeat_mode: "user_controlled",
+							children: [
+								f({
+									uuid: CHILD,
+									id: "child",
+									kind: "text",
+									label: proseText("Child"),
+								}),
+							],
+						}),
+			],
+		});
+	}
+	function trackedStore(doc: BlueprintDoc) {
+		const store = createBlueprintDocStore();
+		store.getState().load(doc);
+		store.getState().startTracking();
+		return store;
+	}
+
+	it("gives a labelled group the flag when nothing inside adds entries", () => {
+		const group = convert(repeatHolding("question"), "group");
+		expect(group.fields[Q]).toMatchObject({ kind: "group", fieldList: true });
+	});
+
+	it("leaves the flag off a group holding a repeat workers add entries to", () => {
+		const group = convert(repeatHolding("user-repeat"), "group");
+		expect(group.fields[Q]?.kind).toBe("group");
+		expect(group.fields[Q]).not.toHaveProperty("fieldList");
+	});
+
+	it("leaves the flag off an unlabelled group", () => {
+		const before = fixture({
+			id: "answer",
+			kind: "repeat",
+			repeat_mode: "user_controlled",
+			label: proseText(""),
+			children: [f({ uuid: CHILD, id: "child", kind: "text" })],
+		});
+		expect(convert(before, "group").fields[Q]).not.toHaveProperty("fieldList");
+	});
+
+	it("drops the flag when a group becomes a repeat", () => {
+		const before = fixture({
+			id: "answer",
+			kind: "group",
+			fieldList: true,
+			children: [f({ uuid: CHILD, id: "child", kind: "text" })],
+		});
+		const repeated = convert(before, "repeat");
+		expect(repeated.fields[Q]).toMatchObject({ kind: "repeat" });
+		expect(repeated.fields[Q]).not.toHaveProperty("fieldList");
+	});
+
+	it("restores a repeat with no flag when the conversion to a group is undone", () => {
+		const before = repeatHolding("question");
+		const store = trackedStore(before);
+		store
+			.getState()
+			.applyMany(
+				admitMutationBatch([
+					{ kind: "convertField", uuid: Q, toKind: "group" },
+				]),
+			);
+		expect(store.getState().fields[Q]).toMatchObject({ fieldList: true });
+		store.getState().undo();
+		expect(toPersistableDoc(store.getState()).fields).toEqual(
+			toPersistableDoc(before).fields,
+		);
+	});
+
+	it.each([
+		["holding the flag", true],
+		["without the flag", false],
+	])(
+		"restores a group %s when its conversion to a repeat is undone",
+		(_label, fieldList) => {
+			const before = fixture({
+				id: "answer",
+				kind: "group",
+				...(fieldList && { fieldList: true }),
+				children: [f({ uuid: CHILD, id: "child", kind: "text" })],
+			});
+			const store = trackedStore(before);
+			store
+				.getState()
+				.applyMany(
+					admitMutationBatch([
+						{ kind: "convertField", uuid: Q, toKind: "repeat" },
+					]),
+				);
+			expect(store.getState().fields[Q]).not.toHaveProperty("fieldList");
+			const inverse = store.getState().undoBatch();
+			if (inverse === undefined) throw new Error("Expected an undo step.");
+			const verdict = mutationCommitVerdict(
+				{
+					...toPersistableDoc(store.getState()),
+					fieldParent: store.getState().fieldParent,
+				} as BlueprintDoc,
+				inverse,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+			store.getState().undo();
+			expect(toPersistableDoc(store.getState()).fields).toEqual(
+				toPersistableDoc(before).fields,
+			);
+		},
+	);
 });

@@ -40,7 +40,10 @@ import type { RepeatInstanceIdentity } from "@/lib/preview/engine/engineControll
 import { useEngineStateAt } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationHasFields } from "@/lib/preview/hooks/usePresentationDocument";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
-import { LabelContent } from "@/lib/references/LabelContent";
+import {
+	LabelContent,
+	ownerHoldsPlainLabel,
+} from "@/lib/references/LabelContent";
 import { useFormLayout } from "../FormLayoutContext";
 import { CONTAINER_HEADER_STYLES, FIELD_STYLES } from "../fieldStyles";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
@@ -157,6 +160,7 @@ export function GroupField({
 										label={field.label}
 										resolvedLabel={state.resolvedLabel}
 										isEditMode={false}
+										plainLabel={ownerHoldsPlainLabel(field)}
 										className={FIELD_STYLES.label}
 									/>
 								</div>

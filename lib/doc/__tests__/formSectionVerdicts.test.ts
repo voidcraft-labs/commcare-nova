@@ -19,6 +19,7 @@ import {
 	formIsSectioned,
 	formOfField,
 	formSectionsOf,
+	landingFieldListOf,
 	landingSectionOf,
 	sectionOf,
 	subtreeHasUserRepeat,
@@ -410,6 +411,226 @@ describe("fieldPlacementVerdict", () => {
 				toParentUuid: S2,
 			}),
 		).toEqual({ ok: true });
+	});
+});
+
+const SCREEN_FORM = testUuid("frm-one-screen");
+const SCREEN = testUuid("fld-screen-group");
+const SCREEN_INNER = testUuid("fld-screen-inner");
+const SCREEN_TEXT = testUuid("fld-screen-text");
+const LOOSE_REPEAT = testUuid("fld-loose-repeat");
+const LOOSE_REPEAT_TEXT = testUuid("fld-loose-repeat-text");
+const SCREEN_HOLDER = testUuid("fld-repeat-holder");
+const HELD_REPEAT = testUuid("fld-held-repeat");
+const BOUND_REPEAT = testUuid("fld-bound-repeat");
+const PLAIN = testUuid("fld-plain-group");
+
+/**
+ * screen (labelled, fieldList) [inner group (no label) [text]]
+ * loose repeat (user-controlled) [text]
+ * holder group [held repeat (user-controlled)]
+ * bound repeat (count 2)
+ * plain group (labelled, no fieldList)
+ */
+function oneScreenFixture() {
+	const doc = buildDoc({
+		appName: "One screen",
+		modules: [
+			{
+				name: "M",
+				forms: [
+					{
+						uuid: SCREEN_FORM,
+						name: "Visit",
+						type: "survey",
+						fields: [
+							f({
+								kind: "group",
+								uuid: SCREEN,
+								id: "screen",
+								label: proseText("Household"),
+								fieldList: true,
+								children: [
+									f({
+										kind: "group",
+										uuid: SCREEN_INNER,
+										id: "inner",
+										children: [
+											f({
+												kind: "text",
+												uuid: SCREEN_TEXT,
+												id: "head",
+											}),
+										],
+									}),
+								],
+							}),
+							f({
+								kind: "repeat",
+								uuid: LOOSE_REPEAT,
+								id: "members",
+								repeat_mode: "user_controlled",
+								children: [
+									f({
+										kind: "text",
+										uuid: LOOSE_REPEAT_TEXT,
+										id: "member",
+									}),
+								],
+							}),
+							f({
+								kind: "group",
+								uuid: SCREEN_HOLDER,
+								id: "holder",
+								children: [
+									f({
+										kind: "repeat",
+										uuid: HELD_REPEAT,
+										id: "visits",
+										repeat_mode: "user_controlled",
+										children: [f({ kind: "date", id: "visited_on" })],
+									}),
+								],
+							}),
+							f({
+								kind: "repeat",
+								uuid: BOUND_REPEAT,
+								id: "rounds",
+								repeat_mode: "count_bound",
+								repeat_count: "2",
+								children: [f({ kind: "text", id: "round" })],
+							}),
+							f({
+								kind: "group",
+								uuid: PLAIN,
+								id: "plain",
+								label: proseText("Notes"),
+								children: [],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	assertAdmittedDoc(doc);
+	return doc;
+}
+
+const FIELD_LIST_MESSAGE =
+	"This group shows its questions on one screen, and the CommCare app can't add repeat entries there. You can let the group show one question per screen, or give this repeat a fixed count.";
+
+/** A move the verdict admits is one the commit gate admits. */
+function expectGateAdmitsMove(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	toParentUuid: Uuid,
+) {
+	const committed = mutationCommitVerdict(
+		doc,
+		[{ kind: "moveField", uuid, toParentUuid, after: null }],
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(committed.ok ? [] : committed.findings).toEqual([]);
+	expect(committed.nextDoc.fieldParent[uuid]).toBe(toParentUuid);
+}
+
+describe("fieldPlacementVerdict and a group shown on one screen", () => {
+	it("finds the one-screen container a landing sits in", () => {
+		const doc = oneScreenFixture();
+		expect(landingFieldListOf(doc, SCREEN)).toBe(SCREEN);
+		expect(landingFieldListOf(doc, SCREEN_INNER)).toBe(SCREEN);
+		expect(landingFieldListOf(doc, PLAIN)).toBeUndefined();
+		expect(landingFieldListOf(doc, SCREEN_HOLDER)).toBeUndefined();
+		expect(landingFieldListOf(doc, SCREEN_FORM)).toBeUndefined();
+		const sectioned = fixture();
+		expect(landingFieldListOf(sectioned, GROUP)).toBe(S1);
+		expect(landingFieldListOf(sectioned, S2)).toBe(S2);
+	});
+
+	it.each([
+		["directly", SCREEN],
+		["inside a nested group", SCREEN_INNER],
+	])(
+		"refuses an add-entries repeat dropped into it %s, before the batch",
+		(_where, toParentUuid) => {
+			const doc = oneScreenFixture();
+			const refusal = {
+				ok: false,
+				reason: "user-repeat-in-field-list",
+				message: FIELD_LIST_MESSAGE,
+			};
+			expect(
+				fieldPlacementVerdict(doc, {
+					uuid: LOOSE_REPEAT,
+					kind: "repeat",
+					toParentUuid,
+				}),
+			).toEqual(refusal);
+			// A group holding one is refused the same way.
+			expect(
+				fieldPlacementVerdict(doc, {
+					uuid: SCREEN_HOLDER,
+					kind: "group",
+					toParentUuid,
+				}),
+			).toEqual(refusal);
+			// A new one: the caller says what it carries.
+			expect(
+				fieldPlacementVerdict(doc, {
+					kind: "repeat",
+					toParentUuid,
+					subtreeHasUserRepeat: true,
+				}),
+			).toEqual(refusal);
+		},
+	);
+
+	it("admits a bound repeat, a question and a group without a user repeat, and the gate admits each move", () => {
+		const doc = oneScreenFixture();
+		const moves: Array<[Uuid, Uuid]> = [
+			[BOUND_REPEAT, SCREEN],
+			[BOUND_REPEAT, SCREEN_INNER],
+			[LOOSE_REPEAT_TEXT, SCREEN],
+			[PLAIN, SCREEN_INNER],
+			// A group with no fieldList is not one screen.
+			[LOOSE_REPEAT, PLAIN],
+			[SCREEN_HOLDER, PLAIN],
+		];
+		for (const [uuid, toParentUuid] of moves) {
+			const verdict = fieldPlacementVerdict(doc, {
+				uuid,
+				kind: doc.fields[uuid].kind,
+				toParentUuid,
+			});
+			expect(verdict).toEqual({ ok: true });
+			expectGateAdmitsMove(doc, uuid, toParentUuid);
+		}
+		expect(
+			fieldPlacementVerdict(doc, {
+				kind: "repeat",
+				toParentUuid: SCREEN,
+				subtreeHasUserRepeat: false,
+			}),
+		).toEqual({ ok: true });
+	});
+
+	it("speaks the page's sentence for a one-screen group on a page", () => {
+		const doc = produce(fixture(), (draft) => {
+			applyMutation(draft, {
+				kind: "updateField",
+				uuid: GROUP,
+				targetKind: "group",
+				patch: { label: proseText("Contact"), fieldList: true },
+			});
+		});
+		expect(
+			fieldPlacementVerdict(doc, {
+				uuid: FLAT_REPEAT,
+				kind: "repeat",
+				toParentUuid: GROUP,
+			}),
+		).toMatchObject({ ok: false, reason: "user-repeat-in-section" });
 	});
 });
 

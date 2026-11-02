@@ -35,10 +35,6 @@ import { walkExpressionNodes } from "./expression/walk";
 import type { Field } from "./fields";
 import { inlineOptionsOf } from "./fields/selectOptionsSource";
 import {
-	effectiveAppLocalization,
-	makeTranslationUnitId,
-} from "./localization";
-import {
 	caseSelectionCardinality,
 	effectiveCaseSearchConfig,
 	isHiddenSearchInput,
@@ -59,13 +55,7 @@ import {
 	unavailablePlatform,
 } from "./platforms";
 import { effectivePostSubmit } from "./postSubmit";
-import { proseTemplateIsEmpty } from "./prose";
 import { expressionSlotValues } from "./referenceSlots";
-import { filledProse, TRANSLATION_FILL_ROLES } from "./translationFill";
-import {
-	localizeTranslationUnit,
-	snapshotTranslationUnits,
-} from "./translationUnits";
 import type { Uuid } from "./uuid";
 
 export type PlatformFeatureOwner =
@@ -223,27 +213,6 @@ function readsADate(argument: Expression, ctx: ExpressionContext): boolean {
 	return data === "date" || data === "datetime";
 }
 
-/** Whether a group's label shows in some language: the containers the XForm
- * builder writes with `appearance="field-list"` read the label as CommCare's
- * localization does, the form builder's fill included, so a translation
- * alone shows a label whose source is blank. */
-function groupLabelShows(doc: BlueprintDoc, fieldUuid: Uuid): boolean {
-	const unit = snapshotTranslationUnits(doc).get(
-		makeTranslationUnitId("field", fieldUuid, "label"),
-	);
-	if (unit === undefined) return false;
-	return effectiveAppLocalization(doc.localization).languageOrder.some(
-		(language) => {
-			const value = TRANSLATION_FILL_ROLES.has(unit.role)
-				? filledProse(doc, unit, language)
-				: localizeTranslationUnit(doc, language, unit).effective;
-			return typeof value === "string"
-				? value.length > 0
-				: !proseTemplateIsEmpty(value);
-		},
-	);
-}
-
 function slotUse(
 	feature: PlatformFeatureId,
 	owner: PlatformFeatureOwner,
@@ -384,7 +353,6 @@ export function platformFeatureUses(
 					if (field === undefined) continue;
 					out.push(
 						...fieldUses(
-							doc,
 							{ kind: "field", moduleUuid, formUuid, fieldUuid },
 							field,
 							wanted,
@@ -600,7 +568,6 @@ function searchInputUses(
 }
 
 function fieldUses(
-	doc: BlueprintDoc,
 	owner: Extract<PlatformFeatureOwner, { kind: "field" }>,
 	field: Field,
 	wanted: (feature: PlatformFeatureId) => boolean,
@@ -614,9 +581,15 @@ function fieldUses(
 	if (
 		wanted("question-pages") &&
 		(field.kind === "section" ||
-			(field.kind === "group" && groupLabelShows(doc, owner.fieldUuid)))
+			(field.kind === "group" && field.fieldList === true))
 	)
 		uses.push(slotUse("question-pages", owner, "kind"));
+	if (
+		"plainLabel" in field &&
+		field.plainLabel === true &&
+		wanted("plain-text")
+	)
+		uses.push(slotUse("plain-text", owner, "plainLabel"));
 	if (
 		"help_media" in field &&
 		field.help_media !== undefined &&
@@ -627,23 +600,26 @@ function fieldUses(
 		...expressionUses({ entity: "field", uuid: owner.fieldUuid }, () => owner),
 	);
 	const sorted = inFeatureOrder(uses);
-	if (wanted("choice-media") && "optionsSource" in field) {
+	// Each inline choice is an owner of its own, after the field, with its
+	// uses in feature order: `plain-text`, then `choice-media`.
+	if ("optionsSource" in field) {
 		for (const option of inlineOptionsOf(field.optionsSource) ?? []) {
+			const optionOwner: PlatformFeatureOwner = {
+				...owner,
+				kind: "option",
+				optionUuid: option.uuid,
+			};
+			if (option.plainLabel === true && wanted("plain-text"))
+				sorted.push(slotUse("plain-text", optionOwner, "plainLabel"));
 			const media = option.media;
 			if (
-				media === undefined ||
-				(media.image === undefined &&
-					media.audio === undefined &&
-					media.video === undefined)
+				media !== undefined &&
+				(media.image !== undefined ||
+					media.audio !== undefined ||
+					media.video !== undefined) &&
+				wanted("choice-media")
 			)
-				continue;
-			sorted.push(
-				slotUse(
-					"choice-media",
-					{ ...owner, kind: "option", optionUuid: option.uuid },
-					"media",
-				),
-			);
+				sorted.push(slotUse("choice-media", optionOwner, "media"));
 		}
 	}
 	return sorted;

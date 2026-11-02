@@ -1406,6 +1406,16 @@ function fieldPatchForConvertedField(
 			patch[key] = null;
 		}
 	}
+	// A conversion to a group may give it `fieldList` by the birth rule,
+	// over children this diff cannot see at the convert's moment, so a
+	// group `next` holds without it clears it outright.
+	if (
+		targetKind === "group" &&
+		prev.kind !== "group" &&
+		!Object.hasOwn(next, "fieldList")
+	) {
+		patch.fieldList = null;
+	}
 	return patch;
 }
 

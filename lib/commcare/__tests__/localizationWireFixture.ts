@@ -304,6 +304,7 @@ function targetOnlyDoc(): BlueprintDoc {
 								kind: "group",
 								id: "section",
 								label: { parts: [] },
+								fieldList: true,
 								children: [
 									f({
 										kind: "text",

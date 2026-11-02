@@ -44,7 +44,12 @@ import {
 	geopointFieldMetadata,
 	geopointFieldSchema,
 } from "./geopoint";
-import { type GroupField, groupFieldMetadata, groupFieldSchema } from "./group";
+import {
+	type GroupField,
+	groupBornFieldList,
+	groupFieldMetadata,
+	groupFieldSchema,
+} from "./group";
 import {
 	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
 	type HiddenField,
@@ -553,8 +558,8 @@ export function convertNeedsOptionSeed(
  *     seedless attempt fails the parse and the reducer no-ops.
  *   - `hidden` → a question kind: the destination requires a label the
  *     source lacks, so the caller supplies it via `seed.label`.
- *   - `text` → `hidden`: label / hint / required / validate drop (hidden
- *     declares none of them); id / relevant / default_value
+ *   - `text` → `hidden`: label / plainLabel / hint / required / validate
+ *     drop (hidden declares none of them); id / relevant / default_value
  *     survive. A result with neither `calculate` nor
  *     `default_value` is a valid hidden value that stays blank.
  *   - `single_select` → `text`: `optionsSource` drops; everything else carries.
@@ -562,8 +567,9 @@ export function convertNeedsOptionSeed(
  *     label + hint + required + relevant carry over. The field's uuid
  *     stays, so a `capture-link` write that names it keeps saving a link
  *     to the same file. No `validate` (not in capture schemas today).
- *   - `group` ↔ `repeat`: container; only identity + label + relevant
- *     carry over. Children are untouched — they stay in `fieldOrder`
+ *   - `group` ↔ `repeat`: container; only identity + label + plainLabel
+ *     + relevant carry over. A group's `fieldList` drops, since a repeat
+ *     declares none. Children are untouched — they stay in `fieldOrder`
  *     under the same parent uuid, which is still a valid container after
  *     the kind swap.
  */
@@ -803,4 +809,8 @@ export type {
 	UserControlledRepeatField,
 	VideoField,
 };
-export { HIDDEN_VALUE_ONE_SOURCE_SENTENCE, hiddenFieldCarriesBothValueSources };
+export {
+	groupBornFieldList,
+	HIDDEN_VALUE_ONE_SOURCE_SENTENCE,
+	hiddenFieldCarriesBothValueSources,
+};

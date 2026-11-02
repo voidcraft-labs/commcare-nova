@@ -46,7 +46,10 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
-import { LabelContent } from "@/lib/references/LabelContent";
+import {
+	LabelContent,
+	ownerHoldsPlainLabel,
+} from "@/lib/references/LabelContent";
 import { useIsFieldSelected } from "@/lib/routing/hooks";
 import { useEditMode } from "@/lib/session/hooks";
 import { DragPreviewPill } from "../DragPreviewPill";
@@ -181,6 +184,7 @@ export const SectionHeaderRow = memo(function SectionHeaderRow({
 											label={shownLabel}
 											resolvedLabel={state.resolvedLabel}
 											isEditMode
+											plainLabel={ownerHoldsPlainLabel(shown)}
 											className="text-lg font-semibold leading-7 text-nova-text"
 										/>
 									) : (

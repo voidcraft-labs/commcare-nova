@@ -2,12 +2,12 @@
  * ScreenPage: one screen of a form without sections, as Preview running as
  * Android pages it (`lib/preview/platform.ts`, `formScreens`).
  *
- * Android pages such a form one screen per labeled group (a field-list, as
- * Nova emits it) and per question outside one. Over each screen it draws one
+ * Android pages such a form one screen per group shown on one screen
+ * (`fieldList`) and per question outside one. Over each screen it draws one
  * header line, the labels of the screen's enclosing groups joined with
  * ` > `, a repeat entry's label followed by its 1-based position, unlabeled
  * containers skipped (`views/QuestionsView.java::deriveGroupText`); a
- * labeled group's screen includes its own label. A screen with no labeled
+ * labeled field-list group's screen includes its own label. A screen with no labeled
  * group around it has no header line.
  *
  * The body is the ordinary running renderer over the whole form, scoped to

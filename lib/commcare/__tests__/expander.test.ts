@@ -374,6 +374,7 @@ const followupDoc = buildDoc({
 							kind: "group",
 							id: "client_info",
 							label: proseText("Client Info"),
+							fieldList: true,
 							children: [
 								f({
 									kind: "text",
@@ -493,6 +494,7 @@ describe("expandDoc", () => {
 									kind: "group",
 									id: "grp",
 									label: proseText("G"),
+									fieldList: true,
 									children: [
 										f({
 											kind: "hidden",
@@ -1658,6 +1660,7 @@ describe("markdown itext for all field kinds", () => {
 									kind: "group",
 									id: "demographics",
 									label: proseText("## Demographics"),
+									fieldList: true,
 									children: [
 										f({ kind: "text", id: "name", label: proseText("Name") }),
 									],
@@ -2101,6 +2104,7 @@ describe("#form/ hashtag expansion", () => {
 									kind: "group",
 									id: "grp",
 									label: proseText("Group"),
+									fieldList: true,
 									children: [
 										f({ kind: "text", id: "inner", label: proseText("Inner") }),
 									],
@@ -2174,6 +2178,7 @@ describe("#form/ hashtag expansion", () => {
 									kind: "group",
 									id: "details",
 									label: proseText("Details"),
+									fieldList: true,
 									relevant: "#form/show = 'yes'",
 									children: [
 										f({ kind: "text", id: "info", label: proseText("Info") }),
@@ -3158,7 +3163,14 @@ describe("unquoted string literal detection", () => {
 							fields: [
 								f({ kind: "int", id: "age" }),
 								...(nested
-									? [f({ kind: "group", id: "group", children: [question] })]
+									? [
+											f({
+												kind: "group",
+												id: "group",
+												fieldList: true,
+												children: [question],
+											}),
+										]
 									: [question]),
 							],
 						},
@@ -3446,6 +3458,7 @@ describe("empty container expansion", () => {
 									kind: "group",
 									id: "demographics",
 									label: proseText("Demographics"),
+									fieldList: true,
 									children: [],
 								}),
 								f({
@@ -3505,6 +3518,7 @@ describe("nested container expansion", () => {
 											kind: "group",
 											id: "vitals",
 											label: proseText("Vitals"),
+											fieldList: true,
 											children: [
 												f({
 													kind: "int",

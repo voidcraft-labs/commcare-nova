@@ -138,7 +138,8 @@ export interface PreviewPlatformRules {
 	 *  (`form_entry/form_ui.js`); Core `form/api/FormEntryController.java::getQuestionPrompts`
 	 *  makes a field-list group one screen and any other index one screen of
 	 *  one question, and Nova writes `appearance="field-list"` on every
-	 *  section and labeled group (`lib/commcare/xform/builder.ts::buildContainer`). */
+	 *  section and every group holding `fieldList`
+	 *  (`lib/commcare/xform/builder.ts::buildContainer`). */
 	readonly formScreens: "one-screen" | "field-list-or-question";
 	/** When calculations re-run. Formplayer rebuilds the form session per
 	 *  request (`application/FormController.java`, `FormSubmissionHelper.java`
@@ -171,6 +172,13 @@ export interface PreviewPlatformRules {
 		readonly html: "literal" | "dropped";
 		readonly images: "shown" | "alt-text";
 	};
+	/** A choice holding `plainLabel`, whose `<item>` writes no markdown form.
+	 *  Web Apps `form_entry/entry_select.html` binds every choice through
+	 *  `renderMarkdown`, so it still shows formatted; Android formats a
+	 *  choice only when Core `form/api/FormEntryPrompt.java::getSelectItemMarkdownText`
+	 *  finds its markdown form, else draws `getSelectChoiceText` as written
+	 *  (`views/widgets/SelectOneWidget.java`, `QuestionWidget.java`). */
+	readonly plainChoice: "markdown" | "literal";
 	/** Android `views/QuestionsView.java::deriveGroupText`: one header line
 	 *  per screen, the enclosing groups joined with ` > `. */
 	readonly groupLabel: "card" | "screen-header";
@@ -231,6 +239,7 @@ export const PREVIEW_PLATFORM_RULES = {
 			html: "literal",
 			images: "shown",
 		}),
+		plainChoice: "markdown",
 		groupLabel: "card",
 		repeatAdd: "buttons",
 		choiceMedia: false,
@@ -272,6 +281,7 @@ export const PREVIEW_PLATFORM_RULES = {
 			html: "dropped",
 			images: "alt-text",
 		}),
+		plainChoice: "literal",
 		groupLabel: "screen-header",
 		repeatAdd: "prompt",
 		choiceMedia: true,

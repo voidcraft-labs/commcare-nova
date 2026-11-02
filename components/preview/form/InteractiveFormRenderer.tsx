@@ -50,7 +50,10 @@ import {
 	useVisibleFieldOrder,
 } from "@/lib/preview/hooks/useVisibleFieldOrder";
 import { runtimeMessage } from "@/lib/preview/runtimeMessages";
-import { LabelContent } from "@/lib/references/LabelContent";
+import {
+	LabelContent,
+	ownerHoldsPlainLabel,
+} from "@/lib/references/LabelContent";
 import { useAppId, usePreviewPlatformRules } from "@/lib/session/hooks";
 import { FieldHelp } from "./FieldHelp";
 import { FieldRenderer } from "./FieldRenderer";
@@ -307,6 +310,7 @@ const InteractiveField = memo(function InteractiveField({
 										resolvedLabel={state.resolvedLabel}
 										isEditMode={false}
 										rendering={rules.labelMarkdown}
+										plainLabel={ownerHoldsPlainLabel(field)}
 										className="text-lg font-semibold leading-7 text-nova-text"
 									/>
 								) : null
@@ -431,6 +435,7 @@ const InteractiveField = memo(function InteractiveField({
 								resolvedLabel={state.resolvedLabel}
 								isEditMode={false}
 								rendering={rules.labelMarkdown}
+								plainLabel={ownerHoldsPlainLabel(field)}
 								className={FIELD_STYLES.label}
 							/>
 							{state.required ? (

@@ -348,7 +348,7 @@ export async function evaluateFormSnapshot(
 			await moveForwardTo(screenPath);
 		}
 		/* The screen a question is on: its section on a sectioned form,
-		 * its labeled group or itself on Android, nothing on Web Apps' one
+		 * its group shown on one screen or itself on Android, nothing on Web Apps' one
 		 * screen. */
 		const screenForPath = (path: string) =>
 			oneScreen

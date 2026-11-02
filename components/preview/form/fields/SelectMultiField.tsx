@@ -46,6 +46,7 @@ export function SelectMultiField({
 		value: string;
 		label: string;
 		media?: SelectOption["media"];
+		plainLabel?: SelectOption["plainLabel"];
 	}> = dynamicChoices
 		? (state.choices ?? [])
 		: field.optionsSource.kind === "inline"
@@ -64,6 +65,10 @@ export function SelectMultiField({
 	const rules = usePreviewPlatformRules();
 	const drawChoiceMedia = isEditMode || rules.choiceMedia;
 	const labelRendering = isEditMode ? undefined : rules.labelMarkdown;
+	/* A choice holding `plainLabel` shows as written in edit mode and where
+	 * the platform draws it so (Android); Web Apps formats every choice
+	 * (`rules.plainChoice`). */
+	const plainChoiceAsWritten = isEditMode || rules.plainChoice === "literal";
 
 	const toggle = (optValue: string) => {
 		const next = new Set(selected);
@@ -138,9 +143,13 @@ export function SelectMultiField({
 								)}
 							</div>
 							<span className="preview-markdown text-sm text-nova-text">
-								<PreviewMarkdown inline rendering={labelRendering}>
-									{opt.label}
-								</PreviewMarkdown>
+								{opt.plainLabel === true && plainChoiceAsWritten ? (
+									opt.label
+								) : (
+									<PreviewMarkdown inline rendering={labelRendering}>
+										{opt.label}
+									</PreviewMarkdown>
+								)}
 							</span>
 							{/* Per-option media: compact, same as the single-select. */}
 							{drawChoiceMedia && (

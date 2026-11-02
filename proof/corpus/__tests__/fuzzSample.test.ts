@@ -33,6 +33,7 @@ import {
 	fieldPreload,
 	moduleUuidOfForm,
 } from "@/lib/domain";
+import { proseTemplateIsEmpty } from "@/lib/domain/prose";
 import {
 	DEFAULT_CORPUS_SEED,
 	DEFAULT_EXPRESSION_SAMPLE_SIZE,
@@ -129,7 +130,53 @@ const STEP_5_SHAPES: readonly {
 		name: "a question that opens with its case's value without saying so",
 		heldBy: (doc) => opensWithCaseValueUnstated(doc),
 	},
+	{
+		name: "a group shown on one screen that holds a repeat workers add entries to",
+		heldBy: (_doc, codes) => codes.has("FIELD_LIST_USER_REPEAT"),
+	},
+	{
+		name: "a labelled group with no such repeat that doesn't show on one screen",
+		heldBy: (doc) =>
+			labelledGroups(doc).some(
+				(group) => !group.holdsUserRepeat && group.fieldList !== true,
+			),
+	},
 ];
+
+/**
+ * Each group of `doc` whose label has text (the sample draws no
+ * translations, so its source label is the label every language shows),
+ * whether it shows on one screen, and whether a repeat workers add entries
+ * to sits under it at any depth.
+ */
+function labelledGroups(doc: BlueprintDoc): {
+	readonly fieldList: boolean | undefined;
+	readonly holdsUserRepeat: boolean;
+}[] {
+	const underUserRepeat = (parentUuid: string): boolean =>
+		(doc.fieldOrder[parentUuid as keyof typeof doc.fieldOrder] ?? []).some(
+			(uuid) => {
+				const field = doc.fields[uuid];
+				return (
+					(field?.kind === "repeat" &&
+						field.repeat_mode === "user_controlled") ||
+					underUserRepeat(uuid)
+				);
+			},
+		);
+	return Object.values(doc.fields).flatMap((field) =>
+		field.kind === "group" &&
+		field.label !== undefined &&
+		!proseTemplateIsEmpty(field.label)
+			? [
+					{
+						fieldList: field.fieldList,
+						holdsUserRepeat: underUserRepeat(field.uuid),
+					},
+				]
+			: [],
+	);
+}
 
 function draw(sampleSize: number, sampleSeed = seed): SampledDocument[] {
 	return sampleFuzzDocuments({
@@ -224,6 +271,7 @@ describe("the corpus's fuzz sample", () => {
 			manifestFor,
 		});
 		let saving = 0;
+		let oneScreen = 0;
 		for (const sampled of sample) {
 			const written = (asWritten(sampled) as { doc: { fields?: object } }).doc;
 			const doc = hydratePersistedBlueprint(blueprintDocSchema.parse(written));
@@ -250,9 +298,14 @@ describe("the corpus's fuzz sample", () => {
 				)
 			)
 				saving += 1;
+			oneScreen += labelledGroups(doc).filter(
+				(group) => group.fieldList === true,
+			).length;
 		}
 		// The drawn saves are there, as operations: the mapping kept them.
 		expect(saving).toBeGreaterThan(0);
+		// The drawn labelled groups are there, each on one screen.
+		expect(oneScreen).toBeGreaterThan(0);
 		// The mapping draws nothing: a smaller draw is the start of a larger one.
 		const written = new Map(
 			sample.map((sampled) => [sampled.document.id, asWritten(sampled)]),

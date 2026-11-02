@@ -33,12 +33,20 @@ HQ's receiver; ``sent`` holds each instance it sent, as Android wrote it.
   as Android renders labels the same way (``lib/preview/platform.ts``,
   ``labelMarkdown``); the test asserts what the device drew, so a change in
   Android's rendering fails here before Preview's reading goes stale.
+- A label with no markdown form shows its text as written: Android draws a
+  label's markdown only where its text holds that form
+  (``QuestionWidget.java::setTextFromPrompt``, ``setChoiceText``), so in
+  ``targeted-plain-labels`` the question and choice labels Nova wrote from
+  ``plainLabel`` show ``*not bold*``, ``# 5``, ``1. first`` and
+  ``<b>tag</b>`` as typed, and the same texts with a markdown form show
+  formatted, which tells the two halves apart on the same device.
 
 The plausible failures: a session read Android does not resolve, or resolves
 to another id than the create block's after a reopen (an id drawn again); a
 title or saved name in the source language, or a header that moved with the
-title; and a count Android reads as the row's own node (so the validation
-never holds) or as no row.
+title; a count Android reads as the row's own node (so the validation
+never holds) or as no row; and a label written with no markdown form that
+Android formats all the same, or a markdown form it stops reading.
 """
 
 from __future__ import annotations
@@ -53,6 +61,12 @@ pytestmark = pytest.mark.reader("android")
 
 REGISTRATION = "expander-form-hashtag-expansion-records-no-case-id-load-39a69840-0"
 RENDERS = "targeted-preview-android-renders"
+PLAIN = "targeted-plain-labels"
+# The texts each half of ``targeted-plain-labels`` labels its questions and choices with
+# (``proof/targeted/documents/textReads.ts::PLAIN_LABEL_TEXTS``), each beside what Markwon draws of its markdown
+# form: the emphasis without its asterisks, the heading without its mark, the list item without its number (which
+# the list's span draws beside the text, not in it), and the raw tag gone with its text kept.
+PLAIN_TEXTS = {"*not bold*": "not bold", "# 5": "5", "1. first": "first", "<b>tag</b>": "tag"}
 BILINGUAL = "localization-bilingual"
 COUNTED = "container-query-conditional"
 CASE = "{http://commcarehq.org/case/transaction/v2}case"
@@ -198,3 +212,34 @@ def test_a_markdown_label_renders_as_markwon_renders_it(android_documents, hq):
         if text.startswith("a") and "c" in text
     ]
     assert " ".join(label.split()) == "a b x c", label
+
+
+def _shown(form, reference):
+    """The texts of the one screen whose question is the one at ``reference``, whitespace joined as one space."""
+    screens = [
+        [" ".join(text.split()) for text in _texts(screen.get("view") or {})]
+        for screen in form["screens"]
+        if any(question["reference"] == reference for question in screen.get("questions", ()))
+    ]
+    assert len(screens) == 1, (reference, screens)
+    return screens[0]
+
+
+def test_a_label_without_markdown_renders_its_text_as_written(android_documents, hq):
+    """The survey "Labels" labels four questions, and the four choices of a select, with ``*not bold*``, ``# 5``,
+    ``1. first`` and ``<b>tag</b>``, written with ``plainLabel`` and so with no markdown form, then the same again
+    with one. The plain half's screens show each text as typed, asterisk, hash, number and tag; the markdown half's
+    show each formatted, as Markwon draws it, and none as typed."""
+    with _served(android_documents[PLAIN]) as (served, archive):
+        answer, _ = _app(served, archive, "labels", commands=[FORM], views=True)
+
+    (form,) = _forms(answer["walks"][FORM])
+    plain_choices = _shown(form, "/data/plain_choices[1]")
+    marked_choices = _shown(form, "/data/marked_choices[1]")
+    for index, (written, drawn) in enumerate(PLAIN_TEXTS.items()):
+        plain = _shown(form, f"/data/plain_label_{index}[1]")
+        assert written in plain, (written, plain)
+        marked = _shown(form, f"/data/marked_label_{index}[1]")
+        assert drawn in marked and written not in marked, (written, marked)
+        assert written in plain_choices, (written, plain_choices)
+        assert drawn in marked_choices and written not in marked_choices, (written, marked_choices)

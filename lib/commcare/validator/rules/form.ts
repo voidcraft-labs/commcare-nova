@@ -147,13 +147,19 @@ const CONTAINER_KINDS: ReadonlySet<Field["kind"]> = new Set([
 	"section",
 ]);
 
-/** A section named the way a person knows it: its title, else its id. */
-function sectionTitle(doc: BlueprintDoc, section: Field): string {
-	if (section.kind !== "section" || section.label === undefined) {
-		return section.id;
+/**
+ * A section or group named the way a person knows it: its label, else its
+ * id.
+ */
+function containerTitle(doc: BlueprintDoc, container: Field): string {
+	if (
+		(container.kind !== "section" && container.kind !== "group") ||
+		container.label === undefined
+	) {
+		return container.id;
 	}
-	const text = projectProseTemplate(section.label, doc).text.trim();
-	return text.length > 0 ? text : section.id;
+	const text = projectProseTemplate(container.label, doc).text.trim();
+	return text.length > 0 ? text : container.id;
 }
 
 /**
@@ -171,6 +177,10 @@ function sectionTitle(doc: BlueprintDoc, section: Field): string {
  * screen of its own (`FormEntryController.getQuestionPrompts` skips
  * `EVENT_PROMPT_NEW_REPEAT` while collecting a field-list host), so the repeat would
  * be unreachable on device. Count-bound and query-bound repeats are fine.
+ * A group holding `fieldList` is the same one screen, so a user-controlled
+ * repeat at any depth under one is refused too (`FIELD_LIST_USER_REPEAT`).
+ * The walk carries the nearest such group beside the nearest section, and
+ * a repeat under both raises only the section's finding.
  *
  * An empty section is legal: the app skips a page with nothing to show, and
  * so does the preview.
@@ -205,6 +215,7 @@ function formSections(doc: BlueprintDoc, ctx: FormContext): ValidationError[] {
 		parentUuid: Uuid,
 		parent: Field | undefined,
 		section: Field | undefined,
+		fieldListGroup: Field | undefined,
 	): void => {
 		for (const uuid of doc.fieldOrder[parentUuid] ?? []) {
 			const field = doc.fields[uuid];
@@ -226,7 +237,7 @@ function formSections(doc: BlueprintDoc, ctx: FormContext): ValidationError[] {
 				field.repeat_mode === "user_controlled" &&
 				section !== undefined
 			) {
-				const title = sectionTitle(doc, section);
+				const title = containerTitle(doc, section);
 				errors.push(
 					validationError(
 						"FORM_SECTION_USER_REPEAT",
@@ -241,16 +252,41 @@ function formSections(doc: BlueprintDoc, ctx: FormContext): ValidationError[] {
 					),
 				);
 			}
+			if (
+				field.kind === "repeat" &&
+				field.repeat_mode === "user_controlled" &&
+				section === undefined &&
+				fieldListGroup !== undefined
+			) {
+				const title = containerTitle(doc, fieldListGroup);
+				errors.push(
+					validationError(
+						"FIELD_LIST_USER_REPEAT",
+						"field",
+						`"${ctx.formName}" has repeat "${field.id}" inside "${title}", which shows its questions on one screen, and that repeat lets the worker add entries. The CommCare app can't add entries on a shared screen. You can let "${title}" show one question per screen, or give the repeat a fixed count.`,
+						{ ...baseLocation(ctx), fieldUuid: field.uuid, fieldId: field.id },
+						{
+							groupUuid: fieldListGroup.uuid,
+							groupId: fieldListGroup.id,
+							groupTitle: title,
+						},
+					),
+				);
+			}
 			if (doc.fieldOrder[uuid] !== undefined) {
 				walk(
 					uuid,
 					field,
 					section ?? (field.kind === "section" ? field : undefined),
+					fieldListGroup ??
+						(field.kind === "group" && field.fieldList === true
+							? field
+							: undefined),
 				);
 			}
 		}
 	};
-	walk(ctx.formUuid, undefined, undefined);
+	walk(ctx.formUuid, undefined, undefined, undefined);
 	return errors;
 }
 

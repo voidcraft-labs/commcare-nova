@@ -1876,6 +1876,54 @@ Each departs from the research, the outline or a brief, with its reason.
   is admitted at the head with no `REPEAT_COUNT_TYPE` finding, so `proof/corpus/producers.ts` and
   `lib/commcare/__tests__/compilerEvidence.ts` are untouched. The corpus at the head holds 408
   documents, the base's and the two targeted documents of §9.
+- **`groupBornFieldList` is the one birth helper** (pull request 9): part 10 §2 names a
+  `defaultGroupFieldList` in `lib/domain/fields/group.ts` beside it, which this part never defines.
+  Every reader §3.6 lists (the builder's group default, the SA and MCP assembly, `convertField`)
+  asks the same question with a label and a user-repeat answer, so a second helper would only
+  restate `groupBornFieldList`; none is added.
+- **`plainLabel` also lands on the hand-written `FieldBase` type** (pull request 9), beside
+  `fieldBaseSchema`, so the type and the schema it describes keep naming the same slots.
+- **Preview's Android screens fixture and its engine tests drop a user repeat in a field-list
+  group** (pull request 9): `e2e/lib/preview-platforms-client.tsx`'s `screens` document and
+  `formEngineSections.test.ts` held a repeat the worker adds to inside a labelled group, asserting
+  no prompt; with `FIELD_LIST_USER_REPEAT` that is a refused state, so the group keeps its label
+  without `fieldList` and the checks now assert the transparent reading (the entry paged under the
+  group's header line, then the prompt). The labelled groups that were one screen gain `fieldList`,
+  as the cutover writes them. A plain label renders through `textWithChips` over the template's
+  parts rather than a Markdown pass composed with `withChipInjection`: nothing parses the text, so
+  no markdown rule can reach it. A plain choice shows as written in edit mode, as a plain label
+  does, since edit mode follows no platform rule.
+- **A one-screen group on a page hears the page's sentence** (pull request 9): §3.5 makes
+  `landingFieldListOf` the nearest section or field-list group, and a field-list group inside a
+  section is nearer than its section. The verdict refuses a user repeat there with
+  `user-repeat-in-section`, not `user-repeat-in-field-list`, because the gate reports only the
+  section's finding for a repeat under both (§3.5), and the builder and the SA should say what the
+  gate says.
+- **`add_fields` asks the verdict whenever its batch adds a user repeat** (pull request 9):
+  `lib/agent/tools/addFields.ts::sectionPlacementRefusal` returned early for a batch with no
+  section on a form with no pages, so an add-entries repeat added into an existing field-list group
+  skipped the up-front sentence §3.5 promises and met only the gate. It now also builds the
+  candidate when the batch adds a user-controlled repeat. `move_field` and the drag gate needed no
+  change.
+- **The converted group's birth rule reads `groupFieldLists.ts::holdsUserRepeat`** (pull request
+  9), not `formSectionVerdicts.ts::subtreeHasUserRepeat`: the verdict module imports the reducers,
+  so the reducer importing it back would make a cycle. `holdsUserRepeat` asks the same question
+  of a container's children, and `planGroupFieldLists` reads it too.
+- **The undo of a group's conversion to a repeat clears the flag the reverse conversion gives**
+  (pull request 9): undo is the diff back (`diffDocsToMutations`), whose `convertField` to `group`
+  now applies the birth rule, so a labelled group born without `fieldList` came back with it.
+  `diffDocsToMutations.ts::fieldPatchForConvertedField` clears `fieldList` when the target is a
+  group `next` holds without it, so undo restores both shapes exactly.
+- **The batch's user-repeat answer is computed in `contentProcessing.ts`**
+  (`batchUserRepeatHolders`) and passed by the one batch caller,
+  `lib/agent/tools/shared/fieldAssembly.ts::assembleFieldMutations`, which `addFields`,
+  `createForm` and `createModule` share on both the SA and MCP surfaces.
+- **The reference-slot audit classifies the two new flags** (pull request 9):
+  `lib/domain/referenceSlots.ts::NON_REFERENCE_FIELD_PATHS`, outside part 10 §2's list, gains
+  `fieldList`, `plainLabel` and `optionsSource.options[].plainLabel` as `config`, because
+  `referenceSlots.test.ts` requires every schema key to be classified and both are literals that name
+  nothing. `lib/commcare/__tests__/questionWire.test.ts`'s labelled group, which no corpus source
+  builds, takes `fieldList: true`, since its assertion reads the group's `appearance="field-list"`.
 
 ## What other parts read from this one
 
