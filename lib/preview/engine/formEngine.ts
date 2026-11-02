@@ -2438,7 +2438,17 @@ export class FormEngine {
 	effectivelyVisiblePaths(
 		states: Readonly<EngineStoreState> = this.store.getState(),
 	): ReadonlySet<string> {
+		return this.effectiveRelevance(states).visible;
+	}
+
+	/** The visible field paths, and each repeat row's own effective
+	 * relevance keyed by its concrete path. */
+	private effectiveRelevance(states: Readonly<EngineStoreState>): {
+		visible: ReadonlySet<string>;
+		rows: ReadonlyMap<string, boolean>;
+	} {
 		const visible = new Set<string>();
+		const rows = new Map<string, boolean>();
 		const walk = (
 			nodes: ReadonlyArray<FieldTreeNode>,
 			prefix: string,
@@ -2452,17 +2462,17 @@ export class FormEngine {
 				if (node.field.kind === "repeat") {
 					const count = this.instance.getRepeatCount(fieldPath);
 					for (let index = 0; index < count; index++) {
-						walk(
-							node.children ?? [],
-							`${fieldPath}[${index}]`,
+						const rowPath = `${fieldPath}[${index}]`;
+						const rowRelevant =
 							effective &&
-								this.repeatRowRelevant(
-									node.field,
-									fieldPath,
-									index,
-									states[fieldPath],
-								),
-						);
+							this.repeatRowRelevant(
+								node.field,
+								fieldPath,
+								index,
+								states[fieldPath],
+							);
+						rows.set(rowPath, rowRelevant);
+						walk(node.children ?? [], rowPath, rowRelevant);
 					}
 				} else if (node.children) {
 					walk(node.children, fieldPath, effective);
@@ -2470,10 +2480,15 @@ export class FormEngine {
 			}
 		};
 		walk(this.tree, "/data", true);
-		return visible;
+		return { visible, rows };
 	}
 
-	/** Effective main-instance relevance keyed by every runtime field path.
+	/** Effective main-instance relevance keyed by every runtime field path
+	 * and every repeat row. A row is its own node in the instance, and one
+	 * that is not relevant (a query repeat's condition false at it, or a
+	 * count-placement row past the end of the result) drops out of every
+	 * nodeset that selects it, so `count()` reads only the relevant rows
+	 * (Core `XPathLazyNodeset.java::performEvaluation`).
 	 * `stateOverrides` is the not-yet-committed prefix of an in-flight DAG
 	 * cascade, so later expressions in the same worker revision observe a
 	 * container that an earlier expression just hid or showed. */
@@ -2485,10 +2500,11 @@ export class FormEngine {
 			(stateOverrides === undefined
 				? this.store.getState()
 				: { ...this.store.getState(), ...stateOverrides });
-		const visible = this.effectivelyVisiblePaths(states);
-		return new Map(
-			Object.keys(states).map((path) => [path, visible.has(path)] as const),
-		);
+		const { visible, rows } = this.effectiveRelevance(states);
+		return new Map([
+			...Object.keys(states).map((path) => [path, visible.has(path)] as const),
+			...rows,
+		]);
 	}
 
 	/**
@@ -5178,22 +5194,29 @@ export class FormEngine {
 		return count === undefined || index < count;
 	}
 
-	/** Write a query repeat's result: grow rows up to its count (never removing
-	 * one) when `grow`, give each existing row the id at its position (blank
-	 * past the end) and set the wrapper's `@ids`, `@count` and
-	 * `@current_index`. Returns whether anything changed. */
+	/** Write a query repeat's result: set the wrapper's `@ids`, `@count` and
+	 * `@current_index`, grow rows up to its count (never removing one) when
+	 * `grow`, and give each existing row the id at its position (blank past
+	 * the end). Returns whether anything changed.
+	 *
+	 * The count is written before any row is made. Core computes the count
+	 * placement's count in the cascade of the answer the query reads, before
+	 * a new row exists (`FormDef.java::createNewRepeat` runs later), so a new
+	 * row is within the result, and relevant, while its own starting values
+	 * are set. */
 	private *materializeQueryResult(
 		node: FieldTreeNode,
 		path: string,
 		ids: readonly string[],
 		grow: boolean,
 	): Generator<InitializationRead, boolean, InitializationValue> {
-		let changed = false;
+		let changed = this.writeQueryWrapper(path, ids);
 		if (grow && ids.length > this.instance.getRepeatCount(path))
-			changed = yield* this.materializeInitializedRepeat(node, path, {
-				count: ids.length,
-				ids,
-			});
+			changed =
+				(yield* this.materializeInitializedRepeat(node, path, {
+					count: ids.length,
+					ids,
+				})) || changed;
 		const rows = this.instance.getRepeatCount(path);
 		for (let index = 0; index < rows; index++) {
 			const rowPath = `${path}[${index}]`;
@@ -5208,21 +5231,26 @@ export class FormEngine {
 			});
 			changed = true;
 		}
+		return this.writeQueryWrapper(path, ids) || changed;
+	}
+
+	/** Set a query repeat's wrapper attributes for `ids` over the rows it
+	 * holds now. Returns whether any changed. */
+	private writeQueryWrapper(path: string, ids: readonly string[]): boolean {
 		const wrapper = {
 			ids: ids.join(" "),
 			count: String(ids.length),
-			current_index: String(rows),
+			current_index: String(this.instance.getRepeatCount(path)),
 		};
 		const current = this.instance.elementAttributesAt(path);
 		if (
-			current.ids !== wrapper.ids ||
-			current.count !== wrapper.count ||
-			current.current_index !== wrapper.current_index
-		) {
-			this.instance.setElementAttributes(path, wrapper);
-			changed = true;
-		}
-		return changed;
+			current.ids === wrapper.ids &&
+			current.count === wrapper.count &&
+			current.current_index === wrapper.current_index
+		)
+			return false;
+		this.instance.setElementAttributes(path, wrapper);
+		return true;
 	}
 
 	/** Follow a count-placement query repeat's query once, as the settle loop

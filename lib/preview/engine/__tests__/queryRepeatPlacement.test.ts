@@ -24,7 +24,7 @@ import {
 } from "../formEngine";
 import { TriggerDag } from "../triggerDag";
 import { engineFixtureInput } from "./fixtures/engineInput";
-import { androidDevice } from "./fixtures/previewDevices";
+import { androidDevice, webAppsDevice } from "./fixtures/previewDevices";
 
 const FORM = testUuid("query-placement-form");
 const u = (path: string) => testUuid(`form.${path}`);
@@ -191,6 +191,136 @@ describe("a count-placement query repeat", () => {
 		expect(engine.getState("/data/second/assets[1]/asset_id").value).toBe(
 			"tap",
 		);
+	});
+});
+
+/** A query repeat whose rows each read their own id, index and starting
+ * value, and outside reads of its rows. `order` changes the result when the
+ * query reads it (the count placement); a constant query takes model
+ * iteration. */
+function readsOfRows(
+	idsQuery: string,
+	device: ReturnType<typeof androidDevice>,
+	relevant?: string,
+): FormEngine {
+	return new FormEngine(
+		input([
+			{ id: "order", kind: "text", label: proseText("Order") },
+			{
+				id: "members",
+				kind: "repeat",
+				label: proseText("Member"),
+				repeat_mode: "query_bound",
+				data_source: { ids_query: idsQuery },
+				...(relevant === undefined ? {} : { relevant }),
+				children: [
+					{
+						id: "note",
+						kind: "text",
+						label: proseText("Note"),
+						default_value: "concat('for ', current()/../@id)",
+					},
+					{ id: "record", kind: "hidden", calculate: "current()/../@id" },
+					{ id: "ordinal", kind: "hidden", calculate: "current()/../@index" },
+				],
+			},
+			{ id: "rows", kind: "hidden", calculate: "count(#form/members)" },
+			{
+				id: "records",
+				kind: "hidden",
+				calculate: "join(' ', #form/members/record)",
+			},
+			{
+				id: "ordinals",
+				kind: "hidden",
+				calculate: "join(' ', #form/members/ordinal)",
+			},
+			{
+				id: "notes",
+				kind: "hidden",
+				calculate: "join(' ', #form/members/note)",
+			},
+		]),
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		{ device },
+	);
+}
+
+const ORDERED_QUERY =
+	"if(#form/order = 'reverse', 'c b a', if(#form/order = 'short', 'a', if(#form/order = 'two', 'a b', if(#form/order = 'full', 'a b c', ''))))";
+
+const value = (engine: FormEngine, path: string) => engine.getState(path).value;
+
+describe.each([
+	["Web Apps", webAppsDevice()],
+	["Android", androidDevice()],
+])("what a form reads of query rows on %s", (_platform, device) => {
+	it("gives a new count-placement row its id before its starting value is set", () => {
+		// Core fires every `jr-insert` setvalue of a new row before any
+		// calculate (`FormDef.java::createNewRepeat`), and the count placement
+		// sets the row's id among them (`xform/countPlacementRow.ts`), so a
+		// starting value reading the id finds it. The count is computed in the
+		// cascade of the answer the query reads, before the row is made, so a
+		// row made by growth is within the result while its value is set.
+		const engine = readsOfRows(ORDERED_QUERY, device);
+		engine.setValue("/data/order", "short");
+		expect(engine.getRepeatCount("/data/members")).toBe(1);
+		engine.setValue("/data/order", "two");
+		expect(engine.getRepeatCount("/data/members")).toBe(2);
+		expect(value(engine, "/data/members[0]/note")).toBe("for a");
+		expect(value(engine, "/data/members[1]/note")).toBe("for b");
+		// A starting value is set once, when its row is made; the row's id
+		// and stored index follow the result by position.
+		engine.setValue("/data/order", "reverse");
+		expect(value(engine, "/data/records")).toBe("c b a");
+		expect(value(engine, "/data/ordinals")).toBe("0 1 2");
+		expect(value(engine, "/data/members[0]/note")).toBe("for a");
+		expect(value(engine, "/data/members[2]/note")).toBe("for a");
+	});
+
+	it("counts and joins only the rows within the result, keeping a hidden row's answer", () => {
+		// A row past the end of the result is not relevant, and Core drops a
+		// node that is not relevant from every nodeset
+		// (`XPathLazyNodeset.java::performEvaluation`), so `count()` reads the
+		// relevant rows only. A value read in such a row reads blank
+		// (`XPathPathExpr.java::getRefValue`), while the instance keeps it.
+		const engine = readsOfRows(ORDERED_QUERY, device);
+		expect(value(engine, "/data/rows")).toBe("0");
+		engine.setValue("/data/order", "full");
+		expect(value(engine, "/data/rows")).toBe("3");
+		engine.setValue("/data/members[2]/note", "kept");
+		engine.setValue("/data/order", "short");
+		expect(engine.getRepeatCount("/data/members")).toBe(3);
+		expect(value(engine, "/data/rows")).toBe("1");
+		expect(value(engine, "/data/records")).toBe("a");
+		expect(value(engine, "/data/ordinals")).toBe("0");
+		expect(value(engine, "/data/notes")).toBe("for a");
+		expect(value(engine, "/data/members[2]/note")).toBe("kept");
+
+		engine.setValue("/data/order", "full");
+		expect(value(engine, "/data/rows")).toBe("3");
+		expect(value(engine, "/data/records")).toBe("a b c");
+		expect(value(engine, "/data/ordinals")).toBe("0 1 2");
+		expect(value(engine, "/data/notes")).toBe("for a for b kept");
+	});
+
+	it("gives each model-iteration row its id before its starting value, and counts only the rows its condition shows", () => {
+		// Model iteration sets `@index` and then `@id` at `jr-insert`, before
+		// any calculate (`FormDef.java::createNewRepeat`). The condition is on
+		// the row, and a row it hides drops out of every nodeset
+		// (`XPathLazyNodeset.java::performEvaluation`).
+		const engine = readsOfRows("'a b c'", device, "current()/@id != 'c'");
+		expect(engine.getRepeatCount("/data/members")).toBe(3);
+		expect(value(engine, "/data/members[0]/note")).toBe("for a");
+		expect(value(engine, "/data/members[1]/note")).toBe("for b");
+		expect(value(engine, "/data/rows")).toBe("2");
+		expect(value(engine, "/data/records")).toBe("a b");
+		expect(value(engine, "/data/ordinals")).toBe("0 1");
+		expect(value(engine, "/data/notes")).toBe("for a for b");
 	});
 });
 

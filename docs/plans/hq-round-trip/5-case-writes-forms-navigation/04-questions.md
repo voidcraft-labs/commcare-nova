@@ -1755,7 +1755,13 @@ Each departs from the research, the outline or a brief, with its reason.
   `computeOperationAnswers`, the attachment and invalid-answer walks, and
   `formPresentation.ts::visibleRepeatInstances` through `repeatRowRelevantInState`, so the running
   form hides a row past the end as the engine does. Without the presentation filter the builder
-  would draw a row the submission leaves out.
+  would draw a row the submission leaves out. The XPath instance reads it too: each row's
+  relevance is keyed by its path beside the fields' (`formEngine.ts::effectiveRelevanceByPath`),
+  so a row that is not relevant drops out of every nodeset, as Core drops it
+  (`XPathLazyNodeset.java::performEvaluation`), and `count(#form/r)` reads only the relevant rows
+  in both placements. A refresh writes the wrapper's count before it makes a row, as Core computes
+  the count in the answer's cascade before `FormDef.java::createNewRepeat`, so a row made by growth
+  is within the result while its starting values read its id.
 - **`lib/preview/app-tests/CLAUDE.md` moves in pull request 3** (its version 18 sentence), which
   part 10 §2's pull request 3 list leaves out and §7.9 marks 3: the sentence is true when
   `RUNTIME_VERSION` becomes 18.
