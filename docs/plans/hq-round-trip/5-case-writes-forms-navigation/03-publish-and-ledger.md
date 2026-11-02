@@ -2441,6 +2441,32 @@ From pull request 6's implementation:
   `lib/deployment/__tests__/placementMoves.test.ts` holds the case it admits: a menu held advanced
   whose extension create's block moves to its open action, the menu staying advanced. No test makes
   the clause refuse, because no admitted document gives it one.
+- **The `same-type-child-links` reason was already there, so pull request 8 fills its arm** (section 7.3
+  and the files of pull request 8 add the reason). Pull request 6 put it in
+  `lib/publish/placementMoves.ts::PLACEMENT_OFFER_REASONS`, and `lib/deployment/placementMoves.ts::placementMoveOffer`
+  answered it `null` (the departure above). Pull request 8 adds no reason and changes no schema: the
+  arm now returns `sameTypeChildLinksOffer(doc)`. The service's acceptance before preflight hands the
+  accepted reason to `placementMoveOffer` and treats both reasons alike, so it needs no new branch.
+- **The same-type exclusion pull request 8 lifts is the domain's** (the files of pull request 8 name "part
+  01's `lib/commcare/placement.ts` (the same-type exclusion lifted)"). It is
+  `lib/domain/basicCaseSlots.ts::sameTypeExclusions`, which `basicCaseSlots`,
+  `placement.ts::planAdvancedCore` and `lib/domain/advancedEntryDatums.ts::advancedEntryActions` call;
+  pull request 8 removes it and the three calls, the advanced arm included, since
+  `DONT_INDEX_SAME_CASETYPE` touches only a basic subcase's index
+  (`corehq/apps/app_manager/xform.py::XForm._create_casexml`). Part 01's departure 48 holds the
+  evidence.
+- **Two notice and guide tests sit in files section 20 does not name.** The `next-publish-asks-more`
+  lines for `commtrack-off` and `same-type-child-links` are cases of the existing
+  `lib/notices/__tests__/migrationNoticeCopy.test.ts`, beside the line for `form-entry-sync-off`. The
+  import file's two settings-off steps (links between cases of the same type as a step of their own,
+  out of the capabilities step, and CommCare Supply) are held at `hqImportFileGuide`, which decides them,
+  in the new `lib/commcare/multimedia/__tests__/hqImportFileGuideSettingsOff.test.ts`, while
+  `lib/publish/__tests__/manualImportGuide.test.ts` keeps the steps' copy.
+- **The same-type value class reads the configurations an app JSON was sent under.** Section 17 has
+  `own_case_type_where_same_type_unindexed` read the configuration's flags, which no value-class reader
+  was handed. `proof/checks/manifest_value_classes.py::App` takes the configurations, and the class
+  answers True where one turns `DONT_INDEX_SAME_CASETYPE` on, False where none does, and None only where
+  a reading names none; part 08's departures hold how `manifest_usage.py` threads them.
 
 ---
 

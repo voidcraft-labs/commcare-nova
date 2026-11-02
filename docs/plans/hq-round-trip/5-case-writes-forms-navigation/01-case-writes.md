@@ -2341,6 +2341,19 @@ From the research, the outline and the owner brief, each with its reason.
     `heldHistoryFixture.ts`, `lib/db/__tests__/heldPlacementApp.ts`). Each owns a contract the named
     files do not reach: the query repeat's planner, the move sentences, the read flags and the
     targeted document's shape.
+48. **The interim same-type exclusion lives in the domain, and pull request 8 lifts it in all three
+    readers** (§28 and part 10 §2 place the lift in `lib/commcare/placement.ts`). Since departure 42
+    moved slot eligibility into the domain, departure 19's exclusion is
+    `lib/domain/basicCaseSlots.ts::sameTypeExclusions`, and three readers call it:
+    `basicCaseSlots`, `lib/commcare/placement.ts::planAdvancedCore` and
+    `lib/domain/advancedEntryDatums.ts::advancedEntryActions`. Pull request 8 removes the function and
+    all three calls, so the advanced arm takes an open action for a same-type create too. That is
+    right because `DONT_INDEX_SAME_CASETYPE` touches only basic subcases:
+    `corehq/apps/app_manager/xform.py::XForm._create_casexml` reads the flag
+    (`index_same_casetype = not DONT_INDEX_SAME_CASETYPE.enabled(self.domain)`) when it writes a
+    subcase's index, and `XForm._create_casexml_advanced`, which writes an open action's indices, does
+    not read it. `PlanPlacementsOptions.excludeBasic`'s comment loses the "unheld creates of the
+    menu's own case type" clause it described.
 
 ## 28. Files by pull request
 
