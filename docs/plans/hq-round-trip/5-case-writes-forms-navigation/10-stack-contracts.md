@@ -1479,6 +1479,7 @@ this part's included.
 | §2's pull request 10 list: `lib/doc/identityMoveCopy.ts`, `lib/commcare/planPrivileges.ts`, `lib/doc/caseSearchConfigMutations.ts`, `components/builder/shared/checkErrorPresentation.ts`, `proof/walk-stops.json` | unchanged | the `forms-read-search` sentence and the blockers live in `lib/domain/placementCopy.ts` and `lib/domain/advancedModule.ts` (part 02's Departures); `commtrackReasons` reads `moduleKind.ts::advancedModulesWithCaseListMenuItem`, which pull request 10 points at `moduleHasCaseListMenuItem`; the other two read none of the renamed concepts; G2 is written as outcome A, which adds no stop (part 05's Departures) |
 | §1 row 10: corpus 425 | 424 (392 fixed) | the one-document offset part 08 recorded at pull request 8, carried forward (part 08's Departures) |
 | §1 row 11: corpus 431 | 430 (398 fixed, beside the default fuzz sample of 32) | the same one-document offset carried forward: `proof/checks/test_corpus.py::FIXED_DOCUMENTS` rises by the six documents of part 08 §5.1 and §4.2, from 392 to 398 (part 08's Departures) |
+| §1 row 13 and §2's pull request 13 list: the hash run "at `main`", `updateCaseOperation.ts` changed | the hash run's `main` is `f00930ab`, the stack's merge-base, and the pull request's base the `12-builder` head `87fb24f7`; `updateCaseOperation.ts` is unchanged, and the change also reaches `editField.ts`, `shared/fieldAssembly.ts`, `blueprintHelpers.ts`, `authoring/formPreparation.ts` and `authoring/output.ts` | part 07's Departures, rows marked 13 |
 
 ## What other parts read from this one
 

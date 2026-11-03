@@ -17,11 +17,12 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
 	type Field,
 	fieldCaseWriteViews,
+	type Uuid,
 } from "@/lib/domain";
 import {
 	concat,
@@ -32,6 +33,7 @@ import {
 } from "@/lib/domain/expression";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
+import { makeAuthoringHarness } from "../../__tests__/authoringHarness";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { editFieldTool } from "../editField";
 
@@ -801,4 +803,288 @@ it("changes repeat modes without replacing its children or retaining the old mod
 		if (repeat.mode !== "query_bound")
 			expect(current.fields[FIELD]).not.toHaveProperty("data_source");
 	}
+});
+
+/* --- Saving to a case above, only a changed answer, and display flags -- */
+
+const HH_MOD = testUuid("editField-households");
+const HH_VISIT = testUuid("editField-household-visit");
+const HH_REGISTER = testUuid("editField-household-register");
+const VISIT_NOTE = testUuid("editField-visit-village-note");
+const VISIT_HIDDEN = testUuid("editField-visit-hidden");
+const VISIT_GROUP = testUuid("editField-visit-group");
+const VISIT_TEXT = testUuid("editField-visit-text");
+const REG_NAME = testUuid("editField-register-name");
+const REG_NOTE = testUuid("editField-register-village-note");
+
+/** A household follow-up and registration; a household's parent is a
+ *  village, whose `village_note` a question can save through `parent`. */
+function makeHouseholdDoc(): BlueprintDoc {
+	return expectAdmittedDoc(
+		buildDoc({
+			appName: "Villages",
+			caseTypes: [
+				{
+					name: "village",
+					properties: [{ name: "village_note", label: "Village note" }],
+				},
+				{
+					name: "household",
+					parent_type: "village",
+					relationship: "child",
+					properties: [{ name: "note", label: "Note" }],
+				},
+			],
+			modules: [
+				{
+					uuid: HH_MOD,
+					name: "Households",
+					caseType: "household",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: HH_VISIT,
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({ uuid: VISIT_NOTE, kind: "text", id: "village_note" }),
+								f({ uuid: VISIT_HIDDEN, kind: "hidden", id: "stamp" }),
+								f({
+									uuid: VISIT_GROUP,
+									kind: "group",
+									id: "details",
+									label: proseText("Details"),
+									fieldList: true,
+									children: [
+										f({ uuid: VISIT_TEXT, kind: "text", id: "remark" }),
+									],
+								}),
+							],
+						},
+						{
+							uuid: HH_REGISTER,
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									uuid: REG_NAME,
+									kind: "text",
+									id: "hh_name",
+									caseWrite: { caseType: "household", property: "case_name" },
+								}),
+								f({ uuid: REG_NOTE, kind: "text", id: "reg_note" }),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
+}
+
+const visitAddress = (fieldUuid: Uuid) => ({
+	moduleUuid: HH_MOD,
+	formUuid: HH_VISIT,
+	fieldUuid,
+});
+
+/** The own arm's writes of a form, as the document holds them. */
+function ownWritesOf(doc: BlueprintDoc, formUuid: Uuid) {
+	const own = doc.forms[formUuid]?.caseOperations?.find(
+		(operation) => operation.action === "own",
+	);
+	if (own === undefined) throw new Error("expected the form's own case");
+	return own.writes ?? [];
+}
+
+describe("editField: caseWrite's via and onlyIfChanged", () => {
+	it("saves through via to the case above the form's case", async () => {
+		const h = makeToolWorkspaceHarness(makeHouseholdDoc());
+		const result = await h.runTool(editFieldTool, {
+			...visitAddress(VISIT_NOTE),
+			updates: {
+				kind: "text",
+				caseWrite: {
+					caseType: "village",
+					property: "village_note",
+					via: [{ identifier: "parent" }],
+				},
+			},
+		});
+
+		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
+		expect(ownWritesOf(h.currentDoc(), HH_VISIT)).toEqual([
+			expect.objectContaining({
+				property: "village_note",
+				value: { kind: "term", term: { kind: "field", uuid: VISIT_NOTE } },
+				via: [{ identifier: "parent" }],
+			}),
+		]);
+		expect(fieldCaseWriteViews(h.currentDoc(), VISIT_NOTE)).toEqual([
+			expect.objectContaining({ caseType: "village", destination: "ancestor" }),
+		]);
+	});
+
+	it("saves only a changed answer on a follow-up", async () => {
+		const h = makeToolWorkspaceHarness(makeHouseholdDoc());
+		const result = await h.runTool(editFieldTool, {
+			...visitAddress(VISIT_NOTE),
+			updates: {
+				kind: "text",
+				caseWrite: {
+					caseType: "household",
+					property: "note",
+					onlyIfChanged: true,
+				},
+			},
+		});
+
+		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
+		expect(ownWritesOf(h.currentDoc(), HH_VISIT)).toEqual([
+			expect.objectContaining({ property: "note", onlyIfChanged: true }),
+		]);
+	});
+
+	// The planner admits the write, and the commit gate refuses it: a
+	// registration's case has no link to a case above while the form is open.
+	it("refuses a via on a registration and stages nothing", async () => {
+		const doc = makeHouseholdDoc();
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			moduleUuid: HH_MOD,
+			formUuid: HH_REGISTER,
+			fieldUuid: REG_NOTE,
+			updates: {
+				kind: "text",
+				caseWrite: {
+					caseType: "village",
+					property: "village_note",
+					via: [{ identifier: "parent" }],
+				},
+			},
+		});
+
+		expect(result.result).toHaveProperty("error");
+		expect(result.mutations).toEqual([]);
+		expect(h.recordMutationStages).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toEqual(doc);
+	});
+});
+
+describe("editField: field_list and plain_label", () => {
+	it("refuses plain_label on a hidden field and field_list on a text field", () => {
+		const hidden = editFieldTool.inputSchema.safeParse({
+			...visitAddress(VISIT_HIDDEN),
+			updates: { kind: "hidden", plain_label: true },
+		});
+		expect(hidden.success).toBe(false);
+		expect(hidden.error?.issues).toContainEqual(
+			expect.objectContaining({ path: ["updates", "plain_label"] }),
+		);
+
+		const text = editFieldTool.inputSchema.safeParse({
+			...visitAddress(VISIT_TEXT),
+			updates: { kind: "text", field_list: false },
+		});
+		expect(text.success).toBe(false);
+		expect(text.error?.issues).toContainEqual(
+			expect.objectContaining({ path: ["updates", "field_list"] }),
+		);
+	});
+
+	it("clears a group's one screen with null", async () => {
+		const doc = makeHouseholdDoc();
+		expect(doc.fields[VISIT_GROUP]).toMatchObject({ fieldList: true });
+		const h = makeToolWorkspaceHarness(doc);
+		const result = await h.runTool(editFieldTool, {
+			...visitAddress(VISIT_GROUP),
+			updates: { kind: "group", field_list: null },
+		});
+
+		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
+		expect(h.currentDoc().fields[VISIT_GROUP]).not.toHaveProperty("fieldList");
+	});
+
+	it("shows a label exactly as typed with plain_label true, and returns it to Markdown with false", async () => {
+		const h = makeToolWorkspaceHarness(makeHouseholdDoc());
+		const set = await h.runTool(editFieldTool, {
+			...visitAddress(VISIT_TEXT),
+			updates: { kind: "text", plain_label: true },
+		});
+		if ("error" in set.result) throw new Error(set.result.error);
+		expectAdmittedDoc(h.currentDoc());
+		expect(h.currentDoc().fields[VISIT_TEXT]).toMatchObject({
+			plainLabel: true,
+		});
+
+		const cleared = await h.runTool(editFieldTool, {
+			...visitAddress(VISIT_TEXT),
+			updates: { kind: "text", plain_label: false },
+		});
+		if ("error" in cleared.result) throw new Error(cleared.result.error);
+		expect(h.currentDoc().fields[VISIT_TEXT]).not.toHaveProperty("plainLabel");
+	});
+});
+
+describe("editField: a choice shown as typed survives a read and edit", () => {
+	it("reads plain_label on the choice and keeps plainLabel when the read is sent back", async () => {
+		const base = makeSelectDoc();
+		const select = base.fields[SEL];
+		if (
+			select?.kind !== "single_select" ||
+			select.optionsSource.kind !== "inline"
+		)
+			throw new Error("expected inline select");
+		const doc = expectAdmittedDoc({
+			...base,
+			fields: {
+				...base.fields,
+				[SEL]: {
+					...select,
+					optionsSource: {
+						kind: "inline",
+						options: select.optionsSource.options.map((option) =>
+							option.uuid === OPT_YES
+								? { ...option, plainLabel: true as const }
+								: option,
+						),
+					},
+				},
+			},
+		});
+		const h = makeAuthoringHarness({}, doc);
+		const address = { moduleUuid: MOD, formUuid: FORM, fieldUuid: SEL };
+		const read = (await h.call("getField", address)) as {
+			field: { optionsSource: { options: Record<string, unknown>[] } };
+		};
+		expect(read.field.optionsSource.options).toEqual([
+			expect.objectContaining({ optionUuid: OPT_YES, plain_label: true }),
+			expect.not.objectContaining({ plain_label: expect.anything() }),
+		]);
+
+		const result = await h.call("editField", {
+			...address,
+			updates: {
+				kind: "single_select",
+				optionsSource: read.field.optionsSource,
+			},
+		});
+
+		expect(result).toMatchObject({ ok: true });
+		const after = h.currentDoc().fields[SEL];
+		if (
+			after?.kind !== "single_select" ||
+			after.optionsSource.kind !== "inline"
+		)
+			throw new Error("expected inline select");
+		expect(after.optionsSource.options).toEqual([
+			expect.objectContaining({ uuid: OPT_YES, plainLabel: true }),
+			expect.not.objectContaining({ plainLabel: true }),
+		]);
+	});
 });

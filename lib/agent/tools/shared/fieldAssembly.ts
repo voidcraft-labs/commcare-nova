@@ -25,7 +25,10 @@
  * a partial batch would leave it guessing which fields landed.
  */
 
-import { planFieldCaseWrite } from "@/lib/doc/fieldCaseWriteMutations";
+import {
+	type FieldCaseWriteDestination,
+	planFieldCaseWrite,
+} from "@/lib/doc/fieldCaseWriteMutations";
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import { fieldIdVerdict } from "@/lib/doc/identifierVerdicts";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
@@ -44,7 +47,27 @@ import {
 	prepareFlatFieldIdentities,
 	stripEmpty,
 } from "../../contentProcessing";
+import type { FieldCaseWriteInput } from "../../toolSchemaGenerator";
+import { toCaseWriteVia } from "../case-operations/shared";
 import { applyToDoc } from "../common";
+
+/**
+ * A field tool's `caseWrite` as the destination the "Saves to" planner
+ * reads. The planner refuses a destination the form can't reach, such as a
+ * `via` that reaches another type than `caseType`, and `addFields` and
+ * `editField` return its sentence unchanged; the commit gate refuses the
+ * rest, such as a `via` on a registration, whose new case has no link yet.
+ */
+export function fieldCaseWriteDestination(
+	input: FieldCaseWriteInput,
+): FieldCaseWriteDestination {
+	return {
+		caseType: input.caseType,
+		property: input.property,
+		...(input.via !== undefined && { via: toCaseWriteVia(input.via) }),
+		...(input.onlyIfChanged === true && { onlyIfChanged: true }),
+	};
+}
 
 export interface FieldAssemblyArgs {
 	/** The doc the batch will apply to — parent lookups + sibling scans. */
@@ -338,10 +361,11 @@ export function assembleFieldMutations(
 	const notes: Array<{ uuid: Uuid; id: string; note: string }> = [];
 	let candidate = writes.length === 0 ? doc : applyToDoc(doc, mutations);
 	for (const write of writes) {
-		const plan = planFieldCaseWrite(candidate, write.uuid, {
-			caseType: write.caseWrite.caseType,
-			property: write.caseWrite.property,
-		});
+		const plan = planFieldCaseWrite(
+			candidate,
+			write.uuid,
+			fieldCaseWriteDestination(write.caseWrite),
+		);
 		if (!plan.ok) {
 			rejected.push({ id: write.id, reason: plan.message });
 			continue;

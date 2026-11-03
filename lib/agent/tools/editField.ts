@@ -90,7 +90,10 @@ import {
 	fieldAddressSchema,
 	resolveFieldAddress,
 } from "./shared/entityAddresses";
-import type { CreatedOptionIdentity } from "./shared/fieldAssembly";
+import {
+	type CreatedOptionIdentity,
+	fieldCaseWriteDestination,
+} from "./shared/fieldAssembly";
 import { fieldKindPlatformRefusal } from "./shared/platformPrecheck";
 import type {
 	MutationSuccess,
@@ -221,6 +224,12 @@ function editPatchToFieldPatch(
 		// every `optionUuid` creation slot before collision/admission.
 		patch.optionsSource = preparedOptionsSource;
 	}
+	// The display flags: true sets the stored `fieldList` / `plainLabel`,
+	// false or null clears it (the domain stores only `true`).
+	if (updates.field_list !== undefined)
+		patch.fieldList = updates.field_list === true ? true : null;
+	if (updates.plain_label !== undefined)
+		patch.plainLabel = updates.plain_label === true ? true : null;
 	// Nested `validate: { expr, msg? }` config. SA passes:
 	//   - object → replace; flatten back to schema's `validate` +
 	//     `validate_msg` keys (msg unset → `null`, which clears it).
@@ -366,9 +375,7 @@ export const editFieldTool = {
 				const plan = planFieldCaseWrite(
 					doc,
 					fieldUuid,
-					caseWrite === null
-						? null
-						: { caseType: caseWrite.caseType, property: caseWrite.property },
+					caseWrite === null ? null : fieldCaseWriteDestination(caseWrite),
 				);
 				if (!plan.ok) {
 					return {

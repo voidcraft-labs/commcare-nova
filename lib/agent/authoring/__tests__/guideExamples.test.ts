@@ -551,3 +551,89 @@ it("starts a registration from the case list with a Search answer", async () => 
 		default_value: { kind: "term", term: { kind: "input" } },
 	});
 });
+
+it("creates a registration's case on an open condition and refuses one on a follow-up", async () => {
+	const h = makeAuthoringHarness(
+		{},
+		namedFormFixture([
+			{
+				name: "Visits",
+				caseType: "visit",
+				forms: [
+					{ name: "Check", type: "followup" },
+					{ name: "Add visit", type: "registration" },
+				],
+			},
+		]),
+	);
+	for (const formUuid of ["Add visit", "Check"])
+		expect(
+			await h.call("addFields", {
+				formUuid,
+				fields: [{ kind: "text", id: "consent", label: "Consent" }],
+			}),
+		).toMatchObject({ ok: true });
+	const formNamed = (name: string) => {
+		const form = Object.values(h.currentDoc().forms).find(
+			(candidate) => candidate.name === name,
+		);
+		if (!form) throw new Error(`Missing form "${name}".`);
+		return form;
+	};
+
+	expect(
+		await h.call("updateForm", {
+			formUuid: "Add visit",
+			open_condition: "#form/consent = 'yes'",
+		}),
+	).toMatchObject({ ok: true, open: "conditional" });
+	const consent = (h.currentDoc().fieldOrder[formNamed("Add visit").uuid] ?? [])
+		.map((uuid) => h.currentDoc().fields[uuid])
+		.find((field) => field?.id === "consent");
+	expect(formNamed("Add visit").openCondition).toMatchObject({
+		kind: "eq",
+		left: { kind: "term", term: { kind: "field", uuid: consent?.uuid } },
+	});
+
+	// Omission keeps the stored condition.
+	expect(
+		await h.call("updateForm", { formUuid: "Add visit", purpose: "Visits" }),
+	).toMatchObject({ ok: true });
+	expect(formNamed("Add visit").openCondition).toBeDefined();
+
+	// A follow-up creates no case, so the same condition is refused before
+	// anything is staged, with the reason the commit gate gives a stored one.
+	const before = h.currentDoc();
+	await expect(
+		h.call("updateForm", {
+			formUuid: "Check",
+			open_condition: "#form/consent = 'yes'",
+		}),
+	).rejects.toThrow(
+		expect.objectContaining({
+			name: AuthoringInputError.name,
+			message: expect.stringContaining(
+				"Only a registration form creates its case on a condition",
+			),
+		}),
+	);
+	await expect(
+		h.call("updateForm", {
+			formUuid: "Check",
+			close_condition: "#form/consent = 'yes'",
+		}),
+	).rejects.toThrow(
+		expect.objectContaining({
+			message: expect.stringContaining(
+				"Only registration and close forms close their own case",
+			),
+		}),
+	);
+	expect(h.currentDoc()).toBe(before);
+
+	// Null clears it: the case is created on every submission.
+	expect(
+		await h.call("updateForm", { formUuid: "Add visit", open_condition: null }),
+	).toMatchObject({ ok: true, open: "unconditional" });
+	expect(formNamed("Add visit").openCondition).toBeUndefined();
+});

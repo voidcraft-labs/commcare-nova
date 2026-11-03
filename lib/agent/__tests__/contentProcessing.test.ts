@@ -656,4 +656,161 @@ describe("a batch group's one-screen layout", () => {
 		] as unknown as FlatField[]);
 		expect(doc.fields[GROUP]).not.toHaveProperty("fieldList");
 	});
+
+	it("builds a labelled group with field_list false without the flag, where omission would give it", () => {
+		const parse = (fieldList?: boolean) =>
+			addFieldsItemSchema.parse({
+				fieldUuid: GROUP,
+				kind: "group",
+				id: "household",
+				label: proseText("Household"),
+				...(fieldList !== undefined && { field_list: fieldList }),
+			});
+		expect(assemble([parse(false)]).fields[GROUP]).not.toHaveProperty(
+			"fieldList",
+		);
+		expect(assemble([parse()]).fields[GROUP]).toMatchObject({
+			fieldList: true,
+		});
+	});
+
+	it("gives an unlabelled group the flag field_list true states", () => {
+		const doc = assemble([
+			addFieldsItemSchema.parse({
+				fieldUuid: GROUP,
+				kind: "group",
+				id: "wrapper",
+				field_list: true,
+			}),
+		]);
+		expect(doc.fields[GROUP]).toMatchObject({ fieldList: true });
+	});
+
+	it("leaves field_list true over a repeat workers add entries to for the gate to refuse", () => {
+		const doc = namedFormFixture([
+			{ name: "Visits", forms: [{ name: FORM_NAME, type: "survey" }] },
+		]);
+		const form = Object.values(doc.forms).find(
+			(each) => each.name === FORM_NAME,
+		);
+		if (form === undefined) throw new Error("The fixture form is missing.");
+		const assembly = assembleFieldMutations({
+			doc,
+			formUuid: form.uuid,
+			items: [
+				addFieldsItemSchema.parse({
+					fieldUuid: GROUP,
+					kind: "group",
+					id: "household",
+					label: proseText("Household"),
+					field_list: true,
+				}),
+				addFieldsItemSchema.parse({
+					fieldUuid: REPEAT,
+					parentUuid: GROUP,
+					kind: "repeat",
+					id: "members",
+					label: proseText("Member"),
+					repeat: { mode: "user_controlled" },
+				}),
+			],
+		});
+		if (!assembly.ok) throw new Error("The batch didn't assemble.");
+		const verdict = mutationCommitVerdict(
+			doc,
+			assembly.mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings.map((each) => each.code)).toEqual(
+			expect.arrayContaining(["FIELD_LIST_USER_REPEAT"]),
+		);
+	});
+});
+
+describe("plain_label on an added field and its choices", () => {
+	const FORM_NAME = "Intake";
+	const PICK = testUuid("plain-label-pick");
+	const NOTE = testUuid("plain-label-note");
+
+	it("lands plain_label true as plainLabel on the field and on each choice that states it", () => {
+		const doc = namedFormFixture([
+			{ name: "Intake", forms: [{ name: FORM_NAME, type: "survey" }] },
+		]);
+		const form = Object.values(doc.forms).find(
+			(each) => each.name === FORM_NAME,
+		);
+		if (form === undefined) throw new Error("The fixture form is missing.");
+		const assembly = assembleFieldMutations({
+			doc,
+			formUuid: form.uuid,
+			items: [
+				addFieldsItemSchema.parse({
+					fieldUuid: PICK,
+					kind: "single_select",
+					id: "dose",
+					label: proseText("Dose *mg*"),
+					plain_label: true,
+					optionsSource: {
+						kind: "inline",
+						options: [
+							{ value: "a", label: proseText("1. Low"), plain_label: true },
+							{ value: "b", label: proseText("High"), plain_label: false },
+						],
+					},
+				}),
+				addFieldsItemSchema.parse({
+					fieldUuid: NOTE,
+					kind: "label",
+					id: "note",
+					label: proseText("# Read me"),
+					plain_label: false,
+				}),
+			],
+		});
+		if (!assembly.ok) throw new Error("The batch didn't assemble.");
+		const verdict = mutationCommitVerdict(
+			doc,
+			assembly.mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+		const pick = verdict.nextDoc.fields[PICK];
+		expect(pick).toMatchObject({ plainLabel: true });
+		if (pick?.kind !== "single_select" || pick.optionsSource.kind !== "inline")
+			throw new Error("expected an inline select");
+		expect(pick.optionsSource.options[0]).toMatchObject({ plainLabel: true });
+		expect(pick.optionsSource.options[1]).not.toHaveProperty("plainLabel");
+		for (const option of pick.optionsSource.options)
+			expect(option).not.toHaveProperty("plain_label");
+		expect(verdict.nextDoc.fields[NOTE]).not.toHaveProperty("plainLabel");
+	});
+
+	it("takes a replacement choice's plainLabel from the input, not the prior choice", () => {
+		const yes = testUuid("plain-label-yes");
+		const no = testUuid("plain-label-no");
+		const result = prepareToolOptionsSource(
+			projectedOptionsSourceSchema.parse({
+				kind: "inline",
+				options: [
+					{ optionUuid: yes, value: "yes", label: proseText("Yes") },
+					{ value: "no", label: proseText("No"), plain_label: true },
+				],
+			}),
+			{
+				kind: "inline",
+				options: [
+					{
+						uuid: yes,
+						value: "yes",
+						label: proseText("Yes"),
+						plainLabel: true,
+					},
+					{ uuid: no, value: "no", label: proseText("No") },
+				],
+			},
+		);
+		if (result.kind !== "inline") throw new Error("Expected choices.");
+		expect(result.options[0]).not.toHaveProperty("plainLabel");
+		expect(result.options[1]).toMatchObject({ uuid: no, plainLabel: true });
+	});
 });

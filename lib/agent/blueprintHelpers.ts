@@ -626,8 +626,8 @@ export function removeFormMutations(
 }
 
 /**
- * Patch non-Connect form-level fields. Nullable fields (`closeCondition`,
- * `postSubmit`) follow a convention: passing `null` clears the field (the
+ * Patch non-Connect form-level fields. Nullable fields (`openCondition`,
+ * `closeCondition`, `postSubmit`, `purpose`) follow a convention: passing `null` clears the field (the
  * reducer stores `undefined`), passing a value replaces it, and omitting
  * the key leaves it untouched. Connect participation is deliberately absent;
  * the app-wide target planner owns membership, and a type change is absent
@@ -638,6 +638,7 @@ export function updateFormMutations(
 	formUuid: Uuid,
 	patch: Partial<{
 		name: string;
+		openCondition: Form["openCondition"] | null;
 		closeCondition: Form["closeCondition"] | null;
 		postSubmit: PostSubmitDestination | null;
 		purpose: string | null;
@@ -649,6 +650,10 @@ export function updateFormMutations(
 		mutations.push({ kind: "renameForm", uuid: formUuid, newId: patch.name });
 	}
 	const reducerPatch: Extract<Mutation, { kind: "updateForm" }>["patch"] = {};
+	if (patch.openCondition !== undefined) {
+		reducerPatch.openCondition =
+			patch.openCondition === null ? null : patch.openCondition;
+	}
 	if (patch.closeCondition !== undefined) {
 		reducerPatch.closeCondition =
 			patch.closeCondition === null ? null : patch.closeCondition;

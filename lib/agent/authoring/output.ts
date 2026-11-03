@@ -619,10 +619,14 @@ export function projectAuthoringRead(args: {
 			const options = record.parse(result.optionsSource);
 			if (options.kind === "inline") {
 				const rows = records.parse(options.options);
-				options.options = rows.map(({ uuid, value, label }) => ({
+				// A choice reads in the shape an edit takes, so a choice shown as
+				// typed reads `plain_label: true` and a replacement that sends it
+				// back keeps it.
+				options.options = rows.map(({ uuid, value, label, plainLabel }) => ({
 					optionUuid: uuid,
 					value,
 					label,
+					...(plainLabel === true && { plain_label: true }),
 				}));
 				const media = rows
 					.filter((option) => option.media !== undefined)

@@ -173,7 +173,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: addFieldsTool.description,
 		schema: addFieldsTool.inputSchema,
 		prompt:
-			'Use addFields with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to add two fields: patient_name (a text field with caseWrite {caseType: "patient", property: "case_name"}) and age (an int field with caseWrite {caseType: "patient", property: "age"}).',
+			'Use addFields with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to add a group household with field_list true; inside it a text field head_name saving with caseWrite to the household case property head_name through via [{"identifier":"parent"}] only if changed; a single_select consent whose label has plain_label true, with two choices; and a repeat visits counting int(#form/visit_count) rows.',
 	},
 	{
 		name: "addAutomations",
@@ -194,14 +194,14 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: addCaseOperationsTool.description,
 		schema: addCaseOperationsTool.inputSchema,
 		prompt:
-			'Use addCaseOperations on the form "Follow-up visit" in the module "Patients" to add an update operation named record_visit for the selected patient record. Write visits as the authored expression "#case/visits + 1".',
+			'Use addCaseOperations on the form "Follow-up visit" in the module "Patients" to add an update of the worker\'s own record (commcare-user) writing last_visit as the authored expression "today()".',
 	},
 	{
 		name: "updateCaseOperation",
 		description: updateCaseOperationTool.description,
 		schema: updateCaseOperationTool.inputSchema,
 		prompt:
-			'Use updateCaseOperation on the form "Follow-up visit" in the module "Patients" to replace this form\'s own case change 33333333-3333-4333-8333-333333333333, keeping its writes and adding a write of visits as the authored expression "#case/visits + 1".',
+			'Use updateCaseOperation on the form "Follow-up visit" in the module "Patients" to replace this form\'s own case change 33333333-3333-4333-8333-333333333333, keeping its writes and adding a write of visits as the authored expression "#case/visits + 1", and a write of visit_date to the parent household case through via [{"identifier":"parent"}] only if changed.',
 	},
 	{
 		name: "getCaseOperations",
@@ -236,7 +236,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: setFieldOptionsSourceTool.description,
 		schema: setFieldOptionsSourceTool.inputSchema,
 		prompt:
-			'Use setFieldOptionsSource for the field patient in the form "Follow-up visit" in the module "Patients". Offer patient records, label each with case_name, and filter with the authored condition "#case/active = true()".',
+			'Use setFieldOptionsSource for the field patient in the form "Follow-up visit" in the module "Patients". Offer patient records, label each with case_name, and filter with the authored condition "#case/active = true()", with an inline choice whose label shows exactly as typed.',
 	},
 	{
 		name: "updateModule",
@@ -250,7 +250,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: updateFormTool.description,
 		schema: updateFormTool.inputSchema,
 		prompt:
-			"Use updateForm with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to close the case only when #form/outcome = 'done'.",
+			"Use updateForm with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to close the case only when #form/outcome = 'done', and create the case only when #form/consent = 'yes'.",
 	},
 	{
 		name: "configureConnect",
@@ -409,7 +409,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: editFieldTool.description,
 		schema: editFieldTool.inputSchema,
 		prompt:
-			"Use editField with moduleUuid 11111111-1111-4111-8111-111111111111, formUuid 22222222-2222-4222-8222-222222222222, and fieldUuid 33333333-3333-4333-8333-333333333333 to set its help text to 'Enter the patient's full legal name.' and set caseWrite to null.",
+			"Use editField with moduleUuid 11111111-1111-4111-8111-111111111111, formUuid 22222222-2222-4222-8222-222222222222, and fieldUuid 33333333-3333-4333-8333-333333333333 to set its help text to 'Enter the patient's full legal name.' and set caseWrite to null, and set plain_label to true.",
 	},
 	{
 		name: "moveField",
