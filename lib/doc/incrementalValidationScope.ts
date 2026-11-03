@@ -32,10 +32,13 @@
 import { formHoldsPlacement } from "@/lib/doc/heldIdentity";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
-import { noMatchesFormOf, orderedCaseOperations } from "@/lib/domain";
+import {
+	caseListRegistrationFormOf,
+	orderedCaseOperations,
+} from "@/lib/domain";
 import { modulesSelectingThrough } from "@/lib/domain/entryDatumSupplies";
 import { inferenceFingerprint } from "@/lib/domain/expression/inference";
-import { moduleParent } from "@/lib/domain/moduleHierarchy";
+import { childModuleUuids, moduleParent } from "@/lib/domain/moduleHierarchy";
 
 /** Structural twin of the validator scope kept on the domain side of the
  * CommCare boundary. `commitVerdicts` is the allowlisted adapter that passes
@@ -166,9 +169,9 @@ function addWholeModule(
 		scope.formUuids.add(formUuid);
 }
 
-/** Every form in a module can read its Search: a Search-first module's
- * forms read what the search found, and its no-matches form reads the
- * prompts. A Search edit can withdraw that supply, so each of those forms'
+/** Every form in a module can read its Search: the forms of a menu whose
+ * forms read the search read what it found, and its case list registration
+ * form reads the Search fields. A Search edit can withdraw that supply, so each of those forms'
  * own rules must run, and so must every link source, whose target's frame
  * the Search shapes. */
 function addModuleSearchReaders(
@@ -263,15 +266,18 @@ function mutationFootprint(
 			case "moveSearchInput":
 				scope.moduleUuids.add(mutation.moduleUuid);
 				break;
-			/* A no-matches registration form reads the module's Search prompts
-			 * by identity: an input's kind types every read of it there, and
+			/* A case list registration form reads the module's Search fields by
+			 * identity: an input's kind types every read of it there, and
 			 * removing one can leave a dangling read on that form. */
 			case "updateSearchInput":
 			case "removeSearchInput": {
 				scope.moduleUuids.add(mutation.moduleUuid);
-				const noMatchesForm = noMatchesFormOf(doc, mutation.moduleUuid);
-				if (noMatchesForm !== undefined)
-					scope.formUuids.add(noMatchesForm.uuid);
+				const registrationForm = caseListRegistrationFormOf(
+					doc,
+					mutation.moduleUuid,
+				);
+				if (registrationForm !== undefined)
+					scope.formUuids.add(registrationForm);
 				break;
 			}
 			case "setCaseListMeta":
@@ -288,21 +294,38 @@ function mutationFootprint(
 			case "setModuleMedia":
 				scope.moduleUuids.add(mutation.uuid);
 				break;
+			/* Whether the menu lists its case list is read by the module's own
+			 * rules (`NO_FORMS_OR_CASE_LIST`), by its child modules' parent
+			 * rules, by the destinations its forms are offered (a bare case
+			 * list), and by the session an entry through the list supplies,
+			 * which links into the module read. */
+			case "setCaseListMenuItem": {
+				if (doc.modules[mutation.uuid] === undefined) return undefined;
+				addWholeModule(doc, mutation.uuid, scope);
+				for (const child of childModuleUuids(doc, mutation.uuid))
+					addWholeModule(doc, child, scope);
+				addFormLinkSources(doc, scope);
+				break;
+			}
 			case "renameModule":
 				scope.moduleUuids.add(mutation.uuid);
 				break;
 			case "updateModule": {
 				/* A module case-type/mode change alters the session requirements seen
-				 * by form links elsewhere in the app. Opening the module on Search
-				 * gives its search instance to a submenu or a parent-select child,
-				 * whose own rules must run, and rewrites its forms' after-submit
-				 * destinations. All other module settings own only this module's
-				 * rules. */
+				 * by form links elsewhere in the app. Turning Forms read the search
+				 * on or off gives or takes its search instance from a submenu or a
+				 * parent-select child, whose own rules must run, and the platform
+				 * rule reads it; it rewrites its forms' after-submit destinations
+				 * too. Naming a case list registration form moves a form on or off
+				 * the menu, which the module's structural rules and every link
+				 * targeting the form read. All other module settings own only this
+				 * module's rules. */
 				if (
 					Object.hasOwn(mutation.patch, "caseType") ||
 					Object.hasOwn(mutation.patch, "parentCaseModuleUuid") ||
-					Object.hasOwn(mutation.patch, "caseListOnly") ||
-					mutation.caseSearchConfigPatch?.searchFirst === true
+					Object.hasOwn(mutation.patch, "caseListRegistrationForm") ||
+					(mutation.caseSearchConfigPatch !== undefined &&
+						Object.hasOwn(mutation.caseSearchConfigPatch, "formsReadSearch"))
 				) {
 					return undefined;
 				}
@@ -330,14 +353,9 @@ function mutationFootprint(
 				/* A type change moves the form between the case-loading and the
 				 * other forms, which decides whether its module lands on its case
 				 * list (`isCaseFirstModule`), what a child menu selecting through it
-				 * reads, and the action inventory links elsewhere consume. An entry
-				 * change moves the form on or off the module menu, which the
-				 * module's structural rules and every link targeting the form read.
-				 * Both take the whole-document gate. */
-				if (
-					Object.hasOwn(mutation.patch, "type") ||
-					Object.hasOwn(mutation.patch, "entry")
-				) {
+				 * reads, and the action inventory links elsewhere consume. It takes
+				 * the whole-document gate. */
+				if (Object.hasOwn(mutation.patch, "type")) {
 					return undefined;
 				}
 				/* Which creates a form's links carry decides where the form keeps

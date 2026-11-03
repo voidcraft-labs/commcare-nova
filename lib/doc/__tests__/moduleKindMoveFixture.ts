@@ -131,7 +131,7 @@ export function kindFixture(): BlueprintDoc {
 				uuid: "kind-mod-directory",
 				name: "Directory",
 				caseType: "household",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),

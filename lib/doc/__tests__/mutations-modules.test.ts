@@ -268,7 +268,7 @@ describe("case-list birth and independent screen sequences", () => {
 					uuid: M("a"),
 					name: "Patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: {
 						columns: [
 							plainColumn(Q("name"), "case_name", "Name"),
@@ -400,7 +400,7 @@ describe("a Search question's choice order", () => {
 					uuid: M("a"),
 					name: "Patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: {
 						columns: [plainColumn(Q("name"), "case_name", "Name")],
 						searchInputs: [],

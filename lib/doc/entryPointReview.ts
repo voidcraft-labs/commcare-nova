@@ -2,9 +2,9 @@
 
 import {
 	type BlueprintDoc,
+	caseListRegistrationFormOf,
 	type EntryPointTarget,
 	entryPointAt,
-	isNoMatchesForm,
 } from "@/lib/domain";
 import {
 	createEntryPointRequirements,
@@ -40,7 +40,10 @@ function destinationFromRequirements(
 		: [];
 	if (!projected.available) issue = projected.message;
 	try {
-		if (form && isNoMatchesForm(form))
+		if (
+			form &&
+			caseListRegistrationFormOf(doc, target.moduleUuid) === form.uuid
+		)
 			throw new Error("This form opens only when a search has no matches.");
 	} catch (error) {
 		issue =

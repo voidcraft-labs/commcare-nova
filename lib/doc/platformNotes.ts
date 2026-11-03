@@ -10,7 +10,7 @@
 
 import {
 	type BlueprintDoc,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
 	type Uuid,
 } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/expression";
@@ -96,11 +96,11 @@ export function platformFeaturesOf(
 
 /**
  * Whether a question's own rules read a Search field (`#search/…`) in a form
- * of a module that opens on its search: where `search-first`'s Web Apps note
- * (a form opened from a link or an entry point reads each Search field's
+ * of a menu whose forms read the search: where `forms-read-search`'s Web Apps
+ * note (a form opened from a link or an entry point reads each Search field's
  * starting value) changes what the read gives.
  */
-export function readsSearchFieldInSearchFirstForm(
+export function readsSearchFieldInFormsReadSearchForm(
 	doc: BlueprintDoc,
 	fieldUuid: Uuid,
 ): boolean {
@@ -108,7 +108,7 @@ export function readsSearchFieldInSearchFirstForm(
 	if (formUuid === undefined) return false;
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	const module = moduleUuid === undefined ? undefined : doc.modules[moduleUuid];
-	if (module === undefined || !moduleOpensOnSearch(module)) return false;
+	if (module === undefined || !moduleFormsReadSearch(module)) return false;
 	let reads = false;
 	for (const value of expressionSlotValues(doc, {
 		entity: "field",

@@ -129,8 +129,8 @@ function placedModuleOrder(
 /**
  * Module mutations operate on the `modules`, `moduleOrder`, and `formOrder`
  * maps, plus the per-module `caseListConfig` collections (`columns`,
- * `searchInputs`) and its non-array metadata (`filter` / case-list-link
- * `icon` / `audioLabel`). Removal cascades: dropping a module drops its forms
+ * `searchInputs`) and its non-array metadata (`filter`, selection, tile),
+ * and the case list menu entry (`setCaseListMenuItem`). Removal cascades: dropping a module drops its forms
  * (which drop their fields via `cascadeDeleteForm`).
  *
  * `renameModule` maps to the module's `name` field — modules have no
@@ -171,7 +171,8 @@ export function applyModuleMutation(
 				| "updateSearchInput"
 				| "removeSearchInput"
 				| "moveSearchInput"
-				| "setCaseListMeta";
+				| "setCaseListMeta"
+				| "setCaseListMenuItem";
 		}
 	>,
 ): void {
@@ -601,6 +602,21 @@ export function applyModuleMutation(
 			reconcilePostSubmitWithMenuShape(draft, before);
 			return;
 		}
+		case "setCaseListMenuItem": {
+			// Set or take off the module's case list menu entry, whole. Whether
+			// the menu is a bare case list reads it, and a form's offered
+			// destinations read that (`menu-is-bare-case-list`).
+			const mod = draft.modules[mut.uuid];
+			if (!mod) return;
+			const before = postSubmitBefore(
+				draft,
+				formsOfModuleAndChildren(draft, mut.uuid),
+			);
+			if (mut.item === null) delete mod.caseListMenuItem;
+			else mod.caseListMenuItem = structuredClone(mut.item);
+			reconcilePostSubmitWithMenuShape(draft, before);
+			return;
+		}
 	}
 }
 
@@ -641,9 +657,10 @@ function nearestAdmitted(
 /**
  * Keep every form's after-submit destination one the form may hold, and
  * meaning what it meant, when a write changes a fact its offered set or its
- * default reads (`lib/domain/postSubmit.ts`): Search first, the selection
- * mode, the module's `hiddenFromMenu`, the module's parent, the form's
- * module, or whether the form holds links. So a change of menu shape never
+ * default reads (`lib/domain/postSubmit.ts`): whether the menu's forms read
+ * the search, the selection mode, the module's `hiddenFromMenu`, whether the
+ * menu is a bare case list, the module's parent, the form's module, or
+ * whether the form holds links. So a change of menu shape never
  * dead-ends at the gate. `before` maps each form to reconcile to its
  * effective destination ahead of the write; after the write, for each:
  *
@@ -686,8 +703,7 @@ export function reconcilePostSubmitWithMenuShape(
  * itself is missing.
  *
  * `setCaseListMeta` deliberately does NOT route through here: patching an
- * always-on config's metadata (`filter` / `selection` / `icon` /
- * `audioLabel`) is an EDIT of
+ * always-on config's metadata (`filter` / `selection` / `tile`) is an EDIT of
  * an existing config, and birthing one to hold a peer's filter would resurrect
  * a case list another member concurrently removed. It reads the config directly
  * and no-ops when absent; the guarded commit rejects that case as a conflict.

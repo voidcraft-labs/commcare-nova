@@ -28,6 +28,7 @@ import {
 	automationUserDataFilterSchema,
 	CONNECT_TYPES,
 	type Column,
+	caseListMenuItemSchema,
 	caseOperationSchema,
 	casePropertySchema,
 	caseSearchConfigSchema,
@@ -346,7 +347,9 @@ function caseSearchConfigPatchSchemaFor(
 			searchScreenSubtitle: configSchema.shape.searchScreenSubtitle.nullable(),
 			searchButtonDisplayCondition:
 				configSchema.shape.searchButtonDisplayCondition.nullable(),
-			searchFirst: configSchema.shape.searchFirst.nullable(),
+			/** `null` is search first. */
+			workflow: configSchema.shape.workflow.nullable(),
+			formsReadSearch: configSchema.shape.formsReadSearch.nullable(),
 		})
 		.partial();
 }
@@ -492,6 +495,8 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 		caseSearchConfig: true,
 		icon: true,
 		audioLabel: true,
+		// The case list menu item is set whole by `setCaseListMenuItem`.
+		caseListMenuItem: true,
 		// Whether CommCare HQ holds the menu as an advanced module is held by
 		// `holdPlacements` alone; no module patch writes it.
 		heldKind: true,
@@ -1614,8 +1619,7 @@ function createMutationSchema({
 		// Presence-only Search transitions and final-input cleanup are the semantic
 		// `updateModule` operations above.
 		// The module's case-list metadata that is NOT a membership array — the
-		// always-on `filter` predicate, selection behavior, and the case-list-link
-		// `icon` / `audioLabel`.
+		// always-on `filter` predicate, selection behavior, and the tile.
 		// Each slot is nullable so a clear crosses the JSON wire as `null`.
 		z.object({
 			kind: z.literal("setCaseListMeta"),
@@ -1623,10 +1627,16 @@ function createMutationSchema({
 			patch: z.strictObject({
 				filter: mutationConditionSchema.nullable().optional(),
 				selection: caseSelectionSchema.nullable().optional(),
-				icon: moduleIconRefSchema.nullable().optional(),
-				audioLabel: mediaAssetIdSchema.nullable().optional(),
 				tile: caseTileLayoutSchema.nullable().optional(),
 			}),
+		}),
+		// The module's case list as its own menu entry, set whole as
+		// `setModuleMedia` sets both media slots at once.
+		z.object({
+			kind: z.literal("setCaseListMenuItem"),
+			uuid: uuidSchema,
+			/** The whole entry, or `null` to take it off the menu. */
+			item: caseListMenuItemSchema.nullable(),
 		}),
 		// ─── Granular select options ─────────────────────────────────────────
 		//

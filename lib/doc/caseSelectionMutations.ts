@@ -7,6 +7,7 @@ import {
 	caseSelectionCanFlowBetweenModules,
 	formLinkSelectionIsCompatible,
 	type Module,
+	moduleIsBareCaseList,
 	type Uuid,
 } from "@/lib/domain";
 
@@ -420,7 +421,7 @@ function transitionReason(edge: SelectionEdge): CaseSelectionTransitionReason {
  * Direct case-loading form links carry selection when they use the same case
  * type and do not author manual datums. Those links are followed in both
  * directions until every affected cardinality and maximum is compatible.
- * When a multiple-selection, case-list-only parent would otherwise lose its
+ * When a multiple-selection, bare case list parent would otherwise lose its
  * batch-consuming child, the compatible structural child flow joins the same
  * closure. Every resulting module edit must be explicitly confirmed before
  * the planner returns one atomic mutation batch.
@@ -483,7 +484,7 @@ export function planCaseSelectionTransition(
 		args.selection,
 	);
 
-	// A case-list-only parent needs only one compatible batch-consuming child.
+	// A bare case list parent needs only one compatible batch-consuming child.
 	// If none survives the projected change, join every selection-repairable
 	// candidate to the explicit closure rather than choosing a workflow silently.
 	let addedStructuralEdge = true;
@@ -492,10 +493,13 @@ export function planCaseSelectionTransition(
 		const relevantParents = new Set<Uuid>();
 		for (const moduleUuid of connected) {
 			const module = doc.modules[moduleUuid];
-			if (module?.caseListOnly === true) relevantParents.add(moduleUuid);
-			if (module?.parentModuleUuid !== undefined) {
-				const parent = doc.modules[module.parentModuleUuid];
-				if (parent?.caseListOnly === true) relevantParents.add(parent.uuid);
+			if (module !== undefined && moduleIsBareCaseList(doc, moduleUuid))
+				relevantParents.add(moduleUuid);
+			if (
+				module?.parentModuleUuid !== undefined &&
+				moduleIsBareCaseList(doc, module.parentModuleUuid)
+			) {
+				relevantParents.add(module.parentModuleUuid);
 			}
 		}
 

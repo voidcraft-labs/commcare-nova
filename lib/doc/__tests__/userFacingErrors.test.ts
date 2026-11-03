@@ -814,8 +814,8 @@ describe("userFacingError — the checker's and writer agreement's reasons", () 
 		],
 		[
 			"SEARCH_RESULTS_NOT_SUPPLIED",
-			{ reason: "not-search-first" },
-			'"visit_check" reads what "Clients"\'s search found, but "Clients" no longer opens on its search, so "Register Client" has no search results. You can turn Search first back on, or read the case the worker chose instead.',
+			{ reason: "not-forms-read-search" },
+			'"visit_check" reads what "Clients"\'s search found, but "Clients"\'s forms no longer read its search, so "Register Client" has no search results. You can turn Forms read the search back on, or read the case the worker chose instead.',
 		],
 		[
 			"SEARCH_RESULTS_NOT_SUPPLIED",
@@ -1208,8 +1208,8 @@ describe("the session and search reads a form makes, in the builder's voice", ()
 		],
 		[
 			"INVALID_SEARCH_REF",
-			{ reason: "not-search-first" },
-			'"visit_check" in "Register Client" reads a search answer this form can\'t get to. Only a form in a menu that opens on its search can read that menu\'s Search fields. You can turn Search first back on, or read a question or a case property instead.',
+			{ reason: "not-forms-read-search" },
+			'"visit_check" in "Register Client" reads a search answer this form can\'t get to. Only a form in a menu whose forms read the search can read that menu\'s Search fields. You can turn Forms read the search back on, or read a question or a case property instead.',
 		],
 		[
 			"INVALID_SEARCH_REF",

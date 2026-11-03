@@ -309,12 +309,13 @@ export function caseTypeCatalogMutations(
 }
 
 /**
- * A case-list module, born as a VIEWER (`caseListOnly`): the module + its case
- * type + a `Name` case-list column, and NO forms. A formless case module must
- * be `caseListOnly` (otherwise `NO_FORMS_OR_CASE_LIST`); the user adds a
- * registration form afterward via the form affordance, which flips the flag off
- * (`formScaffoldMutations`). The case type is declared in the catalog so the
- * Name column resolves before any form writes `case_name`.
+ * A case-list module, born as a VIEWER: the module + its case type + its case
+ * list as a menu entry (`caseListMenuItem: {}`) + a `Name` case-list column,
+ * and NO forms. A formless case module must list its case list
+ * (otherwise `NO_FORMS_OR_CASE_LIST`); the user adds a form afterward via the
+ * form affordance, and the entry stays beside it (`formScaffoldMutations`).
+ * The case type is declared in the catalog so the Name column resolves before
+ * any form writes `case_name`.
  */
 export function caseListModuleMutations(
 	doc: BlueprintDoc,
@@ -328,7 +329,7 @@ export function caseListModuleMutations(
 		name: moduleName,
 		...(parentModuleUuid !== undefined && { parentModuleUuid }),
 		caseType,
-		caseListOnly: true,
+		caseListMenuItem: {},
 		caseListConfig: caseListConfigWithName(),
 	};
 	return {
@@ -472,18 +473,24 @@ export function canonicalAppGenesis(
 	};
 }
 
-/** Prepare an existing viewer to host its first menu form in the same batch. */
+/**
+ * Prepare a module with a case type to host a form in the same batch: a
+ * case-managing module with forms obliges a case-list column
+ * (`MISSING_CASE_LIST_COLUMNS`), so one with none is seeded a `Name` column.
+ * The case list menu entry is left as it is: a form added to a bare case
+ * list keeps the menu's entry beside it, since an authored entry is never
+ * removed in passing.
+ */
 export function moduleFormHostMutations(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 ): Mutation[] {
 	const mod = doc.modules[moduleUuid];
-	if (!mod?.caseListOnly) return [];
-	const patch: ModuleAuthoringPatch = { caseListOnly: false };
-	if ((mod.caseListConfig?.columns.length ?? 0) === 0) {
-		patch.caseListConfig = caseListConfigWithName(mod.caseListConfig);
-	}
-	return modulePatchMutations(mod, patch);
+	if (mod?.caseType === undefined) return [];
+	if ((mod.caseListConfig?.columns.length ?? 0) > 0) return [];
+	return modulePatchMutations(mod, {
+		caseListConfig: caseListConfigWithName(mod.caseListConfig),
+	});
 }
 
 /**
@@ -497,9 +504,9 @@ export function moduleFormHostMutations(
  * names the new case with a bare read of that question, and on a follow-up
  * or close it writes nothing.
  *
- * A `caseListOnly` module can't hold forms (`CASE_LIST_ONLY_HAS_FORMS`), so the
- * batch first flips the flag off and seeds a `Name` column if the module has
- * none (a case-managing module with forms obliges one — `MISSING_CASE_LIST_COLUMNS`).
+ * A module with a case type and no case-list column is seeded a `Name`
+ * column first (a case-managing module with forms obliges one —
+ * `MISSING_CASE_LIST_COLUMNS`); its case list menu entry stays as it is.
  * Returns `null` when the module doesn't exist.
  */
 export function formScaffoldMutations(
@@ -568,11 +575,11 @@ export function formScaffoldMutations(
 /**
  * The module patch that SETS a case type on an existing module, born valid:
  *
- *   - No forms → a case-list-only VIEWER (`caseListOnly: true`) with a `Name`
- *     column, exactly like a born viewer (`caseListModuleMutations`). A formless
- *     case module is invalid (`NO_FORMS_OR_CASE_LIST`); the viewer is the only
- *     valid formless+typed shape, and adding a form later flips the flag off
- *     (`formScaffoldMutations`).
+ *   - No forms → a VIEWER: its case list as a menu entry
+ *     (`caseListMenuItem: {}`, or the entry it already holds) with a `Name`
+ *     column, exactly like a born viewer (`caseListModuleMutations`). A
+ *     formless case module with no case list entry is invalid
+ *     (`NO_FORMS_OR_CASE_LIST`); a form added later keeps the entry beside it.
  *   - Has forms, no columns → seed a `Name` column (a form-bearing case module
  *     obliges one, `MISSING_CASE_LIST_COLUMNS`).
  *   - Has forms + columns → just the type.
@@ -593,7 +600,7 @@ export function caseTypeSetPatch(
 	if (!hasForms)
 		return {
 			caseType,
-			caseListOnly: true,
+			caseListMenuItem: mod.caseListMenuItem ?? {},
 			caseListConfig: caseListConfigWithName(mod.caseListConfig),
 		};
 	const hasColumns = (mod.caseListConfig?.columns.length ?? 0) > 0;
@@ -607,16 +614,16 @@ export function caseTypeSetPatch(
  * Drops the now-meaningless case-list + case-search config in the same patch —
  * a typeless module keeping its `caseSearchConfig` would trip
  * `caseSearchConfigRequiresCaseType`, and orphaned columns would resurface on
- * re-typing. ALSO drops `caseListOnly`: a viewer (the born case-list shape) is
- * `caseListOnly: true`, and clearing its type while keeping the flag leaves an
- * invalid typeless viewer (`CASE_LIST_ONLY_NO_CASE_TYPE`) — a survey has the
- * flag off. (Clears travel as `undefined` per the `updateModule` convention;
- * the wholesale snapshot save strips them, so absence is the cleared state.)
+ * re-typing. ALSO takes the case list menu entry off: an entry with no case
+ * type has no cases to list (`CASE_LIST_MENU_ITEM_NO_CASE_TYPE`), and a
+ * survey has none. (Clears travel as `undefined` per the `updateModule`
+ * convention; the wholesale snapshot save strips them, so absence is the
+ * cleared state.)
  */
 export function caseTypeClearPatch(): ModuleAuthoringPatch {
 	return {
 		caseType: undefined,
-		caseListOnly: undefined,
+		caseListMenuItem: undefined,
 		caseListConfig: undefined,
 		caseSearchConfig: undefined,
 	};

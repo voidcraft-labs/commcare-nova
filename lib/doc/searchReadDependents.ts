@@ -1,9 +1,9 @@
-// lib/doc/searchNoMatchesDependents.ts
+// lib/doc/searchReadDependents.ts
 //
-// What depends on a module's Search when it has a no-matches registration
-// form, and the refusals that name those dependents. A no-matches form
-// (`Form.entry` of kind `search-no-matches`) needs the module to open on
-// Search, and its fields may read the module's Search prompts by identity
+// What depends on a module's search when its forms read it, and the
+// refusals that name those dependents. A case list registration form
+// (`Module.caseListRegistrationForm`) needs the menu's forms to read the
+// search, and a form's fields may read the module's Search fields by identity
 // (`#search/<name>`). Taking either away would fail the commit gate on the
 // form; refusing up front, with the form and fields named, puts the choice
 // with the person instead of bouncing a batch off a finding anchored
@@ -11,7 +11,7 @@
 // `formLinkDependents.ts`).
 
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import { entityTargetKey, noMatchesFormOf } from "@/lib/domain";
+import { caseListRegistrationFormOf, entityTargetKey } from "@/lib/domain";
 import { findContainingForm } from "./mutations/helpers";
 import { referencingSlotsOf } from "./referenceIndex";
 
@@ -51,7 +51,7 @@ export function searchAnswerFieldDependents(
 	return dependents;
 }
 
-export type SearchNoMatchesDependentsPlan =
+export type SearchReadDependentsPlan =
 	| { readonly kind: "none" }
 	| {
 			readonly kind: "blocked";
@@ -62,43 +62,45 @@ export type SearchNoMatchesDependentsPlan =
 	  };
 
 /** What is being taken away from the module's Search. */
-export type SearchTakeaway = "search-first" | "search";
+export type SearchTakeaway = "forms-read-search" | "search";
 
 /**
- * The refusal, or `none`, for turning Search first off or removing Search
- * from `moduleUuid` while a no-matches registration form depends on it.
+ * The refusal, or `none`, for turning Forms read the search off or removing
+ * Search from `moduleUuid` while its case list registration form depends on
+ * it.
  */
 export function planSearchTakeawayDependents(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	takeaway: SearchTakeaway,
-): SearchNoMatchesDependentsPlan {
-	const form = noMatchesFormOf(doc, moduleUuid);
+): SearchReadDependentsPlan {
+	const formUuid = caseListRegistrationFormOf(doc, moduleUuid);
+	const form = formUuid === undefined ? undefined : doc.forms[formUuid];
 	if (form === undefined) return { kind: "none" };
 	const mod = doc.modules[moduleUuid];
 	const moduleName = mod?.name ?? "this module";
 	const action =
-		takeaway === "search-first"
-			? "turn Search first off for"
+		takeaway === "forms-read-search"
+			? "turn Forms read the search off for"
 			: "remove Search from";
 	const message =
-		`Cannot ${action} module "${moduleName}" (${moduleUuid}): form "${form.name}" (${form.uuid}) opens after a search finds no matches, which needs the module to open on Search. ` +
-		`Clear that form's entry with update_form (entry: null), which turns Search first off and drops the starting values its fields read from the search in the same call, or remove it with remove_form, then change the module's Search.`;
+		`Cannot ${action} module "${moduleName}" (${moduleUuid}): form "${form.name}" (${form.uuid}) opens from the case list when a search finds nothing, which needs the menu's forms to read the search. ` +
+		`Stop offering it with update_form (case_list_registration: null), which turns Forms read the search off and drops the starting values its fields read from the search in the same call, or remove it with remove_form, then change the module's Search.`;
 	const userMessage =
-		`"${moduleName}" keeps opening on Search for now: "${form.name}" opens when a search finds nothing. ` +
-		`Make "${form.name}" a menu form again (Search first turns off with it), or remove it, then try again.`;
+		`"${moduleName}" keeps its forms reading the search for now: "${form.name}" opens when a search finds nothing. ` +
+		`Make "${form.name}" a menu form again (Forms read the search turns off with it), or remove it, then try again.`;
 	return { kind: "blocked", message, userMessage };
 }
 
 /**
  * The refusal, or `none`, for removing Search prompt `inputUuid` while a
- * no-matches form's fields still read its answer.
+ * form's fields still read its answer.
  */
 export function planSearchInputRemovalFieldDependents(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	inputUuid: Uuid,
-): SearchNoMatchesDependentsPlan {
+): SearchReadDependentsPlan {
 	const dependents = searchAnswerFieldDependents(doc, inputUuid);
 	if (dependents.length === 0) return { kind: "none" };
 	const input = doc.modules[moduleUuid]?.caseListConfig?.searchInputs.find(

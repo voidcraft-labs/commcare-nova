@@ -108,6 +108,7 @@ function dispatchMutation(
 		case "removeSearchInput":
 		case "moveSearchInput":
 		case "setCaseListMeta":
+		case "setCaseListMenuItem":
 			applyModuleMutation(draft, mut);
 			return;
 		case "addForm":

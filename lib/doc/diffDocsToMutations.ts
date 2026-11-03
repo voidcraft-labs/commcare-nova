@@ -44,7 +44,9 @@ import type {
  *   6. Module + form renames, then field converts (`convertField`).
  *   7. Updates — `updateModule` / `updateForm` / `updateField` patches of
  *      ONLY the changed keys (excluding `order`, `caseListConfig`,
- *      `caseSearchConfig`, `options`, and media, each diffed separately).
+ *      `caseSearchConfig`, `caseListMenuItem`, `options`, and media, each
+ *      diffed separately), and one `setCaseListMenuItem` where a module's
+ *      case list menu item differs.
  *      Field-id patches are UUID-local. A form's case writes, its own case
  *      included, ride `updateForm` case-operation payloads keyed by
  *      operation uuid and write key, and its open and close conditions ride
@@ -396,6 +398,8 @@ const MODULE_PATCH_SKIP = new Set<string>([
 	"order",
 	"caseListConfig",
 	"caseSearchConfig",
+	// The case list menu item is set whole by `setCaseListMenuItem`.
+	"caseListMenuItem",
 	// A menu's held kind is written by `holdPlacements` alone, never by a
 	// module patch.
 	"heldKind",
@@ -743,6 +747,16 @@ export function diffDocsToMutations(
 				audioLabel: nextModule.audioLabel ?? null,
 			});
 		}
+		if (!deepEqual(prevModule.caseListMenuItem, nextModule.caseListMenuItem)) {
+			updates.push({
+				kind: "setCaseListMenuItem",
+				uuid,
+				item:
+					nextModule.caseListMenuItem === undefined
+						? null
+						: cloneEntity(nextModule.caseListMenuItem),
+			});
+		}
 		// `caseListConfig` is excluded from the generic patch — its content is
 		// diffed into an idempotent birth plus granular column / search-input /
 		// `setCaseListMeta` kinds. A case-type flip never snapshots the config;
@@ -986,6 +1000,7 @@ export function diffDocsToMutations(
 const POST_SUBMIT_RECONCILING_KINDS: ReadonlySet<Mutation["kind"]> = new Set([
 	"updateModule",
 	"setCaseListMeta",
+	"setCaseListMenuItem",
 	"moveModule",
 	"moveForm",
 	"removeFormLink",
@@ -2234,8 +2249,6 @@ function diffCaseListMeta(
 	const patch: {
 		filter?: CaseListConfig["filter"] | null;
 		selection?: CaseListConfig["selection"] | null;
-		icon?: CaseListConfig["icon"] | null;
-		audioLabel?: CaseListConfig["audioLabel"] | null;
 		tile?: CaseListConfig["tile"] | null;
 	} = {};
 	if (!deepEqual(prev.filter, next.filter)) {
@@ -2244,10 +2257,6 @@ function diffCaseListMeta(
 	if (!deepEqual(prev.selection, next.selection)) {
 		patch.selection =
 			next.selection === undefined ? null : cloneEntity(next.selection);
-	}
-	if (prev.icon !== next.icon) patch.icon = next.icon ?? null;
-	if (prev.audioLabel !== next.audioLabel) {
-		patch.audioLabel = next.audioLabel ?? null;
 	}
 	const tileChanged = !deepEqual(prev.tile, next.tile);
 	if (tileChanged) {

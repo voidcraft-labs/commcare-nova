@@ -15,10 +15,11 @@ import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageCo
 import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
 import type { Uuid } from "@/lib/doc/types";
 import {
+	caseListRegistrationFormOf,
 	childModuleUuids,
 	type Form,
-	formEntersFromMenu,
 	type Module,
+	menuFormUuidsOf,
 	moduleIsBareCaseListDestination,
 	moduleIsCaseFirst,
 	moduleSiblingUuids,
@@ -166,17 +167,25 @@ export function useOrderedForms(moduleUuid: Uuid | undefined): Form[] {
 
 /**
  * The module's menu forms in display sequence: `useOrderedForms` minus the
- * forms an `entry` reaches another way (the no-matches registration form
- * opens from Results, never from the menu). Menus, tiles, and navigation
- * decisions read this one; the structure tree and settings read every form.
+ * module's case list registration form, which opens from Results, never
+ * from the menu. Menus, tiles, and navigation decisions read this one; the
+ * structure tree and settings read every form.
  */
 export function useOrderedMenuForms(moduleUuid: Uuid | undefined): Form[] {
 	const forms = useOrderedForms(moduleUuid);
-	return useMemo(() => forms.filter(formEntersFromMenu), [forms]);
+	const registration = useBlueprintDoc((s) =>
+		moduleUuid === undefined
+			? undefined
+			: caseListRegistrationFormOf(s, moduleUuid),
+	);
+	return useMemo(
+		() => forms.filter((form) => form.uuid !== registration),
+		[forms, registration],
+	);
 }
 
 /** How many forms each module's MENU lists, keyed by module uuid. Home
- * tiles count what a worker will see on the menu, so a no-matches
+ * tiles count what a worker will see on the menu, so a case list
  * registration form (reached from Results, never the menu) is not one. */
 export function useMenuFormCounts(): Readonly<Record<string, number>> {
 	return useBlueprintDocEq(
@@ -184,10 +193,7 @@ export function useMenuFormCounts(): Readonly<Record<string, number>> {
 			Object.fromEntries(
 				s.moduleOrder.map((moduleUuid) => [
 					moduleUuid,
-					(s.formOrder[moduleUuid] ?? []).filter((formUuid) => {
-						const form = s.forms[formUuid];
-						return form !== undefined && formEntersFromMenu(form);
-					}).length,
+					menuFormUuidsOf(s, moduleUuid).length,
 				]),
 			),
 		shallow,
@@ -207,11 +213,11 @@ export function useIsCaseFirstModule(moduleUuid: Uuid | undefined): boolean {
 }
 
 /**
- * Whether a module is a bare case list — CommCare's "case list menu item": a
- * `caseListOnly` viewer with a case type, no forms, and no child menus. Such a
+ * Whether a module is a bare case list: its case list as a menu entry, no
+ * menu forms, and no child menus (`moduleIsBareCaseListDestination`). Such a
  * module has no menu screen in any mode, so it lands on its case list
  * everywhere (tree row, home tile, breadcrumb, module-URL redirect). A
- * case-list-only module that owns children instead lands on its module screen
+ * bare case list that owns children instead lands on its module screen
  * so those destinations remain reachable. `undefined` uuid → false. Sibling to
  * `useIsCaseFirstModule`; both answer "does entering this module land on the
  * case list rather than a form menu?" (case-first only in the running app;

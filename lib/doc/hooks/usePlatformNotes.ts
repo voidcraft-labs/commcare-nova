@@ -15,7 +15,7 @@ import type { PlatformFeatureId } from "@/lib/domain/platforms";
 import type { PlatformFeatureOwner } from "@/lib/domain/platformUses";
 import {
 	platformFeaturesOf,
-	readsSearchFieldInSearchFirstForm,
+	readsSearchFieldInFormsReadSearchForm,
 } from "../platformNotes";
 
 export { EXPRESSION_PLATFORM_FEATURES } from "../platformNotes";
@@ -39,12 +39,12 @@ export function useOwnerPlatformFeatures(
 
 /** Whether the question reads a Search field in a form of a module that
  *  opens on its search. */
-export function useReadsSearchFieldInSearchFirstForm(
+export function useReadsSearchFieldInFormsReadSearchForm(
 	fieldUuid: Uuid | undefined,
 ): boolean {
 	return useBlueprintDoc((doc) =>
 		fieldUuid === undefined
 			? false
-			: readsSearchFieldInSearchFirstForm(doc, fieldUuid),
+			: readsSearchFieldInFormsReadSearchForm(doc, fieldUuid),
 	);
 }

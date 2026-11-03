@@ -234,7 +234,7 @@ function structuralDoc(args?: {
 		}),
 		name: "Households",
 		caseType: "household",
-		caseListOnly: true,
+		caseListMenuItem: {},
 	};
 	const child: Module = {
 		...moduleWith({

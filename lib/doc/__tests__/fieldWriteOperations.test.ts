@@ -57,7 +57,7 @@ const link = (uuid: Uuid): Expression => ({
 const viewer = (caseType: string) => ({
 	name: caseType,
 	caseType,
-	caseListOnly: true,
+	caseListMenuItem: {},
 	caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
 });
 

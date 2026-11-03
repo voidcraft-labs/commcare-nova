@@ -110,6 +110,11 @@ const modName = (e: ValidationError): string =>
 const formName = (e: ValidationError): string =>
 	present(e.location.formName, "this form");
 
+/** The case list registration form a module-located finding names in its
+ * details, or "this form". */
+const registrationFormName = (e: ValidationError): string =>
+	det(e, "formName", "this form");
+
 /** The field's semantic ID, or "a field". */
 const fieldName = (e: ValidationError): string =>
 	present(e.location.fieldId, "a field");
@@ -278,9 +283,9 @@ function postSubmitNotOfferedSentence(e: ValidationError): string {
 				return `${form} goes to the previous screen after submit, but ${module} selects several cases, and CommCare has no previous screen to return to there.`;
 			case "parent-selects-several":
 				return `${form} goes to ${phrase} after submit, but ${module} sits under ${q(parentName)}, which selects several cases.`;
-			case "menu-opens-on-search":
-				return `${form} goes to the previous screen after submit, but ${module} opens on Search, and CommCare can't go back to the previous screen there.`;
-			case "menu-is-case-list-only":
+			case "menu-forms-read-search":
+				return `${form} goes to the previous screen after submit, but ${module} has its forms read the search, and CommCare can't go back to the previous screen there.`;
+			case "menu-is-bare-case-list":
 				return `${form} goes to its module after submit, but ${module} is a case list with no forms, so there is no form list to land on.`;
 			case "no-parent-menu":
 				return `${form} goes to the parent module after submit, but ${module} has no parent module.`;
@@ -468,10 +473,15 @@ const PLATFORM_BUILDER_COPY = {
 			`${subject} uses the worker's location, which Web Apps doesn't know.`,
 		alternative: "take it out of the value",
 	},
-	"search-first": {
+	"forms-read-search": {
 		lead: (subject) =>
-			`${subject} opens on Search first, which on Android can't open a case the phone doesn't hold.`,
-		alternative: "turn Search first off",
+			`${subject} has its forms read the search, which on Android can't open a case the phone doesn't hold.`,
+		alternative: "turn off Forms read the search",
+	},
+	"list-first": {
+		lead: (subject) =>
+			`${subject} opens on its case list first, which CommCare HQ no longer offers in Web Apps.`,
+		alternative: "open it on Search first",
 	},
 	"several-cases": {
 		lead: (subject) =>
@@ -846,10 +856,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(modName(e))} would reuse a different parent selected in its containing menu. Choose that containing module as the parent selector, or move this module out of the submenu.`,
 	NO_CASE_TYPE: (e) =>
 		`${q(modName(e))} has forms that work with cases, but you haven't picked a case type for it yet. Choose the kind of case it manages, like "patient" or "household".`,
-	CASE_LIST_ONLY_HAS_FORMS: (e) =>
-		`${q(modName(e))} is set to show only a case list, but it still has forms attached. Remove the forms.`,
-	CASE_LIST_ONLY_NO_CASE_TYPE: (e) =>
-		`${q(modName(e))} is set to show a case list, but you haven't said which case type to list. Pick one.`,
+	CASE_LIST_MENU_ITEM_NO_CASE_TYPE: (e) =>
+		`${q(modName(e))} shows a case list entry, but you haven't picked which case type to list. You can pick one, or turn the entry off.`,
 	// Fires for a formless module — a plain survey menu (no case type) as well as
 	// a case module. In the builder it's reached by removing a survey module's
 	// last form or clearing a viewer's case type, so it must not assume a case
@@ -1172,24 +1180,26 @@ const USER_MESSAGE_BY_CODE: Record<
 		`The condition that controls whether ${q(modName(e))}'s Search button appears has an error. Fix it or clear the condition to always show the button.`,
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
 		`The condition that controls whether ${q(modName(e))}'s Search button appears tries to read a case before one has been selected. Use fixed values or current-user information, or clear the condition to always show the button.`,
-	SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE: (e) =>
-		`${q(modName(e))} is set to open on Search, but its first screen isn't a case selection. Give it a case type and keep only forms that work on an existing case, or turn Search first off.`,
-	SEARCH_FIRST_NO_BUTTON_DISPLAY_CONDITION: (e) =>
-		`${q(modName(e))} opens on Search, so there's no Search button for its button condition to control. Clear the condition, or turn Search first off.`,
-	SEARCH_FIRST_UNIQUE_INSTANCE: (e) =>
-		`${q(modName(e))} shares its search results with a module that opens on Search, and CommCare can't tell the two apart. Keep a search-first module without submenus, and don't select a parent case from one.`,
-	SEARCH_NO_MATCHES_DUPLICATE: (e) =>
-		`${q(modName(e))} has more than one form set to open when a search finds nothing, and Results can offer only one. Keep one and change the others back to menu forms.`,
-	SEARCH_NO_MATCHES_ENTRY_REQUIRES_SEARCH_FIRST: (e) =>
-		`${q(formName(e))} opens when a search finds nothing, but ${q(modName(e))} doesn't open on Search. Turn Search first on for the module, or make this a menu form again.`,
-	SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION: (e) =>
+	FORMS_READ_SEARCH_REQUIRES_CASE_FIRST_MODULE: (e) =>
+		`${q(modName(e))} has its forms read the search, so its first screen needs to choose a case. You can move its registration or survey forms to another menu, or turn off Forms read the search.`,
+	FORMS_READ_SEARCH_NO_BUTTON_DISPLAY_CONDITION: (e) =>
+		`${q(modName(e))} has its forms read the search, so there's no Search button for its condition to control. You can clear the condition, or turn off Forms read the search.`,
+	FORMS_READ_SEARCH_UNIQUE_INSTANCE: (e) =>
+		`${q(modName(e))} shares its search results with a menu whose forms read the search, and CommCare can't tell the two apart. You can keep that menu without submenus and choose parent cases from another menu, or turn off Forms read the search there.`,
+	FORMS_READ_SEARCH_WITH_LIST_FIRST: (e) =>
+		`${q(modName(e))} opens on its case list first, so its forms can't read the search. You can open it on Search first or on its results, or turn off Forms read the search.`,
+	CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH: (e) =>
+		`${q(modName(e))} offers ${q(registrationFormName(e))} when a search finds nothing, but its forms don't read the search. You can turn on Forms read the search, or stop offering the form there.`,
+	CASE_LIST_REGISTRATION_NOT_REGISTRATION: (e) =>
 		det(e, "reason", "") === "own-case-save-to-case"
-			? `${q(formName(e))} opens when a search finds nothing, so CommCare needs Case Management to register its new case, but the form saves that case through Save to Case. You can change the form's case so Case Management can hold it, or make this a menu form again.`
-			: `${q(formName(e))} opens when a search finds nothing, so it needs to register a new case. Make it a registration form, or make it a menu form again.`,
-	SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION: (e) =>
-		`${q(formName(e))} opens when a search finds nothing. It can return to Results or First menu, but can't have after-submit links, a display condition, or be taken off the menu. Clear those settings, or make it a menu form again.`,
-	SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN: (e) =>
-		`${q(formName(e))} registers one case, but ${q(modName(e))} selects several. Choose First menu after submit, or change the module to one-case selection.`,
+			? `${q(registrationFormName(e))} is offered when a search finds nothing, so CommCare needs Case Management to register its new case, but the form saves that case through Save to Case. You can change the form's case so Case Management can hold it, or stop offering it there.`
+			: `${q(registrationFormName(e))} is offered when a search finds nothing, so it needs to register a new case. You can make it a registration form, or stop offering it there.`,
+	CASE_LIST_REGISTRATION_HAS_NAVIGATION: (e) =>
+		`${q(registrationFormName(e))} is offered when a search finds nothing. It returns to Results or First menu, and can't have after-submit links, a display condition, or be taken off the menu. You can clear those settings, or stop offering it there.`,
+	CASE_LIST_REGISTRATION_MULTIPLE_RETURN: (e) =>
+		`${q(registrationFormName(e))} registers one case, but ${q(modName(e))} selects several. You can choose First menu after submit, or let the menu select one case.`,
+	CASE_LIST_REGISTRATION_FORM_NOT_IN_MODULE: (e) =>
+		`${q(modName(e))} offers a form from another menu when a search finds nothing. You can choose one of its own forms instead.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>
 		`In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 
@@ -1236,8 +1246,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(formName(e))}'s after-submit links all have conditions, so it needs an otherwise. Choose where people go when none of them match, or add a link without a condition at the end.`,
 	FORM_LINK_TARGET_NOT_FOUND: (e) =>
 		`An after-submit link in ${q(formName(e))} points to a form or module that's gone. Point it somewhere else, or remove it.`,
-	FORM_LINK_TARGET_NO_MATCHES_FORM: (e) =>
-		`An after-submit link in ${q(formName(e))} points to a form that only opens when a search finds nothing. Point it at the module instead, or remove it.`,
+	FORM_LINK_TARGET_CASE_LIST_REGISTRATION_FORM: (e) =>
+		`An after-submit link in ${q(formName(e))} points to a form that only opens when a search finds nothing. You can point it at the menu instead, or remove it.`,
 	FORM_LINK_SELF_REFERENCE: (e) =>
 		`An after-submit link in ${q(formName(e))} points back to the same form. Send it somewhere else.`,
 	FORM_LINK_UNREACHABLE: (e) =>
@@ -1245,7 +1255,7 @@ const USER_MESSAGE_BY_CODE: Record<
 	FORM_LINK_DATUMS_INCOMPLETE: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} can't hand over the case that form needs. Choose a destination this form can pass its case to, or set the value to carry by hand.`,
 	FORM_LINK_SEARCH_CASE_UNREPRESENTABLE: (e) =>
-		`In ${q(formName(e))}, ${formLinkPhrase(e)} assigns a different case to a destination that opens on Search. You can remove the manual assignment so Nova can match the case automatically, or choose a destination that opens on its case list.`,
+		`In ${q(formName(e))}, ${formLinkPhrase(e)} assigns a different case to a destination whose forms read the search. You can remove the manual assignment so Nova can match the case automatically, or choose a destination whose forms read their own case.`,
 	FORM_LINK_DATUM_UNUSED: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries a case its destination no longer asks for. Remove that value, or choose a destination that needs it.`,
 	FORM_LINK_DATUM_TARGET_COLLISION: (e) =>
@@ -1345,7 +1355,7 @@ const USER_MESSAGE_BY_CODE: Record<
 				return `A link from ${form} reads what a search found, but ${form} doesn't open after a search. You can read a case property instead.`;
 			default: {
 				const module = q(modName(e));
-				return `${carrierSubject(e)} reads what ${module}'s search found, but ${module} no longer opens on its search, so ${form} has no search results. You can turn Search first back on, or read the case the worker chose instead.`;
+				return `${carrierSubject(e)} reads what ${module}'s search found, but ${module}'s forms no longer read its search, so ${form} has no search results. You can turn Forms read the search back on, or read the case the worker chose instead.`;
 			}
 		}
 	},
@@ -1568,8 +1578,8 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(fieldName(e))} in ${q(formName(e))} reads a case value this form can't get to. Check the spelling, or make sure a field actually saves it.`,
 	INVALID_SEARCH_REF: (e) => {
 		switch (e.details?.reason) {
-			case "not-search-first":
-				return `${q(fieldName(e))} in ${q(formName(e))} reads a search answer this form can't get to. Only a form in a menu that opens on its search can read that menu's Search fields. You can turn Search first back on, or read a question or a case property instead.`;
+			case "not-forms-read-search":
+				return `${q(fieldName(e))} in ${q(formName(e))} reads a search answer this form can't get to. Only a form in a menu whose forms read the search can read that menu's Search fields. You can turn Forms read the search back on, or read a question or a case property instead.`;
 			case "form-link":
 				return `A link from ${q(formName(e))} reads a search answer after the form has closed, where CommCare no longer holds it. You can save the answer to a question in the form and read that instead.`;
 			default:

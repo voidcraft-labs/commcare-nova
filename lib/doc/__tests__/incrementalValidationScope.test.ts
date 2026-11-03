@@ -431,7 +431,7 @@ describe("incrementalValidationScope", () => {
 					uuid: PARENT_MODULE,
 					name: "Choose patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: {
 						...caseListConfig([{ field: "case_name", header: "Name" }]),
 						selection: MULTIPLE_FIVE,
@@ -585,15 +585,16 @@ describe("incrementalValidationScope", () => {
 				},
 			]),
 		).toBeUndefined();
-		/* Opening a module on Search hands its search instance to a submenu or
-		 * a parent-select child, whose own rules must run. */
+		/* Turning Forms read the search on or off gives or takes the module's
+		 * search instance from a submenu or a parent-select child, whose own
+		 * rules must run, so either takes the whole-document gate. */
 		expect(
 			incrementalValidationScope(doc, [
 				{
 					kind: "updateModule",
 					uuid: moduleUuid,
 					patch: {},
-					caseSearchConfigPatch: { searchFirst: true },
+					caseSearchConfigPatch: { formsReadSearch: true },
 				},
 			]),
 		).toBeUndefined();
@@ -603,12 +604,23 @@ describe("incrementalValidationScope", () => {
 					kind: "updateModule",
 					uuid: moduleUuid,
 					patch: {},
-					caseSearchConfigPatch: { searchFirst: null },
+					caseSearchConfigPatch: { formsReadSearch: null },
+				},
+			]),
+		).toBeUndefined();
+		/* Any other Search setting keeps the module's footprint: it can withdraw
+		 * what the search supplies from every form in the module, so each one's
+		 * rules run. */
+		expect(
+			incrementalValidationScope(doc, [
+				{
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: {},
+					caseSearchConfigPatch: { workflow: "skipToResults" },
 				},
 			]),
 		).toEqual({
-			/* Turning Search first off withdraws what the search found from
-			 * every form in the module, so each one's rules run. */
 			moduleUuids: new Set([moduleUuid]),
 			formUuids: new Set(doc.formOrder[moduleUuid]),
 		});
@@ -838,7 +850,7 @@ describe("incrementalValidationScope", () => {
 					uuid: PARENT_MODULE,
 					name: "Choose patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: {
 						...caseListConfig([{ field: "case_name", header: "Name" }]),
 						selection: MULTIPLE_FIVE,
@@ -912,7 +924,7 @@ describe("incrementalValidationScope", () => {
 					{
 						name: "Patient records",
 						caseType: "patient",
-						caseListOnly: true,
+						caseListMenuItem: {},
 						caseListConfig: caseListConfig([
 							{ field: "nickname", header: "Nickname" },
 						]),
@@ -1282,7 +1294,7 @@ describe("scoped commits under document-wide inference", () => {
 			simpleSearchInputDef(VISIT_INPUT, "visit_on", "Visit on", "date", "seen"),
 		];
 		const doc = buildDoc({
-			appName: "No-matches footprint",
+			appName: "Case list registration footprint",
 			caseTypes: [
 				{
 					name: "patient",
@@ -1298,7 +1310,8 @@ describe("scoped commits under document-wide inference", () => {
 					name: "Patients",
 					caseType: "patient",
 					caseListConfig: config,
-					caseSearchConfig: { searchFirst: true },
+					caseSearchConfig: { formsReadSearch: true },
+					caseListRegistrationForm: { formUuid: REGISTER },
 					forms: [
 						{
 							uuid: testUuid("scope-search-visit-form"),
@@ -1310,7 +1323,6 @@ describe("scoped commits under document-wide inference", () => {
 							uuid: REGISTER,
 							name: "Register patient",
 							type: "registration",
-							entry: { kind: "search-no-matches" },
 							fields: [
 								f({
 									kind: "text",

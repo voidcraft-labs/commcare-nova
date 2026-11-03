@@ -641,7 +641,7 @@ describe("lookup reference extraction", () => {
 					uuid: moduleUuid,
 					name: "Cases",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: {
 						columns: [
 							plainColumn(testUuid("sort-name-column"), "case_name", "Name"),
@@ -772,7 +772,7 @@ describe("lookup reference extraction", () => {
 				{
 					name: "No references",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					displayCondition: eq(
 						literal("table-column"),
 						literal("table-lookup"),

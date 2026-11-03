@@ -33,7 +33,8 @@ describe("published entry point selection contracts", () => {
 						name: "Patients",
 						caseType: "patient",
 						caseListConfig: config,
-						caseSearchConfig: { searchFirst: true },
+						caseSearchConfig: { formsReadSearch: true },
+						caseListRegistrationForm: { formUuid: "register" },
 						forms: [
 							{
 								uuid: "visit",
@@ -45,7 +46,6 @@ describe("published entry point selection contracts", () => {
 								uuid: "register",
 								name: "Register patient",
 								type: "registration",
-								entry: { kind: "search-no-matches" },
 								...(multiple ? { postSubmit: "firstMenu" as const } : {}),
 								fields: [
 									f({

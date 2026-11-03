@@ -160,6 +160,8 @@ import {
 	type LocationProperty,
 	type MediaAssetId,
 	type ModuleIconRef,
+	menuFormUuidsOf,
+	moduleHasCaseListMenuItem,
 	type OrganizationLevel,
 	ownRecordValue,
 	type Persona,
@@ -535,12 +537,11 @@ export interface BlueprintMutations {
 
 	// ── Compound creators (atomic, born-valid) ───────────────────────────
 	/**
-	 * Create a case-list module in one gated batch, born as a VIEWER: a
-	 * `caseListOnly` module with a `Name` case-list column and NO form. A new
+	 * Create a case-list module in one gated batch, born as a VIEWER: its
+	 * case list as a menu entry, a `Name` case-list column and NO form. A new
 	 * `caseType` is declared in `doc.caseTypes` (empty properties) so the Name
-	 * column's standard property resolves; the user adds a registration form
-	 * afterward (which flips `caseListOnly` off). Returns the new module's uuid
-	 * for navigation.
+	 * column's standard property resolves; a form added afterward sits beside
+	 * the entry. Returns the new module's uuid for navigation.
 	 */
 	// ── Worker information, roles, personas ──────────────────────────────
 	//
@@ -660,8 +661,8 @@ export interface BlueprintMutations {
 	/**
 	 * Create a new form of `type` in a module, born with a default first
 	 * field (a `case_name` writer for registration, else a text question), in
-	 * one gated batch. Flips a `caseListOnly` module to form-bearing as
-	 * needed. Returns the new form's uuid for navigation.
+	 * one gated batch. A bare case list keeps its case list entry beside the
+	 * new form. Returns the new form's uuid for navigation.
 	 */
 	createForm: (
 		moduleUuid: Uuid,
@@ -1579,25 +1580,27 @@ export function createBlueprintMutations(
 					return { ok: false, messages: [dependents.userMessage] };
 				}
 				const mutations: Mutation[] = [{ kind: "removeForm", uuid }];
-				/* Removing the LAST form of a case-managing module would leave it
-				 * formless+typed (`NO_FORMS_OR_CASE_LIST`). Convert it to a
-				 * case-list viewer in the same batch — the inverse of
-				 * `formScaffoldMutations` flipping `caseListOnly` off when the
-				 * first form is added (a form-bearing case module already carries
-				 * the columns a viewer needs, `MISSING_CASE_LIST_COLUMNS`). */
+				/* Removing the LAST menu form of a case-managing module would
+				 * leave it formless+typed (`NO_FORMS_OR_CASE_LIST`). Give it its
+				 * case list as a menu entry in the same batch when it has none (a
+				 * form-bearing case module already carries the columns a viewer
+				 * needs, `MISSING_CASE_LIST_COLUMNS`). */
 				const parentId = Object.keys(doc.formOrder).find((m) =>
 					doc.formOrder[m]?.includes(uuid),
 				);
 				const parent = parentId ? doc.modules[parentId] : undefined;
 				if (
-					parent?.caseType &&
-					!parent.caseListOnly &&
-					doc.formOrder[parentId as string]?.length === 1
+					parent !== undefined &&
+					parent.caseType !== undefined &&
+					!moduleHasCaseListMenuItem(parent) &&
+					menuFormUuidsOf(doc, parent.uuid).every(
+						(formUuid) => formUuid === uuid,
+					)
 				) {
 					mutations.push({
-						kind: "updateModule",
-						uuid: asUuid(parentId as string),
-						patch: { caseListOnly: true },
+						kind: "setCaseListMenuItem",
+						uuid: parent.uuid,
+						item: {},
 					});
 				}
 				return toOutcome(guardedApply(mutations));

@@ -47,7 +47,7 @@ function contextFor(
 				uuid: MODULE,
 				name: "Records",
 				caseType,
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: {
 					...caseListConfig([]),
 					columns: [calculatedColumn(COLUMN, "Value", term(literal("")))],

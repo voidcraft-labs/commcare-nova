@@ -191,7 +191,7 @@ describe("unwritten property derivation", () => {
 	});
 	it("supports a case-list-only app without any forms", () => {
 		const doc = orderDoc([], {
-			caseListOnly: true,
+			caseListMenuItem: {},
 			forms: [],
 			caseListConfig: {
 				...caseListConfig([{ field: "order_status", header: "Status" }]),

@@ -34,7 +34,7 @@ function fixture() {
 			{
 				name: "Clients",
 				caseType: "patient",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: config,
 			},
 		],

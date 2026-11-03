@@ -1300,6 +1300,7 @@ export function planReferenceIndexMaintenance(
 			break;
 		case "renameModule":
 		case "setModuleMedia":
+		case "setCaseListMenuItem":
 			// Nothing indexed changes (module ids and media aren't
 			// references), but a uniform named-entity re-extract is cheap
 			// and keeps the maintenance shape unconditional.
@@ -1324,14 +1325,25 @@ export function planReferenceIndexMaintenance(
 		case "addForm":
 			carriers.add(mut.form.uuid);
 			break;
-		case "removeForm":
+		case "removeForm": {
 			carriers.add(mut.uuid);
 			for (const fieldUuid of walkFormFieldUuids(doc, mut.uuid)) {
 				carriers.add(fieldUuid);
 			}
+			// The reducer deletes the owning module's case list registration
+			// slot when it names this form, so that module's edge re-extracts.
+			const owner = resolveFormModule(doc, mut.uuid);
+			if (owner !== undefined) carriers.add(owner);
 			break;
+		}
 		case "moveForm": {
 			carriers.add(mut.uuid);
+			// A move out of its module deletes that module's case list
+			// registration slot when it names this form.
+			const sourceModule = resolveFormModule(doc, mut.uuid);
+			if (sourceModule !== undefined && sourceModule !== mut.toModuleUuid) {
+				carriers.add(sourceModule);
+			}
 			// Crossing modules changes the case-type context the form's
 			// subtree extracted under.
 			const oldModule = resolveFormModule(doc, mut.uuid);

@@ -708,7 +708,9 @@ function collectModuleConfigReferences(
 		switch (slot.slot) {
 			case "module_parent":
 			case "module_case_parent":
-				// Entity parentage is unrelated to the case-type catalog.
+			case "module_case_list_registration_form":
+				// Entity parentage and the registration form's identity are
+				// unrelated to the case-type catalog.
 				break;
 			case "module_display_condition": {
 				if (

@@ -3,7 +3,7 @@
  * an edit elsewhere reach.
  *
  * A read of what a search found is indexed under the module whose search
- * supplies it. For a search-first form that is the form's own module, and a
+ * supplies it. For a form of a menu whose forms read the search that is the form's own module, and a
  * link condition evaluates in its source form's entry, so it is that same
  * module (`referenceIndex.ts::expressionEdges`). An edit that withdraws the
  * search therefore re-checks the read and is refused naming it.
@@ -73,7 +73,7 @@ const FIND = testUuid("search-reads-find");
 const CHECK_IN = testUuid("search-reads-check-in");
 const NOTE = testUuid("search-reads-note");
 
-/** A search-first module whose follow-up form and its link read what the
+/** A module whose forms read the search, whose follow-up form and its link read what the
  * search found, beside an ordinary module of the same case type. */
 function searchReadDoc(): BlueprintDoc {
 	const list = () => caseListConfig([{ field: "case_name", header: "Name" }]);
@@ -124,7 +124,7 @@ function searchReadDoc(): BlueprintDoc {
 						),
 					],
 				},
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
 				forms: [
 					{
 						uuid: CHECK_IN,
@@ -176,20 +176,20 @@ describe("an edit that withdraws a search its forms read", () => {
 		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
 	});
 
-	it("refuses turning Search first off, naming the question and the link", () => {
+	it("refuses turning Forms read the search off, naming the question and the link", () => {
 		expect(
 			refusals([
 				{
 					kind: "updateModule",
 					uuid: FIND,
 					patch: {},
-					caseSearchConfigPatch: { searchFirst: null },
+					caseSearchConfigPatch: { formsReadSearch: null },
 				},
 			]).map((finding) => finding.details?.reason),
-		).toEqual(["not-search-first", "link-source"]);
+		).toEqual(["not-forms-read-search", "link-source"]);
 	});
 
-	it("refuses moving the form out of the search-first module", () => {
+	it("refuses moving the form out of the module whose forms read the search", () => {
 		expect(
 			refusals([
 				{
@@ -202,10 +202,10 @@ describe("an edit that withdraws a search its forms read", () => {
 		).toBeGreaterThan(0);
 	});
 
-	it("refuses adding a registration form with the Search first it withdraws", () => {
+	it("refuses adding a registration form with the Forms read the search it withdraws", () => {
 		// A registration menu form leaves the module no case-first entry
-		// (`SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE`), so the batch that adds
-		// one also turns Search first off.
+		// (`FORMS_READ_SEARCH_REQUIRES_CASE_FIRST_MODULE`), so the batch that adds
+		// one also turns Forms read the search off.
 		expect(
 			refusals([
 				{
@@ -222,9 +222,9 @@ describe("an edit that withdraws a search its forms read", () => {
 					kind: "updateModule",
 					uuid: FIND,
 					patch: {},
-					caseSearchConfigPatch: { searchFirst: null },
+					caseSearchConfigPatch: { formsReadSearch: null },
 				},
 			]).map((finding) => finding.details?.reason),
-		).toEqual(["not-search-first", "link-source"]);
+		).toEqual(["not-forms-read-search", "link-source"]);
 	});
 });

@@ -38,7 +38,7 @@ function docWith(config: CaseSearchConfig): BlueprintDoc {
 				uuid: MODULE,
 				name: "Patients",
 				caseType: "patient",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: {
 					columns: [
 						plainColumn(testUuid("provenance-column"), "case_name", "Name"),

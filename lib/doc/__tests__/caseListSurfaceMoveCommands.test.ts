@@ -151,7 +151,7 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: config,
 					caseSearchConfig: {},
 				},
