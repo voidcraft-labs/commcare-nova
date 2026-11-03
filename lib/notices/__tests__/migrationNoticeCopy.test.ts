@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { COMMCARE_VERSION_FLOOR } from "@/lib/commcare/versionFloor";
+import { OTHERWISE_DESTINATIONS } from "@/lib/domain/forms";
 import {
 	PLATFORM_FEATURE_IDS,
 	PLATFORMS,
@@ -28,6 +29,7 @@ import {
 	noticeChipLabel,
 	noticeDaySpan,
 	noticeLead,
+	OTHERWISE_DESTINATION_WORDS,
 	PLATFORM_CAUSE_WORDS,
 	PUBLISHING_CARD_NOTICE_LEAD,
 	projectSpaceGroupHeading,
@@ -589,6 +591,115 @@ const ENTRIES: Record<
 			cause: "web-apps",
 		},
 	),
+	"capture-saves-link": documentEntries("capture-saves-link", FIELD_ENTITY, {
+		form: "Visit",
+		property: "card_photo",
+	}),
+	"form-became-close-form": documentEntries(
+		"form-became-close-form",
+		FORM_ENTITY,
+		{},
+	),
+	"form-links-conditions-written": documentEntries(
+		"form-links-conditions-written",
+		FORM_ENTITY,
+		{ links: "2" },
+	),
+	"form-link-otherwise-set": documentEntries(
+		"form-link-otherwise-set",
+		FORM_ENTITY,
+		{ toDestination: "module", from: "previous" },
+	),
+	"after-submit-destination-dropped": documentEntries(
+		"after-submit-destination-dropped",
+		FORM_ENTITY,
+		{},
+	),
+	"form-link-target-moved": documentEntries(
+		"form-link-target-moved",
+		FORM_ENTITY,
+		{ from: "Follow-up", to: "Members", cause: "carried-not-a-case" },
+	),
+	"form-link-removed": documentEntries("form-link-removed", FORM_ENTITY, {
+		to: "Members",
+	}),
+	"form-link-datums-dropped": documentEntries(
+		"form-link-datums-dropped",
+		FORM_ENTITY,
+		{ to: "Members" },
+	),
+	"module-made-advanced": documentEntries(
+		"module-made-advanced",
+		MODULE_ENTITY,
+		{ caseType: "member" },
+	),
+	"form-link-goes-to-menu": documentEntries(
+		"form-link-goes-to-menu",
+		FORM_ENTITY,
+		{ to: "Members", caseType: "member" },
+	),
+	"starting-value-reads-case": documentEntries(
+		"starting-value-reads-case",
+		FIELD_ENTITY,
+		{ form: "Visit", property: "card_number" },
+	),
+	"load-time-value-reads-case": documentEntries(
+		"load-time-value-reads-case",
+		FIELD_ENTITY,
+		{ form: "Visit", reads: "card_number" },
+	),
+	"menu-opens-on-search": documentEntries(
+		"menu-opens-on-search",
+		MODULE_ENTITY,
+		{ opensOn: "results" },
+	),
+	"repeat-rows-follow-query": documentEntries(
+		"repeat-rows-follow-query",
+		FIELD_ENTITY,
+		{ form: "Visit" },
+	),
+	"repeat-count-whole-number": documentEntries(
+		"repeat-count-whole-number",
+		FIELD_ENTITY,
+		{ form: "Visit" },
+	),
+	"repeat-count-node-removed": documentEntries(
+		"repeat-count-node-removed",
+		FIELD_ENTITY,
+		{ form: "Visit", hidden: "child_count" },
+	),
+	"group-shows-one-per-screen": documentEntries(
+		"group-shows-one-per-screen",
+		FIELD_ENTITY,
+		{ form: "Visit" },
+	),
+	"placements-kept-unread": deploymentEntries("placements-kept-unread", []),
+	"form-data-paths-move": {
+		withDetail: {
+			kind: "deployment",
+			reason: "form-data-paths-move",
+			deployment: DEPLOYMENT,
+			detail: { forms: "3", causes: "subcase-renumbered,module-made-advanced" },
+		},
+		bare: {
+			kind: "deployment",
+			reason: "form-data-paths-move",
+			deployment: DEPLOYMENT,
+		},
+	},
+	"case-attachments-stop": {
+		withDetail: {
+			kind: "deployment",
+			reason: "case-attachments-stop",
+			deployment: DEPLOYMENT,
+			detail: { properties: "2" },
+		},
+		bare: {
+			kind: "deployment",
+			reason: "case-attachments-stop",
+			deployment: DEPLOYMENT,
+		},
+	},
 	"next-publish-asks-web-apps": {
 		withDetail: {
 			kind: "deployment",
@@ -616,7 +727,9 @@ function parsed(raw: unknown): MigrationNoticeEntry {
 
 function assertVoice(text: string) {
 	expect(text).not.toMatch(/—/);
-	expect(text).not.toMatch(/…|\.\.\./);
+	/* `int(...)` names the expression a repeat's count is written as, and is
+	 * no trailing ellipsis. */
+	expect(text.replaceAll("int(...)", "int()")).not.toMatch(/…|\.\.\./);
 }
 
 describe("the reason renderers", () => {
@@ -1466,6 +1579,18 @@ describe("the dialog, the chip and the card", () => {
 			noticeLead("hq-round-trip-platforms", "2026-11-02T09:00:00.000Z", UTC_GB),
 		).toBe(
 			"On 2 November, Nova started recording where each app runs: in Web Apps, on Android, or both. Here is what that means for this app.",
+		);
+	});
+
+	it("leads the case-writes cutover's notice with what it changed", () => {
+		expect(
+			noticeLead(
+				"hq-round-trip-case-writes",
+				"2026-11-10T09:00:00.000Z",
+				UTC_GB,
+			),
+		).toBe(
+			"On 10 November, Nova changed how it stores what forms save to cases, where workers go after a form, and how some questions are counted and shown. Here is what that means for this app.",
 		);
 	});
 
@@ -2356,5 +2481,335 @@ describe("the platforms cutover's lines", () => {
 		expect(web()).toBe(
 			"The next publish to field-ops asks you about this app's Web App setting there.",
 		);
+	});
+});
+
+describe("the case-writes cutover's lines", () => {
+	const SAME: NoticeRenderContext = {
+		nameOf: (entity) => entity.nameAtMigration,
+	};
+	const render = (raw: unknown, ctx: NoticeRenderContext = SAME) =>
+		renderNoticeEntry(parsed(raw), ctx).text;
+	const doc = (
+		reason: string,
+		entity: unknown,
+		detail?: Record<string, string>,
+	) => ({ kind: "document", reason, entity, ...(detail && { detail }) });
+	const dep = (reason: string, detail?: Record<string, string>) => ({
+		kind: "deployment",
+		reason,
+		deployment: DEPLOYMENT,
+		...(detail && { detail }),
+	});
+	const field = (nameAtMigration: string) => ({
+		...FIELD_ENTITY,
+		nameAtMigration,
+	});
+	const form = (reason: string, detail?: Record<string, string>) =>
+		render(doc(reason, FORM_ENTITY, detail));
+	const CASE_WRITES_DOCUMENT_REASONS = DOCUMENT_NOTICE_REASONS.slice(
+		DOCUMENT_NOTICE_REASONS.indexOf("capture-saves-link"),
+		DOCUMENT_NOTICE_REASONS.indexOf("group-shows-one-per-screen") + 1,
+	);
+
+	it("hold words for exactly the places a form's Otherwise can name", () => {
+		expect(Object.keys(OTHERWISE_DESTINATION_WORDS).sort()).toEqual(
+			[...OTHERWISE_DESTINATIONS].sort(),
+		);
+		expect(OTHERWISE_DESTINATION_WORDS).toEqual({
+			firstMenu: "the first menu",
+			module: "this form's menu",
+			parentMenu: "the menu above this form's menu",
+			previous: "the screen before the form",
+		});
+	});
+
+	it("name an entity by its name today, and a removed one by the name it had", () => {
+		expect(CASE_WRITES_DOCUMENT_REASONS).toHaveLength(17);
+		const renamed: NoticeRenderContext = {
+			nameOf: (entity) => `${entity.nameAtMigration} today`,
+		};
+		for (const reason of CASE_WRITES_DOCUMENT_REASONS) {
+			const raw = ENTRIES[reason].withDetail as {
+				readonly entity: NoticeEntityRef;
+			};
+			const name = raw.entity.nameAtMigration;
+			const today = renderNoticeEntry(parsed(raw), renamed);
+			const gone = renderNoticeEntry(parsed(raw), REMOVED);
+			expect(today.parts.filter((part) => part.kind === "entity")).toEqual([
+				{
+					kind: "entity",
+					entity: raw.entity,
+					text: `${name} today`,
+					exists: true,
+				},
+			]);
+			expect(gone.parts.filter((part) => part.kind === "entity")).toEqual([
+				{ kind: "entity", entity: raw.entity, text: name, exists: false },
+			]);
+			expect(gone.text).toBe(render(raw));
+		}
+	});
+
+	it("say a capture question now saves a link, naming the property where it can", () => {
+		expect(
+			render(
+				doc("capture-saves-link", field("Photo"), {
+					form: "Intake",
+					property: "photo_link",
+				}),
+			),
+		).toBe(
+			"Intake, Photo: it now saves a link to the file in photo_link, where it saved the file itself on the case. Files already saved on cases stay there.",
+		);
+		expect(render(doc("capture-saves-link", field("Photo")))).toBe(
+			"Photo: it now saves a link to the file on the case, where it saved the file itself. Files already saved on cases stay there.",
+		);
+	});
+
+	it("say a follow-up is now a close form, and its after-submit setting that never ran is gone", () => {
+		expect(form("form-became-close-form")).toBe(
+			"Visit is now a close form, because one of its case changes already closed its case. Its close condition says when, and workers see no difference.",
+		);
+		expect(form("after-submit-destination-dropped")).toBe(
+			"Visit: its After submit setting never ran, because one of its destinations always did, so Nova removed it.",
+		);
+	});
+
+	it("count the destinations whose full condition Nova wrote out", () => {
+		expect(form("form-links-conditions-written", { links: "2" })).toBe(
+			"Visit: Nova wrote out the full condition of 2 of its after-submit destinations, so the same one runs as before.",
+		);
+		expect(form("form-links-conditions-written", { links: "1" })).toBe(
+			"Visit: Nova wrote out the full condition of one of its after-submit destinations, so the same one runs as before.",
+		);
+		expect(form("form-links-conditions-written")).toBe(
+			"Visit: Nova wrote out the full condition of its after-submit destinations, so the same one runs as before.",
+		);
+	});
+
+	it("say where the Otherwise now sends workers, and why where CommCare HQ doesn't offer the old place", () => {
+		expect(form("form-link-otherwise-set", { to: "Members" })).toBe(
+			"Visit: when no destination applies, workers now go to Members, set as the form's Otherwise. That is where they went before.",
+		);
+		expect(
+			form("form-link-otherwise-set", { toDestination: "parentMenu" }),
+		).toBe(
+			"Visit: when no destination applies, workers now go to the menu above this form's menu, set as the form's Otherwise. That is where they went before.",
+		);
+		expect(
+			form("form-link-otherwise-set", {
+				toDestination: "module",
+				from: "previous",
+			}),
+		).toBe(
+			"Visit: when no destination applies, workers now go to this form's menu, set as the form's Otherwise, because CommCare HQ doesn't offer the screen before the form there.",
+		);
+		expect(
+			form("form-link-otherwise-set", {
+				toDestination: "firstMenu",
+				from: "retired-place",
+			}),
+		).toBe(
+			"Visit: when no destination applies, workers now go to the first menu, set as the form's Otherwise, because CommCare HQ doesn't offer the place it was set to there.",
+		);
+		expect(
+			form("form-link-otherwise-set", { toDestination: "retired-place" }),
+		).toBe(
+			"Visit: when no destination applies, workers now go where its Otherwise says. That is where they went before.",
+		);
+		expect(form("form-link-otherwise-set")).toBe(
+			"Visit: when no destination applies, workers now go where its Otherwise says. That is where they went before.",
+		);
+	});
+
+	it("say a destination now opens the menu that holds it, with its own sentence where the carried value isn't a case", () => {
+		const moved =
+			"Visit: its destination Follow-up now opens Members, which holds it, because CommCare HQ can't link to Follow-up from here. Workers open Follow-up from Members.";
+		expect(
+			form("form-link-target-moved", { from: "Follow-up", to: "Members" }),
+		).toBe(moved);
+		expect(
+			form("form-link-target-moved", {
+				from: "Follow-up",
+				to: "Members",
+				cause: "carried-not-a-case",
+			}),
+		).toBe(
+			"Visit: its destination Follow-up now opens Members, the menu that holds it, because the value it carried isn't a case Follow-up can open. Workers choose the case there.",
+		);
+		expect(
+			form("form-link-target-moved", {
+				from: "Follow-up",
+				to: "Members",
+				cause: "retired-cause",
+			}),
+		).toBe(moved);
+		expect(form("form-link-target-moved")).toBe(
+			"Visit: one of its destinations now opens the menu that holds it, because CommCare HQ can't link there from here.",
+		);
+		expect(
+			form("form-link-target-moved", { cause: "carried-not-a-case" }),
+		).toBe(
+			"Visit: one of its destinations now opens the menu that holds it, because the value it carried isn't a case that destination can open. Workers choose the case there.",
+		);
+	});
+
+	it("say a destination is gone, or carries no cases, naming it where it can", () => {
+		expect(form("form-link-removed", { to: "Follow-up" })).toBe(
+			"Visit: its destination Follow-up is gone, because CommCare HQ can't link to Follow-up from here and the menu that holds it is hidden. Workers can still open Follow-up from its own menu.",
+		);
+		expect(form("form-link-removed")).toBe(
+			"Visit: one of its destinations is gone, because CommCare HQ can't link there from here and the menu that holds it is hidden. Workers can still open it from its own menu.",
+		);
+		expect(form("form-link-datums-dropped", { to: "Members" })).toBe(
+			"Visit: its destination Members no longer carries cases, because a menu reads none.",
+		);
+		expect(form("form-link-datums-dropped")).toBe(
+			"Visit: one of its destinations no longer carries cases, because a menu reads none.",
+		);
+	});
+
+	it("say a module is now advanced, and where workers now open a new case", () => {
+		expect(
+			render(
+				doc("module-made-advanced", MODULE_ENTITY, { caseType: "member" }),
+			),
+		).toBe(
+			"Patients' forms now create each new member case so the next form can open it. CommCare HQ shows this menu as an advanced menu from the next publish.",
+		);
+		expect(
+			render(
+				doc("module-made-advanced", {
+					...MODULE_ENTITY,
+					nameAtMigration: "Household",
+				}),
+			),
+		).toBe(
+			"Household's forms now create each new case so the next form can open it. CommCare HQ shows this menu as an advanced menu from the next publish.",
+		);
+		expect(
+			form("form-link-goes-to-menu", { to: "Members", caseType: "member" }),
+		).toBe(
+			"Visit: after it, workers now go to Members and choose the new member case there, because CommCare HQ can't take that case straight to the next form in this menu.",
+		);
+		expect(form("form-link-goes-to-menu", { caseType: "member" })).toBe(
+			"Visit: after it, workers now go to the app home and open the new member case from its menu, because CommCare HQ can't take that case straight to the next form in this menu.",
+		);
+		expect(form("form-link-goes-to-menu")).toBe(
+			"Visit: after it, workers now go to the app home and open the new case from its menu, because CommCare HQ can't take that case straight to the next form in this menu.",
+		);
+	});
+
+	it("say what a starting value and a value set when the form opens now read", () => {
+		expect(
+			render(
+				doc("starting-value-reads-case", field("Card number"), {
+					form: "Intake",
+					property: "card_number",
+				}),
+			),
+		).toBe(
+			"Intake, Card number: its starting value now reads the case's card_number, which you can change. That is what workers already saw, because the case's value replaced it when the form opened.",
+		);
+		expect(render(doc("starting-value-reads-case", field("Card number")))).toBe(
+			"Card number: its starting value now reads its case property, which you can change. That is what workers already saw, because the case's value replaced it when the form opened.",
+		);
+		expect(
+			render(
+				doc("load-time-value-reads-case", field("Card label"), {
+					form: "Intake",
+					reads: "card_number",
+				}),
+			),
+		).toBe(
+			"Intake, Card label: when the form opens, it now reads card_number after card_number takes the case's value. Before, it read the starting value card_number had before the case's value replaced it.",
+		);
+		expect(render(doc("load-time-value-reads-case", field("Card label")))).toBe(
+			"Card label: when the form opens, it now reads a question after that question takes the case's value. Before, it read the starting value that question had before the case's value replaced it.",
+		);
+	});
+
+	it("say what a searching menu now opens on in Web Apps, reading any other value as its Search screen", () => {
+		const searchScreen =
+			"Patients now opens on its Search screen in Web Apps, and workers see the case list after they search. CommCare HQ no longer offers the case list first for a menu that searches in Web Apps. On Android it still opens on the case list.";
+		const opens = (detail?: Record<string, string>) =>
+			render(doc("menu-opens-on-search", MODULE_ENTITY, detail));
+		expect(opens({ opensOn: "search" })).toBe(searchScreen);
+		expect(opens({ opensOn: "results" })).toBe(
+			"Patients now opens on the cases its search finds in Web Apps, and workers can search again from there. CommCare HQ no longer offers the case list first for a menu that searches in Web Apps. On Android it still opens on the case list.",
+		);
+		expect(opens({ opensOn: "list" })).toBe(searchScreen);
+		expect(opens()).toBe(searchScreen);
+	});
+
+	it("say what changed in a repeat and a group, naming the form where it can", () => {
+		const withForm = (reason: string, name: string, detail = {}) =>
+			render(doc(reason, field(name), { form: "Intake", ...detail }));
+		const bare = (reason: string, name: string) =>
+			render(doc(reason, field(name)));
+		expect(withForm("repeat-rows-follow-query", "Medicines")).toBe(
+			"Intake, Medicines: its rows now follow its query as the form is filled in, where they were the records found when the form opened.",
+		);
+		expect(bare("repeat-rows-follow-query", "Medicines")).toBe(
+			"Medicines: its rows now follow its query as the form is filled in, where they were the records found when the form opened.",
+		);
+		expect(withForm("repeat-count-whole-number", "Children")).toBe(
+			"Intake, Children: its count is now written as int(...), so it always counts a whole number of rows. Workers see the same rows wherever the count was already whole.",
+		);
+		expect(bare("repeat-count-whole-number", "Children")).toBe(
+			"Children: its count is now written as int(...), so it always counts a whole number of rows. Workers see the same rows wherever the count was already whole.",
+		);
+		expect(
+			withForm("repeat-count-node-removed", "Children", {
+				hidden: "child_count",
+			}),
+		).toBe(
+			"Intake, Children: it now reads its count straight from child_count, so its submissions no longer carry a copy of that count. CommCare HQ's form exports stop filling that column from your next publish.",
+		);
+		expect(bare("repeat-count-node-removed", "Children")).toBe(
+			"Children: it now reads its count straight from the value that holds it, so its submissions no longer carry a copy of that count. CommCare HQ's form exports stop filling that column from your next publish.",
+		);
+		expect(withForm("group-shows-one-per-screen", "Household")).toBe(
+			"Intake, Household: on Android its questions now show one per screen, so workers can add rows to the repeat inside it. Web Apps shows them as before.",
+		);
+		expect(bare("group-shows-one-per-screen", "Household")).toBe(
+			"Household: on Android its questions now show one per screen, so workers can add rows to the repeat inside it. Web Apps shows them as before.",
+		);
+	});
+
+	it("say what the next publish keeps, moves and stops, by project space", () => {
+		expect(render(dep("placements-kept-unread"))).toBe(
+			"Nova couldn't read the app field-ops last received, so it kept where every form of this app saves its case changes there. Publishing again keeps them in the same places.",
+		);
+		expect(
+			render(
+				dep("form-data-paths-move", {
+					forms: "3",
+					causes: "subcase-renumbered,own-close-moved",
+				}),
+			),
+		).toBe(
+			"The next publish to field-ops moves where 3 forms of this app save some of their answers or case changes, because Nova changed how it writes them. CommCare HQ's form exports show those columns under their new names from then on.",
+		);
+		expect(
+			render(
+				dep("form-data-paths-move", {
+					forms: "1",
+					causes: "extension-case-moved,module-made-advanced",
+				}),
+			),
+		).toBe(
+			"The next publish to field-ops moves where one form of this app saves some of its answers or case changes, because Nova changed how it writes them. CommCare HQ's form exports show those columns under their new names from then on. CommCare HQ shows a menu of this app as an advanced menu from then on.",
+		);
+		expect(render(dep("form-data-paths-move"))).toBe(
+			"The next publish to field-ops moves where some forms of this app save some of their answers or case changes, because Nova changed how it writes them. CommCare HQ's form exports show those columns under their new names from then on.",
+		);
+		const attachments =
+			"From the next publish to field-ops, this app saves a link to each captured file where it saved the file on the case. Files already on cases stay, and CommCare HQ's case exports gain a column for each link.";
+		expect(render(dep("case-attachments-stop", { properties: "2" }))).toBe(
+			attachments,
+		);
+		expect(render(dep("case-attachments-stop"))).toBe(attachments);
 	});
 });

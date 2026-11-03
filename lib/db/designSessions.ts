@@ -55,6 +55,7 @@ import {
 	type Reservation,
 	refundStaleDesignSessionRun,
 	refundToMonthInTransaction,
+	type StaleRunReapOutcome,
 	settleAndReleaseDesignSessionRun,
 } from "./credits";
 import { releaseDesignLookupProtectionsInTransaction } from "./designLookupMaterializations";
@@ -865,19 +866,21 @@ export async function failAndRefundDesignSessionRun(
  * Reap a stale design-session run: refund the stranded hold + release the
  * authority state, staleness re-validated in-transaction
  * (`refundStaleDesignSessionRun`). Idempotent; awaited at scan call
- * sites and from a claim's conflict nudge.
+ * sites and from a claim's conflict nudge. Returns whether it reaped, for
+ * a caller that counts what it settled.
  */
-async function reapStaleDesignSessionRun(
+export async function reapStaleDesignSessionRun(
 	designSessionId: string,
 	expectedIdentity: ExactRunHolderIdentity,
-): Promise<void> {
+): Promise<StaleRunReapOutcome | "failed"> {
 	try {
-		if (expectedIdentity.mode !== "build") return;
-		await refundStaleDesignSessionRun(designSessionId, expectedIdentity);
+		if (expectedIdentity.mode !== "build") return "state_changed";
+		return await refundStaleDesignSessionRun(designSessionId, expectedIdentity);
 	} catch (err) {
 		log.error("[reapStaleDesignSessionRun] stale-run reap failed", err, {
 			designSessionId,
 		});
+		return "failed";
 	}
 }
 
@@ -951,10 +954,12 @@ export async function discardDesignSession(
  * artifact workspaces, lookup protections, the thread's stream marker) and
  * move it to `abandoned`, clearing its authority. The transcript stays.
  *
- * The caller, `discardDesignSession`, has locked the row and decided after
- * its authorization and busy guards that the session may end.
+ * The caller has locked the row and decided the session may end;
+ * `discardDesignSession` after its authorization and busy guards, and the
+ * one-time stored-shape cutover for a session that held work in an earlier
+ * dialect. Both end a session through this one body so they cannot drift.
  */
-async function abandonPreAppDesignSessionInTransaction(
+export async function abandonPreAppDesignSessionInTransaction(
 	tx: Transaction<AppDatabase>,
 	row: LockedSessionRow,
 ): Promise<void> {

@@ -57,6 +57,45 @@ export async function writeHqRoundTripExpressionsHorizon(
 	appId: string,
 	appName: string,
 ): Promise<number> {
+	return writeTransformedHorizon(
+		db,
+		appId,
+		appName,
+		"hq-round-trip-expressions",
+	);
+}
+
+/**
+ * Establish the HQ round-trip case-writes fold horizon over one app the way
+ * that cutover's fleet transaction writes it: the expressions horizon's write,
+ * under the case-writes operator identity. Returns the horizon's sequence.
+ */
+export async function writeHqRoundTripCaseWritesHorizon(
+	db: Kysely<AppDatabase>,
+	appId: string,
+	appName: string,
+): Promise<number> {
+	return writeTransformedHorizon(
+		db,
+		appId,
+		appName,
+		"hq-round-trip-case-writes",
+	);
+}
+
+type OperatorCutover =
+	| "hq-round-trip-emission"
+	| "hq-round-trip-expressions"
+	| "hq-round-trip-case-writes";
+
+/** A transforming cutover's write: the root from the target document, every
+ *  entity row inserted again, then the cutover's marker and baseline. */
+async function writeTransformedHorizon(
+	db: Kysely<AppDatabase>,
+	appId: string,
+	appName: string,
+	cutover: OperatorCutover,
+): Promise<number> {
 	return db.transaction().execute(async (tx) => {
 		const app = await tx
 			.selectFrom("apps")
@@ -95,7 +134,7 @@ export async function writeHqRoundTripExpressionsHorizon(
 				)
 				.execute();
 		}
-		await insertHorizon(tx, appId, seq, "hq-round-trip-expressions");
+		await insertHorizon(tx, appId, seq, cutover);
 		return seq;
 	});
 }
@@ -105,7 +144,7 @@ async function insertHorizon(
 	tx: Transaction<AppDatabase>,
 	appId: string,
 	seq: number,
-	cutover: "hq-round-trip-emission" | "hq-round-trip-expressions",
+	cutover: OperatorCutover,
 ): Promise<void> {
 	await tx
 		.insertInto("app_changes")

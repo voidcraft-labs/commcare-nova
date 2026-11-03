@@ -1851,6 +1851,237 @@ writer converging exactly the planned differences (G7).
   `form_close_condition` (`many-values`), and the existential count is the meaning `main`'s close
   read had (part 08's case-writes witness holds it).
 
+- **C9 rewrites the document directly, not through a mutation batch** (section 7.4): turning a `close`
+  into an `update` with the same uuid is a removal and a fresh claim of that uuid, which
+  `lib/doc/mutationIdentityAdmission.ts::mutationIdentityAdmissionIssue` refuses (no claim but a form
+  link's reintroduces a removed identity), and no operation patch changes an action
+  (`lib/doc/types.ts::caseOperationPatchSchemaFor` omits `action`). `steps/writesIntoOperations.ts`
+  replaces the form in place, the converted operation keeping its position, and `judge-target`'s gate
+  holds the result as it holds every step's. C1 to C3 and C10 still apply through
+  `prepareMutationCandidate`.
+- **C10 removes an emptied `update`, never a `close`**: "an operation left with no write, name, owner,
+  link, rename or retype" lists an update's facets; a close with no write still closes, so removing it
+  would drop a close. On a registration the own case is the own arm (`{ kind: "op" }`,
+  `lib/doc/fieldCaseWriteMutations.ts::ownCaseLinkTarget`), so an operation reaching it through an
+  expression target is C11's, not C10's.
+- **`extension-children` asks the gate's own rule which carried creates to retarget**
+  (`lib/commcare/validator/rules/advancedModule.ts::formLinkNeedsNewCaseDatum`), read again after every
+  retarget, rather than retargeting every carried create of a module `advancedKindBlockers` blocks: the
+  rule also refuses a carried create an advanced form cannot open (`openActionIneligibility`, part 02
+  §23's `ineligible` cause), and it skips the carried creates a basic form already gives a session value
+  (a registration's own case on its basic slot, a basic subcase at the root), which need no change. A
+  carried create is listed (`carried-create`, or `non-extension-carried-create` apart) only where it is
+  one of `lib/domain/advancedEntryDatums.ts::advancedKindTriggers`'s, for the same reason. The otherwise
+  link, which `planFormLinkUpdate` and `planFormLinkRemove` do not address, is retargeted or cleared
+  through `planSetOtherwise`, the production edit for that slot; a link found again after its retarget
+  (a condition reading the new case) is removed.
+- **The per-step cases of the first three semantic steps sit in `__tests__/stepsCasesLinks.test.ts`**, not
+  `transform.test.ts`, so the steps' tasks own disjoint files.
+- **Section 9's readable moves read the head's HQ import file** (`expandDoc` under the deployment's
+  `targetWireIdentity(overrides)`, lookup tables named by `identityLookupWireNaming`, which no block path
+  reads) through `publishedCaseBlocks`, the reader the baseline is read by, where the plan named
+  `planFormCaseWire` alone: a baseline carries each operation's `nova_guard_<id>_<kind>` blocks, which
+  `FormCaseWirePlan.saveToCase` does not list, so the plan alone would count every guard as moved. Section
+  8.4's verification reads `planFormCaseWire` as written (`placements.ts::emitsAt`).
+- **C11's class covers the form's other basic slots** whose `placementIneligibility` is `own-not-basic`
+  (its subcases and the worker's record), not the own arm alone: once the own arm leaves the basic own
+  slot no basic subcase can stay, so holding them would be `placement-path-mismatch` on every C11
+  registration with a child (shown on `targeted-migration-case-writes`' Register with a planted change of
+  its new case). They move with the own arm, cause `case-changed-before-create`.
+- **The inert basic subcase `main` wrote beside each extension's Save to Case block** leaves the wire with
+  cause `extension-case-moved` (on a readable baseline, its block no longer written; on an unknown one,
+  every extension unit not of another class): no cause of section 9 names it otherwise, and it is part
+  02's extension change. On `targeted-migration-extension-children`'s HQ read this gives
+  `subcase-renumbered`, `extension-case-moved` and `module-made-advanced` over two forms
+  (`deployments.test.ts`); proof 1 on the witness (G9) remains the check that each move is named.
+- **Two unheld classes beside section 8.5's**, each with cause `placement-simplified`: `merged`, a
+  field-write bucket that joined an operation the form already held (`operationsFromFieldWrites`' join),
+  which is that operation's own unit; and `gone`, a unit the target holds nothing for (an operation C10
+  removed, or a form or query repeat that left). Neither has a hold target, so neither is
+  `placement-path-mismatch`. A unit no readable baseline carries, with no unknown baseline, is
+  `not-carried`.
+- **A renumbered child under an unknown baseline is left unheld** at the head's index: the plan holds it
+  at the head's index only where a baseline carried it at the old one, and an unknown baseline carries
+  nothing Nova read.
+- **The placement step reads the raw document and the app's `mutation_seq`** beside the target, the facts
+  and the deployments: C9's removed operations are read from the raw document (the own close takes the
+  first removed one's path), and the frozen check of section 8.6 compares `pushedRevision` with the
+  sequence. Where `main` also wrote that form's own close apart, the `own-close` unit's placement is the
+  one held, since one own close keeps one path. It takes step 8's carried creates as an input
+  (`PlacementInput.carriedCreates`), because a retargeted create is no longer one `linkCarriedCreates`
+  returns.
+- **The frozen check's block side skips the inert extension subcase and model-iteration rows**: the first
+  reaches no unit (section 8.2), and a row only a query repeat unit can name (the several-case form's
+  selected-cases repeat is model iteration too, and is no unit).
+- **G4, outcome A**: every placement class of section 8.2 has a read in `proof/hq-reads/` whose block
+  `publishedCaseBlocks` finds: the basic own slot, the worker's record, a root subcase by index and a
+  repeat's row subcase (`targeted-migration-case-writes`' Register and Visit), Save to Case blocks at the
+  root, keyed, under a condition and in a repeat with their guards, the own close in `nova_condition_close`,
+  C9's removed operation's path, the several-case form's selected-cases block (the same read), the
+  extension's `nova_subcases` block beside its inert subcase (`targeted-migration-extension-children`), and
+  three model-iteration rows (`targeted-migration-query-repeats`). `placements.test.ts` reads them as
+  written.
+- **`placement-path-mismatch` is planted as today's placement the head cannot express** (the own case as a
+  basic subcase): the verification arm cannot be reached by a consistent document, since `holdExpresses`
+  and `planFormCaseWire` read one placement plan; the step keeps it as the stack's backstop.
+- **`next-publish-asks-more`'s `planFeatures` compares Save to Case alone**, the plan's "in practice": today's
+  placements say whether any unit stood in a Save to Case block, and nothing of today's emission says
+  which other features its last publish confirmed.
+- **`StepContext` carries three fields more than section 7 lists**: `liveDeployments` (every live
+  deployment, published or not, which step 16's `deep-links-need-republish` names and section 8.1's
+  published list does not hold), `mutationSeq` (the frozen check's sequence, a `PlacementInput` field)
+  and `discardsPrivateWork` (which `entriesForApp` needs to end the notice and `AppTransform` returns).
+  The Project's lookup naming is derived from `lookupContext` rather than carried.
+- **Idempotence counts edits, not reports**: step 8's `carried-create`, `non-extension-carried-create`
+  and `module-made-advanced` describe the head's derivation of a document no step changed ("a carried
+  create needs no stored change", section 7.6), so a second application reports them again; the check
+  refuses every other change kind and a moved digest. Its inner run judges nothing and writes no
+  deployment line (its structure phase cannot lift what the first run read, an attachment write's mode
+  among them, so its own schema comparison would misname a planned difference), and it runs only over a
+  target the gate, export readiness and the schema comparison admit, since the steps' emission-reading
+  planners are not defined over a refused one.
+- **A blocked app is judged without idempotence**, and a `target-parse` refusal ends the judgement: the
+  remaining steps would change a document a blocker left, and the gate is not defined over one the head
+  schema refuses. The head parse's own refusal judges nothing, since no document exists to judge. A
+  blocked app plans no hold, path move or notice entry; its changes up to the blocker stay in the plan.
+- **`derivation-drift` is a property both sides carry whose derived spec moved** (`refined` or
+  `retyped`): `main`'s derivation is not in the tree, and runbook step 1(a)'s zero drift scan makes the
+  stored rows `main`'s. A property gained or lost, a missing row of any type but the claim's, and a
+  stored spec no arm emits are `case-schema-unplanned`, each finding code the difference's kind and
+  never a property name.
+- **`compareStoredSchemas`**: `scripts/lib/schemaDrift.ts::computeSchemaDrift` now reads its rows and
+  calls this pure comparison, its loop unchanged, so the judgement compares `ctx.storedSchemas` with the
+  drift writer's own computation.
+- **Three witness specs are compared modulo two things the cutover writes**: `targeted-migration-
+  search-workflow`, `-form-links` and `-attachment` build each own case with `buildDoc`'s identity
+  rather than `caseWriteOperationUuid`'s, and leave every hold to the record their first publish over A
+  writes. The transform's target equals each of those specs without the own case's uuid and the holds,
+  and B (the HQ application of the document as its first publish over A records it) is byte-equal for
+  all eight; the other five equal their specs exactly. Rewriting the three specs through
+  `migrateFieldWrites` and `heldAt` would move their corpus documents, which this pull request does not.
+- **The plan carries no field for an unreadable baseline's cause**: section 8.1 enters "every `unknown` or
+  `unreadable` one's `why`" in the digest, and section 10.2's `AppPlan.deployments` has only `baseline`,
+  `sourceDigest` and `observedAt`. An unknown baseline's cause is its `baseline` value (`unread`,
+  `absent`), and an unreadable one's enters through its app's `baseline-unreadable` blocker, whose finding
+  codes name it (`baseline-unreadable:<why>`, `placements.ts`). So the digest moves with each cause, and
+  the plan keeps section 10.2's shape.
+- **The placement postcondition of section 14 runs step 14 again** (`placements.ts::placements`) over
+  the stored target, the raw carriers the blocking scan proved unchanged, and the deployments read under
+  its locks. It requires no blocker, no hold left to write (the digest unchanged) and exactly the plan's
+  `held`, sources included. That repeats section 8.4's emission check, and proves each `carried` hold is
+  still carried by a locked baseline, through the production rule rather than a restated one.
+  `transform.ts::transformApp` now also returns the step's counts and the carried creates step 8 found
+  (`PlacementTrace`), which the report's `placements` line and that re-run read.
+- **The writer's `lock` step sets `lock_timeout` before it takes the advisory lock**, step 3's order, so a
+  second run waits 15 seconds for the first and stops as `lock-timeout`. Section 13 lists the two the
+  other way round.
+- **The blocker refusal's sentence** is the writer's own, since section 13 gives none: "The plan holds
+  blockers in {n} apps ({codes}), so the cutover wrote nothing. Resolve each by the remedy its code names
+  in the dry run's blocker lines, then run the dry run again and pass its digest."
+- **The writer's `already-applied` stop is its own error** (`CutoverAlreadyAppliedError`, code
+  `already-applied`), not a stop code, because section 10.3 makes `already-applied` an outcome rather than
+  a `stopped` reason. A `partially-applied` ledger under the locks throws `ledger.ts::partiallyApplied`.
+- **`next-publish-asks-more`'s `commtrack-off` and `same-type-child-links` were already rendered**:
+  pull request 8 added both sentences (`dad3cf3c`, `lib/notices/migrationNoticeCopy.ts`, the renderer's
+  `settings.includes("commtrack-off")` and `capabilities.includes("same-type-child-links")` arms), so pull
+  request 14 checked that the reason's renderer reads them as section 17.2 writes and changed nothing there.
+- **The `lib/deployment/CLAUDE.md` "Baselines" sentence** (the unread baseline's held placements,
+  `placements-kept-unread`, the query repeat exception and a remote-missing mapping counted as published) is
+  marked 14 in part 10 §7.8 but missing from part 10 §2's file list for pull request 14; pull request 14
+  writes it, since the contract describes the behavior this pull request's writer leaves.
+- **The shared interfaces live in `types.ts`**, `LiftedFacts` among them, where section 6's layout gives
+  `types.ts` the registries alone: the structure phase, the steps, `placements.ts`, `deployments.ts`,
+  `judge.ts` and `transform.ts` all read them, and one module beneath them keeps the tasks' files disjoint
+  and the import graph acyclic. `structure.ts` re-exports `LiftedFacts`, the structure phase's output.
+- **The question and search steps' cases sit in `__tests__/stepsQuestionsSearch.test.ts`** beside
+  `stepsCasesLinks.test.ts` and `transform.test.ts`: `explicit-preloads`, `search-workflow`,
+  `query-repeat-placement`, `repeat-counts` and `field-list-flags`, so each per-step suite has one owner and
+  `transform.test.ts` keeps the whole transform's order, judged stop and idempotence.
+- **`oldShape.ts`'s tests read each pre-step fixture through `__tests__/rawFixture.ts`**, a helper the
+  Tests section does not list: it lays a fixture out as the carriers the cutover reads (the `apps` root
+  columns as text and one `blueprint_entities` row per entity, as `lib/db/blueprintRows.ts::decomposeBlueprint`
+  does, without its head schema parse) and hands them to `oldShape.ts::readRawDocument`, so every suite
+  meets a document the way the transform does.
+- **G2 ran during pull request 14's implementation, outcome A**, where Written and not yet run puts it in
+  the pull request's CI: `containerArtifacts.test.ts`'s self-contained-bundle test runs
+  `hq-round-trip-case-writes.cjs --help` with no `node_modules` and passes, and esbuild's metafile for the
+  `maintenance-build` line lists `pg-native` as the bundle's one external package and no `sharp` or `@img`
+  input. The bundle line stands without `--external:sharp`, stage `maintenance` takes no `COPY --from=deps`
+  line, and runbook step 1(b) adds no `require("sharp")` check. The pull request's CI runs the same test
+  again.
+
+- **The fold horizon migration runs as two `sql` calls**, one per `CREATE OR REPLACE FUNCTION`, where
+  `20261020000000` ran both in one: `lib/case-store/CLAUDE.md`'s one-statement rule. Each body is
+  `20261020000000`'s with the `public.` prefix on its name and the one case-writes arm; no later migration
+  redefines either function. `lib/agent/change-set/__tests__/foldHorizonFixture.ts` gains
+  `writeHqRoundTripCaseWritesHorizon`, sharing one write with the expressions horizon's, since the extended
+  `preHorizonReads.postgres.test.ts` has no other way to write the sixth horizon.
+- **`parseHead` takes the app id** (`parseHead(appId, persisted)`): `oldShape.ts::RawDocument` carries none and
+  `lib/domain/blueprint.ts`'s schema requires one; the structure phase's `persisted` is the rewritten
+  `RawDocument`, assembled by `oldShape.ts::rawDocumentAssembly`.
+- **A module with two no-matches forms moves the first in `formOrder`** and drops the others' `entry` keys
+  beside `renamed-concept-conflict`, so the rest of the document is still judged; the blocker already leaves
+  the app with no target. **An empty stored no-matches label is dropped**: `caseListRegistrationFormSchema`
+  requires a non-empty label, and at `main` an empty one read as the form's name, as an absent one does.
+- **`LiftedFacts.fieldWrites` holds an entry for every form**, empty where nothing writes, so C1 gives every
+  case form its own arm. **`structure-parse` finding codes** are `<zod code>:<path>`, with the sorted keys of
+  an unrecognized-keys issue appended; no value or message is kept.
+- **`LiftedFacts.todaysPlacements` is keyed by `placementUnitKey(formUuid, unit)`** (`<formUuid>|<unit>`),
+  since section 8.2's unit keys `own`, `usercase` and `own-close` repeat across forms, and **`TodaysPlacement`
+  carries `guards`**, the `nova_guard_<id>_<kind>` blocks `main` wrote beside an operation, which `facts.json`
+  lists under the operation's unit. `PlannedChange.kind` is a string each step module spells, since this part
+  enumerates no registry of change kinds.
+- **The frozen placements of a several-case form** give a child bucket only its Save to Case placement under
+  `nova_selected_cases/item`: HQ writes no basic case block in a multi-select menu (commcare-hq
+  `corehq/apps/app_manager/xform.py::XForm._create_casexml` turns `default_case_management` off when
+  `module.is_multi_select()`). A URL-mode capture counts as an own-case writer of such a form, as a publish
+  with an attachment target emitted it. No fixture holds either shape. `frozen/rawForms.ts` holds the raw
+  reads the four frozen copies share.
+- **What a question or search step records as a change**: only what it writes (`starting-value-written`,
+  `workflow-written`, `count-wrapped`, `field-list-set`); `load-time-value-reads-case`,
+  `repeat-rows-follow-query`, `repeat-count-node-removed`, `group-shows-one-per-screen` and row 6's
+  `menu-opens-on-search` are notice entries alone, so the judgement's idempotence compares the digest and the
+  edits, never the notice. `starting-value-reads-case` is written only where a starting value was replaced
+  (part 01 §22 C7). `search-workflow` skips a menu whose stored search already holds `workflow` or
+  `formsReadSearch`, which `main` could not store. `repeat-count-node-removed` names only a direct,
+  unmaterialized count into a Hidden Value (part 04 §7.1 Q3), and the count wrap reads the Project's lookup
+  types through `lookupTypeIndex(ctx.lookupContext)`.
+- **The notice's missing details read a general phrase** where section 17.2 gives none: "one of its
+  destinations" for a link with no `to`, "its case property" for a starting value with no property, "the
+  value that holds it" for a count node with no hidden name, "the new case" with no case type; an unknown
+  Otherwise word reads "where its Otherwise says" without the "set as the form's Otherwise" clause, and an
+  unknown `from` reads "the place it was set to". `repeat-count-whole-number`'s copy names the expression
+  `int(...)`, which the copy test's voice check exempts as an expression, not an ellipsis.
+- **`notice.ts::entriesForApp` drops exact duplicate lines** (by `canonicalJsonText`) beside one
+  `module-made-advanced` per module, and **`nextPublishAsksMore` takes `PlanFeatureId[]`**:
+  `lib/publish/planFeatures.ts` has no `save_to_case` id, and the Save to Case privilege is
+  `advanced-case-actions`.
+- **Catalog reads name what a missing object lives on** (`public.<table>` for a constraint, `public` for a
+  relation or routine, `this database` for a schema), throw where a map read's reg* resolves and no row
+  answers, and leave aggregates out of `schemaRoutines` (`pg_get_functiondef` refuses them).
+  `classifyApplied` reads markers without the horizon migration as `partially-applied` and the horizon over a
+  fleet of no apps as `already-applied`. `SettleOutcome` gains `failed`, since the exported
+  `reapStaleDesignSessionRun` returns `"failed"`, and `holders.ts` reads the session lease columns from
+  `lib/db/actorGenerationGate.ts::DESIGN_SESSION_LEASE_COLUMNS`.
+- **The fleet read**: live deployments exclude a mapping CommCare HQ reported missing, as steps 3 and 4 did,
+  while published ones include it (section 8.1); an app discards private work where it has an open workspace,
+  an open change set or an active candidate (section 3's three kinds). Entry points are read from the
+  document, which holds them. The report prints design-session ids as counts only, gives each path-move cause
+  its deployments and their forms, counts the drift scan from the planned schema changes, and owns its
+  always-printed `outcome` line (`report.ts::reported`); `databaseImage` orders rows by their text
+  (`COLLATE "C"`).
+- **The modes take a `RunDependencies` object** (the ledger and marker reads, the fleet snapshot, the holder
+  census, the reapers, the writer), so `run.test.ts` drives every mode with the real `planFleet` and a
+  database handle that throws on use. The dry run and the scan also exit 1 on a blocker or a holder, as step
+  4's did; a failed postcondition reports the class `postcondition`; `--debug-details` also prints the holds,
+  path moves, notice entries and schema changes. `__tests__/storedSchemas.ts` seeds the stored case schemas
+  the scan and holders tests share.
+- **An operation unit held at a basic subcase reads its rows through its `forEach` repeat**
+  (`placements.ts::emitsAt`): a second application over a target whose child create the first held at
+  `subcase-row` under an unknown baseline reads that create as an operation unit, whose key names no repeat,
+  so the verification found its block nowhere and the judgement refused every such app as `not-idempotent`.
+  `transform.test.ts` holds the case for an `unread` and an `absent` baseline.
+
 ## Executed during planning
 
 Light reads on this machine; one production read, approved by the person.

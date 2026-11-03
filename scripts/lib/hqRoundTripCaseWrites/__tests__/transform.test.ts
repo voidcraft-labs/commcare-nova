@@ -287,6 +287,36 @@ describe("the whole transform over every pre-step fixture", () => {
 		).toBe(true);
 	});
 
+	it.each(["unread", "absent"] as const)(
+		"holds a published app whose baseline is %s, and its second application writes nothing",
+		(why) => {
+			const id = "targeted-migration-case-writes";
+			const ctx = context(id, published(id));
+			const [deployment] = ctx.deployments;
+			if (deployment === undefined) throw new Error("No deployment.");
+			const unknown: StepContext = {
+				...ctx,
+				deployments: [{ ...deployment, baseline: { kind: "unknown", why } }],
+			};
+			const result = transformApp(rawFixture(id), unknown);
+			expect(result.blockers).toEqual([]);
+			expect(result.held.length).toBeGreaterThan(0);
+			expect(
+				result.held.every((held) => held.source === "unknown-baseline"),
+			).toBe(true);
+			const again = transformApp(rawOf(targetOf(result)), unknown);
+			expect(again.blockers).toEqual([]);
+			expect(
+				again.changes.filter(
+					(change) => !REPORT_ONLY.has(`${change.step}:${change.kind}`),
+				),
+			).toEqual([]);
+			expect(canonicalJsonDigest(toPersistableDoc(targetOf(again)))).toBe(
+				canonicalJsonDigest(toPersistableDoc(targetOf(result))),
+			);
+		},
+	);
+
 	it("refuses an app whose baseline does not verify, with nothing planned to write", () => {
 		const id = "targeted-migration-case-writes";
 		const ctx = context(id, published(id));
