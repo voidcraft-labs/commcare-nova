@@ -272,6 +272,27 @@ stack and contracts.
   selects a parent first, naming `SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM`, a code no validator at the
   base or the head defines. The clause is dropped, so the comment says only what HQ's build does with such a
   host; whether that shape needs a refusal is left open for pull request 11's review of the Register action.
+- From implementation (pull request 10, the multi-select auto-launch): this part turns `auto_launch` on for
+  a search-first menu whose case list selects several cases (`search-remote-multiple` among §13's flips),
+  where the base's local suite wrote HQ's single-select expression for every menu. HQ's build writes
+  `AUTO_LAUNCH_EXPRESSIONS["multi-select"]` where `module.is_multi_select()`
+  (`suite_xml/sections/details.py::DetailContributor._get_auto_launch_expression`, pinned by
+  `tests/test_suite_multi_select_case_list.py::test_multi_select_case_list_auto_launch`), and a
+  multi-select screen evaluates the condition with the chosen cases as the `next_input` instance and sets no
+  `$next_input` variable (`commcare-core/src/cli/java/org/commcare/util/screen/MultiSelectEntityScreen.java::getAutoLaunchEvaluationContext`).
+  So `shortDetail.ts` writes the multi-select expression where `selection.kind === "multiple"`, the
+  condition `hqJson/caseList.ts` writes `multi_select` under, through a suite-only wire root, `next-input`,
+  that prints `instance('next_input')` and adds no declaration; the suite oracle admits `next_input` in an
+  `<action auto_launch>` alone (`suiteOracle.test.ts` pairs it with the same read in `relevant`, refused).
+  Without it the local archive and HQ's build would hold two spellings of one action.
+- From implementation (pull request 10, the browser lane): two `case-workspace-surface.spec.ts` journeys
+  still expected the base's stored Search config after the last field leaves and after a zero-input Search
+  is enabled; §7.2's planner writes `workflow: "skipToResults"` in both batches, and the canvas heading is
+  "Results can open automatically", so the journeys now assert both. In the app lane,
+  `authed.spec.ts`'s empty-Results step opened Preview on Results, but its menu now searches first, so
+  the step submits its one search ("Nobody") from the Search screen and holds both readings there; and
+  `case-list-menu-item.spec.ts` waited for a PUT holding `"caseListMenuItem":{}`, where the switch's
+  command is `setCaseListMenuItem { item: {} }`, so it waits for that command's kind.
 - None from the stack: the decisions' order holds, and the advanced module's case list menu item lands
   in this pull request with part 02's readers (§19).
 

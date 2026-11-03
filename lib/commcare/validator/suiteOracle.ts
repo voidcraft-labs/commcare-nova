@@ -1615,8 +1615,18 @@ function checkInstanceResolution(
 		if (referrers === undefined || referrers.length === 0) continue;
 
 		const resolvable = intersectDeclaredInstances(referrers);
+		// A multi-select list evaluates its actions' auto-launch conditions
+		// with the chosen cases as the `next_input` instance, which no suite
+		// element declares
+		// (`commcare-core/src/cli/java/org/commcare/util/screen/MultiSelectEntityScreen.java::getAutoLaunchEvaluationContext`).
+		const autoLaunchConditions = new Set(
+			findAll((el) => el.name === "action", detail.children).flatMap(
+				(action) => getAttributeValue(action, "auto_launch") ?? [],
+			),
+		);
 		for (const fn of collectScopeXPaths(detail)) {
 			for (const ref of collectOracleInstanceRefs(fn)) {
+				if (ref === "next_input" && autoLaunchConditions.has(fn)) continue;
 				if (!resolvable.has(ref)) {
 					errors.push(
 						validationError(

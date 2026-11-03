@@ -670,10 +670,10 @@
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "UNAVAILABLE (CommCare HQ no longer offers the case list first for a menu that searches, and turns it to Search first when the menu's case list is saved there) / RUNS",
+			"cell": "UNAVAILABLE (a menu that searches can't open on its case list first, and CommCare HQ turns such a menu to Search first when its case list is saved there) / RUNS",
 			"webApps": {
 				"reading": "unavailable",
-				"note": "CommCare HQ no longer offers the case list first for a menu that searches, and turns it to Search first when the menu's case list is saved there"
+				"note": "a menu that searches can't open on its case list first, and CommCare HQ turns such a menu to Search first when its case list is saved there"
 			},
 			"android": {
 				"reading": "runs"

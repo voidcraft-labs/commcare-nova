@@ -644,6 +644,7 @@ export function compileCcz(
 				...(remoteRequestEmission !== undefined && {
 					searchAction: {
 						autoLaunch: remoteRequestEmission.wire.autoLaunch,
+						multiSelect: mod.caseListConfig?.selection?.kind === "multiple",
 						...(searchButtonDisplayCondition !== undefined && {
 							displayCondition: searchButtonDisplayCondition,
 						}),

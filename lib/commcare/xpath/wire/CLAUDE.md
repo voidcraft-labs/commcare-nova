@@ -66,7 +66,9 @@ steps and the HQ case shortcut, and protects literal backslashes and instance
 regex hazards. It leaves literal hashtags intact because this path performs no
 hashtag replacement. Image alt variable identities hash this exact printed key.
 
-Generated variables have explicit arms: claim `case_id`, selection `next_input`,
+Generated variables have explicit arms: claim `case_id`, selection `next_input`
+(and its multi-select twin, the suite-only `next-input` root that prints
+`instance('next_input')` and adds no declaration),
 calculated detail values, enum labels, image alt labels, and endpoint argument
 datums are suite-only. An endpoint argument must be one grammar-valid local
 name and comes only from generated endpoint metadata. The HQ enum placeholder

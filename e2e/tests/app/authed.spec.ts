@@ -1951,6 +1951,14 @@ test.describe("authenticated builder", () => {
 			await expect(
 				page.getByRole("button", { name: "Back to edit", exact: true }),
 			).toBeVisible();
+			// The menu searches first, so Preview opens on its Search screen and
+			// Results follows a search. A submitted search cannot mask the broader
+			// availability problem: no search can return a case while Results
+			// excludes every available case.
+			await page.getByRole("textbox", { name: "Patient name" }).fill("Nobody");
+			await page
+				.getByRole("button", { name: "Search All Cases", exact: true })
+				.click();
 			const authoredEmptyTitle = page.getByRole("heading", {
 				name: "No cases available for this task",
 				level: 2,
@@ -1987,14 +1995,6 @@ test.describe("authenticated builder", () => {
 				emptyDescriptionStyle.fontSize,
 			);
 			expect(emptyTitleStyle.color).not.toBe(emptyDescriptionStyle.color);
-
-			// A submitted search cannot mask the broader availability problem: no
-			// search can return a case while Results excludes every available case.
-			await page.getByRole("textbox", { name: "Patient name" }).fill("Nobody");
-			await page
-				.getByRole("button", { name: "Search All Cases", exact: true })
-				.click();
-			await expect(authoredEmptyTitle).toBeVisible({ timeout: 20_000 });
 			await expect(
 				page.getByRole("heading", {
 					name: "No cases match your search",

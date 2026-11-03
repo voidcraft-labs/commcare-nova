@@ -44,7 +44,7 @@ test("turning on the case list in a menu with forms lists it after the forms", {
 			request.method() === "PUT" &&
 			new URL(response.url()).pathname ===
 				`/api/apps/${seed.caseWorkspace.appId}` &&
-			(request.postData() ?? "").includes('"caseListMenuItem":{}')
+			(request.postData() ?? "").includes('"kind":"setCaseListMenuItem"')
 		);
 	});
 	await toggle.click();
