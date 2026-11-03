@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DockerfileParser, Run } from "dockerfile-ast";
 import { describe, expect, test } from "vitest";
-import jobs from "@/config/deployment-jobs.json";
 
 const dockerfile = DockerfileParser.parse(readFileSync("Dockerfile", "utf8"));
 function stage(name: string) {
@@ -155,52 +154,6 @@ describe("container artifact declarations", () => {
 				},
 			]),
 		);
-	});
-
-	test("the HQ round-trip case-writes cutover runs a maintenance bundle of its migrate script on its own Job", () => {
-		const bundles = stage("maintenance-build")
-			.getInstructions()
-			.filter((item) => item instanceof Run)
-			.map((run) => run.getArguments().map((arg) => arg.getValue()));
-		const cutover = bundles.filter((args) =>
-			args.includes("--outfile=hq-round-trip-case-writes.cjs"),
-		);
-		expect(cutover).toEqual([
-			[
-				"npx",
-				"esbuild",
-				"scripts/migrate-hq-round-trip-case-writes.ts",
-				"--bundle",
-				"--platform=node",
-				"--target=node24",
-				"--format=cjs",
-				"--conditions=react-server",
-				"--tsconfig=tsconfig.json",
-				"--external:pg-native",
-				"--outfile=hq-round-trip-case-writes.cjs",
-			],
-		]);
-		expect(dependencies("runner").has("maintenance-build")).toBe(false);
-
-		const contract = jobs["commcare-nova-hq-round-trip-case-writes"];
-		expect(contract).toMatchObject({
-			serviceAccount: "nova-migrate@commcare-nova.iam.gserviceaccount.com",
-			command: ["node"],
-			args: ["hq-round-trip-case-writes.cjs"],
-			maxRetries: 0,
-		});
-		/* The cutover reads Nova's database alone: the historical repair's
-		 * environment exactly, with no media bucket and no key. */
-		expect(contract.env).toEqual(jobs["commcare-nova-historical-repair"].env);
-
-		const ignored = readFileSync(".dockerignore", "utf8").split("\n");
-		for (const line of [
-			"!scripts/migrate-hq-round-trip-case-writes.ts",
-			"!scripts/lib/hqRoundTripCaseWrites/",
-			"scripts/lib/hqRoundTripCaseWrites/__tests__/",
-		]) {
-			expect(ignored).toContain(line);
-		}
 	});
 
 	test("the authored job bundle commands produce self-contained operator executables", () => {

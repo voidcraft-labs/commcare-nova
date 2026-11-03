@@ -141,19 +141,3 @@ npx tsx scripts/scan-legacy-preplan-builds.ts --prod
 The Cloud Run Job is dry-run by default. Held rows remain untouched until the
 run finishes or the reaper releases them; empty rows require an explicit
 operator decision instead of automatic recovery.
-
-## HQ round-trip case-writes cutover
-
-A one-off pair, a read-only scan and a migrate script, run from the maintenance image's commit. The scan prints the plan and its blockers without a digest; the migrate script reads Nova's database alone, no media bucket and no KMS key. Production writes run only through the Job `commcare-nova-hq-round-trip-case-writes` as `hq-round-trip-case-writes.cjs`, by `docs/plans/hq-round-trip/5-cutover-runbook.md`; neither script writes with `--prod`.
-
-```bash
-npx tsx --conditions=react-server scripts/scan-hq-round-trip-case-writes.ts
-npx tsx --conditions=react-server scripts/scan-hq-round-trip-case-writes.ts --prod
-npx tsx --conditions=react-server scripts/scan-hq-round-trip-case-writes.ts --prod --app <appId> --debug-details
-NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-case-writes.ts
-NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-case-writes.ts --settle-holders
-NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-case-writes.ts --rehearse
-NOVA_DB_WORKLOAD=migration npx tsx --conditions=react-server scripts/migrate-hq-round-trip-case-writes.ts --execute --expect-plan-digest <digest>
-```
-
-The migrate script is a dry run unless told otherwise: it reads the fleet, prints the plan's content-free report and `planDigest`, and writes nothing. `--settle-holders` settles every lapsed or paused holder through the production reapers and exits. `--rehearse` runs the whole fleet transaction and rolls it back, the ledgered migrations with it; it is for local databases and tests, and the Job refuses it. `--execute` refuses with nothing written when the plan's digest differs from the one given, and otherwise applies step 5's ledgered migrations only inside the fleet transaction it commits.
