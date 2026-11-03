@@ -29,13 +29,14 @@
  * - **Defect 20's `product_id` datum** (under CommCare Supply). HQ gives it to
  *   the entry of an `AdvancedModule`'s case list menu item
  *   (`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`, under
- *   `self.app.commtrack_enabled`). Nova writes the item only on a formless
- *   module, which is advanced only where its kind is held so
+ *   `self.app.commtrack_enabled`). An advanced menu holds the item alone,
+ *   where its kind is held so, or beside its forms, where its own content
+ *   makes it advanced
  *   (`lib/commcare/moduleKind.ts::advancedModulesWithCaseListMenuItem`); its
  *   publish asks the person to confirm CommCare Supply is off
- *   (`commtrack-off`). This is the Vitest witness of that arm until a lane
- *   document holds a menu item beside an advanced menu's forms. The accepted
- *   counterpart is an advanced menu with forms and a basic menu that is only
+ *   (`commtrack-off`). The lane's witness of the item beside an advanced
+ *   menu's forms is `targeted-commtrack-advanced`. The accepted counterpart
+ *   is an advanced menu with forms and no item, and a basic menu that is only
  *   a case list, which ask nothing; and no advanced form's load shows product
  *   stock, HQ's other branch that adds the datum.
  */
@@ -324,7 +325,7 @@ describe("defect 20's product_id datum", () => {
 						uuid: list,
 						name: "Household list",
 						caseType: "household",
-						caseListOnly: true,
+						caseListMenuItem: {},
 						caseListConfig: caseListOf([
 							plainColumn(uuid("list-name"), "case_name", "Name"),
 						]),
@@ -423,6 +424,16 @@ describe("defect 20's product_id datum", () => {
 		return doc;
 	}
 
+	/** `doc` with the Households menu's case list as its menu item, beside its form. */
+	function withHouseholdsItem(doc: BlueprintDoc): BlueprintDoc {
+		const households = uuid("households");
+		const module = doc.modules[households];
+		if (module === undefined)
+			throw new Error("The stock app has no Households menu.");
+		doc.modules[households] = { ...module, caseListMenuItem: {} };
+		return doc;
+	}
+
 	const commtrackNeeds = (doc: BlueprintDoc) =>
 		requiredConfirmations(doc, NO_PUSHES, null, undefined).filter(
 			(need) => need.kind === "commtrack-off",
@@ -443,6 +454,26 @@ describe("defect 20's product_id datum", () => {
 				kind: "commtrack-off",
 				reasons: [
 					"Household list shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.",
+				],
+			}),
+		]);
+	});
+
+	it("asks CommCare Supply off for an advanced menu whose case list is its menu item beside its forms", () => {
+		const doc = admitted(withHouseholdsItem(stock(false)));
+		const app = exported(doc);
+		expect(app.modules.map((module) => module.doc_type)).toEqual([
+			"Module",
+			"AdvancedModule",
+			"Module",
+		]);
+		expect(app.modules[1]?.case_list?.show).toBe(true);
+		expect(app.modules[1]?.forms.length).toBe(1);
+		expect(commtrackNeeds(doc)).toEqual([
+			expect.objectContaining({
+				kind: "commtrack-off",
+				reasons: [
+					"Households shows its case list as its own menu item, in a menu CommCare HQ builds as advanced.",
 				],
 			}),
 		]);

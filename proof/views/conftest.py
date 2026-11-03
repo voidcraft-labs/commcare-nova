@@ -22,6 +22,8 @@ DOCUMENTS = (
     "media-only",
     "search-multiple",
     "targeted-hq-side-state",
+    "targeted-search-workflow",
+    "targeted-search-workflow-android",
 )
 # Every retained control a test of this package reads, by id: the export of a document from before the fix of a
 # defect whose harm a view shows, which keeps showing it.

@@ -1139,7 +1139,10 @@ workforce documents, which carry their producer base's. The fuzz generators
 draw no declaration: the last step of each generator's `lowerToDoc` maps each
 step 5 shape of the draw as the cutover maps a stored app (whole-number
 counts, field writes into operations, explicit preloads, `fieldList` on each
-labelled group that holds no repeat workers add entries to), then maps the draw through
+labelled group that holds no repeat workers add entries to, and each search's
+workflow and whether its forms read the search, through
+`lib/doc/searchWorkflowPlan.ts::authoredSearchWorkflow` with Web Apps
+declared), then maps the draw through
 `lib/doc/platformDeclaration.ts::declaredForContent`, the cutover's own
 planner, with no further random call, so a draw that runs on
 neither platform only because of a date-and-time question
@@ -1471,9 +1474,10 @@ so a datum's physical name changes while the reference keeps its identity.
 and in a form link's condition, and counts, in each entry of a repeat, the
 table rows whose code is the entry's own answer, a form read inside a row
 predicate that Nova prints `current()/../region`; `targeted-inline-search-reads`
-reads an inline search's results in its module's forms, a search answer in the
-no-matches form, and the same answer in a hidden value of a form of the module
-that opens on its search and in that module's calculated column; and
+reads what the search found in the forms of a menu whose forms read the search
+(`formsReadSearch`, CommCare's inline search), a search answer in the menu's
+case list registration form, and the same answer in a hidden value of a form
+of that menu and in its calculated column; and
 `targeted-text-reads` reads `jr:itext` and `jr:choice-name` in two
 languages. Each passes with no entry and no control. The first two are also
 native scenarios: `LookupRuntimeTest` and `LocationOwnerRuntimeTest` read
@@ -1554,13 +1558,17 @@ the guarded `session/data/stringquery`; a device's walk taps cases without
 typing, so it reads the blank. Both pass with no entry and no control, and the
 `expression` native family's `SessionContextRuntimeTest` runs the same guarded
 reads with each node present and absent.
-`targeted-list-first-places` adds a location question behind the list-first
-Web Apps search workflow. HQ's Case List save turns it into search-first
-(defect 21), which changes the runs that reach a location and the viewport
-each client replay uses. Its retained control holds three proof 4 classes beside the existing list-first symptoms:
-added runs, changed viewport values, and a removed viewport member where the longer desktop
-run list displaces a small-screen run at the same position. The two viewport kinds are
-registered separately; R5 shows all three on the document and its unchanged control.
+`targeted-list-first-places` adds a location question behind a searching
+menu of an app that declares Web Apps. Before step 5 the menu listed first,
+and HQ's Case List save turned it search first (defect 21), which changed the
+runs that reach a location and the viewport each client replay uses. Its
+retained control keeps three proof 4 classes beside the list-first symptoms
+`targeted-list-first-web-apps`' control keeps: added runs, changed viewport
+values, and a removed viewport member where the longer desktop run list
+displaces a small-screen run at the same position, the two viewport kinds
+registered separately. From step 5 both documents open on Search first, which
+the Case List save keeps, so each is the witness of the fix and its entries
+are fixed ones held on its control.
 `targeted-query-repeat-placements` holds each placement defect 25's fix
 gives a query repeat, in a survey declared for both platforms: `visits`, over
 `'a b'` at the root, in model iteration; `readings`, whose query reads the
@@ -1688,6 +1696,45 @@ HQ's form builder reads a text's markdown form as its own switch and writes
 the form back only where it read one (Vellum `src/javaRosa/plugin.js`,
 `item.hasMarkdown`), so proof 4's saves hold both halves as Nova wrote them. It declares both platforms and passes with no entry and no
 control.
+`targeted-search-workflow`, `targeted-search-workflow-inline` and
+`targeted-search-workflow-android` hold what a worker sees first when a menu
+searches (`caseSearchConfig.workflow`, absent for search first) and whether
+the menu's forms read the search (`formsReadSearch`). The first declares both
+platforms and holds one case type and three searching menus whose forms do
+not read the search: search first with a visible field and a Search button
+condition, search first with only a hidden field, and skip to results with a
+visible field. The second, Web Apps only (forms that read the search run in
+Web Apps alone), holds search first with only a hidden field and skip to
+results with a visible field, whose case list offers its registration form,
+under its own label, where a search finds nothing. The third, Android only,
+lists first with a visible field, the one place Nova authors list first. HQ's
+Case List page draws its Web Apps search workflow selector where the app has
+Web Apps on, the project space has `CLOUDCARE` and `SYNC_SEARCH_CASE_CLAIM`
+(`views/modules.py::get_module_view_context`, `show_search_workflow`), and
+offers search first and skip to default results, and list first only under
+`CASE_SEARCH_DEPRECATED_NORMAL_CASE_LIST`
+(`partials/modules/bootstrap5/case_search_properties.html`), so proof 4's
+Case List saves keep every workflow of the first two, and the third's page
+draws no selector. `proof/views/test_search_workflow_offers.py` reads the
+page for the first and the third. Each passes with no entry and no control.
+`targeted-case-list-menu-item` holds a menu's case list as a menu entry of
+its own beside its forms (`Module.caseListMenuItem`), which HQ lists after
+the forms (`case_list.show`,
+`suite_xml/sections/entries.py::EntriesHelper.entry_for_module`): a forms
+first menu, with a registration and a follow-up form, whose entry carries a
+label and an image and whose columns show in Details, and a case first menu,
+with a follow-up and a close form, whose entry takes the menu's name and
+whose columns show in no Details. It declares both platforms and passes with
+no entry and no control.
+`targeted-commtrack-advanced` holds a menu made advanced by its own content
+(a registration's extension case carried by its link), its case list a menu
+entry beside its forms, no filter, and the product details Nova writes for
+every advanced menu. HQ's build adds a `product_id` datum to that entry where
+CommCare Supply is on (`EntriesHelper.entry_for_module`, under
+`app.commtrack_enabled`), which Nova does not write, so the publish asks the
+person to confirm CommCare Supply is off (`commtrack-off`) and the verdict
+holds `minimumConfiguration.commtrackEnabled: false`. It declares both
+platforms and passes with no entry and no control.
 The eight migration witnesses (`proof/targeted/documents/migrations.ts`, each
 spec marked `migrationWitness: true`, so its source is
 `targeted-migration:<rows>`) are small apps, one per step 5 migration that
@@ -3116,7 +3163,7 @@ commit gate, which refuses a datum the form's entry does not supply
 | 15 | Vellum rejects question ids with a leading underscore, a leading `XML`, or `meta`, and Connect ids of those forms; a question named `meta` in any case also loses its data node in HQ's build, so Core will not install the build, and HQ's form settings page warns of a meta block (correction 5); an entry-point id that is not a `slugify` fixed point fails the settings save under `SESSION_ENDPOINTS` (`views/utils.py::set_session_endpoint`). What Connect does with a Connect id renamed under an opportunity that holds it is Connect's own, the same for an id renamed in HQ's form builder ("Connect in the unit"). Fixed in step 2: a question id and a Connect id start with a letter, hold letters, digits and underscores, never start with `XML`, and are none of the names CommCare keeps (`lib/domain/questionId.ts`), and a deep link ID is a `slugify` fixed point (`lib/domain/entryPoints.ts::ENTRY_POINT_ID_PATTERN`, held to HQ's own function by `proof/hq/test_endpoint_ids.py`) | proof 4; the bar | fixed; still shown by the controls `targeted-invalid-question-ids` and `targeted-invalid-question-ids-after-9`; `targeted-invalid-question-ids` and `targeted-invalid-connect-ids` hold the replacements |
 | 16, hidden columns | a case list search did not match a hidden column's values, because Nova dropped the column (`EntitySortUtil.sortEntities`). Fixed in step 2: in a list with no case tile a column hidden from Results is HQ's `invisible` column on both paths | intent (Core) | fixed; still shown by the control `targeted-hidden-column`; `targeted-hidden-calculated-column` holds a hidden calculated column |
 | 20, sync on form entry | with the setting on, HQ's build gives the entry of each form that loads a case in a module that offers search a claim with no condition, and Core's session asks for a sync on that form entry (`CommCareSession.getNeededData`), which Android meets by clearing the session (`HomeScreenBaseActivity.launchRemoteSync`). Fixed in step 4: Nova's publish asks a person to confirm the setting is off for an app that declares Android and holds such a form (`form-entry-sync-off`), and an app for Web Apps only publishes with it on | configuration sensitivity; proof 3 across the two paths, under the setting, where HQ's build's session takes a sync step the local archive's does not | fixed; still shown by the controls `targeted-sync-on-form-entry`, `targeted-list-first-web-apps`, `case-list-inline` and `search-multiple` |
-| 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first | proof 4, then 2 and 3 | any list-first menu in a project space that searches; `targeted-list-first-web-apps`, `targeted-list-first-places` (the location question's runs and viewports) |
+| 21 | a Case List save where the Web Apps workflow selector shows turns list-first into search-first, since the selector offers no list first. Fixed in step 5: a searching menu of an app that declares Web Apps opens on Search first or skips to its results (`caseSearchConfig.workflow`), and Nova authors list first only where Web Apps is not declared (`list-first`), so the save keeps every workflow | proof 4, then 2 and 3 | fixed; still shown by the controls `targeted-list-first-web-apps`, `targeted-list-first-places` (the location question's runs and viewports), `tile-grouped-search`, `case-list-match-none`, `case-operation-query`, `targeted-sync-on-form-entry` and `expander-form-links-emission-forwards-literal-condition-47c96355-0`; `targeted-search-workflow` holds each workflow and `proof/views/test_search_workflow_offers.py` what the page offers |
 | 23 | a Vellum save drops the Save to Case attachment. Fixed in step 5: a capture saves only a link to its file, written to the generated `nova_url_<question>` node, so no export writes a case attachment | proof 4, then 3; manifest; intent (HQ) | fixed; still shown by the controls `case-capture-followup`, `case-capture-multiple-after-3`, `case-capture-multiple-after-13`, `case-extension-registration-after-13`, `case-extension-multiple-after-13`, `case-extension-multiple-repeat-after-13`, `case-extension-query-after-13` and `case-extension-repeat-after-13` |
 | 24 | a Case Management save turns the inert subcase's relationship from extension to child; and the local archive placed a repeat's single subcase block after the item's other children, where HQ's build places it first, so Formplayer listed the item's ids in another order. Step 2 fixed the repeat item's position (finding 37): the block is the item's first child on both paths. Fixed in step 5: no export writes the inert subcase. An extension child case is a create operation with an extension link, at the placement Nova plans for it: a Save to Case block whose case id is `uuid()`, or, where an after-submit link carries the new case, an advanced open action whose index carries `relationship="extension"`, which makes its menu an advanced module (`lib/commcare/moduleKind.ts`) | proof 4; proof 3 across the two paths; manifest | fixed; still shown by the controls `case-extension-registration-after-13`, `case-extension-registration-after-59`, `case-extension-repeat-after-13`, `case-extension-repeat-after-59`, `case-extension-query-after-13` and `case-extension-query-after-59`, the item's position by `case-capture-query`; `targeted-advanced-module` and `targeted-extension-carried` hold the fix |
 | 25 | a Vellum save rewrites a query repeat into model iteration, whose rows are built by setvalues that run as the form loads. Where that breaks is a REFUSED class of the model-iteration entries (`lib/commcare/surface/entries/questions.json`): a repeat nested in another; a query reading an answer still blank where those setvalues run; and a repeat under a group that Core's load has already left not relevant there (its condition reads what an earlier load-time setvalue wrote) and that becomes relevant later: the repeat stays empty. Otherwise a group relevant later costs no rows: `FormDef.initialize` runs the load-time setvalues before it evaluates the form's conditions (`initAllTriggerables`), and a group whose condition nothing has evaluated yet reads as relevant (`XFormParser` leaves it so), so for a query that reads no form answer the repeat keeps its rows after the save, and one under a group never relevant submits none either way (correction 7). Fixed in step 5: a query repeat takes its placement from what its form holds (`lib/domain/queryRepeatPlacement.ts`). It is model iteration in the form builder's own spelling, which a save keeps, only where nothing model iteration cannot run holds it (a repeat nested in another, a query reading a form answer, an enclosing group whose condition can change while the form is filled in); anywhere else it is the count placement, Nova's `nova_query_ids_<repeat>` node and a live count the save leaves alone | proof 4, then 3; manifest | fixed; still shown by the controls `container-query-conditional-after-13`, `container-nested-query`, `case-operation-query`, `container-query-conditional`, `container-query-conditional-parent` and `targeted-query-repeat-places`; `targeted-query-repeat-placements` holds each placement |
@@ -4170,7 +4217,8 @@ decoded text and child order.
   (`search-input:results:inline`), and its after-submit link fires only when the
   search found more than one.
   `test_search_validation.py` runs HQ's own validator methods over three of
-  these apps and their paired counterexamples (see `searchFirst.ts`).
+  these apps and their paired counterexamples (see `formsReadSearch.ts` and
+  `caseListRegistration.ts`).
 - `prompt`: three admitted documents (widget metadata and lookup choices,
   numeric and quote guards, dependent computed values with location guards)
   match without exception. `SearchPromptRuntimeTest` (five methods) runs both
@@ -5262,7 +5310,7 @@ readers (among them the readers and writers of an edited case type or
 property; the owner of an edited translation, and a case property's readers
 for a unit its option owns; every module and form and the app's own record for
 a language-catalog or Connect-type edit; the modules holding an edited form;
-the module a no-matches registration form is lowered into, and its host
+the module a case list registration form is lowered into, and its host
 module) and every entity whose wire Nova derives from what the batch edits;
 the lane's shards run on amd64, where Android runs beside HQ; the input of
 the defect rows "12, same-type child" and "20, CommTrack" was once said to

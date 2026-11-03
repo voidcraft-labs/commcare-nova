@@ -1,7 +1,7 @@
-"""HQ's own validators refuse exactly the search shapes Nova's search-first rules refuse.
+"""HQ's own validators refuse exactly the search shapes Nova's rules for forms that read the search refuse.
 
 Contract: over Nova's admitted search exports, each HQ validator method
-Nova's four search-first refusals mirror (``helpers/validators.py``) returns
+Nova's four refusals for a menu whose forms read the search mirror (``helpers/validators.py``) returns
 no error for the admitted shape and exactly the named error once the model
 is mutated into the paired counterexample: a previous-screen workflow after
 inline case loading (``workflow previous inline search``), a submenu or a
@@ -10,7 +10,8 @@ name (``non-unique instance name with parent module`` / ``with parent select
 module``), and a case list form that is not a registration of the host's
 case type or does not exist (``case list form not registration`` / ``case
 list form missing``). The plausible failure: HQ relaxing or tightening one of
-these rules, so Nova's refusal is stale or missing (``searchFirst.ts``).
+these rules, so Nova's refusal is stale or missing (``formsReadSearch.ts``,
+``caseListRegistration.ts``).
 """
 
 from pathlib import Path

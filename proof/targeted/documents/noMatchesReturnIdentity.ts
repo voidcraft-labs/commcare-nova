@@ -1,7 +1,9 @@
 /**
- * A fixed sibling-menu move beside a search-first module whose no-matches
- * form returns to its case list. The module runs in Web Apps alone, so proof
- * 5 compares the app JSON of the move, and HQ builds the return guard.
+ * A fixed sibling-menu move beside a menu whose forms read the search and
+ * whose case list offers its registration form after a search finds nothing,
+ * a form that returns to the case list. Forms read the search in Web Apps
+ * alone, so the app declares Web Apps only, proof 5 compares the app JSON of
+ * the move, and HQ builds the return guard.
  */
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
@@ -20,7 +22,7 @@ export function noMatchesReturnIdentity() {
 	const doc = buildDoc({
 		appId: id,
 		appName: "Patient registry",
-		// The no-matches form lives in a search-first module, which runs in Web Apps alone.
+		// Forms that read the search run in Web Apps alone (`forms-read-search`).
 		appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
 		caseTypes: [
 			{
@@ -38,7 +40,8 @@ export function noMatchesReturnIdentity() {
 				uuid: uuid("patients"),
 				name: "Patients",
 				caseType: "patient",
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
+				caseListRegistrationForm: { formUuid: uuid("register") },
 				caseListConfig: caseListOf(
 					[plainColumn(uuid("patient-name-column"), "case_name", "Name")],
 					{
@@ -71,7 +74,6 @@ export function noMatchesReturnIdentity() {
 						uuid: uuid("register"),
 						name: "Register patient",
 						type: "registration",
-						entry: { kind: "search-no-matches" },
 						fields: [
 							f({
 								uuid: uuid("name"),
@@ -88,7 +90,7 @@ export function noMatchesReturnIdentity() {
 				uuid: uuid("households"),
 				name: "Households",
 				caseType: "household",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListOf([
 					plainColumn(uuid("household-name-column"), "case_name", "Name"),
 				]),

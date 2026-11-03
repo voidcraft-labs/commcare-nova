@@ -68,7 +68,7 @@ const CASE_TYPES = [
 const listOf = (caseType: string) => ({
 	name: `${caseType} list`,
 	caseType,
-	caseListOnly: true,
+	caseListMenuItem: {},
 	caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
 	forms: [],
 });

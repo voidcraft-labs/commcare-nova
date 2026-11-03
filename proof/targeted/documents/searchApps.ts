@@ -1,6 +1,9 @@
 /**
  * Searches whose symptoms show where HQ reads a search's configuration: its
  * Case List page, its Web Apps workflow selector, and its search endpoint.
+ * Every menu here searches with a visible field in an app that declares Web
+ * Apps and stores no workflow, so each opens on Search first in Web Apps
+ * (`caseSearchConfig.workflow` absent), and on its case list on a device.
  *
  * - `targeted-search-default-filter-name` (defect 14, search settings): a
  *   search input named `_xpath_query_2`, beside a case list filter, which
@@ -12,7 +15,7 @@
  *   (`CASE_LIST_SEARCH_INPUT_NAME_IS_DEFAULT_FILTER`); this witness holds
  *   that the save goes through with the suffixed name.
  * - `targeted-sync-on-form-entry` (defect 20, sync on form entry): a
- *   list-first menu that offers search, whose follow-up form loads the case
+ *   menu that offers search, whose follow-up form loads the case
  *   the worker picks, published to a project space with sync cases on form
  *   entry on. HQ's build gives the form's entry a claim of the picked case
  *   (`suite_xml/post_process/remote_requests.py`, the setting read through
@@ -26,14 +29,16 @@
  * - `targeted-sync-on-form-entry-web-apps` (defect 21, and defect 20's
  *   setting where it is no harm): the same app declared Web Apps only and
  *   published with sync cases on form entry on, which Nova's publish accepts
- *   for an app no phone runs; it carries defect 21's `requests` class, which
- *   the Case List save shows under that setting.
- * - `targeted-list-first-web-apps` (defect 21): a list-first menu that
- *   offers search, in an app with Web Apps on, so HQ's Case List page shows
- *   its search workflow selector (`views/modules.py::get_module_view_context`,
+ *   for an app no phone runs.
+ * - `targeted-list-first-web-apps` (defect 21): a searching menu in an app
+ *   with Web Apps on, so HQ's Case List page shows its search workflow
+ *   selector (`views/modules.py::get_module_view_context`,
  *   `show_search_workflow`: the app's `cloudcare_enabled`, the `CLOUDCARE`
  *   privilege and `SYNC_SEARCH_CASE_CLAIM`), which offers no list-first
- *   choice, and the save turns the menu search-first.
+ *   choice. The document is the witness that such a menu now opens on Search
+ *   first, which the Case List save keeps; its control keeps the list-first
+ *   menu the save turned search first. `targeted-list-first-places` is the
+ *   same witness with a location question behind the menu.
  * - `targeted-search-hq-compile` (defects 6 CSQL, 14 reserved input
  *   names; finding 48): a default filter that compares `date_opened` with a
  *   date turned into a date and time, which HQ's CSQL compiler takes as an
@@ -204,7 +209,7 @@ export function searchDefaultFilterName() {
 	});
 }
 
-/** The claimed visits app: a list-first menu with Search over a follow-up form. */
+/** The claimed visits app: a searching menu over a follow-up form. */
 function claimedVisits(id: string) {
 	return searchApp(id, "Claimed visits", (uuid) => ({
 		properties: [],
@@ -283,7 +288,7 @@ export function listFirstWebApps() {
 	});
 }
 
-/** A location question keeps a phone-place walk behind the list-first menu. */
+/** A location question keeps a phone-place walk behind the searching menu. */
 export function listFirstPlaces() {
 	const id = "targeted-list-first-places";
 	const { doc, form } = searchApp(

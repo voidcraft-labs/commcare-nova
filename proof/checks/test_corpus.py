@@ -721,13 +721,40 @@ def _advanced_actions(app):
     return found
 
 
-# Each shape some emitted document must hold, and what reads it of a document's sent XForms. Each later shape a
-# step adds a reader for joins this table.
+def _search_workflows(app):
+    """The search workflows the app's searching modules hold, as HQ reads them: a module searches where its
+    ``search_config`` holds a property or a default property (``util.py::module_offers_search``), its forms read the
+    search where ``inline_search`` and ``auto_launch`` are both on (``module_uses_inline_search``), and its workflow
+    is the Case List page's selector over ``auto_launch`` and ``default_search``
+    (``case_search_properties.html``: Search First, Skip to Default Case Search Results, and the legacy list
+    first). List first counts only in an app whose ``cloudcare_enabled`` is false, which Nova writes for an app
+    that declares Android only."""
+    found = set()
+    for module in app.get("modules") or ():
+        search = module.get("search_config") or {}
+        if not (search.get("properties") or search.get("default_properties")):
+            continue
+        if not search.get("auto_launch"):
+            if app.get("cloudcare_enabled") is False:
+                found.add("list first where Android alone is declared")
+            continue
+        found.add("skip to results" if search.get("default_search") else "search first")
+        if search.get("inline_search"):
+            found.add("forms reading the search")
+    return found
+
+
+# Each shape some emitted document must hold, and what reads it of a document's sent XForms or app. Each later
+# shape a step adds a reader for joins this table.
 CORPUS_SHAPES = {
     "query repeat in model iteration": _query_repeat_placements,
     "query repeat in the count placement": _query_repeat_placements,
     "an advanced module's load": _advanced_actions,
     "an advanced module's open action": _advanced_actions,
+    "search first": _search_workflows,
+    "skip to results": _search_workflows,
+    "list first where Android alone is declared": _search_workflows,
+    "forms reading the search": _search_workflows,
 }
 
 
@@ -755,12 +782,12 @@ def test_the_corpus_holds_each_search_workflow_and_each_placement():
 
 # The documents the corpus's fixed floor emits: its producers', workforce, expander and targeted documents that
 # Nova admits. Every pull request that adds or removes a document writes the count its sources then give.
-FIXED_DOCUMENTS = 387
+FIXED_DOCUMENTS = 392
 
 
 def test_the_corpus_emits_every_document_its_sources_name():
     """Contract: the corpus emits its fixed floor whole, beside the fuzz sample it was asked for, so the count is
-    the floor plus the sample's size (419 with the default sample of 32). Catches a source that silently stops
+    the floor plus the sample's size (424 with the default sample of 32). Catches a source that silently stops
     emitting a document, which every other test would pass by reading less."""
     corpus = cases.load_corpus()
     emitted = len(corpus.emitted)

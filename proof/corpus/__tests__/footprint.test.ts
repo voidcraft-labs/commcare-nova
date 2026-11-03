@@ -37,7 +37,7 @@
  * footprint must name every module and form whose emitted wire the batch
  * can change. The plausible failure is a footprint that misses one (a
  * reader the reference index keeps under a key the footprint does not ask
- * about, a form's module, a no-matches form's hidden module, an app-wide
+ * about, a form's module, a case list registration form's hidden module, an app-wide
  * edit, a form whose wire Nova derives from its module's settings or from
  * its parent module's form list), which proof 5 would then report as a
  * locality defect that is not one. Nova's own exports are the observation:
@@ -107,10 +107,11 @@
  *   stored destination the shape withholds, which the reducer moves,
  *   reaches its form; neither reaches the forms nested under it;
  * - a worker property's slug reaches the case-loading forms of a module
- *   whose filter, or whose search input on a module that opens on Search,
- *   reads it, not those of one whose display condition, search button
- *   condition, calculated column, or search input on a module that opens on
- *   its list does, and not a link that opens one of them;
+ *   whose filter, or whose search input on a module whose forms read the
+ *   search, reads it, not those of one whose display condition, search
+ *   button condition, calculated column, or search input on a module whose
+ *   forms do not read the search does, and not a link that opens one of
+ *   them;
  * - a new language reaches the app.
  *
  * Dropping any one of these derivations fails at least one control, and so
@@ -684,7 +685,7 @@ describe("the footprint's derivations", () => {
 		},
 		right: { kind: "term", term: { kind: "literal", value: "y" } },
 	} as const;
-	// Several-case selection and Search first run in Web Apps alone, so a D
+	// Several-case selection and Forms read the search run in Web Apps alone, so a D
 	// that gains one declares it first.
 	const toWebApps: Mutation = {
 		kind: "setAppSettings",
@@ -1148,12 +1149,26 @@ describe("the footprint's derivations", () => {
 		},
 		// What else the selection datum holds: the same forms, and no frame.
 		{
-			name: "a module's opening on Search reaches its forms",
+			name: "a module's forms starting to read the search reaches its forms",
 			document: "search-remote",
 			setup: () => [toWebApps],
-			batch: patchSearch("Followup", { searchFirst: true }),
+			batch: patchSearch("Followup", { formsReadSearch: true }),
 			reaches: (doc) => formsOf(doc, "Followup"),
 			leaves: () => [],
+		},
+		{
+			name: "a workflow of a module whose forms read the search reaches its forms, whose query runs the search as the entry opens",
+			document: "search-inline",
+			batch: patchSearch("Followup", { workflow: "skipToResults" }),
+			reaches: (doc) => formsOf(doc, "Followup"),
+			leaves: () => [],
+		},
+		{
+			name: "a workflow of a module whose forms do not read the search reaches none of its forms",
+			document: "search-remote",
+			batch: patchSearch("Followup", { workflow: "skipToResults" }),
+			reaches: () => [],
+			leaves: (doc) => formsOf(doc, "Followup"),
 		},
 		{
 			name: "a case list filter that reaches the case database alone reaches none of its module's forms that load no case",
@@ -1335,16 +1350,16 @@ describe("the footprint's derivations", () => {
 			reaches: () => [],
 			leaves: (doc) => formsOf(doc, "Child care"),
 		},
-		// The inline search of a module that opens on Search: its own forms, all case-loading.
+		// The inline search of a module whose forms read the search: its own forms, all case-loading.
 		{
-			name: "a search input's name reaches the forms of a module that opens on Search",
+			name: "a search input's name reaches the forms of a module whose forms read the search",
 			document: "search-inline",
 			batch: renameInput("Followup", "first_name"),
 			reaches: (doc) => formsOf(doc, "Followup"),
 			leaves: () => [],
 		},
 		{
-			name: "a search input's label reaches none of the forms of a module that opens on Search",
+			name: "a search input's label reaches none of the forms of a module whose forms read the search",
 			document: "search-inline",
 			batch: (doc) => {
 				const moduleUuid = moduleNamed(doc, "Followup");
@@ -1365,7 +1380,7 @@ describe("the footprint's derivations", () => {
 			leaves: (doc) => formsOf(doc, "Followup"),
 		},
 		{
-			name: "a search screen subtitle reaches none of the forms of a module that opens on Search",
+			name: "a search screen subtitle reaches none of the forms of a module whose forms read the search",
 			document: "search-inline",
 			batch: patchSearch("Followup", {
 				searchScreenSubtitle: "Look up a patient",
@@ -1374,14 +1389,14 @@ describe("the footprint's derivations", () => {
 			leaves: (doc) => formsOf(doc, "Followup"),
 		},
 		{
-			name: "a search screen title reaches none of the forms of a module that opens on Search",
+			name: "a search screen title reaches none of the forms of a module whose forms read the search",
 			document: "search-inline",
 			batch: patchSearch("Followup", { searchScreenTitle: "Find a patient" }),
 			reaches: () => [],
 			leaves: (doc) => formsOf(doc, "Followup"),
 		},
 		{
-			name: "a calculated column that stops reading a related case reaches the forms of a module that opens on Search",
+			name: "a calculated column that stops reading a related case reaches the forms of a module whose forms read the search",
 			document: "case-list-inline",
 			batch: (doc) => {
 				const column = columnsOf(doc, "Patients & visits").find(
@@ -1424,14 +1439,14 @@ describe("the footprint's derivations", () => {
 			leaves: () => [],
 		},
 		{
-			name: "one column leaving the detail of a module that opens on Search reaches none of its forms",
+			name: "one column leaving the detail of a module whose forms read the search reaches none of its forms",
 			document: "case-list-inline",
 			batch: hideInDetail("Patients & visits", (header) => header === "Born"),
 			reaches: () => [],
 			leaves: (doc) => formsOf(doc, "Patients & visits"),
 		},
 		{
-			name: "one column leaving the list of a module that opens on Search reaches none of its forms",
+			name: "one column leaving the list of a module whose forms read the search reaches none of its forms",
 			document: "case-list-inline",
 			batch: (doc) =>
 				columnsOf(doc, "Patients & visits")
@@ -1446,12 +1461,12 @@ describe("the footprint's derivations", () => {
 			leaves: (doc) => formsOf(doc, "Patients & visits"),
 		},
 		{
-			name: "a worker property's slug reaches the forms of a module that opens on Search whose search input default reads it",
+			name: "a worker property's slug reaches the forms of a module whose forms read the search whose search input default reads it",
 			document: "search-remote",
 			setup: (doc) => [
 				toWebApps,
 				addFlag,
-				...patchSearch("Followup", { searchFirst: true })(doc),
+				...patchSearch("Followup", { formsReadSearch: true })(doc),
 				...flagDefault("Followup")(doc),
 			],
 			batch: () => renameFlag,
@@ -1459,7 +1474,7 @@ describe("the footprint's derivations", () => {
 			leaves: () => [],
 		},
 		{
-			name: "a worker property's slug reaches none of the forms of a module that opens on its list whose search input default reads it",
+			name: "a worker property's slug reaches none of the forms of a module whose forms do not read the search whose search input default reads it",
 			document: "search-remote",
 			setup: (doc) => [addFlag, ...flagDefault("Followup")(doc)],
 			batch: () => renameFlag,
@@ -1467,7 +1482,7 @@ describe("the footprint's derivations", () => {
 			leaves: (doc) => formsOf(doc, "Followup"),
 		},
 		{
-			name: "a search input's name reaches none of the forms of a module whose case list filter reads it, which opens on its list",
+			name: "a search input's name reaches none of the forms of a module whose case list filter reads it, whose forms do not read the search",
 			document: "prompt-guards",
 			batch: (doc) => {
 				const filter =

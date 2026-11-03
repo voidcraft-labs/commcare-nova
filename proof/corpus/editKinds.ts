@@ -43,6 +43,7 @@ import {
 	updateFormMutations,
 	updateSearchInputMutation,
 } from "@/lib/agent/blueprintHelpers";
+import { caseListRegistrationFormMutations } from "@/lib/doc/caseListRegistrationForm";
 import {
 	addCaseOperationMutations,
 	removeCaseOperationMutation,
@@ -100,7 +101,6 @@ import {
 	formScaffoldMutations,
 	surveyModuleMutations,
 } from "@/lib/doc/scaffolds";
-import { noMatchesRegistrationFormMutations } from "@/lib/doc/searchNoMatchesForm";
 import type { Mutation } from "@/lib/doc/types";
 import { unusedCasePropertyError } from "@/lib/doc/unusedCaseProperty";
 import {
@@ -145,6 +145,8 @@ import {
 	languageTag,
 	locationPropertiesOf,
 	type Module,
+	menuFormUuidsOf,
+	moduleHasCaseListMenuItem,
 	organizationLevelsOf,
 	type ProseTemplate,
 	personasOf,
@@ -1105,6 +1107,33 @@ const moveModule: KindGenerator = (ctx) => {
 	});
 };
 
+/**
+ * The module's case list as a menu entry of its own, set or taken off whole
+ * (`setCaseListMenuItem`): added, with a label and an image, to a module
+ * with a case type that has none; taken off a module that holds one beside
+ * its menu forms (a module with no menu forms needs its entry,
+ * `NO_FORMS_OR_CASE_LIST`).
+ */
+const setCaseListMenuItem: KindGenerator = (ctx) =>
+	forTargets(
+		ctx,
+		modulesInOrder(ctx.doc).filter((m) => m.caseType !== undefined),
+		(m) => {
+			if (!moduleHasCaseListMenuItem(m)) {
+				return batch([
+					{
+						kind: "setCaseListMenuItem",
+						uuid: m.uuid,
+						item: { label: edited(m.name), icon: ctx.mint.mediaId() },
+					},
+				]);
+			}
+			if (menuFormUuidsOf(ctx.doc, m.uuid).length === 0) return undefined;
+			return batch([{ kind: "setCaseListMenuItem", uuid: m.uuid, item: null }]);
+		},
+		readModule(ctx),
+	);
+
 const renameModule: KindGenerator = (ctx) =>
 	take(ctx, modulesInOrder(ctx.doc), MAX_TARGETS, readModule(ctx)).map((m) =>
 		batch([{ kind: "renameModule", uuid: m.uuid, newId: edited(m.name) }]),
@@ -1381,15 +1410,9 @@ const setCaseListMeta: KindGenerator = (ctx) =>
 			);
 			return plan.ok ? batch(plan.mutations) : refusal(plan.reason);
 		}
-		if (arm === 1) {
-			return batch([
-				{
-					kind: "setCaseListMeta",
-					uuid: m.uuid,
-					patch: { icon: ctx.mint.mediaId() },
-				},
-			]);
-		}
+		// The case list's image and spoken label belong to its menu entry,
+		// which `setCaseListMenuItem` sets whole, so this arm writes nothing.
+		if (arm === 1) return undefined;
 		return batch([
 			{
 				kind: "setCaseListMeta",
@@ -1408,13 +1431,13 @@ const setCaseListMeta: KindGenerator = (ctx) =>
 
 const addForm: KindGenerator = (ctx) =>
 	forTargets(ctx, modulesInOrder(ctx.doc), (m) => {
-		// A Search module's registration form for when nothing matched is
-		// the Builder's one-step scaffold (`noMatchesRegistrationFormMutations`).
+		// A Search module's registration form for when a search finds nothing
+		// is the Builder's one-step scaffold (`caseListRegistrationFormMutations`).
 		if (
 			(m.caseListConfig?.searchInputs.length ?? 0) > 0 &&
 			ctx.rng.next() < 0.5
 		) {
-			const plan = noMatchesRegistrationFormMutations(ctx.doc, m.uuid);
+			const plan = caseListRegistrationFormMutations(ctx.doc, m.uuid);
 			return plan === null ? refusal("no-case-type") : batch(plan.mutations);
 		}
 		const types =
@@ -2822,6 +2845,7 @@ export const EDIT_KIND_GENERATORS = {
 	moveModule,
 	renameModule,
 	updateModule,
+	setCaseListMenuItem,
 	addForm,
 	removeForm,
 	moveForm: hosted(FORM_HOST, moveForm),

@@ -19,7 +19,7 @@ opens a captured file's link, ``proof/views/test_form_attachment.py``).
   only under ``CASE_SEARCH_ADVANCED``
   (``feature_support.py::enable_default_value_expression``): four prompts of
   ``prompt-widgets`` carry it under the flag and none without it.
-- HQ's build writes a search-first menu under a parent selection
+- HQ's build writes a menu whose forms read the search under a parent selection
   (``search-parent``) with an ``ancestor-exists`` filter of its own
   (``util.py::module_uses_inline_search_with_parent_relationship_parent_select``)
   with or without ``CASE_SEARCH_RELATED_LOOKUPS``, and HQ's case search
