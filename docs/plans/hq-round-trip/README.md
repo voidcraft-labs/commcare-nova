@@ -15,7 +15,7 @@ changes" table.
 | 2 | Emission and publish fixes | done: [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`lib/deployment/CLAUDE.md`](../../../lib/deployment/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
 | 3 | Expressions | done: [`lib/domain/CLAUDE.md`](../../../lib/domain/CLAUDE.md), [`lib/domain/expression/CLAUDE.md`](../../../lib/domain/expression/CLAUDE.md), [`lib/commcare/CLAUDE.md`](../../../lib/commcare/CLAUDE.md), [`proof/README.md`](../../../proof/README.md) |
 | 4 | Platforms | done: ["Step 4 is done"](#step-4-is-done) |
-| 5 | [Case writes, forms and navigation](5-case-writes-forms-navigation.md) | planned in full |
+| 5 | Case writes, forms and navigation | done: ["Step 5 is done"](#step-5-is-done) |
 | 6 | [Import](6-import.md) | outline |
 | 7 | [The rest of the model](7-rest-of-model.md) | outline |
 
@@ -154,9 +154,9 @@ is read:
   [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md),
   "Found while planning step 3".
 - **What step 3 left to later steps**, each with its reason, in
-  [`5-case-writes-forms-navigation.md`](5-case-writes-forms-navigation.md),
   [`6-import.md`](6-import.md) and [`7-rest-of-model.md`](7-rest-of-model.md);
-  what step 4 took of it is in ["Step 4 is done"](#step-4-is-done).
+  what step 4 took of it is in ["Step 4 is done"](#step-4-is-done), and what
+  step 5 took of it in ["Step 5 is done"](#step-5-is-done).
 - **The cutover's trace.** The cutover ran once, before the merge, and its
   scripts, its Job and its runbook are removed. What it left is each app's
   `fold-baseline:hq-round-trip-expressions` row (`lib/db/CLAUDE.md`), each
@@ -224,8 +224,8 @@ finding 74. What endures lives where it is read:
   [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md),
   "Found while planning step 4".
 - **What step 4 left to later steps**, each with its reason: CommTrack's
-  confirmation and defect 21 in
-  [`5-case-writes-forms-navigation.md`](5-case-writes-forms-navigation.md);
+  confirmation and defect 21, which step 5 took (["Step 5 is
+  done"](#step-5-is-done));
   the split's read-back and the guarded and `current()` reads in
   [`6-import.md`](6-import.md); a child module of a search-first parent,
   `fingerprintquery` and an ordinary search's results detail in
@@ -255,6 +255,95 @@ finding 74. What endures lives where it is read:
   evidence archive under the prefix `hq-round-trip-platforms/`, reports and
   IAM policy reads only, never deleted from
   (`docs/architecture/deployment.md`, "Historical repairs").
+
+## Step 5 is done
+
+Step 5 made a form's case writes one concept with a place in CommCare HQ that
+a publish keeps, and its plan has left this directory. A form's case writes
+are its case operations, the form's own case among them, and a field's "Saves
+to" is that field's view of them; each case change, query repeat and advanced
+menu keeps the place in CommCare HQ the publish that first carries it
+records, and an edit that moves one says so on every editor before it saves.
+It fixed defects 21 to 30 (the search workflow; case writes as one concept;
+attachment mode; extension child cases; query repeat placement; form links;
+field lists; explicit preloads and plain labels; the menu concepts;
+whole-number counts), defect 12's links between cases of the same type at
+publish, and defect 20's CommTrack half. What endures lives where it is read:
+
+- **Case writes and placements**, `lib/domain` and `lib/commcare`: the own
+  arm, `via`, `onlyIfChanged`, the worker's record, `capture-link`, open and
+  close conditions (`lib/domain/CLAUDE.md`);
+  `lib/commcare/placement.ts::planPlacements` and
+  `casePlacementPlan.ts::planFormCaseWire` (`lib/commcare/CLAUDE.md`,
+  "Authored case-operation emission"); `docs/architecture/complex-apps.md`,
+  "Field id, case writes, and app-wide property rename".
+- **Held placements and identity moves**, `lib/doc`: `holdPlacements`,
+  `withIdentityMoves` and the per-subject planners (`lib/doc/CLAUDE.md`), the
+  kernel rule `lib/db/placementAuthority.ts::placementChangeRefusal`
+  (`lib/db/CLAUDE.md`), and the contract in `docs/architecture/contracts.md`,
+  "HQ deployment safety".
+- **Publish**, `lib/deployment`: the `publish-placement` app change, the
+  placement offers, `commtrack-off`, `same-type-child-links` and
+  `lib/commcare/hq/publishedCaseBlocks.ts` (`lib/deployment/CLAUDE.md`,
+  "Placements").
+- **Advanced modules and extension child cases** (`lib/commcare/CLAUDE.md`,
+  "Advanced modules"; `docs/architecture/complex-apps.md`, "Advanced
+  modules").
+- **Questions**: query repeat placements, whole-number counts,
+  `group.fieldList` and `plainLabel` (`lib/commcare/CLAUDE.md`, "Repeat
+  modes" and "Markdown itext").
+- **Menus and search**: `caseSearchConfig.workflow` and `formsReadSearch`,
+  `Module.caseListMenuItem` and `Module.caseListRegistrationForm`, and a
+  claim as a case row (`lib/domain/CLAUDE.md`, `lib/case-store/CLAUDE.md`,
+  `docs/architecture/complex-apps.md`, "The search workflow").
+- **Form links**: destinations in the author's order, `Form.otherwise`,
+  `this-form` and the held-case guard (`lib/commcare/CLAUDE.md`,
+  "After-submit links (`form_links`)"; `docs/architecture/complex-apps.md`,
+  "After-submit links").
+- **The proof lane**: every one of the register's entries in
+  `proof/fixed-defects.json`, each still showing on its retained control,
+  `OPEN_DEFECTS` empty; the migration witnesses, their retained A
+  (`proof/migrations/`), HQ's reads of it
+  (`proof/hq-reads/targeted-migration-*`) and the identity moves scoped to
+  them (`proof/README.md`, "Identity moves").
+- **What planning step 5 found**,
+  [`harness-findings.md`](../../research/2026-09-26-hq-round-trip/harness-findings.md),
+  "Found while planning step 5".
+- **What step 5 left to later steps**, each with its reason, in
+  [`6-import.md`](6-import.md) and [`7-rest-of-model.md`](7-rest-of-model.md).
+- **The baseline step 5's plan was written against**: `main` at `2f985ed6`,
+  which is step 4's stack (#809 to #825) merged and its cutover run, at the
+  CommCare pins named under "Rules every plan follows".
+- **The cutover's trace.** The cutover ran once, before the merge, and its
+  scripts, its Job and its runbook are removed; they stay in `main`'s history
+  on the commit before the one that removed them. What it left is the three
+  ledgered migrations of step 5 with `caseWritesLedger.postgres.test.ts`
+  (`lib/case-store/migrations/`); each app's
+  `fold-baseline:hq-round-trip-case-writes` row, the sixth fold identity
+  (`lib/db/CLAUDE.md`); the pure planners the fuzz mapping and step 6 read
+  (`lib/doc/fieldWriteOperations.ts`, `explicitPreloads.ts`,
+  `repeatCountWraps.ts`, `groupFieldLists.ts`, `searchWorkflowPlan.ts`); the
+  form-link map `lib/doc/formLinkSemanticsMap.ts`, with the test that holds
+  every migrated app's links to their behavior before; each affected app's
+  notice, cutover `hq-round-trip-case-writes`, whose lead and reasons stay so
+  stored rows render (`lib/notices/`); the two public-docs sentences that
+  name where workers go after a form as something Nova changed
+  (`content/docs/publishing.mdx`, "Updates to review", and the `get_app` row
+  of `content/docs/mcp/tools.mdx`); and its content-free evidence archive
+  under the prefix `hq-round-trip-case-writes/`, reports and IAM policy reads
+  only, never deleted from (`docs/architecture/deployment.md`, "Historical
+  repairs").
+
+The trace's reason list is the one the cutover registered, `form-link-removed`
+among them: the cutover keeps that removal for a link to an unoffered submenu
+whose parent is off the menu, which an author could still make until the
+cutover ran, so the reason ships whether or not an app's notice names it,
+and stays so stored rows render.
+
+The `../nova-plugin` change rides the stack:
+[voidcraft-labs/nova-plugin#74](https://github.com/voidcraft-labs/nova-plugin/pull/74)
+takes the plugin to `2.4.0`, and it merges once the deploy carrying step 5 is
+live.
 
 ## Why each later step is planned when the one before it exits
 

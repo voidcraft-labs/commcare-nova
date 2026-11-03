@@ -164,8 +164,8 @@ Planned in full when step 5 exits. The design is the research's "The reader",
      `form-entry-sync-off`, for an app that declares Android and holds a form
      that works on a case in a menu with Search, and step 5's `commtrack-off`.
      The same-type child check is not a confirmation of this list: what
-     import does for it is item 10's *Confirmations* bullet, decided by step
-     5's gated runs. It records only the answers the person gives.
+     import does for it is item 10's *Confirmations* bullet. It records only
+     the answers the person gives.
    - *The split's joined value.* A bind-only node with no control,
      `type="xsd:dateTime"` and a calculate reads back as a Hidden Value with
      that calculate; the reader admits `xsd:dateTime` on a bind-only node
@@ -268,11 +268,10 @@ Planned in full when step 5 exits. The design is the research's "The reader",
       on a host whose forms read the search, its form in a `module_filter:
       false()` module, into `caseListRegistrationForm { kind:
       "after-empty-search" }`. It reads `commcare-case-claim` cases nowhere,
-      since they are case data, not app content. If step 5's gated run on
-      HQ's Case List page (part 05's G3) shows a save changing a workflow
-      shape, step 5 refuses that shape (`SEARCH_WORKFLOW_NOT_KEPT_<SHAPE>`)
-      and the reader refuses it with that reason; if the save keeps every
-      shape, the reader reads each as written here.
+      since they are case data, not app content. HQ's Case List page keeps
+      every workflow shape Nova emits through a save, so the reader reads
+      each as written here (`caseSearchConfig.workflow`,
+      `docs/architecture/complex-apps.md`, "The search workflow").
     - *Form links.* The reader reads `form_links` in reverse order into
       `formLinks`, and an otherwise (`Form.otherwise`) from exactly two
       shapes: a `post_form_workflow_fallback` word beside some non-blank
@@ -292,21 +291,21 @@ Planned in full when step 5 exits. The design is the research's "The reader",
       `FORM_LINK_ADVANCED_MODE`); reads a fallback outside the offered set
       as INERT where no conditional link exists and refuses it otherwise;
       and reads an HQ fallback beside an unconditional link as the
-      otherwise it is. If step 5's gated run on the held-case guard (part
-      06's G2) shows a runtime evaluating it before the submission lands, or
-      the settings save rewriting it, step 5 emits no guard and refuses a
-      carried value that is not a case of the target datum's type
-      (`FORM_LINK_DATUM_NOT_A_CASE`); the reader then strips nothing and
-      refuses such a link with that reason.
+      otherwise it is. Nova emits the held-case guard on every carried
+      value of a single-case selection, no runtime evaluates it before the
+      submission lands and HQ's settings save keeps it, so the reader strips
+      it as written here (`formLinkCarriedCaseGuards`;
+      `lib/commcare/CLAUDE.md`, "After-submit links (`form_links`)").
     - *Confirmations.* Import is the other way an app reaches a project
       space, so it asks `commtrack-off` with the predicate publish uses
       (`lib/commcare/planPrivileges.ts::commtrackReasons`) over the imported
-      source. For an imported same-type basic child case it takes the check
-      step 5's gated runs leave (part 03's G3 and G4): where the project-space
-      list reads `DONT_INDEX_SAME_CASETYPE` and the flag drops the child's
-      index, it probes `same-type-child-links` (the flag off); where the list
-      cannot read the flag, it asks the confirmation `same-type-links-kept`;
-      where the flag leaves Nova's shape unchanged, it checks nothing.
+      source. For an imported same-type basic child case it probes
+      `same-type-child-links` as publish does: the project-space list reads
+      `DONT_INDEX_SAME_CASETYPE`, and HQ's build drops the child's parent
+      index while the flag is on, so the capability needs the flag off
+      (`projectSpaceCompatibility.ts::sameTypeChildReasons`;
+      `lib/commcare/CLAUDE.md`, "CommCare HQ project-space compatibility",
+      and `lib/deployment/CLAUDE.md`, "Placements").
 
 ## Cutover and migration
 
