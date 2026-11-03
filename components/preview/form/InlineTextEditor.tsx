@@ -21,19 +21,53 @@
  * **Hints**: A compact always-visible toolbar with bold, italic and reference
  * insertion. Both variants share the same reference picker.
  *
+ * **Format text** (labels only): the label toolbar opens with a toggle for
+ * the label's `plainLabel`. Off, the editor holds the stored characters as
+ * plain lines with reference chips and no Markdown reading in either
+ * direction, so `**bold**` shows as typed; the formatting buttons stand
+ * disabled and the reference picker still works. The editor follows the
+ * stored setting, so a toggle, an undo or a peer's edit swaps it in place and
+ * carries the draft across. Turning formatting off on a label that uses it
+ * asks first, under the editor.
+ *
  * Save: blur, Cmd/Ctrl+Enter. Cancel: Escape reverts to original value.
  * Tab/Shift+Tab: save current, activate next/previous TextEditable in DOM
  * order.
  */
 
 "use client";
+import tablerTypography from "@iconify-icons/tabler/typography";
 import { type Editor, Extension } from "@tiptap/core";
 import { Tiptap, useEditor } from "@tiptap/react";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+	type ComponentType,
+	Fragment,
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { createPortal } from "react-dom";
 import { ProseReferencePicker } from "@/components/builder/ProseReferencePicker";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { ToolbarSaveHint } from "@/components/builder/SaveShortcutHint";
+import { Button } from "@/components/shadcn/button";
+import { BoldIcon } from "@/components/tiptap-icons/bold-icon";
+import { CodeBlockIcon } from "@/components/tiptap-icons/code-block-icon";
+import { Code2Icon } from "@/components/tiptap-icons/code2-icon";
+import { HeadingIcon } from "@/components/tiptap-icons/heading-icon";
+import { HorizontalRuleIcon } from "@/components/tiptap-icons/horizontal-rule-icon";
+import { ImageIcon } from "@/components/tiptap-icons/image-icon";
+import { ItalicIcon } from "@/components/tiptap-icons/italic-icon";
+import { LinkIcon } from "@/components/tiptap-icons/link-icon";
+import { ListIcon } from "@/components/tiptap-icons/list-icon";
+import {
+	TiptapIcon,
+	type TiptapIconProps,
+} from "@/components/tiptap-icons/TiptapSvg";
+import { TableIcon } from "@/components/tiptap-icons/table-icon";
 import { CodeBlockButton } from "@/components/tiptap-ui/code-block-button";
 import { HeadingDropdownMenu } from "@/components/tiptap-ui/heading-dropdown-menu";
 import { HorizontalRuleButton } from "@/components/tiptap-ui/horizontal-rule-button";
@@ -42,17 +76,25 @@ import { LinkPopover } from "@/components/tiptap-ui/link-popover";
 import { ListDropdownMenu } from "@/components/tiptap-ui/list-dropdown-menu";
 import { MarkButton } from "@/components/tiptap-ui/mark-button";
 import { TableButton } from "@/components/tiptap-ui/table-button";
+import { Button as ToolbarButton } from "@/components/tiptap-ui-primitive/button";
 import {
 	Toolbar,
 	ToolbarGroup,
 	ToolbarSeparator,
 } from "@/components/tiptap-ui-primitive/toolbar";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import type { CommitOutcome, ProseTemplate } from "@/lib/domain";
 import {
 	useLiveFormUuidGetter,
 	useReferenceProvider,
 } from "@/lib/references/ReferenceContext";
 import { POPOVER_GLASS } from "@/lib/styles";
+import {
+	createPlainLabelEditorExtensions,
+	plainLabelEditorContent,
+	plainLabelEditorTemplate,
+	tiptapDocHoldsFormatting,
+} from "@/lib/tiptap/formatText";
 import {
 	createInlineEditorExtensions,
 	getMarkdownContent,
@@ -65,6 +107,17 @@ import {
 	prosePickerIsOpen,
 } from "@/lib/tiptap/proseReferenceEditing";
 import { FIELD_STYLES, type FieldType } from "./fieldStyles";
+import {
+	FORMAT_TEXT_CONFIRM,
+	FORMAT_TEXT_CONFIRM_KEEP,
+	FORMAT_TEXT_CONFIRM_OFF,
+	FORMAT_TEXT_FOLLOWS_SOURCE,
+	FORMAT_TEXT_NAME,
+	FORMAT_TEXT_UNAVAILABLE,
+	formatTextGesture,
+	formatTextOffLine,
+} from "./formatText";
+import type { FormatTextControl } from "./useLabelFormatText";
 
 interface InlineTextEditorProps {
 	/** Current structural prose value for this field. */
@@ -81,6 +134,96 @@ interface InlineTextEditorProps {
 	 *  provided, the cursor is placed at the corresponding text position
 	 *  instead of jumping to the end of the field. */
 	clickPosition?: { x: number; y: number } | null;
+	/** A label's Format text toggle. Absent for hints, which keep their
+	 *  formatting. */
+	formatText?: FormatTextControl;
+}
+
+/** The label toolbar's formatting buttons, as they stand while Format text
+ *  is off: the same buttons, disabled, saying how to reach them. */
+const UNAVAILABLE_FORMATTING: ReadonlyArray<
+	readonly { label: string; Icon: ComponentType<TiptapIconProps> }[]
+> = [
+	[
+		{ label: "Bold", Icon: BoldIcon },
+		{ label: "Italic", Icon: ItalicIcon },
+		{ label: "Code", Icon: Code2Icon },
+	],
+	[
+		{ label: "Heading", Icon: HeadingIcon },
+		{ label: "List", Icon: ListIcon },
+	],
+	[
+		{ label: "Link", Icon: LinkIcon },
+		{ label: "Image", Icon: ImageIcon },
+	],
+	[
+		{ label: "Code block", Icon: CodeBlockIcon },
+		{ label: "Horizontal rule", Icon: HorizontalRuleIcon },
+		{ label: "Table", Icon: TableIcon },
+	],
+];
+
+/**
+ * The Format text toggle, first in the label toolbar. Pressed means the
+ * label is formatted. Under a worker language other than the source it shows
+ * the source's state and changes nothing.
+ */
+function FormatTextToggle({
+	formatText,
+	onToggle,
+}: {
+	formatText: FormatTextControl;
+	onToggle: () => void;
+}) {
+	const formatted = !formatText.plain;
+	return (
+		<ToolbarButton
+			type="button"
+			variant="ghost"
+			data-active-state={formatted ? "on" : "off"}
+			data-format-text={formatted ? "on" : "off"}
+			aria-label={FORMAT_TEXT_NAME}
+			aria-pressed={formatted}
+			aria-disabled={formatText.isSource ? undefined : true}
+			className={
+				formatText.isSource
+					? undefined
+					: "cursor-not-allowed opacity-(--disabled-opacity)"
+			}
+			tooltip={
+				formatText.isSource ? FORMAT_TEXT_NAME : FORMAT_TEXT_FOLLOWS_SOURCE
+			}
+			onClick={formatText.isSource ? onToggle : undefined}
+		>
+			<TiptapIcon icon={tablerTypography} className="tiptap-button-icon" />
+		</ToolbarButton>
+	);
+}
+
+/** The formatting buttons while Format text is off. */
+function UnavailableFormattingGroups() {
+	return UNAVAILABLE_FORMATTING.map((group) => (
+		<Fragment key={group[0].label}>
+			<ToolbarGroup>
+				{group.map(({ label, Icon }) => (
+					<ToolbarButton
+						key={label}
+						type="button"
+						variant="ghost"
+						disabled
+						data-format-text-unavailable
+						className="cursor-not-allowed"
+						aria-label={label}
+						tooltip={FORMAT_TEXT_UNAVAILABLE}
+					>
+						<Icon className="tiptap-button-icon" />
+					</ToolbarButton>
+				))}
+			</ToolbarGroup>
+			<ToolbarSeparator />
+		</Fragment>
+	));
 }
 
 // ── Label toolbar (full StarterKit formatting via TipTap UI) ─────────
@@ -102,12 +245,17 @@ function LabelToolbar({
 	editor,
 	compact = false,
 	onLeaveEditor,
+	formatText,
+	onToggleFormatText,
 }: {
 	editor: Editor;
 	compact?: boolean;
 	onLeaveEditor: () => void;
 	anchorRef: React.RefObject<HTMLDivElement | null>;
+	formatText?: FormatTextControl;
+	onToggleFormatText: () => void;
 }) {
+	const plain = formatText?.plain === true;
 	const portalRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
@@ -196,12 +344,26 @@ function LabelToolbar({
 				variant="floating"
 				className={`${POPOVER_GLASS} max-w-[calc(100vw-1rem)] flex-wrap`}
 			>
-				<ToolbarGroup>
-					<MarkButton type="bold" />
-					<MarkButton type="italic" />
-					<MarkButton type="code" />
-				</ToolbarGroup>
-				{!compact && (
+				{formatText && (
+					<>
+						<ToolbarGroup>
+							<FormatTextToggle
+								formatText={formatText}
+								onToggle={onToggleFormatText}
+							/>
+						</ToolbarGroup>
+						<ToolbarSeparator />
+					</>
+				)}
+				{plain && <UnavailableFormattingGroups />}
+				{!plain && (
+					<ToolbarGroup>
+						<MarkButton type="bold" />
+						<MarkButton type="italic" />
+						<MarkButton type="code" />
+					</ToolbarGroup>
+				)}
+				{!plain && !compact && (
 					<>
 						<ToolbarSeparator />
 						<ToolbarGroup>
@@ -240,20 +402,95 @@ export function InlineTextEditor({
 	fieldType,
 	autoFocus,
 	clickPosition,
+	formatText,
 }: InlineTextEditorProps) {
+	const plain = formatText?.plain === true;
+	/* The draft as last edited, carried into the other editor when the stored
+	 * Format text setting changes under it. Null until the author edits, so an
+	 * untouched label swaps with its stored characters rather than the
+	 * Markdown serializer's spelling of them. */
+	const draftRef = useRef<ProseTemplate | null>(null);
+	const onDraft = useCallback((draft: ProseTemplate) => {
+		draftRef.current = draft;
+	}, []);
+	/* The click that opened the editor places the first editor's cursor; an
+	 * editor swapped in afterwards takes the cursor at the end. */
+	const [openedPlain] = useState(plain);
+	const [swapped, setSwapped] = useState(false);
+	if (plain !== openedPlain && !swapped) setSwapped(true);
+	return (
+		<InlineTextEditorSurface
+			key={plain ? "plain" : "formatted"}
+			initial={draftRef.current ?? value}
+			plain={plain}
+			onDraft={onDraft}
+			onSave={onSave}
+			onCancel={onCancel}
+			fieldType={fieldType}
+			autoFocus={swapped || autoFocus}
+			clickPosition={swapped ? null : clickPosition}
+			formatText={formatText}
+		/>
+	);
+}
+
+function InlineTextEditorSurface({
+	initial,
+	plain,
+	onDraft,
+	onSave,
+	onCancel,
+	fieldType,
+	autoFocus,
+	clickPosition,
+	formatText,
+}: Omit<InlineTextEditorProps, "value"> & {
+	/** The text the editor opens with. */
+	initial: ProseTemplate;
+	/** Whether this editor reads the text as plain characters (Format text
+	 *  off) or as Markdown. Fixed for the editor's life: the parent swaps in
+	 *  a new editor when the setting changes. */
+	plain: boolean;
+	/** Receives the draft after every edit. */
+	onDraft: (draft: ProseTemplate) => void;
+}) {
 	const provider = useReferenceProvider();
 	const getFormUuid = useLiveFormUuidGetter();
+	const platforms = useDeclaredPlatforms();
 	const savedRef = useRef(false);
 	const rejectedSaveRef = useRef(false);
 	const anchorRef = useRef<HTMLDivElement>(null);
+	/* False once this editor has been swapped out: a blur its teardown
+	 * delivers afterwards must not save over the editor that replaced it. */
+	const aliveRef = useRef(true);
+	useEffect(() => {
+		aliveRef.current = true;
+		return () => {
+			aliveRef.current = false;
+		};
+	}, []);
+	const [confirming, setConfirming] = useState(false);
+	const [formatRefusal, setFormatRefusal] = useState<string | null>(null);
 
-	/** Save the current editor content as markdown. Guards against double-fire. */
+	/** The editor's text as it stores, in this editor's reading. */
+	const serialize = useCallback(
+		(editor: Editor): ProseTemplate =>
+			plain
+				? plainLabelEditorTemplate(editor.getJSON())
+				: markdownToProseTemplate(getMarkdownContent(editor)),
+		[plain],
+	);
+	const serializeRef = useRef(serialize);
+	serializeRef.current = serialize;
+	const onDraftRef = useRef(onDraft);
+	onDraftRef.current = onDraft;
+
+	/** Save the current editor content. Guards against double-fire. */
 	const saveAndDeactivate = useCallback(
 		(editor: Editor | null): boolean => {
 			if (savedRef.current || rejectedSaveRef.current || !editor) return false;
 			savedRef.current = true;
-			const markdown = getMarkdownContent(editor);
-			const outcome = onSave(markdownToProseTemplate(markdown));
+			const outcome = onSave(serialize(editor));
 			if (outcome !== undefined && !outcome.ok) {
 				// The parent keeps the editor mounted with the rejected draft. Block the
 				// blur caused by this attempt from dispatching the same content again,
@@ -264,7 +501,7 @@ export function InlineTextEditor({
 			}
 			return true;
 		},
-		[onSave],
+		[onSave, serialize],
 	);
 
 	/** Cancel editing: revert to the original value without saving. */
@@ -320,31 +557,38 @@ export function InlineTextEditor({
 
 	const extensions = useMemo(
 		() => [
-			...createInlineEditorExtensions(provider, getFormUuid),
+			...(plain
+				? createPlainLabelEditorExtensions(provider, getFormUuid)
+				: createInlineEditorExtensions(provider, getFormUuid)),
 			keyboardExtension,
 		],
-		[provider, getFormUuid, keyboardExtension],
+		[plain, provider, getFormUuid, keyboardExtension],
 	);
 
 	const editor = useEditor({
 		extensions,
-		/* Initial content goes straight through tiptap-markdown's parse pipeline.
-		 * `proseTemplateToMarkdown` emits each typed reference as its encoded
-		 * `<span data-nova-prose-ref="…">` carrier, which CommcareRef's
-		 * `parseHTML` matches, so the ProseMirror doc already contains
-		 * commcareRef nodes before the view is ever mounted. No post-mount
-		 * hydration dispatch is required: chips are present on first paint, and
-		 * TipTap's `ReactRenderer.flushSync` path is never hit from inside a
-		 * React effect. Hashtag-looking TEXT is not a reference and never
-		 * becomes one here: only the encoded carrier does. */
-		content: proseTemplateToMarkdown(value),
+		/* Formatted, the initial content goes straight through tiptap-markdown's
+		 * parse pipeline. `proseTemplateToMarkdown` emits each typed reference as
+		 * its encoded `<span data-nova-prose-ref="…">` carrier, which
+		 * CommcareRef's `parseHTML` matches, so the ProseMirror doc already
+		 * contains commcareRef nodes before the view is ever mounted. Plain, the
+		 * content is the text's own lines and reference atoms as Tiptap JSON,
+		 * read by no Markdown parser. Either way no post-mount hydration dispatch
+		 * is required: chips are present on first paint, and TipTap's
+		 * `ReactRenderer.flushSync` path is never hit from inside a React effect.
+		 * Hashtag-looking TEXT is not a reference and never becomes one here:
+		 * only the encoded carrier or the typed atom does. */
+		content: plain
+			? plainLabelEditorContent(initial)
+			: proseTemplateToMarkdown(initial),
 		immediatelyRender: false,
-		onUpdate: () => {
+		onUpdate: ({ editor: e }) => {
 			// A refused commit leaves the editor mounted. Once the user amends the
 			// draft, permit another save attempt; unchanged rejected content stays
 			// single-shot so the following blur cannot dispatch it twice.
 			savedRef.current = false;
 			rejectedSaveRef.current = false;
+			onDraftRef.current(serializeRef.current(e));
 		},
 		editorProps: {
 			attributes: {
@@ -361,16 +605,18 @@ export function InlineTextEditor({
 		},
 		onBlur: ({ editor: e }) => {
 			/* Delay save to let the browser update activeElement. If focus moved to
-			 * our toolbar portal or its dropdown (both outside the ProseMirror DOM
-			 * tree), the blur is transient: don't save. Only save when focus has
-			 * genuinely left the editing context. The toolbar wrapper and the Radix
-			 * dropdown content are both tagged with [data-inline-toolbar]. Focus
-			 * can also come back to the editor itself before the frame runs: a
-			 * reference chosen in the picker closes it and returns focus here, and
-			 * on a busy frame that happens before the check for the blur that
-			 * opened the picker. */
+			 * our toolbar portal, its dropdown, or the Format text question under
+			 * the editor (all outside the ProseMirror DOM tree), the blur is
+			 * transient: don't save. Only save when focus has genuinely left the
+			 * editing context. Each of those surfaces is tagged with
+			 * [data-inline-toolbar]. Focus can also come back to the editor itself
+			 * before the frame runs: a reference chosen in the picker closes it
+			 * and returns focus here, and on a busy frame that happens before the
+			 * check for the blur that opened the picker. An editor swapped out for
+			 * the other Format text reading never saves. */
 			requestAnimationFrame(() => {
 				if (
+					aliveRef.current &&
 					!e.isDestroyed &&
 					!e.view.hasFocus() &&
 					!prosePickerIsOpen(e) &&
@@ -406,6 +652,47 @@ export function InlineTextEditor({
 		editor.commands.focus("end");
 	}, [editor, autoFocus, clickPosition]);
 
+	/** Write the label's Format text setting. A landed write changes the
+	 *  stored setting, and the parent swaps in the other editor. */
+	const writeFormatText = useCallback(
+		(plainLabel: true | null) => {
+			if (!formatText) return;
+			const outcome = formatText.write(plainLabel);
+			if (!outcome.ok) {
+				setFormatRefusal(
+					outcome.messages[0] ?? "This change did not pass the app guardrails.",
+				);
+				return;
+			}
+			setFormatRefusal(null);
+			setConfirming(false);
+		},
+		[formatText],
+	);
+
+	const toggleFormatText = useCallback(() => {
+		if (!formatText || !editor) return;
+		const gesture = formatTextGesture({
+			plain: formatText.plain,
+			isSource: formatText.isSource,
+			holdsFormatting: () => tiptapDocHoldsFormatting(editor.getJSON()),
+		});
+		if (gesture.kind === "confirm") setConfirming(true);
+		else if (gesture.kind === "write") writeFormatText(gesture.plainLabel);
+	}, [formatText, editor, writeFormatText]);
+
+	/** The question takes focus when it opens, so a keyboard reaches its
+	 *  answers; stable, so a later render never pulls focus back to it. */
+	const focusOnOpen = useCallback((button: HTMLButtonElement | null) => {
+		button?.focus();
+	}, []);
+
+	/** Keep formatting: close the question and hand the cursor back. */
+	const keepFormatting = useCallback(() => {
+		setConfirming(false);
+		editor?.commands.focus();
+	}, [editor]);
+
 	if (!editor) return null;
 
 	return (
@@ -416,12 +703,78 @@ export function InlineTextEditor({
 					editor={editor}
 					compact={fieldType !== "label"}
 					onLeaveEditor={() => saveRef.current(editor)}
+					formatText={formatText}
+					onToggleFormatText={toggleFormatText}
 				/>
 				{/* Text styling + preview-markdown on a single wrapper: matches the
 				 * static LabelContent structure for flipbook parity. */}
 				<div className={`preview-markdown ${FIELD_STYLES[fieldType]}`}>
 					<Tiptap.Content />
 				</div>
+				{formatText && plain && (
+					<p
+						data-format-text-line
+						className="mt-1.5 text-xs leading-relaxed text-nova-text-muted"
+					>
+						{formatTextOffLine("label", platforms)}
+					</p>
+				)}
+				{confirming && (
+					<fieldset
+						data-inline-toolbar
+						data-format-text-prompt
+						className="m-0 mt-2 min-w-0 rounded-lg border border-white/[0.06] bg-nova-deep/50 p-3"
+						onMouseDown={(event) => event.preventDefault()}
+						onKeyDown={(event) => {
+							if (event.key === "Escape") {
+								event.stopPropagation();
+								keepFormatting();
+							}
+						}}
+						onBlur={() => {
+							/* Focus that leaves the question for somewhere outside the
+							 * editing context ends the edit, as a blur from the editor
+							 * does. */
+							requestAnimationFrame(() => {
+								if (
+									!aliveRef.current ||
+									editor.isDestroyed ||
+									editor.view.hasFocus() ||
+									prosePickerIsOpen(editor) ||
+									document.activeElement?.closest("[data-inline-toolbar]")
+								) {
+									return;
+								}
+								setConfirming(false);
+								saveRef.current(editor);
+							});
+						}}
+					>
+						<legend className="float-left w-full p-0 text-xs leading-relaxed text-nova-text-secondary">
+							{FORMAT_TEXT_CONFIRM}
+						</legend>
+						<div className="clear-both flex flex-wrap gap-2 pt-2">
+							<Button
+								type="button"
+								variant="secondary"
+								data-format-text-confirm="off"
+								ref={focusOnOpen}
+								onClick={() => writeFormatText(true)}
+							>
+								{FORMAT_TEXT_CONFIRM_OFF}
+							</Button>
+							<Button
+								type="button"
+								variant="ghost"
+								data-format-text-confirm="keep"
+								onClick={keepFormatting}
+							>
+								{FORMAT_TEXT_CONFIRM_KEEP}
+							</Button>
+						</div>
+					</fieldset>
+				)}
+				<RejectionInline message={formatRefusal} className="max-w-sm" />
 			</div>
 		</Tiptap>
 	);

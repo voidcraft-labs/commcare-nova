@@ -13,15 +13,33 @@
 
 "use client";
 import { Icon } from "@iconify/react/offline";
+import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import { AddPropertyButton } from "@/components/builder/editor/AddPropertyButton";
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
+import { useShowsSourceLanguage } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { MediaSlot } from "@/components/builder/media/MediaSlot";
 import { RefLabelInput } from "@/components/builder/RefLabelInput";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
+import {
+	FORMAT_TEXT_CONFIRM,
+	FORMAT_TEXT_CONFIRM_KEEP,
+	FORMAT_TEXT_CONFIRM_OFF,
+	FORMAT_TEXT_FOLLOWS_SOURCE,
+	FORMAT_TEXT_NAME,
+	formatTextGesture,
+	formatTextOffLine,
+} from "@/components/preview/form/formatText";
 import { Button } from "@/components/shadcn/button";
+import {
+	DropdownMenu,
+	DropdownMenuCheckboxItem,
+	DropdownMenuContent,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { useDeclaredPlatforms } from "@/lib/doc/hooks/useDeclaredPlatforms";
 import { useOptionRemovalBlockers } from "@/lib/doc/hooks/useOptionRemovalBlockers";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import {
@@ -36,12 +54,14 @@ import {
 } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
+import { proseTemplateHoldsFormatting } from "@/lib/tiptap/formatText";
 import {
 	optionsSnapshotKey,
 	optionValueRefusal,
 	removeOptionDraft,
 	replaceOptionLabel,
 	replaceOptionMedia,
+	replaceOptionPlainLabel,
 	settleDraft,
 } from "./optionsDraftModel";
 
@@ -69,6 +89,12 @@ export function OptionsEditorWidget({
 	autoFocus,
 }: OptionsEditorWidgetProps) {
 	const [draft, setDraft] = useState<SelectOption[]>(options);
+	/* The draft as last rendered, for the group-blur commit: its frame runs
+	 * after the gesture that blurred, and a blur from a row's overflow menu
+	 * (portaled, but bubbling here through React) follows that menu's own
+	 * immediate commit, so the commit must carry the draft as it now is. */
+	const latestDraftRef = useRef(draft);
+	latestDraftRef.current = draft;
 	const [focusIndex, setFocusIndex] = useState<number | null>(null);
 	const groupLabelId = useId();
 	// The two accessible names below are the only place an option label is
@@ -212,6 +238,40 @@ export function OptionsEditorWidget({
 		[draft, commit],
 	);
 
+	// Format text on a choice. A choice's `plainLabel` is one setting its
+	// languages share, so only the source language changes it. Like media,
+	// it commits at once: the row's overflow menu takes focus out of the
+	// fieldset, so the group-blur commit never sees the change.
+	const showsSource = useShowsSourceLanguage();
+	const platforms = useDeclaredPlatforms();
+	/** The choice whose Format text is waiting on "Turn it off". */
+	const [confirmingPlain, setConfirmingPlain] = useState<string | null>(null);
+	const setOptionPlainLabel = useCallback(
+		(index: number, plain: boolean) => {
+			const next = replaceOptionPlainLabel(draft, index, plain);
+			setDraft(next);
+			setConfirmingPlain(null);
+			commit(next);
+		},
+		[draft, commit],
+	);
+	const toggleOptionFormatText = useCallback(
+		(index: number) => {
+			const option = draft[index];
+			if (option === undefined) return;
+			const gesture = formatTextGesture({
+				plain: option.plainLabel === true,
+				isSource: showsSource,
+				holdsFormatting: () => proseTemplateHoldsFormatting(option.label),
+			});
+			if (gesture.kind === "confirm") setConfirmingPlain(option.uuid);
+			else if (gesture.kind === "write") {
+				setOptionPlainLabel(index, gesture.plainLabel === true);
+			}
+		},
+		[draft, showsSource, setOptionPlainLabel],
+	);
+
 	const addOption = useCallback(() => {
 		// Mint the persisted identity once. Array order remains display order.
 		const next: SelectOption[] = [
@@ -242,11 +302,11 @@ export function OptionsEditorWidget({
 			const el = fieldsetRef.current;
 			if (!el) return;
 			if (!el.contains(document.activeElement)) {
-				commit(draft);
+				commit(latestDraftRef.current);
 				setFocusIndex(null);
 			}
 		});
-	}, [draft, commit]);
+	}, [commit]);
 
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
@@ -331,7 +391,77 @@ export function OptionsEditorWidget({
 								{removalBlockers[i]}
 							</span>
 						)}
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										aria-label={`More for ${
+											projectProse(opt.label).trim() || `option ${i + 1}`
+										}`}
+									/>
+								}
+							>
+								<Icon icon={tablerDotsVertical} width="16" height="16" />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end" preferredMinWidth="13rem">
+								<DropdownMenuCheckboxItem
+									checked={opt.plainLabel !== true}
+									disabled={!showsSource}
+									closeOnClick
+									data-format-text={opt.plainLabel === true ? "off" : "on"}
+									onClick={() => toggleOptionFormatText(i)}
+								>
+									<span className="flex flex-col">
+										<span>{FORMAT_TEXT_NAME}</span>
+										{showsSource ? null : (
+											<span className="text-xs text-nova-text-muted">
+												{FORMAT_TEXT_FOLLOWS_SOURCE}
+											</span>
+										)}
+									</span>
+								</DropdownMenuCheckboxItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
 						<OptionValueRefusal message={optionValueRefusal(draft, i)} />
+						{opt.plainLabel === true && (
+							<p
+								data-format-text-line
+								className="basis-full pl-1 text-xs leading-relaxed text-nova-text-muted"
+							>
+								{formatTextOffLine("choice", platforms)}
+							</p>
+						)}
+						{confirmingPlain === opt.uuid && (
+							<fieldset
+								data-format-text-prompt
+								className="m-0 min-w-0 basis-full rounded-lg border border-white/[0.06] bg-nova-deep/50 p-3"
+							>
+								<legend className="float-left w-full p-0 text-xs leading-relaxed text-nova-text-secondary">
+									{FORMAT_TEXT_CONFIRM}
+								</legend>
+								<div className="clear-both flex flex-wrap gap-2 pt-2">
+									<Button
+										type="button"
+										variant="secondary"
+										data-format-text-confirm="off"
+										onClick={() => setOptionPlainLabel(i, true)}
+									>
+										{FORMAT_TEXT_CONFIRM_OFF}
+									</Button>
+									<Button
+										type="button"
+										variant="ghost"
+										data-format-text-confirm="keep"
+										onClick={() => setConfirmingPlain(null)}
+									>
+										{FORMAT_TEXT_CONFIRM_KEEP}
+									</Button>
+								</div>
+							</fieldset>
+						)}
 						<div className="basis-full pl-1">
 							<MediaSlot
 								value={opt.media}

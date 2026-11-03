@@ -45,6 +45,7 @@ import {
 import type { FormStructure } from "@/lib/domain/expression/formStructure";
 import { spanFor } from "@/lib/domain/expression/spans";
 import {
+	type CheckError,
 	caseListSearchTextOffered,
 	checkExpression,
 	windowWidthOffered,
@@ -66,6 +67,9 @@ export interface ExpressionFinding {
 	readonly from: number;
 	readonly to: number;
 	readonly message: string;
+	/** The slot checker's error, on a finding the checker made, so an editor
+	 *  can offer a fix for one kind of refusal (`XPathField`'s `lintActions`). */
+	readonly checkError?: CheckError;
 }
 
 /** A named value a completion offers, with what the person knows it by. */
@@ -237,6 +241,7 @@ function checkText(
 				from: span.from,
 				to: Math.min(span.to, text.length),
 				message: formLogicFinding(error, context, expression).message,
+				checkError: error,
 			};
 		});
 	const verdict = expressionEditVerdict(expression, context);

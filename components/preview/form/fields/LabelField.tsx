@@ -16,6 +16,7 @@ import {
 import { useEditMode, usePreviewPlatformRules } from "@/lib/session/hooks";
 import { FIELD_STYLES } from "../fieldStyles";
 import { TextEditable } from "../TextEditable";
+import { useLabelFormatText } from "../useLabelFormatText";
 
 /**
  * Display-only label field renderer. Labels carry only `label` + optional
@@ -39,6 +40,7 @@ export function LabelField({
 	 * (`lib/preview/platform.ts`, `labelMarkdown`). */
 	const labelRendering = usePreviewPlatformRules().labelMarkdown;
 	const { updateField } = useBlueprintMutations();
+	const labelFormatText = useLabelFormatText(field);
 	/* Inline save callback: null in preview mode so the TextEditable
 	 * below falls back to read-only. In edit mode returns a stable
 	 * `(field, value) => void` that coerces empty strings to undefined
@@ -67,6 +69,7 @@ export function LabelField({
 				value={field.label}
 				onSave={saveField ? (v) => saveField("label", v) : undefined}
 				fieldType="label"
+				formatText={labelFormatText}
 			>
 				<LabelContent
 					label={field.label}

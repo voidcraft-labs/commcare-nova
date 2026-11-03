@@ -138,6 +138,31 @@ export const CASE_CHANGES_SEED = {
 		noteUuid: asUuid("6e7f8a9b-0c1d-402b-923c-4d5e6f7a8b9c"),
 		formName: "Identity-safe close",
 	},
+	/**
+	 * A menu of the archived referral, whose case type sits under the patient:
+	 * its follow-up form's question can save to the patient above the case it
+	 * opened, and its registration form's question saves to a case that has
+	 * no earlier value. A root menu of its own, so the journeys that run the
+	 * Patients and Archived referrals menus walk exactly what they did.
+	 */
+	caseWrites: {
+		moduleUuid: asUuid("7db17151-ba56-4857-bbfd-119a4b88bc70"),
+		moduleName: "Referral visits",
+		nameColumn: asUuid("ef56347e-da9e-437a-bcc1-137db772cea7"),
+		followup: {
+			formUuid: asUuid("3aded553-8ecd-4083-8f62-b6f1190a830b"),
+			formName: "Check referral",
+			fieldUuid: asUuid("f02bcafc-f05c-4103-93a5-c3bf92688e60"),
+			fieldId: "referral_note",
+		},
+		registration: {
+			formUuid: asUuid("84bd96a3-dee4-4d6d-8de5-f7bb2179c5c3"),
+			formName: "Register referral",
+			nameUuid: asUuid("46ed81f0-c9e0-4faa-b47f-b9df7f150d1b"),
+			fieldUuid: asUuid("8897d368-16f8-47f7-93b5-f0ee65a0000e"),
+			fieldId: "intake_note",
+		},
+	},
 	caseType: "patient",
 	archivedCaseType: "archived_referral",
 	archivedModuleName: "Archived referrals",
@@ -333,6 +358,70 @@ export function buildCaseChangesBlueprint(
 					searchInputs: [],
 				},
 			},
+			{
+				uuid: CASE_CHANGES_SEED.caseWrites.moduleUuid,
+				id: "referral_visits",
+				name: CASE_CHANGES_SEED.caseWrites.moduleName,
+				caseType: CASE_CHANGES_SEED.archivedCaseType,
+				caseListConfig: {
+					columns: [
+						plainColumn(
+							CASE_CHANGES_SEED.caseWrites.nameColumn,
+							"case_name",
+							"Referral",
+						),
+					],
+					listColumnOrder: [CASE_CHANGES_SEED.caseWrites.nameColumn],
+					detailColumnOrder: [CASE_CHANGES_SEED.caseWrites.nameColumn],
+					searchInputs: [],
+				},
+				forms: [
+					{
+						uuid: CASE_CHANGES_SEED.caseWrites.followup.formUuid,
+						name: CASE_CHANGES_SEED.caseWrites.followup.formName,
+						type: "followup",
+						fields: [
+							f({
+								uuid: CASE_CHANGES_SEED.caseWrites.followup.fieldUuid,
+								kind: "text",
+								id: CASE_CHANGES_SEED.caseWrites.followup.fieldId,
+								label: proseText("Referral note"),
+								caseWrite: {
+									caseType: CASE_CHANGES_SEED.archivedCaseType,
+									property: "source_note",
+								},
+							}),
+						],
+					},
+					{
+						uuid: CASE_CHANGES_SEED.caseWrites.registration.formUuid,
+						name: CASE_CHANGES_SEED.caseWrites.registration.formName,
+						type: "registration",
+						fields: [
+							f({
+								uuid: CASE_CHANGES_SEED.caseWrites.registration.nameUuid,
+								kind: "text",
+								id: "referral_name",
+								label: proseText("Referral name"),
+								caseWrite: {
+									caseType: CASE_CHANGES_SEED.archivedCaseType,
+									property: "case_name",
+								},
+							}),
+							f({
+								uuid: CASE_CHANGES_SEED.caseWrites.registration.fieldUuid,
+								kind: "text",
+								id: CASE_CHANGES_SEED.caseWrites.registration.fieldId,
+								label: proseText("Intake note"),
+								caseWrite: {
+									caseType: CASE_CHANGES_SEED.archivedCaseType,
+									property: "source_note",
+								},
+							}),
+						],
+					},
+				],
+			},
 		],
 	});
 	const form = doc.forms[CASE_CHANGES_SEED.formUuid];
@@ -472,5 +561,20 @@ export function identityProjectionRoute(
 		moduleUuid: CASE_CHANGES_SEED.moduleUuid,
 		formUuid: CASE_CHANGES_SEED.identityProjection.formUuid,
 		...(selectedUuid !== undefined && { selectedUuid }),
+	});
+}
+
+/** A question of the Referral visits menu, selected in its form. */
+export function caseWriteFieldRoute(
+	appId: string,
+	form: "followup" | "registration",
+): string {
+	const { moduleUuid } = CASE_CHANGES_SEED.caseWrites;
+	const { formUuid, fieldUuid } = CASE_CHANGES_SEED.caseWrites[form];
+	return buildUrl(`/build/${appId}`, {
+		kind: "form",
+		moduleUuid,
+		formUuid,
+		selectedUuid: fieldUuid,
 	});
 }

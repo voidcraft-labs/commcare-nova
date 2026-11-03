@@ -31,6 +31,7 @@ import { FIELD_STYLES } from "@/components/preview/form/fieldStyles";
 import { HiddenField } from "@/components/preview/form/fields/HiddenField";
 import { LabelField } from "@/components/preview/form/fields/LabelField";
 import { TextEditable } from "@/components/preview/form/TextEditable";
+import { useLabelFormatText } from "@/components/preview/form/useLabelFormatText";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useFilledField } from "@/lib/doc/hooks/useLocalization";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
@@ -77,6 +78,7 @@ export const FieldRow = memo(function FieldRow({
 	const labelEditor = useTranslationUnitEditor(
 		makeTranslationUnitId("field", uuid, "label"),
 	);
+	const labelFormatText = useLabelFormatText(q);
 	const hintEditor = useTranslationUnitEditor(
 		makeTranslationUnitId("field", uuid, "hint"),
 	);
@@ -183,6 +185,7 @@ export const FieldRow = memo(function FieldRow({
 								value={q.label}
 								onSave={saveField ? (v) => saveField("label", v) : undefined}
 								fieldType="label"
+								formatText={labelFormatText}
 							>
 								<LabelContent
 									label={shownLabel}

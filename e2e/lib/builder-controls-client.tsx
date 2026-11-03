@@ -34,6 +34,7 @@ import { SlotCardHeader } from "@/components/builder/shared/SlotCardHeader";
 import { reorderByKeyboard } from "@/components/builder/shared/useReorderableList";
 import { useStableListIdentity } from "@/components/builder/shared/useStableListIdentity";
 import { InlineTextEditor } from "@/components/preview/form/InlineTextEditor";
+import { useLabelFormatText } from "@/components/preview/form/useLabelFormatText";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -149,6 +150,7 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
+import { LabelContent } from "@/lib/references/LabelContent";
 import { runHistoryStep } from "@/lib/routing/historyStep";
 import { BuilderSessionProvider } from "@/lib/session/provider";
 import {
@@ -1011,19 +1013,23 @@ function SetupFixture({ values = false }: { readonly values?: boolean }) {
 }
 function InlineProseFixture() {
 	const [value, setValue] = useState(proseText("Hello"));
+	// The editor reads where the app runs, as every mount in the builder
+	// does from inside its document.
 	return (
-		<section style={{ marginTop: 160 }}>
-			<InlineTextEditor
-				value={value}
-				onSave={(next) => {
-					setValue(next);
-					return undefined;
-				}}
-				onCancel={() => {}}
-				fieldType="label"
-			/>
-			<output aria-label="Saved prose">{JSON.stringify(value)}</output>
-		</section>
+		<BlueprintDocProvider initialDoc={OPTIONS_DOC} appId="native-inline-prose">
+			<section style={{ marginTop: 160 }}>
+				<InlineTextEditor
+					value={value}
+					onSave={(next) => {
+						setValue(next);
+						return undefined;
+					}}
+					onCancel={() => {}}
+					fieldType="label"
+				/>
+				<output aria-label="Saved prose">{JSON.stringify(value)}</output>
+			</section>
+		</BlueprintDocProvider>
 	);
 }
 function MarkdownFixture() {
@@ -1348,6 +1354,172 @@ function PreloadFixture() {
 			<BuilderSessionProvider init={{ canEdit: true }}>
 				<EditGuardProvider>
 					<PreloadFixtureContent />
+				</EditGuardProvider>
+			</BuilderSessionProvider>
+		</BlueprintDocProvider>
+	);
+}
+
+/**
+ * One survey form for the group, repeat and label controls: a group holding
+ * a repeat whose rows workers add (so it can't show on one screen), a group
+ * holding a plain question (so it can), a repeat with a set number of rows,
+ * and a label whose text uses Markdown formatting.
+ */
+const ROWS_HOUSEHOLD_ID = uuidSchema.parse(
+	"00000000-0000-7000-8000-00000000b001",
+);
+const ROWS_MEMBERS_ID = uuidSchema.parse(
+	"00000000-0000-7000-8000-00000000b002",
+);
+const ROWS_CONTACT_ID = uuidSchema.parse(
+	"00000000-0000-7000-8000-00000000b003",
+);
+const ROWS_VISITS_ID = uuidSchema.parse("00000000-0000-7000-8000-00000000b004");
+const ROWS_INTRO_ID = uuidSchema.parse("00000000-0000-7000-8000-00000000b005");
+const ROWS_FIELDS = {
+	household: ROWS_HOUSEHOLD_ID,
+	contact: ROWS_CONTACT_ID,
+	visits: ROWS_VISITS_ID,
+} as const;
+type RowsFieldName = keyof typeof ROWS_FIELDS;
+const ROWS_SOURCE = buildDoc({
+	modules: [
+		{
+			name: "Survey",
+			forms: [
+				{
+					name: "Household",
+					type: "survey",
+					fields: [
+						{
+							kind: "label",
+							id: "intro",
+							uuid: ROWS_INTRO_ID,
+							label: proseText("Welcome **bold**"),
+						},
+						{
+							kind: "group",
+							id: "household",
+							uuid: ROWS_HOUSEHOLD_ID,
+							label: proseText("Household"),
+							children: [
+								{
+									kind: "repeat",
+									id: "members",
+									uuid: ROWS_MEMBERS_ID,
+									label: proseText("Members"),
+									repeat_mode: "user_controlled",
+									children: [
+										{
+											kind: "text",
+											id: "member_name",
+											label: proseText("Member name"),
+										},
+									],
+								},
+							],
+						},
+						{
+							kind: "group",
+							id: "contact",
+							uuid: ROWS_CONTACT_ID,
+							label: proseText("Contact"),
+							children: [
+								{ kind: "text", id: "phone", label: proseText("Phone") },
+							],
+						},
+						{
+							kind: "repeat",
+							id: "visits",
+							uuid: ROWS_VISITS_ID,
+							label: proseText("Visits"),
+							repeat_mode: "count_bound",
+							repeat_count: "1",
+							children: [
+								{
+									kind: "text",
+									id: "visit_note",
+									label: proseText("Visit note"),
+								},
+							],
+						},
+					],
+				},
+			],
+		},
+	],
+});
+const rowsAdmission = evaluateCommit({
+	nextDoc: structuredClone(ROWS_SOURCE),
+	lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
+});
+if (!rowsAdmission.ok) throw new Error(JSON.stringify(rowsAdmission));
+const ROWS_DOC = toPersistableDoc(ROWS_SOURCE);
+blueprintDocSchema.parse(ROWS_DOC);
+function RowsFixtureContent() {
+	const [selected, setSelected] = useState<RowsFieldName>("household");
+	const field = useField(ROWS_FIELDS[selected]);
+	if (field === undefined) throw new Error("Missing rows fixture field");
+	return (
+		<>
+			<nav aria-label="Fields">
+				{(Object.keys(ROWS_FIELDS) as RowsFieldName[]).map((name) => (
+					<Button
+						key={name}
+						onMouseDown={(event) => event.preventDefault()}
+						onClick={() => setSelected(name)}
+					>
+						Select {name}
+					</Button>
+				))}
+			</nav>
+			<section aria-label="Field inspector" style={{ width: 320 }}>
+				<FieldEditorPanel key={field.uuid} field={field} />
+			</section>
+			<output aria-label="Saved field">{JSON.stringify(field)}</output>
+		</>
+	);
+}
+/** A label's inline editor with its Format text toggle, over the stored
+ *  label, and the label as the form shows it. */
+function FormatTextFixtureContent() {
+	const field = useField(ROWS_INTRO_ID);
+	const formatText = useLabelFormatText(field);
+	const { updateField } = useBlueprintMutations();
+	if (field?.kind !== "label") throw new Error("Missing format text label");
+	return (
+		<section style={{ marginTop: 160 }}>
+			<InlineTextEditor
+				value={field.label}
+				onSave={(next) => updateField(field.uuid, "label", { label: next })}
+				onCancel={() => {}}
+				fieldType="label"
+				formatText={formatText}
+			/>
+			<Button>Leave label</Button>
+			<section aria-label="Label as shown">
+				<LabelContent
+					label={field.label}
+					isEditMode
+					className=""
+					plainLabel={field.plainLabel === true}
+				/>
+			</section>
+			<output aria-label="Saved label field">{JSON.stringify(field)}</output>
+		</section>
+	);
+}
+function RowsFixture({
+	formatText = false,
+}: {
+	readonly formatText?: boolean;
+}) {
+	return (
+		<BlueprintDocProvider initialDoc={ROWS_DOC} appId="native-rows" canEdit>
+			<BuilderSessionProvider init={{ canEdit: true }}>
+				<EditGuardProvider>
+					{formatText ? <FormatTextFixtureContent /> : <RowsFixtureContent />}
 				</EditGuardProvider>
 			</BuilderSessionProvider>
 		</BlueprintDocProvider>
@@ -2204,6 +2376,12 @@ if (scenario === "preload")
 		"",
 		`/build/native-preload/${Object.keys(PRELOAD_DOC.forms)[0]}`,
 	);
+if (scenario === "rows" || scenario === "format-text")
+	window.history.replaceState(
+		null,
+		"",
+		`/build/native-rows/${Object.keys(ROWS_DOC.forms)[0]}`,
+	);
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing fixture root");
@@ -2234,6 +2412,8 @@ createRoot(root).render(
 			<SetupFixture values={scenario === "setup-values"} />
 		) : scenario === "preload" ? (
 			<PreloadFixture />
+		) : scenario === "rows" || scenario === "format-text" ? (
+			<RowsFixture formatText={scenario === "format-text"} />
 		) : scenario === "case-write" ? (
 			<CaseWriteFixture />
 		) : scenario === "activation" ? (

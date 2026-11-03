@@ -39,6 +39,7 @@ import {
 	seedCaseOperationWrite,
 	seedWriteValue,
 	takenOperationIds,
+	workerRecordSeed,
 	writeSeedUnavailableReason,
 } from "../seeds";
 
@@ -523,5 +524,91 @@ describe("changing what a change does", () => {
 			new Set(),
 		);
 		expect(actionChangeLosses(update, "close")).toEqual([]);
+	});
+});
+
+describe("updating the worker's record", () => {
+	const COLOR = testUuid("77777777-7777-4777-8777-777777777777");
+	const MOOD = testUuid("88888888-8888-4888-8888-888888888888");
+
+	/** A survey form beside the case-first one, in an app that declares two
+	 *  worker properties. */
+	function workerDoc(): { doc: BlueprintDoc; formUuid: Uuid } {
+		const { doc, formUuid } = caseFirstDoc();
+		const withWorkers = produce(doc, (draft) => {
+			draft.userProperties = {
+				[COLOR]: { uuid: COLOR, slug: "favorite_color", label: "Color" },
+				[MOOD]: { uuid: MOOD, slug: "mood", label: "Mood" },
+			} as typeof draft.userProperties;
+			draft.userPropertyOrder = [COLOR, MOOD];
+		});
+		return { doc: withWorkers, formUuid };
+	}
+
+	const answers = [
+		{ uuid: NAME, dataType: "text" as const },
+		{ uuid: ANSWER, dataType: "int" as const },
+	];
+
+	it("is offered only where the app declares worker properties", () => {
+		expect(workerRecordSeed([], () => undefined, answers)).toBeUndefined();
+	});
+
+	it("is born an update of the worker's record saving the first property from the first answer that fits, and the gate admits it", () => {
+		const { doc, formUuid } = workerDoc();
+		const seed = workerRecordSeed(
+			[{ slug: "favorite_color" }, { slug: "mood" }],
+			() => undefined,
+			[
+				{ uuid: ANSWER, dataType: "int" },
+				{ uuid: NAME, dataType: "text" },
+			],
+		);
+		if (seed === undefined) throw new Error("Expected a seed");
+		const operation = seedCaseOperation(seed, new Set());
+		expect(operation).toMatchObject({
+			action: "update",
+			caseType: "commcare-user",
+			target: { kind: "worker-record" },
+			writes: [
+				{
+					property: "favorite_color",
+					value: { kind: "term", term: { kind: "field", uuid: NAME } },
+				},
+			],
+		});
+		expect(caseOperationAddVerdict(doc, formUuid, operation)).toEqual({
+			ok: true,
+		});
+		expect(commits(doc, formUuid, operation).ok).toBe(true);
+	});
+
+	it("starts from an empty value where no answer can be stored as text", () => {
+		const seed = workerRecordSeed([{ slug: "mood" }], () => undefined, [
+			{ uuid: ANSWER, dataType: "geopoint" },
+		]);
+		expect(seed).toMatchObject({
+			property: "mood",
+			value: { kind: "term", term: { kind: "literal", value: "" } },
+		});
+	});
+
+	it("is refused with the gate's reason once the form already updates the worker's record", () => {
+		const { doc, formUuid } = workerDoc();
+		const seed = workerRecordSeed([{ slug: "mood" }], () => undefined, answers);
+		if (seed === undefined) throw new Error("Expected a seed");
+		const first = seedCaseOperation(seed, new Set());
+		const landed = produce(doc, (draft) => {
+			applyMutations(draft, addCaseOperationMutations(doc, formUuid, first));
+		});
+		const second = seedCaseOperation(
+			seed,
+			takenOperationIds(landed.forms[formUuid]?.caseOperations ?? []),
+		);
+		const verdict = caseOperationAddVerdict(landed, formUuid, second);
+		expect(verdict.ok).toBe(false);
+		expect(verdict.ok ? "" : verdict.reason).toContain(
+			"This form already saves to the worker's record",
+		);
 	});
 });

@@ -63,6 +63,7 @@ import {
 	buildCaseChangesBlueprint,
 	CASE_CHANGES_SEED,
 	caseChangesRoute,
+	caseWriteFieldRoute,
 	identityProjectionRoute,
 } from "./caseChangesSeed";
 import {
@@ -1076,6 +1077,11 @@ export async function createSmokeBuilders(
 					appId: caseChangesAppId,
 					route: caseChangesRoute(caseChangesAppId),
 					identityProjectionRoute: identityProjectionRoute(caseChangesAppId),
+					followupWriteRoute: caseWriteFieldRoute(caseChangesAppId, "followup"),
+					registrationWriteRoute: caseWriteFieldRoute(
+						caseChangesAppId,
+						"registration",
+					),
 					caseId: caseChangesPatient.caseId,
 				},
 			};

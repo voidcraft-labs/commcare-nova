@@ -19,7 +19,11 @@ import {
 	reconcileXPathDraft,
 	type XPathDraftReading,
 } from "@/components/builder/xpathDraftReconciliation";
-import type { ExpressionEditorContext } from "@/lib/codemirror/expressionEditorContext";
+import { Button } from "@/components/shadcn/button";
+import type {
+	ExpressionEditorContext,
+	ExpressionFinding,
+} from "@/lib/codemirror/expressionEditorContext";
 import { xpathAutocomplete } from "@/lib/codemirror/xpath-autocomplete";
 import {
 	refreshExpressionChips,
@@ -112,6 +116,22 @@ const XPATH_PROJECTION_CONFLICT_MESSAGE =
 
 // ── Props ──────────────────────────────────────────────────────────────
 
+/** A fix a mount offers on one finding of the draft. `run` commits what the
+ *  fix stores, never a text edit; an ok outcome closes the editor onto the
+ *  stored expression, a refusal keeps the draft open with its reason.
+ *  `attributes` are `data-*` hooks on the fix's button. */
+export interface XPathFieldLintAction {
+	readonly name: string;
+	readonly run: (draft: string) => CommitOutcome;
+	readonly attributes?: Readonly<Record<`data-${string}`, string>>;
+}
+
+/** The fixes a mount offers on one finding of a draft, or none. */
+export type XPathFieldLintActions = (
+	finding: ExpressionFinding,
+	draft: string,
+) => readonly XPathFieldLintAction[];
+
 interface XPathFieldProps {
 	/** The stored expression's canonical text, as its slot's projection
 	 *  prints it (laid out over lines past the printer's width). */
@@ -132,6 +152,9 @@ interface XPathFieldProps {
 	autoEdit?: boolean;
 	/** Called when editing state changes (used by parent to guard dismiss handlers). */
 	onEditingChange?: (editing: boolean) => void;
+	/** Fixes offered on a finding: a button in the finding's lint tooltip
+	 *  and in the notice a refused save shows. */
+	lintActions?: XPathFieldLintActions;
 }
 
 // ── Component ──────────────────────────────────────────────────────────
@@ -159,6 +182,7 @@ export function XPathField({
 	getEditorContext,
 	autoEdit,
 	onEditingChange,
+	lintActions,
 }: XPathFieldProps) {
 	const [editing, setEditing] = useState(autoEdit ?? false);
 	/** Viewport coordinates of the activation click for cursor placement. */
@@ -282,6 +306,7 @@ export function XPathField({
 			}}
 			getEditorContext={getEditorContext}
 			clickPosition={clickPosRef.current}
+			lintActions={lintActions}
 		/>
 	);
 }
@@ -297,6 +322,15 @@ interface InlineXPathEditorProps {
 	onCancel: () => void;
 	getEditorContext?: () => ExpressionEditorContext | undefined;
 	clickPosition: { x: number; y: number } | null;
+	lintActions?: XPathFieldLintActions;
+}
+
+/** A mount's fix, bound to this editor: running it closes the editor on a
+ *  commit and keeps the draft with its reason on a refusal. */
+interface BoundLintAction {
+	readonly name: string;
+	readonly attributes?: Readonly<Record<`data-${string}`, string>>;
+	readonly run: (draft: string) => void;
 }
 
 /**
@@ -324,6 +358,7 @@ function InlineXPathEditor({
 	onCancel,
 	getEditorContext,
 	clickPosition,
+	lintActions,
 }: InlineXPathEditorProps) {
 	const projectedValue = value;
 	/* The document and lookup definitions the draft's identities resolve
@@ -356,10 +391,16 @@ function InlineXPathEditor({
 	// ── Error tooltip ───────────────────────────────────────────────────
 
 	const [tooltipMessage, setTooltipMessage] = useState<string | null>(null);
+	/** The fixes the shown notice offers, for the finding it names. */
+	const [tooltipActions, setTooltipActions] = useState<
+		readonly BoundLintAction[]
+	>([]);
 
 	/* Stable ref so closures always read the latest context getter. */
 	const getEditorContextRef = useRef(getEditorContext);
 	getEditorContextRef.current = getEditorContext;
+	const lintActionsRef = useRef(lintActions);
+	lintActionsRef.current = lintActions;
 
 	/*
 	 * Identity-backed projections can change while this editor remains mounted
@@ -392,15 +433,18 @@ function InlineXPathEditor({
 		});
 		if (reconciled.conflict) {
 			setTooltipMessage(XPATH_PROJECTION_CONFLICT_MESSAGE);
+			setTooltipActions([]);
 		}
 	}, [projectedValue, scopeRevision]);
 
-	/* Auto-dismiss tooltip after 4 seconds. */
+	/* Auto-dismiss tooltip after 4 seconds, unless it offers a fix: a button
+	 * that disappears on a timer can't be reached at a person's own pace.
+	 * Typing still dismisses it. */
 	useEffect(() => {
-		if (!tooltipMessage) return;
+		if (!tooltipMessage || tooltipActions.length > 0) return;
 		const timer = setTimeout(() => setTooltipMessage(null), 4000);
 		return () => clearTimeout(timer);
-	}, [tooltipMessage]);
+	}, [tooltipMessage, tooltipActions]);
 
 	// ── Validation & save gate ──────────────────────────────────────────
 
@@ -431,6 +475,75 @@ function InlineXPathEditor({
 		setShaking(true);
 	}, []);
 
+	/** Show (or clear, with `null`) the notice and the fixes it offers. */
+	const showNotice = useCallback(
+		(message: string | null, actions: readonly BoundLintAction[] = []) => {
+			setTooltipMessage(message);
+			setTooltipActions(message === null ? [] : actions);
+		},
+		[],
+	);
+
+	/** Run a mount's fix over the draft: a commit closes the editor onto the
+	 *  stored expression (the fix wrote it, so nothing is saved here), a
+	 *  refusal keeps the draft open with its reason. */
+	const runLintAction = useCallback(
+		(action: XPathFieldLintAction, draft: string) => {
+			if (doneRef.current) return;
+			let outcome: CommitOutcome;
+			try {
+				outcome = action.run(draft);
+			} catch (error) {
+				outcome = {
+					ok: false,
+					messages: [
+						error instanceof Error
+							? error.message
+							: "This fix couldn't be saved. Try it again, or change the expression yourself.",
+					],
+				};
+			}
+			if (outcome.ok) {
+				doneRef.current = true;
+				onCancel();
+				return;
+			}
+			shake();
+			showNotice(outcome.messages[0] ?? null);
+			editorRef.current?.view?.focus();
+		},
+		[onCancel, shake, showNotice],
+	);
+	const runLintActionRef = useRef(runLintAction);
+	runLintActionRef.current = runLintAction;
+
+	/** The mount's fixes for one finding, bound to this editor. Stable: the
+	 *  linter extension holds it for the editor's life. */
+	const boundLintActions = useCallback(
+		(finding: ExpressionFinding, draft: string): readonly BoundLintAction[] =>
+			(lintActionsRef.current?.(finding, draft) ?? []).map((action) => ({
+				name: action.name,
+				...(action.attributes === undefined
+					? {}
+					: { attributes: action.attributes }),
+				run: (current: string) => runLintActionRef.current(action, current),
+			})),
+		[],
+	);
+
+	/** The fixes offered on the draft's first finding, the one a notice
+	 *  names (`getErrors`' first message comes from the same check). */
+	const firstFindingActions = useCallback((): readonly BoundLintAction[] => {
+		if (projectionConflictRef.current) return [];
+		const currentDraft = draftRef.current;
+		const context = getEditorContextRef.current?.();
+		if (!currentDraft.trim() || context === undefined) return [];
+		const [first] = context.check(currentDraft);
+		return first === undefined ? [] : boundLintActions(first, currentDraft);
+	}, [boundLintActions]);
+	const firstFindingActionsRef = useRef(firstFindingActions);
+	firstFindingActionsRef.current = firstFindingActions;
+
 	/**
 	 * Attempt to save. If the expression has validation errors, reject with
 	 * a shake animation, error tooltip, and refocus instead of committing.
@@ -440,7 +553,7 @@ function InlineXPathEditor({
 		const errors = getErrors();
 		if (errors.length > 0) {
 			shake();
-			setTooltipMessage(errors[0]);
+			showNotice(errors[0] ?? null, firstFindingActions());
 			editorRef.current?.view?.focus();
 			return;
 		}
@@ -466,10 +579,10 @@ function InlineXPathEditor({
 			 * the typed expression is never discarded. */
 			doneRef.current = false;
 			shake();
-			setTooltipMessage(outcome.messages[0]);
+			showNotice(outcome.messages[0] ?? null);
 			editorRef.current?.view?.focus();
 		}
-	}, [onSave, getErrors, shake]);
+	}, [onSave, getErrors, shake, showNotice, firstFindingActions]);
 
 	/** Cancel editing: revert to the original value without saving. */
 	const cancel = useCallback(() => {
@@ -508,7 +621,8 @@ function InlineXPathEditor({
 			if (!warnedRef.current) {
 				warnedRef.current = true;
 				shakeRef.current();
-				setTooltipMessage(errors[0]);
+				setTooltipMessage(errors[0] ?? null);
+				setTooltipActions(firstFindingActionsRef.current());
 				return false;
 			}
 			/* Second strike: allow navigation through. */
@@ -568,6 +682,7 @@ function InlineXPathEditor({
 			EditorView.updateListener.of((update) => {
 				if (update.docChanged) {
 					setTooltipMessage(null);
+					setTooltipActions([]);
 					warnedRef.current = false;
 				}
 			}),
@@ -587,11 +702,13 @@ function InlineXPathEditor({
 			const wrapper = wrapperRef.current;
 			if (!wrapper) return;
 			const target = e.target as Node;
-			/* Clicks inside the editor wrapper or inside a portal-mounted
-			 * autocomplete tooltip are not "outside" clicks. */
+			/* Clicks inside the editor wrapper, inside a portal-mounted
+			 * autocomplete or lint tooltip, or on the editor's own notice (its
+			 * fixes) are not "outside" clicks. */
 			if (
 				wrapper.contains(target) ||
-				(target instanceof HTMLElement && target.closest(".cm-tooltip"))
+				(target instanceof HTMLElement &&
+					target.closest(".cm-tooltip, [data-xpath-field-notice]"))
 			)
 				return;
 			clickedOutsideRef.current = true;
@@ -606,7 +723,11 @@ function InlineXPathEditor({
 			/* Portal tooltips to body so they aren't clipped by overflow on
 			 * the scrolling ancestor (the inspector rail, FormSettingsPanel). */
 			tooltips({ parent: document.body }),
-			xpathLinter(() => getEditorContextRef.current?.()),
+			xpathLinter(
+				() => getEditorContextRef.current?.(),
+				() =>
+					lintActionsRef.current === undefined ? undefined : boundLintActions,
+			),
 			xpathAutocomplete(() => getEditorContextRef.current?.()),
 			xpathChips(() => getEditorContextRef.current?.()),
 			novaAutocompleteTheme,
@@ -615,7 +736,7 @@ function InlineXPathEditor({
 			escapeDom,
 			tooltipDismissExt,
 		],
-		[saveKeymap, escapeDom, tooltipDismissExt],
+		[saveKeymap, escapeDom, tooltipDismissExt, boundLintActions],
 	);
 
 	return (
@@ -676,7 +797,8 @@ function InlineXPathEditor({
 						 * the guard already provided the visual feedback. */
 						if (!warnedRef.current) {
 							shakeRef.current();
-							setTooltipMessage(errors[0]);
+							setTooltipMessage(errors[0] ?? null);
+							setTooltipActions(firstFindingActionsRef.current());
 						}
 						/* Refocus so Escape works without waiting for the shake
 						 * animation to finish. The shake is CSS-only on the wrapper
@@ -718,12 +840,28 @@ function InlineXPathEditor({
 						>
 							<div
 								role="alert"
+								data-xpath-field-notice=""
 								className={`px-3 py-2.5 max-w-sm ${REJECTION_SURFACE_CLS}`}
 							>
 								<RejectionBody
 									message={tooltipMessage ?? ""}
 									hint="Press Esc to discard changes"
 								/>
+								{tooltipActions.length > 0 && (
+									<div className="mt-2 flex flex-wrap gap-2">
+										{tooltipActions.map((action) => (
+											<Button
+												key={action.name}
+												type="button"
+												variant="outline"
+												{...action.attributes}
+												onClick={() => action.run(draftRef.current)}
+											>
+												{action.name}
+											</Button>
+										))}
+									</div>
+								)}
 							</div>
 						</Popover.Popup>
 					</Popover.Positioner>

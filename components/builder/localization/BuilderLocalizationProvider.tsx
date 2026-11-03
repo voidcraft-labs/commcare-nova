@@ -111,6 +111,15 @@ export function useBuilderLanguage(): BuilderLanguageState {
 	return value;
 }
 
+/**
+ * Whether the builder shows the source language, which owns every setting a
+ * text's languages share (a label's Format text, for one). A surface outside
+ * the provider has no language lens, so what it shows is the source.
+ */
+export function useShowsSourceLanguage(): boolean {
+	return useContext(BuilderLocalizationContext)?.isSource ?? true;
+}
+
 export function useLocalizedTranslationUnit(
 	unitId: TranslationUnitId,
 ): LocalizedTranslationUnit | undefined {

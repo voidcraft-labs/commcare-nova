@@ -11,6 +11,7 @@
 // build.
 
 import { describe, expect, it } from "vitest";
+import { ancestorCaseWriteChoices } from "@/components/builder/editor/fields/caseWriteRowModel";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { caseOperationTargetTypeAfter } from "@/lib/doc/caseOperationIntents";
 import { caseOperationMoveVerdicts } from "@/lib/doc/caseOperationReview";
@@ -20,6 +21,7 @@ import {
 	type LookupTableId,
 	orderedCaseOperations,
 } from "@/lib/domain";
+import { fieldCaseWriteViews } from "@/lib/domain/caseWriteViews";
 import { parseLookupRevision } from "@/lib/lookup/schema";
 import {
 	buildCaseChangesBlueprint,
@@ -159,5 +161,40 @@ describe("the case-changes smoke fixture", () => {
 		expect(
 			caseOperationMoveVerdicts(doc, formUuid, operations.note).get(1),
 		).toEqual({ ok: true });
+	});
+
+	it("gives the case-writes journey a case above a follow-up and a registration write", () => {
+		const { caseWrites } = CASE_CHANGES_SEED;
+		// The follow-up's question saves to its own case, and the case above
+		// it is the patient its type sits under: what Cases above it offers.
+		expect(
+			fieldCaseWriteViews(doc, caseWrites.followup.fieldUuid).map((view) => ({
+				slot: view.slot,
+				destination: view.destination,
+				property: view.property,
+				via: view.via,
+			})),
+		).toEqual([
+			{
+				slot: "write",
+				destination: "own",
+				property: "source_note",
+				via: undefined,
+			},
+		]);
+		expect(
+			ancestorCaseWriteChoices(
+				doc.caseTypes ?? [],
+				CASE_CHANGES_SEED.archivedCaseType,
+				"followup",
+			).map((choice) => choice.label),
+		).toEqual(["patient (parent)"]);
+		// The registration's note is a write of the new case, the row the
+		// Save only if changed switch sits under.
+		expect(
+			fieldCaseWriteViews(doc, caseWrites.registration.fieldUuid).map(
+				(view) => [view.slot, view.destination],
+			),
+		).toEqual([["write", "own"]]);
 	});
 });

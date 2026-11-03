@@ -30,12 +30,19 @@
  * A menu whose kind changes and whose forms hold nothing a publish recorded
  * moves nothing: no move is stated, and the next publish records it.
  *
+ * It also words why a menu is advanced for module settings' **In CommCare
+ * HQ** row (`moduleAdvancedKindLine`), which the builder reads through
+ * `lib/doc/hooks/useAdvancedKindReasons.ts`.
+ *
  * One of the allowlisted `lib/doc` consumers of `lib/commcare` in
- * `biome.json`: whether a menu is emitted advanced is
+ * `biome.json`: whether a menu is emitted advanced, and why, is
  * `lib/commcare/moduleKind.ts`'s answer.
  */
 
-import { emittedModuleKind } from "@/lib/commcare/moduleKind";
+import {
+	advancedKindReasons,
+	emittedModuleKind,
+} from "@/lib/commcare/moduleKind";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import { formHoldsPlacement } from "@/lib/doc/heldIdentity";
 import type { IdentityMove } from "@/lib/doc/identityMoves";
@@ -166,4 +173,35 @@ export function planModuleKindMoves(
 			);
 	}
 	return { holds, moves };
+}
+
+/**
+ * The line module settings' **In CommCare HQ** row reads for `moduleUuid`,
+ * worded from the first reason `lib/commcare/moduleKind.ts::
+ * advancedKindReasons` gives: its held kind, else the first create an
+ * after-submit link carries, named by its form and the type of the case it
+ * creates (the menu's own type for the registration's own case). Undefined
+ * where CommCare HQ receives the menu as an ordinary one.
+ */
+export function moduleAdvancedKindLine(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): string | undefined {
+	const [reason] = advancedKindReasons(doc, moduleUuid);
+	if (reason === undefined) return undefined;
+	if (reason.kind === "held")
+		return "CommCare HQ keeps this as an advanced menu, as your published app has it.";
+	const form = ownRecordValue(doc.forms, reason.formUuid);
+	const operation = form?.caseOperations?.find(
+		(op) => op.uuid === reason.operationUuid,
+	);
+	const caseType =
+		operation?.action === "own"
+			? ownRecordValue(doc.modules, moduleUuid)?.caseType
+			: operation?.action === "create"
+				? operation.caseType
+				: undefined;
+	const created =
+		caseType === undefined ? "the new case" : `the new ${caseType} case`;
+	return `CommCare HQ shows this as an advanced menu, because “${form?.name ?? "a form"}” has a link after submit that opens ${created} it creates, which only an advanced menu can hand on.`;
 }

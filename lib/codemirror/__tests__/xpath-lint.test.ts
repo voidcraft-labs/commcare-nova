@@ -9,18 +9,21 @@
 
 import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { SESSION_FORM_READ_MESSAGE } from "@/lib/commcare/validator/formLogicFindings";
 import { prepareFormConnectExpressions } from "@/lib/doc/formExpressionStructure";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { literal, term } from "@/lib/domain/expression/builders";
 import type { ExpressionSlotRef } from "@/lib/domain/expression/types";
 import { buildExpressionEditorContext } from "../expressionEditorContext";
 import { hashtagSource } from "../xpath-autocomplete";
 import { xpath } from "../xpath-language";
 import {
 	EXPRESSION_CONTEXT_UNAVAILABLE_MESSAGE,
+	type XPathLintActions,
 	xpathDiagnostics,
 } from "../xpath-lint";
 
@@ -145,6 +148,92 @@ describe("an after-submit slot: its profile is the session scope", () => {
 		expect(completions?.options.map(({ label }) => label)).not.toContain(
 			"#form/",
 		);
+	});
+});
+
+describe("a fix a mount offers on a finding", () => {
+	const REPEAT = testUuid("lint-repeat");
+	const WEIGHT = testUuid("lint-weight");
+	const COUNT_SLOT: ExpressionSlotRef = {
+		entity: "field",
+		uuid: REPEAT,
+		slot: "repeat_count",
+	};
+	function countFixture() {
+		return buildDoc({
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Ask",
+							type: "survey",
+							fields: [
+								{
+									kind: "decimal",
+									id: "weight",
+									uuid: WEIGHT,
+									label: "Weight",
+								},
+								{
+									kind: "repeat",
+									id: "rows",
+									uuid: REPEAT,
+									label: "Rows",
+									repeat_mode: "count_bound",
+									repeat_count: term(literal(1)),
+									children: [{ kind: "text", id: "note", label: "Note" }],
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	it("carries the checker's error on its finding and the mount's action on its diagnostic", () => {
+		const ctx = buildExpressionEditorContext(
+			countFixture(),
+			COUNT_SLOT,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		const ran: string[] = [];
+		const offered: XPathLintActions = (finding) =>
+			finding.checkError?.reason === "whole-number-count"
+				? [{ name: "Use a whole number", run: (draft) => ran.push(draft) }]
+				: [];
+		const [diagnostic] = xpathDiagnostics("#form/weight", ctx, offered);
+		expect(ctx?.check("#form/weight")[0]?.checkError).toMatchObject({
+			code: "expected-value",
+			reason: "whole-number-count",
+		});
+		expect(diagnostic?.actions?.map((action) => action.name)).toEqual([
+			"Use a whole number",
+		]);
+		// The action reads the draft as it stands when it runs, not as it
+		// stood when the finding was made.
+		const view = {
+			state: EditorState.create({ doc: "#form/weight * 2" }),
+		} as unknown as EditorView;
+		diagnostic?.actions?.[0]?.apply(view, 0, 0);
+		expect(ran).toEqual(["#form/weight * 2"]);
+	});
+
+	it("leaves a finding the mount offers nothing for without actions, and a whole number without findings", () => {
+		const ctx = buildExpressionEditorContext(
+			countFixture(),
+			COUNT_SLOT,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		const offered: XPathLintActions = (finding) =>
+			finding.checkError?.reason === "whole-number-count"
+				? [{ name: "Use a whole number", run: () => undefined }]
+				: [];
+		const [unknown] = xpathDiagnostics("#form/missing", ctx, offered);
+		expect(unknown).toBeDefined();
+		expect(unknown?.actions).toBeUndefined();
+		expect(xpathDiagnostics("int(#form/weight)", ctx, offered)).toEqual([]);
 	});
 });
 
