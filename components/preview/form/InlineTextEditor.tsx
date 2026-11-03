@@ -93,7 +93,7 @@ import {
 	createPlainLabelEditorExtensions,
 	plainLabelEditorContent,
 	plainLabelEditorTemplate,
-	tiptapDocHoldsFormatting,
+	proseTemplateHoldsFormatting,
 } from "@/lib/tiptap/formatText";
 import {
 	createInlineEditorExtensions,
@@ -484,6 +484,9 @@ function InlineTextEditorSurface({
 	serializeRef.current = serialize;
 	const onDraftRef = useRef(onDraft);
 	onDraftRef.current = onDraft;
+	/* True once the author edits in this editor: from then on a swap carries
+	 * the serialized draft rather than `initial`, so Format text judges that. */
+	const editedRef = useRef(false);
 
 	/** Save the current editor content. Guards against double-fire. */
 	const saveAndDeactivate = useCallback(
@@ -588,6 +591,7 @@ function InlineTextEditorSurface({
 			// single-shot so the following blur cannot dispatch it twice.
 			savedRef.current = false;
 			rejectedSaveRef.current = false;
+			editedRef.current = true;
 			onDraftRef.current(serializeRef.current(e));
 		},
 		editorProps: {
@@ -675,11 +679,16 @@ function InlineTextEditorSurface({
 		const gesture = formatTextGesture({
 			plain: formatText.plain,
 			isSource: formatText.isSource,
-			holdsFormatting: () => tiptapDocHoldsFormatting(editor.getJSON()),
+			/* The text the plain editor will hold: the draft once edited, else
+			 * the characters this editor opened with. */
+			holdsFormatting: () =>
+				proseTemplateHoldsFormatting(
+					editedRef.current ? serialize(editor) : initial,
+				),
 		});
 		if (gesture.kind === "confirm") setConfirming(true);
 		else if (gesture.kind === "write") writeFormatText(gesture.plainLabel);
-	}, [formatText, editor, writeFormatText]);
+	}, [formatText, editor, writeFormatText, serialize, initial]);
 
 	/** The question takes focus when it opens, so a keyboard reaches its
 	 *  answers; stable, so a later render never pulls focus back to it. */

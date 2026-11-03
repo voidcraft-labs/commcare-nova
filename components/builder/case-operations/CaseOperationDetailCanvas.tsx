@@ -143,6 +143,7 @@ import {
 	operationSentence,
 } from "./operationSentence";
 import {
+	destinationWrittenProperties,
 	type OwnWriteMenu,
 	ownWriteMenu,
 	viaDestinationLine,
@@ -678,11 +679,7 @@ export function CaseOperationDetailCanvas({
 							<WritePropertyPicker
 								triggerRef={writeFocus.addRef}
 								caseTypeName={destination}
-								alreadyWritten={
-									new Set(
-										(operation.writes ?? []).map((write) => write.property),
-									)
-								}
+								alreadyWritten={destinationWrittenProperties(operation)}
 								formFields={formFields}
 								onChoose={(property, value) =>
 									commit({

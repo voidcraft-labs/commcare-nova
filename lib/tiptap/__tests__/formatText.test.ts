@@ -48,6 +48,28 @@ describe("whether a text holds formatting, read from its Markdown document", () 
 		).toBe(false);
 	});
 
+	it("finds characters the reading shows differently from the stored text", () => {
+		// With Format text off a worker sees the backslash and the entity.
+		expect(proseTemplateHoldsFormatting(proseText("a \\* b"))).toBe(true);
+		expect(proseTemplateHoldsFormatting(proseText("x &amp; y"))).toBe(true);
+		expect(proseTemplateHoldsFormatting(proseText("first\\\nsecond"))).toBe(
+			true,
+		);
+		// A bare symbol Markdown leaves alone, a paragraph gap and trailing
+		// spaces before a line break show the same either way.
+		expect(proseTemplateHoldsFormatting(proseText("price $5 * 2"))).toBe(false);
+		expect(proseTemplateHoldsFormatting(proseText("a\n\nb"))).toBe(false);
+		expect(proseTemplateHoldsFormatting(proseText("a  \nb"))).toBe(false);
+		expect(
+			proseTemplateHoldsFormatting({
+				parts: [
+					{ kind: "text", text: "Visit \\* for " },
+					{ kind: "case-ref", caseType: "client", property: "case_name" },
+				],
+			}),
+		).toBe(true);
+	});
+
 	it("walks every depth of a document for a mark", () => {
 		expect(
 			tiptapDocHoldsFormatting({

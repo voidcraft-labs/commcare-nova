@@ -22,8 +22,10 @@ import {
 	projectFormExpression,
 } from "@/lib/doc/expressionText";
 import { FIELD_PLACEMENT_MESSAGES } from "@/lib/doc/formSectionVerdicts";
+import { withIdentityMoves } from "@/lib/doc/identityMoves";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
+import { readPlacementHolds } from "@/lib/doc/placementHolds";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { eq, formField, literal, term } from "@/lib/domain/expression/builders";
 import { expressionFacts, slotContext } from "@/lib/domain/expression/context";
@@ -213,6 +215,30 @@ describe("each mode switch is one write with only that mode's slot", () => {
 		const toCount = commitOf(queried, "count_bound");
 		expect(gateFindings(queried, toCount)).toEqual([]);
 		expect("data_source" in repeatOf(applied(queried, toCount))).toBe(false);
+	});
+
+	it("lets a held query repeat's placement leave with the query, stating no move", () => {
+		// Part 04 §1's conversion edge: the hold belongs to the query variant,
+		// so a switch to another mode takes it along, and the data path's
+		// change is the existing conversion's, which no identity move states.
+		const doc = docWith([
+			repeatSpec({
+				repeat_mode: "query_bound",
+				data_source: { ids_query: openCasesQuery("visit") },
+				placement: "model-iteration",
+			}),
+		]);
+		expect(readPlacementHolds(doc).size).toBe(1);
+		for (const next of ["count_bound", "user_controlled"] as const) {
+			const mutation = commitOf(doc, next);
+			const plan = withIdentityMoves(doc, [mutation]);
+			expect(plan.moves).toEqual([]);
+			expect(plan.batch).toEqual([mutation]);
+			expect(gateFindings(doc, mutation)).toEqual([]);
+			const after = applied(doc, mutation);
+			expect(readPlacementHolds(after).size).toBe(0);
+			expect(repeatOf(after)).not.toHaveProperty("placement");
+		}
 	});
 
 	it("writes nothing when the mode is already chosen", () => {

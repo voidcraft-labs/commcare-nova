@@ -29,11 +29,13 @@ import {
 } from "@/lib/domain";
 import { concat, formField, literal, term } from "@/lib/domain/expression";
 import {
+	destinationWrittenProperties,
 	NO_CASE_ABOVE_REASON,
 	ownWriteMenu,
 	THIS_FORMS_CASE_LABEL,
 	viaDestinationLine,
 } from "../ownWriteMenuModel";
+import { seedCaseOperationWrite } from "../seeds";
 
 const FUP = testUuid("own-menu-followup");
 const REG = testUuid("own-menu-registration");
@@ -214,6 +216,36 @@ describe("the own arm's write overflow", () => {
 	it("is absent on a registration, whose new case has nothing above it yet", () => {
 		const doc = fixture();
 		expect(menuOf(doc, REG, "registration")).toBeUndefined();
+	});
+
+	it("offers the form's own property again once its write moves to the case above it", () => {
+		const doc = fixture();
+		expect([...destinationWrittenProperties(ownOf(doc, FUP))]).toEqual([
+			"note",
+		]);
+		const village = menuOf(doc, FUP, "followup")?.above.items[1];
+		if (village === undefined) throw new Error("No village item");
+		const moved = land(doc, FUP, village.next);
+		const own = ownOf(moved, FUP);
+		const written = destinationWrittenProperties(own);
+		expect(written.has("note")).toBe(false);
+
+		// And the write the picker then offers lands beside the moved one.
+		const added = land(moved, FUP, {
+			...own,
+			writes: [
+				...(own.writes ?? []),
+				seedCaseOperationWrite("note", term(formField(NOTE))),
+			],
+		});
+		expect(ownOf(added, FUP).writes).toEqual([
+			expect.objectContaining({
+				property: "note",
+				via: [{ identifier: "parent" }],
+			}),
+			expect.objectContaining({ property: "note" }),
+		]);
+		expect(ownOf(added, FUP).writes?.[1]?.via).toBeUndefined();
 	});
 
 	it("names where a write through via saves", () => {

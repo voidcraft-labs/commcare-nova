@@ -190,3 +190,17 @@ export function viaDestinationLine(
 		? `Saves onto the ${words} it belongs to.`
 		: `Saves onto the ${words} above it.`;
 }
+
+/** The properties of the operation's own destination case that it already
+ *  writes, which the add-a-write picker leaves out. A write that saves to a
+ *  case above it (`via`, the own arm's alone) is a different write key, so
+ *  the same-named property of the destination stays offered beside it. */
+export function destinationWrittenProperties(operation: {
+	readonly writes?: readonly CaseOperationWrite[];
+}): ReadonlySet<string> {
+	return new Set(
+		(operation.writes ?? [])
+			.filter((write) => write.via === undefined)
+			.map((write) => write.property),
+	);
+}
