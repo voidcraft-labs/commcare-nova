@@ -117,7 +117,8 @@ public class LocationOwnerRuntimeTest {
    assertEquals("jr://fixture/locations",((ExternalDataInstance)instances.get("locations")).getReference());
    for(String id:new ArrayList<>(instances.keySet()))instances.put(id,instances.get(id).initialize(runtime,id));
    Vector<StackOperation> links=entry.getPostEntrySessionOperations();
-   assertTrue("The place link reads the clinic's name, hq="+hq,links.get(0).isOperationTriggered(new EvaluationContext(null,instances)));
+   // Nova emits the destinations in reverse with the otherwise last, so the first authored link is second.
+   assertTrue("The place link reads the clinic's name, hq="+hq,links.get(1).isOperationTriggered(new EvaluationContext(null,instances)));
   }
  }
 }

@@ -3454,23 +3454,85 @@ def multi_select_case_sharing_without_owner(use, manifest):
     return any("owner_id" not in (subcase.get("case_properties") or {}) for subcase in subcases)
 
 
+def _select_chain(app, module):
+    """The case selections a basic menu's case form asks for, outermost first, each ``(session variable, case
+    type)`` (``suite_xml/utils.py::get_select_chain_with_sessions``, ``get_select_chain_meta``): the menu's own
+    ``case_id``, then one more for each parent selection, ``case_id_<type>`` for an other-relation parent of the
+    same case type and ``parent_id``, ``parent_parent_id`` and so on otherwise. None where a step is not followed
+    here: a several-case list, a lookup-table selection (``get_datum_meta_module`` adds a datum for it), or a
+    parent menu the app does not hold or that repeats."""
+    if _multi_select(module) or (module.get("fixture_select") or {}).get("active"):
+        return None
+    chain = [("case_id", module.get("case_type"))]
+    seen = {module.get("unique_id")}
+    child = module
+    while (child.get("parent_select") or {}).get("active"):
+        select = child["parent_select"]
+        parent = app.modules_by_id.get(select.get("module_id"))
+        if parent is None or parent.get("unique_id") in seen:
+            return None
+        if _multi_select(parent) or (parent.get("fixture_select") or {}).get("active"):
+            return None
+        other = select.get("relationship", "parent") is None
+        if other and parent.get("case_type") == child.get("case_type"):
+            variable = f"case_id_{child.get('case_type')}"
+        else:
+            variable = "parent_" * len(chain) + "id"
+        chain.append((variable, parent.get("case_type")))
+        seen.add(parent.get("unique_id"))
+        child = parent
+    return list(reversed(chain))
+
+
 def _selection_datums(app, link):
     """The datums HQ's link editor offers for a form link's target (``views/forms.py::_get_form_datums``: the
     target form's datums that require a selection, ``EntriesHelper.get_datums_meta_for_form_generic``), where
-    the target is a form in a basic menu that selects one case with no parent selection or registry:
-    ``case_id`` for a form that requires a case, none for one that does not. A search the menu
-    offers changes none of them: its query is a datum that requires no selection, and the case it selects
-    keeps its session variable (``EntriesHelper.add_remote_query_datums``, ``get_datum_meta_module``). None for
-    any other target, whose datums need HQ's suite."""
+    the target is a form in a basic menu with no registry: for a form that requires a case, its menu's
+    selections (``_select_chain``), none for one that does not, each renamed as HQ aligns a child menu's
+    datums to its root's first form (``EntriesHelper.add_parent_datums``): a datum whose id a root datum holds
+    becomes ``<id>_<case type>``, and the next datum takes the id of each root datum that asks for a selection
+    where both load one case type. A search the menu offers changes none of them: its query is a datum that
+    requires no selection, and the case it selects keeps its session variable
+    (``EntriesHelper.add_remote_query_datums``, ``get_datum_meta_module``). None for any other target, whose
+    datums need HQ's suite."""
     target = app.forms_by_id.get(link.get("form_id"))
     module = app.module_of(target) if target is not None else None
     if target is None or module is None or (module.get("doc_type") or "Module") != "Module":
         return None
-    if (target.get("doc_type") or "Form") != "Form" or _multi_select(module):
+    if (target.get("doc_type") or "Form") != "Form" or (module.get("search_config") or {}).get("data_registry"):
         return None
-    if (module.get("parent_select") or {}).get("active") or (module.get("search_config") or {}).get("data_registry"):
-        return None
-    return {"case_id"} if _requires(target) == "case" else set()
+    datums = []
+    if _requires(target) == "case":
+        chain = _select_chain(app, module)
+        if chain is None:
+            return None
+        # Each selection is an update_case datum (``get_datum_meta_module``), which the alignment may rename.
+        datums = [{"id": variable, "type": case_type, "selects": True, "aligns": True} for variable, case_type in chain]
+    actions = _actions(target)
+    opens_case = _active(actions.get("open_case"))
+    if opens_case:
+        new = f"case_id_new_{module.get('case_type')}_0"
+        datums.append({"id": new, "type": module.get("case_type"), "selects": False, "aligns": True})
+    for position, subcase in enumerate(_subcases(target)):
+        if _active(subcase) and not subcase.get("repeat_context"):
+            number = position + 1 if opens_case else position
+            new = f"case_id_new_{subcase.get('case_type')}_{number}"
+            datums.append({"id": new, "type": subcase.get("case_type"), "selects": False, "aligns": True})
+    if module.get("root_module_id"):
+        root = app.modules_by_id.get(module.get("root_module_id"))
+        parents = _root_selection_datums(app, root) if root is not None else None
+        if parents is None:
+            return None
+        by_id = {datum["id"]: datum for datum in datums}
+        remaining = list(datums)
+        for parent, parent_type, parent_selects in parents:
+            if parent in by_id:
+                renamed = by_id[parent]
+                renamed["id"] = f"{renamed['id']}_{renamed['type']}"
+            if parent_selects and remaining:
+                if remaining[0]["type"] == parent_type and remaining[0]["aligns"]:
+                    remaining.pop(0)["id"] = parent
+    return {datum["id"] for datum in datums if datum["selects"]}
 
 
 def _blank(app, text):

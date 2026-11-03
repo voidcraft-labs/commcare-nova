@@ -189,7 +189,12 @@ public class SearchRuntimeTest {
         }
     }
     private EvaluationContext sourceContext(Entry entry) {
-        TestInstanceInitializer initializer = new TestInstanceInitializer(MockDataUtils.getStaticStorage()) {
+        // The registration's submission has landed, so the device holds the patient the link carries.
+        var sandbox = MockDataUtils.getStaticStorage();
+        Case registered = new Case("Registered patient", "patient");
+        registered.setCaseId("new-patient");
+        sandbox.getCaseStorage().write(registered);
+        TestInstanceInitializer initializer = new TestInstanceInitializer(sandbox) {
             @Override public InstanceRoot generateRoot(ExternalDataInstance instance) {
                 if (!"commcaresession".equals(instance.getInstanceId())) return super.generateRoot(instance);
                 TreeElement root = node("session", null);

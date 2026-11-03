@@ -61,6 +61,7 @@ final class SessionReadAssertions {
 
     private static final class Runtime extends TestInstanceInitializer {
         final CommCareSession session;
+        private final MockUserDataSandbox sandbox;
 
         Runtime(CommCareSession session) {
             this(MockDataUtils.getStaticStorage(), session);
@@ -69,6 +70,7 @@ final class SessionReadAssertions {
         private Runtime(MockUserDataSandbox sandbox, CommCareSession session) {
             super(sandbox);
             this.session = session;
+            this.sandbox = sandbox;
             Case household = new Case("Household", "household");
             household.setCaseId("selected-household");
             sandbox.getCaseStorage().write(household);
@@ -88,6 +90,13 @@ final class SessionReadAssertions {
                     "worker", "worker-id", new Hashtable<>(), "400", "en");
             InstanceUtils.setUpInstanceRoot(root, instance.getInstanceId(), instance.getBase());
             return new ConcreteInstanceRoot(root);
+        }
+
+        /** The case the submitted form created, as the device's case store holds it once the submission lands. */
+        void landed(String id, String type) {
+            Case created = new Case("Created", type);
+            created.setCaseId(id);
+            sandbox.getCaseStorage().write(created);
         }
     }
 
@@ -147,6 +156,8 @@ final class SessionReadAssertions {
         assertEquals("worker-record", read(form, "string(/data/worker_id)"));
         assertEquals("worker-record", read(form, "string(/data/commcare_usercase/case/@case_id)"));
         if (followLink) {
+            // The link carries the created visit only once the device holds it, so the submission lands first.
+            runtime.landed(own, "visit");
             assertTrue(session.finishExecuteAndPop(session.getEvaluationContext(runtime)));
             assertEquals("m1-f0", session.getCommand());
             assertEquals(own, session.getData().get("case_id"));
