@@ -15,6 +15,7 @@ import {
 import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { FORM_LINKS_SEED } from "../../lib/formLinksSeed";
 import { FORM_SECTIONS_SEED } from "../../lib/formSectionsSeed";
+import { FORMS_READ_SEARCH_SEED } from "../../lib/formsReadSearchSeed";
 import {
 	expectBuilderDataLoaded,
 	expectBuilderDataLoading,
@@ -24,7 +25,6 @@ import {
 	reloadPage,
 } from "../../lib/pageLoads";
 import { type RemovableRoutes, removableRoutes } from "../../lib/routes";
-import { SEARCH_FIRST_SEED } from "../../lib/searchFirstSeed";
 import { createSmokeContext } from "../../lib/smokeNetwork";
 import type { SmokeProfileData } from "../../lib/smokeSeedFactory";
 
@@ -3339,19 +3339,19 @@ test.describe("authenticated builder", () => {
 	);
 
 	test(
-		"a search-first module registers what a search could not find",
-		{ tag: "@seed:search-first" },
+		"a menu whose forms read the search registers what a search could not find",
+		{ tag: "@seed:forms-read-search" },
 		async ({ scenario, page }, testInfo) => {
-			const seed = seedFor(scenario, "search-first");
+			const seed = seedFor(scenario, "forms-read-search");
 
 			test.setTimeout(120_000);
-			const fixture = seed.searchFirst;
+			const fixture = seed.formsReadSearch;
 			if (fixture === undefined) {
 				throw new Error(
-					`Search-first fixture missing for Playwright attempt ${testInfo.retry}`,
+					`Forms-read-search fixture missing for Playwright attempt ${testInfo.retry}`,
 				);
 			}
-			const { prompt, register, unmatchedName } = SEARCH_FIRST_SEED;
+			const { prompt, register, unmatchedName } = FORMS_READ_SEARCH_SEED;
 			const main = page.locator("main");
 			const searchScreen = main.getByRole("search", { name: "Search" });
 			const nameInput = searchScreen.getByRole("textbox", {
@@ -3392,7 +3392,7 @@ test.describe("authenticated builder", () => {
 				await editor.press("Backspace");
 				await expect(editor).toHaveText("");
 				// The label question's answer as it is, so Case Management keeps
-				// creating the case a search with no matches registers.
+				// creating the case the case list registers after an empty search.
 				await page.keyboard.insertText("#form/patient_label");
 				const saved = page.waitForResponse(
 					(response) =>
@@ -3411,7 +3411,7 @@ test.describe("authenticated builder", () => {
 				await expect(
 					page.getByRole("heading", { name: "Search", level: 1 }),
 				).toBeVisible({ timeout: 20_000 });
-				const setting = page.locator("[data-no-matches-setting]");
+				const setting = page.locator("[data-case-list-registration-setting]");
 				await expect(
 					setting.getByRole("heading", {
 						name: "When no cases match",
@@ -3423,7 +3423,7 @@ test.describe("authenticated builder", () => {
 				).toBeChecked();
 				await expect(setting).toContainText(register.formName);
 				await expect(
-					page.locator("[data-no-matches-form]").first(),
+					page.locator("[data-case-list-registration]").first(),
 				).toBeVisible();
 			});
 

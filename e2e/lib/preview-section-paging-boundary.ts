@@ -1,6 +1,7 @@
 // Remote transport is controlled. PreviewShell, HomeScreen, ModuleScreen,
 // FormScreen, paging, admission, the controller, Worker and inputs stay real.
 export {
+	claimSearchedCasesAction,
 	launchEntryPointAction,
 	loadCaseCountAction,
 	loadCaseDataAction,

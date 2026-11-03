@@ -89,6 +89,11 @@ import {
 	formSectionsRoute,
 } from "./formSectionsSeed";
 import {
+	buildFormsReadSearchBlueprint,
+	FORMS_READ_SEARCH_SEED,
+	formsReadSearchRoutes,
+} from "./formsReadSearchSeed";
+import {
 	buildLocalizationBlueprint,
 	LOCALIZATION_SEED,
 } from "./localizationSeed";
@@ -120,11 +125,6 @@ import {
 	reactProfileInitialRoute,
 	reactProfileRoute,
 } from "./reactProfileSeed";
-import {
-	buildSearchFirstBlueprint,
-	SEARCH_FIRST_SEED,
-	searchFirstRoutes,
-} from "./searchFirstSeed";
 import { buildSessionStorageState } from "./session";
 
 import { SMOKE_TEXT } from "./smokeText";
@@ -1258,31 +1258,27 @@ export async function createSmokeBuilders(
 				},
 			};
 		},
-		"search-first": async () => {
-			const { appId: searchFirstAppId, baseSeq: searchFirstGenesisSeq } =
-				await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
-					name: SEARCH_FIRST_SEED.appName,
-					status: "complete",
-				});
-			const searchFirstDoc = toPersistableDoc(
-				buildSearchFirstBlueprint(searchFirstAppId),
+		"forms-read-search": async () => {
+			const { appId, baseSeq } = await createExplicitBlankApp(
+				SEED.userId,
+				seedProjectId,
+				randomUUID(),
+				{ name: FORMS_READ_SEARCH_SEED.appName, status: "complete" },
 			);
+			const doc = toPersistableDoc(buildFormsReadSearchBlueprint(appId));
 			await appendSyntheticBatch({
-				appId: searchFirstAppId,
-				expectedBaseSeq: searchFirstGenesisSeq,
-				targetDoc: searchFirstDoc,
+				appId,
+				expectedBaseSeq: baseSeq,
+				targetDoc: doc,
 				authority: { kind: "user", actorUserId: SEED.userId },
 			});
 			await materializeCaseStoreSchemas({
-				appId: searchFirstAppId,
-				blueprint: searchFirstDoc,
-				syncedSeq: searchFirstGenesisSeq + 1,
+				appId,
+				blueprint: doc,
+				syncedSeq: baseSeq + 1,
 			});
 			return {
-				searchFirst: {
-					appId: searchFirstAppId,
-					routes: searchFirstRoutes(searchFirstAppId),
-				},
+				formsReadSearch: { appId, routes: formsReadSearchRoutes(appId) },
 			};
 		},
 		"form-refused": async () => {

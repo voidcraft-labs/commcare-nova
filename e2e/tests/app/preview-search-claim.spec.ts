@@ -1,14 +1,16 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
-import { openBuilder } from "../../lib/pageLoads";
+import { openBuilder, reloadBuilder } from "../../lib/pageLoads";
 import { SEARCH_CLAIM_SEED } from "../../lib/previewRuntimeSeeds";
 
 /**
  * A search reads past the worker's device, so it can find a record another
  * worker owns. Choosing it claims it, as CommCare does, and the form then
  * opens with that record's saved values. Results read the search's own
- * population, so they carry no note about records left off the device.
+ * population, so they carry no note about records left off the device. The
+ * claim is a case row, so a reload keeps it on the worker's device until the
+ * identity menu's Release claimed cases closes it.
  */
-test("a searched record another persona owns opens its form with its case data", {
+test("a searched record another persona owns opens its form with its case data, and its claim lasts until released", {
 	tag: "@seed:search-claim",
 }, async ({ scenario, page }) => {
 	const { searchClaim } = seedFor(scenario, "search-claim");
@@ -71,5 +73,45 @@ test("a searched record another persona owns opens its form with its case data",
 		await expect(
 			main.getByRole("button", { name: "Submit", exact: true }),
 		).toBeEnabled();
+	});
+
+	const runAsSearcher = async () => {
+		await identity.click();
+		await page
+			.getByRole("menuitemradio", {
+				name: new RegExp(`^Preview as ${searcher.name}\\b`),
+			})
+			.click();
+		await expect(identity).toHaveAccessibleName(
+			new RegExp(`Running as ${searcher.name}\\b`),
+		);
+	};
+	const releaseOne = page.getByRole("menuitem", {
+		name: "Release 1 claimed case",
+		exact: true,
+	});
+
+	await test.step("after a reload the claimed record is still on the worker's device", async () => {
+		await reloadBuilder(page);
+		await expect(
+			page.getByRole("button", { name: "Preview", exact: true }),
+		).toBeVisible({ timeout: 20_000 });
+		await page.getByRole("button", { name: "Preview", exact: true }).click();
+		await runAsSearcher();
+		await identity.click();
+		await expect(releaseOne).toBeVisible({ timeout: 20_000 });
+	});
+
+	await test.step("Release claimed cases takes the record off the device", async () => {
+		await releaseOne.click();
+		await expect(
+			page.getByText("Released 1 case this worker claimed from a search"),
+		).toBeVisible({ timeout: 20_000 });
+		await identity.click();
+		await expect(page.getByRole("group", { name: "Running as" })).toBeVisible();
+		await expect(
+			page.getByRole("menuitem", { name: /^Release \d+ claimed/ }),
+		).toHaveCount(0);
+		await page.keyboard.press("Escape");
 	});
 });

@@ -2426,7 +2426,7 @@ test("native module settings edit names and placement with bounded panel geometr
 	await expect(placement).toHaveText("Top level");
 	await expect(placement).toBeDisabled();
 	await expect(
-		page.getByRole("heading", { name: "Case list link", exact: true }),
+		page.getByRole("heading", { name: "Case list in the menu", exact: true }),
 	).toHaveCount(0);
 	await page.getByRole("button", { name: "Close module settings" }).click();
 	await page.getByRole("button", { name: "View as reader" }).click();
@@ -2539,7 +2539,7 @@ test("native module case type refusals keep the actual confirmation and saved ca
 	await expect(picker).toBeFocused();
 });
 
-test("native module appearance keeps the menu tile and case-list link media independent", async ({
+test("native module appearance keeps the menu tile and case list menu item media independent", async ({
 	page,
 }) => {
 	const firstId = "00000000-0000-7000-8000-000000005101";
@@ -2585,7 +2585,7 @@ test("native module appearance keeps the menu tile and case-list link media inde
 		.click();
 	const menu = page.getByRole("group", { name: "Menu tile icon", exact: true });
 	const cases = page.getByRole("group", {
-		name: "Case list link icon",
+		name: "Case list menu item icon",
 		exact: true,
 	});
 	const saved = page.getByLabel("Saved module");
@@ -2605,12 +2605,12 @@ test("native module appearance keeps the menu tile and case-list link media inde
 	await expect
 		.poll(async () => {
 			const module = JSON.parse(await saved.innerText());
-			return { menu: module.icon, cases: module.caseListConfig.icon };
+			return { menu: module.icon, cases: module.caseListMenuItem.icon };
 		})
 		.toEqual({ menu: firstId, cases: secondId });
 	for (const label of [
 		"Menu tile spoken label",
-		"Case list link spoken label",
+		"Case list menu item spoken label",
 	]) {
 		const slot = page.getByRole("group", { name: label, exact: true });
 		await slot.getByRole("button", { name: "Attach", exact: true }).click();
@@ -2625,14 +2625,14 @@ test("native module appearance keeps the menu tile and case-list link media inde
 			return [
 				module.icon,
 				module.audioLabel,
-				module.caseListConfig.icon,
-				module.caseListConfig.audioLabel,
+				module.caseListMenuItem.icon,
+				module.caseListMenuItem.audioLabel,
 			];
 		})
 		.toEqual([firstId, audioId, secondId, audioId]);
 	for (const label of [
 		"Menu tile spoken label",
-		"Case list link spoken label",
+		"Case list menu item spoken label",
 	]) {
 		await page
 			.getByRole("group", { name: label, exact: true })
@@ -2644,9 +2644,9 @@ test("native module appearance keeps the menu tile and case-list link media inde
 			const module = JSON.parse(await saved.innerText());
 			return {
 				menu: module.icon,
-				cases: module.caseListConfig.icon,
+				cases: module.caseListMenuItem.icon,
 				menuAudio: Object.hasOwn(module, "audioLabel"),
-				casesAudio: Object.hasOwn(module.caseListConfig, "audioLabel"),
+				casesAudio: Object.hasOwn(module.caseListMenuItem, "audioLabel"),
 			};
 		})
 		.toEqual({
@@ -2661,7 +2661,7 @@ test("native module appearance keeps the menu tile and case-list link media inde
 			const module = JSON.parse(await saved.innerText());
 			return {
 				menuPresent: Object.hasOwn(module, "icon"),
-				cases: module.caseListConfig.icon,
+				cases: module.caseListMenuItem.icon,
 			};
 		})
 		.toEqual({ menuPresent: false, cases: secondId });
@@ -2670,7 +2670,10 @@ test("native module appearance keeps the menu tile and case-list link media inde
 		.click();
 	await expect
 		.poll(async () =>
-			Object.hasOwn(JSON.parse(await saved.innerText()).caseListConfig, "icon"),
+			Object.hasOwn(
+				JSON.parse(await saved.innerText()).caseListMenuItem,
+				"icon",
+			),
 		)
 		.toBe(false);
 	await expect(

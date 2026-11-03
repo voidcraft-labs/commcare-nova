@@ -165,7 +165,7 @@ test("native insertion menus commit admitted modules, submenus and forms in the 
 	expect(doc.moduleOrder.slice(0, -1)).toEqual(before.moduleOrder);
 	expect(doc.modules[newRoot]).toMatchObject({
 		caseType: "patient_case",
-		caseListOnly: true,
+		caseListMenuItem: {},
 	});
 	expect(doc.formOrder[newRoot]).toEqual([]);
 	await expect(page).toHaveURL(new RegExp(`/${newRoot}/results$`));

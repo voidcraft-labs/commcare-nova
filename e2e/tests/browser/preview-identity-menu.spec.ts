@@ -1,4 +1,5 @@
 import { resolve } from "node:path";
+import type { Page } from "@playwright/test";
 import { componentPeer } from "../../lib/componentPeer";
 import { expect, test } from "../../lib/fixtures";
 
@@ -8,6 +9,8 @@ import { expect, test } from "../../lib/fixtures";
  * declare shown disabled with the reason rather than hidden, and the
  * trigger's icon is the platform's glyph. Choosing the other platform starts
  * the app again from app entry, which on Android is the phone's home screen.
+ * Under Running as, Release claimed cases shows while the running worker
+ * holds cases it claimed from a search, counted each time the menu opens.
  */
 
 let peer: Awaited<ReturnType<typeof componentPeer>>;
@@ -23,9 +26,23 @@ test.afterAll(async () => {
 	await peer?.close();
 });
 
+/** Answer the menu's claim count, which it reads each time it opens. The
+ *  running worker holds `counts[n]` claims at the n-th opening, and the last
+ *  count holds from then on. */
+async function answerClaimCounts(page: Page, counts: readonly number[]) {
+	const requests: unknown[] = [];
+	await page.route("**/claimed-cases/count", async (route) => {
+		requests.push(route.request().postDataJSON());
+		const count = counts[Math.min(requests.length, counts.length) - 1] ?? 0;
+		await route.fulfill({ json: { kind: "count", count } });
+	});
+	return requests;
+}
+
 test("Runs on lists both platforms, and choosing Android starts the app again on the phone's home screen", async ({
 	page,
 }) => {
+	await answerClaimCounts(page, [0]);
 	await page.goto(peer.origin);
 	await page
 		.getByRole("button", { name: "Toggle Preview", exact: true })
@@ -72,6 +89,7 @@ test("Runs on lists both platforms, and choosing Android starts the app again on
 test("an app that runs only on Android shows Web Apps disabled with the reason", async ({
 	page,
 }) => {
+	await answerClaimCounts(page, [0]);
 	await page.goto(`${peer.origin}/?runs-on=android`);
 	await page
 		.getByRole("button", { name: "Toggle Preview", exact: true })
@@ -89,4 +107,53 @@ test("an app that runs only on Android shows Web Apps disabled with the reason",
 	).toHaveAttribute("aria-checked", "true");
 	await webApps.click({ force: true });
 	await expect(page.getByLabel("Preview platform")).toHaveText("android");
+});
+
+test("Release claimed cases shows the running worker's count, releases them, and leaves once none are held", async ({
+	page,
+}) => {
+	const countRequests = await answerClaimCounts(page, [3, 0]);
+	const releaseRequests: unknown[] = [];
+	await page.route("**/claimed-cases/release", async (route) => {
+		releaseRequests.push(route.request().postDataJSON());
+		await route.fulfill({ json: { kind: "released", released: 3 } });
+	});
+	await page.goto(peer.origin);
+	await page
+		.getByRole("button", { name: "Toggle Preview", exact: true })
+		.click();
+	const trigger = page.getByRole("button", { name: /^Running as / });
+	const release = page.getByRole("menuitem", { name: /^Release \d+ claimed/ });
+	const revision = page.getByLabel("Patient data revision");
+	await expect(revision).toHaveText("0");
+
+	await trigger.click();
+	await expect(
+		page.getByRole("menuitem", {
+			name: "Release 3 claimed cases",
+			exact: true,
+		}),
+	).toBeVisible();
+	expect(countRequests).toEqual([{ appId: "native-identity-menu" }]);
+	await release.click();
+	await expect
+		.poll(() => releaseRequests)
+		.toEqual([{ appId: "native-identity-menu" }]);
+	// The released cases leave the device: every case type's rows reload.
+	await expect(revision).toHaveText("1");
+	await expect(
+		page.getByText("Released 3 cases this worker claimed from a search"),
+	).toBeVisible();
+	await expect(
+		page.getByText(
+			"Their device no longer holds them, unless the worker holds them another way.",
+		),
+	).toBeVisible();
+
+	// The worker holds no claims now, so the menu offers nothing to release.
+	await trigger.click();
+	await expect.poll(() => countRequests.length).toBe(2);
+	await expect(page.getByRole("group", { name: "Running as" })).toBeVisible();
+	await expect(release).toHaveCount(0);
+	await page.keyboard.press("Escape");
 });

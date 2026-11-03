@@ -4,7 +4,8 @@ import { EditGuardProvider } from "@/components/builder/contexts/EditGuardContex
 import { ScrollRegistryProvider } from "@/components/builder/contexts/ScrollRegistryContext";
 import { PreviewIdentityMenu } from "@/components/builder/PreviewIdentityMenu";
 import { Button } from "@/components/shadcn/button";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { ToastContainer } from "@/components/ui/ToastContainer";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	BlueprintDocProvider,
@@ -12,6 +13,7 @@ import {
 } from "@/lib/doc/provider";
 import { NEW_APP_SETTINGS } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { useCaseDataRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import { useLocation } from "@/lib/routing/hooks";
 import {
 	useCanEdit,
@@ -23,7 +25,9 @@ import {
 import { BuilderSessionProvider } from "@/lib/session/provider";
 
 /* `?runs-on=android`: an app that runs only on Android; otherwise one that
- * runs on both. The identity menu chooses Preview's platform under Runs on. */
+ * runs on both. The identity menu chooses Preview's platform under Runs on.
+ * The Patients case list gives the app a case type, so releasing a worker's
+ * claims has rows to announce changed. */
 const androidOnly =
 	new URLSearchParams(location.search).get("runs-on") === "android";
 const source = buildDoc({
@@ -42,7 +46,15 @@ const source = buildDoc({
 				},
 			],
 		},
+		{
+			name: "Patients",
+			caseType: "patient",
+			caseListMenuItem: {},
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
+			forms: [],
+		},
 	],
+	caseTypes: [{ name: "patient", properties: [] }],
 });
 const doc = toPersistableDoc(source);
 const moduleUuid = source.moduleOrder[0];
@@ -70,6 +82,10 @@ function Surface() {
 	const platform = usePreviewPlatform();
 	const atDeviceHome = usePreviewAtDeviceHome();
 	const where = useLocation();
+	const patientRevision = useCaseDataRevision(
+		"native-identity-menu",
+		"patient",
+	);
 	return (
 		<>
 			<Button onClick={() => setPreviewing(!previewing)}>Toggle Preview</Button>
@@ -77,6 +93,8 @@ function Surface() {
 			<output aria-label="Preview platform">{platform}</output>
 			<output aria-label="At the device home">{String(atDeviceHome)}</output>
 			<output aria-label="Location">{where.kind}</output>
+			<output aria-label="Patient data revision">{patientRevision}</output>
+			<ToastContainer />
 		</>
 	);
 }

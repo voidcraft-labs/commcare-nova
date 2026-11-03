@@ -165,7 +165,7 @@ const doc = buildDoc({
 		{
 			name: "Clients",
 			caseType: "patient",
-			caseListOnly: true,
+			caseListMenuItem: {},
 			caseListConfig: config,
 		},
 	],

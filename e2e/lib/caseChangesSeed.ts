@@ -295,7 +295,7 @@ export function buildCaseChangesBlueprint(
 				id: "archived_referrals",
 				name: CASE_CHANGES_SEED.archivedModuleName,
 				caseType: CASE_CHANGES_SEED.archivedCaseType,
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: {
 					columns: [
 						plainColumn(

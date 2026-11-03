@@ -29,7 +29,7 @@ const source = buildDoc({
 			uuid: "tree-care",
 			name: "Care",
 			caseType: "patient_case",
-			caseListOnly: true,
+			caseListMenuItem: {},
 			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
 			forms: [],
 		},

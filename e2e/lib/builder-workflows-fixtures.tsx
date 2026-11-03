@@ -248,7 +248,7 @@ const SETTINGS_SOURCE = buildDoc({
 			uuid: "native-settings-bare",
 			name: "Clients",
 			caseType: "patient",
-			caseListOnly: true,
+			caseListMenuItem: {},
 			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
 			forms: [],
 		},

@@ -18,3 +18,25 @@ export async function listAppTestsAction() {
 export async function readAppTestAction() {
 	throw new Error("Unexpected journey read in session controls scenario");
 }
+
+/** The running worker's claims, counted and released through the same
+ * controlled transport, so the test owns what the menu reads and observes
+ * what it sends. */
+export async function countClaimedCasesAction(args: unknown) {
+	const response = await fetch("/claimed-cases/count", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(args),
+	});
+	if (!response.ok) throw new Error("Claim count transport unavailable");
+	return response.json();
+}
+export async function releaseClaimedCasesAction(args: unknown) {
+	const response = await fetch("/claimed-cases/release", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(args),
+	});
+	if (!response.ok) throw new Error("Claim release transport unavailable");
+	return response.json();
+}

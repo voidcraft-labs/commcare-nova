@@ -90,6 +90,10 @@ test("native persona removal waits for its count, restores cancel focus, retries
 test("native preview identity radio choices update the real session and retain missing saved identity", async ({
 	page,
 }) => {
+	// The menu counts the running worker's claims each time it opens.
+	await page.route("**/claimed-cases/count", async (route) => {
+		await route.fulfill({ json: { kind: "count", count: 0 } });
+	});
 	await page.goto(peer.origin);
 	await expect(page.getByRole("button", { name: /^Running as/ })).toHaveCount(
 		0,
