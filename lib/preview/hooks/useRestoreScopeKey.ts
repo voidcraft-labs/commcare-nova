@@ -9,12 +9,12 @@
 //   2. which levels own cases, and how far down each one reaches
 //      (blueprint: `organizationLevels`)
 //   3. the place tree itself (Postgres: `app_locations`)
-//   4. the cases the worker claimed from a search (session: `previewClaims`)
 //
 // Change any one and the same persona holds a different set of cases. Without
 // this key the preview keeps serving the previous worker's rows with nothing
 // on screen to say so — which is the exact failure the reveal note exists to
-// prevent, arriving through the back door.
+// prevent, arriving through the back door. A claim is a case row the worker
+// owns, so the case data revision (`caseDataInvalidation.ts`) covers it.
 
 "use client";
 
@@ -22,7 +22,6 @@ import { useEffect, useState } from "react";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { assignedLocationUuids } from "@/lib/domain";
-import { usePreviewClaimedCaseIds } from "@/lib/session/hooks";
 
 /**
  * A monotonic clock for this app's place tree.
@@ -55,27 +54,10 @@ function useOrganizationClock(): number {
  * derivation happens to consult. A narrower signature would have to be revised
  * every time `personaOwnerIds` grew an input, and forgetting is silent.
  *
- * The worker's claims widen the restore, so a claim re-reads every surface
- * keyed on this, as a device restores after a new claim.
- */
-export function useRestoreScopeKey(personaUuid: string | undefined): string {
-	const owned = useOwnedRestoreScopeKey(personaUuid);
-	const claims = usePreviewClaimedCaseIds(personaUuid).join(",");
-	return `${owned} ${claims}`;
-}
-
-/**
- * The part of {@link useRestoreScopeKey} that decides what the worker OWNS:
- * its assignment, the levels and the place tree, without its claims. A choice
- * the worker is making keys on this, because a claim only adds cases the
- * device holds and never takes away one the worker already chose.
- *
  * Previewing as the signed-in member is a worker assigned nowhere, so its
  * owner set is their own id and depends on none of the document.
  */
-export function useOwnedRestoreScopeKey(
-	personaUuid: string | undefined,
-): string {
+export function useRestoreScopeKey(personaUuid: string | undefined): string {
 	const clock = useOrganizationClock();
 	const assignment = useBlueprintDoc((state) => {
 		if (personaUuid === undefined) return "me";

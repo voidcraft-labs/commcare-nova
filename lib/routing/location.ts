@@ -600,7 +600,7 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 	/* The case-list workspace URLs (and the data review screen, which
 	 * lists per case type) require a case type — the screens render
 	 * nothing without one. If the module has no case type (e.g. it was
-	 * cleared, which also drops the caseListOnly viewer flag), fall back to the
+	 * cleared, which also drops its case list menu entry), fall back to the
 	 * module screen rather than stranding the user on a blank workspace. */
 	if (
 		loc.kind === "cases" ||

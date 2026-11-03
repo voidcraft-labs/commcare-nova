@@ -1,11 +1,11 @@
 import type { AppTestScope } from "@/lib/db/appTests";
-import { noMatchesFormOf } from "@/lib/domain";
+import { caseListRegistrationFormOf } from "@/lib/domain";
+import { caseListRegistrationAdmission } from "../caseListRegistration";
 import { readCases } from "../engine/caseDataBindingHelpers";
 import {
 	type ServerSearchWorld,
 	serverRecordsRead,
 } from "../engine/serverSearchRead";
-import { noMatchesFormAdmission } from "../noMatchesForm";
 import type { AppTestContext } from "./context";
 import { AppTestActionError } from "./errors";
 import type { AppTestSessionState } from "./types";
@@ -98,11 +98,17 @@ export async function appTestRecords(
 						...read,
 						page: { offset: screen.offset ?? 0, limit: 50 },
 					});
-	const candidate = noMatchesFormOf(context.doc, screen.moduleUuid);
+	const candidateUuid = caseListRegistrationFormOf(
+		context.doc,
+		screen.moduleUuid,
+	);
+	const candidate =
+		candidateUuid === undefined ? undefined : context.doc.forms[candidateUuid];
 	// Each action serializes a completed read, so its launch and search share
 	// this one attempt. No caller can provide a stale or privileged launch.
-	const admission = noMatchesFormAdmission({
-		form: candidate,
+	const admission = caseListRegistrationAdmission({
+		doc: context.doc,
+		formUuid: candidateUuid,
 		moduleUuid: screen.moduleUuid,
 		launch: search.hasSubmitted
 			? { moduleUuid: screen.moduleUuid, attempt: 0 }

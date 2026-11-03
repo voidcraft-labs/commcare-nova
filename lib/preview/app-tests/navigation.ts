@@ -5,11 +5,14 @@ import {
 	formLaunch,
 	menuFormUuidsOf,
 	moduleDestination,
+	moduleIsBareCaseList,
+	moduleIsCaseFirst,
 	type Uuid,
 } from "@/lib/domain";
 import { projectLocalizedModule } from "@/lib/domain/localizedBlueprintProjection";
 import type { Platform } from "@/lib/domain/platforms";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
+import { caseListMenuItemSelection } from "../caseListMenuItemRoute";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
 import {
@@ -20,11 +23,11 @@ import {
 import { caseListStepSession } from "../engine/entrySessionData";
 import { previewSessionValues } from "../engine/identity";
 import { previousTaskFormSelectors } from "../engine/previousTask";
-import { formlessCaseListSelection } from "../formlessCaseListRoute";
 import {
 	moduleHasChildren,
 	previewAutomaticForm,
 	previewCaseDescendantModuleUuids,
+	previewCaseListMenuEntry,
 	previewMenuCaseContext,
 	previewMenuModuleUuids,
 	previewModuleVisibility,
@@ -345,20 +348,12 @@ export function selectAppTestRecords(
 				true,
 			),
 		};
-	/* A case list with no forms ends the session on a selection: the app's
-	 * first screen in Web Apps, the phone's home screen on Android. */
-	if (isFormlessCaseList(context, screen.moduleUuid)) {
-		const route = formlessCaseListSelection(context.rules);
-		return {
-			...state,
-			screen:
-				route.kind === "device-home"
-					? { kind: "device-home" }
-					: { kind: "home" },
-			history: [],
-			selections: {},
-		};
-	}
+	/* A case list menu entry's list routes its choice itself
+	 * (`caseListMenuItemLanding`); the callers ask before selecting. */
+	if (isCaseListMenuItemList(context, screen))
+		throw new AppTestActionError(
+			"A case list opened from its menu entry opens no form.",
+		);
 	const forms = appTestForms(context, next, screen.moduleUuid, true);
 	if (forms.length === 0)
 		throw new AppTestActionError("This record list has no next task.");
@@ -372,18 +367,74 @@ export function selectAppTestRecords(
 	};
 }
 
-/** A module with a case list and no forms (the case list menu item). */
-function isFormlessCaseList(
+/**
+ * Whether a records screen is a case list menu entry's list, whose chosen
+ * case takes the entry's route rather than opening a form: one the menu's
+ * entry opened, or the landing of a bare case list (a case list menu entry
+ * and no forms or child menus, whose menu is its list). A list a form, a
+ * parent selection or a retained command opened is not.
+ */
+export function isCaseListMenuItemList(
 	context: AppTestContext,
-	moduleUuid: Uuid,
+	screen: Extract<AppTestScreen, { kind: "records" }>,
 ): boolean {
-	const mod = context.doc.modules[moduleUuid];
+	if (
+		screen.formUuid !== undefined ||
+		(screen.returnModules?.length ?? 0) > 0 ||
+		screen.retainedFormTarget !== undefined
+	)
+		return false;
+	if (screen.openedFrom === "case-list-menu-item") return true;
+	const mod = context.doc.modules[screen.moduleUuid];
 	return (
-		mod?.caseListOnly === true &&
-		mod.caseType !== undefined &&
-		menuFormUuidsOf(context.doc, moduleUuid).length === 0 &&
-		!moduleHasChildren(context.doc, moduleUuid)
+		mod?.caseType !== undefined &&
+		moduleIsBareCaseList(context.doc, screen.moduleUuid) &&
+		!moduleHasChildren(context.doc, screen.moduleUuid)
 	);
+}
+
+/**
+ * The module menu's case list entry as the running menu lists it, after the
+ * forms (`menuProjection.ts::previewCaseListMenuEntry`): in a case-first menu
+ * only once its case is chosen, when choosing it is the selection itself.
+ */
+export function appTestCaseListMenuEntry(
+	context: AppTestContext,
+	state: AppTestSessionState,
+	moduleUuid: Uuid,
+) {
+	return previewCaseListMenuEntry(context.doc, moduleUuid, {
+		isCaseFirst: moduleIsCaseFirst(context.doc, moduleUuid),
+		hasSelectedCase:
+			appTestMenuSelection(context, state, moduleUuid) !== undefined,
+	});
+}
+
+/**
+ * Where choosing a case from a case list menu entry lands
+ * (`caseListMenuItemRoute.ts::caseListMenuItemSelection`): the entry holds no
+ * form, so on Web Apps Formplayer steps back over the choice and the screen
+ * before it shows (`MenuSession.getNextScreen`, `isViewCommand` → `stepBack`);
+ * Android ends the session at the phone's home screen. `before` is the state
+ * at the screen before the choice: the list with nothing chosen in a
+ * forms-first menu, the menu in a case-first one.
+ */
+export function caseListMenuItemLanding(
+	context: AppTestContext,
+	before: AppTestSessionState,
+): AppTestSessionState {
+	const route = caseListMenuItemSelection(context.rules);
+	switch (route.kind) {
+		case "device-home":
+			return {
+				...before,
+				screen: { kind: "device-home" },
+				history: [],
+				selections: {},
+			};
+		case "step-back":
+			return before;
+	}
 }
 
 export function appTestCanContinue(
@@ -392,7 +443,7 @@ export function appTestCanContinue(
 ): boolean {
 	return (
 		!!screen.returnModules?.length ||
-		isFormlessCaseList(context, screen.moduleUuid) ||
+		isCaseListMenuItemList(context, screen) ||
 		(screen.formUuid === undefined &&
 			moduleHasChildren(context.doc, screen.moduleUuid)) ||
 		screen.formUuid !== undefined ||

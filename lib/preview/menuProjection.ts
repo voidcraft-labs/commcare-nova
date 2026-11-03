@@ -3,7 +3,13 @@ import {
 	type CaseType,
 	caseSelectionCanFlowBetweenModules,
 	type Form,
+	type MediaAssetId,
 	type Module,
+	type ModuleIconRef,
+	makeTranslationUnitId,
+	moduleHasCaseListMenuItem,
+	moduleIsBareCaseList,
+	type TranslationUnitId,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -299,4 +305,63 @@ export function previewAutomaticForm(
 		shown.length === 1
 		? shown[0].form.uuid
 		: undefined;
+}
+
+/** A module's case list as its own entry on the module's menu
+ *  (`Module.caseListMenuItem`), listed after its forms as HQ's suite lists
+ *  the case list command after the form commands (`suite_xml/sections/menus.py`). */
+export interface PreviewCaseListMenuEntry {
+	/** The entry's label unit: the item's own label when it has one, else the
+	 *  module's name, with its translations (`emissionPlan.ts::caseListMenuItemLabelUnit`). */
+	readonly labelUnitId: TranslationUnitId;
+	/** The label's source text, shown when no translation applies. */
+	readonly label: string;
+	readonly icon: ModuleIconRef | undefined;
+	readonly audioLabel: MediaAssetId | undefined;
+	/**
+	 * What choosing the entry does. In a forms-first menu it opens the case
+	 * list. In a case-first menu Core asks the datum every entry shares before
+	 * the command (`CommCareSession.java::getDataNeededByAllEntries`), so the
+	 * case is chosen first and the menu lists the entry beside the forms;
+	 * choosing it then is the selection itself.
+	 */
+	readonly action: "open-case-list" | "selection";
+}
+
+/**
+ * The module menu's case list entry, or undefined where the menu lists none:
+ * a module without the item or a case type, a bare case list (the menu is its
+ * list, so it keeps its landing), and a case-first menu before its case is
+ * chosen, whose forms are not listed yet either.
+ */
+export function previewCaseListMenuEntry(
+	doc: Pick<BlueprintDoc, "modules" | "forms" | "formOrder">,
+	moduleUuid: Uuid,
+	args: { readonly isCaseFirst: boolean; readonly hasSelectedCase: boolean },
+): PreviewCaseListMenuEntry | undefined {
+	const mod = doc.modules[moduleUuid];
+	if (
+		mod === undefined ||
+		mod.caseType === undefined ||
+		!moduleHasCaseListMenuItem(mod) ||
+		moduleIsBareCaseList(doc, moduleUuid)
+	)
+		return undefined;
+	if (args.isCaseFirst && !args.hasSelectedCase) return undefined;
+	const item = mod.caseListMenuItem;
+	const ownLabel = item?.label;
+	return {
+		labelUnitId:
+			ownLabel === undefined
+				? makeTranslationUnitId("module", moduleUuid, "name")
+				: makeTranslationUnitId(
+						"module",
+						moduleUuid,
+						"case-list-menu-item-label",
+					),
+		label: ownLabel ?? mod.name,
+		icon: item?.icon,
+		audioLabel: item?.audioLabel,
+		action: args.isCaseFirst ? "selection" : "open-case-list",
+	};
 }

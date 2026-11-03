@@ -916,7 +916,7 @@ it("requires a saved role and parent selection, then executes additional operati
 	});
 });
 
-it("opens browse-first Results with its hidden Search values already applied", async () => {
+it("opens the results of a search with no visible field, its hidden Search values already applied", async () => {
 	const author = await makeDurableAuthoringHarness(h);
 	expect(
 		await author.call("createModule", { name: "People", case_type: "person" }),
@@ -997,8 +997,11 @@ it("opens browse-first Results with its hidden Search values already applied", a
 		requestId: "open",
 		action: { kind: "menu", moduleUuid: people.uuid },
 	});
+	/* A search with no visible field opens on its results: the input planner
+	 * writes `workflow: "skipToResults"`, and Web Apps runs the default
+	 * search as the menu opens. */
 	expect(result.observation).toMatchObject({
-		screen: "browse",
+		screen: "results",
 		results: {
 			kind: "rows",
 			rows: [expect.objectContaining({ case_id: "north-person" })],
@@ -1597,7 +1600,7 @@ it.each([
 	},
 );
 
-it("ends a formless case list's selection on the app's first screen in Web Apps", async () => {
+it("shows a bare case list again after its choice in Web Apps, and returns to it from Android's Done", async () => {
 	const doc = await createEvaluationApp(
 		[{ name: "Directory", caseType: "entry", forms: [] }],
 		[],
@@ -1638,9 +1641,39 @@ it("ends a formless case list's selection on the app's first screen in Web Apps"
 		canContinue: true,
 		record: { case_name: "Clinic" },
 	});
-	/* Formplayer finds no form to open, clears the session and returns to
-	 * the app's first screen (`advanceSessionWithSelections`). */
-	expect(await step({ kind: "continue" })).toMatchObject({ screen: "home" });
+	/* The case list menu entry is a view command: Formplayer steps back over
+	 * the choice (`MenuSession.getNextScreen`, `isViewCommand` → `stepBack`),
+	 * so the list shows again with nothing chosen. */
+	expect(await step({ kind: "continue" })).toMatchObject({
+		screen: "browse",
+		name: "Directory",
+	});
+	await step({ kind: "finish" });
+
+	/* On Android the detail's button is Done, which returns to the list
+	 * (`EntityDetailActivity.java` in view mode). */
+	current = await startAppTest(scope, {
+		requestId: "directory-android-start",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Read information on a phone",
+			platform: "android",
+			scenario: {
+				records: [{ id: "entry-a", caseType: "entry", name: "Clinic" }],
+			},
+		},
+	});
+	await step({ kind: "continue" });
+	await step({ kind: "menu", moduleUuid: module.uuid });
+	expect(await step({ kind: "select", caseIds: ["entry-a"] })).toMatchObject({
+		screen: "details",
+		canContinue: true,
+		continueLabel: "Done",
+	});
+	expect(await step({ kind: "continue" })).toMatchObject({
+		screen: "browse",
+		name: "Directory",
+	});
 	await step({ kind: "finish" });
 });
 
@@ -1712,7 +1745,7 @@ it("cannot open a menu or a form that is off the menu from a menu", async () => 
 });
 
 it("limits a mixed module's inline chooser to case forms and goes back to Results without Details", async () => {
-	const doc = await createEvaluationApp(
+	const created = await createEvaluationApp(
 		[
 			{
 				name: "Equipment",
@@ -1805,6 +1838,13 @@ it("limits a mixed module's inline chooser to case forms and goes back to Result
 			},
 		],
 	);
+	/* The menu's records action without a case list menu entry: its list
+	 * leads to the inline chooser. With the entry, the list is a view command
+	 * whose choice opens no form. */
+	const doc = produce(created, (draft) => {
+		for (const module of Object.values(draft.modules))
+			delete module.caseListMenuItem;
+	});
 	const mod = Object.values(doc.modules).find(
 		(module) => module.name === "Equipment",
 	);
@@ -3485,7 +3525,7 @@ it("returns invalid seed data as authoring input and retains a completed prefix 
 	expect(repaired.observation).not.toHaveProperty("completed", false);
 });
 
-it("finds a searched record beyond the session's restore and claims it when its form opens, in that session alone", {
+it("finds a searched record beyond the session's restore and writes its claim row when its form opens, which a second session of the worker reads at its next device read", {
 	timeout: 30_000,
 }, async () => {
 	const author = makeAuthoringHarness({}, noMatchesDoc());
@@ -3544,18 +3584,25 @@ it("finds a searched record beyond the session's restore and claims it when its 
 		);
 		return current.observation;
 	};
-	const claimedIn = async (sessionId: string) => {
-		const row = await h
-			.db()
-			.selectFrom("app_test_sessions")
-			.select("state")
-			.where("id", "=", current.testId)
-			.executeTakeFirstOrThrow();
-		const state = row.state as {
-			sessions?: Record<string, { claimedCaseIds?: unknown }>;
-		};
-		return state.sessions?.[sessionId]?.claimedCaseIds;
-	};
+	/* The journey namespace's open claim rows: who owns each and the case
+	 * its `host` index names. */
+	const claimRows = async () =>
+		(
+			await sql<{ owner_id: string; host: string }>`
+				SELECT c.owner_id, i.ancestor_id AS host
+				FROM ${sql.id(appTestNamespace(current.testId), "cases")} c
+				JOIN ${sql.id(appTestNamespace(current.testId), "case_indices")} i
+					ON i.case_id = c.case_id AND i.depth = 1
+				WHERE c.case_type = 'commcare-case-claim'
+					AND c.status = 'open'
+					AND i.identifier = 'host'
+					AND i.relationship = 'extension'
+			`.execute(h.db())
+		).rows;
+	const alice = Object.values(doc.personas ?? {}).find(
+		(persona) => persona.name === "Alice",
+	);
+	if (!alice) throw new Error("Missing saved worker.");
 	const searchFor = (sessionId: string) => [
 		{ sessionId, action: { kind: "menu", moduleUuid: HOST_MODULE } },
 		{
@@ -3576,32 +3623,45 @@ it("finds a searched record beyond the session's restore and claims it when its 
 			],
 		},
 	});
-	expect(await claimedIn("alice")).toEqual([]);
-	// Choosing the record opens its Details; a search-first module claims
-	// only once a form is chosen.
+	expect(await claimRows()).toEqual([]);
+	// Choosing the record opens its Details; in a menu whose forms read the
+	// search the claim posts only once a form is chosen.
 	await advance([{ action: { kind: "select", caseIds: ["p-bob"] } }]);
-	expect(await claimedIn("alice")).toEqual([]);
-	// Continue opens the module's one case form, which posts the claim, so
-	// the form opens with the record held and its case data preloaded.
+	expect(await claimRows()).toEqual([]);
+	// Continue opens the module's one case form, which posts the claim: a
+	// claim row Alice owns in the journey's namespace, so the form opens with
+	// the record held and its case data preloaded.
 	expect(await advance([{ action: { kind: "continue" } }])).toMatchObject({
 		screen: "form",
 		questions: expect.arrayContaining([
 			expect.objectContaining({ path: "seen_name", value: "Maya" }),
 		]),
 	});
-	expect(await claimedIn("alice")).toEqual(["p-bob"]);
+	expect(await claimRows()).toEqual([{ owner_id: alice.uuid, host: "p-bob" }]);
 
-	// Another session of the same worker holds none of Alice's claims.
+	// A second session of the same worker shares the worker's claim rows, as
+	// two devices of one worker share HQ's: its search finds the record held,
+	// and its device holds it at its next read.
 	expect(await advance(searchFor("again"))).toMatchObject({
 		sessionId: "again",
 		results: {
 			kind: "rows",
-			rows: [
-				expect.objectContaining({ case_id: "p-bob", heldOnDevice: false }),
-			],
+			rows: [expect.objectContaining({ case_id: "p-bob", heldOnDevice: true })],
 		},
 	});
-	expect(await claimedIn("again")).toEqual([]);
+	expect(
+		await advance([
+			{ sessionId: "again", action: { kind: "home" } },
+			{ sessionId: "again", action: { kind: "sync" } },
+		]),
+	).toMatchObject({
+		sessionId: "again",
+		synced: true,
+		availableRecords: expect.arrayContaining([
+			{ id: "p-bob", type: "patient" },
+			expect.objectContaining({ type: "commcare-case-claim" }),
+		]),
+	});
 
 	// Home and Sync keep the claim, as a claim on HQ outlives the task.
 	expect(
@@ -3616,7 +3676,7 @@ it("finds a searched record beyond the session's restore and claims it when its 
 			{ id: "p-bob", type: "patient" },
 		]),
 	});
-	expect(await claimedIn("alice")).toEqual(["p-bob"]);
+	expect(await claimRows()).toEqual([{ owner_id: alice.uuid, host: "p-bob" }]);
 
 	// The journey leaves no claim behind.
 	await advance([{ sessionId: "alice", action: { kind: "finish" } }]);

@@ -17,6 +17,7 @@ import {
 	SEARCH_READING,
 } from "@/lib/domain/expression/temporalType";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import { caseListStep } from "../caseListPhase";
 import { parentCaseConstraint } from "../caseSelectionNavigation";
 import { previewMenuCaseContext } from "../menuProjection";
 import { previewPlatformRules } from "../platform";
@@ -137,11 +138,17 @@ export async function serverRecordsRead(
 	);
 	const rules = previewPlatformRules(world.device.platform);
 	const session = previewSessionValues(world.identity, world.device);
-	const resultVisible = !(
-		search.searchFirst &&
-		search.hasVisibleInputs &&
-		!search.hasSubmitted
-	);
+	/* Results stay hidden while the case list is on its Search screen with
+	 * nothing submitted: no results query has run there. */
+	const resultVisible =
+		search.hasSubmitted ||
+		caseListStep({
+			workflow: search.workflow,
+			formsReadSearch: search.formsReadSearch,
+			searchRelevant: search.relevant,
+			hasSubmitted: false,
+			rules,
+		}) !== "search";
 	const caseContext = previewMenuCaseContext(
 		world.doc,
 		request.moduleUuid,

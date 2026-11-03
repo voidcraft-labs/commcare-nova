@@ -969,15 +969,14 @@ describe("case resource completion and invalidation ownership", () => {
 		);
 		await waitFor(() => expect(h.result.current.state.kind).toBe("rows"));
 
-		act(() => store.getState().addPreviewClaims(["claimed-case"]));
+		/* A claim that created a row invalidates every case type of the app
+		 * (`useClaimSearchedCases`). */
+		act(() => invalidateCaseData(APP_ID, PATIENT.name));
 		expect(h.result.current.state).toMatchObject({
 			kind: "rows",
 			rows: [CASE_ROW],
 		});
 		await waitFor(() => expect(loadCasesAction).toHaveBeenCalledTimes(2));
-		expect(
-			vi.mocked(loadCasesAction).mock.calls[1]?.[0].claimedCaseIds,
-		).toEqual(["claimed-case"]);
 		expect(h.result.current.state.kind).toBe("rows");
 		expect(h.result.current.fetching).toBe(true);
 

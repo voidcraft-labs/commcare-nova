@@ -305,6 +305,11 @@ export type AppTestScreen =
 	| {
 			kind: "records";
 			moduleUuid: Uuid;
+			/** Opened from the module's case list menu entry
+			 *  (`Module.caseListMenuItem`): a chosen case takes the entry's
+			 *  route (`caseListMenuItemSelection`) instead of opening a form. A
+			 *  bare case list's landing is the same list without the mark. */
+			openedFrom?: "case-list-menu-item";
 			formUuid?: Uuid;
 			returnModules?: readonly Uuid[];
 			/** The saved entry retains this command; selection completes it
@@ -347,11 +352,6 @@ export interface AppTestSessionState {
 	/** The worker's device holds this snapshot until sync or identity switch;
 	 * submissions overlay their transaction-captured patch, including closed rows. */
 	deviceCases: CaseDatabaseSnapshot;
-	/** Searched cases this worker chose that its restore did not hold, in
-	 * claim order. They seed the session's restore, as HQ's claims seed a
-	 * device's; another session never holds them. Home keeps them, a change of
-	 * worker drops them. */
-	claimedCaseIds: readonly string[];
 }
 
 /** One bounded journey and record namespace, with independent retained workers. */

@@ -55,7 +55,7 @@ it("sends plain live records to Results and Details after tile edits without rel
 					uuid: moduleUuid,
 					name: "Patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: {
 						...config,
 						columns: config.columns.map((column) => ({

@@ -2545,5 +2545,14 @@ export function schemaHealingCaseStore(
 		replaceParkedValue: (a) => heal(() => store.replaceParkedValue(a)),
 		generateSampleData: (a) => heal(() => store.generateSampleData(a)),
 		resetSampleData: (a) => heal(() => store.resetSampleData(a)),
+		// Healed: a claim writes a `commcare-case-claim` row, whose schema row
+		// an app born before the claim type existed may still lack. The claim
+		// is one transaction, so retrying it after the heal is idempotent.
+		claimCases: (a) => heal(() => store.claimCases(a)),
+		// Un-healed: releasing sets only the lifecycle columns and treats a
+		// missing claim schema row as no claims to release, and counting reads
+		// columns, so neither can throw the heal's missing/stale-schema signal.
+		releaseClaims: (a) => store.releaseClaims(a),
+		countClaims: (a) => store.countClaims(a),
 	};
 }

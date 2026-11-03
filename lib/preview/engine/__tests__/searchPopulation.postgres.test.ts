@@ -6,7 +6,9 @@
 // A search reads HQ's search population, the Project's open cases of the type
 // (`case_search/utils.py::CaseSearchQueryBuilder._get_initial_search_es`), and
 // says of each row whether the searching worker's device holds it. A browse
-// list reads the worker's restore, and the restore holds the worker's claims.
+// list reads the worker's restore, and the restore holds the worker's claims:
+// claim rows the worker owns (`CaseStore.claimCases`), each with a `host`
+// extension index to the case it claims.
 
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -16,7 +18,11 @@ import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
-import type { CaseType } from "@/lib/domain";
+import {
+	CASE_CLAIM_CASE_TYPE,
+	CASE_CLAIM_HOST_INDEX,
+	type CaseType,
+} from "@/lib/domain";
 import {
 	CASEDB_READING,
 	SEARCH_READING,
@@ -77,7 +83,7 @@ beforeEach(async () => {
 			modules: [PATIENT, VISIT].map((type) => ({
 				name: type.name,
 				caseType: type.name,
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),
@@ -86,10 +92,10 @@ beforeEach(async () => {
 		}),
 	);
 	const mine = storeAs(WORKER);
-	for (const type of [PATIENT, VISIT])
+	for (const caseType of [PATIENT.name, VISIT.name, CASE_CLAIM_CASE_TYPE])
 		await mine.applySchemaChange({
 			appId: APP_ID,
-			caseType: type.name,
+			caseType,
 			caseTypeSchemas: buildCaseTypeMap(doc),
 		});
 	const row = (caseId: string, caseName: string, status = "open") => ({
@@ -121,7 +127,16 @@ beforeEach(async () => {
 });
 
 const OWNED = { ownerIds: [WORKER] } as const;
-const OWNED_AND_CLAIMED = { ownerIds: [WORKER], claimedCaseIds: [THEIRS] };
+
+/** The searching worker claims another worker's case, as choosing it from a
+ *  search does (`claimSearchedCasesAction`). */
+async function claimTheirs(): Promise<void> {
+	const claimed = await storeAs(WORKER).claimCases({
+		appId: APP_ID,
+		caseIds: [THEIRS],
+	});
+	expect(claimed).toEqual({ created: [THEIRS], alreadyClaimed: [] });
+}
 
 function heldById(
 	rows: readonly { case_id: string; heldOnDevice?: boolean }[],
@@ -148,18 +163,25 @@ describe("a search's population", () => {
 		expect(result.totalCount).toBe(2);
 	});
 
-	it("reads a claimed case as one the device holds", async () => {
-		const result = await readCases(storeAs(WORKER), {
-			tileGrouping: "grouped",
-			appId: APP_ID,
-			caseType: "patient",
-			reading: SEARCH_READING,
-			page: { offset: 0, limit: 10 },
-			searchPopulation: { heldBy: OWNED_AND_CLAIMED },
-		});
-		if (result.kind !== "rows")
-			throw new Error(`expected rows, got ${result.kind}`);
-		expect(heldById(result.rows)).toEqual({ [MINE]: true, [THEIRS]: true });
+	it("reads a case as one the device holds once its claim row exists", async () => {
+		const search = () =>
+			readCases(storeAs(WORKER), {
+				tileGrouping: "grouped",
+				appId: APP_ID,
+				caseType: "patient",
+				reading: SEARCH_READING,
+				page: { offset: 0, limit: 10 },
+				searchPopulation: { heldBy: OWNED },
+			});
+		const before = await search();
+		if (before.kind !== "rows")
+			throw new Error(`expected rows, got ${before.kind}`);
+		expect(heldById(before.rows)).toEqual({ [MINE]: true, [THEIRS]: false });
+		await claimTheirs();
+		const after = await search();
+		if (after.kind !== "rows")
+			throw new Error(`expected rows, got ${after.kind}`);
+		expect(heldById(after.rows)).toEqual({ [MINE]: true, [THEIRS]: true });
 	});
 
 	it("checks a several-case selection against the same population", async () => {
@@ -219,13 +241,14 @@ describe("a browse list and the device", () => {
 	});
 
 	it("holds a claimed case in the list, the preload and the device snapshot", async () => {
+		await claimTheirs();
 		const list = await readCases(storeAs(WORKER), {
 			tileGrouping: "grouped",
 			appId: APP_ID,
 			caseType: "patient",
 			reading: CASEDB_READING,
 			page: { offset: 0, limit: 10 },
-			restoreScope: OWNED_AND_CLAIMED,
+			restoreScope: OWNED,
 		});
 		if (list.kind !== "rows")
 			throw new Error(`expected rows, got ${list.kind}`);
@@ -237,25 +260,35 @@ describe("a browse list and the device", () => {
 				caseId: THEIRS,
 				reading: CASEDB_READING,
 				ancestorDepth: 0,
-				restoreScope: OWNED_AND_CLAIMED,
+				restoreScope: OWNED,
 			}),
 		).toMatchObject({ kind: "row", row: { case_id: THEIRS } });
 		const snapshot = await readCaseDatabaseSnapshot(storeAs(WORKER), {
 			appId: APP_ID,
-			restoreScope: OWNED_AND_CLAIMED,
+			restoreScope: OWNED,
 		});
 		// The claimed case is live, so its open extension comes with it, as
-		// it would through HQ's claim.
-		expect(snapshot.rows.map((row) => row.case_id).sort()).toEqual(
-			[MINE, THEIRS, THEIR_VISIT].sort(),
+		// it would through HQ's claim, and the device holds the claim row.
+		const claims = snapshot.rows.filter(
+			(row) => row.case_type === CASE_CLAIM_CASE_TYPE,
 		);
+		expect(claims).toHaveLength(1);
+		expect(
+			snapshot.rows
+				.filter((row) => row.case_type !== CASE_CLAIM_CASE_TYPE)
+				.map((row) => row.case_id)
+				.sort(),
+		).toEqual([MINE, THEIRS, THEIR_VISIT].sort());
 		expect(snapshot.indices).toContainEqual(
 			expect.objectContaining({ case_id: THEIR_VISIT, ancestor_id: THEIRS }),
 		);
-		const unclaimed = await readCaseDatabaseSnapshot(storeAs(WORKER), {
-			appId: APP_ID,
-			restoreScope: OWNED,
-		});
-		expect(unclaimed.rows.map((row) => row.case_id)).toEqual([MINE]);
+		expect(snapshot.indices).toContainEqual(
+			expect.objectContaining({
+				case_id: claims[0]?.case_id,
+				ancestor_id: THEIRS,
+				identifier: CASE_CLAIM_HOST_INDEX,
+				relationship: "extension",
+			}),
+		);
 	});
 });

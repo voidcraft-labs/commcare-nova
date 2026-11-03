@@ -1,4 +1,5 @@
 import {
+	type BlueprintDoc,
 	type Module,
 	moduleIsBareCaseListDestination,
 	type Uuid,
@@ -22,8 +23,9 @@ function moduleUuidAt(location: Location): Uuid | undefined {
 export function formerParentRecovery(
 	segments: readonly string[],
 	previous: PreviousLocationTopology | undefined,
-	currentModules: Readonly<Record<Uuid, Module>>,
+	current: Pick<BlueprintDoc, "modules" | "forms" | "formOrder">,
 ): Location | undefined {
+	const currentModules = current.modules;
 	if (previous === undefined) return undefined;
 	const previousModuleUuid = moduleUuidAt(previous.location);
 	if (previousModuleUuid === undefined) return undefined;
@@ -42,10 +44,7 @@ export function formerParentRecovery(
 	if (formerParentUuid === undefined) return { kind: "home" };
 	const formerParent = currentModules[formerParentUuid];
 	if (formerParent === undefined) return { kind: "home" };
-	return moduleIsBareCaseListDestination(
-		{ modules: currentModules },
-		formerParentUuid,
-	)
+	return moduleIsBareCaseListDestination(current, formerParentUuid)
 		? { kind: "cases", moduleUuid: formerParentUuid }
 		: { kind: "module", moduleUuid: formerParentUuid };
 }

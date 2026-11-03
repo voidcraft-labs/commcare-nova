@@ -9,7 +9,7 @@ import {
 	caseSelectionMaximum,
 	isCaptureFieldKind,
 	isContainer,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
 	moduleUuidOfForm,
 	reachableCaseTypes,
 	resolveAppLanguage,
@@ -182,7 +182,7 @@ export async function evaluateFormSnapshot(
 	 * that search, so without the search's snapshot the form cannot open. */
 	if (
 		context.searchResults === undefined &&
-		moduleOpensOnSearch(module) &&
+		moduleFormsReadSearch(module) &&
 		formReadsSearchResults(doc, input.formUuid)
 	)
 		throw new FormEvaluationInputError(

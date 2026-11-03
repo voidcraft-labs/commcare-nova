@@ -13,20 +13,24 @@ import {
 	useBlueprintDoc,
 	useBlueprintDocApi,
 } from "@/lib/doc/hooks/useBlueprintDoc";
-import { entryPointInventory, type Uuid } from "@/lib/domain";
+import {
+	effectiveCaseTypes,
+	entryPointInventory,
+	type Uuid,
+} from "@/lib/domain";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	usePreviewDevice,
 	usePreviewEntryPointLaunch,
 } from "@/lib/session/hooks";
-import { claimsFor, previewClaimsWorker } from "@/lib/session/previewClaims";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import { launchEntryPointAction } from "../entryPointLaunchAction";
 import type {
 	EntryPointLaunchResult,
 	EntryPointSelection,
 } from "../entryPointLaunchTypes";
+import { invalidateCaseData } from "./caseDataInvalidation";
 
 export function useEntryPointLaunch() {
 	const session = useBuilderSessionApi();
@@ -68,13 +72,6 @@ export function useEntryPointLaunch() {
 				selections,
 				personaUuid,
 				expectedSeq,
-				claimedCaseIds: [
-					...claimsFor(
-						before.previewClaims,
-						before.appId,
-						previewClaimsWorker(personaUuid),
-					),
-				],
 				device: withNavigationWidth(device),
 			});
 			const current = session.getState();
@@ -92,8 +89,12 @@ export function useEntryPointLaunch() {
 					message: "The app or Preview worker changed. Try again.",
 				};
 			if (result.kind === "ready") {
-				/* Web Apps' claim frame claims the chosen cases before it
-				 * navigates; the claims land with the launch, under its worker. */
+				/* Web Apps' claim frame claimed the chosen cases before the
+				 * launch answered: claim rows the worker owns, so its device is
+				 * read again, as a device restores after a new claim. */
+				if (result.claimCaseIds.length > 0)
+					for (const caseType of effectiveCaseTypes(capturedDoc))
+						invalidateCaseData(before.appId, caseType.name);
 				/* A case the phone lacks opens with blank preloads: the form reads
 				 * no saved values for it (Android). */
 				const blank = new Set(result.blankCaseIds);
@@ -111,7 +112,7 @@ export function useEntryPointLaunch() {
 									? { formTarget: { ...formTarget, caseData: new Map() } }
 									: {}),
 							};
-				current.installEntryPointLaunch(launch, result.claimCaseIds);
+				current.installEntryPointLaunch(launch);
 				navigate.push(launch.location);
 			}
 			return result;

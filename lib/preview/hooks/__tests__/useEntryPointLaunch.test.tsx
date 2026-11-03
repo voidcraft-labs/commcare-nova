@@ -53,12 +53,18 @@ const launch: EntryPointPreviewLaunch = {
 	formTarget: { formUuid: F, cases: [{ caseId: "exact" }] },
 	ignoreDisplayConditions: true,
 };
+const READY = {
+	kind: "ready" as const,
+	launch,
+	claimCaseIds: [],
+	blankCaseIds: [],
+};
 beforeEach(() => {
 	vi.resetAllMocks();
 	location = launch.location;
 	barrier.mockResolvedValue({ kind: "saved" });
 	snapshot.mockReturnValue({ baseSeq: 4 });
-	action.mockResolvedValue({ kind: "ready", launch });
+	action.mockResolvedValue(READY);
 });
 function harness() {
 	const doc = createBlueprintDocStore();
@@ -172,10 +178,7 @@ describe("entry point launch responses", () => {
 			wrapper: h.wrapper,
 		});
 		await act(async () => {
-			expect(await view.result.current(E, [])).toEqual({
-				kind: "ready",
-				launch,
-			});
+			expect(await view.result.current(E, [])).toEqual(READY);
 		});
 		expect(action).toHaveBeenCalledWith({
 			appId: "app",
@@ -183,31 +186,11 @@ describe("entry point launch responses", () => {
 			selections: [],
 			personaUuid: undefined,
 			expectedSeq: 4,
-			claimedCaseIds: [],
 			/* The device the session plays, measured at the request. */
 			device: expect.objectContaining({ platform: "web-apps" }),
 		});
 		expect(h.session.getState().previewCaseTarget).toBe(launch.formTarget);
 		expect(push).toHaveBeenCalledWith(launch.location);
-	});
-	it("sends the claims of the worker it launches as, and only theirs", async () => {
-		const h = harness();
-		h.session.getState().addPreviewClaims(["claimed-case"]);
-		const view = renderHook(() => useEntryPointLaunch(), {
-			wrapper: h.wrapper,
-		});
-		await act(async () => {
-			await view.result.current(E, []);
-		});
-		expect(action).toHaveBeenLastCalledWith(
-			expect.objectContaining({ claimedCaseIds: ["claimed-case"] }),
-		);
-		await act(async () => {
-			await view.result.current(E, [], testUuid("other-persona"));
-		});
-		expect(action).toHaveBeenLastCalledWith(
-			expect.objectContaining({ claimedCaseIds: [] }),
-		);
 	});
 	it("waits for the save barrier before sending the admitted revision", async () => {
 		const h = harness();
@@ -225,7 +208,7 @@ describe("entry point launch responses", () => {
 			expect(push).not.toHaveBeenCalled();
 			await act(async () => {
 				gate.resolve({ kind: "saved" });
-				expect(await pending).toEqual({ kind: "ready", launch });
+				expect(await pending).toEqual(READY);
 			});
 			expect(action).toHaveBeenCalledWith(
 				expect.objectContaining({ expectedSeq: 4 }),

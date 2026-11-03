@@ -31,7 +31,7 @@ const FORM_B = testUuid("connect-platforms-form-b");
 
 function stores(options: {
 	readonly appSettings: AppSettings;
-	readonly searchFirst?: boolean;
+	readonly formsReadSearch?: boolean;
 }) {
 	const docStore = createBlueprintDocStore();
 	docStore.getState().load(
@@ -53,8 +53,8 @@ function stores(options: {
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),
-					...(options.searchFirst === true && {
-						caseSearchConfig: { searchFirst: true },
+					...(options.formsReadSearch === true && {
+						caseSearchConfig: { formsReadSearch: true },
 					}),
 					forms: [
 						{
@@ -164,7 +164,7 @@ describe("turning on Connect sets the app to Android only", () => {
 	it("refuses, and commits nothing, when the app holds something Android can't run", () => {
 		const { doc, session } = stores({
 			appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" },
-			searchFirst: true,
+			formsReadSearch: true,
 		});
 		const before = doc.getState();
 

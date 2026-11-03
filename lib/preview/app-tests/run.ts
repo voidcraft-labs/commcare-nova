@@ -1,9 +1,8 @@
 import type { AppTestScope } from "@/lib/db/appTests";
 import {
 	assignedLocationUuids,
-	CASE_LOADING_FORM_TYPES,
 	caseSelectionCardinality,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
 	orderedColumns,
 	orderedOrganizationLevels,
 } from "@/lib/domain";
@@ -23,6 +22,7 @@ import type {
 	PreviewCaseChoice,
 	PreviewMenuCaseSelection,
 } from "@/lib/session/types";
+import { caseListMenuItemDetailAction } from "../caseListMenuItemRoute";
 import { caseListStep } from "../caseListPhase";
 import { caseSelectionRowAction } from "../caseSelectionNavigation";
 import { deviceHomeButtons } from "../deviceHome";
@@ -43,7 +43,8 @@ import {
 import { runtimeLanguage, runtimeMessage } from "../runtimeMessages";
 import {
 	claimableCaseIds,
-	parentSelectClaimChoices,
+	claimPostsAtResult,
+	formEntryClaimChoices,
 	previewCaseChoiceOf,
 } from "../searchClaims";
 import { projectWorkerModule } from "../workerModule";
@@ -52,12 +53,15 @@ import { appTestCellProjector, appTestDetails } from "./details";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import {
 	appTestCanContinue,
+	appTestCaseListMenuEntry,
 	appTestEntryScreen,
 	appTestForms,
 	appTestMenuSelection,
 	appTestMenus,
+	caseListMenuItemLanding,
 	enterAppTestForm,
 	enterAppTestMenu,
+	isCaseListMenuItemList,
 	selectAppTestRecords,
 } from "./navigation";
 import { appTestRecords, prepareAppTestRecords } from "./records";
@@ -100,8 +104,8 @@ function appTestEntryCases(
 }
 
 /**
- * What the search of a search-first module returned to a form of it that
- * reads it: the latest search this session ran on that module's records,
+ * What the search of a menu whose forms read the search returned to a form of
+ * it that reads it: the latest search this session ran on that module's records,
  * read again unpaged and capped as Preview's form reads it
  * (`searchResultsSnapshot.ts`). A form reached without that search has none
  * to read, which the device never allows.
@@ -115,7 +119,7 @@ async function appTestSearchResults(
 	const mod = context.doc.modules[screen.moduleUuid];
 	if (
 		mod?.caseType === undefined ||
-		!moduleOpensOnSearch(mod) ||
+		!moduleFormsReadSearch(mod) ||
 		!formReadsSearchResults(context.doc, screen.formUuid)
 	)
 		return undefined;
@@ -258,6 +262,30 @@ async function observeScreen(
 							visibility,
 						}),
 					),
+					/* The module's case list menu entry, listed after the forms;
+					 * the `records` action chooses it. */
+					caseListEntry: (() => {
+						const entry = appTestCaseListMenuEntry(
+							context,
+							state,
+							screen.moduleUuid,
+						);
+						const ownLabel =
+							context.doc.modules[screen.moduleUuid].caseListMenuItem?.label;
+						return entry === undefined
+							? undefined
+							: {
+									name:
+										ownLabel ??
+										projectLocalizedModule(
+											context.doc,
+											context.language,
+											screen.moduleUuid,
+										)?.name,
+									opens:
+										entry.action === "selection" ? "chosen-case" : "case-list",
+								};
+					})(),
 					recordsAvailable:
 						context.doc.modules[screen.moduleUuid].caseType !== undefined,
 					selected: appTestMenuSelection(context, state, screen.moduleUuid)
@@ -294,8 +322,9 @@ async function observeScreen(
 				state: read.state,
 				observation: {
 					screen: caseListStep({
-						searchFirst: search.searchFirst,
-						hasVisibleInputs: search.hasVisibleInputs,
+						workflow: search.workflow,
+						formsReadSearch: search.formsReadSearch,
+						searchRelevant: search.relevant,
 						hasSubmitted: search.hasSubmitted,
 						submittedFoundNothing: read.result?.kind === "empty",
 						rules: context.rules,
@@ -355,6 +384,14 @@ async function observeScreen(
 					canContinue:
 						read.result.kind === "row" &&
 						appTestCanContinue(context, screen.source),
+					/* What `continue` presses here: Android's Done on a case list
+					 * menu entry's detail, which returns to the list. */
+					...(isCaseListMenuItemList(context, screen.source) && {
+						continueLabel: runtimeMessage(
+							context.language,
+							caseListMenuItemDetailAction(context.rules).message,
+						),
+					}),
 					actions:
 						read.result.kind === "row" &&
 						appTestCanContinue(context, screen.source)
@@ -533,12 +570,14 @@ export async function observeAppTest(
 /**
  * Post the claims CommCare posts at this step, as the browser's Preview does
  * (`lib/preview/searchClaims.ts`): a search action's claim when its result is
- * chosen (`resultSource` names the records screen the choice was made on), a
- * search-first module's claim when its case-loading form opens, with the
- * entry's other case datums under a selected parent. A claim for a case the
- * session's restore does not hold appends it to the session's claims, and the
- * session's device snapshot is read again with them, as a device restores
- * after a new claim; a form entered at this step opens over that snapshot.
+ * chosen (`resultSource` names the records screen the choice was made on), and
+ * in a menu whose forms read the search, the claim when its case-loading form
+ * opens, with the entry's other case datums under a selected parent. Each
+ * claim is a claim row the namespace store writes inside the step's
+ * transaction (`claimCases`), owned by the session's worker; the session's
+ * device snapshot is then read again, as a device restores after a new claim,
+ * and a form entered at this step opens over that snapshot. Another session
+ * of the same worker sees the claim at its next device read.
  */
 async function postAppTestClaims(
 	context: AppTestContext,
@@ -556,47 +595,41 @@ async function postAppTestClaims(
 		resultSource !== undefined &&
 		sourceModule !== undefined &&
 		next.screen.kind !== "details" &&
-		!moduleOpensOnSearch(sourceModule) &&
+		claimPostsAtResult(sourceModule) &&
 		recordsReadSearch(sourceModule, resultSource)
 			? chosen
 			: [];
 	const screen = next.screen;
-	const formModule =
-		screen.kind === "form" && before.screen.kind !== "form"
-			? context.doc.modules[screen.moduleUuid]
-			: undefined;
 	const atForm =
-		screen.kind === "form" &&
-		formModule !== undefined &&
-		moduleOpensOnSearch(formModule) &&
-		CASE_LOADING_FORM_TYPES.has(context.doc.forms[screen.formUuid].type)
-			? [
-					...chosen.filter((choice) => screen.caseIds.includes(choice.caseId)),
-					...parentSelectClaimChoices(
-						context.doc,
-						screen.moduleUuid,
-						next.selections,
+		screen.kind === "form" && before.screen.kind !== "form"
+			? formEntryClaimChoices({
+					doc: context.doc,
+					moduleUuid: screen.moduleUuid,
+					formUuid: screen.formUuid,
+					chosen: chosen.filter((choice) =>
+						screen.caseIds.includes(choice.caseId),
 					),
-				]
+					selections: next.selections,
+				})
 			: [];
-	const held = new Set(next.claimedCaseIds);
-	const posted = [...new Set(claimableCaseIds([...atResult, ...atForm]))];
-	const added = posted.filter((caseId) => !held.has(caseId));
+	const posted = claimableCaseIds([...atResult, ...atForm]);
+	if (posted.length === 0) return { context, state: next };
+	const { created } = await context.store.claimCases({
+		appId: scope.appId,
+		caseIds: posted,
+	});
 	/* Android follows every claim with a sync, so a claim of a case the
-	 * session already holds still reads its device again there. */
-	if (added.length === 0 && !(context.rules.claimThenSync && posted.length > 0))
+	 * worker already claimed still reads its device again there. */
+	if (created.length === 0 && !context.rules.claimThenSync)
 		return { context, state: next };
-	const claimedCaseIds = [...next.claimedCaseIds, ...added];
-	const restoreScope = { ...context.restoreScope, claimedCaseIds };
 	const deviceCases = await context.store.readDeviceCaseDatabase({
 		appId: scope.appId,
-		restoreScope,
+		restoreScope: context.restoreScope,
 	});
 	return {
-		context: { ...context, restoreScope },
+		context,
 		state: {
 			...next,
-			claimedCaseIds,
 			deviceCases,
 			screen:
 				screen.kind === "form" && screen.entryCases === before.deviceCases
@@ -661,6 +694,27 @@ export async function advanceAppTest(
 			const read = await appTestDetails(context, scope, state);
 			if (read.result.kind !== "row")
 				throw new AppTestActionError("This record is no longer available.");
+			if (isCaseListMenuItemList(context, screen.source)) {
+				/* The list as it stood before the choice. Android's detail
+				 * answers Done there (`EntityDetailActivity.java` in view
+				 * mode), which returns to the list with nothing chosen; Web
+				 * Apps' Continue takes the entry's route. */
+				const last = state.history.at(-1);
+				const atList: AppTestSessionState = {
+					...state,
+					screen: screen.source,
+					history:
+						last?.kind === "records" &&
+						last.moduleUuid === screen.source.moduleUuid
+							? state.history.slice(0, -1)
+							: state.history,
+				};
+				next =
+					caseListMenuItemDetailAction(context.rules).kind === "return-to-list"
+						? atList
+						: caseListMenuItemLanding(context, atList);
+				break;
+			}
 			next = selectAppTestRecords(
 				context,
 				{ ...state, screen: screen.source },
@@ -781,9 +835,24 @@ export async function advanceAppTest(
 				!context.doc.modules[screen.moduleUuid].caseType
 			)
 				throw new AppTestActionError("The current menu has no record list.");
+			/* The menu's case list entry: in a forms-first menu it opens the
+			 * list, whose choice takes the entry's route; in a case-first menu
+			 * the case is already chosen, so choosing the entry is the
+			 * selection. */
+			const entry = appTestCaseListMenuEntry(context, state, screen.moduleUuid);
+			if (entry?.action === "selection") {
+				next = caseListMenuItemLanding(context, state);
+				break;
+			}
 			next = {
 				...state,
-				screen: { kind: "records", moduleUuid: screen.moduleUuid },
+				screen: {
+					kind: "records",
+					moduleUuid: screen.moduleUuid,
+					...(entry !== undefined && {
+						openedFrom: "case-list-menu-item" as const,
+					}),
+				},
 				history: [...state.history, screen],
 			};
 			break;
@@ -875,19 +944,26 @@ export async function advanceAppTest(
 			});
 			if (!multiple && selected.length !== 1)
 				throw new AppTestActionError("Choose one record on this screen.");
-			next =
-				!multiple && rowAction === "detail"
-					? {
-							...read.state,
-							screen: {
-								kind: "details",
-								moduleUuid: recordsScreen.moduleUuid,
-								caseId: selected[0].case_id,
-								source: recordsScreen,
-							},
-						}
-					: selectAppTestRecords(context, read.state, selected);
-			next = { ...next, history: [...state.history, read.state.screen] };
+			if (!multiple && rowAction === "detail")
+				next = {
+					...read.state,
+					screen: {
+						kind: "details",
+						moduleUuid: recordsScreen.moduleUuid,
+						caseId: selected[0].case_id,
+						source: recordsScreen,
+					},
+					history: [...state.history, read.state.screen],
+				};
+			else if (isCaseListMenuItemList(context, recordsScreen))
+				/* A case list menu entry's list holds no form: the choice takes
+				 * the entry's route from the list with nothing chosen. */
+				next = caseListMenuItemLanding(context, read.state);
+			else
+				next = {
+					...selectAppTestRecords(context, read.state, selected),
+					history: [...state.history, read.state.screen],
+				};
 			({ context, state: next } = await postAppTestClaims(
 				context,
 				scope,

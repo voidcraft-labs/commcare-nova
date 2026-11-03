@@ -168,12 +168,12 @@ async function contextFor(
 			usercase: mergeOwnRecords(identity.usercase, stored),
 		},
 		caseTypeSchemas: buildCaseTypeMap(doc),
+		/* The worker's claims are claim rows in the journey's namespace that
+		 * the worker owns, so the owned seed reaches them and their hosts. */
 		restoreScope: {
 			ownerIds: persona
 				? personaOwnerIds(doc, persona, snapshot.locations)
 				: memberOwnerIds(scope.actorUserId),
-			// The session's claims seed its Results, Details, preloads and Sync.
-			claimedCaseIds: state.claimedCaseIds,
 		},
 		lookup: previewLookupData({
 			...snapshot.lookup,

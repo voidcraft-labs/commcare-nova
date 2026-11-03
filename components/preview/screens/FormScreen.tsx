@@ -47,12 +47,11 @@ import {
 	effectivePostSubmit,
 	type FormLink,
 	type FormType,
-	isNoMatchesForm,
 	makeTranslationUnitId,
 	materializableCaseTypes as materializableCaseTypesFromDoc,
 	menuFormUuidsOf,
+	moduleFormsReadSearch,
 	moduleIsCaseFirst,
-	moduleOpensOnSearch,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	reachableCaseTypes,
@@ -67,6 +66,14 @@ import {
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "@/lib/preview/afterSubmitRouting";
+import {
+	caseListRegistrationAdmission,
+	caseListRegistrationPostSubmit,
+	caseListRegistrationRefusalCopy,
+	formReadsCompletedSearch,
+	formSearchAnswers,
+	isCaseListRegistrationForm,
+} from "@/lib/preview/caseListRegistration";
 import { parentCaseConstraint } from "@/lib/preview/caseSelectionNavigation";
 import type { SetvalueRefusalDetails } from "@/lib/preview/engine/answerCast";
 import { submitFormAction } from "@/lib/preview/engine/caseDataBinding";
@@ -139,13 +146,6 @@ import {
 import { useSearchResultsSnapshot } from "@/lib/preview/hooks/useSearchResultsSnapshot";
 import { useSelectedPreviewIdentity } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { previewMenuCaseContext } from "@/lib/preview/menuProjection";
-import {
-	formReadsCompletedSearch,
-	formSearchAnswers,
-	noMatchesFormAdmission,
-	noMatchesPostSubmit,
-	noMatchesRefusalCopy,
-} from "@/lib/preview/noMatchesForm";
 import { refusalCopy, runtimeMessage } from "@/lib/preview/runtimeMessages";
 import { formChangesSessionCase } from "@/lib/preview/unheldCaseSubmit";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -492,8 +492,8 @@ export function FormScreen({ screen }: FormScreenProps) {
 		() => previewMenuCaseContext(menuSource, moduleUuid, menuCaseSelections),
 		[menuCaseSelections, menuSource, moduleUuid],
 	);
-	/* A no-matches registration form is admitted only through the Register
-	 * action on its module's empty search (`noMatchesForm.ts`): the launch on
+	/* A case list registration form is admitted only through the Register
+	 * action on its module's empty search (`caseListRegistration.ts`): the launch on
 	 * the case target names the search attempt that offered it, and the
 	 * module's search context says whether that search found nothing. The
 	 * admitted answers are what `#search/<name>` reads in the engine. */
@@ -505,22 +505,23 @@ export function FormScreen({ screen }: FormScreenProps) {
 			: undefined;
 	const noMatchesAdmission = useMemo(
 		() =>
-			noMatchesFormAdmission({
-				form,
+			caseListRegistrationAdmission({
+				doc: menuSource.doc,
+				formUuid,
 				moduleUuid,
 				launch: searchLaunch,
 				searchState,
 			}),
-		[form, moduleUuid, searchLaunch, searchState],
+		[menuSource.doc, formUuid, moduleUuid, searchLaunch, searchState],
 	);
 	/* The search context keeps the screen's answers (a date range as its
 	 * two bounds); the engine's search-input instance holds one field per
-	 * prompt, as the device's does. A no-matches form reads its launch's
-	 * answers; a form of a module that opens on its search reads the
-	 * completed search's, or each Search field's starting value when a link
-	 * or an entry point opened it with no search behind it. */
+	 * prompt, as the device's does. A case list registration form reads its
+	 * launch's answers; a form of a menu whose forms read the search reads
+	 * the completed search's, or each Search field's starting value when a
+	 * link or an entry point opened it with no search behind it. */
 	const hostSearchInputs = mod?.caseListConfig?.searchInputs;
-	const searchFirstForm = mod !== undefined && moduleOpensOnSearch(mod);
+	const formsReadSearch = mod !== undefined && moduleFormsReadSearch(mod);
 	const openedByLink =
 		previewCaseTarget?.formUuid === formUuid &&
 		previewCaseTarget.openedByLink === true;
@@ -530,7 +531,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 	 * captures its search answers once, at activation. */
 	const readsSearchDefaults =
 		mode === "preview" &&
-		searchFirstForm &&
+		formsReadSearch &&
 		noMatchesAdmission.kind === "not-applicable" &&
 		!formReadsCompletedSearch(searchState, openedByLink);
 	const searchDefaultsLookup = usePreviewLookupStatus();
@@ -547,7 +548,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		}) !== "waiting";
 	const searchDefaultsStep = useCaseListStepSession(
 		menuSource.doc,
-		searchFirstForm ? moduleUuid : undefined,
+		formsReadSearch ? moduleUuid : undefined,
 	);
 	const searchAnswers = useMemo(() => {
 		if (mode !== "preview") return undefined;
@@ -574,7 +575,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		return formSearchAnswers({
 			searchInputs,
 			admission: noMatchesAdmission,
-			searchFirst: searchFirstForm,
+			formsReadSearch,
 			searchState,
 			openedByLink,
 			defaults,
@@ -583,7 +584,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		mode,
 		noMatchesAdmission,
 		hostSearchInputs,
-		searchFirstForm,
+		formsReadSearch,
 		readsSearchDefaults,
 		openedByLink,
 		moduleUuid,
@@ -596,7 +597,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 		searchDefaultsCases.snapshot,
 	]);
 	const language = useBuilderLanguage();
-	/* A form of a search-first module that reads what the search found
+	/* A form of a menu whose forms read the search that reads what it found
 	 * opens with that search's results, as a device's session holds them on
 	 * its query step. With no completed search the form has none to read, so
 	 * it shows the way back to Search instead (`searchResultsRefused`). */
@@ -605,7 +606,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			mode === "preview" &&
 			mod !== undefined &&
 			formUuid !== undefined &&
-			moduleOpensOnSearch(mod) &&
+			moduleFormsReadSearch(mod) &&
 			formReadsSearchResults(menuSource.doc, formUuid),
 		[mode, mod, formUuid, menuSource.doc],
 	);
@@ -1352,7 +1353,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 				: submitted.doc.forms[submitted.formUuid];
 		const noMatchesRegistration =
 			submittedForm !== undefined &&
-			isNoMatchesForm(submittedForm) &&
+			isCaseListRegistrationForm(submitted.doc, submitted.formUuid) &&
 			result.kind === "registration" &&
 			submitted.moduleUuid !== undefined
 				? { moduleUuid: submitted.moduleUuid, caseId: result.caseId }
@@ -1362,7 +1363,11 @@ export function FormScreen({ screen }: FormScreenProps) {
 			// An explicitly authored First menu destination is HQ's empty root
 			// frame. It discards the scalar registration return rather than feeding
 			// that scalar into a host that may require a multiple-case selection.
-			if (submittedForm && noMatchesPostSubmit(submittedForm) === "firstMenu") {
+			if (
+				submitted.formUuid !== undefined &&
+				caseListRegistrationPostSubmit(submitted.doc, submitted.formUuid) ===
+					"firstMenu"
+			) {
 				announceWrite();
 				setPreviewSearchState(noMatchesRegistration.moduleUuid, undefined);
 				setPreviewSelectedCase(undefined);
@@ -2518,7 +2523,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 	 * no other door to it (`<menu relevant="false()">`), so neither does
 	 * Preview. Edit mode keeps the authoring surface. */
 	if (mode === "preview" && noMatchesAdmission.kind === "refused") {
-		const copy = noMatchesRefusalCopy(noMatchesAdmission.reason);
+		const copy = caseListRegistrationRefusalCopy(noMatchesAdmission.reason);
 		return (
 			<div className="flex h-full items-center justify-center px-6 py-10">
 				<div

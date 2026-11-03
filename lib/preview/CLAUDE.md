@@ -32,9 +32,9 @@ declares derives away with no write.
 
 `platform.ts::PREVIEW_PLATFORM_RULES` is the one rule table: every behavior that
 differs by platform is one field of `PreviewPlatformRules` (where the app
-opens, after-submit landings, entry points, a case list with no forms, tile
-grouping, borders and alignment, search screen text and checks, zero results,
-skip to results, `here()`'s spelling, form screens, recalculation, day-number
+opens, after-submit landings, entry points, a case list menu entry and its
+detail, tile grouping, borders and alignment, search screen text and checks,
+zero results, whether the Search action launches on its own, `here()`'s spelling, form screens, recalculation, day-number
 epoch, help, hints, labels, capture and more), each citing the CommCare reader
 it plays. No other module under `lib/preview`, `components/preview`,
 `lib/preview/app-tests` or the authoring evaluator compares a platform value:
@@ -364,7 +364,8 @@ relation, a `form-case`, `prop`, `case-index`, `case-row-type` or
 `usercase_id` or grouped-tile companion session datum (both evaluated over the
 casedb when the entry begins), or a `repeat-row` of a query-bound repeat;
 `useCaseDatabaseSnapshot.tsx` also loads it when a menu display condition reads
-case data. The request carries the worker's claims. Typed case and worker references in prose labels,
+case data. A claim is a case row the worker's restore holds, so the snapshot
+holds the claimed cases with no list of claims beside it. Typed case and worker references in prose labels,
 hints, help and inline choices also require that snapshot, even when no XPath
 slot reads a case. The scan uses the prose slot registry and typed parts;
 literal hashtag text and answer-only references do not trigger a case load.
@@ -410,7 +411,7 @@ Navigation may still retire the whole entry and discard its engine.
 
 Home ends the current running task. It clears selected parent records, the current
 Form/Details target, and transient search context while retaining the chosen worker,
-actor authorization and the worker's claims, because a claim on HQ outlives the task. Reopening a related-record history therefore offers its
+actor authorization, and a claim stays, because it is a case row that outlives the task as HQ's does. Reopening a related-record history therefore offers its
 parent selection again, matching isolated app-test Home. Moving within a parent
 menu still retains the parent needed by its children.
 
@@ -987,10 +988,32 @@ hides, or a module target whose condition is false, lands on the menu above the
 topmost hidden module: its shown parent's, or the app's first screen for a
 top-level module (`afterSubmitRouting.ts::afterSubmitTargetVisibility`), as Formplayer's
 `MenuSessionFactory.rebuildSessionFromFrame` walks the frame only through the
-menus it would show. A module with a case list and no forms plays the runtime:
-choosing a case returns to the app's first screen in Web Apps, with its sync
-notice, or to the phone's home screen on Android
-(`formlessCaseListRoute.ts::formlessCaseListSelection`).
+menus it would show.
+
+A module's case list menu entry (`Module.caseListMenuItem`) plays the runtime,
+formless or beside forms. `menuProjection.ts::previewCaseListMenuEntry` lists
+it after the module's forms, under the item's label unit when it has one and
+the module's name otherwise, with the item's icon; a bare case list
+(`moduleIsBareCaseList`) keeps its landing, since the menu is its list. In a
+forms-first menu the entry opens the case list; in a case-first menu
+(`moduleIsCaseFirst`) the case is chosen first, as Core asks a datum every
+entry shares before the command, and the menu then lists the forms and the
+entry (the module screen, and the case list's form menu, which also never skips
+to a lone form while the entry is listed). A case list opened from the entry
+(`CaseListScreen`'s `openedFromCaseListMenuItem`: a bare case list, or a
+forms-first menu's list with no form chosen) routes a chosen case by
+`caseListMenuItemRoute.ts::caseListMenuItemSelection` instead of opening a
+form, and in a case-first menu choosing the entry with the case already chosen
+is the selection. Web Apps steps back (`step-back`, Formplayer's
+`MenuSession.getNextScreen` stepping a view command back): choosing a case
+shows the screen before it again, the list with nothing chosen in a
+forms-first menu and the menu in a case-first one. Android returns to the
+phone's home screen (`device-home`, which sets `previewAtDeviceHome`). With
+Details columns a chosen row shows its detail first; on Android the detail's
+button is the runtime message `detailDone` ("Done",
+`caseListMenuItemDetailAction`), which returns to the list with nothing
+chosen, and on Web Apps it is Continue and then the route. Without Details
+columns a chosen row takes the route at once.
 
 ## Value persistence across engine recreation
 
@@ -1016,32 +1039,30 @@ persona's own uuid plus every place it receives cases from
 assigned nowhere, so it is their own id alone.
 
 A search is not a restore. A Results read of a module with an effective Search,
-once its search has run (a search-first module's completed search, or a
-submitted Search action), and the Details and selections of cases chosen from
+once its search has run (the completed search of a menu whose forms read it,
+or a submitted Search action, the menu's own default search included), and the Details and selections of cases chosen from
 it, pass a search population instead of a restore scope
 (`QueryArgs.searchPopulation`, `lib/case-store/CLAUDE.md`): the Project's open
 cases of the module's case type, with the owner exclusion and filters, as HQ's
 case search reads them, each row marked `heldOnDevice` by the worker's restore.
-Choosing a row the device does not hold claims it (`searchClaims.ts`): its id
-joins the worker's `previewClaims` (`lib/session`). Preview posts the claim
-where CommCare does: when a search action's result is chosen, and in a
-search-first module, whose claim sits in each form's entry, once a form is
-chosen (Preview's single-form auto-advance included) with the entry's other
-case datums under a selected parent, so the form menu and its display
-conditions are evaluated before it. Every device-scoped read of that worker
-(the device snapshot, a form's preload, the persistent tile, an entry-point
-launch) sends the set as plain JSON `claimedCaseIds`;
-`resolveAuthorizedPreviewContext` checks its shape
-(`previewAuthorization.ts::previewClaimedCaseIds`, at most 1,000 distinct ids)
-and puts it in the restore scope, and the restore scope key names it, so the
-snapshot is read again when the set grows and the form opens with the case as
-on a device. An App Test journey holds its claims in its own server-side
-state, `AppTestSessionState.claimedCaseIds`, one set per retained worker
-session (`app-tests/CLAUDE.md`); it never reads `previewClaims`.
+Choosing a row the device does not hold claims it (`searchClaims.ts`). A claim
+is a case row (`claimSearchedCasesAction`), posted where CommCare posts it: at
+the chosen result, or as a case form opens in a menu whose forms read the
+search, or by a Web Apps entry point's launch. A reload keeps it; **Release
+claimed cases** in the identity menu closes the running worker's claims. The
+running screens post through `hooks/useClaimSearchedCases.ts` and go on once
+the claim has landed: a chosen result continues, and a form whose entry holds
+the claim (the chosen cases and, under a selected parent, the entry's other
+case datums, `parentSelectClaimChoices`) opens on a device that holds them. A
+claim that did not land keeps the worker where they were with its reason.
+Until the device snapshot holds every id of the claim in flight, the screens
+pass those ids to `deviceCasesHoldingClaims`, so a menu condition that reads
+the device's cases waits rather than reading a claimed case as missing. An App
+Test journey writes its claim rows in its own namespace (`app-tests/CLAUDE.md`).
 `engine/evaluateForm.ts`'s capture runs no search and belongs to no running
-worker, so it sends no claims and reads the restore closure alone. Preview
-writes no claim row. An entry point is not a search: it opens only cases the
-worker's restore holds, claimed cases included.
+worker, so it claims nothing and reads the restore closure alone. An entry
+point is not a search: it opens only cases the worker's restore holds,
+claimed cases included.
 
 It rides on `AuthorizedPreviewContext`, NOT on `ResolvedPreviewIdentity`. The
 identity is the one contract the browser and the server both speak, and the
@@ -1282,9 +1303,9 @@ every fact under the authoritative write locks.
 
 Case-search scalar prompt defaults run through `engine/searchExpressionEvaluation.ts`: it emits the authored expression to the same XPath shape as the device and evaluates it with the preview XPath evaluator plus the authenticated user's session values. Date range is deliberately excluded: CommCare binds one paired start/end answer, and the final date-range arm has no scalar default slot, so Preview never invents a From-only default. `hooks/useSearchInputRunState.ts` applies supported defaults once per module, refreshes only untouched prompts when a default/session value changes, and resets submitted state on a module switch; the flipbook therefore preserves worker edits without leaking the prior module's query. `caseSearchConfig.excludedOwnerIds` evaluates once at the authenticated Server Action boundary (so `session-context(userid)` is real), before any case row exists; the shared gate rejects property and relationship reads, while literals/session/Search values and pure calculations remain available. The result splits exactly like CCHQ on whitespace and joins `caseListConfig.filter` + submitted prompts as one Postgres predicate — never a client-side post-filter.
 
-Preview derives navigation from the effective Search action, not from the mere presence of the compatibility settings bag. An explicit zero-input Search action with no Results filter renders one functional manual Search action; with an effective Results filter it submits automatically once for that module/config state. An owner-only exclusion still constrains every Results query, but it mounts no Search screen and triggers no automatic transition by itself. For a prompted Search, `searchButtonDisplayCondition` gates the whole combined Search pane from the case-list action's pre-prompt session/global context; it never reacts to the pane's draft, and the pane's single authored-label submit remains available whenever the action is relevant.
+Preview derives navigation from the effective Search action, not from the mere presence of the compatibility settings bag. An explicit zero-input Search action on the worker's list renders one functional manual Search action; what launches on its own is the author's workflow, below. An owner-only exclusion still constrains every Results query, but it mounts no Search screen and triggers no automatic transition by itself. For a prompted Search, `searchButtonDisplayCondition` gates the whole combined Search pane from the case-list action's pre-prompt session/global context; it never reacts to the pane's draft, and the pane's single authored-label submit remains available whenever the action is relevant.
 
-A search-first module (`caseSearchConfig.searchFirst`) is a different composition, decided by `lib/preview/caseListPhase.ts::caseListStep`: `search` (only the Search pane, no results query runs — `useCases` gets no case type), `results` (a completed search's rows, with a **Search again** ghost action that clears the run and refocuses the first prompt), or `browse` for every other module. A search-first module with no visible prompt is on `results` from the start, mirroring the wire's `default_search`; the automatic zero-input launch therefore fires for it whether or not a Results filter exists. `resultsConstraintContext` reads an unconstrained empty answer on `results` as the worker's search rather than an invitation to add case data, so the empty state and the unfiltered-count probe say "nothing matched" there. Post-submit routing reads `effectivePostSubmit`, so a case form in a search-first module returns to the module (Search) rather than to a previous screen that was the search itself.
+What a worker sees first is the author's workflow (`moduleSearchWorkflow`) as the platform plays it, decided by `lib/preview/caseListPhase.ts::caseListStep` in order: Android keeps the Search screen after a submitted search found nothing (`zeroSearchResults`); a module with no effective search is `browse`; a menu whose forms read the search (`moduleFormsReadSearch`, which only an app declaring Web Apps alone holds) is `results` from the start under skip to results and `search` until a search is submitted under search first; on Web Apps (`searchActionAutoLaunch`), with the Search button's condition holding, skip to results is `results` and search first is `search` until a search is submitted; everything else is `browse`: list first, search first and skip to results on Android, and a false Search button condition in Web Apps. A search first with no visible field is `search` with only its Search button. `search` shows only the Search pane, no results query runs (`useCases` gets no case type); `results` shows a search's rows with a **Search again** ghost action that clears the run and refocuses the first prompt, and for skip to results Search again opens the Search screen (`searchReopened`) until the worker searches, as the Web Apps client asks for the query screen with a forced manual search. The default search runs where the step is `results` with nothing submitted. The `results` of a menu whose forms do not read the search is the Search action's Results (the search population, `heldOnDevice`, the claim at the chosen result). `resultsConstraintContext` reads an unconstrained empty answer on `results` as the worker's search rather than an invitation to add case data, so the empty state and the unfiltered-count probe say "nothing matched" there. Post-submit routing reads `effectivePostSubmit`, so a case form in a menu whose forms read the search returns to the module (Search) rather than to a previous screen that was the search itself.
 
 Expression-bearing Results and Details reads carry the caller's actual live
 `BlueprintDoc` plus module UUID. The action authorizes the app and worker from
@@ -1372,7 +1393,7 @@ Core's static casedb spec, whatever the data holds, so they carry that spec
 answers and no template, so with no prompt answered they refuse as Core does.
 Nova prints every value read of these data-built instances guarded by its
 rows' count (`lib/commcare/xpath/wire/CLAUDE.md`, "Reads of rows that may be
-empty"), so the Search screen's required marks, a no-matches form's search
+empty"), so the Search screen's required marks, a case list registration form's search
 reads and a form's place and table reads read blank over empty data here as
 on a device; what still refuses is a read Nova leaves bare (an itemset, and
 the few node-set arguments listed there).
@@ -1476,15 +1497,15 @@ A form's `formLinks` run in the running app the way they run on a device, throug
 - **Menu selection and Form launch are separate session facts.** A case-list/case-first parent selected through its explicit **Cases** entry stores a UUID-keyed ordered case set and returns to the parent menu; it does not seed a Form target. Same-case-type structural children may reuse that complete set only when `caseSelectionCanFlowBetweenModules` proves their authored type, cardinality, and maxima compatible. Different-type modules follow their explicit `parentCaseModuleUuid`, independently of structural menu parentage. An absent selector leaves the list flat even when its record type has a parent; Preview records an ordered selector/return chain, selects there, then constrains the child's Results query to the union of direct non-extension children of EVERY selected parent before continuing. An advanced chain's list step is constrained through its named index instead: the browser's screens and App Tests take one constraint (`caseSelectionNavigation.ts::parentCaseConstraint`), which carries the index identifier `advancedChainIndex` gives where the menu is emitted advanced (`ParentCaseSelection.index`, the store's `SelectedParentCases.index`), and the list holds the children whose index of that name names the parent, whatever its relationship, as HQ's advanced load reads `index/<identifier>`. A direct running Form or Results URL enters through that same module checkpoint while the parent selection is missing, so deep links cannot skip the chain. For a basic registration form, the selected parents remain navigation/session context: the form does not preload them or persist a primary-case index. Never infer case ancestry from `parentModuleUuid`.
 - **The submit row stays running until the next screen is pushed**, because the write has landed and a second press must not land it again. A failure after the write (the read-back did not answer a row, the target is not in the document, the evaluation threw) settles an inline error that says the answers were saved and logs through `log.error`; it never throws and never silently goes back.
 
-## The completed-search context and the no-matches form
+## The completed-search context and the case list registration form
 
-A search-first module's running state is ONE fact per module in the session
+The search of a menu whose forms read it is ONE fact per module in the session
 store, `previewSearchStates[moduleUuid]` (`lib/session/previewSearchState.ts`):
 `not-searched | running | failed | completed { matchCount, registeredCaseId? }`,
 each attempt numbered, each carrying the answers the worker searched with
 (visible values plus the hidden values `useSearchInputRunState.resolveHidden`
 evaluated at submit). `CaseListScreen` is the only writer: `submitSearch`
-begins the attempt (the automatic zero-input launch included), and the settle
+begins the attempt (the menu's default search included), and the settle
 effect completes or fails it from `engine/searchPhase.ts::searchOutcomeFromLoad`
 over the `useCases` load, but only after it has SEEN a fetch start and end for
 that attempt (`awaitingSearchFetchRef` / `sawSearchFetchRef`), because the
@@ -1502,7 +1523,7 @@ The context keeps the screen's answers (a date range as its two bounds);
 `runtimeBindings.ts::searchInputInstanceValues` folds them to the instance's
 one field per prompt where `FormScreen` hands them to the engine.
 
-A menu form of a search-first module that reads what the search found
+A menu form of a menu whose forms read the search that reads what it found
 (`xpathInstances.ts::formReadsSearchResults`, a walk of the form's and its
 questions' expression slots, links included) reads `results:inline`.
 `engine/searchResultsSnapshot.ts::readSearchResultsSnapshot`, through
@@ -1517,7 +1538,7 @@ writes HQ's `CaseDBXMLGenerator` shape: every row `status="open"`,
 `index` only when the case has indices, sorted by identifier, with
 `@relationship` only for an extension; no related rows and no score.
 `hooks/useSearchResultsSnapshot.ts` loads it for `FormScreen`, keyed by the
-attempt, its answers, the case a no-matches registration added, the worker and
+attempt, its answers, the case a case list registration added, the worker and
 the parent selection. It is never keyed by claims, because a search reads the
 Project's open cases rather than the restore and the claim posts as the form
 opens, nor by the document's identity: the entry keeps the snapshot it opened
@@ -1525,7 +1546,7 @@ with through every rebuild and **Clear form**, as a device's session keeps its
 query step, and a new attempt reads again. The engine waits for it
 (`FormEngineRuntimeOptions.searchResults`, carried by `entrySessionData`), and
 the after-submit links read the same snapshot. With no completed attempt the
-form shows the no-matches form's refusal panel with **Go to Search** and the
+form shows the case list registration form's refusal panel with **Go to Search** and the
 engine never activates; while the snapshot loads one line says so, and a
 failed read offers to try again. A search its own inputs or settings refuse
 (`invalid-search`, `useSearchResultsSnapshot.ts::searchResultsLoadState`)
@@ -1545,9 +1566,10 @@ refuses with its own sentence when the module's Search action is hidden for
 the worker (its display condition is false), since no `searchAnswers` can
 open that form (`evaluationContext.ts::formSearchResults`).
 
-The no-matches registration form (`Form.entry`, the wire's `case_list_form`)
-is admitted or refused by `lib/preview/noMatchesForm.ts::noMatchesFormAdmission`,
-and both screens ask it. Results renders the **Register** action inside the
+The case list registration form (`Module.caseListRegistrationForm`, the
+wire's `case_list_form`) is admitted or refused by
+`lib/preview/caseListRegistration.ts::caseListRegistrationAdmission`, which
+reads the module's slot, and both screens ask it. Results renders the **Register** action inside the
 empty notice only while `noMatchesActionAvailable` (completed with zero
 matches); pressing it sets `previewCaseTarget.searchLaunch = { moduleUuid,
 attempt }` and opens the form. `FormScreen` admits the form only for a launch
@@ -1564,24 +1586,24 @@ to `useFormEngine → engineController → FormEngine.runtimeOptions.searchAnswe
 `count()` sees a prompt the search left blank as no node, on the synchronous
 and the worker path alike.
 
-A form of a search-first module receives its completed search's answers, or
+A form of a menu whose forms read the search receives its completed search's answers, or
 each Search field's starting value when a form link (`PreviewCaseTarget.openedByLink`,
 even after a search in that module) or an entry point opened it
-(`noMatchesForm.ts::formSearchAnswers`). Starting values read the device's
+(`caseListRegistration.ts::formSearchAnswers`). Starting values read the device's
 cases and lookups, and the engine captures its answers once, so such an entry
 waits for both (`useSearchCsqlRuntime.ts::searchWorld`) before it starts; the entry session writes
 `session/data/stringquery` from the case list's filter text
 (`entrySessionData.ts`).
 
-After submit, `FormScreen.dispatchAfterSubmit` lands a no-matches registration
+After submit, `FormScreen.dispatchAfterSubmit` lands a case list registration
 BEFORE any link (the form has none), as the wire's return frame does. A host
 with menu forms records the new case on the module's state
 (`recordRegisteredCase`: the same attempt, now completed with one match and
-`registeredCaseId`, which also closes the no-matches door) and opens the case
+`registeredCaseId`, which also closes the registration door) and opens the case
 list, where Results reads only that case (`useCases({ caseIds })`, the
 answers no longer narrowing it), mirroring the `case_fixture` frame. A host
 without menu forms has a frame of the host command alone, so its context
-retires and the module opens on Search again (or its automatic Results). The
+retires and the module opens on Search again (or its default search's Results). The
 form is on no menu:
 `ModuleScreen`, `HomeScreen`'s form counts, and the case-list form menu read
 `useOrderedMenuForms` / `useMenuFormCounts`, while `screenProjection.ts` still
@@ -1592,7 +1614,7 @@ screen.
 
 Two rules govern the args these `caseDataBinding` Server Actions take. The edge Cloud Armor CRS rules that punish breaking them run in **log-only / preview** mode today (`scripts/infra/setup-cloud-armor-lb.sh` — they record would-be blocks, they don't 403), so this is wire hygiene that keeps the previewed-match logs clean enough to eventually enforce, not a hard gate:
 
-- **Args must be plain JSON — never a `Map`/`Set`/`File`/`Blob`/`Date`.** React also refuses records with a null prototype; document arguments use `toRscSerializableDoc` at dispatch to make plain-object copies. React encodes a Server Action call as `multipart/form-data` the moment any argument holds one of those built-in objects (a `Map` serializes as `$Q`, which forces a `FormData`); a plain-JSON payload goes as a `text/plain` body. The multipart envelope's `\r\nContent-Disposition: form-data; name=` part-header is what CRS `921150` reads as header injection. The running-app search bag is a `Map` in the client (`SearchInputValues`) and crosses as a plain object (`searchInputValuesToWire` / `…FromWire`) for exactly this reason. The worker's claims cross as a plain string array (`claimedCaseIds`), and the viewer's position as a plain `{ latitude, longitude }` or `null`. A Search's runtime query values, evaluated in the browser, cross as plain objects (`{ segments, choices }`) for the server to fold: `engine/searchCsqlRuntime.ts::evaluateSearchCsqlRuntime` composes the module's filter and advanced-input rows as the export does (each in its own slot's context, each chosen case under the case list step's datum id), evaluates each runtime segment's value, each runtime choice's condition and each row's obligations over the Search screen's world (answers, the step's `session/data`, the device's cases and places, lookup tables), and keys them `<row>:<segment key>`, a row whose obligations hold as the choice `<row>`; `foldSearchCsql` folds each row with `lib/commcare/csql/fold.ts::foldCsqlRuntime`, a rejected row makes the read `empty`, unless one of its obligations that holds names no prompt and carries a worker message: the browser reports the kind of the obligation that holds first in such a row (Core evaluates no later one) as the wire's `refusal`, and the read is `invalid-search` with that kind's `searchRuntimeGlobalValidationMessage`, the message the server's own pass gives for an obligation it judges itself (a blank comparand and a broken list item stay silent). A simple input's answer still binds as its literal (`composeRuntimeFilter`). Each row is evaluated as Core evaluates its wrapper: its obligations in turn until one holds, then (if none does) its text, each choice's condition before the one branch it takes, so no piece of an untaken branch, or after a holding obligation, is ever evaluated. Each piece runs in Preview's synchronous evaluator first and, where that can't run it (a pattern the author wrote), in the Search screen's XPath worker, one piece at a time, each answered before the next is sent: the worker's watchdog starts when a request is sent and a timeout retires the whole worker, so a piece queued behind another would spend its budget waiting and take its siblings down. A piece with no value (or an obligation with none) marks the wire `unevaluated`, stops that row, and the read refuses the search. The values are worked out once per submission (`hooks/useSearchCsqlRuntime.ts::useSubmittedSearchDeviceValues`), once lookups are there and, for a search with a runtime piece that reads the device's cases (`moduleSearchReadsCaseDatabase`, the one predicate `caseDatabaseRequirements` also loads the snapshot by, memoized per case list config), once those are there; a failed load of them shows as a cases-load failure whose retry reads them again. Results wait for them; a search-first module keeps them on its search (`PreviewSearchState.deviceValues`) under the search's own `submission` id, never its `attempt` (which restarts after Search again), worked out on the session from the Search press by `hooks/SearchDeviceValuesRecorder.tsx` (mounted beside the case database and lookup providers), so Results leaving before they are in loses nothing; its Results and its forms' snapshot only wait for that record (`waitsForRecord`), never work them out after a claim, so a claim posted mid-entry reads nothing again. A search action's values belong to its screen's own Search press. A read keyed by the registered case's id applies no row of the search. App Tests' records reads (`serverSearchRead.ts`) evaluate the same values on the server over the session's device. A browse list's filter that reads the case chosen in an earlier menu sends `chosenCaseIds` (module UUID to case id, from the same step map) as plain JSON, bound as `TermBindings.chosenCaseIds`. The server's own pass of a search's checks judges only obligations whose reads it holds (the answers and the session context); one that reads the device's cases, a lookup or a session datum is the browser's to judge, through the row it reports.
+- **Args must be plain JSON — never a `Map`/`Set`/`File`/`Blob`/`Date`.** React also refuses records with a null prototype; document arguments use `toRscSerializableDoc` at dispatch to make plain-object copies. React encodes a Server Action call as `multipart/form-data` the moment any argument holds one of those built-in objects (a `Map` serializes as `$Q`, which forces a `FormData`); a plain-JSON payload goes as a `text/plain` body. The multipart envelope's `\r\nContent-Disposition: form-data; name=` part-header is what CRS `921150` reads as header injection. The running-app search bag is a `Map` in the client (`SearchInputValues`) and crosses as a plain object (`searchInputValuesToWire` / `…FromWire`) for exactly this reason. A claim's case ids cross as a plain string array, and the viewer's position as a plain `{ latitude, longitude }` or `null`. A Search's runtime query values, evaluated in the browser, cross as plain objects (`{ segments, choices }`) for the server to fold: `engine/searchCsqlRuntime.ts::evaluateSearchCsqlRuntime` composes the module's filter and advanced-input rows as the export does (each in its own slot's context, each chosen case under the case list step's datum id), evaluates each runtime segment's value, each runtime choice's condition and each row's obligations over the Search screen's world (answers, the step's `session/data`, the device's cases and places, lookup tables), and keys them `<row>:<segment key>`, a row whose obligations hold as the choice `<row>`; `foldSearchCsql` folds each row with `lib/commcare/csql/fold.ts::foldCsqlRuntime`, a rejected row makes the read `empty`, unless one of its obligations that holds names no prompt and carries a worker message: the browser reports the kind of the obligation that holds first in such a row (Core evaluates no later one) as the wire's `refusal`, and the read is `invalid-search` with that kind's `searchRuntimeGlobalValidationMessage`, the message the server's own pass gives for an obligation it judges itself (a blank comparand and a broken list item stay silent). A simple input's answer still binds as its literal (`composeRuntimeFilter`). Each row is evaluated as Core evaluates its wrapper: its obligations in turn until one holds, then (if none does) its text, each choice's condition before the one branch it takes, so no piece of an untaken branch, or after a holding obligation, is ever evaluated. Each piece runs in Preview's synchronous evaluator first and, where that can't run it (a pattern the author wrote), in the Search screen's XPath worker, one piece at a time, each answered before the next is sent: the worker's watchdog starts when a request is sent and a timeout retires the whole worker, so a piece queued behind another would spend its budget waiting and take its siblings down. A piece with no value (or an obligation with none) marks the wire `unevaluated`, stops that row, and the read refuses the search. The values are worked out once per submission (`hooks/useSearchCsqlRuntime.ts::useSubmittedSearchDeviceValues`), once lookups are there and, for a search with a runtime piece that reads the device's cases (`moduleSearchReadsCaseDatabase`, the one predicate `caseDatabaseRequirements` also loads the snapshot by, memoized per case list config), once those are there; a failed load of them shows as a cases-load failure whose retry reads them again. Results wait for them; a menu whose forms read the search keeps them on its search (`PreviewSearchState.deviceValues`) under the search's own `submission` id, never its `attempt` (which restarts after Search again), worked out on the session from the Search press by `hooks/SearchDeviceValuesRecorder.tsx` (mounted beside the case database and lookup providers), so Results leaving before they are in loses nothing; its Results and its forms' snapshot only wait for that record (`waitsForRecord`), never work them out after a claim, so a claim posted mid-entry reads nothing again. A search action's values belong to its screen's own Search press. A read keyed by the registered case's id applies no row of the search. App Tests' records reads (`serverSearchRead.ts`) evaluate the same values on the server over the session's device. A browse list's filter that reads the case chosen in an earlier menu sends `chosenCaseIds` (module UUID to case id, from the same step map) as plain JSON, bound as `TermBindings.chosenCaseIds`. The server's own pass of a search's checks judges only obligations whose reads it holds (the answers and the session context); one that reads the device's cases, a lookup or a session datum is the browser's to judge, through the row it reports.
 - **Expression-bearing reads carry their actual live document.** `loadCasesAction` and the Details projection of `loadCaseDataAction` take the live `BlueprintDoc` and `moduleUuid` beside their list settings. They validate the document's shape and require the supplied settings to match that exact module before deriving slot context, catalog types and order. Membership, actor and worker identity still resolve from the saved app; the candidate never authorizes data access. This keeps a property rename, retype or expression edit in one evaluation world. The payload is plain JSON, including its document and search answers. Raw form loads omit the expression context. `loadCaseCountAction` takes `(appId, caseType)` plus an optional parent selection, while sample populate/reset take the live `CaseType`. A nested parent-select Results or Details request carries one plain-JSON `ParentCaseSelection` with the selected parent type and ordered case-id set. The case store validates the complete set against the app, Project and type, then constrains both reads through the same union of direct non-extension case-index populations.
 
 ## `commcare_project` comes from the deployment record
@@ -1665,7 +1687,7 @@ Each platform plays its own launch (`rules`):
 | | Web Apps | Android |
 |---|---|---|
 | Display conditions | A form off the menu, or in or under a module off the menu, opens only when the entry point ignores display conditions; a hidden module refuses. | Ignored. |
-| Claims | Every chosen case of a module that does not open on its search is claimed (`claimCaseIds`), installed with the launch under its worker in one session write, as HQ's claim frame posts before it navigates. | None. |
+| Claims | Every chosen case of a menu whose forms do not read the search is claimed (`claimCaseIds`): the launch writes its claim rows before it returns `ready`, as HQ's claim frame posts before it navigates. | None. |
 | A case this worker's phone does not hold | Claimed: the form reads it with its saved values. | Opens with blank preloads and no persistent case tile (`blankCaseIds`), as Core checks only the datum's key. |
 | Submitting a form for such a case | Saves as any submission does. | A form that updates or closes the case (`unheldCaseSubmit.ts::formChangesSessionCase`: a close whose condition holds, a primary update, an update or close operation on the session's case) saves nothing and lands where its after-submit destination lands, with the toast "CommCare couldn't save this form": Core's `loadCase` refuses it and the phone quarantines the form (`entryPointUnheldCaseSubmit`, read off a device by `proof/android/test_navigation.py`). App Tests open no entry point, so no journey meets it. |
 
@@ -1685,7 +1707,7 @@ explicit form entry point at its exact active destination, never to a normal URL
 A bare module entry point keeps the actual module menu, with Cases as a separate
 choice; ordinary bare-module navigation follows the module-landing rule (`moduleLanding.ts`).
 
-An explicitly authored `postSubmit: "firstMenu"` on a no-matches registration
+An explicitly authored `postSubmit: "firstMenu"` on a case list registration
 returns to the home screen and retires that search/form/parent request, matching
 HQ's empty root frame. It never records the newly registered scalar case as a
 completed-search result. With no explicit override it returns to Results showing
@@ -1734,9 +1756,9 @@ Request authentication and Preview worker resolution live in
 `engine/caseDataBindingHelpers.ts` accept authorized stores and do not import
 request authentication; disposable tests and background callers can use them
 without manufacturing a Next.js request. Submission worker overlays match the
-`commcare-user` row's `hq_user_id`, not its distinct case UUID. Input-free Search
-launch uses `caseListPhase.ts::automaticallyLaunchesSearch` in both the running
-app and journey observations.
+`commcare-user` row's `hq_user_id`, not its distinct case UUID. The menu's
+default search runs where `caseListPhase.ts::caseListStep` is `results` with
+nothing submitted, in both the running app and journey observations.
 
 Form checks and isolated journey answers share `engine/formAnswerValue.ts`: typed location coordinates use the production picker formatter; malformed supplied values fail as test-input errors before evaluation. Raw location strings must satisfy the same grammar as case storage. Authored defaults and worker validation remain engine observations. This does not exercise the map or device GPS.
 

@@ -39,6 +39,7 @@ import tablerArrowRight from "@iconify-icons/tabler/arrow-right";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerCurrentLocation from "@iconify-icons/tabler/current-location";
+import tablerListDetails from "@iconify-icons/tabler/list-details";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerLogin2 from "@iconify-icons/tabler/login-2";
 import tablerPlus from "@iconify-icons/tabler/plus";
@@ -54,6 +55,7 @@ import {
 	useBuilderLanguage,
 	useLocalizedValues,
 } from "@/components/builder/localization/BuilderLocalizationProvider";
+import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { CaseTile } from "@/components/preview/shared/CaseTile";
 import { CaseTileGroup } from "@/components/preview/shared/CaseTileGroup";
 import { HiddenItemsReveal } from "@/components/preview/shared/HiddenItemsReveal";
@@ -96,10 +98,15 @@ import {
 	type CaseListConfig,
 	type CaseProperty,
 	type Column,
+	caseListRegistrationFormOf,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
-	isNoMatchesForm,
 	makeTranslationUnitId,
+	moduleFormsReadSearch,
+	moduleHasCaseListMenuItem,
+	moduleIsBareCaseList,
+	moduleIsCaseFirst,
+	moduleSearchWorkflow,
 	orderedColumns,
 	reachableCaseTypes,
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
@@ -111,7 +118,10 @@ import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { PreviewMarkdown } from "@/lib/markdown";
 import { caseColumnLabel } from "@/lib/preview/caseColumnLabel";
 import {
-	automaticallyLaunchesSearch,
+	caseListMenuItemDetailAction,
+	caseListMenuItemSelection,
+} from "@/lib/preview/caseListMenuItemRoute";
+import {
 	caseListStep,
 	resultsConstraintContext,
 } from "@/lib/preview/caseListPhase";
@@ -165,22 +175,16 @@ import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { useNavigationDeviceCases } from "@/lib/preview/engine/useNavigationDeviceCases";
 import { columnsReadHere } from "@/lib/preview/engine/viewerLocation";
-import { formlessCaseListSelection } from "@/lib/preview/formlessCaseListRoute";
-import {
-	invalidateCaseData,
-	useCaseDataReplacementRevision,
-} from "@/lib/preview/hooks/caseDataInvalidation";
+import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
 import {
 	useCaseCount,
 	useCaseData,
 	useCases,
 } from "@/lib/preview/hooks/useCaseDataBinding";
 import { useCaseListOrderPlan } from "@/lib/preview/hooks/useCaseListOrderPlan";
+import { useClaimSearchedCases } from "@/lib/preview/hooks/useClaimSearchedCases";
 import { usePreviewMenuSource } from "@/lib/preview/hooks/usePreviewMenuSource";
-import {
-	useOwnedRestoreScopeKey,
-	useRestoreScopeKey,
-} from "@/lib/preview/hooks/useRestoreScopeKey";
+import { useRestoreScopeKey } from "@/lib/preview/hooks/useRestoreScopeKey";
 import {
 	useCaseListStepSession,
 	useSubmissionKey,
@@ -193,6 +197,7 @@ import {
 	moduleHasChildren,
 	previewAutomaticForm,
 	previewCaseDescendantModuleUuids,
+	previewCaseListMenuEntry,
 	previewMenuCaseContext,
 	previewMenuModuleUuids,
 } from "@/lib/preview/menuProjection";
@@ -217,11 +222,9 @@ import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
-	useAddPreviewClaims,
 	useAppId,
 	useCanEdit,
 	usePreviewCaseTarget,
-	usePreviewClaimedCaseIds,
 	usePreviewDevice,
 	usePreviewing,
 	usePreviewMenuCaseSelections,
@@ -334,15 +337,20 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		() => menuForms.filter((f) => CASE_LOADING_FORM_TYPES.has(f.type)),
 		[menuForms],
 	);
-	/** The form Results offers when a search finds nothing, if the module
-	 * has one. It is not a menu form: `orderedForms`, not `menuForms`. */
-	const noMatchesForm = useMemo(
-		() => orderedForms.find(isNoMatchesForm),
-		[orderedForms],
+	/** The form Results offers when a search finds nothing, if the module's
+	 * `caseListRegistrationForm` names one. It is not a menu form:
+	 * `orderedForms`, not `menuForms`. */
+	const registrationFormUuid =
+		moduleUuid === undefined
+			? undefined
+			: caseListRegistrationFormOf(menuSource.doc, moduleUuid);
+	const registrationForm = useMemo(
+		() => orderedForms.find((form) => form.uuid === registrationFormUuid),
+		[orderedForms, registrationFormUuid],
 	);
 	/* The module's search context in this Preview run. The screen writes it
 	 * as the worker searches and the query settles; the no-matches form
-	 * reads it to admit or refuse itself (`noMatchesForm.ts`). */
+	 * reads it to admit or refuse itself (`caseListRegistration.ts`). */
 	const searchState = usePreviewSearchState(moduleUuid);
 	const setPreviewSearchState = useSetPreviewSearchState();
 	/** The form a forms-first entry tapped to get here, when it's a real
@@ -364,20 +372,47 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const selectsForParentRequest =
 		moduleUuid !== undefined &&
 		previewParentCaseRequest?.selectingModuleUuid === moduleUuid;
-	const selectsForMenu =
-		selectsForParentRequest || (seededFormUuid === undefined && hasChildren);
-	/** A case list with no forms (the case list menu item): choosing a case
-	 *  ends the session, so it continues to the app's first screen in Web
-	 *  Apps or the phone's home screen on Android. */
-	const formlessCaseList =
+	/** The module lists its case list as its own menu entry. */
+	const hasCaseListMenuItem =
 		moduleUuid !== undefined &&
-		menuSource.modules[moduleUuid]?.caseListOnly === true &&
-		orderedForms.length === 0 &&
-		!hasChildren;
+		menuSource.modules[moduleUuid] !== undefined &&
+		moduleHasCaseListMenuItem(menuSource.modules[moduleUuid]);
+	const moduleCaseFirst =
+		moduleUuid !== undefined && moduleIsCaseFirst(menuSource.doc, moduleUuid);
+	const bareCaseList =
+		moduleUuid !== undefined &&
+		moduleIsBareCaseList(menuSource.doc, moduleUuid);
+	/** This list was opened from the module's case list menu entry: a bare
+	 *  case list (the menu is its list), or a forms-first menu's entry, the
+	 *  one way such a menu reaches its list with no form chosen. A
+	 *  case-first menu's list with no form chosen is the menu's own case
+	 *  selection, which then lists the forms and the entry. The entry holds
+	 *  no form, so choosing a case routes by `caseListMenuItemSelection`. */
+	const openedFromCaseListMenuItem =
+		hasCaseListMenuItem &&
+		!selectsForParentRequest &&
+		seededFormUuid === undefined &&
+		retainedFormUuid === undefined &&
+		(bareCaseList ? !hasChildren : !moduleCaseFirst);
+	/* A case-first menu with the entry lists it on its form menu, after the
+	 * forms, once the case is chosen; with it there the menu has more than
+	 * one command, so the choice never skips the menu. */
+	const caseFirstMenuEntry =
+		moduleUuid !== undefined && moduleCaseFirst
+			? previewCaseListMenuEntry(menuSource.doc, moduleUuid, {
+					isCaseFirst: true,
+					hasSelectedCase: true,
+				})
+			: undefined;
+	const selectsForMenu =
+		selectsForParentRequest ||
+		(seededFormUuid === undefined &&
+			hasChildren &&
+			!openedFromCaseListMenuItem);
 	/** Whether selecting a case can continue at all. */
 	const canContinue =
 		selectsForMenu ||
-		formlessCaseList ||
+		openedFromCaseListMenuItem ||
 		seededFormUuid !== undefined ||
 		caseLoadingForms.length > 0;
 
@@ -610,32 +645,41 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						searchSession,
 						EMPTY_SEARCH_INPUT_VALUES,
 					)));
-	/* A module that opens on Search shows the Search screen alone until a
-	 * search completes; Results exist only after (the running app's inline
-	 * search). The commit gate refuses a button condition on such a module,
-	 * so the action is always relevant there. */
-	const searchFirst = searchConfig?.searchFirst === true;
+	/* The menu's forms read the search (CommCare's inline search): the
+	 * search runs before the list exists, its context is what the forms and
+	 * the case list registration form read, and its claim sits in each
+	 * form's entry. */
+	const formsReadSearch = mod !== undefined && moduleFormsReadSearch(mod);
+	/* Search again on a skip-to-results menu opens the Search screen, which
+	 * the menu otherwise passes by; the worker's next search closes it. */
+	const [searchReopenedKey, setSearchReopenedKey] = useState<string>();
+	const searchReopened =
+		searchReopenedKey === `${scopeEpoch}:${moduleUuid ?? ""}` &&
+		!searchRun.hasSubmitted;
 	const step = caseListStep({
-		searchFirst,
-		hasVisibleInputs: hasSearchInputs,
+		workflow: mod === undefined ? undefined : moduleSearchWorkflow(mod),
+		formsReadSearch,
+		searchRelevant: searchActionIsRelevant,
 		hasSubmitted: searchRun.hasSubmitted,
 		submittedFoundNothing:
 			emptySubmission !== undefined && emptySubmission === searchRun.submitted,
+		searchReopened,
 		rules: platformRules,
 	});
 	/* Whether a Search has been pressed whose query has not yet been seen to
 	 * start and end; read by the settlement effect below. */
 	const awaitingSearchFetchRef = useRef(false);
 	const sawSearchFetchRef = useRef(false);
-	/* The worker pressed Search (or a search-first module with nothing to
-	 * answer launched its own): the module's search is now running with
-	 * these answers, until the Results query settles below. Only a
-	 * search-first module keeps this context; it is what admits the
-	 * no-matches registration form, which only such a module can carry. */
+	/* The worker pressed Search (or the menu ran its default search as it
+	 * opened): the module's search is now running with these answers, until
+	 * the Results query settles below. Only a menu whose forms read the
+	 * search keeps this context; it is what admits the case list
+	 * registration form, which only such a menu can carry. */
 	const submitSearch = useCallback(
 		(next: ReadonlyMap<string, string>) => {
 			searchRun.submit(next);
-			if (moduleUuid === undefined || !searchFirst) return;
+			setSearchReopenedKey(undefined);
+			if (moduleUuid === undefined || !formsReadSearch) return;
 			awaitingSearchFetchRef.current = true;
 			setPreviewSearchState(
 				moduleUuid,
@@ -645,14 +689,27 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				}),
 			);
 		},
-		[searchRun, moduleUuid, searchFirst, searchState, setPreviewSearchState],
+		[
+			searchRun,
+			moduleUuid,
+			formsReadSearch,
+			searchState,
+			setPreviewSearchState,
+		],
 	);
 	/* Search again, and the clear button, retire the completed search so a
-	 * later Results is a new attempt and the no-matches form closes its door. */
+	 * later Results is a new attempt and the registration form closes its
+	 * door. */
 	const resetSearch = useCallback(() => {
 		searchRun.clear();
 		if (moduleUuid !== undefined) setPreviewSearchState(moduleUuid, undefined);
 	}, [searchRun, moduleUuid, setPreviewSearchState]);
+	/* Search again from Results opens the Search screen, including where
+	 * the menu ran its default search as it opened. */
+	const searchAgain = useCallback(() => {
+		resetSearch();
+		setSearchReopenedKey(`${scopeEpoch}:${moduleUuid ?? ""}`);
+	}, [resetSearch, scopeEpoch, moduleUuid]);
 	/* A retained flipbook submission belongs to the Search action. If a live
 	 * session/config edit makes that action irrelevant, show the ordinary case
 	 * list instead of silently keeping an inaccessible remote-search query. The
@@ -874,11 +931,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	// request so an assignment edit or a place move re-asks instead of serving
 	// the previous worker's rows.
 	const restoreScopeKey = useRestoreScopeKey(previewPersonaUuid);
-	const claimedCaseIds = usePreviewClaimedCaseIds(previewPersonaUuid);
-	/* A selection follows what the worker owns, not its claims: claiming the
-	 * cases being chosen must not retire the choice that claimed them. */
-	const ownedRestoreScopeKey = useOwnedRestoreScopeKey(previewPersonaUuid);
-	const selectionScopeKey = `${stateScopeKey}\u0000${ownedRestoreScopeKey}`;
+	/* A claim is a case row the store holds, so the restore scope follows
+	 * what the worker owns and a claim never retires the choice that made
+	 * it: the device's next read holds the claimed case. */
+	const selectionScopeKey = `${stateScopeKey}\u0000${restoreScopeKey}`;
 	const [multiSelectionState, setMultiSelectionState] = useState<{
 		readonly scopeKey: string;
 		readonly choices: readonly PreviewCaseChoice[];
@@ -1011,8 +1067,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const readsSearchResults =
 		registeredCaseIds !== undefined || activeSearchInputValues !== undefined;
 	/* A search action's claim is its remote request's own post, posted as
-	 * soon as a result is chosen; a search-first module posts at the form. */
-	const claimsAtResult = !searchFirst && readsSearchResults;
+	 * soon as a result is chosen; a menu whose forms read the search posts
+	 * as the form opens. */
+	const claimsAtResult = !formsReadSearch && readsSearchResults;
 	/* Results and the Details opened from them are HQ's results rows; a
 	 * browse list is the device's own cases. */
 	const columnDisplayContext = useColumnDisplayContext(
@@ -1035,16 +1092,32 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		}),
 		[columnDisplayContext, platformRules.linkColumnInList],
 	);
-	const addWorkerClaims = useAddPreviewClaims();
-	/* Android follows every claim with a sync, which re-reads the worker's
-	 * device as Sync with server does. */
-	const addPreviewClaims = (caseIds: readonly string[]) => {
-		addWorkerClaims(caseIds);
-		if (platformRules.claimThenSync && caseIds.length > 0 && appId !== "")
-			for (const entry of caseTypes) invalidateCaseData(appId, entry.name);
+	/* A claim writes the worker's claim rows, then the device is read again
+	 * as a restore after a claim would be (Android syncs after every claim).
+	 * Until the device holds the claim's cases, a condition that reads them
+	 * waits (`deviceCasesHoldingClaims`). */
+	const { claim: claimSearchedCases, inFlightCaseIds } =
+		useClaimSearchedCases();
+	/* Post the claim for these ids; a claim with nothing to claim posts
+	 * nothing. Resolves false when the claim did not land, with the reason
+	 * shown, so the caller stays where it is. */
+	const postClaim = async (caseIds: readonly string[]): Promise<boolean> => {
+		if (caseIds.length === 0) return true;
+		const outcome = await claimSearchedCases(caseIds);
+		if (outcome.kind === "claimed") return true;
+		/* A claim whose screen is gone (another app, scope or worker) answers
+		 * no one: nothing to say. */
+		if (outcome.kind === "superseded") return false;
+		showToast(
+			"error",
+			"message" in outcome
+				? outcome.message
+				: "Couldn't open this case. Try again in a moment.",
+		);
+		return false;
 	};
 	const claimChoices = (choices: readonly PreviewCaseChoice[]) =>
-		addPreviewClaims(claimableCaseIds(choices));
+		postClaim(claimableCaseIds(choices));
 	/* The cases choosing this row claims at the result: none in a module
 	 * whose claim waits for the form. */
 	const claimedAtResult = (row: CaseRowWithCalculated) =>
@@ -1060,7 +1133,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * wait for it. */
 	const ownSubmissionKey = useSubmissionKey(activeSearchInputValues);
 	const searchAttempt =
-		searchFirst &&
+		formsReadSearch &&
 		searchState !== undefined &&
 		searchState.kind !== "not-searched"
 			? searchState
@@ -1127,9 +1200,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		caseTypes,
 		parentCase: parentCaseConstraint,
 		page: casePage,
-		/* What the worker owns is the list's identity; its claims re-read the
-		 * list inside `useCases` and keep the settled rows on screen. */
-		requestScopeKey: `${stateScopeKey}\u0000${ownedRestoreScopeKey}`,
+		/* What the worker owns is the list's identity; a claim re-reads the
+		 * list through the case data revision and keeps the settled rows on
+		 * screen. */
+		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
 		search: readsSearchResults,
 		...(csqlRuntime !== undefined && { csqlRuntime }),
 		chosenCaseIds: stepSession.chosenCaseIds,
@@ -1250,9 +1324,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		scopeKey: restoreScopeKey,
 		search: readsSearchResults,
 		positionScreen: "detail",
-		// A search-first module's detail reads the completed search's answers,
-		// which its inline query keeps beside the results.
-		...(searchFirst &&
+		// A detail in a menu whose forms read the search reads the completed
+		// search's answers, which its inline query keeps beside the results.
+		...(formsReadSearch &&
 			searchState?.kind === "completed" && {
 				searchAnswers: searchState.answers,
 			}),
@@ -1430,12 +1504,15 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		}
 		const decided = decideCaseLoadingForms(
 			displayedFormMenuCase,
-			claimedAtResult(displayedFormMenuCase),
+			inFlightCaseIds,
 		);
 		if (decided.some((entry) => entry.visibility === "pending")) return;
 		setAutoContinueCaseId(null);
 		const automaticForm =
-			retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid);
+			retainedFormUuid ??
+			(caseFirstMenuEntry !== undefined
+				? undefined
+				: previewAutomaticForm(decided, seededFormUuid));
 		if (automaticForm !== undefined)
 			openFormAfterClaimRef.current?.(automaticForm, displayedFormMenuCase);
 	});
@@ -1578,56 +1655,62 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		[localizedSearchValidationMessages],
 	);
 	const effectiveSearchFilter = effectiveFilterForEmission(config?.filter);
-	const hasEffectiveSearchFilter = effectiveSearchFilter !== undefined;
 	const zeroInputSearchActionIsRelevant =
 		!hasSearchInputs && searchActionIsRelevant;
-	/* CommCare auto-launches an input-free Search when its Results filter
-	 * narrows the population; a search-first module runs its input-free
-	 * search on its own regardless (`default_search`). */
-	const automaticallyLaunchesZeroInputSearch = automaticallyLaunchesSearch({
-		relevant: searchActionIsRelevant,
-		hasVisibleInputs: hasSearchInputs,
-		hasEffectiveFilter: hasEffectiveSearchFilter,
-		searchFirst,
-		rules: platformRules,
-	});
+	/* Skip to results runs its default search as the menu opens: the step
+	 * is `results` with nothing submitted (`default_search`). A registered
+	 * case's Results read that case instead, so nothing launches then. */
+	const automaticallyLaunchesDefaultSearch =
+		step === "results" &&
+		!searchRun.hasSubmitted &&
+		registeredCaseIds === undefined;
 	/* A hidden input is part of the search the automatic launch performs
 	 * (the device seeds it on every query-screen build), so editing one
 	 * launches again rather than leaving the previous values in the query. */
 	const hiddenInputIdentity = (config?.searchInputs ?? [])
 		.filter((input) => input.kind === "hidden")
 		.map((input) => [input.name, input.uuid, input.value]);
-	const automaticSearchToken = automaticallyLaunchesZeroInputSearch
+	const automaticSearchToken = automaticallyLaunchesDefaultSearch
 		? JSON.stringify({
 				scopeEpoch,
 				moduleUuid,
 				filter: effectiveSearchFilter,
 				condition: searchButtonCondition,
-				searchFirst,
+				workflow: searchConfig?.workflow,
+				formsReadSearch,
 				hidden: hiddenInputIdentity,
 			})
 		: undefined;
-	/* The Register action on an empty search: the no-matches form opens
-	 * carrying this search's attempt, which is what admits it there. Offered
-	 * only in the running app, on a completed search that found nothing. */
+	/* The Register action on an empty search: the case list registration
+	 * form opens carrying this search's attempt, which is what admits it
+	 * there. Offered only in the running app, on a completed search that
+	 * found nothing. */
+	const registrationLabel =
+		moduleUuid === undefined
+			? undefined
+			: menuSource.modules[moduleUuid]?.caseListRegistrationForm?.label;
 	const noMatchesAction = useMemo(() => {
 		if (
 			!previewing ||
 			moduleUuid === undefined ||
-			noMatchesForm === undefined ||
+			registrationForm === undefined ||
 			!noMatchesActionAvailable(searchState)
 		) {
 			return undefined;
 		}
 		const attempt = searchState.attempt;
 		const label =
-			noMatchesForm.entry?.label !== undefined
+			registrationLabel !== undefined
 				? ((localizedValues.get(
-						makeTranslationUnitId("form", noMatchesForm.uuid, "entry-label"),
-					) as string | undefined) ?? noMatchesForm.entry.label)
+						makeTranslationUnitId(
+							"module",
+							moduleUuid,
+							"case-list-registration-label",
+						),
+					) as string | undefined) ?? registrationLabel)
 				: ((localizedValues.get(
-						makeTranslationUnitId("form", noMatchesForm.uuid, "name"),
-					) as string | undefined) ?? noMatchesForm.name);
+						makeTranslationUnitId("form", registrationForm.uuid, "name"),
+					) as string | undefined) ?? registrationForm.name);
 		return {
 			label,
 			onClick: () => {
@@ -1635,16 +1718,17 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				setFormMenuCase(null);
 				setMultiFormMenuOpen(false);
 				setPreviewCaseTarget({
-					formUuid: noMatchesForm.uuid,
+					formUuid: registrationForm.uuid,
 					searchLaunch: { moduleUuid, attempt },
 				});
-				navigate.openForm(moduleUuid, noMatchesForm.uuid);
+				navigate.openForm(moduleUuid, registrationForm.uuid);
 			},
 		};
 	}, [
 		previewing,
 		moduleUuid,
-		noMatchesForm,
+		registrationForm,
+		registrationLabel,
 		searchState,
 		localizedValues,
 		setPreviewCaseTarget,
@@ -1660,7 +1744,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * dropped on its own (the last prompt removed) retires the context. */
 	const syncedSearchModuleRef = useRef<Uuid | undefined>(undefined);
 	useEffect(() => {
-		if (moduleUuid === undefined || !searchFirst) return;
+		if (moduleUuid === undefined || !formsReadSearch) return;
 		const active =
 			searchState !== undefined && searchState.kind !== "not-searched";
 		const firstPass = syncedSearchModuleRef.current !== moduleUuid;
@@ -1675,7 +1759,13 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		} else if (!active && searchRun.hasSubmitted) {
 			searchRun.clear();
 		}
-	}, [moduleUuid, searchFirst, searchState, searchRun, setPreviewSearchState]);
+	}, [
+		moduleUuid,
+		formsReadSearch,
+		searchState,
+		searchRun,
+		setPreviewSearchState,
+	]);
 	const launchedAutomaticSearchRef = useRef<string | undefined>(undefined);
 	useEffect(() => {
 		if (
@@ -1685,10 +1775,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			return;
 		}
 
-		/* CommCare auto-launches an input-free Search only when its Results
-		 * filter actually narrows the population and the action is relevant. The
-		 * ref makes that launch idempotent under React's development effect replay
-		 * while still allowing a changed module/filter to launch as a new action. */
+		/* The default search runs once as the menu opens. The ref makes that
+		 * launch idempotent under React's development effect replay while still
+		 * allowing a changed module or setting to launch as a new search. */
 		launchedAutomaticSearchRef.current = automaticSearchToken;
 		submitSearch(EMPTY_SEARCH_INPUT_VALUES);
 	}, [automaticSearchToken, submitSearch]);
@@ -1738,21 +1827,24 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * instead of the list: the running app pops back to the case list to
 	 * re-select, never to the confirm screen. Search/filter persist (the
 	 * list remembers what you were looking at). */
-	const openFormWithCases = (
+	const openFormWithCases = async (
 		formUuid: Uuid,
 		cases: readonly PreviewCaseChoice[],
 	) => {
 		if (!moduleUuid) return;
-		/* A search-first module's claim sits in the form's entry: choosing
-		 * the form posts it, for the chosen cases and, under a selected
-		 * parent, the entry's other case datums. Claiming before navigating
-		 * re-reads the device snapshot, so the form opens with them held. */
-		if (searchFirst) {
-			claimChoices([
+		/* In a menu whose forms read the search the claim sits in the form's
+		 * entry: choosing the form posts it, for the chosen cases and, under
+		 * a selected parent, the entry's other case datums. The form opens
+		 * once the claim has landed, so its device holds them; a claim that
+		 * did not land keeps the worker here with the reason shown. */
+		if (
+			formsReadSearch &&
+			!(await claimChoices([
 				...cases,
 				...parentSelectClaimChoices(menuSource, moduleUuid, menuCaseSelections),
-			]);
-		}
+			]))
+		)
+			return;
 		setOpenCase(null);
 		setFormMenuCase(null);
 		setMultiFormMenuOpen(false);
@@ -1885,12 +1977,24 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * are several. */
 	const proceedWithCase = (row: CaseRowWithCalculated) => {
 		const claimed = claimedAtResult(row);
-		addPreviewClaims(claimed);
-		if (formlessCaseList && !selectsForMenu) {
-			const route = formlessCaseListSelection(platformRules);
-			navigate.goHome();
-			if (route.kind === "device-home") setPreviewAtDeviceHome(true);
-			else showToast("info", message(route.notice));
+		if (claimed.length === 0) {
+			continueWithChosenCase(row, claimed);
+			return;
+		}
+		/* The claim posts as the result is chosen, and the choice goes on once
+		 * it has landed; one that did not land keeps the worker on the list
+		 * with the reason shown. */
+		void postClaim(claimed).then((landed) => {
+			if (landed) continueWithChosenCase(row, claimed);
+		});
+	};
+	const continueWithChosenCase = (
+		row: CaseRowWithCalculated,
+		claimed: readonly string[],
+	) => {
+		if (openedFromCaseListMenuItem) {
+			/* The entry holds no form: nothing opens from the choice. */
+			routeCaseListMenuItemSelection();
 			return;
 		}
 		if (selectsForMenu && moduleUuid && mod.caseType) {
@@ -1908,9 +2012,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			decided.some((entry) => entry.visibility === "pending");
 		const automaticForm = awaitingClaim
 			? undefined
-			: (retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid));
+			: (retainedFormUuid ??
+				(caseFirstMenuEntry !== undefined && seededFormUuid === undefined
+					? undefined
+					: previewAutomaticForm(decided, seededFormUuid)));
 		if (automaticForm !== undefined) {
-			openFormWithCase(automaticForm, row);
+			void openFormWithCase(automaticForm, row);
 		} else if (decided.length > 0) {
 			/* Several eligible forms, still-loading conditions, or none
 			 * eligible at all land on the menu: it renders placeholders and
@@ -1919,6 +2026,21 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			setAutoContinueCaseId(awaitingClaim ? row.case_id : null);
 			focusNextFrame(() => formMenuBackRef.current);
 		}
+	};
+
+	/* Where a choice made from the case list menu entry lands: Web Apps
+	 * steps back over the choice to the list with nothing chosen (in a
+	 * case-first menu the form menu stays, since the case was chosen before
+	 * the entry), and Android ends the session at its home screen. */
+	const routeCaseListMenuItemSelection = () => {
+		const route = caseListMenuItemSelection(platformRules);
+		if (route.kind === "device-home") {
+			navigate.goHome();
+			setPreviewAtDeviceHome(true);
+			return;
+		}
+		if (displayedFormMenuCase !== null) return;
+		if (displayedOpenCase !== null) closeCaseDetail();
 	};
 
 	const selectionBlocker = previewCaseSelectionMessage(
@@ -1971,7 +2093,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				{ count: result.choices.length },
 			);
 	};
-	const finishSelectedCaseNavigation = (
+	const finishSelectedCaseNavigation = async (
 		choices: readonly PreviewCaseChoice[],
 	) => {
 		/* Read the live limit at the final effect boundary. The async caller's
@@ -1989,7 +2111,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			);
 			return;
 		}
-		if (claimsAtResult) claimChoices(choices);
+		if (claimsAtResult && !(await claimChoices(choices))) return;
 		if (selectsForMenu) {
 			continueAfterMenuSelection(choices);
 			return;
@@ -1998,7 +2120,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		const automaticForm =
 			retainedFormUuid ?? previewAutomaticForm(decided, seededFormUuid);
 		if (automaticForm !== undefined) {
-			openFormWithCases(automaticForm, choices);
+			await openFormWithCases(automaticForm, choices);
 			return;
 		}
 		if (decided.length > 0) {
@@ -2032,7 +2154,6 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				parentCase: parentCaseConstraint,
 				viewerTimeZone: viewerTimeZone(),
 				personaUuid: previewPersonaUuid,
-				claimedCaseIds: [...claimedCaseIds],
 				/* Cases chosen from a search's Results are checked against the
 				 * search's population, as HQ's claim accepts any case it finds. */
 				...(readsSearchResults && moduleUuid !== undefined
@@ -2060,7 +2181,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					return;
 				}
 				/* The check is the latest word on which choices the device holds. */
-				finishSelectedCaseNavigation(reconciled.rows.map(previewCaseChoiceOf));
+				await finishSelectedCaseNavigation(
+					reconciled.rows.map(previewCaseChoiceOf),
+				);
 				return;
 			}
 			if (result.kind === "empty") {
@@ -2120,10 +2243,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	// ── Panes ──
 
 	/* Browse: the pane sits beside Results whenever the action applies.
-	 * Search-first: the pane IS the screen until a search completes, then it
-	 * steps aside for Results, which carries Search again. */
+	 * Search first: the pane IS the screen until a search completes, then it
+	 * steps aside for Results, which carries Search again. A Search screen
+	 * with no visible field holds only its Search button. */
 	const searchPane =
-		hasSearchInputs && searchActionIsRelevant && step !== "results" ? (
+		step === "search" ||
+		(hasSearchInputs && searchActionIsRelevant && step === "browse") ? (
 			<div
 				ref={searchPaneRef}
 				data-case-list-step={step}
@@ -2164,7 +2289,18 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						</div>
 					)}
 				</div>
-				{accessPhase === "authorized" && (
+				{accessPhase === "authorized" && !hasSearchInputs && (
+					<Button
+						type="button"
+						data-search-submit
+						onClick={() => submitSearch(EMPTY_SEARCH_INPUT_VALUES)}
+						className="h-auto min-h-11 w-full whitespace-normal break-words rounded-md bg-pv-accent px-4 py-2.5 text-center text-sm font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
+					>
+						<Icon icon={tablerSearch} width="15" height="15" />
+						{CASE_SEARCH_BUTTON_LABEL}
+					</Button>
+				)}
+				{accessPhase === "authorized" && hasSearchInputs && (
 					<SearchInputForm
 						key={`${scopeEpoch}:${moduleUuid}`}
 						landmarkLabel={title}
@@ -2204,6 +2340,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			</div>
 		) : null;
 
+	/* The detail's button when the list was opened from the case list menu
+	 * entry: Continue and then the route, or Android's Done. */
+	const menuItemDetailAction = openedFromCaseListMenuItem
+		? caseListMenuItemDetailAction(platformRules)
+		: undefined;
 	const detailPane = displayedOpenCase !== null && (
 		<div className="max-w-lg min-w-0 flex-1">
 			<Button
@@ -2251,17 +2392,29 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			 *  case-loading form (or the form menu, when the module has more
 			 *  than one). A module with no case-loading form has nowhere to
 			 *  continue, so the detail is the end of the road and no button
-			 *  renders. */}
-			{canContinue && multipleSelection === undefined && (
-				<Button
-					type="button"
-					onClick={() => proceedWithCase(displayedOpenCase)}
-					className="mt-4 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
-				>
-					<WorkerText message="continue" />
-					<Icon icon={tablerArrowRight} width="15" height="15" />
-				</Button>
-			)}
+			 *  renders. Opened from the case list menu entry, Android's detail
+			 *  ends in Done, which returns to the list with nothing chosen. */}
+			{canContinue &&
+				multipleSelection === undefined &&
+				(menuItemDetailAction?.kind === "return-to-list" ? (
+					<Button
+						type="button"
+						data-case-detail-done
+						onClick={closeCaseDetail}
+						className="mt-4 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
+					>
+						<WorkerText message={menuItemDetailAction.message} />
+					</Button>
+				) : (
+					<Button
+						type="button"
+						onClick={() => proceedWithCase(displayedOpenCase)}
+						className="mt-4 gap-2 rounded-lg bg-pv-accent px-4 text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
+					>
+						<WorkerText message="continue" />
+						<Icon icon={tablerArrowRight} width="15" height="15" />
+					</Button>
+				))}
 		</div>
 	);
 
@@ -2315,10 +2468,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const formMenuDecided =
 		displayedFormMenuCase === null
 			? []
-			: decideCaseLoadingForms(
-					displayedFormMenuCase,
-					claimedAtResult(displayedFormMenuCase),
-				);
+			: decideCaseLoadingForms(displayedFormMenuCase, inFlightCaseIds);
 	const formMenuHidden = formMenuDecided
 		.filter((entry) => entry.visibility === "hidden")
 		.map((entry) => ({
@@ -2384,7 +2534,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							key={form.uuid}
 							type="button"
 							variant="outline"
-							onClick={() => openFormWithCase(form.uuid, displayedFormMenuCase)}
+							onClick={() =>
+								void openFormWithCase(form.uuid, displayedFormMenuCase)
+							}
 							className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
 						>
 							<Icon
@@ -2408,6 +2560,40 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						</Button>
 					);
 				})}
+				{/* The case list menu entry, after the forms. The case is
+				 *  already chosen, so choosing the entry is the selection. */}
+				{caseFirstMenuEntry !== undefined && (
+					<Button
+						type="button"
+						variant="outline"
+						data-case-list-menu-entry
+						onClick={routeCaseListMenuItemSelection}
+						className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
+					>
+						{caseFirstMenuEntry.icon ? (
+							<ProjectMediaImage
+								assetId={caseFirstMenuEntry.icon}
+								alt=""
+								className="size-7 rounded-lg object-cover shrink-0"
+							/>
+						) : (
+							<Icon
+								icon={tablerListDetails}
+								width="18"
+								height="18"
+								className="text-nova-text-muted group-hover:text-pv-accent-bright transition-colors shrink-0"
+							/>
+						)}
+						<span
+							data-form-menu-choice-label
+							className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]"
+						>
+							{(localizedValues.get(caseFirstMenuEntry.labelUnitId) as
+								| string
+								| undefined) ?? caseFirstMenuEntry.label}
+						</span>
+					</Button>
+				)}
 			</div>
 			<HiddenItemsReveal items={formMenuHidden} />
 		</div>
@@ -2474,7 +2660,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 							key={form.uuid}
 							type="button"
 							variant="outline"
-							onClick={() => openFormWithCases(form.uuid, selectedChoices)}
+							onClick={() => void openFormWithCases(form.uuid, selectedChoices)}
 							className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
 						>
 							<Icon
@@ -2549,7 +2735,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					variant="ghost"
 					data-search-again
 					onClick={() => {
-						resetSearch();
+						searchAgain();
 						focusFirstSearchControl();
 					}}
 					className="-ml-2 mb-4 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
@@ -2558,21 +2744,19 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					{message("searchAgain")}
 				</Button>
 			)}
-			{zeroInputSearchActionIsRelevant &&
-				!hasEffectiveSearchFilter &&
-				!searchFirst && (
-					<Button
-						type="button"
-						onClick={() => {
-							submitSearch(EMPTY_SEARCH_INPUT_VALUES);
-							focusNextFrame(() => resultsTitleRef.current);
-						}}
-						className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
-					>
-						<Icon icon={tablerSearch} width="16" height="16" />
-						{CASE_SEARCH_BUTTON_LABEL}
-					</Button>
-				)}
+			{zeroInputSearchActionIsRelevant && step === "browse" && (
+				<Button
+					type="button"
+					onClick={() => {
+						submitSearch(EMPTY_SEARCH_INPUT_VALUES);
+						focusNextFrame(() => resultsTitleRef.current);
+					}}
+					className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
+				>
+					<Icon icon={tablerSearch} width="16" height="16" />
+					{CASE_SEARCH_BUTTON_LABEL}
+				</Button>
+			)}
 			{state.kind === "rows" && loadedRows.length > 0 && (
 				<div className="mb-3">
 					<ListFilterBox
@@ -3328,7 +3512,7 @@ function NoCaseDataNotice({
 }
 
 /** Worker-facing zero-results guidance for a submitted search. */
-/** The Register action an empty search offers (`noMatchesForm.ts`). */
+/** The Register action an empty search offers (`caseListRegistration.ts`). */
 interface NoMatchesAction {
 	readonly label: string;
 	readonly onClick: () => void;

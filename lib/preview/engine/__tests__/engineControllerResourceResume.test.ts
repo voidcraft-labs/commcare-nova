@@ -31,7 +31,8 @@ function storeForSearchRegistration() {
 				name: "Patients",
 				caseType: "patient",
 				caseListConfig: config,
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
+				caseListRegistrationForm: { formUuid: FORM },
 				forms: [
 					{
 						name: "Visit",
@@ -42,7 +43,6 @@ function storeForSearchRegistration() {
 						uuid: FORM,
 						name: "Register",
 						type: "registration",
-						entry: { kind: "search-no-matches" },
 						fields: [
 							f({
 								uuid: NAME,

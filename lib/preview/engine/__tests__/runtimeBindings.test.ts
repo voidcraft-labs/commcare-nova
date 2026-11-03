@@ -253,7 +253,7 @@ function wireFilterContext(config: CaseListConfig) {
 					name: "Patients",
 					caseType: PATIENT,
 					caseListConfig: config,
-					caseListOnly: true,
+					caseListMenuItem: {},
 					forms: [],
 				},
 			],

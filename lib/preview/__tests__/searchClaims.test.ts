@@ -15,7 +15,12 @@ import {
 	navigationSelectedCase,
 } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewAutomaticForm } from "@/lib/preview/menuProjection";
-import { deviceCasesHoldingClaims } from "@/lib/preview/searchClaims";
+import {
+	claimableCaseIds,
+	claimPostsAtResult,
+	deviceCasesHoldingClaims,
+	formEntryClaimChoices,
+} from "@/lib/preview/searchClaims";
 
 const MODULE = testUuid("claim-module");
 const FORM = testUuid("claim-form");
@@ -118,5 +123,102 @@ describe("deviceCasesHoldingClaims", () => {
 		expect(deviceCasesHoldingClaims(cases, [])).toBe(cases);
 		const holding = device("claimed");
 		expect(deviceCasesHoldingClaims(holding, ["claimed"])).toBe(holding);
+	});
+
+	it("waits while any case of a claim in flight is missing, and not on a device still loading", () => {
+		/* Two claims in flight: the device holds one of their cases so far. */
+		expect(
+			deviceCasesHoldingClaims(device("claimed"), ["claimed", "second"])
+				.snapshot,
+		).toBeNull();
+		const loading: NavigationDeviceCases = {
+			snapshot: null,
+			caseTypes: DOC.caseTypes ?? [],
+		};
+		expect(deviceCasesHoldingClaims(loading, ["claimed"])).toBe(loading);
+	});
+});
+
+describe("where a claim posts", () => {
+	const PARENT_MODULE = testUuid("claim-parent-module");
+	const SEARCH_MODULE = testUuid("claim-search-module");
+	const SEARCH_FORM = testUuid("claim-search-form");
+	const REGISTER_FORM = testUuid("claim-register-form");
+	const searchDoc = (formsReadSearch: boolean) =>
+		buildDoc({
+			caseTypes: [
+				{ name: "household", properties: [] },
+				{ name: "patient", parent_type: "household", properties: [] },
+			],
+			modules: [
+				{
+					uuid: PARENT_MODULE,
+					name: "Households",
+					caseType: "household",
+					forms: [{ name: "Visit household", type: "followup" }],
+				},
+				{
+					uuid: SEARCH_MODULE,
+					name: "Patients",
+					caseType: "patient",
+					parentCaseModuleUuid: PARENT_MODULE,
+					caseSearchConfig: formsReadSearch ? { formsReadSearch: true } : {},
+					forms: [
+						{ uuid: SEARCH_FORM, name: "Visit", type: "followup" },
+						{ uuid: REGISTER_FORM, name: "Register", type: "registration" },
+					],
+				},
+			],
+		});
+	const chosen = [{ caseId: "searched", claimable: true as const }];
+	const selections = {
+		[PARENT_MODULE]: {
+			caseType: "household",
+			cases: [
+				{
+					caseId: "household",
+					caseName: "Household",
+					caseProperties: {},
+					claimable: true as const,
+				},
+			],
+		},
+	};
+
+	it("posts at the form's entry, with the parent's datum, in a menu whose forms read the search", () => {
+		const doc = searchDoc(true);
+		expect(claimPostsAtResult(doc.modules[SEARCH_MODULE])).toBe(false);
+		const choices = formEntryClaimChoices({
+			doc,
+			moduleUuid: SEARCH_MODULE,
+			formUuid: SEARCH_FORM,
+			chosen,
+			selections,
+		});
+		expect(claimableCaseIds(choices)).toEqual(["searched", "household"]);
+		/* A form that loads no case posts no claim at its entry. */
+		expect(
+			formEntryClaimChoices({
+				doc,
+				moduleUuid: SEARCH_MODULE,
+				formUuid: REGISTER_FORM,
+				chosen,
+				selections,
+			}),
+		).toEqual([]);
+	});
+
+	it("posts at the chosen result in a menu whose forms do not read the search", () => {
+		const doc = searchDoc(false);
+		expect(claimPostsAtResult(doc.modules[SEARCH_MODULE])).toBe(true);
+		expect(
+			formEntryClaimChoices({
+				doc,
+				moduleUuid: SEARCH_MODULE,
+				formUuid: SEARCH_FORM,
+				chosen,
+				selections,
+			}),
+		).toEqual([]);
 	});
 });

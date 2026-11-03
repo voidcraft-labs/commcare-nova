@@ -313,7 +313,8 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 	const parentModuleUuid = module?.parentModuleUuid;
 	const parentModuleName = useModule(parentModuleUuid)?.name;
 	const formName = useForm(formUuid)?.name;
-	/* A bare case list (a `caseListOnly` module) has no module screen — it IS
+	/* A bare case list (`moduleIsBareCaseList`: its case list menu entry and
+	 * no forms) has no module screen — it IS
 	 * its Results screen. Its module crumb points straight at Results, and the
 	 * intermediate "Results" crumb is dropped (below) so the trail doesn't
 	 * restate the same destination twice. */

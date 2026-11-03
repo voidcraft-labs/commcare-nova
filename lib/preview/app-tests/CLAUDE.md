@@ -59,8 +59,8 @@ Navigation shares production menu, selection and routing projections.
 Form evaluation receives a captured record snapshot before initialization,
 with the worker's `locations` fixture beside it when some form of the app
 reads places (`engine/expressionCaseReads.ts::appReadsPlaces`, as Preview's
-snapshot carries them). A form of a search-first
-module that reads what the search found also receives the search's results
+snapshot carries them). A form of a menu whose forms read the search that
+reads what it found also receives the search's results
 snapshot, read from the isolated store as the browser reads it: the session's
 latest search of that module, read again without a page window and capped at
 500, each row with its direct indices as `index` children (the namespace
@@ -126,22 +126,33 @@ records, before evaluating the next task. It separately overlays the session's
 latest record catalog, preserving unrelated rows learned by Sync while the
 submitting form was open. A direct linked form keeps the entry-plus-effects
 snapshot; an ordinary new entry uses the updated session catalog.
-Sync applies the production restore closure, seeded also by the session's
-claims. A records screen whose module has an effective Search, once its search
-has run (`records.ts::recordsReadSearch`), reads HQ's population: the
-Project's open cases of the type, with each row marked held or not by the
-session's restore, and the Details and selections of cases chosen there read it
-too. Choosing a searched record the session's restore does not hold claims it,
-where CommCare posts the claim (`run.ts::postAppTestClaims`, the browser's
-`lib/preview/searchClaims.ts` rules): a search action's at the result, a
-search-first module's when its case-loading form opens, with the entry's other
-case datums under a selected parent. A claim appends to the session's
-`AppTestSessionState.claimedCaseIds` and reads its device snapshot again, so the
-form opens over it. A worker session's claims are part of its journey state,
-committed with each action like its record catalog, and sent with every
-device-scoped read of that session; another session never holds them, they end
-when the journey finishes, and a journey never reads the running Preview's
-claims. A next-task failure preserves an
+Sync applies the production restore closure, whose owned seed reaches the
+worker's claim rows. A records screen whose module has an effective Search,
+once its search has run (`records.ts::recordsReadSearch`), reads HQ's
+population: the Project's open cases of the type, with each row marked held or
+not by the session's restore, and the Details and selections of cases chosen
+there read it too. Choosing a searched record the session's restore does not
+hold claims it, where CommCare posts the claim (`run.ts::postAppTestClaims`,
+the browser's `lib/preview/searchClaims.ts` rules): a search action's at the
+result, and in a menu whose forms read the search when its case-loading form
+opens, with the entry's other case datums under a selected parent. A claim
+writes a claim row in the journey's namespace (the namespace store's
+`claimCases`, inside the step's transaction), owned by the session's worker,
+and reads the session's device snapshot again, so the form opens over it; on
+Android it reads the device again also after a claim that created nothing,
+since Android follows every claim with a sync. Two sessions of one worker in a
+journey share that worker's claim rows, as two devices of one worker share
+HQ's, and each sees them at its next device read; the rows go with the
+namespace when the journey finishes, and a journey never reads the running
+Preview's claims. A session retained while claims were session state may still
+store `claimedCaseIds`; `retainedState.ts` reads it and drops it. A case list
+menu entry's list (`navigation.ts::isCaseListMenuItemList`: the list the
+menu's entry opened, or a bare case list's landing) routes a chosen case by
+`caseListMenuItemSelection(context.rules)` instead of opening a form, and on
+Android its Details answer `continue` with Done, which returns to the list; the
+menu observation lists the entry after the forms (`caseListEntry`), and the
+`records` action chooses it, which in a case-first menu with its case chosen is
+the selection itself. A next-task failure preserves an
 already successful test submission.
 An action rejected before submission leaves no partial effects.
 

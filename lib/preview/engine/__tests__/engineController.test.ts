@@ -1023,7 +1023,7 @@ describe("EngineController", () => {
 				uuid: childModuleUuid,
 				id: "note_entry_list",
 				name: "Child cases",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseType: "note_entry",
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
@@ -1938,7 +1938,7 @@ describe("EngineController", () => {
 				uuid: childModuleUuid,
 				id: "medication_order_list",
 				name: "Child cases",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseType: "medication_order",
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },

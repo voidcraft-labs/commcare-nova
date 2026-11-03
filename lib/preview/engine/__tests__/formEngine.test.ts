@@ -629,10 +629,13 @@ describe("FormEngine", () => {
 		);
 		const searchForm = (fields: DField[]) =>
 			dTree(fields, "registration", [patientFixtureType], "patient", {
-				form: { entry: { kind: "search-no-matches" } },
 				module: {
-					caseListOnly: true,
-					caseSearchConfig: { searchFirst: true },
+					caseListMenuItem: {},
+					caseSearchConfig: { formsReadSearch: true },
+					caseListRegistrationForm: {
+						kind: "after-empty-search",
+						formUuid: testUuid("test-form-uuid"),
+					},
 					caseListConfig: {
 						...caseListConfig([]),
 						searchInputs: [searchInput],

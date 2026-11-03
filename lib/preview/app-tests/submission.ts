@@ -1,5 +1,6 @@
 import type { AppTestScope } from "@/lib/db/appTests";
 import { appHomeLanding } from "../afterSubmitRouting";
+import { caseListRegistrationPostSubmit } from "../caseListRegistration";
 import { validateCaptureSubmissionProjection } from "../engine/captureSubmissionValidation";
 import {
 	buildSubmissionOperationProgram,
@@ -11,7 +12,6 @@ import {
 } from "../engine/caseDatabasePatch";
 import { evaluateForm, evaluatePostSubmission } from "../engine/evaluateForm";
 import type { FormEvaluationContext } from "../engine/formEvaluationTypes";
-import { noMatchesPostSubmit } from "../noMatchesForm";
 import type { AppTestContext } from "./context";
 import { AppTestActionError, expectedAppTestRefusal } from "./errors";
 import { enterAppTestMenu } from "./navigation";
@@ -112,7 +112,7 @@ export async function submitAppTest(
 	try {
 		const registrationReturn =
 			mutation.kind === "registration"
-				? noMatchesPostSubmit(context.doc.forms[screen.formUuid])
+				? caseListRegistrationPostSubmit(context.doc, screen.formUuid)
 				: undefined;
 		if (registrationReturn) {
 			return {

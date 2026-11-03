@@ -395,6 +395,9 @@ function actionStore(overrides: Partial<CaseStore> = {}): CaseStore {
 		replaceParkedValue: vi.fn(),
 		generateSampleData: vi.fn(),
 		resetSampleData: vi.fn(),
+		claimCases: vi.fn(),
+		releaseClaims: vi.fn(),
+		countClaims: vi.fn(),
 		...overrides,
 	} satisfies CaseStore;
 }
@@ -437,7 +440,7 @@ function buildBlueprint(caseTypes: CaseType[]) {
 			modules: caseTypes.map((type) => ({
 				name: type.name,
 				caseType: type.name,
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),
@@ -830,7 +833,7 @@ describe("submitFormAction", () => {
 				{
 					name: "Visits",
 					caseType: "visit",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),
@@ -3023,6 +3026,144 @@ describe("countCasesOwnedByAction", () => {
 	});
 });
 
+describe("claimSearchedCasesAction", () => {
+	/** A signed-in member previewing as a saved persona, with `store` as the
+	 *  Project store the action binds. */
+	async function asPersona(store: CaseStore) {
+		const personaUuid = testUuid("persona-claims");
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const doc = finalSubmissionDoc();
+		doc.personas = { [personaUuid]: { uuid: personaUuid, name: "Asha" } };
+		doc.personaOrder = Object.keys(doc.personas ?? {}) as Uuid[];
+		doc.userPropertyOrder = Object.keys(doc.userProperties ?? {}) as Uuid[];
+		assertAdmittedPreviewDoc(doc);
+		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
+		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+		return personaUuid;
+	}
+
+	it("claims for the persona the server resolves, as the worker", async () => {
+		const claimCases = vi
+			.fn<CaseStore["claimCases"]>()
+			.mockResolvedValueOnce({ created: ["c-1"], alreadyClaimed: ["c-2"] });
+		const personaUuid = await asPersona(actionStore({ claimCases }));
+		const { withProjectContext } = await import("@/lib/case-store");
+		const { claimSearchedCasesAction } = await import("../caseDataBinding");
+		expect(
+			await claimSearchedCasesAction({
+				appId: APP_ID,
+				caseIds: ["c-1", "c-2"],
+				personaUuid,
+			}),
+		).toEqual({ kind: "claimed", created: ["c-1"], alreadyClaimed: ["c-2"] });
+		expect(claimCases).toHaveBeenCalledWith({
+			appId: APP_ID,
+			caseIds: ["c-1", "c-2"],
+		});
+		expect(vi.mocked(withProjectContext)).toHaveBeenCalledWith(
+			PROJECT_A,
+			OWNER_A,
+			personaUuid,
+		);
+	});
+
+	it("says a chosen case is gone when the store finds none by its id", async () => {
+		const { CaseNotFoundError } = await import("@/lib/case-store");
+		const claimCases = vi
+			.fn<CaseStore["claimCases"]>()
+			.mockRejectedValueOnce(new CaseNotFoundError("c-gone"));
+		const personaUuid = await asPersona(actionStore({ claimCases }));
+		const { claimSearchedCasesAction } = await import("../caseDataBinding");
+		expect(
+			await claimSearchedCasesAction({
+				appId: APP_ID,
+				caseIds: ["c-gone"],
+				personaUuid,
+			}),
+		).toEqual({
+			kind: "case-gone",
+			message:
+				"This case was removed from the app's case data, so it can't be opened. You can search again to see what's there now.",
+		});
+	});
+
+	it("tells a viewer the claim writes case data the store's fence keeps from them", async () => {
+		const { AppAccessError } = await import("@/lib/db/appAccess");
+		const claimCases = vi
+			.fn<CaseStore["claimCases"]>()
+			.mockRejectedValueOnce(new AppAccessError("insufficient_role"));
+		const personaUuid = await asPersona(actionStore({ claimCases }));
+		const { claimSearchedCasesAction } = await import("../caseDataBinding");
+		const result = await claimSearchedCasesAction({
+			appId: APP_ID,
+			caseIds: ["c-1"],
+			personaUuid,
+		});
+		expect(result).toMatchObject({ kind: "refused" });
+		expect(result.kind === "refused" && result.message).toMatch(/viewer/);
+	});
+
+	it("refuses an unexpected failure with the retry sentence", async () => {
+		const claimCases = vi
+			.fn<CaseStore["claimCases"]>()
+			.mockRejectedValueOnce(new Error("private database detail"));
+		const personaUuid = await asPersona(actionStore({ claimCases }));
+		const { claimSearchedCasesAction } = await import("../caseDataBinding");
+		expect(
+			await claimSearchedCasesAction({
+				appId: APP_ID,
+				caseIds: ["c-1"],
+				personaUuid,
+			}),
+		).toEqual({
+			kind: "refused",
+			message: "Couldn't open this case. Try again in a moment.",
+		});
+	});
+});
+
+describe("releaseClaimedCasesAction and countClaimedCasesAction", () => {
+	it("release and count the bound worker's claims", async () => {
+		const releaseClaims = vi
+			.fn<CaseStore["releaseClaims"]>()
+			.mockResolvedValueOnce({ released: 3 });
+		const countClaims = vi
+			.fn<CaseStore["countClaims"]>()
+			.mockResolvedValueOnce(2);
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		const store = actionStore({ releaseClaims, countClaims });
+		for (let call = 0; call < 2; call++) {
+			const personaUuid = testUuid("persona-release");
+			vi.mocked(getSession).mockResolvedValueOnce({
+				user: { id: OWNER_A },
+			} as unknown as Awaited<ReturnType<typeof getSession>>);
+			const doc = finalSubmissionDoc();
+			doc.personas = { [personaUuid]: { uuid: personaUuid, name: "Asha" } };
+			doc.personaOrder = Object.keys(doc.personas ?? {}) as Uuid[];
+			doc.userPropertyOrder = Object.keys(doc.userProperties ?? {}) as Uuid[];
+			loadAppMock.mockResolvedValueOnce({ blueprint: doc });
+			vi.mocked(withProjectContext).mockResolvedValueOnce(store);
+		}
+		const { countClaimedCasesAction, releaseClaimedCasesAction } = await import(
+			"../caseDataBinding"
+		);
+		const personaUuid = testUuid("persona-release");
+		expect(
+			await countClaimedCasesAction({ appId: APP_ID, personaUuid }),
+		).toEqual({ kind: "count", count: 2 });
+		expect(
+			await releaseClaimedCasesAction({ appId: APP_ID, personaUuid }),
+		).toEqual({ kind: "released", released: 3 });
+		expect(countClaims).toHaveBeenCalledWith({ appId: APP_ID });
+		expect(releaseClaims).toHaveBeenCalledWith({ appId: APP_ID });
+	});
+});
+
 describe("resetSampleCasesAction", () => {
 	it("returns the unauthenticated arm when getSession resolves to null", async () => {
 		// Session-first ordering means an unauthenticated request
@@ -3315,7 +3456,6 @@ describe("loadCaseDataAction session projection", () => {
 				undefined,
 				candidate.blueprint,
 				candidate.moduleUuid,
-				[],
 				search,
 			);
 

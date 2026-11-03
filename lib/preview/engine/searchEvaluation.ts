@@ -2,12 +2,13 @@ import { moduleExpressionContexts } from "@/lib/commcare/expressionContext";
 import {
 	type BlueprintDoc,
 	effectiveCaseSearchConfig,
+	moduleFormsReadSearch,
+	moduleSearchWorkflow,
 	type Uuid,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/expression";
 import type { LanguageTag } from "@/lib/domain/localization";
 import { resolveAppLanguage } from "@/lib/domain/localization";
-import { automaticallyLaunchesSearch } from "../caseListPhase";
+import { caseListStep } from "../caseListPhase";
 import { previewPlatformRules } from "../platform";
 import { projectWorkerModule } from "../workerModule";
 import { toBoolean } from "../xpath/coerce";
@@ -157,17 +158,20 @@ export async function evaluateSearchSnapshot(
 		}
 		run = changeSearchRunDraft(run, run, values, errors.size === 0);
 	}
-	// Use the same input-free launch decision as the running app.
+	/* The case list's step decides what the worker sees, as on the running
+	 * app: where it is Results with nothing submitted, the default search
+	 * runs as the menu opens (skip to results). */
+	const workflow = moduleSearchWorkflow(mod);
+	const formsReadSearch = moduleFormsReadSearch(mod);
 	if (
-		automaticallyLaunchesSearch({
-			relevant,
-			searchFirst: search?.searchFirst === true,
-			hasVisibleInputs: run.allowedKeys.size > 0,
-			hasEffectiveFilter:
-				effectiveFilterForEmission(mod.caseListConfig?.filter) !== undefined,
+		!run.hasSubmitted &&
+		caseListStep({
+			workflow,
+			formsReadSearch,
+			searchRelevant: relevant,
+			hasSubmitted: false,
 			rules,
-		}) &&
-		!run.hasSubmitted
+		}) === "results"
 	)
 		run = changeSearchRunDraft(run, run, new Map(), true);
 	const values = relevant
@@ -189,8 +193,10 @@ export async function evaluateSearchSnapshot(
 				);
 	return {
 		relevant,
-		searchFirst: search?.searchFirst === true,
-		hasVisibleInputs: run.allowedKeys.size > 0,
+		/** The module's search workflow; undefined with no effective search. */
+		workflow,
+		/** The menu's forms read the search (`moduleFormsReadSearch`). */
+		formsReadSearch,
 		hasSubmitted: run.hasSubmitted,
 		draft: [...run.draft].map(([name, value]) => ({ name, value })),
 		submitted: run.hasSubmitted

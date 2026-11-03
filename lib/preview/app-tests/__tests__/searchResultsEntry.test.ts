@@ -104,7 +104,6 @@ function journey() {
 		history: [{ kind: "records", moduleUuid: reads.find, searchAnswers: [] }],
 		selections: {},
 		deviceCases: entryCases,
-		claimedCaseIds: [],
 	} as unknown as AppTestSessionState;
 	return {
 		context,

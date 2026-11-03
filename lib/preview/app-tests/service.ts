@@ -176,7 +176,6 @@ export async function startAppTest(
 					history: [],
 					selections: {},
 					deviceCases: { rows: [], indices: [] },
-					claimedCaseIds: [],
 				};
 				const identity = bindAppTestAction(doc, initial, {
 					kind: "identity",
@@ -318,7 +317,6 @@ export async function continueAppTest(
 								history: [],
 								selections: {},
 								deviceCases: { rows: [], indices: [] },
-								claimedCaseIds: [],
 							}
 						: bound.kind === "language"
 							? {

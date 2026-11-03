@@ -82,7 +82,7 @@ beforeEach(async () => {
 			modules: [HOUSEHOLD, PATIENT].map((type) => ({
 				name: type.name,
 				caseType: type.name,
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),

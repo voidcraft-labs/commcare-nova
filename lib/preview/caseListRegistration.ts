@@ -1,5 +1,6 @@
 /**
- * Whether the running app may open a no-matches registration form.
+ * Whether the running app may open a module's case list registration form
+ * (`Module.caseListRegistrationForm`, `caseListRegistrationFormOf`).
  *
  * On the wire the form is reachable only through the Register action on
  * Results, relevant when the inline search found nothing
@@ -11,8 +12,8 @@
  * with matches) is refused, and the screen says where to go instead.
  */
 
-import type { Form, SearchInputDef, Uuid } from "@/lib/domain";
-import { isNoMatchesForm } from "@/lib/domain";
+import type { BlueprintDoc, Form, SearchInputDef, Uuid } from "@/lib/domain";
+import { caseListRegistrationFormOf, moduleUuidOfForm } from "@/lib/domain";
 import {
 	type SearchInputValues,
 	searchInputInstanceValues,
@@ -23,26 +24,42 @@ import type {
 	PreviewSearchState,
 } from "@/lib/session/types";
 
-/** A no-matches registration's native return takes precedence over ordinary
- * after-submit routing. Explicit `firstMenu` is the only alternative. */
-export function noMatchesPostSubmit(
-	form: Pick<Form, "entry" | "postSubmit">,
-): "firstMenu" | "results" | undefined {
-	return isNoMatchesForm(form)
-		? form.postSubmit === "firstMenu"
-			? "firstMenu"
-			: "results"
-		: undefined;
+type RegistrationDoc = Pick<BlueprintDoc, "modules" | "forms" | "formOrder">;
+
+/** Whether the form is the case list registration form its module's slot
+ *  names. */
+export function isCaseListRegistrationForm(
+	doc: RegistrationDoc,
+	formUuid: Uuid | undefined,
+): boolean {
+	if (formUuid === undefined) return false;
+	const moduleUuid = moduleUuidOfForm(doc, formUuid);
+	return (
+		moduleUuid !== undefined &&
+		caseListRegistrationFormOf(doc, moduleUuid) === formUuid
+	);
 }
 
-export type NoMatchesFormAdmission =
-	/** Not a no-matches form: nothing to admit. */
+/** A case list registration's native return takes precedence over ordinary
+ * after-submit routing. Explicit `firstMenu` is the only alternative. */
+export function caseListRegistrationPostSubmit(
+	doc: RegistrationDoc,
+	formUuid: Uuid,
+): "firstMenu" | "results" | undefined {
+	const form: Pick<Form, "postSubmit"> | undefined = doc.forms[formUuid];
+	if (form === undefined || !isCaseListRegistrationForm(doc, formUuid))
+		return undefined;
+	return form.postSubmit === "firstMenu" ? "firstMenu" : "results";
+}
+
+export type CaseListRegistrationAdmission =
+	/** Not a case list registration form: nothing to admit. */
 	| { readonly kind: "not-applicable" }
 	/** Opened from the Register action; these are the search's answers. */
 	| { readonly kind: "admitted"; readonly answers: PreviewSearchAnswers }
-	| { readonly kind: "refused"; readonly reason: NoMatchesRefusal };
+	| { readonly kind: "refused"; readonly reason: CaseListRegistrationRefusal };
 
-export type NoMatchesRefusal =
+export type CaseListRegistrationRefusal =
 	/** No launch carried the form here (a direct URL or a menu). */
 	| "no-launch"
 	/** The launch belongs to another module's search. */
@@ -56,15 +73,16 @@ export type NoMatchesRefusal =
 	/** A later search superseded the one that offered the form. */
 	| "stale-launch";
 
-export function noMatchesFormAdmission(args: {
-	readonly form: Pick<Form, "entry"> | undefined;
+export function caseListRegistrationAdmission(args: {
+	readonly doc: RegistrationDoc;
+	readonly formUuid: Uuid | undefined;
 	readonly moduleUuid: Uuid | undefined;
 	/** The launch on the form's case target, when the target names this form. */
 	readonly launch: PreviewSearchLaunch | undefined;
 	readonly searchState: PreviewSearchState | undefined;
-}): NoMatchesFormAdmission {
-	const { form, moduleUuid, launch, searchState } = args;
-	if (form === undefined || !isNoMatchesForm(form)) {
+}): CaseListRegistrationAdmission {
+	const { doc, formUuid, moduleUuid, launch, searchState } = args;
+	if (!isCaseListRegistrationForm(doc, formUuid)) {
 		return { kind: "not-applicable" };
 	}
 	if (launch === undefined) return { kind: "refused", reason: "no-launch" };
@@ -90,7 +108,9 @@ export function noMatchesFormAdmission(args: {
 }
 
 /** The refusal in Nova's voice: what happened, and the next step. */
-export function noMatchesRefusalCopy(reason: NoMatchesRefusal): {
+export function caseListRegistrationRefusalCopy(
+	reason: CaseListRegistrationRefusal,
+): {
 	readonly title: string;
 	readonly description: string;
 } {
@@ -127,8 +147,9 @@ export function noMatchesRefusalCopy(reason: NoMatchesRefusal): {
 
 /**
  * What a form's `#search/<name>` reads: the search-input instance its entry
- * holds. A no-matches form reads its admitted launch's answers. A form of a
- * module that opens on its search reads the completed search's answers,
+ * holds. A case list registration form reads its admitted launch's answers.
+ * A form of a menu whose forms read the search reads the completed search's
+ * answers,
  * which its inline query step keeps; one opened another way (a form link,
  * even after a search in its module, or an entry point, with no completed
  * search behind it) is rebuilt on Web Apps with the query screen's starting
@@ -137,8 +158,9 @@ export function noMatchesRefusalCopy(reason: NoMatchesRefusal): {
  */
 export function formSearchAnswers(args: {
 	readonly searchInputs: readonly SearchInputDef[];
-	readonly admission: NoMatchesFormAdmission;
-	readonly searchFirst: boolean;
+	readonly admission: CaseListRegistrationAdmission;
+	/** The menu's forms read the search (`moduleFormsReadSearch`). */
+	readonly formsReadSearch: boolean;
 	readonly searchState: PreviewSearchState | undefined;
 	/** A form link opened the form (`PreviewCaseTarget.openedByLink`). */
 	readonly openedByLink: boolean;
@@ -146,13 +168,14 @@ export function formSearchAnswers(args: {
 	 * prompts (`searchExpressionEvaluation.ts::resolveSearchInputDefaults`). */
 	readonly defaults: SearchInputValues;
 }): SearchInputValues | undefined {
-	const { searchInputs, admission, searchFirst, searchState, defaults } = args;
+	const { searchInputs, admission, formsReadSearch, searchState, defaults } =
+		args;
 	if (admission.kind === "admitted")
 		return searchInputInstanceValues(
 			searchInputs,
 			new Map(Object.entries(admission.answers)),
 		);
-	if (admission.kind === "refused" || !searchFirst) return undefined;
+	if (admission.kind === "refused" || !formsReadSearch) return undefined;
 	return formReadsCompletedSearch(searchState, args.openedByLink)
 		? searchInputInstanceValues(
 				searchInputs,
@@ -161,8 +184,9 @@ export function formSearchAnswers(args: {
 		: searchInputInstanceValues(searchInputs, defaults);
 }
 
-/** Whether a search-first module's form reads its module's completed search
- * (`formSearchAnswers`) rather than the Search fields' starting values. */
+/** Whether a form of a menu whose forms read the search reads its module's
+ * completed search (`formSearchAnswers`) rather than the Search fields'
+ * starting values. */
 export function formReadsCompletedSearch(
 	searchState: PreviewSearchState | undefined,
 	openedByLink: boolean,

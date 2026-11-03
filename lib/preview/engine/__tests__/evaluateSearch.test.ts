@@ -47,7 +47,7 @@ it("keeps the search draft and validation between bounded calls, and submits hid
 		],
 	});
 	const moduleUuid = doc.moduleOrder[0];
-	doc.modules[moduleUuid].caseSearchConfig = { searchFirst: true };
+	doc.modules[moduleUuid].caseSearchConfig = { formsReadSearch: true };
 	const identity = previewAsMe({ id: "worker", name: "Worker" }, doc);
 	if (!identity) throw new Error("Missing identity");
 	const context = {

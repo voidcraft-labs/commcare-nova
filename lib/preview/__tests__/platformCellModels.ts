@@ -22,7 +22,8 @@ import { literal, term } from "@/lib/domain/expression";
 import type { Platform } from "@/lib/domain/platforms";
 import { projectProseTemplate } from "@/lib/domain/prose";
 import { appHomeLanding } from "../afterSubmitRouting";
-import { automaticallyLaunchesSearch, caseListStep } from "../caseListPhase";
+import { caseListMenuItemSelection } from "../caseListMenuItemRoute";
+import { caseListStep } from "../caseListPhase";
 import { splitTileGridByGroupHeader } from "../caseTileGrouping";
 import { projectTileGrid } from "../caseTileLayout";
 import { planTileCell } from "../caseTileRendering";
@@ -46,7 +47,6 @@ import {
 	searchInputRequiredMarks,
 } from "../engine/searchInputConstraints";
 import { prepareEntryPointLaunch } from "../entryPointLaunch";
-import { formlessCaseListSelection } from "../formlessCaseListRoute";
 import { drawnSearchInputs } from "../hooks/useSearchInputRunState";
 import {
 	ANDROID_DEVICE_ID_PREFIX,
@@ -366,12 +366,11 @@ export const PLATFORM_MODEL_CHECKS = {
 		).toEqual({});
 	},
 
+	/* Choosing a case from a case list menu entry shows the screen before it
+	 * again in Web Apps, and returns to the phone's home screen on Android. */
 	"case-list-menu-item-web-apps": () => {
-		expect(formlessCaseListSelection(WEB_APPS)).toEqual({
-			kind: "root-menu",
-			notice: "formlessReturned",
-		});
-		expect(formlessCaseListSelection(ANDROID)).toEqual({
+		expect(caseListMenuItemSelection(WEB_APPS)).toEqual({ kind: "step-back" });
+		expect(caseListMenuItemSelection(ANDROID)).toEqual({
 			kind: "device-home",
 		});
 	},
@@ -516,8 +515,9 @@ export const PLATFORM_MODEL_CHECKS = {
 	"search-android": () => {
 		const after = (rules: typeof ANDROID) =>
 			caseListStep({
-				searchFirst: false,
-				hasVisibleInputs: true,
+				workflow: "searchFirst",
+				formsReadSearch: false,
+				searchRelevant: true,
 				hasSubmitted: true,
 				submittedFoundNothing: true,
 				rules,
@@ -527,18 +527,33 @@ export const PLATFORM_MODEL_CHECKS = {
 		expect(ANDROID.claimThenSync).toBe(true);
 	},
 
-	/* Android never skips to results: the list comes first. */
-	"skip-to-results-android": () => {
-		const launches = (rules: typeof ANDROID) =>
-			automaticallyLaunchesSearch({
-				relevant: true,
-				hasVisibleInputs: false,
-				searchFirst: false,
-				hasEffectiveFilter: true,
+	/* Android never opens on Search: the list comes first, with the Search
+	 * action. */
+	"search-first-android": () => {
+		const opens = (rules: typeof ANDROID) =>
+			caseListStep({
+				workflow: "searchFirst",
+				formsReadSearch: false,
+				searchRelevant: true,
+				hasSubmitted: false,
 				rules,
 			});
-		expect(launches(ANDROID)).toBe(false);
-		expect(launches(WEB_APPS)).toBe(true);
+		expect(opens(ANDROID)).toBe("browse");
+		expect(opens(WEB_APPS)).toBe("search");
+	},
+
+	/* Android never skips to results: the list comes first. */
+	"skip-to-results-android": () => {
+		const opens = (rules: typeof ANDROID) =>
+			caseListStep({
+				workflow: "skipToResults",
+				formsReadSearch: false,
+				searchRelevant: true,
+				hasSubmitted: false,
+				rules,
+			});
+		expect(opens(ANDROID)).toBe("browse");
+		expect(opens(WEB_APPS)).toBe("results");
 	},
 
 	"after-submit-home-web-apps": () => {
