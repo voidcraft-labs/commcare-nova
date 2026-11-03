@@ -1,0 +1,11 @@
+{
+	"pre-step-search-results": {
+		"dd485f97-ddd2-5b4b-af42-aff9953fa647": "list-first"
+	},
+	"targeted-migration-search-workflow": {
+		"05be1cc7-3757-5eb3-afb2-70214f144497": "list-first",
+		"24380c74-bd51-5b88-ac8a-5aaeab682584": "search-first",
+		"d26e3d81-f7e1-5465-a10d-0fd36f45c3d1": "skip-to-results",
+		"ce9f3244-a9be-5cb8-ab79-843a10e5a174": "search-first"
+	}
+}
