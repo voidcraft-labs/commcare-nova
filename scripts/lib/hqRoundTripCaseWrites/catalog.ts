@@ -128,13 +128,16 @@ export async function schemaRoutines(
 		throw missing("schema", schema, "this database");
 	}
 	const result = await sql<{ signature: string; definition: string }>`
-		SELECT
-			pg_catalog.format('%s(%s)', p.proname, pg_catalog.oidvectortypes(p.proargtypes)) AS signature,
-			pg_catalog.pg_get_functiondef(p.oid) AS definition
-		FROM pg_catalog.pg_proc AS p
-		WHERE p.pronamespace = pg_catalog.to_regnamespace(pg_catalog.quote_ident(${schema}::text))
-			AND p.prokind <> 'a'
-		ORDER BY 1 COLLATE "C"
+		SELECT routines.signature, routines.definition
+		FROM (
+			SELECT
+				pg_catalog.format('%s(%s)', p.proname, pg_catalog.oidvectortypes(p.proargtypes)) AS signature,
+				pg_catalog.pg_get_functiondef(p.oid) AS definition
+			FROM pg_catalog.pg_proc AS p
+			WHERE p.pronamespace = pg_catalog.to_regnamespace(pg_catalog.quote_ident(${schema}::text))
+				AND p.prokind <> 'a'
+		) AS routines
+		ORDER BY routines.signature COLLATE "C"
 	`.execute(tx);
 	if (result.rows.length === 0) {
 		throw missing("routine", "of any name", schema);
