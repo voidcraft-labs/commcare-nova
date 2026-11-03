@@ -61,7 +61,7 @@ function scanDoc() {
 				uuid: MODULE_UUID,
 				name: "Private authored module name",
 				caseType: "patient",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseSearchConfig: {},
 				caseListConfig: {
 					columns: [name, direct, wrapped],

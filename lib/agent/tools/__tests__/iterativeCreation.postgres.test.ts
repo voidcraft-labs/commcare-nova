@@ -68,7 +68,7 @@ it("keeps incomplete modules and forms readable, preserves rejected work, and sa
 });
 
 it("carries Search answers through explicit questions and record naming", async () => {
-	// Search first runs in Web Apps alone, so the app declares Web Apps.
+	// Forms that read the search run in Web Apps alone, so the app declares Web Apps.
 	const h = await makeDurableAuthoringHarness(db, { runsOnlyOn: "web-apps" });
 	for (const [name, input] of [
 		["createModule", { name: "Patients", case_type: "patient" }],
@@ -93,7 +93,7 @@ it("carries Search answers through explicit questions and record naming", async 
 				moduleUuid: "Patients",
 				name: "Register",
 				type: "registration",
-				entry: { kind: "search-no-matches" },
+				case_list_registration: {},
 			},
 		],
 		[
@@ -132,11 +132,11 @@ it("separates record ancestry from the explicit parent selection route", async (
 	for (const [name, input] of [
 		[
 			"createModule",
-			{ name: "Gardens", case_type: "garden", case_list_only: true },
+			{ name: "Gardens", case_type: "garden", case_list_menu_item: {} },
 		],
 		[
 			"createModule",
-			{ name: "Plots", case_type: "plot", case_list_only: true },
+			{ name: "Plots", case_type: "plot", case_list_menu_item: {} },
 		],
 		["setCaseTypeParent", { caseType: "plot", parentType: "garden" }],
 	] as const)

@@ -803,6 +803,7 @@ describe("materializeAppFromGenesis", () => {
 			schema.rows.map((row) => [row.case_type, Number(row.synced_seq)]),
 		).toEqual([
 			["client", 1],
+			["commcare-case-claim", 1],
 			["commcare-user", 1],
 		]);
 	});

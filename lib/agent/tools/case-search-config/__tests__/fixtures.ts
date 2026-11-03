@@ -37,7 +37,7 @@ export function makeCaseSearchDoc(): BlueprintDoc {
 		id: "patient",
 		name: "Patient",
 		caseType: "patient",
-		caseListOnly: true,
+		caseListMenuItem: {},
 		caseListConfig: resolveCaseListConfig({
 			columns: [
 				{

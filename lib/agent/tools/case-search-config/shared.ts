@@ -1,7 +1,8 @@
 /**
  * Shared input schemas + snapshot helper for the case-search-config
  * SA tools. The config carries two clusters — display labels and the
- * advanced cluster (today: `excludedOwnerIds`); each has its own
+ * advanced cluster (`excludedOwnerIds`, what the menu opens on, and
+ * whether its forms read the search); each has its own
  * wholesale-replace tool (`setCaseSearchDisplay` /
  * `setCaseSearchAdvanced`).
  *
@@ -38,6 +39,8 @@ import {
 	type Module,
 	type OrdinaryCaseSearchConfig,
 	type OwnerOnlyCaseSearchConfig,
+	SEARCH_WORKFLOWS,
+	type SearchWorkflow,
 } from "@/lib/domain";
 import {
 	conditionSchema,
@@ -57,13 +60,30 @@ export const DISPLAY_SLOT_NAMES = [
 	"searchButtonDisplayCondition",
 ] as const;
 
-export const ADVANCED_SLOT_NAMES = ["excludedOwnerIds", "searchFirst"] as const;
+/**
+ * The advanced cluster's slots as the SA states them. `searchWorkflow` is
+ * stored as `workflow`, where search first is the absent value; the other
+ * two are stored under their own names (`ADVANCED_CONFIG_KEYS`).
+ */
+export const ADVANCED_SLOT_NAMES = [
+	"excludedOwnerIds",
+	"searchWorkflow",
+	"formsReadSearch",
+] as const;
+
+/** The stored `caseSearchConfig` keys the advanced cluster owns. */
+export const ADVANCED_CONFIG_KEYS = [
+	"excludedOwnerIds",
+	"workflow",
+	"formsReadSearch",
+] as const;
 
 /** Nova-only provenance; intentionally absent from both SA-authored clusters. */
 export const INTERNAL_SLOT_NAMES = ["searchActionEnabled"] as const;
 
 export type DisplaySlotName = (typeof DISPLAY_SLOT_NAMES)[number];
 export type AdvancedSlotName = (typeof ADVANCED_SLOT_NAMES)[number];
+type AdvancedConfigKey = (typeof ADVANCED_CONFIG_KEYS)[number];
 type InternalSlotName = (typeof INTERNAL_SLOT_NAMES)[number];
 type CaseSearchConfigKey =
 	| keyof OrdinaryCaseSearchConfig
@@ -73,9 +93,9 @@ type CaseSearchConfigKey =
 // in exactly one tuple, so a new schema slot without a home fails to
 // compile.
 type _ClusterPartitionExhaustive = [CaseSearchConfigKey] extends [
-	DisplaySlotName | AdvancedSlotName | InternalSlotName,
+	DisplaySlotName | AdvancedConfigKey | InternalSlotName,
 ]
-	? [DisplaySlotName | AdvancedSlotName | InternalSlotName] extends [
+	? [DisplaySlotName | AdvancedConfigKey | InternalSlotName] extends [
 			CaseSearchConfigKey,
 		]
 		? true
@@ -87,7 +107,7 @@ void _exhaustive;
 // Partition disjointness — a slot must live in exactly one cluster
 // so neither picker strips it.
 type _ClusterPartitionDisjoint =
-	Extract<DisplaySlotName, AdvancedSlotName> extends never ? true : never;
+	Extract<DisplaySlotName, AdvancedConfigKey> extends never ? true : never;
 const _disjoint: _ClusterPartitionDisjoint = true;
 void _disjoint;
 
@@ -106,12 +126,12 @@ void _disjoint;
  */
 export function pickAdvancedCluster(
 	config: CaseSearchConfig | undefined,
-): Partial<Pick<OrdinaryCaseSearchConfig, AdvancedSlotName>> {
+): Partial<Pick<OrdinaryCaseSearchConfig, AdvancedConfigKey>> {
 	if (config === undefined) return {};
 	if (isOwnerOnlyCaseSearchConfig(config)) {
 		return { excludedOwnerIds: config.excludedOwnerIds };
 	}
-	return pickClusterSlots(config, ADVANCED_SLOT_NAMES);
+	return pickClusterSlots(config, ADVANCED_CONFIG_KEYS);
 }
 
 /**
@@ -233,6 +253,29 @@ const globallyResolvedDisplayConditionSchema = predicateInputSchema.superRefine(
 	},
 );
 
+/** What the menu opens on, as the SA states it; `searchFirst` is stored as
+ * an absent `workflow` (`lib/domain/modules.ts::searchWorkflow`). */
+export const searchWorkflowInputSchema = z.enum(SEARCH_WORKFLOWS);
+
+/** The sentence `searchWorkflow`'s description ends with: what a search
+ * with nothing to fill in shows under search first. */
+const SEARCH_WITH_NOTHING_TO_FILL_IN =
+	"Under searchFirst, a search with nothing to fill in shows a Search screen holding only its button.";
+
+export const SEARCH_WORKFLOW_DESCRIPTION = `What the menu opens on. searchFirst opens on Search in Web Apps, and Results then show what the search finds; Android opens the case list first, with Search from it. skipToResults opens on the cases the search finds with the Search fields' starting values, which workers can search again to narrow, in Web Apps; Android opens the case list first. listFirst opens on the case list with Search from it, and only an app that runs only on Android can use it. ${SEARCH_WITH_NOTHING_TO_FILL_IN}`;
+
+export const formsReadSearchInputSchema = z.literal(true).nullable();
+
+export const FORMS_READ_SEARCH_DESCRIPTION =
+	"true runs the search as each form in the menu opens, so the forms can read #search/<name> and what the search found, and a case the worker found is claimed when a form is chosen. Only with searchFirst or skipToResults, in a menu whose forms all work on an existing case, or a case list with no forms; it refuses a Search button display condition and previous after submit, and runs only in Web Apps. null turns it off.";
+
+/** The stored `workflow` for what the SA chose: search first is absent. */
+export function storedSearchWorkflow(
+	workflow: SearchWorkflow,
+): OrdinaryCaseSearchConfig["workflow"] {
+	return workflow === "searchFirst" ? undefined : workflow;
+}
+
 /**
  * SA boundary shape for `setCaseSearchAdvanced`. The module UUID address is
  * omitted from this body schema so the tool can compose it once at the outer
@@ -244,12 +287,12 @@ export const setCaseSearchAdvancedBodySchema = z.strictObject({
 		.describe(
 			"Expression producing a space-separated list of owner ids whose cases are excluded from Results on every list path, or `null` to clear. It may use fixed values, current-user/session values, Search answers, and pure calculations over those values; it cannot read a case property or relationship because it resolves before a case is selected. Rare in practice; pass `null` unless the author has a known set of owner ids to exclude.",
 		),
-	searchFirst: z
-		.literal(true)
-		.nullable()
-		.describe(
-			"`true` makes the module open on its Search screen: the browse list goes away and Results exist only after a completed search (a search with no visible inputs runs on its own). Requires a module whose forms all work on an existing case, or a case list with no forms; refuses a search-button display condition and `previous` after-submit on its case forms. `null` returns the module to browse-then-search.",
-		),
+	searchWorkflow: searchWorkflowInputSchema.describe(
+		SEARCH_WORKFLOW_DESCRIPTION,
+	),
+	formsReadSearch: formsReadSearchInputSchema.describe(
+		FORMS_READ_SEARCH_DESCRIPTION,
+	),
 });
 
 // ── Input schemas — display cluster ─────────────────────────────────

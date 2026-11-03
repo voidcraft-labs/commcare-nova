@@ -15,6 +15,10 @@ import {
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
+import {
+	caseListMenuItemFromInput,
+	caseListMenuItemInputSchema,
+} from "./shared/caseListMenuItem";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -54,21 +58,19 @@ export const createModuleInputSchema = z
 			.describe(
 				"Brief description of this module's role in the app. null when there's nothing to add.",
 			),
-		case_list_only: z
-			.boolean()
-			.nullable()
+		case_list_menu_item: caseListMenuItemInputSchema
 			.optional()
 			.describe(
-				"True for case-list-only modules with no forms. Use for child case types that need to be viewable but have no follow-up workflow. null otherwise.",
+				"Shows the case list as its own item in this menu, so workers can look up a case without opening a form. Needs case_type. A module created without forms needs it.",
 			),
 	})
 	.superRefine((input, ctx) => {
-		if (input.case_list_only === true && input.case_type == null) {
+		if (input.case_list_menu_item !== undefined && input.case_type == null) {
 			ctx.addIssue({
 				code: "custom",
 				path: ["case_type"],
 				message:
-					"A case-list-only module must name the case_type whose records it shows.",
+					"A module with its case list in the menu must name the case_type whose records it shows.",
 			});
 		}
 	});
@@ -87,7 +89,7 @@ export type CreateModuleResult =
 
 export const createModuleTool = {
 	description:
-		"Create a module. Add its forms separately; record modules start with a Name column.",
+		"Create a module. Add its forms separately; record modules start with a Name column, and one created without forms shows its case list as its menu item.",
 	inputSchema: createModuleInputSchema,
 	async execute(
 		input: CreateModuleInput,
@@ -101,7 +103,7 @@ export const createModuleTool = {
 			name,
 			case_type,
 			purpose,
-			case_list_only,
+			case_list_menu_item,
 		} = input;
 		try {
 			// Stage tag `module:create` — a positional index isn't available
@@ -136,7 +138,9 @@ export const createModuleTool = {
 					...(parentModuleUuid !== undefined && { parentModuleUuid }),
 					...(parentCaseModuleUuid !== undefined && { parentCaseModuleUuid }),
 					...(case_type && { caseType: case_type }),
-					...(case_list_only && { caseListOnly: case_list_only }),
+					...(case_list_menu_item !== undefined && {
+						caseListMenuItem: caseListMenuItemFromInput(case_list_menu_item),
+					}),
 					...(purpose != null && { purpose }),
 					...(columns.length > 0 && {
 						caseListConfig: {

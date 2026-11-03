@@ -680,7 +680,7 @@ async function applyOp(
 				{
 					name: op.name,
 					case_type: op.caseType,
-					case_list_only: op.withColumns,
+					...(op.withColumns && { case_list_menu_item: {} }),
 				},
 				ctx,
 				doc,

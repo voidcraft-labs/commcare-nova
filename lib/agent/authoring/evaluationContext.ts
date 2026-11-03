@@ -13,7 +13,7 @@ import { previewProjectSpaceFor } from "@/lib/deployment/previewSpace";
 import { extractLookupReferenceTargets } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
 	moduleUuidOfForm,
 	type Uuid,
 } from "@/lib/domain";
@@ -195,7 +195,12 @@ export async function loadFormEvaluationContext(
 	const searchAnswers =
 		form === undefined
 			? undefined
-			: searchFirstFormAnswers(doc, form, { identity, device, cases, lookup });
+			: formsReadSearchFormAnswers(doc, form, {
+					identity,
+					device,
+					cases,
+					lookup,
+				});
 	await authorize();
 	return {
 		identity,
@@ -213,14 +218,14 @@ export async function loadFormEvaluationContext(
 }
 
 /**
- * The Search answers a form of a module that opens on its search reads when
+ * The Search answers a form of a menu whose forms read the search reads when
  * the check supplies none: each Search field's starting value, as the Search
  * screen fills its prompts and as Web Apps rebuilds a form opened with no
  * search behind it (`RemoteQuerySessionManager.initUserAnswers`). Supplied
  * answers are the evaluated form's own (`FormEvaluationInput.searchAnswers`),
  * and a form of any other module reads none.
  */
-function searchFirstFormAnswers(
+function formsReadSearchFormAnswers(
 	doc: BlueprintDoc,
 	form: EvaluatedForm,
 	world: Pick<
@@ -234,7 +239,7 @@ function searchFirstFormAnswers(
 	if (
 		moduleUuid === undefined ||
 		module === undefined ||
-		!moduleOpensOnSearch(module)
+		!moduleFormsReadSearch(module)
 	)
 		return undefined;
 	const defaults = resolveSearchInputDefaults(
@@ -277,7 +282,7 @@ export async function formSearchResults(
 	if (
 		moduleUuid === undefined ||
 		module === undefined ||
-		!moduleOpensOnSearch(module) ||
+		!moduleFormsReadSearch(module) ||
 		!formReadsSearchResults(doc, form.formUuid)
 	)
 		return undefined;

@@ -278,7 +278,9 @@ async function main() {
 			.filter((f): f is Form => f !== undefined);
 		const flags = [
 			mod.caseType && `case: ${mod.caseType}`,
-			mod.caseListOnly && "case-list-only",
+			mod.caseListMenuItem !== undefined && "case list in menu",
+			mod.caseListRegistrationForm !== undefined &&
+				`case list registration: ${doc.forms[mod.caseListRegistrationForm.formUuid]?.name ?? mod.caseListRegistrationForm.formUuid}`,
 		]
 			.filter(Boolean)
 			.join(", ");

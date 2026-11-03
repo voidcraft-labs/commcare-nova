@@ -284,7 +284,7 @@ it("runs the module's search for a form that reads what it found", async () => {
 						),
 					],
 				},
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
 				forms: [
 					{
 						uuid: formUuid,

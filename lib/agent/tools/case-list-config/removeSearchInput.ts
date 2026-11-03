@@ -15,7 +15,8 @@
  */
 
 import type { z } from "zod";
-import { planSearchInputRemovalFieldDependents } from "@/lib/doc/searchNoMatchesDependents";
+import { withWorkflowAfterInputChange } from "@/lib/doc/caseSearchConfigPatchMutations";
+import { planSearchInputRemovalFieldDependents } from "@/lib/doc/searchReadDependents";
 import { asUuid, type Uuid } from "@/lib/domain";
 import { removeSearchInputMutation } from "../../blueprintHelpers";
 import type { ToolInvocationContext } from "../../workspace/types";
@@ -75,9 +76,10 @@ export const removeSearchInputTool = {
 			}
 			const { moduleUuid, module: mod } = address;
 
-			/* A no-matches registration form may read this prompt's answer
+			/* A form of a menu whose forms read the search, or its registration from
+			 * the case list, may read this prompt's answer
 			 * (`#search/<name>`); the shared planner refuses and names every
-			 * field so the repair is addressable (`searchNoMatchesDependents.ts`). */
+			 * field so the repair is addressable (`searchReadDependents.ts`). */
 			const dependents = planSearchInputRemovalFieldDependents(
 				doc,
 				moduleUuid,
@@ -102,7 +104,7 @@ export const removeSearchInputTool = {
 
 			const commit = await guardedMutate(
 				ctx,
-				result.mutations,
+				withWorkflowAfterInputChange(doc, result.mutations),
 				`module:${moduleUuid}:caseList:searchInput:remove`,
 			);
 			if (!commit.ok) {

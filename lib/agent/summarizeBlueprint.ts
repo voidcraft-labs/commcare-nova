@@ -38,6 +38,7 @@ import {
 	orderedUserTypes,
 	ownRecordValue,
 	platformDeclarationLabel,
+	searchWorkflow,
 	tileCellFor,
 	userPropertiesOf,
 	userTypesOf,
@@ -49,10 +50,7 @@ import {
 	queryRepeatRowsKept,
 } from "./authoring/fieldBehavior";
 import { unwrittenPropertiesReminder } from "./systemReminder";
-import {
-	ADVANCED_SLOT_NAMES,
-	DISPLAY_SLOT_NAMES,
-} from "./tools/case-search-config/shared";
+import { DISPLAY_SLOT_NAMES } from "./tools/case-search-config/shared";
 import { moduleAdvancedRead } from "./tools/getModule";
 
 /**
@@ -121,11 +119,6 @@ function summarizeForm(doc: BlueprintDoc, formUuid: Uuid): string {
 	const header = `  - Form "${form.name}" [uuid ${formUuid}] (${form.type}, ${count} field${count === 1 ? "" : "s"})${offTheMenu}`;
 	const extras: string[] = [];
 	if (form.postSubmit) extras.push(`    post_submit: ${form.postSubmit}`);
-	if (form.entry) {
-		extras.push(
-			`    entry: ${form.entry.kind}${form.entry.label === undefined ? "" : ` (label "${form.entry.label}")`} (offered on Results after an empty search; returns to Results with the new case)`,
-		);
-	}
 	if (form.connect) extras.push("    [Connect enabled]");
 	// The conditions print as the form logic `updateForm` accepts, through
 	// the printer, with field names projected from their identities.
@@ -354,13 +347,14 @@ function formatSearchInput(input: SearchInputDef): string {
  *
  * Output shape:
  *
- *   `case_search: display={titleSet,subtitleSet,…} advanced={excludedOwnerIds|none}`
+ *   `case_search: display={titleSet,subtitleSet,…} advanced={excludedOwnerIds|none} workflow=<searchFirst|skipToResults|listFirst>[, forms read it]`
  *
  * Display cluster summary: comma-separated list of the slot names that
  * are non-undefined; `none` when every slot is cleared. Advanced
- * cluster summary: names each authored slot (the excluded-owners
- * filter); `none` when no advanced filter is set. The one-liner stays
- * at a fixed width to keep the prompt cheap.
+ * cluster summary: the excluded-owners filter, or `none`. `workflow=`
+ * is what the menu opens on, as `setCaseSearchAdvanced.searchWorkflow`
+ * names it, followed by `forms read it` when the menu's forms read the
+ * search. The one-liner stays at a fixed width to keep the prompt cheap.
  */
 function summarizeCaseSearch(mod: Module): string | undefined {
 	const config = mod.caseSearchConfig;
@@ -380,14 +374,27 @@ function summarizeCaseSearch(mod: Module): string | undefined {
 		setDisplaySlots.length === 0
 			? "display={none}"
 			: `display={${setDisplaySlots.join(", ")}}`;
-	const setAdvancedSlots = ADVANCED_SLOT_NAMES.filter(
-		(slot) => config[slot] !== undefined,
-	);
 	const advancedSummary =
-		setAdvancedSlots.length === 0
+		config.excludedOwnerIds === undefined
 			? "advanced={none}"
-			: `advanced={${setAdvancedSlots.join(", ")}}`;
-	return `    case_search: ${displaySummary} ${advancedSummary}`;
+			: "advanced={excludedOwnerIds}";
+	const workflowSummary = `workflow=${searchWorkflow(config)}${config.formsReadSearch === true ? ", forms read it" : ""}`;
+	return `    case_search: ${displaySummary} ${advancedSummary} ${workflowSummary}`;
+}
+
+/**
+ * The menu's registration from the case list, on the module: the form the
+ * results offer after a search finds nothing, and the button's text.
+ */
+function summarizeCaseListRegistration(
+	doc: BlueprintDoc,
+	mod: Module,
+): string | undefined {
+	const slot = mod.caseListRegistrationForm;
+	if (slot === undefined) return undefined;
+	const form = doc.forms[slot.formUuid];
+	const formName = form?.name ?? slot.formUuid;
+	return `    case list registration: ${formName} ("${slot.label ?? formName}")`;
 }
 
 function indentBlock(block: string, indent: string): string {
@@ -413,18 +420,21 @@ function summarizeModule(
 			: advanced.kept
 				? " [advanced, kept]"
 				: " [advanced]";
-	const listOnly = mod.caseListOnly ? " [case list only]" : "";
+	const listInMenu =
+		mod.caseListMenuItem === undefined ? "" : " [case list in menu]";
 	const offTheMenu = mod.hiddenFromMenu === true ? " [off the menu]" : "";
 	const parentInfo =
 		mod.parentModuleUuid === undefined
 			? " [top-level menu]"
 			: ` [child menu of uuid ${mod.parentModuleUuid}]`;
-	const header = `${indent}- Module "${mod.name}" [uuid ${moduleUuid}]${parentInfo}${caseInfo}${advancedInfo}${listOnly}${offTheMenu}`;
+	const header = `${indent}- Module "${mod.name}" [uuid ${moduleUuid}]${parentInfo}${caseInfo}${advancedInfo}${listInMenu}${offTheMenu}`;
 	const sections: string[] = [header];
 	const caseList = summarizeCaseList(mod);
 	if (caseList) sections.push(indentBlock(caseList, indent));
 	const caseSearch = summarizeCaseSearch(mod);
 	if (caseSearch) sections.push(indentBlock(caseSearch, indent));
+	const registration = summarizeCaseListRegistration(doc, mod);
+	if (registration) sections.push(indentBlock(registration, indent));
 	const formUuids = orderedFormUuids(doc, moduleUuid);
 	const forms = formUuids.map((fUuid) => summarizeForm(doc, fUuid)).join("\n");
 	if (forms) sections.push(indentBlock(forms, indent));

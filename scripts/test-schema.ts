@@ -29,7 +29,8 @@
  *     `moveField`, `createForm`, `createModule`, `updateModule`, `updateForm`,
  *     `configureConnect`, `addEntryPoint`, `updateEntryPoint`,
  *     `addFormLinks`, `updateFormLink`,
- *     `renameCaseProperties`, `addLanguage`, `updateTranslations`,
+ *     `renameCaseProperties`, `addLanguage`, `getTranslatableContent`,
+ *     `updateTranslations`,
  *     `attachFieldMedia`, `attachOptionMedia`, `setMenuMedia`,
  *     `setAppLogo`, `listMediaAssets`,
  *     `removeMediaAsset`, `uploadMediaAsset`, `getLookupTables`,
@@ -84,6 +85,8 @@ import { getLookupTablesTool } from "../lib/agent/tools/getLookupTables";
 import {
 	addLanguageInputSchema,
 	addLanguageTool,
+	getTranslatableContentInputSchema,
+	getTranslatableContentTool,
 	updateTranslationsInputSchema,
 	updateTranslationsTool,
 } from "../lib/agent/tools/localization";
@@ -236,7 +239,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: updateModuleTool.description,
 		schema: updateModuleInputSchema,
 		prompt:
-			'Use updateModule with moduleUuid 11111111-1111-4111-8111-111111111111 to set its case type to "patient" and rename it to "Patients".',
+			'Use updateModule with moduleUuid 11111111-1111-4111-8111-111111111111 to set its case type to "patient" and rename it to "Patients", and remove its case list menu item (null).',
 	},
 	{
 		name: "updateForm",
@@ -285,7 +288,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: configureCaseListTool.description,
 		schema: configureCaseListTool.inputSchema,
 		prompt:
-			"Use configureCaseList with moduleUuid 11111111-1111-4111-8111-111111111111 to add a plain case_name column with columnUuid 33333333-3333-4333-8333-333333333333, use the three root search-display fields to set the title to Find a patient while clearing the other display slots, and set Results order to that column UUID.",
+			"Use configureCaseList with moduleUuid 11111111-1111-4111-8111-111111111111 to add a plain case_name column with columnUuid 33333333-3333-4333-8333-333333333333, use the three root search-display fields to set the title to Find a patient while clearing the other display slots, and set Results order to that column UUID, and set searchWorkflow to skipToResults.",
 	},
 	{
 		name: "addCaseListColumns",
@@ -362,7 +365,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: setCaseSearchAdvancedTool.description,
 		schema: setCaseSearchAdvancedTool.inputSchema,
 		prompt:
-			"Use setCaseSearchAdvanced with moduleUuid 11111111-1111-4111-8111-111111111111 to clear the excluded owner ids (null).",
+			"Use setCaseSearchAdvanced with moduleUuid 11111111-1111-4111-8111-111111111111 to clear the excluded owner ids (null), open the menu on searchFirst, and turn formsReadSearch on.",
 	},
 	{
 		name: "setCaseSearchDisplay",
@@ -395,14 +398,14 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: createFormTool.description,
 		schema: createFormTool.inputSchema,
 		prompt:
-			'Use createForm with moduleUuid 11111111-1111-4111-8111-111111111111 to add a followup form named "Visit", with the purpose "Record the latest visit". Questions will be added separately.',
+			'Use createForm with moduleUuid 11111111-1111-4111-8111-111111111111 to add a registration form named "Register patient" as the menu\'s registration from the case list, with the button text "Register a new patient".',
 	},
 	{
 		name: "createModule",
 		description: createModuleTool.description,
 		schema: createModuleTool.inputSchema,
 		prompt:
-			'Use createModule to add a module named "Households" with case type household and the purpose "Manage household registrations and visits". Forms and case-list refinements will be added separately.',
+			'Use createModule to add a module named "Households" with case type household and the purpose "Manage household registrations and visits", showing its case list as its menu item labelled "All households". Forms and case-list refinements will be added separately.',
 	},
 	{
 		name: "renameCaseProperties",
@@ -435,6 +438,13 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: addLanguageInputSchema,
 		prompt:
 			"Use addLanguage to add Mandarin Chinese written in the Simplified script with Singapore conventions: language cmn, script Hans, region SG. Omit copyFrom so it seeds from the source language.",
+	},
+	{
+		name: "getTranslatableContent",
+		description: getTranslatableContentTool.description,
+		schema: getTranslatableContentInputSchema,
+		prompt:
+			"Use getTranslatableContent for the language spa (no script, no region) to read only the units whose role is case-list-registration-label, the first page.",
 	},
 	{
 		name: "updateTranslations",

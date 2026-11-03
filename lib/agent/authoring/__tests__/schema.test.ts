@@ -85,7 +85,11 @@ it("binds refined Search expression families, then enforces the canonical slot r
 		decoders,
 	);
 	expect(setCaseSearchDisplayBodySchema.safeParse(bound).success).toBe(true);
-	const advanced = { excludedOwnerIds: "session('userid')", searchFirst: null };
+	const advanced = {
+		excludedOwnerIds: "session('userid')",
+		searchWorkflow: "searchFirst",
+		formsReadSearch: null,
+	};
 	expect(
 		authoringSchema(setCaseSearchAdvancedBodySchema).safeParse(advanced)
 			.success,

@@ -1,7 +1,7 @@
 /** Create an empty form in the private candidate. Questions are authored through addFields. */
 import { z } from "zod";
-import { searchFirstOnMutations } from "@/lib/doc/searchNoMatchesForm";
-import type { FormEntry, FormType, PostSubmitDestination } from "@/lib/domain";
+import { caseListRegistrationMutations } from "@/lib/doc/caseListRegistrationForm";
+import type { FormType, PostSubmitDestination } from "@/lib/domain";
 import {
 	asUuid,
 	FORM_TYPES,
@@ -13,18 +13,20 @@ import { formNavigation } from "@/lib/preview/engine/navigationProjection";
 import { addFormMutations } from "../blueprintHelpers";
 import type { ToolInvocationContext } from "../workspace/types";
 import {
+	applyToDoc,
 	guardedMutate,
 	type MutatingToolResult,
 	toToolErrorResult,
 } from "./common";
 import {
+	CASE_LIST_REGISTRATION_DESCRIPTION,
+	caseListRegistrationEntry,
+	caseListRegistrationInputSchema,
+} from "./shared/caseListRegistration";
+import {
 	moduleAddressSchema,
 	resolveModuleAddress,
 } from "./shared/entityAddresses";
-import {
-	FORM_ENTRY_DESCRIPTION,
-	formEntryInputSchema,
-} from "./shared/formEntry";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -56,12 +58,11 @@ export const createFormInputSchema = moduleAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Where the user goes after submitting: "app_home", "firstMenu" (the app\'s first menu, which lists its modules; in Web Apps the same screen as "app_home"), "module" (this module\'s first screen), "parentMenu" (the parent module, with its selection kept) or "previous" (the preceding selection or task shown by the resolved navigation result). Omit for the default: "app_home" for registration/survey, and for followup/close the first the module offers of "previous", "module", "firstMenu". A module offers "previous" unless it or its parent selects several cases, it opens on Search, or it is off the menu; "module" unless its parent selects several cases or it is off the menu; "parentMenu" when its parent neither selects several cases nor is off the menu. A destination the module does not offer is refused. With entry search-no-matches, omission returns to Results and explicit firstMenu returns to the app\'s first menu; multiple-selection modules require firstMenu.',
+				'Where the user goes after submitting: "app_home", "firstMenu" (the app\'s first menu, which lists its modules; in Web Apps the same screen as "app_home"), "module" (this module\'s first screen), "parentMenu" (the parent module, with its selection kept) or "previous" (the preceding selection or task shown by the resolved navigation result). Omit for the default: "app_home" for registration/survey, and for followup/close the first the module offers of "previous", "module", "firstMenu". A module offers "previous" unless it or its parent selects several cases, its forms read the search, or it is off the menu; "module" unless its parent selects several cases or it is off the menu; "parentMenu" when its parent neither selects several cases nor is off the menu. A destination the module does not offer is refused. A form that is its menu\'s registration from the case list returns to the results after submit, or goes to "firstMenu" when that is set, which a menu choosing several cases requires.',
 			),
-		entry: formEntryInputSchema
-			.nullable()
+		case_list_registration: caseListRegistrationInputSchema
 			.optional()
-			.describe(FORM_ENTRY_DESCRIPTION),
+			.describe(CASE_LIST_REGISTRATION_DESCRIPTION),
 	})
 	.strict();
 
@@ -91,7 +92,7 @@ export const createFormTool = {
 			type,
 			purpose,
 			post_submit,
-			entry,
+			case_list_registration,
 		} = input;
 		try {
 			const address = resolveModuleAddress(doc, {
@@ -117,22 +118,19 @@ export const createFormTool = {
 				};
 			}
 
-			if (entry != null && post_submit != null && post_submit !== "firstMenu") {
+			if (
+				case_list_registration !== undefined &&
+				post_submit != null &&
+				post_submit !== "firstMenu"
+			) {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					result: {
-						error: `Form "${name}" can return to Results or First menu after an empty-search registration. Leave post_submit out to return to Results, or set post_submit to firstMenu.`,
+						error: `Form "${name}" can return to the results or go to the first menu after it registers a case from the case list. Leave post_submit out to return to the results, or set post_submit to firstMenu.`,
 					},
 				};
 			}
-			const formEntry: FormEntry | undefined =
-				entry == null
-					? undefined
-					: {
-							kind: entry.kind,
-							...(entry.label != null && { label: entry.label }),
-						};
 			const formMutations = addFormMutations(doc, moduleUuid, {
 				uuid: formUuid,
 				name,
@@ -141,15 +139,24 @@ export const createFormTool = {
 				...(post_submit && {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),
-				...(formEntry && { entry: formEntry }),
 			});
+			// The registration from the case list is the module's slot, set on
+			// the document that holds the new form; it turns on Forms read the
+			// search in the same batch (`caseListRegistrationForm.ts`).
 			// Tag under the parent module — the event log groups this
 			// creation event with the rest of that module's activity so the
 			// lifecycle UI renders "forms added to Patient module" as one
 			// chapter rather than interleaved events per form index.
 			const mutations = [
-				...(formEntry ? searchFirstOnMutations(doc, moduleUuid) : []),
 				...formMutations,
+				...(case_list_registration === undefined
+					? []
+					: caseListRegistrationMutations(
+							applyToDoc(doc, formMutations),
+							moduleUuid,
+							formUuid,
+							caseListRegistrationEntry(case_list_registration),
+						)),
 			];
 			const commit = await guardedMutate(
 				ctx,

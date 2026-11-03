@@ -121,8 +121,8 @@ it("creates and edits record names without making the author construct name writ
 	expect(await h.save()).toMatchObject({ saved: true });
 });
 
-it("binds Search rules to renamed answers and seeds a new no-matches form from them", async () => {
-	// Search first runs in Web Apps alone, so the app declares Web Apps.
+it("binds Search rules to renamed answers and seeds a new registration from the case list from them", async () => {
+	// Forms that read the search run in Web Apps alone, so the app declares Web Apps.
 	const h = await makeDurableAuthoringHarness(db, { runsOnlyOn: "web-apps" });
 	await h.call("generateSchema", {
 		caseTypes: [
@@ -194,7 +194,7 @@ it("binds Search rules to renamed answers and seeds a new no-matches form from t
 		name: "Add after search",
 		formUuid: testUuid("authored-search-registration"),
 		type: "registration",
-		entry: { kind: "search-no-matches" },
+		case_list_registration: {},
 	});
 	await h.call("addFields", {
 		moduleUuid: "Clients",
@@ -211,7 +211,7 @@ it("binds Search rules to renamed answers and seeds a new no-matches form from t
 	const seeded = Object.values((await h.currentDoc()).forms).find(
 		(form) => form.name === "Add after search",
 	);
-	if (!seeded) throw new Error("Missing no-matches form.");
+	if (!seeded) throw new Error("Missing registration from the case list.");
 	const fieldId = (await h.currentDoc()).fieldOrder[seeded.uuid][0];
 	expect((await h.currentDoc()).fields[fieldId]).toMatchObject({
 		default_value: {

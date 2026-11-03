@@ -37,7 +37,21 @@ describe("the guide's platform sentences", () => {
 			"A several-case form applies one shared answer to each selected record.",
 			"several-cases",
 		],
-		["workflows", "Search-first workflows begin with Search.", "search-first"],
+		[
+			"workflows",
+			"listFirst opens on the case list, with Search from it.",
+			"search-first",
+		],
+		[
+			"workflows",
+			"formsReadSearch runs the search as each form in the menu opens, so its forms read what was searched for and what was found.",
+			"forms-read-search",
+		],
+		[
+			"workflows",
+			"case_list_menu_item shows a menu's case list as its own item, beside its forms or alone.",
+			"case-list-menu-item",
+		],
 		[
 			"expressions",
 			"here() is the worker's current GPS position, a geopoint, available only in a calculated Results or Details column.",
@@ -68,6 +82,20 @@ describe("the guide's platform sentences", () => {
 		expect(sentence).not.toBe("");
 		expect(AUTHORING_REFERENCE[topic]()).toContain(
 			`${introduction} ${sentence}`,
+		);
+	});
+
+	// The search paragraph introduces its three workflows in one sentence,
+	// so their generated sentences follow it in the order it names them.
+	it("follows the workflows' sentence with search first's, results first's and case list first's sentences in turn", () => {
+		const introduction =
+			"listFirst opens on the case list, with Search from it.";
+		const sentences = (
+			["search-first", "skip-to-results", "list-first"] as const
+		).map((feature) => platformSentence(feature));
+		for (const sentence of sentences) expect(sentence).not.toBe("");
+		expect(AUTHORING_REFERENCE.workflows()).toContain(
+			[introduction, ...sentences].join(" "),
 		);
 	});
 });

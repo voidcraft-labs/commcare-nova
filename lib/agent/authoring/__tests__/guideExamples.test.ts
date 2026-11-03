@@ -474,3 +474,80 @@ it("counts a repeat by a whole number, wrapping a decimal count in int(...)", as
 	);
 	expect(rooms).toMatchObject({ kind: "repeat", repeat_mode: "count_bound" });
 });
+
+it("starts a registration from the case list with a Search answer", async () => {
+	expect(guide).toContain(
+		"For a registration offered when Search finds nothing, create it with case_list_registration, then add fields whose default_value reads #search/<prompt name>.",
+	);
+	// Forms that read the search run in Web Apps alone. The canonical
+	// workspace refuses an empty form, so the registration exists before it
+	// moves to the case list.
+	const h = makeAuthoringHarness(
+		{},
+		namedFormFixture(
+			[
+				{
+					name: "Visits",
+					caseType: "visit",
+					forms: [
+						{ name: "Check", type: "followup" },
+						{ name: "Add visit", type: "registration" },
+					],
+				},
+			],
+			{ runsOnlyOn: "web-apps" },
+		),
+	);
+	expect(
+		await h.call("addSearchInputs", {
+			moduleUuid: "Visits",
+			searchInputs: [
+				{
+					name: "visitor",
+					kind: "simple",
+					type: "text",
+					label: "Visitor",
+					property: "case_name",
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await h.call("updateForm", {
+			formUuid: "Add visit",
+			case_list_registration: { label: "Add a new visit" },
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await h.call("addFields", {
+			formUuid: "Add visit",
+			fields: [
+				{
+					kind: "text",
+					id: "visitor_answer",
+					label: "Visitor",
+					default_value: "#search/visitor",
+				},
+			],
+		}),
+	).toMatchObject({ ok: true });
+	const doc = h.currentDoc();
+	const module = Object.values(doc.modules).find(
+		(candidate) => candidate.name === "Visits",
+	);
+	const form = Object.values(doc.forms).find(
+		(candidate) => candidate.name === "Add visit",
+	);
+	expect(module?.caseListRegistrationForm).toEqual({
+		kind: "after-empty-search",
+		formUuid: form?.uuid,
+		label: "Add a new visit",
+	});
+	expect(module?.caseSearchConfig).toMatchObject({ formsReadSearch: true });
+	const field = Object.values(doc.fields).find(
+		(candidate) => candidate.id === "visitor_answer",
+	);
+	expect(field).toMatchObject({
+		default_value: { kind: "term", term: { kind: "input" } },
+	});
+});
