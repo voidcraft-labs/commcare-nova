@@ -453,36 +453,27 @@ named `name`. A different CommCare spelling exists only as a one-way
 
 ### Field id, case writes, and app-wide property rename
 
-A field carries three independent facts: its immutable `uuid`, its local
-question/path `id`, and — on eligible kinds — an optional
-`caseWrite: { caseType, property }` (`lib/domain/fields/base.ts`). Changing
-`id` changes the question node and the friendly projection and nothing else;
-changing or clearing `caseWrite` retargets exactly one writer; `moveField`
-preserves `id` and rejects a destination sibling collision instead of
-auto-renaming. There is no `renameField` mutation arm and no before/after
-heuristic that reads a local edit as global rename intent.
+A field carries two independent facts, its immutable `uuid` and its local
+question/path `id`; what it saves to a case is a write in its form's case
+operations. Changing `id` changes the question node and the friendly
+projection and nothing else; `moveField` preserves `id` and rejects a
+destination sibling collision instead of auto-renaming. There is no
+`renameField` mutation arm and no before/after heuristic that reads a local
+edit as global rename intent.
 
-`lib/domain/caseWriteInventory.ts::deriveCaseWriteInventory` is the one
-form-tree walk that assigns writers to case actions, grouping them into the
-primary action or a child-create action identified by
-`(caseType, nearest repeat UUID)` — stable UUID identity, never a rendered
-path or mutable id. Every consumer takes those exact writers and buckets
-rather than reclassifying fields;
-`lib/commcare/caseWriteAdmission.ts::assertAndProjectCaseWriteInventory` is
-the sole semantic-plus-wire bridge. Admission is closed over the bucket that
-is actually emitted:
-
-- A survey, or any form with no case action, rejects every binding instead of
-  storing a writer the wire would ignore. At most one field may write each
-  property per bucket.
-- Registration and every derived child-create bucket require exactly one
-  `case_name`, emitted in `<create>`, and admit at most one `external_id`,
-  emitted in the same block's `<update>`. Followup and close forms may bind
-  exactly one primary `case_name`, emitted as `<update><case_name>`, because
-  CommCare accepts a name update on an existing case.
-- A writable destination is exactly the module's own case type or a declared
-  type whose `parent_type` is that module type; a sibling, parent, grandchild,
-  unrelated, or unknown type rejects and never becomes a child bucket.
+A form's case writes are its case operations. The form's own case is the `own`
+arm, first on every registration, follow-up and close form, its lifecycle the
+form's type with `Form.openCondition` and `Form.closeCondition`; every other
+case's create, update and close is an operation of its own. A field's "Saves
+to" is `lib/domain/caseWriteViews.ts::fieldCaseWriteViews`, the writes whose
+value is a bare read of the field or a link to its file, and
+`lib/doc/fieldCaseWriteMutations.ts::planFieldCaseWrite` is its one planner.
+Where CommCare HQ keeps each operation is
+`lib/commcare/placement.ts::planPlacements`: a hold first, then the simplest
+placement that can express it (a basic form action, an advanced menu's case
+action, or a Save to Case block), under a closed list of eligibility
+conditions that HQ's Case Management tab, its advanced case actions and its
+build each impose.
 
 Two projections are deliberately one-way. Nova's `case_name` becomes HQ
 FormActions' private `name` key (`lib/commcare/formActions.ts`), which the
@@ -511,7 +502,8 @@ never elide a rename followed by its inverse. The binding rule lives in
 `lib/doc/CLAUDE.md` and `lib/case-store/CLAUDE.md` own the mechanics.
 
 The builder keeps the two gestures in different homes: the selected field's
-**Saves to** chooser retargets one writer (every candidate dry-run through
+**Saves to** chooser retargets the writes that read the field (every
+candidate dry-run through
 `lib/doc/caseWriteChoices.ts::caseWriteChoiceVerdict`), while the app-wide
 **Case data** manager owns the **Case properties** rename dialog — the only
 builder surface that changes property identity. `content/docs/mcp/tools.mdx`
@@ -786,8 +778,9 @@ owns the surface and Preview-entry behavior.
 
 ### Case operations
 
-Forms carry ordered case operations — create, update, close, with links, renames,
-retypes, and owner assignment — validated by
+Forms carry ordered case operations, the form's own case (`own`) first, then
+create, update and close, with links, renames, retypes, and owner assignment,
+validated by
 `lib/commcare/validator/rules/caseOperations.ts` and emitted by
 `lib/commcare/xform/caseOps.ts`.
 
@@ -814,8 +807,8 @@ even of the same type; authored keys can merge an existing identity. Form-answer
 dependencies preserve their stable field identities and entry provenance.
 A property read inside a record query is reported as a read of a runtime record
 of that query's type. Quantified rows and runtime targets are not promoted to
-proven record identity or a complete read inventory. Ordinary answer writes
-remain visible separately, including when advanced operations are empty.
+proven record identity or a complete read inventory. The own arm's writes are
+reported like every other operation's.
 
 Irreversible true-only facts or append-only child events can express monotonic
 progress with calculated Results columns, filters and form expressions. Every
@@ -836,14 +829,15 @@ forbids a new target and a name; `close` forbids a new target, name, owner,
 rename, retype, **and** links — so unlinking is always a separate operation from
 closing, while close may still carry final property writes. There is no
 load-tolerant legacy operation arm in the live domain schema; pre-cutover bytes
-are transformed before this schema is installed. The `name` restriction is on
-the case-operation facet, not on the independent field `caseWrite`
-binding: CommCare accepts `case_name` in an existing case's `<update>`, so a
-followup/close field may explicitly save that standard property under the
-unique-writer admission rules above.
+are transformed before this schema is installed. An existing case takes a new
+name through `rename` on an update, or through `name` on the own arm of a
+follow-up or close form, because CommCare accepts `case_name` in an existing
+case's `<update>`.
 
 Reserved case types are `commcare-user`, `commcare-case-claim`, and
-`user-owner-mapping-case`. Reserved write properties are
+`user-owner-mapping-case`. Preview writes `commcare-case-claim` rows, one open claim
+owned by the worker with a `host` extension index to each chosen case, as HQ's
+claim does, and a person releases them from the identity menu. Reserved write properties are
 `lib/commcare/constants.ts::RESERVED_CASE_PROPERTIES` — HQ's authoring-side
 case-reserved-words list plus `name` and `owner_id` — extended with
 `location_id`, `hq_user_id`, `external_id`, `category`, and `state`.
@@ -880,18 +874,18 @@ shape:
 HQ's render pipeline preserves hand-authored case blocks: `FormBase.render_xform`
 wraps the stored source and `xform.py::XForm._create_casexml` only appends
 FormActions-driven blocks, with its single collision guard reading the direct
-`/data/case` child. Operations therefore ride the XForm source on both export
-paths, at nested container paths, never at bare `/data/case`.
+`/data/case` child. An operation placed in a Save to Case block therefore rides
+the XForm source on both export paths, at nested container paths, never at
+bare `/data/case`.
 
-Ordinary extension-case creation also rides the source XForm. HQ's basic
-`_create_casexml` ignores the relationship in an `OpenSubCaseAction`, so emitting
-that action alone would silently create a child relationship. Nova retains the
-extension action with condition `never` solely to preserve HQ's case ID datums
-and navigation matching, and emits the active extension inside a `nova_subcases`
-group at its exact root or repeat scope. The native redundant block is irrelevant;
-local CCZ compilation omits it. Non-repeat source creates consume the retained
-session IDs, and repeat creates mint one ID per iteration. Several-case forms
-continue using the shared selected-parent iteration. `proof/native/`
+HQ's basic case builder ignores `OpenSubCaseAction.relationship`, so a basic
+child case is always `child`. An extension case is a case operation: a Save to
+Case block whose case id is `uuid()` (or the id an answer keys it by), or an
+advanced open action where an after-submit link carries the new case, which
+makes its module advanced; in a form of a menu already advanced, an extension
+create that an open action can express takes one whether or not a link carries
+it (`lib/commcare/placement.ts::planPlacements`). A `nova_subcases` group is
+written only where a published Save to Case placement names it. `proof/native/`
 records the reproducible native import/build and navigation evidence.
 
 Authored case ids follow Vellum's repeat-context split: creates outside a repeat
@@ -1059,7 +1053,8 @@ database and its select lists nothing.
 ### Atomic submission and resolved identity
 
 One submission is one transaction. The preview store exposes a single envelope
-carrying ordinary form behavior plus advanced operations; the server builds the
+holding the form's case operations in their array order, its own case's change
+first; the server builds the
 `CaseOperationProgram` from the **committed** document, and identity resolves
 server-side at the action boundary rather than being folded into a
 client-supplied literal. The membership gate precedes the program build,
@@ -1252,11 +1247,11 @@ name with HQ's own `user.name or user.raw_username` fallback because
 `external_id = ''` comparison answer one way in Preview and the other in the
 field.
 
-**A form can save an answer into it.** `commcare-user` is a third
-`deriveCaseWriteInventory` bucket beside primary and child, available on any
-form including a survey with no case type of its own, with the fixed usercase
-rather than a repeat as its bucket identity — a usercase writer inside a repeat
-is refused, because one form writes one worker record. The destination must be
+**A form can save an answer into it.** The worker's record is a case
+operation's target, `{ kind: "worker-record" }`, of at most one update of
+`commcare-user` per form, on any form including a survey with no case type of
+its own; one form writes one worker record, so its writes take no repeat. The
+destination must be
 a declared worker property (the slug is emitted as an XML element name), never
 a built-in worker field, and never `case_name`: HQ permits writing the name and
 its byte oracle asserts exactly that, but materialization owns the worker's
@@ -1265,8 +1260,10 @@ edit. That refusal is a Nova authoring fence rather than a wire constraint, and
 it says so. On the wire this populates `usercase_update` and emits the
 `commcare_usercase` block, the computed `usercase_id` datum, and the
 `count(…) = 1` assertion — all three gated exactly as HQ gates them on
-`actions_use_usercase`, and the datum rides forms only, so Nova's case-list-only
-browse entry carries neither. `usercase_preload` stays empty as a stated fence:
+`actions_use_usercase`, and the datum rides forms only, so a case list menu
+item's entry carries neither. An advanced form loads the record with an
+`autoload_commcare_user<n>` action, `auto_select.mode: "usercase"`, which
+writes the same datum and assertion. `usercase_preload` stays empty as a stated fence:
 `#user/<prop>` already compiles to the identical `casedb` join, and a preload
 action would be a second representation of one read.
 
@@ -1467,18 +1464,47 @@ Equality on a date-and-time property is sent as a closed instant range, which
 HQ answers by instant for every spelling its parser reads
 (`lib/commcare/csql/emitter.ts::readsInstantByRange`).
 
-#### Search first
+#### The search workflow
 
-A module may open on its Search screen instead of a browse list
-(`caseSearchConfig.searchFirst: true`, `lib/domain/modules.ts::moduleOpensOnSearch`).
-Results exist only after a completed search and show only what it found, with
-**Search again** returning to Search; a search-first module with no visible
-prompt runs its search on its own. Removing the final search field preserves
-Search first and its automatic search with the remaining rules. The setting is offered for a case-first
-module or a bare case list, because a registration form on the menu needs a
-fresh case id that breaks the shared datum, and it refuses a Search-button
-display condition (there is no button to gate) and **Previous screen** as an
-after-submit destination (`lib/commcare/validator/rules/case-search/`). The
+What a worker sees first when a menu searches is `caseSearchConfig.workflow`,
+read by `lib/domain/modules.ts::searchWorkflow`: absent is search first, the
+Search screen; `skipToResults` runs the search as the menu opens and shows its
+matches; `listFirst` shows the worker's case list with a Search action.
+Separately, `caseSearchConfig.formsReadSearch: true`
+(`lib/domain/modules.ts::moduleFormsReadSearch`) runs the search as each case
+form of the menu opens, so the forms read what the worker searched for and what
+it found. `lib/commcare/suite/case-search/searchWireShape.ts::searchWireShape`
+is the one spelling of those two slots on both wire paths:
+
+| Workflow | Forms read the search | `auto_launch` | `default_search` | `inline_search` |
+|---|---|---|---|---|
+| list first | no (the pair is unrepresentable) | false | false | false |
+| search first | no | true | false | false |
+| search first | yes | true | false | true |
+| skip to results | no | true | true | false |
+| skip to results | yes | true | true | true |
+
+List first is admitted only where the app does not declare Web Apps
+(`lib/domain/platforms.ts`, `list-first`): CommCare HQ no longer offers it for
+a menu that searches there, and turns such a menu to search first when its case
+list is saved. Android reads no `auto_launch`, so search first and skip to
+results are ignored there and the case list opens first (`search-first`,
+`skip-to-results`). Results exist only after a completed search and show only
+what it found, with **Search again** returning to Search. Enabling Search with
+no visible field, or removing or hiding the last visible field under an absent
+workflow, writes skip to results in the same batch, so no edit leaves a bare
+Search screen behind; a menu whose author chose search first with no visible
+field keeps it
+(`lib/doc/caseSearchConfigPatchMutations.ts::workflowAfterInputChangeMutations`).
+
+Forms reading the search is HQ's inline shape, and it is unavailable on
+Android (`forms-read-search`): a worker there can open only a case the phone
+already holds. It is offered for a case-first module or a bare case list,
+because a registration form on the menu needs a fresh case id that breaks the
+shared datum, never beside list first (`FORMS_READ_SEARCH_WITH_LIST_FIRST`),
+and it refuses a Search-button display condition (there is no button to gate)
+and **Previous screen** as an after-submit destination
+(`lib/commcare/validator/rules/case-search/formsReadSearch.ts`). The
 wire shape is HQ's inline search, byte for byte
 (`lib/commcare/suite/case-search/searchWireShape.ts`): `inline_search` with
 `auto_launch`, no `<remote-request>` and no `m{N}_search_*` details, a `<query
@@ -1497,13 +1523,13 @@ before the query ran throws `XPathMissingInstanceException`
 Two inline modules may not share an instance name across a parent-select or
 root relation, and a case-requiring form of an inline module may not use
 `post_form_workflow == previous` (`helpers/validators.py`). A link INTO a
-search-first module carries the query as a stack child, as HQ's
+menu whose forms read the search carries the query as a stack child, as HQ's
 `WorkflowQueryMeta` does (`lib/commcare/formLinkProjection.ts`). In the inline
 shape every `input(...)` read on both wire paths prints
 `search-input:results:inline`, because Core registers only
 `search-input:<storage>`
 (`RemoteQuerySessionManager.java::getEvaluationContextWithUserInputInstance`).
-A form of a search-first module reads what its search found
+A form of a menu whose forms read the search reads what it found
 (`instance('results:inline')/results/case[…]`, rows of the searched case type,
 HQ's related rows excluded) wherever its entry carries the query; a read that
 depends on the order HQ returns its results in is refused
@@ -1512,26 +1538,27 @@ capped at HQ's 500.
 
 #### Register when nothing matches
 
-A search-first module may offer one registration form only after a search
-completes with nothing found (`Form.entry = { kind: "search-no-matches", label? }`,
-`lib/domain/forms.ts::formEntersFromMenu`). The form is the module's own case
-type, leaves the menu (no link may target it, it carries no display condition
+A menu whose forms read the search may offer one registration form from its
+case list, shown only after a search completes with nothing found
+(`Module.caseListRegistrationForm = { kind: "after-empty-search", formUuid, label? }`,
+`lib/domain/menuForms.ts::caseListRegistrationFormOf`). The form is the
+module's own case type, leaves the menu (no link may target it, it carries no display condition
 and no after-submit choice, every menu projection consults `menuFormUuidsOf`),
 and its fields read the search's answers through `#search/<name>`
 (the `input` leaf, identity-backed like every reference;
-`lib/doc/searchNoMatchesForm.ts` plans the form and the carried fields, and
-`searchNoMatchesDependents.ts` refuses taking the search away while the form
+`lib/doc/caseListRegistrationForm.ts` plans the form and the carried fields,
+and `searchReadDependents.ts` refuses taking the search away while the form
 depends on it). A completed search is a context distinct from not-searched and
 failed (`lib/session/previewSearchState.ts`: `not-searched | running | failed |
 completed {matchCount}` per module); the action is available only for
 `completed` with zero matches, and the form refuses a launch without one
-(`lib/preview/noMatchesForm.ts`). After submit the worker lands
+(`lib/preview/caseListRegistration.ts`). After submit the worker lands
 on Results showing only the case they registered (the module's Search when it
 keeps no menu form), mirroring HQ's regenerated frame. The builder authors it
 as **When no cases match** on the Search canvas and **How this form opens** in
 the form's settings (`components/builder/CLAUDE.md` § Case-list workspace);
-the SA and MCP set `entry` on `create_form` / `update_form` and carry the
-answers with `carry_search_answers`.
+the SA and MCP set `case_list_registration` on `create_form` / `update_form`,
+which turns on Forms read the search in the same batch.
 
 Lowering happens only at the CommCare boundary, identically for Preview, local
 `.ccz`, and HQ-regenerated output (`lib/commcare/emissionPlan.ts` is the one
@@ -1580,10 +1607,11 @@ emits as `instance('search-input:results:inline')/input/field[@name='<name>']`.
 Web Apps is the enforcing runtime: Android never shows a case list on an empty
 search response and passes no search-input extra
 (`commcare-android …/activities/QueryRequestActivity.java::processSuccess`).
-Search first is itself unavailable on Android, so a module that opens on
-Search, and its no-matches form, exist only in an app that runs in Web Apps
-only. Nova never emits a session endpoint for a no-matches form and never
-offers `respect_relevancy=false` toward one. `CaseSearch` has removed
+Forms reading the search is itself unavailable on Android, so a menu whose
+forms read the search, and its registration from the case list, exist only in
+an app that runs in Web Apps only. Nova never emits a session endpoint for a
+case list registration form and never offers `respect_relevancy=false` toward
+one. `CaseSearch` has removed
 `search_filter / search_label / search_again_label / additional_relevant /
 dynamic_search` and the `USH_INLINE_SEARCH` / `USH_SEARCH_FILTER` toggles are
 gone (`models/case_search.py::CaseSearch`; `models/modules.py::CaseListForm`):
@@ -1834,7 +1862,8 @@ boundary (`MEDIA_FORMAT_NOT_PLAYED`).
 ### Attachment questions
 
 Five capture kinds — image, audio, video, signature, and file — carry a label,
-hint, `required`, `relevant`, and a `caseWrite` of their own.
+hint, `required` and `relevant`, and a case operation's write can save a link
+to the captured file.
 `captureFieldKinds` (`lib/domain/fields`) is the single home for which kinds
 are captures; the reference-slot applicability groups, the capture-only
 destination shape, and the wire emitter all read it. Each emits `<upload ref mediatype>` over a `<bind
@@ -1893,56 +1922,43 @@ capture kinds' `saDocs` name what to capture, the platform table's notes say how
 each platform captures it, and Preview plays each platform's controls
 (`lib/preview/platform.ts`, the `capture` rule).
 
-**A capture's `caseWrite` carries a required `mode`, and the case update names
+**A capture reaches a case as a `capture-link` write, and the case update names
 a node the capture question is not.** A capture's answer is the submitted
-file's name, so the answer can never BE the case value; `mode` says what is
-written instead. `"url"` writes a link to the file, built as
+file's name, so the answer can never BE the case value; the write's value is
+`capture-link(#form/<question>)`, a link to the file, built as
 `if(<capture> = '', '', concat('<origin>/a/<domain>/api/form_attachment/v1/',
-/data/meta/instanceID, '/', <capture>))` on a SIBLING node
-(`lib/commcare/xform/captureUrlNode.ts`), which `formActions.ts` then names as
-the update's `question_path`. The sibling follows the capture's relevance: a
-hidden capture emits no update, preserving the old case link; an active blank
-capture emits a blank property. Capture answers are never preloaded from case
+/data/meta/instanceID, '/', <capture>))`. Where the write takes a basic slot,
+the address is a SIBLING node (`lib/commcare/xform/captureUrlNode.ts`), which
+`formActions.ts` then names as the update's `question_path`; a Save to Case row
+has no sibling and calculates the same address over the capture where the row
+reads it (`lib/commcare/xform/caseOps.ts`). The sibling follows the capture's
+relevance: a hidden capture emits no update, preserving the old case link; an
+active blank capture emits a blank property. `capture-link` stands only as a
+write's whole value (`lib/domain/expression/profiles.ts`,
+`captureLinkWholeValue`), and capture answers are never preloaded from case
 properties, since an old address is not a filename in the current submission.
 
 That indirection is the unit's whole reason for existing.
 `xform.py::CaseBlock.add_case_updates` routes an update into an `<attachment>`
 block whenever its question path has an `<upload ref>` in the body
 (`::is_attachment`) and consults no toggle, while
-`update_strategy.py::_apply_attachments_action` drops that block on any domain
-without the deprecated `MM_CASE_PROPERTIES`. Pointing the property at the
-capture question therefore writes nothing, silently, on a stock project space.
+`update_strategy.py::_apply_attachments_action` drops that block on a stock
+project space. Pointing the property at the capture question therefore writes
+nothing, silently. Nova writes no case attachment, so no case property is an
+attachment slot.
 
 The origin and project space arrive already resolved from the app's deployment
 record (`lib/deployment/attachmentTarget.ts`, de-duped on `(server, domain)`
 because the three CommCare installations can hold same-named project spaces);
 a publish uses its own target authoritatively. With no single answer the node,
 the bind, and the case update are all withheld, and the download says so
-through `lib/publish/exportAdvisories.ts`. An attachment is refused
-`case_name` and `external_id`, which reach the wire through their own
-FormActions slots and would point back at the capture question.
+through `lib/publish/exportAdvisories.ts`. A link to a captured file is refused
+as a case's name or external id (`CAPTURE_CASE_WRITE_STANDARD_PROPERTY`),
+because CommCare keeps those as the case's own values rather than links.
 
-`"attachment"` is the opposite member and the deprecated one: it names the
-capture question deliberately, so HQ's structural rule builds the
-`<attachment>` block and CommCare stores the FILE on the case. The local
-`.ccz` reaches the same shape by running HQ's own rule rather than by being
-told — `caseBlocks.ts::attachmentQuestionPaths` collects the body's
-`<upload ref>` set, which is exactly what `::is_attachment` computes, so the
-two surfaces consume one input pair (`FormActions` + the body). The native HQ
-and Core capture proof checks both generated forms through serialization; shared
-inputs alone do not establish equivalent runtime behavior. The emitted bytes match `form_preparation_v2/update_attachment_case.xml`
-and its `_advanced` twin: an empty `<update/>`, a sibling `<attachment>` whose
-child is named by the case property and carries `src="" from="local"`, and
-binds spelled `relevant="count(<question>) = 1"` plus `@src`
-`calculate="<question>"`. The property holds no scalar at all, so
-`casePropertyIsAttachmentSlot` (`lib/domain/attachmentSlots.ts`) is the one
-predicate the case-list gate and the authoring surfaces read to refuse a
-column that could only ever render blank.
-
-Both modes contribute semantic requirements to Nova's project-space
-compatibility gate. **Attachments saved to cases** is required or CommCare HQ
-silently discards the attachment block. **Links to captured files** is required
-or a worker cannot open the stored link. Nova checks those capabilities before
+A `capture-link` write contributes one semantic requirement to Nova's
+project-space compatibility gate: **Links to captured files** is required or a
+worker cannot open the stored link. Nova checks that capability before
 publishing to a concrete target without exposing the underlying HQ settings.
 
 **A `link` column renders a property holding an address as something a worker
@@ -2390,8 +2406,8 @@ preview-as-persona restore scope, provisioning, and publishing in one
 scenario).
 
 Publishing reports whether the selected project space can run the app in Nova's
-own vocabulary: Case search, CommCare Connect, attachments saved to cases, and
-links to captured files. Direct upload checks required support before any
+own vocabulary: Case search, CommCare Connect, links to captured files, and the
+other capabilities `lib/publish/projectSpaceCompatibility.ts` names. Direct upload checks required support before any
 remote write. Confirmed missing support and support Nova cannot verify both stop
 the attempt with a concrete next step; the large-Search optimization is an
 advisory and never blocks. JSON and CCZ describe the capabilities a destination
@@ -2498,6 +2514,75 @@ directly. Request and run timings are three independently authored fields in
 `config/runtime-capabilities.json`; none derives from another.
 `lib/db/CLAUDE.md` owns the run lifecycle.
 
+### Advanced modules
+
+A menu is emitted as CommCare HQ's advanced module exactly when its kind is
+held or one of its forms holds a create that an after-submit link carries and
+that no basic placement gives a session datum, and no kind blocker holds
+(`lib/commcare/moduleKind.ts::emittedModuleKind`: a several-case list, forms
+that read the search, a case list in the menu whose list is narrowed, children
+linking to their parent under more than one name). Its forms' selections are
+the menu's parent chain, each load tagged `load_<case type><n>`, and an
+operation an advanced case action cannot express takes a Save to Case block. An
+extension child case is a create with an `extension` link: a Save to Case block
+in a basic form, or an advanced open action where a link carries it, whose
+owner Nova writes because HQ's build leaves it unowned. HQ's advanced rules are
+eligibility clauses (`lib/commcare/advancedPlacement.ts`), and the one rule
+with no fallback is `FORM_LINK_NEEDS_NEW_CASE_DATUM`.
+
+The CommCare facts this rests on, read at the pins `proof/pins.json` names
+(paths under `corehq/apps/app_manager/`):
+
+- HQ gives a basic form's new case a session datum only as the registration's
+  own case or as a subcase outside a repeat, and an advanced form one per open
+  action outside a repeat, `case_id_new_<type>_<id>`
+  (`suite_xml/sections/entries.py::EntriesHelper.get_new_case_id_datums_meta`,
+  `configure_entry_advanced_form`). A link's target reads the first source datum
+  of its case type (`suite_xml/post_process/workflow.py::_find_best_match`), so a
+  carried create needs one of those datums.
+- An advanced load's datum is `case_id_<tag>`, its nodeset narrowed by
+  `[index/<reference_id>=<the parent load's datum>]`, where a basic parent
+  selection reads any non-extension index
+  (`models/form_actions.py::LoadUpdateAction.case_session_var`,
+  `suite_xml/sections/entries.py::get_datum_meta_assertions_advanced`,
+  `EntriesHelper.get_parent_filter`). A child module's entry is aligned to its
+  root's first form by `EntriesHelper.add_parent_datums`.
+- HQ's case configuration page tags a load `load_<case type><n>` and an open
+  action `open_<case type>_<n>`, and checks a tag against its own pattern and
+  for uniqueness (`static/app_manager/js/forms/advanced/case_config_ui.js::addFormAction`,
+  `actions.js::actionBase.validate`). Nova writes the action's own case type
+  where the page writes the menu's, and spells a type's `-` as `_`, because the
+  tag names the data element `case_<tag>`.
+- HQ's basic case builder ignores `OpenSubCaseAction.relationship`; its advanced
+  build writes `relationship="extension"` for an extension index
+  (`xform.py::XForm._create_casexml`, `_create_casexml_advanced`,
+  `XFormCaseBlock.add_index_ref`).
+- An advanced open action takes its owner from `meta/userID` unless `owner_id`
+  is among its properties, its indices are all `extension`, or one is
+  `question`; otherwise its `<create><owner_id>` is `-`
+  (`xform.py::autoset_owner_id_for_advanced_action`). So for an extension-only
+  open action owned by the worker, Nova writes `owner_id` from a generated
+  Hidden Value, `nova_owner_<operation id>`
+  (`lib/commcare/xform/generatedNodes.ts::advancedOwnerNodeValue`).
+- HQ's build appends a load's preload after every setvalue already in the form,
+  so Nova writes no preload on a load: a preload is the question's default, as
+  in a basic form.
+- HQ's build checks an advanced module and its forms in
+  `helpers/validators.py` (`AdvancedModuleValidator`,
+  `AdvancedFormValidator.check_actions`); Nova holds each rule as a kind
+  blocker, an eligibility clause or a validator finding, and an advanced menu
+  asks no plan privilege of its own
+  (`helpers/validators.py::ApplicationValidator._check_subscription`).
+
+`lib/commcare/CLAUDE.md` § Advanced modules holds the emission: the one plan
+per form (`casePlacementPlan.ts::planFormCaseWire`), the HQ JSON shells, the
+tags (`advancedTags.ts`), the local injection
+(`xform/advancedCaseBlocks.ts::addAdvancedCaseBlocks`), the datums on both
+paths, the case list menu item and the add-ons. A menu CommCare HQ holds as
+advanced stays advanced while it can be one (`Module.heldKind`), and an edit
+that turns a published menu basic or advanced is an identity move
+(`lib/doc/moduleKindMoves.ts::planModuleKindMoves`).
+
 ### After-submit links
 
 A form's after-submit links are entities of the form (`Form.formLinks`, an
@@ -2505,11 +2590,13 @@ ordered array of `{uuid, condition?, target, datums?}`) with their own four
 mutation kinds (`addFormLink {formUuid, link, after?}` / `updateFormLink` /
 `removeFormLink` / `moveFormLink {formUuid, uuid, after}`), so two authors
 editing different links merge and a reorder is an anchor, never a rewritten
-array. `lib/commcare/formLinkProjection.ts` is the ONE projector both wire
-paths print: it emits the exclusive guards that make "first true link wins"
-true (Core executes every true `<create>` and lands on the last; HQ emits
-authored conditions raw), treats a terminal unconditional link as the
-exhaustive else that suppresses the fallback frame, derives frame children
+array. Where the form goes when no destination that may not run runs is
+`Form.otherwise`, set whole by `setFormOtherwise {formUuid, otherwise | null}`.
+`lib/commcare/formLinkProjection.ts` is the ONE projector both wire paths
+print: it emits each destination's own condition in reverse order, so the
+author's first that holds runs first (and alone in Web Apps), the otherwise as
+HQ's fallback or a link conditioned on the negation of every other, and a
+held-case conjunct per carried case, derives frame children
 exactly as HQ's `WorkflowHelper.get_frame_children` does, and, through the
 validator, refuses a form target whose selection datum nothing can satisfy,
 because the runtime opens such a target with an EMPTY case id rather than
@@ -2520,7 +2607,7 @@ JSON shape, the validator codes). The builder authors links on
 submit), Preview follows them against the case rows as the submission left
 them (`lib/preview/CLAUDE.md` § End-of-form links), the SA and MCP speak
 `add_form_links` / `update_form_link` / `remove_form_link` /
-`move_form_link`, and `content/docs/form-links.mdx` is the user-facing guide.
+`move_form_link` / `set_form_otherwise`, and `content/docs/form-links.mdx` is the user-facing guide.
 
 The same raw `previous` frame exposes stable task and selection provenance to
 `lib/commcare/previousTaskProjection.ts`. Preview and App Tests resolve that
@@ -2543,7 +2630,10 @@ page that wants a condition or a repetition is a group or a repeat); and it
 changes no persistence, because sections live in `fields` + `fieldOrder`,
 moves are `moveField` anchors, and history replays exactly. Three soundness
 rules make a sectioned form a closed state (`FORM_SECTION_NOT_TOP_LEVEL`,
-`FORM_SECTIONS_INCOMPLETE`, `FORM_SECTION_USER_REPEAT`); every gesture is a
+`FORM_SECTIONS_INCOMPLETE`, `FORM_SECTION_USER_REPEAT`). A repeat workers add
+entries to cannot sit inside a group shown on one screen either
+(`FIELD_LIST_USER_REPEAT`), since Core skips the add-entry prompt while it
+collects a one-screen page (`FormEntryController::getQuestionPrompts`). Every gesture is a
 planner over ordinary mutations (`lib/doc/formSectionMutations.ts`, one
 `planPartition` core emitting the minimal re-anchored batch) and one
 placement verdict (`lib/doc/formSectionVerdicts.ts::fieldPlacementVerdict`)
@@ -2611,25 +2701,25 @@ silently: Continue pauses until the worker removes enough cases.
 Multiple selection is a form-execution contract, not only a case-list display
 flag. A form expression may read the selected set
 (`instance('<datum id>')/results/value`), for example to count it; reading it
-where one value is needed is refused. Follow-up and close forms consume the selected set. Ordinary primary-case
-answers begin without borrowing a value from any selected case. Every nonblank
-ordinary answer writes to every selected case, while a blank answer preserves
+where one value is needed is refused. Follow-up and close forms consume the selected set. Answers
+the own arm writes begin without borrowing a value from any selected case. The
+own arm applies its one shared patch to every selected case: every nonblank
+answer it writes reaches every selected case, while a blank answer preserves
 each case's existing value; authored defaults and calculations count as
-answers. A capture answer follows that rule when the submission carries a file;
-each selected case stores either that attachment or its published URL according
-to the authored destination mode, while Preview creates neither. Explicit
-session-targeted operations run once for each selected case, while app-level
-effects run once. Within each selected case, authored operations run first,
-then ordinary answers, child creation, and close. An authored repeat remains
-the outer iteration and the selected-case order is the inner iteration. The
-complete submission, including ordinary lifecycle effects, advanced
-operations, and its receipt, commits once or rolls back once. A
+answers. A `capture-link` write follows that rule when the submission carries a
+file, and each selected case stores the file's published address, which Preview
+does not create. The operations that run per selected case (the own arm, a
+session-targeted update or close, a create linked to the loaded case) run once
+for each selected case, in array order, while form-level operations run once.
+An authored repeat remains the outer iteration and the selected-case order is
+the inner iteration. The complete submission, every case operation and its
+receipt, commits once or rolls back once. A
 multiple-selection module therefore needs a follow-up or close consumer rather
 than ending at an informational list.
 
 Changing Case selection is one reviewed semantic transition. A pure document
 planner follows the complete compatible form-link chain in both directions and
-includes any case-list-only parent/child handoff needed by the workflow. The
+includes any bare case list parent/child handoff needed by the workflow. The
 Builder names every module limit and persistent-tile change before one atomic
 commit; a condition, case action, shared case read, or non-repairable direct
 link leaves the document unchanged and opens at its owning form item. The
@@ -2655,7 +2745,7 @@ looks up one scalar selected case, so enabling multiple selection clears only
 `persistOnForms` in the same authored change and explains the consequence.
 Menu navigation carries a set only between compatible modules: the same case
 type and same selection cardinality, with a destination maximum large enough
-for every set the source allows. A case-list-only parent may hand that set to a
+for every set the source allows. A bare case list parent may hand that set to a
 compatible child whose follow-up or close form consumes it. A different-type
 child with declared case parentage filters its population to the union of
 direct non-extension children of every selected parent, then starts its own
@@ -2709,8 +2799,8 @@ safe patch for an existing app.
 Project-space compatibility is semantic on every public surface. Builder and
 MCP name the app feature, its checked state, the consequence, and the next step;
 downstream setting names, namespaces, and probe arrays stay private to the
-CommCare boundary. Case search, CommCare Connect, attachments stored on cases,
-and worker-openable attachment links are required capabilities. Missing or
+CommCare boundary. Case search, CommCare Connect and worker-openable links to
+captured files are among the required capabilities. Missing or
 unverified required support blocks direct publishing before any remote write.
 The large-Search optimization is advisory and never blocks construction,
 Preview, downloads, or publishing. The design agent does not carry a deployment
@@ -2736,7 +2826,7 @@ The shared navigation projection emits matching HQ JSON and suite endpoints:
 selection arguments, claim pushes, and a navigation push. Multiple selections
 carry instance metadata and preserve order. Case-list destinations omit the last
 selection only when the regenerated frame actually reaches the list. Flattened
-modules, no-matches registration forms, registry smart links, and unbound query
+modules, case list registration forms, registry smart links, and unbound query
 arguments are excluded. Formless modules retain their actual module-menu step.
 HQ's `EndpointsHelper` and `WorkflowHelper.get_frame_children`, plus
 `session_endpoint_remote_request.xml` and its multi-select fixture, define the
@@ -2745,7 +2835,8 @@ HQ server.
 
 Preview validates a committed document, persona, and complete case selections
 against real Project data, then installs the navigation state atomically. It does
-not claim cases or simulate an HQ sync. Unavailable cases, stale requests, and
+not simulate an HQ sync; a Web Apps entry point's launch posts its claim as a
+claim row, as CommCare does. Unavailable cases, stale requests, and
 invalid selections fail without changing the current Preview or choosing a
 fallback case. Known-case navigation does not fabricate completed Search input.
 
@@ -2794,10 +2885,13 @@ its meaning.
 
 Count-bound repeats follow CommCare entry semantics: increasing a count adds
 rows, while decreasing it retains created rows, their answers, and their case
-operations in the submission. A direct reference requires an integer question;
-other sources use an explicit numeric expression. Expressions emit through a
-calculated integer beside the repeat, preserving each enclosing row's context.
-Query-bound membership remains a separate initialization snapshot. Republishing
+operations in the submission. A count is a whole number: an integer
+question, an integer single select or a Hidden Value calculated as one is read
+directly, and anything else is a formula Nova keeps in `nova_count_*`, beside
+the repeat, preserving each enclosing row's context. A query repeat's rows are
+a snapshot taken when the form opens only in its model-iteration placement; in
+the count placement they follow the query, and a row past the end of the result
+is not relevant. Republishing
 removes old `__nova_count_*` paths and their HQ export columns; expression counts
 introduce `nova_count_*` columns. No blueprint migration is needed.
 

@@ -86,7 +86,8 @@ give each one its own form so its purpose stays clear.
 
 After-submit links can still open another module or form. Those links choose
 where to go after a form closes; they do not change the app's menu structure.
-See [After submit](./form-links.mdx) for that workflow.
+A form can link to a submenu only from a submenu whose parent has the same case
+type; from anywhere else, link to the menu above it or a form inside it. See [After submit](./form-links.mdx) for that workflow.
 
 A form in a child menu can also go to **Parent module** after submit: the
 parent menu opens with the case it selected still selected, listing its own

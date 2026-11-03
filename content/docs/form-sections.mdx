@@ -41,19 +41,23 @@ Two more rules come from the device. A section is always at the top level of a
 form: a page inside a group would just be a group, so Nova offers the gesture
 only there. And a repeat that people add entries to cannot sit on a page,
 because a phone cannot add entries on a screen that shows several questions at
-once; fixed-count repeats, case-query repeats, and groups can.
+once. The same holds inside a group shown on one screen. Fixed-count repeats,
+case-query repeats, and groups can sit in either.
 
 Counted repeats read their current count when you reach the page and as answers
 change. Increasing the count adds rows; decreasing it keeps rows and answers
 already created. The count can read an earlier answer or an answer in the parent
 row, but cannot depend on the rows it creates.
 
-A record-query repeat outside another repeat captures its record selection when
-the form opens. Preview creates that section’s rows when you first reach the
-page. Nested record-query repeats select their records when their enclosing row
-is created, so they can use answers from an earlier page. Returning to a page,
-changing an earlier answer, or hiding and showing a list keeps its selected
-records.
+A record-query repeat takes its list of matching records when the form opens
+when its search reads no answer, it shows on no condition of its own, it sits in
+no other repeat and no group around it shows on a condition that can change
+while the form is filled in. Otherwise its rows follow the search as the form is
+filled in: each row keeps its place, so its answers stay with that place when the
+results change, and a row past the end of the results is hidden and not
+submitted. Nested record-query repeats follow their search, so they can use
+answers from an earlier page. Preview creates a section's rows when you first
+reach the page, and returning to a page keeps them.
 
 Nothing is permanent: removing the last section returns the form to a single
 page with its questions in place, and you can undo any of it.

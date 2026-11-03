@@ -5083,8 +5083,8 @@ What a pull request runs is what its changes leave out of main's store, which
 the nightly fills with both profiles, and the audit sample (four documents or
 so, observed afresh on every run to hold the store to its keys). The
 expected ends below are the model's: `plan fit` over the queues the queue
-builder's own code makes for each change, from this commit's corpus (398
-documents, 86 controls, 30 package groups: 514 groups,
+builder's own code makes for each change, from the corpus at run
+40287062122's commit (398 documents, 86 controls, 30 package groups: 514 groups,
 4,262 box-seconds whole) and `proof/timings.json`, with a store taken to hold everything the
 change's keys do not move, over two audit seeds and, for the rows of
 documents, ten draws of them. Only the last row has been measured on hosted

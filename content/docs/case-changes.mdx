@@ -21,12 +21,12 @@ that was saved.
 
 ## Forms that open an existing case
 
-When a form opens one case someone picked from a list, every question that
-saves to that case starts out showing the value the case already holds, and
-that includes the case's name. The worker edits the value in place: leaving a
-question alone keeps what was there, and clearing it is a real change. Because
-the case supplies the opening value, Nova does not offer a starting value on
-those questions; the properties pane says so on the question instead.
+When a question saves to the case the form opened, Nova gives it a starting
+value that reads that case's value, so the worker edits the value in place. The
+**Saves to** row says so: **Start blank instead** removes it, and you can
+replace it with any starting value. A later starting value that reads such a
+question reads the case's value. Leaving a question alone keeps what was there,
+and clearing it is a real change.
 
 Nova won't add a save to the case, or move one to another property, where
 the question couldn't open on the case's value. A whole-number question can't
@@ -95,17 +95,30 @@ first event.
 
 A follow-up form that changes nothing on its case still marks the case as
 updated each time it is submitted, so the case's last-modified date moves. A
-follow-up form opened by a form link updates the case that link names. If the
-link's case value is empty, Android can't save the form, and if it names no
-case, CommCare HQ creates one.
+follow-up form opened by a form link updates the case that link names. A form
+link that carries a case runs only when the worker's device holds a case of
+that type with the value it carries, so a value that names no case never opens
+the form; the next destination, or the form's **Otherwise**, runs instead.
 
-A close form can close its case only when one answer matches. CommCare HQ's
-Case Management tab can show that condition when it reads a single-choice,
-multiple-choice, hidden or label question outside a repeating section, the
-answer holds no straight apostrophe and neither starts nor ends with a double
-quote, and, for a question with written choices, the answer is one of them.
-Any other condition is saved as a Save to Case close inside the form, which
-needs Save to Case in the project space's plan on CommCare HQ.
+## This form's case
+
+A form's type decides what happens to its own case. A registration can create
+its case only when a condition is true, and can close the case it creates,
+every time or when a condition is true. A close form closes its case every time
+or only when a condition is true. Any condition you can build in the condition
+editor works, and the line under it says where CommCare HQ keeps it: Case
+Management, or a Save to Case block, which needs Save to Case in the project
+space's plan.
+
+## Where CommCare HQ keeps each change
+
+CommCare HQ keeps a case change in one of three places: the form's Case
+Management settings, an advanced menu's case actions, or a Save to Case block
+in the form. Nova chooses the simplest place that can hold it, and once you
+publish, a change stays where your published app has it. An edit that needs a
+new place says so before it saves, because CommCare HQ's exports then show
+those answers under new columns. **Save only if changed** and saving to a case
+above work only in Case Management or case actions.
 
 ## Where to find them
 
@@ -139,9 +152,14 @@ Choose **Add a change** and say what it does:
   removes it from the worker's next synced set. Related open cases can retain it
   as a dependency. A close can still save final values, and server history remains.
   A business stage such as approved or delivered belongs in a separate property.
+- **Update the worker's record**: saves answers onto the record of the worker
+  filling in the form. It's offered when the app has worker information, and a
+  form holds one such change.
 
-The last two are only offered when the module picks a case before opening its
-forms. When it does not, the choice says so rather than disappearing.
+The two choices for the case this form opened are only offered when the module
+picks a case before opening its forms. When it does not, the choice says so
+rather than disappearing. This form's case is always the first change and goes
+with the form's type.
 
 Case-change choices wait for your Project's data tables to finish loading before
 they become available. If that read fails, the choice explains why it is paused.
@@ -263,6 +281,15 @@ longer available is refused beside the running form. The whole submission is
 atomic: no case is created, changed, linked, or unlinked until every target can
 be resolved.
 
+## When a form's link opens the case it creates
+
+When a form's link opens the case the form creates, CommCare HQ needs that menu
+to be an advanced menu, and Nova publishes it as one. Once published, it stays
+advanced while it can be. A menu that lists several cases at once, whose forms
+read the search, whose case list in the menu is narrowed, or whose cases link
+to their parent under more than one name can't be advanced, and Nova says so
+where you set the link.
+
 ## Removing a change
 
 Removing is offered only when nothing depends on the change. When something
@@ -274,7 +301,8 @@ first.
 
 Case changes are also part of Nova's shared authoring tools. You can ask Nova in
 chat to add, edit, move, or remove them, and a connected MCP agent has the same
-abilities. Ask for the same change in the ordinary names you see in the builder;
+abilities. When an edit moves where CommCare HQ keeps a change, Nova and an MCP
+agent report each move before the work is saved. Ask for the same change in the ordinary names you see in the builder;
 Nova keeps each reference attached to the right question or case change even if
 you later rename or move it, and the names shown in the builder stay current.
 Change ids and connection names use letters, numbers, and underscores and start

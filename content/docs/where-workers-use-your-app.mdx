@@ -39,9 +39,9 @@ Choosing that platform in **App settings** offers it.
 
 These run in Web Apps and not on Android:
 
-- **Search first**, a menu that opens on its Search screen, and the
-  registration form it offers when a search finds nothing. On Android a worker
-  can open only a case the phone already holds.
+- **Forms read the search**, where each form of a menu runs the search again
+  as it opens, and the registration form such a menu offers when a search finds
+  nothing. On Android a worker can open only a case the phone already holds.
 - **Several cases**, choosing more than one case for one form. On Android the
   menu stops at the home screen, so a worker can't reach the form.
 - **Single-date and multiple-choice Search fields.** Android doesn't show them,
@@ -59,6 +59,8 @@ These run on Android and not in Web Apps:
 - **The case list search text**, what the worker typed in a case list's search
   box. Web Apps keeps no search text, so it always reads blank there.
 - **CommCare Connect.**
+- **Case list first**, for a menu that searches. In Web Apps a menu that
+  searches opens on its Search screen or on its results.
 
 Some media files play in only one place too: ICO and AVIF images play only in
 Web Apps, and AAC, AMR and MIDI audio, MP4 with HEVC or MPEG-4 Part 2 video and
@@ -68,7 +70,10 @@ use. See [Building with Nova](./building-with-nova.mdx#text-in-your-app).
 
 Other features run on both and behave a little differently on each, such as a
 location question, which places a point on a map in Web Apps and records the
-device's location on Android. The builder notes each difference where you set
+device's location on Android. A menu set to **Search first** or **Results
+first** opens on its case list on Android. After a form, Android runs every
+destination that applies, in order, and Web Apps opens only the first. The
+builder notes each difference where you set
 it up, for the platforms your app runs on, and
 [Preview](./building-with-nova.mdx#preview-on-web-apps-and-android) can run your
 app the way each platform does.

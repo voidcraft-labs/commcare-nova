@@ -72,8 +72,9 @@ slot context excludes main-form answers and requires a nonempty datum value.
 Session reads bind to the exact target selection member. A link's condition
 and datum values read the session, `casedb`, lookup tables
 (`instance('item-list:<tag>')/…`, stored by table and column UUID, so a rename
-keeps the read), the flat location list, and, where the source entry carries a
-search-first module's query, `results:inline`. A Project table tag resolves
+keeps the read), the flat location list, and, where the source entry passes
+through a menu whose forms read the search, what the search found,
+`results:inline` (`lib/domain/entryDatumSupplies.ts`, `searchResults`). A Project table tag resolves
 through the authorized catalog into stable table and column identities;
 printing and emission derive its current name, the bare tag in a form and
 `item-list:<tag>` in a suite, and both spellings parse to the same read. A
