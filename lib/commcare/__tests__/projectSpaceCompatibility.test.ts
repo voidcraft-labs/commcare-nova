@@ -61,7 +61,7 @@ function module(overrides: Partial<Module> = {}): Module {
 		name: "Patients",
 		caseType: "patient",
 		/* A case list alone has cases, so its list and search reach HQ. */
-		caseListOnly: true,
+		caseListMenuItem: {},
 		caseListConfig: {
 			columns: [],
 			listColumnOrder: [],
@@ -291,21 +291,23 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 		).toEqual(["commcare-connect"]);
 	});
 
-	it("requires registration after an empty search only for a lowered no-matches form", () => {
+	it("requires registration after an empty search only for a lowered case list registration form", () => {
 		const formUuid = testUuid("form-register");
 		const registration = {
 			uuid: formUuid,
 			id: "register",
 			name: "Register patient",
 			type: "registration" as const,
-			entry: { kind: "search-no-matches" as const },
 		};
-		const searchFirst = module({ caseSearchConfig: { searchFirst: true } });
+		const host = module({
+			caseSearchConfig: { formsReadSearch: true },
+			caseListRegistrationForm: { kind: "after-empty-search", formUuid },
+		});
 		const plan = projectSpaceCompatibilityProbePlan(
 			doc({
-				modules: { [searchFirst.uuid]: searchFirst },
+				modules: { [host.uuid]: host },
 				forms: { [formUuid]: registration },
-				formOrder: { [searchFirst.uuid]: [formUuid] },
+				formOrder: { [host.uuid]: [formUuid] },
 			}),
 		);
 		const capability = plan.capabilities.find(
@@ -319,9 +321,11 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 		]);
 		expect(capability?.runtimeProbes).toEqual([]);
 
-		// The same form on a module that does not open on search is a
+		// The same slot on a module whose forms don't read the search is a
 		// validator finding, not a lowered Register action.
-		const browse = module();
+		const browse = module({
+			caseListRegistrationForm: { kind: "after-empty-search", formUuid },
+		});
 		expect(
 			requiredProjectSpaceCapabilities(
 				doc({
@@ -380,7 +384,7 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 			});
 			const patients = module({
 				uuid: patientModuleUuid,
-				caseListOnly: false,
+				caseListMenuItem: undefined,
 				caseListConfig: listOf(options.patientColumns ?? []),
 			});
 			const photo: Field = {
@@ -550,7 +554,7 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 		const formUuid = testUuid("form-update");
 		const answerUuid = testUuid("field-weight");
 		const updateDoc = (onlyIfChanged: boolean): CompatibilityInput => {
-			const patients = module({ caseListOnly: false });
+			const patients = module({ caseListMenuItem: undefined });
 			return doc({
 				modules: { [patients.uuid]: patients },
 				moduleOrder: [patients.uuid],

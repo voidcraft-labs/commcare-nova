@@ -3,8 +3,8 @@
 // Shared types for the case-search wire-emission package.
 // `searchWireShape` produces a `WireShape`; the `<remote-request>`
 // orchestrator and the case-list short-detail emitter consume it.
-// `WireShape` is Nova-internal: the author configures content, and the
-// flags fall out of pure inference, one shape for every platform.
+// `WireShape` is Nova-internal: the flags are the authored workflow's
+// spelling, one shape for every platform.
 
 /**
  * The three wire flags the orchestrator and case-list short-detail
@@ -24,8 +24,8 @@
  *     `<query inline_search>` attribute — the inline-vs-standalone
  *     distinction surfaces only through the chosen storage instance.
  *
- * The flag set is the only choice point. No parallel "workflow
- * mode" enum, no author override.
+ * `searchWireShape` spells the authored `caseSearchConfig.workflow` and
+ * `formsReadSearch` as these flags; nothing else chooses them.
  */
 export interface WireShape {
 	readonly autoLaunch: boolean;

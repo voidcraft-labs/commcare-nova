@@ -106,7 +106,7 @@ describe("an image map with no entries", () => {
 				{
 					name: "Households",
 					caseType: "household",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: resolveCaseListConfig({
 						columns: [
 							plainColumn(testUuid("empty-map-name"), "case_name", "Name"),

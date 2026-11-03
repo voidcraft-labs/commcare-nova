@@ -81,7 +81,7 @@ function searchPromptDoc(source: LookupOptionsSource = SOURCE): BlueprintDoc {
 				uuid: testUuid("module-lookup-search"),
 				name: "Patients",
 				caseType: "patient",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: {
 					...caseListConfig([{ field: "case_name", header: "Name" }]),
 					searchInputs: [

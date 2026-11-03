@@ -1,5 +1,6 @@
 /**
- * The no-matches registration form on the wire.
+ * The case list registration form offered after an empty search
+ * (`Module.caseListRegistrationForm`) on the wire.
  *
  * Oracles, all in `~/code/commcare-hq` (the binding facts live in
  * `docs/architecture/complex-apps.md` § Register when nothing matches):
@@ -96,8 +97,8 @@ function compileSuite(doc: BlueprintDoc): {
 
 // ── Tests ───────────────────────────────────────────────────────────
 
-describe("no-matches registration form", () => {
-	it("passes the validator with the entry set on a search-first host", () => {
+describe("case list registration form", () => {
+	it("passes the validator with the slot set on a host whose forms read the search", () => {
 		const doc = noMatchesDoc();
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
@@ -211,7 +212,7 @@ describe("no-matches registration form", () => {
 		]);
 	});
 
-	it("labels the action from the entry label, else the form name", () => {
+	it("labels the action from the slot's label, else the form name", () => {
 		const labelled = compileSuite(noMatchesDoc({ label: "Add a new patient" }));
 		const named = compileSuite(noMatchesDoc());
 		const strings = (suite: { xform: (path: string) => string }) =>
@@ -289,7 +290,7 @@ describe("no-matches registration form", () => {
 	});
 
 	it("still lowers on a bare case list host, with a bare return frame", () => {
-		const doc = noMatchesDoc({ caseListOnly: true });
+		const doc = noMatchesDoc({ bareCaseList: true });
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const { suite } = compileSuite(doc);
 		const entry = childrenNamed(suite, "entry").find((candidate) =>
@@ -308,7 +309,7 @@ describe("no-matches registration form", () => {
 	});
 });
 
-describe("explicit no-matches First menu", () => {
+describe("explicit First menu after a case list registration", () => {
 	it.each([false, true])(
 		"uses HQ root and an empty local create frame (multiple=%s)",
 		(multiple) => {

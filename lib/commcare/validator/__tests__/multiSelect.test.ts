@@ -249,7 +249,7 @@ function linkExpressionDoc(options: {
 			{
 				name: "Visits",
 				caseType: "visit",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),
@@ -323,7 +323,7 @@ describe("multi-select absolute validation", () => {
 				{
 					name: "Choose patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: multipleConfig(5),
 					forms: [],
 				},

@@ -71,6 +71,7 @@ import {
 	type Expression,
 	type FormLink,
 	type FormLinkTarget,
+	moduleHasCaseListMenuItem,
 	moduleParent,
 	projectedModulePreorder,
 	rootSelectionAlignment,
@@ -110,7 +111,7 @@ import {
 	buildInlineSearch,
 	type InlineSearchEmission,
 	inlineSearchQueryMetadata,
-	moduleIsSearchFirst,
+	moduleUsesInlineSearch,
 } from "./suite/case-search/inlineSearch";
 import type { FormActions } from "./types";
 import { USERCASE_DATUM_ID } from "./usercaseWire";
@@ -156,7 +157,7 @@ export interface FrameDatum {
 	) => WireExpr;
 	readonly renderFormLinkFunction?: SessionDatum["renderFormLinkFunction"];
 	/**
-	 * Present on the `<query>` session child of a search-first module (HQ
+	 * Present on the `<query>` session child of a menu whose forms read the search (HQ
 	 * `WorkflowQueryMeta`). `id` is the storage instance; `caseType` is the
 	 * module's; `requiresSelection` is HQ's `not prompts and default_search`.
 	 */
@@ -183,7 +184,7 @@ export type MatchedChild =
 			readonly value: WireExpr;
 	  }
 	/** HQ `WorkflowQueryMeta.to_stack_datum`: fetch the selected case into
-	 *  a search-first module's results instance before its datum reads it. */
+	 *  the results instance of a menu whose forms read the search before its datum reads it. */
 	| {
 			readonly type: "query";
 			readonly id: string;
@@ -265,7 +266,7 @@ export interface FormLinkProjectionContext {
 	/** Root-computed datums copied into a child entry by `add_parent_datums`.
 	 * Weak provenance keeps the session wire object unchanged. */
 	readonly fromParentModuleDatums: WeakSet<SessionDatum>;
-	/** Each search-first module's inline search, built once per context. */
+	/** The inline search of each menu whose forms read the search, built once per context. */
 	readonly inlineSearches: Map<Uuid, InlineSearchEmission>;
 	/** The datum each placed `<query>` feeds (HQ `WorkflowQueryMeta.next_datum`). */
 	readonly queryNextDatums: WeakMap<SessionDatum, SessionDatum>;
@@ -365,7 +366,7 @@ export function formLinkProjectionContext(
 }
 
 /**
- * The inline search of a search-first module, or `undefined` for any
+ * The inline search of a menu whose forms read the search, or `undefined` for any
  * other module. The compiler reads it for the strings; the datum
  * projection places its `<query>`.
  */
@@ -375,7 +376,7 @@ export function inlineSearchFor(
 	moduleUuid: Uuid,
 ): InlineSearchEmission | undefined {
 	const mod = doc.modules[moduleUuid];
-	if (mod === undefined || !moduleIsSearchFirst(mod)) return undefined;
+	if (mod === undefined || !moduleUsesInlineSearch(mod)) return undefined;
 	const held = ctx.inlineSearches.get(moduleUuid);
 	if (held !== undefined) return held;
 	const parentUuid = parentSelectModuleUuid(doc, moduleUuid);
@@ -395,7 +396,7 @@ export function inlineSearchFor(
 }
 
 /**
- * HQ's `add_remote_query_datums`: a search-first module's `<query>` goes
+ * HQ's `add_remote_query_datums`: the `<query>` of a menu whose forms read the search goes
  * immediately before every selection datum that module supplies. Runs
  * after root-menu alignment, as HQ's does, so the datum the query names
  * carries its final id.
@@ -412,7 +413,7 @@ function withInlineSearchQueries(
 			!sessionDatumRequiresSelection(datum) || sourceUuid === undefined
 				? undefined
 				: ctx.entryMetadataOnly
-					? moduleIsSearchFirst(doc.modules[sourceUuid])
+					? moduleUsesInlineSearch(doc.modules[sourceUuid])
 						? inlineSearchQueryMetadata(
 								doc.modules[sourceUuid],
 								moduleIndexOf(ctx, sourceUuid),
@@ -610,7 +611,7 @@ function selectableDatums(
 			...(multiple?.kind === "multiple" && {
 				maxSelectValue: multiple.maximum,
 			}),
-			...(moduleIsSearchFirst(selectedModule) && {
+			...(moduleUsesInlineSearch(selectedModule) && {
 				caseSource: "results:inline" as const,
 			}),
 		});
@@ -1086,11 +1087,12 @@ export function selectedCaseSessionDatum(
 }
 
 /**
- * The datum list of a menu's case list entry. A form-less menu emitted
- * advanced (one whose kind is held and whose forms are gone) writes HQ's
- * advanced case list entry, one datum over every open case of its type
- * (`session.ts::deriveAdvancedCaseListDatum`); every other menu its basic
- * browse entry (`basicCaseListSessionDatums`).
+ * The datum list of a menu's case list entry (`Module.caseListMenuItem`). A
+ * menu emitted advanced writes HQ's advanced case list entry, one datum over
+ * every open case of its type (`session.ts::deriveAdvancedCaseListDatum`),
+ * beside its forms or alone; every other menu its basic entry, the datums a
+ * case-loading form of the menu gets (`basicCaseListSessionDatums`, HQ's
+ * `EntriesHelper.configure_entry_module_form` with no form).
  */
 export function caseListSessionDatums(
 	doc: BlueprintDoc,
@@ -1100,7 +1102,8 @@ export function caseListSessionDatums(
 	const mod = doc.modules[moduleUuid];
 	if (
 		ctx.moduleKinds === "emitted" &&
-		mod?.caseListOnly === true &&
+		mod !== undefined &&
+		moduleHasCaseListMenuItem(mod) &&
 		mod.caseType &&
 		emittedModuleKind(doc, moduleUuid) === "advanced"
 	) {
@@ -1124,7 +1127,9 @@ export function caseListSessionDatums(
 	return basicCaseListSessionDatums(doc, ctx, moduleUuid);
 }
 
-/** Root-aware datum list for a case-list-only browse entry of a basic menu. */
+/** Root-aware datum list for the case list entry of a basic menu, with the
+ *  inline query before its selection where the forms read the search
+ *  (HQ's `add_remote_query_datums`). */
 function basicCaseListSessionDatums(
 	doc: BlueprintDoc,
 	ctx: FormLinkProjectionContext,
@@ -1716,7 +1721,7 @@ function staticFrameChild(child: FrameChild): PendingChild {
  * menu forms (`get_frame_children(target_module)`), matched to the source
  * form's datums (`_get_datums_matched_to_source`) and cut at the datum the
  * form's new case satisfies (`CaseListFormStackFrames.add_children` breaks
- * at `source_session_var`). For a search-first host that is the module
+ * at `source_session_var`). For a host whose forms read the search that is the module
  * command plus the results query re-keyed to the new case id, so the
  * worker lands on Results showing the case they just registered.
  *

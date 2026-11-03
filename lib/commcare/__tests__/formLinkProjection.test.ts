@@ -825,7 +825,7 @@ describe("totality predicates", () => {
 					uuid: "mod-viewer",
 					name: "Viewer",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),

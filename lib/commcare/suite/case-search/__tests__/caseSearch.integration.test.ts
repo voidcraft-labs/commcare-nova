@@ -38,7 +38,8 @@ it.each(["display-first", "advanced-first"])(
 		const advanced = {
 			moduleUuid,
 			excludedOwnerIds: excluded,
-			searchFirst: null,
+			searchWorkflow: "searchFirst",
+			formsReadSearch: null,
 		};
 		const calls = [
 			() => workspace.runTool(setCaseSearchDisplayTool, display),

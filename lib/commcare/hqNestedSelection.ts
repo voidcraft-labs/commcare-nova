@@ -1,4 +1,8 @@
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	moduleHasCaseListMenuItem,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	caseListSessionDatums,
 	entrySessionDatums,
@@ -114,7 +118,7 @@ export function hqNestedSelectionFindings(
 				formUuid,
 			);
 		}
-		if (doc.modules[moduleUuid].caseListOnly) {
+		if (moduleHasCaseListMenuItem(doc.modules[moduleUuid])) {
 			inspect(moduleUuid, caseListSessionDatums(doc, context, moduleUuid));
 		}
 	}

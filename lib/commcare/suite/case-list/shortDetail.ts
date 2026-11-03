@@ -148,7 +148,7 @@ export interface SearchActionContext {
  * The Register action CCHQ mounts on `m{N}_case_short` for a module's
  * `case_list_form` (`DetailContributor.get_case_list_form_action`): it
  * pushes the target form's command, the target entry's computed datums,
- * and `return_to`. Nova emits it only for a search-first host, where its
+ * and `return_to`. Nova emits it only for a host whose forms read the search, where its
  * relevancy reads the inline results instance, so the `relevant`
  * attribute is always present (HQ emits it under
  * `FOLLOWUP_FORMS_AS_CASE_LIST_FORM`, the capability the publish path
@@ -219,7 +219,7 @@ export function buildShortDetail(args: {
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
 	readonly searchAction?: SearchActionContext;
-	/** The Register action of a search-first host with a no-matches form;
+	/** The Register action of a host whose forms read the search with a no-matches form;
 	 *  case target only, like `searchAction`. */
 	readonly registerAction?: RegisterActionContext;
 	/** The case-target rows' source; see `CaseListEmitContext.caseSource`. */

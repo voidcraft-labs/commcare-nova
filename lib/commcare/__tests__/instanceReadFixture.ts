@@ -269,7 +269,7 @@ export function instanceReadFixture() {
 						),
 					],
 				},
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
 				forms: [
 					{
 						uuid: INSTANCE_READS.searchForm,

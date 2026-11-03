@@ -1103,7 +1103,7 @@ const CASE_LIST_FORM_WORKFLOWS: ReadonlySet<string> = new Set([
  * `details.py::add_register_action` resolves through `app.get_form` on the
  * first build, so an unresolved id fails there rather than at import. The
  * emitter sets `form_id` only from a form it placed in the app (the hidden
- * module of a no-matches registration form), so either failure is an
+ * module of a case list registration form), so either failure is an
  * `expandDoc` bug.
  */
 function checkCaseListForm(

@@ -11,6 +11,8 @@ import {
 	formSchema,
 	moduleSchema,
 	type ProseTemplate,
+	postSubmitDestinationsOffered,
+	postSubmitNotOfferedReason,
 	proseText,
 	type Uuid,
 } from "@/lib/domain";
@@ -264,7 +266,7 @@ describe("whole-document structural admission", () => {
 					uuid: m,
 					name: "Patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),
@@ -605,7 +607,7 @@ describe("case action destinations and repeat scope", () => {
 					uuid: childModule,
 					name: "Visits",
 					caseType: "visit",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),
@@ -812,45 +814,62 @@ describe("POST_SUBMIT_NOT_OFFERED", () => {
 		).toEqual([]);
 	});
 
-	it("menu-opens-on-search: refuses previous in a module that opens on Search", () => {
+	it("menu-forms-read-search: refuses previous in a module whose forms read the search", () => {
 		const base = patient("followup");
 		const refused = only(
 			candidate(base, (d) => {
-				d.modules[m].caseSearchConfig = { searchFirst: true };
+				d.modules[m].caseSearchConfig = { formsReadSearch: true };
 				d.forms[a].postSubmit = "previous";
 			}),
 		);
-		expect(refused.details).toMatchObject({ reason: "menu-opens-on-search" });
+		expect(refused.details).toMatchObject({ reason: "menu-forms-read-search" });
 		expect(refused.message).toBe(
-			'"Intake" goes to the previous screen after submit, but "Patients" opens on Search, and CommCare can\'t go back to the previous screen there. Choose one of: "app_home", "firstMenu", "module".',
+			'"Intake" goes to the previous screen after submit, but "Patients" has its forms read the search, and CommCare can\'t go back to the previous screen there. Choose one of: "app_home", "firstMenu", "module".',
 		);
 		expect(userFacingError(refused)).toBe(
-			'"Intake" goes to the previous screen after submit, but "Patients" opens on Search, and CommCare can\'t go back to the previous screen there. Choose one of: "App home", "First menu", "This module".',
+			'"Intake" goes to the previous screen after submit, but "Patients" has its forms read the search, and CommCare can\'t go back to the previous screen there. Choose one of: "App home", "First menu", "This module".',
 		);
+		// A search first whose forms don't read the search goes back, as
+		// HQ's build lets it (`helpers/validators.py`, `workflow previous
+		// inline search`).
 		expect(
 			notOffered(
 				candidate(base, (d) => {
-					d.modules[m].caseSearchConfig = { searchFirst: true };
+					d.modules[m].caseSearchConfig = {};
+					d.forms[a].postSubmit = "previous";
+				}),
+			),
+		).toEqual([]);
+		expect(
+			notOffered(
+				candidate(base, (d) => {
+					d.modules[m].caseSearchConfig = { formsReadSearch: true };
 					d.forms[a].postSubmit = "module";
 				}),
 			),
 		).toEqual([]);
 	});
 
-	it("menu-is-case-list-only: refuses module in a bare case list", () => {
-		const refused = only(
-			candidate(patient("followup"), (d) => {
-				d.modules[m].caseListOnly = true;
-				d.forms[a].postSubmit = "module";
-			}),
+	it("menu-is-bare-case-list: withholds module in a bare case list", () => {
+		// The menu's one form is its case list registration form, on no
+		// menu, so the menu is its case list alone. That form's own rule
+		// holds its after-submit destination to First menu, so the reason is
+		// the domain's statement alone.
+		const doc = candidate(patient("registration"), (d) => {
+			d.modules[m].caseListMenuItem = {};
+			d.modules[m].caseListRegistrationForm = {
+				kind: "after-empty-search",
+				formUuid: a,
+			};
+			d.forms[a].postSubmit = "module";
+		});
+		expect(postSubmitNotOfferedReason(doc, a, "module")).toBe(
+			"menu-is-bare-case-list",
 		);
-		expect(refused.details).toMatchObject({ reason: "menu-is-case-list-only" });
-		expect(refused.message).toBe(
-			'"Intake" goes to its module after submit, but "Patients" is a case list with no forms, so there is no form list to land on. Choose one of: "app_home", "firstMenu", "previous".',
-		);
-		expect(userFacingError(refused)).toBe(
-			'"Intake" goes to its module after submit, but "Patients" is a case list with no forms, so there is no form list to land on. Choose one of: "App home", "First menu", "Previous screen".',
-		);
+		expect(postSubmitDestinationsOffered(doc, a)).not.toContain("module");
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(({ code }) => code),
+		).toContain("CASE_LIST_REGISTRATION_HAS_NAVIGATION");
 	});
 
 	it("no-parent-menu: refuses parentMenu in a top-level module", () => {

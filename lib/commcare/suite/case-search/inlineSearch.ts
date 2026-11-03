@@ -2,7 +2,8 @@ import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 
 // lib/commcare/suite/case-search/inlineSearch.ts
 //
-// The inline shape a search-first module lowers to: CommCare runs the
+// The inline shape a menu whose forms read the search lowers to
+// (`caseSearchConfig.formsReadSearch`, CommCare's inline search): CommCare runs the
 // search INSIDE each entry that needs a case, so there is no
 // `<remote-request>`, no `m{N}_search_*` detail, and no Search action on
 // the case list. Each such entry carries the `<query>` immediately before
@@ -19,7 +20,7 @@ import {
 	emptyCaseListConfig,
 	type Module,
 	makeTranslationUnitId,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
 	type OrdinaryCaseSearchConfig,
 	type WireStringSource,
 } from "@/lib/domain";
@@ -42,22 +43,25 @@ export interface InlineSearchEmission {
 	readonly wire: WireShape;
 }
 
-/** Whether the module lowers to the inline shape. */
-export function moduleIsSearchFirst(mod: Module): boolean {
-	return moduleOpensOnSearch(mod);
+/** Whether the module lowers to the inline shape: its forms read the search. */
+export function moduleUsesInlineSearch(mod: Module): boolean {
+	return moduleFormsReadSearch(mod);
 }
 
 function inlineSearchPlan(mod: Module, moduleIndex: number) {
 	const caseSearchConfig = effectiveCaseSearchConfig(mod);
-	if (mod.caseType === undefined || caseSearchConfig?.searchFirst !== true) {
+	if (
+		mod.caseType === undefined ||
+		caseSearchConfig?.formsReadSearch !== true
+	) {
 		throw new Error(
-			`Tried to build the inline search of module index ${moduleIndex} ("${mod.name}"), but the module is not search-first with a case type. ` +
-				"`moduleIsSearchFirst` gates every caller; reaching here means a caller bypassed it.",
+			`Tried to build the inline search of module index ${moduleIndex} ("${mod.name}"), but the module's forms don't read the search, or it has no case type. ` +
+				"`moduleUsesInlineSearch` gates every caller; reaching here means a caller bypassed it.",
 		);
 	}
 	const caseListConfig: CaseListConfig =
 		mod.caseListConfig ?? emptyCaseListConfig();
-	const wire = searchWireShape(caseListConfig, caseSearchConfig);
+	const wire = searchWireShape(caseSearchConfig);
 	const metadata: SessionQueryMetadata = {
 		storageInstance: "results:inline",
 		caseType: mod.caseType,
@@ -79,7 +83,7 @@ export function inlineSearchQueryMetadata(
 }
 
 /**
- * The `<query>` of a search-first module, ready to sit in a session datum
+ * The `<query>` of a menu whose forms read the search, ready to sit in a session datum
  * list, with the locale strings its title, description, and prompts
  * reference. `ancestorCaseType` is the parent module's case type when the
  * module's cases are selected under a parent.

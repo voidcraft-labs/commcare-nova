@@ -141,7 +141,7 @@ describe("HQ nested-selection target compatibility", () => {
 						sameCaseType: scenario !== "case-list-only",
 						parentFirstSurvey: scenario === "survey-first-root",
 						parentSelect: scenario === "case-list-only",
-						caseListOnly: scenario === "case-list-only",
+						bareCaseList: scenario === "case-list-only",
 					});
 		const [root, child] = doc.moduleOrder;
 		const rootConfig = doc.modules[root].caseListConfig;

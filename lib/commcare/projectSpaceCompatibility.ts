@@ -10,11 +10,11 @@ import {
 	type BlueprintDoc,
 	CONNECT_TYPE_LABELS,
 	caseListColumnTextShows,
+	caseListRegistrationFormOf,
 	caseWriteValueField,
 	effectiveCaseSearchConfig,
 	type Field,
 	type Module,
-	noMatchesFormOf,
 	operationCaseType,
 	proseSurfaceReads,
 	searchInputDefault,
@@ -32,7 +32,7 @@ import {
 	projectSpaceCapabilityUse,
 	projectSpaceCompatibilityForUnknownTarget,
 } from "@/lib/publish/projectSpaceCompatibility";
-import { hostLowersNoMatchesForm } from "./emissionPlan";
+import { hostLowersCaseListRegistration } from "./emissionPlan";
 import { moduleExpressionContexts } from "./expressionContext";
 import {
 	caseListStepDatumId,
@@ -40,7 +40,7 @@ import {
 	parentSelectModuleUuid,
 } from "./formLinkProjection";
 import { sameTypeBasicChildCases } from "./sameTypeChildCases";
-import { moduleIsSearchFirst } from "./suite/case-search/inlineSearch";
+import { moduleUsesInlineSearch } from "./suite/case-search/inlineSearch";
 import { searchNeedsSupportingCases } from "./suite/case-search/relatedCaseProjection";
 import {
 	searchInputIsSingleDate,
@@ -154,8 +154,8 @@ export function advancedCaseSearchReasons(module: Module): string[] {
 			"A Search screen carries a hidden value worked out when it opens.",
 		);
 	}
-	if (moduleIsSearchFirst(module)) {
-		reasons.push("The menu opens on Search.");
+	if (moduleUsesInlineSearch(module)) {
+		reasons.push("The menu's forms read the search.");
 	}
 	if (inputs.some(searchInputIsSingleDate)) {
 		reasons.push("A Search field takes one date.");
@@ -171,7 +171,8 @@ export function advancedCaseSearchReasons(module: Module): string[] {
  * reason per arm; empty where it needs none. Without the setting HQ's case
  * search refuses a query that reads related cases
  * (`case_search/filter_dsl.py::_require_related_lookups_flag`), and HQ's
- * build adds such a query itself for a search-first menu that follows a
+ * build adds such a query itself for a menu whose forms read the search
+ * (CommCare's inline search) and that follows a
  * parent case chosen first
  * (`util.py::module_uses_inline_search_with_parent_relationship_parent_select`).
  */
@@ -196,11 +197,11 @@ function relatedCaseSearchReasons(doc: BlueprintDoc, module: Module): string[] {
 		reasons.push("A case list shows values from related cases.");
 	}
 	if (
-		moduleIsSearchFirst(module) &&
+		moduleUsesInlineSearch(module) &&
 		parentSelectModuleUuid(doc, module.uuid) !== undefined
 	) {
 		reasons.push(
-			"A menu that opens on Search follows a parent case chosen first.",
+			"A menu whose forms read the search follows a parent case chosen first.",
 		);
 	}
 	return reasons;
@@ -365,13 +366,13 @@ function formSavesOnlyEditedAnswers(
  * predicate is the emitter's own lowering gate so the check and the wire
  * cannot disagree.
  */
-function moduleRequiresNoMatchesRegistration(
+function moduleRequiresCaseListRegistration(
 	doc: BlueprintDoc,
 	module: Module,
 ): boolean {
 	return (
-		hostLowersNoMatchesForm(module) &&
-		noMatchesFormOf(doc, module.uuid) !== undefined
+		hostLowersCaseListRegistration(module) &&
+		caseListRegistrationFormOf(doc, module.uuid) !== undefined
 	);
 }
 
@@ -422,7 +423,7 @@ export function projectSpaceCompatibilityProbePlan(
 			: []) {
 			addReason("related-case-search", reason);
 		}
-		if (moduleRequiresNoMatchesRegistration(doc, module)) {
+		if (moduleRequiresCaseListRegistration(doc, module)) {
 			addReason(
 				"registration-after-empty-search",
 				"A search that finds nothing offers to register a new case.",

@@ -626,8 +626,8 @@ function checkEntries(
 	}
 
 	// C1-6 + post checks: a `<remote-request>` must contain a `<post>`; an
-	// `<entry>` may carry one (a search-first module's claim), parsed by the
-	// same `EntryParser::parsePost`.
+	// `<entry>` may carry one (the claim of a menu whose forms read the
+	// search), parsed by the same `EntryParser::parsePost`.
 	for (const rr of findAll(
 		(el) => el.name === "remote-request" || el.name === "entry",
 		model.doc.children,

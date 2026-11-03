@@ -158,7 +158,7 @@ describe("entry datum identities on the emitted session", () => {
 					uuid: CHILD,
 					name: "Members",
 					caseType: "member",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),

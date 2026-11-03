@@ -225,7 +225,7 @@ function lookupTermContext(
 	ctx: CaseListEmitContext,
 ): NonNullable<WireBuildContext["bindings"]> {
 	return {
-		// A search-first module's list is the inline query's results, which
+		// The list of a menu whose forms read the search is the inline query's results, which
 		// keep the Search answers beside them.
 		...(ctx.caseSource === "results:inline"
 			? { searchInputInstanceId: INLINE_SEARCH_INPUT_INSTANCE_ID }

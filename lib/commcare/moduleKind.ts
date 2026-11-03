@@ -26,6 +26,7 @@
 import {
 	advancedKindBlockers,
 	type BlueprintDoc,
+	moduleHasCaseListMenuItem,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -71,17 +72,17 @@ export function emittedModuleKind(
  * EntriesHelper.entry_for_module`, the `AdvancedModule` branch under
  * `self.app.commtrack_enabled`).
  *
- * The item is read through `Module.caseListOnly`, the one shape that writes
- * `case_list.show` (`expander.ts::expandDoc`), and a module holding it has no
- * forms; so a module returned here is a formless one whose kind is held
- * advanced (`Module.heldKind`).
+ * The item is read through `moduleHasCaseListMenuItem`
+ * (`Module.caseListMenuItem`), the one shape that writes `case_list.show`
+ * (`expander.ts::expandDoc`), beside the module's forms or alone.
  */
 export function advancedModulesWithCaseListMenuItem(
 	doc: BlueprintDoc,
 ): readonly Uuid[] {
 	return doc.moduleOrder.filter(
 		(moduleUuid) =>
-			doc.modules[moduleUuid]?.caseListOnly === true &&
+			doc.modules[moduleUuid] !== undefined &&
+			moduleHasCaseListMenuItem(doc.modules[moduleUuid]) &&
 			emittedModuleKind(doc, moduleUuid) === "advanced",
 	);
 }

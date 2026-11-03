@@ -23,7 +23,7 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	type FormLink,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
 	type Uuid,
 } from "@/lib/domain";
 import type { Expression } from "@/lib/domain/expression/types";
@@ -33,7 +33,8 @@ import { suiteDocArbitrary } from "./suiteDocArbitrary";
 export const CARRIED_CREATE = testUuid("advanced-fuzz-carried-create");
 const CARRYING_LINK = testUuid("advanced-fuzz-carrying-link");
 
-/** A follow-up form of a top-level menu that opens on its list: a link's
+/** A follow-up form of a top-level menu whose forms read their own case
+ *  (not the search): a link's
  *  target whose one case datum the carried create can supply. */
 function linkTarget(
 	doc: BlueprintDoc,
@@ -44,7 +45,7 @@ function linkTarget(
 			mod?.caseType === undefined ||
 			mod.parentCaseModuleUuid !== undefined ||
 			mod.parentModuleUuid !== undefined ||
-			moduleOpensOnSearch(mod)
+			moduleFormsReadSearch(mod)
 		)
 			continue;
 		const formUuid = (doc.formOrder[moduleUuid] ?? []).find(

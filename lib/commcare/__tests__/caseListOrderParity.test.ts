@@ -138,7 +138,7 @@ function parityDoc(): BlueprintDoc {
 		modules: Object.entries(LISTS).map(([name, caseListConfig]) => ({
 			name,
 			caseType: "client",
-			caseListOnly: true,
+			caseListMenuItem: {},
 			caseListConfig,
 		})),
 		caseTypes: [

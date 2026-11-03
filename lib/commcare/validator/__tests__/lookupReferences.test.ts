@@ -210,7 +210,7 @@ describe("lookup reference validation", () => {
 					uuid: moduleUuid,
 					name: "Patients",
 					caseType: "patient",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: {
 						columns: [],
 						searchInputs: [

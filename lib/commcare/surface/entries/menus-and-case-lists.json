@@ -1638,14 +1638,14 @@
 		],
 		"valueClass": "shown-on-a-formless-basic-module",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Module.caseListMenuItem` on a menu with no forms (Nova's `caseListOnly` today, which migrates into it)",
+		"dispositionCell": "**HELD**: `Module.caseListMenuItem` on a menu with no forms",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "DIFFERENT (selecting a case shows \"Redirecting after sync\" and returns to the app's first screen) / RUNS (with no case detail, selecting a case returns to the home screen)",
+			"cell": "DIFFERENT (choosing a case shows the screen before it again, since nothing opens from the case list) / RUNS (with no case detail, selecting a case returns to the home screen)",
 			"webApps": {
 				"reading": "different",
-				"note": "selecting a case shows \"Redirecting after sync\" and returns to the app's first screen"
+				"note": "choosing a case shows the screen before it again, since nothing opens from the case list"
 			},
 			"android": {
 				"reading": "runs",
@@ -1678,14 +1678,15 @@
 			"schema:Module.case_list"
 		],
 		"valueClass": "shown-beside-forms-on-a-basic-module",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.caseListMenuItem` beside forms (today refused: `CASE_LIST_ONLY_HAS_FORMS`)",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Module.caseListMenuItem` beside forms",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "DIFFERENT (selecting a case from that list leaves an empty list) / RUNS",
+			"cell": "DIFFERENT (choosing a case shows the screen before it again, since nothing opens from the case list) / RUNS",
 			"webApps": {
 				"reading": "different",
-				"note": "selecting a case from that list leaves an empty list"
+				"note": "choosing a case shows the screen before it again, since nothing opens from the case list"
 			},
 			"android": {
 				"reading": "runs"
@@ -1721,14 +1722,15 @@
 			"schema:CaseList.show"
 		],
 		"valueClass": "shown-on-an-advanced-module",
-		"disposition": "HELD-NEW",
-		"dispositionCell": "**HELD-NEW**: `Module.caseListMenuItem`, which in an advanced module lists every open case of the module's type: HQ builds its entry from the case type alone, without the case list filter, parent selection or additional case types (`suite_xml/sections/entries.py`, the `AdvancedModule` branch, `EntriesHelper.get_nodeset_xpath`), and the builder, SA and MCP state that beside the menu item",
+		"disposition": "HELD",
+		"dispositionCell": "**HELD**: `Module.caseListMenuItem`, which in an advanced module lists every open case of the module's type: HQ builds its entry from the case type alone, without the case list filter, parent selection or additional case types (`suite_xml/sections/entries.py`, the `AdvancedModule` branch, `EntriesHelper.get_nodeset_xpath`), and the builder, SA and MCP state that beside the menu item",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
-			"cell": "DIFFERENT (selecting a case from that list leaves an empty list) / RUNS",
+			"cell": "DIFFERENT (choosing a case shows the screen before it again, since nothing opens from the case list) / RUNS",
 			"webApps": {
 				"reading": "different",
-				"note": "selecting a case from that list leaves an empty list"
+				"note": "choosing a case shows the screen before it again, since nothing opens from the case list"
 			},
 			"android": {
 				"reading": "runs"
@@ -1770,13 +1772,8 @@
 		"item": "`Module.case_list.label{lang}`",
 		"surfaceKeys": ["schema:CaseList.label"],
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived: the module's name, on a menu that holds only a case list (`expander.ts::expandDoc`, `caseListOnly`); widen: `Module.caseListLabel`, a label of its own",
-		"slotChanges": [
-			{
-				"direction": "widen",
-				"text": "`Module.caseListLabel`, a label of its own"
-			}
-		],
+		"dispositionCell": "**HELD**: `caseListMenuItem.label`, the module's name when absent",
+		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
 			"cell": "RUNS / RUNS",
@@ -1805,7 +1802,7 @@
 		],
 		"valueClass": "case-list-menu-item",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `caseListConfig.icon`, `audioLabel`",
+		"dispositionCell": "**HELD**: `caseListMenuItem.icon`, `audioLabel`",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -7650,7 +7647,7 @@
 		"surfaceKeys": ["csql-fn:ancestor-exists"],
 		"valueClass": "hq-generated-parent-filter-for-inline-search-with-parent-selection",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived by HQ from `searchFirst` + parent selection",
+		"dispositionCell": "**HELD**: derived by HQ from `formsReadSearch` and a parent selection",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -7729,7 +7726,7 @@
 		],
 		"valueClass": "registration-form-in-an-always-hidden-module-of-a-search-first-host",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: `Module.caseListRegistrationForm` (the reader reads a `false()` module holding only that form, with no other link or entry point to it, as part of the host's registration form, and the ledger records that menu's id against the form) (Nova's `Form.entry {kind: search-no-matches}` today, which migrates into it)",
+		"dispositionCell": "**HELD**: `Module.caseListRegistrationForm { kind: \"after-empty-search\" }` on a host whose forms read the search",
 		"slotChanges": [],
 		"platforms": {
 			"kind": "each",
@@ -7827,11 +7824,11 @@
 		],
 		"valueClass": "default-or-case-list",
 		"disposition": "HELD",
-		"dispositionCell": "**HELD**: derived: `case_list` for the no-matches form (`expander.ts::expandDoc`); widen: the no-matches form's after-submit destination, `default` or `case_list`",
+		"dispositionCell": "**HELD**: derived: `case_list` for the case list registration form (`expander.ts::expandDoc`); widen: the case list registration form's after-submit destination, `default` or `case_list`",
 		"slotChanges": [
 			{
 				"direction": "widen",
-				"text": "the no-matches form's after-submit destination, `default` or `case_list`"
+				"text": "the case list registration form's after-submit destination, `default` or `case_list`"
 			}
 		],
 		"platforms": {

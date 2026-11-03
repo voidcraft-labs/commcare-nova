@@ -777,9 +777,10 @@ describe("what a search found, in the forms of its module", () => {
 		expect(findings(linked)).toEqual([]);
 	});
 
-	it("refuses it once the module no longer opens on its search", () => {
+	it("refuses it once the menu's forms no longer read the search", () => {
 		const doc = found(count(results()));
-		doc.modules[reads.find].caseSearchConfig = {};
+		const { caseListRegistrationForm: _, ...find } = doc.modules[reads.find];
+		doc.modules[reads.find] = { ...find, caseSearchConfig: {} };
 		doc.formOrder[reads.find] = [reads.checkIn, reads.note];
 		delete doc.forms[reads.register];
 		const refused = searchCodes(doc);
@@ -790,12 +791,12 @@ describe("what a search found, in the forms of its module", () => {
 				details: {
 					slot: "calculate",
 					carrier: "field",
-					reason: "not-search-first",
+					reason: "not-forms-read-search",
 				},
 			},
 		]);
 		expect(userFacingError(refused[0])).toBe(
-			'"found" reads what "Find patient"\'s search found, but "Find patient" no longer opens on its search, so "Check in" has no search results. You can turn Search first back on, or read the case the worker chose instead.',
+			'"found" reads what "Find patient"\'s search found, but "Find patient"\'s forms no longer read its search, so "Check in" has no search results. You can turn Forms read the search back on, or read the case the worker chose instead.',
 		);
 	});
 
@@ -1125,7 +1126,7 @@ describe("the session and search reads a form makes", () => {
 		).toEqual([
 			expect.objectContaining({
 				code: "INVALID_SEARCH_REF",
-				reason: "not-search-first",
+				reason: "not-forms-read-search",
 			}),
 		]);
 		expect(

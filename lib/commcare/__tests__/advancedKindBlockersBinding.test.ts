@@ -50,7 +50,7 @@ function asMenuItem(doc: BlueprintDoc, moduleUuid: Uuid): BlueprintDoc {
 	const copy = structuredClone(doc);
 	copy.modules[moduleUuid] = {
 		...copy.modules[moduleUuid],
-		caseListOnly: true,
+		caseListMenuItem: {},
 	};
 	return copy;
 }
@@ -72,7 +72,7 @@ describe("case-list-menu-item-narrowed", () => {
 				if (expected) narrowed++;
 				// A list that is no menu item narrows nothing an advanced menu
 				// shows.
-				if (doc.modules[moduleUuid]?.caseListOnly !== true)
+				if (doc.modules[moduleUuid]?.caseListMenuItem === undefined)
 					expect(narrowedBlocker(doc, moduleUuid)).toBe(false);
 			}
 		// The corpus holds both kinds of menu item.

@@ -97,7 +97,6 @@ export function caseListEmissionFixture(scenario: CaseListEmissionScenario) {
 	config.columns = columns;
 	config.listColumnOrder = columns.map((c) => c.uuid);
 	config.detailColumnOrder = [...config.listColumnOrder].reverse();
-	config.icon = mediaIds.icon;
 	const searchId = testUuid("cl-search");
 	config.searchInputs = [
 		simpleSearchInputDef(searchId, "code", "Code", "text", "code"),
@@ -117,7 +116,7 @@ export function caseListEmissionFixture(scenario: CaseListEmissionScenario) {
 	const search = scenario === "remote" || scenario === "inline";
 	const doc = buildDoc({
 		appName: "Case list proof",
-		// Search first runs in Web Apps alone.
+		// A menu whose forms read the search runs in Web Apps alone.
 		...(scenario === "inline"
 			? { appSettings: { ...NEW_APP_SETTINGS, runsOnlyOn: "web-apps" } }
 			: {}),
@@ -129,7 +128,7 @@ export function caseListEmissionFixture(scenario: CaseListEmissionScenario) {
 				...(search
 					? {
 							caseSearchConfig:
-								scenario === "inline" ? { searchFirst: true } : {},
+								scenario === "inline" ? { formsReadSearch: true } : {},
 						}
 					: {
 							caseSearchConfig: {
@@ -137,7 +136,7 @@ export function caseListEmissionFixture(scenario: CaseListEmissionScenario) {
 							},
 						}),
 				...(scenario === "browse" || scenario === "no-details"
-					? { caseListOnly: true, forms: [] }
+					? { caseListMenuItem: { icon: mediaIds.icon }, forms: [] }
 					: {
 							forms: [
 								{

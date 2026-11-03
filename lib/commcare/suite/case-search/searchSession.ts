@@ -95,7 +95,7 @@ export interface SearchSessionEmission {
 }
 
 /**
- * The `<query>` alone: what a search-first module's entries embed
+ * The `<query>` alone: what the entries of a menu whose forms read the search embed
  * directly in `<session>` (CCHQ's `EntriesHelper.get_query_datums`), and
  * what the standalone `<remote-request>` wraps with its own datum.
  * `instances` are declarations for what the query body reads; the caller adds the
@@ -124,7 +124,7 @@ export interface SearchQueryArgs {
 	readonly expressions: ModuleExpressionContexts;
 	readonly lookupNaming?: LookupWireNaming;
 	/**
-	 * For a search-first module whose cases sit under a selected parent
+	 * For a menu whose forms read the search and whose cases sit under a selected parent
 	 * (HQ `parent_select` with the `parent` relationship): the parent's
 	 * case type, sent as a trailing `_xpath_query` so the server returns
 	 * only cases with such an ancestor
@@ -219,7 +219,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	const instances = new InstanceSink();
 	const context: WireElementContext = { mode: { target: "suite" }, instances };
 
-	// `results:inline` is the inline shape (search first); `results` is
+	// `results:inline` is the inline shape (the forms read the search); `results` is
 	// the standalone post-and-query roundtrip. Every `input(...)` read in
 	// the body prints through the matching answer instance.
 	const storageInstance = searchStorageInstance(wire);

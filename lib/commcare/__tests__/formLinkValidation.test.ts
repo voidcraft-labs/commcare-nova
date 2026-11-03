@@ -261,7 +261,7 @@ describe("FORM_LINK_DATUMS_INCOMPLETE", () => {
 					uuid: household,
 					name: "Households",
 					caseType: "household",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),

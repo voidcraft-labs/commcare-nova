@@ -957,9 +957,9 @@ describe("CommCare Supply", () => {
 	const BROWSE = testUuid("supply-browse");
 	const columns = () =>
 		caseListConfig([{ field: "case_name", header: "Name" }]);
-	/** A household app: Households holds its case list as its menu item and
-	 *  nothing else, its kind held advanced where `held` says, and Visits
-	 *  holds a survey with the fields given. */
+	/** A household app: Households holds its case list as its menu item
+	 *  beside a follow-up form, its kind held advanced where `held` says, and
+	 *  Visits holds a survey with the fields given. */
 	const supplyDoc = (options: {
 		readonly held?: boolean;
 		readonly menuItem?: boolean;
@@ -982,8 +982,15 @@ describe("CommCare Supply", () => {
 									uuid: "supply-browse",
 									name: "Households",
 									caseType: "household",
-									caseListOnly: true,
+									caseListMenuItem: {},
 									caseListConfig: columns(),
+									forms: [
+										{
+											name: "Household visit",
+											type: "followup" as const,
+											fields: [f({ kind: "text", id: "visit_note" })],
+										},
+									],
 								},
 							]),
 					{

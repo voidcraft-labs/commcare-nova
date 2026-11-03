@@ -113,7 +113,7 @@ function fixture(
 			...["sibling", "child", "grandchild"].map((caseType) => ({
 				name: `${caseType} cases`,
 				caseType,
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),
@@ -581,7 +581,7 @@ it("materializes independent children in cousin repeats nested inside real query
 			{
 				name: "Children",
 				caseType: "child",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),

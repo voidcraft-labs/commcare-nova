@@ -2551,6 +2551,14 @@
 			{
 				"artifact": "suite.xml",
 				"path": "/suite/detail[@id=*]"
+			},
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/instance[@id=*]"
+			},
+			{
+				"artifact": "suite.xml",
+				"path": "/suite/entry[*]/session[*]/datum[@id=*]"
 			}
 		],
 		"source": {

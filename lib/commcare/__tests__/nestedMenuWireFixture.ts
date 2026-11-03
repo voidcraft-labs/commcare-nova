@@ -38,7 +38,8 @@ export function followupNestedDoc(
 	options: {
 		readonly sameCaseType?: boolean;
 		readonly parentSelect?: boolean;
-		readonly caseListOnly?: boolean;
+		/** The child menu is its case list alone: the entry and no forms. */
+		readonly bareCaseList?: boolean;
 		readonly parentFirstSurvey?: boolean;
 		readonly parentCreatesChild?: boolean;
 		readonly childPostSubmitPrevious?: boolean;
@@ -105,14 +106,14 @@ export function followupNestedDoc(
 			{
 				name: "Child care",
 				caseType: childType,
-				caseListOnly: options.caseListOnly,
+				...(options.bareCaseList === true && { caseListMenuItem: {} }),
 				caseListConfig: {
 					...caseListConfig([{ field: "care_status", header: "Status" }]),
 					...(options.childFilter !== false && {
 						filter: eq(prop(childType, "care_status"), literal("active")),
 					}),
 				},
-				forms: options.caseListOnly
+				forms: options.bareCaseList
 					? []
 					: [
 							{
@@ -211,7 +212,7 @@ export function registrationNestedDoc(createsChild = false): BlueprintDoc {
 						{
 							name: "Tasks",
 							caseType: "task",
-							caseListOnly: true,
+							caseListMenuItem: {},
 							caseListConfig: caseListConfig([
 								{ field: "case_name", header: "Name" },
 							]),
@@ -238,7 +239,7 @@ export function sameTypeFormlessRootDoc(): BlueprintDoc {
 			{
 				name: "All fish",
 				caseType: "gold-fish",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "care_status", header: "Status" },
 				]),

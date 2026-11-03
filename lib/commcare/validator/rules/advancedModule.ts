@@ -63,8 +63,8 @@ export function newCaseDatumCauseWords(
 				};
 			case "forms-read-search":
 				return {
-					reason: `"${moduleName}" opens on its Search screen, which CommCare HQ can't keep while handing a new case on`,
-					remedy: `turn Search first off in "${moduleName}"`,
+					reason: `the forms in "${moduleName}" read its search, which CommCare HQ can't keep while handing a new case on`,
+					remedy: `turn off Forms read the search in "${moduleName}"`,
 				};
 			case "case-list-menu-item-narrowed": {
 				const what =

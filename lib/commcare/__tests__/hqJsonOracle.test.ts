@@ -266,7 +266,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 					{
 						name: "Patients",
 						caseType: "patient",
-						caseListOnly: true,
+						caseListMenuItem: {},
 						caseListConfig: {
 							columns: [name, age],
 							// Results shows Name then Age; Details shows them the other
@@ -331,7 +331,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 					{
 						name: "Patients",
 						caseType: "patient",
-						caseListOnly: true,
+						caseListMenuItem: {},
 						caseListConfig: {
 							columns: [name, sortOnly],
 							searchInputs: [],
@@ -391,7 +391,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 					{
 						name: "Patients",
 						caseType: "patient",
-						caseListOnly: true,
+						caseListMenuItem: {},
 						caseListConfig: {
 							columns: [status, hidden],
 							searchInputs: [],

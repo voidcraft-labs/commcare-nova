@@ -1,5 +1,5 @@
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, moduleHasCaseListMenuItem } from "@/lib/domain";
 import {
 	caseListSessionDatums,
 	entrySessionDatums,
@@ -43,7 +43,8 @@ export function parentSelectionConflicts(
 			continue;
 		for (const formUuid of doc.formOrder[moduleUuid] ?? [])
 			entrySessionDatums(doc, context, moduleUuid, formUuid);
-		if (module.caseListOnly) caseListSessionDatums(doc, context, moduleUuid);
+		if (moduleHasCaseListMenuItem(module))
+			caseListSessionDatums(doc, context, moduleUuid);
 	}
 	return [...findings.values()];
 }

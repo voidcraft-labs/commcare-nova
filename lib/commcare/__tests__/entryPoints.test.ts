@@ -238,7 +238,7 @@ describe("entry points", () => {
 		delete doc.fieldOrder[F];
 		delete doc.forms[F];
 		doc.formOrder[M] = [];
-		doc.modules[M].caseListOnly = true;
+		doc.modules[M].caseListMenuItem = {};
 		admitted(doc);
 		expect(
 			entryPointProjectionIssue(doc, { kind: "case-list", moduleUuid: M }),
@@ -297,9 +297,12 @@ describe("entry points", () => {
 		expect(xml).not.toContain("<datum");
 		expect(expandDoc(doc).modules[0].forms[0].respect_relevancy).toBe(false);
 	});
-	it("refuses no-matches registration regardless of display bypass", () => {
+	it("refuses a case list registration form regardless of display bypass", () => {
 		const doc = endpointWireFixture("registration");
-		doc.forms[F].entry = { kind: "search-no-matches" };
+		doc.modules[M].caseListRegistrationForm = {
+			kind: "after-empty-search",
+			formUuid: F,
+		};
 		expect(
 			entryPointProjectionIssue(doc, {
 				kind: "form",

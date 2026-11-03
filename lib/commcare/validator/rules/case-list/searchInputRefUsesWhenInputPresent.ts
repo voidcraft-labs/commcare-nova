@@ -100,7 +100,7 @@ import {
 	effectiveCaseSearchConfig,
 	isOwnerOnlyCaseSearchConfig,
 	type Module,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
 	searchInputDefault,
 	type Uuid,
 } from "@/lib/domain";
@@ -218,12 +218,12 @@ export function searchInputRefUsesWhenInputPresent(
 	}
 
 	// Slot: calculated columns' expression — fires per case-list row,
-	// no search-input context. A module that opens on its search reaches its
-	// list only through the inline query, which keeps the answers
+	// no search-input context. A menu whose forms read the search reaches
+	// its list only through the inline query, which keeps the answers
 	// (`search-input:results:inline`), so its list and detail may read them;
 	// an ordinary search's list is also the module's own case list, where
 	// the instance doesn't exist.
-	const columnsReadAnswers = moduleOpensOnSearch(mod);
+	const columnsReadAnswers = moduleFormsReadSearch(mod);
 	for (
 		let i = 0;
 		i < (columnsReadAnswers ? 0 : (listConfig?.columns.length ?? 0));

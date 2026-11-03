@@ -55,7 +55,7 @@ export function usercaseWriteFixture(type: "survey" | "followup") {
 						{
 							name: "Patient list",
 							caseType: "patient",
-							caseListOnly: true,
+							caseListMenuItem: {},
 							caseListConfig: caseListConfig([
 								{ field: "case_name", header: "Name" },
 							]),

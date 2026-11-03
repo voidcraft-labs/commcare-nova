@@ -341,9 +341,12 @@ export function formLogicFinding(
 		case "search-answer-unavailable":
 			code = "INVALID_SEARCH_REF";
 			// Why the form can't reach the menu's Search answers: a link runs
-			// after its form closes, and any other form's menu doesn't open on
-			// its search.
-			if (error.reason === "form-link" || error.reason === "not-search-first")
+			// after its form closes, and any other form's menu doesn't have its
+			// forms read the search.
+			if (
+				error.reason === "form-link" ||
+				error.reason === "not-forms-read-search"
+			)
 				details = { reason: error.reason };
 			break;
 		case "datum-not-supplied": {
@@ -406,7 +409,7 @@ export function formLogicFinding(
 		case "search-results-not-supplied": {
 			code = "SEARCH_RESULTS_NOT_SUPPLIED";
 			const owner = slotOwner(ctx);
-			const reason = error.reason ?? "not-search-first";
+			const reason = error.reason ?? "not-forms-read-search";
 			details = {
 				slot: ctx?.slot.slot ?? "",
 				carrier: carrierOf(ctx),
@@ -417,7 +420,7 @@ export function formLogicFinding(
 					? `${owner.slotSubject} reads what the search found, but this form opens only when the search finds nothing, so there are no results to read. You can read the worker's search answers with #search/ instead.`
 					: reason === "link-source"
 						? `${owner.slotSubject} reads what a search found, but the form this link leaves doesn't open after a search, so there are no results to read. You can read a case property instead.`
-						: `${owner.slotSubject} reads what this menu's search found, but the menu no longer opens on its search, so the form has no search results to read. You can turn Search first back on, or read the case the worker chose instead.`;
+						: `${owner.slotSubject} reads what this menu's search found, but the menu no longer has its forms read the search, so the form has no search results to read. You can turn Forms read the search back on, or read the case the worker chose instead.`;
 			break;
 		}
 		case "search-results-order":

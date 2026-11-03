@@ -45,7 +45,7 @@ function fixture(registration = false) {
 								},
 							],
 						}
-					: { caseListOnly: true }),
+					: { caseListMenuItem: {} }),
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Garden" },
 				]),

@@ -96,7 +96,7 @@ function findingsFor(
 			{
 				name: "Patients",
 				caseType: "patient",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: {
 					columns: [nameColumn, calculated],
 					listColumnOrder: [nameColumn.uuid, calculated.uuid],
