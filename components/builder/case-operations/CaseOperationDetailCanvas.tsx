@@ -286,7 +286,7 @@ export function CaseOperationDetailCanvas({
 
 	/* The own arm's writes on a follow-up or close form may save to a case
 	 * above the form's case and keep only a changed answer; no other change's
-	 * writes may (decision R9). */
+	 * writes may. */
 	const ancestors =
 		operation.action === "own"
 			? ancestorCaseWriteChoices(

@@ -385,7 +385,7 @@ it("creates one child under each selected case, inside the selected-case iterati
 		),
 	);
 	// The child a field writes keeps `main`'s bytes until advanced modules
-	// (part 01 departure 27): HQ's subcase stays in `subcases`, so its entry
+	// HQ's subcase stays in `subcases`, so its entry
 	// still allocates the datum, which the form never reads; HQ's build
 	// writes no subcase in a several-case form, and the create is minted per
 	// selected case in the source.

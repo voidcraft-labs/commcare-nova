@@ -1,6 +1,6 @@
 /**
  * Hand-built advanced form actions and one advanced app holding them, at the
- * values Nova writes (part 02 §7.3): a load chosen from a menu's case list, a
+ * values Nova writes: a load chosen from a menu's case list, a
  * load of a case it indexes, the worker's own record and a create linked to
  * the first load. The shells' tests and the HQ JSON oracle's read these.
  */

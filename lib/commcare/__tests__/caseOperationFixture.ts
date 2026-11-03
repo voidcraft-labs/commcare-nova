@@ -124,8 +124,8 @@ export function caseOperationFixture(scenario: OperationScenario) {
 				target,
 				rename: term(formField(TEXT)),
 			}),
-			// A close of the loaded case is the form's own close (part 01's
-			// class C9): the retype form is a close form, so only a close of a
+			// A close of the loaded case is the form's own close: the
+			// retype form is a close form, so only a close of a
 			// case an expression names is an operation of its own.
 			...(scenario === "expression-retype"
 				? [

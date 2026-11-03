@@ -1,8 +1,7 @@
 // components/builder/form-links/__tests__/refusalCopy.test.ts
 //
 // Every refusal reads as a sentence about the rule the planner enforces,
-// and no refusal implies one it does not. The sentences are part 07 §3.11's
-// where it gives them, word for word.
+// and no refusal implies one it does not.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -93,7 +92,7 @@ describe("planner refusals", () => {
 		}
 	});
 
-	it("speaks part 07's words for the Otherwise refusals", () => {
+	it("speaks the Otherwise refusals word for word", () => {
 		expect(
 			formLinkRefusalReason({ kind: "otherwise-unreachable" }, menuNameOf),
 		).toBe(

@@ -576,7 +576,7 @@ def _witnesses():
 
 def test_every_migration_witness_has_its_retained_a():
     """Contract: every directory under ``proof/migrations/`` is an emitted witness's, every witness has one, and each
-    holds exactly the retained A part 08 §1.2 names. Catches a witness republished over no retained A, which would
+    holds exactly the retained A its witness names. Catches a witness republished over no retained A, which would
     compare today's export with itself, and a retained A left behind by a witness the corpus no longer holds."""
     problems = controls.migration_a_problems(controls.MIGRATIONS_DIR, _witnesses())
     assert problems == [], "\n".join(problems)

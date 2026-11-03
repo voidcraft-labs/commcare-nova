@@ -1942,8 +1942,8 @@ export function buildCaseOperations(
 		);
 	}
 
-	// A child a field writes in a several-case form keeps its wire (part 01
-	// departure 27): HQ's build writes no subcase in a form of a menu that
+	// A child a field writes in a several-case form keeps its wire:
+	// HQ's build writes no subcase in a form of a menu that
 	// selects several cases, so its active create is this block in each
 	// selected case's row, at the subcase's index. Its rows read the nodes
 	// the subcase names; its id is a new one per row; its condition, when it

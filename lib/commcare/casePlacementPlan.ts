@@ -109,7 +109,7 @@ export interface AppendedBlockName {
  * A Hidden Value an advanced form's source holds for an open action:
  * `nova_owner_<operation id>`, which the action names as its `owner_id`
  * where HQ's build would not set the owner the operation states
- * (`xform.py::autoset_owner_id_for_advanced_action`; part 02 §10). It holds
+ * (`xform.py::autoset_owner_id_for_advanced_action`). It holds
  * the worker (`acting-user`, `session/context/userid`) or no owner
  * (`unowned`, `'-'`).
  */
@@ -547,7 +547,7 @@ interface AdvancedPlanInput {
 }
 
 /**
- * The plan of a form of an advanced menu (part 02 §3.4): HQ's
+ * The plan of a form of an advanced menu: HQ's
  * `AdvancedFormActions` from the loads and open actions its placements
  * state. A load carries the changes placed on it (the own arm of a
  * follow-up or close form on the own load, an update or close of a chain
@@ -559,7 +559,7 @@ interface AdvancedPlanInput {
  * Conditions are stated without the own case's double-quote rule: HQ's
  * advanced save keeps the posted actions as sent
  * (`views/forms.py::edit_advanced_form_actions`). Every `preload` is `{}`:
- * a preload is the question's default (part 02 §11).
+ * a preload is the question's default.
  */
 function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 	const {
@@ -697,7 +697,7 @@ function advancedPlan(input: AdvancedPlanInput): AdvancedFormCaseWirePlan {
 		const repeat = open.repeat;
 		const scope = scopeOf(repeat);
 		const caseProperties = updateMap(op, { owner: false });
-		// The owner (part 02 §10): a generated node where HQ's build would not
+		// The owner: a generated node where HQ's build would not
 		// set the owner the operation states, the question where it reads one,
 		// else nothing, and HQ sets it.
 		const ownerValue = advancedOwnerNodeValue(form.type, op);

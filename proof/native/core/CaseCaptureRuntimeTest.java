@@ -200,8 +200,8 @@ public class CaseCaptureRuntimeTest {
     }
     /**
      * The case family's extension registration form: two extension children and an ordinary child of the case
-     * the form registers. Its link carries the new episode, so its menu is advanced and each create an open action
-     * (part 02 of the step 5 plan); each names that case as its parent through the session's datum for the new
+     * the form registers. Its link carries the new episode, so its menu is advanced and each create an open action;
+     * each names that case as its parent through the session's datum for the new
      * patient (the id the patient's own open action carries in {@code case_open_patient_0}), on Nova's form and on
      * HQ's whole regeneration of it.
      */

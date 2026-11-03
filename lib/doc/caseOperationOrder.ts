@@ -619,8 +619,7 @@ function analyzeCaseOperationTargetOrder(
 		// A registration's own arm creates the form's case. Every other
 		// operation names it as `op` (or `id-of`) of the arm. Its id exists
 		// from the moment the form opens (`case_id_new_<type>_0`), whatever the
-		// form's open condition says, so a consumer inherits no guard from it
-		// (part 01 §5.3, rule 4).
+		// form's open condition says, so a consumer inherits no guard from it.
 		const own = ownOperationOf(operations);
 		if (own !== undefined && formType === "registration") {
 			state.push({

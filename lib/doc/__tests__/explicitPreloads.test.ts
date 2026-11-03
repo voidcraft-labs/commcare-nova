@@ -1,5 +1,5 @@
 // The starting values the cutover and the fuzz mapping write for each
-// own-case writer of a case-loading form (class C7 of part 01 §22). Catches
+// own-case writer of a case-loading form. Catches
 // a writer that stops opening with its case's value, a calculated Hidden
 // Value given a starting value beside its calculation, and a batch the gate
 // would refuse.

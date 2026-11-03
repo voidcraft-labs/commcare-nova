@@ -63,8 +63,8 @@
  * - `targeted-migration-groups-preloads` (defects 27 and 28), migrated: two
  *   labelled groups, `vitals`, which keeps showing its questions on one
  *   screen through `fieldList`, and `household`, which holds a user repeat
- *   and so stays a plain group whose questions show one per screen (Q4,
- *   `lib/doc/groupFieldLists.ts::planGroupFieldLists`); a writer of the
+ *   and so stays a plain group whose questions show one per screen
+ *   (`lib/doc/groupFieldLists.ts::planGroupFieldLists`); a writer of the
  *   form's own case whose authored default gave way to the read of its
  *   case's value, with the own case held where A keeps it; a later Hidden
  *   Value whose default reads it.
@@ -73,7 +73,7 @@
  *   counted by a decimal expression, which the migration wraps in `int(…)`.
  *
  * The holds a spec writes are the cutover's, A's placements as the
- * migration records them (class C8, and the query repeat's model
+ * migration records them (and the query repeat's model
  * iteration), so they stay written here whether or not a publish of the
  * migrated document would derive the same place. Every other placement a
  * witness's D holds is the capture's record: Nova's first publish of the
@@ -155,8 +155,8 @@ const MIGRATION = new Immer({ autoFreeze: false });
  * worker's record made from what its questions saved (`writes`, by form, in
  * data-tree order; classes C1 to C3,
  * `lib/doc/fieldWriteOperations.ts::operationsFromFieldWrites`), and each
- * question in `preloaded` opening with its case's value (class C7,
- * `lib/doc/explicitPreloads.ts::planExplicitPreloads`). `buildDoc` gives every
+ * question in `preloaded` opening with its case's value
+ * (`lib/doc/explicitPreloads.ts::planExplicitPreloads`). `buildDoc` gives every
  * case form an empty own case of its own; the cutover's, with the identity
  * the cutover derives, stands in its place.
  */
@@ -204,7 +204,7 @@ function saveToCase(path: [string, ...string[]]): OwnClosePlacement {
 
 /**
  * `doc` with each case operation `holds` picks holding its placement, as the
- * cutover writes the placements a published app's A carries (class C8). Each
+ * cutover writes the placements a published app's A carries. Each
  * pick must find exactly one operation of its form.
  */
 function heldAt(
@@ -525,7 +525,7 @@ export function migrationCaseWrites() {
 						{
 							// A follow-up whose only operation closed its own case
 							// under an answer and wrote nothing: a close form whose
-							// close condition is that operation's (class C9).
+							// close condition is that operation's.
 							uuid: discharge,
 							name: "Discharge",
 							type: "close",
@@ -626,7 +626,7 @@ export function migrationCaseWrites() {
 		]),
 		new Map([[visit, [uuid("visit-note")]]]),
 	);
-	// Every case change held where the published A keeps it (class C8),
+	// Every case change held where the published A keeps it,
 	// read from A's forms (`proof/hq-reads/targeted-migration-case-writes/`).
 	const own = (operation: CaseOperation) => operation.action === "own";
 	const creates = (caseType: string) => (operation: CaseOperation) =>
@@ -940,7 +940,7 @@ export function migrationExtensionChildren() {
 	// moves up to (M2). Enroll's episode is carried by its link, so it opens
 	// as an advanced open action and its menu turns advanced (M1, M3): the
 	// cutover holds nothing of that menu, and the next publish records it.
-	// Every other case change is held where A keeps it (class C8).
+	// Every other case change is held where A keeps it.
 	const doc = heldAt(migrated, [
 		[register, own, { kind: "basic", slot: "own" }],
 		[
@@ -1330,8 +1330,8 @@ export function migrationGroupsPreloads() {
 		],
 	});
 	// The weight's authored default gives way to the read of the patient's
-	// weight, which the form opened it with (class C7), and the form's own
-	// case, which saves it, is held where A keeps it (class C8).
+	// weight, which the form opened it with, and the form's own
+	// case, which saves it, is held where A keeps it.
 	const migrated = migrateFieldWrites(
 		built,
 		new Map([

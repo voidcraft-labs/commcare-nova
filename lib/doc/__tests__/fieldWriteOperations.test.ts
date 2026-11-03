@@ -1,5 +1,5 @@
 // The operations field writes become, as the cutover and the fuzz mapping
-// plan them (classes C1 to C3 of part 01 §22). Catches a dry run and its
+// plan them. Catches a dry run and its
 // execution, or two fuzz mappings of one draw, naming different operations,
 // and a plan whose order the wire cannot run.
 

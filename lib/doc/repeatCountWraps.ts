@@ -1,5 +1,5 @@
 /**
- * The defect 30 rule the fuzz mapping and the cutover share: every
+ * The defect 30 rule the fuzz mapping applies: every
  * count-bound repeat whose count the checker refuses as not a whole number
  * (`typeChecker.ts::repeatCountRefusal`, reasons `whole-number-count`,
  * `count-choice-not-whole`, `count-choices-unknown`) has its count wrapped in

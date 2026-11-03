@@ -3,8 +3,8 @@
 // The overflow menu of one write of the form's own case, as pure state.
 //
 // Only the own arm's writes may walk `via` to a case above the form's case or
-// keep only a changed answer (`CASE_WRITE_VIA_INVALID`, and decision R9 of
-// step 5's plan), and only on a form that loads its case: a follow-up or a
+// keep only a changed answer (`CASE_WRITE_VIA_INVALID`),
+// and only on a form that loads its case: a follow-up or a
 // close form. So this model answers for exactly that row and nothing else.
 // It offers the same two gestures a question's Saves to row does, with the
 // same reasons: the ancestor chains of

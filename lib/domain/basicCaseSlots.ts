@@ -163,7 +163,7 @@ export function subcaseBlockName(index: number): string {
  * its subcase loop, and `_add_usercase`), so the form would hold two
  * elements of that name: the question's bind would select the block's
  * element too, and every read of the question's path would meet two nodes,
- * which Core refuses to read as one value (part 02's G3, N1). A slot whose
+ * which Core refuses to read as one value. A slot whose
  * name is taken is not eligible (`appended-name-taken`), and its change
  * takes Save to Case. A held slot keeps its name, and the gate refuses the
  * author's name instead (`HELD_BLOCK_PATH_TAKEN`), which only renaming
@@ -655,8 +655,7 @@ export function subcaseReasons(
  * Whether `operation` is the child `planFieldCaseWrite` writes for a field:
  * one `child` link to the own case and a name read bare. In a several-case
  * form such a child keeps its wire: HQ's subcase, which HQ's build skips
- * there, beside an active Save to Case block per selected case (part 01
- * departure 27).
+ * there, beside an active Save to Case block per selected case.
  */
 function isFieldWrittenChild(operation: CaseOperation): boolean {
 	const links = operation.links ?? [];

@@ -4,8 +4,8 @@
  * (`AdvancedOpenCaseAction`), or takes a Save to Case block instead.
  *
  * Each predicate returns the first clause that holds, in the order below,
- * or `undefined` where none does and the action is eligible. Part 01's
- * procedure (`placement.ts::planPlacements`) tries the action before Save to
+ * or `undefined` where none does and the action is eligible. The
+ * placement procedure (`placement.ts::planPlacements`) tries the action before Save to
  * Case, which is always eligible, so an operation for which a clause holds
  * takes Save to Case. The values and conditions an action takes are the
  * basic slots': a value is a bare read of a question, never a label or a
@@ -73,13 +73,13 @@
  *   that change would run first. A close that shares the open action is its
  *   `close_condition`.
  *
- * No action meets the basic slots' `appended-name-taken` (part 02's G3, a
+ * No action meets the basic slots' `appended-name-taken` (a
  * question named like the block HQ's build appends): every derived tag
  * steps around the names where HQ appends its `case_<tag>`
  * (`advancedTags.ts::allocateAdvancedTags`), and a question that takes a
  * held tag's name is refused at the gate (`HELD_BLOCK_PATH_TAKEN`). One
- * clause waits on a run the proof lane makes (part 02 §29) and is not
- * tried: `worker-property-name` (G4, a worker property named outside HQ's
+ * clause waits on a run the proof lane makes and is not
+ * tried: `worker-property-name` (a worker property named outside HQ's
  * grammar).
  *
  * The clauses themselves are the domain's (`lib/domain/advancedEntryDatums.ts`:

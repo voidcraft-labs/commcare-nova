@@ -496,7 +496,7 @@ function compiledForm(doc: BlueprintDoc, module: number, form: number) {
 }
 
 // RepeatCountRuntimeTest counts rows in Core from the three whole-number
-// counts Nova admits beside an int question (part 04 §2.3, §2.4): a Hidden
+// counts Nova admits beside an int question: a Hidden
 // Value calculating an integer and an integer single select, each named
 // directly by `jr:count`, and `int(...)` over a decimal, which keeps its
 // `nova_count_` node. The form's `half` is the same decimal unwrapped, which

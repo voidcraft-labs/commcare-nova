@@ -33,7 +33,7 @@ mkdirSync(output, { recursive: true });
 
 /**
  * The query repeats `ContainerRuntimeTest` follows through entry in the count
- * placement (part 04's gated run G2), beyond the corpus's container documents
+ * placement, beyond the corpus's container documents
  * it also reads (`query`, `nested-query`, `query-conditional-parent`,
  * `init-add`). Each is admitted by Nova's validator, and Nova chooses each
  * repeat's placement by its own rule; the producer checks the placement it

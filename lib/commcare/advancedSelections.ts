@@ -40,8 +40,8 @@ export interface PlannedLoad {
 /**
  * The loads of `formUuid`, in `load_update_cases` order: its chain's, root
  * first, then the worker's where the form's placements put a `worker-record`
- * update on it. Each load's tag is the one its placements hold (part 01's
- * `{advanced, tag}`), allocated by `advancedTags.ts::allocateAdvancedTags`.
+ * update on it. Each load's tag is the one its placements hold
+ * (`{advanced, tag}`), allocated by `advancedTags.ts::allocateAdvancedTags`.
  * Empty for a form its menu emits as a basic form.
  */
 export function advancedFormLoads(

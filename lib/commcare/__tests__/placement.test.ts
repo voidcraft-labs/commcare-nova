@@ -932,7 +932,7 @@ describe("the procedure", () => {
 	});
 });
 
-// Part 02's G3 (N1): HQ's build appends `subcase_<i>` and `commcare_usercase`
+// HQ's build appends `subcase_<i>` and `commcare_usercase`
 // beside a root question of that name, which leaves the form holding the name
 // twice, so a slot whose name a question takes is not eligible.
 describe("a question named like the block HQ's build appends", () => {

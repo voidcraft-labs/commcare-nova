@@ -4,10 +4,10 @@
 // value is the `form-case` read of that property (`casePreload.ts::
 // fieldPreload`). Before that was stated in the document, a follow-up or
 // close form loaded each own-case writer's property into it by rule; the
-// cutover and the fuzz mapping write that rule's result down here, one
-// starting value per writer, so the form keeps opening with what it opened
-// with. Which writers get one is the caller's (the cutover's frozen preload
-// rule, a fuzz draw's own-case writers).
+// fuzz mapping and the migration witnesses write that rule's result down
+// here, one starting value per writer, so the form keeps opening with what
+// it opened with. Which writers get one is the caller's (a witness's listed
+// writers, a fuzz draw's own-case writers).
 
 import {
 	type BlueprintDoc,
@@ -23,7 +23,7 @@ import type { Mutation } from "./types";
 /**
  * The mutations that give each listed writer `default_value` = the
  * `form-case` read of the property it saves to the form's own case,
- * replacing any default (class C7 of the case-writes cutover).
+ * replacing any default.
  *
  * A writer gets none when it holds a calculation (a Hidden Value's value is
  * its calculation, and a default beside it is refused), when its kind holds

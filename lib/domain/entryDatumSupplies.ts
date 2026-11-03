@@ -284,8 +284,8 @@ function suppliedAtEntry(
 
 /**
  * The entry of a menu emitted advanced, as HQ's build writes it
- * (`entries.py::EntriesHelper.configure_entry_advanced_form`, part 02
- * §13.2): each chain load supplies its list menu's selected case (and,
+ * (`entries.py::EntriesHelper.configure_entry_advanced_form`):
+ * each chain load supplies its list menu's selected case (and,
  * after root alignment, the root's), the worker's load the worker's record,
  * the registration's open action `new-case` and every other open action
  * outside a repeat `new-child-case` of its type

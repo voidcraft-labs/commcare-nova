@@ -3,8 +3,7 @@
 // The one map from the after-submit links Nova stored when the first
 // destination whose condition held was the only one that ran, to the links
 // it stores now, when every destination whose condition holds runs and the
-// otherwise is its own slot. The cutover's `form-link-semantics` step and
-// the corpus sources call it; it is pure, total and idempotent.
+// otherwise is its own slot. The corpus sources call it; it is pure, total and idempotent.
 //
 // Its classes, in the order they apply:
 //
