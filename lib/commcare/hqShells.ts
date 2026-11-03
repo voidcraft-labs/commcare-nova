@@ -226,9 +226,18 @@ export function detailColumn(
  * menu, whether or not it offers search
  * (`views/modules.py::_gather_and_update_search_properties`). The projection
  * writes an authored title or subtitle over the seed.
+ *
+ * `auto_launch` starts as whether the app runs in Web Apps. There, HQ's
+ * Case List page offers only Search first and Skip to results
+ * (`case_search_properties.html`, whose list first sits behind a flag), so
+ * its save writes `auto_launch` on every menu, searching or not (defect
+ * 21). A menu that offers no search reads the flag nowhere
+ * (`util.py::module_offers_search` guards each read), so the seed is the
+ * value that save keeps.
  */
 export function caseSearchConfigShell(
 	languages: readonly string[],
+	runsInWebApps: boolean,
 ): CaseSearchConfig<HqXPath> {
 	const blank = () =>
 		Object.fromEntries(languages.map((language) => [language, ""]));
@@ -244,7 +253,7 @@ export function caseSearchConfigShell(
 		// output. The shell carries the defaults so a module with no
 		// `caseSearchConfig` (no override path) lands as CCHQ would
 		// otherwise materialize it from an empty author state.
-		auto_launch: false,
+		auto_launch: runsInWebApps,
 		default_search: false,
 		inline_search: false,
 		include_all_related_cases: false,
@@ -515,6 +524,7 @@ export function moduleShell(
 	forms: HqFormTree[],
 	caseDetails: DetailPair<HqXPath>,
 	languages: readonly string[],
+	runsInWebApps: boolean,
 ): HqModuleTree {
 	const { media_image, ...flags } = moduleMediaAndFlags();
 	return {
@@ -524,7 +534,7 @@ export function moduleShell(
 		forms,
 		case_details: caseDetails,
 		...moduleCaseList(),
-		search_config: caseSearchConfigShell(languages),
+		search_config: caseSearchConfigShell(languages, runsInWebApps),
 		display_style: "list",
 		media_image,
 		...flags,
@@ -564,6 +574,7 @@ export function advancedModuleShell(
 	caseDetails: DetailPair<HqXPath>,
 	productHeaderLanguage: string,
 	languages: readonly string[],
+	runsInWebApps: boolean,
 ): HqAdvancedModuleTree {
 	return {
 		doc_type: "AdvancedModule",
@@ -573,7 +584,7 @@ export function advancedModuleShell(
 		case_details: caseDetails,
 		product_details: defaultProductDetails(productHeaderLanguage),
 		...moduleCaseList(),
-		search_config: caseSearchConfigShell(languages),
+		search_config: caseSearchConfigShell(languages, runsInWebApps),
 		...moduleMediaAndFlags(),
 		comment: "",
 	};

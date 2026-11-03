@@ -152,6 +152,7 @@ export function advancedModule(
 		detailPair([detailColumn("name", "Name")]),
 		languages[0] ?? "en",
 		languages,
+		true,
 	);
 }
 

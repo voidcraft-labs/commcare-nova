@@ -96,19 +96,22 @@ def test_hqs_case_list_page_draws_no_workflow_selector_for_an_app_that_declares_
     hq, core_runner, editor_driver, view_documents, published
 ):
     document = view_documents["targeted-search-workflow-android"]
+    import corehq.privileges as privileges
+
+    from proof.hq.seams import also_granted
+
     minimum = document.exports["minimum"].configuration.hq()
-    # Grant the privilege and the flag the selector also needs, so the app's own cloudcare_enabled is what decides.
-    granted = dataclasses.replace(
-        minimum,
-        privileges=frozenset(minimum.privileges | {"CLOUDCARE"}),
-        flags=frozenset(minimum.flags | {"SYNC_SEARCH_CASE_CLAIM", FLAG}),
-    )
-    with published(document, "minimum", core_runner, configuration=granted) as (unit, app_id, _):
+    # The flags the selector also needs. The plan grants Web Apps only once the app is made, since HQ's create
+    # writes cloudcare_enabled from that grant and the capture was made over a space without it; so the app's
+    # own cloudcare_enabled is what decides.
+    flagged = dataclasses.replace(minimum, flags=frozenset(minimum.flags | {"SYNC_SEARCH_CASE_CLAIM", FLAG}))
+    with published(document, "minimum", core_runner, configuration=flagged) as (unit, app_id, _):
         app = operations.held_app(unit, app_id)
         assert app.cloudcare_enabled is False
         modules = _searching_modules(app)
         assert [stored for _, stored in modules] == ["classic"], modules
         module, stored = modules[0]
-        counted = _read(editor_driver, unit, app_id, module, stored)
+        with also_granted(privileges.CLOUDCARE):
+            counted = _read(editor_driver, unit, app_id, module, stored)
         # No selector, so the save posts the list first the module holds; the settings form says the page loaded.
         assert (counted["selector"], counted["always"]) == (0, 1), counted

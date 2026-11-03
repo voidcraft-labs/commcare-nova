@@ -202,6 +202,7 @@ describe("advancedModuleShell", () => {
 			[],
 			details,
 			["en", "es"],
+			true,
 		);
 		const advanced = advancedModuleShell(
 			"m",
@@ -211,6 +212,7 @@ describe("advancedModuleShell", () => {
 			details,
 			"en",
 			["en", "es"],
+			true,
 		);
 		const shared = Object.keys(advanced).filter(
 			(key) => key in basic && !CLASS_TAGS.includes(key),
@@ -236,6 +238,7 @@ describe("advancedModuleShell", () => {
 				detailPair([detailColumn("name", { es: "Nombre" })]),
 				"es",
 				["es", "en"],
+				true,
 			),
 		);
 		const { short, long } = module.product_details;

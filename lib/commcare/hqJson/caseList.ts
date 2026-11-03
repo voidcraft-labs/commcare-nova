@@ -62,6 +62,7 @@ import {
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
 	casePropertyShowsOptionLabels,
+	declaresWebApps,
 	effectiveCaseSearchConfig,
 	effectiveCaseTypes,
 	imageMapShowsImages,
@@ -737,12 +738,13 @@ function buildSearchConfigDocument(
 	expressions: ModuleExpressionContexts,
 	lookupNaming: LookupWireNaming | undefined,
 	datumId: (ref: DatumRef) => string | undefined,
+	runsInWebApps: boolean,
 ): WireCaseSearchConfig<HqXPath> {
 	// One CCHQ-defaults seed point — `caseSearchConfigShell` in
 	// `hqShells.ts`. Mutate the shell with authored overrides so the
 	// CCHQ-default baseline lives in one file (any future CCHQ
 	// upstream default change is a one-edit fix).
-	const config = caseSearchConfigShell(localization.languages);
+	const config = caseSearchConfigShell(localization.languages, runsInWebApps);
 	const wire =
 		caseSearchConfig === undefined
 			? undefined
@@ -994,6 +996,7 @@ export function projectCaseListForHq(
 		expressions,
 		lookupNaming,
 		caseListStepDatumId(doc, mod.uuid, "id"),
+		declaresWebApps(doc),
 	);
 
 	return { caseDetails: pair, searchConfig };

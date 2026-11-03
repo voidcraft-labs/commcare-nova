@@ -520,6 +520,7 @@ export function expandDoc(
 					caseDetails,
 					localization.defaultLanguage,
 					localization.languages,
+					declaresWebApps(doc),
 				)
 			: moduleShell(
 					moduleUniqueIds[mIdx],
@@ -528,6 +529,7 @@ export function expandDoc(
 					forms.filter((form): form is HqFormTree => form.doc_type === "Form"),
 					caseDetails,
 					localization.languages,
+					declaresWebApps(doc),
 				);
 		shell.session_endpoint_id = mod.entryPoint?.id ?? "";
 		shell.case_list_session_endpoint_id = mod.caseListEntryPoint?.id ?? "";
