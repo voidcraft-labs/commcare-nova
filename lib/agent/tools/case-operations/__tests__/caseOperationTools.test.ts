@@ -1286,6 +1286,14 @@ describe("saves to a case above, changed answers and the worker's record", () =>
 		]);
 		const plainTwice = own([here, here]);
 		expect(plainTwice.success).toBe(false);
+		const noWalk = own([{ ...toAddress, via: [] }]);
+		expect(noWalk.success).toBe(false);
+		expect(noWalk.error?.issues).toEqual([
+			expect.objectContaining({
+				code: "too_small",
+				path: ["operation", "writes", 0, "via"],
+			}),
+		]);
 	});
 
 	it("commits an update of the worker's own record", async () => {

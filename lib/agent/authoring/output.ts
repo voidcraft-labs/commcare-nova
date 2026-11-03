@@ -635,6 +635,16 @@ export function projectAuthoringRead(args: {
 				result.optionsSource = options;
 			}
 		}
+		// The display flags read under the names an edit takes, so a read
+		// sent back through `editField` or `addFields` keeps them.
+		if (result.fieldList !== undefined) {
+			result.field_list = result.fieldList;
+			delete result.fieldList;
+		}
+		if (result.plainLabel !== undefined) {
+			result.plain_label = result.plainLabel;
+			delete result.plainLabel;
+		}
 		return {
 			...result,
 			...effectiveFieldBehavior(doc, content),

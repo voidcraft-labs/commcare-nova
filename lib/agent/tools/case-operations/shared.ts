@@ -158,9 +158,11 @@ export const caseWriteViaInputSchema = z
 	)
 	.min(1);
 
-/** A parsed `caseWriteViaInputSchema` value as the domain's non-empty
- *  tuple. The schema's `min(1)` admits no empty walk, so an empty one here
- *  is a caller that skipped the parse. */
+/** A `caseWriteViaInputSchema` walk as the domain's non-empty tuple. Its
+ *  callers are a parsed value, which the schema's `min(1)` keeps non-empty,
+ *  and the change schema's duplicate-key refinement, which skips an empty
+ *  walk that `min(1)` has already refused; an empty one here is a caller
+ *  that checked neither. */
 export function toCaseWriteVia(via: readonly RelationStep[]): CaseWriteVia {
 	const [first, ...rest] = via;
 	if (first === undefined)
@@ -213,6 +215,9 @@ function uniqueWriteKeys(
 ): void {
 	const seen = new Set<string>();
 	for (const [index, write] of (writes ?? []).entries()) {
+		// Zod runs this refinement even after `min(1)` refuses an empty walk;
+		// that write already carries its issue and has no key to compare.
+		if (write.via !== undefined && write.via.length === 0) continue;
 		const id = caseWriteKeyId({
 			property: write.property,
 			...(write.via !== undefined && { via: toCaseWriteVia(write.via) }),
