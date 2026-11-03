@@ -28,8 +28,12 @@ const form = testUuid("post-submit-form");
 
 interface Shape {
 	readonly multiSelect?: boolean;
+	readonly formsReadSearch?: boolean;
+	/** The search runs first without the forms reading it. */
 	readonly searchFirst?: boolean;
-	readonly caseListOnly?: boolean;
+	/** A case list menu entry, and the one form is its case list
+	 *  registration form, so the menu holds no menu form. */
+	readonly bareCaseList?: boolean;
 	readonly offTheMenu?: boolean;
 	readonly parent?: {
 		readonly multiSelect?: boolean;
@@ -71,8 +75,17 @@ function docOf(
 	const own: Module = {
 		...moduleOf("post-submit-menu", "Visits", shape),
 		...(shape.parent !== undefined && { parentModuleUuid: parent }),
-		...(shape.caseListOnly && { caseListOnly: true }),
-		...(shape.searchFirst && { caseSearchConfig: { searchFirst: true } }),
+		...(shape.bareCaseList && {
+			caseListMenuItem: {},
+			caseListRegistrationForm: {
+				kind: "after-empty-search" as const,
+				formUuid: form,
+			},
+		}),
+		...(shape.formsReadSearch && {
+			caseSearchConfig: { formsReadSearch: true as const },
+		}),
+		...(shape.searchFirst && { caseSearchConfig: {} }),
 	};
 	return {
 		modules: {
@@ -140,16 +153,25 @@ describe("postSubmitDestinationsOffered", () => {
 		]);
 	});
 
-	it("withholds previous from a module that opens on Search", () => {
-		expect(offered({ searchFirst: true })).toEqual([
+	it("withholds previous from a module whose forms read the search", () => {
+		expect(offered({ formsReadSearch: true })).toEqual([
 			"app_home",
 			"firstMenu",
 			"module",
 		]);
 	});
 
+	it("offers previous in a module that searches first without its forms reading the search", () => {
+		expect(offered({ searchFirst: true })).toEqual([
+			"app_home",
+			"firstMenu",
+			"module",
+			"previous",
+		]);
+	});
+
 	it("withholds module from a bare case list", () => {
-		expect(offered({ caseListOnly: true })).toEqual([
+		expect(offered({ bareCaseList: true })).toEqual([
 			"app_home",
 			"firstMenu",
 			"previous",
@@ -203,7 +225,7 @@ describe("postSubmitDestinationsAdmitted", () => {
 	});
 
 	it("names the first reason that withholds a destination", () => {
-		const doc = docOf({ multiSelect: true, searchFirst: true });
+		const doc = docOf({ multiSelect: true, formsReadSearch: true });
 		expect(postSubmitNotOfferedReason(doc, form, "previous")).toBe(
 			"menu-selects-several",
 		);
@@ -218,7 +240,9 @@ describe("defaultPostSubmit", () => {
 		);
 		expect(defaultPostSubmit("survey")).toBe("app_home");
 		expect(defaultPostSubmit("followup")).toBe("previous");
-		expect(defaultPostSubmit("close", { searchFirst: true })).toBe("module");
+		expect(defaultPostSubmit("close", { formsReadSearch: true })).toBe(
+			"module",
+		);
 		expect(defaultPostSubmit("followup", { multiSelect: true })).toBe("module");
 		expect(defaultPostSubmit("followup", { parentMultiSelect: true })).toBe(
 			"firstMenu",
@@ -232,7 +256,9 @@ describe("defaultPostSubmit", () => {
 		const shape = fc.record(
 			{
 				multiSelect: fc.boolean(),
+				formsReadSearch: fc.boolean(),
 				searchFirst: fc.boolean(),
+				bareCaseList: fc.boolean(),
 				offTheMenu: fc.boolean(),
 				parent: fc.option(
 					fc.record({ multiSelect: fc.boolean(), offTheMenu: fc.boolean() }),
@@ -245,7 +271,13 @@ describe("defaultPostSubmit", () => {
 		);
 		fc.assert(
 			fc.property(shape, (generated) => {
-				const doc = docOf(generated);
+				// A bare case list's one form is its case list registration form,
+				// which registers.
+				const doc = docOf(
+					generated.bareCaseList === true
+						? { ...generated, formType: "registration" }
+						: generated,
+				);
 				const destination = defaultPostSubmitOf(doc, form);
 				expect(destination).toBeDefined();
 				expect(postSubmitDestinationsOffered(doc, form)).toContain(destination);

@@ -314,12 +314,12 @@ never stored raw-XPath validation codes. There is no printed-source checker.
   fresh form's bare read of the absent node throws
   (`proof/native/core/SessionContextRuntimeTest.java`), so every slot a form
   evaluates refuses it as `arm-unavailable` reason `window-width-in-form`.
-- A form of a module that opens on its search reads that module's Search
-  fields (`FormExpressionFacts.searchFirstModule`) in its questions and
+- A form of a menu whose forms read the search reads that menu's Search
+  fields (`FormExpressionFacts.formsReadSearchModule`) in its questions and
   Connect settings; a form link's slots refuse the read as
   `search-answer-unavailable` reason `form-link` (it runs after the form
-  closes), and any other form, a child module's of a search-first parent
-  included, as reason `not-search-first`.
+  closes), and any other form, a child menu's of such a parent included, as
+  reason `not-forms-read-search`.
 
 ## The clock-keeping date
 

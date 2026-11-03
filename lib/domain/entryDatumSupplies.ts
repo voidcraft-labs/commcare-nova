@@ -17,7 +17,8 @@ import {
 	caseSelectionCanFlowBetweenModules,
 	caseSelectionCardinality,
 	caseSelectionMaximum,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
+	moduleHasCaseListMenuItem,
 } from "./modules";
 import type { Uuid } from "./uuid";
 import { savesToWorkerRecord } from "./workerRecordRequirements";
@@ -270,7 +271,7 @@ function suppliedAtEntry(
 	// Queries are inserted after alignment for the original selectable source,
 	// never for an alias or an inherited computed value.
 	const searched = selected.filter((module) =>
-		moduleOpensOnSearch(doc.modules[module]),
+		moduleFormsReadSearch(doc.modules[module]),
 	);
 	return {
 		refs: [...refs.values()],
@@ -290,8 +291,8 @@ function suppliedAtEntry(
  * (`advancedEntryDatums.ts::advancedEntryActions`). A form entry is aligned
  * with its root menu, whose worker's record and grouped-tile parents it
  * holds as placeholders; it writes no query and no grouped-tile companion of
- * its own. A form-less menu's case list is one selection over every open
- * case of its type, aligned with nothing
+ * its own. A case list menu entry is one selection over every open case of
+ * its type, aligned with nothing
  * (`formLinkProjection.ts::caseListSessionDatums`).
  *
  * `undefined` where a prepared structure changes the form's type: the
@@ -310,7 +311,8 @@ function suppliedAtAdvancedEntry(
 	};
 	if (entry.kind === "browse") {
 		const mod = doc.modules[entry.module];
-		if (mod?.caseListOnly !== true || !mod.caseType) return undefined;
+		if (mod === undefined || !moduleHasCaseListMenuItem(mod) || !mod.caseType)
+			return undefined;
 		add({ kind: "selected-case", module: entry.module });
 		return { refs: [...refs.values()] };
 	}
@@ -492,7 +494,7 @@ function selectingEntry(
 		);
 	});
 	if (form !== undefined) return { kind: "form", module: moduleUuid, form };
-	return mod.caseListOnly === true
+	return moduleHasCaseListMenuItem(mod)
 		? { kind: "browse", module: moduleUuid }
 		: undefined;
 }

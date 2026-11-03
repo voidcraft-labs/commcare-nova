@@ -176,15 +176,19 @@ function calculateUse(feature: PlatformFeatureId): PlatformFeatureUse {
 	};
 }
 
-/** A case app: a module on `patient` with a Name column, a registration form
- * and a follow-up form. */
+/** A case app: a module on `patient` with a Name column and a follow-up
+ * form, or, when `formless`, no form, beside a second module that registers
+ * the cases. */
 function caseApp(
 	options: {
 		readonly columns?: Column[];
 		readonly list?: (config: CaseListConfigSpec) => void;
 		readonly module?: Partial<
-			Pick<Module, "caseSearchConfig" | "caseListOnly">
+			Pick<Module, "caseSearchConfig" | "caseListMenuItem">
 		>;
+		/** The module holds no form: a bare case list beside a registering
+		 *  module. */
+		readonly formless?: true;
 		readonly searchInputs?: SearchInputDef[];
 		/** The follow-up form's fields, in place of its one text question. */
 		readonly fields?: FieldSpec[];
@@ -201,7 +205,7 @@ function caseApp(
 	if (options.searchInputs !== undefined)
 		config.searchInputs = options.searchInputs;
 	options.list?.(config);
-	const listOnly = options.module?.caseListOnly === true;
+	const listOnly = options.formless === true;
 	return buildDoc({
 		appName: "Platforms",
 		modules: [
@@ -213,7 +217,9 @@ function caseApp(
 				...(options.module?.caseSearchConfig === undefined
 					? {}
 					: { caseSearchConfig: options.module.caseSearchConfig }),
-				...(listOnly ? { caseListOnly: true } : {}),
+				...(options.module?.caseListMenuItem === undefined
+					? {}
+					: { caseListMenuItem: options.module.caseListMenuItem }),
 				forms: listOnly
 					? []
 					: [
@@ -397,18 +403,35 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			},
 		},
 	},
-	"search-first": {
+	"forms-read-search": {
 		with: () =>
 			caseApp({
 				searchInputs: [input("text")],
-				module: { caseSearchConfig: { searchFirst: true } },
+				module: { caseSearchConfig: { formsReadSearch: true } },
 			}),
 		without: () =>
 			caseApp({
 				searchInputs: [input("text")],
 				module: { caseSearchConfig: {} },
 			}),
-		use: slotUse("search-first", MODULE_OWNER, "caseSearchConfig.searchFirst"),
+		use: slotUse(
+			"forms-read-search",
+			MODULE_OWNER,
+			"caseSearchConfig.formsReadSearch",
+		),
+	},
+	"list-first": {
+		with: () =>
+			caseApp({
+				searchInputs: [input("text")],
+				module: { caseSearchConfig: { workflow: "listFirst" } },
+			}),
+		without: () =>
+			caseApp({
+				searchInputs: [input("text")],
+				module: { caseSearchConfig: {} },
+			}),
+		use: slotUse("list-first", MODULE_OWNER, "caseSearchConfig.workflow"),
 	},
 	"several-cases": {
 		with: () =>
@@ -667,9 +690,9 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		),
 	},
 	"case-list-menu-item": {
-		with: () => caseApp({ module: { caseListOnly: true } }),
+		with: () => caseApp({ module: { caseListMenuItem: {} }, formless: true }),
 		without: () => caseApp(),
-		use: slotUse("case-list-menu-item", MODULE_OWNER, "caseListOnly"),
+		use: slotUse("case-list-menu-item", MODULE_OWNER, "caseListMenuItem"),
 	},
 	"tile-grouping": {
 		with: () =>
@@ -799,6 +822,19 @@ export const PLATFORM_FEATURE_FIXTURES = {
 			"caseListConfig.searchInputs[0].kind",
 		),
 	},
+	"search-first": {
+		with: () =>
+			caseApp({
+				searchInputs: [input("text")],
+				module: { caseSearchConfig: {} },
+			}),
+		without: () =>
+			caseApp({
+				searchInputs: [input("text")],
+				module: { caseSearchConfig: { workflow: "skipToResults" } },
+			}),
+		use: slotUse("search-first", MODULE_OWNER, "caseSearchConfig.workflow"),
+	},
 	search: {
 		with: () => caseApp({ searchInputs: [input("text")] }),
 		without: () => caseApp(),
@@ -807,13 +843,19 @@ export const PLATFORM_FEATURE_FIXTURES = {
 	"skip-to-results": {
 		with: () =>
 			caseApp({
+				module: { caseSearchConfig: { workflow: "skipToResults" } },
+				list: (config) => {
+					config.filter = SKIP_FILTER;
+				},
+			}),
+		without: () =>
+			caseApp({
 				module: { caseSearchConfig: {} },
 				list: (config) => {
 					config.filter = SKIP_FILTER;
 				},
 			}),
-		without: () => caseApp({ module: { caseSearchConfig: {} } }),
-		use: slotUse("skip-to-results", MODULE_OWNER, "caseListConfig.filter"),
+		use: slotUse("skip-to-results", MODULE_OWNER, "caseSearchConfig.workflow"),
 	},
 	"after-submit-home": {
 		with: () =>

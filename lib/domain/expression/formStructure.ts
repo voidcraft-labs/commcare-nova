@@ -1,6 +1,6 @@
 import type { BlueprintDoc } from "../blueprint";
 import type { FieldKind, RepeatMode } from "../fields";
-import type { FormEntry, FormLinkTarget, FormType } from "../forms";
+import type { FormLinkTarget, FormType } from "../forms";
 import type { LookupTableId } from "../lookupIds";
 import { moduleUuidOfForm } from "../postSubmit";
 import type { QueryRepeatPlacement } from "../queryRepeatPlacement";
@@ -57,7 +57,6 @@ export interface FormStructure {
 	readonly formUuid: Uuid;
 	readonly moduleUuid: Uuid;
 	readonly type: FormType;
-	readonly entry?: FormEntry;
 	readonly fields: ReadonlyMap<Uuid, FormStructureField>;
 	readonly fieldOrder: ReadonlyMap<Uuid, readonly Uuid[]>;
 	/** Only blocks active in the saved or pending app mode. */
@@ -172,7 +171,6 @@ export function formStructure(
 		formUuid,
 		moduleUuid,
 		type: form.type,
-		...(form.entry === undefined ? {} : { entry: form.entry }),
 		fields,
 		fieldOrder,
 		connect,

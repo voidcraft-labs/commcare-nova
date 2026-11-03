@@ -70,7 +70,7 @@ export const readsDoc = (
 						...caseListConfig([{ field: "case_name", header: "Name" }]),
 						searchInputs: [searchInput(READS_INPUT, "patient_name")],
 					},
-					caseSearchConfig: { searchFirst: true },
+					caseSearchConfig: { formsReadSearch: true },
 					forms: [
 						{
 							uuid: READS_VISIT,

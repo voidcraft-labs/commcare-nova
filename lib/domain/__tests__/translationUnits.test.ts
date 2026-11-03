@@ -21,7 +21,7 @@ function listWithHiddenOrderColumn(visibleInDetail: boolean): BlueprintDoc {
 			{
 				name: "Patients",
 				caseType: "patient",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: resolveCaseListConfig({
 					columns: [
 						plainColumn(NAME, "case_name", "Name"),
@@ -62,5 +62,75 @@ describe("a case list column's header unit", () => {
 		expect(
 			translationUnitsById(listWithHiddenOrderColumn(true)).has(header),
 		).toBe(true);
+	});
+});
+
+const MENU = testUuid("translation-units-menu");
+const REGISTER = testUuid("translation-units-register");
+
+/** A searching menu with a follow-up form and a registration form its case
+ *  list offers, with the two labels the module owns as given. */
+function menuWithLabels(labels: {
+	readonly entry?: string;
+	readonly register?: string;
+}): BlueprintDoc {
+	return buildDoc({
+		appName: "Clinic",
+		modules: [
+			{
+				uuid: MENU,
+				name: "Patients",
+				caseType: "patient",
+				caseListMenuItem:
+					labels.entry === undefined ? {} : { label: labels.entry },
+				caseListRegistrationForm: {
+					formUuid: REGISTER,
+					...(labels.register !== undefined && { label: labels.register }),
+				},
+				caseSearchConfig: { formsReadSearch: true },
+				forms: [
+					{ name: "Visit", type: "followup" },
+					{ uuid: REGISTER, name: "Register", type: "registration" },
+				],
+			},
+		],
+	});
+}
+
+describe("the labels a module's case list owns", () => {
+	const entry = makeTranslationUnitId(
+		"module",
+		MENU,
+		"case-list-menu-item-label",
+	);
+	const register = makeTranslationUnitId(
+		"module",
+		MENU,
+		"case-list-registration-label",
+	);
+
+	it("lists each label the module sets, owned by the module", () => {
+		const units = translationUnitsById(
+			menuWithLabels({ entry: "All patients", register: "Add a patient" }),
+		);
+		expect(units.get(entry)).toMatchObject({
+			role: "case-list-menu-item-label",
+			source: "All patients",
+			owner: { kind: "module", moduleUuid: MENU },
+			breadcrumb: ["Clinic", "Patients", "case list entry"],
+		});
+		expect(units.get(register)).toMatchObject({
+			role: "case-list-registration-label",
+			source: "Add a patient",
+			owner: { kind: "module", moduleUuid: MENU },
+		});
+	});
+
+	it("lists neither where the wire falls back to a name", () => {
+		// The entry reads the module's name unit, the Register action the
+		// form's, so a unit of their own would translate nothing.
+		const units = translationUnitsById(menuWithLabels({}));
+		expect(units.has(entry)).toBe(false);
+		expect(units.has(register)).toBe(false);
 	});
 });

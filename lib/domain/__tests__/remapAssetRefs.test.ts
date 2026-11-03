@@ -39,8 +39,8 @@ function admittedPersisted(input: unknown) {
 }
 
 /** A blueprint with a distinct asset id in EVERY slot `walkAssetRefs` covers:
- *  app logo; a caseListOnly module's icon/audioLabel + caseListConfig
- *  icon/audioLabel + an image-map column's mapping; a regular module's
+ *  app logo; a bare case list module's icon/audioLabel + its case list menu
+ *  entry's icon/audioLabel + an image-map column's mapping; a regular module's
  *  icon/audioLabel; a form's icon/audioLabel; all four field media bundles (label has image/audio/video); and select-option media. Plus a built-in icon ref to
  *  prove pass-through. */
 function fixtureDoc() {
@@ -59,7 +59,10 @@ function fixtureDoc() {
 				uuid: MOD_A,
 				id: "case_list",
 				name: "Case list",
-				caseListOnly: true,
+				caseListMenuItem: {
+					icon: media("cl-icon"),
+					audioLabel: media("cl-audio"),
+				},
 				caseType: "patient",
 				icon: media("mod-a-icon"),
 				audioLabel: media("mod-a-audio"),
@@ -79,8 +82,6 @@ function fixtureDoc() {
 					listColumnOrder: [COLUMN],
 					detailColumnOrder: [COLUMN],
 					searchInputs: [],
-					icon: media("cl-icon"),
-					audioLabel: media("cl-audio"),
 				},
 			},
 			[MOD_B]: {
@@ -210,15 +211,14 @@ describe("remapAssetRefs", () => {
 	});
 });
 
-/** A module that is NOT caseListOnly but still carries a caseListConfig icon —
- *  the residue of having once been case-list-only. The render-gated walk omits
- *  it, but it persists in the doc (and remapAssetRefs rewrites it un-gated). */
-function docWithDormantCaseListIcon() {
+/** A module whose case list menu entry sits beside its form: the entry is
+ *  emitted beside forms, so its media is a rendered ref. */
+function docWithCaseListEntryBesideForm() {
 	const moduleUuid = testUuid("mod-x");
 	const formUuid = testUuid("form-x");
 	return admittedPersisted({
 		appId: "app-2",
-		appName: "Dormant",
+		appName: "Beside",
 		connectType: null,
 		appSettings: { showSavedForms: false, showIncompleteForms: false },
 		caseTypes: [{ name: "patient", properties: [] }],
@@ -230,15 +230,16 @@ function docWithDormantCaseListIcon() {
 				uuid: moduleUuid,
 				id: "m",
 				name: "M",
-				caseListOnly: false,
 				caseType: "patient",
+				caseListMenuItem: {
+					icon: media("beside-cl-icon"),
+					audioLabel: media("beside-cl-audio"),
+				},
 				caseListConfig: {
 					columns: [plainColumn(COLUMN, "case_name", "Name")],
 					listColumnOrder: [COLUMN],
 					detailColumnOrder: [COLUMN],
 					searchInputs: [],
-					icon: media("dormant-cl-icon"),
-					audioLabel: media("dormant-cl-audio"),
 				},
 			},
 		},
@@ -281,7 +282,7 @@ function docWithDormantImageMap() {
 				uuid: moduleUuid,
 				id: "m",
 				name: "M",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseType: "patient",
 				caseListConfig: {
 					columns: [
@@ -308,17 +309,18 @@ function docWithDormantImageMap() {
 }
 
 describe("collectAuthoredAssetRefs", () => {
-	it("carries a non-caseListOnly module's caseListConfig media the gated walk drops", () => {
-		const doc = asWalkableDoc(docWithDormantCaseListIcon());
-		// The render-gated walk omits it (it doesn't render on a non-caseListOnly
-		// module), so a move keyed on it would strand the ref...
+	it("walks a case list menu entry's media beside forms, where the entry is emitted", () => {
+		const doc = asWalkableDoc(docWithCaseListEntryBesideForm());
 		const gated = collectAssetRefs(doc);
-		expect(gated.has(media("dormant-cl-icon"))).toBe(false);
-		expect(gated.has(media("dormant-cl-audio"))).toBe(false);
-		// ...but the movable set carries it, so the move copies + repoints it.
-		const movable = collectAuthoredAssetRefs(doc);
-		expect(movable.has(media("dormant-cl-icon"))).toBe(true);
-		expect(movable.has(media("dormant-cl-audio"))).toBe(true);
+		expect(gated.has(media("beside-cl-icon"))).toBe(true);
+		expect(gated.has(media("beside-cl-audio"))).toBe(true);
+		const remapped = remapAssetRefs(
+			docWithCaseListEntryBesideForm(),
+			new Map([[media("beside-cl-icon"), media("beside-cl-icon-2")]]),
+		);
+		expect(remapped.modules[testUuid("mod-x")]?.caseListMenuItem?.icon).toBe(
+			media("beside-cl-icon-2"),
+		);
 	});
 
 	it("is a superset of the gated walk (never drops a rendered ref)", () => {

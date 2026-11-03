@@ -2,8 +2,8 @@
 //
 // Where a form goes after submit, resolved against its module. The stored
 // slot is optional; the default depends on the form type AND on the owning
-// module's shape (Search first, several-case selection, its parent's
-// selection, whether it is off the menu), so every consumer reads it here
+// module's shape (forms that read the search, several-case selection, its
+// parent's selection, whether it is off the menu), so every consumer reads it here
 // rather than pairing `form.postSubmit ?? defaultPostSubmit(form.type)` by
 // hand. The offered set is the one statement of which destinations a form
 // may hold; the validator, the reducers and the builder's pickers all read
@@ -16,7 +16,8 @@ import {
 	type PostSubmitDestination,
 	type PostSubmitMenuShape,
 } from "./forms";
-import { caseSelectionCardinality, moduleOpensOnSearch } from "./modules";
+import { moduleIsBareCaseList } from "./menuForms";
+import { caseSelectionCardinality, moduleFormsReadSearch } from "./modules";
 import type { Uuid } from "./uuid";
 
 type PostSubmitDoc = Pick<BlueprintDoc, "forms" | "modules" | "formOrder">;
@@ -40,8 +41,8 @@ export function moduleUuidOfForm(
 export const POST_SUBMIT_NOT_OFFERED_REASONS = [
 	"menu-selects-several",
 	"parent-selects-several",
-	"menu-opens-on-search",
-	"menu-is-case-list-only",
+	"menu-forms-read-search",
+	"menu-is-bare-case-list",
 	"no-parent-menu",
 	"menu-off-the-menu",
 	"parent-off-the-menu",
@@ -55,8 +56,8 @@ const WITHHELD_BY: Readonly<
 > = {
 	"menu-selects-several": ["previous"],
 	"parent-selects-several": ["module", "parentMenu", "previous"],
-	"menu-opens-on-search": ["previous"],
-	"menu-is-case-list-only": ["module"],
+	"menu-forms-read-search": ["previous"],
+	"menu-is-bare-case-list": ["module"],
 	"no-parent-menu": ["parentMenu"],
 	"menu-off-the-menu": ["module", "previous"],
 	"parent-off-the-menu": ["parentMenu"],
@@ -72,13 +73,14 @@ const MULTI_SELECT_REASONS: ReadonlySet<PostSubmitNotOfferedReason> = new Set([
 export interface PostSubmitModuleFacts extends PostSubmitMenuShape {
 	readonly moduleUuid: Uuid;
 	readonly parentUuid: Uuid | undefined;
-	readonly caseListOnly: boolean;
+	/** A case list menu entry and no menu forms (`moduleIsBareCaseList`). */
+	readonly bareCaseList: boolean;
 	readonly parentOffTheMenu: boolean;
 }
 
 /** The menu shape of `moduleUuid`, as the after-submit rules read it. */
 export function postSubmitModuleFacts(
-	doc: Pick<BlueprintDoc, "modules">,
+	doc: Pick<BlueprintDoc, "modules" | "forms" | "formOrder">,
 	moduleUuid: Uuid,
 ): PostSubmitModuleFacts | undefined {
 	const mod = doc.modules[moduleUuid];
@@ -88,12 +90,12 @@ export function postSubmitModuleFacts(
 	return {
 		moduleUuid,
 		parentUuid: parent === undefined ? undefined : parentUuid,
-		searchFirst: moduleOpensOnSearch(mod),
+		formsReadSearch: moduleFormsReadSearch(mod),
 		multiSelect: caseSelectionCardinality(mod) === "multiple",
 		parentMultiSelect:
 			parent !== undefined && caseSelectionCardinality(parent) === "multiple",
 		offTheMenu: mod.hiddenFromMenu === true,
-		caseListOnly: mod.caseListOnly === true,
+		bareCaseList: moduleIsBareCaseList(doc, moduleUuid),
 		parentOffTheMenu: parent?.hiddenFromMenu === true,
 	};
 }
@@ -105,8 +107,8 @@ function reasonsThatHold(
 	const holds: Record<PostSubmitNotOfferedReason, boolean> = {
 		"menu-selects-several": facts.multiSelect === true,
 		"parent-selects-several": facts.parentMultiSelect === true,
-		"menu-opens-on-search": facts.searchFirst === true,
-		"menu-is-case-list-only": facts.caseListOnly,
+		"menu-forms-read-search": facts.formsReadSearch === true,
+		"menu-is-bare-case-list": facts.bareCaseList,
 		"no-parent-menu": facts.parentUuid === undefined,
 		"menu-off-the-menu": facts.offTheMenu === true,
 		"parent-off-the-menu": facts.parentOffTheMenu,
@@ -135,7 +137,7 @@ export function postSubmitDestinationsOfferedFor(
  * order. `app_home` and `firstMenu` always; `module` unless the parent
  * selects several cases, the module is a bare case list, or the module is
  * off the menu; `previous` unless the module or its parent selects several
- * cases, the module opens on Search, or the module is off the menu;
+ * cases, the module's forms read the search, or the module is off the menu;
  * `parentMenu` when the module has a parent that neither selects several
  * cases nor is off the menu. An unknown form, or one in no module, is
  * offered the two that need no module.

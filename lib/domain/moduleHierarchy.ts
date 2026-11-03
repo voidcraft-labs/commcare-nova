@@ -1,3 +1,5 @@
+import type { BlueprintDoc } from "./blueprint";
+import { moduleIsBareCaseList } from "./menuForms";
 import type { Module } from "./modules";
 import type { Uuid } from "./uuid";
 
@@ -9,15 +11,15 @@ export interface ModuleHierarchySource {
 
 export type ModuleParent = Uuid | null;
 
-/** A case-list-only module is a direct Results destination only while it has
- * no child menus. Once it owns children, its module screen is the menu that
- * exposes those destinations and Results remains a separate entry within it. */
+/** A bare case list (`menuForms.ts::moduleIsBareCaseList`) is a direct
+ * Results destination only while it has no child menus. Once it owns
+ * children, its module screen is the menu that exposes those destinations and
+ * Results remains a separate entry within it. */
 export function moduleIsBareCaseListDestination(
-	doc: Pick<ModuleHierarchySource, "modules">,
+	doc: Pick<BlueprintDoc, "modules" | "forms" | "formOrder">,
 	uuid: Uuid,
 ): boolean {
-	const module = doc.modules[uuid];
-	if (module?.caseListOnly !== true) return false;
+	if (!moduleIsBareCaseList(doc, uuid)) return false;
 	return !Object.values(doc.modules).some(
 		(candidate) => candidate.parentModuleUuid === uuid,
 	);

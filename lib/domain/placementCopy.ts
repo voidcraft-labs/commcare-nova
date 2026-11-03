@@ -169,8 +169,7 @@ export function placementIneligibilitySentence(
  * Why a menu CommCare HQ holds as an advanced menu can no longer be one, in
  * one sentence: the reason of its `module-kind` move and of the gate's
  * `HELD_PLACEMENT_INEXPRESSIBLE` finding for it, the first blocker's kind.
- * `forms-read-search` is worded for the blocker as it reads today, a menu
- * that opens on its Search screen.
+ * `forms-read-search` is a menu whose forms read the search.
  */
 export function advancedKindBlockerSentence(
 	blocker: AdvancedKindBlocker["kind"],
@@ -179,7 +178,7 @@ export function advancedKindBlockerSentence(
 		case "several-cases":
 			return "It now lets workers choose several cases, which an advanced menu can't do.";
 		case "forms-read-search":
-			return "It now opens on its Search screen with its forms reading the search, which an advanced menu can't do.";
+			return "Its forms now read the search, which an advanced menu can't do.";
 		case "case-list-menu-item-narrowed":
 			return "Its case list in the menu now has a filter or a parent case, which an advanced menu would leave out.";
 		case "chain-index":

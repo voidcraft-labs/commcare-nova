@@ -611,6 +611,12 @@ export const MODULE_REFERENCE_SLOTS = [
 	},
 	{
 		entity: "module",
+		slot: "module_case_list_registration_form",
+		path: "caseListRegistrationForm.formUuid",
+		kind: "entity-uuid",
+	},
+	{
+		entity: "module",
 		slot: "module_display_condition",
 		path: "displayCondition",
 		kind: "expression",
@@ -1362,8 +1368,6 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	purpose: "display-text",
 	postSubmit: "config",
 	hiddenFromMenu: "config",
-	"entry.kind": "discriminator",
-	"entry.label": "display-text",
 	"formLinks[].uuid": "identity",
 	"caseOperations[].uuid": "identity",
 	"caseOperations[].id": "declaration",
@@ -1410,15 +1414,22 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListEntryPoint.id": "declaration",
 	id: "declaration",
 	name: "display-text",
-	caseListOnly: "config",
 	hiddenFromMenu: "config",
 	// The kind a publish recorded: one literal, written only by holds.
 	heldKind: "config",
 	purpose: "display-text",
 	icon: "media",
 	audioLabel: "media",
-	"caseListConfig.icon": "media",
-	"caseListConfig.audioLabel": "media",
+	// The case list menu entry: its label is plain display text (the
+	// module's name when absent), its icon and spoken label media.
+	"caseListMenuItem.label": "display-text",
+	"caseListMenuItem.icon": "media",
+	"caseListMenuItem.audioLabel": "media",
+	// The case list registration form: `kind` selects when the list offers
+	// it, `label` is the Register action's text, and `formUuid` is the
+	// `module_case_list_registration_form` reference slot.
+	"caseListRegistrationForm.kind": "discriminator",
+	"caseListRegistrationForm.label": "display-text",
 	// The two Results/Details sequences are lists of column uuids — identity,
 	// not a reference a rename or a case-type retirement would follow.
 	"caseListConfig.listColumnOrder[]": "identity",
@@ -1478,7 +1489,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].required.message": "display-text",
 	"caseListConfig.searchInputs[].validation.message": "display-text",
 	"caseSearchConfig.searchActionEnabled": "config",
-	"caseSearchConfig.searchFirst": "config",
+	"caseSearchConfig.workflow": "config",
+	"caseSearchConfig.formsReadSearch": "config",
 	"caseSearchConfig.searchScreenTitle": "display-text",
 	"caseSearchConfig.searchScreenSubtitle": "display-text",
 };

@@ -41,7 +41,8 @@ export const translationUnitRoles = [
 	"app-name",
 	"module-name",
 	"form-name",
-	"form-entry-label",
+	"case-list-menu-item-label",
+	"case-list-registration-label",
 	"field-label",
 	"field-hint",
 	"field-help",
@@ -149,7 +150,8 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"app-name",
 	"module-name",
 	"form-name",
-	"form-entry-label",
+	"case-list-menu-item-label",
+	"case-list-registration-label",
 	"search-screen-title",
 	"search-screen-subtitle",
 	"search-input-label",
@@ -537,6 +539,26 @@ export function collectTranslationUnits(
 				context: { moduleName: module.name },
 			}),
 		);
+		// The case list menu entry's own label, when authored; the wire falls
+		// back to the module-name unit when it is not.
+		if (module.caseListMenuItem?.label !== undefined) {
+			out.push(
+				unit({
+					id: makeTranslationUnitId(
+						"module",
+						moduleUuid,
+						"case-list-menu-item-label",
+					),
+					valueKind: "text",
+					role: "case-list-menu-item-label",
+					source: module.caseListMenuItem.label,
+					owner: { kind: "module", moduleUuid },
+					breadcrumb: [...moduleBreadcrumb, "case list entry"],
+					context: { moduleName: module.name },
+				}),
+			);
+		}
+		const registration = module.caseListRegistrationForm;
 
 		for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
 			const form = doc.forms[formUuid];
@@ -553,15 +575,23 @@ export function collectTranslationUnits(
 				}),
 			);
 			// The Register action's label on Results, when authored; the
-			// wire falls back to the form-name unit when it is not.
-			if (form.entry?.label !== undefined) {
+			// wire falls back to the form-name unit when it is not. The
+			// module owns it, beside the form its slot names.
+			if (
+				registration?.formUuid === formUuid &&
+				registration.label !== undefined
+			) {
 				out.push(
 					unit({
-						id: makeTranslationUnitId("form", formUuid, "entry-label"),
+						id: makeTranslationUnitId(
+							"module",
+							moduleUuid,
+							"case-list-registration-label",
+						),
 						valueKind: "text",
-						role: "form-entry-label",
-						source: form.entry.label,
-						owner: { kind: "form", moduleUuid, formUuid },
+						role: "case-list-registration-label",
+						source: registration.label,
+						owner: { kind: "module", moduleUuid },
 						breadcrumb: [...moduleBreadcrumb, form.name, "action label"],
 						context: { moduleName: module.name, formName: form.name },
 					}),

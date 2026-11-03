@@ -10,7 +10,6 @@ import {
 	instanceReadsDoc,
 	reads,
 } from "../expression/__tests__/instanceReadsFixture";
-import { formStructure } from "../expression/formStructure";
 import { type CaseOperation, caseOperationSchema } from "../forms";
 import type { Uuid } from "../uuid";
 import { chosen, chosenCaseDoc } from "./chosenCaseFixture";
@@ -127,7 +126,7 @@ describe("entry datums at their evaluation points", () => {
 		]);
 	});
 
-	it("skips a no-matches form when aligning a parent menu and honors a pending entry change", () => {
+	it("skips a case list registration form when aligning a parent menu, and counts it once the slot is cleared", () => {
 		const doc = selectionDoc();
 		const noMatches = testUuid("datum-no-matches");
 		doc.forms[noMatches] = {
@@ -135,7 +134,10 @@ describe("entry datums at their evaluation points", () => {
 			uuid: noMatches,
 			id: "register_patient",
 			type: "registration",
-			entry: { kind: "search-no-matches" },
+		};
+		doc.modules[ROOT].caseListRegistrationForm = {
+			kind: "after-empty-search",
+			formUuid: noMatches,
 		};
 		doc.formOrder[ROOT] = [noMatches, ROOT_FORM];
 		doc.fieldOrder[noMatches] = [];
@@ -157,12 +159,11 @@ describe("entry datums at their evaluation points", () => {
 		expect(entryDatumSupplies(doc, point).refs).toEqual([
 			{ ref: { kind: "selected-case", module: ROOT }, scalar: true },
 		]);
-		const prepared = formStructure(doc, noMatches);
-		if (prepared === undefined)
-			throw new Error("The registration fixture is missing.");
-		expect(
-			entryDatumSupplies(doc, point, { ...prepared, entry: undefined }).refs,
-		).toEqual([]);
+		// Without the slot the registration form is a menu form, so the menu
+		// is no longer case first and its entry chooses no case.
+		const { caseListRegistrationForm: _slot, ...root } = doc.modules[ROOT];
+		const cleared = { ...doc, modules: { ...doc.modules, [ROOT]: root } };
+		expect(entryDatumSupplies(cleared, point).refs).toEqual([]);
 	});
 
 	it("supplies a child-case identity for each basic child the form creates outside a repeat", () => {
@@ -234,8 +235,8 @@ describe("entry datums at their evaluation points", () => {
 					},
 					// A child's case type is one some menu lists, or HQ's Case
 					// Management keeps it nowhere.
-					{ name: "Visits", caseType: "visit", caseListOnly: true },
-					{ name: "Samples", caseType: "sample", caseListOnly: true },
+					{ name: "Visits", caseType: "visit", caseListMenuItem: {} },
+					{ name: "Samples", caseType: "sample", caseListMenuItem: {} },
 				],
 			},
 			(built) => {

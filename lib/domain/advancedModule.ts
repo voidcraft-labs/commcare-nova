@@ -14,7 +14,11 @@ import { rootSelectionAlignment } from "./entryDatumSupplies";
 import { effectiveFilterForEmission } from "./expression/simplify";
 import { substituteUnansweredSearchInputs } from "./expression/walk";
 import { operationCaseType } from "./forms";
-import { caseSelectionCardinality, moduleOpensOnSearch } from "./modules";
+import {
+	caseSelectionCardinality,
+	moduleFormsReadSearch,
+	moduleHasCaseListMenuItem,
+} from "./modules";
 import type { Uuid } from "./uuid";
 
 /**
@@ -23,8 +27,8 @@ import type { Uuid } from "./uuid";
  *
  * - `several-cases`: the menu lets a worker choose several cases. HQ's
  *   advanced entry asks for one (`AdvancedModule.is_multi_select` is false).
- * - `forms-read-search`: the menu opens on its Search screen with its forms
- *   reading what was searched. HQ's advanced entry adds no query datum
+ * - `forms-read-search`: the menu's forms read the search
+ *   (`caseSearchConfig.formsReadSearch`). HQ's advanced entry adds no query datum
  *   (`entries.py::configure_entry_advanced_form`).
  * - `case-list-menu-item-narrowed`: the menu has its case list as a menu
  *   item, and that list is narrowed by a filter (`filter`), by hidden
@@ -180,8 +184,9 @@ export function advancedKindBlockers(
 	const blockers: AdvancedKindBlocker[] = [];
 	if (caseSelectionCardinality(module) === "multiple")
 		blockers.push({ kind: "several-cases" });
-	if (moduleOpensOnSearch(module)) blockers.push({ kind: "forms-read-search" });
-	if (module.caseListOnly === true) {
+	if (moduleFormsReadSearch(module))
+		blockers.push({ kind: "forms-read-search" });
+	if (moduleHasCaseListMenuItem(module)) {
 		const why = caseListNarrowing(doc, moduleUuid);
 		if (why !== undefined)
 			blockers.push({ kind: "case-list-menu-item-narrowed", why });

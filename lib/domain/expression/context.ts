@@ -25,7 +25,7 @@ import type { LookupColumnId, LookupTableId } from "../lookupIds";
 import { moduleIsCaseFirst } from "../menuForms";
 import {
 	effectiveCaseSearchConfig,
-	moduleOpensOnSearch,
+	moduleFormsReadSearch,
 	SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES,
 	searchInputRuntimeValueType,
 } from "../modules";
@@ -141,11 +141,14 @@ export interface FormExpressionFacts extends FormStructure {
 	 * form. */
 	readonly ownCaseIdMinted: boolean;
 	readonly searchInputs: readonly SearchInputDecl[];
-	readonly noMatchesForm: boolean;
-	/** Whether the form's module opens on its search, so its forms open
-	 * after the inline query that keeps the Search answers
+	/** Whether the form is its module's case list registration form
+	 * (`Module.caseListRegistrationForm`), which opens from Results after a
+	 * search found nothing and carries the Search answers. */
+	readonly caseListRegistrationForm: boolean;
+	/** Whether the form's menu has its forms read the search, so its forms
+	 * open after the inline query that keeps the Search answers
 	 * (`search-input:results:inline`). */
-	readonly searchFirstModule: boolean;
+	readonly formsReadSearchModule: boolean;
 	/** Whether a translation unit this form's questions or choices own shows
 	 * an answer in some language (`translationUnits.ts::formTranslationUnits`).
 	 * Asked only by a `jr:itext` or `jr:choice-name` read, so a form with none
@@ -503,8 +506,10 @@ function buildFormFacts(
 		...structure,
 		fields,
 		searchInputs,
-		noMatchesForm: structure.entry?.kind === "search-no-matches",
-		searchFirstModule: module !== undefined && moduleOpensOnSearch(module),
+		caseListRegistrationForm:
+			module?.caseListRegistrationForm?.formUuid === structure.formUuid,
+		formsReadSearchModule:
+			module !== undefined && moduleFormsReadSearch(module),
 		unitShowsAnswer: (unitId) =>
 			formTranslationUnits(doc, structure.formUuid).get(unitId)?.showsAnswer ===
 			true,

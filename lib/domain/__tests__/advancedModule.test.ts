@@ -188,7 +188,7 @@ describe("advancedKindBlockers", () => {
 	const members = testUuid(MEMBERS);
 
 	it("finds nothing on an ordinary one-case menu", () => {
-		const doc = memberMenu({ caseListOnly: true, forms: [] });
+		const doc = memberMenu({ caseListMenuItem: {}, forms: [] });
 		expect(advancedKindBlockers(doc, members)).toEqual([]);
 		expect(heldKindExpresses(doc, members)).toBe(true);
 	});
@@ -214,14 +214,24 @@ describe("advancedKindBlockers", () => {
 		).toEqual([]);
 	});
 
-	it("is blocked by a menu that opens on its Search screen", () => {
-		const blocked = memberMenu({ caseSearchConfig: { searchFirst: true } });
+	it("is blocked by a menu whose forms read the search", () => {
+		const blocked = memberMenu({
+			caseSearchConfig: { formsReadSearch: true },
+		});
 		expect(advancedKindBlockers(blocked, members)).toEqual([
 			{ kind: "forms-read-search" },
 		]);
 		expect(heldKindExpresses(blocked, members)).toBe(false);
+		// Search first and results first alone keep the menu's forms on the
+		// case they open, which an advanced entry gives.
 		expect(
 			advancedKindBlockers(memberMenu({ caseSearchConfig: {} }), members),
+		).toEqual([]);
+		expect(
+			advancedKindBlockers(
+				memberMenu({ caseSearchConfig: { workflow: "skipToResults" } }),
+				members,
+			),
 		).toEqual([]);
 	});
 
@@ -233,7 +243,18 @@ describe("advancedKindBlockers", () => {
 		};
 		expect(
 			advancedKindBlockers(
-				memberMenu({ caseListOnly: true, forms: [], caseListConfig: filtered }),
+				memberMenu({
+					caseListMenuItem: {},
+					forms: [],
+					caseListConfig: filtered,
+				}),
+				members,
+			),
+		).toEqual([{ kind: "case-list-menu-item-narrowed", why: "filter" }]);
+		// Beside the menu's forms the entry lists the same narrowed list.
+		expect(
+			advancedKindBlockers(
+				memberMenu({ caseListMenuItem: {}, caseListConfig: filtered }),
 				members,
 			),
 		).toEqual([{ kind: "case-list-menu-item-narrowed", why: "filter" }]);
@@ -246,7 +267,7 @@ describe("advancedKindBlockers", () => {
 		expect(
 			advancedKindBlockers(
 				memberMenu({
-					caseListOnly: true,
+					caseListMenuItem: {},
 					forms: [],
 					caseListConfig: { ...filtered, filter: matchAll() },
 				}),
@@ -259,7 +280,7 @@ describe("advancedKindBlockers", () => {
 		expect(
 			advancedKindBlockers(
 				memberMenu({
-					caseListOnly: true,
+					caseListMenuItem: {},
 					forms: [],
 					caseSearchConfig: { excludedOwnerIds: term(literal("owner-a")) },
 				}),
@@ -268,14 +289,14 @@ describe("advancedKindBlockers", () => {
 		).toEqual([{ kind: "case-list-menu-item-narrowed", why: "hidden-owners" }]);
 		expect(
 			advancedKindBlockers(
-				memberMenu({ caseListOnly: true, forms: [], caseSearchConfig: {} }),
+				memberMenu({ caseListMenuItem: {}, forms: [], caseSearchConfig: {} }),
 				members,
 			),
 		).toEqual([]);
 	});
 
 	it("is blocked by a case list menu item under a parent selection", () => {
-		const doc = chainDoc({ members: { caseListOnly: true, forms: [] } });
+		const doc = chainDoc({ members: { caseListMenuItem: {}, forms: [] } });
 		expect(advancedKindBlockers(doc, members)).toEqual([
 			{ kind: "case-list-menu-item-narrowed", why: "chosen-before" },
 		]);
@@ -296,7 +317,7 @@ describe("advancedKindBlockers", () => {
 							uuid: VISITS,
 							name: "All members",
 							caseType: "member",
-							caseListOnly: true,
+							caseListMenuItem: {},
 						},
 					],
 				},

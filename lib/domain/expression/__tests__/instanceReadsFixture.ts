@@ -122,7 +122,8 @@ export function instanceReadsDoc(
 				name: "Find patient",
 				caseType: "patient",
 				caseListConfig: search,
-				caseSearchConfig: { searchFirst: true },
+				caseSearchConfig: { formsReadSearch: true },
+				caseListRegistrationForm: { formUuid: reads.register },
 				forms: [
 					{
 						uuid: reads.checkIn,
@@ -164,7 +165,6 @@ export function instanceReadsDoc(
 						uuid: reads.register,
 						name: "Register patient",
 						type: "registration",
-						entry: { kind: "search-no-matches" },
 						fields: [
 							f({
 								kind: "text",

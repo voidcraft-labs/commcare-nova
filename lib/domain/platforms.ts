@@ -153,10 +153,21 @@ export interface PlatformFeature {
 	readonly fieldKind?: FieldKind;
 }
 
+/**
+ * What a worker meets in Web Apps after choosing a case from a case list
+ * menu entry. Formplayer steps a view command back to the screen before the
+ * choice (`session/MenuSession.java::getNextScreen`, `isViewCommand` then
+ * `stepBack`), so the case list shows again, or the menu again where the
+ * menu chose the case first.
+ */
+const CASE_LIST_MENU_ITEM_WEB_APPS_NOTE =
+	"choosing a case shows the case list again, or the menu again where the menu chose the case first";
+
 export const PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"case-list-here",
-	"search-first",
+	"forms-read-search",
+	"list-first",
 	"several-cases",
 	"search-field-single-date",
 	"search-field-multiple-choice",
@@ -195,6 +206,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"search-field-checks",
 	"barcode-search-field",
 	"hidden-search-field",
+	"search-first",
 	"search",
 	"skip-to-results",
 	"after-submit-home",
@@ -209,7 +221,8 @@ export type PlatformFeatureId = (typeof PLATFORM_FEATURE_IDS)[number];
 export const REFUSABLE_PLATFORM_FEATURE_IDS = [
 	"datetime-question",
 	"case-list-here",
-	"search-first",
+	"forms-read-search",
+	"list-first",
 	"several-cases",
 	"search-field-single-date",
 	"search-field-multiple-choice",
@@ -256,8 +269,8 @@ export const PLATFORM_FEATURES: Readonly<
 			alternative: "take here() out of this value",
 		},
 	},
-	"search-first": {
-		label: "Search first",
+	"forms-read-search": {
+		label: "Forms that read the search",
 		channel: "structure",
 		webApps: {
 			reading: "runs",
@@ -267,13 +280,32 @@ export const PLATFORM_FEATURES: Readonly<
 			reading: "unavailable",
 			note: "a worker can open only a case the phone already holds",
 			remedy:
-				"You can show the case list first and let workers search from it.",
+				"You can let the menu search first without its forms reading the search.",
 		},
 		refusal: {
-			what: "opens on Search first",
+			what: "has its forms read the search",
 			why: 'On Android a worker can open only a case the phone already holds, and choosing any other case stops with "Session Refresh Required".',
 			alternative:
-				"turn Search first off, so the module shows its case list first",
+				"turn off Forms read the search, so the menu searches first and each form reads the case it opens",
+		},
+	},
+	"list-first": {
+		label: "Case list first",
+		channel: "structure",
+		webApps: {
+			reading: "unavailable",
+			note: "a menu that searches can't open on its case list first, and CommCare HQ turns such a menu to Search first when its case list is saved there",
+			remedy:
+				"You can open the menu on Search first, which Android still opens on its case list.",
+		},
+		android: { reading: "runs" },
+		refusal: {
+			what: "opens on its case list before Search",
+			why: "CommCare HQ no longer offers the case list first for a menu that searches in Web Apps, and turns such a menu to Search first when its case list is saved there.",
+			alternative:
+				"open the menu on Search first, which Android still opens on its case list",
+			pickerLine:
+				"Not available in Web Apps. You can open this menu on Search first, which Android still opens on its case list, or change where this app runs in App settings.",
 		},
 	},
 	"several-cases": {
@@ -598,15 +630,15 @@ export const PLATFORM_FEATURES: Readonly<
 		},
 	},
 	"case-list-menu-item": {
-		label: "Case list menus",
+		label: "Case list menu entries",
 		channel: "structure",
 		webApps: {
 			reading: "different",
-			note: "choosing a case shows Redirecting after sync and returns to the app's first menu",
+			note: CASE_LIST_MENU_ITEM_WEB_APPS_NOTE,
 		},
 		android: {
 			reading: "runs",
-			note: "with no case details, choosing a case returns to the home screen",
+			note: "with no case details, choosing a case returns to the home screen, and with them, Done returns to the list",
 		},
 	},
 	"tile-grouping": {
@@ -687,6 +719,15 @@ export const PLATFORM_FEATURES: Readonly<
 			note: "the value shows on the Search screen, and the worker can change it",
 		},
 	},
+	"search-first": {
+		label: "Search first",
+		channel: "structure",
+		webApps: { reading: "runs" },
+		android: {
+			reading: "ignored",
+			note: "the case list opens first, and Search opens the Search screen",
+		},
+	},
 	search: {
 		label: "Search",
 		channel: "structure",
@@ -697,7 +738,7 @@ export const PLATFORM_FEATURES: Readonly<
 		},
 	},
 	"skip-to-results": {
-		label: "Skip to results",
+		label: "Results first",
 		channel: "structure",
 		webApps: { reading: "runs" },
 		android: {

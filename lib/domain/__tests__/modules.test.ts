@@ -9,12 +9,18 @@ import { emptyCaseListConfig } from "@/lib/domain";
 import { describe, expect, it } from "vitest";
 import { eq, literal, sessionUser, term } from "../expression";
 import {
+	caseListRegistrationFormOf,
+	menuFormUuidsOf,
+	moduleIsBareCaseList,
+} from "../menuForms";
+import {
 	type AdvancedSearchInputDef,
 	advancedSearchInputDef,
 	type CaseSearchConfig,
 	type Column,
 	calculatedColumn,
 	caseListConfigSchema,
+	caseSearchConfigAfterFinalInputRemoval,
 	caseSearchConfigHasAuthoredSettings,
 	caseSearchConfigSchema,
 	caseSelectionCanFlowBetweenModules,
@@ -27,11 +33,16 @@ import {
 	idMappingEntry,
 	intervalColumn,
 	joinMultiSelectSearchAnswer,
+	moduleFormsReadSearch,
+	moduleHasCaseListMenuItem,
 	moduleSchema,
+	moduleSearchWorkflow,
+	ordinaryCaseSearchConfigSchema,
 	phoneColumn,
 	plainColumn,
 	type SimpleSearchInputDef,
 	searchInputDefSchema,
+	searchWorkflow,
 	simpleSearchInputDef,
 	splitMultiSelectSearchAnswer,
 } from "../modules";
@@ -1316,6 +1327,191 @@ describe("caseSearchConfigHasAuthoredSettings", () => {
 				excludedOwnerIds: term(literal("x")),
 			}),
 		).toBe(true);
+	});
+
+	it("recognizes the workflow and Forms read the search", () => {
+		expect(
+			caseSearchConfigHasAuthoredSettings({ workflow: "skipToResults" }),
+		).toBe(true);
+		expect(caseSearchConfigHasAuthoredSettings({ workflow: "listFirst" })).toBe(
+			true,
+		);
+		expect(caseSearchConfigHasAuthoredSettings({ formsReadSearch: true })).toBe(
+			true,
+		);
+	});
+});
+
+describe("the search workflow", () => {
+	const textInput = simpleSearchInputDef(
+		testUuid("workflow-input"),
+		"name",
+		"Name",
+		"text",
+		"case_name",
+	);
+	const withInputs = (
+		caseSearchConfig?: CaseSearchConfig,
+	): Parameters<typeof moduleSearchWorkflow>[0] => ({
+		caseListConfig: { ...emptyCaseListConfig(), searchInputs: [textInput] },
+		...(caseSearchConfig !== undefined && { caseSearchConfig }),
+	});
+
+	it("reads an absent workflow as search first, never list first", () => {
+		expect(searchWorkflow({})).toBe("searchFirst");
+		expect(searchWorkflow({ workflow: "listFirst" })).toBe("listFirst");
+		expect(searchWorkflow({ workflow: "skipToResults" })).toBe("skipToResults");
+		// Inputs alone make the search effective, under its default workflow.
+		expect(moduleSearchWorkflow(withInputs())).toBe("searchFirst");
+	});
+
+	it("has no workflow where the menu has no ordinary search", () => {
+		expect(moduleSearchWorkflow({})).toBeUndefined();
+		expect(
+			moduleSearchWorkflow({
+				caseSearchConfig: {
+					searchActionEnabled: false,
+					excludedOwnerIds: term(literal("owner-a")),
+				},
+			}),
+		).toBeUndefined();
+	});
+
+	it("reads Forms read the search only from an effective ordinary search", () => {
+		expect(moduleFormsReadSearch(withInputs({ formsReadSearch: true }))).toBe(
+			true,
+		);
+		expect(moduleFormsReadSearch(withInputs({}))).toBe(false);
+		expect(
+			moduleFormsReadSearch(withInputs({ workflow: "skipToResults" })),
+		).toBe(false);
+		expect(moduleFormsReadSearch({})).toBe(false);
+	});
+
+	it("refuses list first beside Forms read the search, and keeps its patchable shape", () => {
+		const refused = ordinaryCaseSearchConfigSchema.safeParse({
+			workflow: "listFirst",
+			formsReadSearch: true,
+		});
+		expect(refused.success).toBe(false);
+		expect(refused.error?.issues).toEqual([
+			expect.objectContaining({
+				path: ["formsReadSearch"],
+				message:
+					"A menu that opens on its case list can't have its forms read the search. Choose Search first or Results first, or turn off Forms read the search.",
+			}),
+		]);
+		expect(
+			caseSearchConfigSchema.safeParse({
+				workflow: "listFirst",
+				formsReadSearch: true,
+			}).success,
+		).toBe(false);
+		for (const workflow of ["skipToResults", undefined] as const) {
+			expect(
+				ordinaryCaseSearchConfigSchema.safeParse({
+					...(workflow !== undefined && { workflow }),
+					formsReadSearch: true,
+				}).success,
+			).toBe(true);
+		}
+		// The per-key patch schema reads the refined object's shape.
+		expect(Object.keys(ordinaryCaseSearchConfigSchema.shape)).toEqual(
+			expect.arrayContaining(["workflow", "formsReadSearch"]),
+		);
+	});
+
+	it("keeps the workflow and Forms read the search past the last input", () => {
+		expect(
+			caseSearchConfigAfterFinalInputRemoval(
+				{ searchScreenTitle: "Find", workflow: "skipToResults" },
+				false,
+			),
+		).toEqual({ workflow: "skipToResults" });
+		expect(
+			caseSearchConfigAfterFinalInputRemoval({ formsReadSearch: true }, false),
+		).toEqual({ formsReadSearch: true });
+		expect(
+			caseSearchConfigAfterFinalInputRemoval(
+				{ searchScreenTitle: "Find" },
+				false,
+			),
+		).toBeUndefined();
+	});
+});
+
+describe("the case list menu entry", () => {
+	const menu = testUuid("menu-item-menu");
+	const visit = testUuid("menu-item-visit");
+	const register = testUuid("menu-item-register");
+	const formOf = (uuid: Uuid, type: "followup" | "registration") => ({
+		uuid,
+		id: type,
+		name: type,
+		type,
+	});
+	const docOf = (
+		forms: readonly ReturnType<typeof formOf>[],
+		slots: {
+			readonly item?: boolean;
+			readonly registration?: Uuid;
+		},
+	) => ({
+		modules: {
+			[menu]: moduleSchema.parse({
+				uuid: menu,
+				id: "patients",
+				name: "Patients",
+				caseType: "patient",
+				...(slots.item && { caseListMenuItem: {} }),
+				...(slots.registration !== undefined && {
+					caseListRegistrationForm: {
+						kind: "after-empty-search",
+						formUuid: slots.registration,
+					},
+				}),
+			}),
+		},
+		formOrder: { [menu]: forms.map((form) => form.uuid) },
+		forms: Object.fromEntries(forms.map((form) => [form.uuid, form])),
+	});
+
+	it("is present exactly when the slot is, labelled or not", () => {
+		expect(moduleHasCaseListMenuItem({ caseListMenuItem: {} })).toBe(true);
+		expect(
+			moduleHasCaseListMenuItem({
+				caseListMenuItem: { label: "All patients" },
+			}),
+		).toBe(true);
+		expect(moduleHasCaseListMenuItem({})).toBe(false);
+		expect(
+			moduleSchema.safeParse({
+				uuid: menu,
+				id: "patients",
+				name: "Patients",
+				caseListMenuItem: { label: "" },
+			}).success,
+		).toBe(false);
+	});
+
+	it("makes a bare case list only where no menu form sits beside it", () => {
+		expect(moduleIsBareCaseList(docOf([], { item: true }), menu)).toBe(true);
+		expect(
+			moduleIsBareCaseList(
+				docOf([formOf(visit, "followup")], { item: true }),
+				menu,
+			),
+		).toBe(false);
+		// The case list registration form is on no menu, so it leaves the
+		// menu its list.
+		const onlyRegistration = docOf([formOf(register, "registration")], {
+			item: true,
+			registration: register,
+		});
+		expect(moduleIsBareCaseList(onlyRegistration, menu)).toBe(true);
+		expect(menuFormUuidsOf(onlyRegistration, menu)).toEqual([]);
+		expect(caseListRegistrationFormOf(onlyRegistration, menu)).toBe(register);
+		expect(moduleIsBareCaseList(docOf([], {}), menu)).toBe(false);
 	});
 });
 

@@ -4259,8 +4259,8 @@ describe("typing rule R2: the clock-keeping date", () => {
 	});
 });
 
-// ── Pull request 10's reads: Search answers in a search-first module's
-// forms, the case list's search text, and the session context fields. ──
+// ── Pull request 10's reads: Search answers in the forms of a menu whose forms read the search,
+// the case list's search text, and the session context fields. ──
 describe("the reads a form and a menu make of the session and the search", () => {
 	const errorsIn = (slot: ExpressionSlotRef, expression: Expression) => {
 		const ctx = slotContext(readsDoc(), slot, new Map());
@@ -4272,7 +4272,7 @@ describe("the reads a form and a menu make of the session and the search", () =>
 
 	describe("a Search answer", () => {
 		const answer = term(input(READS_INPUT));
-		it("is admitted in a question and a Connect setting of a search-first module's form", () => {
+		it("is admitted in a question and a Connect setting of a form of a menu whose forms read the search", () => {
 			expect(errorsIn(calculateOf(READS_HIDDEN), answer)).toEqual([]);
 			expect(errorsIn(connectSlot, answer)).toEqual([]);
 		});
@@ -4281,13 +4281,13 @@ describe("the reads a form and a menu make of the session and the search", () =>
 				["search-answer-unavailable", "form-link"],
 			]);
 		});
-		it("is refused in a form whose module doesn't open on its search, a child module's included", () => {
+		it("is refused in a form whose menu's forms don't read the search, a child menu's included", () => {
 			expect(
 				reasons(errorsIn(calculateOf(OTHER_HIDDEN), term(input(OTHER_INPUT)))),
-			).toEqual([["search-answer-unavailable", "not-search-first"]]);
+			).toEqual([["search-answer-unavailable", "not-forms-read-search"]]);
 			expect(
 				reasons(errorsIn(calculateOf(CHILD_HIDDEN), term(input(OTHER_INPUT)))),
-			).toEqual([["search-answer-unavailable", "not-search-first"]]);
+			).toEqual([["search-answer-unavailable", "not-forms-read-search"]]);
 		});
 	});
 

@@ -1,8 +1,12 @@
 /** Navigation decisions shared by authoring reads and the running app. */
 import type { BlueprintDoc } from "./blueprint";
 import { CASE_LOADING_FORM_TYPES, type FormType } from "./forms";
-import { moduleIsCaseFirst } from "./menuForms";
-import { moduleOpensOnSearch } from "./modules";
+import {
+	caseListRegistrationFormOf,
+	moduleIsBareCaseList,
+	moduleIsCaseFirst,
+} from "./menuForms";
+import { moduleSearchWorkflow } from "./modules";
 import { effectivePostSubmit, moduleUuidOfForm } from "./postSubmit";
 import type { Uuid } from "./uuid";
 
@@ -18,8 +22,9 @@ export type ModuleScreenLanding =
 /**
  * Two module shapes make the form menu the wrong landing:
  *
- * - A `caseListOnly` module is a bare case list with no forms in any mode, so
- *   the menu is always empty. It REPLACES history, because `{kind:"module"}`
+ * - A bare case list (`menuForms.ts::moduleIsBareCaseList`: a case list menu
+ *   entry and no menu forms) has no forms in any mode, so the menu is always
+ *   empty. It REPLACES history, because `{kind:"module"}`
  *   must never become a back-button stop for a formless module.
  * - A case-first module (every form case-loading) lands on the case list in the
  *   running app, since the shared case selection hoists. Edit mode keeps the
@@ -77,7 +82,7 @@ export function formLaunch(args: {
 export type ModuleLanding = "case-list" | "form-menu";
 
 /**
- * A bare case list (`caseListOnly`) has no form menu to show, and a
+ * A bare case list (`moduleIsBareCaseList`) has no form menu to show, and a
  * case-first module (every form case-loading) hoists the case selection in
  * the running app; both land on the case list. Everything else lands on the
  * form menu.
@@ -149,7 +154,7 @@ export function moduleDestination(
 	if (!mod) return { screen: "unavailable" };
 	const shape = {
 		isCaseFirst: moduleIsCaseFirst(doc, moduleUuid),
-		isBareCaseList: mod.caseListOnly === true,
+		isBareCaseList: moduleIsBareCaseList(doc, moduleUuid),
 		hasChildren: Object.values(doc.modules).some(
 			(child) => child.parentModuleUuid === moduleUuid,
 		),
@@ -165,7 +170,7 @@ export function moduleDestination(
 		screen:
 			landing === "form-menu"
 				? "menu"
-				: moduleOpensOnSearch(mod)
+				: moduleSearchWorkflow(mod) === "searchFirst"
 					? "search"
 					: "results",
 		moduleUuid,
@@ -197,8 +202,10 @@ export function formNavigation(
 	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	if (!form || !moduleUuid || !doc.modules[moduleUuid]) return undefined;
 	const destination = effectivePostSubmit(doc, formUuid);
+	const registersFromCaseList =
+		caseListRegistrationFormOf(doc, moduleUuid) === formUuid;
 	const fallback: NavigationDestination =
-		form.entry?.kind === "search-no-matches" && form.postSubmit === undefined
+		registersFromCaseList && form.postSubmit === undefined
 			? { screen: "results", moduleUuid, name: doc.modules[moduleUuid].name }
 			: destination === "module"
 				? moduleDestination(doc, moduleUuid)
@@ -211,16 +218,14 @@ export function formNavigation(
 							// first screen for both.
 							{ screen: "home" };
 	return {
-		recordSelection:
-			form.entry?.kind === "search-no-matches"
-				? ("no-matches" as const)
-				: formLaunch({
-							formType: form.type,
-							moduleHasCaseType:
-								doc.modules[moduleUuid]?.caseType !== undefined,
-						}).kind === "select-case-first"
-					? ("required" as const)
-					: ("none" as const),
+		recordSelection: registersFromCaseList
+			? ("no-matches" as const)
+			: formLaunch({
+						formType: form.type,
+						moduleHasCaseType: doc.modules[moduleUuid]?.caseType !== undefined,
+					}).kind === "select-case-first"
+				? ("required" as const)
+				: ("none" as const),
 		afterSubmit: {
 			fallback,
 			links: (form.formLinks ?? []).map((link) => {
