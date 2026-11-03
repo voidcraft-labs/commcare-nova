@@ -16,7 +16,12 @@ export function admittedWorkspace(
 	const doc = buildDoc({
 		caseTypes,
 		modules: [
-			{ name: "Clients", caseType, caseListOnly: true, caseListConfig: config },
+			{
+				name: "Clients",
+				caseType,
+				caseListMenuItem: {},
+				caseListConfig: config,
+			},
 		],
 	});
 	assertAdmittedDoc(doc);

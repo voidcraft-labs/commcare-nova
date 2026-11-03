@@ -133,7 +133,7 @@ function fixture(
 			{
 				name: "Visits",
 				caseType: "visit",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([{ field: "note", header: "Note" }]),
 			},
 		],

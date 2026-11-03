@@ -4,8 +4,7 @@ import tablerX from "@iconify-icons/tabler/x";
 import { EntryPointSettingsShortcut } from "@/components/builder/app-setup/EntryPointSettingsShortcut";
 import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
 import { Button } from "@/components/shadcn/button";
-import { useForm } from "@/lib/doc/hooks/useEntity";
-import { isNoMatchesForm } from "@/lib/domain";
+import { useIsCaseListRegistrationForm } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import { AfterSubmitSection } from "./AfterSubmitSection";
 import { CaseChangesSection } from "./CaseChangesSection";
 import { ConnectSection } from "./ConnectSection";
@@ -30,7 +29,7 @@ interface FormSettingsPanelProps extends FormSettingsSectionProps {
  * order. Each section decides whether it renders (close forms only for
  * `OwnCaseSection`, non-null `connectType` for `ConnectSection`,
  * registration forms with somewhere to be offered from for
- * `FormEntrySection`). A no-matches registration form has a restricted after-submit choice
+ * `FormEntrySection`). A case list registration form has a restricted after-submit choice
  * and no menu section: it is on no menu, so it takes neither "Show on the
  * menu" nor a display condition. Its native search return is scalar-only;
  * First menu is the explicit destination for either selection cardinality.
@@ -40,8 +39,7 @@ export function FormSettingsPanel({
 	formUuid,
 	onClose,
 }: FormSettingsPanelProps) {
-	const form = useForm(formUuid);
-	const noMatches = form !== undefined && isNoMatchesForm(form);
+	const noMatches = useIsCaseListRegistrationForm(moduleUuid, formUuid);
 	return (
 		<div className="w-80">
 			{/* Header */}

@@ -97,8 +97,9 @@ export function AddModulePopover({
 	const handleCaseList = (caseType: string) => {
 		const outcome = inline.createCaseListModule({ caseType, ...placement });
 		if (outcome.ok) {
-			// Born a `caseListOnly` viewer (no forms), so its home is the case
-			// list, not an empty form menu: land on the config directly.
+			// Born a viewer with its case list in its menu and no forms, so its
+			// home is the case list, not an empty form menu: land on the config
+			// directly.
 			openCaseList(outcome.uuid);
 			close();
 		} else {

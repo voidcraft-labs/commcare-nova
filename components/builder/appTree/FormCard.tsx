@@ -35,13 +35,10 @@ import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
+import { useIsCaseListRegistrationForm } from "@/lib/doc/hooks/useOfferedBatchRefusals";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
-import {
-	isNoMatchesForm,
-	makeTranslationUnitId,
-	type Uuid,
-} from "@/lib/domain";
+import { makeTranslationUnitId, type Uuid } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { useIsFormSelected, useNavigate } from "@/lib/routing/hooks";
 
@@ -68,6 +65,10 @@ export const FormCard = memo(function FormCard({
 }) {
 	/** Subscribe to this form's entity from the doc store. */
 	const form = useFormDoc(formId);
+	const caseListRegistration = useIsCaseListRegistrationForm(
+		moduleUuid,
+		formId,
+	);
 	const localizedFormName = useLocalizedText(
 		makeTranslationUnitId("form", formId, "name"),
 	);
@@ -190,12 +191,12 @@ export const FormCard = memo(function FormCard({
 						)}
 						{/* The one form that is not on the menu: it opens from
 						 * Results after a search finds nothing. */}
-						{isNoMatchesForm(form) && (
+						{caseListRegistration && (
 							<SimpleTooltip content="Opens from Results after a search finds no matches">
 								<span
 									role="img"
 									aria-label="Opens from Results after a search finds no matches"
-									data-no-matches-form
+									data-case-list-registration
 									className="inline-flex shrink-0 text-nova-violet-bright"
 								>
 									<Icon icon={tablerSearch} width="12" height="12" />

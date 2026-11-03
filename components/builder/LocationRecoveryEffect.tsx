@@ -48,14 +48,14 @@ export function LocationRecoveryEffect() {
 	 * shallow-stable `{modules, forms, fields}` object: each slice is an
 	 * Immer-stable reference, so the hook only re-renders when one of the
 	 * three maps actually changes identity. */
-	const { modules, forms, fields } = useDocEntityMaps();
+	const { modules, forms, fields, formOrder } = useDocEntityMaps();
 
 	useEffect(() => {
 		const recovery = advanceLocationRecovery(
 			previousTopology.current,
 			segments,
 			loc,
-			{ modules, forms, fields },
+			{ modules, forms, fields, formOrder },
 		);
 		previousTopology.current = recovery.topology;
 		if (recovery.replacement === undefined) return;
@@ -64,7 +64,7 @@ export function LocationRecoveryEffect() {
 		const basePath = `/${parts.slice(0, 2).join("/")}`;
 		const url = buildUrl(basePath, recovery.replacement);
 		pushBuilderHistory(url, true);
-	}, [loc, modules, forms, fields, pathname, segments]);
+	}, [loc, modules, forms, fields, formOrder, pathname, segments]);
 
 	return null;
 }

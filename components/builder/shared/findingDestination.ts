@@ -17,6 +17,9 @@ import type { NavigateActions } from "@/lib/routing/navigation";
 /** The features whose finding is fixed in the module's Search settings. */
 const SEARCH_CONFIG_FEATURES: ReadonlySet<string> = new Set([
 	"search-first",
+	"skip-to-results",
+	"list-first",
+	"forms-read-search",
 	"search-field-single-date",
 	"search-field-multiple-choice",
 ]);
@@ -32,10 +35,12 @@ const CASE_LIST_FEATURES: ReadonlySet<string> = new Set([
  * it names no place a person can open (a finding located at the app).
  *
  * In order: a case operation, a form link, a form's display condition, then
- * the form (selecting the finding's field). A platform finding at a module
- * (`details.feature`, which only platform findings carry) opens Search
- * settings or the case list by its feature; any other module finding opens
- * the module.
+ * the form (selecting the finding's field). A module finding about the
+ * menu's case list registration form (`CASE_LIST_REGISTRATION_*`, which
+ * names the form in `details.formUuid`) opens that form. A platform finding
+ * at a module (`details.feature`, which only platform findings carry) and a
+ * finding about Forms read the search open Search settings or the case list
+ * by its feature; any other module finding opens the module.
  */
 export function findingOpenAction(
 	finding: StructuredCommitFinding,
@@ -70,6 +75,20 @@ export function findingOpenAction(
 		return () => navigate.openForm(moduleUuid, formUuid, location.fieldUuid);
 	}
 	if (moduleUuid === undefined) return undefined;
+	const parsedRegistrationUuid = uuidSchema.safeParse(details?.formUuid);
+	if (
+		finding.code.startsWith("CASE_LIST_REGISTRATION_") &&
+		finding.code !== "CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH" &&
+		parsedRegistrationUuid.success
+	) {
+		const registrationUuid = parsedRegistrationUuid.data;
+		return () => navigate.openForm(moduleUuid, registrationUuid);
+	}
+	if (
+		finding.code.startsWith("FORMS_READ_SEARCH_") ||
+		finding.code === "CASE_LIST_REGISTRATION_REQUIRES_FORMS_READ_SEARCH"
+	)
+		return () => navigate.openSearchConfig(moduleUuid);
 	if (feature !== undefined && SEARCH_CONFIG_FEATURES.has(feature))
 		return () => navigate.openSearchConfig(moduleUuid);
 	if (feature !== undefined && CASE_LIST_FEATURES.has(feature))

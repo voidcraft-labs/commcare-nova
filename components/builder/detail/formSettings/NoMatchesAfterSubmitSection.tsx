@@ -1,3 +1,11 @@
+// components/builder/detail/formSettings/NoMatchesAfterSubmitSection.tsx
+//
+// Where a menu's case list registration form goes after submit: only
+// explicit First menu and, on a one-case list, the native return to the
+// search flow. It drives the same form as `FormEntrySection` and the Search
+// canvas's registration setting (`useCaseListRegistration`), and shows only
+// for the form the menu's `caseListRegistrationForm` names.
+
 "use client";
 import { useId, useState } from "react";
 import { Field, FieldDescription, FieldLabel } from "@/components/shadcn/field";
@@ -10,12 +18,8 @@ import {
 } from "@/components/shadcn/select";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
-import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
-import {
-	caseSelectionCardinality,
-	formEntersFromMenu,
-	isNoMatchesForm,
-} from "@/lib/domain";
+import { useOrderedMenuForms } from "@/lib/doc/hooks/useModuleIds";
+import { caseSelectionCardinality } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
 import { noMatchesAfterSubmitModel } from "./noMatchesAfterSubmit";
 import type { FormSettingsSectionProps } from "./types";
@@ -26,16 +30,21 @@ export function NoMatchesAfterSubmitSection({
 }: FormSettingsSectionProps) {
 	const form = useForm(formUuid);
 	const module = useModule(moduleUuid);
-	const forms = useOrderedForms(moduleUuid);
+	const menuForms = useOrderedMenuForms(moduleUuid);
 	const canEdit = useCanEdit();
 	const { inline } = useBlueprintMutations();
 	const id = useId();
 	const [refusal, setRefusal] = useState<string>();
-	if (!form || !module || !isNoMatchesForm(form)) return null;
+	if (
+		!form ||
+		!module ||
+		module.caseListRegistrationForm?.formUuid !== formUuid
+	)
+		return null;
 	const model = noMatchesAfterSubmitModel({
 		firstMenu: form.postSubmit === "firstMenu",
 		multiple: caseSelectionCardinality(module) === "multiple",
-		hasMenuForms: forms.some(formEntersFromMenu),
+		hasMenuForms: menuForms.length > 0,
 	});
 	return (
 		<Field className="gap-2">
