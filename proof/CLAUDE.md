@@ -354,8 +354,8 @@ harness keeps, each with its reason.
     chooses only the shard count (the fewest whose expected end is within
     fifteen seconds of the soonest any count ends) and says in the job's
     summary when the lane is expected to end, as modelled from
-    `proof/timings.json`: about six minutes with nothing changed, nine or
-    less up to about forty changed documents, about thirteen with every
+    `proof/timings.json`: about six minutes with nothing changed, about
+    eleven up to about forty changed documents, about fourteen with every
     group fresh. A shard's deadline is twice its expected time, never under
     twenty minutes: it ends a stuck shard, which fails the lane, and never
     decides what is verified.

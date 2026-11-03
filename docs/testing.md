@@ -435,7 +435,7 @@ observations remain in the CI artifacts and shipping PR.
 The proof lane's pull request half has no cap on its time: it runs every
 group its change leaves out of the evidence store, and its planner chooses
 only how many shards run them (`python3 -m proof.lane.plan fit`: about six
-minutes where nothing the lane reads changed, about thirteen with every group
+minutes where nothing the lane reads changed, about fourteen with every group
 observed afresh, as modelled). It runs without the readers
 (`PROOF_READERS=0`: HQ, Core and HQ's editors over every document, nothing
 handed to Formplayer, the Web Apps client, CommCare Android or Connect), its
