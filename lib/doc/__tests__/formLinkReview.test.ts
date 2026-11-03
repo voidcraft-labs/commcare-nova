@@ -1,6 +1,6 @@
 /**
  * The pure verdicts a surface asks before offering a move, a target, or a
- * "carry it automatically" choice — and their parity with the commit gate:
+ * "carry it automatically" choice, and their parity with the commit gate:
  * every `ok` verdict commits, every refusal names a real finding.
  */
 
@@ -17,6 +17,7 @@ import {
 	formLinkRequiredDatums,
 	formLinkTargetVerdict,
 } from "@/lib/doc/formLinkReview";
+import { formLinkTargetChoices } from "@/lib/doc/formLinkTargetChoices";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, FormLinkTarget } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression/builders";
@@ -30,6 +31,8 @@ const SURVEY = testUuid("frm-survey");
 const VISIT = testUuid("frm-visit");
 const VISIT_AGAIN = testUuid("frm-visit-again");
 const NOTE = testUuid("frm-note");
+const SUB = testUuid("mod-sub");
+const SUB_NOTE = testUuid("frm-sub-note");
 const L1 = testUuid("lnk-1");
 const L2 = testUuid("lnk-2");
 const ELSE = testUuid("lnk-else");
@@ -45,10 +48,14 @@ const toNote: FormLinkTarget = {
 	formUuid: NOTE,
 };
 const toCare: FormLinkTarget = { type: "module", moduleUuid: CARE };
+const toSub: FormLinkTarget = { type: "module", moduleUuid: SUB };
 
 /**
- * Intake (patient) → [Register (registration, with links), Survey];
- * Care (patient) → [Visit (followup), Visit again (followup), Note (survey)].
+ * Intake (patient) → [Register (registration, with three destinations, the
+ * last every time), Survey]; Care (patient) → [Visit (followup), Visit again
+ * (followup), Note (survey)]; Sub, a submenu of Care → [Sub note (survey)].
+ * HQ's form settings page offers Sub as a link target from no form of a
+ * root menu.
  */
 function fixture(): BlueprintDoc {
 	const doc = buildDoc({
@@ -72,7 +79,6 @@ function fixture(): BlueprintDoc {
 						uuid: "frm-register",
 						name: "Register",
 						type: "registration",
-						postSubmit: "app_home",
 						formLinks: [
 							{ uuid: "lnk-1", condition: "1 = 1", target: toNote },
 							{ uuid: "lnk-2", condition: "2 = 2", target: toVisit },
@@ -137,10 +143,25 @@ function fixture(): BlueprintDoc {
 					},
 				],
 			},
+			{
+				uuid: "mod-sub",
+				name: "Sub",
+				forms: [
+					{
+						uuid: "frm-sub-note",
+						name: "Sub note",
+						type: "survey",
+						fields: [f({ kind: "text", id: "s", label: proseText("S") })],
+					},
+				],
+			},
 		],
 	});
-	assertAdmittedDoc(doc);
-	return doc;
+	const nested = produce(doc, (draft) => {
+		draft.modules[SUB].parentModuleUuid = CARE;
+	});
+	assertAdmittedDoc(nested);
+	return nested;
 }
 
 /**
@@ -159,22 +180,16 @@ function dropOneCasePreloads(draft: Draft<BlueprintDoc>): void {
 }
 
 describe("formLinkMoveVerdicts", () => {
-	it("answers every destination index for a conditional link", () => {
-		const verdicts = formLinkMoveVerdicts(fixture(), REGISTER, L1);
-		expect([...verdicts.entries()]).toEqual([
-			[0, { ok: true }],
-			[1, { ok: true }],
-			[2, { ok: false, reason: "after-else", elseUuid: ELSE }],
-		]);
-	});
-
-	it("keeps the otherwise link last", () => {
-		const verdicts = formLinkMoveVerdicts(fixture(), REGISTER, ELSE);
-		expect([...verdicts.entries()]).toEqual([
-			[0, { ok: false, reason: "else-not-last", blockingUuids: [L1, L2] }],
-			[1, { ok: false, reason: "else-not-last", blockingUuids: [L2] }],
-			[2, { ok: true }],
-		]);
+	it("answers ok at every destination index, an every-time destination's included", () => {
+		for (const uuid of [L1, L2, ELSE]) {
+			expect([
+				...formLinkMoveVerdicts(fixture(), REGISTER, uuid).entries(),
+			]).toEqual([
+				[0, { ok: true }],
+				[1, { ok: true }],
+				[2, { ok: true }],
+			]);
+		}
 	});
 
 	it("is empty for a link that is not on the form", () => {
@@ -183,22 +198,18 @@ describe("formLinkMoveVerdicts", () => {
 		).toBe(0);
 	});
 
-	it("commits only independently enumerated legal positions at the actual gate", () => {
+	it("every position it answers commits at the actual gate", () => {
 		const doc = fixture();
-		for (const [uuid, allowed] of [
-			[L1, [true, true, false]],
-			[L2, [true, true, false]],
-			[ELSE, [false, false, true]],
-		] as const) {
+		for (const uuid of [L1, L2, ELSE]) {
 			const others = [L1, L2, ELSE].filter((candidate) => candidate !== uuid);
-			for (let index = 0; index < 3; index++) {
+			for (const [index] of formLinkMoveVerdicts(doc, REGISTER, uuid)) {
 				const after = index === 0 ? null : others[index - 1];
 				const gate = mutationCommitVerdict(
 					doc,
 					[{ kind: "moveFormLink", formUuid: REGISTER, uuid, after }],
 					LOOKUP_CONTEXT_UNAVAILABLE,
 				);
-				expect(gate.ok).toBe(allowed[index]);
+				expect(gate.ok).toBe(true);
 				if (gate.ok)
 					expect(
 						gate.nextDoc.forms[REGISTER].formLinks?.map((link) => link.uuid),
@@ -211,14 +222,14 @@ describe("formLinkMoveVerdicts", () => {
 describe("formLinkTargetVerdict", () => {
 	it("admits a module, a sibling form, and a form in another module", () => {
 		const doc = fixture();
-		expect(formLinkTargetVerdict(doc, REGISTER, undefined, toCare)).toEqual({
+		expect(formLinkTargetVerdict(doc, REGISTER, toCare)).toEqual({
 			ok: true,
 		});
-		expect(formLinkTargetVerdict(doc, REGISTER, undefined, toVisit)).toEqual({
+		expect(formLinkTargetVerdict(doc, REGISTER, toVisit)).toEqual({
 			ok: true,
 		});
 		expect(
-			formLinkTargetVerdict(doc, REGISTER, undefined, {
+			formLinkTargetVerdict(doc, REGISTER, {
 				type: "form",
 				moduleUuid: INTAKE,
 				formUuid: SURVEY,
@@ -226,30 +237,34 @@ describe("formLinkTargetVerdict", () => {
 		).toEqual({ ok: true });
 	});
 
-	it("refuses itself, a missing target, and a chain that loops back", () => {
+	it("refuses a form target naming itself, and a missing target", () => {
 		const doc = fixture();
 		expect(
-			formLinkTargetVerdict(doc, REGISTER, undefined, {
+			formLinkTargetVerdict(doc, REGISTER, {
 				type: "form",
 				moduleUuid: INTAKE,
 				formUuid: REGISTER,
 			}),
 		).toEqual({ ok: false, reason: "self-target" });
 		expect(
-			formLinkTargetVerdict(doc, REGISTER, undefined, {
+			formLinkTargetVerdict(doc, REGISTER, {
 				type: "module",
 				moduleUuid: testUuid("ghost"),
 			}),
 		).toEqual({ ok: false, reason: "target-not-found" });
 		expect(
-			formLinkTargetVerdict(doc, REGISTER, undefined, {
+			formLinkTargetVerdict(doc, REGISTER, {
 				type: "form",
 				moduleUuid: CARE,
 				formUuid: testUuid("ghost"),
 			}),
 		).toEqual({ ok: false, reason: "target-not-found" });
-		// Note → Survey → Register; pointing Register at Note loops.
-		const looped = produce(doc, (draft) => {
+	});
+
+	it("admits a chain of links that leads back to this form, and the gate commits it", () => {
+		// Note → Survey → Register; pointing Register at Note closes the loop,
+		// which a worker leaves by Back or Home.
+		const looped = produce(fixture(), (draft) => {
 			delete draft.forms[REGISTER].formLinks;
 			const note = draft.forms[NOTE];
 			const survey = draft.forms[SURVEY];
@@ -269,19 +284,61 @@ describe("formLinkTargetVerdict", () => {
 			];
 		});
 		assertAdmittedDoc(looped);
-		expect(formLinkTargetVerdict(looped, REGISTER, undefined, toNote)).toEqual({
-			ok: false,
-			reason: "cycle",
-			chain: [NOTE, SURVEY, REGISTER],
-		});
-	});
-
-	it("ignores the edited link's own current edge", () => {
-		// Register already points at Note through lnk-1; retargeting lnk-1
-		// at Visit must not count that edge, and Visit reaches nothing.
-		expect(formLinkTargetVerdict(fixture(), REGISTER, L1, toVisit)).toEqual({
+		expect(formLinkTargetVerdict(looped, REGISTER, toNote)).toEqual({
 			ok: true,
 		});
+		const gate = mutationCommitVerdict(
+			looped,
+			[
+				{
+					kind: "addFormLink",
+					formUuid: REGISTER,
+					link: { uuid: testUuid("r→n"), target: toNote },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(gate.ok).toBe(true);
+	});
+
+	it("admits starting this form again", () => {
+		expect(
+			formLinkTargetVerdict(fixture(), REGISTER, { type: "this-form" }),
+		).toEqual({ ok: true });
+	});
+
+	it("refuses a submenu HQ does not offer from here, naming the menu that holds it", () => {
+		const doc = fixture();
+		expect(formLinkTargetVerdict(doc, REGISTER, toSub)).toEqual({
+			ok: false,
+			reason: "not-offered",
+			menuUuid: SUB,
+			parentUuid: CARE,
+		});
+		const gate = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "addFormLink",
+					formUuid: REGISTER,
+					link: { uuid: testUuid("r→sub"), target: toSub },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(gate.ok).toBe(false);
+		if (!gate.ok)
+			expect(gate.findings.map((finding) => finding.code)).toContain(
+				"FORM_LINK_TARGET_NOT_OFFERED",
+			);
+		// A form inside the submenu is always offered.
+		expect(
+			formLinkTargetVerdict(doc, REGISTER, {
+				type: "form",
+				moduleUuid: SUB,
+				formUuid: SUB_NOTE,
+			}),
+		).toEqual({ ok: true });
 	});
 
 	it("refuses a direct destination that cannot receive the complete selection", () => {
@@ -304,7 +361,7 @@ describe("formLinkTargetVerdict", () => {
 			formUuid: REGISTER,
 		};
 
-		expect(formLinkTargetVerdict(doc, VISIT, undefined, target)).toEqual({
+		expect(formLinkTargetVerdict(doc, VISIT, target)).toEqual({
 			ok: false,
 			reason: "selection-cardinality",
 			sourceCardinality: "multiple",
@@ -316,14 +373,10 @@ describe("formLinkTargetVerdict", () => {
 		expect(formLinkCarryVerdict(doc, VISIT, target)).toEqual({
 			kind: "nothing-needed",
 		});
-		expect(
-			formLinkManualCarryVerdict(
-				doc,
-				VISIT,
-				testUuid("incompatible-link"),
-				target,
-			),
-		).toMatchObject({ ok: false, reason: "selection-cardinality" });
+		expect(formLinkManualCarryVerdict(doc, VISIT, target)).toMatchObject({
+			ok: false,
+			reason: "selection-cardinality",
+		});
 	});
 
 	it("checks the datum mode the proposed link will actually store", () => {
@@ -346,11 +399,11 @@ describe("formLinkTargetVerdict", () => {
 			formUuid: REGISTER,
 		};
 
-		expect(formLinkTargetVerdict(doc, VISIT_AGAIN, undefined, target)).toEqual({
+		expect(formLinkTargetVerdict(doc, VISIT_AGAIN, target)).toEqual({
 			ok: true,
 		});
 		expect(
-			formLinkTargetVerdict(doc, VISIT_AGAIN, undefined, target, [
+			formLinkTargetVerdict(doc, VISIT_AGAIN, target, [
 				{
 					name: { kind: "selected-case", module: INTAKE },
 					xpath: term(literal("patient-id")),
@@ -362,14 +415,7 @@ describe("formLinkTargetVerdict", () => {
 			sourceCardinality: "multiple",
 			targetCardinality: "multiple",
 		});
-		expect(
-			formLinkManualCarryVerdict(
-				doc,
-				VISIT_AGAIN,
-				testUuid("prospective-link"),
-				target,
-			),
-		).toMatchObject({
+		expect(formLinkManualCarryVerdict(doc, VISIT_AGAIN, target)).toMatchObject({
 			ok: false,
 			reason: "selection-cardinality",
 		});
@@ -419,7 +465,7 @@ describe("formLinkTargetVerdict", () => {
 
 		assertAdmittedDoc(doc);
 		expect(
-			formLinkTargetVerdict(doc, VISIT, undefined, {
+			formLinkTargetVerdict(doc, VISIT, {
 				type: "form",
 				moduleUuid: INTAKE,
 				formUuid: REGISTER,
@@ -490,15 +536,89 @@ describe("formLinkRequiredDatums / formLinkCarryVerdict", () => {
 });
 
 describe("formLinkAddChoices", () => {
-	it("offers the otherwise only while none exists", () => {
+	it("offers the otherwise only while a destination may not run and none is stored", () => {
 		const doc = fixture();
 		expect(formLinkAddChoices(doc, REGISTER)).toEqual({
 			conditional: { ok: true },
-			otherwise: { ok: false, reason: "else-exists", elseUuid: ELSE },
+			everyTime: { ok: true },
+			otherwise: { ok: true },
 		});
 		expect(formLinkAddChoices(doc, SURVEY)).toEqual({
 			conditional: { ok: true },
-			otherwise: { ok: true },
+			everyTime: { ok: true },
+			otherwise: { ok: false, reason: "otherwise-unreachable" },
 		});
+		const withOtherwise = produce(doc, (draft) => {
+			draft.forms[REGISTER].otherwise = {
+				kind: "destination",
+				destination: "module",
+			};
+		});
+		assertAdmittedDoc(withOtherwise);
+		expect(formLinkAddChoices(withOtherwise, REGISTER).otherwise).toEqual({
+			ok: false,
+			reason: "otherwise-exists",
+		});
+	});
+});
+
+describe("formLinkTargetChoices", () => {
+	it("begins with this form, then lists every menu, an unoffered submenu marked with its parent", () => {
+		const choices = formLinkTargetChoices(fixture(), REGISTER);
+		expect(choices.thisForm).toEqual({
+			name: "Register",
+			target: { type: "this-form" },
+			verdict: { ok: true },
+		});
+		expect(
+			choices.menus.map((menu) => ({
+				uuid: menu.uuid,
+				offered: menu.offered,
+				...(menu.offered ? {} : { parentUuid: menu.parentUuid }),
+			})),
+		).toEqual([
+			{ uuid: INTAKE, offered: true },
+			{ uuid: CARE, offered: true },
+			{ uuid: SUB, offered: false, parentUuid: CARE },
+		]);
+		const intake = choices.menus[0];
+		// The form names itself by name only as a self target; this-form is
+		// the choice that starts it again.
+		expect(
+			intake?.forms.find((form) => form.uuid === REGISTER)?.verdict,
+		).toEqual({ ok: false, reason: "self-target" });
+	});
+
+	it("every choice it marks ok commits as a new destination", () => {
+		const doc = fixture();
+		const choices = formLinkTargetChoices(doc, SURVEY);
+		const targets = [
+			choices.thisForm,
+			...choices.menus.flatMap((menu) => [menu, ...menu.forms]),
+		].filter((choice) => choice.verdict.ok);
+		expect(targets.length).toBeGreaterThan(0);
+		for (const [index, choice] of targets.entries()) {
+			if (
+				formLinkCarryVerdict(doc, SURVEY, choice.target).kind ===
+				"manual-required"
+			)
+				continue;
+			const gate = mutationCommitVerdict(
+				doc,
+				[
+					{
+						kind: "addFormLink",
+						formUuid: SURVEY,
+						link: {
+							uuid: testUuid(`choice-${index}`),
+							condition: { kind: "match-all" },
+							target: choice.target,
+						},
+					},
+				],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(gate.ok, JSON.stringify(choice.target)).toBe(true);
+		}
 	});
 });

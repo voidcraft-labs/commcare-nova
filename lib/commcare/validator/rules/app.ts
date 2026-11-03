@@ -12,7 +12,7 @@ import { entryPointProjectionIssue } from "../../entryPointProjection";
  *
  * Each rule receives the normalized `BlueprintDoc` and returns validation
  * errors. App-scope rules span multiple modules — duplicate-module-name
- * detection, child-case-type coverage, form-link cycle detection.
+ * detection, child-case-type coverage.
  */
 
 import {
@@ -26,8 +26,6 @@ import {
 	blueprintTopologyIssues,
 	collectTranslationUnits,
 	duplicateSelectOptionValues,
-	formLinkAdjacency,
-	formLinkPath,
 	isConnectLearnConfig,
 	mintSelectOptionPlaceholder,
 	projectProseTemplate,
@@ -451,45 +449,6 @@ function childCaseTypeMissingModule(doc: BlueprintDoc): ValidationError[] {
 }
 
 /**
- * Detect circular form links: A→B→A, possibly through longer chains.
- *
- * Builds a uuid-keyed adjacency map over form → target-form edges (module
- * targets can't form cycles — they navigate to a menu, not a form) and
- * runs DFS from every form that has outgoing edges. Returns each cycle
- * once, keyed by the form it started from.
- */
-function circularFormLinks(doc: BlueprintDoc): ValidationError[] {
-	// `formLinkAdjacency` is the one graph every surface reads — the same
-	// adjacency a target picker consults (with an override) before offering
-	// a destination, so what the picker refuses and what this rule refuses
-	// cannot drift. One finding per form that reaches itself.
-	const adjacency = formLinkAdjacency(doc);
-	const errors: ValidationError[] = [];
-	for (const startUuid of adjacency.keys()) {
-		const chain = formLinkPath(adjacency, startUuid, startUuid);
-		if (chain === undefined) continue;
-		const path = chain
-			.map((uuid) => doc.forms[uuid]?.name ?? String(uuid))
-			.join(" → ");
-		const startForm = doc.forms[startUuid];
-		errors.push(
-			validationError(
-				"FORM_LINK_CIRCULAR",
-				"app",
-				`Circular form link detected: ${path}.\n\n` +
-					`"${startForm?.name ?? startUuid}" eventually links back to itself through a chain of form links. ` +
-					`After form submission, CommCare evaluates links in sequence, a cycle means ` +
-					`the user would be trapped in an infinite loop of form submissions.\n\n` +
-					`Break the cycle by changing one of the links in the chain to target a module menu instead of a form.`,
-				{},
-				{ formUuid: startUuid },
-			),
-		);
-	}
-	return errors;
-}
-
-/**
  * Connect ids must be unique across the whole app.
  *
  * A connect id (`learn_module` / `assessment` / `deliver_unit` / `task`)
@@ -670,7 +629,6 @@ export const APP_RULES = [
 	validTranslationOverlays,
 	reservedCaseTypeName,
 	childCaseTypeMissingModule,
-	circularFormLinks,
 	duplicateConnectIds,
 	connectNoParticipatingForms,
 	// A case list registration slot naming a form outside its module.

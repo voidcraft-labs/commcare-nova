@@ -71,7 +71,7 @@ import {
 	planFormLinkMove,
 	planFormLinkRemove,
 	planFormLinkUpdate,
-	planSetFallback,
+	planSetOtherwise,
 } from "@/lib/doc/formLinkMutations";
 import { splitIntoSections } from "@/lib/doc/formSectionMutations";
 import {
@@ -148,6 +148,7 @@ import {
 	menuFormUuidsOf,
 	moduleHasCaseListMenuItem,
 	organizationLevelsOf,
+	otherwiseDestinationsOffered,
 	type ProseTemplate,
 	personasOf,
 	plainColumn,
@@ -1677,14 +1678,16 @@ const addFormLink: KindGenerator = (ctx) =>
 		({ formUuid }) => {
 			const arm = ctx.rng.int(3);
 			if (arm < 2) return planLinkBirth(ctx, ctx.doc, formUuid, arm === 0);
-			// The otherwise destination, as the form settings' fallback picker
-			// sets it (`planSetFallback`).
+			// Where the form goes when no destination that may not run runs, a
+			// link, as the after-submit screen's Otherwise sets it
+			// (`planSetOtherwise`); refused on a form where every destination
+			// runs every time.
 			const target = ctx.rng.shuffle(linkTargets(ctx.doc, formUuid))[0];
 			if (target === undefined) return refusal("form-link-target");
-			const plan = planSetFallback(ctx.doc, formUuid, {
-				kind: "else-link",
-				target,
+			const plan = planSetOtherwise(ctx.doc, formUuid, {
+				kind: "link",
 				uuid: ctx.mint.uuid(),
+				target,
 			});
 			return plan.ok ? batch(plan.mutations) : refusal(plan.reason.kind);
 		},
@@ -1750,6 +1753,69 @@ const moveFormLink: KindGenerator = (ctx) =>
 			plan.ok ? batch(plan.mutations) : refusal(plan.reason.kind),
 		);
 	});
+
+/**
+ * A built-in otherwise on a form holding a conditional destination: the
+ * first destination the form's menu offers as an otherwise
+ * (`otherwiseDestinationsOffered`) that the form does not already hold. A
+ * form with no conditional destination first takes one, to another form of
+ * its menu where there is one (`planFormLinkAdd`), so the otherwise is one a
+ * worker can reach.
+ */
+const setFormOtherwise: KindGenerator = (ctx) =>
+	forTargets(ctx, formsInOrder(ctx.doc), ({ formUuid, moduleUuid }) => {
+		const subject = withConditionalLink(ctx, formUuid, moduleUuid);
+		if (subject === undefined) return undefined;
+		const current = subject.doc.forms[formUuid]?.otherwise;
+		const destination = otherwiseDestinationsOffered(
+			subject.doc,
+			formUuid,
+		).find(
+			(offered) =>
+				current?.kind !== "destination" || current.destination !== offered,
+		);
+		if (destination === undefined) return refusal("otherwise-not-offered");
+		const plan = planSetOtherwise(subject.doc, formUuid, {
+			kind: "destination",
+			destination,
+		});
+		return withPrefix(
+			subject.prefix,
+			plan.ok ? batch(plan.mutations) : refusal(plan.reason.kind),
+		);
+	});
+
+/** The form as it stands where it holds a destination with a condition,
+ *  or the prefix that adds one: to another form of its menu first, then to
+ *  any other target the planner admits. */
+function withConditionalLink(
+	ctx: GenContext,
+	formUuid: Uuid,
+	moduleUuid: Uuid,
+): { prefix: Mutation[]; doc: BlueprintDoc } | undefined {
+	const links = ctx.doc.forms[formUuid]?.formLinks ?? [];
+	if (links.some((link) => link.condition !== undefined))
+		return { prefix: [], doc: ctx.doc };
+	const targets = linkTargets(ctx.doc, formUuid);
+	const sameMenu = (target: FormLink["target"]) =>
+		target.type === "form" && target.moduleUuid === moduleUuid;
+	for (const target of [
+		...targets.filter(sameMenu),
+		...ctx.rng.shuffle(targets.filter((target) => !sameMenu(target))),
+	]) {
+		const plan = planFormLinkAdd(ctx.doc, formUuid, {
+			uuid: ctx.mint.uuid(),
+			target,
+			condition: eq(literal(1), literal(1)),
+		});
+		if (plan.ok)
+			return {
+				prefix: [...plan.mutations],
+				doc: docAfter(ctx.doc, plan.mutations),
+			};
+	}
+	return undefined;
+}
 
 const setFormMedia: KindGenerator = (ctx) =>
 	take(ctx, formsInOrder(ctx.doc), MAX_TARGETS, readForm(ctx)).flatMap(
@@ -2855,6 +2921,7 @@ export const EDIT_KIND_GENERATORS = {
 	updateFormLink: hosted(FORM_HOST, updateFormLink),
 	removeFormLink,
 	moveFormLink: hosted(FORM_HOST, moveFormLink),
+	setFormOtherwise: hosted(FORM_HOST, setFormOtherwise),
 	addField: hosted(FORM_HOST, addField),
 	removeField,
 	moveField: hosted(FORM_HOST, moveField),

@@ -28,7 +28,8 @@
  *     `setCaseSearchAdvanced`, `setCaseSearchDisplay`, `editField`,
  *     `moveField`, `createForm`, `createModule`, `updateModule`, `updateForm`,
  *     `configureConnect`, `addEntryPoint`, `updateEntryPoint`,
- *     `addFormLinks`, `updateFormLink`,
+ *     `addFormLinks`, `updateFormLink`, `moveFormLink`, `removeFormLink`,
+ *     `setFormOtherwise`,
  *     `renameCaseProperties`, `addLanguage`, `getTranslatableContent`,
  *     `updateTranslations`,
  *     `attachFieldMedia`, `attachOptionMedia`, `setMenuMedia`,
@@ -79,6 +80,9 @@ import {
 } from "../lib/agent/tools/entry-points";
 import { evaluateFormTool } from "../lib/agent/tools/evaluateForm";
 import { addFormLinksTool } from "../lib/agent/tools/form-links/addFormLinks";
+import { moveFormLinkTool } from "../lib/agent/tools/form-links/moveFormLink";
+import { removeFormLinkTool } from "../lib/agent/tools/form-links/removeFormLink";
+import { setFormOtherwiseTool } from "../lib/agent/tools/form-links/setFormOtherwise";
 import { updateFormLinkTool } from "../lib/agent/tools/form-links/updateFormLink";
 import { generateSchemaTool } from "../lib/agent/tools/generateSchema";
 import { getLookupTablesTool } from "../lib/agent/tools/getLookupTables";
@@ -274,7 +278,7 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		description: addFormLinksTool.description,
 		schema: addFormLinksTool.inputSchema,
 		prompt:
-			"Use addFormLinks with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to add one link with no condition whose target is the form with moduleUuid 33333333-3333-4333-8333-333333333333 and formUuid 44444444-4444-4444-8444-444444444444.",
+			"Use addFormLinks with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 to add one link with no condition whose target is the form with moduleUuid 33333333-3333-4333-8333-333333333333 and formUuid 44444444-4444-4444-8444-444444444444, and a second link with the condition #case/needs_review = 'yes' that starts this form again.",
 	},
 	{
 		name: "updateFormLink",
@@ -282,6 +286,27 @@ const SCHEMA_TESTS: readonly SchemaTest[] = [
 		schema: updateFormLinkTool.inputSchema,
 		prompt:
 			"Use updateFormLink with moduleUuid 11111111-1111-4111-8111-111111111111, formUuid 22222222-2222-4222-8222-222222222222 and linkUuid 55555555-5555-4555-8555-555555555555 to point the link at the module with moduleUuid 33333333-3333-4333-8333-333333333333, with no condition.",
+	},
+	{
+		name: "moveFormLink",
+		description: moveFormLinkTool.description,
+		schema: moveFormLinkTool.inputSchema,
+		prompt:
+			"Use moveFormLink with moduleUuid 11111111-1111-4111-8111-111111111111, formUuid 22222222-2222-4222-8222-222222222222 and linkUuid 55555555-5555-4555-8555-555555555555 to put that destination first.",
+	},
+	{
+		name: "removeFormLink",
+		description: removeFormLinkTool.description,
+		schema: removeFormLinkTool.inputSchema,
+		prompt:
+			"Use removeFormLink with moduleUuid 11111111-1111-4111-8111-111111111111, formUuid 22222222-2222-4222-8222-222222222222 and linkUuid 55555555-5555-4555-8555-555555555555 to remove that destination.",
+	},
+	{
+		name: "setFormOtherwise",
+		description: setFormOtherwiseTool.description,
+		schema: setFormOtherwiseTool.inputSchema,
+		prompt:
+			"Use setFormOtherwise with moduleUuid 11111111-1111-4111-8111-111111111111 and formUuid 22222222-2222-4222-8222-222222222222 so that when no destination runs the worker goes to the module's first screen.",
 	},
 	{
 		name: "configureCaseList",

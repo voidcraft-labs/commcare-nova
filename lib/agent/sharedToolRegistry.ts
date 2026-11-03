@@ -57,6 +57,7 @@ import { evaluateFormTool } from "@/lib/agent/tools/evaluateForm";
 import { addFormLinksTool } from "@/lib/agent/tools/form-links/addFormLinks";
 import { moveFormLinkTool } from "@/lib/agent/tools/form-links/moveFormLink";
 import { removeFormLinkTool } from "@/lib/agent/tools/form-links/removeFormLink";
+import { setFormOtherwiseTool } from "@/lib/agent/tools/form-links/setFormOtherwise";
 import { updateFormLinkTool } from "@/lib/agent/tools/form-links/updateFormLink";
 import { generateSchemaTool } from "@/lib/agent/tools/generateSchema";
 import { getAuthoringGuideTool } from "@/lib/agent/tools/getAuthoringGuide";
@@ -680,6 +681,13 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "moveFormLink",
 		mcpName: "move_form_link",
 		tool: moveFormLinkTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "setFormOtherwise",
+		mcpName: "set_form_otherwise",
+		tool: setFormOtherwiseTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},

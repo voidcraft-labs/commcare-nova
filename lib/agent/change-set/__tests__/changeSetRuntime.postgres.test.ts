@@ -238,7 +238,10 @@ it("returns concrete navigation from private create, update and read while quali
 		kind: "mutate",
 		result: {
 			navigation: {
-				afterSubmit: { fallback: { screen: "menu", moduleUuid: module.uuid } },
+				afterSubmit: {
+					destinations: [],
+					postSubmit: { screen: "menu", moduleUuid: module.uuid },
+				},
 			},
 		},
 	});
@@ -299,7 +302,7 @@ it("returns concrete navigation from private create, update and read while quali
 	});
 	expect(repaired.result).toMatchObject({
 		kind: "read",
-		data: { navigation: { afterSubmit: { fallback: { screen: "menu" } } } },
+		data: { navigation: { afterSubmit: { postSubmit: { screen: "menu" } } } },
 	});
 	await f.workspace.stageDispatch({
 		toolName: "createForm",
@@ -320,7 +323,7 @@ it("returns concrete navigation from private create, update and read while quali
 		data: {
 			navigation: {
 				afterSubmit: {
-					fallback: {
+					postSubmit: {
 						screen: "unavailable",
 						findings: [
 							{ code: "CASE_CREATE_NAME_MISSING", formUuid: register.uuid },
@@ -365,7 +368,7 @@ it("returns concrete navigation from private create, update and read while quali
 	});
 	expect(updated.result).toMatchObject({
 		kind: "mutate",
-		result: { navigation: { afterSubmit: { fallback: destination } } },
+		result: { navigation: { afterSubmit: { postSubmit: destination } } },
 	});
 	const read = await f.workspace.stageDispatch({
 		toolName: "getForm",
@@ -374,7 +377,7 @@ it("returns concrete navigation from private create, update and read while quali
 	});
 	expect(read.result).toMatchObject({
 		kind: "read",
-		data: { navigation: { afterSubmit: { fallback: destination } } },
+		data: { navigation: { afterSubmit: { postSubmit: destination } } },
 	});
 	expect((await f.commit()).kind).toBe("committed");
 });

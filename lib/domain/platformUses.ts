@@ -15,6 +15,7 @@
 // uses and its fields depth first), then each entry point. Within one owner,
 // uses follow `PLATFORM_FEATURE_IDS` order.
 
+import { afterSubmitCanGoHome } from "./afterSubmit";
 import type { BlueprintDoc } from "./blueprint";
 import { type EntryPointTarget, entryPointInventory } from "./entryPoints";
 import {
@@ -54,7 +55,6 @@ import {
 	type PlatformFeatureId,
 	unavailablePlatform,
 } from "./platforms";
-import { effectivePostSubmit } from "./postSubmit";
 import { expressionSlotValues } from "./referenceSlots";
 import type { Uuid } from "./uuid";
 
@@ -338,11 +338,23 @@ export function platformFeatureUses(
 				formUuid,
 			};
 			const formUses: PlatformFeatureUse[] = [];
+			if (wanted("after-submit-home") && afterSubmitCanGoHome(doc, formUuid))
+				formUses.push(
+					slotUse(
+						"after-submit-home",
+						formOwner,
+						form.formLinks === undefined ? "postSubmit" : "otherwise",
+					),
+				);
+			// Two destinations are two frames; an otherwise beside an
+			// every-time destination needs a destination that may not run.
 			if (
-				wanted("after-submit-home") &&
-				effectivePostSubmit(doc, formUuid) === "app_home"
+				wanted("after-submit-several-destinations") &&
+				(form.formLinks?.length ?? 0) >= 2
 			)
-				formUses.push(slotUse("after-submit-home", formOwner, "postSubmit"));
+				formUses.push(
+					slotUse("after-submit-several-destinations", formOwner, "formLinks"),
+				);
 			formUses.push(
 				...expressionUses({ entity: "form", uuid: formUuid }, () => formOwner),
 			);

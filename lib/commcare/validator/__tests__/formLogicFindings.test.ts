@@ -169,7 +169,6 @@ describe("time ordering findings through the complete validator", () => {
 					if (link === undefined)
 						throw new Error("The link fixture is missing.");
 					link.condition = comparison;
-					doc.forms[ids.form].postSubmit = "app_home";
 				} else {
 					doc.connectType = "deliver";
 					// A Connect app runs on Android alone.
@@ -221,7 +220,6 @@ function atCarrier(
 		const link = doc.forms[ids.form].formLinks?.[0];
 		if (link === undefined) throw new Error("The link fixture is missing.");
 		link.condition = expression;
-		doc.forms[ids.form].postSubmit = "app_home";
 	} else {
 		doc.connectType = "deliver";
 		// A Connect app runs on Android alone.
@@ -820,7 +818,6 @@ describe("what a search found, in the forms of its module", () => {
 				condition: gt(count(results()), literal(0)),
 			},
 		];
-		doc.forms[reads.visit].postSubmit = "app_home";
 		const refused = searchCodes(doc);
 		expect(refused).toMatchObject([
 			{

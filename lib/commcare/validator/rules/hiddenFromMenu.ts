@@ -7,7 +7,8 @@
  * rebuildSessionFromFrame`, and finds no menu to match). So three things that
  * would open the module itself are refused:
  *
- *   - an after-submit link whose target is the module (located at the link);
+ *   - an after-submit link whose target is the module, a destination or the
+ *     otherwise link (located at the link);
  *   - the module's own entry point (located at the module);
  *   - the module's case list entry point (located at the module).
  *
@@ -16,7 +17,14 @@
  * conditions.
  */
 
-import type { BlueprintDoc, Form, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Form,
+	formLinkEntries,
+	type Module,
+	resolveFormLinkTarget,
+	type Uuid,
+} from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 
 type HiddenMenuArm = "link" | "entry-point" | "case-list-entry-point";
@@ -55,7 +63,8 @@ export function hiddenMenuEntryPoints(
 	);
 }
 
-/** A form's after-submit links whose target is a module off the menu. */
+/** A form's after-submit links, destinations and the otherwise link, whose
+ *  target is a module off the menu. */
 export function hiddenMenuLinkTargets(
 	doc: BlueprintDoc,
 	form: Form,
@@ -67,9 +76,10 @@ export function hiddenMenuLinkTargets(
 	},
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
-	for (const link of form.formLinks ?? []) {
-		if (link.target.type !== "module") continue;
-		const target = doc.modules[link.target.moduleUuid];
+	for (const { role, link } of formLinkEntries(form)) {
+		const resolved = resolveFormLinkTarget(doc, location.formUuid, link.target);
+		if (resolved?.type !== "module") continue;
+		const target = doc.modules[resolved.moduleUuid];
 		if (target?.hiddenFromMenu !== true) continue;
 		errors.push(
 			validationError(
@@ -80,7 +90,8 @@ export function hiddenMenuLinkTargets(
 				{
 					arm: "link",
 					linkUuid: link.uuid,
-					targetModuleUuid: link.target.moduleUuid,
+					role,
+					targetModuleUuid: resolved.moduleUuid,
 					targetModuleName: target.name,
 				},
 			),

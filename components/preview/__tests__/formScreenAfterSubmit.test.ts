@@ -4,7 +4,7 @@
 //
 // Pure `f(state)`: `FormScreen` reads the route and performs the effect, so
 // there is no DOM to mount here. The cases are the ones a device distinguishes:
-// no link fired, a link to a module (case list or form menu), a link to a form
+// a built-in destination, a link to a module (case list or form menu), a link to a form
 // (with the carried case, or a blank one), and a link whose target is gone.
 
 import { describe, expect, it, vi } from "vitest";
@@ -13,7 +13,7 @@ import {
 	buildDoc as buildFixtureDoc,
 	caseListConfig,
 } from "@/lib/__tests__/docHelpers";
-import type { FormLink } from "@/lib/domain";
+import type { FormLink, ResolvedFormLinkTarget } from "@/lib/domain";
 import { moduleLanding } from "@/lib/domain";
 import { eq, literal } from "@/lib/domain/expression";
 import { assertAdmittedPreviewDoc } from "@/lib/preview/__tests__/fixtures/admittedDoc";
@@ -30,7 +30,7 @@ import {
 	WEB_APPS_RULES,
 } from "@/lib/preview/engine/__tests__/fixtures/previewDevices";
 import type {
-	AfterSubmitChoice,
+	AfterSubmitFrameChoice,
 	TargetCaseSelection,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import type { PreviewMenuSource } from "@/lib/preview/menuProjection";
@@ -90,12 +90,19 @@ const doc = buildDoc({
 });
 const caseFirstModules = new Set([CARE]);
 
-function fired(target: FormLink["target"]): AfterSubmitChoice {
+function fired(target: FormLink["target"]): AfterSubmitFrameChoice {
 	return {
-		kind: "link",
+		kind: "destination",
 		index: 0,
 		link: { uuid: testUuid("lnk"), target },
 	};
+}
+
+/** The fixtures' links name a form or a menu, never this form. */
+function resolvedTarget(target: FormLink["target"]): ResolvedFormLinkTarget {
+	if (target.type === "this-form")
+		throw new Error("The fixture link starts its form again.");
+	return target;
 }
 
 const neverCarries = () => {
@@ -107,9 +114,10 @@ describe("afterSubmitRoute", () => {
 	it("requires the entry projection for a previous fallback", () => {
 		expect(
 			afterSubmitRoute({
+				sourceFormUuid: NOTE,
 				rules: ANDROID_RULES,
 				targetVisibility: () => "shown",
-				choice: { kind: "fallback", destination: "previous" },
+				choice: { kind: "otherwise", destination: "previous" },
 				doc,
 				caseFirstModules,
 				caseSelections: noCaseSelections,
@@ -124,6 +132,7 @@ describe("afterSubmitRoute", () => {
 	it("enters a case-first module on its case list", () => {
 		expect(
 			afterSubmitRoute({
+				sourceFormUuid: NOTE,
 				rules: ANDROID_RULES,
 				targetVisibility: () => "shown",
 				choice: fired({ type: "module", moduleUuid: CARE }),
@@ -143,6 +152,7 @@ describe("afterSubmitRoute", () => {
 	it("enters a case-first module with a retained case on its form menu", () => {
 		expect(
 			afterSubmitRoute({
+				sourceFormUuid: NOTE,
 				rules: ANDROID_RULES,
 				targetVisibility: () => "shown",
 				choice: fired({ type: "module", moduleUuid: CARE }),
@@ -172,6 +182,7 @@ describe("afterSubmitRoute", () => {
 				selections.some((selection) => selection.caseId !== ""),
 		);
 		const route = afterSubmitRoute({
+			sourceFormUuid: NOTE,
 			rules: ANDROID_RULES,
 			targetVisibility: () => "shown",
 			choice: fired({ type: "module", moduleUuid: CARE }),
@@ -194,6 +205,7 @@ describe("afterSubmitRoute", () => {
 			caseId: "",
 		} as const;
 		const route = afterSubmitRoute({
+			sourceFormUuid: NOTE,
 			rules: ANDROID_RULES,
 			targetVisibility: () => "shown",
 			choice: fired({ type: "module", moduleUuid: CARE }),
@@ -211,6 +223,7 @@ describe("afterSubmitRoute", () => {
 	it("enters a bare case list on its case list", () => {
 		expect(
 			afterSubmitRoute({
+				sourceFormUuid: NOTE,
 				rules: ANDROID_RULES,
 				targetVisibility: () => "shown",
 				choice: fired({ type: "module", moduleUuid: BROWSE }),
@@ -230,6 +243,7 @@ describe("afterSubmitRoute", () => {
 	it("enters any other module on its form menu", () => {
 		expect(
 			afterSubmitRoute({
+				sourceFormUuid: NOTE,
 				rules: ANDROID_RULES,
 				targetVisibility: () => "shown",
 				choice: fired({ type: "module", moduleUuid: MENU }),
@@ -253,6 +267,7 @@ describe("afterSubmitRoute", () => {
 			caseName: "Pat",
 		}));
 		const route = afterSubmitRoute({
+			sourceFormUuid: NOTE,
 			rules: ANDROID_RULES,
 			targetVisibility: () => "shown",
 			choice: fired({ type: "form", moduleUuid: CARE, formUuid: VISIT }),
@@ -289,6 +304,7 @@ describe("afterSubmitRoute", () => {
 			},
 		] as const;
 		const route = afterSubmitRoute({
+			sourceFormUuid: NOTE,
 			rules: ANDROID_RULES,
 			targetVisibility: () => "shown",
 			choice: fired({ type: "form", moduleUuid: CARE, formUuid: VISIT }),
@@ -313,6 +329,7 @@ describe("afterSubmitRoute", () => {
 	it("opens a form target that selects no case with nothing carried", () => {
 		expect(
 			afterSubmitRoute({
+				sourceFormUuid: NOTE,
 				rules: ANDROID_RULES,
 				targetVisibility: () => "shown",
 				choice: fired({ type: "form", moduleUuid: MENU, formUuid: NOTE }),
@@ -335,9 +352,10 @@ describe("afterSubmitRoute", () => {
 		(destination) => {
 			expect(
 				afterSubmitRoute({
+					sourceFormUuid: NOTE,
 					rules: ANDROID_RULES,
 					targetVisibility: () => "shown",
-					choice: { kind: "fallback", destination },
+					choice: { kind: "otherwise", destination },
 					doc,
 					caseFirstModules,
 					caseSelections: noCaseSelections,
@@ -353,6 +371,7 @@ describe("afterSubmitRoute", () => {
 		hidden.modules[MENU].hiddenFromMenu = true;
 		expect(
 			afterSubmitRoute({
+				sourceFormUuid: NOTE,
 				rules: ANDROID_RULES,
 				targetVisibility: () => "shown",
 				choice: fired({ type: "form", moduleUuid: MENU, formUuid: NOTE }),
@@ -366,6 +385,7 @@ describe("afterSubmitRoute", () => {
 
 	it("reports a target module that is not in the document", () => {
 		const route = afterSubmitRoute({
+			sourceFormUuid: NOTE,
 			rules: ANDROID_RULES,
 			targetVisibility: () => "shown",
 			choice: fired({ type: "module", moduleUuid: MISSING_MODULE }),
@@ -382,6 +402,7 @@ describe("afterSubmitRoute", () => {
 
 	it("reports a target form that is not in its module", () => {
 		const gone = afterSubmitRoute({
+			sourceFormUuid: NOTE,
 			rules: ANDROID_RULES,
 			targetVisibility: () => "shown",
 			choice: fired({ type: "form", moduleUuid: CARE, formUuid: MISSING_FORM }),
@@ -393,6 +414,7 @@ describe("afterSubmitRoute", () => {
 		expect(gone.kind).toBe("unresolvable");
 		// A form that exists, but in another module, is not the named target.
 		const elsewhere = afterSubmitRoute({
+			sourceFormUuid: NOTE,
 			rules: ANDROID_RULES,
 			targetVisibility: () => "shown",
 			choice: fired({ type: "form", moduleUuid: CARE, formUuid: NOTE }),
@@ -730,6 +752,7 @@ describe("afterSubmitRoute per platform", () => {
 		visibility: AfterSubmitTargetVisibility,
 	) =>
 		afterSubmitRoute({
+			sourceFormUuid: NOTE,
 			rules,
 			targetVisibility: () => visibility,
 			choice: linkTo(target),
@@ -743,9 +766,10 @@ describe("afterSubmitRoute per platform", () => {
 		for (const rules of [WEB_APPS_RULES, ANDROID_RULES]) {
 			expect(
 				afterSubmitRoute({
+					sourceFormUuid: NOTE,
 					rules,
 					targetVisibility: () => "shown",
-					choice: { kind: "fallback", destination: "app_home" },
+					choice: { kind: "post-submit", destination: "app_home" },
 					doc,
 					caseFirstModules,
 					caseSelections: noCaseSelections,
@@ -809,7 +833,7 @@ describe("afterSubmitRoute per platform", () => {
 			};
 			const visibility = afterSubmitTargetVisibility({
 				doc: nested,
-				link,
+				target: resolvedTarget(link.target),
 				session: { context: {}, user: {}, userPropertySlugs: {} },
 				lookup: { kind: "idle" },
 				deviceCases: { snapshot: null, caseTypes: nested.caseTypes ?? [] },
@@ -821,9 +845,10 @@ describe("afterSubmitRoute per platform", () => {
 			});
 			expect(
 				afterSubmitRoute({
+					sourceFormUuid: NOTE,
 					rules: WEB_APPS_RULES,
 					targetVisibility: () => visibility,
-					choice: { kind: "link", index: 0, link },
+					choice: { kind: "destination", index: 0, link },
 					doc: nested,
 					caseFirstModules,
 					caseSelections: noCaseSelections,
@@ -849,10 +874,7 @@ describe("afterSubmitRoute per platform", () => {
 		nested.modules[CARE].displayCondition = eq(literal("a"), literal("b"));
 		const visibility = afterSubmitTargetVisibility({
 			doc: nested,
-			link: {
-				uuid: testUuid("lnk"),
-				target: { type: "form", moduleUuid: MENU, formUuid: NOTE },
-			},
+			target: { type: "form", moduleUuid: MENU, formUuid: NOTE },
 			session: { context: {}, user: {}, userPropertySlugs: {} },
 			lookup: { kind: "idle" },
 			deviceCases: { snapshot: null, caseTypes: nested.caseTypes ?? [] },
@@ -883,7 +905,7 @@ describe("afterSubmitRoute per platform", () => {
 		};
 		const visibility = afterSubmitTargetVisibility({
 			doc: hidden,
-			link,
+			target: resolvedTarget(link.target),
 			session: { context: {}, user: {}, userPropertySlugs: {} },
 			lookup: { kind: "idle" },
 			deviceCases: { snapshot: null, caseTypes: hidden.caseTypes ?? [] },

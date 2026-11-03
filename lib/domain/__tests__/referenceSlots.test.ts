@@ -339,8 +339,20 @@ const MODULE_REGISTRY_PATHS = new Set(moduleSlots.map((s) => s.path));
 
 describe("registry shape invariants", () => {
 	it("slot ids and paths are unique within each entity", () => {
+		// The otherwise link takes a destination's target and carried-value
+		// slots at its own paths; no other slot id is held twice.
+		const sharedLinkSlots = new Set([
+			"form_link_target",
+			"form_link_datum_name",
+			"form_link_datum_xpath",
+		]);
 		for (const slots of [fieldSlots, formSlots, moduleSlots] as const) {
-			const ids = slots.map((s) => s.slot);
+			const ids = slots
+				.filter(
+					(s) =>
+						!(sharedLinkSlots.has(s.slot) && s.path.startsWith("otherwise.")),
+				)
+				.map((s) => s.slot);
 			const paths = slots.map((s) => s.path);
 			expect(new Set(ids).size).toBe(ids.length);
 			expect(new Set(paths).size).toBe(paths.length);

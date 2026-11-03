@@ -57,8 +57,10 @@ import {
 } from "@/lib/domain/platforms";
 import type { Event } from "@/lib/log/types";
 import type { ExportBudgetRowView } from "@/lib/media/exportBudget";
+import { EMPTY_AFTER_SUBMIT_STACK } from "@/lib/preview/afterSubmitStack";
 import { effectivePreviewPlatform } from "@/lib/preview/platform";
 import type {
+	PreviewAfterSubmitStack,
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
 	PreviewParentCaseRequest,
@@ -266,6 +268,12 @@ export interface BuilderSessionState {
 	 *  so previewing a form fresh never reloads a stale case. */
 	previewCaseTarget: PreviewCaseTarget | undefined;
 	previewTaskContinuation: PreviewTaskContinuation | undefined;
+	/** The after-submit frames a submission left pending: ephemeral like
+	 *  `previewTaskContinuation`, and cleared everywhere it is, and when
+	 *  Android returns to the phone's home screen, which resets its
+	 *  session (`HomeScreenBaseActivity.java::processCanceledGetCommandOrCase`
+	 *  → `currentState.reset()`). */
+	previewAfterSubmitStack: PreviewAfterSubmitStack;
 	previewEntryPointLaunch: EntryPointPreviewLaunch | undefined;
 
 	/** The case currently open in the running-app case list's detail/confirm
@@ -691,6 +699,9 @@ export interface BuilderSessionState {
 	setPreviewTaskContinuation: (
 		task: PreviewTaskContinuation | undefined,
 	) => void;
+	/** Store what a submission's completion left pending
+	 *  (`afterSubmitStack.ts::completeAfterSubmit`). */
+	setPreviewAfterSubmitStack: (stack: PreviewAfterSubmitStack) => void;
 
 	/** Set (or clear) the case open in the running-app case list. No-ops when
 	 *  shallow-equal. */
@@ -878,6 +889,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewTaskContinuation: undefined as
 					| PreviewTaskContinuation
 					| undefined,
+				previewAfterSubmitStack:
+					EMPTY_AFTER_SUBMIT_STACK as PreviewAfterSubmitStack,
 				previewEntryPointLaunch: undefined as
 					| EntryPointPreviewLaunch
 					| undefined,
@@ -1084,6 +1097,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 								? {
 										previewCaseTarget: undefined,
 										previewTaskContinuation: undefined,
+										previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 										previewEntryPointLaunch: undefined,
 										previewSelectedCase: undefined,
 										previewMenuCaseSelections: {},
@@ -1286,6 +1300,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							: s.previewDeviceSyncedAt,
 						previewEntryPointLaunch: launch,
 						previewTaskContinuation: undefined,
+						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewCaseTarget: launch.formTarget,
 						previewMenuCaseSelections: launch.menuSelections,
 						previewSelectedCase: undefined,
@@ -1326,6 +1341,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							previewing: true,
 							previewCaseTarget: undefined,
 							previewTaskContinuation: undefined,
+							previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 							previewEntryPointLaunch: undefined,
 							previewSelectedCase: undefined,
 							previewMenuCaseSelections: {},
@@ -1361,6 +1377,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewDeviceSyncedAt: undefined,
 						previewCaseTarget: undefined,
 						previewTaskContinuation: undefined,
+						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
@@ -1389,6 +1406,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewPersonaUuid: personaUuid,
 						previewCaseTarget: undefined,
 						previewTaskContinuation: undefined,
+						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
@@ -1411,6 +1429,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewPlatform: platform,
 						previewCaseTarget: undefined,
 						previewTaskContinuation: undefined,
+						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
@@ -1423,7 +1442,16 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				setPreviewAtDeviceHome(atHome: boolean) {
 					if (get().previewAtDeviceHome === atHome) return;
-					set({ previewAtDeviceHome: atHome });
+					/* The phone's home screen resets the session, and with it
+					 * every frame still pending. */
+					set(
+						atHome
+							? {
+									previewAtDeviceHome: true,
+									previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
+								}
+							: { previewAtDeviceHome: false },
+					);
 				},
 
 				markPreviewDeviceSynced(at: number) {
@@ -1455,6 +1483,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				},
 				setPreviewTaskContinuation(task: PreviewTaskContinuation | undefined) {
 					set({ previewTaskContinuation: task });
+				},
+				setPreviewAfterSubmitStack(stack: PreviewAfterSubmitStack) {
+					if (get().previewAfterSubmitStack === stack) return;
+					set({ previewAfterSubmitStack: stack });
 				},
 
 				setPreviewSearchState(
@@ -1490,9 +1522,22 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				clearPreviewNavigation() {
 					const current = get();
+					/* Home leaves the path the last frame opened, so what was
+					 * pending would be dropped at the next completion anyway
+					 * (`CommCareSession.java::cleanStack`), and is dropped now.
+					 * The one path Home stays on is the app's first screen
+					 * itself, the landing of HQ's empty `root` frame, which every
+					 * path begins with (`SessionFrame.java::isSnapshotIncompatible`
+					 * never fails an empty snapshot): a frame that landed there
+					 * keeps what is beneath it. */
+					const afterSubmitStack =
+						current.previewAfterSubmitStack.snapshot?.length === 0
+							? current.previewAfterSubmitStack
+							: EMPTY_AFTER_SUBMIT_STACK;
 					if (
 						current.previewCaseTarget === undefined &&
 						current.previewTaskContinuation === undefined &&
+						current.previewAfterSubmitStack === afterSubmitStack &&
 						current.previewSelectedCase === undefined &&
 						current.previewParentCaseRequest === undefined &&
 						Object.keys(current.previewMenuCaseSelections).length === 0 &&
@@ -1502,6 +1547,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewCaseTarget: undefined,
 						previewTaskContinuation: undefined,
+						previewAfterSubmitStack: afterSubmitStack,
 						previewSelectedCase: undefined,
 						previewParentCaseRequest: undefined,
 						previewMenuCaseSelections: {},
@@ -1859,6 +1905,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						activeFieldId: undefined,
 						previewCaseTarget: undefined,
 						previewTaskContinuation: undefined,
+						previewAfterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},

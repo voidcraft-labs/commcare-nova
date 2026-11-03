@@ -869,6 +869,12 @@ export function mutationSequenceAdmissionIssue(
 				break;
 			}
 			case "updateFormLink":
+			// The otherwise is one slot, in no sequence. A conversion keeps the
+			// link's uuid: the destination's `removeFormLink` takes it out of
+			// the form's links before the `setFormOtherwise` that holds it, and
+			// an otherwise's link is in no order, so an `addFormLink` of its
+			// uuid after the slot is cleared places it like any new link.
+			case "setFormOtherwise":
 				break;
 			case "addUserProperty":
 				if (

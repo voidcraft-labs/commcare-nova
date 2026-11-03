@@ -196,12 +196,11 @@ describe("caseListRegistrationForm", () => {
 		});
 	});
 
-	it("refuses after-submit links, an after-submit choice, and a display condition", () => {
+	it("refuses after-submit links and a display condition", () => {
 		const doc = docWith({
 			forms: [
 				visitForm(),
 				registerForm({
-					postSubmit: "module",
 					displayCondition: eq(sessionUser("username"), literal("ada")),
 					formLinks: [
 						{
@@ -213,7 +212,22 @@ describe("caseListRegistrationForm", () => {
 			],
 		});
 		expect(codes(doc, "CASE_LIST_REGISTRATION_HAS_NAVIGATION")).toEqual([
-			`"Register patient" is offered when a search finds nothing in "Patients", so after submit it returns to the search or to First menu, and it's on no menu; it can't carry after-submit links, an after-submit destination other than First menu, a display condition. You can remove them, or stop offering the form there.`,
+			`"Register patient" is offered when a search finds nothing in "Patients", so after submit it returns to the search or to First menu, and it's on no menu; it can't carry after-submit links, a display condition. You can remove them, or stop offering the form there.`,
+		]);
+	});
+
+	it("refuses an after-submit destination other than First menu and a display condition", () => {
+		const doc = docWith({
+			forms: [
+				visitForm(),
+				registerForm({
+					postSubmit: "module",
+					displayCondition: eq(sessionUser("username"), literal("ada")),
+				}),
+			],
+		});
+		expect(codes(doc, "CASE_LIST_REGISTRATION_HAS_NAVIGATION")).toEqual([
+			`"Register patient" is offered when a search finds nothing in "Patients", so after submit it returns to the search or to First menu, and it's on no menu; it can't carry an after-submit destination other than First menu, a display condition. You can remove them, or stop offering the form there.`,
 		]);
 	});
 

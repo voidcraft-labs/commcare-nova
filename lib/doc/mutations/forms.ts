@@ -87,7 +87,8 @@ export function applyFormMutation(
 				| "addFormLink"
 				| "updateFormLink"
 				| "removeFormLink"
-				| "moveFormLink";
+				| "moveFormLink"
+				| "setFormOtherwise";
 		}
 	>,
 ): void {
@@ -96,7 +97,10 @@ export function applyFormMutation(
 		// `formLinks` IS the sequence (array position), so add and move are
 		// `spliceEntryAfter`: total, idempotent, and a missing anchor leaves
 		// the sequence unchanged rather than becoming append. The slot is
-		// deleted when the last link goes; `[]` is not a state.
+		// deleted when the last link goes; `[]` is not a state. None of the
+		// four touches `otherwise` or `postSubmit`: the planners
+		// (`lib/doc/formLinkMutations.ts`) pair each batch with the
+		// after-submit it needs, and the gate refuses what they leave.
 		case "addFormLink": {
 			const form = draft.forms[mut.formUuid];
 			if (!form) return;
@@ -132,15 +136,11 @@ export function applyFormMutation(
 		case "removeFormLink": {
 			const form = draft.forms[mut.formUuid];
 			if (!form) return;
-			// The last link leaving ends the fallback's exemption from the
-			// several-case reasons, so the destination is reconciled.
-			const before = postSubmitBefore(draft, [mut.formUuid]);
 			const links = (form.formLinks ?? []).filter(
 				(link) => link.uuid !== mut.uuid,
 			);
 			if (links.length === 0) delete form.formLinks;
 			else form.formLinks = links;
-			reconcilePostSubmitWithMenuShape(draft, before);
 			return;
 		}
 		case "moveFormLink": {
@@ -151,6 +151,15 @@ export function applyFormMutation(
 				return;
 			}
 			form.formLinks = spliceEntryAfter(links, link, mut.after);
+			return;
+		}
+		case "setFormOtherwise": {
+			// The otherwise is one slot, set whole; `null` deletes it.
+			const form = draft.forms[mut.formUuid];
+			if (!form) return;
+			if (mut.otherwise === null) delete form.otherwise;
+			// CLONE, never alias, for the reason `addFormLink` gives.
+			else form.otherwise = structuredClone(mut.otherwise);
 			return;
 		}
 		case "addForm": {
@@ -228,16 +237,19 @@ export function applyFormMutation(
 			);
 			// A form target names its form AND the module that holds it (the
 			// wire addresses `form_id` inside `form_module_id`), so every link
-			// pointing at this form follows it across modules: the pair stays
-			// the one thing it is, "go to this form". A same-module move
-			// rewrites nothing; replaying the move is idempotent.
+			// pointing at this form, a destination or an otherwise, follows it
+			// across modules: the pair stays the one thing it is, "go to this
+			// form". A `this-form` target names no module, so it needs no
+			// rewrite. A same-module move rewrites nothing; replaying the move
+			// is idempotent.
 			for (const other of Object.values(draft.forms)) {
-				for (const link of other.formLinks ?? []) {
-					if (
-						link.target.type === "form" &&
-						link.target.formUuid === mut.uuid
-					) {
-						link.target.moduleUuid = mut.toModuleUuid;
+				const targets = (other.formLinks ?? []).map((link) => link.target);
+				if (other.otherwise?.kind === "link") {
+					targets.push(other.otherwise.target);
+				}
+				for (const target of targets) {
+					if (target.type === "form" && target.formUuid === mut.uuid) {
+						target.moduleUuid = mut.toModuleUuid;
 					}
 				}
 			}

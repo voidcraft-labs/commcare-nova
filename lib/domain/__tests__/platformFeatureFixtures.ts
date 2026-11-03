@@ -17,6 +17,7 @@ import {
 	type CaseListConfigSpec,
 	caseListConfig,
 	type FieldSpec,
+	type FormSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
 import {
@@ -100,6 +101,7 @@ function survey(
 		readonly appSettings?: AppSettings;
 		readonly configure?: (doc: BlueprintDoc) => void;
 		readonly postSubmit?: "firstMenu";
+		readonly formLinks?: NonNullable<FormSpec["formLinks"]>;
 	} = {},
 ): BlueprintDoc {
 	return buildDoc(
@@ -138,6 +140,9 @@ function survey(
 							...(options.postSubmit === undefined
 								? {}
 								: { postSubmit: options.postSubmit }),
+							...(options.formLinks === undefined
+								? {}
+								: { formLinks: options.formLinks }),
 							fields,
 						},
 					],
@@ -865,6 +870,23 @@ export const PLATFORM_FEATURE_FIXTURES = {
 				postSubmit: "firstMenu",
 			}),
 		use: slotUse("after-submit-home", FORM_OWNER, "postSubmit"),
+	},
+	"after-submit-several-destinations": {
+		with: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {
+				formLinks: [
+					{
+						condition: "#form/answer = 'again'",
+						target: { type: "this-form" },
+					},
+					{ target: { type: "this-form" } },
+				],
+			}),
+		without: () =>
+			survey([f({ kind: "text", id: "answer", label: proseText("Answer") })], {
+				formLinks: [{ target: { type: "this-form" } }],
+			}),
+		use: slotUse("after-submit-several-destinations", FORM_OWNER, "formLinks"),
 	},
 	"app-logo": {
 		with: () =>

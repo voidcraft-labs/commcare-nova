@@ -1,6 +1,6 @@
 import type { BlueprintDoc } from "../blueprint";
 import type { FieldKind, RepeatMode } from "../fields";
-import type { FormLinkTarget, FormType } from "../forms";
+import { type FormLinkTarget, type FormType, formLinkEntries } from "../forms";
 import type { LookupTableId } from "../lookupIds";
 import { moduleUuidOfForm } from "../postSubmit";
 import type { QueryRepeatPlacement } from "../queryRepeatPlacement";
@@ -61,11 +61,15 @@ export interface FormStructure {
 	readonly fieldOrder: ReadonlyMap<Uuid, readonly Uuid[]>;
 	/** Only blocks active in the saved or pending app mode. */
 	readonly connect: FormStructureConnect;
+	/** Every link of the form (`forms.ts::formLinkEntries`): its
+	 *  destinations, and the otherwise when it is a link (`role:
+	 *  "otherwise"`, which has no condition slot). */
 	readonly links: ReadonlyMap<
 		Uuid,
 		{
 			readonly target: FormLinkTarget;
 			readonly datums: readonly FormLinkDatumName[];
+			readonly role?: "otherwise";
 		}
 	>;
 	/** Pending views memoize production parsing here. A parse or dependency
@@ -175,11 +179,12 @@ export function formStructure(
 		fieldOrder,
 		connect,
 		links: new Map(
-			(form.formLinks ?? []).map((link) => [
+			formLinkEntries(form).map(({ role, link }) => [
 				link.uuid,
 				{
 					target: link.target,
 					datums: (link.datums ?? []).map((datum) => datum.name),
+					...(role === "otherwise" ? { role } : {}),
 				},
 			]),
 		),

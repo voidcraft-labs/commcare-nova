@@ -553,8 +553,14 @@ export const PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS: LookupReferenceExtractorReg
 			...MODULE_REFERENCE_SLOTS,
 		]
 			.filter(
-				(entry) =>
-					entry.kind === "expression" || entry.kind === "options-source",
+				(entry, index, all) =>
+					(entry.kind === "expression" || entry.kind === "options-source") &&
+					// A slot held at two paths (a destination's and the otherwise
+					// link's carried values) is one extractor: it reads every path.
+					all.findIndex(
+						(other) =>
+							other.entity === entry.entity && other.slot === entry.slot,
+					) === index,
 			)
 			.map((entry) =>
 				productionExtractor(entry.slot, (doc) => [

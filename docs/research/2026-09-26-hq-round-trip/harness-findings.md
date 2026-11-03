@@ -1536,9 +1536,15 @@ written here in the pull request that holds it.
   emits exclusive guards today. *Step 5:* pull request 11 (form links) emits the destinations reversed
   so Core runs them in the author's order, plays each platform's stack in Preview, and rewrites the
   manifest row, the inventory row and the `lib/commcare/CLAUDE.md` sentence; pull request 15 (contracts
-  and public docs) rewrites the docs page. Subject to the reader run by hand at pull request 11's head
-  over `targeted-form-link-chain` (the plan's form-links G1): if Web Apps also runs the chain, the Web
-  Apps half is withdrawn here; if Android also runs only the top frame, the claim becomes that both do.
+  and public docs) rewrites the docs page. Pull request 11 writes this bullet as the plan's form-links
+  G1 expects it (outcome A: Android runs the chain, Web Apps only the top frame), which the manifest row
+  `two-or-more-form-links-conditions-true-at-once` now reads (`different` on Web Apps, `runs` on
+  Android, the feature `after-submit-several-destinations`) and Preview plays
+  (`lib/preview/platform.ts::PreviewPlatformRules.afterSubmitFrames`, `"top"` on Web Apps and
+  `"stack"` on Android). The reader run by hand at pull request 11's head over
+  `targeted-form-link-chain` on GitHub's runners settles G1; if Web Apps also runs the chain, the Web
+  Apps half is withdrawn here, and if Android also runs only the top frame, the claim becomes that both
+  do.
 - **HQ's form settings page offers a child menu without `FORM_LINK_ADVANCED_MODE`** from a child menu
   whose parent's case type equals the target's parent's (`views/forms.py::_get_linkable_forms_context`,
   `is_child_match`). The research's defect 26 ("only the retiring `FORM_LINK_ADVANCED_MODE` offers the

@@ -17,7 +17,7 @@ import {
 	entryFrameDatums,
 	entrySessionDatums,
 	formLinkProjectionContext,
-	projectFormLinks,
+	projectAfterSubmit,
 } from "@/lib/commcare/formLinkProjection";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
 import { serializeXml } from "@/lib/commcare/serializeXml";
@@ -350,7 +350,7 @@ describe("an advanced form's entry", () => {
 			["case_id_new_household_0", "household"],
 			["case_id_new_visit_1", "visit"],
 		]);
-		const [link] = projectFormLinks(doc, ctx, UNDER_TEST)?.links ?? [];
+		const [link] = projectAfterSubmit(doc, ctx, UNDER_TEST)?.links ?? [];
 		expect(link?.missing).toEqual([]);
 		const carried = link?.children.find(
 			(child) => child.type === "datum" && child.id === "case_id",

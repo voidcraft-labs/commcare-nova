@@ -45,7 +45,7 @@ import { useCaseOperation } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useFormLink } from "@/lib/doc/hooks/useFormLinkFacts";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/doc/types";
-import type { CaseOperation, Field, FormLink } from "@/lib/domain";
+import type { CaseOperation, Field, FormLinkEntry } from "@/lib/domain";
 import { fieldRegistry } from "@/lib/domain";
 import {
 	useNavigate,
@@ -263,7 +263,8 @@ interface SelectedFormLinkTarget {
 	readonly moduleUuid: Uuid;
 	readonly formUuid: Uuid;
 	readonly linkUuid: Uuid;
-	readonly link: FormLink;
+	/** A destination or the otherwise link. */
+	readonly link: FormLinkEntry["link"];
 }
 
 /**

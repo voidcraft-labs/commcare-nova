@@ -120,7 +120,7 @@ describe("the first menu and the parent module as a form's destination", () => {
 		for (const destination of ["firstMenu", "app_home"] as const) {
 			expect(
 				formNavigation(nestedSurveys(destination), testUuid("member-survey"))
-					?.afterSubmit.fallback,
+					?.afterSubmit.postSubmit,
 			).toEqual({ screen: "home" });
 		}
 	});
@@ -128,7 +128,7 @@ describe("the first menu and the parent module as a form's destination", () => {
 	it("resolves parentMenu to the parent module's own screen", () => {
 		expect(
 			formNavigation(nestedSurveys("parentMenu"), testUuid("member-survey"))
-				?.afterSubmit.fallback,
+				?.afterSubmit.postSubmit,
 		).toEqual({
 			screen: "menu",
 			moduleUuid: testUuid("households"),
@@ -171,7 +171,7 @@ describe("the native preceding task", () => {
 			},
 			selections: {},
 		});
-		expect(formNavigation(blueprint, FORM)?.afterSubmit.fallback).toEqual({
+		expect(formNavigation(blueprint, FORM)?.afterSubmit.postSubmit).toEqual({
 			screen: "record-selection",
 			moduleUuid: MODULE,
 			formUuid: FORM,
@@ -359,6 +359,7 @@ describe("the native preceding task", () => {
 		});
 		const common = {
 			doc: blueprint,
+			sourceFormUuid: FORM,
 			caseFirstModules: new Set<typeof MODULE>(),
 			caseSelections: () => [],
 			carriedCase: () => ({ kind: "none" as const }),
@@ -368,7 +369,7 @@ describe("the native preceding task", () => {
 				rules: ANDROID_RULES,
 				targetVisibility: () => "shown",
 				...common,
-				choice: { kind: "fallback", destination: "previous" },
+				choice: { kind: "otherwise", destination: "previous" },
 				previousTask: () => task,
 			}),
 		).toEqual({ kind: "previous-task", task });
@@ -378,7 +379,7 @@ describe("the native preceding task", () => {
 				targetVisibility: () => "shown",
 				...common,
 				choice: {
-					kind: "link",
+					kind: "destination",
 					index: 0,
 					link: {
 						uuid: testUuid("link"),

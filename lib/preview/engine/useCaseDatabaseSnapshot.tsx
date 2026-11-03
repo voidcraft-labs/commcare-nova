@@ -129,11 +129,13 @@ export function caseDatabaseRequirements(
 	 * related case, or walk an unchanged ancestor even when none of its authored
 	 * XPath mentions `instance('casedb')`. The transaction patch contains only
 	 * affected rows, so linked tasks and Previous in case-bearing apps need the entry-time
-	 * device snapshot as its baseline. */
-	const hasAfterSubmitTask = Object.values(doc.forms).some(
-		(form) =>
-			(form.formLinks?.length ?? 0) > 0 ||
-			effectivePostSubmit(doc, form.uuid) === "previous",
+	 * device snapshot as its baseline. A form with destinations pushes
+	 * frames that may carry a case, and its otherwise may be Previous; a form
+	 * without them reads its after-submit destination. */
+	const hasAfterSubmitTask = Object.values(doc.forms).some((form) =>
+		form.formLinks !== undefined
+			? true
+			: effectivePostSubmit(doc, form.uuid) === "previous",
 	);
 	const hasCaseBearingModule = Object.values(doc.modules).some(
 		(module) => module.caseType !== undefined,

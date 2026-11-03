@@ -29,39 +29,54 @@ export function compilerNavigationFixture(scenario: NavigationScenario) {
 	if (scenario === "links") {
 		const moduleUuid = testUuid("navigation-module");
 		const nextFormUuid = testUuid("navigation-next");
-		return buildDoc({
-			appName: "Linked forms",
-			modules: [
-				{
-					uuid: moduleUuid,
-					name: "Reports",
-					forms: [
-						{
-							name: "Intake",
-							type: "survey",
-							postSubmit: "module",
-							formLinks: [
-								{
-									condition: "#user/role = 'supervisor'",
-									target: { type: "form", moduleUuid, formUuid: nextFormUuid },
-								},
-							],
-							fields: [
-								f({ kind: "text", id: "answer", label: proseText("Answer") }),
-							],
-						},
-						{
-							uuid: nextFormUuid,
-							name: "Review",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "notes", label: proseText("Notes") }),
-							],
-						},
-					],
-				},
-			],
-		});
+		return buildDoc(
+			{
+				appName: "Linked forms",
+				modules: [
+					{
+						uuid: moduleUuid,
+						name: "Reports",
+						forms: [
+							{
+								name: "Intake",
+								type: "survey",
+								formLinks: [
+									{
+										condition: "#user/role = 'supervisor'",
+										target: {
+											type: "form",
+											moduleUuid,
+											formUuid: nextFormUuid,
+										},
+									},
+								],
+								fields: [
+									f({ kind: "text", id: "answer", label: proseText("Answer") }),
+								],
+							},
+							{
+								uuid: nextFormUuid,
+								name: "Review",
+								type: "survey",
+								fields: [
+									f({ kind: "text", id: "notes", label: proseText("Notes") }),
+								],
+							},
+						],
+					},
+				],
+			},
+			(doc) => {
+				// Where Intake goes when its destination does not run.
+				const intake = doc.formOrder[moduleUuid]?.[0];
+				const form = intake === undefined ? undefined : doc.forms[intake];
+				if (form === undefined) throw new Error("The fixture lost Intake.");
+				doc.forms[form.uuid] = {
+					...form,
+					otherwise: { kind: "destination", destination: "module" },
+				};
+			},
+		);
 	}
 	return buildDoc({
 		appName: "Patients & visits <Café>",

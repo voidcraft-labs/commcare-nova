@@ -12,9 +12,15 @@
  * with any other note proves the otherwise path; one with "Visited" proves
  * the link, the post-submission read, and the carried case, in one journey.
  *
- * The journey mutates the blueprint (it authors the link) and the saved row
- * (it submits twice), so every Playwright attempt gets its own app and row:
- * the native attempt selects its own `form-links` profile.
+ * The second journey (`form-links.spec.ts`) authors two destinations, one
+ * every time and one under that same condition, and plays them on Android,
+ * where each runs after the one before it finishes. "Follow-up" goes to the
+ * app home, which pushes nothing, so the destination waiting beneath it is
+ * what opens once it is submitted.
+ *
+ * Both journeys mutate the blueprint (they author destinations) and the
+ * saved row (they submit), so every Playwright attempt gets its own app and
+ * row: the native attempt selects its own `form-links` profile.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
@@ -104,8 +110,9 @@ export function buildFormLinksBlueprint(appId = "test-app"): BlueprintDoc {
 						// Case-loading, so "the case this form opened" is what a link
 						// to another case-loading form carries automatically.
 						type: "followup",
-						// Stored explicitly: the otherwise row then reads as the
-						// author's choice rather than the form type's default.
+						// Stored explicitly, so the after-submit row reads as the
+						// author's choice rather than the form type's default. The
+						// first destination added in the builder replaces it.
 						postSubmit: "app_home",
 						fields: [
 							f({
@@ -120,6 +127,9 @@ export function buildFormLinksBlueprint(appId = "test-app"): BlueprintDoc {
 						uuid: FORM_LINKS_SEED.followUp.formUuid,
 						name: FORM_LINKS_SEED.followUp.formName,
 						type: "followup",
+						// The app home pushes no frame of its own, so on Android a
+						// destination still waiting beneath this form opens next.
+						postSubmit: "app_home",
 						fields: [
 							f({
 								kind: "section",

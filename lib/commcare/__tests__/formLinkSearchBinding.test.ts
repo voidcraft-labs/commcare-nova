@@ -20,7 +20,9 @@ function source(doc: ReturnType<typeof searchEmissionFixture>) {
 	const form = doc.forms[doc.formOrder[doc.moduleOrder[1]][0]];
 	const link = form.formLinks?.[0];
 	if (!link) throw new Error("Fixture has a link");
-	return { form, link };
+	if (link.target.type === "this-form")
+		throw new Error("Fixture links to another form's menu");
+	return { form, link, targetModule: link.target.moduleUuid };
 }
 it("preserves explicit new-case intent by selecting HQ's working automatic hydration path", () => {
 	const doc = searchEmissionFixture("hidden-link");
@@ -63,7 +65,7 @@ it.each([
 	"refuses a manual Search handover that HQ cannot hydrate: %s",
 	(_label, expression) => {
 		const doc = searchEmissionFixture("hidden-link");
-		const { form, link } = source(doc);
+		const { form, link, targetModule } = source(doc);
 		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		for (const gate of [
 			mutationCommitVerdict,
@@ -81,7 +83,7 @@ it.each([
 								{
 									name: {
 										kind: "selected-case",
-										module: link.target.moduleUuid,
+										module: targetModule,
 									},
 									xpath: expression,
 								},
@@ -117,10 +119,10 @@ it.each([
 it("keeps manual case selection available for a destination that opens on a list", () => {
 	const doc = searchEmissionFixture("hidden-link");
 	doc.modules[doc.moduleOrder[0]].caseSearchConfig = {};
-	const { link } = source(doc);
+	const { link, targetModule } = source(doc);
 	link.datums = [
 		{
-			name: { kind: "selected-case", module: link.target.moduleUuid },
+			name: { kind: "selected-case", module: targetModule },
 			xpath: term(literal("other-patient")),
 		},
 	];
@@ -132,11 +134,11 @@ it("keeps manual case selection available for a destination that opens on a list
 });
 it("keeps an existing selected case when the source has that selection", () => {
 	const doc = searchEmissionFixture("hidden-link");
-	const { form, link } = source(doc);
+	const { form, link, targetModule } = source(doc);
 	form.type = "followup";
 	link.datums = [
 		{
-			name: { kind: "selected-case", module: link.target.moduleUuid },
+			name: { kind: "selected-case", module: targetModule },
 			xpath: term({
 				kind: "session-datum",
 				datum: { kind: "selected-case", module: doc.moduleOrder[1] },

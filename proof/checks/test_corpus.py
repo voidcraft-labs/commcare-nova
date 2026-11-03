@@ -744,6 +744,24 @@ def _search_workflows(app):
     return found
 
 
+def _form_links(app):
+    """The after-submit shapes the app's forms hold, as HQ reads them: a self-link, a link whose ``form_id`` is its
+    own form's ``unique_id`` (a form that starts itself again), and an otherwise, a built-in
+    ``post_form_workflow_fallback`` beside the links of a form whose ``post_form_workflow`` is ``form``
+    (``suite_xml/post_process/workflow.py::EndOfFormNavigationWorkflow._get_fallback_frame``)."""
+    found = set()
+    for module in app.get("modules") or ():
+        for form in module.get("forms") or ():
+            if form.get("post_form_workflow") != "form":
+                continue
+            links = form.get("form_links") or ()
+            if any(link.get("form_id") == form.get("unique_id") for link in links):
+                found.add("a self-link")
+            if links and form.get("post_form_workflow_fallback"):
+                found.add("an otherwise")
+    return found
+
+
 # Each shape some emitted document must hold, and what reads it of a document's sent XForms or app. Each later
 # shape a step adds a reader for joins this table.
 CORPUS_SHAPES = {
@@ -755,6 +773,8 @@ CORPUS_SHAPES = {
     "skip to results": _search_workflows,
     "list first where Android alone is declared": _search_workflows,
     "forms reading the search": _search_workflows,
+    "a self-link": _form_links,
+    "an otherwise": _form_links,
 }
 
 
@@ -782,12 +802,12 @@ def test_the_corpus_holds_each_search_workflow_and_each_placement():
 
 # The documents the corpus's fixed floor emits: its producers', workforce, expander and targeted documents that
 # Nova admits. Every pull request that adds or removes a document writes the count its sources then give.
-FIXED_DOCUMENTS = 392
+FIXED_DOCUMENTS = 398
 
 
 def test_the_corpus_emits_every_document_its_sources_name():
     """Contract: the corpus emits its fixed floor whole, beside the fuzz sample it was asked for, so the count is
-    the floor plus the sample's size (424 with the default sample of 32). Catches a source that silently stops
+    the floor plus the sample's size (430 with the default sample of 32). Catches a source that silently stops
     emitting a document, which every other test would pass by reading less."""
     corpus = cases.load_corpus()
     emitted = len(corpus.emitted)

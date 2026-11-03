@@ -44,6 +44,7 @@ import {
 	formIconRefSchema,
 	formLinkObjectSchema,
 	formLinkSchema,
+	formOtherwiseSchema,
 	formSchema,
 	languageTagSchema,
 	languageWireCodeSchema,
@@ -515,6 +516,8 @@ const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
 	// Links are entities with their own four kinds below; a whole-array
 	// replacement would erase identity and never survives the wire.
 	formLinks: true,
+	// The otherwise is set whole by `setFormOtherwise`, its one payload.
+	otherwise: true,
 	icon: true,
 	audioLabel: true,
 	// Where a published app keeps the own close is held by `holdPlacements`
@@ -721,6 +724,7 @@ const finalMutationFamily = {
 	caseOperationPatch: canonicalCaseOperationPatchSchema,
 	formLink: formLinkSchema,
 	formLinkPatch: canonicalFormLinkPatchSchema,
+	formOtherwise: formOtherwiseSchema,
 	column: columnSchema,
 	searchInput: searchInputDefSchema,
 	condition: conditionSchema,
@@ -982,6 +986,7 @@ function createMutationSchema({
 	caseOperationPatch: mutationCaseOperationPatchSchema,
 	formLink: mutationFormLinkSchema,
 	formLinkPatch: mutationFormLinkPatchSchema,
+	formOtherwise: mutationFormOtherwiseSchema,
 	column: mutationColumnSchema,
 	searchInput: mutationSearchInputSchema,
 	condition: mutationConditionSchema,
@@ -1209,6 +1214,14 @@ function createMutationSchema({
 			uuid: uuidSchema,
 			/** The link this one now follows, or `null` for first. */
 			after: uuidSchema.nullable(),
+		}),
+		// Where a form goes when no destination that may not run runs: one
+		// slot, set whole.
+		z.strictObject({
+			kind: z.literal("setFormOtherwise"),
+			formUuid: uuidSchema,
+			/** The form's otherwise; `null` clears it. */
+			otherwise: mutationFormOtherwiseSchema.nullable(),
 		}),
 		// Field
 		z.strictObject({

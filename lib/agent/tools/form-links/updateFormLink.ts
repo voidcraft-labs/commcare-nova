@@ -1,11 +1,6 @@
 import type { z } from "zod";
 import { planFormLinkUpdate } from "@/lib/doc/formLinkMutations";
-import {
-	asUuid,
-	type PostSubmitDestination,
-	type Uuid,
-	uuidSchema,
-} from "@/lib/domain";
+import { asUuid, type Uuid, uuidSchema } from "@/lib/domain";
 import type { ToolInvocationContext } from "../../workspace/types";
 import {
 	guardedMutate,
@@ -19,6 +14,8 @@ import {
 	HIDDEN_TARGET_NOTE,
 	linkAddressSchema,
 	linkByUuid,
+	linkCommitMessage,
+	linkCommitSentences,
 	linkLabel,
 	linkRefusalMessage,
 	linkSubject,
@@ -38,8 +35,11 @@ export type UpdateFormLinkInput = z.infer<typeof updateFormLinkInputSchema>;
 
 export interface UpdateFormLinkSuccess extends MutationSuccess {
 	readonly linkUuid: Uuid;
-	/** Set when the change also stored `post_submit` explicitly. */
-	readonly pinnedPostSubmit?: PostSubmitDestination;
+	/** Carried values the new target does not read, which the edit dropped. */
+	readonly droppedDatums?: readonly string[];
+	/** What the commit changed beyond the destination it names: the
+	 *  otherwise removed when no destination may not run any more. */
+	readonly message?: string;
 }
 
 export type UpdateFormLinkResult =
@@ -47,7 +47,7 @@ export type UpdateFormLinkResult =
 	| { readonly error: string };
 
 export const updateFormLinkTool = {
-	description: `Replace one after-submit route. An unconditional route must be last; otherwise the form's post-submit setting supplies the fallback. ${HIDDEN_TARGET_NOTE}`,
+	description: `Replace one after-submit destination, keeping its place in the order. ${HIDDEN_TARGET_NOTE}`,
 	inputSchema: updateFormLinkInputSchema,
 	async execute(
 		input: UpdateFormLinkInput,
@@ -107,7 +107,6 @@ export const updateFormLinkTool = {
 					result: { error: commit.error },
 				};
 			}
-			const pinned = plan.pinsFallback;
 			const dropped = plan.droppedDatums ?? [];
 			return {
 				kind: "mutate",
@@ -115,8 +114,8 @@ export const updateFormLinkTool = {
 				result: {
 					ok: true,
 					linkUuid: existing.uuid,
-					...(pinned !== undefined && { pinnedPostSubmit: pinned }),
 					...(dropped.length > 0 && { droppedDatums: dropped }),
+					...linkCommitMessage(linkCommitSentences(plan)),
 					summary: {
 						location: name,
 						subject: linkSubject(

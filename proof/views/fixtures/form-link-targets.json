@@ -1,0 +1,473 @@
+{
+	"document": "targeted-form-link-otherwise",
+	"forms": [
+		{
+			"menu": "Households",
+			"form": "Add household",
+			"holdsLink": true,
+			"offered": {
+				"menus": ["Households", "Loop", "Rounds"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			},
+			"offeredUnderAdvancedMode": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			}
+		},
+		{
+			"menu": "Checks",
+			"form": "Add member",
+			"holdsLink": false,
+			"offered": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			},
+			"offeredUnderAdvancedMode": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			}
+		},
+		{
+			"menu": "Checks",
+			"form": "Review member",
+			"holdsLink": true,
+			"offered": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			},
+			"offeredUnderAdvancedMode": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			}
+		},
+		{
+			"menu": "Checks",
+			"form": "Check first menu",
+			"holdsLink": true,
+			"offered": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			},
+			"offeredUnderAdvancedMode": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			}
+		},
+		{
+			"menu": "Checks",
+			"form": "Check this menu",
+			"holdsLink": true,
+			"offered": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			},
+			"offeredUnderAdvancedMode": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			}
+		},
+		{
+			"menu": "Checks",
+			"form": "Check parent menu",
+			"holdsLink": true,
+			"offered": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			},
+			"offeredUnderAdvancedMode": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			}
+		},
+		{
+			"menu": "Checks",
+			"form": "Check previous screen",
+			"holdsLink": true,
+			"offered": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			},
+			"offeredUnderAdvancedMode": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			}
+		},
+		{
+			"menu": "Checks",
+			"form": "Check link",
+			"holdsLink": true,
+			"offered": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			},
+			"offeredUnderAdvancedMode": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			}
+		},
+		{
+			"menu": "Loop",
+			"form": "Ping",
+			"holdsLink": true,
+			"offered": {
+				"menus": ["Households", "Loop", "Rounds"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			},
+			"offeredUnderAdvancedMode": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			}
+		},
+		{
+			"menu": "Loop",
+			"form": "Pong",
+			"holdsLink": true,
+			"offered": {
+				"menus": ["Households", "Loop", "Rounds"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			},
+			"offeredUnderAdvancedMode": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			}
+		},
+		{
+			"menu": "Rounds",
+			"form": "Add round household",
+			"holdsLink": false,
+			"offered": {
+				"menus": ["Households", "Loop", "Rounds"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			},
+			"offeredUnderAdvancedMode": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			}
+		},
+		{
+			"menu": "Round checks",
+			"form": "Round review",
+			"holdsLink": false,
+			"offered": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			},
+			"offeredUnderAdvancedMode": {
+				"menus": ["Households", "Checks", "Loop", "Rounds", "Round checks"],
+				"forms": [
+					["Households", "Add household"],
+					["Checks", "Add member"],
+					["Checks", "Review member"],
+					["Checks", "Check first menu"],
+					["Checks", "Check this menu"],
+					["Checks", "Check parent menu"],
+					["Checks", "Check previous screen"],
+					["Checks", "Check link"],
+					["Loop", "Ping"],
+					["Loop", "Pong"],
+					["Rounds", "Add round household"],
+					["Round checks", "Round review"]
+				]
+			}
+		}
+	]
+}

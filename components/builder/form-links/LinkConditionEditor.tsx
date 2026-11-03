@@ -4,7 +4,9 @@
 //
 // The actual link member supplies the after-submit profile and parser.
 // Shared lint and admission findings explain why closed-form answers cannot
-// be read; an empty condition stays a separate local refusal.
+// be read. Saving an empty condition clears it, so the destination runs
+// every time (the planner removes an Otherwise nothing could reach then,
+// and says so).
 
 "use client";
 
@@ -16,7 +18,6 @@ import {
 } from "@/lib/doc/hooks/useXPathSlots";
 import type { Uuid } from "@/lib/doc/types";
 import type { CommitOutcome, FormLink } from "@/lib/domain";
-import { EMPTY_CONDITION_REFUSAL } from "./afterSubmitCopy";
 
 export function LinkConditionEditor({
 	formUuid,
@@ -45,7 +46,8 @@ export function LinkConditionEditor({
 
 	const save = (text: string): CommitOutcome | undefined => {
 		if (text.trim().length === 0) {
-			return { ok: false, messages: [EMPTY_CONDITION_REFUSAL] };
+			const { condition: _cleared, ...everyTime } = link;
+			return onCommit(everyTime);
 		}
 		const condition = parse(text);
 		return onCommit({ ...link, condition });

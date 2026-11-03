@@ -27,7 +27,7 @@ function project(doc: BlueprintDoc, link: FormLink) {
 		link,
 		formLinkCarryVerdict(doc, SOURCE, link.target),
 		formLinkRequiredDatums(doc, SOURCE, link.target),
-		formLinkManualCarryVerdict(doc, SOURCE, link.uuid, link.target),
+		formLinkManualCarryVerdict(doc, SOURCE, link.target),
 	);
 }
 function selectionDoc() {

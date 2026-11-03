@@ -2,9 +2,14 @@
  * SA tool: `getForm` — read a form and its full nested field tree.
  *
  * Pure read — no mutations, no SSE emission. Returns the form entity in
- * domain vocabulary (`closeCondition`, `postSubmit`, `formLinks`, `connect`)
- * augmented with the ordered field tree. UUID-backed expression and lookup
- * references remain in their canonical round-trippable shapes.
+ * domain vocabulary (`closeCondition`, `postSubmit`, `formLinks`,
+ * `otherwise`, `connect`) augmented with the ordered field tree. UUID-backed
+ * expression and lookup references remain in their canonical round-trippable
+ * shapes; the authoring read projection (`authoring/output.ts`) is where they
+ * become authored text, and where the after-submit reads as the form's
+ * `destinations`, in the order they run, and its `otherwise` (a built-in
+ * `{ kind: "destination", destination }` or `{ kind: "link", linkUuid,
+ * target, datums? }`).
  */
 
 import type { z } from "zod";

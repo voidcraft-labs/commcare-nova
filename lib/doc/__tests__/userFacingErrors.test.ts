@@ -1225,3 +1225,100 @@ describe("the session and search reads a form makes, in the builder's voice", ()
 		expect(userFacingError(read(code, { ...details }))).toBe(line);
 	});
 });
+
+describe("userFacingError — after-submit links", () => {
+	const linkFinding = (
+		code: ValidationErrorCode,
+		details: Record<string, string>,
+	) =>
+		validationError(
+			code,
+			"form",
+			"INTERNAL DETAIL",
+			{ moduleName: "Intake", formName: "Source" },
+			details,
+		);
+
+	it("classifies each new code as soundness, and none of the retired ones", () => {
+		for (const code of [
+			"FORM_LINK_TARGET_NOT_OFFERED",
+			"FORM_LINK_MENU_DATUMS",
+			"FORM_OTHERWISE_NOT_OFFERED",
+			"FORM_OTHERWISE_UNREACHABLE",
+			"POST_SUBMIT_BESIDE_FORM_LINKS",
+		] as const)
+			expect(VALIDITY_CLASS_BY_CODE[code], code).toBe("soundness");
+		for (const retired of [
+			"FORM_LINK_UNREACHABLE",
+			"FORM_LINK_NO_FALLBACK",
+			"FORM_LINK_CIRCULAR",
+		])
+			expect(Object.keys(VALIDITY_CLASS_BY_CODE)).not.toContain(retired);
+	});
+
+	it("names the otherwise link as its Otherwise, and a destination by where it goes", () => {
+		expect(
+			userFacingError(
+				linkFinding("FORM_LINK_MENU_DATUMS", {
+					role: "otherwise",
+					destination: "Care",
+					destinationKind: "module",
+					menuName: "Care",
+				}),
+			),
+		).toBe(
+			'In "Source", its Otherwise carries values to "Care", and a module\'s form list asks for none. You can remove the carried values, or send the link to a form inside it.',
+		);
+		expect(
+			userFacingError(
+				linkFinding("FORM_LINK_TARGET_NOT_OFFERED", {
+					role: "destination",
+					destination: "Sub",
+					destinationKind: "module",
+					menuName: "Sub",
+					parentName: "Care",
+				}),
+			),
+		).toBe(
+			'In "Source", the link to the "Sub" module opens "Sub", a submenu CommCare HQ can\'t link to from here. You can point it at "Care", which holds it, or at a form inside it.',
+		);
+		expect(
+			userFacingError(
+				linkFinding("FORM_LINK_DATUM_UNUSED", {
+					role: "destination",
+					destination: "Source",
+					destinationKind: "this-form",
+				}),
+			),
+		).toBe(
+			'In "Source", the link that starts this form again carries a case its destination no longer asks for. Remove that value, or choose a destination that needs it.',
+		);
+	});
+
+	it("reads a built-in otherwise the menu withholds as where the form goes when no destination runs", () => {
+		expect(
+			userFacingError(
+				linkFinding("FORM_OTHERWISE_NOT_OFFERED", {
+					role: "otherwise",
+					slot: "otherwise",
+					reason: "no-parent-menu",
+					destination: "parentMenu",
+					offered: "app_home,firstMenu,module",
+				}),
+			),
+		).toBe(
+			'"Source" goes to the parent module when no destination runs, but "Intake" has no parent module. Choose one of: "First menu", "This module". You can also remove the Otherwise, and the app home follows.',
+		);
+		expect(
+			userFacingError(
+				linkFinding("POST_SUBMIT_NOT_OFFERED", {
+					reason: "no-parent-menu",
+					destination: "parentMenu",
+					offered: "app_home,firstMenu",
+				}),
+			),
+		).toBe(
+			'"Source" goes to the parent module after submit, but "Intake" has no parent module. Choose one of: "App home", "First menu".',
+		);
+	});
+});

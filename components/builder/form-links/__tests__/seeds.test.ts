@@ -14,6 +14,7 @@ import {
 	retargetLink,
 	seedCarriedValues,
 	seedConditionalLink,
+	seedEveryTimeLink,
 	seedOtherwiseLink,
 } from "../seeds";
 import { HOUSEHOLDS, toInspect, toNote, toVisit } from "./fixture";
@@ -34,8 +35,8 @@ describe("seeds", () => {
 		});
 	});
 
-	it("an otherwise link has no condition slot at all", () => {
-		const link = seedOtherwiseLink(
+	it("an every-time destination has no condition slot at all", () => {
+		const link = seedEveryTimeLink(
 			{
 				target: toVisit,
 				carry: { kind: "automatic", carried: [] },
@@ -46,6 +47,23 @@ describe("seeds", () => {
 		expect(link).toStrictEqual({ uuid: testUuid("o"), target: toVisit });
 		expect("condition" in link).toBe(false);
 		expect("datums" in link).toBe(false);
+	});
+
+	it("an otherwise link is the Otherwise's link arm, with the uuid the builder minted", () => {
+		const otherwise = seedOtherwiseLink(
+			{
+				target: toInspect,
+				carry: { kind: "manual-required", datumIds: ["case_id"] },
+				required,
+			},
+			testUuid("ow"),
+		);
+		expect(otherwise).toStrictEqual({
+			kind: "link",
+			uuid: testUuid("ow"),
+			target: toInspect,
+			datums: [{ name: datumName, xpath: term(literal("")) }],
+		});
 	});
 
 	it("carries one '' per required value only when the destination needs them by hand", () => {

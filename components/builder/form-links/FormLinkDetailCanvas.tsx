@@ -1,12 +1,15 @@
 // components/builder/form-links/FormLinkDetailCanvas.tsx
 //
-// One after-submit link, opened.
+// One after-submit link, opened: a destination, or the otherwise link.
 //
 // The division with the rail is the case-operations rule: an EXPRESSION
 // is here in the centre canvas where it has width (the condition, the
 // values carried by hand); a discrete CHOICE is in the rail (where it
-// goes, what kind of link it is, removal). Both expression slots are
-// session-scoped: see `LinkConditionEditor`.
+// goes, when it runs, whether it is the Otherwise, removal). Both expression
+// slots are session-scoped: see `LinkConditionEditor`. A link to a module's
+// form list carries nothing (CommCare HQ's form settings page offers a menu
+// no values), so its carried-values section shows only to remove values a
+// menu link still holds.
 
 "use client";
 
@@ -23,6 +26,7 @@ import type { Uuid } from "@/lib/doc/types";
 import type { FormLink } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
+import { showCommitReportToast } from "./afterSubmitCopy";
 import { CarryValuesSection } from "./CarryValuesSection";
 import {
 	clearConditionEditorOpen,
@@ -59,10 +63,33 @@ export function FormLinkDetailCanvas({
 	}, [linkUuid]);
 
 	const plan = view.plan;
-	const links = plan?.links ?? [];
-	const index = links.findIndex((candidate) => candidate.uuid === linkUuid);
-	const link = index < 0 ? undefined : links[index];
-	const isOtherwise = plan?.elseLink?.uuid === linkUuid;
+	/* The list as the canvas walks it: every destination in order, then the
+	 * otherwise link when the Otherwise is one. */
+	const otherwiseLink =
+		plan?.otherwise?.kind === "link" ? plan.otherwise : undefined;
+	const destinations = plan?.destinations ?? [];
+	const walk = [
+		...destinations.map((candidate) => candidate.uuid),
+		...(otherwiseLink === undefined ? [] : [otherwiseLink.uuid]),
+	];
+	const index = walk.indexOf(linkUuid);
+	const destination = destinations.find(
+		(candidate) => candidate.uuid === linkUuid,
+	);
+	const isOtherwise = otherwiseLink?.uuid === linkUuid;
+	/* The otherwise link seen as a link for the shared editors: the same
+	 * uuid, target and carried values, with no condition. */
+	const link: FormLink | undefined =
+		destination ??
+		(isOtherwise && otherwiseLink !== undefined
+			? {
+					uuid: otherwiseLink.uuid,
+					target: otherwiseLink.target,
+					...(otherwiseLink.datums !== undefined && {
+						datums: otherwiseLink.datums,
+					}),
+				}
+			: undefined);
 
 	useEffect(() => {
 		headingRef.current?.focus();
@@ -82,12 +109,28 @@ export function FormLinkDetailCanvas({
 		);
 	}
 
-	const sentence = linkSentence(link, sentenceContext);
+	const sentence = linkSentence(
+		link,
+		sentenceContext,
+		isOtherwise ? "otherwise" : "destination",
+	);
 	const commit = (next: FormLink) => {
 		if (!canEdit) return { ok: false as const, messages: [] };
-		const outcome = view.update(next, link);
+		const outcome =
+			destination !== undefined
+				? view.update(next, destination)
+				: view.setOtherwise({
+						kind: "link",
+						uuid: next.uuid,
+						target: next.target,
+						...(next.datums !== undefined && { datums: next.datums }),
+					});
 		setRefusal(outcome.ok ? undefined : outcome.messages.join(" "));
+		if (outcome.ok) showCommitReportToast(outcome);
 		return outcome;
+	};
+	const open = (uuid: Uuid | undefined) => {
+		if (uuid !== undefined) navigate.openFormLinks(moduleUuid, formUuid, uuid);
 	};
 
 	return (
@@ -100,12 +143,12 @@ export function FormLinkDetailCanvas({
 					className="-ml-2"
 				>
 					<Icon icon={tablerArrowLeft} width="16" height="16" />
-					All links
+					After submit
 				</Button>
 				<span className="text-[13px] text-nova-text-muted">
 					{isOtherwise
 						? "Otherwise"
-						: `Checked ${index + 1} of ${links.length}`}
+						: `Runs ${index + 1} of ${destinations.length}`}
 				</span>
 				<span className="ml-auto flex gap-1">
 					<Button
@@ -113,12 +156,7 @@ export function FormLinkDetailCanvas({
 						variant="ghost"
 						disabled={index === 0}
 						aria-label="Previous link"
-						onClick={() => {
-							const previous = links[index - 1];
-							if (previous !== undefined) {
-								navigate.openFormLinks(moduleUuid, formUuid, previous.uuid);
-							}
-						}}
+						onClick={() => open(walk[index - 1])}
 					>
 						<Icon icon={tablerChevronLeft} width="16" height="16" />
 						Previous
@@ -126,14 +164,9 @@ export function FormLinkDetailCanvas({
 					<Button
 						type="button"
 						variant="ghost"
-						disabled={index === links.length - 1}
+						disabled={index === walk.length - 1}
 						aria-label="Next link"
-						onClick={() => {
-							const next = links[index + 1];
-							if (next !== undefined) {
-								navigate.openFormLinks(moduleUuid, formUuid, next.uuid);
-							}
-						}}
+						onClick={() => open(walk[index + 1])}
 					>
 						Next
 						<Icon icon={tablerChevronRight} width="16" height="16" />
@@ -143,7 +176,7 @@ export function FormLinkDetailCanvas({
 
 			<header className="mb-7">
 				<p className="text-[13px] font-medium text-nova-text-muted">
-					{isOtherwise ? "When nothing above matched" : "After submit link"}
+					{isOtherwise ? "Otherwise" : "After submit destination"}
 				</p>
 				<h1
 					ref={headingRef}
@@ -153,9 +186,8 @@ export function FormLinkDetailCanvas({
 					{sentence.lead}
 				</h1>
 				<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
-					What this link checks and what travels with the person. Where it goes,
-					and whether it is the otherwise link, are in the panel beside this
-					screen.
+					When this runs and what travels with the person. Where it goes, and
+					whether it is the Otherwise, are in the panel beside this screen.
 				</p>
 			</header>
 
@@ -176,19 +208,21 @@ export function FormLinkDetailCanvas({
 
 			<fieldset disabled={!canEdit} className="contents">
 				<Section
-					title="When this link is followed"
+					title="When it runs"
 					description={
 						isOtherwise
-							? "Whenever none of the links above it matched. This is the otherwise link, so it has no condition of its own."
-							: "Only when this is true once the form has been submitted. Links are checked from the top; the first true one is followed."
+							? "When no destination with a condition or a carried case runs. The Otherwise has no condition of its own."
+							: link.condition !== undefined
+								? "Only when this is true once the form has been submitted. Every destination whose condition is true runs, in the list's order."
+								: "Every time the form is submitted, in its place in the list. You can give it a condition in the panel beside this screen."
 					}
 				>
 					{isOtherwise ? (
 						<p className="text-[14px] leading-relaxed text-nova-text-secondary">
-							To send the person somewhere else when a condition is true, add a
-							link above this one.
+							To send the person somewhere when a condition is true, add a
+							destination with a condition.
 						</p>
-					) : (
+					) : link.condition !== undefined ? (
 						<LinkConditionEditor
 							formUuid={formUuid}
 							link={link}
@@ -196,21 +230,27 @@ export function FormLinkDetailCanvas({
 							autoEdit={openEditorOnArrival}
 							onCommit={commit}
 						/>
+					) : (
+						<p className="text-[14px] leading-relaxed text-nova-text-secondary">
+							{sentence.details.join(" · ")}
+						</p>
 					)}
 				</Section>
 
-				<Section
-					title="Carry values"
-					description="What the destination needs to know about the case when the person arrives."
-				>
-					<CarryValuesSection
-						formUuid={formUuid}
-						link={link}
-						view={view}
-						canEdit={canEdit}
-						onCommit={commit}
-					/>
-				</Section>
+				{(link.target.type !== "module" || link.datums !== undefined) && (
+					<Section
+						title="Carry values"
+						description="What the destination needs to know about the case when the person arrives."
+					>
+						<CarryValuesSection
+							formUuid={formUuid}
+							link={link}
+							view={view}
+							canEdit={canEdit}
+							onCommit={commit}
+						/>
+					</Section>
+				)}
 			</fieldset>
 		</ContentFrame>
 	);

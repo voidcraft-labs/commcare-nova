@@ -259,7 +259,9 @@ harness keeps, each with its reason.
   other entry holds on its document and still show on its control (step 1's
   decision 12, `proof/README.md`). A fix moves its entries to
   `fixed-defects.json` in the same pull request, where each must still show
-  on its control and is held on no document. A fixed entry is re-pathed only
+  on its control and is held on no document. From step 5 the known register
+  is empty; an entry added later names a defect `OPEN_DEFECTS` gives to a
+  later step. A fixed entry is re-pathed only
   when the check's vocabulary or pinned upstream text moved, deleted only
   when upstream changed the behavior, a judge change deliberately stops
   reporting the class on its control, or a change to how the lane runs a

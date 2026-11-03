@@ -58,14 +58,23 @@ import {
 } from "@/lib/domain";
 import { unhandledKindMessage } from "@/lib/domain/expression/errors";
 import {
+	afterSubmitFrameLanding,
 	afterSubmitRoute,
 	afterSubmitTargetVisibility,
 	appHomeLanding,
 	automaticLinkedCaseCollection,
 	carriedCasesFromPatch,
+	type PreviewAfterSubmitFrame,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "@/lib/preview/afterSubmitRouting";
+import {
+	afterSubmitPath,
+	completeAfterSubmit,
+	completeAfterSubmitWithOwnFrame,
+	EMPTY_AFTER_SUBMIT_STACK,
+	type PendingAfterSubmitFrame,
+} from "@/lib/preview/afterSubmitStack";
 import {
 	caseListRegistrationAdmission,
 	caseListRegistrationPostSubmit,
@@ -100,9 +109,11 @@ import {
 	type CarriedSubmission,
 	carriedCaseFromSelections,
 	createFormLinkWorkerWorld,
-	evaluateFormLinksAsync,
+	evaluateAfterSubmitAsync,
+	frameChoiceEntry,
 	type PostSubmissionCaseData,
 	projectTargetCaseSelectionsAsync,
+	submittedEntryPath,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { withNavigationWidth } from "@/lib/preview/engine/previewDevice";
@@ -1261,11 +1272,16 @@ export function FormScreen({ screen }: FormScreenProps) {
 	/**
 	 * Where the app goes once a submission has landed.
 	 *
-	 * A form with no after-submit links goes to its post-submit destination,
-	 * exactly as before. A form WITH links runs them the way the device does
-	 * (`lib/preview/engine/formLinkEvaluation.ts`): a link condition is
-	 * evaluated after the form has closed, against the case rows AS THEY ARE
-	 * NOW. Typed case hashtags and `#user` read from the exact rows returned by
+	 * The submission pushes its frames the way the device does
+	 * (`lib/preview/engine/formLinkEvaluation.ts::evaluateAfterSubmitAsync`):
+	 * every destination whose condition and carried-case guards hold after the
+	 * form has closed, against the case rows AS THEY ARE NOW, then the
+	 * otherwise when none that may not run does; a form without destinations
+	 * pushes its after-submit destination's frame. The platform's stack
+	 * (`lib/preview/afterSubmitStack.ts`, `rules.afterSubmitFrames`) then pops
+	 * the frame that opens: on Android the top one, with the rest pending
+	 * until it finishes; on Web Apps the top one alone. Nothing left is the
+	 * app home. Typed case hashtags and `#user` read from the exact rows returned by
 	 * the submission transaction. The structural casedb starts from the exact
 	 * device snapshot captured at form entry and applies that committed row/index
 	 * patch. A fresh
@@ -1287,7 +1303,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 	const dispatchAfterSubmit = async (args: {
 		readonly submitted: SubmittedContextSnapshot & {
 			readonly appId: string;
-			readonly destination: PostSubmitDestination;
 		};
 		readonly result: SubmissionSuccess;
 		readonly isCurrent: () => boolean;
@@ -1360,6 +1375,34 @@ export function FormScreen({ screen }: FormScreenProps) {
 				: undefined;
 		if (noMatchesRegistration !== undefined) {
 			retireCompletedTask();
+			/* The return frame is pushed and opens like any other frame, so
+			 * what was pending stays only while the worker is on its path. */
+			if (submitted.formUuid !== undefined)
+				session.getState().setPreviewAfterSubmitStack(
+					completeAfterSubmitWithOwnFrame(
+						session.getState().previewAfterSubmitStack,
+						submittedEntryPath({
+							doc: submitted.doc,
+							moduleUuid: noMatchesRegistration.moduleUuid,
+							formUuid: submitted.formUuid,
+							caseIdsOf: (moduleUuid) =>
+								menuCaseSelections[moduleUuid]?.cases.map(
+									(choice) => choice.caseId,
+								) ?? [],
+						}),
+						caseListRegistrationPostSubmit(
+							submitted.doc,
+							submitted.formUuid,
+						) === "firstMenu"
+							? []
+							: afterSubmitPath(
+									submitted.doc,
+									{ moduleUuid: noMatchesRegistration.moduleUuid },
+									[],
+								),
+						platformRules.afterSubmitFrames,
+					),
+				);
 			// An explicitly authored First menu destination is HQ's empty root
 			// frame. It discards the scalar registration return rather than feeding
 			// that scalar into a host that may require a multiple-case selection.
@@ -1388,15 +1431,19 @@ export function FormScreen({ screen }: FormScreenProps) {
 			);
 			return;
 		}
-		const links = submitted.links ?? [];
+		/* A form without destinations, with nothing pending, goes straight to
+		 * its after-submit destination: its one frame is the stack. */
 		if (
-			(links.length === 0 && submitted.destination !== "previous") ||
-			submitted.formUuid === undefined
+			submitted.links === undefined &&
+			submitted.destination !== undefined &&
+			submitted.destination !== "previous" &&
+			session.getState().previewAfterSubmitStack.pending.length === 0
 		) {
 			retireCompletedTask();
 			announceWrite();
 			settleAttempt({ kind: "idle" });
 			forgetCompletedPages();
+			session.getState().setPreviewAfterSubmitStack(EMPTY_AFTER_SUBMIT_STACK);
 			dispatchPostSubmit(
 				submitted.destination,
 				submitted.moduleUuid,
@@ -1405,6 +1452,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			return;
 		}
 		const sourceFormUuid = submitted.formUuid;
+		const sourceModuleUuid = submitted.moduleUuid;
 		const sourceEntryKey = submitted.entryKey;
 		const failAfterSave = (message: string, failureCode: string): void => {
 			announceWrite();
@@ -1423,7 +1471,11 @@ export function FormScreen({ screen }: FormScreenProps) {
 			});
 			settleAttempt({ kind: "error", message });
 		};
-		if (sourceEntryKey === undefined) {
+		if (
+			sourceEntryKey === undefined ||
+			sourceFormUuid === undefined ||
+			sourceModuleUuid === undefined
+		) {
 			failAfterSave(
 				"Your answers were saved, but the next screen could not be chosen. Reload the app and try again.",
 				"missing-entry-scope",
@@ -1530,50 +1582,46 @@ export function FormScreen({ screen }: FormScreenProps) {
 					? {}
 					: { searchResults: submitted.entrySession.searchResults }),
 			};
-			const { choice, projectedSelections } =
-				await controller.evaluateFormLinkXPaths(
-					sourceEntryKey,
-					async (evaluateLink) => {
-						const world = createFormLinkWorkerWorld(
-							input,
-							`form-link-${crypto.randomUUID()}`,
-						);
-						const choice = await evaluateFormLinksAsync({
-							links,
-							fallback: submitted.destination,
-							input,
-							evaluate: evaluateLink,
-							world,
+			const evaluatedFrames = await controller.evaluateFormLinkXPaths(
+				sourceEntryKey,
+				async (evaluateLink) => {
+					const world = createFormLinkWorkerWorld(
+						input,
+						`form-link-${crypto.randomUUID()}`,
+					);
+					/* Every frame and every carried value reads the one
+					 * post-submit world, as Core evaluates a form's stack
+					 * operations in one context. */
+					const choices = await evaluateAfterSubmitAsync({
+						input,
+						evaluate: evaluateLink,
+						world,
+					});
+					const frames = [];
+					for (const choice of choices) {
+						const entry = frameChoiceEntry(choice);
+						frames.push({
+							choice,
+							projectedSelections:
+								entry === undefined
+									? []
+									: await projectTargetCaseSelectionsAsync(
+											input,
+											sourceFormUuid,
+											entry,
+											evaluateLink,
+											world,
+										),
 						});
-						const projectedSelections =
-							choice.kind === "link"
-								? await projectTargetCaseSelectionsAsync(
-										input,
-										sourceFormUuid,
-										choice.link,
-										evaluateLink,
-										world,
-									)
-								: [];
-						return { choice, projectedSelections };
-					},
-				);
+					}
+					return frames;
+				},
+			);
 			if (!isCurrent()) {
 				announceWrite();
 				settleAttempt({ kind: "idle" });
 				return;
 			}
-			const linkedCaseCollection = automaticLinkedCaseCollection({
-				choice,
-				doc,
-				sourceModuleUuid: submitted.moduleUuid,
-				sourceFormType: submitted.formType,
-				submittedCases: submitted.cases,
-				resultCaseIds,
-				caseDatabase: refreshedCaseDatabase,
-			});
-			const linkedCaseCollections =
-				linkedCaseCollection === undefined ? [] : [linkedCaseCollection];
 			/* The menu reads the live lookup snapshot; the form's own capture
 			 * stands in until one arrives. */
 			const targetLookup = (): PreviewLookupStatus => {
@@ -1584,78 +1632,154 @@ export function FormScreen({ screen }: FormScreenProps) {
 					? live
 					: { kind: "data", data: captured };
 			};
-			const routeOnce = () =>
-				afterSubmitRoute({
-					previousTask: () =>
-						resolvePreviousTask({
-							doc,
-							formUuid: sourceFormUuid,
-							submittedCaseIds: resultCaseIds,
-							selections: menuCaseSelections,
-							caseDatabase: refreshedCaseDatabase,
-						}),
+			const mode = platformRules.afterSubmitFrames;
+			/* Each frame's route and landing are fixed as it is pushed. Web Apps
+			 * opens the frame on top and keeps nothing beneath it, so only that
+			 * one is routed there: a frame that never opens never waits on the
+			 * menu's data. */
+			const routable =
+				mode === "top" ? evaluatedFrames.slice(-1) : evaluatedFrames;
+			const pushed: PendingAfterSubmitFrame<PreviewAfterSubmitFrame>[] = [];
+			for (const { choice, projectedSelections } of routable) {
+				const collection = automaticLinkedCaseCollection({
 					choice,
 					doc,
-					caseFirstModules,
-					hasSelectedCase: (targetModuleUuid, projectedSelections) => {
-						return previewTargetHasSelectedCase({
-							menuSource: routeMenuSource,
-							current: selectionsForModuleTask(
-								doc,
-								targetModuleUuid,
-								menuCaseSelections,
-							),
-							targetModuleUuid,
-							projected: projectedSelections,
-							collections: linkedCaseCollections,
-						});
-					},
-					carriedCase: (link) =>
-						carriedCaseFromSelections(input, link, projectedSelections),
-					caseSelections: () => projectedSelections,
-					rules: platformRules,
-					targetVisibility: (link) =>
-						afterSubmitTargetVisibility({
-							doc,
-							link,
-							session: previewSessionValues(
-								visibilityInputsRef.current.previewIdentity,
-								previewDevice,
-							),
-							lookup: targetLookup(),
-							deviceCases: {
-								snapshot: refreshedCaseDatabase,
-								caseTypes: submitted.caseTypes,
-							},
-							caseSelections: projectedSelections,
-						}),
+					sourceModuleUuid,
+					sourceFormType: submitted.formType,
+					sourceFormUuid,
+					submittedCases: submitted.cases,
+					resultCaseIds,
+					caseDatabase: refreshedCaseDatabase,
 				});
-			let route = routeOnce();
-			while (route.kind === "pending") {
-				/* With the worker known and the device's cases in hand, a still
-				 * pending target waits only on lookup data, and a failed read
-				 * brings no later change to wake on. */
-				if (
-					targetLookup().kind === "error" &&
-					previewSessionValues(
-						visibilityInputsRef.current.previewIdentity,
-						previewDevice,
-					).identityPending !== true
-				) {
+				const collections = collection === undefined ? [] : [collection];
+				const routeOnce = () =>
+					afterSubmitRoute({
+						previousTask: () =>
+							resolvePreviousTask({
+								doc,
+								formUuid: sourceFormUuid,
+								submittedCaseIds: resultCaseIds,
+								selections: menuCaseSelections,
+								caseDatabase: refreshedCaseDatabase,
+							}),
+						choice,
+						sourceFormUuid,
+						doc,
+						caseFirstModules,
+						hasSelectedCase: (targetModuleUuid, selections) =>
+							previewTargetHasSelectedCase({
+								menuSource: routeMenuSource,
+								current: selectionsForModuleTask(
+									doc,
+									targetModuleUuid,
+									menuCaseSelections,
+								),
+								targetModuleUuid,
+								projected: selections,
+								collections,
+							}),
+						carriedCase: (entry) =>
+							carriedCaseFromSelections(input, entry, projectedSelections),
+						caseSelections: () => projectedSelections,
+						rules: platformRules,
+						targetVisibility: (target) =>
+							afterSubmitTargetVisibility({
+								doc,
+								target,
+								session: previewSessionValues(
+									visibilityInputsRef.current.previewIdentity,
+									previewDevice,
+								),
+								lookup: targetLookup(),
+								deviceCases: {
+									snapshot: refreshedCaseDatabase,
+									caseTypes: submitted.caseTypes,
+								},
+								caseSelections: projectedSelections,
+							}),
+					});
+				let frameRoute = routeOnce();
+				while (frameRoute.kind === "pending") {
+					/* With the worker known and the device's cases in hand, a
+					 * still pending target waits only on lookup data, and a failed
+					 * read brings no later change to wake on. */
+					if (
+						targetLookup().kind === "error" &&
+						previewSessionValues(
+							visibilityInputsRef.current.previewIdentity,
+							previewDevice,
+						).identityPending !== true
+					) {
+						failAfterSave(
+							"Your answers were saved, but the next screen depends on lookup data that didn't load. Reload the app and try again.",
+							"target-lookup-unavailable",
+						);
+						return;
+					}
+					await nextVisibilityInputs();
+					if (!isCurrent()) {
+						announceWrite();
+						settleAttempt({ kind: "idle" });
+						return;
+					}
+					frameRoute = routeOnce();
+				}
+				if (frameRoute.kind === "unresolvable") {
 					failAfterSave(
-						"Your answers were saved, but the next screen depends on lookup data that didn't load. Reload the app and try again.",
-						"target-lookup-unavailable",
+						"Your answers were saved, but the next screen could not be found. Reload the app and try again.",
+						"route-unresolvable",
 					);
 					return;
 				}
-				await nextVisibilityInputs();
-				if (!isCurrent()) {
-					announceWrite();
-					settleAttempt({ kind: "idle" });
-					return;
-				}
-				route = routeOnce();
+				pushed.push({
+					route: {
+						route: frameRoute,
+						...(collection === undefined ? {} : { collection }),
+					},
+					landing: afterSubmitFrameLanding({
+						doc,
+						route: frameRoute,
+						collection,
+						sourceModuleUuid,
+						selections: menuCaseSelections,
+					}),
+				});
 			}
+			/* The entry the worker submitted, as the path its frame took: the
+			 * stack keeps what is pending only while that path begins with the
+			 * last frame's landing (`CommCareSession.java::cleanStack`). */
+			const completed = completeAfterSubmit(
+				session.getState().previewAfterSubmitStack,
+				submittedEntryPath({
+					doc,
+					moduleUuid: sourceModuleUuid,
+					formUuid: sourceFormUuid,
+					caseIdsOf: (moduleUuid) =>
+						moduleUuid === sourceModuleUuid
+							? (submitted.caseIds ?? [])
+							: (menuCaseSelections[moduleUuid]?.cases.map(
+									(choice) => choice.caseId,
+								) ?? []),
+				}),
+				pushed,
+				mode,
+			);
+			session.getState().setPreviewAfterSubmitStack(completed.state);
+			const next = completed.next;
+			if (next === undefined) {
+				/* Nothing left to run: the app home, the app's first screen in
+				 * Web Apps and the phone's home screen on Android. */
+				retireCompletedTask();
+				announceWrite();
+				settleAttempt({ kind: "idle" });
+				forgetCompletedPages();
+				dispatchPostSubmit("app_home", sourceModuleUuid, submitted.doc);
+				return;
+			}
+			const { route } = next;
+			const linkedCaseCollection = next.collection;
+			const linkedCaseCollections =
+				linkedCaseCollection === undefined ? [] : [linkedCaseCollection];
 			let targetCaseData = caseData;
 			let targetFormCaseData: ReturnType<typeof caseDatabaseToFormPreloads>;
 			if (route.kind === "module" || route.kind === "form") {
@@ -1862,7 +1986,9 @@ export function FormScreen({ screen }: FormScreenProps) {
 					settleAttempt({ kind: "idle" });
 					navigate.openForm(route.moduleUuid, route.formUuid);
 					return;
+				/* Neither is ever pushed: each fails as its frame is routed. */
 				case "unresolvable":
+				case "pending":
 					failAfterSave(
 						"Your answers were saved, but the next screen could not be found. Reload the app and try again.",
 						"route-unresolvable",
@@ -1882,6 +2008,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 								"form",
 								"results-with-registered-case",
 								"unresolvable",
+								"pending",
 							],
 						}),
 					);
@@ -2087,7 +2214,7 @@ export function FormScreen({ screen }: FormScreenProps) {
 			submitted.scopeEpoch !== start.scopeEpoch ||
 			submitted.formUuid === undefined ||
 			submitted.entryKey === undefined ||
-			submitted.destination === undefined
+			(submitted.links === undefined && submitted.destination === undefined)
 		) {
 			return;
 		}
@@ -2214,7 +2341,11 @@ export function FormScreen({ screen }: FormScreenProps) {
 				const finalDoc = structuredClone(pickBlueprintDoc(finalDocState));
 				const finalSubmitted = submittedSnapshot(finalDoc);
 				if (mutation.formUuid !== finalSubmitted.formUuid) return "stale";
-				if (finalSubmitted.destination === undefined) return "stale";
+				if (
+					finalSubmitted.links === undefined &&
+					finalSubmitted.destination === undefined
+				)
+					return "stale";
 				const finalSaveOutcome =
 					await collab?.reconciler.waitForHumanSaveBarrier();
 				if (
@@ -2307,11 +2438,15 @@ export function FormScreen({ screen }: FormScreenProps) {
 				);
 				/* The phone leaves the form and lands where its after-submit
 				 * destination lands; with no write there is no earlier task to
-				 * return to, so `previous` lands on the form's module. */
+				 * return to, so `previous` lands on the form's module. A form
+				 * with destinations evaluates none of them with nothing saved,
+				 * and lands on the app home. */
 				dispatchPostSubmit(
-					submitted.destination === "previous"
-						? "module"
-						: submitted.destination,
+					submitted.destination === undefined
+						? "app_home"
+						: submitted.destination === "previous"
+							? "module"
+							: submitted.destination,
 					submitted.moduleUuid,
 					submitted.doc,
 				);
@@ -2341,7 +2476,6 @@ export function FormScreen({ screen }: FormScreenProps) {
 					submitted: {
 						...submitted,
 						appId: submittedAppId,
-						destination: submitted.destination,
 					},
 					result,
 					isCurrent,

@@ -210,6 +210,7 @@ export const PLATFORM_FEATURE_IDS = [
 	"search",
 	"skip-to-results",
 	"after-submit-home",
+	"after-submit-several-destinations",
 	"app-logo",
 	"saved-forms",
 	"incomplete-forms",
@@ -757,6 +758,15 @@ export const PLATFORM_FEATURES: Readonly<
 			reading: "different",
 			note: "after submit, App home opens the CommCare home screen, and First menu opens the app's first menu",
 		},
+	},
+	"after-submit-several-destinations": {
+		label: "Several after-submit destinations",
+		channel: "structure",
+		webApps: {
+			reading: "different",
+			note: "after submit, only the first destination that applies opens, and when the otherwise applies it opens instead of any destination set to run every time",
+		},
+		android: { reading: "runs" },
 	},
 	"app-logo": {
 		label: "App logo",

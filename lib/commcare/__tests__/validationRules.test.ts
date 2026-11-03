@@ -950,7 +950,7 @@ describe("POST_SUBMIT_NOT_OFFERED", () => {
 		);
 	});
 
-	it("exempts a fallback beside links from the two several-case reasons alone", () => {
+	it("leaves a form with destinations to the otherwise's rules", () => {
 		const linked = (d: BlueprintDoc) => {
 			d.forms[a].formLinks = [
 				{
@@ -973,15 +973,32 @@ describe("POST_SUBMIT_NOT_OFFERED", () => {
 				selection: several,
 			};
 		};
-		expect(
-			notOffered(
-				candidate(patient("followup"), (d) => {
-					multi(d);
-					linked(d);
-					d.forms[a].postSubmit = "previous";
-				}),
-			),
-		).toEqual([]);
+		// A postSubmit beside destinations is its own finding, not a
+		// destination the menu withholds.
+		const beside = candidate(patient("followup"), (d) => {
+			multi(d);
+			linked(d);
+			d.forms[a].postSubmit = "previous";
+		});
+		const codesOf = (doc: BlueprintDoc) =>
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(({ code }) => code);
+		expect(notOffered(beside)).toEqual([]);
+		expect(codesOf(beside)).toContain("POST_SUBMIT_BESIDE_FORM_LINKS");
+		// The several-case reasons withhold a built-in otherwise as they
+		// withhold an after-submit destination.
+		const otherwise = candidate(patient("followup"), (d) => {
+			multi(d);
+			linked(d);
+			d.forms[a].otherwise = { kind: "destination", destination: "previous" };
+		});
+		const refused = runValidation(otherwise, LOOKUP_CONTEXT_UNAVAILABLE).find(
+			({ code }) => code === "FORM_OTHERWISE_NOT_OFFERED",
+		);
+		expect(codesOf(otherwise)).not.toContain("POST_SUBMIT_BESIDE_FORM_LINKS");
+		expect(refused?.details).toMatchObject({
+			reason: "menu-selects-several",
+			slot: "otherwise",
+		});
 		expect(
 			only(
 				candidate(patient("followup"), (d) => {
@@ -990,37 +1007,6 @@ describe("POST_SUBMIT_NOT_OFFERED", () => {
 				}),
 			).details,
 		).toMatchObject({ reason: "menu-selects-several" });
-		expect(
-			only(
-				candidate(survey(), (d) => {
-					linked(d);
-					d.forms[a].postSubmit = "parentMenu";
-				}),
-			).details,
-		).toMatchObject({ reason: "no-parent-menu" });
-		expect(
-			only(
-				candidate(survey(), (d) => {
-					d.modules[m].hiddenFromMenu = true;
-					linked(d);
-					d.forms[a].formLinks = [
-						{
-							uuid: testUuid("rules-link"),
-							target: { type: "form", moduleUuid: m, formUuid: a },
-							condition: eq(
-								{
-									kind: "session-user",
-									field: "username",
-									source: "worker-record",
-								},
-								literal("reviewer"),
-							),
-						},
-					];
-					d.forms[a].postSubmit = "module";
-				}),
-			).details,
-		).toMatchObject({ reason: "menu-off-the-menu" });
 	});
 
 	it("never refuses an absent slot", () => {
@@ -1095,7 +1081,7 @@ describe("form navigation admission", () => {
 			}),
 		);
 	});
-	it("requires an explicit fallback for conditional session-scope links", () => {
+	it("admits conditional session-scope links with no otherwise, and refuses a postSubmit beside them", () => {
 		const doc = candidate(linkedBase(), (d) => {
 			d.forms[a].formLinks = [
 				{
@@ -1111,17 +1097,22 @@ describe("form navigation admission", () => {
 				},
 			];
 		});
-		findings(doc, ["FORM_LINK_NO_FALLBACK"]);
-		const repaired = structuredClone(doc);
-		repaired.forms[a].postSubmit = "app_home";
-		assertAdmittedDoc(repaired);
+		assertAdmittedDoc(doc);
+		const beside = structuredClone(doc);
+		beside.forms[a].postSubmit = "app_home";
+		findings(beside, ["POST_SUBMIT_BESIDE_FORM_LINKS"]);
+		const otherwise = structuredClone(doc);
+		otherwise.forms[a].otherwise = {
+			kind: "destination",
+			destination: "module",
+		};
+		assertAdmittedDoc(otherwise);
 	});
-	it("rejects a terminal link hidden behind an unconditional earlier link", () => {
-		findings(
+	it("admits several destinations that each run every time", () => {
+		assertAdmittedDoc(
 			candidate(linkedBase(), (d) => {
 				d.forms[a].formLinks = [link(b), link(c, "second")];
 			}),
-			["FORM_LINK_UNREACHABLE"],
 		);
 	});
 	it("rejects an explicitly empty link collection", () => {
@@ -1153,21 +1144,25 @@ describe("form navigation admission", () => {
 			findings(doc, ["FORM_LINK_TARGET_NOT_FOUND"]);
 		},
 	);
-	it.each([1, 2, 3])("reports every member of a %i-form cycle", (length) => {
+	it.each([1, 2, 3])("admits a %i-form cycle", (length) => {
 		const forms = [a, b, c].slice(0, length);
 		const doc = candidate(linkedBase(), (d) => {
 			forms.forEach((uuid, index) => {
 				d.forms[uuid].formLinks = [
-					link(forms[(index + 1) % length], `cycle-${index}`),
+					length === 1
+						? { uuid: testUuid("cycle-0"), target: { type: "this-form" } }
+						: link(forms[(index + 1) % length], `cycle-${index}`),
 				];
 			});
 		});
-		const errors = findings(doc, [
-			...forms.map(() => "FORM_LINK_CIRCULAR"),
-			...(length === 1 ? ["FORM_LINK_SELF_REFERENCE"] : []),
-		]);
-		expect(errors.slice(0, length)).toMatchObject(
-			forms.map((formUuid) => ({ scope: "app", details: { formUuid } })),
+		assertAdmittedDoc(doc);
+	});
+	it("refuses a form target naming the source form", () => {
+		findings(
+			candidate(linkedBase(), (d) => {
+				d.forms[a].formLinks = [link(a, "self")];
+			}),
+			["FORM_LINK_SELF_REFERENCE"],
 		);
 	});
 });

@@ -1,6 +1,7 @@
 /** Patch form metadata and navigation through the shared canonical workspace. */
 import { z } from "zod";
 import { caseListRegistrationMutations } from "@/lib/doc/caseListRegistrationForm";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	setFormDisplayConditionMutation,
 	setFormHiddenFromMenuMutation,
@@ -40,6 +41,7 @@ import {
 	formAddressSchema,
 	resolveFormAddress,
 } from "./shared/entityAddresses";
+import { precheckLookupContext } from "./shared/platformPrecheck";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -73,7 +75,7 @@ export const updateFormInputSchema = formAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Post-submit destination: "app_home", "firstMenu" (the app\'s first menu, which lists its modules; in Web Apps the same screen as "app_home"), "module" (its normal opening screen), "parentMenu" (the parent module, with its selection kept), or "previous" (the preceding selection or task shown by the resolved navigation result). null resets to the default: "app_home" for registration/survey, and for followup/close the first the module offers of "previous", "module", "firstMenu". A module offers "previous" unless it or its parent selects several cases, its forms read the search, or it is off the menu; "module" unless its parent selects several cases or it is off the menu; "parentMenu" when its parent neither selects several cases nor is off the menu. A destination the module does not offer is refused. A form that is its menu\'s registration from the case list returns to the results after submit, or goes to "firstMenu" when that is set, which a menu choosing several cases requires. With conditional after-submit links and no otherwise link this is where the form goes when none match, and it must be explicit.',
+				'Post-submit destination: "app_home", "firstMenu" (the app\'s first menu, which lists its modules; in Web Apps the same screen as "app_home"), "module" (its normal opening screen), "parentMenu" (the parent module, with its selection kept), or "previous" (the preceding selection or task shown by the resolved navigation result). null resets to the default: "app_home" for registration/survey, and for followup/close the first the module offers of "previous", "module", "firstMenu". A module offers "previous" unless it or its parent selects several cases, its forms read the search, or it is off the menu; "module" unless its parent selects several cases or it is off the menu; "parentMenu" when its parent neither selects several cases nor is off the menu. A destination the module does not offer is refused. A form that is its menu\'s registration from the case list returns to the results after submit, or goes to "firstMenu" when that is set, which a menu choosing several cases requires. A form with after-submit destinations takes no post_submit; set where it goes when none runs with setFormOtherwise/set_form_otherwise.',
 			),
 		connect: connectFormPatchSchema
 			.nullable()
@@ -326,6 +328,28 @@ export const updateFormTool = {
 						),
 					),
 				);
+			/* Private work stages a batch whatever its findings, so a
+			 * post_submit beside destinations is refused at this call, in the
+			 * gate's own words for the same batch. */
+			if (post_submit != null && (existing.formLinks?.length ?? 0) > 0) {
+				const verdict = mutationCommitVerdict(
+					doc,
+					mutations,
+					await precheckLookupContext(ctx, doc, applyToDoc(doc, mutations)),
+				);
+				const beside = verdict.ok
+					? undefined
+					: verdict.findings.find(
+							(finding) => finding.code === "POST_SUBMIT_BESIDE_FORM_LINKS",
+						);
+				if (beside !== undefined) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						result: { error: beside.message },
+					};
+				}
+			}
 			const commit = await guardedMutate(ctx, mutations, `form:${formUuid}`);
 			if (!commit.ok) {
 				return {

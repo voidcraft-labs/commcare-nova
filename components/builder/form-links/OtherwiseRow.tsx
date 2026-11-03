@@ -1,12 +1,18 @@
 // components/builder/form-links/OtherwiseRow.tsx
 //
-// The list's terminal row: what happens when nothing above matched.
+// The list's last row: where the form goes when no destination that may not
+// run runs.
 //
-// Always last and never draggable, because its position IS its meaning.
-// It shows the otherwise link when one exists (with a way into that
-// link's detail, where its carried values live) or the built-in
-// destination, and carries the one chooser (`FallbackChooser`) that
-// changes either.
+// Always last and never draggable, because it is not a destination in the
+// list's order: CommCare HQ pushes its frame after every destination's, so it
+// opens before any destination that runs every time. The canvas shows it
+// while the form may hold an Otherwise (`plan.otherwiseOffered`) or holds one
+// (so a stored Otherwise the gate now finds has a place to be repaired). It
+// shows the otherwise link (with a way into its detail, where its carried
+// values live), the built-in destination, or the app home an absent
+// Otherwise means, and carries the one chooser (`OtherwiseChooser`) that
+// changes it. A form without destinations shows its after-submit in the
+// same place, through the same chooser.
 
 "use client";
 
@@ -16,9 +22,14 @@ import { Button } from "@/components/shadcn/button";
 import type { AfterSubmitPlan } from "@/lib/doc/formLinkMutations";
 import type { Uuid } from "@/lib/doc/types";
 import { useNavigate } from "@/lib/routing/hooks";
-import { destinationPhrase } from "./afterSubmitCopy";
-import { type ChooserOutcome, FallbackChooser } from "./FallbackChooser";
+import {
+	hasEveryTimeDestination,
+	otherwiseSentence,
+	otherwiseSubtitle,
+	postSubmitSentence,
+} from "./afterSubmitCopy";
 import { type LinkSentenceContext, linkSentence } from "./linkSentence";
+import { type ChooserOutcome, OtherwiseChooser } from "./OtherwiseChooser";
 
 export function OtherwiseRow({
 	moduleUuid,
@@ -27,6 +38,8 @@ export function OtherwiseRow({
 	sentenceContext,
 	canEdit,
 	onOutcome,
+	chooserOpen,
+	onChooserOpenChange,
 }: {
 	readonly moduleUuid: Uuid;
 	readonly formUuid: Uuid;
@@ -34,19 +47,30 @@ export function OtherwiseRow({
 	readonly sentenceContext: LinkSentenceContext;
 	readonly canEdit: boolean;
 	readonly onOutcome: (outcome: ChooserOutcome) => void;
+	/** The chooser's open state, which the add control can set. */
+	readonly chooserOpen?: boolean;
+	readonly onChooserOpenChange?: (open: boolean) => void;
 }) {
 	const navigate = useNavigate();
-	const fallback = plan.fallback;
-	const sentence =
-		fallback.kind === "else-link"
-			? linkSentence(fallback.link, sentenceContext)
-			: {
-					lead: `Go ${destinationPhrase(fallback.destination)}`,
-					details: fallback.explicit
-						? []
-						: ["The usual destination for this kind of form"],
-				};
-	const hasConditional = plan.conditional.length > 0;
+	const otherwise = plan.otherwise;
+	const link = otherwise?.kind === "link" ? otherwise : undefined;
+	/* A form without destinations shows its after-submit here instead, so
+	 * the one chooser stays where the list is. */
+	const postSubmit = plan.postSubmit;
+	const lead =
+		postSubmit !== undefined
+			? postSubmitSentence(postSubmit.destination)
+			: otherwiseSentence(otherwise, sentenceContext.destinationOf);
+	const subtitle =
+		postSubmit !== undefined
+			? postSubmit.explicit
+				? undefined
+				: "The usual destination for this kind of form"
+			: otherwiseSubtitle(hasEveryTimeDestination(plan));
+	const details =
+		link === undefined
+			? []
+			: linkSentence(link, sentenceContext, "otherwise").details;
 
 	return (
 		<div
@@ -62,41 +86,49 @@ export function OtherwiseRow({
 					className="mt-1 shrink-0 text-nova-text-muted"
 				/>
 				<div className="min-w-0 flex-1">
-					<p className="text-[11px] font-semibold uppercase tracking-wider text-nova-text-muted">
-						{hasConditional ? "Otherwise" : "After submit"}
+					<p className="break-words text-[14px] font-semibold text-nova-text">
+						{lead}
 					</p>
-					<p className="mt-0.5 break-words text-[14px] font-semibold text-nova-text">
-						{sentence.lead}
-					</p>
-					{sentence.details.length > 0 && (
+					{subtitle !== undefined && (
 						<p className="mt-0.5 break-words text-[13px] leading-relaxed text-nova-text-muted">
-							{sentence.details.join(" · ")}
+							{subtitle}
+						</p>
+					)}
+					{details.length > 0 && (
+						<p className="mt-0.5 break-words text-[13px] leading-relaxed text-nova-text-muted">
+							{details.join(" · ")}
 						</p>
 					)}
 				</div>
 			</div>
 			<div className="mt-3 flex flex-wrap items-center gap-2 pl-[26px]">
 				<div className="min-w-[14rem] flex-1">
-					<FallbackChooser
+					<OtherwiseChooser
 						moduleUuid={moduleUuid}
 						formUuid={formUuid}
 						canEdit={canEdit}
-						ariaLabel={`Where the form goes when nothing above matches: ${sentence.lead}`}
-						elseLink={{
+						ariaLabel={
+							postSubmit !== undefined
+								? `Where the form goes after submit: ${lead}`
+								: `Where the form goes otherwise: ${lead}`
+						}
+						otherTarget={{
 							kind: "pick",
 							onAdded: (uuid) =>
 								navigate.openFormLinks(moduleUuid, formUuid, uuid),
 						}}
 						onOutcome={onOutcome}
+						open={chooserOpen}
+						onOpenChange={onChooserOpenChange}
 					/>
 				</div>
-				{fallback.kind === "else-link" && (
+				{link !== undefined && (
 					<Button
 						type="button"
 						variant="ghost"
-						data-form-link-select={fallback.link.uuid}
+						data-form-link-select={link.uuid}
 						onClick={() =>
-							navigate.openFormLinks(moduleUuid, formUuid, fallback.link.uuid)
+							navigate.openFormLinks(moduleUuid, formUuid, link.uuid)
 						}
 					>
 						Open this link

@@ -21,6 +21,7 @@ DOCUMENTS = (
     "lookup-app",
     "media-only",
     "search-multiple",
+    "targeted-form-link-otherwise",
     "targeted-hq-side-state",
     "targeted-search-workflow",
     "targeted-search-workflow-android",

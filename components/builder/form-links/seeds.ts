@@ -5,9 +5,9 @@
 // The app is valid by construction, so "add a link" cannot land a
 // half-configured link and let the author discover the rejection later.
 // Each seed here is a complete link the validator accepts on its own,
-// which is why the add affordance asks WHAT KIND of link it is before it
-// commits anything: a conditional link and the otherwise link differ in
-// exactly one slot, and that slot decides where the link may sit.
+// which is why the add affordance asks WHAT KIND of destination it is
+// before it commits anything: one that runs every time, one with a
+// condition, or the Otherwise.
 //
 // Seeds carry placeholder CONTENT, never placeholder STRUCTURE:
 //
@@ -30,7 +30,12 @@ import type {
 	FormLinkRequiredDatum,
 } from "@/lib/doc/formLinkReview";
 import type { FormLinksView } from "@/lib/doc/hooks/useFormLinks";
-import type { FormLink, FormLinkDatum, FormLinkTarget } from "@/lib/domain";
+import type {
+	FormLink,
+	FormLinkDatum,
+	FormLinkTarget,
+	FormOtherwiseLink,
+} from "@/lib/domain";
 
 /** The condition a fresh conditional link carries until the author replaces it. */
 export const SEED_CONDITION_TEXT = "false()";
@@ -94,13 +99,28 @@ export function seedConditionalLink(
 	};
 }
 
-/** A complete otherwise link to `target`. */
-export function seedOtherwiseLink(
+/** A complete destination to `target` that runs every time. */
+export function seedEveryTimeLink(
 	seed: SeedTarget,
 	uuid = newUuid(),
 ): FormLink {
 	const datums = carriedValuesFor(seed.carry, seed.required);
 	return {
+		uuid,
+		target: seed.target,
+		...(datums !== undefined && { datums }),
+	};
+}
+
+/** A complete otherwise link to `target`. The builder mints its uuid, as it
+ *  does a destination's. */
+export function seedOtherwiseLink(
+	seed: SeedTarget,
+	uuid = newUuid(),
+): FormOtherwiseLink {
+	const datums = carriedValuesFor(seed.carry, seed.required);
+	return {
+		kind: "link",
 		uuid,
 		target: seed.target,
 		...(datums !== undefined && { datums }),
@@ -113,20 +133,25 @@ export function seedOtherwiseLink(
  * selection is meaningless to another's, so they are reseeded for the new
  * target (or dropped when it needs none).
  */
-export function retargetLink(link: FormLink, seed: SeedTarget): FormLink {
+export function retargetLink<L extends { readonly target: FormLinkTarget }>(
+	link: L,
+	seed: SeedTarget,
+): L {
 	const datums = carriedValuesFor(seed.carry, seed.required);
-	const { datums: _previous, ...rest } = link;
+	const { datums: _previous, ...rest } = link as L & {
+		readonly datums?: unknown;
+	};
 	return {
 		...rest,
 		target: seed.target,
 		...(datums !== undefined && { datums }),
-	};
+	} as unknown as L;
 }
 
 /** Whether retargeting would discard values the author worked out. */
 export function retargetDropsCarriedValues(
-	link: FormLink,
-	next: FormLink,
+	link: { readonly datums?: readonly unknown[] },
+	next: { readonly datums?: readonly unknown[] },
 ): boolean {
 	return (link.datums?.length ?? 0) > 0 && next.datums === undefined;
 }

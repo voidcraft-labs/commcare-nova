@@ -125,7 +125,7 @@ export function instanceReadFixture() {
 						uuid: INSTANCE_READS.visitForm,
 						name: "Visit",
 						type: "followup",
-						postSubmit: "module",
+						otherwise: { kind: "destination", destination: "module" },
 						connect: {
 							deliver_unit: {
 								id: "visit",
@@ -275,7 +275,7 @@ export function instanceReadFixture() {
 						uuid: INSTANCE_READS.searchForm,
 						name: "Check in",
 						type: "followup",
-						postSubmit: "module",
+						otherwise: { kind: "destination", destination: "module" },
 						fields: [hidden("found", searchFound())],
 						formLinks: [
 							{

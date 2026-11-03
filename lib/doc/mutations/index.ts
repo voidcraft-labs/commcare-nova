@@ -120,6 +120,7 @@ function dispatchMutation(
 		case "updateFormLink":
 		case "removeFormLink":
 		case "moveFormLink":
+		case "setFormOtherwise":
 		case "setFormMedia":
 			applyFormMutation(draft, mut);
 			return;

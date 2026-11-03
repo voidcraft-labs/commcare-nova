@@ -1558,6 +1558,31 @@ the guarded `session/data/stringquery`; a device's walk taps cases without
 typing, so it reads the blank. Both pass with no entry and no control, and the
 `expression` native family's `SessionContextRuntimeTest` runs the same guarded
 reads with each node present and absent.
+Three documents hold defect 26's fix, each passing with no entry and no
+control, its intent a value check of one form's answer (`./echo.ts`); the
+order each runtime runs the destinations in is held by proofs 3 and 4 over
+their walks and by the `form-link` native family. `targeted-form-link-chain`
+holds a form with three every-time destinations, the first with one of its
+own, so Core's session and a device run them in the author's order and
+Formplayer and the client only the first, and a form whose two destinations
+both hold as alice; its D′ moves a destination first (`moveFormLink`), so
+proof 5 runs over a reorder. `targeted-form-link-otherwise` holds a form that
+starts itself again (`this-form`), two forms that link to each other, a follow-up
+for each built-in Otherwise its menu offers, an otherwise link carrying the
+household and the member, and a link to a submenu HQ's form settings page
+offers; `proof/views/test_form_link_targets.py` holds that page's targets for
+each of its forms to the ones Nova admits
+(`proof/views/fixtures/form-link-targets.json`, written by
+`lib/commcare/__tests__/formLinkTargets.test.ts`).
+`targeted-form-link-carried-case` holds the held-case guard: three
+destinations to one form carrying a literal no case holds, the member the
+form creates and a case of the wrong type, so only the second opens, and a
+form whose guarded destinations both fail, so its Otherwise does; every case
+its walk reads it makes itself. `targeted-form-links-hidden-and-fallback`
+holds the shape the form-links migration gives the form whose save once
+dropped a link and cleared its fallback
+(`lib/doc/formLinkSemanticsMap.ts::mapFormLinkSemantics`), and its control
+keeps the bytes and symptoms from before the fix.
 `targeted-list-first-places` adds a location question behind a searching
 menu of an app that declares Web Apps. Before step 5 the menu listed first,
 and HQ's Case List save turned it search first (defect 21), which changed the
@@ -2924,8 +2949,9 @@ Nova reports of it is observed on Nova's code too.
   for one of its symptoms, or the finding's. Every live entry's defect is a
   key of `proof/checks/registers.py::OPEN_DEFECTS`, which names the later
   step that owns its fix (`test_registers.py::test_every_live_defect_is_a_later_steps`):
-  steps 2 and 3 fixed every other defect they registered, so an entry of one
-  of those is a fix left listed. Registering another defect adds it there with its step.
+  steps 2 to 5 fixed every defect they registered, and the register holds
+  none from step 5's exit; a later step that registers one adds it to
+  `OPEN_DEFECTS` with its step.
 - `check`, `artifact`, `path` and `kind` name the class. A difference is in it
   when its check is the entry's, its artifact matches the entry's (`*` matches
   any run of characters), its structural path is exactly the entry's, never
@@ -3167,8 +3193,8 @@ commit gate, which refuses a datum the form's entry does not supply
 | 23 | a Vellum save drops the Save to Case attachment. Fixed in step 5: a capture saves only a link to its file, written to the generated `nova_url_<question>` node, so no export writes a case attachment | proof 4, then 3; manifest; intent (HQ) | fixed; still shown by the controls `case-capture-followup`, `case-capture-multiple-after-3`, `case-capture-multiple-after-13`, `case-extension-registration-after-13`, `case-extension-multiple-after-13`, `case-extension-multiple-repeat-after-13`, `case-extension-query-after-13` and `case-extension-repeat-after-13` |
 | 24 | a Case Management save turns the inert subcase's relationship from extension to child; and the local archive placed a repeat's single subcase block after the item's other children, where HQ's build places it first, so Formplayer listed the item's ids in another order. Step 2 fixed the repeat item's position (finding 37): the block is the item's first child on both paths. Fixed in step 5: no export writes the inert subcase. An extension child case is a create operation with an extension link, at the placement Nova plans for it: a Save to Case block whose case id is `uuid()`, or, where an after-submit link carries the new case, an advanced open action whose index carries `relationship="extension"`, which makes its menu an advanced module (`lib/commcare/moduleKind.ts`) | proof 4; proof 3 across the two paths; manifest | fixed; still shown by the controls `case-extension-registration-after-13`, `case-extension-registration-after-59`, `case-extension-repeat-after-13`, `case-extension-repeat-after-59`, `case-extension-query-after-13` and `case-extension-query-after-59`, the item's position by `case-capture-query`; `targeted-advanced-module` and `targeted-extension-carried` hold the fix |
 | 25 | a Vellum save rewrites a query repeat into model iteration, whose rows are built by setvalues that run as the form loads. Where that breaks is a REFUSED class of the model-iteration entries (`lib/commcare/surface/entries/questions.json`): a repeat nested in another; a query reading an answer still blank where those setvalues run; and a repeat under a group that Core's load has already left not relevant there (its condition reads what an earlier load-time setvalue wrote) and that becomes relevant later: the repeat stays empty. Otherwise a group relevant later costs no rows: `FormDef.initialize` runs the load-time setvalues before it evaluates the form's conditions (`initAllTriggerables`), and a group whose condition nothing has evaluated yet reads as relevant (`XFormParser` leaves it so), so for a query that reads no form answer the repeat keeps its rows after the save, and one under a group never relevant submits none either way (correction 7). Fixed in step 5: a query repeat takes its placement from what its form holds (`lib/domain/queryRepeatPlacement.ts`). It is model iteration in the form builder's own spelling, which a save keeps, only where nothing model iteration cannot run holds it (a repeat nested in another, a query reading a form answer, an enclosing group whose condition can change while the form is filled in); anywhere else it is the count placement, Nova's `nova_query_ids_<repeat>` node and a live count the save leaves alone | proof 4, then 3; manifest | fixed; still shown by the controls `container-query-conditional-after-13`, `container-nested-query`, `case-operation-query`, `container-query-conditional`, `container-query-conditional-parent` and `targeted-query-repeat-places`; `targeted-query-repeat-placements` holds each placement |
-| 26 | the form settings save drops a hidden link beside a visible one and clears a navigation fallback its page does not offer, which changes the stack | proof 4, then 2 and 3 | `targeted-form-links-hidden-and-fallback` |
-| 26, a link's case value | a form link that names its target's case by a value no case holds makes the target write to a case no form created; HQ makes that case without a create block and notes the soft assertion `corehq/form_processor/casedb_base.py::get_case_from_case_update` answering the device's requests | proof 3 and proof 4 (Android's soft assertions) | `expander-form-links-emission-forwards-literal-condition-47c96355-0` |
+| 26 | the form settings save drops a hidden link beside a visible one and clears a navigation fallback its page does not offer, which changes the stack. Fixed in step 5: a link targets only a menu HQ's form settings page offers from the form's menu (`lib/domain/formLinkTargets.ts::menuTargetOffered`, `FORM_LINK_TARGET_NOT_OFFERED`), and a form's Otherwise, its own slot `Form.otherwise`, is only a destination that page offers (`FORM_OTHERWISE_NOT_OFFERED`), so the save keeps every link and the Otherwise; every destination that holds runs, in the author's order, emitted reversed | proof 4, then 2 and 3 | fixed; still shown by the controls `targeted-form-links-hidden-and-fallback` and `expander-form-links-emission-forwards-literal-condition-47c96355-0`; `targeted-form-link-chain`, `targeted-form-link-otherwise` and `proof/views/test_form_link_targets.py` hold the order, the Otherwise and the targets the page offers |
+| 26, a link's case value | a form link that names its target's case by a value no case holds makes the target write to a case no form created; HQ makes that case without a create block and notes the soft assertion `corehq/form_processor/casedb_base.py::get_case_from_case_update` answering the device's requests. Fixed in step 5: each carried value on a single-case selection adds a held-case conjunct to its link's condition (`lib/commcare/formLinkProjection.ts::formLinkCarriedCaseGuards`), so a destination whose case is not on the device never opens | proof 3 and proof 4 (Android's soft assertions) | fixed; still shown by the controls `targeted-form-links-hidden-and-fallback` and `expander-form-links-emission-forwards-literal-condition-47c96355-0`; `targeted-form-link-carried-case` holds the guard |
 | 27 | Vellum reports "Repeat Count is required." for a user repeat in a labelled group, which Nova wrote as a field list because the group's label decided it. Fixed in step 5: a group shows on one screen only when it holds `fieldList`, and a group holding a repeat workers add entries to is born without it (`FIELD_LIST_USER_REPEAT`) | proof 4; manifest | fixed; still shown by the control `targeted-labelled-group-repeat`; `targeted-field-list-flags` holds each group with and without the flag |
 | 28 | a question that opens with its case's value was sent as Case Management's `case_preload`, which HQ's build loads after every other load-time `setvalue` (`app_manager/xform.py::XForm.add_case_preloads`), so a default later in the form that read the answer read it blank. Fixed in step 5: a question opens with its case's value only where its default reads it, written as the form builder's own default at the question's place, so no export holds a `case_preload` | manifest | fixed; still shown by the control `targeted-load-time-values`; `targeted-load-time-values` and `targeted-case-writes-one-concept` hold the fix |
 | 30 | Core serializes a second `nova_count_<repeat>` node holding a hidden value's count, truncated where the count is fractional. Fixed in step 5: a repeat's count is a whole number (`REPEAT_COUNT_TYPE` refuses any other), and a count that names an integer question, an integer single select or a Hidden Value calculating an integer is written into `jr:count` directly, so only a count that is an expression keeps its `nova_count_<repeat>` node | intent (Core), over the submission; manifest (a count from a hidden value that is not an integer) | fixed; still shown by the controls `targeted-repeat-count-copy` and `container-live-count-entry`; `targeted-repeat-count-whole` holds each whole count |
@@ -3591,8 +3617,8 @@ reused is only what a key names whole, and the reuse is audited:
   (equal). The sample turns each week: the run's ISO year and week is its
   seed (`python3 -m proof.store.queue --sample-seed 2026-W42`), each week
   takes the next 24 of the corpus's documents ranked by the sha256 of their
-  ids, wrapping at the end, so every document is compared within seventeen
-  weeks (for 398), and the three runs of a week check the same sample. The
+  ids, wrapping at the end, so every document is compared within eighteen
+  weeks (for 430), and the three runs of a week check the same sample. The
   seed and the sample's documents are in each sampled lane's job summary,
   its verdict and a failed week's issue, and a dispatch that names the seed
   (`sample_seed`) runs the same sample again. A sampled run checks every
@@ -4255,8 +4281,17 @@ decoded text and child order.
   (`core/resources/static-quote/before-static-quote-branches.suite.xml`,
   exported before the admission fix at Nova `06f097e1`; never regenerate it
   past current validation) with four safe queries on each current path.
-- `form-link`: seven admitted native apps. `FormLinkRuntimeTest` checks ordered stack
-  frames, conditions and selection values; a missing source raises, and an
+- `form-link`: ten admitted native apps, one per scenario of
+  `lib/commcare/__tests__/formLinkWireFixture.ts::formLinkWireScenarios`, each
+  read from the local suite and from HQ's build. `FormLinkRuntimeTest` checks
+  ordered stack frames, conditions and selection values:
+  `completionRunsEveryDestinationThatHoldsInTheAuthorsOrder` pushes every
+  destination that holds and runs them in the author's order, the otherwise
+  where none that may not run holds; `aSelfLinkStartsTheFormAgain` opens the
+  source form's own entry with a new registration of its own;
+  `aCarriedCaseNotOnTheDevicePushesNoFrame` holds the held-case guard, a
+  destination carrying a case the device does not hold pushing no frame and
+  the otherwise running in its place; and a missing source raises, and an
   empty source never prompts for the target case. The separate
   `targeted-form-link-session-reads` form binds
   the created case, child and worker identities to the actual submitted case

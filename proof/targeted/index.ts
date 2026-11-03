@@ -43,7 +43,10 @@ import {
 	expressionPropertyRenames,
 	expressionRenames,
 } from "./documents/expressionRenames";
+import { formLinkCarriedCase } from "./documents/formLinkCarriedCase";
+import { formLinkChain } from "./documents/formLinkChain";
 import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
+import { formLinkOtherwise } from "./documents/formLinkOtherwise";
 import { formLinksHiddenFallback } from "./documents/formLinksHiddenFallback";
 import {
 	fieldListFlags,
@@ -210,6 +213,9 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	searchWorkflowAndroid,
 	caseListMenuItem,
 	commtrackAdvanced,
+	formLinkChain,
+	formLinkCarriedCase,
+	formLinkOtherwise,
 ];
 
 /** Every targeted document, in a fixed order. */

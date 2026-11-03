@@ -14,9 +14,11 @@ import type {
 import type { StoredLocation } from "@/lib/organization/types";
 import { evaluationScenarioSchema } from "@/lib/preview/engine/evaluationScenario";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
+import type { AfterSubmitStackState } from "../afterSubmitStack";
 import { formAnswerValueSchema } from "../engine/formAnswerValue";
 import type { FormEvaluationEntry } from "../engine/formEvaluationTypes";
 import type { PreviewSessionUser } from "../engine/identity";
+import type { PostSubmissionFrame } from "../engine/postSubmissionEvaluation";
 import type { SearchEvaluationInput } from "../engine/searchEvaluation";
 import type {
 	CaseDatabaseSnapshot,
@@ -338,6 +340,9 @@ export type AppTestScreen =
 			 * takes its own. */
 			searchResults?: SearchResultsSnapshot;
 	  };
+/** A frame a submission pushed, routed when it was pushed. */
+export type AppTestAfterSubmitRoute = PostSubmissionFrame;
+
 export interface AppTestSessionState {
 	language: LanguageTag;
 	/** The platform this session runs on, one the saved app declares. */
@@ -352,6 +357,10 @@ export interface AppTestSessionState {
 	/** The worker's device holds this snapshot until sync or identity switch;
 	 * submissions overlay their transaction-captured patch, including closed rows. */
 	deviceCases: CaseDatabaseSnapshot;
+	/** The after-submit frames still to run on this session's platform
+	 *  (`lib/preview/afterSubmitStack.ts`): on Android the destinations
+	 *  beneath the one that opened, on Web Apps never any. */
+	afterSubmitStack: AfterSubmitStackState<AppTestAfterSubmitRoute>;
 }
 
 /** One bounded journey and record namespace, with independent retained workers. */

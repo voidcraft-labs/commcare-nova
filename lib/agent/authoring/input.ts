@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 import type { ToolInvocationContext } from "@/lib/agent/workspace/types";
@@ -207,6 +208,21 @@ async function prepareInput<S extends z.ZodType>(args: {
 			);
 	}
 	stageFieldDefaults(toolName, input, doc);
+	/* An otherwise link omitted or null linkUuid asks Nova to mint it; one
+	 * identity then keys its carried values here and in the tool. Only the
+	 * link arm has the slot, so the generic creation walk does not mint it. */
+	if (toolName === "setFormOtherwise") {
+		const otherwise = record.safeParse(input.otherwise);
+		if (
+			otherwise.success &&
+			otherwise.data.kind === "link" &&
+			otherwise.data.linkUuid == null
+		)
+			input.otherwise = {
+				...otherwise.data,
+				linkUuid: uuidSchema.parse(randomUUID()),
+			};
+	}
 	allocateCreationIdentities(toolName, input, (spec, item) => {
 		if (spec.entityKind !== "option" || typeof item.value !== "string")
 			return undefined;

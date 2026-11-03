@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { formSchema, isCaseFirstModule } from "@/lib/domain";
+import { formLinkEntries, formSchema, isCaseFirstModule } from "@/lib/domain";
 import {
 	eq,
 	formField,
@@ -160,6 +160,146 @@ describe("formSchema — formLinks", () => {
 			],
 		});
 		expect(result.success).toBe(false);
+	});
+});
+
+describe("formSchema — this-form and otherwise", () => {
+	const baseForm = {
+		uuid: testUuid("frm-1"),
+		id: "visit",
+		name: "Visit",
+		type: "followup" as const,
+	};
+	const menuUuid = testUuid("mod-1");
+	const destination = {
+		uuid: testUuid("lnk-1"),
+		condition: eq(term(sessionUser("username")), term(literal("a"))),
+		target: { type: "this-form" as const },
+	};
+	const datum = (value: string) => ({
+		name: { kind: "selected-case" as const, module: menuUuid },
+		xpath: term(literal(value)),
+	});
+
+	it("parses a destination that starts this form again", () => {
+		const parsed = formSchema.parse({ ...baseForm, formLinks: [destination] });
+		expect(parsed.formLinks?.[0]?.target).toEqual({ type: "this-form" });
+	});
+
+	it("refuses a this-form target that names a menu or a form", () => {
+		expect(
+			formSchema.safeParse({
+				...baseForm,
+				formLinks: [
+					{
+						...destination,
+						target: { type: "this-form", moduleUuid: menuUuid },
+					},
+				],
+			}).success,
+		).toBe(false);
+	});
+
+	it("parses a built-in otherwise and a link otherwise", () => {
+		const builtIn = formSchema.parse({
+			...baseForm,
+			formLinks: [destination],
+			otherwise: { kind: "destination", destination: "module" },
+		});
+		expect(builtIn.otherwise).toEqual({
+			kind: "destination",
+			destination: "module",
+		});
+		const link = formSchema.parse({
+			...baseForm,
+			formLinks: [destination],
+			otherwise: {
+				kind: "link",
+				uuid: testUuid("lnk-2"),
+				target: { type: "module", moduleUuid: menuUuid },
+				datums: [datum("a")],
+			},
+		});
+		expect(link.otherwise).toMatchObject({
+			kind: "link",
+			uuid: testUuid("lnk-2"),
+		});
+	});
+
+	it("refuses app_home as an otherwise, which the absent slot means", () => {
+		expect(
+			formSchema.safeParse({
+				...baseForm,
+				formLinks: [destination],
+				otherwise: { kind: "destination", destination: "app_home" },
+			}).success,
+		).toBe(false);
+	});
+
+	it("refuses an otherwise link with no uuid", () => {
+		expect(
+			formSchema.safeParse({
+				...baseForm,
+				formLinks: [destination],
+				otherwise: { kind: "link", target: { type: "this-form" } },
+			}).success,
+		).toBe(false);
+	});
+
+	it("refuses an otherwise link with a condition", () => {
+		expect(
+			formSchema.safeParse({
+				...baseForm,
+				formLinks: [destination],
+				otherwise: {
+					kind: "link",
+					uuid: testUuid("lnk-2"),
+					condition: destination.condition,
+					target: { type: "this-form" },
+				},
+			}).success,
+		).toBe(false);
+	});
+
+	it("refuses two otherwise datums with the same name", () => {
+		const result = formSchema.safeParse({
+			...baseForm,
+			formLinks: [destination],
+			otherwise: {
+				kind: "link",
+				uuid: testUuid("lnk-2"),
+				target: { type: "this-form" },
+				datums: [datum("a"), datum("b")],
+			},
+		});
+		expect(result.success).toBe(false);
+		if (!result.success)
+			expect(result.error.issues[0]?.message).toContain("listed twice");
+	});
+
+	it("walks the destinations in order, then the otherwise only when it is a link", () => {
+		const second = { ...destination, uuid: testUuid("lnk-3") };
+		const otherwise = {
+			kind: "link" as const,
+			uuid: testUuid("lnk-2"),
+			target: { type: "this-form" as const },
+		};
+		expect(
+			formLinkEntries({ formLinks: [destination, second], otherwise }),
+		).toEqual([
+			{ role: "destination", link: destination, index: 0 },
+			{ role: "destination", link: second, index: 1 },
+			{
+				role: "otherwise",
+				link: { uuid: otherwise.uuid, target: otherwise.target },
+			},
+		]);
+		expect(
+			formLinkEntries({
+				formLinks: [destination],
+				otherwise: { kind: "destination", destination: "module" },
+			}),
+		).toEqual([{ role: "destination", link: destination, index: 0 }]);
 	});
 });
 

@@ -20,6 +20,8 @@ import {
 } from "@/lib/commcare/__tests__/noMatchesWireFixture";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { readAppTestSteps } from "@/lib/db/appTests";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { collectTranslationUnits, makeTranslationUnitId } from "@/lib/domain";
 import { createEvaluationApp } from "../../engine/__tests__/evaluationFixture";
 import { sectionEntryDoc } from "../../engine/__tests__/fixtures/sectionEntry";
@@ -3687,4 +3689,140 @@ it("finds a searched record beyond the session's restore and writes its claim ro
 		.where("id", "=", current.testId)
 		.executeTakeFirstOrThrow();
 	expect(finished.state).toEqual({});
+});
+
+/** Three surveys in one menu, the first with two destinations that run
+ *  every time: Check, then Leave. */
+async function twoDestinationDoc() {
+	const created = await createEvaluationApp(
+		[
+			{
+				name: "Visits",
+				forms: [
+					{ name: "Arrive", type: "survey" },
+					{ name: "Check", type: "survey" },
+					{ name: "Leave", type: "survey" },
+				],
+			},
+		],
+		[],
+	);
+	const formNamed = (name: string) => {
+		const form = Object.values(created.forms).find(
+			(item) => item.name === name,
+		);
+		if (!form) throw new Error(`Missing form ${name}`);
+		return form.uuid;
+	};
+	const menu = Object.values(created.modules).find(
+		(item) => item.name === "Visits",
+	);
+	if (!menu) throw new Error("Missing the Visits menu");
+	const [arrive, check, leave] = ["Arrive", "Check", "Leave"].map(formNamed);
+	const linked = mutationCommitVerdict(
+		created,
+		[check, leave].map((formUuid, index) => ({
+			kind: "addFormLink" as const,
+			formUuid: arrive,
+			link: {
+				uuid: `018f0000-0000-7000-8000-00000000f00${index}` as never,
+				target: { type: "form" as const, moduleUuid: menu.uuid, formUuid },
+			},
+		})),
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!linked.ok) throw new Error(JSON.stringify(linked.findings));
+	return { doc: linked.nextDoc, menu: menu.uuid, arrive };
+}
+
+it("runs both destinations in turn on Android and opens only the first on Web Apps", {
+	timeout: 30_000,
+}, async () => {
+	const { doc, menu, arrive } = await twoDestinationDoc();
+	await h.seedProjectMember(scope.actorUserId, scope.projectId, "viewer");
+	await h.seedAppWithBlueprint(doc, {
+		id: scope.appId,
+		owner: scope.actorUserId,
+		projectId: scope.projectId,
+	});
+	let current = await startAppTest(scope, {
+		requestId: "destinations-android-start",
+		expectedBlueprintSeq: 0,
+		input: { purpose: "Run both destinations on a phone", platform: "android" },
+	});
+	let request = 0;
+	const step = async (action: AppTestAction) => {
+		current = await continueAppTest(scope, {
+			testId: current.testId,
+			requestId: `destinations-${++request}`,
+			expectedStep: current.step,
+			action,
+		});
+		return current.observation;
+	};
+	await step({ kind: "continue" });
+	await step({ kind: "menu", moduleUuid: menu });
+	await step({ kind: "form", formUuid: arrive });
+	/* Core pushes both frames and runs the last pushed first, the author's
+	 * first destination; the second waits beneath it
+	 * (`CommCareSession.java::finishAndPop`). */
+	expect(await step({ kind: "submit" })).toMatchObject({
+		screen: "form",
+		name: "Check",
+	});
+	expect(await step({ kind: "submit" })).toMatchObject({
+		screen: "form",
+		name: "Leave",
+	});
+	// Nothing is left: the phone's home screen.
+	expect(await step({ kind: "submit" })).toMatchObject({
+		screen: "device-home",
+	});
+	await step({ kind: "finish" });
+
+	/* Formplayer rebuilds its session from the frame on top and keeps
+	 * nothing beneath it (`MenuSessionFactory.java::rebuildSessionFromFrame`). */
+	current = await startAppTest(scope, {
+		requestId: "destinations-web-apps-start",
+		expectedBlueprintSeq: 0,
+		input: { purpose: "Open the first destination in Web Apps" },
+	});
+	await step({ kind: "menu", moduleUuid: menu });
+	await step({ kind: "form", formUuid: arrive });
+	expect(await step({ kind: "submit" })).toMatchObject({
+		screen: "form",
+		name: "Check",
+	});
+	expect(await step({ kind: "submit" })).toMatchObject({ screen: "home" });
+	await step({ kind: "finish" });
+
+	/* A checkpoint retained before after-submit stacks existed has nothing
+	 * pending: the second destination does not run after the first. */
+	current = await startAppTest(scope, {
+		requestId: "destinations-retained-start",
+		expectedBlueprintSeq: 0,
+		input: {
+			purpose: "Continue a retained phone session",
+			platform: "android",
+		},
+	});
+	await step({ kind: "continue" });
+	await step({ kind: "menu", moduleUuid: menu });
+	await step({ kind: "form", formUuid: arrive });
+	expect(await step({ kind: "submit" })).toMatchObject({
+		screen: "form",
+		name: "Check",
+	});
+	const pending = await sql<{ pending: number }>`
+		SELECT jsonb_array_length(state #> '{sessions,default,afterSubmitStack,pending}') AS pending
+		FROM app_test_sessions WHERE id = ${current.testId}`.execute(h.db());
+	expect(pending.rows).toEqual([{ pending: 1 }]);
+	await sql`
+		UPDATE app_test_sessions
+		SET state = state #- '{sessions,default,afterSubmitStack}'
+		WHERE id = ${current.testId}`.execute(h.db());
+	expect(await step({ kind: "submit" })).toMatchObject({
+		screen: "device-home",
+	});
+	await step({ kind: "finish" });
 });

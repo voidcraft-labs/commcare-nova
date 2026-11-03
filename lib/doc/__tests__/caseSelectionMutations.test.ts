@@ -119,7 +119,6 @@ function linkedDoc(args?: {
 		id: "visit",
 		name: "Visit",
 		type: "followup",
-		postSubmit: "app_home",
 		formLinks: [
 			{
 				uuid: LINK_UUID,
@@ -538,7 +537,6 @@ describe("planCaseSelectionTransition", () => {
 				},
 				[TARGET_FORM_UUID]: {
 					...targetForm,
-					postSubmit: "app_home",
 					formLinks: [
 						{
 							uuid: OTHER_LINK_UUID,
@@ -587,7 +585,6 @@ describe("planCaseSelectionTransition", () => {
 				[SOURCE_FORM_UUID]: { ...sourceForm, formLinks: undefined },
 				[TARGET_FORM_UUID]: {
 					...targetForm,
-					postSubmit: "app_home",
 					formLinks: [
 						{
 							uuid: OTHER_LINK_UUID,

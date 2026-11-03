@@ -63,6 +63,14 @@ export interface PreviewPlatformRules {
 	 *  frame through the menus it would show and stops where one is missing;
 	 *  Core reads the frame's commands as they stand. */
 	readonly afterSubmitHiddenTarget: "landing" | "opens";
+	/** What runs when a form pushes several frames. Core's session runs every
+	 *  frame, the last pushed first, and Android keeps it
+	 *  (`session/CommCareSession.java::finishAndPop`,
+	 *  `models/AndroidSessionWrapper.java::terminateSession`); Formplayer
+	 *  rebuilds its session from the frame on top and drops the rest
+	 *  (`services/MenuSessionFactory.java::rebuildSessionFromFrame` →
+	 *  `session/MenuSession.java::resetSession`). */
+	readonly afterSubmitFrames: "stack" | "top";
 	/** Formplayer `MenuSessionRunnerService` alone reads `respect-relevancy`;
 	 *  commcare-android holds no reader of `Endpoint.isRespectRelevancy`. */
 	readonly entryPointDisplayConditions: "kept-unless-ignored" | "ignored";
@@ -217,6 +225,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		appHome: "root-menu",
 		postSubmitAppHome: "root-menu",
 		afterSubmitHiddenTarget: "landing",
+		afterSubmitFrames: "top",
 		entryPointDisplayConditions: "kept-unless-ignored",
 		entryPointClaims: "posted",
 		entryPointCaseNotHeld: "claimed",
@@ -260,6 +269,7 @@ export const PREVIEW_PLATFORM_RULES = {
 		appHome: "device-home",
 		postSubmitAppHome: "device-home",
 		afterSubmitHiddenTarget: "opens",
+		afterSubmitFrames: "stack",
 		entryPointDisplayConditions: "ignored",
 		entryPointClaims: "none",
 		entryPointCaseNotHeld: "opens-blank",

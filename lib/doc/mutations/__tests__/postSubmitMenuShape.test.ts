@@ -1,10 +1,12 @@
 /**
  * The after-submit reconciliation that rides a change of menu shape
- * (`mutations/modules.ts::reconcilePostSubmitWithMenuShape`): Forms read the search,
- * the selection mode, `hiddenFromMenu`, the module's parent, the form's
- * module, and whether the form holds links each change what a form is
- * offered or what its absent slot means, so the five reducer arms that
- * change one keep every destination admitted and meaning what it meant.
+ * (`mutations/modules.ts::reconcilePostSubmitWithMenuShape`): Forms read the
+ * search, the selection mode, `hiddenFromMenu`, the module's parent and the
+ * form's module each change what a form is offered or what its absent slot
+ * means, so the reducer arms that change one keep every after-submit
+ * destination and every built-in otherwise offered and meaning what it
+ * meant. A change of a form's destinations reconciles nothing: the planners
+ * own it.
  */
 
 import { produce } from "immer";
@@ -25,6 +27,7 @@ import {
 	type BlueprintDoc,
 	effectivePostSubmit,
 	NEW_APP_SETTINGS,
+	type OtherwiseDestination,
 	type PostSubmitDestination,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -302,6 +305,15 @@ const linkFrom = (doc: BlueprintDoc, formUuid: typeof PARENT_FORM) => {
 	];
 };
 
+const otherwiseOn = (
+	doc: BlueprintDoc,
+	formUuid: typeof PARENT_FORM,
+	destination: OtherwiseDestination,
+) => {
+	linkFrom(doc, formUuid);
+	doc.forms[formUuid].otherwise = { kind: "destination", destination };
+};
+
 describe("updateModule: a module taken off the menu", () => {
 	it("moves its forms' previous and module, and its child modules' parentMenu, to firstMenu", () => {
 		const doc = nested({ parent: "previous", child: "parentMenu" });
@@ -356,17 +368,11 @@ describe("setCaseListMeta: the selection mode", () => {
 		expect(effectivePostSubmit(next, PARENT_FORM)).toBe("module");
 	});
 
-	it("pins previous on a form with links whose absent slot it still admits", () => {
+	it("writes no after-submit destination on a form with links", () => {
 		const doc = nested();
 		linkFrom(doc, PARENT_FORM);
 		const next = reduce(doc, [multi]);
-		expect(next.forms[PARENT_FORM].postSubmit).toBe("previous");
-	});
-
-	it("keeps an explicit previous on a form with links", () => {
-		const doc = nested({ parent: "previous" });
-		linkFrom(doc, PARENT_FORM);
-		expect(reduce(doc, [multi]).forms[PARENT_FORM].postSubmit).toBe("previous");
+		expect("postSubmit" in next.forms[PARENT_FORM]).toBe(false);
 	});
 
 	it("pins module where the slot was absent when the module returns to one case", () => {
@@ -383,10 +389,16 @@ describe("setCaseListMeta: the selection mode", () => {
 	});
 });
 
-describe("Forms read the search on a form with links", () => {
-	it("moves its explicit previous to module", () => {
-		const doc = nested({ other: "previous" });
-		linkFrom(doc, OTHER_FORM);
+describe("the built-in otherwise", () => {
+	const multi: Mutation = {
+		kind: "setCaseListMeta",
+		uuid: PARENT,
+		patch: { selection: several },
+	};
+
+	it("moves previous to module when Forms read the search turns on", () => {
+		const doc = nested();
+		otherwiseOn(doc, OTHER_FORM, "previous");
 		const next = reduce(doc, [
 			{
 				kind: "updateModule",
@@ -395,7 +407,86 @@ describe("Forms read the search on a form with links", () => {
 				caseSearchConfigPatch: { formsReadSearch: true },
 			},
 		]);
-		expect(next.forms[OTHER_FORM].postSubmit).toBe("module");
+		expect(next.forms[OTHER_FORM].otherwise).toEqual({
+			kind: "destination",
+			destination: "module",
+		});
+		expect("postSubmit" in next.forms[OTHER_FORM]).toBe(false);
+	});
+
+	it("moves previous to module, and a child's module past its withheld parent menu to firstMenu, when the parent selects several", () => {
+		const doc = nested();
+		otherwiseOn(doc, PARENT_FORM, "previous");
+		otherwiseOn(doc, CHILD_FORM, "module");
+		const next = reduce(doc, [multi]);
+		expect(next.forms[PARENT_FORM].otherwise).toEqual({
+			kind: "destination",
+			destination: "module",
+		});
+		expect(next.forms[CHILD_FORM].otherwise).toEqual({
+			kind: "destination",
+			destination: "firstMenu",
+		});
+	});
+
+	it("moves previous past module to the parent menu when a child menu goes off the menu", () => {
+		const doc = nested();
+		otherwiseOn(doc, CHILD_FORM, "previous");
+		otherwiseOn(doc, PARENT_FORM, "previous");
+		const next = reduce(doc, [
+			{ kind: "updateModule", uuid: CHILD, patch: { hiddenFromMenu: true } },
+		]);
+		expect(next.forms[CHILD_FORM].otherwise).toEqual({
+			kind: "destination",
+			destination: "parentMenu",
+		});
+		// The parent's own forms keep theirs.
+		expect(next.forms[PARENT_FORM].otherwise).toEqual({
+			kind: "destination",
+			destination: "previous",
+		});
+	});
+
+	it("moves previous to firstMenu on a top-level menu taken off the menu", () => {
+		const doc = nested();
+		otherwiseOn(doc, PARENT_FORM, "previous");
+		const next = reduce(doc, [
+			{ kind: "updateModule", uuid: PARENT, patch: { hiddenFromMenu: true } },
+		]);
+		expect(next.forms[PARENT_FORM].otherwise).toEqual({
+			kind: "destination",
+			destination: "firstMenu",
+		});
+	});
+
+	it("moves parentMenu to firstMenu when the module becomes top-level", () => {
+		const doc = nested();
+		otherwiseOn(doc, CHILD_FORM, "parentMenu");
+		const next = reduce(doc, [
+			{ kind: "moveModule", uuid: CHILD, parentModuleUuid: null, after: null },
+		]);
+		expect(next.forms[CHILD_FORM].otherwise).toEqual({
+			kind: "destination",
+			destination: "firstMenu",
+		});
+	});
+
+	it("keeps an otherwise still offered, and never touches an otherwise link", () => {
+		const doc = nested();
+		otherwiseOn(doc, PARENT_FORM, "module");
+		linkFrom(doc, CHILD_FORM);
+		const link = {
+			kind: "link" as const,
+			uuid: testUuid("00000000-0000-4000-8000-0000000c0108"),
+			target: { type: "module" as const, moduleUuid: OTHER },
+		};
+		doc.forms[CHILD_FORM].otherwise = link;
+		const next = reduce(doc, [multi]);
+		expect(next.forms[PARENT_FORM].otherwise).toEqual({
+			kind: "destination",
+			destination: "module",
+		});
+		expect(next.forms[CHILD_FORM].otherwise).toEqual(link);
 	});
 });
 
@@ -438,9 +529,9 @@ describe("moveForm: the form's module", () => {
 });
 
 describe("removeFormLink: the last link leaving", () => {
-	it("ends the exemption, so a previous the menu does not offer moves to module", () => {
-		const doc = nested({ parent: "previous" });
-		linkFrom(doc, PARENT_FORM);
+	it("reconciles nothing: the planners pair the batch with the after-submit it needs", () => {
+		const doc = nested();
+		otherwiseOn(doc, PARENT_FORM, "previous");
 		doc.modules[PARENT].caseListConfig = {
 			...(doc.modules[PARENT].caseListConfig ?? caseListConfig([])),
 			selection: several,
@@ -449,19 +540,24 @@ describe("removeFormLink: the last link leaving", () => {
 			{ kind: "removeFormLink", formUuid: PARENT_FORM, uuid: LINK },
 		]);
 		expect(next.forms[PARENT_FORM].formLinks).toBeUndefined();
-		expect(next.forms[PARENT_FORM].postSubmit).toBe("module");
+		expect("postSubmit" in next.forms[PARENT_FORM]).toBe(false);
+		expect(next.forms[PARENT_FORM].otherwise).toEqual({
+			kind: "destination",
+			destination: "previous",
+		});
 	});
 });
 
 describe("diffDocsToMutations: a menu-shape write the target overrides", () => {
 	it("lands the target's absent slot after the reducer pinned it", () => {
 		const prev = nested();
-		linkFrom(prev, PARENT_FORM);
+		prev.modules[PARENT].caseListConfig = {
+			...(prev.modules[PARENT].caseListConfig ?? caseListConfig([])),
+			selection: several,
+		};
 		const next = produce(prev, (draft) => {
-			draft.modules[PARENT].caseListConfig = {
-				...(draft.modules[PARENT].caseListConfig ?? caseListConfig([])),
-				selection: several,
-			};
+			const config = draft.modules[PARENT].caseListConfig;
+			if (config !== undefined) delete config.selection;
 		});
 		const mutations = diffDocsToMutations(prev, next);
 		expect(mutations).toContainEqual({
@@ -471,7 +567,28 @@ describe("diffDocsToMutations: a menu-shape write the target overrides", () => {
 		});
 		const replayed = reduce(prev, mutations);
 		expect(replayed.forms[PARENT_FORM].postSubmit).toBeUndefined();
-		expect(replayed.modules[PARENT].caseListConfig?.selection).toEqual(several);
+		expect(replayed.modules[PARENT].caseListConfig?.selection).toBeUndefined();
+	});
+
+	it("lands the target's otherwise after the reducer moved it", () => {
+		const prev = nested();
+		otherwiseOn(prev, PARENT_FORM, "previous");
+		const next = produce(prev, (draft) => {
+			draft.modules[PARENT].caseListConfig = {
+				...(draft.modules[PARENT].caseListConfig ?? caseListConfig([])),
+				selection: several,
+			};
+		});
+		const mutations = diffDocsToMutations(prev, next);
+		expect(mutations.at(-1)).toEqual({
+			kind: "setFormOtherwise",
+			formUuid: PARENT_FORM,
+			otherwise: { kind: "destination", destination: "previous" },
+		});
+		const replayed = reduce(prev, mutations);
+		expect(replayed.forms[PARENT_FORM].otherwise).toEqual(
+			next.forms[PARENT_FORM].otherwise,
+		);
 	});
 
 	it("adds nothing when no write reconciles a destination", () => {

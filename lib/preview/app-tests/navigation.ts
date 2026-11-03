@@ -12,6 +12,7 @@ import {
 import { projectLocalizedModule } from "@/lib/domain/localizedBlueprintProjection";
 import type { Platform } from "@/lib/domain/platforms";
 import { previewExpressionContext } from "@/lib/preview/engine/expressionContext";
+import { EMPTY_AFTER_SUBMIT_STACK } from "../afterSubmitStack";
 import { caseListMenuItemSelection } from "../caseListMenuItemRoute";
 import { caseRowToFormPreload } from "../engine/caseDataBindingClient";
 import type { CaseRowWithCalculated } from "../engine/caseDataBindingTypes";
@@ -431,6 +432,7 @@ export function caseListMenuItemLanding(
 				screen: { kind: "device-home" },
 				history: [],
 				selections: {},
+				afterSubmitStack: EMPTY_AFTER_SUBMIT_STACK,
 			};
 		case "step-back":
 			return before;

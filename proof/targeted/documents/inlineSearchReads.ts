@@ -10,7 +10,9 @@
  * own search result, both behind the related-case exclusion HQ's own results
  * filter writes (`case_search/const.py::EXCLUDE_RELATED_CASES_FILTER`); its
  * after-submit link reads the same count in its condition, which the suite
- * evaluates on the form's entry. "Check in" also starts a hidden value from
+ * evaluates on the form's entry, and whose otherwise is the menu, the shape
+ * `lib/doc/formLinkSemanticsMap.ts::mapFormLinkSemantics` gives a stored
+ * `postSubmit` beside a conditional link (L3). "Check in" also starts a hidden value from
  * the search answer (`#search/patient_name`), which a form of a module that
  * opens on its search reads from `search-input:results:inline`, and "Find
  * patient"'s list shows the same answer in a calculated column. "Register
@@ -136,7 +138,6 @@ export function inlineSearchReads() {
 						uuid: checkIn,
 						name: "Check in",
 						type: "followup",
-						postSubmit: "module",
 						fields: [
 							// Placeholders the parser's reads replace below.
 							f({
@@ -220,6 +221,12 @@ export function inlineSearchReads() {
 			},
 			`count(${FOUND}) > 1`,
 		),
+	};
+	const checkInForm = doc.forms[checkIn];
+	if (checkInForm === undefined) throw new Error(`${ID} has no Check in.`);
+	doc.forms[checkIn] = {
+		...checkInForm,
+		otherwise: { kind: "destination", destination: "module" },
 	};
 	return targetedDocument({
 		id: ID,

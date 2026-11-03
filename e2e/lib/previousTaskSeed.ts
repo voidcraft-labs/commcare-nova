@@ -1,6 +1,7 @@
 /** The two native Previous task shapes over saved real records. */
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import type { BlueprintDoc } from "@/lib/domain";
 import { buildUrl } from "@/lib/routing/location";
 
 export const PREVIOUS_TASK_SEED = {
@@ -27,9 +28,9 @@ export const PREVIOUS_TASK_SEED = {
 	},
 } as const;
 
-export function buildPreviousTaskBlueprint(appId: string) {
+export function buildPreviousTaskBlueprint(appId: string): BlueprintDoc {
 	const { formsFirst, caseFirst } = PREVIOUS_TASK_SEED;
-	return buildDoc({
+	const doc = buildDoc({
 		appId,
 		appName: PREVIOUS_TASK_SEED.appName,
 		caseTypes: [formsFirst, caseFirst].map(({ caseType }) => ({
@@ -52,7 +53,6 @@ export function buildPreviousTaskBlueprint(appId: string) {
 						uuid: formsFirst.formUuid,
 						name: formsFirst.formName,
 						type: "followup",
-						postSubmit: "previous",
 						fields: [
 							f({
 								kind: "text",
@@ -135,6 +135,23 @@ export function buildPreviousTaskBlueprint(appId: string) {
 			},
 		],
 	});
+	const update = doc.forms[formsFirst.formUuid];
+	if (update === undefined) {
+		throw new Error("previousTaskSeed: the Update repair form did not build");
+	}
+	/* Its one destination has a condition, so the form may hold an
+	 * otherwise: the Previous screen, where the form goes whenever the repair
+	 * is not being transferred. */
+	return {
+		...doc,
+		forms: {
+			...doc.forms,
+			[formsFirst.formUuid]: {
+				...update,
+				otherwise: { kind: "destination", destination: "previous" },
+			},
+		},
+	};
 }
 
 export function previousTaskRoutes(appId: string) {

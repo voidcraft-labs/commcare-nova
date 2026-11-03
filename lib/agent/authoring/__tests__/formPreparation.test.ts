@@ -413,7 +413,7 @@ it("prepares new after-submit link slots and binds carried selection names to th
 	]);
 	expect(await h.call("getForm", { formUuid: sourceForm.uuid })).toMatchObject({
 		form: {
-			formLinks: [
+			destinations: [
 				{
 					condition: "true()",
 					datums: [{ name: "case_id", xpath: "#patient/case_id" }],
@@ -453,4 +453,51 @@ it("prepares new after-submit link slots and binds carried selection names to th
 	expect(
 		h.currentDoc().forms[sourceForm.uuid]?.formLinks?.[0]?.condition,
 	).toBeUndefined();
+});
+
+it("prepares the otherwise link's carried values and mints its UUID", async () => {
+	const h = makeAuthoringHarness(
+		{},
+		namedFormFixture([
+			{
+				name: "Intake",
+				caseType: "patient",
+				forms: [{ name: "Register", type: "registration" }],
+			},
+			{
+				name: "Care",
+				caseType: "patient",
+				forms: [{ name: "Visit", type: "followup" }],
+			},
+		]),
+	);
+	const target = { type: "form", moduleUuid: "Care", formUuid: "Visit" };
+	const datums = [{ name: "case_id", xpath: "#patient/case_id" }];
+	expect(
+		await h.call("addFormLinks", {
+			formUuid: "Register",
+			links: [{ link: { target, condition: "1 = 2" } }],
+		}),
+	).toMatchObject({ ok: true });
+	expect(
+		await h.call("setFormOtherwise", {
+			formUuid: "Register",
+			otherwise: { kind: "link", target, datums, linkUuid: null },
+		}),
+	).toMatchObject({ ok: true, otherwise: { kind: "link" } });
+	const sourceForm = Object.values(h.currentDoc().forms).find(
+		(form) => form.name === "Register",
+	);
+	const otherwise = sourceForm?.otherwise;
+	if (sourceForm === undefined || otherwise?.kind !== "link")
+		throw new Error("Missing otherwise link");
+	expect(otherwise.datums?.[0]?.xpath).toEqual({
+		kind: "term",
+		term: { kind: "form-case", caseType: "patient", property: "case_id" },
+	});
+	expect(await h.call("getForm", { formUuid: sourceForm.uuid })).toMatchObject({
+		form: {
+			otherwise: { kind: "link", linkUuid: otherwise.uuid, datums },
+		},
+	});
 });

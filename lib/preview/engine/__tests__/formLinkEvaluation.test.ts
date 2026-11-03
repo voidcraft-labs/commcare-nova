@@ -1,7 +1,7 @@
 /**
- * After-submit links in the running preview (`formLinkEvaluation.ts`):
- * which link fires, what a condition can read once the form has closed,
- * and which case the next form opens with.
+ * After-submit destinations in the running preview (`formLinkEvaluation.ts`):
+ * which frames a submission pushes, what a condition can read once the form
+ * has closed, and which case each next form opens with.
  *
  * The fixture is a household registration that also creates a patient child
  * case, a household follow-up and close, a patient follow-up, and a survey:
@@ -22,7 +22,12 @@ import {
 } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { FormLink, FormLinkDatum, Uuid } from "@/lib/domain";
+import type {
+	FormLink,
+	FormLinkDatum,
+	FormLinkEntry,
+	Uuid,
+} from "@/lib/domain";
 import { entryDatumCaseId } from "@/lib/domain/entryCaseIdentity";
 import {
 	eq,
@@ -59,8 +64,8 @@ import {
 import {
 	carriedCaseFor as carriedCaseForProduction,
 	createFormLinkWorkerWorld,
-	evaluateFormLinks,
-	evaluateFormLinksAsync,
+	evaluateAfterSubmit,
+	evaluateAfterSubmitAsync,
 	evaluateLinkDatum,
 	evaluateLinkDatumAsync,
 	type FormLinkEvaluationInput,
@@ -89,6 +94,11 @@ function buildDoc(input: DocSpec) {
 		...buildDocProduction(input),
 		userProperties: { [role]: { uuid: role, slug: "role", label: "Role" } },
 	});
+	/* The update form's one destination has a condition, so it may not run,
+	 * and its otherwise is its module. */
+	const update = doc.forms[UPDATE];
+	if (update?.formLinks !== undefined)
+		update.otherwise = { kind: "destination", destination: "module" };
 
 	return assertAdmittedPreviewDoc(doc);
 }
@@ -190,7 +200,6 @@ function spec(args: { readonly patientsInRepeat?: boolean } = {}): DocSpec {
 						uuid: "frm-register",
 						name: "Register household",
 						type: "registration",
-						postSubmit: "app_home",
 						formLinks: [
 							{
 								uuid: "lnk-visit",
@@ -229,7 +238,6 @@ function spec(args: { readonly patientsInRepeat?: boolean } = {}): DocSpec {
 						uuid: "frm-update",
 						name: "Update household",
 						type: "followup",
-						postSubmit: "module",
 						formLinks: [
 							{
 								uuid: "lnk-close",
@@ -324,6 +332,11 @@ function nestedPatientDoc(): ReturnType<typeof buildDoc> {
 	// case-loading form first so the patient's ordinary `case_id` collides
 	// with the root selection and becomes `case_id_patient`.
 	doc.formOrder[HOUSEHOLDS] = [UPDATE, REGISTER, CLOSE];
+	/* HQ's settings page offers no submenu as a link target from a root
+	 * menu's form (`views/forms.py::_get_linkable_forms_context`). */
+	doc.forms[REGISTER].formLinks = doc.forms[REGISTER].formLinks?.filter(
+		(link) => link.uuid !== LINK_PATIENTS,
+	);
 	const surveyLink = doc.forms[FEEDBACK].formLinks?.[0];
 	if (surveyLink)
 		surveyLink.datums = [
@@ -386,9 +399,7 @@ describe("form-link worker instances", () => {
 		});
 		const runtime = ownedRuntime();
 		const world = createFormLinkWorkerWorld(input, "submission-world");
-		const choice = await evaluateFormLinksAsync({
-			links: linksOf(doc, "frm-update"),
-			fallback: "module",
+		const choices = await evaluateAfterSubmitAsync({
 			input,
 			world,
 			evaluate: async (source, instances) => {
@@ -405,7 +416,9 @@ describe("form-link worker instances", () => {
 			},
 		});
 
-		expect(choice).toMatchObject({ kind: "link", link: { uuid: LINK_CLOSE } });
+		expect(choices).toMatchObject([
+			{ kind: "destination", link: { uuid: LINK_CLOSE } },
+		]);
 		runtime.dispose();
 	});
 
@@ -459,100 +472,204 @@ describe("form-link worker instances", () => {
 	});
 });
 
-describe("evaluateFormLinks", () => {
-	it("follows the first link whose condition holds", () => {
+function householdRow(
+	doc: ReturnType<typeof buildDoc>,
+	caseId: string,
+	properties: Readonly<Record<string, string>>,
+) {
+	return {
+		case_id: caseId,
+		app_id: doc.appId,
+		case_type: "household",
+		owner_id: "u1",
+		status: "open",
+		opened_on: null,
+		modified_on: null,
+		closed_on: null,
+		case_name: "Household",
+		external_id: null,
+		parent_case_id: null,
+		properties,
+	};
+}
+
+function patientRow(doc: ReturnType<typeof buildDoc>, caseId: string) {
+	return {
+		...householdRow(doc, caseId, {}),
+		case_type: "patient",
+		case_name: "Patient",
+	};
+}
+
+describe("evaluateAfterSubmit", () => {
+	it("pushes every destination that holds, the author's first on top", () => {
 		const doc = buildDoc(spec());
-		const choice = evaluateFormLinks({
-			links: linksOf(doc, "frm-register"),
-			fallback: "app_home",
-			input: inputFor(doc),
-		});
-		expect(choice).toMatchObject({ kind: "link", index: 0 });
-		expect(choice.kind === "link" && choice.link.uuid).toBe(LINK_VISIT);
+		const choices = evaluateAfterSubmit({ input: inputFor(doc) });
+		/* Emitted in reverse author order, so the last pushed, which runs
+		 * first, is the author's first destination. */
+		expect(choices).toMatchObject([
+			{ kind: "destination", index: 1, link: { uuid: LINK_PATIENTS } },
+			{ kind: "destination", index: 0, link: { uuid: LINK_VISIT } },
+		]);
 	});
 
-	it("falls through a false condition to the unconditional link", () => {
+	it("leaves out a destination whose condition does not hold", () => {
 		const doc = buildDoc(spec());
-		const choice = evaluateFormLinks({
-			links: linksOf(doc, "frm-register"),
-			fallback: "app_home",
+		const choices = evaluateAfterSubmit({
 			input: inputFor(doc, { usercase: { role: "nurse" } }),
 		});
-		expect(choice).toMatchObject({ kind: "link", index: 1 });
-		expect(choice.kind === "link" && choice.link.uuid).toBe(LINK_PATIENTS);
+		expect(choices).toMatchObject([
+			{ kind: "destination", index: 1, link: { uuid: LINK_PATIENTS } },
+		]);
 	});
 
-	it("reads case properties as they are after the submission", () => {
+	it("reads case properties as they are after the submission, and runs the otherwise when no destination that may not run holds", () => {
 		const doc = buildDoc(spec());
-		const links = linksOf(doc, "frm-update");
 		const submittedHousehold = (village: string) =>
 			inputFor(doc, {
 				formUuid: UPDATE,
 				sessionDatums: followupSession(doc, UPDATE, "household-1"),
 				caseDatabase: {
-					rows: [
-						{
-							case_id: "household-1",
-							app_id: doc.appId,
-							case_type: "household",
-							owner_id: "u1",
-							status: "open",
-							opened_on: null,
-							modified_on: null,
-							closed_on: null,
-							case_name: "Household",
-							external_id: null,
-							parent_case_id: null,
-							properties: { village },
-						},
-					],
+					rows: [householdRow(doc, "household-1", { village })],
 					indices: [],
 				},
 			});
-		const north = evaluateFormLinks({
-			links,
-			fallback: "module",
-			input: submittedHousehold("north"),
-		});
-		expect(north.kind === "link" && north.link.uuid).toBe(LINK_CLOSE);
-		const south = evaluateFormLinks({
-			links,
-			fallback: "module",
-			input: submittedHousehold("south"),
-		});
-		expect(south).toEqual({ kind: "fallback", destination: "module" });
+		expect(
+			evaluateAfterSubmit({ input: submittedHousehold("north") }),
+		).toMatchObject([{ kind: "destination", link: { uuid: LINK_CLOSE } }]);
+		expect(evaluateAfterSubmit({ input: submittedHousehold("south") })).toEqual(
+			[{ kind: "otherwise", destination: "module" }],
+		);
 	});
 
 	it("reads an absent case property as blank, the device's missing node", () => {
 		const doc = buildDoc(spec());
-		const choice = evaluateFormLinks({
-			links: linksOf(doc, "frm-update"),
-			fallback: "module",
-			input: inputFor(doc, { formUuid: UPDATE }),
-		});
-		expect(choice).toEqual({ kind: "fallback", destination: "module" });
+		expect(
+			evaluateAfterSubmit({ input: inputFor(doc, { formUuid: UPDATE }) }),
+		).toEqual([{ kind: "otherwise", destination: "module" }]);
 	});
 
-	it("treats an absent condition as unconditional", () => {
+	it("pushes a destination without a condition every time, and no fallback beside it", () => {
 		const doc = buildDoc(spec());
 		const [first] = linksOf(doc, "frm-update");
 		if (first === undefined) throw new Error("fixture has no link");
-		const blank: FormLink = { ...first, condition: undefined };
-		doc.forms[UPDATE].formLinks = [blank];
-		const choice = evaluateFormLinks({
-			links: [blank],
-			fallback: "module",
-			input: inputFor(doc, { formUuid: UPDATE }),
-		});
-		expect(choice).toMatchObject({ kind: "link", index: 0 });
+		doc.forms[UPDATE].formLinks = [{ ...first, condition: undefined }];
+		delete doc.forms[UPDATE].otherwise;
+		expect(
+			evaluateAfterSubmit({ input: inputFor(doc, { formUuid: UPDATE }) }),
+		).toMatchObject([{ kind: "destination", index: 0 }]);
 	});
 
-	it("propagates an async condition failure instead of selecting fallback", async () => {
+	it("holds a carried case to the device: a destination whose case is missing is not pushed, and the otherwise runs", () => {
+		const doc = buildDoc(spec());
+		doc.forms[FEEDBACK].otherwise = {
+			kind: "destination",
+			destination: "firstMenu",
+		};
+		assertAdmittedPreviewDoc(doc);
+		const withCases = (rows: ReturnType<typeof householdRow>[]) =>
+			inputFor(doc, {
+				formUuid: FEEDBACK,
+				caseDatabase: { rows, indices: [] },
+			});
+		expect(evaluateAfterSubmit({ input: withCases([]) })).toEqual([
+			{ kind: "otherwise", destination: "firstMenu" },
+		]);
+		/* Each carried value is its own guard: one case on the device is not
+		 * enough. */
+		expect(
+			evaluateAfterSubmit({ input: withCases([patientRow(doc, "p-manual")]) }),
+		).toEqual([{ kind: "otherwise", destination: "firstMenu" }]);
+		/* A case of another type under the carried id is not the case. */
+		expect(
+			evaluateAfterSubmit({
+				input: withCases([
+					householdRow(doc, "p-manual", {}),
+					householdRow(doc, "h-manual", {}),
+				]),
+			}),
+		).toEqual([{ kind: "otherwise", destination: "firstMenu" }]);
+		expect(
+			evaluateAfterSubmit({
+				input: withCases([
+					patientRow(doc, "p-manual"),
+					householdRow(doc, "h-manual", {}),
+				]),
+			}),
+		).toMatchObject([
+			{ kind: "destination", link: { uuid: testUuid("lnk-survey") } },
+		]);
+	});
+
+	it("follows an otherwise link where no destination that may not run holds", () => {
+		const doc = buildDoc(spec());
+		const otherwiseUuid = testUuid("lnk-otherwise");
+		doc.forms[UPDATE].otherwise = {
+			kind: "link",
+			uuid: otherwiseUuid,
+			target: { type: "this-form" },
+		};
+		assertAdmittedPreviewDoc(doc);
+		const choices = evaluateAfterSubmit({
+			input: inputFor(doc, {
+				formUuid: UPDATE,
+				sessionDatums: followupSession(doc, UPDATE, "household-1"),
+				caseDatabase: {
+					rows: [householdRow(doc, "household-1", { village: "south" })],
+					indices: [],
+				},
+			}),
+		});
+		expect(choices).toMatchObject([
+			{ kind: "otherwise-link", link: { uuid: otherwiseUuid } },
+		]);
+	});
+
+	it("pushes a form without destinations its own after-submit frame, and none for the app home", () => {
+		const doc = buildDoc(spec());
+		doc.forms[CLOSE].postSubmit = "module";
+		expect(
+			evaluateAfterSubmit({ input: inputFor(doc, { formUuid: CLOSE }) }),
+		).toEqual([{ kind: "post-submit", destination: "module" }]);
+		doc.forms[CLOSE].postSubmit = "app_home";
+		expect(
+			evaluateAfterSubmit({ input: inputFor(doc, { formUuid: CLOSE }) }),
+		).toEqual([]);
+	});
+
+	it("evaluates every frame in one post-submit world", async () => {
+		const doc = buildDoc(spec());
+		const input = inputFor(doc);
+		const world = createFormLinkWorkerWorld(input, "one-world");
+		const requests: Parameters<
+			Parameters<typeof evaluateAfterSubmitAsync>[0]["evaluate"]
+		>[1][] = [];
+		const choices = await evaluateAfterSubmitAsync({
+			input,
+			world,
+			evaluate: async (source, instances) => {
+				requests.push(instances);
+				return evaluate(source, formLinkEvalContext(input));
+			},
+		});
+		/* Only the conditional destination needs evaluating; it and every
+		 * later read share the world the first request opened. */
+		expect(choices).toHaveLength(2);
+		expect(requests).toHaveLength(1);
+		expect(requests[0]).toMatchObject({
+			worldKey: "one-world",
+			initializeWorld: true,
+		});
+		expect(formLinkWorkerInstances(input, world)).toMatchObject({
+			worldKey: "one-world",
+			initializeWorld: false,
+		});
+	});
+
+	it("propagates an async condition failure instead of selecting the otherwise", async () => {
 		const doc = buildDoc(spec());
 		await expect(
-			evaluateFormLinksAsync({
-				links: linksOf(doc, "frm-update"),
-				fallback: "module",
+			evaluateAfterSubmitAsync({
 				input: inputFor(doc, { formUuid: UPDATE }),
 				evaluate: async () => {
 					throw new Error("worker failed");
@@ -622,12 +739,9 @@ describe("formLinkEvalContext", () => {
 			},
 			"count(instance('commcaresession')/session/data/case_id_new_patient_1) = 1 and starts-with(instance('commcaresession')/session/data/case_id_new_patient_1, 'p')",
 		);
-		const choice = evaluateFormLinks({
-			links: [link],
-			fallback: "module",
-			input: candidate,
-		});
-		expect(choice).toMatchObject({ kind: "link", index: 0 });
+		expect(evaluateAfterSubmit({ input: candidate })).toMatchObject([
+			{ kind: "destination", index: 0 },
+		]);
 	});
 
 	it("refuses to read the closed form", () => {
@@ -756,6 +870,41 @@ describe("carriedCaseFor", () => {
 		});
 		expect(
 			carriedCaseFor(input, UPDATE, linkNamed(doc, "frm-update", "lnk-close")),
+		).toEqual({ kind: "carried", caseId: "h1", caseName: "Smith" });
+	});
+
+	it("starts this form again on the case it loaded", () => {
+		const doc = buildDoc(spec());
+		const input = inputFor(doc, {
+			formUuid: UPDATE,
+			sessionDatums: submittedSession(doc, UPDATE, {
+				bound: { caseId: "h1", caseName: "Smith" },
+			}),
+		});
+		expect(
+			carriedCaseFor(input, UPDATE, {
+				uuid: testUuid("lnk-again"),
+				target: { type: "this-form" },
+			}),
+		).toEqual({ kind: "carried", caseId: "h1", caseName: "Smith" });
+	});
+
+	it("carries the case of an otherwise link as it carries a destination's", () => {
+		const doc = buildDoc(spec());
+		const input = inputFor(doc, {
+			formUuid: UPDATE,
+			sessionDatums: submittedSession(doc, UPDATE, {
+				bound: { caseId: "h1", caseName: "Smith" },
+			}),
+		});
+		expect(
+			carriedCaseForProduction(input, UPDATE, {
+				role: "otherwise",
+				link: {
+					uuid: testUuid("lnk-otherwise"),
+					target: { type: "form", moduleUuid: HOUSEHOLDS, formUuid: CLOSE },
+				},
+			}),
 		).toEqual({ kind: "carried", caseId: "h1", caseName: "Smith" });
 	});
 
@@ -980,6 +1129,9 @@ function withFixtureLink(
 	};
 	return { ...input, doc, formUuid };
 }
+function destination(link: FormLink): FormLinkEntry {
+	return { role: "destination", link, index: 0 };
+}
 function carriedCaseFor(
 	input: FormLinkEvaluationInput,
 	formUuid: Uuid,
@@ -988,7 +1140,7 @@ function carriedCaseFor(
 	return carriedCaseForProduction(
 		withFixtureLink(input, formUuid, link),
 		formUuid,
-		link,
+		destination(link),
 	);
 }
 function projectTargetCaseSelections(
@@ -999,6 +1151,6 @@ function projectTargetCaseSelections(
 	return projectTargetCaseSelectionsProduction(
 		withFixtureLink(input, formUuid, link),
 		formUuid,
-		link,
+		destination(link),
 	);
 }

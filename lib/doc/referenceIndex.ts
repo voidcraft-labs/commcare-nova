@@ -65,7 +65,10 @@ import {
 	type Field,
 	FORM_REFERENCE_SLOTS,
 	type Form,
+	type FormLinkDatum,
+	type FormLinkTarget,
 	fieldReferenceSlotsFor,
+	formLinkEntries,
 	isOwnRecord,
 	type LocationProperty,
 	locationPropertiesOf,
@@ -660,6 +663,28 @@ function extractFieldEdges(sink: EdgeSink, field: Field): void {
 	}
 }
 
+/** The link targets the form-link slot entry at `path` holds: each
+ * destination's, or the otherwise link's. */
+function formLinkTargetsAt(
+	form: Form,
+	path: string,
+): readonly FormLinkTarget[] {
+	if (path.startsWith("otherwise."))
+		return form.otherwise?.kind === "link" ? [form.otherwise.target] : [];
+	return (form.formLinks ?? []).map((link) => link.target);
+}
+
+/** The carried values the form-link slot entry at `path` holds: each
+ * destination's, or the otherwise link's. */
+function formLinkDatumsAt(
+	form: Form,
+	path: string,
+): readonly (readonly FormLinkDatum[])[] {
+	if (path.startsWith("otherwise."))
+		return form.otherwise?.kind === "link" ? [form.otherwise.datums ?? []] : [];
+	return (form.formLinks ?? []).map((link) => link.datums ?? []);
+}
+
 function extractFormEdges(
 	sink: EdgeSink,
 	doc: BlueprintDoc,
@@ -678,10 +703,14 @@ function extractFormEdges(
 				break;
 			case "entity-uuid":
 				if (slot.slot === "form_link_target") {
-					for (const link of form.formLinks ?? []) {
-						sink.edge(entityTargetKey(link.target.moduleUuid), slot.slot);
-						if (link.target.type === "form")
-							sink.edge(entityTargetKey(link.target.formUuid), slot.slot);
+					// The slot is held at two paths, the destinations' and the
+					// otherwise link's; each entry reads its own. A `this-form`
+					// target names no entity: it is the form itself.
+					for (const target of formLinkTargetsAt(form, slot.path)) {
+						if (target.type === "this-form") continue;
+						sink.edge(entityTargetKey(target.moduleUuid), slot.slot);
+						if (target.type === "form")
+							sink.edge(entityTargetKey(target.formUuid), slot.slot);
 					}
 				} else {
 					for (const value of readSlotStrings(form, slot.path)) {
@@ -691,8 +720,8 @@ function extractFormEdges(
 				}
 				break;
 			case "datum-ref":
-				for (const link of form.formLinks ?? []) {
-					for (const datum of link.datums ?? [])
+				for (const datums of formLinkDatumsAt(form, slot.path)) {
+					for (const datum of datums)
 						datumEdges(sink, slot.slot, datum.name, ctx);
 				}
 				break;
@@ -1358,14 +1387,14 @@ export function planReferenceIndexMaintenance(
 					if (subtree.has(carrier)) carriers.add(carrier);
 				}
 				// The reducer rewrites every inbound form target's moduleUuid
-				// to the new module, so each source form's `form_link_target`
-				// edges re-extract.
+				// to the new module, a destination's or an otherwise link's, so
+				// each source form's `form_link_target` edges re-extract.
 				for (const [sourceUuid, source] of Object.entries(doc.forms)) {
 					if (
-						source.formLinks?.some(
-							(link) =>
-								link.target.type === "form" &&
-								link.target.formUuid === mut.uuid,
+						formLinkEntries(source).some(
+							(entry) =>
+								entry.link.target.type === "form" &&
+								entry.link.target.formUuid === mut.uuid,
 						)
 					) {
 						carriers.add(sourceUuid);
@@ -1385,12 +1414,13 @@ export function planReferenceIndexMaintenance(
 		case "setFormMedia":
 			carriers.add(mut.uuid);
 			break;
-		// After-submit links are form-owned; the form carrier re-extracts
-		// its link condition / target / datum edges.
+		// After-submit links and the otherwise are form-owned; the form
+		// carrier re-extracts its link condition / target / datum edges.
 		case "addFormLink":
 		case "updateFormLink":
 		case "removeFormLink":
 		case "moveFormLink":
+		case "setFormOtherwise":
 			carriers.add(mut.formUuid);
 			break;
 		case "addField":

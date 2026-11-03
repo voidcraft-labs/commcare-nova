@@ -432,6 +432,30 @@ export const FORM_REFERENCE_SLOTS = [
 		kind: "expression",
 		formTypes: FORM_TYPES,
 	},
+	// The otherwise link is a link: its target and carried values take the
+	// destinations' slots, addressed by its own uuid. It has no condition.
+	// These are the registry's only slot ids held at two paths.
+	{
+		entity: "form",
+		slot: "form_link_target",
+		path: "otherwise.target",
+		kind: "entity-uuid",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "form_link_datum_name",
+		path: "otherwise.datums[].name",
+		kind: "datum-ref",
+		formTypes: FORM_TYPES,
+	},
+	{
+		entity: "form",
+		slot: "form_link_datum_xpath",
+		path: "otherwise.datums[].xpath",
+		kind: "expression",
+		formTypes: FORM_TYPES,
+	},
 	{
 		entity: "form",
 		slot: "assessment_user_score",
@@ -956,6 +980,21 @@ function expressionRefForEntry(
 					};
 		}
 		case "form_link_datum_xpath": {
+			if (entry.path === "otherwise.datums[].xpath") {
+				const otherwise = form.otherwise;
+				const datum =
+					otherwise?.kind === "link"
+						? otherwise.datums?.[indices[0] ?? -1]
+						: undefined;
+				return otherwise?.kind !== "link" || datum === undefined
+					? undefined
+					: {
+							entity: "form",
+							uuid,
+							slot: entry.slot,
+							member: { linkUuid: otherwise.uuid, datum: datum.name },
+						};
+			}
 			const link = form.formLinks?.[indices[0] ?? -1];
 			const datum = link?.datums?.[indices[1] ?? -1];
 			return link === undefined || datum === undefined
@@ -1369,6 +1408,9 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	postSubmit: "config",
 	hiddenFromMenu: "config",
 	"formLinks[].uuid": "identity",
+	"otherwise.kind": "discriminator",
+	"otherwise.destination": "config",
+	"otherwise.uuid": "identity",
 	"caseOperations[].uuid": "identity",
 	"caseOperations[].id": "declaration",
 	"caseOperations[].action": "discriminator",

@@ -1,5 +1,6 @@
 /**
- * Defect 26: a form whose links HQ's form settings page cannot show whole.
+ * Defect 26: a form whose links HQ's form settings page once could not show
+ * whole, in the shape step 5's migration gives it, which the page now keeps.
  *
  * HQ's page lists only the targets it offers
  * (`views/forms.py::_get_linkable_forms_context`: a menu only when it is
@@ -7,10 +8,20 @@
  * keeps only the links whose target it lists
  * (`static/app_manager/js/forms/bootstrap3/form_workflow.js`, `FormWorkflow`),
  * and offers no previous screen as the fallback of a form in a multi-select
- * menu (`views/forms.py::get_form_view_context`, `form_workflows`). So the
- * form settings save drops the link to the nested menu beside the link to
- * the top-level one, and clears the fallback, which changes the stack HQ
- * builds (`suite_xml/post_process/workflow.py::_get_static_stack_frame`).
+ * menu (`views/forms.py::get_form_view_context`, `form_workflows`). Before
+ * step 5 this form linked to the nested Ponds menu beside the top-level Sites
+ * and fell back to the previous screen, so the form settings save dropped the
+ * one link and cleared the fallback, which changed the stack HQ builds
+ * (`suite_xml/post_process/workflow.py::_get_static_stack_frame`); the
+ * control of this document's id keeps those bytes and every symptom.
+ *
+ * Here the form holds what `lib/doc/formLinkSemanticsMap.ts::mapFormLinkSemantics`
+ * writes of it: the link to Ponds, which HQ does not offer from top-level
+ * Frogs, opens Sites, the menu that holds it (L4); the second link's
+ * condition holds the negation of the first's (L1); and the fallback, the
+ * previous screen this menu does not offer, is the menu itself (L3, then
+ * L6). Each link is one HQ's page lists and the otherwise one it offers, so
+ * the form settings save changes nothing.
  *
  * Fixed values: the form's note holds the text the worker enters
  * (`./echo.ts`).
@@ -48,7 +59,6 @@ function caseModule(
 				name: `Review ${name}`,
 				type: "followup" as const,
 				...(options.links === true && {
-					postSubmit: "previous" as const,
 					formLinks: [
 						{
 							uuid: uuid("link-sites"),
@@ -60,10 +70,11 @@ function caseModule(
 						},
 						{
 							uuid: uuid("link-ponds"),
-							condition: "#user/username = 'bea'",
+							condition:
+								"#user/username = 'bea' and not(#user/username = 'alice')",
 							target: {
 								type: "module" as const,
-								moduleUuid: uuid("module-Ponds"),
+								moduleUuid: uuid("module-Sites"),
 							},
 						},
 					],
@@ -121,6 +132,12 @@ export function formLinksHiddenFallback() {
 	const ponds = doc.modules[uuid("module-Ponds")];
 	if (ponds === undefined) throw new Error("No Ponds menu.");
 	ponds.parentModuleUuid = uuid("module-Sites");
+	const frogs = doc.forms[source];
+	if (frogs === undefined) throw new Error("No Frogs form.");
+	doc.forms[source] = {
+		...frogs,
+		otherwise: { kind: "destination", destination: "module" },
+	};
 	return targetedDocument({
 		id: ID,
 		rows: ["26"],

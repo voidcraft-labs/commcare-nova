@@ -1,7 +1,9 @@
 /**
- * The after-submit link projection (`formLinkProjection.ts`): exclusive
- * guards, HQ's frame-children algorithm, datum matching, the `previous`
- * frame, and the totality predicates the validator asks before projecting.
+ * The after-submit projection (`formLinkProjection.ts`): the emitted order
+ * and each link's `xpath` (its condition and held-case guards, an otherwise
+ * link's negations, HQ's fallback), HQ's frame-children algorithm, datum
+ * matching, the `previous` frame, and the totality predicates the validator
+ * asks before projecting.
  *
  * Local projection regressions, including deliberately invalid lower-boundary
  * inputs. Native HQ/Core links corpus independently owns wire acceptance.
@@ -17,15 +19,13 @@ import {
 	formFrameChildren,
 	formLinkActionsBuildable,
 	formLinkProjectionContext,
-	type GuardPlan,
-	type GuardPlanLink,
 	matchFrameToManual,
 	matchFrameToSource,
 	moduleCaseTypeForActions,
 	ownCaseSessionRef,
+	type ProjectedAfterSubmit,
 	previousFrameChildren,
-	projectFormLinks,
-	planFormLinkGuards as projectGuards,
+	projectAfterSubmit,
 	sessionDataRef,
 	targetFrameChildren,
 	targetSelectionDatums,
@@ -48,21 +48,27 @@ function wireText(value: WireExpr | undefined): string | undefined {
 		? undefined
 		: serializeWire(value, { target: "suite" }).text;
 }
-function fallbackText(fallback: GuardPlan["fallback"]) {
-	return fallback.kind === "guarded"
-		? { ...fallback, guard: wireText(fallback.guard) }
+function fallbackText(fallback: ProjectedAfterSubmit["fallback"]) {
+	return fallback.kind === "built-in"
+		? { ...fallback, xpath: wireText(fallback.xpath) }
 		: fallback;
 }
-function planFormLinkGuards(links: readonly GuardPlanLink[]) {
-	const plan = projectGuards(links);
-	return {
-		links: plan.links.map((link) => ({
-			uuid: link.uuid,
-			...(link.guard !== undefined && { guard: wireText(link.guard) }),
-		})),
-		fallback: fallbackText(plan.fallback),
-	};
+/** Each emitted link's uuid and role with its `xpath` printed. */
+function emittedText(projected: ProjectedAfterSubmit | undefined) {
+	return (projected?.links ?? []).map((link) => ({
+		uuid: link.uuid,
+		role: link.role,
+		...(link.xpath !== undefined && { xpath: wireText(link.xpath) }),
+	}));
 }
+function project(doc: BlueprintDoc, formUuid: Uuid) {
+	return projectAfterSubmit(doc, formLinkProjectionContext(doc), formUuid);
+}
+
+const ALICE =
+	"instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice'";
+const BEA =
+	"instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'bea'";
 
 const INTAKE = testUuid("mod-intake");
 const CARE = testUuid("mod-care");
@@ -103,7 +109,6 @@ function frogDoc(): BlueprintDoc {
 						uuid: "frm-reg",
 						name: "Register frog",
 						type: "registration",
-						postSubmit: "app_home",
 						formLinks: [
 							{
 								uuid: "lnk-visit",
@@ -189,76 +194,128 @@ const datum = (
 	...(fn !== undefined && { function: fn }),
 });
 
-describe("planFormLinkGuards", () => {
-	const equalOne = (name: string) => w.eq(w.context([w.step(name)]), w.num(1));
-	const L = (uuid: string, condition?: WireExpr) => ({
-		uuid: testUuid(uuid),
-		...(condition !== undefined && {
-			condition,
-		}),
+describe("projectAfterSubmit: order and otherwise", () => {
+	it("emits the destinations in reverse author order, each with its own condition", () => {
+		const doc = frogDoc();
+		const projected = project(doc, REGISTER);
+		expect(emittedText(projected)).toEqual([
+			{ uuid: LINK_REGISTER, role: "destination", xpath: BEA },
+			{ uuid: LINK_VISIT, role: "destination", xpath: ALICE },
+		]);
+		// No otherwise: the app home follows, and HQ gets no fallback.
+		expect(projected?.fallback).toEqual({ kind: "none" });
 	});
 
-	it("leaves the first guard bare, byte-identical to HQ's first frame", () => {
-		expect(planFormLinkGuards([L("a", equalOne("x"))])).toEqual({
-			links: [{ uuid: testUuid("a"), guard: "x = 1" }],
-			fallback: { kind: "guarded", guard: "not(x = 1)" },
+	it("a built-in otherwise is HQ's fallback over every non-blank xpath in emitted order", () => {
+		const doc = structuredClone(frogDoc());
+		const reg = doc.forms[REGISTER];
+		if (reg === undefined) throw new Error("fixture");
+		reg.otherwise = { kind: "destination", destination: "module" };
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(
+			fallbackText(project(doc, REGISTER)?.fallback ?? { kind: "none" }),
+		).toEqual({
+			kind: "built-in",
+			destination: "module",
+			xpath: `not(${BEA}) and not(${ALICE})`,
 		});
 	});
 
-	it("makes later guards exclusive by negating every conditional prior", () => {
-		const plan = planFormLinkGuards([
-			L("a", equalOne("x")),
-			L("b", w.or(equalOne("y"), equalOne("z"))),
-			L("c", equalOne("w")),
+	it("an otherwise link negates every destination, then conjoins its own held-case guard", () => {
+		const doc = structuredClone(frogDoc());
+		const reg = doc.forms[REGISTER];
+		if (reg === undefined) throw new Error("fixture");
+		reg.otherwise = {
+			kind: "link",
+			uuid: testUuid("lnk-otherwise"),
+			target: { type: "form", moduleUuid: CARE, formUuid: VISIT },
+			datums: [
+				{
+					name: { kind: "selected-case", module: CARE },
+					xpath: term(literal("frog-7")),
+				},
+			],
+		};
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const projected = project(doc, REGISTER);
+		expect(emittedText(projected).at(-1)).toEqual({
+			uuid: testUuid("lnk-otherwise"),
+			role: "otherwise",
+			xpath: `not(${BEA}) and not(${ALICE}) and count(instance('casedb')/casedb/case[@case_id = 'frog-7' and @case_type = 'frog']) > 0`,
+		});
+		expect(projected?.links.at(-1)?.datums.map((datum) => datum.name)).toEqual([
+			"case_id",
 		]);
-		expect(plan.links.map((link) => link.guard)).toEqual([
-			"x = 1",
-			// The positive operand is parenthesized so a top-level `or`
-			// cannot leak past the conjunction.
-			"(y = 1 or z = 1) and not(x = 1)",
-			"w = 1 and not(x = 1) and not(y = 1 or z = 1)",
+		expect(projected?.fallback).toEqual({ kind: "none" });
+	});
+
+	it("an every-time destination emits no xpath and stays out of the fallback's negations", () => {
+		const doc = structuredClone(frogDoc());
+		const reg = doc.forms[REGISTER];
+		const [first] = reg?.formLinks ?? [];
+		if (reg === undefined || first === undefined) throw new Error("fixture");
+		reg.formLinks = [
+			first,
+			{
+				uuid: testUuid("lnk-every"),
+				target: { type: "module", moduleUuid: CARE },
+			},
+		];
+		reg.otherwise = { kind: "destination", destination: "firstMenu" };
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const projected = project(doc, REGISTER);
+		expect(emittedText(projected)).toEqual([
+			{ uuid: testUuid("lnk-every"), role: "destination" },
+			{ uuid: LINK_VISIT, role: "destination", xpath: ALICE },
 		]);
-		// The fallback negates the EMITTED guards — HQ's literal
-		// `' and '.join(f'not({xpath})')` over what Nova sends it.
-		expect(plan.fallback).toEqual({
-			kind: "guarded",
-			guard:
-				"not(x = 1) and not((y = 1 or z = 1) and not(x = 1)) and not(w = 1 and not(x = 1) and not(y = 1 or z = 1))",
+		expect(fallbackText(projected?.fallback ?? { kind: "none" })).toEqual({
+			kind: "built-in",
+			destination: "firstMenu",
+			xpath: `not(${ALICE})`,
 		});
 	});
 
-	it("treats a terminal unconditional link as the exhaustive else", () => {
-		const plan = planFormLinkGuards([L("a", equalOne("x")), L("b")]);
-		expect(plan.links).toEqual([
-			{ uuid: testUuid("a"), guard: "x = 1" },
-			{ uuid: testUuid("b"), guard: "not(x = 1)" },
+	it("builds no fallback where every destination runs every time, as HQ builds none", () => {
+		// The gate refuses this otherwise (nothing may not run); the
+		// projection stays total and writes what HQ would build from it.
+		const doc = structuredClone(frogDoc());
+		const reg = doc.forms[REGISTER];
+		if (reg === undefined) throw new Error("fixture");
+		reg.formLinks = [
+			{
+				uuid: testUuid("lnk-every"),
+				target: { type: "module", moduleUuid: CARE },
+			},
+		];
+		reg.otherwise = { kind: "destination", destination: "module" };
+		const projected = project(doc, REGISTER);
+		expect(emittedText(projected)).toEqual([
+			{ uuid: testUuid("lnk-every"), role: "destination" },
 		]);
-		expect(plan.fallback).toEqual({ kind: "suppressed-by-else" });
+		expect(projected?.fallback).toEqual({ kind: "none" });
 	});
 
-	it("emits no guard and no fallback for a sole unconditional link", () => {
-		expect(planFormLinkGuards([L("a")])).toEqual({
-			links: [{ uuid: testUuid("a") }],
-			fallback: { kind: "none" },
+	it("starts this form again in its own menu, a registration on a new case", () => {
+		const doc = structuredClone(frogDoc());
+		const reg = doc.forms[REGISTER];
+		if (reg === undefined) throw new Error("fixture");
+		reg.formLinks = [
+			{ uuid: testUuid("lnk-again"), target: { type: "this-form" } },
+		];
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const [link] = project(doc, REGISTER)?.links ?? [];
+		expect(link).toMatchObject({
+			role: "destination",
+			target: { type: "form", moduleUuid: INTAKE, formUuid: REGISTER },
+			children: [
+				{ type: "command", id: "m0" },
+				{ type: "datum", id: "case_id_new_frog_0", value: w.call("uuid") },
+				{ type: "command", id: "m0-f0" },
+			],
+			datums: [],
+			unmatched: [],
 		});
-	});
-
-	it("stays total over an unconditional link that is not last", () => {
-		// The validator refuses this document (FORM_LINK_UNREACHABLE); the
-		// plan still answers so every consumer stays total.
-		const plan = planFormLinkGuards([L("a"), L("b", equalOne("x"))]);
-		expect(plan.links).toEqual([
-			{ uuid: testUuid("a") },
-			{ uuid: testUuid("b"), guard: "x = 1" },
-		]);
-		expect(plan.fallback).toEqual({ kind: "guarded", guard: "not(x = 1)" });
-	});
-
-	it("answers the empty list with no links and no fallback", () => {
-		expect(planFormLinkGuards([])).toEqual({
-			links: [],
-			fallback: { kind: "none" },
-		});
+		expect(link?.xpath).toBeUndefined();
 	});
 });
 
@@ -574,7 +631,7 @@ describe("previousFrameChildren (HQ `previous_screen`)", () => {
 	});
 });
 
-describe("projectFormLinks", () => {
+describe("projectAfterSubmit: frames and reads", () => {
 	it.each([false, true])(
 		"substitutes an earlier grouped-tile case datum (manual: %s)",
 		(manual) => {
@@ -605,11 +662,7 @@ describe("projectFormLinks", () => {
 			];
 			blueprintDocSchema.parse(toPersistableDoc(doc));
 			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
-			const projected = projectFormLinks(
-				doc,
-				formLinkProjectionContext(doc),
-				REGISTER,
-			);
+			const projected = project(doc, REGISTER);
 			const companion = projected?.links[0]?.children.find(
 				(child) => child.type === "datum" && child.id === "case_id_parent_ids",
 			);
@@ -624,21 +677,16 @@ describe("projectFormLinks", () => {
 		},
 	);
 
-	it("projects two admitted destinations with exclusive guards", () => {
+	it("projects two admitted destinations, each frame matched to the source", () => {
 		const doc = frogDoc();
-		const projected = projectFormLinks(
-			doc,
-			formLinkProjectionContext(doc),
-			REGISTER,
-		);
+		const projected = project(doc, REGISTER);
 		expect(projected).toBeDefined();
 		if (projected === undefined) return;
-		expect(projected.links.map((link) => wireText(link.guard))).toEqual([
-			"instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice'",
-			"instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'bea' and not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice')",
-		]);
-		expect(projected.links[0]).toMatchObject({
+		const byUuid = new Map(projected.links.map((link) => [link.uuid, link]));
+		expect(byUuid.get(LINK_VISIT)).toMatchObject({
 			uuid: LINK_VISIT,
+			role: "destination",
+			target: { type: "form", moduleUuid: CARE, formUuid: VISIT },
 			children: [
 				{ type: "command", id: "m1" },
 				{ type: "command", id: "m1-f0" },
@@ -653,18 +701,13 @@ describe("projectFormLinks", () => {
 			missing: [],
 			unused: [],
 		});
-		expect(projected.links[1]).toMatchObject({
+		expect(byUuid.get(LINK_REGISTER)).toMatchObject({
 			uuid: LINK_REGISTER,
 			children: [
 				{ type: "command", id: "m1" },
 				{ type: "command", id: "m1-f1" },
 				{ type: "datum", id: "case_id_new_frog_0", value: w.call("uuid") },
 			],
-		});
-		expect(fallbackText(projected.fallback)).toEqual({
-			kind: "guarded",
-			guard:
-				"not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice') and not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'bea' and not(instance('casedb')/casedb/case[@case_type = 'commcare-user'][hq_user_id = instance('commcaresession')/session/context/userid]/username = 'alice'))",
 		});
 	});
 
@@ -690,13 +733,9 @@ describe("projectFormLinks", () => {
 				),
 			},
 		];
-		const projected = projectFormLinks(
-			doc,
-			formLinkProjectionContext(doc),
-			REGISTER,
-		);
+		const projected = project(doc, REGISTER);
 		const created = wireText(sessionDataRef("case_id_new_frog_0"));
-		expect(wireText(projected?.links[0]?.guard)).toBe(
+		expect(wireText(projected?.links[0]?.xpath)).toBe(
 			`instance('casedb')/casedb/case[@case_id = ${created}]/mood = 'happy' and ${created} != ''`,
 		);
 	});
@@ -719,21 +758,18 @@ describe("projectFormLinks", () => {
 				target: { type: "module", moduleUuid: CARE },
 			},
 		];
-		const projected = projectFormLinks(
-			doc,
-			formLinkProjectionContext(doc),
-			VISIT,
+		const projected = project(doc, VISIT);
+		const back = projected?.links.find(
+			(link) => link.uuid === testUuid("lnk-back"),
 		);
-		expect(wireText(projected?.links[0]?.guard)).toBe(
+		expect(wireText(back?.xpath)).toBe(
 			`${wireText(sessionDataRef("case_id"))} != ''`,
 		);
 	});
 
 	it("returns undefined for a form without links", () => {
 		const doc = frogDoc();
-		expect(
-			projectFormLinks(doc, formLinkProjectionContext(doc), VISIT),
-		).toBeUndefined();
+		expect(project(doc, VISIT)).toBeUndefined();
 	});
 });
 
@@ -793,15 +829,22 @@ describe("totality predicates", () => {
 		if (care === undefined) throw new Error("fixture");
 		care.caseType = "frog case";
 		expect(formLinkActionsBuildable(badType, REGISTER, links)).toBe(false);
-		expect(() =>
-			projectFormLinks(badType, formLinkProjectionContext(badType), REGISTER),
-		).toThrow();
+		expect(() => project(badType, REGISTER)).toThrow();
 
 		const unsequenced = structuredClone(doc);
 		unsequenced.moduleOrder = unsequenced.moduleOrder.filter(
 			(uuid) => uuid !== CARE,
 		);
 		expect(formLinkActionsBuildable(unsequenced, REGISTER, links)).toBe(false);
+	});
+
+	it("formLinkActionsBuildable reads a this-form link as its source form's menu", () => {
+		const doc = frogDoc();
+		const links = [{ target: { type: "this-form" as const } }];
+		expect(formLinkActionsBuildable(doc, REGISTER, links)).toBe(true);
+		const broken = structuredClone(doc);
+		unname(broken, REGISTER);
+		expect(formLinkActionsBuildable(broken, REGISTER, links)).toBe(false);
 	});
 
 	it("moduleCaseTypeForActions mirrors the expander's case-activity gate", () => {

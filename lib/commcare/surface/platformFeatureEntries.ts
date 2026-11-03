@@ -132,6 +132,9 @@ export const PLATFORM_FEATURE_ENTRIES = {
 		"case-search/workflow-skip-to-default-results-auto-launch-true-default-search",
 	],
 	"after-submit-home": ["forms-and-case-writes/post-form-workflow-default"],
+	"after-submit-several-destinations": [
+		"forms-and-case-writes/two-or-more-form-links-conditions-true-at-once",
+	],
 	"app-logo": ["application-and-settings/logo-refs-hq-logo-web-apps"],
 	"saved-forms": ["application-and-settings/20-properties-cc-show-saved"],
 	"incomplete-forms": [

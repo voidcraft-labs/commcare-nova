@@ -12,6 +12,7 @@ import {
 	formLinkTargetSchema,
 	formRootFieldIds,
 	moduleUuidOfForm,
+	resolveFormLinkTarget,
 	type Uuid,
 	uuidSchema,
 } from "@/lib/domain";
@@ -531,21 +532,36 @@ export function prepareFormAuthoring(args: {
 			fields.set(id, fieldDeclaration(raw, id, previous.parent, previous));
 		}
 		const links = new Map(saved.links);
+		const otherwiseLink =
+			toolName === "setFormOtherwise" &&
+			input.otherwise !== null &&
+			typeof input.otherwise === "object" &&
+			object.parse(input.otherwise).kind === "link"
+				? object.parse(input.otherwise)
+				: undefined;
 		if (
 			uuid === formUuid &&
-			(toolName === "addFormLinks" || toolName === "updateFormLink")
+			(toolName === "addFormLinks" ||
+				toolName === "updateFormLink" ||
+				otherwiseLink !== undefined)
 		) {
 			const additions =
 				toolName === "addFormLinks"
 					? objects.parse(input.links)
-					: [{ linkUuid: input.linkUuid, link: input.link }];
+					: otherwiseLink !== undefined
+						? [{ linkUuid: otherwiseLink.linkUuid, link: otherwiseLink }]
+						: [{ linkUuid: input.linkUuid, link: input.link }];
 			const projection = formLinkProjectionContext(doc, {
 				entryMetadataOnly: true,
 			});
 			for (const item of additions) {
 				const link = object.parse(item.link);
 				const target = formLinkTargetSchema.parse(link.target);
-				const targetNames = formLinkTargetDatumIds(doc, projection, target);
+				const resolved = resolveFormLinkTarget(doc, uuid, target);
+				const targetNames =
+					resolved === undefined
+						? []
+						: formLinkTargetDatumIds(doc, projection, resolved);
 				const datums = objects.parse(link.datums ?? []).map((datum) => {
 					if (typeof datum.name !== "string")
 						return formLinkDatumNameSchema.parse(datum.name);
@@ -562,7 +578,11 @@ export function prepareFormAuthoring(args: {
 						);
 					return ref;
 				});
-				links.set(uuidSchema.parse(item.linkUuid), { target, datums });
+				links.set(uuidSchema.parse(item.linkUuid), {
+					target,
+					datums,
+					...(otherwiseLink !== undefined && { role: "otherwise" as const }),
+				});
 			}
 		}
 		const result: FormStructure = {
@@ -631,6 +651,11 @@ export function prepareFormAuthoring(args: {
 			local = path.slice(3);
 		} else if (toolName === "updateFormLink" && path[0] === "link") {
 			linkUuid = uuidSchema.parse(input.linkUuid);
+			local = path.slice(1);
+		} else if (toolName === "setFormOtherwise" && path[0] === "otherwise") {
+			// The otherwise link has no condition slot, only carried values.
+			if (path[1] !== "datums") return undefined;
+			linkUuid = uuidSchema.parse(object.parse(input.otherwise).linkUuid);
 			local = path.slice(1);
 		}
 		if (linkUuid !== undefined) {

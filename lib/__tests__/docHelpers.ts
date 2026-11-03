@@ -143,6 +143,9 @@ export interface FormSpec {
 	closeCondition?: string | Expression;
 	connect?: Form["connect"];
 	postSubmit?: Form["postSubmit"];
+	/** Where the form goes when no destination that may not run runs, in
+	 *  its stored shape, beside `formLinks`. */
+	otherwise?: Form["otherwise"];
 	/** Authored with string conditions/datum XPaths (the concise spec
 	 *  shape); `buildDoc` parses them against the assembled form. A link's
 	 *  `uuid` is auto-minted when the spec omits it, like a field's. */
@@ -395,6 +398,9 @@ export function buildDoc(
 						...link,
 						uuid: testUuid(link.uuid ?? nextUuid("link")),
 					})) as unknown as FormLink[],
+				}),
+				...(formSpec.otherwise !== undefined && {
+					otherwise: formSpec.otherwise,
 				}),
 			};
 

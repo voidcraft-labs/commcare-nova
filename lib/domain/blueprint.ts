@@ -376,6 +376,13 @@ export function blueprintTopologyIssues(
 				"uuid",
 			]);
 		}
+		if (form.otherwise?.kind === "link")
+			registerIdentity(form.otherwise.uuid, "form link", [
+				"forms",
+				formUuid,
+				"otherwise",
+				"uuid",
+			]);
 	}
 	for (const [fieldUuid, field] of Object.entries(doc.fields)) {
 		if (!("optionsSource" in field) || field.optionsSource.kind !== "inline") {

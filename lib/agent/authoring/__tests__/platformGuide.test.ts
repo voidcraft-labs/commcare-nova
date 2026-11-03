@@ -53,6 +53,11 @@ describe("the guide's platform sentences", () => {
 			"case-list-menu-item",
 		],
 		[
+			"workflows",
+			"After a form, every destination whose condition holds runs, in the order you set: the first opens, and each next one opens when the worker finishes the one before.",
+			"after-submit-several-destinations",
+		],
+		[
 			"expressions",
 			"here() is the worker's current GPS position, a geopoint, available only in a calculated Results or Details column.",
 			"case-list-here",

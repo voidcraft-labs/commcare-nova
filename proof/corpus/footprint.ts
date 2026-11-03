@@ -147,12 +147,14 @@ import {
 	emptyCaseListConfig,
 	entityTargetKey,
 	entryPointByUuid,
+	formLinkEntries,
 	locationTargetKey,
 	type Module,
 	moduleParent,
 	moduleSearchWorkflow,
 	postSubmitModuleFacts,
 	projectedModulePreorder,
+	resolveFormLinkTarget,
 	type SearchInputDef,
 	type TranslationUnitOwner,
 	type Uuid,
@@ -1212,16 +1214,30 @@ export function batchFootprint(
 				lookup === undefined ? undefined : lookupWireNaming(lookup.definitions),
 			),
 		);
-		const [beforeNames, afterNames] = datumSides.map((side) =>
-			side.wire.forms[reader as Uuid]?.formLinks?.map((link) => ({
-				link: link.uuid,
-				// A named datum reads its target's identity-to-id projection. A
-				// filter changes the selection nodeset, which a link never carries.
-				names: formLinkTargetDatumIds(side.wire, side.links, link.target).map(
-					(datum) => ({ id: datum.id, refs: datum.refs }),
-				),
-			})),
-		);
+		const [beforeNames, afterNames] = datumSides.map((side) => {
+			const form = side.wire.forms[reader as Uuid];
+			// Every link of the form, its otherwise link with its destinations.
+			return form === undefined
+				? undefined
+				: formLinkEntries(form).map(({ link }) => {
+						const target = resolveFormLinkTarget(
+							side.wire,
+							reader as Uuid,
+							link.target,
+						);
+						return {
+							link: link.uuid,
+							// A named datum reads its target's identity-to-id projection. A
+							// filter changes the selection nodeset, which a link never carries.
+							names:
+								target === undefined
+									? []
+									: formLinkTargetDatumIds(side.wire, side.links, target).map(
+											(datum) => ({ id: datum.id, refs: datum.refs }),
+										),
+						};
+					});
+		});
 		return !isDeepStrictEqual(beforeNames, afterNames);
 	};
 	const readersOf = (uuids: Iterable<string>): Set<string> => {
@@ -1321,21 +1337,25 @@ function sameMembers(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
 }
 
 /**
- * The forms whose stored after-submit destination a mutation rewrote
- * without naming them: a module's arm moves a destination its new shape
- * withholds, and pins an absent one whose default it moves while the form's
- * links keep it admitted (`lib/doc/mutations/modules.ts::reconcilePostSubmitWithMenuShape`).
+ * The forms whose stored after-submit destination or otherwise a mutation
+ * rewrote without naming them: a module's arm moves a destination, or a
+ * built-in otherwise, its new shape withholds, and pins an absent destination
+ * whose default it moves (`lib/doc/mutations/modules.ts::reconcilePostSubmitWithMenuShape`).
+ * An otherwise counts with its form, as the form's own after-submit does.
  */
 function movedDestinations(
 	before: BlueprintDoc,
 	after: BlueprintDoc,
 ): string[] {
-	return Object.keys(after.forms).filter(
-		(uuid) =>
-			before.forms[uuid as Uuid] !== undefined &&
-			before.forms[uuid as Uuid]?.postSubmit !==
-				after.forms[uuid as Uuid]?.postSubmit,
-	);
+	return Object.keys(after.forms).filter((uuid) => {
+		const was = before.forms[uuid as Uuid];
+		const now = after.forms[uuid as Uuid];
+		return (
+			was !== undefined &&
+			(was.postSubmit !== now?.postSubmit ||
+				!isDeepStrictEqual(was.otherwise, now?.otherwise))
+		);
+	});
 }
 
 /**

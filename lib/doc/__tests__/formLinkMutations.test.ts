@@ -1,9 +1,9 @@
 /**
- * The after-submit planners: what runs when nothing matched
- * (`afterSubmitPlan`), and how add / update / remove / move / set-fallback
- * become gated batches — including the fallback pin that keeps every
- * produced document on the right side of `FORM_LINK_NO_FALLBACK`. Every
- * `ok` plan is replayed through the reducers AND the commit gate, so a
+ * The after-submit planners: the plan of a form's destinations and its
+ * otherwise (`afterSubmitPlan`), and how add / update / remove / move /
+ * set-otherwise / make-otherwise / make-destination become gated batches,
+ * with the form's after-submit and otherwise settled in the same batch.
+ * Every `ok` plan is replayed through the reducers AND the commit gate, so a
  * planner cannot promise a shape the validator refuses.
  */
 
@@ -19,11 +19,18 @@ import {
 	planFormLinkMove,
 	planFormLinkRemove,
 	planFormLinkUpdate,
-	planSetFallback,
+	planMakeDestination,
+	planMakeOtherwise,
+	planSetOtherwise,
 } from "@/lib/doc/formLinkMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { mutationSchema } from "@/lib/doc/types";
-import type { BlueprintDoc, FormLink } from "@/lib/domain";
+import type {
+	BlueprintDoc,
+	FormLink,
+	FormOtherwise,
+	PostSubmitDestination,
+} from "@/lib/domain";
 import { eq, literal, term } from "@/lib/domain/expression/builders";
 import type {
 	Expression,
@@ -34,6 +41,7 @@ import { assertAdmittedDoc } from "./admittedDoc";
 
 const INTAKE = testUuid("mod-intake");
 const CARE = testUuid("mod-care");
+const SUB = testUuid("mod-sub");
 const SOURCE = testUuid("frm-source");
 const VISIT = testUuid("frm-visit");
 const NOTE = testUuid("frm-note");
@@ -51,17 +59,23 @@ interface Spec {
 const toNote = { type: "form", moduleUuid: CARE, formUuid: NOTE } as const;
 const toVisit = { type: "form", moduleUuid: CARE, formUuid: VISIT } as const;
 const toCare = { type: "module", moduleUuid: CARE } as const;
+const toSub = { type: "module", moduleUuid: SUB } as const;
 
 /**
  * Intake (patient) → [Source (registration: it creates the case a Visit
- * link carries)]; Care (patient) → [Visit (followup), Note (survey)].
- * `postSubmit` is stored only when a test says so.
+ * link carries)]; Care (patient) → [Visit (followup), Note (survey)]; Sub,
+ * a submenu of Care → [Sub note (survey)]. HQ's form settings page does not
+ * offer Sub as a link target from Source, a form of a root menu.
+ * `postSubmit` and `otherwise` are stored only when a test says so.
  */
 function fixture(
 	links: Spec[],
-	opts: { postSubmit?: "app_home" | "module" | "previous" } = {},
+	opts: {
+		postSubmit?: PostSubmitDestination;
+		otherwise?: FormOtherwise;
+	} = {},
 ): BlueprintDoc {
-	const doc = buildDoc({
+	const built = buildDoc({
 		appName: "Links",
 		caseTypes: [
 			{
@@ -126,7 +140,24 @@ function fixture(
 					},
 				],
 			},
+			{
+				uuid: "mod-sub",
+				name: "Sub",
+				forms: [
+					{
+						uuid: "frm-sub-note",
+						name: "Sub note",
+						type: "survey",
+						fields: [f({ kind: "text", id: "s", label: proseText("S") })],
+					},
+				],
+			},
 		],
+	});
+	const doc = produce(built, (draft) => {
+		draft.modules[SUB].parentModuleUuid = CARE;
+		if (opts.otherwise !== undefined)
+			draft.forms[SOURCE].otherwise = opts.otherwise;
 	});
 	assertAdmittedDoc(doc);
 	return doc;
@@ -141,13 +172,19 @@ const cond = (
 	condition: text,
 	target,
 });
-const otherwise = (
-	uuid = "lnk-else",
+const everyTime = (
+	uuid: string,
 	target: FormLink["target"] = toCare,
 ): Spec => ({
 	uuid,
 	target,
 });
+const linkOtherwise = (
+	uuid: string = ELSE,
+	target: FormLink["target"] = toCare,
+): FormOtherwise => ({ kind: "link", uuid: testUuid(uuid), target });
+const builtIn = (destination: "module" | "previous" | "firstMenu") =>
+	({ kind: "destination", destination }) as const;
 
 /** Replay an ok plan through the reducers and the gate; return the doc. */
 function commit(doc: BlueprintDoc, plan: FormLinkCommitPlan): BlueprintDoc {
@@ -170,40 +207,49 @@ function commit(doc: BlueprintDoc, plan: FormLinkCommitPlan): BlueprintDoc {
 const order = (doc: BlueprintDoc) =>
 	doc.forms[SOURCE]?.formLinks?.map((link) => link.uuid) ?? [];
 
-const newLink = (uuid: string, condition?: Expression): FormLink => ({
+const newLink = (
+	uuid: string,
+	condition?: Expression,
+	target: FormLink["target"] = toNote,
+): FormLink => ({
 	uuid: testUuid(uuid),
 	...(condition !== undefined && { condition }),
-	target: toNote,
+	target,
 });
+
+const ONE = eq(literal(1), literal(1));
 
 /** Two compatible patient collections. Direct form links work only while
  * CommCare may carry the collection automatically (no explicit datum map). */
 function multipleSelectionFixture(links: Spec[] = []): BlueprintDoc {
-	const doc = produce(fixture(links, { postSubmit: "app_home" }), (draft) => {
-		const source = draft.modules[INTAKE]?.caseListConfig;
-		const target = draft.modules[CARE]?.caseListConfig;
-		if (source === undefined || target === undefined)
-			throw new Error("fixture");
-		source.selection = { kind: "multiple", maximum: 10 };
-		target.selection = { kind: "multiple", maximum: 10 };
-		// Choosing several cases runs in Web Apps alone.
-		draft.appSettings.runsOnlyOn = "web-apps";
-		draft.forms[SOURCE].type = "followup";
-		// Neither form saves an answer to its cases, nor opens a question
-		// with one selected case's value.
-		for (const formUuid of [SOURCE, VISIT]) {
-			for (const operation of draft.forms[formUuid]?.caseOperations ?? []) {
-				if (operation.action !== "own") continue;
-				delete operation.name;
-				delete operation.writes;
+	const doc = produce(
+		fixture(links, links.length === 0 ? { postSubmit: "app_home" } : {}),
+		(draft) => {
+			const source = draft.modules[INTAKE]?.caseListConfig;
+			const target = draft.modules[CARE]?.caseListConfig;
+			if (source === undefined || target === undefined)
+				throw new Error("fixture");
+			source.selection = { kind: "multiple", maximum: 10 };
+			target.selection = { kind: "multiple", maximum: 10 };
+			// Choosing several cases runs in Web Apps alone.
+			draft.appSettings.runsOnlyOn = "web-apps";
+			draft.forms[SOURCE].type = "followup";
+			// Neither form saves an answer to its cases, nor opens a question
+			// with one selected case's value.
+			for (const formUuid of [SOURCE, VISIT]) {
+				for (const operation of draft.forms[formUuid]?.caseOperations ?? []) {
+					if (operation.action !== "own") continue;
+					delete operation.name;
+					delete operation.writes;
+				}
+				for (const fieldUuid of draft.fieldOrder[formUuid] ?? []) {
+					const field = draft.fields[fieldUuid];
+					if (field !== undefined && "default_value" in field)
+						delete field.default_value;
+				}
 			}
-			for (const fieldUuid of draft.fieldOrder[formUuid] ?? []) {
-				const field = draft.fields[fieldUuid];
-				if (field !== undefined && "default_value" in field)
-					delete field.default_value;
-			}
-		}
-	});
+		},
+	);
 	assertAdmittedDoc(doc);
 	return doc;
 }
@@ -224,64 +270,69 @@ function expectSelectionCardinalityRefusal(
 	);
 }
 
+/** The gate's codes for a batch that is refused. */
+function refusedCodes(
+	doc: BlueprintDoc,
+	mutations: Parameters<typeof mutationCommitVerdict>[1],
+): string[] {
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	return verdict.ok ? [] : verdict.findings.map((finding) => finding.code);
+}
+
 describe("afterSubmitPlan", () => {
-	it("reads the form-type default when nothing is stored and no links exist", () => {
-		const plan = afterSubmitPlan(fixture([]), SOURCE);
-		expect(plan).toMatchObject({
-			links: [],
-			conditional: [],
-			elseLink: undefined,
-			fallback: {
-				kind: "post-submit",
-				destination: "app_home",
-				explicit: false,
-			},
-			fallbackMustBeExplicit: false,
+	it("reads the form-type default of a form without destinations", () => {
+		expect(afterSubmitPlan(fixture([]), SOURCE)).toEqual({
+			destinations: [],
+			mayNotRun: [],
+			otherwise: undefined,
+			otherwiseOffered: false,
+			postSubmit: { destination: "app_home", explicit: false },
 		});
+		expect(
+			afterSubmitPlan(fixture([], { postSubmit: "module" }), SOURCE)
+				?.postSubmit,
+		).toEqual({ destination: "module", explicit: true });
 	});
 
-	it("names the terminal unconditional link as the otherwise", () => {
+	it("names the destinations that may not run, and offers an otherwise beside them", () => {
 		const plan = afterSubmitPlan(
-			fixture([cond("lnk-1", "1 = 1"), otherwise()]),
+			fixture([cond("lnk-1", "1 = 1"), everyTime("lnk-2")], {
+				otherwise: builtIn("module"),
+			}),
 			SOURCE,
 		);
-		expect(plan?.conditional.map((l) => l.uuid)).toEqual([L1]);
-		expect(plan?.elseLink?.uuid).toBe(ELSE);
-		expect(plan?.fallback).toMatchObject({ kind: "else-link" });
-		expect(plan?.fallbackMustBeExplicit).toBe(false);
+		expect(plan?.destinations.map((link) => link.uuid)).toEqual([L1, L2]);
+		expect(plan?.mayNotRun.map((link) => link.uuid)).toEqual([L1]);
+		expect(plan?.otherwise).toEqual(builtIn("module"));
+		expect(plan?.otherwiseOffered).toBe(true);
+		expect(plan?.postSubmit).toBeUndefined();
 	});
 
-	it("requires an explicit destination under conditional-only links", () => {
-		// Deliberately invalid candidate: the projector explains a gate refusal.
-		const malformed = produce(
-			fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" }),
-			(draft) => {
-				delete draft.forms[SOURCE].postSubmit;
-			},
-		);
-		const unset = afterSubmitPlan(malformed, SOURCE);
-		expect(unset?.fallbackMustBeExplicit).toBe(true);
-		expect(unset?.fallback).toMatchObject({ explicit: false });
-		const set = afterSubmitPlan(
-			fixture([cond("lnk-1", "1 = 1")], { postSubmit: "module" }),
-			SOURCE,
-		);
-		expect(set?.fallback).toMatchObject({
-			destination: "module",
-			explicit: true,
-		});
-	});
-
-	it("keeps a present match-all condition distinct from the terminal otherwise", () => {
+	it("counts a carried case as a destination that may not run", () => {
 		const plan = afterSubmitPlan(
 			fixture([
-				{ uuid: "lnk-1", condition: { kind: "match-all" }, target: toNote },
-				otherwise(),
+				{
+					uuid: "lnk-1",
+					target: toVisit,
+					datums: [
+						{ name: { kind: "selected-case", module: CARE }, xpath: "'x'" },
+					],
+				},
 			]),
 			SOURCE,
 		);
-		expect(plan?.conditional.map((link) => link.uuid)).toEqual([L1]);
-		expect(plan?.elseLink?.uuid).toBe(ELSE);
+		expect(plan?.mayNotRun.map((link) => link.uuid)).toEqual([L1]);
+		expect(plan?.otherwiseOffered).toBe(true);
+	});
+
+	it("offers no otherwise when every destination runs each time", () => {
+		const plan = afterSubmitPlan(fixture([everyTime("lnk-1")]), SOURCE);
+		expect(plan?.mayNotRun).toEqual([]);
+		expect(plan?.otherwiseOffered).toBe(false);
 	});
 
 	it("is undefined for a missing form", () => {
@@ -294,7 +345,7 @@ describe("planFormLinkAdd", () => {
 		const doc = multipleSelectionFixture();
 		const link: FormLink = {
 			uuid: L1,
-			condition: eq(literal(1), literal(1)),
+			condition: ONE,
 			target: toVisit,
 			datums: [
 				{
@@ -306,6 +357,7 @@ describe("planFormLinkAdd", () => {
 
 		expectSelectionCardinalityRefusal(doc, [
 			{ kind: "addFormLink", formUuid: SOURCE, link },
+			{ kind: "updateForm", uuid: SOURCE, patch: { postSubmit: null } },
 		]);
 		expect(planFormLinkAdd(doc, SOURCE, link)).toEqual({
 			ok: false,
@@ -316,139 +368,175 @@ describe("planFormLinkAdd", () => {
 		commit(doc, planFormLinkAdd(doc, SOURCE, automatic));
 	});
 
-	it("appends a conditional link and pins the fallback when it is the first with no otherwise", () => {
-		const doc = fixture([]);
-		const plan = planFormLinkAdd(
-			doc,
-			SOURCE,
-			newLink("lnk-1", eq(literal(1), literal(1))),
-		);
-		expect(plan).toMatchObject({ ok: true, pinsFallback: "app_home" });
+	it("moves a stored after-submit into the otherwise beside the first destination that may not run", () => {
+		const doc = fixture([], { postSubmit: "module" });
+		// The plausible failure: the new destination beside the old
+		// `postSubmit`, which the gate refuses.
+		expect(
+			refusedCodes(doc, [
+				{ kind: "addFormLink", formUuid: SOURCE, link: newLink("lnk-1", ONE) },
+			]),
+		).toContain("POST_SUBMIT_BESIDE_FORM_LINKS");
+		const plan = planFormLinkAdd(doc, SOURCE, newLink("lnk-1", ONE));
+		expect(plan).toMatchObject({ ok: true, movedToOtherwise: "module" });
 		if (!plan.ok) return;
+		expect(plan.droppedPostSubmit).toBeUndefined();
 		expect(plan.mutations.map((m) => m.kind)).toEqual([
 			"addFormLink",
 			"updateForm",
+			"setFormOtherwise",
 		]);
 		const next = commit(doc, plan);
-		expect(next.forms[SOURCE]?.postSubmit).toBe("app_home");
+		expect(next.forms[SOURCE]?.postSubmit).toBeUndefined();
+		expect(next.forms[SOURCE]?.otherwise).toEqual(builtIn("module"));
 		expect(order(next)).toEqual([L1]);
 	});
 
-	it("does not pin when the form already stores a destination or has an otherwise", () => {
-		const stored = planFormLinkAdd(
-			fixture([], { postSubmit: "module" }),
-			SOURCE,
-			newLink("lnk-1", eq(literal(1), literal(1))),
-		);
-		expect(stored).toMatchObject({ ok: true });
-		expect(stored.ok && stored.pinsFallback).toBeUndefined();
-		commit(fixture([], { postSubmit: "module" }), stored);
-		const withElse = fixture([otherwise()]);
-		const plan = planFormLinkAdd(
-			withElse,
-			SOURCE,
-			newLink("lnk-1", eq(literal(1), literal(1))),
-		);
-		expect(plan.ok && plan.pinsFallback).toBeUndefined();
-		// ...and the conditional link lands ABOVE the otherwise by default.
-		expect(order(commit(withElse, plan))).toEqual([L1, ELSE]);
+	it("moves a defaulted after-submit too, so the worker still goes there when the condition is false", () => {
+		// Visit is a follow-up: its default is the previous screen.
+		const doc = fixture([]);
+		const plan = planFormLinkAdd(doc, VISIT, newLink("lnk-1", ONE, toCare));
+		expect(plan).toMatchObject({ ok: true, movedToOtherwise: "previous" });
+		const next = commit(doc, plan);
+		expect(next.forms[VISIT]?.otherwise).toEqual(builtIn("previous"));
 	});
 
-	it("honours an explicit anchor and refuses one after the otherwise", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1"), otherwise()], {
-			postSubmit: "app_home",
+	it("drops a stored after-submit an every-time destination leaves unreached, and says so", () => {
+		const doc = fixture([], { postSubmit: "module" });
+		const plan = planFormLinkAdd(
+			doc,
+			SOURCE,
+			newLink("lnk-1", undefined, toCare),
+		);
+		expect(plan).toMatchObject({ ok: true, droppedPostSubmit: "module" });
+		if (!plan.ok) return;
+		expect(plan.movedToOtherwise).toBeUndefined();
+		const next = commit(doc, plan);
+		expect(next.forms[SOURCE]?.postSubmit).toBeUndefined();
+		expect(next.forms[SOURCE]?.otherwise).toBeUndefined();
+	});
+
+	it("leaves the app home as no otherwise, reporting nothing dropped", () => {
+		const stored = fixture([], { postSubmit: "app_home" });
+		const plan = planFormLinkAdd(stored, SOURCE, newLink("lnk-1", ONE));
+		expect(plan.ok && plan.mutations.map((m) => m.kind)).toEqual([
+			"addFormLink",
+			"updateForm",
+		]);
+		expect(plan.ok && plan.movedToOtherwise).toBeUndefined();
+		expect(plan.ok && plan.droppedPostSubmit).toBeUndefined();
+		expect(commit(stored, plan).forms[SOURCE]?.otherwise).toBeUndefined();
+		const defaulted = fixture([]);
+		const bare = planFormLinkAdd(defaulted, SOURCE, newLink("lnk-1", ONE));
+		expect(bare.ok && bare.mutations.map((m) => m.kind)).toEqual([
+			"addFormLink",
+		]);
+		commit(defaulted, bare);
+	});
+
+	it("changes nothing else on a form with destinations, at any position", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1")], {
+			otherwise: builtIn("module"),
 		});
 		const first = planFormLinkAdd(
 			doc,
 			SOURCE,
-			newLink("lnk-2", eq(literal(2), literal(2))),
+			newLink("lnk-2", undefined, toCare),
 			null,
 		);
-		expect(order(commit(doc, first))).toEqual([L2, L1, ELSE]);
-		const afterFirst = planFormLinkAdd(
-			doc,
-			SOURCE,
-			newLink("lnk-2", eq(literal(2), literal(2))),
-			L1,
-		);
-		expect(order(commit(doc, afterFirst))).toEqual([L1, L2, ELSE]);
-		expect(
-			planFormLinkAdd(
-				doc,
-				SOURCE,
-				newLink("lnk-2", eq(literal(2), literal(2))),
-				ELSE,
-			),
-		).toEqual({
-			ok: false,
-			reason: { kind: "after-else", elseUuid: ELSE },
-		});
+		expect(first.ok && first.mutations).toEqual([
+			{
+				kind: "addFormLink",
+				formUuid: SOURCE,
+				link: newLink("lnk-2", undefined, toCare),
+				after: null,
+			},
+		]);
+		const next = commit(doc, first);
+		expect(order(next)).toEqual([L2, L1]);
+		expect(next.forms[SOURCE]?.otherwise).toEqual(builtIn("module"));
+		const last = planFormLinkAdd(doc, SOURCE, newLink("lnk-2", ONE), L1);
+		expect(order(commit(doc, last))).toEqual([L1, L2]);
 	});
 
-	it("lands an unconditional link last and refuses a second otherwise", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" });
-		const plan = planFormLinkAdd(doc, SOURCE, newLink("lnk-else"));
-		expect(order(commit(doc, plan))).toEqual([L1, ELSE]);
-		expect(planFormLinkAdd(doc, SOURCE, newLink("lnk-else"), null)).toEqual({
-			ok: false,
-			reason: { kind: "else-not-last", blockingUuids: [L1] },
-		});
-		const withElse = commit(doc, plan);
-		expect(planFormLinkAdd(withElse, SOURCE, newLink("lnk-3"))).toEqual({
-			ok: false,
-			reason: { kind: "else-exists", elseUuid: ELSE },
-		});
-	});
-
-	it("refuses a duplicate uuid, a self target, a cycle, and a missing target", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" });
-		expect(
-			planFormLinkAdd(
-				doc,
-				SOURCE,
-				newLink("lnk-1", eq(literal(2), literal(2))),
-			),
-		).toEqual({
+	it("refuses a uuid in use, a self target, a missing target or anchor, an unoffered submenu and values on a menu", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1")]);
+		expect(planFormLinkAdd(doc, SOURCE, newLink("lnk-1", ONE))).toEqual({
 			ok: false,
 			reason: { kind: "duplicate-uuid", uuid: L1 },
 		});
 		expect(
 			planFormLinkAdd(doc, SOURCE, {
-				uuid: L2,
-				condition: eq(literal(2), literal(2)),
-				target: { type: "form", moduleUuid: INTAKE, formUuid: SOURCE },
+				uuid: NOTE,
+				condition: ONE,
+				target: toCare,
 			}),
-		).toEqual({ ok: false, reason: { kind: "self-target" } });
-		// Note links back to Source; Source → Note would loop.
-		const looped = produce(doc, (draft) => {
-			delete draft.forms[SOURCE].formLinks;
-			const note = draft.forms[NOTE];
-			if (note === undefined) throw new Error("fixture");
-			note.formLinks = [
-				{
-					uuid: testUuid("lnk-back"),
-					target: { type: "form", moduleUuid: INTAKE, formUuid: SOURCE },
-				},
-			];
-		});
-		assertAdmittedDoc(looped);
+		).toEqual({ ok: false, reason: { kind: "duplicate-uuid", uuid: NOTE } });
 		expect(
 			planFormLinkAdd(
-				looped,
+				doc,
 				SOURCE,
-				newLink("lnk-2", eq(literal(2), literal(2))),
+				newLink("lnk-2", ONE, {
+					type: "form",
+					moduleUuid: INTAKE,
+					formUuid: SOURCE,
+				}),
 			),
+		).toEqual({ ok: false, reason: { kind: "self-target" } });
+		expect(
+			planFormLinkAdd(
+				doc,
+				SOURCE,
+				newLink("lnk-2", ONE, {
+					type: "form",
+					moduleUuid: CARE,
+					formUuid: testUuid("ghost"),
+				}),
+			),
+		).toEqual({ ok: false, reason: { kind: "target-not-found" } });
+		expect(
+			planFormLinkAdd(doc, SOURCE, newLink("lnk-2", ONE), testUuid("ghost")),
 		).toEqual({
 			ok: false,
-			reason: { kind: "cycle", chain: [NOTE, SOURCE] },
+			reason: { kind: "link-not-found", uuid: testUuid("ghost") },
+		});
+		expect(
+			refusedCodes(doc, [
+				{
+					kind: "addFormLink",
+					formUuid: SOURCE,
+					link: newLink("lnk-2", ONE, toSub),
+				},
+			]),
+		).toContain("FORM_LINK_TARGET_NOT_OFFERED");
+		expect(planFormLinkAdd(doc, SOURCE, newLink("lnk-2", ONE, toSub))).toEqual({
+			ok: false,
+			reason: { kind: "target-not-offered", menuUuid: SUB, parentUuid: CARE },
 		});
 		expect(
 			planFormLinkAdd(doc, SOURCE, {
-				uuid: L2,
-				condition: eq(literal(2), literal(2)),
-				target: { type: "module", moduleUuid: testUuid("ghost") },
+				...newLink("lnk-2", ONE, toCare),
+				datums: [
+					{
+						name: { kind: "selected-case", module: CARE },
+						xpath: term(literal("x")),
+					},
+				],
 			}),
-		).toEqual({ ok: false, reason: { kind: "target-not-found" } });
+		).toEqual({ ok: false, reason: { kind: "menu-carries-values" } });
+	});
+
+	it("admits starting this form again", () => {
+		const doc = fixture([]);
+		const plan = planFormLinkAdd(
+			doc,
+			SOURCE,
+			newLink("lnk-1", ONE, { type: "this-form" }),
+		);
+		const next = commit(doc, plan);
+		expect(next.forms[SOURCE]?.formLinks?.[0]?.target).toEqual({
+			type: "this-form",
+		});
 	});
 });
 
@@ -510,9 +598,7 @@ describe("planFormLinkUpdate", () => {
 	it("writes only the changed slots and clears with null", () => {
 		// Visit needs a case: the registration carries the one it creates, or
 		// the link names one by hand.
-		const doc = fixture([cond("lnk-1", "1 = 1", toVisit), otherwise()], {
-			postSubmit: "app_home",
-		});
+		const doc = fixture([cond("lnk-1", "1 = 1", toVisit)]);
 		const current = base(doc, "lnk-1");
 		const plan = planFormLinkUpdate(
 			doc,
@@ -570,19 +656,16 @@ describe("planFormLinkUpdate", () => {
 		// store a name Note never reads (`FORM_LINK_DATUM_UNUSED`), so the
 		// planner removes it and reports it. Values the caller sets in the
 		// same edit are its own.
-		const doc = fixture(
-			[
-				{
-					uuid: "lnk-1",
-					condition: "1 = 1",
-					target: toVisit,
-					datums: [
-						{ name: { kind: "selected-case", module: CARE }, xpath: "'x'" },
-					],
-				},
-			],
-			{ postSubmit: "app_home" },
-		);
+		const doc = fixture([
+			{
+				uuid: "lnk-1",
+				condition: "1 = 1",
+				target: toVisit,
+				datums: [
+					{ name: { kind: "selected-case", module: CARE }, xpath: "'x'" },
+				],
+			},
+		]);
 		const current = base(doc, "lnk-1");
 		const plan = planFormLinkUpdate(
 			doc,
@@ -624,7 +707,7 @@ describe("planFormLinkUpdate", () => {
 	});
 
 	it("is a no-op plan when nothing changed, whatever the key order", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" });
+		const doc = fixture([cond("lnk-1", "1 = 1")]);
 		const current = base(doc, "lnk-1");
 		expect(planFormLinkUpdate(doc, SOURCE, { ...current }, current)).toEqual({
 			ok: true,
@@ -643,7 +726,7 @@ describe("planFormLinkUpdate", () => {
 	});
 
 	it("refuses a slot someone else changed first, and a vanished link", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" });
+		const doc = fixture([cond("lnk-1", "1 = 1")]);
 		const opened = base(doc, "lnk-1");
 		const peerEdited = produce(doc, (draft) => {
 			const link = draft.forms[SOURCE]?.formLinks?.[0];
@@ -693,61 +776,128 @@ describe("planFormLinkUpdate", () => {
 		).toEqual({ ok: false, reason: { kind: "link-not-found", uuid: L1 } });
 	});
 
-	it("refuses making a link unconditional unless it is last, and pins when the otherwise turns conditional", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1"), otherwise()]);
-		const first = base(doc, "lnk-1");
-		expect(
-			planFormLinkUpdate(
-				doc,
-				SOURCE,
-				{ ...first, condition: undefined },
-				first,
-			),
-		).toEqual({
-			ok: false,
-			reason: { kind: "else-not-last", blockingUuids: [ELSE] },
+	it("removes the otherwise when an update leaves no destination that may not run", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1"), everyTime("lnk-2")], {
+			otherwise: builtIn("module"),
 		});
-		const elseLink = base(doc, "lnk-else");
+		const current = base(doc, "lnk-1");
+		const next = { ...current, condition: undefined };
+		// The plausible failure: an otherwise stranded beside destinations
+		// that all run every time.
+		expect(
+			refusedCodes(doc, [
+				{
+					kind: "updateFormLink",
+					formUuid: SOURCE,
+					uuid: L1,
+					patch: { condition: null },
+				},
+			]),
+		).toContain("FORM_OTHERWISE_UNREACHABLE");
+		const plan = planFormLinkUpdate(doc, SOURCE, next, current);
+		expect(plan).toMatchObject({
+			ok: true,
+			droppedOtherwise: builtIn("module"),
+		});
+		expect(plan.ok && plan.mutations.map((m) => m.kind)).toEqual([
+			"updateFormLink",
+			"setFormOtherwise",
+		]);
+		expect(commit(doc, plan).forms[SOURCE]?.otherwise).toBeUndefined();
+	});
+
+	it("keeps the otherwise while another destination may not run", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1"), cond("lnk-2", "2 = 2")], {
+			otherwise: builtIn("module"),
+		});
+		const current = base(doc, "lnk-1");
 		const plan = planFormLinkUpdate(
 			doc,
 			SOURCE,
-			{ ...elseLink, condition: eq(literal(2), literal(2)) },
-			elseLink,
+			{ ...current, condition: undefined },
+			current,
 		);
-		expect(plan).toMatchObject({ ok: true, pinsFallback: "app_home" });
-		const next = commit(doc, plan);
-		expect(next.forms[SOURCE]?.postSubmit).toBe("app_home");
+		expect(plan.ok && plan.droppedOtherwise).toBeUndefined();
+		expect(commit(doc, plan).forms[SOURCE]?.otherwise).toEqual(
+			builtIn("module"),
+		);
 	});
 
-	it("refuses a retarget that would loop or point at itself", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" });
+	it("refuses a retarget to a submenu HQ does not offer from here", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1")]);
 		const current = base(doc, "lnk-1");
 		expect(
-			planFormLinkUpdate(
-				doc,
-				SOURCE,
-				{
-					...current,
-					target: { type: "form", moduleUuid: INTAKE, formUuid: SOURCE },
-				},
-				current,
-			),
-		).toEqual({ ok: false, reason: { kind: "self-target" } });
+			planFormLinkUpdate(doc, SOURCE, { ...current, target: toSub }, current),
+		).toEqual({
+			ok: false,
+			reason: { kind: "target-not-offered", menuUuid: SUB, parentUuid: CARE },
+		});
 	});
 });
 
 describe("planFormLinkRemove", () => {
-	it("removes a link, pinning the fallback when the otherwise goes and conditional links remain", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1"), otherwise()]);
-		const plan = planFormLinkRemove(doc, SOURCE, ELSE);
-		expect(plan).toMatchObject({ ok: true, pinsFallback: "app_home" });
+	it("turns a built-in otherwise into the form's after-submit when the last destination goes", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1")], {
+			otherwise: builtIn("module"),
+		});
+		const plan = planFormLinkRemove(doc, SOURCE, L1);
+		expect(plan).toMatchObject({ ok: true, otherwiseToPostSubmit: "module" });
 		const next = commit(doc, plan);
-		expect(order(next)).toEqual([L1]);
-		expect(next.forms[SOURCE]?.postSubmit).toBe("app_home");
-		// Removing the last link needs no pin (no links at all).
-		const last = planFormLinkRemove(next, SOURCE, L1);
-		expect(last.ok && last.pinsFallback).toBeUndefined();
-		expect(commit(next, last).forms[SOURCE]?.formLinks).toBeUndefined();
+		expect(next.forms[SOURCE]?.formLinks).toBeUndefined();
+		expect(next.forms[SOURCE]?.otherwise).toBeUndefined();
+		expect(next.forms[SOURCE]?.postSubmit).toBe("module");
+	});
+
+	it("turns an otherwise link into the sole destination, keeping its uuid", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1")], {
+			otherwise: linkOtherwise(),
+		});
+		// The plausible failure: the otherwise left beside no destinations.
+		expect(
+			refusedCodes(doc, [
+				{ kind: "removeFormLink", formUuid: SOURCE, uuid: L1 },
+			]),
+		).toContain("FORM_OTHERWISE_UNREACHABLE");
+		const plan = planFormLinkRemove(doc, SOURCE, L1);
+		expect(plan).toMatchObject({ ok: true, otherwiseToDestination: ELSE });
+		expect(plan.ok && plan.mutations.map((m) => m.kind)).toEqual([
+			"removeFormLink",
+			"setFormOtherwise",
+			"addFormLink",
+		]);
+		const next = commit(doc, plan);
+		expect(next.forms[SOURCE]?.formLinks).toEqual([
+			{ uuid: ELSE, target: toCare },
+		]);
+		expect(next.forms[SOURCE]?.otherwise).toBeUndefined();
+	});
+
+	it("gives the form its type's default when no otherwise is stored", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1")]);
+		const plan = planFormLinkRemove(doc, SOURCE, L1);
+		expect(plan.ok && plan.mutations).toEqual([
+			{ kind: "removeFormLink", formUuid: SOURCE, uuid: L1 },
+		]);
+		const next = commit(doc, plan);
+		expect(next.forms[SOURCE]?.postSubmit).toBeUndefined();
+		expect(afterSubmitPlan(next, SOURCE)?.postSubmit).toEqual({
+			destination: "app_home",
+			explicit: false,
+		});
+	});
+
+	it("removes the otherwise with the last destination that may not run", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1"), everyTime("lnk-2")], {
+			otherwise: linkOtherwise(),
+		});
+		const plan = planFormLinkRemove(doc, SOURCE, L1);
+		expect(plan).toMatchObject({
+			ok: true,
+			droppedOtherwise: linkOtherwise(),
+		});
+		const next = commit(doc, plan);
+		expect(order(next)).toEqual([L2]);
+		expect(next.forms[SOURCE]?.otherwise).toBeUndefined();
 	});
 
 	it("refuses a link that is not there", () => {
@@ -760,123 +910,221 @@ describe("planFormLinkRemove", () => {
 
 describe("planFormLinkMove", () => {
 	const doc = () =>
-		fixture([cond("lnk-1", "1 = 1"), cond("lnk-2", "2 = 2"), otherwise()], {
-			postSubmit: "app_home",
-		});
+		fixture(
+			[cond("lnk-1", "1 = 1"), cond("lnk-2", "2 = 2"), everyTime("lnk-else")],
+			{ otherwise: builtIn("module") },
+		);
 
-	it("moves by anchor and replays to the same order", () => {
+	it("moves by anchor to any position and replays to the same order", () => {
 		const plan = planFormLinkMove(doc(), SOURCE, L2, 0);
 		expect(plan.ok && plan.mutations).toEqual([
 			{ kind: "moveFormLink", formUuid: SOURCE, uuid: L2, after: null },
 		]);
 		expect(order(commit(doc(), plan))).toEqual([L2, L1, ELSE]);
-		const back = planFormLinkMove(doc(), SOURCE, L1, 1);
-		expect(back.ok && back.mutations).toEqual([
-			{ kind: "moveFormLink", formUuid: SOURCE, uuid: L1, after: L2 },
-		]);
+		// An every-time destination may come first, and a conditional one last.
+		expect(
+			order(commit(doc(), planFormLinkMove(doc(), SOURCE, ELSE, 0))),
+		).toEqual([ELSE, L1, L2]);
+		expect(
+			order(commit(doc(), planFormLinkMove(doc(), SOURCE, L1, 2))),
+		).toEqual([L2, ELSE, L1]);
 	});
 
-	it("is a no-op plan at the current position", () => {
+	it("is a no-op plan at the current position, and refuses a missing link", () => {
 		expect(planFormLinkMove(doc(), SOURCE, L1, 0)).toEqual({
 			ok: true,
 			mutations: [],
 		});
-	});
-
-	it("refuses a conditional link below the otherwise and the otherwise above one", () => {
-		expect(planFormLinkMove(doc(), SOURCE, L1, 2)).toEqual({
+		expect(planFormLinkMove(doc(), SOURCE, testUuid("ghost"), 0)).toEqual({
 			ok: false,
-			reason: { kind: "after-else", elseUuid: ELSE },
-		});
-		expect(planFormLinkMove(doc(), SOURCE, ELSE, 0)).toEqual({
-			ok: false,
-			reason: { kind: "else-not-last", blockingUuids: [L1, L2] },
+			reason: { kind: "link-not-found", uuid: testUuid("ghost") },
 		});
 	});
 });
 
-describe("planSetFallback", () => {
-	it("stores a built-in destination explicitly whenever links exist", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1")], { postSubmit: "module" });
-		const plan = planSetFallback(doc, SOURCE, "app_home");
+describe("planSetOtherwise", () => {
+	it("sets a built-in otherwise and clears it with null", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1")]);
+		const plan = planSetOtherwise(doc, SOURCE, builtIn("module"));
 		expect(plan.ok && plan.mutations).toEqual([
-			{ kind: "updateForm", uuid: SOURCE, patch: { postSubmit: "app_home" } },
+			{
+				kind: "setFormOtherwise",
+				formUuid: SOURCE,
+				otherwise: builtIn("module"),
+			},
 		]);
-		expect(commit(doc, plan).forms[SOURCE]?.postSubmit).toBe("app_home");
-	});
-
-	it("uses the null-when-default shorthand only on a form without links", () => {
-		const plain = fixture([], { postSubmit: "module" });
-		const plan = planSetFallback(plain, SOURCE, "app_home");
-		expect(plan.ok && plan.mutations).toEqual([
-			{ kind: "updateForm", uuid: SOURCE, patch: { postSubmit: null } },
-		]);
-		expect(commit(plain, plan).forms[SOURCE]?.postSubmit).toBeUndefined();
-		expect(planSetFallback(fixture([]), SOURCE, "app_home")).toEqual({
+		const next = commit(doc, plan);
+		expect(next.forms[SOURCE]?.otherwise).toEqual(builtIn("module"));
+		expect(planSetOtherwise(next, SOURCE, builtIn("module"))).toEqual({
+			ok: true,
+			mutations: [],
+		});
+		const cleared = planSetOtherwise(next, SOURCE, null);
+		expect(commit(next, cleared).forms[SOURCE]?.otherwise).toBeUndefined();
+		expect(planSetOtherwise(doc, SOURCE, null)).toEqual({
 			ok: true,
 			mutations: [],
 		});
 	});
 
-	it("removes the otherwise link when a built-in destination is chosen", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1"), otherwise()]);
-		const plan = planSetFallback(doc, SOURCE, "previous");
-		expect(plan.ok && plan.mutations).toEqual([
-			{ kind: "removeFormLink", formUuid: SOURCE, uuid: ELSE },
-			{ kind: "updateForm", uuid: SOURCE, patch: { postSubmit: "previous" } },
-		]);
-		const next = commit(doc, plan);
-		expect(order(next)).toEqual([L1]);
-		expect(next.forms[SOURCE]?.postSubmit).toBe("previous");
+	it("sets a link the caller minted, and changes it keeping its uuid", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1")]);
+		const next = commit(doc, planSetOtherwise(doc, SOURCE, linkOtherwise()));
+		expect(next.forms[SOURCE]?.otherwise).toEqual(linkOtherwise());
+		const retargeted = linkOtherwise("lnk-else", toNote);
+		expect(
+			commit(next, planSetOtherwise(next, SOURCE, retargeted)).forms[SOURCE]
+				?.otherwise,
+		).toEqual(retargeted);
+		// A built-in in its place.
+		expect(
+			commit(next, planSetOtherwise(next, SOURCE, builtIn("previous"))).forms[
+				SOURCE
+			]?.otherwise,
+		).toEqual(builtIn("previous"));
 	});
 
-	it("refuses an otherwise link whose predeclared uuid is already a link", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" });
+	it("refuses an otherwise that could never run", () => {
+		for (const doc of [fixture([]), fixture([everyTime("lnk-1")])]) {
+			expect(planSetOtherwise(doc, SOURCE, builtIn("module"))).toEqual({
+				ok: false,
+				reason: { kind: "otherwise-unreachable" },
+			});
+		}
+	});
+
+	it("refuses a built-in the menu does not offer, naming why", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1")]);
 		expect(
-			planSetFallback(doc, SOURCE, {
-				kind: "else-link",
-				target: toCare,
-				uuid: L1,
+			planSetOtherwise(doc, SOURCE, {
+				kind: "destination",
+				destination: "parentMenu",
 			}),
-		).toEqual({ ok: false, reason: { kind: "duplicate-uuid", uuid: L1 } });
-	});
-
-	it("appends an otherwise link, and refuses a second one", () => {
-		const doc = fixture([cond("lnk-1", "1 = 1")], { postSubmit: "app_home" });
-		const plan = planSetFallback(doc, SOURCE, {
-			kind: "else-link",
-			target: toCare,
-			uuid: ELSE,
-		});
-		expect(plan.ok && plan.mutations).toEqual([
-			{
-				kind: "addFormLink",
-				formUuid: SOURCE,
-				link: { uuid: ELSE, target: toCare },
-			},
-		]);
-		const next = commit(doc, plan);
-		expect(order(next)).toEqual([L1, ELSE]);
-		expect(
-			planSetFallback(next, SOURCE, { kind: "else-link", target: toCare }),
 		).toEqual({
 			ok: false,
-			reason: { kind: "else-exists", elseUuid: ELSE },
+			reason: {
+				kind: "otherwise-not-offered",
+				destination: "parentMenu",
+				reason: "no-parent-menu",
+			},
 		});
 	});
 
-	it("mints a uuid for the otherwise link when none is given", () => {
-		const plan = planSetFallback(fixture([]), SOURCE, {
-			kind: "else-link",
+	it("refuses a link whose uuid is in use, or whose target a destination could not take", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1")]);
+		expect(planSetOtherwise(doc, SOURCE, linkOtherwise("lnk-1"))).toEqual({
+			ok: false,
+			reason: { kind: "duplicate-uuid", uuid: L1 },
+		});
+		expect(
+			planSetOtherwise(doc, SOURCE, {
+				kind: "link",
+				uuid: ELSE,
+				target: { type: "form", moduleUuid: INTAKE, formUuid: SOURCE },
+			}),
+		).toEqual({ ok: false, reason: { kind: "self-target" } });
+		expect(
+			planSetOtherwise(doc, SOURCE, linkOtherwise("lnk-else", toSub)),
+		).toEqual({
+			ok: false,
+			reason: { kind: "target-not-offered", menuUuid: SUB, parentUuid: CARE },
+		});
+		expect(
+			planSetOtherwise(doc, SOURCE, {
+				kind: "link",
+				uuid: ELSE,
+				target: toCare,
+				datums: [
+					{
+						name: { kind: "selected-case", module: CARE },
+						xpath: term(literal("x")),
+					},
+				],
+			}),
+		).toEqual({ ok: false, reason: { kind: "menu-carries-values" } });
+	});
+
+	it("refuses a form that is gone", () => {
+		expect(
+			planSetOtherwise(fixture([]), testUuid("ghost"), builtIn("module")),
+		).toEqual({ ok: false, reason: { kind: "form-not-found" } });
+	});
+});
+
+describe("planMakeOtherwise / planMakeDestination", () => {
+	it("turns a destination into the otherwise link and back, keeping its uuid", () => {
+		const doc = fixture([
+			cond("lnk-1", "1 = 1"),
+			cond("lnk-2", "2 = 2", toCare),
+		]);
+		const plan = planMakeOtherwise(doc, SOURCE, L2);
+		expect(plan.ok && plan.mutations).toEqual([
+			{ kind: "removeFormLink", formUuid: SOURCE, uuid: L2 },
+			{
+				kind: "setFormOtherwise",
+				formUuid: SOURCE,
+				otherwise: { kind: "link", uuid: L2, target: toCare },
+			},
+		]);
+		const made = commit(doc, plan);
+		expect(order(made)).toEqual([L1]);
+		expect(made.forms[SOURCE]?.otherwise).toEqual({
+			kind: "link",
+			uuid: L2,
 			target: toCare,
 		});
-		expect(plan.ok).toBe(true);
-		if (!plan.ok) return;
-		const added = plan.mutations[0];
-		expect(added?.kind).toBe("addFormLink");
-		if (added?.kind !== "addFormLink") return;
-		expect(commit(fixture([]), plan).forms[SOURCE].formLinks?.[0].uuid).toBe(
-			added.link.uuid,
-		);
+		const back = commit(made, planMakeDestination(made, SOURCE));
+		expect(order(back)).toEqual([L1, L2]);
+		expect(back.forms[SOURCE]?.formLinks?.[1]).toEqual({
+			uuid: L2,
+			target: toCare,
+		});
+		expect(back.forms[SOURCE]?.otherwise).toBeUndefined();
+	});
+
+	it("refuses a make-otherwise that leaves nothing that may not run", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1"), everyTime("lnk-2")]);
+		// The plausible failure: the batch the gate refuses.
+		expect(
+			refusedCodes(doc, [
+				{ kind: "removeFormLink", formUuid: SOURCE, uuid: L1 },
+				{
+					kind: "setFormOtherwise",
+					formUuid: SOURCE,
+					otherwise: { kind: "link", uuid: L1, target: toNote },
+				},
+			]),
+		).toContain("FORM_OTHERWISE_UNREACHABLE");
+		expect(planMakeOtherwise(doc, SOURCE, L1)).toEqual({
+			ok: false,
+			reason: { kind: "otherwise-unreachable" },
+		});
+		expect(
+			planMakeOtherwise(fixture([cond("lnk-1", "1 = 1")]), SOURCE, L1),
+		).toEqual({ ok: false, reason: { kind: "otherwise-unreachable" } });
+		// The every-time destination as the otherwise is fine.
+		commit(doc, planMakeOtherwise(doc, SOURCE, L2));
+	});
+
+	it("refuses a second otherwise, a missing link, and a built-in to make a destination", () => {
+		const doc = fixture([cond("lnk-1", "1 = 1"), cond("lnk-2", "2 = 2")], {
+			otherwise: builtIn("module"),
+		});
+		expect(planMakeOtherwise(doc, SOURCE, L2)).toEqual({
+			ok: false,
+			reason: { kind: "otherwise-exists" },
+		});
+		expect(planMakeOtherwise(doc, SOURCE, ELSE)).toEqual({
+			ok: false,
+			reason: { kind: "link-not-found", uuid: ELSE },
+		});
+		expect(planMakeDestination(doc, SOURCE)).toEqual({
+			ok: false,
+			reason: { kind: "no-otherwise-link" },
+		});
+		expect(planMakeDestination(fixture([]), SOURCE)).toEqual({
+			ok: false,
+			reason: { kind: "no-otherwise-link" },
+		});
 	});
 });

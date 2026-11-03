@@ -13,8 +13,10 @@ import {
 	effectivePostSubmit,
 	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
+	type OtherwiseDestination,
+	otherwiseDestinationsOffered,
 	type PostSubmitDestination,
-	postSubmitDestinationsAdmitted,
+	postSubmitDestinationsOffered,
 	type Uuid,
 	withCanonicalSearchInputOptions,
 } from "@/lib/domain";
@@ -621,15 +623,17 @@ export function applyModuleMutation(
 }
 
 /** Each form's after-submit destination, as a reducer arm reads it before
- * its own write: `before` for `reconcilePostSubmitWithMenuShape`. */
+ * its own write: `before` for `reconcilePostSubmitWithMenuShape`. A form
+ * with destinations maps to `undefined`: it has no after-submit destination,
+ * and only its built-in otherwise is reconciled. */
 export function postSubmitBefore(
 	draft: Draft<BlueprintDoc>,
 	formUuids: readonly Uuid[],
-): ReadonlyMap<Uuid, PostSubmitDestination> {
-	const before = new Map<Uuid, PostSubmitDestination>();
+): ReadonlyMap<Uuid, PostSubmitDestination | undefined> {
+	const before = new Map<Uuid, PostSubmitDestination | undefined>();
 	for (const formUuid of formUuids) {
-		const destination = effectivePostSubmit(draft, formUuid);
-		if (destination !== undefined) before.set(formUuid, destination);
+		if (draft.forms[formUuid] === undefined) continue;
+		before.set(formUuid, effectivePostSubmit(draft, formUuid));
 	}
 	return before;
 }
@@ -645,49 +649,94 @@ export function formsOfModuleAndChildren(
 	);
 }
 
-/** Where an explicit destination moves when its form may no longer hold it. */
-function nearestAdmitted(
+/** Where an explicit destination moves when its form is no longer offered
+ * it. */
+function nearestOffered(
 	stored: PostSubmitDestination,
-	admitted: readonly PostSubmitDestination[],
+	offered: readonly PostSubmitDestination[],
 ): PostSubmitDestination {
-	if (stored === "previous" && admitted.includes("module")) return "module";
+	if (stored === "previous" && offered.includes("module")) return "module";
 	return "firstMenu";
 }
 
+/** The built-in otherwise each one falls back to, nearest first. `firstMenu`
+ * is always offered, so every chain ends there. */
+const OTHERWISE_FALLBACKS: Readonly<
+	Record<OtherwiseDestination, readonly OtherwiseDestination[]>
+> = {
+	previous: ["module", "parentMenu", "firstMenu"],
+	module: ["parentMenu", "firstMenu"],
+	parentMenu: ["firstMenu"],
+	firstMenu: [],
+};
+
+/** Where a built-in otherwise moves when its form is no longer offered it. */
+function nearestOfferedOtherwise(
+	stored: OtherwiseDestination,
+	offered: readonly OtherwiseDestination[],
+): OtherwiseDestination {
+	return (
+		OTHERWISE_FALLBACKS[stored].find((destination) =>
+			offered.includes(destination),
+		) ?? "firstMenu"
+	);
+}
+
 /**
- * Keep every form's after-submit destination one the form may hold, and
- * meaning what it meant, when a write changes a fact its offered set or its
- * default reads (`lib/domain/postSubmit.ts`): whether the menu's forms read
- * the search, the selection mode, the module's `hiddenFromMenu`, whether the
- * menu is a bare case list, the module's parent, the form's module, or
- * whether the form holds links. So a change of menu shape never
- * dead-ends at the gate. `before` maps each form to reconcile to its
- * effective destination ahead of the write; after the write, for each:
+ * Keep every form's after-submit destination and built-in otherwise ones the
+ * form is offered, and meaning what they meant, when a write changes a fact
+ * the offered set or the default reads (`lib/domain/postSubmit.ts`): whether
+ * the menu's forms read the search, the selection mode, the module's
+ * `hiddenFromMenu`, whether the menu is a bare case list, the module's parent,
+ * or the form's module. So a change of menu shape never dead-ends at the
+ * gate. `before` maps each form to reconcile to its effective after-submit
+ * destination ahead of the write (`undefined` for a form with destinations);
+ * after the write, for each:
  *
- *   - an explicit destination that left the admitted set moves to the
- *     nearest admitted (`previous` to `module`, else `firstMenu`; `module`
- *     and `parentMenu` to `firstMenu`);
- *   - an absent slot whose destination left the admitted set stays absent
+ *   - a built-in otherwise that left `otherwiseDestinationsOffered` moves to
+ *     the nearest offered (`previous` to `module`, `parentMenu`, then
+ *     `firstMenu`; `module` to `parentMenu`, then `firstMenu`; `parentMenu`
+ *     to `firstMenu`);
+ *   - a form with destinations has no after-submit destination to keep;
+ *   - an explicit destination that left the offered set moves to the nearest
+ *     offered (`previous` to `module`, else `firstMenu`; `module` and
+ *     `parentMenu` to `firstMenu`);
+ *   - an absent slot whose destination left the offered set stays absent
  *     and takes the new default;
- *   - an absent slot whose destination is still admitted while the default
+ *   - an absent slot whose destination is still offered while the default
  *     now names another is pinned to it, so the author's destination holds;
- *   - an explicit destination still admitted is kept.
+ *   - an explicit destination still offered is kept.
+ *
+ * A write that changes a form's destinations reconciles nothing here: the
+ * planners (`lib/doc/formLinkMutations.ts`) pair it with the after-submit and
+ * otherwise it needs.
  */
 export function reconcilePostSubmitWithMenuShape(
 	draft: Draft<BlueprintDoc>,
-	before: ReadonlyMap<Uuid, PostSubmitDestination>,
+	before: ReadonlyMap<Uuid, PostSubmitDestination | undefined>,
 ): void {
 	for (const [formUuid, destination] of before) {
 		const form = draft.forms[formUuid];
 		if (!form) continue;
-		const admitted = postSubmitDestinationsAdmitted(draft, formUuid);
+		const otherwise = form.otherwise;
+		if (otherwise?.kind === "destination") {
+			const offered = otherwiseDestinationsOffered(draft, formUuid);
+			if (!offered.includes(otherwise.destination)) {
+				otherwise.destination = nearestOfferedOtherwise(
+					otherwise.destination,
+					offered,
+				);
+			}
+		}
+		if (destination === undefined || form.formLinks !== undefined) continue;
+		const offered = postSubmitDestinationsOffered(draft, formUuid);
 		if (form.postSubmit !== undefined) {
-			if (!admitted.includes(form.postSubmit)) {
-				form.postSubmit = nearestAdmitted(form.postSubmit, admitted);
+			if (!offered.includes(form.postSubmit)) {
+				form.postSubmit = nearestOffered(form.postSubmit, offered);
 			}
 			continue;
 		}
-		if (!admitted.includes(destination)) continue;
+		if (!offered.includes(destination)) continue;
 		if (defaultPostSubmitOf(draft, formUuid) !== destination) {
 			form.postSubmit = destination;
 		}

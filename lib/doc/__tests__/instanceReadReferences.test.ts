@@ -130,7 +130,7 @@ function searchReadDoc(): BlueprintDoc {
 						uuid: CHECK_IN,
 						name: "Check in",
 						type: "followup",
-						postSubmit: "module",
+						otherwise: { kind: "destination", destination: "module" },
 						fields: [
 							f({ kind: "hidden", id: "found", calculate: searchFound() }),
 						],

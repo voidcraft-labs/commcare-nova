@@ -1,122 +1,199 @@
 // components/builder/form-links/__tests__/refusalCopy.test.ts
 //
 // Every refusal reads as a sentence about the rule the planner enforces,
-// and no refusal implies one it does not.
+// and no refusal implies one it does not. The sentences are part 07 §3.11's
+// where it gives them, word for word.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import type { FormLinkRefusal } from "@/lib/doc/formLinkMutations";
 import type { Uuid } from "@/lib/doc/types";
 import {
-	makeOtherwiseUnavailableReason,
-	moveRefusal,
-	moveRefusalReason,
+	formLinkRefusalReason,
+	NO_OTHERWISE_LINK_REASON,
+	OTHERWISE_UNREACHABLE_REASON,
 	otherwiseUnavailableReason,
+	planRefusal,
 	removalQuestion,
+	submenuNotOfferedReason,
+	targetRefusal,
 	targetRefusalReason,
 } from "../refusalCopy";
 
-const A = testUuid("form-a");
-const B = testUuid("form-b");
-const ME = testUuid("form-me");
-const NAMES: Record<string, string> = { [A]: "Visit", [B]: "Note" };
-const nameOf = (uuid: Uuid) => NAMES[uuid];
-
-describe("move refusals", () => {
-	it("says each positional rule in its own words", () => {
-		expect(
-			moveRefusalReason({ ok: false, reason: "after-else", elseUuid: A }),
-		).toBe("A link with a condition has to stay above the otherwise link.");
-		expect(
-			moveRefusalReason({
-				ok: false,
-				reason: "else-not-last",
-				blockingUuids: [A],
-			}),
-		).toBe(
-			"The otherwise link has to stay last: it only runs when nothing above it matched.",
-		);
-	});
-
-	it("has nothing to say about an available position", () => {
-		expect(moveRefusal({ ok: true })).toBeUndefined();
-		expect(moveRefusal(undefined)).toBeUndefined();
-	});
-});
+const PARENT = testUuid("mod-parent");
+const CHILD = testUuid("mod-child");
+const NAMES: Record<string, string> = { [PARENT]: "Households" };
+const menuNameOf = (uuid: Uuid) => NAMES[uuid];
 
 describe("target refusals", () => {
-	it("names the chain back to this form, ending in 'this form'", () => {
+	it("names the menu to choose instead of a submenu CommCare HQ doesn't offer", () => {
 		expect(
 			targetRefusalReason(
-				{ ok: false, reason: "cycle", chain: [A, B, ME] },
-				nameOf,
+				{
+					ok: false,
+					reason: "not-offered",
+					menuUuid: CHILD,
+					parentUuid: PARENT,
+				},
+				menuNameOf,
 			),
-		).toBe("Going there would lead back here: “Visit” → “Note” → this form.");
+		).toBe(
+			"CommCare HQ can't link to this submenu from here. You can choose Households or a form inside it.",
+		);
+		expect(submenuNotOfferedReason(undefined)).toBe(
+			"CommCare HQ can't link to this submenu from here. You can choose a form inside it.",
+		);
 	});
 
-	it("still reads when a form in the chain has no name", () => {
+	it("points a self reference at Start this form again", () => {
+		expect(
+			targetRefusalReason({ ok: false, reason: "self-target" }, menuNameOf),
+		).toBe(
+			"A link can't name this form by itself. You can choose Start this form again instead.",
+		);
+	});
+
+	it("keeps a missing destination apart and has nothing to say about an offered one", () => {
 		expect(
 			targetRefusalReason(
-				{ ok: false, reason: "cycle", chain: [testUuid("gone"), ME] },
-				nameOf,
+				{ ok: false, reason: "target-not-found" },
+				menuNameOf,
 			),
-		).toBe("Going there would lead back here: “another form” → this form.");
-	});
-
-	it("keeps self and missing apart from a cycle", () => {
-		expect(
-			targetRefusalReason({ ok: false, reason: "self-target" }, nameOf),
-		).toBe("This form can't send the person straight back into itself.");
-		expect(
-			targetRefusalReason({ ok: false, reason: "target-not-found" }, nameOf),
 		).toBe("That destination is no longer part of the app.");
+		expect(targetRefusal({ ok: true }, menuNameOf)).toBeUndefined();
 	});
 });
 
-describe("add and convert", () => {
-	it("explains a refused otherwise intent and says nothing when it is on offer", () => {
-		expect(
-			otherwiseUnavailableReason({
-				conditional: { ok: true },
-				otherwise: { ok: false, reason: "else-exists", elseUuid: A },
-			}),
-		).toBe(
-			"This form already has an otherwise link. Change where it goes instead.",
-		);
-		expect(
-			otherwiseUnavailableReason({
-				conditional: { ok: true },
-				otherwise: { ok: true },
-			}),
-		).toBeUndefined();
+describe("planner refusals", () => {
+	const every: readonly FormLinkRefusal[] = [
+		{ kind: "form-not-found" },
+		{ kind: "link-not-found", uuid: CHILD },
+		{ kind: "duplicate-uuid", uuid: CHILD },
+		{ kind: "target-not-found" },
+		{ kind: "self-target" },
+		{ kind: "target-not-offered", menuUuid: CHILD, parentUuid: PARENT },
+		{ kind: "menu-carries-values" },
+		{ kind: "selection-cardinality" },
+		{ kind: "otherwise-unreachable" },
+		{
+			kind: "otherwise-not-offered",
+			destination: "previous",
+			reason: "menu-forms-read-search",
+		},
+		{ kind: "otherwise-exists" },
+		{ kind: "no-otherwise-link" },
+		{ kind: "stale-base" },
+	];
+
+	it("says every refusal kind as a sentence that ends in a period", () => {
+		for (const reason of every) {
+			const sentence = formLinkRefusalReason(reason, menuNameOf);
+			expect(sentence, reason.kind).toMatch(/^[A-Z].*\.$/);
+			expect(sentence, reason.kind).not.toMatch(/—|\.\.\./);
+		}
 	});
 
-	it("names why a link cannot become the otherwise link", () => {
+	it("speaks part 07's words for the Otherwise refusals", () => {
 		expect(
-			makeOtherwiseUnavailableReason({ isLast: true, hasElse: false }),
+			formLinkRefusalReason({ kind: "otherwise-unreachable" }, menuNameOf),
+		).toBe(
+			"Give a destination a condition first, so there is a time when none runs.",
+		);
+		expect(
+			formLinkRefusalReason({ kind: "no-otherwise-link" }, menuNameOf),
+		).toBe(
+			"This form's Otherwise isn't a link, so there's no destination to make from it.",
+		);
+		expect(
+			formLinkRefusalReason(
+				{ kind: "target-not-offered", menuUuid: CHILD, parentUuid: PARENT },
+				menuNameOf,
+			),
+		).toBe(
+			"CommCare HQ can't link to this submenu from here. You can choose Households or a form inside it.",
+		);
+		expect(
+			formLinkRefusalReason(
+				{
+					kind: "otherwise-not-offered",
+					destination: "previous",
+					reason: "menu-forms-read-search",
+				},
+				menuNameOf,
+			),
+		).toBe(
+			"This form's menu doesn't offer Previous screen after submit. You can choose another one.",
+		);
+	});
+
+	it("reads a plan's refusal, and nothing for an admitted plan", () => {
+		expect(
+			planRefusal(
+				{ ok: false, reason: { kind: "otherwise-exists" } },
+				menuNameOf,
+			),
+		).toBe("This form already has an Otherwise. You can change it instead.");
+		expect(
+			planRefusal({ ok: true, mutations: [] }, menuNameOf),
+		).toBeUndefined();
+	});
+});
+
+describe("the add control's Otherwise", () => {
+	it("is on offer while nothing else refuses it, and says why it is not", () => {
+		const base = {
+			conditional: { ok: true },
+			everyTime: { ok: true },
+		} as const;
+		expect(
+			otherwiseUnavailableReason({ ...base, otherwise: { ok: true } }),
 		).toBeUndefined();
 		expect(
-			makeOtherwiseUnavailableReason({ isLast: true, hasElse: true }),
-		).toBe(
-			"This form already has an otherwise link. Remove it first, or change where it goes.",
-		);
+			otherwiseUnavailableReason({
+				...base,
+				otherwise: { ok: false, reason: "otherwise-unreachable" },
+			}),
+		).toBe(OTHERWISE_UNREACHABLE_REASON);
 		expect(
-			makeOtherwiseUnavailableReason({ isLast: false, hasElse: false }),
+			otherwiseUnavailableReason({
+				...base,
+				otherwise: { ok: false, reason: "otherwise-exists" },
+			}),
 		).toBe(
-			"Only the last link can be the otherwise link. Move this one to the bottom first.",
+			"This form already has an Otherwise. You can change it in the last row.",
 		);
+		expect(NO_OTHERWISE_LINK_REASON).toContain("Otherwise isn't a link");
 	});
 });
 
 describe("removal", () => {
-	it("names the pinned fallback when removing the otherwise link", () => {
+	it("names what becomes of the Otherwise", () => {
 		expect(
 			removalQuestion("Go to “Visit”", {
 				ok: true,
 				mutations: [],
-				pinsFallback: "module",
+				otherwiseToPostSubmit: "module",
 			}),
 		).toBe(
-			"Remove “Go to “Visit””? When nothing above matches, the form will then go to this module's form list. You can undo this.",
+			"Remove “Go to “Visit””? This form's Otherwise then becomes where it goes after submit. You can undo this.",
+		);
+		expect(
+			removalQuestion("Go to “Visit”", {
+				ok: true,
+				mutations: [],
+				otherwiseToDestination: CHILD,
+			}),
+		).toBe(
+			"Remove “Go to “Visit””? This form's Otherwise then becomes where it goes after submit. You can undo this.",
+		);
+		expect(
+			removalQuestion("Go to “Visit”", {
+				ok: true,
+				mutations: [],
+				droppedOtherwise: { kind: "destination", destination: "module" },
+			}),
+		).toBe(
+			"Remove “Go to “Visit””? This form's Otherwise then goes too, because every destination left runs each time. You can undo this.",
 		);
 	});
 

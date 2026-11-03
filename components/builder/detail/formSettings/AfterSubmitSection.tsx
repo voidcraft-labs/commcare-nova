@@ -2,12 +2,15 @@
 //
 // The form-settings row for what happens after submit.
 //
-// It states the whole answer, not a label alone: how many links the form
-// checks and where it goes when none of them match, read from the one
-// after-submit model (`useAfterSubmitPlan`). The fallback is changeable
-// right here through the shared `FallbackChooser`; the links themselves
-// are a screen, for the same reason the case changes are: an ordered list
-// with reorder and per-link editors does not fit a popover.
+// It states the whole answer, not a label alone, read from the one
+// after-submit model (`useAfterSubmitPlan`): "Goes to <x>" for a form
+// without destinations, "Opens <x>" for one destination or "Runs <n>
+// destinations in order" for several, and "Otherwise, <y>" beside them
+// while the form may hold an Otherwise or holds one. Where the form goes
+// without destinations, and its Otherwise, are changeable right here
+// through the shared `OtherwiseChooser`; the destinations themselves are a
+// screen, for the same reason the case changes are: an ordered list with
+// reorder and per-destination editors does not fit a popover.
 
 "use client";
 
@@ -18,8 +21,8 @@ import { useState } from "react";
 import { afterSubmitSummary } from "@/components/builder/form-links/afterSubmitCopy";
 import {
 	type ChooserOutcome,
-	FallbackChooser,
-} from "@/components/builder/form-links/FallbackChooser";
+	OtherwiseChooser,
+} from "@/components/builder/form-links/OtherwiseChooser";
 import { useLinkSentenceContext } from "@/components/builder/form-links/useLinkSentenceContext";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -49,6 +52,13 @@ export function AfterSubmitSection({
 	const [refusal, setRefusal] = useState<string | undefined>(undefined);
 
 	if (plan === undefined) return null;
+	const summary = afterSubmitSummary(plan, sentence.destinationOf);
+	/* The chooser sets where a form without destinations goes, or the
+	 * Otherwise of one with them while it may hold one or holds one. */
+	const showsChooser =
+		plan.postSubmit !== undefined ||
+		plan.otherwiseOffered ||
+		plan.otherwise !== undefined;
 
 	const openLinks = () => {
 		onNavigateAway?.();
@@ -70,8 +80,13 @@ export function AfterSubmitSection({
 					After submit
 				</h3>
 				<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
-					{afterSubmitSummary(plan, sentence.destinationOf)}
+					{summary.lead}
 				</p>
+				{summary.otherwise !== undefined && (
+					<p className="text-[13px] leading-relaxed text-nova-text-muted">
+						{summary.otherwise}
+					</p>
+				)}
 			</div>
 
 			<p
@@ -97,18 +112,18 @@ export function AfterSubmitSection({
 				</div>
 			)}
 
-			<FallbackChooser
-				moduleUuid={moduleUuid}
-				formUuid={formUuid}
-				canEdit={canEdit}
-				ariaLabel={
-					plan.conditional.length === 0
-						? "After submit, go"
-						: "When no link matches, go"
-				}
-				elseLink={{ kind: "hand-off", onHandOff: openLinks }}
-				onOutcome={onOutcome}
-			/>
+			{showsChooser && (
+				<OtherwiseChooser
+					moduleUuid={moduleUuid}
+					formUuid={formUuid}
+					canEdit={canEdit}
+					ariaLabel={
+						plan.postSubmit !== undefined ? "After submit, go" : "Otherwise, go"
+					}
+					otherTarget={{ kind: "hand-off", onHandOff: openLinks }}
+					onOutcome={onOutcome}
+				/>
+			)}
 
 			<Button
 				type="button"
@@ -116,7 +131,11 @@ export function AfterSubmitSection({
 				onClick={openLinks}
 				className="w-full justify-between border-white/[0.08] bg-transparent text-[14px] text-nova-text-secondary not-disabled:hover:border-nova-violet/30 not-disabled:hover:bg-nova-violet/[0.05] not-disabled:hover:text-nova-violet-bright dark:bg-transparent dark:not-disabled:hover:bg-nova-violet/[0.05]"
 			>
-				{!canEdit ? "View links" : count === 0 ? "Add links" : "Edit links"}
+				{!canEdit
+					? "View destinations"
+					: count === 0
+						? "Add destinations"
+						: "Edit destinations"}
 				<Icon icon={tablerArrowRight} width="15" height="15" />
 			</Button>
 		</section>

@@ -3653,14 +3653,30 @@ describe("field rename through mutation and export", () => {
 // ── Form links ─────────────────────────────────────────────────────────
 //
 // The expander emits `doc.forms[*].formLinks` into `HqForm.form_links` in
-// HQ's own `FormLink` shape: the exclusive guard as `xpath`, the target as
-// `form_id` + `form_module_id` (or `module_unique_id`), explicit datums as
-// `datums`, with `post_form_workflow = "form"` (the only workflow under
-// which HQ reads links) and the authored `postSubmit` as
-// `post_form_workflow_fallback` when the list ends conditionally. A dangling
+// HQ's own `FormLink` shape, in reverse author order then the otherwise
+// link: each destination's condition and held-case guards as `xpath`, the
+// target as `form_id` + `form_module_id` (or `module_unique_id`), explicit
+// datums as `datums`, with `post_form_workflow = "form"` (the only workflow
+// under which HQ reads links) and a built-in otherwise as
+// `post_form_workflow_fallback`. A dangling
 // target aborts projection (the validator catches it first in production;
 // the expander stays fail-closed so an unchecked call never produces HQ
 // JSON pointing nowhere).
+
+/** A `buildDoc` step that gives `formSpecUuid` a built-in otherwise. */
+function withOtherwise(
+	formSpecUuid: string,
+	destination: "firstMenu" | "module" | "parentMenu" | "previous",
+) {
+	return (doc: BlueprintDoc) => {
+		const form = doc.forms[testUuid(formSpecUuid)];
+		if (form === undefined) throw new Error(`No form ${formSpecUuid}.`);
+		doc.forms[form.uuid] = {
+			...form,
+			otherwise: { kind: "destination", destination },
+		};
+	};
+}
 
 describe("form_links emission", () => {
 	it("emits HQ form_links with form_id / form_module_id targets and the fallback workflow", () => {
@@ -3670,72 +3686,74 @@ describe("form_links emission", () => {
 		const intakeUuid = "frm-intake";
 		const followupUuid = "frm-followup";
 
-		const doc = buildDoc({
-			appName: "FL",
-			modules: [
-				{
-					uuid: moduleUuid,
-					name: "M",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							uuid: intakeUuid,
-							name: "Intake",
-							type: "followup",
-							postSubmit: "module",
-							formLinks: [
-								{
-									condition: "normalize-space(#patient/status) = 'open'",
-									target: {
-										type: "form",
-										moduleUuid: testUuid(moduleUuid),
-										formUuid: testUuid(followupUuid),
-									},
-									// The target's one selection datum, named by hand.
-									datums: [
-										{
-											name: {
-												kind: "selected-case",
-												module: testUuid(moduleUuid),
-											},
-											xpath: "#user/username",
+		const doc = buildDoc(
+			{
+				appName: "FL",
+				modules: [
+					{
+						uuid: moduleUuid,
+						name: "M",
+						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								uuid: intakeUuid,
+								name: "Intake",
+								type: "followup",
+								formLinks: [
+									{
+										condition: "normalize-space(#patient/status) = 'open'",
+										target: {
+											type: "form",
+											moduleUuid: testUuid(moduleUuid),
+											formUuid: testUuid(followupUuid),
 										},
-									],
-								},
-							],
-							fields: [
-								f({
-									kind: "single_select",
-									id: "outcome",
-									label: proseText("Outcome"),
-									options: [
-										{ value: "yes", label: "Yes" },
-										{ value: "no", label: "No" },
-									],
-								}),
-							],
-						},
-						{
-							uuid: followupUuid,
-							name: "Followup",
-							type: "followup",
-							fields: [
-								f({ kind: "text", id: "notes", label: proseText("Notes") }),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "status", label: proseText("Status") }],
-				},
-			],
-		});
+										// The target's one selection datum, named by hand.
+										datums: [
+											{
+												name: {
+													kind: "selected-case",
+													module: testUuid(moduleUuid),
+												},
+												xpath: "#user/username",
+											},
+										],
+									},
+								],
+								fields: [
+									f({
+										kind: "single_select",
+										id: "outcome",
+										label: proseText("Outcome"),
+										options: [
+											{ value: "yes", label: "Yes" },
+											{ value: "no", label: "No" },
+										],
+									}),
+								],
+							},
+							{
+								uuid: followupUuid,
+								name: "Followup",
+								type: "followup",
+								fields: [
+									f({ kind: "text", id: "notes", label: proseText("Notes") }),
+								],
+							},
+						],
+					},
+				],
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [{ name: "status", label: proseText("Status") }],
+					},
+				],
+			},
+			withOtherwise(intakeUuid, "module"),
+		);
 
 		// Validator accepts the configuration.
 		expect(
@@ -3748,8 +3766,8 @@ describe("form_links emission", () => {
 		const module = hq.modules[0];
 		const [intake, followup] = module.forms;
 		expect(intake.post_form_workflow).toBe("form");
-		// The list ends conditionally, so the authored `module` destination
-		// is the fallback HQ reads when the guard is false.
+		// The built-in otherwise is the fallback HQ reads when the
+		// destination's xpath is false.
 		expect(intake.post_form_workflow_fallback).toBe("module");
 		expect(intake.form_links).toEqual([
 			{
@@ -3766,7 +3784,7 @@ describe("form_links emission", () => {
 		]);
 		expectXPath(
 			intake.form_links[0].xpath,
-			"replace(replace(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/@status, '[ \\t\\r\\n]+', ' '), '^ | $', '') = 'open'",
+			"replace(replace(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/@status, '[ \\t\\r\\n]+', ' '), '^ | $', '') = 'open' and count(instance('casedb')/casedb/case[@case_id = instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/username and @case_type = 'patient']) > 0",
 		);
 		expectXPath(
 			intake.form_links[0].datums[0].xpath,
@@ -3830,128 +3848,145 @@ describe("form_links emission", () => {
 		const intakeUuid = "frm-i";
 		const triageUuid = "frm-t";
 
-		const doc = buildDoc({
-			appName: "FL",
-			modules: [
-				{
-					uuid: moduleUuid,
-					name: "M",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							uuid: intakeUuid,
-							name: "Intake",
-							type: "survey",
-							postSubmit: "module",
-							formLinks: [
-								{
-									condition: "true()",
-									target: {
-										type: "form",
-										moduleUuid: testUuid(moduleUuid),
-										formUuid: testUuid(triageUuid),
-									},
-									datums: [
-										{
-											name: {
-												kind: "selected-case",
-												module: testUuid(moduleUuid),
-											},
-											xpath: "'patient-id'",
+		const doc = buildDoc(
+			{
+				appName: "FL",
+				modules: [
+					{
+						uuid: moduleUuid,
+						name: "M",
+						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
+						forms: [
+							{
+								uuid: intakeUuid,
+								name: "Intake",
+								type: "survey",
+								formLinks: [
+									{
+										condition: "true()",
+										target: {
+											type: "form",
+											moduleUuid: testUuid(moduleUuid),
+											formUuid: testUuid(triageUuid),
 										},
-									],
-								},
-							],
-							fields: [
-								f({
-									kind: "text",
-									id: "severity",
-									label: proseText("Severity"),
-								}),
-							],
-						},
-						{
-							uuid: triageUuid,
-							name: "Triage",
-							type: "followup",
-							fields: [
-								f({ kind: "text", id: "notes", label: proseText("Notes") }),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
+										datums: [
+											{
+												name: {
+													kind: "selected-case",
+													module: testUuid(moduleUuid),
+												},
+												xpath: "'patient-id'",
+											},
+										],
+									},
+								],
+								fields: [
+									f({
+										kind: "text",
+										id: "severity",
+										label: proseText("Severity"),
+									}),
+								],
+							},
+							{
+								uuid: triageUuid,
+								name: "Triage",
+								type: "followup",
+								fields: [
+									f({ kind: "text", id: "notes", label: proseText("Notes") }),
+								],
+							},
+						],
+					},
+				],
+				caseTypes: [{ name: "patient", properties: [] }],
+			},
+			withOtherwise(intakeUuid, "module"),
+		);
 
 		const hq = expandDoc(doc);
 		const module = hq.modules[0];
+		// The literal is carried as written, and the held-case guard keeps
+		// the frame from opening while the device holds no such patient.
 		expect(module.forms[0].form_links).toEqual([
 			{
-				xpath: "true()",
+				xpath:
+					"true() and count(instance('casedb')/casedb/case[@case_id = 'patient-id' and @case_type = 'patient']) > 0",
 				form_id: module.forms[1].unique_id,
 				form_module_id: module.unique_id,
 				datums: [{ name: "case_id", xpath: "'patient-id'" }],
 			},
 		]);
+		expect(module.forms[0].post_form_workflow_fallback).toBe("module");
 	});
 
-	it("emits the exclusive guard, not the raw condition, on every link after the first", () => {
+	it("emits each destination's own condition in reverse order", () => {
 		const moduleUuid = "mod-x";
 		const [a, b, c] = ["frm-a", "frm-b", "frm-c"];
-		const doc = buildDoc({
-			appName: "FL",
-			modules: [
-				{
-					uuid: moduleUuid,
-					name: "M",
-					forms: [
-						{
-							uuid: a,
-							name: "A",
-							type: "survey",
-							formLinks: [
-								{
-									condition: "#user/role = 'chw' or #user/role = 'nurse'",
-									target: {
-										type: "form",
-										moduleUuid: testUuid(moduleUuid),
-										formUuid: testUuid(b),
+		const doc = buildDoc(
+			{
+				appName: "FL",
+				modules: [
+					{
+						uuid: moduleUuid,
+						name: "M",
+						forms: [
+							{
+								uuid: a,
+								name: "A",
+								type: "survey",
+								formLinks: [
+									{
+										condition: "#user/role = 'chw' or #user/role = 'nurse'",
+										target: {
+											type: "form",
+											moduleUuid: testUuid(moduleUuid),
+											formUuid: testUuid(b),
+										},
 									},
-								},
-								{
-									condition: "#user/role = 'super'",
-									target: {
-										type: "form",
-										moduleUuid: testUuid(moduleUuid),
-										formUuid: testUuid(c),
+									{
+										condition: "#user/role = 'super'",
+										target: {
+											type: "form",
+											moduleUuid: testUuid(moduleUuid),
+											formUuid: testUuid(c),
+										},
 									},
-								},
-								{
-									target: { type: "module", moduleUuid: testUuid(moduleUuid) },
-								},
-							],
-							fields: [f({ kind: "text", id: "x", label: proseText("X") })],
-						},
-						{
-							uuid: b,
-							name: "B",
-							type: "survey",
-							fields: [f({ kind: "text", id: "y", label: proseText("Y") })],
-						},
-						{
-							uuid: c,
-							name: "C",
-							type: "survey",
-							fields: [f({ kind: "text", id: "z", label: proseText("Z") })],
-						},
-					],
-				},
-			],
-		});
+								],
+								fields: [f({ kind: "text", id: "x", label: proseText("X") })],
+							},
+							{
+								uuid: b,
+								name: "B",
+								type: "survey",
+								fields: [f({ kind: "text", id: "y", label: proseText("Y") })],
+							},
+							{
+								uuid: c,
+								name: "C",
+								type: "survey",
+								fields: [f({ kind: "text", id: "z", label: proseText("Z") })],
+							},
+						],
+					},
+				],
+			},
+			(built) => {
+				const source = built.forms[testUuid(a)];
+				if (source === undefined) throw new Error("The form A is gone.");
+				built.forms[source.uuid] = {
+					...source,
+					otherwise: {
+						kind: "link",
+						uuid: testUuid("lnk-otherwise"),
+						target: { type: "module", moduleUuid: testUuid(moduleUuid) },
+					},
+				};
+			},
+		);
 		const hq = expandDoc(doc);
 		const form = hq.modules[0].forms[0];
 		const role =
@@ -3960,15 +3995,15 @@ describe("form_links emission", () => {
 		const second = `${role} = 'super'`;
 		expect(form.form_links.map((link) => xpathEvidence(link.xpath))).toEqual(
 			[
-				// The first guard is the bare condition; the second excludes
-				// the first condition; the terminal else excludes every prior.
+				// Each destination keeps its own condition, the author's last
+				// first, so the author's first that holds is pushed last and
+				// runs first; the otherwise link negates both in that order.
+				second,
 				first,
-				`(${second}) and not(${first})`,
-				`not(${first}) and not(${second})`,
+				`not(${second}) and not(${first})`,
 			].map(xpathEvidence),
 		);
-		// A terminal unconditional link is the exhaustive else: HQ's
-		// fallback frame is suppressed by leaving the fallback null.
+		// An otherwise link is one more link: HQ's fallback is null.
 		expect(form.post_form_workflow).toBe("form");
 		expect(form.post_form_workflow_fallback).toBeNull();
 	});

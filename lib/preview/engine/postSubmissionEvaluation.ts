@@ -1,7 +1,6 @@
 import type { SubmissionEnvelopeResult } from "@/lib/case-store";
 import {
 	type BlueprintDoc,
-	effectivePostSubmit,
 	moduleIsCaseFirst,
 	moduleUuidOfForm,
 	reachableCaseTypes,
@@ -9,10 +8,12 @@ import {
 } from "@/lib/domain";
 import type { PreviewMenuCaseSelection } from "@/lib/session/types";
 import {
+	type AfterSubmitRoute,
 	afterSubmitRoute,
 	afterSubmitTargetVisibility,
 	automaticLinkedCaseCollection,
 	carriedCasesFromPatch,
+	type PreviewTargetCaseCollection,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "../afterSubmitRouting";
@@ -28,13 +29,25 @@ import { FormEvaluationInputError } from "./formEvaluationTypes";
 import {
 	carriedCaseFromSelections,
 	createFormLinkWorkerWorld,
-	evaluateFormLinksAsync,
+	evaluateAfterSubmitAsync,
 	type FormLinkAsyncEvaluator,
+	frameChoiceEntry,
 	projectTargetCaseSelectionsAsync,
 } from "./formLinkEvaluation";
 import { previewSessionValues } from "./identity";
 import { previewLookupData } from "./lookupEvaluation";
 import { resolvePreviousTask, selectionsForModuleTask } from "./previousTask";
+
+/** One frame the submission pushes, routed when it is pushed: where it
+ *  goes, the menu selections its steps install, and the several-case
+ *  selection an automatic link carries. Core fixes a frame's datums when it
+ *  is pushed (`StackFrameStep.defineStep`), so a frame popped at a later
+ *  completion still goes where it went here. */
+export interface PostSubmissionFrame {
+	readonly route: AfterSubmitRoute;
+	readonly selections: Readonly<Record<string, PreviewMenuCaseSelection>>;
+	readonly collection: PreviewTargetCaseCollection | undefined;
+}
 
 export interface PostSubmissionEvaluationInput {
 	formUuid: Uuid;
@@ -43,21 +56,20 @@ export interface PostSubmissionEvaluationInput {
 	selections: Readonly<Record<string, PreviewMenuCaseSelection>>;
 }
 
-/** Resolve the next task from the actual receipt and patched device snapshot.
- * These are Preview's link evaluator and navigation projections, run inside
- * the bounded server worker so authored Java patterns cannot block Node. */
+/** Resolve every frame the submission pushes, in push order, from the
+ * actual receipt and patched device snapshot. These are Preview's after-submit
+ * evaluator and navigation projections, run inside the bounded server worker
+ * so authored Java patterns cannot block Node. Which of them runs is the
+ * session's stack (`lib/preview/afterSubmitStack.ts`). */
 export async function evaluatePostSubmissionSnapshot(
 	doc: BlueprintDoc,
 	args: PostSubmissionEvaluationInput,
 	context: FormEvaluationContext,
-) {
+): Promise<{ readonly frames: readonly PostSubmissionFrame[] }> {
 	const moduleUuid = moduleUuidOfForm(doc, args.formUuid);
 	const form = doc.forms[args.formUuid];
 	if (!moduleUuid || !form)
 		throw new FormEvaluationInputError("The submitted form is unavailable.");
-	const fallback = effectivePostSubmit(doc, args.formUuid);
-	if (fallback === undefined)
-		throw new FormEvaluationInputError("The next task is unavailable.");
 	const caseType = doc.modules[moduleUuid].caseType;
 	const ids = args.result.primaryCaseIds;
 	let caseData =
@@ -151,128 +163,139 @@ export async function evaluatePostSubmissionSnapshot(
 			input,
 			`after:${args.mutation.entryKey}`,
 		);
-		const choice = await evaluateFormLinksAsync({
-			links: form.formLinks ?? [],
-			fallback,
+		const choices = await evaluateAfterSubmitAsync({
 			input,
 			evaluate,
 			world,
 		});
-		const projected =
-			choice.kind === "link"
-				? await projectTargetCaseSelectionsAsync(
-						input,
-						args.formUuid,
-						choice.link,
-						evaluate,
-						world,
-					)
+		const caseFirstModules = new Set(
+			doc.moduleOrder.filter((uuid) => moduleIsCaseFirst(doc, uuid)),
+		);
+		const submittedCases =
+			"caseIds" in args.mutation
+				? args.mutation.caseIds.map((caseId) => ({
+						caseId,
+						caseName:
+							context.cases.rows.find((row) => row.case_id === caseId)
+								?.case_name ?? "Case",
+					}))
 				: [];
-		const collection = automaticLinkedCaseCollection({
-			choice,
-			doc,
-			sourceModuleUuid: moduleUuid,
-			sourceFormType: form.type,
-			submittedCases:
-				"caseIds" in args.mutation
-					? args.mutation.caseIds.map((caseId) => ({
-							caseId,
-							caseName:
-								context.cases.rows.find((row) => row.case_id === caseId)
-									?.case_name ?? "Case",
-						}))
-					: [],
-			resultCaseIds: ids,
-			caseDatabase: context.cases,
-		});
-		const collections = collection ? [collection] : [];
-		const route = afterSubmitRoute({
-			previousTask: () =>
-				resolvePreviousTask({
-					doc,
-					formUuid: args.formUuid,
-					submittedCaseIds: ids,
-					selections: args.selections,
-					caseDatabase: context.cases,
-				}),
-			choice,
-			doc,
-			caseFirstModules: new Set(
-				doc.moduleOrder.filter((uuid) => moduleIsCaseFirst(doc, uuid)),
-			),
-			caseSelections: () => projected,
-			carriedCase: (link) => carriedCaseFromSelections(input, link, projected),
-			rules,
-			targetVisibility: (link) =>
-				afterSubmitTargetVisibility({
-					doc,
-					link,
-					session: input.session,
-					lookup: { kind: "data", data: input.lookupData },
-					deviceCases: {
-						snapshot: context.cases,
-						caseTypes: doc.caseTypes ?? [],
-					},
-					caseSelections: projected,
-				}),
-			hasSelectedCase: (targetModuleUuid, selections) =>
-				previewTargetHasSelectedCase({
-					menuSource,
-					current: selectionsForModuleTask(
+		const frames: PostSubmissionFrame[] = [];
+		/* Every frame reads the one post-submit world, each with its own
+		 * selections, as Core pushes each frame with its own datums. */
+		for (const choice of choices) {
+			const entry = frameChoiceEntry(choice);
+			const projected =
+				entry === undefined
+					? []
+					: await projectTargetCaseSelectionsAsync(
+							input,
+							args.formUuid,
+							entry,
+							evaluate,
+							world,
+						);
+			const collection = automaticLinkedCaseCollection({
+				choice,
+				doc,
+				sourceModuleUuid: moduleUuid,
+				sourceFormType: form.type,
+				sourceFormUuid: args.formUuid,
+				submittedCases,
+				resultCaseIds: ids,
+				caseDatabase: context.cases,
+			});
+			const collections = collection ? [collection] : [];
+			const route = afterSubmitRoute({
+				previousTask: () =>
+					resolvePreviousTask({
 						doc,
-						targetModuleUuid,
-						args.selections,
-					),
-					targetModuleUuid,
-					projected: selections,
-					collections,
-				}),
-		});
-		/* The server holds every case and table the target's visibility reads,
-		 * so it never waits. */
-		if (route.kind === "pending")
-			throw new FormEvaluationInputError(
-				"The next task's menu could not be read from the saved device state.",
-			);
-		for (const selected of projected) {
-			if (selected.caseId === "") continue;
-			const loaded = caseDatabaseToFormPreloads(
-				context.cases,
-				selected.caseId,
-				reachableCaseTypes(selected.caseType, doc.caseTypes ?? []),
-			);
-			if (!loaded)
-				throw new FormEvaluationInputError(
-					"The next task requires a record absent from the saved device state.",
-				);
-			caseData = new Map([...caseData, ...loaded]);
-		}
-		const selections =
-			route.kind === "previous-task"
-				? route.task.selections
-				: previewMenuSelectionsAfterTargetCases(
+						formUuid: args.formUuid,
+						submittedCaseIds: ids,
+						selections: args.selections,
+						caseDatabase: context.cases,
+					}),
+				choice,
+				sourceFormUuid: args.formUuid,
+				doc,
+				caseFirstModules,
+				caseSelections: () => projected,
+				carriedCase: (linkEntry) =>
+					carriedCaseFromSelections(input, linkEntry, projected),
+				rules,
+				targetVisibility: (target) =>
+					afterSubmitTargetVisibility({
+						doc,
+						target,
+						session: input.session,
+						lookup: { kind: "data", data: input.lookupData },
+						deviceCases: {
+							snapshot: context.cases,
+							caseTypes: doc.caseTypes ?? [],
+						},
+						caseSelections: projected,
+					}),
+				hasSelectedCase: (targetModuleUuid, selections) =>
+					previewTargetHasSelectedCase({
 						menuSource,
-						args.selections,
-						projected,
-						caseData,
+						current: selectionsForModuleTask(
+							doc,
+							targetModuleUuid,
+							args.selections,
+						),
+						targetModuleUuid,
+						projected: selections,
 						collections,
+					}),
+			});
+			/* The server holds every case and table the target's visibility
+			 * reads, so it never waits. */
+			if (route.kind === "pending")
+				throw new FormEvaluationInputError(
+					"The next task's menu could not be read from the saved device state.",
+				);
+			let frameCaseData = caseData;
+			for (const selected of projected) {
+				if (selected.caseId === "") continue;
+				const loaded = caseDatabaseToFormPreloads(
+					context.cases,
+					selected.caseId,
+					reachableCaseTypes(selected.caseType, doc.caseTypes ?? []),
+				);
+				if (!loaded)
+					throw new FormEvaluationInputError(
+						"The next task requires a record absent from the saved device state.",
 					);
-		const moduleDestination =
-			route.kind === "module"
-				? route.moduleUuid
-				: route.kind === "post-submit" && route.destination === "module"
-					? moduleUuid
-					: route.kind === "post-submit" && route.destination === "parentMenu"
-						? doc.modules[moduleUuid]?.parentModuleUuid
-						: undefined;
-		return {
-			route,
-			selections:
-				moduleDestination === undefined
-					? selections
-					: selectionsForModuleTask(doc, moduleDestination, selections),
-			collection,
-		};
+				frameCaseData = new Map([...frameCaseData, ...loaded]);
+			}
+			const selections =
+				route.kind === "previous-task"
+					? route.task.selections
+					: previewMenuSelectionsAfterTargetCases(
+							menuSource,
+							args.selections,
+							projected,
+							frameCaseData,
+							collections,
+						);
+			const moduleDestination =
+				route.kind === "module"
+					? route.moduleUuid
+					: route.kind === "post-submit" && route.destination === "module"
+						? moduleUuid
+						: route.kind === "post-submit" && route.destination === "parentMenu"
+							? doc.modules[moduleUuid]?.parentModuleUuid
+							: undefined;
+			frames.push({
+				route,
+				selections:
+					moduleDestination === undefined
+						? selections
+						: selectionsForModuleTask(doc, moduleDestination, selections),
+				collection,
+			});
+		}
+		return { frames };
 	} finally {
 		runtime.dispose();
 	}

@@ -49,7 +49,6 @@ function fixture(): BlueprintDoc {
 						uuid: Q("form"),
 						name: "Collect",
 						type: "survey",
-						postSubmit: "app_home",
 						formLinks: [
 							{
 								uuid: Q("link"),

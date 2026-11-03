@@ -18,6 +18,7 @@ import type {
 	CaseTileLayout,
 	Column,
 	Expression,
+	FormLinkTarget,
 	Module,
 	SearchInputDef,
 	Uuid,
@@ -27,6 +28,7 @@ import {
 	childModuleUuids,
 	declaredPlatforms,
 	fieldCaseWriteViews,
+	formLinkDestination,
 	isContainer,
 	isOwnerOnlyCaseSearchConfig,
 	moduleSiblingUuids,
@@ -110,6 +112,39 @@ function formConditionText(
 	).text;
 }
 
+/** Where one of a form's links goes, as the after-submit line names it. */
+function linkTargetText(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	target: FormLinkTarget,
+): string {
+	const destination = formLinkDestination(doc, formUuid, target);
+	if (destination === undefined) return "a missing target";
+	return destination.kind === "this-form"
+		? "this form again"
+		: `${destination.kind} "${destination.name}"`;
+}
+
+/** A form's after-submit destinations, in the order they run, and its
+ *  otherwise; `undefined` for a form without destinations. */
+function afterSubmitLine(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): string | undefined {
+	const form = doc.forms[formUuid];
+	const links = form?.formLinks ?? [];
+	if (form === undefined || links.length === 0) return undefined;
+	const destinations = links
+		.map((link) => linkTargetText(doc, formUuid, link.target))
+		.join(", ");
+	const otherwise = form.otherwise;
+	const tail =
+		otherwise === undefined
+			? ""
+			: `; otherwise: ${otherwise.kind === "destination" ? otherwise.destination : linkTargetText(doc, formUuid, otherwise.target)}`;
+	return `    destinations: ${destinations}${tail}`;
+}
+
 /** Summarize one form: name, uuid, type, field count, nested field list. */
 function summarizeForm(doc: BlueprintDoc, formUuid: Uuid): string {
 	const form = doc.forms[formUuid];
@@ -119,6 +154,8 @@ function summarizeForm(doc: BlueprintDoc, formUuid: Uuid): string {
 	const header = `  - Form "${form.name}" [uuid ${formUuid}] (${form.type}, ${count} field${count === 1 ? "" : "s"})${offTheMenu}`;
 	const extras: string[] = [];
 	if (form.postSubmit) extras.push(`    post_submit: ${form.postSubmit}`);
+	const afterSubmit = afterSubmitLine(doc, formUuid);
+	if (afterSubmit !== undefined) extras.push(afterSubmit);
 	if (form.connect) extras.push("    [Connect enabled]");
 	// The conditions print as the form logic `updateForm` accepts, through
 	// the printer, with field names projected from their identities.
