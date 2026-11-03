@@ -25,7 +25,7 @@ import { deploymentLines } from "./deployments";
 import { judge } from "./judge";
 import { entriesForApp } from "./notice";
 import type { RawDocument } from "./oldShape";
-import { placements } from "./placements";
+import { type PlacementCounts, placements } from "./placements";
 import type { StepResult } from "./steps/apply";
 import { explicitPreloadsStep } from "./steps/explicitPreloads";
 import { extensionChildren } from "./steps/extensionChildren";
@@ -49,6 +49,24 @@ import {
 } from "./types";
 
 export type { AppTransform, StepContext };
+
+/**
+ * What the placement step (14) read and counted beside the target: its
+ * counts, which the report's `placements` line prints, and the creates step
+ * 8 found a link carrying, by form, which the writer's postcondition passes
+ * when it runs step 14 again over the stored target and the locked
+ * baselines (part 09 §14).
+ */
+export interface PlacementTrace {
+	readonly counts: PlacementCounts;
+	readonly carriedCreates?: ReadonlyMap<Uuid, ReadonlySet<Uuid>>;
+}
+
+/** One app's transform, with its placement trace where step 14 ran
+ *  without a blocker. */
+export type TransformedApp = AppTransform & {
+	readonly placement?: PlacementTrace;
+};
 
 /** Blockers merged by code, in the registry's order. */
 function inRegistryOrder(
@@ -182,7 +200,7 @@ function run(
 	raw: RawDocument,
 	ctx: StepContext,
 	judged: boolean,
-): AppTransform {
+): TransformedApp {
 	const into: Collected = { changes: [], documents: [], blockers: [] };
 	const stopped = (
 		schemaChanges: readonly PlannedSchemaChange[] = [],
@@ -223,18 +241,17 @@ function run(
 	if (semantic.stopped) return judgedStop(semantic.doc, facts);
 
 	// Step 14.
+	const carriedCreates =
+		semantic.carriedCreates === undefined
+			? undefined
+			: carriedCreatesByForm(semantic.doc, semantic.carriedCreates);
 	const placed = placements({
 		raw,
 		target: semantic.doc,
 		facts,
 		deployments: ctx.deployments,
 		mutationSeq: ctx.mutationSeq,
-		...(semantic.carriedCreates !== undefined && {
-			carriedCreates: carriedCreatesByForm(
-				semantic.doc,
-				semantic.carriedCreates,
-			),
-		}),
+		...(carriedCreates !== undefined && { carriedCreates }),
 	});
 	into.changes.push(...placed.changes);
 	into.blockers.push(...placed.blockers);
@@ -294,11 +311,18 @@ function run(
 		blockers: [],
 		schemaChanges: judgement.schemaChanges,
 		discardsPrivateWork: ctx.discardsPrivateWork,
+		placement: {
+			counts: placed.counts,
+			...(carriedCreates !== undefined && { carriedCreates }),
+		},
 	};
 }
 
 /** Every step of part 09 §7 over one app's carriers as read. */
-export function transformApp(raw: RawDocument, ctx: StepContext): AppTransform {
+export function transformApp(
+	raw: RawDocument,
+	ctx: StepContext,
+): TransformedApp {
 	return run(raw, ctx, true);
 }
 
