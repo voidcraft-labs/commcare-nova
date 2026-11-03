@@ -81,6 +81,7 @@ it("births the built-in worker schema even with no authored case types, then cre
 			[birth.appId],
 		);
 	expect(schemas.rows).toEqual([
+		{ case_type: "commcare-case-claim", synced_seq: "1" },
 		{ case_type: "commcare-user", synced_seq: "1" },
 	]);
 	await commit(birth.appId, [

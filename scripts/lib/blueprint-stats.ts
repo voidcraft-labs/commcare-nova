@@ -16,6 +16,7 @@ import { projectFormExpression } from "../../lib/doc/expressionText";
 import {
 	formCaseWriteViews,
 	isContainer,
+	moduleIsBareCaseList,
 	projectProseTemplate,
 } from "../../lib/domain";
 import type { FieldExpressionSlotRef } from "../../lib/domain/expression/types";
@@ -81,7 +82,10 @@ export interface ModuleStats {
 	uuid: Uuid;
 	name: string;
 	caseType: string | undefined;
-	caseListOnly: boolean;
+	/** The case list is its own item in the menu (`caseListMenuItem`). */
+	caseListMenuItem: boolean;
+	/** The case list is the only item: no menu forms (`moduleIsBareCaseList`). */
+	bareCaseList: boolean;
 	/** Total columns in `caseListConfig.columns` — every kind, every
 	 *  visibility state. The visibility-flag breakdown lives in the
 	 *  two fields below. */
@@ -359,7 +363,8 @@ function analyzeModule(doc: BlueprintDoc, mod: Module): ModuleAnalysis {
 		uuid: mod.uuid,
 		name: mod.name,
 		caseType: mod.caseType,
-		caseListOnly: mod.caseListOnly ?? false,
+		caseListMenuItem: mod.caseListMenuItem !== undefined,
+		bareCaseList: moduleIsBareCaseList(doc, mod.uuid),
 		columnCount: cols.length,
 		visibleInListCount,
 		visibleInDetailCount,
@@ -592,7 +597,7 @@ function checkQuality(
 	const flags: QualityFlag[] = [];
 
 	for (const { stats: mod, formFields } of moduleAnalyses) {
-		if (mod.caseType && !mod.caseListOnly && mod.visibleInListCount === 0) {
+		if (mod.caseType && !mod.bareCaseList && mod.visibleInListCount === 0) {
 			flags.push({
 				severity: "warn",
 				module: mod.name,
@@ -620,7 +625,7 @@ function checkQuality(
 
 			if (
 				mod.caseType &&
-				!mod.caseListOnly &&
+				!mod.bareCaseList &&
 				form.type !== "survey" &&
 				!formSavesToCases(doc.forms[form.uuid])
 			) {

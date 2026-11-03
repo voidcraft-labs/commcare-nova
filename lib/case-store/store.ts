@@ -27,9 +27,11 @@
 
 import type { Insertable, Selectable, Transaction } from "kysely";
 import {
+	CASE_CLAIM_CASE_TYPE,
 	type CasePropertyDataType,
 	type CaseType,
 	type Column,
+	caseClaimCaseType,
 	materializableCaseTypes,
 	type PersistableDoc,
 	USERCASE_CASE_TYPE,
@@ -257,14 +259,6 @@ export interface RestoreScope {
 	 * refuses an empty set rather than answering it with an empty restore.
 	 */
 	readonly ownerIds: readonly string[];
-	/**
-	 * The worker's claims: searched cases it chose that its restore did not
-	 * hold. Each seeds the fixpoint as HQ's claim, an open extension case the
-	 * worker owns, would (`compileRestoreScope.ts`), and only if it is a case
-	 * of this app in the bound Project; any other id seeds nothing. Absent or
-	 * empty is a worker that claimed nothing.
-	 */
-	readonly claimedCaseIds?: readonly string[];
 }
 
 /**
@@ -1127,9 +1121,8 @@ export interface TransactionalSchemaCaseStore extends SchemaCaseStore {
 export interface CaseStore extends SchemaCaseStore {
 	/** Read the complete bound worker restore without partitioning through the
 	 * active Blueprint catalog. The restore closure and tenant predicates live
-	 * in SQL. The only caller-supplied ids are the worker's claims
-	 * (`RestoreScope.claimedCaseIds`), each of which seeds the closure only if
-	 * it is a case of this app in the bound Project. */
+	 * in SQL. A worker's search claims are case rows the closure reaches as it
+	 * reaches any owned open extension (`claimCases`). */
 	readDeviceCaseDatabase(args: {
 		readonly appId: string;
 		readonly restoreScope: RestoreScope;
@@ -1278,6 +1271,39 @@ export interface CaseStore extends SchemaCaseStore {
 	}): Promise<CaseRow[]>;
 
 	/**
+	 * Claim searched cases for the bound worker, as HQ's claim endpoint does
+	 * (`ota/views.py::claim`). One transaction under the store's lock order:
+	 * every id must name a case of this app in the bound Project, open or closed
+	 * (`cleanup.py::get_first_claims` checks existence only); one that names none
+	 * refuses the whole call with `CaseNotFoundError`, nothing written. Each host
+	 * row is locked `FOR UPDATE` in case id order, so two claims of one host by
+	 * one worker never both insert. For each id with no open claim row owned by
+	 * the bound owner whose `host` index targets it, one claim row is inserted
+	 * with its index through the submission envelope's row and index writer.
+	 *
+	 * `caseIds` is 1 to 1,000 distinct ids of 1 to 255 characters, else
+	 * `ClaimCasesInputError`. `created` and `alreadyClaimed` are host ids, in
+	 * case id order.
+	 */
+	claimCases(args: {
+		readonly appId: string;
+		readonly caseIds: readonly string[];
+	}): Promise<{
+		readonly created: readonly string[];
+		readonly alreadyClaimed: readonly string[];
+	}>;
+
+	/** Close every open claim row the bound owner holds in this app (`close`'s
+	 *  lifecycle: `status` closed, `closed_on` now). A closed claim seeds nothing,
+	 *  so its host leaves the worker's restore unless something else holds it. */
+	releaseClaims(args: {
+		readonly appId: string;
+	}): Promise<{ readonly released: number }>;
+
+	/** The open claim rows the bound owner holds in this app. */
+	countClaims(args: { readonly appId: string }): Promise<number>;
+
+	/**
 	 * Generate `count` sample rows for `caseType` and bulk-insert
 	 * them. Deterministic per `(app, caseType.name, seed)`. The
 	 * implementation queries existing parent rows for any declared
@@ -1291,7 +1317,9 @@ export interface CaseStore extends SchemaCaseStore {
 
 	/**
 	 * Drop every row of `caseType.name` for the bound tenant + the
-	 * matching `case_indices` edges, detach surviving tenant-local children
+	 * matching `case_indices` edges, delete every claim row whose `host` index
+	 * targets a deleted row (a claim without its host means nothing, and its
+	 * edge would dangle), detach surviving tenant-local children
 	 * whose deleted parent cannot be preserved, then regenerate from a fresh
 	 * seed. The whole operation runs in one transaction — a
 	 * mid-operation failure rolls back the deletion alongside the
@@ -1415,5 +1443,9 @@ export function buildCaseTypeMap(
 	// read or write a row. `lib/domain/usercase.ts` is why it looks the way it
 	// does.
 	map.set(USERCASE_CASE_TYPE, usercaseCaseType(blueprint));
+	// A search's claim joins at the same boundary for the same reason: Preview
+	// writes claim rows (`CaseStore.claimCases`), and no author declares the
+	// type (`lib/domain/caseClaim.ts`).
+	map.set(CASE_CLAIM_CASE_TYPE, caseClaimCaseType());
 	return map;
 }

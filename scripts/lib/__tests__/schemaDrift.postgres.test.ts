@@ -7,8 +7,10 @@ import {
 } from "@/lib/case-store/sql/__tests__/setup";
 import {
 	asUuid,
+	CASE_CLAIM_CASE_TYPE,
 	type CasePropertyDataType,
 	type CaseType,
+	caseClaimCaseType,
 	USERCASE_CASE_TYPE,
 	usercaseCaseType,
 } from "@/lib/domain";
@@ -48,9 +50,45 @@ async function seed(
 		.execute();
 }
 
+/** The search claim's row, which every app materializes from its first save
+ *  (`materializeCaseStoreSchemas`); an app saved before claims lacks it. */
+async function seedClaimRow(db: Kysely<Database>, appId = APP) {
+	await db
+		.insertInto("case_type_schemas")
+		.values({
+			app_id: appId,
+			case_type: CASE_CLAIM_CASE_TYPE,
+			schema: JSON.stringify(caseTypeToJsonSchema(caseClaimCaseType())),
+			synced_seq: 1,
+		})
+		.execute();
+}
+
+test("reports the claim type's row missing on an app saved before claims, and nothing once it is written", async ({
+	db,
+}) => {
+	const current = caseType({ name: "text" });
+	await seed(db, caseTypeToJsonSchema(current).properties);
+	const blueprint = buildSimpleBlueprint([current], APP);
+	expect(await computeSchemaDrift(db, APP, blueprint)).toEqual([
+		{
+			caseType: CASE_CLAIM_CASE_TYPE,
+			missingRow: true,
+			added: [],
+			removed: [],
+			refined: [],
+			retyped: [],
+			unresolvable: [],
+		},
+	]);
+	await seedClaimRow(db);
+	expect(await computeSchemaDrift(db, APP, blueprint)).toEqual([]);
+});
+
 test("reports stored changes using their actual select identity and leaves rows untouched", async ({
 	db,
 }) => {
+	await seedClaimRow(db);
 	const prior = caseType({
 		choice: "single_select",
 		retired: "text",
@@ -93,6 +131,7 @@ test("reports stored changes using their actual select identity and leaves rows 
 test("recognizes JSONB key reordering as in sync across every current property shape", async ({
 	db,
 }) => {
+	await seedClaimRow(db);
 	const current = caseType({
 		text: "text",
 		integer: "int",
@@ -146,6 +185,7 @@ test("recognizes JSONB key reordering as in sync across every current property s
 test("distinguishes legacy refinements from unknown stored formats in the read-only report", async ({
 	db,
 }) => {
+	await seedClaimRow(db);
 	await seed(db, {
 		one: { type: "string", enum: ["open", "closed"] },
 		many: { type: "array", items: { type: "string", enum: ["a", "b"] } },
@@ -194,6 +234,7 @@ test("distinguishes legacy refinements from unknown stored formats in the read-o
 test("reports added and removed property names that also exist on Object.prototype", async ({
 	db,
 }) => {
+	await seedClaimRow(db);
 	await seed(db, { constructor: { type: "string" } });
 	const desired = caseType({ toString: "text" as const });
 	expect(
@@ -214,6 +255,7 @@ test("reports added and removed property names that also exist on Object.prototy
 test("compares the worker's own case against the schema storage writes for it", async ({
 	db,
 }) => {
+	await seedClaimRow(db);
 	// A document that also declares a `commcare-user` entry, typed apart from
 	// the worker-property catalog the stored row is built from.
 	const declared: CaseType = {
@@ -256,7 +298,10 @@ test("compares the worker's own case against the schema storage writes for it", 
 	expect(await computeSchemaDrift(db, APP, blueprint)).toEqual([]);
 
 	// A worker property the stored row lacks is drift a re-sync converges.
-	await db.deleteFrom("case_type_schemas").execute();
+	await db
+		.deleteFrom("case_type_schemas")
+		.where("case_type", "=", USERCASE_CASE_TYPE)
+		.execute();
 	await storedFor(usercaseCaseType({}));
 	const drift = await computeSchemaDrift(db, APP, blueprint);
 	expect(drift).toEqual([

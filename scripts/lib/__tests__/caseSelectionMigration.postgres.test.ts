@@ -27,7 +27,7 @@ function fixture() {
 			...["Garden first", "Garden second"].map((name) => ({
 				name,
 				caseType: "garden",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),
@@ -35,7 +35,7 @@ function fixture() {
 			{
 				name: "Plots",
 				caseType: "plot",
-				caseListOnly: true,
+				caseListMenuItem: {},
 				caseListConfig: caseListConfig([
 					{ field: "case_name", header: "Name" },
 				]),
@@ -69,7 +69,7 @@ describe("parent-selection cutover", () => {
 					uuid: garden,
 					name: "Gardens",
 					caseType: "garden",
-					caseListOnly: true,
+					caseListMenuItem: {},
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),

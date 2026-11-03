@@ -93,7 +93,11 @@
  */
 
 import { buildCaseTypeMap, withSchemaContext } from "@/lib/case-store";
-import { type PersistableDoc, USERCASE_CASE_TYPE } from "@/lib/domain";
+import {
+	CASE_CLAIM_CASE_TYPE,
+	type PersistableDoc,
+	USERCASE_CASE_TYPE,
+} from "@/lib/domain";
 import { log } from "@/lib/logger";
 import { isTransientDbError, withTransientRetry } from "./schemaSyncRetry";
 
@@ -165,6 +169,8 @@ export async function materializeCaseStoreSchemas(
 	// exists on apps with no case types at all. Materializing it
 	// unconditionally is also what lets the read path stay branch-free: there
 	// is no "has this app got a usercase schema yet" question to get wrong.
+	// A search's claim is a case row of its own type (`lib/domain/caseClaim.ts`)
+	// that any app's Preview may write, so its schema row is born here too.
 	const caseTypes = args.blueprint.caseTypes ?? [];
 
 	// `withSchemaContext` returns an actor-free `SchemaCaseStore`:
@@ -188,7 +194,11 @@ export async function materializeCaseStoreSchemas(
 	// goes through directly — no cast to the in-memory `BlueprintDoc`
 	// shape.
 	const caseTypeSchemas = buildCaseTypeMap(args.blueprint);
-	for (const caseType of [...caseTypes, { name: USERCASE_CASE_TYPE }]) {
+	for (const caseType of [
+		...caseTypes,
+		{ name: USERCASE_CASE_TYPE },
+		{ name: CASE_CLAIM_CASE_TYPE },
+	]) {
 		try {
 			const report = await withTransientRetry(() =>
 				store.applySchemaChange({

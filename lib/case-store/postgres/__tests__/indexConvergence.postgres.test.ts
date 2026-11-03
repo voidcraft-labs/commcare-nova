@@ -4,7 +4,7 @@ import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { decomposeBlueprint } from "@/lib/db/blueprintRows";
 import type { AppDatabase } from "@/lib/db/pg";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import type { CaseType } from "@/lib/domain";
+import { CASE_CLAIM_CASE_TYPE, type CaseType } from "@/lib/domain";
 import { SEARCH_READING } from "@/lib/domain/expression/temporalType";
 import { proseText } from "@/lib/domain/prose";
 import { findCaseTypeSchemaRetirementFindings } from "../../../../scripts/lib/caseTypeSchemaRetirement";
@@ -111,7 +111,7 @@ describe("durable case-schema index convergence", () => {
 					{
 						name: "Patients",
 						caseType: "patient",
-						caseListOnly: true,
+						caseListMenuItem: {},
 						caseListConfig: caseListConfig([
 							{ field: "case_name", header: "Name" },
 						]),
@@ -119,6 +119,13 @@ describe("durable case-schema index convergence", () => {
 				],
 			}),
 		);
+		// The search claim's row, which the app holds from its first save.
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: CASE_CLAIM_CASE_TYPE,
+			caseTypeSchemas: buildCaseTypeMap(desired),
+			syncedSeq: 3,
+		});
 		const appDb = database.db as unknown as Kysely<AppDatabase>;
 		await appDb.transaction().execute(async (tx) => {
 			await sql`
@@ -363,6 +370,13 @@ describe("durable case-schema index convergence", () => {
 			[...emptySchema.values()],
 			APP_ID,
 		);
+		// The search claim's row, which the app holds from its first save.
+		await caseStore.applySchemaChange({
+			appId: APP_ID,
+			caseType: CASE_CLAIM_CASE_TYPE,
+			caseTypeSchemas: buildCaseTypeMap(currentBlueprint),
+			syncedSeq: 1,
+		});
 		await caseStore.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",

@@ -46,15 +46,11 @@
 // ## Claims
 //
 // A search's claim is a case HQ creates: open, of type `commcare-case-claim`,
-// owned by the worker, with an extension index to the chosen case
-// (`corehq/ex-submodules/casexml/apps/case/cleanup.py::claim_case`). Nova
-// writes no such row. In the fixpoint above that row is an owned open seed
-// whose one upward extension hop reaches the chosen case with the chosen
-// case's own openness, and nothing else reaches it or leaves it. Seeding the
-// chosen case itself, carrying its openness, is therefore the same closure
-// less the claim row: an open claimed root becomes live, an open claimed
-// extension is live when its host chain is available, and a closed claimed
-// case relays nothing, as a closed host kills a real claim.
+// owned by the worker, with a `host` extension index to the chosen case
+// (`corehq/ex-submodules/casexml/apps/case/cleanup.py::claim_case`). Nova's
+// store writes that row (`CaseStore.claimCases`), so nothing here knows about
+// claims: the claim is an owned open seed, and the extension rules above make
+// it live when its host is available and its host live with it.
 
 import {
 	type AliasableExpression,
@@ -75,13 +71,6 @@ export interface RestoreScopeArgs {
 	 * ownership is not a filter on the result.
 	 */
 	readonly ownerIds: readonly string[];
-	/**
-	 * The worker's claims (see "Claims" above). Each seeds the fixpoint only
-	 * if it names a case of this app in this Project — the seed reads
-	 * `cases`, so an id of another app, another Project, or no case seeds
-	 * nothing, each id on its own.
-	 */
-	readonly claimedCaseIds?: readonly string[];
 }
 
 /**
@@ -155,7 +144,6 @@ export function buildRestoreScope(
 	args: RestoreScopeArgs,
 ): RestoreScopeQuery {
 	const { appId, projectId, ownerIds } = args;
-	const claimedCaseIds = args.claimedCaseIds ?? [];
 
 	if (ownerIds.length === 0) {
 		// Not a state a caller can reach honestly: `personaOwnerIds` always
@@ -176,29 +164,14 @@ export function buildRestoreScope(
 	const scoped = db
 		.withRecursive("avail(case_id, is_open)", (qb) =>
 			qb
-				// Seed: the worker's own open cases, and each claimed case with its
-				// own openness. `owner_id` seeds the fixpoint; it is not a filter
-				// on the result.
+				// Seed: the worker's own open cases. `owner_id` seeds the fixpoint;
+				// it is not a filter on the result.
 				.selectFrom("cases as seed")
-				.select((eb) => [
-					"seed.case_id",
-					claimedCaseIds.length === 0
-						? eb.lit<boolean>(true).as("is_open")
-						: eb("seed.status", "is distinct from", CLOSED)
-								.$castTo<boolean>()
-								.as("is_open"),
-				])
+				.select((eb) => ["seed.case_id", eb.lit<boolean>(true).as("is_open")])
 				.where("seed.app_id", "=", appId)
 				.where("seed.project_id", "=", projectId)
-				.where((eb) => {
-					const owned = eb.and([
-						eb("seed.status", "is distinct from", CLOSED),
-						eb("seed.owner_id", "in", ownerIds),
-					]);
-					return claimedCaseIds.length === 0
-						? owned
-						: eb.or([owned, eb("seed.case_id", "in", claimedCaseIds)]);
-				})
+				.where("seed.status", "is distinct from", CLOSED)
+				.where("seed.owner_id", "in", ownerIds)
 				// Walk UP extension edges toward the host, carrying whether each
 				// host is itself open. The walk continues only FROM an open row,
 				// which is what makes a closed host terminate the chain rather than
