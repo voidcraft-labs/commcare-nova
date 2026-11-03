@@ -544,9 +544,10 @@ function searchFirstLifted(
 
 /**
  * One Zod issue as a finding code: its code, its path of entity ids and
- * keys, and, for a key the schema does not know, the key's name.
+ * keys, and, for a key the schema does not know, the key's name. The
+ * judgement's `target-parse` spells its issues the same way.
  */
-function issueCode(issue: {
+export function issueCode(issue: {
 	readonly code: string;
 	readonly path: readonly PropertyKey[];
 	readonly keys?: readonly string[];
