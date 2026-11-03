@@ -2030,6 +2030,24 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   the head emits 387 fixed documents (419 in all) with the base's stop, refusals and edit census.
   Part 10 §1's row gives pull request 9 a corpus of 420; it is 419, the one-document offset pull request
   8 already recorded (417, not 418) carried forward with the two documents this pull request adds.
+- **Pull request 10's corpus is 392 fixed documents, 424 in all** (part 10 §1's row says 425), the same
+  one-document offset carried forward with the five targeted documents of §5.1 (`targeted-search-workflow`,
+  `-inline`, `-android`, `targeted-case-list-menu-item`, `targeted-commtrack-advanced`);
+  `proof/checks/test_corpus.py::FIXED_DOCUMENTS` is 392. Emitted with `--jobs 2` at the base and the head,
+  the head has the base's stop and the same (document, code) refusal multiset, and its wire moves only
+  `search_config.auto_launch` (and `default_search` where a list-first menu has no visible field) with the
+  matching suite `<action auto_launch>` and `<query default_search>`, on 53 documents (part 05's
+  Departures name the two Android-only fuzz documents among them).
+- **Defect 21 moves whole in pull request 10, the expander document's entry with it** (§2.6; part 08's G3
+  read as outcome A until the by-hand reader run reads it): `proof/known-defects.json` 55 to 18,
+  `proof/fixed-defects.json` 962 to 999, and `registers.py::OPEN_DEFECTS` drops `21`. Under outcome B the
+  expander entry returns to the known register until pull request 11.
+- **The new mutation kind `setCaseListMenuItem` has its edit generator, which moves which edit lands
+  where** (pull request 10). `editKinds.ts::EDIT_KIND_GENERATORS` is typed over every mutation kind, so
+  `setCaseListMenuItem` adds the entry and takes it off where the menu has forms, giving the entry a
+  label and an image; `setCaseListMeta`'s image arm writes nothing, because a case list's image is its
+  menu entry's. The fixed documents' edits are balanced together, so most fixed documents' edit batches
+  and `inputs.json` move with no change to D, as any new kind moves them.
 
 ## What other parts read from this one
 

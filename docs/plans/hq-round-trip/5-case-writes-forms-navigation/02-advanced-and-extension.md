@@ -2062,6 +2062,19 @@ From the code at pull request 7's base:
   rename keeps it. Evidence: `lib/commcare/__tests__/placement.test.ts` ("a question named like the
   block HQ's build appends"), `validator/rules/__tests__/casePlacement.test.ts`,
   `advancedTags.test.ts`, and `targeted-root-case-block-names`, which now witnesses the fallback.
+- **The kind blockers and their sentences live in `lib/domain`** (pull request 10; part 10 §2 names
+  `lib/commcare/moduleKind.ts` for the blockers and `lib/doc/identityMoveCopy.ts` for the
+  `forms-read-search` sentence). At pull request 10's base `advancedKindBlockers` is in
+  `lib/domain/advancedModule.ts`, where `forms-read-search` now reads `moduleFormsReadSearch` and
+  `case-list-menu-item-narrowed` reads `moduleHasCaseListMenuItem`, and the four sentences are
+  `lib/domain/placementCopy.ts::advancedKindBlockerSentence` (this section's bullet on their one owner),
+  which now says `Its forms now read the search, which an advanced menu can't do.`
+  `lib/commcare/moduleKind.ts::advancedModulesWithCaseListMenuItem` reads `moduleHasCaseListMenuItem`, so
+  `planPrivileges.ts::commtrackReasons` names an advanced menu's item beside its forms with no edit of its
+  own, and `identityMoveCopy.ts` needs none.
+- **The advanced menu item beside forms is emitted in pull request 10 with G1 read as outcome B**
+  (section 17): the entry is the same view command beside forms as on a formless menu, and Preview steps
+  back after a choice (part 05's Departures, the gated runs), until the by-hand reader run reads G1.
 
 ---
 
