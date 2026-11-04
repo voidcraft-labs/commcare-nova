@@ -74,6 +74,6 @@ export const groupFieldMetadata: FieldKindMetadata<"group"> = {
 	isContainer: true,
 	carriesValidation: false,
 	saDocs:
-		"Groups a set of fields under one visual header. Contents collapse and re-appear together. Use logical case-scoped groups (every child field's answer is saved to the case the group is about) as the primary organization pattern. Leave the label empty to make the group transparent (invisible at runtime), a residual layout option for stray hidden fields that don't fit any labeled group, not a primary disambiguation tool.",
+		"Groups a set of fields under one visual header. Contents collapse and re-appear together. Use logical case-scoped groups (every child field's answer is saved to the case the group is about) as the primary organization pattern. Leave the label empty to make the group transparent (invisible at runtime), a residual layout option for stray hidden fields that don't fit any labeled group, not a primary disambiguation tool. field_list shows its questions together on one screen on Android; a new group with a label starts with it on, unless it holds a repeat whose rows the worker adds, which can't share a screen.",
 	convertTargets: ["repeat"],
 };

@@ -78,7 +78,7 @@ export type CreateFormResult =
 
 export const createFormTool = {
 	description:
-		"Create a form. Add its questions separately, then configure answer-dependent naming or closing rules.",
+		"Create a form. Add its questions separately, then set its naming rule and its open and close conditions.",
 	inputSchema: createFormInputSchema,
 	async execute(
 		input: CreateFormInput,

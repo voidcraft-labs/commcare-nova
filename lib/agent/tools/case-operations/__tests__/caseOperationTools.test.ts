@@ -7,6 +7,8 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { projectAuthoringRead } from "@/lib/agent/authoring/output";
 import { emittedModuleKind } from "@/lib/commcare/moduleKind";
+import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
+import { runValidation } from "@/lib/commcare/validator/runner";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import {
 	HOUSEHOLD_VISIT,
@@ -15,10 +17,15 @@ import {
 	publishedAdvanced,
 } from "@/lib/doc/__tests__/moduleKindMoveFixture";
 import {
+	addCaseOperationAfterMutations,
+	planCaseOperationUpdate,
+} from "@/lib/doc/caseOperationMutations";
+import {
 	type CasePlacementEntry,
 	formCasePlacementView,
 } from "@/lib/doc/casePlacements";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import type { BlueprintDoc, CaseOperationWrite, Uuid } from "@/lib/domain";
 import {
 	caseOperationSchema,
 	lookupColumnIdSchema,
@@ -27,7 +34,9 @@ import {
 import { eq, literal, tableColumn, tableLookup } from "@/lib/domain/expression";
 import { proseText } from "@/lib/domain/prose";
 import { makeToolWorkspaceHarness } from "../../../__tests__/fixtures";
+import { applyToDoc } from "../../common";
 import { getFormTool } from "../../getForm";
+import { addUserPropertiesTool } from "../../users";
 import {
 	addCaseOperationsInputSchema,
 	addCaseOperationsTool,
@@ -44,7 +53,10 @@ import {
 	OWN_CASE_OPERATION_REFUSAL,
 	resolveCaseOperationInput,
 } from "../shared";
-import { updateCaseOperationTool } from "../updateCaseOperation";
+import {
+	updateCaseOperationInputSchema,
+	updateCaseOperationTool,
+} from "../updateCaseOperation";
 
 const TEXT = testUuid("case-operation-field");
 const CREATE_UUID = testUuid("create-visit-operation");
@@ -1025,5 +1037,392 @@ describe("this form's own case on the case change tools", () => {
 		expect(operations.map(({ placement }) => placement)).toEqual(
 			view.operations.map(({ entry }) => wordsOf(entry)),
 		);
+	});
+});
+
+describe("saves to a case above, changed answers and the worker's record", () => {
+	const PATIENT_NAME = testUuid("above-patient-name");
+	const REGISTER_NAME = testUuid("above-register-name");
+	const toHousehold = [{ identifier: "parent" }] as const;
+
+	/** A patient whose parent is a household with an `address`, edited by
+	 *  a follow-up form and registered by a registration form. */
+	function aboveFixture(): {
+		readonly doc: BlueprintDoc;
+		readonly moduleUuid: Uuid;
+		readonly followupUuid: Uuid;
+		readonly registrationUuid: Uuid;
+	} {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "household",
+					properties: [
+						{ name: "address", label: "Address", data_type: "text" },
+					],
+				},
+				{
+					name: "patient",
+					parent_type: "household",
+					properties: [
+						{ name: "nickname", label: "Nickname", data_type: "text" },
+					],
+				},
+			],
+			modules: [
+				{
+					id: "patients",
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "nickname", header: "Nickname" },
+					]),
+					forms: [
+						{
+							id: "edit",
+							name: "Edit",
+							type: "followup",
+							fields: [
+								f({
+									uuid: PATIENT_NAME,
+									kind: "text",
+									id: "nickname",
+									label: proseText("Nickname"),
+									caseWrite: { caseType: "patient", property: "nickname" },
+								}),
+							],
+						},
+						{
+							id: "register",
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									uuid: REGISTER_NAME,
+									kind: "text",
+									id: "case_name",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		return {
+			doc: expectAdmittedDoc(doc),
+			moduleUuid,
+			followupUuid: doc.formOrder[moduleUuid][0],
+			registrationUuid: doc.formOrder[moduleUuid][1],
+		};
+	}
+
+	function ownWritesOf(doc: BlueprintDoc, formUuid: Uuid) {
+		const own = doc.forms[formUuid].caseOperations?.[0];
+		if (own?.action !== "own") throw new Error("fixture own case");
+		return own.writes ?? [];
+	}
+
+	/** The gate's own findings of `code` for the candidate the own arm's
+	 *  edit plans, read from the validator rather than restated here. */
+	function gateFindings(
+		doc: BlueprintDoc,
+		formUuid: Uuid,
+		writes: readonly CaseOperationWrite[],
+		code: ValidationErrorCode,
+	) {
+		const own = doc.forms[formUuid].caseOperations?.[0];
+		if (own?.action !== "own") throw new Error("fixture own case");
+		const plan = planCaseOperationUpdate(doc, formUuid, {
+			...own,
+			writes: [...writes],
+		});
+		if (!plan.ok) throw new Error(plan.reason);
+		return runValidation(
+			applyToDoc(doc, plan.mutations),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		).filter((error) => error.code === code);
+	}
+
+	const toAddress = {
+		property: "address",
+		value: { kind: "term", term: { kind: "field", uuid: PATIENT_NAME } },
+		via: [...toHousehold],
+	} as const;
+
+	it("commits a save to the parent of a follow-up's own case, and one only if changed", async () => {
+		const { doc, moduleUuid, followupUuid } = aboveFixture();
+		const h = makeToolWorkspaceHarness(doc);
+		// The nickname question's save, made to save only a changed answer,
+		// beside a save of the same answer to the household's address.
+		const writes = [
+			...ownWritesOf(doc, followupUuid).map((write) =>
+				write.property === "nickname"
+					? { ...write, onlyIfChanged: true as const }
+					: write,
+			),
+			toAddress,
+		];
+
+		const result = await h.runTool(updateCaseOperationTool, {
+			moduleUuid,
+			formUuid: followupUuid,
+			operationUuid: ownOf(doc, followupUuid),
+			operation: { action: "own", writes },
+		});
+
+		expect(result.result).not.toHaveProperty("error");
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		const after = ownWritesOf(h.currentDoc(), followupUuid);
+		expect(after).toContainEqual({
+			property: "address",
+			value: toAddress.value,
+			via: [{ identifier: "parent" }],
+		});
+		expect(after).toContainEqual(
+			expect.objectContaining({ property: "nickname", onlyIfChanged: true }),
+		);
+		expectAdmittedDoc(h.currentDoc());
+	});
+
+	it("leaves a registration's save to the case above to the gate, which refuses it", async () => {
+		const { doc, moduleUuid, registrationUuid } = aboveFixture();
+		const h = makeToolWorkspaceHarness(doc);
+		const writes = [
+			...ownWritesOf(doc, registrationUuid),
+			{
+				...toAddress,
+				value: { kind: "term", term: { kind: "field", uuid: REGISTER_NAME } },
+			} as const,
+		];
+		const [finding] = gateFindings(
+			doc,
+			registrationUuid,
+			writes as CaseOperationWrite[],
+			"CASE_WRITE_VIA_INVALID",
+		);
+		expect(finding?.details).toMatchObject({ reason: "new-case" });
+
+		const result = await h.runTool(updateCaseOperationTool, {
+			moduleUuid,
+			formUuid: registrationUuid,
+			operationUuid: ownOf(doc, registrationUuid),
+			operation: { action: "own", writes },
+		});
+
+		const error = z.object({ error: z.string() }).parse(result.result).error;
+		expect(error).toContain(finding?.message);
+		expect(h.recordMutations).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toEqual(doc);
+	});
+
+	it("refuses via and onlyIfChanged on every other arm's writes at the schema", async () => {
+		const { doc, moduleUuid, followupUuid } = aboveFixture();
+		const h = makeToolWorkspaceHarness(doc);
+		const plain = {
+			property: "nickname",
+			value: { kind: "term", term: { kind: "field", uuid: PATIENT_NAME } },
+		} as const;
+		const arms = [
+			{
+				id: "make_patient",
+				action: "create",
+				caseType: "patient",
+				target: { kind: "new" },
+				name: plain.value,
+			},
+			{
+				id: "tag_patient",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+			},
+			{
+				id: "close_patient",
+				action: "close",
+				caseType: "patient",
+				target: { kind: "session" },
+			},
+		] as const;
+		for (const arm of arms) {
+			const accepted = { ...arm, writes: [plain] };
+			expect(caseOperationInputSchema.safeParse(accepted).success).toBe(true);
+			for (const facet of [
+				{ via: [...toHousehold] },
+				{ onlyIfChanged: true },
+			]) {
+				const refused = { ...arm, writes: [{ ...plain, ...facet }] };
+				expect(caseOperationInputSchema.safeParse(refused).success).toBe(false);
+				await expect(
+					h.runTool(addCaseOperationsTool, {
+						moduleUuid,
+						formUuid: followupUuid,
+						operations: [{ operation: refused }],
+					}),
+				).rejects.toBeInstanceOf(z.ZodError);
+			}
+		}
+		expect(h.recordMutations).not.toHaveBeenCalled();
+	});
+
+	it("keys the duplicate check by the case a write saves to and its property", () => {
+		const own = (writes: readonly unknown[]) =>
+			updateCaseOperationInputSchema.safeParse({
+				moduleUuid: testUuid("dup-module"),
+				formUuid: testUuid("dup-form"),
+				operationUuid: testUuid("dup-own"),
+				operation: { action: "own", writes },
+			});
+		const here = { property: "address", value: toAddress.value } as const;
+		expect(own([here, toAddress]).success).toBe(true);
+		const twice = own([toAddress, toAddress]);
+		expect(twice.success).toBe(false);
+		expect(twice.error?.issues).toEqual([
+			expect.objectContaining({
+				path: ["operation", "writes", 1, "property"],
+			}),
+		]);
+		const plainTwice = own([here, here]);
+		expect(plainTwice.success).toBe(false);
+		const noWalk = own([{ ...toAddress, via: [] }]);
+		expect(noWalk.success).toBe(false);
+		expect(noWalk.error?.issues).toEqual([
+			expect.objectContaining({
+				code: "too_small",
+				path: ["operation", "writes", 0, "via"],
+			}),
+		]);
+	});
+
+	it("commits an update of the worker's own record", async () => {
+		const { doc, moduleUuid, followupUuid } = aboveFixture();
+		const h = makeToolWorkspaceHarness(doc);
+		const workerUuid = testUuid("worker-record-update");
+		const detail = await h.runTool(addUserPropertiesTool, {
+			properties: [{ slug: "last_nickname", label: "Last nickname" }],
+		});
+		expect(detail.result).not.toHaveProperty("error");
+		h.recordMutations.mockClear();
+		const result = await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid: followupUuid,
+			operations: [
+				{
+					operationUuid: workerUuid,
+					operation: {
+						id: "save_worker",
+						action: "update",
+						caseType: "commcare-user",
+						target: { kind: "worker-record" },
+						writes: [
+							{
+								property: "last_nickname",
+								value: {
+									kind: "term",
+									term: { kind: "field", uuid: PATIENT_NAME },
+								},
+							},
+						],
+					},
+				},
+			],
+		});
+
+		expect(result.result).not.toHaveProperty("error");
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		expect(
+			h
+				.currentDoc()
+				.forms[followupUuid].caseOperations?.find(
+					(operation) => operation.uuid === workerUuid,
+				),
+		).toMatchObject({
+			action: "update",
+			caseType: "commcare-user",
+			target: { kind: "worker-record" },
+		});
+		expectAdmittedDoc(h.currentDoc());
+	});
+
+	it("refuses the worker's record on a create at the schema and on another type at the gate", async () => {
+		const { doc, moduleUuid, followupUuid } = aboveFixture();
+		const h = makeToolWorkspaceHarness(doc);
+		const name = {
+			kind: "term",
+			term: { kind: "field", uuid: PATIENT_NAME },
+		} as const;
+		for (const caseType of ["commcare-user", "patient"]) {
+			expect(
+				caseOperationInputSchema.safeParse({
+					id: "make_worker",
+					action: "create",
+					caseType,
+					target: { kind: "worker-record" },
+					name,
+				}).success,
+			).toBe(false);
+		}
+		// Only an update saves to the worker's record.
+		expect(
+			caseOperationInputSchema.safeParse({
+				id: "close_worker",
+				action: "close",
+				caseType: "patient",
+				target: { kind: "worker-record" },
+			}).success,
+		).toBe(false);
+		// commcare-user stays platform-owned for every arm but an update.
+		for (const action of ["create", "close"] as const) {
+			expect(
+				caseOperationInputSchema.safeParse({
+					id: "touch_worker",
+					action,
+					caseType: "commcare-user",
+					target: action === "create" ? { kind: "new" } : { kind: "session" },
+					...(action === "create" && { name }),
+				}).success,
+			).toBe(false);
+		}
+
+		const patientWorker = {
+			id: "save_worker",
+			action: "update",
+			caseType: "patient",
+			target: { kind: "worker-record" },
+		} as const satisfies CaseOperationInput;
+		const candidate = applyToDoc(
+			doc,
+			addCaseOperationAfterMutations(
+				doc,
+				followupUuid,
+				resolveCaseOperationInput(
+					patientWorker,
+					testUuid("patient-worker-update"),
+				),
+				undefined,
+			),
+		);
+		const [finding] = runValidation(
+			candidate,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		).filter((error) => error.code === "CASE_OPERATION_TARGET_INVALID");
+		expect(finding?.details).toMatchObject({ reason: "worker-record-type" });
+
+		const result = await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid: followupUuid,
+			operations: [
+				{
+					operationUuid: testUuid("patient-worker-update"),
+					operation: patientWorker,
+				},
+			],
+		});
+		const error = z.object({ error: z.string() }).parse(result.result).error;
+		expect(error).toContain(finding?.message);
+		expect(h.recordMutations).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toEqual(doc);
 	});
 });

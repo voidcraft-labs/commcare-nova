@@ -91,9 +91,11 @@ export type PreparedFlatField = Omit<FlatField, "optionsSource"> & {
 
 /**
  * Convert the one machine-authored select-source projection to persisted
- * domain state. This is the sole `optionUuid` -> `uuid` bridge: callers invoke
- * it once before collision/admission checks and carry the returned object
- * through mutation assembly unchanged.
+ * domain state. This is the sole `optionUuid` -> `uuid` and `plain_label` ->
+ * `plainLabel` bridge: callers invoke it once before collision/admission
+ * checks and carry the returned object through mutation assembly unchanged.
+ * A replacement keeps a prior option's identity and media, but its
+ * `plainLabel` is what the input states.
  */
 export function prepareToolOptionsSource(
 	source: ProjectedOptionsSource,
@@ -103,7 +105,7 @@ export function prepareToolOptionsSource(
 	const existing = previous?.kind === "inline" ? previous.options : [];
 	return {
 		kind: "inline",
-		options: source.options.map(({ optionUuid, ...option }) => {
+		options: source.options.map(({ optionUuid, plain_label, ...option }) => {
 			const matches = existing.filter((prior) =>
 				optionUuid === undefined
 					? prior.value === option.value
@@ -115,6 +117,7 @@ export function prepareToolOptionsSource(
 				uuid:
 					optionUuid ?? prior?.uuid ?? uuidSchema.parse(crypto.randomUUID()),
 				...(prior?.media && { media: prior.media }),
+				...(plain_label === true && { plainLabel: true as const }),
 			};
 		}),
 	};
@@ -336,18 +339,26 @@ export function flatFieldToField(
 	 *  field, at any depth (`batchUserRepeatHolders`). Read for a group. */
 	holdsUserRepeat = false,
 ): FlatFieldResult {
+	// A stated `field_list` wins over the birth rule: true asks for one
+	// screen (the gate refuses it over a repeat workers add entries to),
+	// false for none. Left out, the group takes the birth rule.
 	const fieldList =
-		q.kind === "group"
-			? groupBornFieldList({
-					label: q.label ?? undefined,
-					holdsUserRepeat,
-				})
-			: undefined;
+		q.kind !== "group"
+			? undefined
+			: q.field_list === true
+				? true
+				: q.field_list === false
+					? undefined
+					: groupBornFieldList({
+							label: q.label ?? undefined,
+							holdsUserRepeat,
+						});
 	const candidate: Record<string, unknown> = {
 		kind: q.kind,
 		uuid,
 		id: q.id,
 		...(q.label !== undefined && q.label !== null && { label: q.label }),
+		...(q.plain_label === true && { plainLabel: true }),
 		...(q.hint !== undefined && q.hint !== null && { hint: q.hint }),
 		...(q.help !== undefined && q.help !== null && { help: q.help }),
 		...(q.required !== undefined &&
@@ -368,8 +379,9 @@ export function flatFieldToField(
 		...(q.default_value !== undefined &&
 			q.default_value !== null && { default_value: q.default_value }),
 		...(q.optionsSource != null && { optionsSource: q.optionsSource }),
-		// A group the batch makes is born by the one birth rule: one screen
-		// when its label has text and nothing under it adds entries.
+		// The candidate carries the stored `fieldList` / `plainLabel`, never
+		// the tool's snake-case `field_list` / `plain_label`, so the kind's
+		// strict parse sees only domain keys.
 		...(fieldList !== undefined && { fieldList }),
 		// Nested repeat config: the SA's `repeat` is discriminated on `mode`
 		// (`count` exists only on count_bound, `ids_query` only on

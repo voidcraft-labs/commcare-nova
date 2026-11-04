@@ -8,9 +8,11 @@ import { parseAuthoredFormExpression } from "@/lib/doc/expressionText";
 import { prepareFormRecordName } from "@/lib/doc/formRecordName";
 import {
 	type BlueprintDoc,
+	type FormType,
 	fieldKinds,
 	formLinkTargetSchema,
 	formRootFieldIds,
+	formTypeLabels,
 	moduleUuidOfForm,
 	resolveFormLinkTarget,
 	type Uuid,
@@ -34,6 +36,7 @@ import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
 	expressionSlotKey,
 	expressionSlotValue,
+	FORM_REFERENCE_SLOTS,
 } from "@/lib/domain/referenceSlots";
 import { catalogFieldDefaults } from "../contentProcessing";
 import {
@@ -600,6 +603,36 @@ export function prepareFormAuthoring(args: {
 		ensure(formUuid);
 	for (const uuid of connect.keys()) ensure(uuid);
 
+	/* An open or close condition has no evaluation context on a form type
+	 * that does not create or close its own case, so its text cannot be read
+	 * there. Say what the commit gate says of the stored condition
+	 * (`OPEN_CONDITION_WRONG_TYPE`, `CLOSE_CONDITION_WRONG_TYPE`) rather than
+	 * a reading failure no expression could fix. */
+	function refuseOwnCaseConditionOffType(slot: FormSlot): void {
+		if (
+			slot.entity !== "form" ||
+			(slot.slot !== "form_open_condition" &&
+				slot.slot !== "form_close_condition")
+		)
+			return;
+		const form = doc.forms[slot.uuid];
+		const allowed: readonly FormType[] | undefined = FORM_REFERENCE_SLOTS.find(
+			(entry) => entry.slot === slot.slot,
+		)?.formTypes;
+		if (
+			form === undefined ||
+			allowed === undefined ||
+			allowed.includes(form.type)
+		)
+			return;
+		const typeName = formTypeLabels[form.type].toLowerCase();
+		throw new AuthoringInputError(
+			slot.slot === "form_open_condition"
+				? `Only a registration form creates its case on a condition, and “${form.name}” is a ${typeName} form. You can leave open_condition out, or make it a registration form.`
+				: `Only registration and close forms close their own case, and “${form.name}” is a ${typeName} form. You can leave close_condition out, or make it a close form.`,
+		);
+	}
+
 	function slotAt(path: AuthoringPath): FormSlot | undefined {
 		if (
 			toolName === "addFields" &&
@@ -620,6 +653,12 @@ export function prepareFormAuthoring(args: {
 			formUuid !== undefined
 		)
 			return { entity: "form", uuid: formUuid, slot: "form_close_condition" };
+		if (
+			toolName === "updateForm" &&
+			path[0] === "open_condition" &&
+			formUuid !== undefined
+		)
+			return { entity: "form", uuid: formUuid, slot: "form_open_condition" };
 		let owner = formUuid;
 		let local = path;
 		if (
@@ -687,6 +726,7 @@ export function prepareFormAuthoring(args: {
 				throw new AuthoringInputError(
 					`The expression at ${path.join(".")} has no evaluating slot.`,
 				);
+			refuseOwnCaseConditionOffType(slot);
 			const raw = z.union([z.string(), z.boolean()]).parse(value);
 			const source =
 				typeof raw === "boolean" ? (raw ? "true()" : "false()") : raw;

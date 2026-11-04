@@ -52,9 +52,12 @@ const caseOptionsSourceSchema = storedCaseOptionsSourceSchema.extend({
 //
 // The SA speaks domain vocabulary end-to-end: `kind`, `validate`,
 // `validate_msg`. There is no translation layer between the LLM and the
-// mutation reducer — tool args flow straight through. The one tool-owned
-// key is `caseWrite`: a field stores no destination, so the tools plan
-// it into the form's case operations.
+// mutation reducer — tool args flow straight through. The tool-owned
+// keys are `caseWrite`, which a field does not store: the tools plan it,
+// with its `via` and `onlyIfChanged`, into the form's case operations;
+// and the two display flags `field_list` and `plain_label` (on a field
+// and on a choice), booleans the pipeline turns into the stored
+// `fieldList: true` / `plainLabel: true` or their absence.
 // CommCare wire terms live only at the emission boundary in
 // `lib/commcare/` (XForm output). The domain never round-trips
 // through a wire shape.
@@ -80,6 +83,7 @@ import {
 	selectOptionValueSchema,
 	uuidSchema,
 } from "@/lib/domain";
+import { caseWriteViaInputSchema } from "./tools/case-operations/shared";
 
 function makeKindEnum(kinds: readonly FieldKind[]) {
 	return z
@@ -118,7 +122,11 @@ const FIELD_DOCS = {
 	optionsSource:
 		"Inline choices, a Project data table, or cases available to the worker. Cases save exact record IDs; labelProperty defaults to case_name. Omit filter for every available record of the declared type, including closed records. In a case filter #row reads the candidate and #case reads the form’s selected record.",
 	caseWrite:
-		"Save this answer to a case property. The module's case type saves it to this form's case; a declared child type saves it to a new child case, which needs a question saving its case_name; commcare-user saves it to the worker's own record. A capture saves a link to its file. A value replaces every place this question saves to, and null stops it saving anywhere; when it saves to several places, change them with updateCaseOperation instead. On a follow-up or close form that opens one case, a question saving to this form's case is given a default_value reading that case's value, which you can replace or remove. Use recordName for the case's name.",
+		"Save this answer to a case property. The module's case type saves it to this form's case, and with via to a case above it; a declared child type saves it to a new child case, which needs a question saving its case_name; commcare-user saves it to the worker's own record. A capture saves a link to its file. A value replaces every place this question saves to, and null stops it saving anywhere; when it saves to several places, change them with updateCaseOperation instead. On a follow-up or close form that opens one case, a question saving to this form's case is given a default_value reading that case's value, which you can replace or remove. Use recordName for the case's name.",
+	field_list:
+		"Groups only. true shows the group's questions together on one screen on Android; false shows one per screen. Web Apps shows the whole form on one page either way. A new group with a label starts at true unless it holds a repeat whose rows the worker adds, which can't share a screen; leave it out to take that. On an edit, null is false.",
+	plain_label:
+		"true shows the label exactly as typed, so *, #, numbered lines and links stay as written instead of formatting. Labels are formatted as Markdown by default; false or null returns the label to Markdown. Hints, help and validation messages are always Markdown.",
 	repeat_mode:
 		"Worker-added rows, a number of rows from a whole-number question or expression, or one row per case a query finds. Counts grow live during entry; lowering a count keeps created rows, answers and case operations. A query's rows are set when the form opens where the repeat has no condition of its own, its query reads no answer, it sits in no other repeat and no group around it shows on a condition that can change during entry; otherwise its rows follow the query as answers change, each row keeping its place. Once published, a query repeat keeps that choice, and an edit that would change it says so in identityMoves.",
 	repeat_count:
@@ -186,11 +194,16 @@ const calculateField = () =>
 	formLogicSchema.nullable().optional().describe(FIELD_DOCS.calculate);
 const defaultValueField = () =>
 	formLogicSchema.nullable().optional().describe(FIELD_DOCS.default_value);
+const fieldListField = () =>
+	z.boolean().nullable().optional().describe(FIELD_DOCS.field_list);
+const plainLabelField = () =>
+	z.boolean().nullable().optional().describe(FIELD_DOCS.plain_label);
 /**
  * The exact machine-authored inline-option projection.
  *
- * Persisted options carry `{ uuid, value, label, media? }`, but machine
- * writers deliberately get only `{ optionUuid?, value, label }`:
+ * Persisted options carry `{ uuid, value, label, media?, plainLabel? }`, but
+ * machine writers deliberately get only
+ * `{ optionUuid?, value, label, plain_label? }`:
  * `optionUuid` is the creation/preservation handle, while `uuid`, `media`,
  * and every historical alias are unknown-key rejections. Dedicated media
  * tools remain the sole owner of option media.
@@ -205,6 +218,12 @@ export const projectedSelectOptionSchema = z.strictObject({
 	label: proseTemplateSchema.describe(
 		"What people read for this choice. Put the wording here, never in `value`.",
 	),
+	plain_label: z
+		.boolean()
+		.optional()
+		.describe(
+			"true shows this choice exactly as typed on Android, without Markdown formatting. Web Apps formats every choice either way.",
+		),
 });
 
 /**
@@ -247,16 +266,30 @@ const validateConfigField = () =>
 		);
 
 /**
- * Where a question's answer is saved: a case type and a property. A field
- * stores no destination of its own; the tool plans this pair into the
- * form's case operations (`lib/doc/fieldCaseWriteMutations.ts`
- * `::planFieldCaseWrite`), and a capture's write is the link to its file.
- * `commcare-user` names the worker's own record, so the case type is any
- * nonblank name and the planner says which destinations a form has.
+ * Where a question's answer is saved: a case type and a property, with the
+ * links `via` walks to a case above this form's case and whether it saves
+ * only a changed answer. A field stores no destination of its own; the tool
+ * plans this into the form's case operations
+ * (`lib/doc/fieldCaseWriteMutations.ts::planFieldCaseWrite`), which refuses
+ * a `via` or `onlyIfChanged` a form can't hold, and a capture's write is the
+ * link to its file. `commcare-user` names the worker's own record, so the
+ * case type is any nonblank name and the planner says which destinations a
+ * form has. `via` is the case change tools' own schema.
  */
 export const fieldCaseWriteInputSchema = z.strictObject({
 	caseType: z.string().min(1, "Case type must not be empty."),
 	property: authoredCasePropertyNameSchema,
+	via: caseWriteViaInputSchema
+		.optional()
+		.describe(
+			'Save to a case above this form\'s case instead, one link identifier per step, such as [{"identifier":"parent"}]; caseType is then the type it reaches. Only on a follow-up or close form.',
+		),
+	onlyIfChanged: z
+		.literal(true)
+		.optional()
+		.describe(
+			"Save only when the worker changed the answer from the case's value. Only on a follow-up or close form, and refused where CommCare HQ keeps the change in Save to Case.",
+		),
 });
 export type FieldCaseWriteInput = z.infer<typeof fieldCaseWriteInputSchema>;
 
@@ -272,6 +305,33 @@ const caseWriteField = () =>
  */
 function kindSavesAnswer(kind: FieldKind): boolean {
 	return kind !== "label" && !fieldRegistry[kind].isContainer;
+}
+
+/**
+ * Refuse `field_list` on a kind other than a group, and `plain_label` on a
+ * kind whose label takes none (a hidden field has no label). `present` says
+ * whether the call states the slot: on the add item null is no value, on the
+ * edit patch null clears, so each caller tests presence its own way.
+ */
+function gateDisplayFlags(
+	ctx: z.RefinementCtx,
+	kind: FieldKind,
+	present: { readonly fieldList: boolean; readonly plainLabel: boolean },
+): void {
+	if (present.fieldList && kind !== "group") {
+		ctx.addIssue({
+			code: "custom",
+			path: ["field_list"],
+			message: `kind "${kind}" carries no field_list, so leave it out.`,
+		});
+	}
+	if (present.plainLabel && !fieldKindDeclaresKey(kind, "plainLabel")) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["plain_label"],
+			message: `kind "${kind}" carries no label, so leave plain_label out.`,
+		});
+	}
 }
 
 // ── Flat tool inputs, kind-gated by refinement ───────────────────────
@@ -414,6 +474,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			fieldUuid: fieldUuidField(),
 			parentUuid: parentUuidField(),
 			label: labelField(),
+			plain_label: plainLabelField(),
 			hint: hintField(),
 			help: helpField(),
 			required: requiredField(),
@@ -423,6 +484,7 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			default_value: defaultValueField(),
 			optionsSource: optionsSourceField().nullable().optional(),
 			caseWrite: caseWriteField(),
+			field_list: fieldListField(),
 			repeat: repeatConfigDiscriminated().nullable().optional(),
 		})
 		.superRefine((item, ctx) => {
@@ -434,6 +496,10 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			if (item.caseWrite != null && !kindSavesAnswer(item.kind)) {
 				undeclaredSlotIssue(ctx, item.kind, "caseWrite");
 			}
+			gateDisplayFlags(ctx, item.kind, {
+				fieldList: item.field_list != null,
+				plainLabel: item.plain_label != null,
+			});
 			// A case-writing field (`caseWrite` set) INHERITS label /
 			// optionsSource / validation / required from its catalog record —
 			// `applyDefaults` seeds them after this parse, and the prompt
@@ -524,6 +590,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 				.optional()
 				.describe("New id to rename to; leave it out to keep the current id."),
 			label: labelField(),
+			plain_label: plainLabelField(),
 			hint: hintField(),
 			help: helpField(),
 			required: requiredField(),
@@ -531,6 +598,7 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			validate: validateConfigField().nullable().optional(),
 			calculate: calculateField(),
 			default_value: defaultValueField(),
+			field_list: fieldListField(),
 			// A select source is required state and cannot be cleared. Omission
 			// keeps it; a value atomically replaces the complete arm.
 			optionsSource: optionsSourceField().optional(),
@@ -552,6 +620,10 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			if (patch.caseWrite !== undefined && !kindSavesAnswer(patch.kind)) {
 				undeclaredSlotIssue(ctx, patch.kind, "caseWrite");
 			}
+			gateDisplayFlags(ctx, patch.kind, {
+				fieldList: patch.field_list !== undefined,
+				plainLabel: patch.plain_label !== undefined,
+			});
 			gateRepeatSlot(ctx, patch.kind, patch.repeat);
 			gateHiddenValueSources(
 				ctx,

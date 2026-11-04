@@ -64,11 +64,17 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				"Name of the record this form creates or updates, using an answer or an expression.",
 			),
+		open_condition: formLogicSchema
+			.nullable()
+			.optional()
+			.describe(
+				"Registration forms only. The case is created only when this holds; null creates it on every submission. Read form answers as any form expression does. Leave it out to keep the current condition.",
+			),
 		close_condition: formLogicSchema
 			.nullable()
 			.optional()
 			.describe(
-				"Close forms: the case closes only when this holds, and null closes it on every submission. Read form answers as any form expression does, such as #form/outcome = 'complete'. Leave it out to keep the current condition.",
+				"Registration and close forms. On a registration, the case it creates also closes when this holds, and true() closes it on every submission; null keeps it open. On a close form, the case closes only when this holds, and null closes it on every submission. Read form answers as any form expression does. Leave it out to keep the current condition.",
 			),
 		post_submit: z
 			.enum(POST_SUBMIT_DESTINATIONS)
@@ -110,6 +116,7 @@ export type UpdateFormInput = z.infer<typeof updateFormInputSchema>;
 /** Human-readable success string or an error record. */
 export type UpdateFormResult =
 	| (MutationSuccess & {
+			open?: "conditional" | "unconditional";
 			close?: "conditional" | "unconditional";
 			display?: "conditional" | "always";
 			hiddenFromMenu?: boolean;
@@ -123,7 +130,7 @@ export type UpdateFormResult =
 
 export const updateFormTool = {
 	description:
-		"Edit a form's name, purpose, record naming rule, close condition, Connect settings, after-submit navigation, or whether it is its menu's registration from the case list.",
+		"Edit a form's name, purpose, record naming rule, open and close conditions, Connect settings, after-submit navigation, or whether it is its menu's registration from the case list.",
 	inputSchema: updateFormInputSchema,
 	async execute(
 		input: UpdateFormInput,
@@ -136,6 +143,7 @@ export const updateFormTool = {
 			name,
 			purpose,
 			recordName,
+			open_condition,
 			close_condition,
 			post_submit,
 			connect,
@@ -165,8 +173,10 @@ export const updateFormTool = {
 			let refinedConnect: ConnectConfig | undefined;
 			if (name !== undefined) patch.name = name;
 			if (purpose !== undefined) patch.purpose = purpose;
-			// The condition arrives parsed in the form's close-condition slot;
-			// the checker reports a question the form does not have.
+			// Each condition arrives parsed in its own form slot; the checker
+			// reports a question the form does not have, and the gate refuses
+			// an open condition on a form that is not a registration.
+			if (open_condition !== undefined) patch.openCondition = open_condition;
 			if (close_condition !== undefined) patch.closeCondition = close_condition;
 			if (post_submit === null) patch.postSubmit = null;
 			if (post_submit != null) {
@@ -386,6 +396,11 @@ export const updateFormTool = {
 				result: {
 					ok: true,
 					navigation: formNavigation(newDoc, formUuid),
+					...(open_condition !== undefined && {
+						open: formAfter.openCondition
+							? ("conditional" as const)
+							: ("unconditional" as const),
+					}),
 					...(close_condition !== undefined && {
 						close: formAfter.closeCondition
 							? ("conditional" as const)

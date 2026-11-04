@@ -310,6 +310,59 @@ it("reads menu icons in the form setMenuMedia accepts, so a read can be written 
 	expect(h.currentDoc()).toEqual(before);
 });
 
+it("reads a group's display flags under the names addFields and editField take", async () => {
+	const h = await populatedApp();
+	const added = await h.call("addFields", {
+		moduleUuid: "Learning",
+		formUuid: "Assessment",
+		fields: [
+			{
+				kind: "group",
+				id: "one_screen",
+				label: "Shown *as typed*",
+				field_list: true,
+				plain_label: true,
+			},
+		],
+	});
+	expect(added).not.toHaveProperty("error");
+	const address = {
+		moduleUuid: "Learning",
+		formUuid: "Assessment",
+		fieldUuid: "one_screen",
+	};
+	const flags = z.object({
+		kind: z.string(),
+		field_list: z.literal(true),
+		plain_label: z.literal(true),
+	});
+	const read = z
+		.object({ field: flags })
+		.parse(await h.call("getField", address)).field;
+	expect(read).not.toHaveProperty("fieldList");
+	expect(read).not.toHaveProperty("plainLabel");
+	// A form read nests the same field projection.
+	const form = JSON.stringify(
+		await h.call("getForm", { formUuid: "Assessment" }),
+	);
+	expect(form).toContain('"field_list":true');
+	expect(form).toContain('"plain_label":true');
+	expect(form).not.toContain('"fieldList"');
+	expect(form).not.toContain('"plainLabel"');
+
+	const before = h.currentDoc();
+	const sent = await h.call("editField", {
+		...address,
+		updates: {
+			kind: read.kind,
+			field_list: read.field_list,
+			plain_label: read.plain_label,
+		},
+	});
+	expect(sent).not.toHaveProperty("error");
+	expect(h.currentDoc()).toEqual(before);
+});
+
 it("records a value it cannot print as Nova's failure, never as the caller's input", async () => {
 	const h = await populatedApp();
 	const doc = h.currentDoc();
