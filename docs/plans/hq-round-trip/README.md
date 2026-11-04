@@ -167,8 +167,8 @@ Finding 74 was held by two walk stops, on `targeted-datetime-ordering` and
 `fuzz-xform-20260930-0`, and step 4 closed it. Step 4 declares both documents
 Android only, so the stop on the first is held on its retained control in
 `proof/walk-stops.json` and the second is removed (["Step 4 is
-done"](#step-4-is-done)). The register's other entries are defects 21, 23 to
-28 and 30, which `OPEN_DEFECTS` gives to step 5.
+done"](#step-4-is-done)). Step 5 fixed the register's other entries, defects
+21, 23 to 28 and 30 (["Step 5 is done"](#step-5-is-done)).
 
 ## Step 4 is done
 

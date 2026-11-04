@@ -8,35 +8,54 @@ depends on what was just saved: a screening that found a risk should open the
 referral form, a visit that closed the case should go back to the list, and
 everything else should return to the module.
 
-**After submit** is where a form says that. It holds a short list of links,
-each with a destination and a condition, and an **Otherwise** row that says
-where the form goes when none of the links apply.
+**After submit** is where a form says that. It holds a short list of
+destinations, each a form or a module to open and, if you like, the condition
+it runs under, and an **Otherwise** row that says where the form goes when no
+destination with a condition or a carried case runs.
 
 ## Where to find it
 
-Open a form, choose the settings gear, and find **After submit**. With no links
-yet, the row offers the built-in destinations, **Another form or module**, and
-**Add links**; once links exist it tells you how many the form checks and
-offers **Edit links**.
+Open a form, choose the settings gear, and find **After submit**. With no
+destinations yet, the row says where the form goes and offers the built-in
+destinations, **Another form or module**, and **Add destinations**. Once a
+destination exists it says what runs, such as **Runs 2 destinations in
+order**, with the form's Otherwise beside it, and offers **Edit destinations**.
 
 The After submit screen has its own address, so you can link a teammate
 straight to it. The **Preview** control runs the form the links belong to, and
-Preview follows the links the same way the app does.
+Preview runs the destinations the same way the app does.
 
 ## The order matters
 
-Links are checked from the top down, and the first one whose condition is true
-wins. Two links can both be true at the same time; the one higher up is the one
-people follow, so order is part of what you are saying.
+The list is headed **After this form, these run in order**. Every destination
+whose condition is true runs, from the top down: on Android the next one opens
+when the worker finishes the one before it, and in Web Apps only the first one
+that applies opens. Each row says when it runs: **Every time**, **When** its
+condition is true, and, for a destination that carries a case, **When the case
+it carries is on the worker's device**. Two destinations can both apply at the
+same time, so order is part of what you are saying.
 
-Drag a link by its handle, or focus the handle and use the arrow keys (**Home**
-and **End** jump to the ends).
+Add one with **Go somewhere every time** or **Go somewhere when a condition is
+true**. Drag a destination by its handle, or focus the handle and use the arrow
+keys (**Home** and **End** jump to the ends). Any destination can go in any
+position.
 
-The **Otherwise** row is always last. It is where the form goes when nothing
-above it matched, and it can be any of:
+## Otherwise
+
+The **Otherwise** row is always last. It is where the form goes when no
+destination with a condition or a carried case runs, and it shows once a
+destination has one. It opens before a destination that runs every time.
+**Otherwise, go somewhere else** sets it, and until a destination has a
+condition the builder says **Give a destination a condition first, so there is
+a time when none runs.**
+
+With no Otherwise, the app goes home when no destination runs, and the row
+reads **Otherwise, back to the app home**. The same choices say where a form
+with no destinations goes:
 
 - **App home**: back to the main screen. On Android that is the app's home
   screen; in Web Apps it is the app's first screen, which lists its modules.
+  For the Otherwise it is **The app home**, which leaves the form without one.
 - **First menu**: the app's first menu, which lists its modules. In Web Apps
   this is the same screen as App home; on Android, App home opens the home
   screen and First menu opens that list.
@@ -47,12 +66,14 @@ above it matched, and it can be any of:
   form was chosen before its record, its record picker opens again for that
   same form. When the record was chosen before the form, the module menu opens
   with that record still selected. This follows the app's task sequence.
-- **Another form or module**: open a form, or a module's form list, as a link
-  with no condition.
+- **Another form or module**: open a form, or a module's form list. For a
+  form with no destinations it opens the destinations screen, where you add
+  one; for the Otherwise it is a link of its own.
 
-A form with links always has a real answer for the Otherwise row, even if you
-never chose one: the built-in destination is filled in for you, and you can
-change it.
+When a form gains its first destination with a condition, where it went after
+submit becomes its Otherwise, and Nova says so. When every destination runs
+each time again, the Otherwise has nothing left to cover, so Nova removes it
+and tells you.
 
 ### Which destinations a form is offered
 
@@ -60,7 +81,7 @@ The list only offers destinations the form's module can return to, so a
 choice you see is one CommCare can build:
 
 - **Previous screen** isn't offered in a module that selects several cases,
-  under a module that does, or in a module that opens on Search. The usual
+  under a module that does, or in a menu whose forms read the search. The usual
   destination there is **This module**, or **First menu** under a module that
   selects several cases.
 - **This module** isn't offered under a module that selects several cases.
@@ -84,8 +105,8 @@ A link's condition runs after the form has closed. That decides what it can use:
 - **The person using the app**: their worker information.
 - **Project data and places**: a row of a data table, or a place in your
   organization.
-- **What a search found**, when the form opened after a search in a
-  search-first module, such as how many cases it returned.
+- **What a search found**, when the form opened in a menu whose forms read
+  the search, such as how many cases it returned.
 
 It cannot read the form's answers, because by the time the link runs the form
 is gone. If a link should depend on something someone typed, save that answer
@@ -104,27 +125,38 @@ which one. The link's detail screen shows what its destination needs:
   destination should open. The screen lists every value the destination needs;
   a link carries all of them or none of them, so there is no half-filled
   handover.
-- A destination that opens on **Search** needs to fetch the carried case before
-  it opens. **Carry it automatically** supports the case this form selected or
-  created. An explicit assignment to that same case works too. A different
+- A destination whose forms read the search needs to fetch the carried case
+  before it opens. **Carry it automatically** supports the case this form
+  selected or created. An explicit assignment to that same case works too. A different
   manual assignment may be unavailable; Nova names the link and offers
-  automatic matching or a destination that opens on its case list. A destination that opens on its case list supports manual values.
+  automatic matching or a destination whose forms read their own case, which
+  supports manual values.
+- A destination that carries a case runs only when the worker's device holds
+  that case. A value that names no case of that type never opens the
+  destination; the next one, or the form's Otherwise, runs instead.
 - A module's form list needs nothing carried: the person picks a case when
-  they arrive.
+  they arrive. A link to a module carries no values.
+
+## Start this form again
+
+**Start this form again** is the first choice in the destination picker. It
+opens a fresh copy of the same form, which suits a form workers fill in many
+times in a row. It keeps working if the form moves to another module. A
+destination can also open a form whose own destinations lead back here.
 
 ## What Nova refuses
 
 Nova keeps the list in a shape the app can run, and says why before anything
 changes:
 
-- A link back to the same form, or a chain of links that leads back to this
-  form. The target picker disables those destinations and names the chain.
-- A link after the Otherwise link. Nothing can come after the place the form
-  goes when nothing matched, so a link moved below it, or the Otherwise link
-  moved above one, stays where it was with the reason beside it.
+- A link to a submenu CommCare HQ can't link to from this form's menu: choose
+  the menu above it or a form inside it. A form can link to a submenu only
+  from a submenu whose parent has the same case type, and the target picker
+  says so beside each one it can't offer.
 - A link whose destination needs a case this form cannot hand over. Carry the
   value by hand, or choose a destination this form can pass its case to.
-- A second Otherwise. Change the one you have instead.
+- An Otherwise that could never run, because every destination runs each time.
+  Give a destination a condition first.
 - A link to a module that is off the menu. It would open a menu with nothing
   in it on Android and the app's first screen in Web Apps, so point the link at
   a form inside the module, or show the module on the menu again.
@@ -150,7 +182,7 @@ describes for each case.
 
 ## On a device
 
-The installed app behaves the same way: the first true link wins, the
-Otherwise destination runs when none does, and a carried case opens the
-destination directly. What you see in Preview is what the app does on the
-platform Preview runs as.
+On Android every destination that applies runs in order; in Web Apps the
+first does. The Otherwise runs when no destination with a condition or a
+carried case runs, and a carried case opens the destination directly. What you
+see in Preview is what the app does on the platform Preview runs as.

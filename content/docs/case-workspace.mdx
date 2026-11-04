@@ -39,7 +39,7 @@ In **Cases available**, a search field's rule or a form's display condition,
 choose **The case chosen in** that menu, then the case itself or one of its
 properties, for example to search only the households of the village chosen
 first. Nova keeps the menu itself, so renaming it keeps the rule. In a menu
-that opens on Search, a case the worker found but didn't already have joins
+whose forms read the search, a case the worker found but didn't already have joins
 their cases when they choose a form, so until then a form's display condition
 reads its properties as blank, on a phone, in Web Apps and in Preview alike.
 
@@ -240,18 +240,17 @@ Details, or goes Back. A changed maximum never removes a choice silently.
 Continue waits and states how many cases need to be removed.
 
 Use several-case selection only when a follow-up or close form can run over the
-complete set. That form can belong to the module itself. A case-list-only parent
-can also carry the set into a child that uses the same case type, also chooses
+complete set. That form can belong to the module itself. A parent menu that is
+only its case list can also carry the set into a child that uses the same case type, also chooses
 Several cases, allows at least the parent's maximum, and has the form. The form
 submits once. A question that saves to the selected case starts blank instead
 of borrowing a value from one case. Each answer someone enters is saved to
 every selected case, while leaving it blank preserves each case's existing
 value. A configured starting value or calculation is also saved to every
-selected case when it produces an answer. An attachment answer is saved when the submitted form provides
-a file. A destination configured to keep the file stores that attachment on
-every selected case; a destination configured to keep a link stores the
-published file link instead. Preview does not create either, so trying the form
-there leaves every selected case's attachment destination unchanged. Explicit
+selected case when it produces an answer. A capture reaches a case as a link
+to its file, saved to every selected case when the submitted form provides a
+file. Preview leaves that link empty, so trying the form there leaves every
+selected case's link unchanged. Explicit
 case changes run for every selected case too, and any failure leaves every case
 unchanged.
 
@@ -348,94 +347,127 @@ In Preview, each new search uses the current worker and data to resolve these
 values. Editing answers keeps the previous search's hidden values until you
 search again.
 
-### Search first
+### When this menu opens
 
 Some workflows should never show a list before anyone has searched: a
 registry too large to scroll, or a program where finding the right person
-comes first. Turn on **Search first** in the Search panel and the module
-opens on its Search screen instead of Results. Search first runs only in Web
-Apps, so Nova offers it in an app that runs only in Web Apps
-([Where workers use your app](./where-workers-use-your-app.mdx)). Nothing is
-listed until a search completes, and Results then shows only what that
-search found, with **Search again** at the top to start over. A search-first module with no
-visible search fields runs its search on its own, so it lands on Results
-immediately. Removing the final search field keeps **Search first** on; the
-search runs automatically with the remaining rules.
+comes first. **When this menu opens**, in the Search panel, decides what a
+worker sees first.
 
-**Search first** is offered when every form on the module's menu works on
-an existing case, or when the module is a case list with no forms. A module
-with a registration form on its menu keeps browse-then-search, because there
-is no Search screen to open on before that form; the one exception is a
-registration form offered only after an empty search (below), which is on no
-menu. Two Search settings
-go away with the list: there is no Search button to show or hide, so **When
-Search is available** has no effect, and **Previous screen** is not an
-after-submit destination for the module's forms, because the previous
-screen was the search itself. After submitting, those forms return to the
-module by default, which reopens Search.
+A menu that searches can open on **Search first**, the Search screen; **Results
+first**, the matches of its search as it opens; or **Case list first**, its case
+list, offered only in an app that runs on Android only, because CommCare HQ no
+longer offers it for a menu that searches in Web Apps. Android opens a menu that
+searches on its case list whichever you choose. Under **Search first** or
+**Results first**, **Forms read the search** runs the search again as each of
+the menu's forms opens, so the form reads what was searched for and found; Web
+Apps runs it, and an app that also runs on Android can't use it.
 
-A search-first module does not share its search results with a submenu or
-with a module that selects a parent case from it. Give such a module its
+Each choice says what workers see:
+
+- **Search first**: workers search before they see any cases, and Results shows
+  what the search finds. Nothing is listed until a search completes, and
+  Results then shows only what that search found, with **Search again** at the
+  top to start over.
+- **Results first**: workers see the cases the search finds with its starting
+  values, and can search again to narrow them.
+- **Case list first**: workers see their cases and can search from the list. In
+  an app that runs in Web Apps the choice says **Not available in Web Apps. You
+  can open this menu on Search first, which Android still opens on its case
+  list, or change where this app runs in App settings.**
+- **Forms read the search**: each form runs the search as it opens, so it can
+  read what was searched for and what was found. In an app that runs on Android
+  the switch says **Not available on Android. You can change where this app runs
+  in App settings.** Where something else in the menu keeps it off, the switch
+  says what and how to change it.
+
+[Where workers use your app](./where-workers-use-your-app.mdx) lists what each
+platform runs.
+
+A menu you give Search with no visible search field opens on
+**Results first**, so workers never land on a Search screen with nothing to
+fill in, and removing the final visible search field from a menu set to
+**Search first** turns it to **Results first** in the same change. You can still
+choose **Search first** without a field: workers then see a Search screen with
+only its Search button, and the canvas says so. Under **Results first** with no
+field, the canvas says the menu opens on the cases the search finds, and
+**Cases available** decides what workers see. While a saved Search button
+condition is false, a menu whose forms don't read the search opens on its case
+list.
+
+**Forms read the search** is offered when every form on the menu works on an
+existing case, or when the menu is a case list with no forms. A menu with a
+registration form on it can't use it, because its first
+screen doesn't choose a case; the one exception is a registration form offered
+only after an empty search (below), which is on no menu. While the menu's forms
+read the search, two settings go away: there is no Search button to show or
+hide, so **When Search is available** has no effect, and **Previous screen** is
+not an after-submit destination for the menu's forms, because the previous
+screen was the search itself. After submitting, those forms return to the menu
+by default, which reopens Search.
+
+A menu whose forms read the search does not share its search results with a
+submenu or with a menu that selects a parent case from it. Give such a menu its
 own ordinary case list instead.
 
-A form in a search-first module can read what the search found, for example
-how many cases it returned, with
+A form in a menu whose forms read the search can read what the search found,
+for example how many cases it returned, with
 `count(instance('results:inline')/results/case[not(commcare_is_related_case = true())])`.
 CommCare's search returns up to 500 cases, and Preview reads the same 500.
 Cases CommCare adds only to show related details aren't part of what the
 search found. The search returns its cases in no fixed order, so a formula
 that picks the first or last result, or joins them in order, is refused; you
 can count them or check for a particular case instead. While a form reads what
-the search found, turning **Search first** off or moving that form to another
-module is refused, and Nova names the form that reads them.
+the search found, turning **Forms read the search** off or moving that form to
+another menu is refused, and Nova names the form that reads them.
 
 ### Register when nothing matches
 
-A search-first module can offer a registration form only when a search finds
-no matches. Give a registration form in that module the entry **After a
-search finds no matches** (in Nova's tools, `entry: search-no-matches`), and it
-leaves the menu: Results shows a **Register** action, named after the form,
-only after a search completes with nothing found, including when the app has no
-records yet. The form opens with that
-search's answers, so a field can start from what the worker typed: a
-default value of `#search/patient_name` seeds the name from the name search
-field, and a hidden search field's value, such as a search time, can be saved
-to a case property as a record that the search happened. After submit, choose
-**First menu**, or let the form return to Results showing the case it just
-registered (a module with no forms of its own returns to Search, or to its
-automatic Results). A module with multiple-case selection requires **First menu**
-because CommCare cannot return the newly registered case as a multiple-case
-selection. The form has no after-submit links and no display condition, and
-no other form can link to it. One such form per module. Setting the entry
-turns **Search first** on for the module if it was off. Clearing it (in Nova's
-tools, `entry: null`) makes the form a menu form again and turns **Search
-first** off with it, because a menu registration form cannot open on Search,
-and removes the starting values its fields read from the search; the fields
-themselves stay.
+A menu whose forms read the search can offer a registration form only when a
+search finds no matches. In the Search canvas, under **When no cases match**,
+choose **Offer a registration form** and pick one of the menu's registration
+forms (in Nova's tools, `case_list_registration` on the form), and it leaves
+the menu: Results shows a **Register** action, named after the form, only after
+a search completes with nothing found, including when the app has no records
+yet. The form opens with that search's answers, so a field can start from what
+the worker typed: a default value of `#search/patient_name` seeds the name from
+the name search field, and a hidden search field's value, such as a search
+time, can be saved to a case property as a record that the search happened.
+After submit, choose **First menu**, or let the form return to Results showing
+the case it just registered (a menu with no forms of its own returns to Search,
+or to its automatic Results). A menu with multiple-case selection requires
+**First menu** because CommCare cannot return the newly registered case as a
+multiple-case selection. The form has no after-submit links and no display
+condition, and no other form can link to it. One such form per menu. Offering a
+form turns on **Forms read the search**: each form in this menu runs the search
+as it opens. Making it a menu form again (in Nova's tools,
+`case_list_registration: null`) turns **Forms read the search** off with it,
+because a form on the menu can't open from the search, and removes the
+starting values its fields read from the search; the fields themselves stay.
 
-In the builder, the Search canvas carries **When no cases match**. Choose
-**Offer a registration form** and pick one of the module's registration forms,
-or **Add a new registration form**: Nova adds one named after the case type,
-with a field for each search field filled in from its answer and a name for the
-new case. A review names what changes before anything commits: Search first
-turns on if it was off, the form leaves the menu, and where the form returns
-after submit. **Only the notice** returns the form to the menu after a review
-of its own: Search first turns off, and the starting values read from the
-search go. The form's own settings carry **How this form opens**: the Results
-action label, **Add fields for the search answers** (one field for each search
+**Add a new registration form**, beside the menu's registration forms, adds one
+named after the case type, with a field for each search field filled in from
+its answer and a name for the new case. A review names what changes before
+anything commits: **Forms read the search** turns on if it was off, the form
+leaves the menu, and where the form returns after submit. **Only the notice**
+returns the form to the menu after a review of its own: **Forms read the
+search** turns off, and the starting values read from the search go. The
+form's own settings carry **How this form opens**: the **Results action
+label**, **Add fields for the search answers** (one field for each search
 field the form does not carry yet), and **Make it a menu form again**, the
-same reviewed change. A menu registration form in a module with Search offers
+same reviewed change. A menu registration form in a menu with Search offers
 **Open after a search finds no matches** in the same place. The structure tree marks the form with a search icon.
 
 Because the form depends on the search, Nova refuses to remove a search field
-one of its fields reads, to turn **Search first** off, or to remove Search while
-the entry is set; clear the entry or the field first. Removing such a search
-field lists the form field that reads it and opens it from the review. In
-Preview, opening the form by its address without a completed empty search shows
-why it is not available and offers **Go to Search**. Search first runs only in
-Web Apps, so this form belongs to an app that runs only in Web Apps. Publishing
-to CommCare HQ needs the project space to allow registration after an empty
-search (listed in the setup artifact).
+one of its fields reads, to turn **Forms read the search** off, or to remove
+Search while the form is offered; make it a menu form again or clear the field
+first. Removing such a search field lists the form field that reads it and
+opens it from the review. In Preview, opening the form by its address without a
+completed empty search shows why it is not available and offers **Go to
+Search**. **Forms read the search** runs only in Web Apps, so this form belongs
+to an app that runs only in Web Apps. Publishing to CommCare HQ needs the
+project space to allow registration after an empty search (listed in the setup
+artifact).
 
 An empty task list can be an expected result, such as when every loan has been
 returned. Preview distinguishes cases that do not meet a task's conditions from
@@ -553,6 +585,17 @@ This is a Results-availability setting, not a Search action: it applies whether
 people browse Results directly or arrive through Search, and it never adds a
 Search action by itself.
 
+### The case list in the menu
+
+**Show the case list in this menu**, under **Case list in the menu** in the
+menu's settings, lists the menu's case list as an entry of its own, beside its
+forms or as the menu's only entry. Choosing a case there shows its details. In
+Web Apps the case list shows again. On Android, choosing a case returns to the
+home screen when the list has no case details, and with them, **Done** returns
+to the list. You can give the entry its own label, icon and spoken label; with
+no label it takes the menu's name. A menu with no forms and no submenus is its case list, so the
+switch stays on until the menu has a form.
+
 ## Choose which cases appear first
 
 Results keeps **Default order** directly below Cases available and beside the
@@ -614,10 +657,10 @@ A custom **Date style** can use any CommCare date pattern but a straight
 apostrophe (`'`), which CommCare HQ's date column has no way to store. A curved
 one (’) works.
 
-For a case-list-only module, use the settings button beside the module name for
-appearance. **App home tile** controls how the module looks on the app's main
-menu; **Case list link** controls the distinct link that opens the list. Those
-two values stay separate, and Results does not offer a second copy of either
+For a menu that is only its case list, use the settings button beside the
+module name for appearance. **App home tile** controls how the module looks on
+the app's main menu; **Case list in the menu** controls the distinct entry that
+opens the list. Those two values stay separate, and Results does not offer a second copy of either
 setting.
 
 Property menus use the labels people recognize and offer each built-in value

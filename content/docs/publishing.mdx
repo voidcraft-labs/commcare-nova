@@ -73,7 +73,7 @@ goes wrong without it. Tick **This project space has it** for each one, and
 publishing can go ahead. [Project-space compatibility](/docs/project-space-compatibility#plan-features)
 lists them all.
 
-Three project-space settings are asked about the same way, because no plan
+Four project-space settings are asked about the same way, because no plan
 decides them and no API reads them:
 
 - **The flat location list**, for an app that reads the places in your
@@ -87,6 +87,10 @@ decides them and no API reads them:
   phones can't open those forms. A project space admin can turn it off on the
   project space's Case Search page, and an app that runs in Web Apps only
   doesn't need it.
+- **CommCare Supply turned off**, for an app with an advanced menu whose case
+  list is its own menu item, or a form whose text names the session's supply
+  point. CommCare HQ adds steps to those where it's on, and only Dimagi Support
+  can turn it off.
 
 Nova keeps your answer with that project space, so the next publish there
 doesn't ask again. A publish that stops for another reason keeps nothing, and
@@ -211,8 +215,7 @@ worker sees or collects changes because of it, and CommCare HQ's form builder
 shows the new spacing.
 
 CommCare HQ's data dictionary lists the case properties your forms' case
-operations write, from the publish that sends them. A property that receives
-**The file itself** can be missing there.
+operations write, from the publish that sends them.
 
 If a status check overlaps a new publish, Nova keeps the new publish's status.
 Answers about the earlier version cannot replace it.
@@ -266,6 +269,16 @@ look for on the Lookup Tables screen. Nothing appears here for a table you
 simply republished, only for one nothing in your app points at any more.
 If a later publish uses an earlier resource again, Nova removes it from this
 list. Each unused resource appears only once.
+
+#### Where CommCare HQ keeps your case changes
+
+The first time Nova publishes a form, it records where CommCare HQ keeps each
+of its case changes, so publishing again keeps them there and your exports keep
+their columns. If a change you make can't stay there, Nova says what moves
+before it saves, and undoing the change puts it back. When a project space's
+plan doesn't include Save to Case, Nova offers to move the case changes that
+don't need it, and the move applies wherever the app is published. See
+[Where CommCare HQ keeps each change](/docs/case-changes#where-commcare-hq-keeps-each-change).
 
 ### Version made, and Released
 

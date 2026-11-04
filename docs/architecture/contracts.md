@@ -98,16 +98,19 @@ deeply immutable admitted batch and persist, stream, and return that same value,
 not a caller-owned object or a re-diffed candidate document. Mutation-bearing
 durable readers reassert the same final schema contract before replay.
 `app_changes` has its own exact envelope admission: the closed kind set is
-`autosave | mcp | chat | blueprint-migration | fold-baseline | project-move`.
-The first four carry a nonempty admitted mutation batch and null Project-move
-columns; `fold-baseline` carries exactly `[]`, null Project-move columns, and
+`autosave | mcp | chat | publish-placement | blueprint-migration | fold-baseline | project-move`.
+The first five carry a nonempty admitted mutation batch and null Project-move
+columns; `publish-placement` is written only by a publish, at the head it
+emitted and before anything reaches CommCare HQ, and holds only placement
+holds; `fold-baseline` carries exactly `[]`, null Project-move columns, and
 one matching immutable baseline; `project-move` carries `[]` or the nonempty
 media-remap batch and requires nonblank distinct source/destination Project
 identities. This is mutation and app-change admission, not a second historical
 parser or a post-write normalizer.
 
 The browser collaboration frame is intentionally narrower: it accepts only
-`autosave | mcp | chat`. If a suffix contains `blueprint-migration`,
+`autosave | mcp | chat | publish-placement`, which open tabs fold without a
+reload, keeping their undo history. If a suffix contains `blueprint-migration`,
 `fold-baseline`, or `project-move`, the server first validates that complete
 durable suffix, then the client reauthorizes and reloads the current app
 snapshot before it may consume any earlier ordinary frames from that suffix.
@@ -249,11 +252,13 @@ These decisions are closed unless the project owner explicitly reopens them.
   `(caseType, property)` pairs for the CommCare case-data contract and explicit
   CommCare/session field names. They are final domain vocabulary, not
   compatibility aliases for a hidden Nova UUID.
-- A field's immutable `uuid`, local question/path `id`, and optional case-data
-  binding are three different facts. An eligible field writes case data only
-  through `caseWrite: { caseType, property }`; changing `id` changes the
-  friendly form path only, and changing `caseWrite` retargets only that writer.
-  Neither gesture implies an app-wide case-property rename.
+- A field's immutable `uuid` and local question/path `id` are two different
+  facts, and what it saves to a case is held outside it. A form writes case
+  data only through its case operations, and the form's own case is one of
+  them; a field's "Saves to" is the view of the writes that read its answer.
+  Changing a field's `id` changes the friendly form path only, and changing
+  "Saves to" retargets only those writes. Neither gesture implies an app-wide
+  case-property rename.
 - An app-wide case-property rename is one explicit semantic operation over
   `(caseType, property)` identities. It rewrites every typed carrier and saved
   row simultaneously under a lossless partial bijection; it never infers intent
@@ -345,6 +350,15 @@ These decisions are closed unless the project owner explicitly reopens them.
   Project data is pushed: it stops that publish at `upload`, before the app's
   content is sent, and the next publish's preflight asks about it. A change of
   the Web App setting during the push stops that publish the same way.
+- A case change's placement (a Case Management action, an advanced menu's case
+  action and its tag, or a Save to Case block path), a query repeat's placement
+  and a menu's advanced kind are held from the publish that first carries them,
+  because they are where CommCare HQ keeps published answers. Only a publish or
+  a migration records or replaces a hold that can still express what it holds;
+  an edit the hold cannot express moves it, as an identity edit every editor
+  states before it saves, and undoing that edit puts it back where the publish
+  recorded it. A menu CommCare HQ holds as advanced stays advanced while it can
+  be one.
 - Phases are idempotent and independently retryable. Retrying a table or location
   push must not require importing a duplicate app.
 - `uploaded`, `built`, `released`, and `runnable` are distinct states. Entry-point
@@ -368,24 +382,11 @@ These decisions are closed unless the project owner explicitly reopens them.
   defaulting to one tile per row and content-sized rows. Because they are absent,
   Nova's tile renderer pins those two runtime defaults explicitly rather than
   leaving them implied.
-- **Case attachment display is link-first.** URL-property mode is the default
-  and the normal path; a `link` column is what makes the saved address
-  openable. The deprecated `MM_CASE_PROPERTIES` attachment mode is an explicit
-  opt-in the author picks per field, never a default, and it only does anything
-  on a domain carrying HQ's toggle — on a stock domain
-  `update_strategy.py::_apply_attachments_action` returns before doing anything,
-  so the block parses and is then silently dropped.
-  The authored mode remains available without presenting HQ configuration to
-  the author, while Nova derives the semantic **Attachments saved to cases**
-  requirement and blocks a concrete publish target that cannot run it. The
-  private toggle name stays confined to the CommCare boundary (`lib/commcare`):
-  its emission, the project-space probe and the surface manifest. What the
-  mode does foreclose is reading the property back — it holds no scalar at
-  all, which
-  `lib/domain/attachmentSlots.ts::casePropertyIsAttachmentSlot` is the single
-  predicate for, and the case-list gate refuses a column over one rather than
-  shipping a column that renders blank on every case. Inline picture
-  presentation is not promised until the Web Apps HTTPS-resource path works.
+- **A captured file reaches a case only as a link.** A write's `capture-link`
+  value is the CommCare HQ address of the submitted file, and a `link` column
+  makes it openable. Nova writes no case attachment, so no case property is an
+  attachment slot. Inline picture presentation is not promised until the Web
+  Apps HTTPS-resource path works.
 - **Smart links belong to data registries, which are retiring, so they never
   ship.** No unused emission helper lands as speculative machinery.
 - **SVG images never ship.** HQ types an SVG as an image and cannot store it
@@ -660,9 +661,9 @@ No interval leaves an accepted lookup dependency unprotected.
 - Retype is a real schema transition. It succeeds only when the current
   conversion/parking/data-review model can complete atomically; otherwise the
   operation rejects without partial writes.
-- The preview store exposes one atomic submission envelope containing ordinary
-  form behavior plus advanced operations. It is not a mutually exclusive fifth
-  submission variant.
+- The preview store exposes one atomic submission envelope holding the form's
+  case operations in their array order, its own case's change first. It is not
+  a mutually exclusive fifth submission variant.
 
 ### Locations and restore scope
 

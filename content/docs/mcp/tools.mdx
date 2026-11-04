@@ -42,14 +42,17 @@ the candidate overview and its diagnostics.
 | `begin_work` | Start private work with `app_id` or `new_app: { name, project_id? }`. Omit the new app's Project to use your personal Project. |
 | `list_work` | Find your retained MCP work, optionally filtering by `app_id` or `project_id`, with `limit` and `offset` for paging. |
 | `get_work` | Read candidate state with `work_id`, including its revision, diagnostics, pending changes and whether the saved app has changed underneath it. |
-| `save_work` | Save the complete candidate with `work_id`, `request_id` and `expected_revision` copied from the latest candidate result. The first save creates the new app; later saves commit one valid batch. |
+| `save_work` | Save the complete candidate with `work_id`, `request_id` and `expected_revision` copied from the latest candidate result. The first save creates the new app; later saves commit one valid batch. Its result repeats the `identityMoves` of every change it saves. |
 | `discard_work` | Discard pending changes with `work_id`, `request_id` and `expected_revision`. The work ID remains available; the next edit starts from current saved state. This does not undo an earlier save or an external service effect. |
 
 Candidate results expose `revision`, an opaque token, and `diagnostics`.
 With no pending candidate, `revision` is null. Reading work does not create a
 candidate; the next edit does.
 Staged mutation results say `saved: false`; accepting an edit does not save the
-app. Reuse a request ID only to retry the same request after a lost response.
+app. A result lists `identityMoves`, each move a change makes in where CommCare
+HQ keeps published answers, and `save_work` repeats them. Each move carries a
+`sentence` to pass on to the user; no tool asks a confirmation for one.
+Reuse a request ID only to retry the same request after a lost response.
 Changing its input requires a new ID.
 
 Save checks both the complete candidate and its exact saved-app base. If another
@@ -149,8 +152,8 @@ several do. A form expression can read a data table by its export tag, as
 `instance('<tag>')/<tag>_list/<tag>[<column> = <value>]/<column>`;
 `get_lookup_tables` lists each table's tag and its columns' export names, and
 renaming the tag or a column keeps the read. In a form link's condition and
-datums, these reads print `instance('item-list:<tag>')`. A form in a
-search-first module reads what the search found through
+datums, these reads print `instance('item-list:<tag>')`. A form in a menu
+whose forms read the search (`formsReadSearch`) reads what the search found through
 `instance('results:inline')/results/case`, always behind the related-case
 exclusion, for example
 `count(instance('results:inline')/results/case[not(commcare_is_related_case = true())])`;
@@ -408,10 +411,13 @@ The result returns `project_space_compatibility` with:
 
 Capability ids include `multi-select-case-lists` (choosing several cases at
 once), `related-case-search` (a search across related cases) and `case-tiles`
-(a case list laid out as tiles), beside the earlier ones. Case search also asks
-for the project space's advanced case search when a search opens before the
-case list, takes one date, starts with a suggested value, carries a hidden
-value, or matches a field by a rule Nova writes.
+(a case list laid out as tiles), `save-only-edited-answers` (a form that saves
+an answer to a case only when the worker changed it) and `same-type-child-links`
+(the link from a new case to the case of the same type it was made from),
+beside the earlier ones. Case search also asks for the project space's advanced
+case search when a menu's forms read the search, or when a search takes one
+date, starts with a suggested value, carries a hidden value, or matches a field
+by a rule Nova writes.
 
 Beside `project_space_compatibility`, the result lists what an upload there
 will ask the user to confirm, because no API key reads it:
@@ -426,6 +432,15 @@ will ask the user to confirm, because no API key reads it:
 - `connect_forwarder`: for a CommCare Connect app, whether the project space has
   a forwarder that sends its forms to Connect, in the same shape; `null`
   otherwise
+- `form_entry_sync_off`: for an app that runs on Android and works on cases
+  chosen in a menu with Search, whether Sync Cases On Form Entry is off, in the
+  same shape; `null` otherwise
+- `commtrack_off`: whether the project space's CommCare Supply setting needs
+  confirming as off, in the same shape; `null` otherwise
+- `placement_moves`: where the app needs Save to Case and that still needs
+  confirming, the case changes Nova can move so the app doesn't need it, as
+  `{ reason, digest, moves: [{ form, change, sentence }] }`; `null` otherwise.
+  `upload_app_to_hq` takes the same offer back through `accept_placement_moves`
 
 Relay each with its reasons before the upload, and ask the user; never answer
 for them.
@@ -819,11 +834,11 @@ the same cases, use case-list filters and design the menu structure deliberately
 
 | Tool | What it does |
 |---|---|
-| `create_module` | Add one module to the private candidate. Omit `parentModuleUuid` for top-level, or name an existing top-level parent for a child. `case_type` declares a new record type when needed; record modules start with a Name column. The result returns its module and initial column identities. Add forms, selection and list refinements through their focused tools. |
-| `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none; the result returns those born column UUIDs), set the case type before adding registration, follow-up, or close forms to a module created without one. Also sets its `displayCondition` and `hiddenFromMenu`: `true` takes the module and every form in it off the menu, `null` puts it back. A module that is off the menu can be no after-submit link's target and takes no entry point or case list entry point. |
+| `create_module` | Add one module to the private candidate. Omit `parentModuleUuid` for top-level, or name an existing top-level parent for a child. `case_type` declares a new record type when needed; record modules start with a Name column. `case_list_menu_item: { label? }` shows the case list as its own item in this menu, so workers can look up a case without opening a form; it needs `case_type`, and a module created without forms needs it. A label left out or `null` uses the module's name. The result returns its module and initial column identities. Add forms, selection and list refinements through their focused tools. |
+| `update_module` | Rename a module and/or set its case type, addressed by `moduleUuid` (with starter case-list columns when the module has none; the result returns those born column UUIDs), set the case type before adding registration, follow-up, or close forms to a module created without one. Also sets its `displayCondition` and `hiddenFromMenu`: `true` takes the module and every form in it off the menu, `null` puts it back. A module that is off the menu can be no after-submit link's target and takes no entry point or case list entry point. `case_list_menu_item: { label? }` shows the case list as its own item in this menu, beside its forms or alone, and needs a case type; `null` removes it, which a menu with no forms refuses, and leaving it out keeps it. |
 | `remove_module` | Delete a module by `moduleUuid`. A parent must have no child modules before it can be removed. |
 | `move_module` | Reorder or reparent a module without changing its identity. `after` is always required and names a sibling in the destination menu, or is `null` for first. Omit `parentModuleUuid` to reorder within the current menu, pass `null` to make the module top-level, or pass a top-level module UUID to place it inside that menu. |
-| `get_module` | Read one module by `moduleUuid`, including its `parent_module_uuid`, ordered `child_module_uuids`, form and field UUIDs, structured case-list config, display condition, `hidden_from_menu` (for the module and for each form), and current icon and audio label. |
+| `get_module` | Read one module by `moduleUuid`, including its `parent_module_uuid`, ordered `child_module_uuids`, form and field UUIDs, structured case-list config, display condition, `hidden_from_menu` (for the module and for each form), and current icon and audio label. It also reads `searchWorkflow` and `formsReadSearch`, `caseListMenuItem` (`{ label }` or `null`), `caseListRegistrationForm` (`{ formUuid, label }` or `null`), `opensFromCaseList` on each form, and `advanced` (`{ kept }`, where CommCare HQ holds the menu as advanced and whether a published app keeps it so, or `null`). |
 
 ## Working on the case list
 
@@ -831,7 +846,7 @@ A module's case list is the screen that lists existing cases and the search bar 
 
 | Tool | What it does |
 |---|---|
-| `configure_case_list` | Configure a known case-list refinement in one call: add columns and search inputs, set or clear the filter, compose the search-screen display, open the module on Search with `searchFirst`, and arrange Results, Details, and search-input order. Omitted parts stay unchanged; the result returns created UUIDs. |
+| `configure_case_list` | Configure a known case-list refinement in one call: add columns and search inputs, set or clear the filter, compose the search-screen display, set what the menu opens on with `searchWorkflow` and whether its forms read the search with `formsReadSearch` (both as `set_case_search_advanced` takes them), and arrange Results, Details, and search-input order. Omitted parts stay unchanged; the result returns created UUIDs. |
 | `add_case_list_columns` | Add one or more columns to the case list (plain / date / phone / id-mapping / image-map / interval / link / calculated). Each may predeclare `columnUuid`; the result returns the final UUIDs. |
 | `update_case_list_column` | Replace a column's body, addressed by `moduleUuid` and `columnUuid`. |
 | `remove_case_list_column` | Remove one column by `moduleUuid` and `columnUuid`. |
@@ -841,7 +856,7 @@ A module's case list is the screen that lists existing cases and the search bar 
 | `update_search_input` | Replace a search input's body, addressed by `moduleUuid` and `searchInputUuid`. Accepts the same shapes as `add_search_inputs`. |
 | `remove_search_input` | Remove one search input by `moduleUuid` and `searchInputUuid`. |
 | `reorder_search_inputs` | Reorder search inputs by passing their complete `searchInputUuids` sequence. |
-| `configure_case_selection` | Pass `selection: { kind: "multiple", maximum: N }` to let workers choose several cases, where `N` is 1 through 100. Pass `selection: null` to return to opening one case at a time. A several-case module needs a follow-up or close form that can consume the batch. Questions saved to the selected case start without one case's value; each nonblank answer is saved to every selected case, while blank preserves their existing values. A capture destination updates only when the runtime submission provides a file; according to its configured mode, each case stores either that attachment or its published link. Preview creates neither. `applied` and `unchanged` are complete outcomes. `needs_changes` applies no mutations. For `needs: "confirmation"`, review the returned effects, then repeat the same request with `confirmedModuleUuids` exactly equal to `requiredConfirmedModuleUuids` and `confirmationToken` copied unchanged from that same result. The token binds the approval to the requested source selection and every reviewed module effect. If that effect changed, no mutation is applied and the result supplies the current review and a new token. For `needs: "repair"`, fix the UUID-owned blockers before retrying. For `needs: "refresh"`, call again without either confirmation field to review the current effects. `unavailable` also applies nothing and returns the reason the request cannot run against the current app. |
+| `configure_case_selection` | Pass `selection: { kind: "multiple", maximum: N }` to let workers choose several cases, where `N` is 1 through 100. Pass `selection: null` to return to opening one case at a time. A several-case module needs a follow-up or close form that can consume the batch. Questions saved to the selected case start without one case's value; each nonblank answer is saved to every selected case, while blank preserves their existing values. A capture destination updates only when the runtime submission provides a file, and each case then stores the link to that file. Preview creates none. `applied` and `unchanged` are complete outcomes. `needs_changes` applies no mutations. For `needs: "confirmation"`, review the returned effects, then repeat the same request with `confirmedModuleUuids` exactly equal to `requiredConfirmedModuleUuids` and `confirmationToken` copied unchanged from that same result. The token binds the approval to the requested source selection and every reviewed module effect. If that effect changed, no mutation is applied and the result supplies the current review and a new token. For `needs: "repair"`, fix the UUID-owned blockers before retrying. For `needs: "refresh"`, call again without either confirmation field to review the current effects. `unavailable` also applies nothing and returns the reason the request cannot run against the current app. |
 | `set_case_list_tile` | Lay the case list out as a tile — a 12 x 12 grid where each field shown in Results occupies a rectangle — and place its fields on that grid. `tile` turns the layout on or off (`null` turns it off and keeps every placement), `placements` moves fields, and both may ride one call. While the tile is on, every field shown in Results needs a place and no two fields may share a square, so the whole layout lands in one call. |
 
 A column's `sort` is one order rule; the rule with the lowest `priority` decides
@@ -900,12 +915,12 @@ page holds whole groups and however many cases they carry.
 
 ## Working on case search
 
-Case search is the search experience that surrounds the case list: the screen title and helper text the user sees, plus a few niche search-side filters most authors never reach for. The search button always reads "Search All Cases", in every language, so it has no setting. These tools set those slots; the search inputs themselves live on the case list above. Each setting is independent: pass `null` on any slot to clear it.
+Case search is the search experience that surrounds the case list: the screen title and helper text the user sees, what the menu opens on, whether its forms read the search, and a niche owner filter most authors never reach for. The search button always reads "Search All Cases", in every language, so it has no setting. These tools set those slots; the search inputs themselves live on the case list above. Each tool sets its whole cluster: pass `null` on a slot that can be cleared to clear it.
 
 | Tool | What it does |
 |---|---|
 | `set_case_search_display` | Set the search-screen title, subtitle, and the predicate that decides when to show the search button. |
-| `set_case_search_advanced` | Set the advanced cluster: an expression naming owner ids whose cases are excluded from search results, and `searchFirst`, which opens the module on its Search screen with no browse list. |
+| `set_case_search_advanced` | Set the excluded-owner rule, what the menu opens on, and whether its forms read the search, all three in one call. `excludedOwnerIds` is an expression naming owner ids whose cases are left out of Results, or `null`. `searchWorkflow` is required: `searchFirst` opens on Search in Web Apps, with Results showing what the search finds; `skipToResults` opens on the cases the search finds with the Search fields' starting values, which workers can search again to narrow, in Web Apps; `listFirst` opens on the case list with Search from it, and only an app that runs only on Android can use it. Android opens a menu that searches on its case list under every choice. `formsReadSearch: true` runs the search again as each form in the menu opens, so the forms can read `#search/<name>` and what the search found, and a case the worker found is claimed when a form is chosen; it needs `searchFirst` or `skipToResults` in a menu whose forms all work on an existing case, or a case list with no forms, it refuses a Search button display condition and `previous` after submit, and it runs only in Web Apps. `null` turns it off. |
 
 ## Working with deep links
 
@@ -928,8 +943,8 @@ point.
 
 Requirements derive from the destination's current case selections. Preserve
 all required parent selections and the order and maximum for multiple cases.
-Search-first case-list destinations and no-matches registration forms are
-unavailable; the tool names unsupported configurations. Do not invent session
+Case-list destinations that open on Search, and a menu's registration from the
+case list, are unavailable; the tool names unsupported configurations. Do not invent session
 variables or form-value overrides. [Preview testing](../deep-links.mdx) uses
 real Nova cases and does not execute HQ claims.
 
@@ -939,48 +954,63 @@ CommCare has four form types: `registration` creates a new case, `followup` upda
 
 | Tool | What it does |
 |---|---|
-| `create_form` | Add one empty form to `moduleUuid` and return its identity. Add questions with `add_fields`, then configure answer-dependent naming or closing rules with `update_form`. `entry: { kind: "search-no-matches" }` makes a registration form the one Results offers after a search finds nothing. To reuse Search answers, add fields with defaults that read `#search/<prompt name>`. |
-| `update_form` | Rename, set or clear `recordName` after its questions exist, refine one participant's CommCare Connect config after a mode exists, set close condition/post-submit destination, set its `displayCondition` and `hiddenFromMenu` (`true` takes the form off the menu, `null` puts it back), or set (or clear with `null`) the `entry` that offers a registration form after an empty search, addressed by `moduleUuid` and `formUuid`. |
+| `create_form` | Add one empty form to `moduleUuid` and return its identity. Add questions with `add_fields`, then set its naming rule and its open and close conditions with `update_form`. `case_list_registration: { label? }` makes a registration form its menu's registration from the case list: the results offer it after a search finds nothing, and it is on no menu. It turns on `formsReadSearch` for the menu, so the form's fields can read `#search/<name>`; after submit it returns to the results, or to the first menu when `post_submit` is `firstMenu`, which a menu choosing several cases requires. It takes no after-submit destinations, otherwise, display condition or `hiddenFromMenu`. A label left out or `null` uses the form name. |
+| `update_form` | Edit a form's name, purpose, `recordName` (after its questions exist), open and close conditions, CommCare Connect settings (one participant's block, after a mode exists), after-submit navigation, `displayCondition` and `hiddenFromMenu` (`true` takes the form off the menu, `null` puts it back), or whether it is its menu's registration from the case list, addressed by `moduleUuid` and `formUuid`. `open_condition` is for a registration: the case is created only when it holds, and `null` creates it on every submission. `close_condition` is for a registration or a close form: on a registration the case it creates also closes when it holds, `true()` closes it on every submission and `null` keeps it open; on a close form the case closes only when it holds, and `null` closes it on every submission. Both are form logic that reads answers as any form expression does, such as `#form/outcome = 'complete'`, and leaving one out keeps it. `case_list_registration` takes the same shape as on `create_form`; `null` makes the form a menu form again, turns `formsReadSearch` off and removes Search-based starting values. |
 | `remove_form` | Delete a form by `moduleUuid` and `formUuid`. |
-| `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, case operations with authored conditions and values, and its after-submit links in the order they are checked (each link's `uuid` is the `linkUuid` the link tools take). |
+| `get_form` | Read one form by `moduleUuid` and `formUuid`, including its field UUIDs, case operations with authored conditions and values, its `openCondition` and `closeCondition` as authored text, its after-submit `destinations` in the order they run (each one's `uuid` is the `linkUuid` the link tools take), and its `otherwise`: `{ kind: "destination", destination }` or `{ kind: "link", linkUuid, target, datums? }`. |
 
 ### Where a form goes after submit
 
-A form's `post_submit` says where people go once it is submitted: `app_home`,
-`firstMenu` (the app's first menu, which lists its modules; in Web Apps the same
-screen as `app_home`), `module`, `parentMenu` (the parent module, with its
-selection kept) or `previous`. Omitted, a registration or survey goes to
-`app_home`, and a followup or close form to the first its module offers of
-`previous`, `module`, `firstMenu`. A module offers `previous` unless it or its
-parent selects several cases, it opens on Search, or it is off the menu;
-`module` unless its parent selects several cases or it is off the menu; and
-`parentMenu` when its parent neither selects several cases nor is off the menu.
-A destination the module does not offer is refused, and a change to a module
-moves its forms' destinations to the nearest one it still offers. A no-matches
-registration form returns to Results unless `post_submit` is `firstMenu`. When the
-destination depends on data, give the form after-submit links: they are checked
-in order after the form closes and the first true condition is followed. An
-unconditional link is the otherwise and can only be last; with conditional links
-and no otherwise link, `post_submit` is where people go when nothing matches,
-and Commcare Nova stores it explicitly if it was not set. A link's condition and
-datums run after the form has closed, so they read the module's case, worker
-and session values, data tables and places, and in a search-first module what
-the search found, never the form's answers; you can save an answer to a case
-property first and read it there. A link that names `datums` must name every selection datum the
-target needs. Each link has an immutable identity: `get_form` returns it as the
-link's `uuid`, and the link tools take that value as `linkUuid`. A link may not
-target a module that is off the menu. When a target form's display condition is
-false for a worker, Android still opens it after submit, and Web Apps opens the
-module that holds it instead; when a target module's display condition is false
-for a worker, Android opens it with nothing in it, and Web Apps opens the app's
-first screen instead.
+A form's `post_submit` says where people go once it is submitted, for a form
+with no after-submit destinations: `app_home`, `firstMenu` (the app's first
+menu, which lists its modules; in Web Apps the same screen as `app_home`),
+`module`, `parentMenu` (the parent module, with its selection kept) or
+`previous`. Omitted, a registration or survey goes to `app_home`, and a followup
+or close form to the first its module offers of `previous`, `module`,
+`firstMenu`. A module offers `previous` unless it or its parent selects several
+cases, its forms read the search, or it is off the menu; `module` unless its
+parent selects several cases or it is off the menu; and `parentMenu` when its
+parent neither selects several cases nor is off the menu. A destination the
+module does not offer is refused, and a change to a module moves its forms'
+destinations to the nearest one it still offers. A form that is its menu's
+registration from the case list returns to the results unless `post_submit` is
+`firstMenu`.
+
+When where people go depends on data, give the form after-submit destinations.
+Every destination whose condition holds runs, in the order you set: the first
+opens after the form, and on Android each next one opens when the worker
+finishes the one before. In Web Apps only the first that holds opens. A
+destination with no condition runs every time. `set_form_otherwise` says where
+people go when no destination with a condition or a carried case runs, and that
+otherwise opens before any destination that runs every time. With no otherwise,
+the app goes home when no destination runs. A form with destinations takes no
+`post_submit`.
+
+A destination's target is a form (`{ "type": "form", moduleUuid, formUuid }`),
+a module's list (`{ "type": "module", moduleUuid }`), or `{ "type": "this-form" }`,
+which starts this form again. A submenu is a target only from a submenu whose
+parent has the same case type as its parent, and a module that is off the menu
+is no target. A destination's condition and datums run after the form has
+closed, so they read the module's case, worker and session values, data tables
+and places, and in a menu whose forms read the search what the search found,
+never the form's answers; you can save an answer to a case property first and
+read it there. A destination that names `datums` must name every selection
+datum the target needs, and it runs only when the worker's device holds a case
+of that type with each carried id. Each destination has an immutable identity:
+`get_form` returns it as the destination's `uuid`, and the link tools take that
+value as `linkUuid`. When a target form's display condition is false for a
+worker, Android still opens it after submit, and Web Apps opens the module that
+holds it instead; when a target module's display condition is false for a
+worker, Android opens it with nothing in it, and Web Apps opens the app's first
+screen instead.
 
 | Tool | What it does |
 |---|---|
-| `add_form_links` | Add one or more complete links to `moduleUuid` and `formUuid`, in the order they are checked. Predeclare `linkUuid` only when you need the handle before reading it back; `afterLinkUuid` is the existing anchor (`null` puts the block first, omission lets Commcare Nova place it). |
-| `update_form_link` | Replace one link's complete shape by `linkUuid`. Only changed slots are written; removing the condition makes it the otherwise link, which must already be last. |
-| `move_form_link` | Move `linkUuid` after `afterLinkUuid`, or pass `null` to check it first. Refuses an order that puts a conditional link after the otherwise link, or the otherwise link anywhere but last. |
-| `remove_form_link` | Remove one link by `linkUuid`. Removing the otherwise link while conditional links remain stores `post_submit` explicitly as the fallback. |
+| `add_form_links` | Add one or more complete destinations to `moduleUuid` and `formUuid`, in the order they run. Predeclare `linkUuid` only when you need the handle before reading it back; `afterLinkUuid` names the existing destination the new ones follow (`null` puts them first, omission adds them at the end). |
+| `update_form_link` | Replace one destination's complete shape by `linkUuid`, keeping its place in the order. Only changed slots are written. |
+| `move_form_link` | Move `linkUuid` after `afterLinkUuid`, or pass `null` to put it first. Destinations run in this order, and any order is admitted. |
+| `remove_form_link` | Remove one destination by `linkUuid`. Removing the last one makes the form's otherwise its after-submit destination; removing the last one with a condition or a carried case removes the otherwise. |
+| `set_form_otherwise` | Set where people go after this form when none of its destinations with a condition or a carried case runs: `{ kind: "destination", destination }` with `firstMenu`, `module`, `parentMenu` or `previous` where the module offers it, or `{ kind: "link", target, datums?, linkUuid? }` with a target like a destination's. `null` goes to the app home. It is offered only while some destination might not run, because it has a condition or carries values. |
 
 ## Working with Project data
 
@@ -1047,7 +1077,7 @@ child or sibling repeating section.
 
 ## Changing cases on submission
 
-Most forms save their answers onto their primary case through their fields. Case operations cover additional ordered effects: create another case, update or close a known case, connect cases, rename or retype one, assign an owner, or repeat an effect for every row in a repeating section.
+Most forms save their answers onto their own case through their fields. A form's case changes run in order, and this form's own case is always the first: it comes with the form's type, which creates, updates or closes it. Save answers to it with a question's `caseWrite`, or edit it with `update_case_operation` and the `own` arm. It is never added, removed or moved. The other case changes cover additional ordered effects: create another case, update or close a known case or the worker's own record, connect cases, rename or retype one, assign an owner, or repeat an effect for every row in a repeating section.
 
 Each tool names the form by `moduleUuid` and `formUuid`, both returned by read
 tools. An operation has an immutable `operationUuid` and a separate editable
@@ -1086,11 +1116,17 @@ registration plus a second create.
 
 | Tool | What it does |
 |---|---|
-| `get_case_operations` | List every operation in execution order with `operationUuid`, readable metadata, and authored conditions and values. |
-| `add_case_operations` | Add one or more complete create, update, or close operations. Predeclare `operationUuid` for same-call references; `afterOperationUuid` is the existing anchor (`null` means first, omission appends). |
-| `update_case_operation` | Edit one operation's complete author shape by `operationUuid`. Only changed identity-keyed slots are written, so unrelated concurrent edits compose. |
-| `move_case_operation` | Move `operationUuid` after `afterOperationUuid`, or pass `null` to make it first. Refuses dependency-breaking or non-portable order. |
-| `remove_case_operation` | Remove one operation by `operationUuid`. Refuses while another operation still depends on it and names the dependents. |
+The `own` arm, which only `update_case_operation` takes, is `{ action: "own", name?, owner?, writes?, links? }`. Its case type is the menu's, its open and close conditions are `update_form`'s, and `name` is required on a registration. On a follow-up or close form, each of its `writes` can carry `via`, one link identifier per step such as `[{ "identifier": "parent" }]`, to save to a case above this form's case instead, and `onlyIfChanged: true`, to save only when the worker changed the answer from the case's value. `onlyIfChanged` is refused where CommCare HQ keeps this form's case change in a Save to Case block. The other arms take neither. An update can target the worker's own record with `target: { kind: "worker-record" }`, for an update of `commcare-user` only; it takes no condition, links, owner, rename, retype or `forEach`.
+
+`get_case_operations` gives each change its `placement`, where CommCare HQ keeps it: `case management` (the form's Case Management settings), `case actions` (an advanced menu's case actions) or `save to case` (a Save to Case block in the form), with `placementKept: true` where a published app keeps it there. A form whose own close has a block of its own also carries `ownClose`, in the same shape.
+
+| Tool | What it does |
+|---|---|
+| `get_case_operations` | Read a form's case changes in the order they run, this form's own case first, each with its `operationUuid`, readable metadata, authored conditions and values, and its `placement`. |
+| `add_case_operations` | Add one or more complete create, update, or close changes, in the order they run after this form's own case. Never add a create for this form's own case. Predeclare `operationUuid` for same-call references; `afterOperationUuid` is the existing anchor, the own case's included; `null` means first, which only a form with no own case, such as a survey, accepts, and omission appends. |
+| `update_case_operation` | Replace one case change by `operationUuid`, keeping its identity, including this form's own case through the `own` arm. Read it with `get_case_operations` first. Only changed identity-keyed slots are written, so unrelated concurrent edits compose. |
+| `move_case_operation` | Move `operationUuid` after `afterOperationUuid`, or pass `null` to make it first. This form's own case stays first, so it never moves and `null` is refused where the form has one, and a change stays after every change it depends on. |
+| `remove_case_operation` | Remove one case change by `operationUuid`. Refuses this form's own case, and refuses while another change still depends on it and names the dependents. |
 
 ## Working on fields (questions)
 
@@ -1098,12 +1134,12 @@ A field is a single question on a form: text input, dropdown, date, number, repe
 
 | Tool | What it does |
 |---|---|
-| `add_fields` | Insert one or more fields in one call and receive every field and inline-choice UUID in input/source order. Address the form by `moduleUuid` and `formUuid`; use names for same-call field references and `parentUuid` for nesting, and use `beforeFieldUuid` / `afterFieldUuid` for placement. |
-| `edit_field` | Change a field by `moduleUuid`, `formUuid`, and `fieldUuid`: label, validation, visibility, choices, or case wiring. It also converts a field's kind in place where the data is compatible, text to dropdown (pass the choices in the same call), text to hidden (pass the calculate), text to barcode, keeping identity and references, and returns the final inline-choice UUIDs when it replaces or creates them. For these string-compatible conversions the collected case data stays valid as-is. Converting a case-bound field is property-wide: the one call also converts the property's other writers in other forms and updates its declared type, so every form stays in agreement. Switching between single- and multi-select changes the shape of stored values and does not migrate existing case data. |
+| `add_fields` | Insert one or more fields in one call and receive every field and inline-choice UUID in input/source order. Address the form by `moduleUuid` and `formUuid`; use names for same-call field references and `parentUuid` for nesting, and use `beforeFieldUuid` / `afterFieldUuid` for placement. A group takes `field_list`: `true` shows its questions together on one screen on Android, `false` one per screen, and Web Apps shows the whole form on one page either way; a new group with a label starts at `true` unless it holds a repeat whose rows the worker adds, so leave it out to take that. `plain_label: true` shows a label exactly as typed, so `*`, `#`, numbered lines and links stay as written instead of formatting as Markdown; a choice takes its own `plain_label`, which Android reads and Web Apps doesn't. A count-bound repeat, `repeat: { mode: "count_bound", count }`, needs a whole-number count: an integer question, a single choice whose values are whole numbers, a hidden value whose calculation is a whole number, or an expression wrapped in `int(...)`. |
+| `edit_field` | Change a field by `moduleUuid`, `formUuid`, and `fieldUuid`: label, validation, visibility, choices, or case wiring. It also converts a field's kind in place where the data is compatible, text to dropdown (pass the choices in the same call), text to hidden (pass the calculate), text to barcode, keeping identity and references, and returns the final inline-choice UUIDs when it replaces or creates them. It sets `field_list` and `plain_label` as `add_fields` does, where `null` is `false`. For these string-compatible conversions the collected case data stays valid as-is. Converting a case-bound field is property-wide: the one call also converts the property's other writers in other forms and updates its declared type, so every form stays in agreement. Switching between single- and multi-select changes the shape of stored values and does not migrate existing case data. |
 | `move_field` | Reposition `fieldUuid` with `beforeFieldUuid` / `afterFieldUuid`, or append under `parentUuid` (`null` means the form root; a group, repeat, or section otherwise), keeping every reference intact. |
 | `set_form_sections` | Split a form into sections (pages), re-page it, or return it to a single page, in one call. Pass the complete list of pages, first page first, each naming its top-level questions in order: keep a section by `sectionUuid`, leave it out to create one, and leave a current section out to remove it once its questions have moved. An empty list removes every section. |
 | `remove_field` | Delete a field by `moduleUuid`, `formUuid`, and `fieldUuid`. |
-| `get_field` | Read one field by `moduleUuid`, `formUuid`, and `fieldUuid`. |
+| `get_field` | Read one field by `moduleUuid`, `formUuid`, and `fieldUuid`, including `caseWrites`, every place its answer is saved; `field_list` and `plain_label` where set, in the names an edit takes; and, on a query repeat, `rows` (`set-when-opened` or `follow-query`) with `rowsKept: true` where a published app keeps that choice. |
 | `search_blueprint` | Search across the whole app for a field id, case property, label, case type, XPath fragment, or module/form name. Returns at most 50 matches. When there are more, the result says how many and your agent should search something more specific. |
 | `rename_case_properties` | Rename one or more case properties everywhere in the app as one simultaneous, lossless change. |
 | `get_case_property` | Read one record property's type, wording and choices by `caseType` and `property`. |
@@ -1113,7 +1149,8 @@ A `section` is a field kind of its own: a page of the form. On a phone each sect
 
 ### Saving a field answer to a case
 
-Every case-writing field carries one complete `caseWrite` destination. The
+A field's `caseWrite` names one write to `{caseType, property}`; `get_field`
+returns `caseWrites`, every write whose value is the field's answer. The
 field's `id` remains its friendly form-local name, including in human XPath
 such as `#form/first_name`; it does not need to match the saved property:
 
@@ -1136,33 +1173,32 @@ such as `#form/first_name`; it does not need to match the saved property:
 }
 ```
 
+The module's case type saves the answer to this form's case; a declared child
+type saves it to a new child case, which needs a question saving its
+`case_name`; `commcare-user` saves it to the worker's own record. On a
+follow-up or close form, `via` saves to a case above this form's case instead,
+one link identifier per step such as `[{ "identifier": "parent" }]`, and
+`caseType` is then the type it reaches; `onlyIfChanged: true` saves only when the
+worker changed the answer from the case's value, and is refused where CommCare
+HQ keeps that change in a Save to Case block. On a follow-up or close form that
+opens one case, a question saving to this form's case is given a `default_value`
+reading that case's value, which you can replace or remove.
+
 `add_fields` owns question creation; modules and forms are created separately. On
 creation, omit `caseWrite` or pass `null` for a field that should not save to a
-case. In `edit_field.updates`, pass a complete pair to retarget the writer,
-pass `null` to stop writing a case property, or leave `caseWrite` out to keep
-it. Changing `id` never renames saved case data.
+case. In `edit_field.updates`, a value replaces every place the question saves
+to, `null` stops it saving anywhere, and leaving `caseWrite` out keeps it. A
+question that saves to several places refuses a `caseWrite`; change each of
+those writes with `update_case_operation`, or pass `null` first to stop every
+one. Changing `id` never renames saved case data.
 
-An attachment field (`image`, `audio`, `video`, `signature`, `file`) saves to
-a case too, and its `caseWrite` carries one extra member naming what reaches
-the case:
-
-```json
-{
-  "id": "site_photo",
-  "kind": "image",
-  "caseWrite": {
-    "caseType": "patient",
-    "property": "photo_url",
-    "mode": "url"
-  }
-}
-```
-
-`mode` is required on those five kinds and refused on every other kind.
-`"url"` saves a link to the captured file, built from the CommCare project
-space the app is published to; an artifact compiled before the app reaches
-one omits the property and `compile_app` says so in its advisories. An
-attachment may not write `case_name` or `external_id`.
+A capture field (`image`, `audio`, `video`, `signature`, `file`) saves a link
+to its file, with the same `caseWrite` as any other field. In a case change,
+the value `capture-link(#form/<question>)` saves a capture's file as a link.
+The link is built from the CommCare project space the app is published to; an
+artifact compiled before the app reaches one omits the property and
+`compile_app` says so in its advisories. A capture may not write `case_name` or
+`external_id`.
 
 A field can also save to **the worker's own record** instead of a case, by
 passing `caseType: "commcare-user"` and a `property` that is one of the app's
@@ -1353,10 +1389,10 @@ Recipients still authenticate and need the relevant app and case access.
 | `compile_app` | Compile to CommCare HQ format: the CommCare HQ import file (always a zip holding the app JSON, a README with the import steps, and the media files and the `lookup-tables.xlsx` workbook when the app has either), or a `.ccz` archive made for one project space the app is published to. An app that runs in Web Apps only has no `.ccz`. When the app needs destination support, a separate [project-space compatibility](../project-space-compatibility.mdx) block lists it as not checked without blocking the download. |
 | `get_entry_point_link` | Freshly verify a published entry point against the exact released HQ build and return its public URL plus `checked_at`, `released_build_id`, and `released_version`. Reads HQ and records the observation in Nova; requires `nova.hq.write` and edit access. |
 | `get_hq_connection` | Check whether you've added an HQ API key in Commcare Nova settings, and if so, which CommCare server it belongs to (US, India, or EU, separate servers with separate accounts) and which project spaces (domains) it can reach. |
-| `upload_app_to_hq` | Push the app to CommCare HQ. The first upload to a project space creates the app there, empty, then sends its lookup tables and its organization's places, then fills the app in. Uploading again sends the tables and places and then updates that same HQ app in place (`hq_app_action` in the result says which happened, and reads `created` until an upload has filled the app). Pass `domain` to choose the target space when your key reaches several. The tool rechecks [project-space compatibility](../project-space-compatibility.mdx) immediately before remote writes and returns `project_space_compatibility`, the HQ app URL, the deployment state, and the setup steps the project space still needs by hand. After an upload that wrote over the app without knowing it unchanged, `app_preview_note` carries a sentence about App Preview in CommCare HQ to relay to the user; otherwise it is `null`. Every upload sets the app's Web App setting there from where the app runs. If that setting differs on CommCare HQ, the upload returns `hq_web_apps_change` before sending anything, and goes ahead once you pass `confirm_web_apps` with the value it named. A first upload of an app that runs in Web Apps to a project space whose plan lacks Web Apps stops after making the empty app and returns `hq_plan_lacks_web_apps`. Nova then withdraws the confirmation that the project space's plan includes Web Apps, so leave `web-apps` out of `confirm_plan_features` until the user says the plan now includes it. When the app needs Sync Cases On Form Entry turned off, `confirm_form_entry_sync_off` confirms it, as the other confirmations do. A success also returns `logo_step`: the app's logo, which an upload never sends, as `{ asset_id, file_name, changed, instructions }`, or `null` for an app with no logo; relay `instructions` when `changed` is true. An app on CommCare HQ set below CommCare 2.57 returns `hq_app_version_below_floor` with the app's `url`, before anything of the app's content is sent. |
+| `upload_app_to_hq` | Push the app to CommCare HQ. The first upload to a project space creates the app there, empty, then sends its lookup tables and its organization's places, then fills the app in. Uploading again sends the tables and places and then updates that same HQ app in place (`hq_app_action` in the result says which happened, and reads `created` until an upload has filled the app). Pass `domain` to choose the target space when your key reaches several. The tool rechecks [project-space compatibility](../project-space-compatibility.mdx) immediately before remote writes and returns `project_space_compatibility`, the HQ app URL, the deployment state, and the setup steps the project space still needs by hand. After an upload that wrote over the app without knowing it unchanged, `app_preview_note` carries a sentence about App Preview in CommCare HQ to relay to the user; otherwise it is `null`. Every upload sets the app's Web App setting there from where the app runs. If that setting differs on CommCare HQ, the upload returns `hq_web_apps_change` before sending anything, and goes ahead once you pass `confirm_web_apps` with the value it named. A first upload of an app that runs in Web Apps to a project space whose plan lacks Web Apps stops after making the empty app and returns `hq_plan_lacks_web_apps`. Nova then withdraws the confirmation that the project space's plan includes Web Apps, so leave `web-apps` out of `confirm_plan_features` until the user says the plan now includes it. When the app needs Sync Cases On Form Entry turned off, `confirm_form_entry_sync_off` confirms it, and when it needs CommCare Supply turned off, `confirm_commtrack_off` does, as the other confirmations do. The first upload of a case change records where CommCare HQ keeps it, which changes the saved app (`placements.recorded`); work begun with `begin_work` before then has to begin again. Every answer carries `placements: { recorded, moved }`. If a refusal carries `placement_moves`, show the user each move's `sentence`, and send `accept_placement_moves` with its `reason` and `digest` only when the user agrees: the move changes where CommCare HQ keeps those answers in every project space the app is published to. An `hq_confirmation_needed` refusal asking about Save to Case offers to move those changes to Case Management (`reason: "save-to-case"`), and a `project_space_incompatible` refusal over links between cases of the same type offers to move the new cases into Save to Case blocks, which keep that link everywhere, after which the plan needs Save to Case (`reason: "same-type-child-links"`). `hq_placement_moves_changed` means the offer changed since; show the new one. `app_changed_while_publishing` means the app kept changing while Nova prepared the upload, and nothing was sent; upload again once the edits settle. A success also returns `logo_step`: the app's logo, which an upload never sends, as `{ asset_id, file_name, changed, instructions }`, or `null` for an app with no logo; relay `instructions` when `changed` is true. An app on CommCare HQ set below CommCare 2.57 returns `hq_app_version_below_floor` with the app's `url`, before anything of the app's content is sent. |
 | `get_deployment` | Report every project space the app has been published to and how far along each one is: `preflight`, `resources`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`. `hq_app_gone` says CommCare HQ reported the app deleted, so the next upload makes a new one there; `hq_app_empty` says the app there is the empty one a first upload makes before it sends the content, which the next upload fills. `confirmations` lists what the user confirmed about each project space and has not withdrawn, each with its `kind`, `subject`, `label`, `confirmed_by` (a display name) and `confirmed_at`. Reads Commcare Nova's own record, without contacting CommCare HQ. |
 | `refresh_deployment` | Ask CommCare HQ again what has happened to a published app, and update the stored state. Read-only against CommCare HQ. It can move a deployment forward, and can move it back when a build stops being released there. Its answer carries the same `confirmations` as `get_deployment`. |
-| `withdraw_deployment_confirmation` | Withdraw something the user confirmed about a project space: `kind` is `plan-feature` (with its `subject`), `flat-location-fixture`, `connect-forwarder` or `form-entry-sync-off`. The next upload there asks about it again. Commcare Nova keeps who confirmed it and who withdrew it. Requires `nova.hq.write` and edit access; returns the deployment. |
+| `withdraw_deployment_confirmation` | Withdraw something the user confirmed about a project space: `kind` is `plan-feature` (with its `subject`), `flat-location-fixture`, `connect-forwarder`, `form-entry-sync-off` or `commtrack-off`. The next upload there asks about it again. Commcare Nova keeps who confirmed it and who withdrew it. Requires `nova.hq.write` and edit access; returns the deployment. |
 | `provision_workers` | Create CommCare mobile-worker accounts on a project space for the app's personas, or bring existing ones into step with what the app says. The app must already be published there. Each new account carries that persona's worker information and places, and comes back with a password that exists only in that answer. |
 
 <Callout type="info">
@@ -1372,7 +1408,7 @@ An upload never changes your Commcare Nova copy. If the linked HQ app was delete
 </Callout>
 
 <Callout type="warn">
-**What a project space's plan includes is the user's to say, never yours.** No API key reads a project space's plan, whether it still sends its flat location list, or whether it forwards forms to CommCare Connect. When the app needs one of these and nobody has confirmed it there, the upload refuses with `hq_confirmation_needed` before sending anything. The envelope's `confirmations_needed` lists each one: `kind`, `subject`, `label`, `plans` (empty for the two settings, which no plan decides), `consequence` and `reasons`. **Show the user each one with its reasons and ask.** Re-call with `confirm_plan_features` carrying the ids of the plan features they said the project space has, and `confirm_flat_location_fixture` and `confirm_connect_forwarder` set to `true` only where they said yes. A refused upload keeps no confirmation, so send them again with each attempt until one goes ahead; from then on the deployment keeps them, and `withdraw_deployment_confirmation` takes one back.
+**What a project space's plan includes is the user's to say, never yours.** No API key reads a project space's plan, whether it still sends its flat location list, whether it forwards forms to CommCare Connect, whether Sync Cases On Form Entry is off, or whether CommCare Supply is off. When the app needs one of these and nobody has confirmed it there, the upload refuses with `hq_confirmation_needed` before sending anything. The envelope's `confirmations_needed` lists each one: `kind`, `subject`, `label`, `plans` (empty for the four settings, which no plan decides), `consequence`, `reasons` and `where_missing`, what the user can do where the project space lacks it. **Show the user each one with its reasons and ask.** Re-call with `confirm_plan_features` carrying the ids of the plan features they said the project space has, and `confirm_flat_location_fixture`, `confirm_connect_forwarder`, `confirm_form_entry_sync_off` and `confirm_commtrack_off` set to `true` only where they said yes. Where the plan feature asked about is Save to Case, the refusal can also carry `placement_moves`: the case changes Nova can move to CommCare HQ's Case Management settings, which every plan keeps, so the app no longer needs it. Show the user each move's `sentence`; if they choose the move over confirming Save to Case, send `accept_placement_moves` with the offer's `reason` and `digest`. A refused upload keeps no confirmation, so send them again with each attempt until one goes ahead; from then on the deployment keeps them, and `withdraw_deployment_confirmation` takes one back.
 </Callout>
 
 <Callout type="warn">

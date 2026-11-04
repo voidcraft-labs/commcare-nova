@@ -1144,7 +1144,7 @@ A pull request's store restore reads main's newest snapshot and its own scope on
 | # | Row | Why |
 |---|---|---|
 | 1 | 13.5 min, 12 shards, plus the eight witnesses | `proof/store/queue.py` is in the observation's partition (§1.5); the judges and the register loader change |
-| 2 to 16 | 13.5 min, 12 shards each, plus the targeted documents each adds | pull request 1's observation change is beneath each; 2, 3, 4, 6, 7, 9, 10 and 11 also move most documents' keys (an emission change, or the capture's record) |
+| 2 to 16 | 13.5 min, 12 shards each, plus the targeted documents each adds; from pull request 15's refreshed profile, 14.0 min, 13 shards (G7's outcome C) | pull request 1's observation change is beneath each; 2, 3, 4, 6, 7, 9, 10 and 11 also move most documents' keys (an emission change, or the capture's record) |
 
 The corpus grows by thirty-three documents (thirty targeted, three form-link producer documents;
 thirty-two under part 02's G4 outcome B), at
@@ -1152,26 +1152,26 @@ about 24 seconds each on one worker without the readers at the median, the advan
 
 ### 8.3 What a push costs
 
-A push to pull request k starts 17 − k lane runs of 12 shard-jobs each, beside each run's corpus,
-gate, test, smoke and build jobs; a shard's job takes 317 to 542 seconds on the measured fresh run
-(run 40287062122).
+A push to pull request k starts 17 − k lane runs of 13 shard-jobs each, beside each run's corpus,
+gate, test, smoke and build jobs; a shard's job takes 338 to 571 seconds on the measured fresh run
+(run 41631814297, G7's outcome C).
 
 | Push to | Lanes | Shard-jobs | Rounds of twenty | Rounds of six |
 |---|---|---|---|---|
-| 1, or cutting the stack | 16 | 192 | 10 | 32 |
-| 2, attachment | 15 | 180 | 9 | 30 |
-| 4, case writes | 13 | 156 | 8 | 26 |
-| 6, publish placements | 11 | 132 | 7 | 22 |
-| 7, advanced | 10 | 120 | 6 | 20 |
-| 10, search | 7 | 84 | 5 | 14 |
-| 11, form links | 6 | 72 | 4 | 12 |
-| 14, cutover | 3 | 36 | 2 | 6 |
-| 16, removal | 1 | 12 | 1 | 2 |
+| 1, or cutting the stack | 16 | 208 | 11 | 35 |
+| 2, attachment | 15 | 195 | 10 | 33 |
+| 4, case writes | 13 | 169 | 9 | 29 |
+| 6, publish placements | 11 | 143 | 8 | 24 |
+| 7, advanced | 10 | 130 | 7 | 22 |
+| 10, search | 7 | 91 | 5 | 16 |
+| 11, form links | 6 | 78 | 4 | 13 |
+| 14, cutover | 3 | 39 | 2 | 7 |
+| 16, removal | 1 | 13 | 1 | 3 |
 
 GitHub's free plan runs about twenty jobs at once across the account; while a scheduled lane with the
-readers holds fourteen, six remain. On this model (ten rounds of twenty, or thirty-two of six, at up to
-542 seconds a shard-job) a restack from pull request 1 is about ninety minutes
-of the whole account before the top pull request's verdict, and over four hours while a scheduled lane
+readers holds fourteen, six remain. On this model (eleven rounds of twenty, or thirty-five of six, at up to
+571 seconds a shard-job) a restack from pull request 1 is about an hour and three quarters
+of the whole account before the top pull request's verdict, and over five hours while a scheduled lane
 runs (the week from Saturday 19:07 UTC to Sunday evening, the pin pull request from Monday 00:37 UTC,
 the image comparison from Monday 17:17 UTC). So:
 
