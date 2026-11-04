@@ -126,6 +126,7 @@ function startsBlankNote(
 			view.formUuid === ctx.formUuid &&
 			view.destination === "own" &&
 			view.slot !== "owner" &&
+			view.property !== "owner_id" &&
 			writerOffersPreload(after, field.uuid, view.property) &&
 			startingValueMisfit(after, field, caseType, view.property) === undefined,
 	)?.property;
@@ -997,10 +998,12 @@ export function planFieldCaseWrite(
 				refusal = saveOn(draft, own, saved);
 				// A save the case can't take says so before its starting value.
 				if (refusal !== undefined) break;
-				// Only a new or moved save is born a starting value, or refused.
+				// Only a new or moved save is born a starting value, or refused,
+				// and never one to the case's owner, whichever slot holds it.
 				if (
 					!keepsProperty &&
 					saved.slot !== "owner" &&
+					destination.property !== "owner_id" &&
 					destination.via === undefined &&
 					ctx.moduleCaseType !== undefined &&
 					writerOffersPreload(offerDoc, fieldUuid, destination.property)

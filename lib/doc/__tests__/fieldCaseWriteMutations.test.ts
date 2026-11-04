@@ -802,6 +802,21 @@ describe("planFieldCaseWrite: the starting value", () => {
 			expect(startingValues(again)).toEqual([]);
 		});
 
+		// A save to the case's owner is born no starting value, whether the
+		// owner slot holds it or a write does, as Save only if changed makes it.
+		it("bears no starting value for a save to the case's owner", () => {
+			const doc = visit();
+			for (const onlyIfChanged of [false, true]) {
+				const plan = planFieldCaseWrite(doc, COUNT, {
+					caseType: "household",
+					property: "owner_id",
+					onlyIfChanged,
+				});
+				expect(plan).toMatchObject({ ok: true, notes: [] });
+				expect(startingValues(plan)).toEqual([]);
+			}
+		});
+
 		// A starting value born for a save goes with the save it read.
 		it("clears a born starting value with the save it read, and keeps one the author wrote", () => {
 			const doc = visit();
