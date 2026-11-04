@@ -514,6 +514,7 @@ describe("planFieldCaseWrite: the starting value", () => {
 		const COUNT = testUuid("saves-fup-count");
 		const STAGE = testUuid("saves-fup-stage");
 		const TAGS = testUuid("saves-fup-tags");
+		const NOTE = testUuid("saves-fup-note");
 		const visit = () =>
 			buildDoc({
 				caseTypes: [
@@ -560,6 +561,7 @@ describe("planFieldCaseWrite: the starting value", () => {
 								type: "followup",
 								fields: [
 									f({ uuid: COUNT, kind: "int", id: "count" }),
+									f({ uuid: NOTE, kind: "text", id: "note" }),
 									f({
 										uuid: STAGE,
 										kind: "single_select",
@@ -815,6 +817,42 @@ describe("planFieldCaseWrite: the starting value", () => {
 				expect(plan).toMatchObject({ ok: true, notes: [] });
 				expect(startingValues(plan)).toEqual([]);
 			}
+		});
+
+		// A starting value that reads the owner belongs to the owner save, as
+		// one an earlier document holds can: it goes with that save.
+		it("clears a starting value that reads the owner with the owner save", () => {
+			const doc = visit();
+			const saved = land(
+				doc,
+				planFieldCaseWrite(doc, NOTE, {
+					caseType: "household",
+					property: "owner_id",
+				}),
+			);
+			expect(saved.fields[NOTE]).not.toHaveProperty("default_value");
+			const opensOnOwner = commit(saved, [
+				{
+					kind: "updateField",
+					uuid: NOTE,
+					targetKind: "text",
+					patch: {
+						default_value: {
+							kind: "term",
+							term: {
+								kind: "form-case",
+								caseType: "household",
+								property: "owner_id",
+							},
+						},
+					},
+				} as Mutation,
+			]);
+			const stop = planFieldCaseWrite(opensOnOwner, NOTE, null);
+			expect(stop).toMatchObject({ ok: true, notes: [STARTS_BLANK_NOTE] });
+			expect(land(opensOnOwner, stop).fields[NOTE]).not.toHaveProperty(
+				"default_value",
+			);
 		});
 
 		// A starting value born for a save goes with the save it read.

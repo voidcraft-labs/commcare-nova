@@ -191,6 +191,15 @@ describe("writerOffersPreload", () => {
 			],
 		});
 		expect(writerOffersPreload(doc, PHONE, "owner_id")).toBe(false);
+		// The owner slot holds it the same.
+		const slotted = app({
+			type: "close",
+			fields: [phone],
+			operations: [
+				{ uuid: OWN, id: "patient", action: "own", owner: read(PHONE) },
+			],
+		});
+		expect(writerOffersPreload(slotted, PHONE, "owner_id")).toBe(false);
 	});
 
 	it("offers none on a registration, a several-case form or through `via`", () => {

@@ -367,9 +367,9 @@ describe("the preload line", () => {
 		expect(rowOf(fixture("followup"), COMPUTED).preload).toBeUndefined();
 	});
 
-	it("says nothing on a save to the case's owner", () => {
-		// The question's save moves to the owner through the planner, as the
-		// row's own picker does.
+	it("offers no case value to a save to the case's owner, and shows one it already opens on", () => {
+		// The question's save moves to the owner through the planner and the
+		// commit gate, as the row's own picker does.
 		const opened = fixture("close");
 		const view = fieldCaseWriteViews(opened, NICKNAME)[0];
 		if (view === undefined) throw new Error("The question saves nothing.");
@@ -380,12 +380,41 @@ describe("the preload line", () => {
 			{ replace: fieldCaseWriteViewKey(view) },
 		);
 		if (!plan.ok) throw new Error(plan.message);
-		const doc = produce(opened, (draft) => {
-			applyMutations(draft, [...plan.mutations]);
-		});
-		const owner = fieldCaseWriteViews(doc, NICKNAME)[0];
-		expect(owner?.property).toBe("owner_id");
+		const moved = mutationCommitVerdict(
+			opened,
+			[...plan.mutations],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!moved.ok) throw new Error("The gate refused the move.");
+		const doc = moved.nextDoc;
+		expect(fieldCaseWriteViews(doc, NICKNAME)[0]?.property).toBe("owner_id");
 		expect(rowOf(doc, NICKNAME).preload).toBeUndefined();
+		// A starting value that already reads the owner is shown, and can go.
+		const opensOnOwner = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateField",
+					uuid: NICKNAME,
+					targetKind: "text",
+					patch: {
+						default_value: {
+							kind: "term",
+							term: {
+								kind: "form-case",
+								caseType: "patient",
+								property: "owner_id",
+							},
+						},
+					},
+				} as Parameters<typeof applyMutations>[1][number],
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!opensOnOwner.ok) throw new Error("The gate refused the start.");
+		const shown = rowOf(opensOnOwner.nextDoc, NICKNAME).preload;
+		expect(shown?.line).toBe(OPENS_WITH_CASE_VALUE_LINE);
+		expect(shown?.action?.label).toBe("Start blank instead");
 	});
 
 	it("says nothing off this form's case or on a registration", () => {

@@ -340,9 +340,6 @@ function preloadLine(
 	const { view, field, form, module } = input;
 	if (
 		view.destination !== "own" ||
-		// The owner, whichever slot holds it, opens on no case value
-		// (`casePreload.ts::writerOffersPreload`).
-		view.property === "owner_id" ||
 		view.via !== undefined ||
 		view.link ||
 		module.caseType === undefined ||
@@ -373,7 +370,11 @@ function preloadLine(
 	const hasDefault =
 		"default_value" in field && field.default_value !== undefined;
 	const hasCalculation = "calculate" in field && field.calculate !== undefined;
-	if (hasDefault || hasCalculation) return undefined;
+	// A save to the owner is offered no case value to open on, whichever
+	// slot holds it (`casePreload.ts::writerOffersPreload`); one that already
+	// opens on it shows that line above, with Start blank instead.
+	if (hasDefault || hasCalculation || view.property === "owner_id")
+		return undefined;
 	const misfit = startingValueMisfitOfType(field, input.propertyType);
 	if (misfit !== undefined) return { line: MISFIT_LINES[misfit.kind] };
 	return {
