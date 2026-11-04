@@ -334,9 +334,10 @@ function chainLabel(caseType: string, via: CaseWriteVia): string {
  *     line says why and offers nothing;
  *   - any other starting value, or a calculation: no line.
  *
- * A save to the case's owner is offered no starting value from it
- * (`casePreload.ts::writerOffersPreload`), so with none it shows no line; one
- * that already opens on the owner shows the first line like any other.
+ * A save to the case's owner is offered no starting value from it, so with
+ * none it shows no line; one that already opens on the owner shows the first
+ * line like any other. The row holds no document, so it restates the rule
+ * the planner reads from `casePreload.ts::writerOffersPreload`.
  */
 function preloadLine(
 	input: CaseWriteRowInput,
@@ -374,9 +375,6 @@ function preloadLine(
 	const hasDefault =
 		"default_value" in field && field.default_value !== undefined;
 	const hasCalculation = "calculate" in field && field.calculate !== undefined;
-	// A save to the owner is offered no case value to open on, whichever
-	// slot holds it (`casePreload.ts::writerOffersPreload`); one that already
-	// opens on it shows that line above, with Start blank instead.
 	if (hasDefault || hasCalculation || view.property === "owner_id")
 		return undefined;
 	const misfit = startingValueMisfitOfType(field, input.propertyType);

@@ -424,6 +424,9 @@ describe("the preload line", () => {
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
 		if (!cleared.ok) throw new Error("The gate refused Start blank instead.");
+		expect(cleared.nextDoc.fields[NICKNAME]).not.toHaveProperty(
+			"default_value",
+		);
 		expect(rowOf(cleared.nextDoc, NICKNAME).preload).toBeUndefined();
 	});
 
