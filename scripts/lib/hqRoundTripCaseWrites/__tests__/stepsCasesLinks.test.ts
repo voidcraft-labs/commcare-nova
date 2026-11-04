@@ -38,7 +38,10 @@ import {
 	FORM_LINK_SEMANTICS_CHANGES,
 	formLinkSemantics,
 } from "../steps/formLinkSemantics";
-import { writesIntoOperations } from "../steps/writesIntoOperations";
+import {
+	asSentence,
+	writesIntoOperations,
+} from "../steps/writesIntoOperations";
 import { parseHead, structurePhase } from "../structure";
 import type { LiftedFacts } from "../types";
 import { rawFixture, readPreStepJson } from "./rawFixture";
@@ -563,6 +566,35 @@ describe("writes-into-operations: C9 over a condition that reads cases", () => {
 		expect(
 			result.blockers.map(({ code, findingCodes }) => [code, findingCodes]),
 		).toEqual([["own-close-condition-reads-case", ["linked-case"]]]);
+	});
+});
+
+// The blocker joins the checker's messages as sentences: one that ends on a
+// mark, closing quotes or brackets after it included, keeps it, and one
+// without a mark gets a full stop.
+describe("writes-into-operations: a checker message as a sentence", () => {
+	it.each([
+		["a full stop", "It reads a case.", "It reads a case."],
+		["a question mark", "Is it the case?", "Is it the case?"],
+		[
+			"a closing quote",
+			'It says "no further walk."',
+			'It says "no further walk."',
+		],
+		[
+			"a curly closing quote",
+			"It says \u201cdone.\u201d",
+			"It says \u201cdone.\u201d",
+		],
+		[
+			"a closing bracket",
+			"It reads a case (its own.)",
+			"It reads a case (its own.)",
+		],
+		["no mark", "It reads a case", "It reads a case."],
+		["a quote without a mark", 'It reads "stage"', 'It reads "stage".'],
+	] as const)("ends %s as a sentence", (_what, message, sentence) => {
+		expect(asSentence(message)).toBe(sentence);
 	});
 });
 

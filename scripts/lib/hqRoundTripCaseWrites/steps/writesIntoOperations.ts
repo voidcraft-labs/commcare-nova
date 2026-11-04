@@ -321,11 +321,23 @@ const CLOSE_READ_SENTENCES: Record<CloseReadRefusal, string> = {
 		"reads its case under the type a case change before it gives the case, which the form's close condition reads only as the menu's type",
 };
 
+/** Quotes and brackets a sentence may close on after its final mark. */
+const CLOSING_MARKS: ReadonlySet<string> = new Set([
+	"\u201d",
+	"\u2019",
+	'"',
+	"'",
+	")",
+	"]",
+]);
+
 /** `message` ending as a sentence does, with a full stop where it has no
- *  closing mark of its own. */
-function asSentence(message: string): string {
+ *  final mark of its own, before any closing quotes or brackets. */
+export function asSentence(message: string): string {
 	const trimmed = message.trim();
-	return [".", "!", "?"].some((mark) => trimmed.endsWith(mark))
+	let end = trimmed.length;
+	while (end > 0 && CLOSING_MARKS.has(trimmed[end - 1] ?? "")) end--;
+	return [".", "!", "?"].includes(trimmed[end - 1] ?? "")
 		? trimmed
 		: `${trimmed}.`;
 }
