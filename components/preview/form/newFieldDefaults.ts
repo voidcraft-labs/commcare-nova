@@ -18,6 +18,7 @@ import {
 	DEFAULT_SELECT_OPTIONS,
 	type Field,
 	type FieldKind,
+	groupBornFieldList,
 	proseText,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/expression";
@@ -74,7 +75,21 @@ export const NEW_FIELD_BUILDERS: {
 		label: proseText(label),
 	}),
 	label: (id, label) => ({ kind: "label", id, label: proseText(label) }),
-	group: (id, label) => ({ kind: "group", id, label: proseText(label) }),
+	// A new group holds no children yet, so the one birth rule gives a
+	// labelled one its one-screen layout.
+	group: (id, label) => {
+		const text = proseText(label);
+		const fieldList = groupBornFieldList({
+			label: text,
+			holdsUserRepeat: false,
+		});
+		return {
+			kind: "group",
+			id,
+			label: text,
+			...(fieldList !== undefined && { fieldList }),
+		};
+	},
 	repeat: (id, label) => ({
 		kind: "repeat",
 		id,
@@ -90,10 +105,10 @@ export const NEW_FIELD_BUILDERS: {
 };
 
 /**
- * The repeat starter for a landing on a PAGE. A page is one device screen,
- * and the CommCare app can't add repeat entries there
- * (`FORM_SECTION_USER_REPEAT`), so a repeat born on a page is count-bound
- * at 1 — legal by construction, with the count the first thing to change.
+ * The repeat starter for a landing on ONE SCREEN: a page, or a group that
+ * shows its questions together. The CommCare app can't add repeat entries
+ * there (`FORM_SECTION_USER_REPEAT`), so a repeat born on one is count-bound
+ * at 1, legal by construction, with the count the first thing to change.
  */
 export function newPageRepeat(
 	id: string,

@@ -1138,7 +1138,8 @@ except the Connect fixtures, which take `buildDoc`'s derivation, and the
 workforce documents, which carry their producer base's. The fuzz generators
 draw no declaration: the last step of each generator's `lowerToDoc` maps each
 step 5 shape of the draw as the cutover maps a stored app (whole-number
-counts, field writes into operations, explicit preloads), then maps the draw through
+counts, field writes into operations, explicit preloads, `fieldList` on each
+labelled group that holds no repeat workers add entries to), then maps the draw through
 `lib/doc/platformDeclaration.ts::declaredForContent`, the cutover's own
 planner, with no further random call, so a draw that runs on
 neither platform only because of a date-and-time question
@@ -1666,6 +1667,27 @@ writes them plainly, so the publish asks the person to confirm CommCare Supply
 is off (`commtrack-off`) and the verdict holds
 `minimumConfiguration.commtrackEnabled: false`. Proof 4's form builder saves
 and `proof/editors/test_commtrack_supply_point_text.py` read it.
+`targeted-field-list-flags` holds a group's one screen as its `fieldList`
+decides it, whatever its label: a labelled group with the flag, a labelled
+group without it, an unlabelled group with it, a count repeat inside a group
+with it and a repeat workers add entries to inside a group without it, since
+a group with the flag refuses one (`FIELD_LIST_USER_REPEAT`). A group with the flag is `appearance="field-list"`
+on the wire and one screen on a device, its count repeat's rows on it
+(`FormEntryController.java::getQuestionPrompts`); every other question is a
+screen of its own. It declares both platforms, and Preview's paging cells for
+each platform are its readings.
+`targeted-plain-labels` labels four questions, a select's four choices and
+four groups with `*not bold*`, `# 5`, `1. first` and `<b>tag</b>`, once with
+`plainLabel`, which Nova writes with no markdown form, and once without, which
+Nova writes with one. A device draws a label's markdown only where its text
+holds that form (`QuestionWidget.java::setTextFromPrompt`, `setChoiceText`),
+so `proof/android`'s
+`test_form_reads.py::test_a_label_without_markdown_renders_its_text_as_written`
+asserts the plain half shows each text as typed and the other half formatted.
+HQ's form builder reads a text's markdown form as its own switch and writes
+the form back only where it read one (Vellum `src/javaRosa/plugin.js`,
+`item.hasMarkdown`), so proof 4's saves hold both halves as Nova wrote them. It declares both platforms and passes with no entry and no
+control.
 The eight migration witnesses (`proof/targeted/documents/migrations.ts`, each
 spec marked `migrationWitness: true`, so its source is
 `targeted-migration:<rows>`) are small apps, one per step 5 migration that
@@ -3100,7 +3122,7 @@ commit gate, which refuses a datum the form's entry does not supply
 | 25 | a Vellum save rewrites a query repeat into model iteration, whose rows are built by setvalues that run as the form loads. Where that breaks is a REFUSED class of the model-iteration entries (`lib/commcare/surface/entries/questions.json`): a repeat nested in another; a query reading an answer still blank where those setvalues run; and a repeat under a group that Core's load has already left not relevant there (its condition reads what an earlier load-time setvalue wrote) and that becomes relevant later: the repeat stays empty. Otherwise a group relevant later costs no rows: `FormDef.initialize` runs the load-time setvalues before it evaluates the form's conditions (`initAllTriggerables`), and a group whose condition nothing has evaluated yet reads as relevant (`XFormParser` leaves it so), so for a query that reads no form answer the repeat keeps its rows after the save, and one under a group never relevant submits none either way (correction 7). Fixed in step 5: a query repeat takes its placement from what its form holds (`lib/domain/queryRepeatPlacement.ts`). It is model iteration in the form builder's own spelling, which a save keeps, only where nothing model iteration cannot run holds it (a repeat nested in another, a query reading a form answer, an enclosing group whose condition can change while the form is filled in); anywhere else it is the count placement, Nova's `nova_query_ids_<repeat>` node and a live count the save leaves alone | proof 4, then 3; manifest | fixed; still shown by the controls `container-query-conditional-after-13`, `container-nested-query`, `case-operation-query`, `container-query-conditional`, `container-query-conditional-parent` and `targeted-query-repeat-places`; `targeted-query-repeat-placements` holds each placement |
 | 26 | the form settings save drops a hidden link beside a visible one and clears a navigation fallback its page does not offer, which changes the stack | proof 4, then 2 and 3 | `targeted-form-links-hidden-and-fallback` |
 | 26, a link's case value | a form link that names its target's case by a value no case holds makes the target write to a case no form created; HQ makes that case without a create block and notes the soft assertion `corehq/form_processor/casedb_base.py::get_case_from_case_update` answering the device's requests | proof 3 and proof 4 (Android's soft assertions) | `expander-form-links-emission-forwards-literal-condition-47c96355-0` |
-| 27 | Vellum reports "Repeat Count is required." for a user repeat in a labelled group | proof 4 | `targeted-labelled-group-repeat` |
+| 27 | Vellum reports "Repeat Count is required." for a user repeat in a labelled group, which Nova wrote as a field list because the group's label decided it. Fixed in step 5: a group shows on one screen only when it holds `fieldList`, and a group holding a repeat workers add entries to is born without it (`FIELD_LIST_USER_REPEAT`) | proof 4; manifest | fixed; still shown by the control `targeted-labelled-group-repeat`; `targeted-field-list-flags` holds each group with and without the flag |
 | 28 | a question that opens with its case's value was sent as Case Management's `case_preload`, which HQ's build loads after every other load-time `setvalue` (`app_manager/xform.py::XForm.add_case_preloads`), so a default later in the form that read the answer read it blank. Fixed in step 5: a question opens with its case's value only where its default reads it, written as the form builder's own default at the question's place, so no export holds a `case_preload` | manifest | fixed; still shown by the control `targeted-load-time-values`; `targeted-load-time-values` and `targeted-case-writes-one-concept` hold the fix |
 | 30 | Core serializes a second `nova_count_<repeat>` node holding a hidden value's count, truncated where the count is fractional. Fixed in step 5: a repeat's count is a whole number (`REPEAT_COUNT_TYPE` refuses any other), and a count that names an integer question, an integer single select or a Hidden Value calculating an integer is written into `jr:count` directly, so only a count that is an expression keeps its `nova_count_<repeat>` node | intent (Core), over the submission; manifest (a count from a hidden value that is not an integer) | fixed; still shown by the controls `targeted-repeat-count-copy` and `container-live-count-entry`; `targeted-repeat-count-whole` holds each whole count |
 | 56, datetime ordering | an ordering comparison over a date and time is false on a device wherever an operand is held as text, and orders by calendar day where both are typed, while Preview orders by instant. Fixed in step 3: each operand is lowered by its type (`lib/commcare/xpath/wire/instant.ts`), so a device compares instants, as Preview does | intent (Core), on the local export and on A; manifest (the local archive's suite holds a REFUSED `time-operand` use) | fixed; still shown by the controls `targeted-datetime-ordering` and `targeted-datetime-operands` |

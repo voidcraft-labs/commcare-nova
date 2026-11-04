@@ -50,11 +50,14 @@
  *   conditional links and an unconditional last one; a survey with a
  *   conditional link and a stored after-submit; and a follow-up in a root
  *   menu linking to its child menu, which HQ does not offer from it.
- * - `targeted-migration-groups-preloads` (defects 27 and 28): two labelled
- *   groups, one holding a user repeat; a writer of the form's own case whose
- *   authored default gave way to the read of its case's value, migrated, with
- *   the own case held where A keeps it; a later Hidden Value whose default
- *   reads it.
+ * - `targeted-migration-groups-preloads` (defects 27 and 28), migrated: two
+ *   labelled groups, `vitals`, which keeps showing its questions on one
+ *   screen through `fieldList`, and `household`, which holds a user repeat
+ *   and so stays a plain group whose questions show one per screen (Q4,
+ *   `lib/doc/groupFieldLists.ts::planGroupFieldLists`); a writer of the
+ *   form's own case whose authored default gave way to the read of its
+ *   case's value, with the own case held where A keeps it; a later Hidden
+ *   Value whose default reads it.
  * - `targeted-migration-repeat-counts` (defect 30): a repeat counted by a
  *   Hidden Value calculating 2, which its count now names directly, and one
  *   counted by a decimal expression, which the migration wraps in `int(…)`.
@@ -1043,6 +1046,7 @@ export function migrationQueryRepeats() {
 								uuid: uuid("checks"),
 								id: "checks",
 								label: proseText("Later checks"),
+								fieldList: true,
 								relevant: "#form/ready = 'yes'",
 								children: [
 									f({
@@ -1263,6 +1267,7 @@ export function migrationGroupsPreloads() {
 								uuid: uuid("vitals"),
 								id: "vitals",
 								label: proseText("Vitals"),
+								fieldList: true,
 								children: [
 									f({
 										kind: "decimal",

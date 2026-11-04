@@ -21,7 +21,10 @@ import { proseTemplateIsEmpty } from "@/lib/domain/prose";
 import type { FormScreenPage as SectionPageModel } from "@/lib/preview/engine/formEngine";
 import { useEngineState } from "@/lib/preview/hooks/useEngineState";
 import { usePresentationField } from "@/lib/preview/hooks/useVisibleFieldOrder";
-import { LabelContent } from "@/lib/references/LabelContent";
+import {
+	LabelContent,
+	ownerHoldsPlainLabel,
+} from "@/lib/references/LabelContent";
 import { InteractiveFormRenderer } from "../InteractiveFormRenderer";
 import { depthPadding } from "../virtual/rowStyles";
 import { SectionHeading, sectionKicker } from "./SectionHeading";
@@ -91,6 +94,7 @@ export function SectionPage({
 									label={field.label}
 									resolvedLabel={state.resolvedLabel}
 									isEditMode={false}
+									plainLabel={ownerHoldsPlainLabel(field)}
 									className="text-lg font-semibold leading-7 text-nova-text"
 								/>
 							) : (

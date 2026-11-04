@@ -258,12 +258,13 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: "completeness",
 	// A section is a page. A half-sectioned form, a section inside a field,
-	// and an add-entries repeat inside a section each make the running app
-	// draw the form differently from what the author arranged, so all three
-	// gate commits.
+	// and an add-entries repeat inside a section or a group shown on one
+	// screen each make the running app draw the form differently from what
+	// the author arranged, so all four gate commits.
 	FORM_SECTION_NOT_TOP_LEVEL: "soundness",
 	FORM_SECTIONS_INCOMPLETE: "soundness",
 	FORM_SECTION_USER_REPEAT: "soundness",
+	FIELD_LIST_USER_REPEAT: "soundness",
 	// A form's own case is one operation, first, on exactly the forms that
 	// have one; its effects stand apart from every other operation's.
 	CASE_OWN_OPERATION: "soundness",

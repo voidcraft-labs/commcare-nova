@@ -166,6 +166,7 @@ type AddItext = (
 	media?: Media,
 	force?: boolean,
 	protectConstraint?: boolean,
+	markdown?: boolean,
 ) => ItextRegistration;
 
 function isConsumerWhitespace(value: string): boolean {
@@ -824,12 +825,15 @@ export function buildXFormSource(
 	// XPath, case datum, or Connect expression actually references it — never
 	// unconditionally.
 
-	// Register an itext `<text>` entry. Every entry emits both the plain value
-	// AND a `<value form="markdown">` duplicate — CommCare only renders
-	// markdown when the markdown form is present, and it's a no-op for plain
-	// text. Without the duplicate, `**bold**` renders as literal asterisks on
-	// device. `buildLabelNodes` is called ONCE PER `<value>` so each gets
-	// independent node instances (a domhandler node has a single parent).
+	// Register an itext `<text>` entry. An entry emits the plain value and,
+	// unless `markdown` is false, a `<value form="markdown">` duplicate:
+	// CommCare renders a label's markdown only when the markdown form is
+	// present, so without it `**bold**` shows as literal asterisks. `markdown`
+	// is false only for a label whose owner holds `plainLabel`, and then no
+	// language writes the markdown form, because CommCare holds markdown per
+	// text across every language. A hint, a help text and a validation message
+	// always write it. `buildLabelNodes` is called ONCE PER `<value>` so each
+	// gets independent node instances (a domhandler node has a single parent).
 	//
 	// `media` appends `<value form="image|audio|video">jr://file/...` siblings
 	// after the text values (the CCHQ shape — see `multimedia/itextMedia.ts`).
@@ -849,6 +853,7 @@ export function buildXFormSource(
 		media?: Media,
 		force = false,
 		protectConstraint = false,
+		markdown = true,
 	): ItextRegistration => {
 		// Every localized prose value contributes instance reads when its output
 		// attributes are serialized; untranslated or unused text declares nothing.
@@ -895,11 +900,15 @@ export function buildXFormSource(
 			languageEntries.push(
 				el("text", { id }, [
 					el("value", {}, buildLabelNodes(labelTemplate, lowerProse, context)),
-					el(
-						"value",
-						{ form: "markdown" },
-						buildLabelNodes(labelTemplate, lowerProse, context),
-					),
+					...(markdown
+						? [
+								el(
+									"value",
+									{ form: "markdown" },
+									buildLabelNodes(labelTemplate, lowerProse, context),
+								),
+							]
+						: []),
 					...itextMediaValues(media, opts.assets, "buildXForm"),
 					...(protectedMessage?.forms.get(language) ?? []),
 				]),
@@ -1075,9 +1084,14 @@ export function buildXFormSource(
  * Read the inline arm of a select field's final options-source union.
  * Lookup-backed selects emit an itemset and therefore have no inline choices.
  */
-function readOptions(
-	field: Field,
-): Array<{ value: string; label: ProseTemplate; media?: Media }> | undefined {
+function readOptions(field: Field):
+	| Array<{
+			value: string;
+			label: ProseTemplate;
+			media?: Media;
+			plainLabel?: true;
+	  }>
+	| undefined {
 	if (
 		(field.kind !== "single_select" && field.kind !== "multi_select") ||
 		field.optionsSource.kind !== "inline"
@@ -1201,9 +1215,18 @@ function buildFieldParts(
 		: readFieldMedia(field, "label_media");
 	const helpMedia = readFieldMedia(field, "help_media");
 	const canValidate = fieldKindCarriesValidation(field.kind);
+	// A label owner holding `plainLabel` writes no markdown form for it.
+	const labelMarkdown = carrier.plainLabel !== true;
 	const hasLabel =
 		field.kind !== "hidden" &&
-		addItext(`${itextKey}-label`, label, labelMedia).registered;
+		addItext(
+			`${itextKey}-label`,
+			label,
+			labelMedia,
+			false,
+			false,
+			labelMarkdown,
+		).registered;
 	const hasHint =
 		field.kind !== "hidden" && addItext(`${itextKey}-hint`, hint).registered;
 	const hasHelp =
@@ -1513,7 +1536,14 @@ function buildFieldParts(
 			// so the body-ref-iff-entry invariant forbids skipping the
 			// registration even for an empty option label — a dangling ref
 			// is parse-fatal in `verifyTextMappings`.
-			addItext(`${itextKey}-opt${index}-label`, opt.label, opt.media, true);
+			addItext(
+				`${itextKey}-opt${index}-label`,
+				opt.label,
+				opt.media,
+				true,
+				false,
+				opt.plainLabel !== true,
+			);
 		});
 	}
 
@@ -2085,17 +2115,19 @@ function buildContainer(
 	// children (Vellum's `tests/static/all_question_types.xml` field-list
 	// group is the fixture; HQ's `xform.py::_infer_vellum_type` reads the
 	// attribute as `FieldList`). A SECTION is ALWAYS a field-list: that is
-	// what a section is on the wire, titled or not. A LABELLED group (text OR
-	// media) gets it as Nova's default; a transparent (no-label) group drops
-	// the attribute — there's no group chrome to anchor a field-list layout
-	// against, so leaving it on would assert a layout posture the author
-	// didn't ask for. The group gate is the SAME predicate `labelEl` is
-	// computed from so a media-only group label still counts as labelled (the
-	// body emits `<label>` and the group renders as real chrome, not a
-	// transparent wrapper); an untitled section emits the field-list group
-	// with no `<label>`, legal on every runtime.
+	// what a section is on the wire, titled or not. A group is one exactly
+	// when it holds `fieldList`, and a label does not decide it: an unlabelled
+	// group holding the flag is an unlabelled Question List, and a labelled
+	// group without it is a plain group whose questions show one per screen.
+	// An untitled section or field-list group emits the group with no
+	// `<label>`, legal on every runtime. The validator refuses a repeat
+	// workers add entries to inside either (`FORM_SECTION_USER_REPEAT`,
+	// `FIELD_LIST_USER_REPEAT`), so this gate stays total.
 	const groupAttribs: Record<string, string> = {};
-	if (field.kind === "section" || hasLabel) {
+	if (
+		field.kind === "section" ||
+		(field.kind === "group" && field.fieldList === true)
+	) {
 		groupAttribs.appearance = "field-list";
 	}
 	const groupChildren: Element[] = labelEl

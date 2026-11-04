@@ -274,8 +274,9 @@ export const addFieldsTool = {
  * and groups its later items land in, so it is asked of the candidate the
  * batch produces, where every item's parent and subtree already exist: a
  * section under a field, a question at the root of a form that is (or this
- * batch makes) sectioned, and an add-entries repeat on a page — directly,
- * or inside a group the batch puts there — are refused with the sentence
+ * batch makes) sectioned, and an add-entries repeat on a page or in a group
+ * shown on one screen (directly, or inside a group the batch puts there)
+ * are refused with the sentence
  * every editor uses. The one sentence of its own here is the partition
  * rule: a first section added beside a form's existing loose questions
  * needs `setFormSections`. The commit gate remains the authority; this is
@@ -290,9 +291,15 @@ function sectionPlacementRefusal(
 		(m): m is Extract<Mutation, { kind: "addField" }> => m.kind === "addField",
 	);
 	const addsSection = adds.some((m) => m.field.kind === "section");
-	// A batch with no section, on a form with no pages, can meet none of the
-	// four refusals: the candidate is computed only when pages are involved.
-	if (!addsSection && !formIsSectioned(doc, formUuid)) return undefined;
+	const addsUserRepeat = adds.some(
+		(m) =>
+			m.field.kind === "repeat" && m.field.repeat_mode === "user_controlled",
+	);
+	// A batch with no section and no add-entries repeat, on a form with no
+	// pages, can meet none of the refusals: the candidate is computed only
+	// when pages, or a repeat that may land on one screen, are involved.
+	if (!addsSection && !addsUserRepeat && !formIsSectioned(doc, formUuid))
+		return undefined;
 	const addsRootSection = adds.some(
 		(m) => m.field.kind === "section" && m.parentUuid === formUuid,
 	);

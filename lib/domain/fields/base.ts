@@ -87,11 +87,14 @@ export const structuralFieldBase = z.strictObject({
 export type FieldBase = StructuralFieldBase & {
 	label: ProseTemplate;
 	label_media?: Media;
+	plainLabel?: true;
 };
 
 export const fieldBaseSchema = structuralFieldBase.extend({
 	label: proseTemplateSchema,
 	label_media: mediaSchema.optional(),
+	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
+	plainLabel: z.literal(true).optional(),
 });
 
 /**
@@ -109,6 +112,8 @@ export const fieldBaseSchema = structuralFieldBase.extend({
  */
 export const containerFieldBase = structuralFieldBase.extend({
 	label: proseTemplateSchema.optional(),
+	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
+	plainLabel: z.literal(true).optional(),
 });
 
 /**
@@ -158,6 +163,8 @@ export type SelectOption = {
 	value: string;
 	label: ProseTemplate;
 	media?: Media;
+	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
+	plainLabel?: true;
 	uuid: Uuid;
 };
 
@@ -165,6 +172,8 @@ export const selectOptionSchema = z.strictObject({
 	value: z.string(),
 	label: proseTemplateSchema,
 	media: mediaSchema.optional(),
+	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
+	plainLabel: z.literal(true).optional(),
 	uuid: uuidSchema,
 });
 

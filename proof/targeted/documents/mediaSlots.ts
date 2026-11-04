@@ -50,6 +50,7 @@ export function mediaSlots() {
 								uuid: uuid("household"),
 								id: "household",
 								label: proseText("Household"),
+								fieldList: true,
 								children: [
 									f({
 										kind: "text",

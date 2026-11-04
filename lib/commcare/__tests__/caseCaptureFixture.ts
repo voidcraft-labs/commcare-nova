@@ -113,11 +113,23 @@ export function caseCaptureFixture(
 														property: "case_name",
 													},
 												}),
-												f({ kind: "group", id: "details", children: captures }),
+												f({
+													kind: "group",
+													id: "details",
+													fieldList: true,
+													children: captures,
+												}),
 											],
 										}),
 									]
-								: [f({ kind: "group", id: "details", children: captures })]),
+								: [
+										f({
+											kind: "group",
+											id: "details",
+											fieldList: true,
+											children: captures,
+										}),
+									]),
 						],
 					},
 				],

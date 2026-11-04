@@ -1335,6 +1335,11 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	repeat_mode: "discriminator",
 	// A query repeat's held placement: a closed enum, naming nothing.
 	placement: "config",
+	// Display flags: a group shown on one screen, and a label (a field's or a
+	// choice's) written with no markdown form. Literals, naming nothing.
+	fieldList: "config",
+	plainLabel: "config",
+	"optionsSource.options[].plainLabel": "config",
 	label_media: "media",
 	help_media: "media",
 	"optionsSource.kind": "discriminator",

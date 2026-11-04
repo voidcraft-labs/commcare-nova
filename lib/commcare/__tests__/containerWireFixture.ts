@@ -54,7 +54,7 @@ const count = (id: string, value: string) =>
 		children: [text("answer")],
 	});
 const group = (id: string, children: FieldSpec[]) =>
-	f({ kind: "group", id, label: proseText(id), children });
+	f({ kind: "group", id, label: proseText(id), fieldList: true, children });
 const referenceCounts = (id: string, path: string) => [
 	f({
 		kind: "hidden",
@@ -308,6 +308,7 @@ export function containerWireFixture(scenario: ContainerScenario) {
 								kind: "group",
 								id: "page",
 								label: proseText("Choices"),
+								fieldList: true,
 								relevant: active,
 								children: rows,
 							}),
@@ -366,6 +367,7 @@ export function containerWireFixture(scenario: ContainerScenario) {
 						f({
 							kind: "group",
 							id: "details",
+							fieldList: true,
 							relevant: "#form/visits/gate = 'yes'",
 							children: [
 								f({

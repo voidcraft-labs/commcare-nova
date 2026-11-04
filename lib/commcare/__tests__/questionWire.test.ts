@@ -67,6 +67,7 @@ describe("question types and labels in delivered XForms", () => {
 										kind: "group",
 										id: "evidence",
 										label: proseText("Evidence"),
+										fieldList: true,
 										children: questions.map(({ kind }) =>
 											f({
 												kind,

@@ -1,4 +1,5 @@
 import { type Draft, isDraft, original } from "immer";
+import { holdsUserRepeat } from "@/lib/doc/groupFieldLists";
 import { spliceAfter, spliceEntryAfter } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
@@ -6,6 +7,7 @@ import {
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldSchema,
+	groupBornFieldList,
 	isContainer,
 	isRepresentableConversion,
 	pickFieldKeysForKind,
@@ -325,6 +327,23 @@ export function applyFieldMutation(
 					{ uuid: mut.uuid, field },
 				);
 				return;
+			}
+			// A group is born here, so it takes the birth rule every surface
+			// that makes a group reads: one screen when its label has text and
+			// none of its children is a repeat workers add entries to. A group
+			// leaving for a repeat has already dropped the flag in
+			// `reconcileFieldForKind`.
+			if (
+				reconciled.kind === "group" &&
+				groupBornFieldList({
+					label: reconciled.label,
+					holdsUserRepeat: holdsUserRepeat(
+						draft as unknown as BlueprintDoc,
+						mut.uuid,
+					),
+				})
+			) {
+				reconciled.fieldList = true;
 			}
 			draft.fields[mut.uuid] = reconciled;
 			return;

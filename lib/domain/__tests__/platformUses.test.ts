@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
@@ -203,6 +203,67 @@ describe("document order", () => {
 			"question-pages",
 			"barcode-question",
 			"location-question",
+		]);
+	});
+});
+
+describe("inline choices", () => {
+	it("gives each choice its own uses after the field's, plain text before media", () => {
+		const doc = buildDoc({
+			appName: "Choices",
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Intake",
+							type: "survey",
+							fields: [
+								f({
+									kind: "single_select",
+									id: "answer",
+									label: proseText("Answer"),
+									plainLabel: true,
+									options: [
+										{
+											value: "a",
+											label: "A",
+											uuid: "platform-choice-a",
+											plainLabel: true,
+											media: {
+												image: testMediaAssetId("platform-choice-image"),
+											},
+										},
+										{ value: "b", label: "B", uuid: "platform-choice-b" },
+										{
+											value: "c",
+											label: "C",
+											uuid: "platform-choice-c",
+											plainLabel: true,
+										},
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const uses = platformFeatureUses(doc, {
+			features: new Set<PlatformFeatureId>(["plain-text", "choice-media"]),
+		});
+		expect(
+			uses.map((use) => [
+				use.feature,
+				use.owner.kind,
+				use.owner.kind === "option" ? use.owner.optionUuid : undefined,
+				use.site.kind === "slot" ? use.site.slot : undefined,
+			]),
+		).toEqual([
+			["plain-text", "field", undefined, "plainLabel"],
+			["plain-text", "option", testUuid("platform-choice-a"), "plainLabel"],
+			["choice-media", "option", testUuid("platform-choice-a"), "media"],
+			["plain-text", "option", testUuid("platform-choice-c"), "plainLabel"],
 		]);
 	});
 });

@@ -48,7 +48,12 @@ export const PLATFORM_FEATURE_ENTRIES = {
 	"question-pages": [
 		"questions/question-list-group-appearance-field-list-labelled",
 		"questions/question-list-unlabelled-when-every-root-field-is-a-section-and",
+		"questions/question-list-unlabelled-anywhere-else",
 		"questions/groups-nested-in-a-question-list",
+	],
+	"plain-text": [
+		"questions/plain-label-containing-html-text",
+		"questions/choice-label-with-no-markdown-form",
 	],
 	"choice-media": ["questions/choice-image", "questions/choice-audio-video"],
 	"help-media": ["questions/help-media"],
@@ -201,6 +206,4 @@ export const AMBIENT_PLATFORM_ENTRIES = {
 		"Neither platform renders markdown there.",
 	"questions/choice-label-text-markdown": "Renderer only.",
 	"questions/group-repeat-label-text-markdown": "Renderer only.",
-	"questions/plain-label-containing-html-text":
-		"Nova always writes a markdown form, so tags never render as HTML on either platform.",
 } as const satisfies Readonly<Record<string, string>>;

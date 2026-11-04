@@ -38,6 +38,7 @@ import {
 } from "@/lib/domain";
 import {
 	applyDefaults,
+	batchUserRepeatHolders,
 	type FlatField,
 	flatFieldToField,
 	prepareFlatFieldIdentities,
@@ -197,6 +198,14 @@ export function assembleFieldMutations(
 		return { ok: false, rejected: identityRejections };
 	}
 
+	const userRepeatHolders = batchUserRepeatHolders(
+		assigned.map(({ processed, uuid }) => ({
+			uuid,
+			parentUuid: processed.parentUuid,
+			kind: processed.kind,
+			repeat: processed.repeat,
+		})),
+	);
 	const mutations: Mutation[] = [];
 	const rejected: Array<{ id: string; reason: string }> = [];
 	const pendingByParent = new Map<Uuid, Set<string>>();
@@ -235,7 +244,11 @@ export function assembleFieldMutations(
 			}
 		}
 
-		const assembled = flatFieldToField(processed, fieldUuid);
+		const assembled = flatFieldToField(
+			processed,
+			fieldUuid,
+			userRepeatHolders.has(fieldUuid),
+		);
 		if (!assembled.ok) {
 			// Structural creation is all-or-nothing. A field that cannot become
 			// its requested domain kind rejects the complete assembly just like an

@@ -13,7 +13,9 @@
 //
 // The schema extends `structuralFieldBase` (`{ uuid, id }`, strict), so a
 // section cannot carry `relevant`, `label_media`, `hint`, or anything else:
-// "a page has no logic" is unrepresentable, not validated.
+// "a page has no logic" is unrepresentable, not validated. It declares the
+// one display flag its title takes, `plainLabel`, directly. It takes no
+// `fieldList`: a section is a field list by its kind.
 
 import tablerSection from "@iconify-icons/tabler/section";
 import { z } from "zod";
@@ -25,6 +27,8 @@ export const sectionFieldSchema = structuralFieldBase.extend({
 	kind: z.literal("section"),
 	/** The page title. Optional: an untitled page is still a page. */
 	label: proseTemplateSchema.optional(),
+	/** The label shows exactly as written, with no markdown form on the wire. Absent: markdown. */
+	plainLabel: z.literal(true).optional(),
 });
 
 export type SectionField = z.infer<typeof sectionFieldSchema>;

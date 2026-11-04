@@ -2011,6 +2011,25 @@ underscore worker property and the extension open action's owner (part 02's G2, 
   at base and head gives the same stop and census but the targeted count (81 to 83); no existing document's
   bytes, verdict or inputs move with the same-type lift, and only `targeted-same-type-child`'s verdict holds
   `flagsOff` (`DONT_INDEX_SAME_CASETYPE`), only `targeted-supply-point-text`'s `commtrackEnabled: false`.
+- **The fuzz mapping keeps its own frozen copy of the label rule beside the generator, because the
+  cutover's copy lands in pull request 14 and leaves in 16 while the mapping stays**
+  (`lib/commcare/__tests__/xformDocArbitrary.ts::frozenGroupLabelShows`, a copy of
+  `lib/domain/platformUses.ts::groupLabelShows` at 33321d58).
+- **The 29 labelled-group documents, found by emission** (pull request 9): the no-Docker emission at base
+  and head names them by the XForms that lose `appearance="field-list"`. 26 take the flag from their
+  sources: the five `case-capture-*` documents other than the extension ones (`caseCaptureFixture.ts`),
+  seven `container-*` documents (`containerWireFixture.ts`), eight expander documents (`expander.test.ts`,
+  its empty-group test included), `localization-optional`, whose group's source label is blank and shows
+  through a translation (`localizationWireFixture.ts`), `xpath-context` (`proof/corpus/producers.ts`), the
+  two expression-rename documents (`expressionRenames.ts`), `targeted-media-slots` and
+  `targeted-query-repeat-places`; `targeted-invalid-question-ids` and `targeted-migration-groups-preloads`
+  take it in `formShapes.ts` and `migrations.ts`, and `targeted-labelled-group-repeat`'s `household` takes
+  none. Three fuzz documents (`fuzz-xform-20260930-6`, `-10`, `fuzz-suite-20260930-9`) lose the field list
+  of a drawn labelled group that holds a user repeat, which is defect 27's fix on drawn documents; every
+  other drawn labelled group keeps its bytes through the mapping. With the two targeted documents of §5.1
+  the head emits 387 fixed documents (419 in all) with the base's stop, refusals and edit census.
+  Part 10 §1's row gives pull request 9 a corpus of 420; it is 419, the one-document offset pull request
+  8 already recorded (417, not 418) carried forward with the two documents this pull request adds.
 
 ## What other parts read from this one
 

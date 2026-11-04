@@ -128,7 +128,6 @@ HELD_CHECKS = frozenset(
 OPEN_DEFECTS = {
     21: 5,
     26: 5,
-    27: 5,
 }
 
 PROOF_DIR = Path(__file__).resolve().parents[1]

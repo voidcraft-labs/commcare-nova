@@ -10,8 +10,8 @@
  *   is the form's root sections (`useSectionScreens`), and the open page
  *   lives in the session (`activeSectionByForm`, the slot the edit canvas
  *   also reads and writes, so a flip keeps the page).
- * - **Android, a form without sections** pages one screen per labeled group
- *   and per question outside one (`useFormScreens`), each identified by its
+ * - **Android, a form without sections** pages one screen per group shown on
+ *   one screen (`fieldList`) and per question outside one (`useFormScreens`), each identified by its
  *   concrete path. The open screen belongs to the form entry. Stepping Next
  *   past the last entry of a repeat the worker adds to, or past the repeat
  *   when it has none, opens Android's repeat prompt (`prompt`): add an

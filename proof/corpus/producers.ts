@@ -265,6 +265,7 @@ function xpathContextDoc(): BlueprintDoc {
 								kind: "group",
 								id: "group",
 								label: proseText("Group"),
+								fieldList: true,
 								children: [
 									f({
 										kind: "text",

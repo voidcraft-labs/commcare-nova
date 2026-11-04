@@ -39,9 +39,10 @@ import { MARKDOWN_LABEL_TEXT, PLATFORM_IDS } from "./previewPlatformsFixture";
  *
  * Every fixture but `screens` holds its questions in one section, so Android
  * shows them together on one section page; `screens` has no sections, so
- * Android pages it a screen at a time: a question, a labeled group, a
- * labeled group in each repeat entry, an unlabeled group's questions one by
- * one, and a labeled group holding a repeat the worker adds to.
+ * Android pages it a screen at a time: a question, a group shown on one
+ * screen, one in each repeat entry, an unlabeled group's questions one by
+ * one, and a labeled group without `fieldList` holding a repeat the worker
+ * adds to.
  */
 
 const scenarioId = new URLSearchParams(location.search).get(
@@ -96,6 +97,9 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 						options: [
 							{ value: "yes", label: "**Bold** yes" },
 							{ value: "no", label: "No" },
+							/* Written with formatting off; Web Apps formats every
+							 * choice anyway. */
+							{ value: "maybe", label: "*Plain* maybe", plainLabel: true },
 						],
 					},
 					{
@@ -161,6 +165,7 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 							kind: "group",
 							id: "details",
 							label: "Details",
+							fieldList: true,
 							children: [{ kind: "text", id: "note", label: "Note" }],
 						},
 					],
@@ -177,6 +182,7 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 							kind: "group",
 							id: "household",
 							label: "Household",
+							fieldList: true,
 							children: [
 								{ kind: "text", id: "adults", label: "Adults" },
 								{ kind: "text", id: "children", label: "Children" },
@@ -190,6 +196,8 @@ function fieldsOf(fixture: PreviewPlatformFixture): FieldSpec[] {
 								{ kind: "text", id: "second_extra", label: "Second extra" },
 							],
 						},
+						/* Labeled without `fieldList`: a repeat the worker adds
+						 * to cannot sit in a group shown on one screen. */
 						{
 							kind: "group",
 							id: "stock",

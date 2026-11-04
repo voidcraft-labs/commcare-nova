@@ -44,6 +44,7 @@ import {
 import { formLinkHiddenTarget } from "./documents/formLinkHiddenTarget";
 import { formLinksHiddenFallback } from "./documents/formLinksHiddenFallback";
 import {
+	fieldListFlags,
 	invalidConnectIds,
 	invalidQuestionIds,
 	labelledGroupRepeat,
@@ -107,7 +108,7 @@ import {
 	wireEqualRepublish,
 } from "./documents/stableWitnesses";
 import { supplyPointText } from "./documents/supplyPointText";
-import { textReads } from "./documents/textReads";
+import { plainLabels, textReads } from "./documents/textReads";
 import { validatedBarcodeSecret } from "./documents/validatedBarcodeSecret";
 
 /** Every targeted document's maker, in the corpus's order. */
@@ -195,6 +196,8 @@ export const TARGETED_DOCUMENTS: readonly (() => CorpusDocument)[] = [
 	rootCaseBlockNames,
 	sameTypeChild,
 	supplyPointText,
+	fieldListFlags,
+	plainLabels,
 ];
 
 /** Every targeted document, in a fixed order. */

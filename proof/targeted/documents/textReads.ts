@@ -10,12 +10,28 @@
  *
  * Fixed values: with Blue chosen, the form reads Colour, Blue and Blue in
  * English, and Couleur, Bleu and Bleu in French.
+ *
+ * Labels shown as written (`targeted-plain-labels`): a form whose question,
+ * group and choice labels hold `*not bold*`, `# 5`, `1. first` and
+ * `<b>tag</b>` twice, once with `plainLabel`, which Nova writes with no
+ * markdown form, and once without, which Nova writes with one. A device
+ * draws a label's markdown only where its text holds that form
+ * (commcare-android `QuestionWidget.java::setTextFromPrompt` and
+ * `setChoiceText`), so the plain half shows each text as typed and the other
+ * half formatted (`proof/android/test_form_reads.py::test_a_label_without_markdown_renders_its_text_as_written`).
+ * HQ's form builder writes a markdown form back only where it read one
+ * (Vellum `src/javaRosa/plugin.js`, `item.hasMarkdown`), so proof 4 holds
+ * both halves as Nova wrote them.
+ *
+ * Fixed values: the first plain group's question holds what the worker
+ * answers.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
 	makeTranslationUnitId,
+	NEW_APP_SETTINGS,
 	proseText,
 	type TranslationEntry,
 	type TranslationUnitId,
@@ -24,6 +40,7 @@ import {
 import { term } from "@/lib/domain/expression";
 import { targetedDocument, targetedUuid } from "../build";
 import type { Expectation } from "../expected";
+import { answerHeld } from "./echo";
 
 const ID = "targeted-text-reads";
 const uuid = (name: string) => targetedUuid(ID, name);
@@ -169,5 +186,112 @@ export function textReads() {
 		rows: ["itext-read", "choice-name-read"],
 		doc,
 		expected: { intent },
+	});
+}
+
+/** The texts a markdown form would format, each written twice. */
+export const PLAIN_LABEL_TEXTS = [
+	"*not bold*",
+	"# 5",
+	"1. first",
+	"<b>tag</b>",
+] as const;
+
+export function plainLabels() {
+	const id = "targeted-plain-labels";
+	const named = (name: string) => targetedUuid(id, name);
+	const form = named("form");
+	/* One half of the form: each text as a question's label, a choice's label
+	 * and a group's label, each group holding one question. */
+	const half = (prefix: "plain" | "marked") => {
+		const flag = prefix === "plain" ? ({ plainLabel: true } as const) : {};
+		return [
+			...PLAIN_LABEL_TEXTS.map((text, index) =>
+				f({
+					kind: "label",
+					uuid: named(`${prefix}-label-${index}`),
+					id: `${prefix}_label_${index}`,
+					label: proseText(text),
+					...flag,
+				}),
+			),
+			f({
+				kind: "single_select",
+				uuid: named(`${prefix}-choices`),
+				id: `${prefix}_choices`,
+				label: proseText(
+					prefix === "plain" ? "Choices as written" : "Choices in markdown",
+				),
+				optionsSource: {
+					kind: "inline",
+					options: PLAIN_LABEL_TEXTS.map((text, index) => ({
+						uuid: named(`${prefix}-choice-${index}`),
+						value: `choice_${index}`,
+						label: proseText(text),
+						...flag,
+					})),
+				},
+			}),
+			...PLAIN_LABEL_TEXTS.map((text, index) =>
+				f({
+					kind: "group",
+					uuid: named(`${prefix}-group-${index}`),
+					id: `${prefix}_group_${index}`,
+					label: proseText(text),
+					fieldList: true,
+					...flag,
+					children: [
+						f({
+							kind: "text",
+							uuid: named(`${prefix}-note-${index}`),
+							id: `${prefix}_note_${index}`,
+							label: proseText("Note"),
+						}),
+					],
+				}),
+			),
+		];
+	};
+	const doc = buildDoc({
+		appId: id,
+		appName: "Labels as written",
+		// Declared for Web Apps and Android, as a new app is.
+		appSettings: { ...NEW_APP_SETTINGS },
+		modules: [
+			{
+				uuid: named("module"),
+				name: "Labels",
+				forms: [
+					{
+						uuid: form,
+						name: "Labels",
+						type: "survey",
+						fields: [...half("plain"), ...half("marked")],
+					},
+				],
+			},
+		],
+	});
+	return targetedDocument({
+		id,
+		rows: ["labels shown as written: plainLabel writes no markdown form"],
+		doc,
+		expected: {
+			intent: [
+				answerHeld(
+					"note-held",
+					form,
+					"/data/plain_group_0/plain_note_0",
+					"seen",
+				),
+				answerHeld(
+					"note-held-a",
+					form,
+					"/data/plain_group_0/plain_note_0",
+					"seen",
+					"A",
+				),
+			],
+		},
 	});
 }

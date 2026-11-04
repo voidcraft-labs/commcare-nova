@@ -505,10 +505,11 @@ export const PLATFORM_FEATURE_FIXTURES = {
 		with: () =>
 			survey([
 				f({
-					kind: "section",
+					kind: "group",
 					id: "page",
 					uuid: FIXTURE_FIELD,
 					label: proseText("Page"),
+					fieldList: true,
 					children: [
 						f({ kind: "text", id: "answer", label: proseText("Answer") }),
 					],
@@ -520,13 +521,25 @@ export const PLATFORM_FEATURE_FIXTURES = {
 					kind: "group",
 					id: "page",
 					uuid: FIXTURE_FIELD,
-					label: proseText(""),
+					label: proseText("Page"),
 					children: [
 						f({ kind: "text", id: "answer", label: proseText("Answer") }),
 					],
 				}),
 			]),
 		use: slotUse("question-pages", FIELD_OWNER, "kind"),
+	},
+	"plain-text": {
+		with: () =>
+			oneField({
+				kind: "text",
+				id: "answer",
+				label: proseText("Answer"),
+				plainLabel: true,
+			}),
+		without: () =>
+			oneField({ kind: "text", id: "answer", label: proseText("Answer") }),
+		use: slotUse("plain-text", FIELD_OWNER, "plainLabel"),
 	},
 	"choice-media": {
 		with: () =>

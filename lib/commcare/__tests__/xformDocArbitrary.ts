@@ -34,6 +34,7 @@ import {
 	type FieldWriteFact,
 	operationsFromFieldWrites,
 } from "@/lib/doc/fieldWriteOperations";
+import { planGroupFieldLists } from "@/lib/doc/groupFieldLists";
 import { applyMutations } from "@/lib/doc/mutations";
 import { declaredForContent } from "@/lib/doc/platformDeclaration";
 import { planRepeatCountWraps } from "@/lib/doc/repeatCountWraps";
@@ -57,9 +58,21 @@ import {
 } from "@/lib/domain";
 import { entryDatumSupplies } from "@/lib/domain/entryDatumSupplies";
 import { type DatumRef, type Expression, term } from "@/lib/domain/expression";
+import {
+	effectiveAppLocalization,
+	makeTranslationUnitId,
+} from "@/lib/domain/localization";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
 import { asMediaAssetId, type MediaAssetId } from "@/lib/domain/multimedia";
-import { proseText } from "@/lib/domain/prose";
+import { proseTemplateIsEmpty, proseText } from "@/lib/domain/prose";
+import {
+	filledProse,
+	TRANSLATION_FILL_ROLES,
+} from "@/lib/domain/translationFill";
+import {
+	localizeTranslationUnit,
+	snapshotTranslationUnits,
+} from "@/lib/domain/translationUnits";
 
 // ── Stable id minting ──────────────────────────────────────────────
 
@@ -1493,6 +1506,11 @@ const UNFROZEN = new Immer({ autoFreeze: false });
  * 3. each question of a follow-up or close form of a one-case menu that
  *    saves to the form's own case opens with that case's value, as the form
  *    loaded it before (`lib/doc/explicitPreloads.ts::planExplicitPreloads`).
+ * 4. each group whose label shows, and which holds no repeat workers add
+ *    entries to at any depth, shows its questions on one screen
+ *    (`fieldList: true`, `lib/doc/groupFieldLists.ts::planGroupFieldLists`),
+ *    as it did when a label decided that; the label rule is
+ *    `frozenGroupLabelShows`, the rule that decided it.
  *
  * A document holding none of the shapes is returned as it came. Every
  * generator calls it before `declaredForContent`. It is a pure function of
@@ -1515,6 +1533,7 @@ export function mappedAsTheCutoverMaps(
 		});
 	};
 	apply(planRepeatCountWraps(mapped));
+	apply(planGroupFieldLists(mapped, frozenGroupLabelShows));
 	if (caseWrites.size === 0) return mapped;
 	for (const moduleUuid of doc.moduleOrder) {
 		const module = doc.modules[moduleUuid];
@@ -1549,6 +1568,33 @@ export function mappedAsTheCutoverMaps(
 		}
 	}
 	return mapped;
+}
+
+/**
+ * Whether a group's label shows in some language: a frozen copy of
+ * `groupLabelShows` in `lib/domain/platformUses.ts` as it stood before
+ * `fieldList` (commit 33321d58), the rule by which the XForm builder wrote a
+ * labelled group with `appearance="field-list"`. It reads the label as
+ * CommCare's localization does, the form builder's fill included, so a
+ * translation alone shows a label whose source is blank. The copy is kept
+ * here, beside the generator, because the mapping must keep meaning what a
+ * label meant then whatever the live label rules become.
+ */
+function frozenGroupLabelShows(doc: BlueprintDoc, fieldUuid: Uuid): boolean {
+	const unit = snapshotTranslationUnits(doc).get(
+		makeTranslationUnitId("field", fieldUuid, "label"),
+	);
+	if (unit === undefined) return false;
+	return effectiveAppLocalization(doc.localization).languageOrder.some(
+		(language) => {
+			const value = TRANSLATION_FILL_ROLES.has(unit.role)
+				? filledProse(doc, unit, language)
+				: localizeTranslationUnit(doc, language, unit).effective;
+			return typeof value === "string"
+				? value.length > 0
+				: !proseTemplateIsEmpty(value);
+		},
+	);
 }
 
 /** Every field of `formUuid` in data-tree order: each before its children. */
