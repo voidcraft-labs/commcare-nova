@@ -35,7 +35,6 @@ import {
 	type CaseWriteKey,
 	type CaseWriteVia,
 	caseWriteKeyOf,
-	choiceStartsOutsideItsChoices,
 	type Expression,
 	type Field,
 	type FieldCaseWriteView,
@@ -48,12 +47,11 @@ import {
 	moduleUuidOfForm,
 	type OwnCaseOperation,
 	ownCaseOperationId,
-	propertyAgreedType,
 	sameCaseWriteKey,
+	startingValueMisfit,
 	USERCASE_CASE_TYPE,
 	type Uuid,
 	valueKindPhrase,
-	wholeNumberStartsOnDecimal,
 	writerOffersPreload,
 } from "@/lib/domain";
 import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
@@ -88,6 +86,11 @@ export type FieldCaseWritePlan =
 export const OPENS_WITH_CASE_VALUE_NOTE =
 	"Opens with the case's current value.";
 
+/** What a result says when the starting value born for a save goes with it
+ *  and no other save is born one. */
+export const STARTS_BLANK_NOTE =
+	"Starts blank now, since it no longer saves to the case value it opened with.";
+
 /** `field` without its starting value. */
 function withoutDefault(field: Field): Field {
 	if (!("default_value" in field)) return field;
@@ -109,13 +112,19 @@ function startingValueRefusal(
 	caseType: string,
 	property: string,
 ): string | undefined {
-	const type = propertyAgreedType(doc, caseType, property);
+	const misfit = startingValueMisfit(doc, field, caseType, property);
+	if (misfit === undefined) return undefined;
 	const subject = `"${field.id}" in "${formName}" can't save to "${property}", because it would open on the case's value`;
-	if (wholeNumberStartsOnDecimal(field, type))
-		return `${subject}, which can be a decimal number, and CommCare stops a form when a whole-number question opens on one. Leaving it blank would clear the case's value. You can make "${field.id}" a decimal question, or save it to a property that holds whole numbers.`;
-	if (choiceStartsOutsideItsChoices(field, type))
-		return `${subject}, which can be ${valueKindPhrase(type)} that isn't one of its choices, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. Leaving it blank would clear the case's value. You can make "${field.id}" a text question, or save it to a property that holds choices.`;
-	return undefined;
+	const blank = "Leaving it blank would clear the case's value.";
+	if (misfit.kind === "whole-number-on-decimal")
+		return `${subject}, which can be a decimal number, and CommCare stops a form when a whole-number question opens on one. ${blank} You can make "${field.id}" a decimal question, or save it to a property that holds whole numbers.`;
+	if (misfit.type === "multi_select")
+		return `${subject}, which can be several choices at once, more than a single-choice question takes, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. ${blank} You can make "${field.id}" a multiple-choice or text question, or save it to a property that holds a single choice.`;
+	const fitting =
+		field.kind === "single_select"
+			? "a property that holds a single choice"
+			: "a property that holds choices";
+	return `${subject}, which can be ${valueKindPhrase(misfit.type)} that isn't one of its choices, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. ${blank} You can make "${field.id}" a text question, or save it to ${fitting}.`;
 }
 
 /** The refusal for removing the only name a registration gives its case. */
@@ -807,12 +816,12 @@ function fieldIn(doc: BlueprintDoc, fieldUuid: Uuid): Field | undefined {
  * value, when the question holds none yet (`writerOffersPreload`); the
  * result's `notes` say so. A starting value born for a save the plan
  * removes or moves to another property counts as none: a moved save is born
- * with its own, and otherwise it goes. A replace that keeps the property
- * leaves the starting value as it is.
+ * with its own, and otherwise it goes and the `notes` say the question
+ * starts blank. A save the replace keeps keeps its starting value.
  * Where the question can't open on the case's value, a whole-number question
  * on a property that holds decimal numbers or a choice question on one that
- * holds text (`lib/domain/startingValueFit.ts`), the save is
- * refused, since starting it blank would clear the case's value.
+ * can hold values outside its choices (`lib/domain/startingValueFit.ts`),
+ * the save is refused, since starting it blank would clear the case's value.
  */
 export function planFieldCaseWrite(
 	doc: BlueprintDoc,
@@ -860,9 +869,12 @@ export function planFieldCaseWrite(
 				view.via === undefined &&
 				view.property === property,
 		);
-	/* A replace that keeps the property it saves to, as a flip of "Save only
-	 * if changed" does, changes nothing about the question's starting value:
-	 * the planner neither refuses it nor bears or clears one. */
+	/* A replace that keeps a property the question saves to, as a flip of
+	 * "Save only if changed" or a whole replace naming one of its saves
+	 * does, leaves that save standing as it was: the planner doesn't refuse
+	 * it for its starting value, which would block edits that don't touch
+	 * one, and bears it none, and the gate still judges whatever starting
+	 * value the question holds. */
 	const keepsProperty =
 		destination !== null &&
 		destination.via === undefined &&
@@ -870,13 +882,14 @@ export function planFieldCaseWrite(
 		removesOwnSave(destination.property);
 	/* A starting value the planner bore for a save it now removes or moves
 	 * reads that save's property, so it is the question's no longer: a moved
-	 * save is born with its own, and otherwise the old one goes. */
+	 * save is born with its own, and otherwise the old one goes. The
+	 * starting value of a save the replace keeps stays. */
 	const born = fieldPreload(field);
 	const bornOfRemoved =
-		!keepsProperty &&
 		born !== undefined &&
 		born.caseType === ctx.moduleCaseType &&
-		removesOwnSave(born.property);
+		removesOwnSave(born.property) &&
+		!(keepsProperty && born.property === destination?.property);
 	const offerDoc: BlueprintDoc = bornOfRemoved
 		? {
 				...doc,
@@ -960,13 +973,15 @@ export function planFieldCaseWrite(
 			},
 		} as Mutation);
 		notes.push(OPENS_WITH_CASE_VALUE_NOTE);
-	} else if (bornOfRemoved)
+	} else if (bornOfRemoved) {
 		draft.mutations.push({
 			kind: "updateField",
 			uuid: fieldUuid,
 			targetKind: field.kind,
 			patch: { default_value: null },
 		} as Mutation);
+		notes.push(STARTS_BLANK_NOTE);
+	}
 	return { ok: true, mutations: draft.mutations, notes };
 }
 

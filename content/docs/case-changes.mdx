@@ -30,10 +30,11 @@ those questions; the properties pane says so on the question instead.
 
 A question can't save to its case where it couldn't open on the case's value.
 A whole-number question can't save to a property that holds decimal numbers,
-and a choice question can't save to one that holds other text, because
-CommCare stops the form when the question opens on such a value. Starting it
-blank instead would clear the case's value whenever a worker leaves it alone,
-so Nova offers a decimal or text question for that property. Nova also points
+and a choice question can't save to one that can hold values outside its
+choices, such as text, or several choices at once for a single-choice
+question, because CommCare stops the form when the question opens on such a
+value. Starting it blank instead would clear the case's value whenever a worker
+leaves it alone, so Nova offers a decimal or text question for that property. Nova also points
 out any starting value of a whole-number question that could be a decimal, and
 you can start it on the whole part with `int(...)`.
 

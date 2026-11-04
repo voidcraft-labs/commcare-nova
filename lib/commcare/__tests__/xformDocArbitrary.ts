@@ -53,10 +53,9 @@ import {
 	type Module,
 	NEW_APP_SETTINGS,
 	plainColumn,
-	propertyAgreedType,
+	startingValueFits,
 	suffixUntilFree,
 	type Uuid,
-	wholeNumberStartsOnDecimal,
 } from "@/lib/domain";
 import { entryDatumSupplies } from "@/lib/domain/entryDatumSupplies";
 import { type DatumRef, type Expression, term } from "@/lib/domain/expression";
@@ -1556,21 +1555,21 @@ export function mappedAsTheCutoverMaps(
 				caseSelectionCardinality(module) !== "single"
 			)
 				continue;
-			// A whole-number question can't open on a decimal property's value,
-			// which the gate refuses, so it keeps no starting value here.
+			// A question keeps no starting value it can't open on.
+			const fits = (fact: FieldWriteFact) => {
+				const field = mapped.fields[fact.fieldUuid];
+				if (field === undefined)
+					throw new Error(
+						`The generator saves question ${fact.fieldUuid}, which isn't in the document.`,
+					);
+				return startingValueFits(mapped, field, fact.caseType, fact.property);
+			};
 			apply(
 				planExplicitPreloads(
 					mapped,
 					formUuid,
 					facts
-						.filter(
-							(fact) =>
-								fact.caseType === module.caseType &&
-								!wholeNumberStartsOnDecimal(
-									mapped.fields[fact.fieldUuid] ?? { kind: "text" },
-									propertyAgreedType(mapped, fact.caseType, fact.property),
-								),
-						)
+						.filter((fact) => fact.caseType === module.caseType && fits(fact))
 						.map((fact) => fact.fieldUuid),
 				),
 			);

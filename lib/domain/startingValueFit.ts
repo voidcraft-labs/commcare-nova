@@ -36,10 +36,13 @@ export function wholeNumberStartsOnDecimal(
 
 /**
  * Whether a choice question with written choices could open on a value of
- * type `type` that names none of them: a type that holds other text than
- * choices, such as text. A choice-typed property holds choices; whether two
- * choice questions with different choices may share one is a design question
- * of its own (issue #856), so their choice sets are not compared here.
+ * type `type` that is none of its choices: a type that can hold values
+ * outside any choices, such as text, and for a single-choice question also
+ * a multiple-choice one, whose `a b` attaches to no one choice. A
+ * multiple-choice question opens on a single choice as a selection of one.
+ * Which choices two questions saving to one choice-typed property may offer
+ * is a design question of its own (issue #856), so choice sets are not
+ * compared here.
  */
 export function choiceStartsOutsideItsChoices(
 	field: Field,
@@ -48,7 +51,39 @@ export function choiceStartsOutsideItsChoices(
 	if (field.kind !== "single_select" && field.kind !== "multi_select")
 		return false;
 	if (field.optionsSource.kind !== "inline" || type === undefined) return false;
+	if (field.kind === "single_select") return type !== "single_select";
 	return type !== "single_select" && type !== "multi_select";
+}
+
+/** Why a question can't open on a property's value. */
+export type StartingValueMisfit =
+	| { readonly kind: "whole-number-on-decimal" }
+	| { readonly kind: "outside-choices"; readonly type: CasePropertyDataType };
+
+/** Why `field` can't open on the value of `caseType`'s `property`, as its
+ *  agreed type says; undefined where it can. */
+export function startingValueMisfit(
+	doc: PersistableDoc,
+	field: Field,
+	caseType: string,
+	property: string,
+): StartingValueMisfit | undefined {
+	const type = propertyAgreedType(doc, caseType, property);
+	if (wholeNumberStartsOnDecimal(field, type))
+		return { kind: "whole-number-on-decimal" };
+	if (type !== undefined && choiceStartsOutsideItsChoices(field, type))
+		return { kind: "outside-choices", type };
+	return undefined;
+}
+
+/** Whether `field` can open on the value of `caseType`'s `property`. */
+export function startingValueFits(
+	doc: PersistableDoc,
+	field: Field,
+	caseType: string,
+	property: string,
+): boolean {
+	return startingValueMisfit(doc, field, caseType, property) === undefined;
 }
 
 /** The type a property's values can be: its declaration, else the one its

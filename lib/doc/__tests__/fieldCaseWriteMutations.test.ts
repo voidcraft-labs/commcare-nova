@@ -13,6 +13,7 @@ import {
 	OPENS_WITH_CASE_VALUE_NOTE,
 	planFieldCaseWrite,
 	planFieldMoveCaseWrites,
+	STARTS_BLANK_NOTE,
 	saveNewCaseNameFirstMessage,
 } from "@/lib/doc/fieldCaseWriteMutations";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
@@ -511,6 +512,7 @@ describe("planFieldCaseWrite: the starting value", () => {
 	describe("a question that can't open on the case's value", () => {
 		const COUNT = testUuid("saves-fup-count");
 		const STAGE = testUuid("saves-fup-stage");
+		const TAGS = testUuid("saves-fup-tags");
 		const visit = () =>
 			buildDoc({
 				caseTypes: [
@@ -523,6 +525,7 @@ describe("planFieldCaseWrite: the starting value", () => {
 							{ name: "remark", label: "Remark", data_type: "text" },
 							{ name: "stage", label: "Stage" },
 							{ name: "tags", label: "Tags", data_type: "multi_select" },
+							{ name: "level", label: "Level", data_type: "single_select" },
 						],
 					},
 				],
@@ -559,6 +562,15 @@ describe("planFieldCaseWrite: the starting value", () => {
 											{ value: "closed", label: "Closed" },
 										],
 									}),
+									f({
+										uuid: TAGS,
+										kind: "multi_select",
+										id: "tags",
+										options: [
+											{ value: "open", label: "Open" },
+											{ value: "closed", label: "Closed" },
+										],
+									}),
 								],
 							},
 						],
@@ -586,7 +598,7 @@ describe("planFieldCaseWrite: the starting value", () => {
 			).toMatchObject({ ok: true, notes: [OPENS_WITH_CASE_VALUE_NOTE] });
 		});
 
-		it("refuses a choice question on a text property, and bears one on a property only it types", () => {
+		it("refuses a choice question on a property that can hold values outside its choices, and bears one on a choice property", () => {
 			const doc = visit();
 			expect(
 				refusal(
@@ -596,22 +608,43 @@ describe("planFieldCaseWrite: the starting value", () => {
 					}),
 				),
 			).toBe(
-				`"stage" in "Visit" can't save to "remark", because it would open on the case's value, which can be text that isn't one of its choices, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. Leaving it blank would clear the case's value. You can make "stage" a text question, or save it to a property that holds choices.`,
+				`"stage" in "Visit" can't save to "remark", because it would open on the case's value, which can be text that isn't one of its choices, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. Leaving it blank would clear the case's value. You can make "stage" a text question, or save it to a property that holds a single choice.`,
+			);
+			// Several choices at once attach to no one choice of a single-choice
+			// question (`Selection.java::attachChoice`).
+			expect(
+				refusal(
+					planFieldCaseWrite(doc, STAGE, {
+						caseType: "household",
+						property: "tags",
+					}),
+				),
+			).toBe(
+				`"stage" in "Visit" can't save to "tags", because it would open on the case's value, which can be several choices at once, more than a single-choice question takes, and CommCare's Web Apps can't open a form whose choice question starts on a value it doesn't offer. Leaving it blank would clear the case's value. You can make "stage" a multiple-choice or text question, or save it to a property that holds a single choice.`,
 			);
 			expect(
-				planFieldCaseWrite(doc, STAGE, {
-					caseType: "household",
-					property: "stage",
-				}),
-			).toMatchObject({ ok: true, notes: [OPENS_WITH_CASE_VALUE_NOTE] });
-			// A choice-typed property holds choices; which choices may share one
-			// is a question of its own, so the planner doesn't refuse here.
-			expect(
-				planFieldCaseWrite(doc, STAGE, {
-					caseType: "household",
-					property: "tags",
-				}),
-			).toMatchObject({ ok: true, notes: [OPENS_WITH_CASE_VALUE_NOTE] });
+				refusal(
+					planFieldCaseWrite(doc, TAGS, {
+						caseType: "household",
+						property: "remark",
+					}),
+				),
+			).toMatch(/or save it to a property that holds choices\.$/);
+			// A choice property holds choices, and a multiple-choice question
+			// opens on one as a selection of one; which choices may share a
+			// property is a question of its own, so the planner doesn't refuse.
+			for (const [question, property] of [
+				[STAGE, "stage"],
+				[STAGE, "level"],
+				[TAGS, "level"],
+				[TAGS, "tags"],
+			] as const)
+				expect(
+					planFieldCaseWrite(doc, question, {
+						caseType: "household",
+						property,
+					}),
+				).toMatchObject({ ok: true, notes: [OPENS_WITH_CASE_VALUE_NOTE] });
 		});
 
 		/** The replace key of the question's one save to the household. */
@@ -721,7 +754,12 @@ describe("planFieldCaseWrite: the starting value", () => {
 					property: "visits",
 				}),
 			);
-			const removed = land(saved, planFieldCaseWrite(saved, COUNT, null));
+			const stop = planFieldCaseWrite(saved, COUNT, null);
+			expect(stop).toMatchObject({ ok: true, notes: [STARTS_BLANK_NOTE] });
+			expect(STARTS_BLANK_NOTE).toBe(
+				"Starts blank now, since it no longer saves to the case value it opened with.",
+			);
+			const removed = land(saved, stop);
 			expect(removed.fields[COUNT]).not.toHaveProperty("default_value");
 			const authored = commit(saved, [
 				{
@@ -736,10 +774,75 @@ describe("planFieldCaseWrite: the starting value", () => {
 					},
 				} as Mutation,
 			]);
-			const kept = land(authored, planFieldCaseWrite(authored, COUNT, null));
+			const keep = planFieldCaseWrite(authored, COUNT, null);
+			expect(keep).toMatchObject({ ok: true, notes: [] });
+			const kept = land(authored, keep);
 			expect(kept.fields[COUNT]).toMatchObject({
 				default_value: { kind: "term", term: { kind: "literal", value: 3 } },
 			});
+		});
+
+		// A whole replace naming one of the question's saves keeps that save
+		// and its starting value, and the starting value born for a save it
+		// drops goes with that save.
+		it("keeps the starting value of a save a whole replace keeps, and clears one born for a save it drops", () => {
+			const doc = visit();
+			const once = land(
+				doc,
+				planFieldCaseWrite(doc, COUNT, {
+					caseType: "household",
+					property: "tally",
+				}),
+			);
+			const [view] = fieldCaseWriteViews(once, COUNT);
+			if (view === undefined) throw new Error("The question saves nothing.");
+			const twice = commit(once, [
+				{
+					kind: "updateForm",
+					uuid: view.formUuid,
+					patch: {},
+					caseOperationPatch: {
+						operation: "add-write",
+						uuid: view.operationUuid,
+						value: {
+							property: "visits",
+							value: { kind: "term", term: { kind: "field", uuid: COUNT } },
+						},
+					},
+				} as Mutation,
+			]);
+			expect(
+				fieldCaseWriteViews(twice, COUNT).map((saved) => saved.property),
+			).toEqual(["tally", "visits"]);
+			const bornTally = {
+				default_value: {
+					kind: "term",
+					term: { kind: "form-case", caseType: "household", property: "tally" },
+				},
+			};
+			expect(twice.fields[COUNT]).toMatchObject(bornTally);
+
+			const keepsTally = planFieldCaseWrite(twice, COUNT, {
+				caseType: "household",
+				property: "tally",
+			});
+			expect(keepsTally).toMatchObject({ ok: true, notes: [] });
+			expect(startingValues(keepsTally)).toEqual([]);
+			expect(land(twice, keepsTally).fields[COUNT]).toMatchObject(bornTally);
+
+			const keepsVisits = planFieldCaseWrite(twice, COUNT, {
+				caseType: "household",
+				property: "visits",
+			});
+			expect(keepsVisits).toMatchObject({
+				ok: true,
+				notes: [STARTS_BLANK_NOTE],
+			});
+			const visits = land(twice, keepsVisits);
+			expect(
+				fieldCaseWriteViews(visits, COUNT).map((saved) => saved.property),
+			).toEqual(["visits"]);
+			expect(visits.fields[COUNT]).not.toHaveProperty("default_value");
 		});
 
 		// The starting value the planner bore reads the property it saved to,
