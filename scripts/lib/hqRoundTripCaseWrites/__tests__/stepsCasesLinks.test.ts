@@ -497,6 +497,10 @@ describe("writes-into-operations: C9 over a condition that reads cases", () => {
 			"a table lookup's filter",
 			equals(labelOf(prop("note", undefined, "alumnus")), "retired"),
 		],
+		[
+			"a table lookup nested in another's filter",
+			equals(labelOf(labelOf(prop("note", undefined, "alumnus"))), "retired"),
+		],
 	])(
 		"stops the app where a close after a retype reads its case through %s",
 		(_what, condition) => {

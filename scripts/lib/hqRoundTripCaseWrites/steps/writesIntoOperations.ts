@@ -184,11 +184,6 @@ interface LoadedCase {
 	readonly depths: ReadonlyMap<string, number>;
 }
 
-/** Where a part of the condition stands: in the operation's row, or in the
- *  `where` of a table lookup made there, whose table row captures the
- *  operation's row, so its case reads are still the row's. */
-type RowPlace = "row" | "captured";
-
 /** Nodes whose children read rows of their own (a query's, the locations',
  *  the selected cases'): no read inside one is of the operation's row, so
  *  the rewrite leaves them as they are and the checker judges them in the
@@ -256,7 +251,9 @@ function formCaseRead(ref: PropertyRef, loaded: LoadedCase): FormRead<Term> {
  * copy. It follows the checker's row scopes (`expressionChildContext`): a
  * table lookup's `where` captures the row it is made in, a projection's
  * value and a relation walk's `where` read the rows they reach, and a form
- * node's filters keep the row. A row a retype gave another type is read
+ * node's filters keep the row. A lookup nested in another's `where`, which
+ * the checker refuses, is rewritten the same way, so a retyped row's reads
+ * there are refused as such. A row a retype gave another type is read
  * under that type, so any read of it, a walk to its related cases
  * included, is refused. Whether the form's close condition holds the
  * result is the checker's to say (`foldOwnCloses`).
@@ -264,12 +261,11 @@ function formCaseRead(ref: PropertyRef, loaded: LoadedCase): FormRead<Term> {
 function asFormCondition(
 	value: unknown,
 	loaded: LoadedCase,
-	place: RowPlace = "row",
 ): FormRead<unknown> {
 	if (Array.isArray(value)) {
 		const items: unknown[] = [];
 		for (const item of value) {
-			const read = asFormCondition(item, loaded, place);
+			const read = asFormCondition(item, loaded);
 			if (!read.ok) return read;
 			items.push(read.value);
 		}
@@ -287,13 +283,11 @@ function asFormCondition(
 	if (typeof kind === "string" && OTHER_ROWS.has(kind))
 		return { ok: true, value };
 	if (kind === "project") {
-		const of = asFormCondition(node.of, loaded, place);
+		const of = asFormCondition(node.of, loaded);
 		return of.ok ? { ok: true, value: { ...node, of: of.value } } : of;
 	}
 	if (kind === "table-lookup") {
-		// A lookup made inside another one's `where` captures no case.
-		if (place === "captured") return { ok: true, value };
-		const where = asFormCondition(node.where, loaded, "captured");
+		const where = asFormCondition(node.where, loaded);
 		return where.ok
 			? { ok: true, value: { ...node, where: where.value } }
 			: where;
@@ -307,7 +301,7 @@ function asFormCondition(
 			: { ok: true, value };
 	const copy: Record<string, unknown> = {};
 	for (const [key, item] of Object.entries(node)) {
-		const read = asFormCondition(item, loaded, place);
+		const read = asFormCondition(item, loaded);
 		if (!read.ok) return read;
 		// A property a match names is a read itself, so it becomes a term.
 		copy[key] =
@@ -326,6 +320,15 @@ const CLOSE_READ_SENTENCES: Record<CloseReadRefusal, string> = {
 	"retyped-case":
 		"reads its case under the type a case change before it gives the case, which the form's close condition reads only as the menu's type",
 };
+
+/** `message` ending as a sentence does, with a full stop where it has no
+ *  closing mark of its own. */
+function asSentence(message: string): string {
+	const trimmed = message.trim();
+	return [".", "!", "?"].some((mark) => trimmed.endsWith(mark))
+		? trimmed
+		: `${trimmed}.`;
+}
 
 const CLOSE_REMEDY =
 	"You can rewrite the condition so it reads only this form's answers, its case or a case above it through its parent links, or remove that case change and close the case from the form instead.";
@@ -444,11 +447,10 @@ function foldOwnCloses(
 		const errors = semanticCheckErrors(checkExpression(term, closeSlot));
 		const first = errors[0];
 		if (first !== undefined) {
-			// Each of the checker's messages is its own sentence.
 			unreadable.push({
 				...place,
 				findingCode: `check:${first.code}`,
-				message: `${subject} can't be the form's close condition. ${errors.map((error) => error.message).join(" ")} ${CLOSE_REMEDY}`,
+				message: `${subject} can't be the form's close condition. ${errors.map((error) => asSentence(error.message)).join(" ")} ${CLOSE_REMEDY}`,
 			});
 			return undefined;
 		}
