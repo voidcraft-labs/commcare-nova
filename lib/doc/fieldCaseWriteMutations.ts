@@ -87,7 +87,9 @@ export const OPENS_WITH_CASE_VALUE_NOTE =
 	"Opens with the case's current value.";
 
 /** What a result says when the starting value born for a save goes with it
- *  (`startsBlankNote`). */
+ *  (`startsBlankNote`). A Hidden Value always gets this plain note; the tools
+ *  that edit one add what an empty one saves
+ *  (`casePreload.ts::hiddenWriterBlankNote`). */
 export const STARTS_BLANK_NOTE =
 	"Starts blank now, since it no longer saves to the case value it opened with.";
 
@@ -119,7 +121,10 @@ function startsBlankNote(
 		return STARTS_BLANK_NOTE;
 	const opensOn = fieldCaseWriteViews(after, field.uuid).find(
 		(view) =>
-			// A write through `via` is an `ancestor` view, never `own`.
+			// The views come from every form the index lists; this note is
+			// about this form. A write through `via` is an `ancestor` view,
+			// never `own`.
+			view.formUuid === ctx.formUuid &&
 			view.destination === "own" &&
 			view.slot !== "owner" &&
 			writerOffersPreload(after, field.uuid, view.property) &&
