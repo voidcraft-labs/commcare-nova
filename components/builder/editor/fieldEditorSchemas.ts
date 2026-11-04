@@ -22,9 +22,11 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { CaseWriteEditor } from "@/components/builder/editor/fields/CaseWriteEditor";
+import { FieldListEditor } from "@/components/builder/editor/fields/FieldListEditor";
 import type { HiddenValueEditor as HiddenValueEditorComponent } from "@/components/builder/editor/fields/HiddenValueEditor";
 import type { MediaSlotEditor as MediaSlotEditorComponent } from "@/components/builder/editor/fields/MediaSlotEditor";
 import type { OptionsSourceEditor as OptionsSourceEditorComponent } from "@/components/builder/editor/fields/OptionsSourceEditor";
+import type { RepeatRowsEditor as RepeatRowsEditorComponent } from "@/components/builder/editor/fields/RepeatRowsEditor";
 import type { TextEditor as TextEditorComponent } from "@/components/builder/editor/fields/TextEditor";
 import type { XPathEditor as XPathEditorComponent } from "@/components/builder/editor/fields/XPathEditor";
 import {
@@ -158,6 +160,16 @@ const HiddenValueEditor = dynamic(
 		),
 	{ loading: EditorLoading },
 ) as typeof HiddenValueEditorComponent;
+
+/* A repeat's Rows editor holds the count and query editors, so it rides the
+ * same lazy boundary. */
+const RepeatRowsEditor = dynamic(
+	() =>
+		import("@/components/builder/editor/fields/RepeatRowsEditor").then(
+			(module) => module.RepeatRowsEditor,
+		),
+	{ loading: EditorLoading },
+) as typeof RepeatRowsEditorComponent;
 // ── Shared entry factories ──────────────────────────────────────────────
 //
 // Every kind's logic section repeats the same "addable + visible iff
@@ -575,26 +587,33 @@ const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
 	ui: [],
 };
 
-// Group/repeat are structural containers shown with minimal chrome
-// (Logic only). Their label carries text alone: no CommCare runtime draws
-// media on a group's or repeat's label.
+// Group/repeat are structural containers shown with minimal chrome. Their
+// label carries text alone: no CommCare runtime draws media on a group's or
+// repeat's label.
+//
+// A group's Show on one screen switch (`FieldListEditor`) is always shown,
+// never a pill: off is a state to choose from, not an absent property. It
+// writes `fieldList: true` on and `fieldList: null` off.
 const groupFieldEditorSchema: FieldEditorSchema<GroupField> = {
 	data: [],
 	logic: [xpathEntry<GroupField, "relevant">("relevant", "Show when")],
-	ui: [],
+	ui: [
+		{
+			key: "fieldList",
+			component: FieldListEditor,
+			label: "Show on one screen",
+		},
+	],
 };
 
-// `repeat_mode` and the mode-specific keys (`repeat_count`,
-// `data_source.ids_query`) are reachable only via the SA tool surface
-// (`addField` / `editField`). The inspector exposes only `relevant`
-// here because mode editing requires a mode picker plus mode-
-// conditional XPath editors (count visible iff
-// `repeat_mode === "count_bound"`, ids_query visible iff
-// `repeat_mode === "query_bound"`) with clear-on-mode-change semantics:
-// a custom widget tier this schema's flat-key entry vocabulary doesn't
-// directly support.
+// A repeat's rows are the Rows editor's (`RepeatRowsEditor`): it is mounted
+// on `repeat_mode` and edits the mode-specific slot with it (`repeat_count`
+// under a set number of rows, `data_source.ids_query` under one row per case
+// found), each change one `updateField` carrying the new mode and only its
+// slot. Always shown, never a pill: every repeat has a mode. It rides the
+// CodeMirror chunk's lazy boundary, as the Hidden Value editor does.
 const repeatFieldEditorSchema: FieldEditorSchema<RepeatField> = {
-	data: [],
+	data: [{ key: "repeat_mode", component: RepeatRowsEditor, label: "Rows" }],
 	logic: [xpathEntry<RepeatField, "relevant">("relevant", "Show when")],
 	ui: [],
 };

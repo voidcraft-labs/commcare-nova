@@ -135,7 +135,7 @@ export function CaseOperationRow({
 				beingMoved ? "opacity-50" : ""
 			}`}
 		>
-			{canEdit && (
+			{canEdit && operation.action !== "own" && (
 				<SimpleTooltip content="Drag or use arrow keys" side="left">
 					<Button
 						type="button"

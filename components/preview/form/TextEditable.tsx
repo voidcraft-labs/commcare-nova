@@ -22,6 +22,7 @@ import type { CommitOutcome, ProseTemplate } from "@/lib/domain";
 import { useCanEdit, usePreviewing } from "@/lib/session/hooks";
 
 import type { FieldType } from "./fieldStyles";
+import type { FormatTextControl } from "./useLabelFormatText";
 
 const loadInlineTextEditor = () => import("./InlineTextEditor");
 const InlineTextEditor = dynamic(
@@ -44,6 +45,8 @@ interface TextEditableProps {
 	fieldType: FieldType;
 	/** Static rendering of this field (LabelContent). Shown when not editing. */
 	children: ReactNode;
+	/** A label's Format text toggle, shown in the editor's toolbar. */
+	formatText?: FormatTextControl;
 }
 
 export function TextEditable({
@@ -51,6 +54,7 @@ export function TextEditable({
 	onSave,
 	fieldType,
 	children,
+	formatText,
 }: TextEditableProps) {
 	const previewing = usePreviewing();
 	const canEdit = useCanEdit();
@@ -131,6 +135,7 @@ export function TextEditable({
 					fieldType={fieldType}
 					autoFocus
 					clickPosition={clickPosRef.current}
+					formatText={formatText}
 				/>
 				<RejectionInline message={rejection ?? null} className="max-w-sm" />
 			</div>

@@ -34,6 +34,7 @@ import tablerCirclePlus from "@iconify-icons/tabler/circle-plus";
 import tablerCircleX from "@iconify-icons/tabler/circle-x";
 import tablerPencil from "@iconify-icons/tabler/pencil";
 import tablerPlus from "@iconify-icons/tabler/plus";
+import tablerUser from "@iconify-icons/tabler/user";
 import {
 	useCallback,
 	useEffect,
@@ -61,18 +62,26 @@ import {
 	useModuleCaseType,
 } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
+import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
+import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { asUuid, type Uuid } from "@/lib/doc/types";
 import {
 	type CaseOperation,
 	RESERVED_CASE_OPERATION_TYPES,
+	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { POPOVER_ROW_CLS } from "@/lib/styles";
 import { CaseOperationRow } from "./CaseOperationRow";
+import { operationFormFieldDecls } from "./formFieldScope";
 import { planKeyboardMove, type ReorderKey } from "./keyboardMove";
 import { moveRefusalReason } from "./refusalCopy";
-import { seedCaseOperation, takenOperationIds } from "./seeds";
+import {
+	seedCaseOperation,
+	takenOperationIds,
+	workerRecordSeed,
+} from "./seeds";
 import { useOperationSentenceContext } from "./useOperationSentenceContext";
 
 const CONTAINER_KIND = "case-operations";
@@ -390,6 +399,7 @@ export function CaseOperationsCanvas({
 					formUuid={formUuid}
 					operations={operations}
 					addVerdict={view.addVerdict}
+					writeValueType={view.writeValueType}
 					open={addOpen}
 					onOpenChange={setAddOpen}
 					onAdd={add}
@@ -441,13 +451,16 @@ type SessionChangeChoice =
 /**
  * Adding is chooser-first: the question is what the change DOES, because
  * that answer decides the action, the target, and which facets are legal.
- * Every choice lands a complete, valid change and opens it.
+ * Every choice lands a complete, valid change and opens it. Update the
+ * worker's record joins the choices where the app declares worker
+ * properties (`seeds.ts::workerRecordSeed`).
  */
 function AddChangeControl({
 	moduleUuid,
 	formUuid,
 	operations,
 	addVerdict,
+	writeValueType,
 	open,
 	onOpenChange,
 	onAdd,
@@ -456,6 +469,9 @@ function AddChangeControl({
 	readonly formUuid: Uuid;
 	readonly operations: readonly CaseOperation[];
 	readonly addVerdict: ReturnType<typeof useCaseOperations>["addVerdict"];
+	readonly writeValueType: ReturnType<
+		typeof useCaseOperations
+	>["writeValueType"];
 	readonly open: boolean;
 	readonly onOpenChange: (open: boolean) => void;
 	readonly onAdd: (operation: CaseOperation) => void;
@@ -509,6 +525,34 @@ function AddChangeControl({
 			close: choice("close-session"),
 		};
 	}, [addVerdict, operations, sessionCaseType, sessionReason]);
+	/* Update the worker's record is offered only where the app declares
+	 * worker properties; there it is the seed or the gate's reason. A form
+	 * holds one such update, so a second is refused by the gate in its own
+	 * words. */
+	const workerProperties = useUserProperties();
+	const fieldEntries = useFormFieldEntries(formUuid);
+	const workerChoice = useMemo<SessionChangeChoice | undefined>(() => {
+		const seed = workerRecordSeed(
+			workerProperties,
+			// The form's uuid names no case change, so every writer of the
+			// property counts toward the type its value must fit.
+			(property) => writeValueType(formUuid, USERCASE_CASE_TYPE, property),
+			operationFormFieldDecls(fieldEntries, undefined),
+		);
+		if (seed === undefined) return undefined;
+		const operation = seedCaseOperation(seed, takenOperationIds(operations));
+		const verdict = addVerdict(operation);
+		return verdict.ok
+			? { available: true, operation }
+			: { available: false, reason: verdict.reason };
+	}, [
+		addVerdict,
+		fieldEntries,
+		formUuid,
+		operations,
+		workerProperties,
+		writeValueType,
+	]);
 	/* Stable so `CaseTypePickerContent` can memoize the whole verdict map: it
 	 * asks once per offered case type, each ask is a whole-document validation,
 	 * and the picker re-renders on every keystroke in its create-new box. The
@@ -617,6 +661,24 @@ function AddChangeControl({
 								}
 							}}
 						/>
+						{workerChoice !== undefined && (
+							<IntentRow
+								icon={tablerUser}
+								title="Update the worker's record"
+								detail={
+									workerChoice.available
+										? "Save answers onto the record of the worker filling in the form"
+										: workerChoice.reason
+								}
+								disabledReason={
+									workerChoice.available ? undefined : workerChoice.reason
+								}
+								dataAttribute="worker-record"
+								onClick={() => {
+									if (workerChoice.available) onAdd(workerChoice.operation);
+								}}
+							/>
+						)}
 					</div>
 				)}
 			</PopoverContent>
@@ -629,17 +691,21 @@ function IntentRow({
 	title,
 	detail,
 	disabledReason,
+	dataAttribute,
 	onClick,
 }: {
 	readonly icon: Parameters<typeof Icon>[0]["icon"];
 	readonly title: string;
 	readonly detail: string;
 	readonly disabledReason?: string;
+	/** The row's `data-case-operations-intent` value. */
+	readonly dataAttribute?: string;
 	readonly onClick: () => void;
 }) {
 	return (
 		<button
 			type="button"
+			data-case-operations-intent={dataAttribute}
 			disabled={disabledReason !== undefined}
 			onClick={onClick}
 			className={POPOVER_ROW_CLS}

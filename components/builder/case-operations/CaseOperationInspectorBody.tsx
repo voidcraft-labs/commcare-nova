@@ -19,6 +19,10 @@
 // goes only with the form's type, so its rail states those facts and
 // offers no action menu and no remove. Its writes are edited on the
 // canvas like any change's.
+//
+// Every change's rail, the own case's included, also says where CommCare HQ
+// keeps it (`PlacementRow`), read-only, after its settings and before the
+// remove row.
 
 "use client";
 
@@ -48,6 +52,7 @@ import {
 	useModuleCaseType,
 } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
+import { useCasePlacements } from "@/lib/doc/hooks/useCasePlacements";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
 import {
 	type CaseOperationIdVerdict,
@@ -59,6 +64,7 @@ import {
 	type CaseTarget,
 	humanizeId,
 	type OwnCaseOperation,
+	placementLine,
 	RESERVED_CASE_OPERATION_TYPES,
 	type TargetedCaseOperation,
 } from "@/lib/domain";
@@ -490,6 +496,8 @@ export function CaseOperationInspectorBody({
 					</Row>
 				)}
 
+				<PlacementRow formUuid={formUuid} operationUuid={operation.uuid} />
+
 				{operationCanEdit && (
 					<RemoveOperationRow
 						operation={operation}
@@ -537,7 +545,38 @@ function OwnCaseRail({
 						: humanizeId(caseType)}
 				</p>
 			</Row>
+			<PlacementRow formUuid={formUuid} operationUuid={own.uuid} />
 		</div>
+	);
+}
+
+/**
+ * Where CommCare HQ keeps one case change, read-only: a placement is never
+ * authored. The line is the placement's (`placementCopy.ts::placementLine`),
+ * with the held suffix where a publish recorded it. A change the placement
+ * plan gives no place renders nothing.
+ */
+function PlacementRow({
+	formUuid,
+	operationUuid,
+}: {
+	readonly formUuid: Uuid;
+	readonly operationUuid: Uuid;
+}) {
+	const view = useCasePlacements(formUuid);
+	const entry = view.operations.find(
+		(candidate) => candidate.operationUuid === operationUuid,
+	)?.entry;
+	if (entry === undefined) return null;
+	return (
+		<section className="space-y-2" data-case-placement-row>
+			<h3 className="text-[13px] font-medium leading-5 text-nova-text-secondary">
+				Where CommCare HQ keeps it
+			</h3>
+			<p className="text-[14px] leading-relaxed text-nova-text">
+				{placementLine(entry.placement, entry.held)}
+			</p>
+		</section>
 	);
 }
 

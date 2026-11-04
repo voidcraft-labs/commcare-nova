@@ -7,7 +7,8 @@ import { openBuilder } from "../../lib/pageLoads";
  * Management, moves to Save to Case only once the person has seen where its
  * answers go: the move waits in the identity-move dialog, Cancel leaves the
  * app as it was, Make the change saves once, and undo puts the value and the
- * recorded place back without asking.
+ * recorded place back without asking. The rail reads each place as it
+ * stands, held where the published app keeps it.
  */
 test("a change that moves published answers waits for the person, and its undo restores the recorded place", {
 	tag: "@seed:identity-moves",
@@ -46,6 +47,12 @@ test("a change that moves published answers waits for the person, and its undo r
 		.last();
 	const combineText = write.getByText("Combine text", { exact: true });
 	await expect(combineText).toHaveCount(0);
+	// The rail beside the change says where CommCare HQ keeps it, and that a
+	// publish recorded that place.
+	const placement = page.locator("[data-case-placement-row]");
+	await expect(placement).toContainText(
+		"CommCare HQ keeps this in the form's Case Management settings. · Kept where your published app has it",
+	);
 
 	const dialog = page.getByRole("dialog", {
 		name: "This changes where CommCare HQ keeps some answers",
@@ -77,6 +84,9 @@ test("a change that moves published answers waits for the person, and its undo r
 	await expect(dialog).toBeHidden();
 	expect((await moveSaved).ok()).toBe(true);
 	await expect(combineText).toBeVisible();
+	await expect(placement).toContainText(
+		"CommCare HQ keeps this in a Save to Case block in the form, which needs Save to Case in the project space's plan. · Kept where your published app has it",
+	);
 	// The first save is the move itself: Cancel sent nothing before it.
 	expect(puts).toHaveLength(1);
 	const moveBody = puts[0]?.postData() ?? "";
@@ -89,6 +99,9 @@ test("a change that moves published answers waits for the person, and its undo r
 	expect(undoResponse.ok()).toBe(true);
 	await expect(dialog).toBeHidden();
 	await expect(combineText).toHaveCount(0);
+	await expect(placement).toContainText(
+		"CommCare HQ keeps this in the form's Case Management settings. · Kept where your published app has it",
+	);
 	// The undo puts the hold back where the published app keeps it.
 	expect(puts).toHaveLength(2);
 	const undoBody = puts[1]?.postData() ?? "";

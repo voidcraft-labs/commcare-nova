@@ -39,6 +39,7 @@ import {
 	FIELD_STYLES,
 } from "@/components/preview/form/fieldStyles";
 import { TextEditable } from "@/components/preview/form/TextEditable";
+import { useLabelFormatText } from "@/components/preview/form/useLabelFormatText";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useFilledField } from "@/lib/doc/hooks/useLocalization";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
@@ -92,6 +93,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 	const labelEditor = useTranslationUnitEditor(
 		makeTranslationUnitId("field", uuid, "label"),
 	);
+	const labelFormatText = useLabelFormatText(q);
 	const state = useEngineState(uuid);
 	const controller = useEngineController();
 	const projectProse = useProseProjection();
@@ -238,6 +240,7 @@ export const GroupOpenRow = memo(function GroupOpenRow({
 									}
 									onSave={saveField ? (v) => saveField("label", v) : undefined}
 									fieldType="label"
+									formatText={labelFormatText}
 								>
 									{shownLabel && !proseTemplateIsEmpty(shownLabel) ? (
 										<LabelContent

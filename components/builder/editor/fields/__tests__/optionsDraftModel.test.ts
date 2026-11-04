@@ -5,6 +5,7 @@ import {
 	proseText,
 	type SelectOption,
 } from "@/lib/domain";
+import { selectOptionSchema } from "@/lib/domain/fields/base";
 import { asMediaAssetId } from "@/lib/domain/multimedia";
 import {
 	optionsSnapshotKey,
@@ -12,6 +13,7 @@ import {
 	removeOptionDraft,
 	replaceOptionLabel,
 	replaceOptionMedia,
+	replaceOptionPlainLabel,
 } from "../optionsDraftModel";
 
 const red: SelectOption = {
@@ -81,6 +83,17 @@ describe("actual option draft mutations", () => {
 		expect(cleared[0]).toEqual(red);
 		expect(cleared[0]).not.toHaveProperty("media");
 		expect(attached[0].media).toBe(image);
+	});
+	it("writes a choice's Format text as the stored plainLabel and clears it back to absence", () => {
+		const off = replaceOptionPlainLabel([red, blue], 0, true);
+		expect(off[0]).toEqual({ ...red, plainLabel: true });
+		expect(off[1]).toBe(blue);
+		expect(selectOptionSchema.parse(off[0])).toEqual(off[0]);
+		expect(optionsSnapshotKey(off)).not.toBe(optionsSnapshotKey([red, blue]));
+		const on = replaceOptionPlainLabel(off, 0, false);
+		expect(on[0]).toEqual(red);
+		expect(on[0]).not.toHaveProperty("plainLabel");
+		expect(optionsSnapshotKey(on)).toBe(optionsSnapshotKey([red, blue]));
 	});
 	it("protects the two-option floor and removes by exact occurrence", () => {
 		const pair = [red, blue];

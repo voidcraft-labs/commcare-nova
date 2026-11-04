@@ -114,6 +114,20 @@ export function replaceOptionMedia<T extends SelectOption>(
 		return (media ? { ...base, media } : base) as T;
 	});
 }
+/** A choice's Format text setting: `plain` writes `plainLabel: true`, so the
+ *  choice shows as typed; otherwise the key leaves the row, since an absent
+ *  `plainLabel` is the formatted default. */
+export function replaceOptionPlainLabel<T extends SelectOption>(
+	draft: T[],
+	index: number,
+	plain: boolean,
+): T[] {
+	return draft.map((option, optionIndex) => {
+		if (optionIndex !== index) return option;
+		const { plainLabel: _previous, ...base } = option;
+		return (plain ? { ...base, plainLabel: true } : base) as T;
+	});
+}
 export function removeOptionDraft<T extends SelectOption>(
 	draft: T[],
 	index: number,

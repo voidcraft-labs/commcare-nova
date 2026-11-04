@@ -24,7 +24,10 @@
 // condition of its own and no runtime target: when it runs is the form's
 // (its close condition is in the form's settings). Its name, owner,
 // writes and links are edited exactly as another change's are, and each
-// write is the same one a question's "Saves to" row shows.
+// write is the same one a question's "Saves to" row shows. On a follow-up or
+// close form each of its writes also has an overflow menu
+// (`ownWriteMenuModel.ts`): save it to a case above the form's case instead,
+// and save only a changed answer. No other change's writes may do either.
 
 "use client";
 
@@ -33,10 +36,15 @@ import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerArrowLeft from "@iconify-icons/tabler/arrow-left";
 import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
+import tablerDots from "@iconify-icons/tabler/dots";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerTrash from "@iconify-icons/tabler/trash";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import {
+	ancestorCaseWriteChoices,
+	SAVE_ONLY_IF_CHANGED_LINE,
+} from "@/components/builder/editor/fields/caseWriteRowModel";
 import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { ClearConditionButton } from "@/components/builder/shared/ClearConditionButton";
 import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
@@ -47,6 +55,17 @@ import {
 import { editorAxesOf } from "@/components/builder/shared/editorAxes";
 import type { OperationValueScope } from "@/components/builder/shared/expressionEditorSchemas";
 import { Button } from "@/components/shadcn/button";
+import {
+	DropdownMenu,
+	DropdownMenuCheckboxItem,
+	DropdownMenuContent,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
+	DropdownMenuTrigger,
+} from "@/components/shadcn/dropdown-menu";
 import {
 	Select,
 	SelectContent,
@@ -63,6 +82,7 @@ import {
 	useModuleCaseType,
 } from "@/lib/doc/hooks/useCaseOperationFacts";
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
+import { useCasePlacements } from "@/lib/doc/hooks/useCasePlacements";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useExpressionSlotContext } from "@/lib/doc/hooks/useExpressionSlotContext";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
@@ -90,6 +110,7 @@ import {
 	storageAssignmentConstraint,
 	term,
 } from "@/lib/domain/expression";
+import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import {
 	fixedLocationOwnerIssue,
 	reverseLocationOwnerIssue,
@@ -121,6 +142,12 @@ import {
 	caseTypePhrase,
 	operationSentence,
 } from "./operationSentence";
+import {
+	destinationWrittenProperties,
+	type OwnWriteMenu,
+	ownWriteMenu,
+	viaDestinationLine,
+} from "./ownWriteMenuModel";
 import { seedCaseOperationWrite, seedRenameValue } from "./seeds";
 import { useOperationSentenceContext } from "./useOperationSentenceContext";
 import { WritePropertyPicker } from "./WritePropertyPicker";
@@ -158,6 +185,7 @@ export function CaseOperationDetailCanvas({
 
 	const fieldEntries = useFormFieldEntries(formUuid);
 	const userProperties = useUserProperties();
+	const placements = useCasePlacements(formUuid);
 	const sessionCaseAvailable = useFormHasSessionCase(moduleUuid, formUuid);
 	/* Clearing the condition unmounts the control that cleared it, so focus
 	 * has to be handed forward to the Add button that replaces the editor. */
@@ -255,6 +283,40 @@ export function CaseOperationDetailCanvas({
 		formFields,
 		operationScope,
 	} as const;
+
+	/* The own arm's writes on a follow-up or close form may save to a case
+	 * above the form's case and keep only a changed answer; no other change's
+	 * writes may (decision R9). */
+	const ancestors =
+		operation.action === "own"
+			? ancestorCaseWriteChoices(
+					caseTypes,
+					expressionCaseType || undefined,
+					formType,
+				)
+			: [];
+	const writeMenu = (writeIndex: number): OwnWriteMenu | undefined =>
+		operation.action === "own" && operationCanEdit
+			? ownWriteMenu({
+					formType,
+					own: operation,
+					writeIndex,
+					ancestors,
+					ownHome: placements.own?.home,
+					verdict: view.editVerdict,
+				})
+			: undefined;
+	/** The case type a write lands on: the operation's, or the one its `via`
+	 *  reaches from the form's case. */
+	const writeCaseType = (write: CaseOperationWrite): string => {
+		if (write.via === undefined) return destination;
+		const reached = resolveRelationDestination(
+			{ kind: "ancestor", via: write.via },
+			expressionCaseType || undefined,
+			caseTypes,
+		);
+		return reached.ok ? reached.caseType : destination;
+	};
 
 	return (
 		<ContentFrame width="3xl" className="px-6 pb-24 pt-6">
@@ -584,9 +646,16 @@ export function CaseOperationDetailCanvas({
 								removeRef={writeFocus.register(writeIndex)}
 								destinationType={view.writeValueType(
 									operation.uuid,
-									destination,
+									writeCaseType(write),
 									write.property,
 								)}
+								viaLine={
+									write.via === undefined
+										? undefined
+										: viaDestinationLine(writeCaseType(write), write.via)
+								}
+								menu={writeMenu(writeIndex)}
+								onReplace={commit}
 								onChange={(next) =>
 									commit({
 										...operation,
@@ -610,11 +679,7 @@ export function CaseOperationDetailCanvas({
 							<WritePropertyPicker
 								triggerRef={writeFocus.addRef}
 								caseTypeName={destination}
-								alreadyWritten={
-									new Set(
-										(operation.writes ?? []).map((write) => write.property),
-									)
-								}
+								alreadyWritten={destinationWrittenProperties(operation)}
 								formFields={formFields}
 								onChoose={(property, value) =>
 									commit({
@@ -1203,7 +1268,10 @@ function WriteRow({
 	canEdit,
 	editorScope,
 	destinationType,
+	viaLine,
+	menu,
 	onChange,
+	onReplace,
 	onRemove,
 	removeRef,
 }: {
@@ -1216,16 +1284,29 @@ function WriteRow({
 	 *  knows one. Absent means a brand-new property: the batch declares
 	 *  it, so any storable value is admissible. */
 	readonly destinationType: CasePropertyDataType | undefined;
+	/** Where a write through `via` saves, stated under its name. */
+	readonly viaLine?: string;
+	/** The own arm's overflow menu, on a follow-up or close form only. */
+	readonly menu?: OwnWriteMenu;
 	readonly onChange: (next: CaseOperationWrite) => void;
+	/** Commits a whole operation an overflow item planned. */
+	readonly onReplace: (next: CaseOperation) => void;
 	readonly onRemove: () => void;
 	readonly removeRef?: React.Ref<HTMLButtonElement>;
 }) {
 	const conditionCleared = useClearedSlotFocus(write.condition);
+	/* A write's key is its property and its `via`, so the slot's member
+	 * names both. */
+	const member = {
+		operationUuid,
+		property: write.property,
+		...(write.via !== undefined && { via: write.via }),
+	};
 	const conditionSlot = {
 		entity: "form",
 		uuid: formUuid,
 		slot: "case_operation_write_condition",
-		member: { operationUuid, property: write.property },
+		member,
 	} as const;
 	const expressionContext = useExpressionSlotContext(conditionSlot);
 	if (expressionContext === undefined)
@@ -1233,20 +1314,47 @@ function WriteRow({
 	return (
 		<div className="rounded-xl border border-white/[0.07] bg-nova-deep/30 p-3 @sm:p-4">
 			<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-				<h3 className="min-w-0 break-words text-[14px] font-semibold text-nova-text">
-					{casePropertyLabel(write.property)}
-				</h3>
+				<div className="min-w-0">
+					<h3 className="break-words text-[14px] font-semibold text-nova-text">
+						{casePropertyLabel(write.property)}
+					</h3>
+					{viaLine !== undefined && (
+						<p
+							className="mt-0.5 text-[13px] leading-relaxed text-nova-text-muted"
+							data-case-write-via
+						>
+							{viaLine}
+						</p>
+					)}
+					{write.onlyIfChanged === true && (
+						<p
+							className="mt-0.5 text-[13px] leading-relaxed text-nova-text-muted"
+							data-case-write-only-if-changed
+						>
+							{SAVE_ONLY_IF_CHANGED_LINE}
+						</p>
+					)}
+				</div>
 				{canEdit && (
-					<Button
-						ref={removeRef}
-						type="button"
-						variant="ghost-destructive"
-						onClick={onRemove}
-						aria-label={`Stop saving ${write.property}`}
-					>
-						<Icon icon={tablerTrash} width="14" height="14" />
-						Stop saving this
-					</Button>
+					<span className="flex flex-wrap items-center gap-1">
+						<Button
+							ref={removeRef}
+							type="button"
+							variant="ghost-destructive"
+							onClick={onRemove}
+							aria-label={`Stop saving ${write.property}`}
+						>
+							<Icon icon={tablerTrash} width="14" height="14" />
+							Stop saving this
+						</Button>
+						{menu !== undefined && (
+							<OwnWriteOverflow
+								property={write.property}
+								menu={menu}
+								onReplace={onReplace}
+							/>
+						)}
+					</span>
 				)}
 			</div>
 			<ExpressionSlotEditor
@@ -1254,7 +1362,7 @@ function WriteRow({
 					entity: "form",
 					uuid: formUuid,
 					slot: "case_operation_write_value",
-					member: { operationUuid, property: write.property },
+					member,
 				}}
 				value={write.value}
 				onChange={(value: Expression) => onChange({ ...write, value })}
@@ -1317,5 +1425,95 @@ function WriteRow({
 				)}
 			</div>
 		</div>
+	);
+}
+
+/**
+ * The overflow of one write of the form's own case: which case it saves to,
+ * this form's or one above it, and whether it saves only a changed answer.
+ * Every item is one whole own operation the gate already admitted, or is
+ * disabled with the gate's reason.
+ */
+function OwnWriteOverflow({
+	property,
+	menu,
+	onReplace,
+}: {
+	readonly property: string;
+	readonly menu: OwnWriteMenu;
+	readonly onReplace: (next: CaseOperation) => void;
+}) {
+	const { above, onlyIfChanged } = menu;
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger
+				render={<Button type="button" variant="ghost" size="icon" />}
+				aria-label={`More for ${property}`}
+				data-case-write-overflow
+			>
+				<Icon icon={tablerDots} width="16" height="16" />
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end" preferredMinWidth="16rem">
+				<DropdownMenuSub>
+					<DropdownMenuSubTrigger
+						disabled={above.unavailableReason !== undefined}
+						data-case-write-above
+					>
+						<span className="min-w-0 flex-1 text-left">
+							<span className="block break-words">{above.label}</span>
+							{above.unavailableReason !== undefined && (
+								<span className="block break-words text-xs text-nova-text-muted">
+									{above.unavailableReason}
+								</span>
+							)}
+						</span>
+					</DropdownMenuSubTrigger>
+					<DropdownMenuSubContent preferredMinWidth="14rem">
+						<DropdownMenuRadioGroup
+							value={above.items.find((item) => item.current)?.label}
+							onValueChange={(label) => {
+								const item = above.items.find(
+									(candidate) => candidate.label === label,
+								);
+								if (item !== undefined && !item.current) onReplace(item.next);
+							}}
+						>
+							{above.items.map((item) => (
+								<DropdownMenuRadioItem
+									key={item.label}
+									value={item.label}
+									disabled={item.disabledReason !== undefined}
+									data-case-write-above-choice={item.label}
+								>
+									<span className="min-w-0 flex-1 text-left">
+										<span className="block break-words [overflow-wrap:anywhere]">
+											{item.label}
+										</span>
+										{item.disabledReason !== undefined && (
+											<span className="block break-words text-xs text-nova-text-muted">
+												{item.disabledReason}
+											</span>
+										)}
+									</span>
+								</DropdownMenuRadioItem>
+							))}
+						</DropdownMenuRadioGroup>
+					</DropdownMenuSubContent>
+				</DropdownMenuSub>
+				<DropdownMenuCheckboxItem
+					checked={onlyIfChanged.on}
+					disabled={onlyIfChanged.disabledReason !== undefined}
+					data-case-write-only-if-changed-item
+					onCheckedChange={() => onReplace(onlyIfChanged.next)}
+				>
+					<span className="min-w-0 flex-1 text-left">
+						<span className="block break-words">{onlyIfChanged.label}</span>
+						<span className="block break-words text-xs text-nova-text-muted">
+							{onlyIfChanged.disabledReason ?? onlyIfChanged.line}
+						</span>
+					</span>
+				</DropdownMenuCheckboxItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }

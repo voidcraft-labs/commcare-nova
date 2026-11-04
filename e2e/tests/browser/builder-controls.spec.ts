@@ -3033,3 +3033,190 @@ test("native access status distinguishes viewer capability and retained changes"
 			.filter({ hasText: "Your changes are kept in this tab" }),
 	).toBeVisible();
 });
+
+test("a group holding a repeat workers grow can't show on one screen, and another group can", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=rows`);
+	const inspector = page.getByRole("region", {
+		name: "Field inspector",
+		exact: true,
+	});
+	const saved = page.getByLabel("Saved field");
+	const oneScreen = inspector.getByRole("switch", {
+		name: /^Show on one screen/,
+	});
+
+	// The household group holds a repeat whose rows workers add: the switch
+	// is off, unavailable, and says why.
+	await expect(saved).toContainText('"id":"household"');
+	await expect(oneScreen).not.toBeChecked();
+	await expect(oneScreen).toBeDisabled();
+	await expect(oneScreen).toHaveAccessibleDescription(
+		"This group holds a repeat whose rows workers add, which can't share a screen with other questions.",
+	);
+	await expect(saved).not.toContainText('"fieldList"');
+
+	// A group of plain questions turns it on and off, each one write.
+	await page
+		.getByRole("button", { name: "Select contact", exact: true })
+		.click();
+	await expect(saved).toContainText('"id":"contact"');
+	await expect(oneScreen).toBeEnabled();
+	await oneScreen.click();
+	await expect(oneScreen).toBeChecked();
+	await expect(saved).toContainText('"fieldList":true');
+	await oneScreen.click();
+	await expect(oneScreen).not.toBeChecked();
+	await expect(saved).not.toContainText('"fieldList"');
+});
+
+test("the Rows editor refuses a count that isn't whole and Use a whole number stores it inside int()", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=rows`);
+	const inspector = page.getByRole("region", {
+		name: "Field inspector",
+		exact: true,
+	});
+	const saved = page.getByLabel("Saved field");
+	const storedCount = async () =>
+		JSON.parse(await saved.innerText()).repeat_count;
+	await page
+		.getByRole("button", { name: "Select visits", exact: true })
+		.click();
+	await expect(saved).toContainText('"id":"visits"');
+	await expect(
+		inspector.locator('[data-repeat-rows-mode="count_bound"] input'),
+	).toBeChecked();
+	const seeded = await storedCount();
+	expect(seeded).toBeDefined();
+
+	const count = inspector.locator('[data-field-id="repeat_count"]');
+	await count.getByRole("button").click();
+	const code = count.locator('.cm-content[contenteditable="true"]');
+	await expect(code).toBeFocused();
+	await code.press("ControlOrMeta+A");
+	await code.press("Backspace");
+	await expect(code).toHaveText("");
+	await code.pressSequentially("2.5");
+	await expect(code).toHaveText("2.5");
+
+	// The checker's whole-number finding marks the draft as typed.
+	await expect(count.locator(".cm-lintRange-error")).toBeVisible();
+
+	// Saving it is refused with the checker's sentence; nothing is stored.
+	await code.press("ControlOrMeta+Enter");
+	const notice = page.locator("[data-xpath-field-notice]");
+	await expect(notice).toBeVisible();
+	await expect(notice).toContainText("a repeat needs a whole number of rows");
+	expect(await storedCount()).toEqual(seeded);
+
+	// The fix commits the draft's tree inside an int() call node.
+	const fix = notice.locator("[data-repeat-count-fix]");
+	await expect(fix).toHaveText("Use a whole number");
+	await fix.click();
+	await expect(notice).toHaveCount(0);
+	await expect
+		.poll(async () => {
+			const stored = await storedCount();
+			return { kind: stored?.kind, fn: stored?.fn, args: stored?.args?.length };
+		})
+		.toEqual({ kind: "call", fn: "int", args: 1 });
+	await expect(
+		count.locator('.cm-content[contenteditable="true"]'),
+	).toHaveCount(0);
+	await expect(count).toContainText("int(2.5)");
+	await expect(count.locator(".cm-lintRange-error")).toHaveCount(0);
+});
+
+test("Format text off on a label shows its symbols as typed", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=format-text`);
+	const saved = page.getByLabel("Saved label field");
+	const shown = page.getByRole("region", { name: "Label as shown" });
+	const editor = page.getByRole("textbox", { name: "Label", exact: true });
+	await expect(editor.locator("strong")).toHaveText("bold");
+	await editor.click();
+	await expect(editor).toBeFocused();
+	const toggle = page.getByRole("button", { name: "Format text", exact: true });
+	await expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+	// The label uses formatting, so turning it off asks first.
+	await toggle.click();
+	const turnOff = page.getByRole("button", {
+		name: "Turn it off",
+		exact: true,
+	});
+	await expect(turnOff).toBeFocused();
+	await expect(saved).not.toContainText('"plainLabel"');
+	await turnOff.click();
+	await expect(saved).toContainText('"plainLabel":true');
+	await expect(toggle).toHaveAttribute("aria-pressed", "false");
+	await expect(page.locator("[data-format-text-prompt]")).toHaveCount(0);
+
+	// Off, the editor and the form show the stored characters, and the
+	// formatting buttons wait for Format text.
+	await expect(editor).toHaveText("Welcome **bold**");
+	await expect(editor.locator("strong")).toHaveCount(0);
+	await expect(page.locator("[data-format-text-line]")).toHaveText(
+		"Workers see this text as you typed it, without formatting.",
+	);
+	await expect(
+		page.getByRole("button", { name: "Bold", exact: true }),
+	).toBeDisabled();
+	await expect(shown).toHaveText("Welcome **bold**");
+	await expect(shown.locator("strong")).toHaveCount(0);
+
+	// What is typed with it off stays as typed.
+	await expect(editor).toBeFocused();
+	await editor.press("End");
+	await editor.pressSequentially(" and *more*");
+	await expect(editor).toHaveText("Welcome **bold** and *more*");
+	await editor.press("ControlOrMeta+Enter");
+	await expect(saved).toContainText("Welcome **bold** and *more*");
+	await expect(shown).toHaveText("Welcome **bold** and *more*");
+	await expect(shown.locator("strong, em")).toHaveCount(0);
+});
+
+test("Format text on a choice writes the choice's plainLabel", async ({
+	page,
+}) => {
+	await page.goto(`${peer.origin}/?scenario=options`);
+	const saved = page.getByLabel("Saved options");
+	const more = page.getByRole("button", { name: "More for Red", exact: true });
+	const formatText = page.getByRole("menuitemcheckbox", {
+		name: "Format text",
+		exact: true,
+	});
+	const line = page.locator("[data-format-text-line]");
+	const redOption = async () =>
+		JSON.parse(await saved.innerText()).options.find(
+			(option: { value: string }) => option.value === "red",
+		);
+	await expect(saved).not.toContainText('"plainLabel"');
+	await expect(line).toHaveCount(0);
+
+	// "Red" holds no formatting, so turning it off writes at once.
+	await more.click();
+	await expect(formatText).toHaveAttribute("aria-checked", "true");
+	await formatText.click();
+	await expect(formatText).toHaveCount(0);
+	await expect.poll(async () => (await redOption()).plainLabel).toBe(true);
+	await expect(saved).toContainText('"plainLabel":true');
+	expect(
+		JSON.parse(await saved.innerText()).options.filter(
+			(option: { plainLabel?: true }) => option.plainLabel === true,
+		),
+	).toHaveLength(1);
+	await expect(line).toHaveCount(1);
+
+	// Turning it back on removes the setting.
+	await more.click();
+	await expect(formatText).toHaveAttribute("aria-checked", "false");
+	await formatText.click();
+	await expect(formatText).toHaveCount(0);
+	await expect(saved).not.toContainText('"plainLabel"');
+	await expect(line).toHaveCount(0);
+});

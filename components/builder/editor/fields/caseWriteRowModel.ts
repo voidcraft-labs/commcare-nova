@@ -10,14 +10,23 @@
 // opens one case, whether the question opens with the case's current value
 // and the one `updateField` that changes that.
 //
+// A row that saves to this form's case on a follow-up or close form, or to a
+// case above it, also carries the Save only if changed switch: whether it is
+// on, why it can't be turned on where it can't, and the one destination the
+// switch commits. The cases above it a row can save to instead are listed by
+// `ancestorCaseWriteChoices`, one per chain of links the catalog reaches.
+//
 // The preload is a starting value like any other: the question opens with
 // the case's value exactly when its `default_value` is the `form-case`
 // read of the property it saves (`lib/domain/casePreload.ts::fieldPreload`).
 // So the line's action is an ordinary edit of that slot, which the commit
 // gate judges like every other.
 
+import type { FormCasePlacementView } from "@/lib/doc/casePlacements";
+import type { FieldCaseWriteDestination as CaseWriteDestinationChoice } from "@/lib/doc/fieldCaseWriteMutations";
 import type { Mutation } from "@/lib/doc/types";
 import {
+	type CaseType,
 	type CaseWriteVia,
 	caseSelectionCardinality,
 	type Field,
@@ -31,7 +40,9 @@ import {
 	humanizeId,
 	isCaptureField,
 	type Module,
+	type RelationStep,
 } from "@/lib/domain";
+import { resolveRelationDestination } from "@/lib/domain/expression/relationDestination";
 import {
 	type CaseWriteGuidance,
 	caseWriteGuidance,
@@ -42,6 +53,29 @@ export const OPENS_WITH_CASE_VALUE_LINE =
 	"Opens with the case's current value.";
 export const STARTS_BLANK_LINE =
 	"Starts blank, and saving it blank clears the case's value.";
+
+export const SAVE_ONLY_IF_CHANGED_LABEL = "Save only if changed";
+export const SAVE_ONLY_IF_CHANGED_LINE =
+	"Saves this answer only when the worker changes it.";
+/** Why the switch is off on a registration's own case. */
+export const NEW_CASE_NO_EARLIER_VALUE_REASON =
+	"A new case has no earlier value to compare with.";
+/** Why the switch is off while CommCare HQ keeps the own change in Save to
+ *  Case, whose block has no such setting. */
+export const KEPT_IN_SAVE_TO_CASE_REASON =
+	"CommCare HQ saves only changed answers through Case Management or case actions, and this form keeps this change in Save to Case.";
+
+/** The Save only if changed switch of one row. */
+export interface CaseWriteOnlyIfChangedSwitch {
+	readonly label: string;
+	readonly line: string;
+	readonly on: boolean;
+	/** Why the switch can't be turned on; absent where it can be toggled. */
+	readonly disabledReason?: string;
+	/** The destination toggling the switch commits, through
+	 *  `planFieldCaseWrite` with the row's `viewKey` as `replace`. */
+	readonly destination: CaseWriteDestinationChoice;
+}
 
 export interface CaseWritePreloadLine {
 	readonly line: string;
@@ -62,6 +96,9 @@ export interface CaseWriteRowModel {
 	readonly readOnly: boolean;
 	readonly guidance: CaseWriteGuidance;
 	readonly preload: CaseWritePreloadLine | undefined;
+	/** Present on a row that saves to this form's case or to a case above
+	 *  it. */
+	readonly onlyIfChanged: CaseWriteOnlyIfChangedSwitch | undefined;
 }
 
 export interface CaseWriteRowInput {
@@ -74,6 +111,14 @@ export interface CaseWriteRowInput {
 	/** The case change that holds a write the row does not edit, as its
 	 *  sentence reads ("Update the case this form opened"). */
 	readonly operationDescription: (operationUuid: string) => string | undefined;
+	/** Where CommCare HQ keeps each case change of the form
+	 *  (`lib/doc/casePlacements.ts::formCasePlacementView`). */
+	readonly placement?: FormCasePlacementView;
+	/** The verdict `caseWriteChoiceVerdict` gives the switch's destination
+	 *  (`onlyIfChangedDestination`) replacing this row's write. */
+	readonly onlyIfChangedVerdict?:
+		| { readonly ok: true }
+		| { readonly ok: false; readonly reason: string };
 }
 
 /** A case type folded into a sentence: "the new household". */
@@ -92,8 +137,10 @@ function aboveWords(caseType: string, via: CaseWriteVia): string {
 export function caseWriteRowModel(input: CaseWriteRowInput): CaseWriteRowModel {
 	const { view, field, form, module } = input;
 	const property = input.propertyLabel(view.caseType, view.property);
-	const readOnly =
-		view.destination === "other" || view.destination === "ancestor";
+	// A write through `via` is the own arm's: the validator refuses `via` on
+	// every other operation (`CASE_WRITE_VIA_INVALID`, reason `target`), so
+	// the row edits it like any write of the form's case.
+	const readOnly = view.destination === "other";
 	let destination: string;
 	if (view.link) {
 		destination = `Saves a link to the file in ${property}`;
@@ -130,7 +177,121 @@ export function caseWriteRowModel(input: CaseWriteRowInput): CaseWriteRowModel {
 		readOnly,
 		guidance: caseWriteGuidance(field, { module, form }, view),
 		preload: preloadLine(input),
+		onlyIfChanged: onlyIfChangedSwitch(input),
 	};
+}
+
+/** The destination the row's Save only if changed switch commits: the row's
+ *  own, with `onlyIfChanged` turned the other way. */
+export function onlyIfChangedDestination(
+	view: FieldCaseWriteView,
+): CaseWriteDestinationChoice {
+	return {
+		caseType: view.caseType,
+		property: view.property,
+		...(view.via !== undefined && { via: view.via }),
+		...(!view.onlyIfChanged && { onlyIfChanged: true as const }),
+	};
+}
+
+/**
+ * The switch of a write to this form's case or to a case above it. Turning
+ * it off is always admitted; turning it on is refused on a registration,
+ * whose new case has nothing to compare with, and while CommCare HQ keeps
+ * the own change in Save to Case; otherwise the planner's and the gate's
+ * verdict over the switch's destination decides.
+ */
+function onlyIfChangedSwitch(
+	input: CaseWriteRowInput,
+): CaseWriteOnlyIfChangedSwitch | undefined {
+	const { view, form } = input;
+	if (
+		view.slot !== "write" ||
+		(view.destination !== "own" && view.destination !== "ancestor")
+	)
+		return undefined;
+	const base = {
+		label: SAVE_ONLY_IF_CHANGED_LABEL,
+		line: SAVE_ONLY_IF_CHANGED_LINE,
+		on: view.onlyIfChanged,
+		destination: onlyIfChangedDestination(view),
+	};
+	if (view.onlyIfChanged) return base;
+	let disabledReason: string | undefined;
+	if (form.type === "registration")
+		disabledReason = NEW_CASE_NO_EARLIER_VALUE_REASON;
+	else if (input.placement?.own?.home === "save-to-case")
+		disabledReason = KEPT_IN_SAVE_TO_CASE_REASON;
+	else if (input.onlyIfChangedVerdict?.ok === false)
+		disabledReason = input.onlyIfChangedVerdict.reason;
+	return disabledReason === undefined ? base : { ...base, disabledReason };
+}
+
+/** One case above this form's case a row can save to instead. */
+export interface AncestorCaseWriteChoice {
+	readonly caseType: string;
+	readonly via: CaseWriteVia;
+	/** `household (parent)`, or the chain: `household (parent, then host)`. */
+	readonly label: string;
+}
+
+/** The forms whose own case is loaded, so the cases above it are known. */
+const LOADS_ITS_CASE: ReadonlySet<Form["type"]> = new Set([
+	"followup",
+	"close",
+]);
+
+/**
+ * Every case above a form's case the catalog reaches from `moduleCaseType`,
+ * one choice per chain of links, nearest first. Each catalog link
+ * (`CaseType.parent_type`) is walked as `parent`, the index Nova's creates
+ * write for a child and an extension alike; an extension link is also
+ * walked as `host`, the index CommCare HQ names an extension's host by,
+ * with the type it reaches stated on the step. A chain stops where a type
+ * repeats. Offered only on a follow-up or close form, the only forms whose
+ * own case can save to a case above it.
+ */
+export function ancestorCaseWriteChoices(
+	caseTypes: readonly CaseType[],
+	moduleCaseType: string | undefined,
+	formType: Form["type"],
+): readonly AncestorCaseWriteChoice[] {
+	if (moduleCaseType === undefined || !LOADS_ITS_CASE.has(formType)) return [];
+	const choices: AncestorCaseWriteChoice[] = [];
+	const walk = (
+		from: string,
+		via: CaseWriteVia | undefined,
+		seen: ReadonlySet<string>,
+	): void => {
+		const declared = caseTypes.find((caseType) => caseType.name === from);
+		const above = declared?.parent_type;
+		if (above === undefined || seen.has(above)) return;
+		const steps: RelationStep[] = [{ identifier: "parent" }];
+		if (declared?.relationship === "extension")
+			steps.push({ identifier: "host", throughCaseType: above });
+		const next = new Set(seen).add(above);
+		for (const step of steps) {
+			const chain: CaseWriteVia = via === undefined ? [step] : [...via, step];
+			const reached = resolveRelationDestination(
+				{ kind: "ancestor", via: chain },
+				moduleCaseType,
+				caseTypes,
+			);
+			if (!reached.ok || reached.caseType !== above) continue;
+			choices.push({
+				caseType: above,
+				via: chain,
+				label: chainLabel(above, chain),
+			});
+			walk(above, chain, next);
+		}
+	};
+	walk(moduleCaseType, undefined, new Set([moduleCaseType]));
+	return choices;
+}
+
+function chainLabel(caseType: string, via: CaseWriteVia): string {
+	return `${caseType} (${via.map((step) => step.identifier).join(", then ")})`;
 }
 
 /**

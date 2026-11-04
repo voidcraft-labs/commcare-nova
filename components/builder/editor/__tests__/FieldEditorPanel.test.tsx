@@ -143,13 +143,14 @@ describe("FieldEditorPanel section visibility", () => {
 		});
 	});
 
-	it("group field collapses to Logic only", () => {
-		// Group has no data or ui entries: those cards never mount. Only
-		// `relevant` (logic, addable) keeps the Logic card alive.
+	it("group field shows Logic and its Show on one screen switch", () => {
+		// Group has no data entries, so that card never mounts. `relevant`
+		// (logic, addable) keeps the Logic card alive, and the always-shown
+		// Show on one screen switch keeps the Appearance card alive.
 		expect(panelSections(groupField())).toEqual({
 			data: false,
 			logic: true,
-			ui: false,
+			ui: true,
 		});
 	});
 });

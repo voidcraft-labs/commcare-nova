@@ -10,6 +10,8 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { formCasePlacementView } from "@/lib/doc/casePlacements";
+import { caseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -17,14 +19,21 @@ import {
 	type BlueprintDoc,
 	type Field,
 	type FieldCaseWriteView,
+	fieldCaseWriteViewKey,
 	fieldCaseWriteViews,
 	humanizeId,
 	type Uuid,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
+	ancestorCaseWriteChoices,
 	caseWriteRowModel,
+	KEPT_IN_SAVE_TO_CASE_REASON,
+	NEW_CASE_NO_EARLIER_VALUE_REASON,
 	OPENS_WITH_CASE_VALUE_LINE,
+	onlyIfChangedDestination,
+	SAVE_ONLY_IF_CHANGED_LABEL,
+	SAVE_ONLY_IF_CHANGED_LINE,
 	STARTS_BLANK_LINE,
 } from "../caseWriteRowModel";
 
@@ -305,5 +314,277 @@ describe("the preload line", () => {
 		expect(rowOf(followup, VISIT_NOTE).preload).toBeUndefined();
 		expect(rowOf(followup, REGION).preload).toBeUndefined();
 		expect(rowOf(fixture("registration"), NICKNAME).preload).toBeUndefined();
+	});
+});
+
+// ── Cases above it, and Save only if changed ─────────────────────────────
+
+const ABOVE_NOTE = testUuid("row-above-note");
+const ABOVE_NAME = testUuid("row-above-name");
+
+/**
+ * A menu over `member` cases: a member belongs to a household (`child`),
+ * and a household extends a village (`extension`).
+ */
+function aboveFixture(formType: FormType): BlueprintDoc {
+	return buildDoc({
+		caseTypes: [
+			{
+				name: "village",
+				properties: [{ name: "region", label: proseText("Region") }],
+			},
+			{
+				name: "household",
+				parent_type: "village",
+				relationship: "extension",
+				properties: [{ name: "address", label: proseText("Address") }],
+			},
+			{
+				name: "member",
+				parent_type: "household",
+				properties: [{ name: "note", label: proseText("Note") }],
+			},
+		],
+		modules: [
+			{
+				name: "Members",
+				caseType: "member",
+				caseListConfig: caseListConfig([{ field: "note", header: "Note" }]),
+				forms: [
+					{
+						name: "Visit",
+						type: formType,
+						fields: [
+							f({
+								uuid: ABOVE_NAME,
+								kind: "text",
+								id: "member_name",
+								label: proseText("Name"),
+								caseWrite: { caseType: "member", property: "case_name" },
+							}),
+							f({
+								uuid: ABOVE_NOTE,
+								kind: "text",
+								id: "note",
+								label: proseText("Note"),
+								caseWrite: { caseType: "member", property: "note" },
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
+function rowWith(
+	doc: BlueprintDoc,
+	fieldUuid: Uuid,
+	options: {
+		readonly placement?: boolean;
+		readonly verdict?: { ok: true } | { ok: false; reason: string };
+	} = {},
+) {
+	const view = fieldCaseWriteViews(doc, fieldUuid)[0];
+	if (view === undefined)
+		throw new Error("The fixture question saves its answer nowhere.");
+	return caseWriteRowModel({
+		view,
+		field: doc.fields[fieldUuid] as Field,
+		form: doc.forms[view.formUuid],
+		module: doc.modules[doc.moduleOrder[0]],
+		propertyLabel: (_caseType, property) => humanizeId(property),
+		operationDescription: () => undefined,
+		...(options.placement !== false && {
+			placement: formCasePlacementView(doc, view.formUuid),
+		}),
+		...(options.verdict !== undefined && {
+			onlyIfChangedVerdict: options.verdict,
+		}),
+	});
+}
+
+/** The verdict of the row's switch destination, replacing the row's write. */
+function switchVerdict(doc: BlueprintDoc, fieldUuid: Uuid) {
+	const view = fieldCaseWriteViews(doc, fieldUuid)[0];
+	if (view === undefined)
+		throw new Error("The fixture question saves its answer nowhere.");
+	return caseWriteChoiceVerdict(
+		doc,
+		fieldUuid,
+		{
+			destination: onlyIfChangedDestination(view),
+			replace: fieldCaseWriteViewKey(view),
+		},
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+}
+
+function committed(doc: BlueprintDoc, mutations: readonly unknown[]) {
+	return produce(doc, (draft) => {
+		applyMutations(draft, mutations as Parameters<typeof applyMutations>[1]);
+	});
+}
+
+describe("the cases above it", () => {
+	it("lists one choice per chain of links, walking an extension as parent and as host", () => {
+		const doc = aboveFixture("followup");
+		const choices = ancestorCaseWriteChoices(
+			doc.caseTypes ?? [],
+			"member",
+			"followup",
+		);
+		expect(choices).toEqual([
+			{
+				caseType: "household",
+				via: [{ identifier: "parent" }],
+				label: "household (parent)",
+			},
+			{
+				caseType: "village",
+				via: [{ identifier: "parent" }, { identifier: "parent" }],
+				label: "village (parent, then parent)",
+			},
+			{
+				caseType: "village",
+				via: [
+					{ identifier: "parent" },
+					{ identifier: "host", throughCaseType: "village" },
+				],
+				label: "village (parent, then host)",
+			},
+		]);
+	});
+
+	it("lists an extension's host from a menu over the extension", () => {
+		const doc = aboveFixture("followup");
+		expect(
+			ancestorCaseWriteChoices(doc.caseTypes ?? [], "household", "close").map(
+				(choice) => choice.label,
+			),
+		).toEqual(["village (parent)", "village (host)"]);
+	});
+
+	it("offers none on a registration or a survey, and stops at a cycle", () => {
+		const doc = aboveFixture("followup");
+		const caseTypes = doc.caseTypes ?? [];
+		expect(
+			ancestorCaseWriteChoices(caseTypes, "member", "registration"),
+		).toEqual([]);
+		expect(ancestorCaseWriteChoices(caseTypes, "member", "survey")).toEqual([]);
+		const cyclic = [
+			{ name: "a", parent_type: "b", properties: [] },
+			{ name: "b", parent_type: "a", properties: [] },
+		];
+		expect(
+			ancestorCaseWriteChoices(cyclic, "a", "followup").map(
+				(choice) => choice.label,
+			),
+		).toEqual(["b (parent)"]);
+	});
+
+	it("admits every choice as a replacement of a row, and the row it lands edits its write", () => {
+		const doc = aboveFixture("followup");
+		const view = fieldCaseWriteViews(doc, ABOVE_NOTE)[0];
+		if (view === undefined) throw new Error("The note saves nowhere.");
+		for (const choice of ancestorCaseWriteChoices(
+			doc.caseTypes ?? [],
+			"member",
+			"followup",
+		)) {
+			const verdict = caseWriteChoiceVerdict(
+				doc,
+				ABOVE_NOTE,
+				{
+					destination: {
+						caseType: choice.caseType,
+						property: "note",
+						via: choice.via,
+					},
+					replace: fieldCaseWriteViewKey(view),
+				},
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			expect(verdict, choice.label).toMatchObject({ ok: true });
+			if (!verdict.ok) continue;
+			const row = rowWith(committed(doc, verdict.mutations), ABOVE_NOTE);
+			expect(row.readOnly).toBe(false);
+			expect(row.destination).toBe(
+				choice.via.length === 1
+					? "Household it belongs to · Note"
+					: "Village above it · Note",
+			);
+			expect(row.onlyIfChanged?.on).toBe(false);
+			expect(row.onlyIfChanged?.disabledReason).toBeUndefined();
+		}
+	});
+});
+
+describe("the Save only if changed switch", () => {
+	it("shows on a write to this form's case and turns on through the gate on a follow-up", () => {
+		const doc = aboveFixture("followup");
+		const row = rowWith(doc, ABOVE_NOTE);
+		expect(row.onlyIfChanged).toMatchObject({
+			label: SAVE_ONLY_IF_CHANGED_LABEL,
+			line: SAVE_ONLY_IF_CHANGED_LINE,
+			on: false,
+			destination: {
+				caseType: "member",
+				property: "note",
+				onlyIfChanged: true,
+			},
+		});
+		expect(row.onlyIfChanged?.disabledReason).toBeUndefined();
+		const on = switchVerdict(doc, ABOVE_NOTE);
+		expect(on).toMatchObject({ ok: true });
+		if (!on.ok) return;
+		const turnedOn = committed(doc, on.mutations);
+		const onRow = rowWith(turnedOn, ABOVE_NOTE);
+		expect(onRow.onlyIfChanged?.on).toBe(true);
+		// The switch's way back is the plain write, which the gate admits.
+		expect(onRow.onlyIfChanged?.destination).toEqual({
+			caseType: "member",
+			property: "note",
+		});
+		expect(switchVerdict(turnedOn, ABOVE_NOTE)).toMatchObject({ ok: true });
+	});
+
+	it("is not offered on a name, a new child case or the worker's record", () => {
+		const doc = aboveFixture("followup");
+		expect(rowWith(doc, ABOVE_NAME).onlyIfChanged).toBeUndefined();
+		const followup = fixture("followup");
+		expect(rowOf(followup, VISIT_NOTE).onlyIfChanged).toBeUndefined();
+		expect(rowOf(followup, REGION).onlyIfChanged).toBeUndefined();
+	});
+
+	it("is disabled on a registration, whose new case has no earlier value", () => {
+		const doc = aboveFixture("registration");
+		const row = rowWith(doc, ABOVE_NOTE);
+		expect(row.onlyIfChanged?.disabledReason).toBe(
+			NEW_CASE_NO_EARLIER_VALUE_REASON,
+		);
+		// The gate refuses the same switch.
+		expect(switchVerdict(doc, ABOVE_NOTE).ok).toBe(false);
+	});
+
+	it("is disabled while CommCare HQ keeps the change in Save to Case", () => {
+		// A several-case form keeps its own case's change in Save to Case.
+		const doc = fixture("followup", "several");
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		expect(formCasePlacementView(doc, formUuid).own?.home).toBe("save-to-case");
+		const verdict = switchVerdict(doc, NICKNAME);
+		expect(verdict.ok).toBe(false);
+		const row = rowWith(doc, NICKNAME, {
+			verdict: verdict.ok ? { ok: true } : verdict,
+		});
+		expect(row.onlyIfChanged?.disabledReason).toBe(KEPT_IN_SAVE_TO_CASE_REASON);
+	});
+
+	it("says the gate's reason where nothing else names one", () => {
+		const doc = fixture("followup", "several");
+		const verdict = switchVerdict(doc, NICKNAME);
+		if (verdict.ok) throw new Error("The gate admitted the switch.");
+		const row = rowWith(doc, NICKNAME, { placement: false, verdict });
+		expect(row.onlyIfChanged?.disabledReason).toBe(verdict.reason);
 	});
 });

@@ -1,19 +1,24 @@
 // components/builder/detail/formSettings/OwnCaseSection.tsx
 //
-// This form's case in form settings: on a close form, **Close the case**.
+// This form's case in form settings: on a close form, **Close the case**;
+// on a registration, **Create the case** and **Close the case it creates**
+// (`ownCaseModel.ts` holds each row's choices and what each stores).
 //
-// `Every time` stores no condition; `When a condition is true` opens the
-// condition workbench over the `form_close_condition` slot, whose context
-// is the one the validator checks it with (`useExpressionSlotContext`,
+// `When a condition is true` opens the condition workbench over the row's
+// slot (`form_open_condition` or `form_close_condition`), whose context is
+// the one the validator checks it with (`useExpressionSlotContext`,
 // `shared/editorAxes.ts`), so a static select's answer is a `choice` card by
 // its label and a choice a condition reads cannot be removed out from under
 // it. Choosing it stores nothing until the author completes a condition,
-// which commits as one `updateForm` (`ownCaseModel.ts`).
+// which commits as one `updateForm`; Cancel returns the row to its stored
+// choice. Every other choice commits its stored value as one `updateForm`.
 //
-// Under it is where CommCare HQ keeps the close: the own close's block
-// when it has one, else the own case's place
+// Under each row is where CommCare HQ keeps that change
 // (`lib/doc/casePlacements.ts::formCasePlacementView`), with the held
-// suffix where the published app already keeps it there.
+// suffix where the published app already keeps it there: the create is the
+// own case's place, and a close is the own close's block when it has one,
+// else the own case's place. A registration that never closes its case has
+// no close to place, so that row shows no line.
 
 "use client";
 
@@ -50,8 +55,18 @@ import {
 	closeChoiceOutcome,
 	closeConditionCommitPatch,
 	closeRowModel,
+	nextOwnCaseLocal,
 	nextOwnCaseLocalState,
+	type OwnCaseChoice,
+	type OwnCaseChoiceOutcome,
+	type OwnCaseConditionPatch,
+	type OwnCaseConditionSlot,
 	type OwnCaseLocalState,
+	type OwnCaseRowModel,
+	ownCaseChoiceOutcome,
+	ownCaseConditionCommitPatch,
+	ownCaseRowModels,
+	settleOwnCaseRow,
 } from "./ownCaseModel";
 import type { FormSettingsSectionProps } from "./types";
 
@@ -61,8 +76,38 @@ export function OwnCaseSection({
 }: FormSettingsSectionProps) {
 	const form = useForm(formUuid);
 	const [local, setLocal] = useState<OwnCaseLocalState | null>(null);
-	const model = form === undefined ? undefined : closeRowModel(form, local);
-	if (form === undefined || model === undefined) return null;
+	if (form === undefined) return null;
+	if (form.type === "registration") {
+		return (
+			<div className="space-y-3">
+				{ownCaseRowModels(form, local).map((row) => (
+					<OwnCaseRow
+						key={row.key}
+						moduleUuid={moduleUuid}
+						formUuid={formUuid}
+						row={row}
+						onChoose={(choice) => {
+							const outcome = ownCaseChoiceOutcome(form, row.key, choice);
+							setLocal((current) =>
+								nextOwnCaseLocal(current, formUuid, row.key, outcome),
+							);
+							return outcome;
+						}}
+						commitPatch={(condition) =>
+							ownCaseConditionCommitPatch(form.type, row.key, condition)
+						}
+						onSettled={() =>
+							setLocal((current) =>
+								settleOwnCaseRow(current, formUuid, row.key),
+							)
+						}
+					/>
+				))}
+			</div>
+		);
+	}
+	const model = closeRowModel(form, local);
+	if (model === undefined) return null;
 	return (
 		<CloseCaseRow
 			moduleUuid={moduleUuid}
@@ -154,20 +199,115 @@ function CloseCaseRow({
 	);
 }
 
+/** The words a row's condition workbench calls the whole rule. */
+const ROOT_LABELS: Readonly<Record<OwnCaseConditionSlot, string>> = {
+	form_open_condition: "when the case is created",
+	form_close_condition: "when the case closes",
+};
+
 /**
- * The close condition's card editor. Over a stored condition every edit
- * commits; over nothing stored (`awaiting-condition`) the author edits a
- * local draft and Save condition commits it, while Cancel leaves the form
+ * One of a registration's rows: its choices, the condition workbench while
+ * the row reads `When a condition is true`, and where CommCare HQ keeps the
+ * change beneath it.
+ */
+function OwnCaseRow({
+	moduleUuid,
+	formUuid,
+	row,
+	onChoose,
+	commitPatch,
+	onSettled,
+}: FormSettingsSectionProps & {
+	readonly row: OwnCaseRowModel;
+	readonly onChoose: (choice: OwnCaseChoice) => OwnCaseChoiceOutcome;
+	readonly commitPatch: (condition: Expression) => OwnCaseConditionPatch;
+	/** The awaited condition landed or was abandoned. */
+	readonly onSettled: () => void;
+}) {
+	const labelId = useId();
+	const canEdit = useCanEdit();
+	const { inline } = useBlueprintMutations();
+	const [rejection, setRejection] = useState<string | null>(null);
+	const placements = useCasePlacements(formUuid);
+	/* The create is the own case's place; a close is its own block's when it
+	 * has one, else the own case's. A case never closed has no close to
+	 * place. */
+	const placement =
+		row.key === "create"
+			? placements.own
+			: row.choice === "never"
+				? undefined
+				: (placements.ownClose ?? placements.own);
+	const placementWords =
+		placement === undefined
+			? undefined
+			: placementLine(placement.placement, placement.held);
+
+	const choose = (choice: OwnCaseChoice) => {
+		if (!canEdit) return;
+		const outcome = onChoose(choice);
+		if (outcome.kind !== "commit") {
+			setRejection(null);
+			return;
+		}
+		const result = inline.updateForm(formUuid, outcome.patch);
+		setRejection(result.ok ? null : (result.messages[0] ?? null));
+	};
+
+	return (
+		<div className="space-y-2" data-own-case-row={row.key}>
+			<span id={labelId} className={`${INSPECTOR_LABEL_CLS} block`}>
+				{row.label}
+			</span>
+			<SegmentedRow
+				legend={row.label}
+				options={row.choices}
+				value={row.choice}
+				onChange={choose}
+			/>
+			{row.choice === "condition" && (
+				<CloseConditionEditor
+					moduleUuid={moduleUuid}
+					formUuid={formUuid}
+					slotName={row.slot}
+					stored={row.condition}
+					canEdit={canEdit}
+					onCommit={(condition) => {
+						const result = inline.updateForm(formUuid, commitPatch(condition));
+						setRejection(result.ok ? null : (result.messages[0] ?? null));
+						if (result.ok) onSettled();
+						return result.ok;
+					}}
+					onAbandon={onSettled}
+				/>
+			)}
+			{placementWords !== undefined && (
+				<p className="text-xs leading-relaxed text-nova-text-muted">
+					{placementWords}
+				</p>
+			)}
+			<RejectionInline message={rejection} />
+		</div>
+	);
+}
+
+/**
+ * An own-case condition's card editor over `slotName`, the close form's
+ * close condition unless another is named. Over a stored condition every
+ * edit commits; over nothing stored (`awaiting-condition`) the author edits
+ * a local draft and Save condition commits it, while Cancel leaves the form
  * as it was.
  */
 function CloseConditionEditor({
 	moduleUuid,
 	formUuid,
+	slotName = "form_close_condition",
 	stored,
 	canEdit,
 	onCommit,
 	onAbandon,
 }: FormSettingsSectionProps & {
+	readonly slotName?: OwnCaseConditionSlot;
 	readonly stored: Expression | undefined;
 	readonly canEdit: boolean;
 	readonly onCommit: (condition: Expression) => boolean;
@@ -176,7 +316,7 @@ function CloseConditionEditor({
 	const slot = {
 		entity: "form",
 		uuid: formUuid,
-		slot: "form_close_condition",
+		slot: slotName,
 	} as const;
 	const expressionContext = useExpressionSlotContext(slot);
 	const caseTypes = useEffectiveCaseTypes();
@@ -184,8 +324,9 @@ function CloseConditionEditor({
 	const fieldEntries = useFormFieldEntries(formUuid);
 	const module = useModule(moduleUuid);
 	const currentCaseType = module?.caseType ?? "";
-	// The close runs once per submission, so it reads the answers outside
-	// every repeat, as a case change that runs once does.
+	// The own case's create and close run once per submission, so they read
+	// the answers outside every repeat, as a case change that runs once
+	// does.
 	const formFields = useMemo(
 		() => operationFormFieldDecls(fieldEntries, undefined),
 		[fieldEntries],
@@ -205,7 +346,8 @@ function CloseConditionEditor({
 			</p>
 		);
 	}
-	/* What closes a case is nearly always an answer, so the draft starts as
+	/* What creates or closes a case is nearly always an answer, so the draft
+	 * starts as
 	 * the form's first single answer compared with a value to fill in. A
 	 * form with no such answer starts from the editor's own first
 	 * condition. */
@@ -250,7 +392,7 @@ function CloseConditionEditor({
 						}
 						setDraft(next);
 					}}
-					rootLabel="when the case closes"
+					rootLabel={ROOT_LABELS[slotName]}
 					caseTypes={caseTypes}
 					currentCaseType={currentCaseType}
 					userProperties={userProperties}

@@ -34,6 +34,7 @@ import {
 import { EditableFieldWrapper } from "@/components/preview/form/EditableFieldWrapper";
 import { SectionHeading } from "@/components/preview/form/sections/SectionHeading";
 import { TextEditable } from "@/components/preview/form/TextEditable";
+import { useLabelFormatText } from "@/components/preview/form/useLabelFormatText";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useFilledField } from "@/lib/doc/hooks/useLocalization";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
@@ -81,6 +82,7 @@ export const SectionHeaderRow = memo(function SectionHeaderRow({
 	const labelEditor = useTranslationUnitEditor(
 		makeTranslationUnitId("field", uuid, "label"),
 	);
+	const labelFormatText = useLabelFormatText(q);
 	const state = useEngineState(uuid);
 	const projectProse = useProseProjection();
 	const mode = useEditMode();
@@ -178,6 +180,7 @@ export const SectionHeaderRow = memo(function SectionHeaderRow({
 									value={q.label ?? EMPTY_PROSE_TEMPLATE}
 									onSave={saveTitle ?? undefined}
 									fieldType="label"
+									formatText={labelFormatText}
 								>
 									{hasTitle && shownLabel ? (
 										<LabelContent

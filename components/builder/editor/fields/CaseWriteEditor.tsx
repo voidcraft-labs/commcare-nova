@@ -14,12 +14,19 @@
  * exact batch it judged, and that batch is what commits. A refused choice
  * stays in the menu, disabled with the planner's or the gate's sentence.
  *
- * A row on a change the planner does not write for a question (an update of
- * another case, a write through a case above) is read-only here and offers
- * Edit in case changes, which opens that change.
+ * On a follow-up or close form the menu also offers the cases above this
+ * form's case, one item per chain of links and property
+ * (`ancestorCaseWriteChoices`), each written with its `via`. A row on this
+ * form's case on such a form, and a row on a case above it, carries the Save
+ * only if changed switch; toggling it is one planner choice like any other,
+ * the row's own destination with `onlyIfChanged` turned the other way.
  *
- * The pure state of a row (what it reads, its guidance, its preload line)
- * is `caseWriteRowModel.ts`.
+ * A row on a change the planner does not write for a question (an update of
+ * another case) is read-only here and offers Edit in case changes, which
+ * opens that change.
+ *
+ * The pure state of a row (what it reads, its guidance, its preload line,
+ * its switch) is `caseWriteRowModel.ts`.
  */
 "use client";
 
@@ -30,6 +37,7 @@ import tablerDatabase from "@iconify-icons/tabler/database";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSearch from "@iconify-icons/tabler/search";
 import {
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useId,
@@ -39,7 +47,10 @@ import {
 } from "react";
 import { operationSentence } from "@/components/builder/case-operations/operationSentence";
 import { useOperationSentenceContext } from "@/components/builder/case-operations/useOperationSentenceContext";
-import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
+import {
+	INSPECTOR_LABEL_CLS,
+	ToggleRow,
+} from "@/components/builder/inspector/inspectorChrome";
 import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { Button } from "@/components/shadcn/button";
 import {
@@ -64,11 +75,13 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/shadcn/select";
+import type { FormCasePlacementView } from "@/lib/doc/casePlacements";
 import type { CaseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import type { CaseWriteVerdictCandidate } from "@/lib/doc/caseWriteVerdictWorkerProtocol";
 import type { FieldCaseWriteDestination } from "@/lib/doc/fieldCaseWriteMutations";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useCaseOperation } from "@/lib/doc/hooks/useCaseOperationFacts";
+import { useCasePlacements } from "@/lib/doc/hooks/useCasePlacements";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWriteChoiceVerdicts } from "@/lib/doc/hooks/useCaseWriteChoices";
 import { useFieldCaseWrites } from "@/lib/doc/hooks/useFieldCaseWrites";
@@ -78,21 +91,29 @@ import type { Mutation } from "@/lib/doc/types";
 import {
 	authoredCasePropertyNameSchema,
 	type CaseType,
+	type CaseWriteVia,
 	type Field,
 	type FieldCaseWriteView,
 	type FieldCaseWriteViewKey,
 	type Form,
+	fieldCaseWriteViewKey,
 	getModuleCaseTypes,
 	humanizeId,
 	isCaptureField,
 	type Module,
 	USERCASE_CASE_TYPE,
+	type Uuid,
 } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { propertyDisplayLabel } from "@/lib/domain/propertyDisplay";
 import { useNavigate, useSelectedFormContext } from "@/lib/routing/hooks";
 import { destinationRef } from "./caseWritePresentation";
-import { type CaseWriteRowModel, caseWriteRowModel } from "./caseWriteRowModel";
+import {
+	ancestorCaseWriteChoices,
+	type CaseWriteRowModel,
+	caseWriteRowModel,
+	onlyIfChangedDestination,
+} from "./caseWriteRowModel";
 
 const NO_DESTINATION_TEXT = "Doesn't save to a case";
 const CHECK_UNAVAILABLE =
@@ -115,6 +136,9 @@ interface DestinationChoice {
 	readonly kind: "clear" | "destination" | "new";
 	readonly destination?: FieldCaseWriteDestination;
 	readonly disabledReason?: string;
+	/** On a case above this form's case: the chain it is reached by, as the
+	 *  group labels it (`household (parent)`). */
+	readonly ancestor?: string;
 }
 
 interface DestinationChoiceGroup {
@@ -124,8 +148,14 @@ interface DestinationChoiceGroup {
 
 type FormContext = { readonly module: Module; readonly form: Form };
 
-function destinationId(caseType: string, property: string): string {
-	return JSON.stringify([caseType, property]);
+function destinationId(
+	caseType: string,
+	property: string,
+	via?: CaseWriteVia,
+): string {
+	return JSON.stringify(
+		via === undefined ? [caseType, property] : [caseType, property, via],
+	);
 }
 
 /** One choice's verdict key: where it saves, and the row it replaces. */
@@ -188,53 +218,78 @@ export function CaseWriteEditor<F extends Field>(
 	const { field, label, autoFocus } = props;
 	const views = useFieldCaseWrites(field.uuid);
 	const context = useSelectedFormContext();
+	const rows = (placement: FormCasePlacementView | undefined) =>
+		views.length === 0 ? (
+			<DestinationRow
+				field={field}
+				context={context}
+				placement={placement}
+				view={undefined}
+				label={label}
+				autoFocus={autoFocus}
+			/>
+		) : (
+			views.map((view, index) => (
+				<CaseWriteRow
+					key={JSON.stringify([
+						view.operationUuid,
+						view.slot,
+						view.property,
+						view.via ?? null,
+					])}
+					field={field}
+					context={context}
+					placement={placement}
+					view={view}
+					label={label}
+					autoFocus={autoFocus === true && index === 0}
+				/>
+			))
+		);
 	return (
 		<div data-field-id="caseWrite" className="space-y-2.5">
 			<span className={`${INSPECTOR_LABEL_CLS} block`}>{label}</span>
-			{views.length === 0 ? (
-				<DestinationRow
-					field={field}
-					context={context}
-					view={undefined}
-					label={label}
-					autoFocus={autoFocus}
-				/>
+			{context === null ? (
+				rows(undefined)
 			) : (
-				views.map((view, index) => (
-					<CaseWriteRow
-						key={JSON.stringify([
-							view.operationUuid,
-							view.slot,
-							view.property,
-							view.via ?? null,
-						])}
-						field={field}
-						context={context}
-						view={view}
-						label={label}
-						autoFocus={autoFocus === true && index === 0}
-					/>
-				))
+				<WithCasePlacements formUuid={context.form.uuid}>
+					{rows}
+				</WithCasePlacements>
 			)}
 		</div>
 	);
+}
+
+/** Where CommCare HQ keeps each case change of the form, for the rows'
+ *  Save only if changed reason. Mounted only under a form, the one place a
+ *  question has case changes. */
+function WithCasePlacements({
+	formUuid,
+	children,
+}: {
+	readonly formUuid: Uuid;
+	readonly children: (placement: FormCasePlacementView) => ReactNode;
+}) {
+	return children(useCasePlacements(formUuid));
 }
 
 /** One write of the view: editable, or read-only on another change. */
 function CaseWriteRow({
 	field,
 	context,
+	placement,
 	view,
 	label,
 	autoFocus,
 }: {
 	readonly field: Field;
 	readonly context: FormContext | null;
+	readonly placement: FormCasePlacementView | undefined;
 	readonly view: FieldCaseWriteView;
 	readonly label: string;
 	readonly autoFocus: boolean | undefined;
 }) {
-	const model = useRowModel(field, context, view);
+	const model = useRowModel(field, context, view, placement);
 	if (model?.readOnly === true) {
 		return <ReadOnlyRow view={view} model={model} context={context} />;
 	}
@@ -242,6 +297,7 @@ function CaseWriteRow({
 		<DestinationRow
 			field={field}
 			context={context}
+			placement={placement}
 			view={view}
 			label={label}
 			autoFocus={autoFocus}
@@ -249,10 +305,17 @@ function CaseWriteRow({
 	);
 }
 
+/** The verdict of a row's switch destination, where it has arrived. */
+type SwitchVerdict =
+	| { readonly ok: true }
+	| { readonly ok: false; readonly reason: string };
+
 function useRowModel(
 	field: Field,
 	context: FormContext | null,
 	view: FieldCaseWriteView | undefined,
+	placement: FormCasePlacementView | undefined,
+	onlyIfChangedVerdict?: SwitchVerdict,
 ): CaseWriteRowModel | undefined {
 	const propertyLabel = usePropertyLabel();
 	const sentenceContext = useOperationSentenceContext(context?.form.uuid);
@@ -269,8 +332,19 @@ function useRowModel(
 				operation === undefined
 					? undefined
 					: operationSentence(operation, sentenceContext).lead,
+			...(placement !== undefined && { placement }),
+			...(onlyIfChangedVerdict !== undefined && { onlyIfChangedVerdict }),
 		});
-	}, [view, context, field, propertyLabel, operation, sentenceContext]);
+	}, [
+		view,
+		context,
+		field,
+		propertyLabel,
+		operation,
+		sentenceContext,
+		placement,
+		onlyIfChangedVerdict,
+	]);
 }
 
 /** A write the question's planner does not own: named, and opened on the
@@ -332,12 +406,14 @@ function ReadOnlyRow({
 function DestinationRow({
 	field,
 	context,
+	placement,
 	view,
 	label,
 	autoFocus,
 }: {
 	readonly field: Field;
 	readonly context: FormContext | null;
+	readonly placement: FormCasePlacementView | undefined;
 	readonly view: FieldCaseWriteView | undefined;
 	readonly label: string;
 	readonly autoFocus: boolean | undefined;
@@ -345,7 +421,6 @@ function DestinationRow({
 	const projectProse = useProseProjection();
 	const effectiveCaseTypes = useEffectiveCaseTypes();
 	const workerProperties = useUserProperties();
-	const model = useRowModel(field, context, view);
 	const {
 		inline: { commitMany },
 	} = useBlueprintMutations();
@@ -364,6 +439,11 @@ function DestinationRow({
 	const [newName, setNewName] = useState("");
 	const [checking, setChecking] = useState(false);
 	const [rejection, setRejection] = useState<string | null>(null);
+	/* A Save only if changed toggle waiting for the verdict hook to wake: the
+	 * hook checks nothing while the menu is closed, so the toggle wakes it for
+	 * one render and then asks for the switch's exact verdict. */
+	const [switchRequest, setSwitchRequest] =
+		useState<FieldCaseWriteDestination | null>(null);
 	const attemptRef = useRef(0);
 	useEffect(
 		() => () => {
@@ -372,8 +452,12 @@ function DestinationRow({
 		[],
 	);
 
-	const replace = model?.viewKey;
+	const replace = useMemo(
+		() => (view === undefined ? undefined : fieldCaseWriteViewKey(view)),
+		[view],
+	);
 	const moduleCaseType = context?.module.caseType;
+	const formType = context?.form.type;
 	const writableTypes = useMemo<readonly CaseType[]>(
 		() =>
 			getModuleCaseTypes(moduleCaseType, [...effectiveCaseTypes]).flatMap(
@@ -385,6 +469,34 @@ function DestinationRow({
 				},
 			),
 		[effectiveCaseTypes, moduleCaseType],
+	);
+	/* Each case above this form's case, by chain, with the properties its
+	 * type declares. */
+	const ancestorTargets = useMemo(
+		() =>
+			formType === undefined
+				? []
+				: ancestorCaseWriteChoices(
+						effectiveCaseTypes,
+						moduleCaseType,
+						formType,
+					).flatMap((choice) => {
+						const caseType = effectiveCaseTypes.find(
+							(candidate) => candidate.name === choice.caseType,
+						);
+						return caseType === undefined ? [] : [{ choice, caseType }];
+					}),
+		[effectiveCaseTypes, moduleCaseType, formType],
+	);
+	/* The destination the row's switch commits, on a row that has one. */
+	const switchDestination = useMemo(
+		() =>
+			view !== undefined &&
+			view.slot === "write" &&
+			(view.destination === "own" || view.destination === "ancestor")
+				? onlyIfChangedDestination(view)
+				: undefined,
+		[view],
 	);
 
 	const verdictCandidates = useMemo<readonly CaseWriteVerdictCandidate[]>(
@@ -398,20 +510,48 @@ function DestinationRow({
 					),
 				),
 			),
+			...ancestorTargets.flatMap(({ choice, caseType }) =>
+				caseType.properties.map((property) =>
+					candidate(
+						{
+							caseType: choice.caseType,
+							property: property.name,
+							via: choice.via,
+						},
+						replace,
+					),
+				),
+			),
 			...workerProperties.map((property) =>
 				candidate(
 					{ caseType: USERCASE_CASE_TYPE, property: property.slug },
 					replace,
 				),
 			),
+			...(switchDestination === undefined
+				? []
+				: [candidate(switchDestination, replace)]),
 		],
-		[replace, workerProperties, writableTypes],
+		[
+			ancestorTargets,
+			replace,
+			switchDestination,
+			workerProperties,
+			writableTypes,
+		],
 	);
 	const { verdicts, evaluating, ensureVerdict } = useCaseWriteChoiceVerdicts(
 		field,
 		verdictCandidates,
-		open || creating,
+		open || creating || switchRequest !== null,
 	);
+	const switchVerdict = useMemo<SwitchVerdict | undefined>(() => {
+		if (switchDestination === undefined) return undefined;
+		const verdict = verdicts.get(candidateKey(switchDestination, replace));
+		if (verdict === undefined) return undefined;
+		return verdict.ok ? { ok: true } : { ok: false, reason: verdict.reason };
+	}, [replace, switchDestination, verdicts]);
+	const model = useRowModel(field, context, view, placement, switchVerdict);
 	/* A verdict that has not arrived yet stays selectable; choosing a row
 	 * awaits the exact verdict before anything commits. */
 	const verdictOf = useCallback(
@@ -429,7 +569,11 @@ function DestinationRow({
 		): DestinationChoice => {
 			const verdict = verdictOf(destination);
 			return {
-				id: destinationId(destination.caseType, destination.property),
+				id: destinationId(
+					destination.caseType,
+					destination.property,
+					destination.via,
+				),
 				group,
 				label,
 				detail: verdict.ok
@@ -458,6 +602,27 @@ function DestinationRow({
 				}),
 			});
 		}
+		const ancestorItems = ancestorTargets.flatMap(({ choice, caseType }) =>
+			caseType.properties.map((property): DestinationChoice => {
+				const label = `${choice.label} · ${propertyDisplayLabel(property, projectProse)}`;
+				const steps = choice.via.map((step) => step.identifier).join(" ");
+				return {
+					...offered(
+						"Cases above it",
+						label,
+						`above ${caseType.name} ${steps} ${property.name} ${label}`,
+						{
+							caseType: choice.caseType,
+							property: property.name,
+							via: choice.via,
+						},
+					),
+					ancestor: choice.label,
+				};
+			}),
+		);
+		if (ancestorItems.length > 0)
+			result.push({ value: "Cases above it", items: ancestorItems });
 		const childItems = childTypes.flatMap((caseType) =>
 			caseType.properties.map((property) => {
 				const label = `${typeLabel(caseType.name)} · ${propertyDisplayLabel(property, projectProse)}`;
@@ -513,12 +678,18 @@ function DestinationRow({
 		}
 		result.push({ value: "More choices", items: more });
 		return result;
-	}, [projectProse, verdictOf, workerProperties, writableTypes]);
+	}, [
+		ancestorTargets,
+		projectProse,
+		verdictOf,
+		workerProperties,
+		writableTypes,
+	]);
 
 	const selectedId =
 		view === undefined
 			? "__clear__"
-			: destinationId(view.caseType, view.property);
+			: destinationId(view.caseType, view.property, view.via);
 	const selected =
 		groups
 			.flatMap((group) => group.items)
@@ -554,6 +725,13 @@ function DestinationRow({
 		},
 		[commit, ensureVerdict, replace],
 	);
+	/* The toggle's render woke the verdict hook; ask for the switch's exact
+	 * verdict now, and commit the batch it judged. */
+	useEffect(() => {
+		if (switchRequest === null) return;
+		setSwitchRequest(null);
+		choose(switchRequest);
+	}, [choose, switchRequest]);
 
 	const newPropertyError = newName.length === 0 ? null : nameError(newName);
 	const parsedNewName = authoredCasePropertyNameSchema.safeParse(newName);
@@ -746,6 +924,7 @@ function DestinationRow({
 											key={choice.id}
 											value={choice}
 											disabled={choice.disabledReason !== undefined}
+											data-case-write-ancestor={choice.ancestor}
 											className="min-w-0 whitespace-normal"
 										>
 											<Icon
@@ -813,6 +992,26 @@ function DestinationRow({
 					>
 						{model.preload.action.label}
 					</Button>
+				</div>
+			)}
+
+			{model?.onlyIfChanged !== undefined && (
+				<div data-only-if-changed={model.onlyIfChanged.on ? "on" : "off"}>
+					<ToggleRow
+						label={model.onlyIfChanged.label}
+						description={model.onlyIfChanged.line}
+						checked={model.onlyIfChanged.on}
+						{...(model.onlyIfChanged.disabledReason !== undefined && {
+							disabledReason: model.onlyIfChanged.disabledReason,
+						})}
+						onChange={() => {
+							const toggle = model.onlyIfChanged;
+							if (toggle === undefined || checking || switchRequest !== null)
+								return;
+							setRejection(null);
+							setSwitchRequest(toggle.destination);
+						}}
+					/>
 				</div>
 			)}
 

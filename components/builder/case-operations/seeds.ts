@@ -27,6 +27,7 @@ import {
 	type CaseTarget,
 	humanizeId,
 	type TargetedCaseOperation,
+	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -43,7 +44,40 @@ import {
 export type CaseOperationSeedKind =
 	| { readonly kind: "create"; readonly caseType: string }
 	| { readonly kind: "update-session"; readonly caseType: string }
-	| { readonly kind: "close-session"; readonly caseType: string };
+	| { readonly kind: "close-session"; readonly caseType: string }
+	| {
+			readonly kind: "update-worker-record";
+			/** The worker property's saved slug, the write's property. */
+			readonly property: string;
+			readonly value: Expression;
+	  };
+
+/**
+ * The "Update the worker's record" seed for a form, or `undefined` where the
+ * app declares no worker properties, which is the only place the chooser
+ * leaves the item out.
+ *
+ * The change is born with one write, of the first declared worker property,
+ * from the first answer that can be stored as it. Worker information is text
+ * on the worker's record (HQ keeps custom user data as strings), so an
+ * undeclared property type reads as text here, and with no answer that fits
+ * the write starts from an empty text value, which the gate admits.
+ */
+export function workerRecordSeed(
+	workerProperties: readonly { readonly slug: string }[],
+	dataTypeOf: (property: string) => CasePropertyDataType | undefined,
+	formFields: readonly {
+		readonly uuid: Uuid;
+		readonly dataType: CasePropertyDataType | undefined;
+	}[],
+): CaseOperationSeedKind | undefined {
+	const first = workerProperties[0];
+	if (first === undefined) return undefined;
+	const value =
+		seedWriteValue(dataTypeOf(first.slug) ?? "text", formFields) ??
+		term(literal(""));
+	return { kind: "update-worker-record", property: first.slug, value };
+}
 
 /**
  * An XML-safe, form-unique slug for a new operation.
@@ -118,6 +152,15 @@ export function seedCaseOperation(
 				action: "close",
 				caseType: seed.caseType,
 				target: { kind: "session" },
+			};
+		case "update-worker-record":
+			return {
+				uuid,
+				id: nextOperationId("update_worker_record", takenIds),
+				action: "update",
+				caseType: USERCASE_CASE_TYPE,
+				target: { kind: "worker-record" },
+				writes: [seedCaseOperationWrite(seed.property, seed.value)],
 			};
 	}
 }
